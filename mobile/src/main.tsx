@@ -10,9 +10,11 @@ import { createLocalStorageAdapter } from "../../src/renderer/browser-storage";
 import { webClientEnvironment } from "../../src/web/WebWorkbench";
 import { appleDynamicType, applyTypeScale, deviceClassFor } from "../../src/renderer/type-scale";
 import { screenMinSide } from "../../src/renderer/use-layout-profile";
+import { relayActivities } from "./activity-relay";
+import { PUSH_RELAY_URL } from "../../kits/push/protocol";
 import { Shell, type AppContext } from "./Shell";
 import { HostBook } from "./hosts";
-import { nativeActivities, nativeDictation, browseHosts, createSocketBridge, deviceInfo, scanQrCode, secureStore, textScalePort, type DeviceInfo } from "./native";
+import { installActivityKey, nativeActivities, nativeDictation, browseHosts, createSocketBridge, deviceInfo, scanQrCode, secureStore, textScalePort, type DeviceInfo } from "./native";
 import { androidFontScale } from "./text-scale";
 import { linkRoute, readRoute } from "./routes";
 import { createPushRegistrar, createRelayPort, sealedTapRoute, setPushRegistrar, tapRoute } from "./push";
@@ -30,11 +32,12 @@ async function boot(): Promise<void> {
   applyTypeScale(deviceClassFor("compact", true, screenMinSide()), system);
   const push = nativePushPort(device.platform);
   const pushKeys = new PushKeys(secureStore);
+  const book = new HostBook(secureStore);
   setPushRegistrar(createPushRegistrar(push, { relay: createRelayPort(), keys: pushKeys }));
   const context: AppContext = {
-    activities: nativeActivities,
+    activities: device.platform === "ios" ? relayActivities(nativeActivities, { url: PUSH_RELAY_URL, keys: pushKeys, installKey: installActivityKey, authorized: async (id) => Boolean(await book.token(id)) }) : nativeActivities,
     storage: createLocalStorageAdapter(),
-    book: new HostBook(secureStore),
+    book,
     bridge,
     device,
     environment: { ...webClientEnvironment("compact"), ...(device.platform === "ios" ? { dictation: nativeDictation } : {}) },

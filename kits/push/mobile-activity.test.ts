@@ -35,3 +35,17 @@ it("persists activity registrations, expires them and never sends after device r
     expect(send).toHaveBeenCalledOnce();
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+it("seals a background ActivityKit update and hands the relay an opaque handle without a token or readable title", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "tau-activity-relay-"));
+  try {
+    const store = await ActivityTokens.open(dir, { warn: () => undefined });
+    const registration = readActivityRegistration({ hostId: "host", threadId: "thread", topic: "de.tbuck.tau", relay: { handle: "h".repeat(64), keyId: "k".repeat(22), key: Buffer.alloc(32, 7).toString("base64url") } }, "phone", 1_700_000_000_000);
+    expect(registration.token).toBeUndefined(); await store.register(registration);
+    const direct = vi.fn(async () => ({ ok: true as const })); const relay = vi.fn(async () => ({ ok: true as const }));
+    await store.update("thread", "needs-input", "Private project", 1_700_000_001_000, new Set(["phone"]), () => undefined, direct, relay);
+    expect(direct).not.toHaveBeenCalled(); expect(relay).toHaveBeenCalledOnce();
+    const wire = JSON.stringify(relay.mock.calls[0]);
+    expect(wire).not.toContain("Private project"); expect(wire).not.toContain('"thread"'); expect(wire).not.toContain('"token"');
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});

@@ -50,11 +50,12 @@ export function followActivities(hostId: string, client: Pick<HostClient, "onHos
     else if (update.type === "error" && update.sessionId) publish(update.sessionId, "needs-input");
   };
   const off = client.onHostEvent(event);
+  void client.invokeHostExtension("tau.push", "activity-enable").catch(() => undefined);
   let offTokens: (() => void) | undefined;
   void port.tokens?.((token) => {
     if (!active || token.hostId !== hostId) return;
     void client.invokeHostExtension("tau.push", "activity-register", { hostId: token.hostId, threadId: token.threadId, topic: token.topic, ...(token.relay ? { relay: token.relay } : { token: token.token }) }).catch(() => undefined);
-  }).then((off) => { if (!active) off(); else offTokens = off; });
+  }).then((release) => { if (!active) release(); else offTokens = release; });
   void client.bootstrap().then((bootstrap) => { if (active) { for (const session of bootstrap.threadIndex.sessions) titles.set(session.id, session.title); for (const id of Object.keys(bootstrap.threadIndex.runs ?? {})) publish(id, "running"); } }).catch(() => undefined);
   async function refreshUsage() {
     try {

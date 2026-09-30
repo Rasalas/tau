@@ -75,7 +75,21 @@ export interface PushRegisterAnswer {
 export const SEALED_PUSH_VERSION = 1;
 export const sealedPushAad = (keyId: string) => `tau-push:${SEALED_PUSH_VERSION}:${keyId}`;
 
+export interface PushActivityContent {
+  version: 1; hostId: string; threadId: string; title: string;
+  state: "running" | "completed" | "needs-input"; updatedAt: number; expiresAt: number;
+}
+export function readPushActivity(value: unknown): PushActivityContent | undefined {
+  const activity = value as Partial<PushActivityContent> | null;
+  if (!activity || activity.version !== 1 || typeof activity.hostId !== "string" || !/^[\w.:-]{1,200}$/u.test(activity.hostId)
+      || typeof activity.threadId !== "string" || !/^[\w.:-]{1,200}$/u.test(activity.threadId)
+      || typeof activity.title !== "string" || activity.title.length > 100
+      || !["running", "completed", "needs-input"].includes(activity.state ?? "")
+      || !Number.isFinite(activity.updatedAt) || !Number.isFinite(activity.expiresAt) || activity.expiresAt! <= activity.updatedAt!) return undefined;
+  return activity as PushActivityContent;
+}
 export interface SealedPushContent {
+  activity?: PushActivityContent;
   title: string;
   body: string;
   /** The thread's `tau://thread?…` link. */

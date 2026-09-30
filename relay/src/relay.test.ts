@@ -149,3 +149,16 @@ describe("the push relay", () => {
     for (const secret of [ANDROID_TOKEN, handle, SEALED, "203.0.113.7"]) expect(logged).not.toContain(secret);
   });
 });
+
+it("routes only purpose-bound activity handles to ActivityKit updates", async () => {
+  const { call, register, ios } = relay();
+  const registered = await call("/register", { platform: "ios", token: IOS_TOKEN, purpose: "activity" });
+  expect(registered.json?.purpose).toBe("activity");
+  const handle = registered.json?.handle;
+  const activity = { event: "update", timestamp: 1_700_000_000, expiresAt: 1_700_000_900 };
+  expect((await call("/send", { handle, payload: SEALED })).status).toBe(400);
+  expect((await call("/send", { handle: await register("ios", IOS_TOKEN), payload: SEALED, activity })).status).toBe(400);
+  expect((await call("/send", { handle, payload: SEALED, activity })).status).toBe(200);
+  expect(ios).toHaveBeenCalledWith(IOS_TOKEN, { sealed: SEALED, activity });
+  expect((await call("/register", { platform: "android", token: ANDROID_TOKEN, purpose: "activity" })).status).toBe(400);
+});

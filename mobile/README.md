@@ -122,12 +122,17 @@ clears its cards and snapshots. Android widget redraws follow the system's
 widget schedule, so the last rendered text can remain until the next redraw.
 
 Native projects include the WidgetKit extension and app-group entitlements.
-The app and extension both need the `group.de.tbuck.tau` App Group in their
-provisioning profiles. The native shell targets iOS 17 or later; dictation
+The app and extension both need the `group.de.tbuck.tau` App Group and
+`$(AppIdentifierPrefix)de.tbuck.tau.shared` Keychain group in their provisioning
+profiles. The shared Keychain holds the device-only content key used to open
+encrypted ActivityKit updates; snapshots contain no credentials. The native shell targets iOS 17 or later; dictation
 requires iOS 26 and device/language model support. A production iOS Live
 Activity gets its own APNs update token, which the app registers with that
-host's Push Kit. Direct background updates require an APNs key on the host.
-The generic alert relay does not yet transport ActivityKit updates. Android
-background lifecycle data is handled by the relay-owned messaging service;
-that integration must preserve the encrypted activity payload. None of these
+host's Push Kit. Background updates use a separate, purpose-bound activity relay handle and
+encrypted content-state. The host receives the handle and content key, never
+the activity APNs token. The widget decrypts on the phone. Relay source includes
+this transport, but its deployed service must support the new activity purpose;
+an older relay is detected and cannot misroute an activity token as an alert.
+Direct host APNs keys remain an optional fallback. Android background lifecycle
+data uses the same encrypted relay payload and its native messaging service. None of these
 source changes proves app-store rollout or real-device permission behavior.

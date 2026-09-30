@@ -37,12 +37,21 @@ public class TauMessagingService extends MessagingService {
     public void onMessageReceived(@NonNull RemoteMessage message) {
         String sealed = message.getData().get("sealed");
         if (sealed == null) {
+            String activity = message.getData().get("activity");
+            if (activity != null) {
+                try { AgentActivity.update(this, new JSONObject(activity)); } catch (Exception invalid) { /* Drop invalid data. */ }
+                return;
+            }
             super.onMessageReceived(message);
             return;
         }
         // One that does not open (a forgotten host, another key) is dropped unseen.
         JSONObject content = open(this, sealed);
-        if (content != null) show(this, content);
+        if (content != null) {
+            JSONObject activity = content.optJSONObject("activity");
+            if (activity != null) AgentActivity.update(this, activity);
+            else show(this, content);
+        }
     }
 
     static JSONObject open(Context context, String sealed) {

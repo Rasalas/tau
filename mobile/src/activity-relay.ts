@@ -2,6 +2,7 @@ import type { ActivityPort, ActivityToken } from "./activities";
 
 interface ActivityRelayOptions {
   url: string;
+  authorized(hostId: string): Promise<boolean>;
   keys: { forHost(hostId: string): Promise<{ keyId: string; key: string }> };
   installKey(value: { hostId: string; keyId: string; key: string }): Promise<void>;
   fetch?: typeof fetch;
@@ -11,7 +12,7 @@ interface ActivityRelayOptions {
  * The host gets that handle and the phone's content key, never the APNs token. */
 export function relayActivities(port: ActivityPort, options: ActivityRelayOptions): ActivityPort {
   const fetcher = options.fetch ?? fetch;
-  let generation = 0;
+  const generations = new Map<string, number>();
   const registrations = new Map<string, Promise<ActivityToken>>();
   async function registration(token: ActivityToken): Promise<ActivityToken> {
     const key = await options.keys.forHost(token.hostId);
@@ -31,17 +32,18 @@ export function relayActivities(port: ActivityPort, options: ActivityRelayOption
     tokens: port.tokens ? async (listener) => {
       let active = true;
       const off = await port.tokens!(async (token) => {
-        const current = generation;
+        if (!(await options.authorized(token.hostId))) return;
+        const current = generations.get(token.hostId) ?? 0;
         const cacheKey = `${token.hostId}:${token.threadId}:${token.token}`;
         let pending = registrations.get(cacheKey);
         if (!pending) { pending = registration(token); registrations.set(cacheKey, pending); }
-        try { const value = await pending; if (active && current === generation) listener(value); }
-        catch { registrations.delete(cacheKey); if (active && current === generation) listener(token); }
+        try { const value = await pending; if (active && current === (generations.get(token.hostId) ?? 0)) listener(value); }
+        catch { registrations.delete(cacheKey); if (active && current === (generations.get(token.hostId) ?? 0)) listener(token); }
       });
       return () => { active = false; off(); };
     } : undefined,
     clear: async (hostId) => {
-      generation++;
+      generations.set(hostId, (generations.get(hostId) ?? 0) + 1);
       for (const key of registrations.keys()) if (key.startsWith(`${hostId}:`)) registrations.delete(key);
       await port.clear(hostId);
     },

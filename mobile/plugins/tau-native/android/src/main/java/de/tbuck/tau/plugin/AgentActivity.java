@@ -17,8 +17,10 @@ public final class AgentActivity {
     public static void update(Context context, JSONObject value) {
         String host = value.optString("hostId"); String thread = value.optString("threadId");
         String state = value.optString("state");
+        String title = value.optString("title", "Agent work");
+        if (title.length() > 100) title = title.substring(0, 100);
         long now = System.currentTimeMillis(); long expires = value.optLong("expiresAt");
-        if (host.isEmpty() || thread.isEmpty() || expires <= now || !java.util.Set.of("running", "completed", "needs-input").contains(state)) return;
+        if (value.optInt("version") != 1 || host.length() > 200 || thread.length() > 200 || host.isEmpty() || thread.isEmpty() || expires <= now || !("running".equals(state) || "completed".equals(state) || "needs-input".equals(state))) return;
         String tag = "activity:" + host + ":" + thread;
         android.content.SharedPreferences saved = context.getSharedPreferences("tau-activities", Context.MODE_PRIVATE);
         if (value.optLong("updatedAt") < saved.getLong(tag, 0)) return;
@@ -31,7 +33,7 @@ public final class AgentActivity {
         String text = state.equals("running") ? "Agent working" : state.equals("needs-input") ? "Your input needed" : "Completed";
         boolean ongoing = !state.equals("completed");
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(context.getApplicationInfo().icon).setContentTitle(value.optString("title", "Agent work"))
+            .setSmallIcon(context.getApplicationInfo().icon).setContentTitle(title)
             .setContentText(text).setContentIntent(tap).setOnlyAlertOnce(true).setOngoing(ongoing)
             .setAutoCancel(!ongoing).setTimeoutAfter(Math.min(expires - now, 8 * 60 * 60 * 1000L))
             .setCategory(Notification.CATEGORY_PROGRESS);
