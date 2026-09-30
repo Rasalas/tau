@@ -13,7 +13,7 @@ import type { UiQueuedMessage } from "../shared/contracts";
 import { LazyFeatureBoundary, LazyFeatureFallback, retryableLazy } from "./components/LazyFeature";
 import { ComposerHost, LiveStatus } from "./components/ComposerHost";
 import { ComposerReserve } from "./components/ComposerReserve";
-import { retryPrompt, TurnErrorLine } from "./components/TurnError";
+import { retryPrompt } from "./components/TurnError";
 import { useThreadShell } from "./use-thread-shell";
 import { declareRuntimeMarks } from "./runtime-marks";
 import { PairingRequestWatcher, QueuedMessages } from "./deferred-surfaces";
@@ -84,7 +84,7 @@ import { phoneTab } from "../workbench/phone-route";
 import { THREAD_DROP_FEEDBACK } from "../shared/thread-drop";
 
 const LazyCommandPalette = retryableLazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
-const LazyLimitNotice = lazy(() => import("./components/LimitNotice").then(({ LimitNotice }) => ({ default: LimitNotice })));
+const LazyComposerNotice = lazy(() => import("./components/ComposerNotice").then(({ ComposerNotice }) => ({ default: ComposerNotice })));
 const LazyStage = retryableLazy(() => import("./components/Stage").then(({ Stage }) => ({ default: Stage })));
 // Drawn only beside the stage, so they come with its chunk.
 const LazyStageTools = retryableLazy(() => import("./components/Stage").then(({ StageTools }) => ({ default: StageTools })));
@@ -999,9 +999,6 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
   const running = Boolean(conversationSnapshot?.isStreaming);
   const steerShortcut = registry.keybindingLabel("thread.steerQueuedMessage");
   const shell = useThreadShell(conversationSnapshot?.sessionId ?? "");
-  // An answer that carries its error shows it in place; the line is for runtimes whose failure has no answer.
-  const failedAnswer = messages.at(-1)?.error !== undefined;
-  const turnError = pendingNewThread || running || failedAnswer ? undefined : shell?.turnError;
   // Stable across deltas, like the callbacks above.
   const latestMessages = useRef(messages);
   latestMessages.current = messages;
@@ -1010,18 +1007,16 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
     const prompt = retryPrompt(latestMessages.current, failed);
     if (prompt) void submit(prompt.text, prompt.attachments);
   }, [submit]);
-  // A provider limit replaces the failure line: it says when, and offers to continue.
+  // The composer's bar retries a failed turn, and says when a limit resets.
   const limit = pendingNewThread || running ? undefined : shell?.limit;
   const queueHeld = shell?.queueHeld === true;
   const liveStatus = useMemo(() => {
     const status = liveStatusLabel !== undefined
       ? <LiveStatus label={liveStatusLabel} />
-      : thinking ? <LiveStatus startedAt={runStartedAt} />
-      : limit && conversationSnapshot ? <Suspense fallback={null}><LazyLimitNotice sessionId={conversationSnapshot.sessionId} limit={limit} /></Suspense>
-      : turnError ? <TurnErrorLine message={turnError} onRetry={readOnly ? undefined : () => retry()} /> : undefined;
+      : thinking ? <LiveStatus startedAt={runStartedAt} /> : undefined;
     if (pendingNewThread || queue.length === 0) return status;
     return <>{status}<QueuedMessages queue={queue} streaming={running} held={queueHeld} steerShortcut={steerShortcut} onSteer={steerQueued} onReturn={returnQueued} onReorder={reorderQueue} /></>;
-  }, [conversationSnapshot, limit, liveStatusLabel, pendingNewThread, queue, queueHeld, readOnly, reorderQueue, retry, returnQueued, runStartedAt, running, thinking, steerQueued, steerShortcut, turnError]);
+  }, [liveStatusLabel, pendingNewThread, queue, queueHeld, reorderQueue, returnQueued, runStartedAt, running, thinking, steerQueued, steerShortcut]);
   return <TranscriptHistoryBoundary
     controller={transcriptHistory}
     showControl={!pendingNewThread && messages.length > 0}
@@ -1045,7 +1040,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
       // A Read-only device may not rewind or fork; the buttons are left out.
       onForkMessage={readOnly ? undefined : onForkMessage}
       onEditMessage={readOnly ? undefined : onEditMessage}
-      onRetryMessage={readOnly || limit ? undefined : retry}
+      onRetryMessage={readOnly || limit || shell?.turnError ? undefined : retry}
       history={history}
       onReachStart={loadOlderOnReach}
       jumpToLatest={jumpToLatest}
@@ -1080,6 +1075,23 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     scopeStore, seed, textareaRef, attachmentRef, controlRef, queue, holds, prompts, submit, abort,
     cancelQueued, steerQueued, setModel, setThinking, answerUiPrompt, compactContext,
   } = composer;
+  const shell = useThreadShell(conversationSnapshot?.sessionId ?? "");
+  const { readOnly } = useHostCapabilities();
+  const settled = !pendingNewThread && !conversationSnapshot?.isStreaming;
+  const limit = settled ? shell?.limit : undefined;
+  const error = settled ? shell?.turnError : undefined;
+  const notice = conversationSnapshot && (limit || error) ? <Suspense fallback={null}><LazyComposerNotice
+    sessionId={conversationSnapshot.sessionId}
+    limit={limit}
+    error={error}
+    provider={conversationSnapshot.model?.provider}
+    onRetry={readOnly ? undefined : () => {
+      const prompt = retryPrompt(view.getTranscript().messages);
+      if (prompt) void submit(prompt.text, prompt.attachments);
+    }}
+    onSwitchModel={actions?.openModelPicker}
+    onReplaceKey={() => actions?.openSettings("providers")}
+  /></Suspense> : undefined;
   const contextBreakdown = useMemo(
     () => contextBreakdownFor(snapshot?.contextUsage, transcript.tokenEstimate, toolKiloTokens * 1000),
     [snapshot?.contextUsage, toolKiloTokens, transcript.tokenEstimate],
@@ -1111,6 +1123,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     } : undefined}
     newThread={pendingNewThread}
     lead={lead}
+    notice={notice}
     prompt={prompts[0]}
     promptsPending={Math.max(0, prompts.length - 1)}
     onAnswerPrompt={(value, typed, attachments) => {
