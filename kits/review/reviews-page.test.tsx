@@ -129,11 +129,36 @@ describe("the Reviews page", () => {
   });
 
   it("filters the list from the page head", async () => {
-    const { slot } = setup();
+    setup();
     await screen.findByText("Fix flaky pairing test");
-    fireEvent.change(within(slot).getByRole("searchbox", { name: "Filter reviews" }), { target: { value: "webhook" } });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Filter reviews" }), { target: { value: "webhook" } });
     expect(screen.queryByText("Fix flaky pairing test")).toBeNull();
     expect(screen.getByText("Write ADR for webhook retries")).toBeTruthy();
+  });
+
+  it("heads the list with the state's title, and the queue reads as one table", async () => {
+    setup();
+    await screen.findByText("Fix flaky pairing test");
+    expect(screen.getByRole("heading", { name: "Ready to merge" })).toBeTruthy();
+    expect([...document.querySelectorAll(".rv-columns > span")].map((cell) => cell.textContent)).toEqual(["", "Thread", "Changes", "Checks", "Model · cost", "Age"]);
+    expect(screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["Changes requested · 1", "Conflicts · 1"]);
+    expect(within(screen.getByRole("region", { name: "Ready to merge" })).getByText("Merge").closest("button")).toBeTruthy();
+  });
+
+  it("steps through the rows with the arrows and opens the one with the focus on Enter", async () => {
+    const { navigate } = setup();
+    const filter = await screen.findByRole("searchbox", { name: "Filter reviews" });
+    await screen.findByText("Fix flaky pairing test");
+    fireEvent.keyDown(filter, { key: "ArrowDown" });
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Fix flaky pairing test, feat/pairing-flake");
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Write ADR for webhook retries, feat/webhook-retries");
+    fireEvent.keyDown(document.activeElement!, { key: "End" });
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Add pagination to all list endpoints, feat/pagination");
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Write ADR for webhook retries, feat/webhook-retries");
+    fireEvent.click(document.activeElement!);
+    expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ review: reviewKey("/repo/shop-api", "feat/webhook-retries") }), expect.anything());
   });
 
   it("shows one review on a phone (1q): the summary, its files with a diff on a click, and a note back to the thread", async () => {
@@ -183,7 +208,7 @@ describe("the Reviews page", () => {
   it("says what lands here when nothing does", async () => {
     setup({ answer: { branches: [], asks: {}, merged: [] } });
     expect(await screen.findByText("Nothing to review")).toBeTruthy();
-    expect(screen.getByText(/ready to merge into the project's checkout here; Remote pull requests are the ones on GitHub/u)).toBeTruthy();
+    expect(screen.getByText(/lands here when it is done/u)).toBeTruthy();
     expect(screen.getByText(/^Merged · 0 this month\./u)).toBeTruthy();
   });
 
@@ -196,8 +221,8 @@ describe("the Reviews page", () => {
 });
 
 describe("the Reviews sidebar", () => {
-  it("lists the states, the projects and Remote with their counts, and the page drops its tabs and head filter", async () => {
-    const { slot } = setup({ sidebar: true });
+  it("lists the states, the projects and Remote with their counts, and the page drops its tabs", async () => {
+    setup({ sidebar: true });
     const sidebar = screen.getByRole("navigation", { name: "Page sidebar" });
     await within(sidebar).findByRole("group", { name: "Projects" });
     expect(within(within(sidebar).getByRole("group", { name: "Reviews" })).getAllByRole("button").map((button) => button.textContent))
@@ -208,10 +233,13 @@ describe("the Reviews sidebar", () => {
     // The page is the table alone.
     expect(await screen.findByRole("region", { name: "Ready to merge" })).toBeTruthy();
     expect(screen.queryAllByRole("navigation", { name: "Reviews" })).toHaveLength(0);
-    expect(within(slot).queryByRole("searchbox")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Ready to merge" })).toBeTruthy();
+    // The filter is in the page's head, not the sidebar.
+    expect(within(sidebar).queryByRole("searchbox")).toBeNull();
+    expect(screen.getByRole("searchbox", { name: "Filter reviews" })).toBeTruthy();
   });
 
-  it("switches what the page lists, filters it, and moves with the arrows", async () => {
+  it("switches what the page lists, and moves with the arrows", async () => {
     const { navigate } = setup({ sidebar: true });
     const sidebar = screen.getByRole("navigation", { name: "Page sidebar" });
     await within(sidebar).findByRole("group", { name: "Projects" });
@@ -220,19 +248,17 @@ describe("the Reviews sidebar", () => {
     fireEvent.click(within(sidebar).getByRole("button", { name: /shop-api/u }));
     expect(navigate).toHaveBeenLastCalledWith({ tab: "ready", project: "ws-shop" }, { root: true, replace: true });
 
-    const field = within(sidebar).getByRole("searchbox", { name: "Filter reviews" });
-    fireEvent.keyDown(field, { key: "ArrowDown" });
-    expect(document.activeElement?.textContent).toBe("Ready to merge1");
+    within(sidebar).getByRole("button", { name: /Ready to merge/u }).focus();
     fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
     expect(document.activeElement?.textContent).toBe("Changes requested1");
     fireEvent.keyDown(document.activeElement!, { key: "End" });
     expect(document.activeElement?.textContent).toBe("Remote pull requests");
   });
 
-  it("filters the page's list from its field", async () => {
+  it("filters the page's list from the field in its head", async () => {
     setup({ sidebar: true });
     await screen.findByText("Fix flaky pairing test");
-    fireEvent.change(within(screen.getByRole("navigation", { name: "Page sidebar" })).getByRole("searchbox", { name: "Filter reviews" }), { target: { value: "webhook" } });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Filter reviews" }), { target: { value: "webhook" } });
     await waitFor(() => expect(screen.queryByText("Fix flaky pairing test")).toBeNull());
     expect(screen.getByText("Write ADR for webhook retries")).toBeTruthy();
   });
