@@ -7,7 +7,7 @@ while writing this, a footnote says so.
 ## Your first package
 
 The rest of this document is a reference. The path from nothing to a package
-you use is short:
+you use is short; [the tutorial](kit-tutorial.md) walks it with a real kit:
 
 1. **Start one**: `tau kit new my-kit` in a terminal writes `my-kit/` with a
    manifest for the extension API this Tau runs (`engines.api`), a desktop half
