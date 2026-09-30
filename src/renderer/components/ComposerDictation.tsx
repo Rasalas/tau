@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
+import { errorMessage } from "../../workbench/error-message";
 import { insertDictation, type DictationPort } from "../dictation";
 
 /** The native client's editor adapter retains the insertion point during recording. */
@@ -34,7 +35,7 @@ export function ComposerDictation({ port, capture, insert }: { port: DictationPo
   async function act(work: () => Promise<void>) {
     const current = ++generation.current;
     setError("");
-    try { await work(); } catch (cause) { if (alive.current && current === generation.current) { setError(cause instanceof Error ? cause.message : String(cause)); setPhase("idle"); } }
+    try { await work(); } catch (cause) { if (alive.current && current === generation.current) { setError(errorMessage(cause)); setPhase("idle"); } }
   }
   async function finish() {
     setPhase("transcribing");

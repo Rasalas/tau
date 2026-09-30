@@ -294,7 +294,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
             options.setNotice("Draft updated from external editor.");
           }
         } catch (error) {
-          const msg = error instanceof Error ? error.message : String(error);
+          const msg = errorMessage(error);
           options.setNotice(msg);
         }
       },

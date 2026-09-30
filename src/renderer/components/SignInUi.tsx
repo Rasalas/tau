@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Copy, ExternalLink, SquareTerminal } from "lucide-react";
+import { errorMessage } from "../../workbench/error-message";
 import {
   SIGN_IN_COMMANDS,
   SIGN_IN_EVENT,
@@ -51,10 +52,6 @@ export interface SignInSetupProps {
 }
 
 const DEFAULT_TARGET = "default";
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /** The line under the account while a flow runs or after it ended. */
 export function flowLine(flow: SignInFlowState, program: string): string {

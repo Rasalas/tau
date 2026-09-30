@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import { Check, ChevronDown, GitBranch, Mail, MailOpen, Pin, PinOff, RotateCcw, Square, SquarePen, Trash2 } from "lucide-react";
+import { errorMessage } from "../../workbench/error-message";
 import {
   THREAD_LIST_PAGE,
   THREAD_SUPERVISION_LABELS,
@@ -99,7 +100,7 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
   const rowCommands = registry.getCommandsFor("thread-row");
   const runCommand = (id: string, threadId: string) => {
     const command = rowCommands.find((entry) => entry.id === id);
-    if (command) void Promise.resolve(command.run(actions, { threadId })).catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error)));
+    if (command) void Promise.resolve(command.run(actions, { threadId })).catch((error: unknown) => actions.notify(errorMessage(error)));
   };
 
   const settleAction = (row: ThreadSupervisionRow): SwipeAction => row.settled

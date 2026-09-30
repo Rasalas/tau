@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { errorMessage } from "../../workbench/error-message";
 import type { UiChangedFile, UiWorkspaceChanges, UiWorkspaceChangesPage } from "../../shared/workspace-kit-types";
 
 /**
@@ -41,7 +42,7 @@ export function usePagedWorkspaceFiles(
       setNextCursor(page.nextCursor);
       setHasMore(page.hasMore);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(errorMessage(cause));
     } finally {
       setLoading(false);
     }

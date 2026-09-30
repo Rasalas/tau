@@ -2,6 +2,7 @@ import * as React from "react";
 import * as ReactDom from "react-dom";
 import * as JsxRuntime from "react/jsx-runtime";
 import * as ReactVirtual from "@tanstack/react-virtual";
+import { errorMessage } from "../workbench/error-message";
 import type { DesktopExtensionBundle, DesktopExtensionLoadResult, PackageBuildError } from "../shared/contracts";
 import type { PackagesChangeReport } from "../workbench/host-events";
 import { diagnosticLine } from "../shared/build-diagnostics";
@@ -207,7 +208,7 @@ export class RuntimeExtensions {
         if (bundle.granted === false) this.announceWaiting(id, record.extension.name);
         else this.host.notify(`Reloaded ${record.extension.name}`);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error);
         this.registry.noteLoadFailure(bundle.path, message);
         this.host.log("desktop-extension.failed", `${bundle.path}: ${message}`);
         this.host.notify(`Desktop extension ${bundle.path.split("/").pop()}: ${message.split("\n")[0]}`);
@@ -353,7 +354,7 @@ export class RuntimeExtensions {
         next.push(record);
       } catch (error) {
         if (generation !== this.generation) return this.loaded;
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error);
         this.registry.noteLoadFailure(bundle.path, message);
         this.host.log("desktop-extension.failed", `${bundle.path}: ${message}`);
         this.host.notify(`Desktop extension ${bundle.path.split("/").pop()}: ${message.split("\n")[0]}`);

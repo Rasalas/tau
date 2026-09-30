@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType } from "react";
 import { AlertTriangle, ChevronDown, ChevronRight, Settings2, Sparkles, X } from "lucide-react";
+import { errorMessage } from "../../workbench/error-message";
 import type { ExtensionInspection, HostExtensionSummary, UiModel } from "../../shared/contracts";
 import type { ExtensionRegistry, ExtensionSummary, SettingsSectionProps } from "../extension-system";
 import { NETWORK_ADVISORY_NOTE, PERMISSION_NOTES, type ExtensionPermission } from "../../shared/extension-permissions";
@@ -123,7 +124,7 @@ export function useExtensionSources(cwd: string | undefined, revision: number): 
     const halves = client.listHostExtensions().then((summaries) => { lastSources.hostHalves = summaries; if (!cancelled) setHostHalves(summaries); }).catch(() => undefined);
     const scan = cwd
       ? client.inspectExtensions(cwd).then((result) => { Object.assign(lastSources, { cwd, inspection: result }); if (!cancelled) { setInspection(result); setError(undefined); } })
-        .catch((failure: unknown) => { if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure)); })
+        .catch((failure: unknown) => { if (!cancelled) setError(errorMessage(failure)); })
       : Promise.resolve();
     void Promise.all([halves, scan]).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -151,7 +152,7 @@ export function useExtensionSwitch(registry: ExtensionRegistry, onNotify: (messa
     registry.setActive(entry.id, next);
     if (entry.host) {
       client?.setHostExtensionActive(entry.id, next).then((halves) => onHostHalves?.(halves)).catch((error: unknown) => {
-        onNotify(error instanceof Error ? error.message : String(error));
+        onNotify(errorMessage(error));
       });
     }
   };
@@ -273,7 +274,7 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
       onHostHalves(await client?.listHostExtensions() ?? []);
       onChanged();
     } catch (error) {
-      onNotify(error instanceof Error ? error.message : String(error));
+      onNotify(errorMessage(error));
     }
   };
 

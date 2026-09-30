@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { errorMessage } from "../../workbench/error-message";
 import type { ConnectStatus } from "../../shared/connect";
 import { useHostClient } from "../host-client-context";
 import { Button } from "./controls";
@@ -22,7 +23,7 @@ export function ConnectSettings({ onNotify }: { onNotify(message: string): void 
   const run = async (action: () => Promise<void>) => {
     setBusy(true); setProblem("");
     try { await action(); }
-    catch (error: unknown) { setProblem(error instanceof Error ? error.message : String(error)); }
+    catch (error: unknown) { setProblem(errorMessage(error)); }
     finally { setBusy(false); }
   };
   return <SettingsSection title="Tau Connect">

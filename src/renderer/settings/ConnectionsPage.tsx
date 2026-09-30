@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ComponentType } from "react";
 import { Link2, Plus, SlidersHorizontal, X } from "lucide-react";
+import { errorMessage } from "../../workbench/error-message";
 import {
   IDLE_EXPIRY_WARNING_MS,
   IDLE_TIMEOUT_CHOICES,
@@ -40,7 +41,7 @@ type PageState =
 
 function errorOf(error: unknown): { code?: string; message: string } {
   const code = typeof (error as { code?: unknown })?.code === "string" ? (error as { code: string }).code : undefined;
-  return { ...(code ? { code } : {}), message: error instanceof Error ? error.message : String(error) };
+  return { ...(code ? { code } : {}), message: errorMessage(error) };
 }
 
 /** Relative times move on their own; a quarter minute is fine enough for "5 min ago". */
