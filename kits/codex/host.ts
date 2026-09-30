@@ -792,7 +792,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         return { source: CODEX_BACKEND_KIND, ...await scanCodexSessions(codexSessionDirs(instanceEnv(DEFAULT_INSTANCE_ID)), (id) => held.has(id)) };
       }, { long: true, callers: [ONBOARDING_KIT_ID] });
       context.registerCommand("import-sessions", async (input) => {
-        const outcome = await importCodexSessions(codexSessionDirs(instanceEnv(DEFAULT_INSTANCE_ID)), (input as { paths?: unknown } | undefined)?.paths, store);
+        const outcome = await importCodexSessions(codexSessionDirs(instanceEnv(DEFAULT_INSTANCE_ID)), (input as { paths?: unknown } | undefined)?.paths, store, codexBilling(limits.get(DEFAULT_INSTANCE_ID)?.account));
         return { ...outcome, ...(outcome.imported.length ? { update: await services.sessions.refreshIndex() } : {}) };
       }, { long: true, callers: [ONBOARDING_KIT_ID] });
 

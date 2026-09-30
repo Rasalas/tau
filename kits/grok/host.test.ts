@@ -136,4 +136,21 @@ describe("Grok host half", () => {
     await expect(stranger.call!("usage")).rejects.toThrow(/not allowed/u);
     await expect(stranger.call!("usage-limits")).rejects.toThrow(/not allowed/u);
   });
+
+  it("lists what each thread cost from its store, without opening it", async () => {
+    const { provider, root } = await harness();
+    // A synthetic store: never the user's own.
+    const store = new GrokSessionStore({ filePath: GrokSessionStore.defaultPath(join(root, "agent", "sessions")) });
+    const total = (turns: number) => ({ inputTokens: 1_000 * turns, outputTokens: 100 * turns, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 1_100 * turns, costUsd: 0.25 * turns, turns });
+    await store.recordUsage("turns", "/repo", total(1), { provider: "xai", model: "grok-4.3", ...total(1), at: 1 });
+    await store.recordUsage("turns", "/repo", total(2), { provider: "xai", model: "grok-4.3", ...total(1), at: 2 });
+    await store.recordUsage("legacy", "/repo", total(3));
+    await store.setObservedModel("legacy", "/repo", "grok-4.3-fast");
+    await store.ensure("unused", "/repo");
+    const listed = new Map((await provider.listThreads()).map((record) => [record.threadId, record.usage]));
+    expect(listed.get("turns")).toEqual([{ provider: "xai", model: "grok-4.3", ...total(2) }]);
+    expect(listed.get("legacy")).toEqual([{ provider: "xai", model: "grok-4.3-fast", ...total(3) }]);
+    expect(listed.has("unused")).toBe(true);
+    expect(listed.get("unused")).toBeUndefined();
+  });
 });

@@ -106,4 +106,28 @@ describe("Claude Code session import", () => {
     const rescan = await registry.invoke("tau.claude-code", "import-scan") as { sessions: Array<{ imported: boolean }> };
     expect(rescan.sessions.every((session) => session.imported)).toBe(true);
   });
+
+  it("imports what the session used, each prompt apart, so the thread shows its cost before it opens", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-claude-import-"));
+    directories.push(root);
+    const project = join(root, "claude-code", "projects", "-work-alpha");
+    await mkdir(project, { recursive: true });
+    const base = { sessionId: ALPHA, cwd: "/work/alpha", isSidechain: false };
+    const reply = (minute: number, id: string, model: string, usage: Record<string, number>) =>
+      ({ ...base, type: "assistant", requestId: `req-${id}`, timestamp: at(minute), message: { id, role: "assistant", model, content: [{ type: "text", text: `Reply ${id}` }], usage } });
+    const file = join(project, `${ALPHA}.jsonl`);
+    await writeFile(file, `${[
+      { ...base, type: "user", timestamp: at(0), message: { role: "user", content: "Fix the login test" } },
+      reply(1, "m1", "claude-haiku-4-5", { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 100, cache_creation_input_tokens: 50 }),
+      { ...base, type: "user", timestamp: at(3), message: { role: "user", content: "Thanks!" } },
+      reply(4, "m2", "claude-sonnet-4-6", { input_tokens: 3, output_tokens: 4 }),
+    ].map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+    const { registry, provider } = await harness(root);
+    await registry.invoke("tau.claude-code", "import-sessions", { paths: [file] });
+    const [thread] = await provider.listThreads();
+    expect(thread?.usage).toEqual([
+      { provider: "anthropic", model: "claude-haiku-4-5", inputTokens: 10, outputTokens: 20, cacheReadTokens: 100, cacheWriteTokens: 50, totalTokens: 180, costUsd: 0, turns: 1 },
+      { provider: "anthropic", model: "claude-sonnet-4-6", inputTokens: 3, outputTokens: 4, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 7, costUsd: 0, turns: 1 },
+    ]);
+  });
 });

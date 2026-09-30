@@ -2,6 +2,8 @@ import { open, readFile, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import { unpricedUsage, type UiModelBilling, type UsageTurn } from "tau/host-extension";
+import { sessionUsageTurns } from "../usage/session-usage.js";
 import type { CodexSessionStore, CodexStoredMessage } from "./session-store.js";
 
 /**
@@ -37,6 +39,8 @@ export interface ParsedSession {
   title: string;
   model?: string;
   messages: CodexStoredMessage[];
+  /** When each prompt was sent, the ones the kept messages drop included. */
+  prompts: number[];
 }
 
 export function codexSessionDirs(env: NodeJS.ProcessEnv): string[] {
@@ -113,7 +117,8 @@ export function parseCodexSession(lines: Iterable<string>, fallbackUpdatedAt: nu
   const first = messages.find((message) => message.role === "user");
   if (!sessionId || !cwd || !first) return undefined;
   const kept = messages.length <= MAX_MESSAGES ? messages : [first, ...messages.slice(-(MAX_MESSAGES - 1))];
-  return { sessionId, cwd, title: titleOf(first.text) || "Imported conversation", ...(model ? { model } : {}), messages: kept };
+  const prompts = messages.flatMap((message) => message.role === "user" ? [message.timestamp] : []);
+  return { sessionId, cwd, title: titleOf(first.text) || "Imported conversation", ...(model ? { model } : {}), messages: kept, prompts };
 }
 
 async function rolloutFiles(dirs: readonly string[]): Promise<Array<{ path: string; mtimeMs: number; size: number }>> {
@@ -190,29 +195,35 @@ export interface ImportOutcome {
   failed: Array<{ path: string; reason: string }>;
 }
 
-export async function importCodexSessions(dirs: readonly string[], paths: unknown, store: Pick<CodexSessionStore, "adopt">): Promise<ImportOutcome> {
+/** `billing` is the login's now, as work outside Tau is counted: the log does not say how it was paid. */
+export async function importCodexSessions(dirs: readonly string[], paths: unknown, store: Pick<CodexSessionStore, "adopt">, billing?: UiModelBilling): Promise<ImportOutcome> {
   const outcome: ImportOutcome = { imported: [], skipped: 0, failed: [] };
-  const parsed: ParsedSession[] = [];
+  const parsed: Array<ParsedSession & { usageTurns: UsageTurn[] }> = [];
   for (const path of Array.isArray(paths) ? paths : []) {
     const file = await rolloutWithin(dirs, path);
     if (!file) { outcome.failed.push({ path: String(path), reason: "not a session file of Codex" }); continue; }
     try {
       if ((await stat(file)).size > MAX_FILE_BYTES) throw new Error("larger than 16 MiB");
-      const session = parseCodexSession((await readFile(file, "utf8")).split("\n").filter(Boolean), Date.now());
-      if (session) parsed.push(session);
+      const lines = (await readFile(file, "utf8")).split("\n").filter(Boolean);
+      const session = parseCodexSession(lines, Date.now());
+      if (session) parsed.push({ ...session, usageTurns: sessionUsageTurns("codex", lines, { sessionId: session.sessionId, prompts: session.prompts, ...(billing ? { billing } : {}) }) });
       else outcome.failed.push({ path: file, reason: "no conversation to resume" });
     } catch (error) {
       outcome.failed.push({ path: file, reason: error instanceof Error ? error.message : String(error) });
     }
   }
-  const ids = await store.adopt(parsed.map((session) => ({
-    codexThreadId: session.sessionId,
-    cwd: session.cwd,
-    title: session.title,
-    ...(session.model ? { model: session.model } : {}),
-    messages: session.messages,
-    updatedAt: session.messages.at(-1)?.timestamp ?? Date.now(),
-  })));
+  const ids = await store.adopt(parsed.map((session) => {
+    const usage = unpricedUsage(session.usageTurns);
+    return {
+      codexThreadId: session.sessionId,
+      cwd: session.cwd,
+      title: session.title,
+      ...(session.model ? { model: session.model } : {}),
+      messages: session.messages,
+      ...(usage ? { usage, usageTurns: session.usageTurns } : {}),
+      updatedAt: session.messages.at(-1)?.timestamp ?? Date.now(),
+    };
+  }));
   for (const id of ids) {
     if (id) outcome.imported.push(id);
     else outcome.skipped += 1;

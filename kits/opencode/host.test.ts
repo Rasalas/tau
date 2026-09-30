@@ -207,4 +207,17 @@ describe("OpenCode host half", () => {
     await onboarding.call!("import-scan");
     expect(starts.at(-1)!.env).toMatchObject({ XDG_DATA_HOME: join(root, "roots", "opencode", "data") });
   });
+
+  it("lists what each thread cost from its store, as its open thread shows it", async () => {
+    const { provider, root } = await harness();
+    const store = new OpenCodeSessionStore({ filePath: OpenCodeSessionStore.defaultPath(join(root, "agent", "sessions")) });
+    const total = (turns: number) => ({ inputTokens: 1_000 * turns, outputTokens: 100 * turns, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 1_100 * turns, costUsd: 0.25 * turns, turns });
+    // OpenCode keeps a running total with the price it named.
+    await store.recordUsage("used", "/repo", total(2));
+    await store.ensure("unused", "/repo");
+    const listed = new Map((await provider.listThreads()).map((record) => [record.threadId, record.usage]));
+    expect(listed.get("used")).toEqual([expect.objectContaining(total(2))]);
+    expect(listed.get("used")![0]).not.toHaveProperty("provider");
+    expect(listed.get("unused")).toBeUndefined();
+  });
 });

@@ -198,6 +198,8 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
       const record = (entry: Awaited<ReturnType<CursorSessionStore["list"]>>[number], names: ReadonlyMap<string, string>): HostBackendThreadRecord => {
         const model = entry.model ?? entry.observedModel;
         const name = model ? names.get(model) : undefined;
+        // Cursor keeps a total only, unnamed as the open thread shows it: priced as Cursor reported it.
+        const usage = store.talliesOf(entry.tauThreadId);
         return {
           threadId: entry.tauThreadId,
           cwd: entry.cwd,
@@ -205,6 +207,7 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
           updatedAt: entry.updatedAt,
           messages: entry.messages,
           ...(model ? { model: { provider: cursorModelProvider({ id: model, ...(name ? { name } : {}) }), id: model } } : {}),
+          ...(usage.length ? { usage } : {}),
         };
       };
       const modelNames = async (id: string) => new Map((await store.listModels(id)).map((model) => [model.id, model.name] as const));

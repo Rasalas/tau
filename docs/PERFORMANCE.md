@@ -1225,6 +1225,18 @@ Measured on the development machine (load average 6 to 12), with the same harnes
 
 Merging the turns on every listing instead of once per turn cost 3.6–4.7 ms (Codex) and 4.5–6.0 ms (Agent SDK) per listing of 1,000 threads, and grows with a thread's turns (up to 2,000 kept), which is why the stores keep the merged tallies. The full index again costs the rail about 0.8 ms more per 1,000 threads because `threadEqual` compares each thread's usage as JSON, which Pi threads already paid; the host sends a full index only at start-up and on request, and a rescan otherwise publishes changed shells alone. `src/main/thread-index.test.ts` ("thread index scale") holds one `listThreads` per backend per scan, no `lookup`, and one pricing per thread; `kits/workspace/rail-render.test.tsx` holds that a rescan carrying every cost redraws no row and a new cost redraws one.
 
+Follow-up (K118, 2026-09-30). OpenCode, Cursor, Grok and Antigravity list their threads' usage too: Grok and Antigravity from their turns, merged once per new turn like Codex's (`kits/_acp/session-store.ts`, `talliesOfRecord`), Cursor and OpenCode from the running total their stores keep, unnamed so the index shows the figure their open thread shows. An import from the Codex or Agent SDK CLI now counts the session file's responses with the Usage kit's parsers (`kits/usage/session-usage.ts`) once, at import, and keeps them as the thread's turns; no listing reads a file for it.
+
+`threadEqual` in the renderer compared a shell's usage, limit and queue as two JSON strings each. It now walks the fields (`same` in `src/workbench/thread-store.ts`), and the activity snapshot's ten fields are listed once, which pays for the walk's bytes (total JavaScript gzip 499,984 → 499,886). Same harness, same machine, load 6 to 10:
+
+| what | before | after |
+| --- | ---: | ---: |
+| a full thread index again, 1,000 threads with costs, rows redrawn / time (`rail-render.test.tsx`, 5 runs) | 0 / 1.36–1.81 ms | 0 / 0.92–1.10 ms |
+| the same without costs | 0 / 0.47–0.61 ms | 0 / 0.48–0.59 ms |
+| `threadEqual` alone over 1,000 threads with usage (node, median of 300) | 0.45–0.65 ms | 0.09–0.10 ms |
+
+The rest of the gap between a rescan with costs and one without is the harness copying each usage before it emits, not the comparison: with the comparison replaced by `true`, a rescan with costs took 0.89–0.99 ms.
+
 ### Chips in the composer's text
 
 Ticket E12 (2026-09-23) put the composer's chips (files, excerpts, pull requests, attachments, images) into the text. A rich-text editor such as Tiptap would do this; Tau does not use one: Tiptap 3.31.3 as its own lazy chunk, with the least a plain-text composer needs (`@tiptap/core`, Document, Paragraph, Text, UndoRedo and one inline node), bundled to 290.4 KB (89.5 KB gzip). That would have taken the desktop build's total JavaScript to 530,175 bytes of gzip, over its 500,000 budget. ProseMirror without Tiptap was 63.8 KB gzip and came to 504,458. The editor is still the textarea. A chip is a token in the draft's text, and a mirror behind the transparent glyphs draws the same characters as a chip (`ComposerChipLayer.tsx`, `composer-chips.ts`).

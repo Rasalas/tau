@@ -1,7 +1,6 @@
 import {
   DEFAULT_THREAD_MODE as DEFAULT_MODE,
   appendUsageTurn,
-  legacyUsageTurn,
   mergeTallies,
   unpricedUsage,
   type ExtensionUiAnswer,
@@ -17,14 +16,14 @@ import {
 import { answerElicitation, autoApproval, permissionDialog } from "../_acp/approvals.js";
 import { AcpTurnTranslator, addUsage, type AcpSessionUpdate, type AcpTurnOutcome } from "../_acp/events.js";
 import type { AcpContentBlock, AcpElicitationAnswer, AcpElicitationRequest, AcpPermissionRequest, AcpPermissionResponse, AcpSelectOption } from "../_acp/session.js";
-import type { AcpStoredModel } from "../_acp/session-store.js";
+import { usageTurnsOf, type AcpStoredModel } from "../_acp/session-store.js";
 import { AcpThreadBackend, type AcpThreadBackendOptions, type AcpTurn } from "../_acp/thread-backend.js";
 import { DEFAULT_EFFORT, MODEL_PROVIDER, currentEffort, effortsOf, modelStateOf, thinkingLevels } from "./catalog.js";
 import { grokAgentArgs } from "./cli.js";
 import { ASK_USER_QUESTION, EXIT_PLAN_MODE, PLAN_CAPTURED, askQuestionDialogs, exitPlanMarkdown, initializeCommands, planReply, planWrite, turnCompletedUsage, visibleCommands, type GrokAskAnswer, type GrokTurnUsage } from "./extensions.js";
 import type { GrokRuntimeAdapter } from "./runtime-adapter.js";
 import type { GrokSession } from "./session.js";
-import type { GrokSessionStore } from "./session-store.js";
+import type { GrokSessionRecord, GrokSessionStore } from "./session-store.js";
 
 /** What the backend needs of a live ACP session; `GrokSession` is the real one. */
 export type GrokSessionLike = Pick<GrokSession,
@@ -77,6 +76,12 @@ function findMode(available: readonly AcpSelectOption[], ...aliases: string[]): 
  * is set when it starts, so a change of access or plan mode restarts it and
  * loads the session again. Model and effort go through `session/set_model`.
  */
+/** Who a thread that kept only its total ran on. */
+export function grokUsageOrigin(record: Pick<GrokSessionRecord, "model" | "observedModel">): { provider: string; model?: string } {
+  const model = record.observedModel ?? record.model;
+  return { provider: MODEL_PROVIDER, ...(model ? { model } : {}) };
+}
+
 export class GrokThreadRuntimeBackend extends AcpThreadBackend<GrokSessionLike> {
   declare readonly runtimeAdapter: GrokRuntimeAdapter;
   private usage: UiThreadUsage = AcpTurnTranslator.emptyUsage();
@@ -122,9 +127,7 @@ export class GrokThreadRuntimeBackend extends AcpThreadBackend<GrokSessionLike> 
     this.title = record.title;
     this.titleSource = record.titleSource;
     if (record.usage) this.usage = { ...record.usage };
-    const model = record.observedModel ?? record.model;
-    this.usageTurns = record.usageTurns?.map((turn) => ({ ...turn }))
-      ?? (record.usage && record.usage.turns > 0 ? [legacyUsageTurn(record.usage, record.updatedAt, { provider: MODEL_PROVIDER, ...(model ? { model } : {}) })] : []);
+    this.usageTurns = usageTurnsOf(record, grokUsageOrigin(record));
     this.chosenModel = record.model;
     this.chosenEffort = record.effort;
     this.mode = record.mode ?? DEFAULT_MODE;

@@ -11,7 +11,7 @@ import { ANTIGRAVITY_RELEASE_VERSION, releaseAssetFor } from "./release.js";
 import { createAntigravityRuntimeAdapter } from "./runtime-adapter.js";
 import { AntigravitySessionStore } from "./session-store.js";
 import { AntigravitySignInSettings, METHOD_LABELS, antigravityAccount, antigravitySignInMethods, callbackAddress, credentialEnvironment, methodProblem, usesBrowser } from "./sign-in.js";
-import { AntigravityThreadRuntimeBackend, antigravityModelProvider, type AntigravitySessionInput, type AntigravitySessionLike } from "./thread-backend.js";
+import { AntigravityThreadRuntimeBackend, antigravityModelProvider, antigravityUsageOrigin, type AntigravitySessionInput, type AntigravitySessionLike } from "./thread-backend.js";
 
 export { ANTIGRAVITY_BACKEND_KIND, ANTIGRAVITY_HOST_EXTENSION_ID };
 
@@ -101,6 +101,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
       const record = (entry: Awaited<ReturnType<AntigravitySessionStore["list"]>>[number], names: ReadonlyMap<string, string>): HostBackendThreadRecord => {
         const model = entry.model ?? entry.observedModel;
         const name = model ? names.get(model) : undefined;
+        const usage = store.talliesOf(entry.tauThreadId, antigravityUsageOrigin);
         return {
           threadId: entry.tauThreadId,
           cwd: entry.cwd,
@@ -108,6 +109,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
           updatedAt: entry.updatedAt,
           messages: entry.messages,
           ...(model ? { model: { provider: antigravityModelProvider({ id: model, ...(name ? { name } : {}) }), id: model } } : {}),
+          ...(usage.length ? { usage } : {}),
         };
       };
       const modelNames = async () => new Map((await store.listModels()).map((model) => [model.value, model.name] as const));

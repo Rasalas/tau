@@ -41,7 +41,7 @@ import {
 import { createGrokRuntimeAdapter } from "./runtime-adapter.js";
 import { openGrokSession, probeGrok } from "./session.js";
 import { GrokSessionStore } from "./session-store.js";
-import { GrokThreadRuntimeBackend, type GrokSessionInput, type GrokSessionLike } from "./thread-backend.js";
+import { GrokThreadRuntimeBackend, grokUsageOrigin, type GrokSessionInput, type GrokSessionLike } from "./thread-backend.js";
 
 export { GROK_BACKEND_KIND, GROK_HOST_EXTENSION_ID };
 
@@ -186,13 +186,17 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
         return next;
       };
 
-      const record = (entry: Awaited<ReturnType<GrokSessionStore["list"]>>[number]): HostBackendThreadRecord => ({
-        threadId: entry.tauThreadId,
-        cwd: entry.cwd,
-        ...(entry.title ? { title: entry.title } : {}),
-        updatedAt: entry.updatedAt,
-        messages: entry.messages,
-      });
+      const record = (entry: Awaited<ReturnType<GrokSessionStore["list"]>>[number]): HostBackendThreadRecord => {
+        const usage = store.talliesOf(entry.tauThreadId, grokUsageOrigin);
+        return {
+          threadId: entry.tauThreadId,
+          cwd: entry.cwd,
+          ...(entry.title ? { title: entry.title } : {}),
+          updatedAt: entry.updatedAt,
+          messages: entry.messages,
+          ...(usage.length ? { usage } : {}),
+        };
+      };
 
       const versionOf = async (id: string): Promise<RuntimeToolVersion | undefined> => {
         const { version } = await cli(id);
