@@ -14,6 +14,7 @@ export interface DeviceInfo {
 
 /** The app's own plugin (`plugins/tau-native`): Keychain/Keystore, pinned sockets, QR scanner, Bonjour. */
 interface TauNativePlugin {
+  activityKey(options: { hostId: string; keyId: string; key: string }): Promise<void>;
   activityTokens(): Promise<{ tokens: import("./activities").ActivityToken[] }>;
   activityUpdate(options: import("./activities").MobileActivity): Promise<void>;
   activityUsage(options: { hostId: string; accounts: import("./activities").WidgetAccount[]; updatedAt: number; expiresAt: number }): Promise<void>;
@@ -127,3 +128,5 @@ export const nativeActivities: import("./activities").ActivityPort = {
   usage: (snapshot) => TauNative.activityUsage(snapshot),
   clear: (hostId) => TauNative.activityClear({ hostId }),
 };
+
+export function installActivityKey(options: { hostId: string; keyId: string; key: string }): Promise<void> { return TauNative.activityKey(options); }

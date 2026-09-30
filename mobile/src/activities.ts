@@ -13,7 +13,7 @@ export interface MobileActivity {
   expiresAt: number;
 }
 export interface WidgetAccount { poolKey?: string; label: string; windows: Array<{ label: string; usedPercent: number; resetsAt?: number }>; checkedAt: number }
-export interface ActivityToken { hostId: string; threadId: string; token: string; topic: string }
+export interface ActivityToken { hostId: string; threadId: string; token: string; topic: string; relay?: { handle: string; keyId: string; key: string } }
 export interface ActivityPort {
   tokens?(listener: (token: ActivityToken) => void): Promise<() => void>;
   update(activity: MobileActivity): Promise<void>;
@@ -53,7 +53,7 @@ export function followActivities(hostId: string, client: Pick<HostClient, "onHos
   let offTokens: (() => void) | undefined;
   void port.tokens?.((token) => {
     if (!active || token.hostId !== hostId) return;
-    void client.invokeHostExtension("tau.push", "activity-register", token).catch(() => undefined);
+    void client.invokeHostExtension("tau.push", "activity-register", { hostId: token.hostId, threadId: token.threadId, topic: token.topic, ...(token.relay ? { relay: token.relay } : { token: token.token }) }).catch(() => undefined);
   }).then((off) => { if (!active) off(); else offTokens = off; });
   void client.bootstrap().then((bootstrap) => { if (active) { for (const session of bootstrap.threadIndex.sessions) titles.set(session.id, session.title); for (const id of Object.keys(bootstrap.threadIndex.runs ?? {})) publish(id, "running"); } }).catch(() => undefined);
   async function refreshUsage() {
