@@ -2,6 +2,7 @@ import type { PairingEndpoint } from "../../src/shared/connections";
 import { pairWithHost, type PairingResult, type PairingSocket } from "../../src/workbench/host-pairing";
 import { RacingSocket, listAddresses, socketCandidates, type AttemptSocket, type DeviceNetwork, type RaceFailure, type RaceOptions, type SocketCandidate } from "./endpoints";
 import type { SavedHost } from "./hosts";
+import { connectCandidate, type MobileConnect } from "./relay-connect";
 
 /** A host to pair with, from a QR code, a pasted link or a Bonjour record. */
 export interface PairTarget {
@@ -14,6 +15,7 @@ export interface PairTarget {
   endpoints: PairingEndpoint[];
   /** From a link; without one the owner is asked all the same. */
   code?: string;
+  connect?: MobileConnect;
 }
 
 export type PairOutcome =
@@ -39,17 +41,20 @@ export type EndpointChoice =
   | { failure: PairingFailure };
 
 /** Races the candidates once and closes the winner: which address this phone reaches the host on right now. */
-export function chooseEndpoint(candidates: readonly SocketCandidate[], open: (candidate: SocketCandidate) => AttemptSocket, race?: RaceOptions): Promise<EndpointChoice> {
-  if (candidates.length === 0) return Promise.resolve({ failure: { reason: "no-address" } });
+export function chooseEndpoint(candidates: readonly SocketCandidate[], open: (candidate: SocketCandidate) => AttemptSocket, race?: RaceOptions, signal?: AbortSignal): Promise<EndpointChoice> {
+  if (signal?.aborted || candidates.length === 0) return Promise.resolve({ failure: { reason: "no-address" } });
   return new Promise((resolve) => {
     const socket = new RacingSocket(candidates, open, race);
+    const cancelled = () => { socket.onclose = null; socket.close(); resolve({ failure: { reason: "unreachable" } }); };
+    signal?.addEventListener("abort", cancelled, { once: true });
+    const settle = (choice: EndpointChoice) => { signal?.removeEventListener("abort", cancelled); resolve(choice); };
     socket.onopen = () => {
       const candidate = socket.winner!;
-      resolve({ candidate, ...(socket.fingerprint ? { fingerprint: socket.fingerprint } : {}), ...(socket.publicKey ? { publicKey: socket.publicKey } : {}) });
+      settle({ candidate, ...(socket.fingerprint ? { fingerprint: socket.fingerprint } : {}), ...(socket.publicKey ? { publicKey: socket.publicKey } : {}) });
       socket.onclose = null;
       socket.close();
     };
-    socket.onclose = () => resolve({ failure: socket.failure ?? { reason: "unreachable" } });
+    socket.onclose = () => settle({ failure: socket.failure ?? { reason: "unreachable" } });
   });
 }
 
@@ -91,10 +96,11 @@ export async function pairDevice(target: PairTarget, dependencies: PairDependenc
   onAddress?(candidate: SocketCandidate): void;
   signal?: AbortSignal;
 } = {}): Promise<PairOutcome> {
-  const candidates = socketCandidates(target.endpoints, targetPins(target), dependencies.device);
-  const choice = await chooseEndpoint(candidates, dependencies.openSocket, dependencies.race);
-  if ("failure" in choice) return { state: "failed", message: pairingFailureMessage(choice.failure) };
+  const relay = target.connect ? connectCandidate(target.connect, targetPins(target)) : undefined;
+  const candidates = [...socketCandidates(target.endpoints, targetPins(target), dependencies.device), ...(relay ? [relay] : [])];
+  const choice = await chooseEndpoint(candidates, dependencies.openSocket, dependencies.race, callbacks.signal);
   if (callbacks.signal?.aborted) return { state: "failed", message: "Pairing was cancelled." };
+  if ("failure" in choice) return { state: "failed", message: pairingFailureMessage(choice.failure) };
   callbacks.onAddress?.(choice.candidate);
   const result = await pairWithHost({
     url: choice.candidate.url,
@@ -116,6 +122,7 @@ export async function pairDevice(target: PairTarget, dependencies: PairDependenc
       name: target.name,
       ...targetPins(target),
       endpoints: target.endpoints,
+      ...(target.connect ? { connect: true } : {}),
       access: result.access,
       addedAt: at,
       lastUsedAt: at,

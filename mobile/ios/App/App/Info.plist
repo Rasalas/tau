@@ -28,6 +28,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>tau</string>
+				<string>tau-connect</string>
 			</array>
 		</dict>
 	</array>

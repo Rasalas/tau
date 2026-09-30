@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronLeft, QrCode } from "lucide-react";
-import { parsePairingPayload, type PairingPayload } from "../../../src/shared/connections";
+import { parseMobilePairingPayload, type MobilePairingPayload } from "../relay-connect";
 
 /** Why a pasted text is not something to pair with, in the words the field shows. */
 export function pairingTextProblem(text: string): string | undefined {
   const trimmed = text.trim();
   if (!trimmed) return undefined;
-  const payload = parsePairingPayload(trimmed);
+  const payload = parseMobilePairingPayload(trimmed);
   if (!payload) return "This is not a pairing link: it carries no code. Copy the whole link from Settings → Connections.";
   if (payload.endpoints.length === 0) return "This link names no address of the host. Create a new one on a host with Local network or Tailscale on.";
   return undefined;
@@ -23,11 +23,12 @@ export function AddHostScreen({ error, initialText = "", onBack, onScan, onSubmi
   initialText?: string;
   onBack(): void;
   onScan(): void;
-  onSubmit(payload: PairingPayload, text: string): void;
+  onSubmit(payload: MobilePairingPayload, text: string): void;
 }) {
   const [text, setText] = useState(initialText);
+  useEffect(() => setText(initialText), [initialText]);
   const problem = pairingTextProblem(text);
-  const payload = text.trim() && !problem ? parsePairingPayload(text) : undefined;
+  const payload = text.trim() && !problem ? parseMobilePairingPayload(text) : undefined;
   return <main className="shell-screen" aria-labelledby="add-title">
     <header className="shell-header">
       <button type="button" className="shell-icon-button" aria-label="Back to hosts" onClick={onBack}><ChevronLeft size={24} /></button>

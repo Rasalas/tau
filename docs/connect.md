@@ -2,9 +2,10 @@
 
 Tau Connect sends the host protocol through an outbound relay connection. The
 host needs no inbound firewall rule, VPN, public IP address, or router change.
-This implementation supports Tau desktop clients. The browser cannot open the
-TLS byte tunnel. Native phone clients need a native byte bridge before they can
-use it.
+Desktop, iOS and Android clients support this transport. The browser cannot
+open and pin a second TLS connection inside a WebSocket using its platform
+APIs. Tau does not ship a maintained browser TLS transport, so Connect links
+remain unsupported in the browser. Use a native app for these links.
 
 The relay is a separate service from the notification push relay. It has no
 access to projects, threads, model credentials, host tokens, or pairing answers.
@@ -55,7 +56,8 @@ tokens are random and separate. The host keeps its registration in
 after a restart and reconnects after network changes or relay outages.
 
 Copy the Tau Connect pairing link and paste it into Settings → Machines on the
-other desktop. Allow the request on the host after comparing the six digits.
+other desktop, or Add host on a phone. The phone also scans a QR code containing
+the link and opens `tau-connect:` links from another app. Allow the request on the host after comparing the six digits.
 The link expires in two minutes. It includes the relay transport credential and
 the host key; treat it as a secret. A transport credential alone cannot call
 host methods. Each approved device still has its own host token and access
@@ -85,6 +87,20 @@ administration token:
 curl --fail -X DELETE -H "Authorization: Bearer $TAU_CONNECT_ADMIN_TOKEN" \
   "https://connect.your-domain.example/v1/routes/$ROUTE_ID"
 ```
+
+The phone keeps the relay credential in its Keychain or Keystore-backed store,
+under a separate key from the host's paired-client token and host metadata. Each
+connection creates one loopback TCP bridge. URLSession on iOS and OkHttp on
+Android connect to the relay with normal CA and hostname verification and
+forward binary TLS bytes. The existing pinned native WebSocket then connects
+to the loopback bridge and verifies the host's SPKI or legacy certificate pin
+before it sends pairing data or a hello. Relay and host credentials never share
+an Authorization header. The inner host path and query survive the bridge.
+
+Reconnects create fresh bridges. Losing the relay or the pinned socket closes
+both ends. Pairing cancellation closes pending probes; host switching and page
+reload close tracked native sockets and their bridges. Removing a host forgets
+its relay credential as well as its host token.
 
 Removing a machine on the client closes its local bridge and forgets its saved
 keys. Revoking that device in the host's Connections removes its host access;

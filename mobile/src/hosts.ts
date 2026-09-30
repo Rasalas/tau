@@ -2,6 +2,8 @@ import type { DeviceAccess, PairingEndpoint } from "../../src/shared/connections
 import { refreshEndpoints, sameEndpoints } from "../../src/shared/environments";
 import type { HostIdentity } from "../../src/shared/host-transport";
 import type { SocketCandidate } from "./endpoints";
+import type { MobileConnect } from "./relay-connect";
+import { validConnectRoute } from "../../src/shared/managed-connections";
 
 /** The Keychain on iOS, the Keystore-backed store on Android. */
 export interface SecureStore {
@@ -25,9 +27,13 @@ export interface SavedHost {
   lastUsedAt?: string;
   /** The address the last connection won with, for the list. */
   lastEndpoint?: PairingEndpoint;
+  /** Relay credentials live under a separate secure-store key. */
+  connect?: boolean;
 }
 
 const HOSTS_KEY = "hosts.v1";
+const connectKey = (id: string) => `connect.v1:${id}`;
+const pendingConnectKey = "connect.pending.v1";
 const tokenKey = (id: string) => `token.v1:${id}`;
 
 function isSavedHost(value: unknown): value is SavedHost {
@@ -72,9 +78,28 @@ export class HostBook {
     return this.store.get(tokenKey(id));
   }
 
+  async connect(id: string): Promise<MobileConnect | undefined> {
+    const text = await this.store.get(connectKey(id));
+    if (!text) return undefined;
+    try {
+      const route = JSON.parse(text) as MobileConnect;
+      const url = new URL(route.url);
+      return validConnectRoute({ ...route, port: 1 }) && url.protocol === "wss:" && !url.username && !url.password && !url.hash ? route : undefined;
+    } catch { return undefined; }
+  }
+
+  async stageConnectLink(text: string): Promise<void> { await this.store.set(pendingConnectKey, text); }
+  async takeConnectLink(): Promise<string | undefined> {
+    const text = await this.store.get(pendingConnectKey);
+    await this.store.remove(pendingConnectKey);
+    return text;
+  }
+
   /** Adds a host or replaces the one with its id, with the token pairing just gave. */
-  save(host: SavedHost, token: string): Promise<void> {
+  save(host: SavedHost, token: string, connect?: MobileConnect): Promise<void> {
     return this.serial(async () => {
+      if (connect) await this.store.set(connectKey(host.id), JSON.stringify(connect));
+      else await this.store.remove(connectKey(host.id));
       await this.store.set(tokenKey(host.id), token);
       const others = (await this.list()).filter((entry) => entry.id !== host.id);
       await this.write([...others, host]);
@@ -96,6 +121,7 @@ export class HostBook {
   remove(id: string): Promise<void> {
     return this.serial(async () => {
       await this.store.remove(tokenKey(id));
+      await this.store.remove(connectKey(id));
       await this.write((await this.list()).filter((host) => host.id !== id));
     });
   }

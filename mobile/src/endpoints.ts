@@ -27,6 +27,8 @@ export interface SocketCandidate {
   proxied?: boolean;
   /** Lower is preferred. */
   rank: number;
+  /** Opaque TLS relay, separate from the host hello credential. */
+  connect?: { url: string; token: string };
 }
 
 export interface DeviceNetwork {
