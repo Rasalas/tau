@@ -26,3 +26,23 @@ it("offers checking a persisted uncertain attempt even when no credits remain", 
   render(<UsageLimits limits={{ ...limits, accounts: [{ ...limits.accounts[0]!, resetCredits: { availableCount: 0, pending: true } }] }} error={undefined} now={now} onRedeemReset={vi.fn()} />);
   expect(screen.getByRole("button", { name: "Check reset" })).toBeTruthy();
 });
+it("redeems the latest credit reading on its owning host for a shared account", async () => {
+  const identity = { provider: "openai", key: "a".repeat(64) };
+  const local = { ...limits.accounts[0]!, identity, checkedAt: now - 1000, resetCredits: { availableCount: 0 } };
+  const remote = { ...limits.accounts[0]!, identity, machine: "remote-host", checkedAt: now, resetCredits: { availableCount: 2 } };
+  const redeem = vi.fn().mockResolvedValue("Reset applied.");
+  render(<UsageLimits limits={{ ...limits, accounts: [local, remote] }} error={undefined} now={now} onRedeemReset={redeem} />);
+  fireEvent.click(screen.getByRole("button", { name: "Use reset" }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm reset" }));
+  await waitFor(() => expect(redeem).toHaveBeenCalledWith(remote));
+});
+it("checks the original host's pending attempt before another host's available credit", async () => {
+  const identity = { provider: "openai", key: "b".repeat(64) };
+  const pending = { ...limits.accounts[0]!, identity, checkedAt: now - 1000, resetCredits: { availableCount: 0, pending: true } };
+  const remote = { ...limits.accounts[0]!, identity, machine: "remote-host", checkedAt: now, resetCredits: { availableCount: 2 } };
+  const redeem = vi.fn().mockResolvedValue("Already applied.");
+  render(<UsageLimits limits={{ ...limits, accounts: [remote, pending] }} error={undefined} now={now} onRedeemReset={redeem} />);
+  fireEvent.click(screen.getByRole("button", { name: "Check reset" }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm reset" }));
+  await waitFor(() => expect(redeem).toHaveBeenCalledWith(pending));
+});

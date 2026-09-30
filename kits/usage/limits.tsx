@@ -153,6 +153,12 @@ function ManagementLink({ url, onOpen }: { url: string | undefined; onOpen?: (ur
   return url ? <a className="usage-link" href={url} target="_blank" rel="noopener noreferrer" onClick={(event) => { if (onOpen) { event.preventDefault(); onOpen(url); } }}>Manage usage</a> : null;
 }
 
+/** A pending attempt keeps its owning host; otherwise use the newest credit reading. */
+function resetAccount(group: LimitGroup): UsageLimitAccount {
+  return group.members.filter((member) => member.resetCredits)
+    .sort((left, right) => Number(Boolean(right.resetCredits?.pending)) - Number(Boolean(left.resetCredits?.pending)) || right.checkedAt - left.checkedAt)[0] ?? group.shown;
+}
+
 function AccountCard({ group, costs, period, history, failed, now, choices, onOpenExternal, onRedeemReset }: { group: LimitGroup; costs: MemberCost[] | undefined; period: string; history: readonly UsageLimitSample[]; failed: string | undefined; now: number; choices?: JuicebarChoices | undefined; onOpenExternal?: (url: string) => void; onRedeemReset?: (account: UsageLimitAccount) => Promise<string> }) {
   const shown: UsageLimitAccount = failed ? { ...group.shown, unavailable: { reason: "failed", message: failed } } : group.shown;
   const shared = group.members.length > 1;
@@ -178,7 +184,7 @@ function AccountCard({ group, costs, period, history, failed, now, choices, onOp
       </header>
       {shown.windows.map((window) => <WindowLine key={window.id} account={shown} window={window} history={history} now={now} />)}
       {shared && costs ? <SharedCost costs={costs} period={period} /> : null}
-      <ResetCredits account={group.members.find((member) => member.resetCredits) ?? shown} now={now} onRedeem={onRedeemReset} />
+      <ResetCredits account={resetAccount(group)} now={now} onRedeem={onRedeemReset} />
       <ManagementLink url={shown.managementUrl} onOpen={onOpenExternal} />
       {choices ? <SidebarChoice group={group} choices={choices} /> : null}
       <footer className="usage-account-updated">{updated(shown.checkedAt, now)}{shared ? ` via ${memberName(group.shown)}` : ""}</footer>
@@ -235,7 +241,7 @@ export function UsageLimits({ limits, error, now, entries = [], fromDay = 0, per
               <span className="usage-silent-mark"><ProviderIconStack {...providerMark(group)} hint={false} /></span>
               <strong>{group.label}</strong>
               <span>{group.shown.unavailable?.message ?? "No limits reported."}</span>
-              <ResetCredits account={group.shown} now={now} onRedeem={onRedeemReset} />
+              <ResetCredits account={resetAccount(group)} now={now} onRedeem={onRedeemReset} />
               <ManagementLink url={group.shown.managementUrl} onOpen={onOpenExternal} />
             </li>
           ))}
