@@ -159,7 +159,7 @@ function resetAccount(group: LimitGroup): UsageLimitAccount {
     .sort((left, right) => Number(Boolean(right.resetCredits?.pending)) - Number(Boolean(left.resetCredits?.pending)) || right.checkedAt - left.checkedAt)[0] ?? group.shown;
 }
 
-function AccountCard({ group, costs, period, history, failed, now, choices, onOpenExternal, onRedeemReset }: { group: LimitGroup; costs: MemberCost[] | undefined; period: string; history: readonly UsageLimitSample[]; failed: string | undefined; now: number; choices?: JuicebarChoices | undefined; onOpenExternal?: (url: string) => void; onRedeemReset?: (account: UsageLimitAccount) => Promise<string> }) {
+function AccountCard({ group, costs, period, history, failed, now, choices, onOpenExternal, onRedeemReset }: { group: LimitGroup; costs: MemberCost[] | undefined; period: string; history: readonly UsageLimitSample[]; failed: string | undefined; now: number; choices?: JuicebarChoices | undefined; onOpenExternal?: (url: string) => void; onRedeemReset?: (account: UsageLimitAccount, checkPending?: boolean) => Promise<string> }) {
   const shown: UsageLimitAccount = failed ? { ...group.shown, unavailable: { reason: "failed", message: failed } } : group.shown;
   const shared = group.members.length > 1;
   const fresh = isFresh(shown, now);
@@ -207,7 +207,7 @@ export function UsageLimits({ limits, error, now, entries = [], fromDay = 0, per
   choices?: JuicebarChoices;
   onRetry?(): void;
   onOpenExternal?(url: string): void;
-  onRedeemReset?(account: UsageLimitAccount): Promise<string>;
+  onRedeemReset?(account: UsageLimitAccount, checkPending?: boolean): Promise<string>;
 }) {
   if (!limits) {
     return error ? (
@@ -251,7 +251,7 @@ export function UsageLimits({ limits, error, now, entries = [], fromDay = 0, per
   );
 }
 
-function ResetCredits({ account, now, onRedeem }: { account: UsageLimitAccount; now: number; onRedeem?: (account: UsageLimitAccount) => Promise<string> }) {
+function ResetCredits({ account, now, onRedeem }: { account: UsageLimitAccount; now: number; onRedeem?: (account: UsageLimitAccount, checkPending?: boolean) => Promise<string> }) {
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>();
@@ -264,7 +264,7 @@ function ResetCredits({ account, now, onRedeem }: { account: UsageLimitAccount; 
     if (busy || !enabled || !onRedeem) return;
     setBusy(true);
     setConfirm(false);
-    try { setMessage(await onRedeem(account)); setUncertain(false); }
+    try { setMessage(await (uncertain || credits.pending ? onRedeem(account, true) : onRedeem(account))); setUncertain(false); }
     catch (error) { const detail = error instanceof Error ? error.message : "Could not confirm the reset. Retry to check the same request."; setMessage(detail); setUncertain(detail.includes("same request")); }
     finally { setBusy(false); }
   };

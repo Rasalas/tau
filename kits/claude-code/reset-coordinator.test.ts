@@ -23,3 +23,14 @@ it("retains the original grant with an uncertain attempt across restart", async 
     expect(await restarted.hasPending("account")).toBe(false);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+it("does not claim another grant when a cached page checks a settled attempt", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "tau-claude-settled-reset-"));
+  try {
+    const coordinator = new ResetCoordinator(directory);
+    let calls = 0;
+    const consume = async () => { calls += 1; return "reset"; };
+    await coordinator.redeem("account", consume);
+    expect(await coordinator.redeem("account", consume, true)).toBe("alreadySettled");
+    expect(calls).toBe(1);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});

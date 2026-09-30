@@ -343,7 +343,7 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
       }, { access: "read", long: true });
 
       context.registerCommand(USAGE_REDEEM_RESET_COMMAND, async (input) => {
-        const request = input as { runtime?: unknown; accountId?: unknown; identity?: unknown } | undefined;
+        const request = input as { runtime?: unknown; accountId?: unknown; identity?: unknown; checkPending?: unknown } | undefined;
         const runtime = request?.runtime;
         if (typeof runtime !== "string" || typeof request?.accountId !== "string") throw new HostCommandError("Choose an account to reset.");
         const source = limitSources.find((entry) => entry.extensionId === (runtime.split("@")[0] === "codex" ? "tau.codex" : runtime.split("@")[0] === "claude-code" ? "tau.claude-code" : ""));
@@ -352,7 +352,7 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
         const account = fresh.accounts.find((entry) => entry.runtime === runtime && entry.id === request.accountId);
         if (!account) throw new HostCommandError("No reset is available for this account.");
         if (request.identity !== undefined && account.identity?.key !== request.identity) throw new HostCommandError("The account changed. Refresh before using a reset.");
-        try { return await context.invokeHostExtension(source.extensionId, BACKEND_REDEEM_RESET_COMMAND, { runtime, identity: request.identity }); }
+        try { return await context.invokeHostExtension(source.extensionId, BACKEND_REDEEM_RESET_COMMAND, { runtime, identity: request.identity, checkPending: request.checkPending === true }); }
         finally { limits = undefined; }
       }, { long: true });
       return () => { stopObserving(); };

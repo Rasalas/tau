@@ -534,7 +534,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
             Object.assign(failure, { settled: (error as { settled?: boolean }).settled });
             throw failure;
           }
-        });
+        }, (input as { checkPending?: unknown } | undefined)?.checkPending === true);
       }, { long: true, callers: [USAGE_KIT_ID] });
       // Sessions the default instance's CLI ran on its own, for Onboarding to list and import as threads.
       const importDirs = () => claudeProjectDirs(settings.environment(DEFAULT_INSTANCE_ID, env));

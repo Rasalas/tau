@@ -18,7 +18,7 @@ export const USAGE_LIMITS_COMMAND = "limits";
 /** Explicit account write; `{ runtime, accountId }` → `ResetOutcome`. */
 export const USAGE_REDEEM_RESET_COMMAND = "redeem-reset";
 export const BACKEND_REDEEM_RESET_COMMAND = "usage-redeem-reset";
-export type ResetOutcome = "reset" | "nothingToReset" | "alreadyRedeemed" | "noCredit";
+export type ResetOutcome = "reset" | "nothingToReset" | "alreadyRedeemed" | "alreadySettled" | "noCredit";
 
 
 /**

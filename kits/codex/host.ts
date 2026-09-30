@@ -463,7 +463,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
             throw new HostCommandError("Codex could not confirm the reset. Retry to check the same request.");
           }
           finally { await session.close().catch(() => undefined); }
-        });
+        }, (input as { checkPending?: unknown } | undefined)?.checkPending === true);
       }, { long: true, callers: [USAGE_KIT_ID] });
 
       const cachedModels = async (id: string): Promise<CodexStoredModel[]> => {

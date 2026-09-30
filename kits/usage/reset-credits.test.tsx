@@ -44,5 +44,5 @@ it("checks the original host's pending attempt before another host's available c
   render(<UsageLimits limits={{ ...limits, accounts: [remote, pending] }} error={undefined} now={now} onRedeemReset={redeem} />);
   fireEvent.click(screen.getByRole("button", { name: "Check reset" }));
   fireEvent.click(screen.getByRole("button", { name: "Confirm reset" }));
-  await waitFor(() => expect(redeem).toHaveBeenCalledWith(pending));
+  await waitFor(() => expect(redeem).toHaveBeenCalledWith(pending, true));
 });

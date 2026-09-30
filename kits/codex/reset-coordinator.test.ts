@@ -26,3 +26,14 @@ it("maps the official reset summary separately from quota snapshots", () => {
   expect(codexResetCredits({ rateLimitResetCredits: { availableCount: 2, credits: [{ status: "available", expiresAt: 30 }, { status: "available", expiresAt: 5 }, { status: "consumed", expiresAt: 20 }] } }, 10_000)).toEqual({ availableCount: 2, nextExpiresAt: 30_000 });
   expect(codexResetCredits({ rateLimitResetCredits: { availableCount: -1 } })).toBeUndefined();
 });
+it("never spends a new credit when a stale page checks a finished attempt", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "tau-settled-reset-"));
+  try {
+    const coordinator = new ResetCoordinator(directory);
+    const consume = vi.fn().mockResolvedValue("reset");
+    await coordinator.redeem("account", consume);
+    expect(await coordinator.redeem("account", consume, true)).toBe("alreadySettled");
+    expect(consume).toHaveBeenCalledTimes(1);
+    expect(await coordinator.hasPending("account")).toBe(false);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
