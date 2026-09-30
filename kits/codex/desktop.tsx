@@ -131,7 +131,7 @@ export interface CodexProviderCardProps extends SettingsPageProps {
  * it is current and a version Tau works with, who it is signed in as, where
  * Tau finds it and how the instance is set up. The default instance's card
  * adds another instance. A plan connection uses Tau’s managed binary and
- * protected credentials; CLI connections use the user’s installation.
+ * the credentials Tau keeps; CLI connections use the user’s installation.
  */
 export function CodexProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_ID, instances, terminal, runner }: CodexProviderCardProps) {
   const [status, setStatus] = useState<CodexStatusReport>();
