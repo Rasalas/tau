@@ -6,6 +6,10 @@ Tau wurde am lokalen Commit `82323e6a` untersucht. T3s neueste stabile Version i
 Die umfangreichen Änderungen davor stehen in
 [0.0.43](https://github.com/pingdotgg/t3code/releases/tag/v0.0.43).
 
+Dieser Vergleich beschreibt den Ausgangsstand. Die anschließend implementierten
+Änderungen und verbleibenden Unterschiede stehen im
+[Umsetzungsstand](t3-parity-implementation-2026-09-30.md).
+
 Der Vergleich beruht auf Dokumentation, Quellcode und datierten GitHub-Merges.
 Er ist kein Vergleich der Geschwindigkeit oder Stabilität im laufenden Betrieb.
 Der Store-Rollout der neuesten mobilen Builds wurde nicht unabhängig geprüft.
