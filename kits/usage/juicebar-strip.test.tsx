@@ -36,7 +36,7 @@ describe("the juicebars on top of a phone's thread list", () => {
     return openPage;
   };
 
-  it("draws nothing until a plan has a window, then each account once with its bars and its lowest rest; a tap opens the limits", () => {
+  it("draws nothing until a plan has a window, then each account once with only its bars; a tap opens the limits", () => {
     const feed = createLimitsFeed(host(undefined));
     const openPage = renderStrip(feed);
     expect(screen.queryByRole("button")).toBeNull();
@@ -51,10 +51,10 @@ describe("the juicebars on top of a phone's thread list", () => {
     };
     act(() => feed.publish(limits));
     const strip = screen.getByRole("button", { name: "Plan limits, ChatGPT: 5-hour 50% left, Weekly 4% left. Opens Usage." });
-    const groups = strip.querySelectorAll(".usage-juicestrip-group");
+    const groups = strip.querySelectorAll(".usage-juicebar-group");
     expect(groups).toHaveLength(1);
-    expect(groups[0]!.getAttribute("data-level")).toBe("warn");
-    expect(groups[0]!.querySelector("b")!.textContent).toBe("4%");
+    expect(strip.textContent).toBe("");
+    expect(groups[0]!.querySelectorAll('[data-level="warn"]')).toHaveLength(1);
     expect(groups[0]!.querySelectorAll(".usage-juicebar")).toHaveLength(2);
     fireEvent.click(strip);
     expect(openPage).toHaveBeenCalledWith("usage", { section: "limits" });
@@ -63,10 +63,10 @@ describe("the juicebars on top of a phone's thread list", () => {
   it("is registered for a phone's or tablet's thread list only", () => {
     const desktop = createKitHarness();
     desktop.registry.activate(usageExtension);
-    expect(desktop.registry.getRegions("thread-list-head")).toEqual([]);
+    expect(desktop.registry.getRegions("thread-list-title")).toEqual([]);
     const phone = createKitHarness(undefined, "compact");
     phone.registry.activate(usageExtension);
-    expect(phone.registry.getRegions("thread-list-head").map((region) => region.id)).toEqual(["usage.juicebars"]);
+    expect(phone.registry.getRegions("thread-list-title").map((region) => region.id)).toEqual(["usage.juicebars"]);
   });
 
   it("reads the other paired hosts' limits through the phone's machines", async () => {

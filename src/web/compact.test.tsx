@@ -8,7 +8,7 @@ import { installPointerEvents } from "../renderer/test-support/pointer-events";
 import { setHostClient } from "../renderer/host-client-context";
 import { createFakeHostClient, type FakeHostClient } from "../renderer/test-support/fake-host-client";
 import { createRendererServices } from "../renderer/renderer-services";
-import { createMemoryStorage, setClientStorage } from "../workbench/client-storage";
+import { createMemoryStorage, getClientStorage, setClientStorage } from "../workbench/client-storage";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { WebWorkbench, webClientEnvironment } from "./WebWorkbench";
 
@@ -561,6 +561,40 @@ describe("a new thread's draft in the phone's list", () => {
 describe("the compact client on a tablet", () => {
   beforeEach(() => setViewport(1024, 768));
 
+  it("shows only the branch under the tablet's thread title", async () => {
+    const base = bootstrapWith(THREADS);
+    const model = { provider: "openai-codex", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" };
+    renderCompactClient({ bootstrap: async () => {
+      const boot = await base();
+      return { ...boot, project: { ...boot.project, label: "feat/tablet" }, catalog: { ...boot.catalog, models: [model], model } };
+    } });
+    const branch = await screen.findByText("feat/tablet");
+    const details = branch.closest(".thread-details")!;
+    expect(details.textContent).toBe("feat/tablet");
+    expect(details.querySelector(".thread-detail-branch svg")).toBeTruthy();
+    expect(details.querySelector(".thread-detail-model, .thread-detail-turn")).toBeNull();
+    expect(await screen.findByLabelText("Select model: GPT-5.6 Luna")).toBeTruthy();
+  });
+
+  it("resizes the sidebar by touch and remembers its width across narrower windows", async () => {
+    renderCompactClient();
+    const handle = await screen.findByRole("separator", { name: "Resize sidebar" });
+    const width = () => (document.querySelector(".app-shell") as HTMLElement).style.getPropertyValue("--sidebar-width");
+    fireEvent.pointerDown(handle, { pointerType: "touch", pointerId: 7, button: 0, clientX: 328 });
+    fireEvent.pointerMove(document, { pointerType: "touch", pointerId: 7, clientX: 500 });
+    fireEvent.pointerUp(document, { pointerType: "touch", pointerId: 7, clientX: 500 });
+    expect(width()).toBe("500px");
+    expect(getClientStorage()?.get(STORAGE_KEYS.sidebarWidth)).toBe("500");
+    act(() => setViewport(700, 768, { width: 1024, height: 768 }));
+    expect(width()).toBe("380px");
+    expect(getClientStorage()?.get(STORAGE_KEYS.sidebarWidth)).toBe("500");
+    act(() => setViewport(1024, 768));
+    expect(width()).toBe("500px");
+    fireEvent.keyDown(handle, { key: "Home" });
+    expect(width()).toBe("328px");
+    expect(document.body.classList.contains("resizing-col")).toBe(false);
+  });
+
   it("offers the project of the thread beside the list first, or the filtered one", async () => {
     // `other` is where the host last worked; the thread on screen is in `project`.
     const projects: ProjectEntry[] = [{ path: "/project", name: "project", lastOpenedAt: 1 }, { path: "/other", name: "other", lastOpenedAt: 99 }];
@@ -666,7 +700,9 @@ describe("the compact client on a tablet", () => {
     renderCompactClient({}, [probe]);
     await screen.findByRole("navigation", { name: "Thread list" });
     expect(document.querySelector(".panel-rail")).toBeNull();
-    fireEvent.click(await screen.findByRole("button", { name: "Show stage" }));
+    expect(screen.queryByRole("button", { name: "Show stage" })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "More tools" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Agents" }));
     const stage = await screen.findByRole("region", { name: "Stage" });
     // Only what claims the compact client: a desktop-only panel is not there.
     expect(within(stage).queryByRole("button", { name: "Files" })).toBeNull();
@@ -674,6 +710,14 @@ describe("the compact client on a tablet", () => {
     expect(within(stage).getByRole("tab", { name: /Agents/ }).getAttribute("aria-selected")).toBe("true");
     expect(screen.queryByRole("dialog", { name: "Agents" })).toBeNull();
     expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
+    const tool = await screen.findByRole("button", { name: "Agents" });
+    expect(tool.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(tool);
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Stage" })).toBeNull());
+    const folded = await screen.findByRole("button", { name: "Agents" });
+    expect(folded.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(folded);
+    expect(await screen.findByRole("region", { name: "Stage" })).toBeTruthy();
   });
 });
 

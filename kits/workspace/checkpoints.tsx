@@ -297,7 +297,7 @@ function createReviewOverlay(store: CheckpointStore, workspaceStore: WorkspaceSt
 /** Wires checkpoint rows, live updates, the restore dialog and the review overlay into the kit. */
 export function registerCheckpoints(plugin: DesktopExtensionContext, workspaceStore: WorkspaceStore): void {
   const store = new CheckpointStore();
-  const rows = plugin.registerTranscriptRows("checkpoints", 20, { profiles: ["desktop"] });
+  const rows = plugin.registerTranscriptRows("checkpoints", 20, { profiles: ["desktop", "compact"] });
   plugin.events.on("active-thread-changed", () => store.resetThread());
   plugin.host.onEvent(CHECKPOINT_EVENT, (payload) => {
     const event = payload as CheckpointEvent;
@@ -321,8 +321,8 @@ export function registerCheckpoints(plugin: DesktopExtensionContext, workspaceSt
       }
     } else if (event?.type === "turn-checkpoint-error") store.update({ notice: event.message });
   });
-  plugin.registerRegion({ id: "workspace.checkpoints", placement: "composer-controls", order: 70, profiles: ["desktop"], Component: createController(store, workspaceStore, rows) });
-  plugin.registerOverlay({ id: CHECKPOINT_REVIEW_OVERLAY, profiles: ["desktop"], Component: createReviewOverlay(store, workspaceStore) });
+  plugin.registerRegion({ id: "workspace.checkpoints", placement: "composer-controls", order: 70, profiles: ["desktop", "compact"], Component: createController(store, workspaceStore, rows) });
+  plugin.registerOverlay({ id: CHECKPOINT_REVIEW_OVERLAY, profiles: ["desktop", "compact"], Component: createReviewOverlay(store, workspaceStore) });
 }
 
 export type { WorkbenchActions };

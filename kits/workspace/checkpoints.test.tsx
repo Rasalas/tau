@@ -24,13 +24,13 @@ function checkpoint(id: string, paths: string[], extra: Partial<UiTurnCheckpoint
 }
 
 describe("checkpoint rows", () => {
-  it("pins the latest turn over the composer, leaves earlier ones in the transcript, and skips turns without changes", async () => {
+  it.each(["desktop", "compact"] as const)("pins the latest turn and leaves earlier turns in the transcript on %s", async (profile) => {
     setHostClient(createFakeHostClient());
     const host = {
       checkpoints: vi.fn(async () => ({ checkpoints: [], restoreSupported: true })),
       canRestoreCheckpoint: vi.fn(async (_sessionId: string, _id: string) => true),
     };
-    const { registry } = createKitHarness();
+    const { registry } = createKitHarness(undefined, profile);
     const kitState = { changes: { files: [], added: 0, removed: 0 }, draftPending: false, turnSettled: false };
     const workspaceStore = {
       host, recordTurnStat: vi.fn(), subscribe: () => () => undefined, getSnapshot: () => kitState,

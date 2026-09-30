@@ -35,10 +35,10 @@ export const usageExtension: DesktopExtension = {
       Sidebar: () => <UsageSidebar view={view} />,
     });
 
-    // A phone has no sidebar foot: the bars top its thread list instead (K106).
+    // Mobile draws the compact bars beside the thread-list title.
     plugin.registerRegion({
       id: "usage.juicebars",
-      placement: "thread-list-head",
+      placement: "thread-list-title",
       order: 10,
       profiles: ["compact"],
       Component: (props) => <JuicebarStrip {...props} feed={feed} choices={choices} />,

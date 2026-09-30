@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeAll, afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import type { UiModel, UiRuntimeBackend } from "../../shared/contracts";
 import { ModelPicker, type RuntimeAction, type ThinkingChoice } from "./ModelPicker";
@@ -545,6 +545,30 @@ describe("ModelPicker", () => {
 });
 
 describe("where the picker opens", () => {
+  it("keeps the tablet picker as a popover and switches to a sheet in a narrow window", () => {
+    const width = Object.getOwnPropertyDescriptor(window, "innerWidth");
+    const profile = document.body.dataset.profile;
+    document.body.dataset.profile = "compact";
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 820 });
+    try {
+      renderPicker();
+      const picker = screen.getByRole("dialog", { name: "Select model" });
+      expect(picker.classList.contains("model-picker-sheet")).toBe(false);
+      expect(within(picker).queryByRole("button", { name: "Close" })).toBeNull();
+      act(() => {
+        Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+        window.dispatchEvent(new Event("resize"));
+      });
+      expect(picker.classList.contains("model-picker-sheet")).toBe(true);
+      expect(within(picker).getByRole("button", { name: "Close" })).toBeTruthy();
+    } finally {
+      cleanup();
+      if (width) Object.defineProperty(window, "innerWidth", width);
+      if (profile === undefined) delete document.body.dataset.profile;
+      else document.body.dataset.profile = profile;
+    }
+  });
+
   const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
 
   it("sits 6 px above the composer's frame at its left edge, not at the chip that opened it (design 1l)", () => {

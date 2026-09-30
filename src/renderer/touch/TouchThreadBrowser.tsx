@@ -5,6 +5,7 @@ import { rootLast } from "../../workbench/new-thread-project";
 import { threadListGroups, type ThreadSupervisionRow } from "../../workbench/thread-supervision";
 import { useClientEnvironment } from "../client-environment";
 import { ProjectIcon } from "../components/ProjectIcon";
+import type { PageContribution, WorkbenchActions } from "../extension-system";
 import { Region } from "../components/Regions";
 import { Popover } from "../components/ui/Dialog";
 import { tooltipProps } from "../components/ui/Tooltip";
@@ -49,6 +50,7 @@ export function TouchThreadBrowser({ variant, nav, onNewThread, onOpenSettings, 
   const filter = onProjectChange ? <ProjectFilter projects={projects} project={list.project} onChange={onProjectChange} /> : null;
   const header = <header className="touch-browser-header">
     <strong>Threads</strong>
+    <Region registry={list.registry} placement="thread-list-title" actions={list.actions} />
     <span className="spacer" />
     <button ref={searchButton} type="button" className="touch-icon-button" aria-label="Search threads" aria-expanded={popover === "search"} {...tooltipProps("Search threads", { side: "bottom" })} onClick={() => setPopover(popover === "search" ? undefined : "search")}><Search size={19} /></button>
     {filter}
@@ -87,8 +89,35 @@ export function TouchThreadBrowser({ variant, nav, onNewThread, onOpenSettings, 
     {header}
     {head}
     <TouchThreadList {...list} onNewThread={onNewThread} />
+    <TabletFooter registry={list.registry} actions={list.actions} onOpenSettings={onOpenSettings} />
     {popovers}
   </nav>;
+}
+
+const noPageBadge = () => undefined;
+
+function TabletPageButton({ page, actions }: { page: PageContribution; actions: WorkbenchActions }) {
+  const count = (page.useBadge ?? noPageBadge)();
+  const label = count ? `${page.label}, ${count}` : page.label;
+  return <button type="button" className="touch-icon-button" aria-label={label} {...tooltipProps(label, { side: "top" })} onClick={() => actions.openPage?.(page.id)}>
+    {page.Icon ? <page.Icon size={19} /> : page.label.slice(0, 1)}
+    {count ? <span className="page-badge">{count > 99 ? "99+" : count}</span> : null}
+  </button>;
+}
+
+function TabletFooter({ registry, actions, onOpenSettings }: Pick<TouchThreadListProps, "registry" | "actions"> & { onOpenSettings(page?: string): void }) {
+  useSyncExternalStore(registry.subscribe, registry.getVersion);
+  const { readOnly } = useHostCapabilities();
+  const pages = registry.getPages();
+  return <div className="touch-sidebar-footer" role="group" aria-label="Sidebar controls">
+    {pages.filter((page) => !page.Summary && !page.useSummary).map((page) => <TabletPageButton key={page.id} page={page} actions={actions} />)}
+    {registry.getCommandsFor("sidebar-footer").map((command) => <button key={command.id} type="button" className="touch-icon-button" aria-label={command.label} disabled={readOnly && command.access !== "read"} onClick={() => { void registry.executeCommand(command.id, actions).catch((error) => actions.notify(String(error))); }}>
+      {command.Icon ? <command.Icon size={19} /> : command.label}
+    </button>)}
+    <span className="spacer" />
+    {pages.filter((page) => page.Summary || page.useSummary).map((page) => <TabletPageButton key={page.id} page={page} actions={actions} />)}
+    <button type="button" className="touch-icon-button" aria-label="Settings" {...tooltipProps("Settings", { side: "top" })} onClick={() => onOpenSettings()}><Settings size={19} /></button>
+  </div>;
 }
 
 /**

@@ -3,7 +3,7 @@ import { minify } from "terser";
 
 /** terser's compress and rename passes over esbuild's output, legal comments kept. */
 export async function mangleChunk(code: string, sourceMap: boolean): Promise<{ code: string; map: string | null }> {
-  const result = await minify(code, { module: true, ecma: 2020, compress: true, mangle: true, sourceMap });
+  const result = await minify(code, { module: true, ecma: 2020, compress: { passes: 2 }, mangle: true, format: { wrap_func_args: false }, sourceMap });
   return { code: result.code ?? code, map: typeof result.map === "string" ? result.map : null };
 }
 
