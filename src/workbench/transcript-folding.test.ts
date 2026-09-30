@@ -134,15 +134,19 @@ describe("durations", () => {
 });
 
 describe("live activity line", () => {
-  it("says the present tense while running and the past once settled", () => {
+  it("says the present tense", () => {
     const fact = classifyToolRun(tool({ id: "1", name: "read", args: { path: "src/app.ts" }, status: "running" }));
-    expect(liveActivityLabel(fact, true)).toBe("Reading src/app.ts");
-    expect(liveActivityLabel(fact, false)).toBe("Read src/app.ts");
+    expect(liveActivityLabel(fact)).toBe("Reading src/app.ts");
+  });
+
+  it("keeps the present tense after the newest tool settles", () => {
+    const rows = deriveWorkRows(input({ status: "running", streaming: true, tools: [tool({ id: "1", name: "read", args: { path: "a.ts" } })] }));
+    expect(rows[0]).toMatchObject({ kind: "live", label: "Reading a.ts" });
   });
 
   it("names the program of a command", () => {
     const fact = classifyToolRun(tool({ id: "1", name: "bash", args: { command: "npm run build" } }));
-    expect(liveActivityLabel(fact, true)).toBe("Running npm");
+    expect(liveActivityLabel(fact)).toBe("Running npm");
   });
 
   it("collapses the trailing run into one row with a stable key", () => {

@@ -1028,25 +1028,20 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 }
 .work-live-line:hover { color: var(--ink-2); }
 .work-live-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.work-live.running .work-live-label {
-  background: linear-gradient(90deg, var(--muted) 30%, var(--ink-2) 50%, var(--muted) 70%) 0 0 / 300% 100%;
-  background-clip: text; -webkit-background-clip: text; color: transparent;
-  animation: work-live-shine 2.4s linear infinite;
-}
-@keyframes work-live-shine {
-  from { background-position: 100% 0; }
-  to { background-position: -100% 0; }
-}
 .work-live-clock { flex: none; font: var(--text-xs) var(--mono); color: var(--faint); font-variant-numeric: tabular-nums; }
 .work-live-line > .activity-chevron { flex: none; opacity: .6; transition: transform 120ms ease; }
 .work-live.expanded > .work-live-line > .activity-chevron { transform: rotate(90deg); }
-@media (prefers-reduced-motion: reduce) {
-  /* No shimmer, and the label goes back to a plain colour rather than the
-     transparent text the gradient paints through. */
-  .work-live.running .work-live-label {
-    background: none; color: var(--ink-2); animation: none; -webkit-background-clip: border-box; background-clip: border-box;
+.work-live.thinking .work-live-line { cursor: default; }
+.work-live.thinking .work-shine { flex: 1; display: flex; align-items: center; gap: 8px; }
+/* T3 Code's shine: a 4.5rem band of ink across the muted label, 2.2 s in 30 steps; still text without motion. */
+@media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
+  .work-live.running .work-live-label, .work-shine {
+    color: var(--ink);
+    mask: linear-gradient(90deg, #0000, #000, #0000) -4.5rem 0 / 4.5rem 100% no-repeat, linear-gradient(#0009 0 0);
+    animation: work-shine 2.2s steps(30) infinite;
   }
 }
+@keyframes work-shine { to { mask-position: calc(100% + 4.5rem) 0, 0 0; } }
 
 /* ------------------------------------------------------------ tool card */
 
@@ -1136,7 +1131,7 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 }
 .mini-button:hover { background: var(--raised); color: var(--ink); }
 
-.static-activity-transcript + .live-status { margin-top: 22px; }
+.static-activity-transcript + :is(.live-status, .work-live) { margin-top: 22px; }
 .live-status { display: flex; align-items: center; gap: 10px; }
 .live-status > span { color: var(--muted); font-variant-numeric: tabular-nums; }
 .turn-error-line { display: flex; align-items: flex-start; gap: 8px; padding: 7px 2px; color: var(--fail-ink); overflow-wrap: anywhere; }
