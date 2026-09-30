@@ -523,17 +523,11 @@ jobs:
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
           security find-identity -v -p codesigning "$keychain" | grep -q "Apple Distribution" || { echo "::error::The imported certificate is not an Apple Distribution identity."; exit 1; }
           echo "IOS_SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
-          # The App Store profile for de.tbuck.tau; with it both steps sign by hand, without Apple's cloud signing.
-          if [ -n "${IOS_PROFILE:-}" ]; then
-            profiles="$HOME/Library/MobileDevice/Provisioning Profiles"
-            mkdir -p "$profiles"
-            printf '%s' "$IOS_PROFILE" | base64 --decode > "$RUNNER_TEMP/tau.mobileprovision"
-            name="$(security cms -D -i "$RUNNER_TEMP/tau.mobileprovision" | plutil -extract Name raw -)"
-            uuid="$(security cms -D -i "$RUNNER_TEMP/tau.mobileprovision" | plutil -extract UUID raw -)"
-            mv "$RUNNER_TEMP/tau.mobileprovision" "$profiles/$uuid.mobileprovision"
-            echo "IOS_PROFILE_NAME=$name" >> "$GITHUB_ENV"
-            echo "Installed the profile \"$name\"."
-          fi
+      - name: Install profiles for the app and widget
+        env:
+          IOS_PROFILE: ${{ secrets.IOS_PROFILE }}
+          IOS_WIDGET_PROFILE: ${{ secrets.IOS_WIDGET_PROFILE }}
+        run: python3 scripts/packaging/ios-profiles.py "$RUNNER_TEMP/tau-profiles"
       - name: Archive, and upload to TestFlight
         env:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
@@ -559,10 +553,9 @@ jobs:
           unset APPLE_API_KEY_P8
           trap 'rm -f "$key"' EXIT
           auth=(-allowProvisioningUpdates -authenticationKeyPath "$key" -authenticationKeyID "$APPLE_API_KEY_ID" -authenticationKeyIssuerID "$APPLE_API_ISSUER")
-          if [ -n "${IOS_PROFILE_NAME:-}" ]; then
-            signing=(CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Apple Distribution" PROVISIONING_PROFILE_SPECIFIER="$IOS_PROFILE_NAME")
-          else
-            signing=(CODE_SIGN_STYLE=Automatic)
+          signing=(CODE_SIGN_STYLE=Automatic)
+          if [ -f "$RUNNER_TEMP/tau-profiles/profiles.xcconfig" ]; then
+            signing=(-xcconfig "$RUNNER_TEMP/tau-profiles/profiles.xcconfig")
           fi
           xcodebuild archive "${project[@]}" "${settings[@]}" DEVELOPMENT_TEAM=V4MWQ28RZ2 "${signing[@]}" "${auth[@]}"
           if [ "$UPLOAD" != true ]; then
@@ -579,10 +572,10 @@ jobs:
             <key>signingStyle</key><string>automatic</string>
           </dict></plist>
           PLIST
-          if [ -n "${IOS_PROFILE_NAME:-}" ]; then
+          if [ -f "$RUNNER_TEMP/tau-profiles/profiles.json" ]; then
             plutil -replace signingStyle -string manual "$RUNNER_TEMP/export.plist"
-            plutil -replace signingCertificate -string "Apple Distribution" "$RUNNER_TEMP/export.plist"
-            plutil -replace provisioningProfiles -json "{\"de.tbuck.tau\": \"$IOS_PROFILE_NAME\"}" "$RUNNER_TEMP/export.plist"
+            plutil -replace signingCertificate -string 'Apple Distribution' "$RUNNER_TEMP/export.plist"
+            plutil -replace provisioningProfiles -json "$(cat "$RUNNER_TEMP/tau-profiles/profiles.json")" "$RUNNER_TEMP/export.plist"
           fi
           xcodebuild -exportArchive -archivePath "$archive" -exportOptionsPlist "$RUNNER_TEMP/export.plist" -exportPath "$RUNNER_TEMP/export" "${auth[@]}"
           echo "::notice::Uploaded Tau for iOS $version ($build) to TestFlight."

@@ -669,6 +669,17 @@ key (cloud signing); the key needs a role in App Store Connect that may manage
 certificates, which Admin has. The key file lives in the runner's temp folder
 for the step and is deleted when it ends.
 
+When supplying `IOS_PROFILE` for manual signing, also supply
+`IOS_WIDGET_PROFILE`. They are separate App Store distribution profiles for
+`de.tbuck.tau` and `de.tbuck.tau.widgets`, both on team `V4MWQ28RZ2`, with
+App Group `group.de.tbuck.tau` and the shared `de.tbuck.tau.shared` keychain
+group. The app profile must allow production push notifications. The workflow
+checks both profiles before installing either, rejects expired or development
+profiles, selects the profile for each target through `profiles.xcconfig`, and
+includes both bundle identifiers when exporting. With neither profile set,
+automatic signing remains available. A dry run without the Apple key archives
+unsigned.
+
 - **When it uploads:** for a `v*` tag or a `publish` dispatch. A dispatch on
   `main` archives signed and uploads nothing; a branch's dry run, which has no
   key, archives unsigned. The release job does not wait for `ios`: TestFlight
@@ -832,7 +843,8 @@ configuration. The secrets live in the environment `release`:
 | `APPLE_API_ISSUER` | its issuer id |
 | `IOS_DIST_P12` | base64 of the Apple Distribution `.p12` the iOS job imports into a temporary keychain; without it Xcode would need Apple's cloud signing and an Admin key |
 | `IOS_DIST_P12_PASSWORD` | its password |
-| `IOS_PROFILE` | base64 of the App Store provisioning profile for `de.tbuck.tau`; with it the iOS job signs by hand, since the App Store Connect key may not create profiles |
+| `IOS_PROFILE` | base64 App Store profile for `de.tbuck.tau`; manual signing needs the matching widget profile too |
+| `IOS_WIDGET_PROFILE` | base64 App Store profile for `de.tbuck.tau.widgets`, with the same App Group and shared keychain entitlement |
 
 Only the macOS build reads them: it is the only build job in the environment,
 and the Package step passes them only when the matrix entry is macOS, since

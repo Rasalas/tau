@@ -105,6 +105,14 @@ describe("the release workflow", () => {
     expect(condition("ios")).toContain("needs.gate.outputs.nightly != 'true'");
   });
 
+  it("selects separate validated manual profiles for the app and widget", () => {
+    expect(JOBS.ios).toContain("IOS_WIDGET_PROFILE: ${{ secrets.IOS_WIDGET_PROFILE }}");
+    expect(JOBS.ios).toContain('python3 scripts/packaging/ios-profiles.py "$RUNNER_TEMP/tau-profiles"');
+    expect(JOBS.ios).toContain('signing=(-xcconfig "$RUNNER_TEMP/tau-profiles/profiles.xcconfig")');
+    expect(JOBS.ios).toContain('plutil -replace provisioningProfiles -json "$(cat "$RUNNER_TEMP/tau-profiles/profiles.json")"');
+    expect(JOBS.ios).not.toContain('PROVISIONING_PROFILE_SPECIFIER="$IOS_PROFILE_NAME"');
+  });
+
   it("fails a release whose Firebase project lacks the app, and only warns in a dry run", () => {
     expect(JOBS.preflight).toContain("secrets.ANDROID_GOOGLE_SERVICES_JSON != ''");
     const guard = /package_name === "de\.tbuck\.tau"[\s\S]*?\n {10}fi\n/u.exec(JOBS.android)[0];
