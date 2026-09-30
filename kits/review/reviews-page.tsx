@@ -43,8 +43,11 @@ import { REVIEW_HOST_EXTENSION_ID } from "./protocol.js";
 import type { PullRequestsPageParts } from "./pull-requests-page.js";
 import type { ReviewsFilter } from "./reviews-filter.js";
 import type { RowRequests } from "./requests.js";
+import { ReviewDetailSidebar } from "./review-detail-sidebar.js";
+import type { DetailParts } from "./review-detail-store.js";
 
 const PullRequestsPage = lazy(() => import("./pull-requests-page.js").then((module) => ({ default: module.PullRequestsPage })));
+const LocalReviewDetail = lazy(() => import("./local-review-detail.js").then((module) => ({ default: module.LocalReviewDetail })));
 
 export type ReviewTab = ReviewState | "remote";
 const TABS: readonly ReviewTab[] = ["ready", "requested", "conflicts", "merged", "remote"];
@@ -70,6 +73,8 @@ export interface ReviewsPageParts {
   remote: PullRequestsPageParts;
   /** "Filter reviews": in the sidebar while it shows, in the page's head otherwise. */
   filter: ReviewsFilter;
+  /** What the detail view (1e) shares with its sidebar, and what it reads beside the review. */
+  detail: DetailParts;
 }
 
 const tabOf = (value: unknown): ReviewTab => TABS.includes(value as ReviewTab) ? value as ReviewTab : "ready";
@@ -272,6 +277,11 @@ export function ReviewsSidebar({ params, navigate, parts }: PageProps & { parts:
       {icon}<span>{label}</span>{figure ? <small className="rv-nav-count">{figure}</small> : null}
     </button>
   );
+  // A review open: the sidebar is the review's own (1e), and the way back is its own too.
+  if (inDetail) {
+    const remote = tab === "remote";
+    return <ReviewDetailSidebar store={parts.detail.store} detailKey={text(params.review) ?? text(params.url) ?? ""} backLabel={remote ? "All pull requests" : "All reviews"} back={() => select(remote ? "remote" : tab, remote ? undefined : project)} />;
+  }
   return (
     <>
       <label className="settings-nav-search">
@@ -553,7 +563,13 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
     );
   } else if (detailKey) {
     body = detail
-      ? <ReviewDetail review={detail} parts={parts} act={act} actions={actions} compact={compact} />
+      ? compact
+        ? <ReviewDetail review={detail} parts={parts} act={act} actions={actions} compact={compact} />
+        : (
+          <Suspense fallback={<Skeleton className="rv-row-skeleton" />}>
+            <LocalReviewDetail review={detail} parts={parts} detail={parts.detail} act={act} actions={actions} back={() => navigate({ tab, ...(project ? { project } : {}) }, { root: true, replace: true })} />
+          </Suspense>
+        )
       : snapshot.answer ? <Empty title="This review is gone" description="Its branch was removed, or its thread started working again." /> : <Skeleton className="rv-row-skeleton" />;
   } else if (!snapshot.answer) {
     body = snapshot.error
@@ -601,7 +617,7 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
           </label>
         </SettingsPageAction>
       ) : null}
-      <div className={`rv-main${tab === "remote" ? " remote" : ""}`}>
+      <div className={`rv-main${tab === "remote" || (detailKey && !compact) ? " remote" : ""}`}>
         {inDetail || sidebar ? null : (
           <div className="rv-tabs-row">
             <Tabs tab={tab} count={count} select={(next) => select(next, next === "remote" ? undefined : project)} />
