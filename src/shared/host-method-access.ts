@@ -109,6 +109,10 @@ export const HOST_METHOD_ACCESS = {
   // `tau machines`: the window's machines and the agents' in one list, pairing with a link, forgetting.
   "machines-overview": "owner",
   "machines-pair": "owner",
+  "connect-status": "owner",
+  "connect-configure": "owner",
+  "connect-link": "owner",
+  "connect-remove": "owner",
   "machines-forget": "owner",
   // `tau machines update`: another machine's Tau through the window's connection there (K103).
   "machines-update": "owner",
@@ -134,6 +138,7 @@ export const HOST_METHOD_ACCESS = {
   "environments-retry": "write",
   "environments-open": "write",
   "environments-discover": "write",
+  "environments-wsl-list": "write",
   "environments-set-preferences": "write",
   "environments-set-agents": "write",
   // Another machine's own Tau, with the window's key there; that machine decides (K103).

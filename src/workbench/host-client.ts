@@ -40,6 +40,7 @@ import type { ConfigLayers } from "../shared/config-layers";
 import type { HostBootstrap } from "../shared/contracts";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import { isClientSideMethod } from "../shared/host-transport";
+import type { ConnectSetup, ConnectStatus } from "../shared/connect";
 import type { SystemNotification, SystemNotificationOutcome } from "../shared/system-attention";
 import type { WindowAction } from "../shared/window-shell";
 import type { DeviceAccess, UiClientUpdate, UiConnections, UiCreatedPairingLink, UiHostService, UiNetworkAccess, UiNetworkSettingsInput } from "../shared/connections";
@@ -245,6 +246,10 @@ export interface HostClient {
   rotateHostToken(): Promise<void>;
   /** Opens or closes the listeners beyond loopback in the running host. */
   setNetworkAccess(input: UiNetworkSettingsInput): Promise<UiNetworkAccess>;
+  connectStatus?(): Promise<ConnectStatus>;
+  configureConnect?(input: ConnectSetup): Promise<ConnectStatus>;
+  createConnectLink?(): Promise<{ link: string }>;
+  removeConnect?(): Promise<ConnectStatus>;
   /** Reads the served certificates again; `changed` when a listener now serves another one. */
   reloadCertificate(): Promise<{ changed: boolean }>;
   /** Tau hosts that announce themselves on the host's network, after a few seconds of looking. */
@@ -274,6 +279,7 @@ export interface HostClient {
   takeEnvironmentArrival(): Promise<EnvironmentTarget | undefined>;
   /** A Bonjour search from the window's own host, whichever machine the page shows. */
   discoverEnvironments(): Promise<UiDiscoveredHosts>;
+  listWslEnvironments?(): Promise<string[]>;
   setEnvironmentPreferences(preferences: EnvironmentPreferences): Promise<void>;
   setEnvironmentAgents(id: string, on: boolean): Promise<EnvironmentAgentsResult>;
   /** Renews or ends the window's watch of another machine's thread (API 1.15.0). */
@@ -458,6 +464,10 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
       connection.updateToken(token);
     },
     setNetworkAccess: (input) => call<UiNetworkAccess>("connections-set-network", [input]),
+    connectStatus: () => call<ConnectStatus>("connect-status"),
+    configureConnect: (input) => call<ConnectStatus>("connect-configure", [input]),
+    createConnectLink: () => call<{ link: string }>("connect-link"),
+    removeConnect: () => call<ConnectStatus>("connect-remove"),
     reloadCertificate: () => call<{ changed: boolean }>("connections-reload-certificate"),
     discoverHosts: (options) => call<UiDiscoveredHosts>("connections-discover", [options ?? {}]),
     serviceStatus: () => call<UiHostService>("service-status"),
@@ -474,6 +484,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     openEnvironment: (id, target) => call<void>("environments-open", target ? [id, target] : [id]),
     takeEnvironmentArrival: async () => (await call<EnvironmentTarget | null>("environments-take-arrival")) ?? undefined,
     discoverEnvironments: () => call<UiDiscoveredHosts>("environments-discover"),
+    listWslEnvironments: () => call<string[]>("environments-wsl-list"),
     setEnvironmentPreferences: (preferences) => call<void>("environments-set-preferences", [preferences]),
     setEnvironmentAgents: (id, on) => call<EnvironmentAgentsResult>("environments-set-agents", [id, on]),
     watchEnvironmentThread: async (machine, sessionId, on) => (await call<UiEnvironmentThreadView | null>("environments-watch-thread", [machine, sessionId, on])) ?? undefined,

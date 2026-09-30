@@ -62,6 +62,7 @@ import { HostUpdater, localWindowUpdatePort } from "./host-updater.js";
 import { hostInstaller } from "./update-installers.js";
 import { readUpdateFeed, releaseKeysFor } from "./release-feed.js";
 import { RELEASE_PUBLIC_KEYS } from "../shared/release-keys.js";
+import { HostConnect } from "./host-connect.js";
 
 /**
  * The host without a window: the same `PiHost` and the same method table,
@@ -310,6 +311,7 @@ async function main(): Promise<void> {
   }
   let listening: HostListenInfo | undefined;
   let network: HostNetworkAccess | undefined;
+  let connect: HostConnect | undefined;
   let mainTls: HostTlsReloader | undefined;
   const reloadCertificates = async (): Promise<{ changed: boolean }> => {
     const own = mainTls?.reload() ?? false;
@@ -382,6 +384,7 @@ async function main(): Promise<void> {
     updates: () => updates,
     clientCalls,
     connections: () => connectionsService(),
+    connect: () => connect,
     service: () => service,
     machines: () => machines,
     resources: () => resources,
@@ -432,6 +435,7 @@ async function main(): Promise<void> {
       keepAwake.dispose();
       clearInterval(networkPoll);
       updates?.dispose();
+      await connect?.close();
       await network?.close().catch((error: unknown) => hostLog.warn("host-network.close-failed", error));
       await socket?.close();
       // Only a service host wrote the file; a window's supervisor removes its own.
@@ -469,7 +473,7 @@ async function main(): Promise<void> {
   const web = existsSync(join(webRoot, "index.html"))
     ? createWebClientServer({ dir: webRoot, ...(tls ? { tls } : {}) })
     : undefined;
-  socket = await startSocketHostTransport({
+  const transportOptions = {
     listen: listenOn,
     methods: compactor.observe(methods),
     pushLog,
@@ -487,7 +491,19 @@ async function main(): Promise<void> {
     clients,
     calls: clientCalls,
     logger: hostLog,
+  };
+  socket = await startSocketHostTransport(transportOptions);
+  connect = new HostConnect({
+    userData,
+    host: { id: hostId, name: machineName },
+    createLink: () => access.createLink({ lifetimeMs: 120_000 }),
+    listen: async () => {
+      const material = resolveHostTls({ TAU_HOST_TLS: "1" }, { userData, bindHost: "127.0.0.1" })!;
+      const remote = await startSocketHostTransport({ ...transportOptions, listen: "127.0.0.1:0", tls: material, trust: "proxy", attachTo: undefined });
+      return { port: remote.port, publicKey: material.publicKey, fingerprint: material.fingerprint, close: () => remote.close() };
+    },
   });
+  await connect.start().catch((error: unknown) => hostLog.warn("connect.start-failed", error));
   if (mainTls) mainTls.track(socket.server as unknown as TlsServer);
   // The smoke test reads this line to learn the port when it asked for 0.
   listening = { scheme: socket.scheme, host: boundHost, port: socket.port, webClient: web !== undefined, ...(tls ? { fingerprint: tls.fingerprint, publicKey: tls.publicKey } : {}) };

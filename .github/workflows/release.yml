@@ -274,6 +274,10 @@ jobs:
           rm -f "$RUNNER_TEMP/notary-api-key.p8"
           exit "$status"
 
+      - name: Package the portable remote host
+        shell: bash
+        run: node scripts/packaging/portable-host.mjs ${{ matrix.artifact == 'macos-arm64' && 'arm64' || 'x64' }}
+
       # What apt installs and what DebUpdater downloads: Xvfb comes along, the
       # AppArmor profile is inside, and the feed names the package.
       - name: Check the .deb
@@ -310,6 +314,7 @@ jobs:
           path: |
             release/*.dmg
             release/*.zip
+            release/*.tar.gz
             release/*.AppImage
             release/*.deb
             release/*.exe

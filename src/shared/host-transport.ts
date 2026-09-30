@@ -48,6 +48,7 @@ export const CLIENT_SIDE_METHODS = [
   "environments-open",
   "environments-take-arrival",
   "environments-discover",
+  "environments-wsl-list",
   "environments-set-preferences",
   "environments-update",
   "environments-set-agents",

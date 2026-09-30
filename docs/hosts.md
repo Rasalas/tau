@@ -149,6 +149,41 @@ The host accepts sockets only from pages it served itself and from clients that 
 
 ## Other machines in the same window
 
+**Desktop-managed SSH.** Choose SSH in Settings → Machines → Connection method
+and enter the alias or `user@hostname` you already use in a terminal. Tau detects
+Linux or macOS and x64 or arm64, downloads the official portable archive named
+by that platform's signed release feed, verifies the Ed25519 signature and
+SHA-512 checksum, uploads it through SSH, verifies the checksum again, and
+installs a user service in `~/.local/share/tau-managed/`. Releases occupy separate
+directories; `current` changes atomically. A matching live host is reused.
+Changing versions repairs the managed service. Your normal Tau installation and
+its data remain separate.
+
+The remote machine needs `sh`, `tar`, `openssl`, and systemd user services on
+Linux or launchd on macOS. Linux also needs the system libraries required by
+Tau's Electron runtime. Tau asks for no administrator password. Linux lingering
+may need `loginctl enable-linger <user>` from an administrator for the host to
+survive logout. Only platform/architecture archives built and published by the
+release pipeline are accepted; an unavailable release gives an error before
+installation. The first release containing `latest-host-*.yml` and its signatures
+must be published before this setup can use the official feed.
+
+Tau uses your SSH config, agent and known host keys with strict host-key checking
+and password prompts disabled. Log in once in a terminal to verify an unknown
+host key, and set up key authentication there. A saved machine uses a managed
+loopback port forward, with automatic reconnect and a transient pairing link
+approved over the SSH session. Removing it stops that forward and forgets its
+paired keys. The remote service remains installed; remove it there with the
+managed copy's `tau service uninstall` when you no longer want it. The forward
+lives with the desktop process, so agents cannot reach an SSH-only machine after
+that desktop exits. Use a direct network endpoint or Tau Connect for access
+that must outlive the desktop. Windows hosts can be added through a WSL
+distribution with systemd; SSH bootstrap currently targets Linux and macOS.
+
+**Across networks.** [Tau Connect](connect.md) provides a self-hostable relay and
+desktop registration, pairing, reconnect and route revocation. It needs your own
+HTTPS relay deployment; Tau does not borrow T3's cloud service.
+
 The easier way to work on another machine is to add it to the window you already use. On the other machine, open Settings → Connections, turn on network access and create a pairing link. On this one, open Settings → Machines and paste the link, type the other machine's address (`studio.local:7788`), or click **Find Machines** to list the ones that announce themselves on this network (the other machine needs Local network and Announce on) and **Add** one. The other machine's window asks whether to let this computer in and shows six digits; allow it if this window shows the same six. Tau keeps that machine's key encrypted in the system keychain and never saves it anywhere it cannot.
 
 **From a terminal, over SSH.** If you can already `ssh rex`, one command pairs the two machines with no link to copy and no digits to compare:

@@ -57,6 +57,7 @@ export interface PlatformEnvironments {
    * A saved machine found there gets its current addresses (API 1.13.0).
    */
   discover(): Promise<UiDiscoveredHosts>;
+  listWsl?(): Promise<string[]>;
   setPreferences(preferences: EnvironmentPreferences): Promise<void>;
   /**
    * Lets this computer's agents work on a saved machine, or stops them (ADR
@@ -189,6 +190,7 @@ export function createPlatformEnvironments(client: HostClient, options: { shownE
       await client.openEnvironment(local.id);
     },
     discover: () => client.discoverEnvironments(),
+    listWsl: () => client.listWslEnvironments?.() ?? Promise.resolve([]),
     setPreferences: (preferences) => client.setEnvironmentPreferences(preferences),
     setAgents: (id, on) => client.setEnvironmentAgents(id, on),
     watchThread,

@@ -29,6 +29,7 @@ import { LINK_LIFETIMES, describeDevice, describeLastChange, formatAgo, formatEx
 import { PairingQrCode } from "./PairingQrCode";
 import { NetworkAccessSection } from "./NetworkAccessSection";
 import { NearbyMachinesDialog } from "./NearbyMachines";
+import { ConnectSettings } from "./ConnectSettings";
 import type { SettingsSectionProps } from "../extension-system";
 import { HostServiceSection } from "./HostServiceSection";
 
@@ -301,6 +302,7 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
           onSave={(update) => void act(`edit:${editing.id}`, async () => { await client!.updateClient(editing.id, update); setEditing(undefined); })}
         />
       ) : null}
+      <ConnectSettings onNotify={onNotify} />
       {findingMachines ? <NearbyMachinesDialog onClose={() => setFindingMachines(false)} /> : null}
     </div>
   );

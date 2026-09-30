@@ -1,0 +1,76 @@
+import { createServer, request } from "node:https";
+import { once } from "node:events";
+import { randomBytes } from "node:crypto";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, expect, it, vi } from "vitest";
+import { WebSocket } from "ws";
+import { ConnectClientBridge, ConnectHostTunnel } from "./connect-tunnel.js";
+import { freeLocalPort } from "./managed-ssh.js";
+import { createSelfSignedCertificate } from "./self-signed-certificate.js";
+import { publicKeyPin } from "./host-tls.js";
+import { HostAccess } from "./host-access.js";
+import { HostTokenFile } from "./host-token.js";
+import { HostPushLog } from "./host-push-log.js";
+import { startSocketHostTransport } from "./host-transport-socket.js";
+import { pairEnvironment } from "./environment-pairing.js";
+import { pairingUrl } from "../shared/connections.js";
+import { HostUplink } from "./host-uplink.js";
+
+const cleanup: (() => Promise<void> | void)[] = [];
+afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
+// Dynamic URL keeps the deployment's independent JS module outside the app's source compilation.
+const serviceUrl = new URL("../../connect-relay/service.mjs", import.meta.url).href;
+
+it("pairs and authenticates through an opaque TLS relay, refuses wrong credentials and host pins, and reconnects after relay restart", async () => {
+  const folder = mkdtempSync(join(tmpdir(), "tau-connect-e2e-")); cleanup.push(() => rmSync(folder, { recursive: true, force: true }));
+  const certificate = () => createSelfSignedCertificate({ commonName: "Tau test", dnsNames: ["localhost"], ipAddresses: ["127.0.0.1"], days: 30 });
+  const outer = certificate(); const inner = certificate();
+  const server = createServer({ ...outer, minVersion: "TLSv1.2" });
+  const adminToken = randomBytes(32).toString("base64url");
+  const { createConnectRelay } = await import(/* @vite-ignore */ serviceUrl);
+  let relay = await createConnectRelay(server, { adminToken, store: join(folder, "routes.json") });
+  server.listen(0, "127.0.0.1"); await once(server, "listening");
+  cleanup.push(async () => { relay.close(); await new Promise<void>((resolve) => server.close(() => resolve())); });
+  const relayUrl = `https://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const call = (path: string, method: string, token: string) => new Promise<{ status: number; body: Record<string, string> }>((resolve, reject) => {
+    const outgoing = request(`${relayUrl}${path}`, { method, ca: outer.cert, headers: { Authorization: `Bearer ${token}` } }, (response) => {
+      let bytes = ""; response.setEncoding("utf8"); response.on("data", (part) => { bytes += part; }); response.on("end", () => resolve({ status: response.statusCode!, body: JSON.parse(bytes) }));
+    }); outgoing.on("error", reject); outgoing.end();
+  });
+  expect((await call("/v1/routes", "POST", randomBytes(32).toString("base64url"))).status).toBe(401);
+  const registered = await call("/v1/routes", "POST", adminToken);
+  expect(registered.status).toBe(201);
+  const route = { ...registered.body, relay: relayUrl } as { id: string; relay: string; hostToken: string; clientToken: string };
+  const stored = readFileSync(join(folder, "routes.json"), "utf8");
+  expect(stored).not.toContain(route.hostToken); expect(stored).not.toContain(route.clientToken);
+  const access = await HostAccess.open({ tokenFile: new HostTokenFile(join(folder, "host-token")), storePath: join(folder, "clients.json"), onChange: () => {
+    const waiting = access.overview().requests[0]; if (waiting) void access.approvePairing(waiting.id);
+  } });
+  cleanup.push(() => access.flush());
+  const transport = await startSocketHostTransport({ listen: "127.0.0.1:0", methods: { echo: async (params) => params[0] }, hostVersion: "connect-test", host: { id: "test-host", name: "Remote" }, pushLog: new HostPushLog(), access, tls: inner, trust: "proxy" });
+  cleanup.push(() => transport.close());
+  const host = new ConnectHostTunnel(route, transport.port, () => undefined, { ca: outer.cert }); host.start(); cleanup.push(() => host.close());
+  await vi.waitFor(() => expect(relay.stats().hosts).toBe(1));
+  const denied = new WebSocket(`${relayUrl.replace("https:", "wss:")}/v1/client/${route.id}`, { ca: outer.cert, headers: { Authorization: `Bearer ${randomBytes(32).toString("base64url")}` } });
+  cleanup.push(() => denied.terminate());
+  const deniedError = await new Promise<Error>((resolve) => denied.once("error", resolve)); expect(deniedError.message).toMatch(/401/u);
+  const bridge = new ConnectClientBridge({ relay: relayUrl, id: route.id, token: route.clientToken, port: await freeLocalPort() }, { ca: outer.cert }); await bridge.start(); cleanup.push(() => bridge.close());
+  const endpoint = `https://127.0.0.1:${bridge.route.port}/`;
+  const pin = publicKeyPin(inner.cert);
+  const link = pairingUrl(endpoint, { code: access.createLink().code, publicKey: pin, hostId: "test-host", hostName: "Remote" });
+  const paired = await pairEnvironment({ text: link, deviceName: "Desktop" }); expect(paired.state).toBe("approved");
+  if (paired.state !== "approved") throw new Error(JSON.stringify(paired));
+  const uplink = new HostUplink({ url: endpoint.replace("https:", "wss:"), token: paired.environment.token, trust: { pin: { publicKey: pin } } }); cleanup.push(() => uplink.close());
+  expect(await uplink.request("echo", ["authenticated through relay"])).toBe("authenticated through relay");
+  const wrongPin = pairingUrl(endpoint, { code: access.createLink().code, publicKey: publicKeyPin(certificate().cert), hostId: "test-host" });
+  expect(await pairEnvironment({ text: wrongPin, deviceName: "Wrong pin" })).toMatchObject({ state: "failed" });
+  relay.close(); relay = await createConnectRelay(server, { adminToken, store: join(folder, "routes.json") });
+  await vi.waitFor(() => expect(relay.stats().hosts).toBe(1), { timeout: 10_000 });
+  const reconnected = new HostUplink({ url: endpoint.replace("https:", "wss:"), token: paired.environment.token, trust: { pin: { publicKey: pin } } }); cleanup.push(() => reconnected.close());
+  expect(await reconnected.request("echo", ["after reconnect"])).toBe("after reconnect");
+  expect((await call(`/v1/routes/${route.id}`, "DELETE", route.clientToken)).status).toBe(401);
+  expect((await call(`/v1/routes/${route.id}`, "DELETE", route.hostToken)).status).toBe(200);
+  await vi.waitFor(() => expect(relay.stats().hosts).toBe(0));
+});

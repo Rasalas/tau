@@ -28,6 +28,7 @@ export interface EnvironmentsService {
   open(id: string, target?: EnvironmentOpenTarget): Promise<void>;
   takeArrival(): EnvironmentTarget | undefined;
   discover(): Promise<UiDiscoveredHosts>;
+  listWsl?(): Promise<string[]>;
   setPreferences(preferences: EnvironmentPreferences): Promise<void>;
   setAgents(id: string, on: boolean): Promise<EnvironmentAgentsResult>;
   watchThread(machine: string, sessionId: string, on: boolean): UiEnvironmentThreadView | undefined;
@@ -58,14 +59,17 @@ export function createEnvironmentMethods(service: () => EnvironmentsService | un
   return {
     "environments-list": async () => require().snapshot(),
     "environments-pair": async (params) => {
-      const input = params[0] as { text?: unknown; nearby?: unknown; deviceName?: unknown; agents?: unknown } | undefined;
+      const input = params[0] as { text?: unknown; nearby?: unknown; ssh?: unknown; wsl?: unknown; deviceName?: unknown; agents?: unknown } | undefined;
       return require().pair({
         ...(input?.agents === false ? { agents: false } : {}),
-        ...(input?.nearby !== undefined ? { nearby: text("environments-pair", "nearby", input.nearby, 128) } : { text: text("environments-pair", "text", input?.text) }),
+        ...(input?.ssh !== undefined ? { ssh: text("environments-pair", "ssh", input.ssh, 255) }
+          : input?.wsl !== undefined ? { wsl: text("environments-pair", "wsl", input.wsl, 100) }
+            : input?.nearby !== undefined ? { nearby: text("environments-pair", "nearby", input.nearby, 128) } : { text: text("environments-pair", "text", input?.text, 16_384) }),
         ...(typeof input?.deviceName === "string" && input.deviceName.trim() ? { deviceName: input.deviceName.slice(0, 80) } : {}),
       });
     },
     "environments-discover": async () => require().discover(),
+    "environments-wsl-list": async () => require().listWsl?.() ?? [],
     "environments-set-preferences": async (params) => {
       const input = params[0] as { reopenShown?: unknown } | undefined;
       if (typeof input?.reopenShown !== "boolean") {
