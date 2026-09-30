@@ -22,17 +22,18 @@ it("reports native frame dimension changes and closes its lease when the documen
   });
   const batch: VideoBatch = { packets: [{ kind: "config", codec: "avc1.42001e", data: "AUIAHg==", timestamp: 0 }, { kind: "key", data: "AAABZQ==", timestamp: 16_667 }, { kind: "key", data: "AAABZQ==", timestamp: 33_334 }] };
   let sent = false;
-  const invoke = vi.fn(async <T,>(command: string): Promise<T> => {
-    if (command === "stream-open") return { id: "lease" } as T;
+  const invoke = vi.fn(async (command: string, _input?: unknown): Promise<unknown> => {
+    if (command === "stream-open") return { id: "lease" };
     if (command === "stream-read") {
-      if (!sent) { sent = true; return batch as T; }
-      return new Promise<T>(() => undefined);
+      if (!sent) { sent = true; return batch; }
+      return new Promise<unknown>(() => undefined);
     }
-    return undefined as T;
+    return undefined;
   });
+  const request = <T,>(command: string, input?: unknown): Promise<T> => invoke(command, input) as Promise<T>;
   const dimensions: number[][] = [];
   const onCanvas = vi.fn((canvas: HTMLCanvasElement | undefined) => { if (canvas) dimensions.push([canvas.width, canvas.height]); }), onFallback = vi.fn();
-  render(<VideoDeviceScreen target={target} invoke={invoke} name="Phone" onCanvas={onCanvas} onFallback={onFallback} />);
+  render(<VideoDeviceScreen target={target} invoke={request} name="Phone" onCanvas={onCanvas} onFallback={onFallback} />);
   await waitFor(() => expect(drawImage).toHaveBeenCalled());
   const surface = onCanvas.mock.calls[0][0] as HTMLCanvasElement;
   expect([surface.width, surface.height]).toEqual([1280, 640]);
