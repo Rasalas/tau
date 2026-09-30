@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import {
   ChevronRight,
   CircleCheck,
@@ -188,7 +188,7 @@ function RowAction({ review, act }: { review: LocalReview; act: RowActions }) {
 
 function ReviewRow({ review, open, act }: { review: LocalReview; open(review: LocalReview): void; act: RowActions }) {
   return (
-    <li className="rv-row" data-state={review.state}>
+    <li className="rv-row" data-state={review.state} data-key={review.key}>
       <button type="button" className="rv-row-open" onClick={() => open(review)} aria-label={`${review.title}, ${review.branch}`}>
         <ProjectTile project={review.project} />
         <span className="rv-thread">
@@ -208,7 +208,7 @@ function ReviewRow({ review, open, act }: { review: LocalReview; open(review: Lo
 /** A phone's row (1p): branch and age, the title, then changes, checks, cost and the model's mark. */
 function ReviewCard({ review, open }: { review: LocalReview; open(review: LocalReview): void }) {
   return (
-    <li className="rv-card" data-state={review.state}>
+    <li className="rv-card" data-state={review.state} data-key={review.key}>
       <button type="button" onClick={() => open(review)}>
         <span className="rv-card-line">
           <ProjectTile project={review.project} />
@@ -509,7 +509,22 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
   useEffect(() => { void store.refresh(); }, [store]);
 
   const select = (next: ReviewTab, nextProject?: string) => navigate({ tab: next, ...(nextProject ? { project: nextProject } : {}) }, { replace: true });
-  const openReview = (review: LocalReview) => navigate({ tab, ...(project ? { project } : {}), review: review.key }, { label: review.title });
+  const scroller = useRef<HTMLDivElement>(null);
+  // Where the list was when a review opened: back from it, the same row has the focus and the list its scroll.
+  const left = useRef<{ key: string; top: number }>(undefined);
+  const openReview = (review: LocalReview) => {
+    left.current = { key: review.key, top: scroller.current?.scrollTop ?? 0 };
+    navigate({ tab, ...(project ? { project } : {}), review: review.key }, { label: review.title });
+  };
+  const listed = !detailKey && tab !== "remote" && Boolean(snapshot.answer);
+  useLayoutEffect(() => {
+    const from = left.current;
+    if (!listed || !from || !scroller.current) return;
+    left.current = undefined;
+    scroller.current.scrollTop = from.top;
+    const row = [...scroller.current.querySelectorAll<HTMLElement>("li[data-key]")].find((item) => item.dataset.key === from.key);
+    row?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
+  }, [listed]);
 
   const act: RowActions = {
     busy,
@@ -637,7 +652,7 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
             </label>
           </header>
         ) : null}
-        <div className="rv-scroll" onKeyDown={tab === "remote" || detailKey ? undefined : moveRow}>{body}</div>
+        <div className="rv-scroll" ref={scroller} onKeyDown={tab === "remote" || detailKey ? undefined : moveRow}>{body}</div>
         {tab === "remote" || detailKey ? null : footer}
       </div>
     </div>

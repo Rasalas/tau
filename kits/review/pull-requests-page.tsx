@@ -1,4 +1,4 @@
-import { Suspense, lazy, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { Spinner, type PageProps } from "tau";
 import type { ComposerContextChips } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
@@ -34,19 +34,31 @@ export function PullRequestsPage({ params, navigate, actions, parts }: PageProps
   const phone = useCompactProfile();
   // What the page itself opened on: one project (`workspace`), or all of them.
   const [start] = useState(() => (!detail && typeof params.workspace === "string" ? { workspace: params.workspace } : { scope: "all" as const }));
+  // The row a request opened from; hiding the list drops its focus, so back from the request it gets it again.
+  const pane = useRef<HTMLDivElement>(null);
+  const opened = useRef<HTMLElement>(undefined);
+  useEffect(() => {
+    if (detail || !opened.current) return;
+    if (opened.current.isConnected) opened.current.focus({ preventScroll: true });
+    opened.current = undefined;
+  }, [detail]);
   return (
     <div className="pr-page">
-      <div className="pr-page-pane" hidden={Boolean(detail)}>
+      <div className="pr-page-pane" ref={pane} hidden={Boolean(detail)}>
         <Suspense fallback={<div className="stage-empty" role="status"><Spinner size="sm" label="Loading pull requests" /></div>}>
           <PullRequestListView
             surface="page"
             params={start}
             actions={actions}
             client={parts.client}
-            open={(entry, workspace) => navigate(
-              { url: entry.ref.url, number: entry.ref.number, service: entry.ref.service, ...(workspace ? { workspace } : {}) },
-              { label: `#${entry.ref.number} ${entry.title}` },
-            )}
+            open={(entry, workspace) => {
+              const row = document.activeElement;
+              if (row instanceof HTMLElement && pane.current?.contains(row)) opened.current = row;
+              navigate(
+                { url: entry.ref.url, number: entry.ref.number, service: entry.ref.service, ...(workspace ? { workspace } : {}) },
+                { label: `#${entry.ref.number} ${entry.title}` },
+              );
+            }}
           />
         </Suspense>
       </div>

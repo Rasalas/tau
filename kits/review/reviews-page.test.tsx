@@ -76,17 +76,20 @@ function setup(options: { answer?: LocalReviewsAnswer; params?: Record<string, u
   const slot = document.createElement("div");
   document.body.append(slot);
   const props: PageProps = { actions, params: options.params ?? {}, navigate, close: vi.fn(), ...(options.sidebar ? { sidebar: true } : {}) };
-  const view = render(
+  const tree = (params: Record<string, unknown>) => (
     <TestProviders>
       <HostClientProvider client={options.client}>
         <TestThreadStore threads={THREADS}>
-          {options.sidebar ? <nav aria-label="Page sidebar"><ReviewsSidebar {...props} parts={parts} /></nav> : null}
-          <TestPageActionSlot slot={slot}><ReviewsPage {...props} parts={parts} /></TestPageActionSlot>
+          {options.sidebar ? <nav aria-label="Page sidebar"><ReviewsSidebar {...props} params={params} parts={parts} /></nav> : null}
+          <TestPageActionSlot slot={slot}><ReviewsPage {...props} params={params} parts={parts} /></TestPageActionSlot>
         </TestThreadStore>
       </HostClientProvider>
-    </TestProviders>,
+    </TestProviders>
   );
-  return { invoke, navigate, toast, switchSession, slot, view, props, parts, workspace, notes };
+  const view = render(tree(props.params));
+  /** The page after a navigation: same instance, other params. */
+  const show = (params: Record<string, unknown>) => view.rerender(tree(params));
+  return { invoke, navigate, toast, switchSession, slot, view, show, props, parts, workspace, notes };
 }
 
 describe("the Reviews page", () => {
@@ -129,6 +132,23 @@ describe("the Reviews page", () => {
     const { invoke } = setup();
     fireEvent.click(await screen.findByRole("button", { name: /Ask thread to rebase/u }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("local-review-ask", expect.objectContaining({ kind: "rebase", threadId: "t3", branch: "feat/pagination", target: "main", conflicts: ["src/routes/orders.ts"] })));
+  });
+
+  it("comes back from a review to the row it opened from, with the list scrolled where it was", async () => {
+    const { navigate, show } = setup({ params: { tab: "ready" } });
+    const row = await screen.findByRole("button", { name: "Write ADR for webhook retries, feat/webhook-retries" });
+    const scroller = row.closest<HTMLElement>(".rv-scroll")!;
+    scroller.scrollTop = 120;
+    row.focus();
+    fireEvent.click(row);
+    const key = reviewKey("/repo/shop-api", "feat/webhook-retries");
+    expect(navigate).toHaveBeenLastCalledWith({ tab: "ready", review: key }, { label: "Write ADR for webhook retries" });
+    show({ tab: "ready", review: key });
+    scroller.scrollTop = 0;
+    show({ tab: "ready" });
+    const again = await screen.findByRole("button", { name: "Write ADR for webhook retries, feat/webhook-retries" });
+    expect(document.activeElement).toBe(again);
+    expect(again.closest(".rv-scroll")!.scrollTop).toBe(120);
   });
 
   it("opens a review as a view of the page, and moves between states with tabs", async () => {

@@ -11,6 +11,7 @@ import { PendingReviewStore } from "./pending-review.js";
 import type { PullRequestFiles } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import { parseGitHubDetail, parseGitHubThreads, parseRequestUrl, parseUnifiedDiff } from "./pull-request-json.js";
+import { parseGitHubList } from "./pull-request-list-json.js";
 import { PullRequestsPage } from "./pull-requests-page.js";
 import { RowRequests } from "./requests.js";
 import { ReviewDetailStore } from "./review-detail-store.js";
@@ -353,6 +354,36 @@ describe("a pull request's detail (1e)", () => {
     navigate.mockClear();
     fireEvent.keyDown(document.body, { key: "[", metaKey: true });
     expect(navigate).toHaveBeenLastCalledWith({ tab: "remote" }, { root: true, replace: true });
+  });
+
+  it("gives the focus back to the row the request opened from", async () => {
+    const client = fakeClient(true);
+    const entries = parseGitHubList(fixture("gh-pr-list.json"), "tester").slice(0, 3);
+    (client as { listMany: unknown }).listMany = vi.fn(async () => ({ lists: [{ service: "github", host: "github.com", repo: "cli/cli", entries, truncated: false, limit: 100, workspaces: ["/cli"] }], failures: [] }));
+    const storage = memoryStorage();
+    const shared = { links: new ThreadLinkRows(client), pending: new PendingReviewStore(() => storage), preferences: preferences(), dialogs: {} as never };
+    const parts = { client, chips: () => undefined, rows: new RowRequests(async () => undefined), shared, sidebar: new ReviewDetailStore() };
+    const navigate = vi.fn();
+    const actions = { activeThread: () => undefined, notify: vi.fn(), openExternal: vi.fn(), toast: vi.fn() } as unknown as WorkbenchActions;
+    const page = (params: Record<string, unknown>) => (
+      <TestProviders>
+        <TestThreadStore threads={[]} projects={[{ path: "/cli", workspaceId: "/cli", name: "cli", lastOpenedAt: 1 }]}>
+          <PullRequestsPage actions={actions} params={params} navigate={navigate} close={vi.fn()} parts={parts} />
+        </TestThreadStore>
+      </TestProviders>
+    );
+    const view = render(page({}));
+    const second = entries[1]!;
+    const row = await screen.findByRole("button", { name: `#${second.ref.number} ${second.title}` });
+    row.focus();
+    fireEvent.click(row);
+    const [params] = navigate.mock.lastCall as [Record<string, unknown>];
+    view.rerender(page(params));
+    await screen.findByRole("article");
+    // A browser drops the focus of a hidden list; jsdom does not.
+    row.blur();
+    view.rerender(page({}));
+    expect(document.activeElement).toBe(row);
   });
 
   it("holds a line comment as a note in the sidebar until the review is submitted", async () => {
