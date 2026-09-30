@@ -9,7 +9,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { WebSocket, createWebSocketStream } from "ws";
-import { createConnectRelay } from "../../../connect-relay/service.mjs";
 import { BrowserTunnel, initSync } from "../../../browser-connect/pkg/tau_browser_connect.js";
 import { BrowserConnectSocket } from "./socket";
 import type { BrowserConnectRoute } from "./offer";
@@ -23,6 +22,8 @@ import { pairWithHost } from "../../shared/host-pairing";
 import { createSocketHostClient } from "../../workbench/host-connection-socket";
 
 initSync({ module: readFileSync(new URL("../../../browser-connect/pkg/tau_browser_connect_bg.wasm", import.meta.url)) });
+const serviceUrl = new URL("../../../connect-relay/service.mjs", import.meta.url).href;
+const { createConnectRelay } = await import(/* @vite-ignore */ serviceUrl);
 
 describe("browser Connect through a CA-verified relay and the real pinned host protocol", () => {
   it("pairs with bound digits, uses its own host token, reconnects and frees every route", async () => {

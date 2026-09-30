@@ -73,12 +73,12 @@ export class BrowserConnectSocket implements HostSocket, PairingSocket {
     const tunnel = this.tunnel;
     if (tunnel.poll() && this.readyState === 0) {
       this.readyState = 1; clearTimeout(this.deadline); this.onopen?.(); this.emit("open", {});
-      if (this.readyState === 3) return;
+      if (this.isClosed()) return;
     }
     let text: string | undefined;
     while ((text = tunnel.receive()) !== undefined && text !== null) {
       this.onmessage?.({ data: text }); this.emit("message", { data: text });
-      if (this.readyState === 3) return;
+      if (this.isClosed()) return;
     }
     tunnel.flush();
     // Browser sockets have no writable event. Bound the browser's queue while
@@ -102,4 +102,5 @@ export class BrowserConnectSocket implements HostSocket, PairingSocket {
     this.onclose?.({ code, reason }); this.emit("close", { code, reason }); this.listeners.clear();
   }
   private emit(type: string, event: SocketEvent): void { for (const listener of this.listeners.get(type) ?? []) listener(event); }
+  private isClosed(): boolean { return this.readyState === 3; }
 }
