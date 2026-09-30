@@ -9,6 +9,8 @@ const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".mjs": "text/javascript; charset=utf-8",
+  ".wasm": "application/wasm",
+  ".txt": "text/plain; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
@@ -72,7 +74,7 @@ export function createWebClientServer(options: WebClientServerOptions): WebClien
       "content-type": type,
       "cache-control": file.endsWith("index.html") ? "no-store" : hashed ? "public, max-age=31536000, immutable" : "no-cache",
       "content-length": content.byteLength,
-      // The page talks to its own origin and nowhere else.
+      // Asset types stay explicit, including the browser's TLS adapter.
       "x-content-type-options": "nosniff",
     });
     response.end(request.method === "HEAD" ? undefined : content);

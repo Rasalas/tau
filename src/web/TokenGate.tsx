@@ -6,16 +6,17 @@ import { formatVerification } from "../shared/pairing";
  * let this device in, or, as the owner, paste the host token by hand. There
  * is no password, no account and no recovery (ADR 0023, ADR 0024).
  */
-export function TokenGate({ notice, onSubmit, onAsk }: {
+export function TokenGate({ notice, onSubmit, onAsk, onConnect }: {
   notice?: string;
   onSubmit(token: string): void;
   /** Asks the owner without a link; the host shows the request with a code. */
   onAsk?(): void;
+  onConnect?(link: string): void;
 }) {
   const [value, setValue] = useState("");
   const token = value.trim();
   return <main className="token-gate">
-    <form onSubmit={(event) => { event.preventDefault(); if (token) onSubmit(token); }}>
+    <form onSubmit={(event) => { event.preventDefault(); if (token) { if (onConnect && token.startsWith("tau-connect:")) onConnect(token); else onSubmit(token); } }}>
       <h1>Connect to a Tau host</h1>
       <p>
         Open a pairing link from Settings → Connections in a Tau window, or ask the host’s owner
@@ -28,7 +29,7 @@ export function TokenGate({ notice, onSubmit, onAsk }: {
         the machine running the host.
       </p>
       <label>
-        <span>Host token</span>
+        <span>{onConnect ? "Host token or Tau Connect link" : "Host token"}</span>
         <input
           type="password"
           autoComplete="off"

@@ -68,8 +68,12 @@ geschlossen ohne Merge. Sie wird nicht in den Folge-MR übernommen. Es wurden
 keine Cloud-Ressourcen angelegt. Der bestehende Push-Deploy-Befehl aktiviert
 keinen Connect-Dienst. Tailscale, SSH und direkte Verbindungen bleiben die
 zunächst vorgesehenen Wege für Fernzugriff.
-Browser-Connect ist in dieser ersten Umsetzung noch nicht unterstützt; die Plattform stellt
-die benötigte zweite TLS-Verbindung mit Host-Pin nicht direkt bereit.
+Browser-Connect nutzt einen separat und erst bei Bedarf geladenen
+Rustls-WASM-Adapter für die zweite TLS-Verbindung mit Host-Pin. Die
+[Adapter-Prüfung](browser-connect-tls-2026-09-30.md) dokumentiert Bibliotheken,
+Sicherheitsgrenzen und echte TLS-/Pairing-/Reconnect-Tests. Ein öffentlicher
+Relay und Tests auf allen Browser-Engines bleiben Betreiber- und Release-QA.
+
 
 Die 3D-Geräteansicht zeigt einen Screenshot in Perspektive. Sie bildet keine
 mehrteilige Foldable-Geometrie ab und streamt kein H.264-Video. Die native
