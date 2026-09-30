@@ -115,8 +115,11 @@
 }
 @container devices (max-width: 500px) {
   .devices-header, .devices-view-toolbar, .devices-input-bar { padding-inline: 12px; }
-  .devices-header .tau-select { max-width: 150px; }
+  .devices-header .tau-select { max-width: 130px; }
   .devices-stream-status { display: none; }
+  .devices-view-toolbar .tau-segmented { flex-basis: 100%; }
+  .devices-view-toolbar .tau-segmented > button { flex: 1; }
+  .devices-view-toolbar .devices-live { margin-left: 0; margin-right: auto; }
   .devices-pose { padding-inline: 12px; }
   .devices-pose-adjustments { grid-template-columns: 1fr; gap: 4px; }
   .devices-pose-adjustment { grid-template-columns: 40px minmax(0, 1fr); align-items: center; }
