@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiMessage, UiSession, UiTurnActivityEntry } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
@@ -128,9 +128,10 @@ describe("the Agents panel", () => {
     expect(panel.querySelectorAll(".agent-row")).toHaveLength(VIRTUAL_WINDOW);
     // Queued agents count as running work until they are done.
     expect(within(panel).getByRole("tab", { name: "Running 60", selected: true })).toBeTruthy();
-    expect(within(panel).getByRole("tab", { name: "Asks 0" })).toBeTruthy();
+    expect(within(panel).getByRole("tab", { name: "Questions 0" })).toBeTruthy();
     expect(within(panel).getByRole("tab", { name: "Done 0" })).toBeTruthy();
-    expect(panel.querySelector(".agent-total-cost")!.textContent).toBe("–");
+    expect(within(panel).getByRole("button", { name: "Sort: status" })).toBeTruthy();
+    expect(panel.querySelector(".agents-note")!.textContent).toContain("Questions from agents always arrive on the parent conversation's composer.");
     // The stage tab counts the open ones: "Agents 60".
     expect(screen.getByRole("tab", { name: /Agents/u }).textContent).toContain("60");
   });
@@ -150,24 +151,51 @@ describe("the Agents panel", () => {
 
     const running = await screen.findByRole("tab", { name: "Running 1", selected: true });
     const panel = running.closest(".agents-panel") as HTMLElement;
-    const rows = () => [...panel.querySelectorAll(".agent-row, .agent-section-label")].map((row) => row.textContent);
+    // Title and its line; the state, the model and the cost have columns of their own (design 1c).
+    const rows = () => [...panel.querySelectorAll(".agent-row-main, .agent-section-label")].map((row) => row.textContent);
     await waitFor(() => expect(rows()).toHaveLength(4));
     const [orders, products, section, envelope] = rows();
-    expect(orders).toBe("GET /ordersQuestion: add the index, or paginate by id?");
+    expect(orders).toBe("GET /ordersAsks: add the index, or paginate by id?");
     expect(panel.querySelector(".agent-row-sub.question")).toBeTruthy();
-    expect(products).toMatch(/^GET \/productsgpt-5\.6-luna\d+:\d\dedit src\/routes\/products\.ts$/u);
+    expect(products).toBe("GET /productsedit src/routes/products.ts");
+    const productsRow = within(panel).getByRole("button", { name: "GET /products, running" });
+    expect(productsRow.querySelector(".agent-row-status")!.textContent).toMatch(/^\d+:\d\d$/u);
+    expect(within(productsRow).getByRole("img", { name: "gpt-5.6-luna" })).toBeTruthy();
     expect(section).toBe("Done · 1 — from turn 1");
-    expect(envelope).toContain("+48 −0 · 1 file · tau/envelope");
-    expect(envelope).toContain("3:04");
+    // The branch is in the tooltip; the line says what changed.
+    expect(envelope).toBe("Shared response envelope+48 −0 · 1 fileApplyDiscard");
+    const envelopeRow = within(panel).getByRole("button", { name: "Shared response envelope, completed" });
+    expect(envelopeRow.getAttribute("title")).toContain("tau/envelope");
+    expect(envelopeRow.querySelector(".agent-row-status")!.textContent).toBe("3:04");
     // The stage tab counts what still runs or asks.
     expect(screen.getByRole("tab", { name: /Agents/u }).textContent).toContain("2");
 
-    fireEvent.click(within(panel).getByRole("tab", { name: "Asks 1" }));
-    await waitFor(() => expect(rows()).toEqual(["GET /ordersQuestion: add the index, or paginate by id?"]));
-    fireEvent.keyDown(within(panel).getByRole("tab", { name: "Asks 1" }), { key: "ArrowRight" });
+    fireEvent.click(within(panel).getByRole("tab", { name: "Questions 1" }));
+    await waitFor(() => expect(rows()).toEqual(["GET /ordersAsks: add the index, or paginate by id?"]));
+    fireEvent.keyDown(within(panel).getByRole("tab", { name: "Questions 1" }), { key: "ArrowRight" });
     await waitFor(() => expect(rows()).toEqual(["Done · 1 — from turn 1", expect.stringContaining("Shared response envelope")]));
     expect(within(panel).getByRole("tab", { name: "Done 1", selected: true })).toBeTruthy();
     expect(screen.queryByText(/Needs you/u)).toBeNull();
+  });
+
+  it("brings an agent's question to its parent's composer, named after the agent, and marks the parent waiting", async () => {
+    const agents: AgentsState = { maxRunning: 8, links: [link("orders", "parent", "waiting", 1, { pendingToolPrompt: "Index or id?" })] };
+    const sessions = [session("parent", "Parent thread", 9), session("orders", "GET /orders", 3, undefined, "parent"), session("other", "Other thread", 1)];
+    const client = appWith(agents, sessions, "parent");
+    renderApp(client, { extensions: [workspaceExtension, agentsExtension] });
+    await screen.findAllByText("Parent thread");
+
+    act(() => client.emit({ type: "extension-ui-prompt", sessionId: "orders", prompt: { id: "q1", sessionId: "orders", kind: "select", title: "Index or id?", options: ["Add an index", "Paginate by id"] } }));
+    const card = await screen.findByRole("region", { name: "Question from GET /orders agent" });
+    await waitFor(() => expect(document.querySelector('.thread-status-age.status-waiting')?.closest('.thread-row')?.textContent).toContain("Parent thread"));
+    fireEvent.click(within(card).getByRole("button", { name: "Paginate by id" }));
+    fireEvent.click(within(card).getByRole("button", { name: "Answer" }));
+    await waitFor(() => expect(client.calls.find((call) => call.method === "answerExtensionUi")?.args).toEqual(["q1", { value: "Paginate by id" }]));
+
+    // Another thread's question stays on its own thread.
+    act(() => client.emit({ type: "extension-ui-prompt", sessionId: "other", prompt: { id: "q2", sessionId: "other", kind: "confirm", title: "Wants to run" } }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.queryByRole("region", { name: "Wants to run" })).toBeNull();
   });
 
   it("does not advertise agents running in other threads in the panel footer", async () => {
@@ -292,7 +320,8 @@ describe("a spawned thread's worktree", () => {
     );
 
     await openAgentsTab();
-    expect(await screen.findByText(/\+7 −1 · 2 files · tau\/agent-alpha/u)).toBeTruthy();
+    expect(await screen.findByText("+7 −1 · 2 files")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Alpha reply,/u }).getAttribute("title")).toContain("tau/agent-alpha");
 
     fireEvent.click(screen.getByRole("button", { name: "Apply changes of Alpha reply" }));
     await waitFor(() => expect(commands).toEqual([{ command: "apply-changes", input: { threadId: "alpha" } }]));
