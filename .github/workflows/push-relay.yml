@@ -1,0 +1,94 @@
+name: Push relay
+
+# Tau's push relay (relay/, docs/push.md): a Cloud Function in the Firebase
+# project tau-push-e3c95. Every change under relay/ is checked; main deploys it,
+# and so does a manual run. Google accepts this workflow through Workload
+# Identity Federation: no key file exists anywhere.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'relay/**'
+      # Bundled into the relay.
+      - 'kits/push/apns.ts'
+      - '.github/workflows/push-relay.yml'
+  pull_request:
+    paths:
+      - 'relay/**'
+      - 'kits/push/apns.ts'
+      - '.github/workflows/push-relay.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time; a newer one waits rather than cutting the running one off.
+concurrency:
+  group: push-relay-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            relay/package-lock.json
+      # The relay's tests run on the repository's Vitest; no Electron download needed.
+      - run: npm ci --ignore-scripts
+      - run: npm ci --prefix relay
+      - run: npm --prefix relay run typecheck
+      - run: npx vitest run relay/
+      - run: npm --prefix relay run build
+
+  deploy:
+    needs: check
+    # A fork has neither the project nor the trust; a pull request never deploys.
+    if: github.repository == 'Rasalas/tau' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # Holds PUSH_RELAY_WIF_POOL, PUSH_RELAY_WIF_PROVIDER and PUSH_RELAY_SERVICE_ACCOUNT (docs/push.md).
+    environment: push-relay
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check the environment's variables
+        env:
+          POOL: ${{ vars.PUSH_RELAY_WIF_POOL }}
+          PROVIDER: ${{ vars.PUSH_RELAY_WIF_PROVIDER }}
+          SERVICE_ACCOUNT: ${{ vars.PUSH_RELAY_SERVICE_ACCOUNT }}
+        run: |
+          missing=""
+          [ -n "$POOL" ] || missing="$missing PUSH_RELAY_WIF_POOL"
+          [ -n "$PROVIDER" ] || missing="$missing PUSH_RELAY_WIF_PROVIDER"
+          [ -n "$SERVICE_ACCOUNT" ] || missing="$missing PUSH_RELAY_SERVICE_ACCOUNT"
+          if [ -n "$missing" ]; then
+            echo "::error::The environment push-relay lacks the variables:$missing (docs/push.md, 'Deploying the relay')."
+            exit 1
+          fi
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: relay/package-lock.json
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          project_id: tau-push-e3c95
+          # 712111328256 is the project number of tau-push-e3c95.
+          workload_identity_provider: projects/712111328256/locations/global/workloadIdentityPools/${{ vars.PUSH_RELAY_WIF_POOL }}/providers/${{ vars.PUSH_RELAY_WIF_PROVIDER }}
+          service_account: ${{ vars.PUSH_RELAY_SERVICE_ACCOUNT }}
+      - run: npm ci --prefix relay
+      # firebase.json's predeploy builds lib/ first.
+      - run: npm --prefix relay run deploy
