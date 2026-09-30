@@ -128,7 +128,7 @@ export function Juicebars({ actions, feed, choices }: PageSummaryProps & { feed:
   const groups = juicebarGroups(limits, chosen, now);
   const open = () => actions.openPage?.(USAGE_PAGE, { section: "limits" });
   if (groups.length === 0) {
-    return <button type="button" {...tooltipProps("Usage", { side: "top" })} aria-label="Usage" onClick={open}><ChartColumn size={15} /></button>;
+    return <button type="button" className="usage-juice-icon" {...tooltipProps("Usage", { side: "top" })} aria-label="Usage" onClick={open}><ChartColumn size={15} /></button>;
   }
   const label = `Plan limits, ${groups.map((entry) => `${titleOf(entry)}: ${entry.bars.map((bar) => `${bar.window.label} ${bar.state.kind === "expired" ? "reset" : `${bar.left}% left`}`).join(", ")}`).join("; ")}`;
   return (
