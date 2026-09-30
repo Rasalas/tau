@@ -22,6 +22,15 @@ export const CODEX_HOME_VARIABLE = "CODEX_HOME";
 /** Pushed with a `CodexInstancesReport` whenever an instance is added, changed or removed. */
 export const INSTANCES_EVENT = "instances";
 
+/** A plan instance's account, for its card and the composer. */
+export interface ChatGPTPlanSummary {
+  signedIn: boolean;
+  label: string;
+  usageUrl: string;
+  /** Tau's Codex is missing. */
+  needsInstall?: boolean;
+}
+
 /** One instance as the Providers page shows it. */
 export interface CodexInstanceView extends RuntimeInstanceConfig {
   kind: string;
@@ -56,7 +65,7 @@ export interface CodexStatusReport {
   signedIn?: boolean;
   models?: number;
   message?: string;
-  chatgptPlan?: { signedIn: boolean; label: string; usageUrl: string; needsInstall?: boolean };
+  chatgptPlan?: ChatGPTPlanSummary;
 }
 
 /**
