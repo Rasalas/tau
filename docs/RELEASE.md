@@ -610,7 +610,8 @@ that it says `de.tbuck.tau` with the expected versionCode and versionName.
   fails (`preflight`, then `android`); a dry run warns and builds an app that
   cannot take pushes. The app asks Firebase for a token only after the
   user allowed notifications (`firebase_messaging_auto_init_enabled` is off in
-  the manifest).
+  the manifest). The push relay in the same project is not part of a release:
+  `push-relay.yml` deploys it on its own ([push.md](push.md)).
 - **versionCode** is computed from the version by `build.gradle` (and
   `scripts/packaging/mobile-version.mjs android-code`, which the job compares
   with the APK): major·10000 + minor·100 + patch. It rises with every release as

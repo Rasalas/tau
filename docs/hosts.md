@@ -307,7 +307,7 @@ them each time it connects (local network first,
 then `.local`, then Tailscale), so it follows a phone from home Wi-Fi to cellular on its
 own. Coming back to the foreground or to a network makes it check the link at once. More
 → Hosts in the thread list goes back to the host list. `tau://thread?host=<id>&thread=<id>`
-opens a thread of a paired host (for push notifications, which are not built yet).
+opens a thread of a paired host; a tapped push notification uses it ([push.md](push.md)).
 
 Building and running it in a simulator is in [`mobile/README.md`](../mobile/README.md); putting it on your own
 iPhone through TestFlight, signed with your Apple Developer account, in

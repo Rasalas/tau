@@ -17,6 +17,7 @@ The guides and the main reference pages are also on the website: <https://rasala
 - [Architecture](architecture.md): core and kits, the window and the host, the extension seam.
 - [Writing a package](EXTENSIONS.md): the manifest, permissions, isolation, signing, and the install, approve and reload workflow.
 - [Core and kits](CORE.md): what the core owns, and what each shipped kit does.
+- [Push notifications](push.md): Tau's relay, what it sees, the end-to-end encryption, your own keys, and deploying the relay.
 - [Host updates](host-updates.md): the update design, the Linux helper and the threat model.
 - [Host protocol](host-protocol.md): the versioned protocol between a client and the host.
 - [Keybindings](keybindings.md), [project file](project-file.md), [agent definitions](agent-definitions.md), [browser cookie import](browser-cookie-import.md).
