@@ -1514,10 +1514,16 @@ before the primary action, and `submit` (`{ label, disabled?, enter?,
 onSubmit }`) is that action, "✓ Send 2 ⏎" with `enter` when an empty
 composer's Enter does the same (register it with `usePromptSubmit` too).
 `PromptRendererProps.asker` is who asks as the composer knows it — the
-thread's model — for `from`. `OptionRow` draws a box to tick for `mode`
+thread's model — for `from`; `PromptRendererProps.agent` (unreleased, next API
+bump) names a sub-agent ("GET /orders agent") when a child thread's question
+shows on its parent's composer, and wins over `asker` and a topic. An approval
+(design 1a/1c) heads with its `title` ("Wants to edit") and puts a one-line
+`message` beside it in mono. `OptionRow` draws a 14 px box to tick for `mode`
 `"checkbox"`, a round one for `"radio"`, and `detail` as the second line; it
-no longer draws `index`. Core's own dialogs use the same frame: a `confirm` is
-an approval with Approve and Decline, a `select` a question to pick one.
+no longer draws `index`. Core's own dialogs use the same frame: a `confirm`,
+and a runtime's `select` of Allow / Allow for this session / Deny, is an
+approval with Deny, "Always for this thread" where offered, and "Allow ⏎"; a
+`select` is a question whose pick fills its radio and "Answer ⏎" sends.
 
 `actions.shareFile(path)` (new in API 1.10.0) answers with a URL the page
 may load a workspace file from — `{ url, name, size, mimeType }`, the URL
