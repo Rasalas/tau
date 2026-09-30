@@ -779,8 +779,8 @@ const ExternalThreadRow = memo(function ExternalThreadRow({ thread, onOpen, onLo
 }) {
   const { session, machine, unavailable, opening, running } = thread;
   const age = sessionAge(session.modifiedAt);
-  const activity: ThreadActivity = opening ? "ready" : running ? "working" : "idle";
-  const label = opening ? "Opening…" : running ? "Working" : undefined;
+  const activity: ThreadActivity = opening ? "ready" : unavailable ? "offline" : running ? "working" : "idle";
+  const label = opening ? "Opening…" : unavailable ? (running ? "Paused · offline" : "Offline") : running ? "Working" : undefined;
   const lookIn = thread.lookIn && !unavailable && !opening
     ? <button type="button" aria-label={`Look in on ${session.title} here`} {...tooltipProps("Read it in a tab here; the window stays on this machine")} onClick={() => onLookIn(thread)}><Eye size={13} /></button>
     : undefined;
@@ -793,6 +793,7 @@ const ExternalThreadRow = memo(function ExternalThreadRow({ thread, onOpen, onLo
         age={age}
         activity={activity}
         {...(label ? { activityLabel: label } : {})}
+        {...(unavailable ? { activityHint: unavailable } : {})}
         hoverCard
         actions={lookIn}
         onSelect={() => { if (!unavailable && !opening) onOpen(thread); }}
