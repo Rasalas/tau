@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AccessibleElement } from "./accessibility.js";
 
 const electron = vi.hoisted(() => ({
   WebContentsView: vi.fn(),
@@ -13,7 +14,8 @@ vi.mock("electron", () => electron);
 const { addWaylandAccessibility, captureResolved, default: activate, frontWindow, namedWindow, readAccess, windowIdOfSource } = await import("./window.js");
 
 type Client = Parameters<typeof frontWindow>[0];
-const element = (name: string, active = false, bounds = { x: 100, y: 50, width: 400, height: 300 }) => ({
+type TestWindow = AccessibleElement & { name: string; active: boolean };
+const element = (name: string, active = false, bounds = { x: 100, y: 50, width: 400, height: 300 }): TestWindow => ({
   role: "window", name, value: null, description: null, bounds, actions: [], enabled: true, focused: false, selected: false,
   editable: false, expanded: null, checked: null, active,
   children: async () => [{ role: "button", name: "Press me", value: null, description: null, bounds: { x: 150, y: 100, width: 50, height: 20 }, actions: ["press"], enabled: true, focused: false, selected: false, editable: false, expanded: null, checked: null, children: async () => [] }],
