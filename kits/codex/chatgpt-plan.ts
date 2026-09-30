@@ -109,14 +109,14 @@ export class ChatGPTPlan {
     return (await this.oauth.models(saved.tokens!.accessToken)).map((model, index) => ({ id: model.slug, model: model.slug, displayName: model.display_name, hidden: false, isDefault: index === 0, defaultReasoningEffort: "", supportedReasoningEfforts: [] }));
   }
 
-  async signOut(instance: string): Promise<string> {
+  async signOut(instance: string): Promise<{ revoked: boolean; message: string }> {
     return this.store.lock(instance, async () => {
       const saved = await this.store.read(instance);
-      if (!saved) return "Signed out of ChatGPT.";
+      if (!saved) return { revoked: true, message: "Signed out of ChatGPT." };
       const revoked = await this.oauth.revoke(saved);
       const { tokens: _tokens, ...mapping } = saved;
       await this.store.write(instance, mapping);
-      return revoked ? "Signed out of ChatGPT." : "Signed out locally. Remote revocation was not confirmed; disconnect Tau in ChatGPT Settings to end remote access.";
+      return { revoked, message: revoked ? "Signed out of ChatGPT." : "Signed out locally. Remote revocation was not confirmed; disconnect Tau in ChatGPT Settings to end remote access." };
     });
   }
 }

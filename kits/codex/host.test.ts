@@ -40,14 +40,14 @@ async function harness(options: { installed?: string | undefined; found?: boolea
   }
   const backends: HostRuntimeBackendProvider[] = [];
   const events: PublishedKitEvent[] = [];
-  const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ version: "0.155.1" }) }) as Response);
+  const fetch = vi.fn(async (_url?: string | URL | Request) => ({ ok: true, json: async () => ({ version: "0.155.1" }) }) as Response);
   const launches: Array<{ threadId?: string; args: readonly string[]; env: NodeJS.ProcessEnv; instance: string }> = [];
   const connected: RuntimeSessionInfo[] = [];
   const connectOptions: unknown[] = [];
   // Never the user's own ~/.codex: the default instance's home is the scratch folder's.
   const extension = createCodexHostExtension({
     env: options.env ?? { CODEX_HOME: join(root, "home") },
-    fetch,
+    fetch: fetch as typeof globalThis.fetch,
     readVersion: async () => "installed" in options ? options.installed : "0.154.0",
     openSession: (input) => (launches.push({ ...(input.threadId ? { threadId: input.threadId } : {}), args: input.args, env: input.env, instance: input.instance }), CodexAppServer.open({
       command: process.execPath,
@@ -590,6 +590,21 @@ describe("Codex ChatGPT plan instances", () => {
     await registry.activate({ id: "tau.usage", name: "Usage", activate(activation) { read = () => activation.invokeHostExtension("tau.codex", "usage-limits"); } });
     expect(await read!()).toMatchObject({ accounts: [{ managementUrl: "https://chatgpt.com/settings/usage", windows: [], unavailable: { reason: "unsupported" } }] });
     expect(launches).toHaveLength(0);
+  });
+
+  it("removes a plan instance only when ChatGPT confirmed the revocation", async () => {
+    const { registry, root, fetch } = await harness();
+    await registry.invoke("tau.codex", "save-instance", { instance: { id: "work" } });
+    await new ChatGPTPlanStore(join(root, "state", "tau.codex", "chatgpt-plan")).write("work", { issuer: "https://auth.openai.com", subject: "fixture-subject", clientId: "oaiapp_fixture", tokens: { accessToken: "fixture-access", refreshToken: "fixture-refresh", idToken: "fixture-id", scopes: ["chatgpt.tokens.use.direct"], expiresAt: Date.now() + 3600_000 } });
+    let revocation = 400;
+    fetch.mockImplementation(async (url) => String(url).endsWith("openid-configuration")
+      ? Response.json({ issuer: "https://auth.openai.com", jwks_uri: "https://auth.openai.com/jwks", revocation_endpoint: "https://auth.openai.com/revoke" })
+      : new Response(null, { status: revocation }));
+    await expect(registry.invoke("tau.codex", "remove-instance", { instance: "work" })).rejects.toThrow("Remote revocation was not confirmed");
+    expect((await registry.invoke("tau.codex", "instances") as { instances: Array<{ id: string }> }).instances.map((entry) => entry.id)).toContain("work");
+    revocation = 200;
+    await registry.invoke("tau.codex", "remove-instance", { instance: "work" });
+    expect((await registry.invoke("tau.codex", "instances") as { instances: Array<{ id: string }> }).instances.map((entry) => entry.id)).not.toContain("work");
   });
 
   it("refuses to let a plan instance's commands see variables named *TOKEN*", async () => {

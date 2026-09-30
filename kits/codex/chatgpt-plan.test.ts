@@ -176,7 +176,7 @@ describe("ChatGPT plan authorization", () => {
   it("revokes and clears only the selected account, retaining registration and host identity", async () => {
     const f = await fixture(); await f.plan.signIn("one", f.flow); await f.plan.signIn("two", f.flow);
     const host = await f.plan.store.hostId();
-    expect(await f.plan.signOut("one")).toBe("Signed out of ChatGPT.");
+    expect(await f.plan.signOut("one")).toEqual({ revoked: true, message: "Signed out of ChatGPT." });
     expect(await f.plan.read("one")).toMatchObject({ clientId: "oaiapp_fixture", subject: "account-1" });
     expect((await f.plan.read("one"))!.tokens).toBeUndefined();
     expect((await f.plan.read("two"))!.tokens).toBeDefined();
@@ -187,7 +187,7 @@ describe("ChatGPT plan authorization", () => {
 
   it("clears local credentials and reports failed remote revocation", async () => {
     const f = await fixture(); await f.plan.signIn("one", f.flow); f.set({ failRevoke: true });
-    expect(await f.plan.signOut("one")).toContain("Remote revocation was not confirmed");
+    expect(await f.plan.signOut("one")).toMatchObject({ revoked: false, message: expect.stringContaining("Remote revocation was not confirmed") });
     expect((await f.plan.read("one"))!.tokens).toBeUndefined();
   });
 

@@ -673,8 +673,8 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           signingOut.add(id);
           try {
             await stopSessions(id);
-            const message = await chatgpt.signOut(id);
-            if (message.includes("not confirmed")) throw new HostCommandError(message);
+            const { revoked, message } = await chatgpt.signOut(id);
+            if (!revoked) throw new HostCommandError(message);
           } finally { signingOut.delete(id); }
         }
         await settings.remove(id);
@@ -844,7 +844,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
             signingOut.add(id);
             try {
               await stopSessions(id);
-              return await chatgpt.signOut(id);
+              return (await chatgpt.signOut(id)).message;
             } finally {
               await stopSessions(id);
               signingOut.delete(id);
