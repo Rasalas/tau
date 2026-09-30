@@ -6,7 +6,7 @@ import { createMemoryStorage } from "../../src/workbench/client-storage";
 import type { HostConnectionState } from "../../src/workbench/host-connection";
 import type { SavedHost } from "./hosts";
 import type { LinkSocket } from "./machine-link";
-import { ARRIVAL_KEY, MACHINES_FOCUS_MIN_MS, NAVIGATE_DELAY_MS, MACHINES_REFRESH_MS, MACHINES_START_MS, PhoneMachines } from "./machines";
+import { ARRIVAL_KEY, MACHINES_BUSY_MS, MACHINES_FOCUS_MIN_MS, NAVIGATE_DELAY_MS, MACHINES_REFRESH_MS, MACHINES_START_MS, PhoneMachines } from "./machines";
 import type { AppRoute } from "./routes";
 import { hostStorage } from "./storage";
 
@@ -30,6 +30,8 @@ class FakeHost {
   missed: unknown[] = [];
   resync = false;
   readCommands: Record<string, string[]> = { "tau.usage": ["limits"] };
+  /** Open questions `sync-extension-ui` answers with; `undefined` is a host from before the open set. */
+  prompts: Array<{ id: string; sessionId: string }> | undefined = [];
 
   socket = (): LinkSocket => {
     const socket = new FakeSocket(this);
@@ -72,7 +74,8 @@ class FakeSocket implements LinkSocket {
       : method === "update-status" ? { version: "0.7.14", phase: "current", automatic: true }
         : method === "host-extensions" ? Object.entries(this.host.readCommands).map(([extension, readCommands]) => ({ id: extension, readCommands }))
           : method === "host-extension" ? { answered: params }
-            : undefined;
+            : method === "sync-extension-ui" ? this.host.prompts
+              : undefined;
     this.deliver({ type: "response", response: { id, result } });
   }
 }
@@ -134,7 +137,53 @@ describe("PhoneMachines", () => {
     // An auxiliary hello that follows no thread and no topic.
     expect(fake.hellos[0]).toMatchObject({ auxiliary: true, subscription: { threads: [], topics: [] }, token: "t-rex" });
     expect(fake.hellos[0]).not.toHaveProperty("lastSeq");
-    expect(fake.calls).toEqual(["bootstrap", "update-status"]);
+    expect(fake.calls).toEqual(["bootstrap", "sync-extension-ui", "update-status"]);
+  });
+
+  it("shows a thread that asks there as waiting, from the snapshot and from what a visit replays", async () => {
+    vi.useFakeTimers();
+    const { machines, fake, storage, hosts } = setup();
+    fake.prompts = [{ id: "q1", sessionId: "b" }];
+    machines.getSnapshot();
+    await vi.advanceTimersByTimeAsync(MACHINES_START_MS + 1_000);
+    const waiting = () => rexOf(machines)!.threads.filter((thread) => thread.waiting).map((thread) => thread.id);
+    expect(waiting()).toEqual(["b"]);
+    fake.missed = [
+      { seq: 11, event: { type: "extension-ui-resolved", id: "q1", sessionId: "b" } },
+      { seq: 12, event: { type: "extension-ui-prompt", sessionId: "a", prompt: { id: "q2", sessionId: "a", kind: "confirm", title: "Go on?" } } },
+    ];
+    fake.seq = 12;
+    await vi.advanceTimersByTimeAsync(MACHINES_BUSY_MS);
+    expect(fake.calls.filter((call) => call === "bootstrap")).toHaveLength(1);
+    expect(waiting()).toEqual(["a"]);
+    // A reload keeps the question.
+    const again = new PhoneMachines({ ...optionsOf({ machines, fake, storage, hosts } as ReturnType<typeof setup>), storage });
+    again.getSnapshot();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rexOf(again)!.threads.find((thread) => thread.id === "a")?.waiting).toBe(true);
+    again.dispose();
+    machines.dispose();
+  });
+
+  it("visits every 30 s while a thread runs or asks there, and every 2 min once all is quiet", async () => {
+    vi.useFakeTimers();
+    const { machines, fake } = setup();
+    machines.getSnapshot();
+    await vi.advanceTimersByTimeAsync(MACHINES_START_MS);
+    expect(fake.hellos).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(MACHINES_BUSY_MS);
+    expect(fake.hellos).toHaveLength(2);
+    // The run ends; the visit after that comes at the calm interval.
+    fake.missed = [{ seq: 11, event: { type: "agent-status", sessionId: "a", running: false } }];
+    fake.seq = 11;
+    await vi.advanceTimersByTimeAsync(MACHINES_BUSY_MS);
+    expect(fake.hellos).toHaveLength(3);
+    fake.missed = [];
+    await vi.advanceTimersByTimeAsync(MACHINES_REFRESH_MS - 1_000);
+    expect(fake.hellos).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(fake.hellos).toHaveLength(4);
+    machines.dispose();
   });
 
   it("closes an idle link, reads again at a calm interval by replay, and not while the app is away", async () => {

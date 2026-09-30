@@ -42,7 +42,7 @@ export interface ThreadStoreSnapshot {
   runningStartedAt: Readonly<Record<string, number>>;
 }
 
-const EMPTY_SNAPSHOT: ThreadStoreSnapshot = {
+export const EMPTY_SNAPSHOT: ThreadStoreSnapshot = {
   projects: [],
   threads: [],
   activeThreadId: "",

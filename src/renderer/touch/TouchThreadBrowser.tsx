@@ -5,7 +5,7 @@ import { rootLast } from "../../workbench/new-thread-project";
 import { threadListGroups, type ThreadSupervisionRow } from "../../workbench/thread-supervision";
 import { useClientEnvironment } from "../client-environment";
 import { ProjectIcon } from "../components/ProjectIcon";
-import type { PageContribution, WorkbenchActions } from "../extension-system";
+import type { ExtensionRegistry, PageContribution, ThreadListEntry, WorkbenchActions } from "../extension-system";
 import { Region } from "../components/Regions";
 import { Popover } from "../components/ui/Dialog";
 import { tooltipProps } from "../components/ui/Tooltip";
@@ -13,6 +13,7 @@ import { useHostCapabilities } from "../use-host-capabilities";
 import { useThreadStore } from "../workbench-context";
 import { ActionSheet } from "./ActionSheet";
 import { TouchThreadList, type TouchThreadListProps } from "./TouchThreadList";
+import { useThreadListSources } from "./thread-list-sources";
 import "./touch.css";
 
 export { TouchThreadList };
@@ -60,7 +61,7 @@ export function TouchThreadBrowser({ variant, nav, onNewThread, onOpenSettings, 
 
   const popovers = <>
     {popover === "search" ? <Popover anchor={searchButton} side="bottom" align="end" label="Search threads" className="touch-popover touch-search" onClose={() => setPopover(undefined)}>
-      <ThreadSearch onOpen={(row) => { setPopover(undefined); list.onOpen(row); }} />
+      <ThreadSearch registry={list.registry} onOpen={(row, entry) => { setPopover(undefined); if (entry) entry.open(list.actions); else list.onOpen(row); }} />
     </Popover> : null}
     {popover === "menu" ? <Popover anchor={menuButton} side="bottom" align="end" label="More" className="touch-popover touch-menu" onClose={() => setPopover(undefined)}>
       <div role="menu" aria-label="More">
@@ -151,17 +152,18 @@ function ProjectFilter({ projects, project, onChange }: {
   </>;
 }
 
-/** The search popover: a field with the focus, and the threads it finds by title, project or label. */
-function ThreadSearch({ onOpen }: { onOpen(row: ThreadSupervisionRow): void }) {
+/** The search popover: a field with the focus, and the threads it finds by title, project or label, other machines' too. */
+function ThreadSearch({ registry, onOpen }: { registry: ExtensionRegistry; onOpen(row: ThreadSupervisionRow, entry?: ThreadListEntry): void }) {
   const store = useThreadStore();
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const activity = useSyncExternalStore(store.subscribeToActivity, store.getActivity);
+  const outside = useThreadListSources(registry);
   const [query, setQuery] = useState("");
   const field = useRef<HTMLInputElement>(null);
   useEffect(() => { field.current?.focus(); }, []);
   const results = useMemo(() => query.trim()
-    ? threadListGroups(snapshot.threads, activity, { query, shown: { active: SEARCH_RESULTS, settled: SEARCH_RESULTS } }).flatMap((group) => group.rows).slice(0, SEARCH_RESULTS)
-    : [], [activity, query, snapshot.threads]);
+    ? threadListGroups(snapshot.threads, activity, { query, extra: outside.rows, shown: { active: SEARCH_RESULTS, settled: SEARCH_RESULTS } }).flatMap((group) => group.rows).slice(0, SEARCH_RESULTS)
+    : [], [activity, outside.rows, query, snapshot.threads]);
   return <>
     <label className="touch-search-field">
       <Search size={16} aria-hidden="true" />
@@ -169,15 +171,19 @@ function ThreadSearch({ onOpen }: { onOpen(row: ThreadSupervisionRow): void }) {
       {query ? <button type="button" className="touch-icon-button" aria-label="Clear search" onClick={() => { setQuery(""); field.current?.focus(); }}><X size={16} /></button> : null}
     </label>
     {query.trim() ? results.length > 0 ? <ul className="touch-search-results" aria-label="Search results">
-      {results.map((row) => <li key={row.id}>
-        <button type="button" onClick={() => onOpen(row)}>
-          <strong>{row.title}</strong>
-          <small>{row.projectLabel ? `${row.projectName} · ${row.projectLabel}` : row.projectName}</small>
-        </button>
-      </li>)}
+      {results.map((row) => {
+        const entry = outside.byKey.get(row.id);
+        const machine = entry?.machine;
+        return <li key={row.id}>
+          <button type="button" onClick={() => onOpen(row, entry)}>
+            <strong>{row.title}</strong>
+            <small>{row.projectLabel ? `${row.projectName} · ${row.projectLabel}` : row.projectName}{machine ? <> · <span className="touch-thread-machine">{machine.icon}<span>{machine.name}</span></span></> : null}</small>
+          </button>
+        </li>;
+      })}
     </ul> : <p className="touch-search-empty" role="status">
       No thread matches “{query.trim()}”.
       <button type="button" onClick={() => { setQuery(""); field.current?.focus(); }}>Clear search</button>
-    </p> : <p className="touch-search-empty">Searches every thread on this host, settled ones too.</p>}
+    </p> : <p className="touch-search-empty">Searches every thread, settled ones too.</p>}
   </>;
 }

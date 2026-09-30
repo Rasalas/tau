@@ -15,7 +15,7 @@ const machine = (id: string, patch: Partial<UiEnvironment> = {}): UiEnvironment 
 // A phone knows no machine of its own: every one is a paired host.
 const mac = machine("mac");
 const rex = machine("rex", {
-  threads: [{ id: "r1", path: "/r/1", title: "Build on rex", projectName: "shop", modifiedAt: 5, running: true }, { id: "r2", path: "/r/2", title: "Old", projectName: "shop", modifiedAt: 1, settled: true }],
+  threads: [{ id: "r1", path: "/r/1", title: "Build on rex", projectName: "shop", modifiedAt: 5, running: true, waiting: true }, { id: "r2", path: "/r/2", title: "Old", projectName: "shop", modifiedAt: 1, settled: true }],
   threadCount: 2,
   projects: [{ name: "other", lastOpenedAt: 9, workspaceId: "ws-other" }, { name: "shop", lastOpenedAt: 1, workspaceId: "ws-shop" }],
 });
@@ -60,7 +60,7 @@ describe("Machines Kit on a phone", () => {
     const [source] = registry.getThreadListSources();
     expect(source!.id).toBe("environments.threads");
     const stop = source!.subscribe(() => undefined);
-    expect(source!.threads().map((entry) => [entry.key, entry.running ?? false, entry.settled ?? false])).toEqual([["machine:rex:r1", true, false], ["machine:rex:r2", false, true]]);
+    expect(source!.threads().map((entry) => [entry.key, entry.running ?? false, entry.waiting ?? false, entry.settled ?? false])).toEqual([["machine:rex:r1", true, true, false], ["machine:rex:r2", false, false, true]]);
     expect(source!.here!()?.name).toBe("mac");
     set({ shown: "mac", environments: [mac], secureStorage: true });
     expect(source!.here!()).toBeUndefined();
