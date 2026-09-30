@@ -167,6 +167,10 @@ survive logout. Only platform/architecture archives built and published by the
 release pipeline are accepted; an unavailable release gives an error before
 installation. The first release containing `latest-host-*.yml` and its signatures
 must be published before this setup can use the official feed.
+The workflow builds portable Linux x64/arm64 hosts, both Mac architectures,
+and Windows x64. The ARM Linux archive uses GitHub's documented
+[standard ARM runner](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+and has its own feed; it does not change desktop Linux installer updates.
 
 Tau uses your SSH config, agent and known host keys with strict host-key checking
 and password prompts disabled. Log in once in a terminal to verify an unknown
