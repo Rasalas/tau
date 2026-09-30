@@ -17,7 +17,8 @@ import type { UsageEntry, UsageLimitsSummary, UsageSummary } from "./protocol.js
 
 const NOW = new Date(2026, 8, 22, 15, 30);
 const days = dayStarts(HISTORY_DAYS, NOW);
-const LAST = HISTORY_DAYS - 1;
+// Day 0 of an answer gathers everything older than the page's days; today is the last.
+const LAST = HISTORY_DAYS;
 const scrolled: string[] = [];
 
 beforeEach(() => {
@@ -38,7 +39,7 @@ const entries = [
   entry({}),
   entry({ day: LAST - 3, backend: "codex", threadId: "t-codex", model: "gpt-5.6-luna", provider: "openai", billing: "subscription", costUsd: 0, apiValueUsd: 1.4, requests: 2, totalTokens: 500 }),
   // The same days of August: the 10th counts against September's first 22.
-  entry({ day: days.indexOf(new Date(2026, 7, 10).getTime()), threadId: "t-august", costUsd: 1 }),
+  entry({ day: days.indexOf(new Date(2026, 7, 10).getTime()) + 1, threadId: "t-august", costUsd: 1 }),
 ];
 
 const summary = (): UsageSummary => ({
@@ -79,7 +80,7 @@ describe("Usage's page sidebar", () => {
     expect(month.textContent).toMatch(/On pace for \$2\.\d\d/u);
     // One set of filters on screen: the sidebar's.
     expect(screen.getAllByRole("radiogroup", { name: "Measure" })).toHaveLength(1);
-    const page = screen.getByRole("region", { name: "Threads" });
+    const page = screen.getAllByRole("region", { name: "Threads" }).at(-1)!;
     fireEvent.click(within(side.getByRole("radiogroup", { name: "Runtime" })).getByRole("radio", { name: "Codex" }));
     expect(within(page).getAllByRole("listitem")).toHaveLength(1);
     fireEvent.click(within(side.getByRole("radiogroup", { name: "Measure" })).getByText("Tokens"));
@@ -88,11 +89,14 @@ describe("Usage's page sidebar", () => {
     expect(scrolled).toEqual(["usage-models"]);
   });
 
-  it("keeps the month and the filters on top of the page without a sidebar, and opens at the section asked for", async () => {
+  it("keeps the month and the filters in a sheet without a sidebar, and opens at the section asked for", async () => {
     render(<TestProviders><HostClientProvider client={createFakeHostClient()}><UsagePage host={host(answers)} now={() => NOW} navigate={vi.fn()} params={{ section: "limits" }} /></HostClientProvider></TestProviders>);
-    const month = await screen.findByRole("region", { name: "This month" });
-    await waitFor(() => expect(within(month).getByText("$2.00")).toBeTruthy());
-    expect(screen.getByRole("radiogroup", { name: "Range" })).toBeTruthy();
+    await within(await screen.findByRole("region", { name: "API spend" })).findByText("$2.00");
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+    const sheet = within(await screen.findByRole("dialog", { name: "Usage filters" }));
+    const month = sheet.getByRole("region", { name: "This month" });
+    expect(within(month).getByText("$2.00")).toBeTruthy();
+    expect(sheet.getByRole("radiogroup", { name: "Range" })).toBeTruthy();
     await waitFor(() => expect(scrolled).toContain("usage-limits"));
   });
 

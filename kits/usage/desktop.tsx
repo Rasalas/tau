@@ -21,7 +21,7 @@ export const usageExtension: DesktopExtension = {
     plugin.registerPage({
       id: USAGE_PAGE,
       label: "Usage",
-      description: "What your threads used, from each runtime's own records, and how much of each plan is left.",
+      description: "What threads cost, counted from each provider's own usage report. Plan usage shows as tokens, not dollars.",
       // A phone draws it as a screen of its own, in one column.
       profiles: ["desktop", "web", "compact"],
       Icon: ChartColumn,

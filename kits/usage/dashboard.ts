@@ -4,12 +4,17 @@ import { toneOf, type UsageTone } from "./tones.js";
 /** Days the page reads at once: the longest range it draws. */
 export const HISTORY_DAYS = 90;
 
-export type UsageRange = "7d" | "30d" | "90d";
-export const USAGE_RANGES: ReadonlyArray<{ id: UsageRange; label: string; days: number }> = [
-  { id: "7d", label: "7 days", days: 7 },
-  { id: "30d", label: "30 days", days: 30 },
-  { id: "90d", label: "90 days", days: 90 },
-];
+/** This month so far, the last 30 days, or everything a host kept (the days before the page's own read as one, day -1). */
+export type UsageRange = "month" | "30d" | "all";
+
+/** The first day index a period counts from; -1 takes in what came before the days read. */
+export function periodFrom(range: UsageRange, days: readonly number[], now: Date = new Date()): number {
+  if (range === "all") return -1;
+  if (range === "30d") return Math.max(0, days.length - 30);
+  const start = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const index = days.findIndex((day) => day >= start);
+  return index === -1 ? days.length : index;
+}
 
 export type UsageMetric = "cost" | "tokens" | "turns";
 
@@ -27,10 +32,6 @@ export interface UsageFigures {
   threads: number;
 }
 
-function empty(): UsageFigures {
-  return { costUsd: 0, apiValueUsd: 0, totalTokens: 0, requests: 0, threads: 0 };
-}
-
 function add(into: Omit<UsageFigures, "threads">, entry: UsageEntry): void {
   into.costUsd += entry.costUsd;
   into.apiValueUsd += entry.apiValueUsd;
@@ -38,61 +39,45 @@ function add(into: Omit<UsageFigures, "threads">, entry: UsageEntry): void {
   into.requests += entry.requests;
 }
 
-/** Everything from `fromDay` on, with the threads it touched. */
-export function figuresFrom(entries: readonly UsageEntry[], fromDay: number): UsageFigures {
-  const figures = empty();
-  const threads = new Set<string>();
-  for (const entry of entries) {
-    if (entry.day < fromDay) continue;
-    add(figures, entry);
-    threads.add(`${entry.backend}\u0000${entry.threadId}`);
-  }
-  figures.threads = threads.size;
-  return figures;
-}
-
-/** One provider's share of a day or a ranked row, by its colour: a model's provider, else its runtime's. */
-export interface ProviderPart extends Omit<UsageFigures, "threads"> {
-  tone: UsageTone;
-}
-
 export interface DayFigures extends Omit<UsageFigures, "threads"> {
   start: number;
-  /** In `TONE_ORDER`. */
-  parts: ProviderPart[];
+  /** What a plan covered: its tokens and turns (its money is `apiValueUsd`). */
+  planTokens: number;
+  planRequests: number;
 }
 
-/** Parts stack in this order, the same in every bar. */
-export const TONE_ORDER: readonly UsageTone[] = ["openai", "anthropic", "google", "pi", "other"];
+/** Whether a subscription paid for it, rather than a key per token or a local model. */
+export function onPlan(entry: Pick<UsageEntry, "billing" | "apiValueUsd">): boolean {
+  return entry.billing === "subscription" || entry.apiValueUsd > 0;
+}
 
 export function toneOfEntry(entry: Pick<UsageEntry, "provider" | "backend">): UsageTone {
   return toneOf(entry.provider ?? entry.backend);
 }
 
-function addPart(parts: ProviderPart[], entry: UsageEntry): void {
-  const tone = toneOfEntry(entry);
-  let part = parts.find((item) => item.tone === tone);
-  if (!part) { part = { tone, costUsd: 0, apiValueUsd: 0, totalTokens: 0, requests: 0 }; parts.push(part); }
-  add(part, entry);
-}
-
-function ordered(parts: ProviderPart[]): ProviderPart[] {
-  return parts.sort((left, right) => TONE_ORDER.indexOf(left.tone) - TONE_ORDER.indexOf(right.tone));
-}
-
 /** One bar per day from `fromDay`, empty days included. */
 export function dailyFigures(entries: readonly UsageEntry[], days: readonly number[], fromDay: number): DayFigures[] {
-  const series: DayFigures[] = days.slice(fromDay).map((start) => ({ start, costUsd: 0, apiValueUsd: 0, totalTokens: 0, requests: 0, parts: [] }));
+  const series: DayFigures[] = days.slice(fromDay).map((start) => ({ start, costUsd: 0, apiValueUsd: 0, totalTokens: 0, requests: 0, planTokens: 0, planRequests: 0 }));
   for (const entry of entries) {
     const bar = series[entry.day - fromDay];
-    if (bar) { add(bar, entry); addPart(bar.parts, entry); }
+    if (!bar) continue;
+    add(bar, entry);
+    if (onPlan(entry)) { bar.planTokens += entry.totalTokens; bar.planRequests += entry.requests; }
   }
-  for (const bar of series) ordered(bar.parts);
   return series;
 }
 
-export type UsageRanking = "project" | "model" | "thread";
+export type UsageRanking = "project" | "model" | "thread" | "provider";
 
+/** A runtime's provider, for a turn that does not name its model's. */
+const RUNTIME_PROVIDERS: Record<string, string> = { "claude-code": "anthropic", codex: "openai", antigravity: "google", grok: "xai", cursor: "cursor", opencode: "opencode" };
+
+/** Who answered: a model's provider, one name per company (`openai-codex` is OpenAI), else its runtime's. */
+export function providerOf(entry: Pick<UsageEntry, "provider" | "backend">): string {
+  const name = (entry.provider ?? RUNTIME_PROVIDERS[entry.backend.split("@")[0]!] ?? entry.backend).toLowerCase();
+  const tone = toneOf(name);
+  return tone === "other" || tone === "pi" ? name : tone;
+}
 export interface RankedUsage extends Omit<UsageFigures, "threads"> {
   key: string;
   backend: string;
@@ -104,7 +89,8 @@ export interface RankedUsage extends Omit<UsageFigures, "threads"> {
   machine?: string;
   /** Whether its work ran in Tau, outside it (a CLI on its own), or both. */
   origin: UsageOrigin | "both";
-  parts: ProviderPart[];
+  /** The threads (and outside sessions) it counts. */
+  threads: number;
 }
 
 /** Work Tau ran, or work a CLI logged on its own. */
@@ -132,23 +118,18 @@ export function runtimesOf(entries: readonly UsageEntry[]): string[] {
   return [...turns].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0])).map(([backend]) => backend);
 }
 
-/** Turns per day index, for the activity calendar. */
-export function turnsPerDay(entries: readonly UsageEntry[], count: number): number[] {
-  const turns = Array.from({ length: count }, () => 0);
-  for (const entry of entries) if (entry.day >= 0 && entry.day < count) turns[entry.day]! += entry.requests;
-  return turns;
-}
-
 /**
  * The projects, models or threads that used the most from `fromDay` on.
  * A model is keyed with its runtime: the same model through Pi and Codex is two rows.
  */
-export function rankUsage(entries: readonly UsageEntry[], fromDay: number, by: UsageRanking, metric: UsageMetric, limit: number): RankedUsage[] {
+export function rankUsage(entries: readonly UsageEntry[], fromDay: number, by: UsageRanking, metric: UsageMetric, limit: number, projectOf?: (entry: UsageEntry) => string): RankedUsage[] {
   const ranked = new Map<string, RankedUsage>();
+  const threads = new Map<string, Set<string>>();
   for (const entry of entries) {
     if (entry.day < fromDay) continue;
     const where = entry.machine ?? "";
-    const key = by === "project" ? `${where}\u0000${entry.cwd}` : by === "model" ? `${entry.backend}\u0000${entry.provider ?? ""}\u0000${entry.modelId ?? entry.model}` : `${where}\u0000${entry.backend}\u0000${entry.threadId}`;
+    const thread = `${where}\u0000${entry.backend}\u0000${entry.threadId}`;
+    const key = by === "project" ? `${where}\u0000${projectOf?.(entry) ?? entry.cwd}` : by === "model" ? `${entry.backend}\u0000${entry.provider ?? ""}\u0000${entry.modelId ?? entry.model}` : by === "provider" ? providerOf(entry) : thread;
     let item = ranked.get(key);
     if (!item) {
       item = {
@@ -156,27 +137,21 @@ export function rankUsage(entries: readonly UsageEntry[], fromDay: number, by: U
         ...(entry.provider ? { provider: entry.provider } : {}),
         ...(by === "thread" ? { threadId: entry.threadId } : {}),
         ...(by !== "model" && entry.machine ? { machine: entry.machine } : {}),
+        ...(by === "provider" ? { provider: key } : {}),
         origin: originOf(entry),
-        costUsd: 0, apiValueUsd: 0, totalTokens: 0, requests: 0, parts: [],
+        costUsd: 0, apiValueUsd: 0, totalTokens: 0, requests: 0, threads: 0,
       };
       ranked.set(key, item);
+      threads.set(key, new Set());
     } else if (item.origin !== originOf(entry)) {
       item.origin = "both";
     }
+    threads.get(key)!.add(thread);
+    item.threads = threads.get(key)!.size;
     add(item, entry);
-    addPart(item.parts, entry);
   }
-  for (const item of ranked.values()) ordered(item.parts);
   return [...ranked.values()]
     .filter((item) => measure(item, metric) > 0 || (metric === "cost" && item.totalTokens > 0))
     .sort((left, right) => measure(right, metric) - measure(left, metric) || right.totalTokens - left.totalTokens || left.key.localeCompare(right.key))
     .slice(0, limit);
-}
-
-/** A round top for an axis at or above `value`: 1, 2 or 5 times a power of ten. */
-export function niceCeiling(value: number): number {
-  if (!(value > 0)) return 1;
-  const power = 10 ** Math.floor(Math.log10(value));
-  const step = [1, 2, 5, 10].find((factor) => factor * power >= value) ?? 10;
-  return step * power;
 }

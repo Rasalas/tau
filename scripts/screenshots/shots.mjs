@@ -164,16 +164,17 @@ export const SHOTS = [
   {
     name: "usage",
     device: "desktop",
-    description: "Usage: spend and plan value, the activity calendar and the daily chart, in Tau and outside it",
+    description: "Usage: the last 30 days' spend and plan tokens, per day, by provider and by project, in Tau and outside it",
     async run(ctx) {
       await ctx.click(`document.querySelector(".usage-juicebars")`);
-      const activity = `[...document.querySelectorAll(".usage-section")].find((section) => section.querySelector("h2, h3")?.textContent.trim() === "Activity")`;
-      await ctx.waitFor(`!!(${activity}) && /active days/.test((${activity}).textContent) && !/\\b[0-4] active days/.test((${activity}).textContent)`, 30_000);
-      await ctx.evaluate(`(${activity}).scrollIntoView({ block: "start" })`);
+      // The fixture's six weeks read fullest over 30 days; the month may have only begun.
+      await ctx.click(`document.querySelector('.usage-period [data-range="30d"]')`);
+      await ctx.waitFor(`document.querySelectorAll("#usage-projects li").length >= 3 && document.querySelectorAll("#usage-providers li").length >= 2`, 30_000);
+      await ctx.evaluate(`document.querySelector(".settings-scroll").scrollTo(0, 0)`);
       await ctx.rest();
-      // Down to the chart's legend; the lists below it are the page's, not the picture's.
-      const legend = await ctx.rect(`[...(${activity}).querySelectorAll("summary")].find((summary) => /Show as a table/.test(summary.textContent))`);
-      return ctx.screenshot({ x: 0, y: 0, width: ctx.viewport.width, height: Math.min(ctx.viewport.height, Math.ceil(legend.y + legend.height + 16)) });
+      // Down to the provider and project tables; the limits below are the page's, not the picture's.
+      const tables = await ctx.rect(`document.querySelector(".usage-tables")`);
+      return ctx.screenshot({ x: 0, y: 0, width: ctx.viewport.width, height: Math.min(ctx.viewport.height, Math.ceil(tables.y + tables.height + 16)) });
     },
   },
   {
@@ -283,9 +284,9 @@ export const SHOTS = [
   {
     name: "phone-usage",
     device: "phone",
-    description: "Usage on the phone: this month's spend and plan value",
+    description: "Usage on the phone: this month's spend, plan tokens, the last 12 days and the providers",
     async run(ctx) {
-      await openPhonePage(ctx, "Usage", `/billed/.test(document.body.textContent)`);
+      await openPhonePage(ctx, "Usage", `document.querySelectorAll("#usage-providers li").length >= 1`);
       return ctx.screenshot();
     },
   },
