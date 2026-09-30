@@ -233,7 +233,39 @@ describe("ChatGPT plan UI", () => {
   it("offers an explicit managed install repair for a registered account", async () => {
     const invoke = vi.fn(async (command: string) => command === "sign-in-state" ? { methods: [], account: { signedIn: true } } : { command: "codex", chatgptPlan: { signedIn: true, label: "fixture@example.test", usageUrl: "https://chatgpt.com/settings/usage", needsInstall: true } });
     render(<CodexProviderCard onNotify={vi.fn()} host={host(invoke)} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Install managed Codex" }));
+    const button = await screen.findByRole("button", { name: "Install managed Codex" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("managed-codex-install", {}));
+  });
+
+  it("shows Tau fetching its Codex on the card, and reads the status again once it is ready", async () => {
+    const listeners = new Map<string, (value: unknown) => void>();
+    let ready = false;
+    const invoke = vi.fn(async (command: string) => command === "sign-in-state" ? { methods: [], account: { signedIn: true } }
+      : ready ? { command: "codex", path: "/state/managed-codex/0.160.0/bin/codex", version: "0.160.0", chatgptPlan: { signedIn: true, label: "fixture@example.test", usageUrl: "https://chatgpt.com/settings/usage" } }
+        : { command: "codex", message: "Tau is fetching Codex 0.160.0; this instance uses it once it is ready.", chatgptPlan: { signedIn: true, label: "fixture@example.test", usageUrl: "https://chatgpt.com/settings/usage" }, managedInstall: { version: "0.160.0", phase: "downloading" } });
+    const client = { invoke, onEvent: (name: string, listener: (value: unknown) => void) => { listeners.set(name, listener); return () => listeners.delete(name); } };
+    render(<CodexProviderCard onNotify={vi.fn()} host={client} />);
+    await screen.findByText("Downloading Codex 0.160.0…");
+    await waitFor(() => expect(listeners.has("managed-codex")).toBe(true));
+    listeners.get("managed-codex")!({ version: "0.160.0", phase: "downloading", downloadedBytes: 64 * 1024 * 1024, totalBytes: 128 * 1024 * 1024 });
+    await screen.findByText("Downloading Codex 0.160.0… 50% (64 of 128 MB)");
+    expect(screen.queryByRole("button", { name: "Install managed Codex" })).toBeNull();
+    ready = true;
+    listeners.get("managed-codex")!({ version: "0.160.0", phase: "installed" });
+    await waitFor(() => expect(document.getElementById("setting-codex-program")?.textContent).toContain("0.160.0"));
+    await waitFor(() => expect(screen.queryByText(/Downloading Codex/u)).toBeNull());
+  });
+
+  it("offers to try again when fetching Tau's Codex failed", async () => {
+    const invoke = vi.fn(async (command: string) => command === "sign-in-state" ? { methods: [], account: { signedIn: true } }
+      : { command: "codex", chatgptPlan: { signedIn: true, label: "fixture@example.test", usageUrl: "https://chatgpt.com/settings/usage", needsInstall: true }, managedInstall: { version: "0.160.0", phase: "failed", error: "Codex download failed (503). Try again." } });
+    render(<CodexProviderCard onNotify={vi.fn()} host={host(invoke)} />);
+    expect((await screen.findByRole("alert")).textContent).toBe("Tau could not fetch Codex 0.160.0. Codex download failed (503). Try again.");
+    const button = screen.getByRole("button", { name: "Try again" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("managed-codex-install", {}));
   });
 
@@ -247,6 +279,8 @@ describe("ChatGPT plan UI", () => {
     expect(client.invoke).toHaveBeenCalledWith("chatgpt-plan-account", { instance: "work" });
     listeners.get("chatgpt-plan-limit")!({ instance: "work" });
     await screen.findByText(/Review your app limits and credits/u);
+    listeners.get("managed-codex")!({ version: "0.160.0", phase: "extracting" });
+    await screen.findByText("Unpacking Codex 0.160.0…");
     fireEvent.click(screen.getByRole("button", { name: "Manage usage" }));
     expect(actions.openExternal).toHaveBeenCalledWith("https://chatgpt.com/settings/usage");
   });

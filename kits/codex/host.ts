@@ -2,6 +2,7 @@ import { ChatGPTPlan, CHATGPT_PLAN_ARGS, CHATGPT_PLAN_METHOD, CHATGPT_USAGE_URL,
 import type { ChatGPTRegistration } from "./chatgpt-plan-store.js";
 import { PLAN_SCOPE } from "./chatgpt-plan-oauth.js";
 import { createManagedCodex, MANAGED_CODEX_VERSION } from "./managed-install.js";
+import type { ManagedCodexAsset } from "./managed-release.js";
 import { execFile } from "node:child_process";
 import { mkdir, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -36,6 +37,7 @@ import {
   type RuntimeInstanceConfig,
   type RuntimeToolVersion,
   type SignInAccount,
+  type SignInFlowContext,
   type SignInMethod,
   type UiModel,
   type UiModelBilling,
@@ -54,6 +56,7 @@ import {
   CODEX_HOST_EXTENSION_ID,
   CODEX_NPM_PACKAGE,
   INSTANCES_EVENT,
+  MANAGED_CODEX_EVENT,
   MIN_CODEX_VERSION,
   ONBOARDING_KIT_ID,
   SEARCH_KIT_ID,
@@ -61,6 +64,7 @@ import {
   type ChatGPTPlanSummary,
   type CodexInstancesReport,
   type CodexStatusReport,
+  type ManagedCodexState,
 } from "./protocol.js";
 import { createCodexRuntimeAdapter } from "./runtime-adapter.js";
 import { CodexSessionStore, type CodexStoredModel } from "./session-store.js";
@@ -81,6 +85,8 @@ export interface CodexHostExtensionOptions {
   /** `codex --version`; tests answer it. */
   readVersion?(path: string): Promise<string | undefined>;
   fetch?: typeof globalThis.fetch;
+  /** The managed release's archive; tests serve a fixture, production the pinned table. */
+  managedAsset?: ManagedCodexAsset;
 }
 
 /** What `status` and the model list need of the CLI, asked without a thread. */
@@ -222,9 +228,11 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       const policy = runtimeVersionPolicy(CODEX_BACKEND_KIND, CODEX_VERSION_POLICY, env);
       const chatgpt = new ChatGPTPlan(join(services.stateDir, "chatgpt-plan"), options.fetch);
       const planHome = (id: string): string => join(services.stateDir, "chatgpt-plan-homes", id);
-      const managed = createManagedCodex({ directory: join(services.stateDir, "managed-codex"), ...(options.fetch ? { fetch: options.fetch } : {}) });
+      const managed = createManagedCodex({ directory: join(services.stateDir, "managed-codex"), ...(options.fetch ? { fetch: options.fetch } : {}), ...(options.managedAsset ? { asset: options.managedAsset } : {}) });
       let managedPath: string | undefined;
-      const managedReady = managed.resolveInstalled().then((path) => { managedPath = path; });
+      /** An earlier pinned release is on disk: this host ran Tau's Codex before a Tau update. */
+      let hadManaged = false;
+      const managedReady = Promise.all([managed.resolveInstalled(), managed.hadEarlier()]).then(([path, earlier]) => { managedPath = path; hadManaged = earlier; });
       const signingOut = new Set<string>();
       const transitioning = new Set<string>();
       const openingThreads = new Map<string, number>();
@@ -250,16 +258,52 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       const instanceEnv = (id: string): NodeJS.ProcessEnv => settings.environment(id, env);
       const locate = (id: string): string | undefined => services.findCommand(codexCommand(id)) ?? (!settings.command(id).source ? managedPath : undefined);
       const planReady = (registration: ChatGPTRegistration): boolean => Boolean(registration.tokens?.scopes.includes(PLAN_SCOPE));
-      /** A plan instance without an executable of its own waits for Tau's Codex. */
-      const needsManaged = (id: string): boolean => !settings.command(id).source && !managedPath;
+      /** Plan instances run Tau's Codex; so does a CLI instance without one of its own once Tau had fetched one. */
+      const usesManaged = async (id: string): Promise<boolean> => {
+        if (settings.command(id).source) return false;
+        if (await chatgpt.read(id)) return true;
+        return !services.findCommand(codexCommand(id)) && (managedPath !== undefined || hadManaged);
+      };
       const requirePlanRelease = (version: string | undefined): void => {
         if (!version || compareVersions(version, MANAGED_CODEX_VERSION) < 0) throw new Error(`ChatGPT plan usage requires Codex ${MANAGED_CODEX_VERSION} or newer. Clear the executable override to use the version managed by Tau.`);
       };
+
+      /** Fetching the pinned release: one download for every instance, its progress pushed to every card. */
+      let fetching: Promise<string> | undefined;
+      let fetchState: ManagedCodexState | undefined;
+      const installListeners = new Set<(progress: ManagedCodexState) => void>();
+      const noteInstall = (progress: ManagedCodexState): void => {
+        fetchState = progress.phase === "installed" ? undefined : progress;
+        context.emit(MANAGED_CODEX_EVENT, progress);
+        for (const listener of [...installListeners]) listener(progress);
+      };
+      const fetchManaged = (): Promise<string> => fetching ??= (async () => {
+        let percent = -1;
+        noteInstall({ version: MANAGED_CODEX_VERSION, phase: "downloading" });
+        try {
+          const path = await managed.ensure({
+            onProgress: (event) => {
+              if (event.phase === "installed") return;
+              const now = event.totalBytes ? Math.floor(((event.downloadedBytes ?? 0) * 100) / event.totalBytes) : -1;
+              if (event.phase === "downloading" && now === percent) return;
+              percent = now;
+              noteInstall({ version: MANAGED_CODEX_VERSION, ...event });
+            },
+          });
+          managedPath = path;
+          noteInstall({ version: MANAGED_CODEX_VERSION, phase: "installed" });
+          for (const instance of settings.list()) if (await usesManaged(instance.id)) register(instance.id);
+          return path;
+        } catch (error) {
+          noteInstall({ version: MANAGED_CODEX_VERSION, phase: "failed", error: error instanceof Error ? error.message : String(error) });
+          throw error;
+        } finally { fetching = undefined; }
+      })();
       const planSummary = (id: string, registration: ChatGPTRegistration): ChatGPTPlanSummary => ({
         signedIn: planReady(registration),
         label: registration.email ?? "ChatGPT account",
         usageUrl: CHATGPT_USAGE_URL,
-        ...(needsManaged(id) ? { needsInstall: true } : {}),
+        ...(!settings.command(id).source && !managedPath && !fetching ? { needsInstall: true } : {}),
       });
       const updateCommand = async (path: string | undefined): Promise<string> => {
         const real = path ? await realpath(path).catch(() => path) : undefined;
@@ -277,7 +321,12 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         await managedReady;
         const registration = await chatgpt.read(id);
         const path = registration && !settings.command(id).source ? managedPath : locate(id);
-        if (!path) throw new Error(`The Codex CLI "${codexCommand(id)}" was not found on the PATH of your login shell. Install it (brew install --cask codex, or npm install -g ${CODEX_NPM_PACKAGE}) or set its path under Settings → Providers.`);
+        if (!path && await usesManaged(id)) {
+          if (fetchState?.phase === "failed") throw new Error(`Tau could not fetch Codex ${MANAGED_CODEX_VERSION}: ${fetchState.error ?? "unknown error"}`);
+          void fetchManaged().catch(() => undefined);
+          throw new Error(`Tau is fetching Codex ${MANAGED_CODEX_VERSION}; this instance uses it once it is ready.`);
+        }
+        if (!path) throw new Error(`The Codex CLI "${codexCommand(id)}" was not found on the PATH of your login shell. Continue with ChatGPT to let Tau fetch Codex, install it (brew install --cask codex, or npm install -g ${CODEX_NPM_PACKAGE}), or set its path under Settings → Providers.`);
         const entry = state(id);
         const key = await executableFingerprint(path);
         if (entry.installed?.path !== path || entry.installed.key !== key) {
@@ -452,7 +501,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       /** How this instance's Codex is installed and what updates it; Homebrew's own release for a cask. */
       const maintenanceOf = async (id: string): Promise<RuntimeToolMaintenance> => {
         const { path, version } = await cli(id);
-        if (path === managedPath) return { tool: "codex", installed: version, install: { method: "unknown", label: "Managed by Tau", path, realPath: path, note: "Tau pins and verifies this Codex release. Updates arrive with Tau." } };
+        if (path === managedPath) return { tool: "codex", installed: version, install: { method: "unknown", label: "Managed by Tau", path, realPath: path, note: "Tau pins and verifies this Codex release, and fetches the next one itself when a Tau update pins it." } };
         return cliMaintenance({
           tool: "codex",
           path,
@@ -512,7 +561,8 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
             openingThreads.set(id, (openingThreads.get(id) ?? 0) + 1);
             try {
               await managedReady;
-              if (await chatgpt.read(id) && needsManaged(id)) managedPath = await managed.ensure();
+              // Usually fetched at start already; otherwise the card and the composer show the progress.
+              if (!managedPath && await usesManaged(id)) await fetchManaged();
               await assertSupported(id);
               const backend = new CodexThreadRuntimeBackend(threadId, cwd, {
                 adapter,
@@ -549,7 +599,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           // The account's models, starting where config.toml points; the host keeps the answer and asks again now and then.
           newThreadCatalog: async () => {
             await managedReady;
-            if (await chatgpt.read(id) && needsManaged(id)) return { models: [], thinkingLevels: {}, status: "not-installed", note: "Install the Codex version managed by Tau on this account’s Providers card." };
+            if (!managedPath && await chatgpt.read(id) && await usesManaged(id)) return { models: [], thinkingLevels: {}, status: "not-installed", note: fetching ? `Tau is fetching Codex ${MANAGED_CODEX_VERSION}; its progress is on this account’s Providers card.` : "Install the Codex version managed by Tau on this account’s Providers card." };
             if (!locate(id)) return { models: [], thinkingLevels: {}, status: "not-installed", note: `The Codex CLI "${codexCommand(id)}" is not installed.` };
             const probe = await runProbe(id);
             if (!probe.account) return { models: [], thinkingLevels: {}, status: "sign-in-required", note: `${settings.label(id)} is not signed in. Sign in on its card under Settings → Providers.` };
@@ -604,7 +654,9 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           if (fresh) state(id).installed = undefined;
           found = await cli(id);
         } catch (error) {
-          return { ...base, message: error instanceof Error ? error.message : String(error) };
+          // Read after cli(), which may just have started the fetch.
+          const waiting = !managedPath && fetchState && await usesManaged(id) ? { managedInstall: fetchState, ...(registration ? { chatgptPlan: planSummary(id, registration) } : {}) } : {};
+          return { ...base, ...waiting, message: error instanceof Error ? error.message : String(error) };
         }
         const version = await versionOf(id).catch(() => undefined);
         const report: CodexStatusReport = {
@@ -629,10 +681,11 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           return { ...report, message: error instanceof Error ? error.message : String(error) };
         }
       }, { access: "read" });
+      // Retries a fetch that failed, or repairs the files; progress arrives as MANAGED_CODEX_EVENT.
       context.registerCommand("managed-codex-install", async (input) => {
         const id = instanceInput(input);
         requireInstance(id);
-        managedPath = await managed.ensure();
+        await fetchManaged();
         register(id);
         return { installed: true };
       }, { long: true });
@@ -758,6 +811,17 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           onExit: () => undefined,
         });
       };
+      /** A cancelled sign-in stops waiting; the download goes on for the next attempt. */
+      const waitForManaged = async (flow: SignInFlowContext): Promise<void> => {
+        const say = (progress: ManagedCodexState) => {
+          const percent = progress.totalBytes ? ` ${Math.floor(((progress.downloadedBytes ?? 0) * 100) / progress.totalBytes)}%` : "";
+          if (progress.phase === "downloading" || progress.phase === "extracting") flow.verifying(`Downloading Codex ${MANAGED_CODEX_VERSION} for Tau…${progress.phase === "downloading" ? percent : ""}`);
+        };
+        say(fetchState ?? { version: MANAGED_CODEX_VERSION, phase: "downloading" });
+        installListeners.add(say);
+        try { await Promise.race([fetchManaged(), aborted(flow.signal)]); }
+        finally { installListeners.delete(say); }
+      };
       const signIn = registerSignIn(context, {
         defaultTarget: DEFAULT_INSTANCE_ID,
         report: async (id) => {
@@ -791,10 +855,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
             try {
               await managedReady;
               if (settings.command(id).source) requirePlanRelease((await cli(id)).version);
-              if (needsManaged(id)) {
-                flow.verifying("Downloading Codex for Tau…");
-                managedPath = await managed.ensure({ signal: flow.signal });
-              }
+              else if (!managedPath) await waitForManaged(flow);
               await stopSessions(id);
               return await chatgpt.signIn(id, flow);
             } finally { transitioning.delete(id); }
@@ -861,6 +922,11 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       });
 
       for (const instance of settings.list()) register(instance.id);
+      // After a Tau update pinned another release, the instances that ran the old one fetch it without being asked.
+      void managedReady.then(async () => {
+        if (managedPath) { await managed.prune(); return; }
+        for (const instance of settings.list()) if (await usesManaged(instance.id)) { await fetchManaged(); return; }
+      }).catch(() => undefined);
       return () => {
         signIn.dispose();
         for (const id of [...states.keys()]) unregister(id);

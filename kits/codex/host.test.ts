@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +13,11 @@ import { spawnRpcProcess } from "./rpc.js";
 import { ChatGPTPlanStore } from "./chatgpt-plan-store.js";
 import { CHATGPT_PLAN_ARGS } from "./chatgpt-plan.js";
 import { CodexSessionStore } from "./session-store.js";
+import { MANAGED_CODEX_VERSION } from "./managed-install.js";
+import type { ManagedCodexAsset } from "./managed-release.js";
+import { MANAGED_CODEX_EVENT, type CodexStatusReport, type ManagedCodexState } from "./protocol.js";
+import { createHash } from "node:crypto";
+import { create } from "tar";
 
 const STUB = fileURLToPath(new URL("./fixtures/stub-app-server.mjs", import.meta.url));
 const directories: string[] = [];
@@ -28,9 +33,23 @@ async function caskInstall(root: string): Promise<string> {
   return join(root, "bin", "codex");
 }
 
+/** A package shaped like the pinned release, served in place of GitHub's. */
+async function managedFixture(): Promise<{ asset: ManagedCodexAsset; archive: Uint8Array }> {
+  const root = await mkdtemp(join(tmpdir(), "tau-codex-package-"));
+  directories.push(root);
+  const entrypoint = `bin/codex${process.platform === "win32" ? ".exe" : ""}`;
+  await mkdir(join(root, "source", "bin"), { recursive: true });
+  await writeFile(join(root, "source", entrypoint), "fixture codex");
+  await chmod(join(root, "source", entrypoint), 0o755);
+  await writeFile(join(root, "source", "codex-package.json"), JSON.stringify({ version: MANAGED_CODEX_VERSION, target: "fixture-target", entrypoint }));
+  await create({ file: join(root, "package.tar.gz"), cwd: join(root, "source"), gzip: true, portable: true }, ["bin", "codex-package.json"]);
+  const archive = await readFile(join(root, "package.tar.gz"));
+  return { archive, asset: { target: "fixture-target", bytes: archive.length, sha256: createHash("sha256").update(archive).digest("hex") } };
+}
+
 const TAU_SERVER: HostMcpConnection = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
 
-async function harness(options: { installed?: string | undefined; found?: boolean; env?: NodeJS.ProcessEnv; settings?: unknown; install?: (root: string) => Promise<string> } = {}) {
+async function harness(options: { installed?: string | undefined; found?: boolean; env?: NodeJS.ProcessEnv; settings?: unknown; install?: (root: string) => Promise<string>; before?: (root: string) => Promise<void>; managed?: { asset: ManagedCodexAsset; archive: Uint8Array } } = {}) {
   const root = await mkdtemp(join(tmpdir(), "tau-codex-host-"));
   directories.push(root);
   const path = await (options.install ?? caskInstall)(root);
@@ -38,9 +57,12 @@ async function harness(options: { installed?: string | undefined; found?: boolea
     await mkdir(join(root, "state", "tau.codex"), { recursive: true });
     await writeFile(join(root, "state", "tau.codex", "settings.json"), JSON.stringify(options.settings));
   }
+  await options.before?.(root);
   const backends: HostRuntimeBackendProvider[] = [];
   const events: PublishedKitEvent[] = [];
-  const fetch = vi.fn(async (_url?: string | URL | Request) => ({ ok: true, json: async () => ({ version: "0.155.1" }) }) as Response);
+  const fetch = vi.fn(async (url?: string | URL | Request) => String(url).startsWith("https://github.com/openai/codex/releases/") && options.managed
+    ? new Response(new Uint8Array(options.managed.archive))
+    : ({ ok: true, json: async () => ({ version: "0.155.1" }) }) as Response);
   const launches: Array<{ threadId?: string; args: readonly string[]; env: NodeJS.ProcessEnv; instance: string }> = [];
   const connected: RuntimeSessionInfo[] = [];
   const connectOptions: unknown[] = [];
@@ -48,6 +70,7 @@ async function harness(options: { installed?: string | undefined; found?: boolea
   const extension = createCodexHostExtension({
     env: options.env ?? { CODEX_HOME: join(root, "home") },
     fetch: fetch as typeof globalThis.fetch,
+    ...(options.managed ? { managedAsset: options.managed.asset } : {}),
     readVersion: async () => "installed" in options ? options.installed : "0.154.0",
     openSession: (input) => (launches.push({ ...(input.threadId ? { threadId: input.threadId } : {}), args: input.args, env: input.env, instance: input.instance }), CodexAppServer.open({
       command: process.execPath,
@@ -600,6 +623,34 @@ describe("Codex ChatGPT plan instances", () => {
     await registry.activate({ id: "tau.usage", name: "Usage", activate(activation) { read = () => activation.invokeHostExtension("tau.codex", "usage-limits"); } });
     expect(await read!()).toMatchObject({ accounts: [{ managementUrl: "https://chatgpt.com/settings/usage", windows: [], unavailable: { reason: "unsupported" } }] });
     expect(launches).toHaveLength(0);
+  });
+
+  it("fetches the newly pinned Codex by itself after a Tau update, with progress, and removes the old release", async () => {
+    const managed = await managedFixture();
+    const earlier = join(`0.100.0-${process.platform}-${process.arch}`, "bin");
+    const { registry, root, events, fetch } = await harness({
+      found: false, installed: MANAGED_CODEX_VERSION, managed,
+      before: async (at) => {
+        await mkdir(join(at, "state", "tau.codex", "managed-codex", earlier), { recursive: true });
+        await new ChatGPTPlanStore(join(at, "state", "tau.codex", "chatgpt-plan")).write("default", { issuer: "https://auth.openai.com", subject: "fixture-subject", clientId: "oaiapp_fixture", tokens: { accessToken: "fixture-access", idToken: "fixture-id", scopes: ["chatgpt.tokens.use.direct"], expiresAt: Date.now() + 3600_000 } });
+      },
+    });
+    const states = () => events.filter((event) => event.name === MANAGED_CODEX_EVENT).map((event) => event.payload as ManagedCodexState);
+    await vi.waitFor(() => expect(states().at(-1)?.phase).toBe("installed"));
+    expect(states().some((state) => state.phase === "downloading" && state.totalBytes === managed.asset.bytes)).toBe(true);
+    expect(fetch.mock.calls.filter(([url]) => String(url).includes(`/rust-v${MANAGED_CODEX_VERSION}/`))).toHaveLength(1);
+    await expect(readdir(join(root, "state", "tau.codex", "managed-codex"))).resolves.toEqual([`${MANAGED_CODEX_VERSION}-${process.platform}-${process.arch}`]);
+    const status = await registry.invoke("tau.codex", "status") as CodexStatusReport;
+    expect(status.path).toBe(join(root, "state", "tau.codex", "managed-codex", `${MANAGED_CODEX_VERSION}-${process.platform}-${process.arch}`, "bin", `codex${process.platform === "win32" ? ".exe" : ""}`));
+    expect(status.chatgptPlan?.needsInstall).toBeUndefined();
+    expect(status.managedInstall).toBeUndefined();
+  });
+
+  it("fetches nothing for a CLI instance that never ran Tau's Codex", async () => {
+    const { registry, fetch } = await harness({ found: false, managed: await managedFixture() });
+    const status = await registry.invoke("tau.codex", "status") as CodexStatusReport;
+    expect(status.message).toMatch(/Continue with ChatGPT/u);
+    expect(fetch.mock.calls.some(([url]) => String(url).startsWith("https://github.com/"))).toBe(false);
   });
 
   it("removes a plan instance only when ChatGPT confirmed the revocation", async () => {

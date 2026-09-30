@@ -24,10 +24,13 @@ import {
   CODEX_HOME_VARIABLE,
   CODEX_HOST_EXTENSION_ID,
   INSTANCES_EVENT,
+  MANAGED_CODEX_EVENT,
   MIN_CODEX_VERSION,
+  type ChatGPTPlanSummary,
   type CodexInstanceView,
   type CodexInstancesReport,
   type CodexStatusReport,
+  type ManagedCodexState,
 } from "./protocol.js";
 
 const TERMINAL_HOST_EXTENSION_ID = "tau.terminal";
@@ -46,6 +49,21 @@ const SignIn = lazy(() => loadSignInUi().then((module) => ({ default: module.Sig
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** "Downloading Codex 0.160.0… 45% (61 of 135 MB)" while Tau fetches its pinned release. */
+export function managedProgressLabel(state: ManagedCodexState): string {
+  if (state.phase === "extracting") return `Unpacking Codex ${state.version}…`;
+  if (state.phase === "failed") return `Tau could not fetch Codex ${state.version}. ${state.error ?? ""}`.trim();
+  if (state.phase === "installed") return `Codex ${state.version} is ready.`;
+  const total = state.totalBytes ?? 0;
+  const done = state.downloadedBytes ?? 0;
+  const mb = (bytes: number) => Math.round(bytes / (1024 * 1024));
+  return total > 0 ? `Downloading Codex ${state.version}… ${Math.floor((done / total) * 100)}% (${mb(done)} of ${mb(total)} MB)` : `Downloading Codex ${state.version}…`;
+}
+
+function isManagedState(value: unknown): value is ManagedCodexState {
+  return Boolean(value && typeof value === "object" && typeof (value as ManagedCodexState).phase === "string" && typeof (value as ManagedCodexState).version === "string");
 }
 
 /** The workbench's actions where a Settings card is drawn inside it; a test renders none. */
@@ -119,6 +137,7 @@ export function CodexProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_
   const [status, setStatus] = useState<CodexStatusReport>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [install, setInstall] = useState<ManagedCodexState>();
   const actions = useShellActions();
   const report = useSyncExternalStore(instances?.subscribe ?? noSubscription, () => instances?.snapshot ?? EMPTY_REPORT);
   const isDefault = instance === DEFAULT_INSTANCE_ID;
@@ -129,7 +148,9 @@ export function CodexProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_
     setBusy(true);
     setError(undefined);
     try {
-      setStatus(await host.invoke("status", { fresh, ...(instance === DEFAULT_INSTANCE_ID ? {} : { instance }) }) as CodexStatusReport);
+      const next = await host.invoke("status", { fresh, ...(instance === DEFAULT_INSTANCE_ID ? {} : { instance }) }) as CodexStatusReport;
+      setStatus(next);
+      setInstall(next.managedInstall);
     } catch (failure) {
       setError(errorMessage(failure));
     } finally {
@@ -138,6 +159,18 @@ export function CodexProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_
   }, [host, instance]);
 
   useEffect(() => { void read(false); }, [read]);
+  // One download serves every instance; a card shows it only while its instance waits for it.
+  useEffect(() => host.onEvent(MANAGED_CODEX_EVENT, (payload) => {
+    if (!isManagedState(payload)) return;
+    if (payload.phase === "installed") { setInstall(undefined); void read(true); }
+    else setInstall((held) => held || (status?.chatgptPlan && !status.commandSource) || status?.managedInstall ? payload : held);
+  }), [host, read, status]);
+
+  const installManaged = () => {
+    setBusy(true);
+    setError(undefined);
+    void host.invoke("managed-codex-install", scope).then(() => read(true)).catch((failure) => { setError(errorMessage(failure)); setBusy(false); });
+  };
 
   const saveCommand = async (command: string) => {
     setError(undefined);
@@ -211,9 +244,13 @@ export function CodexProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_
         onNotify={onNotify}
         onReport={(next) => { if (next.flow?.phase === "succeeded") void read(false); }}
       />
-      {status?.chatgptPlan?.needsInstall ? (
+      {install && install.phase !== "failed" ? (
+        <SettingRow id={`${rows.program}-managed`} title="Managed Codex" description="Tau fetches the Codex release this version of Tau is tested with. Threads of this instance start once it is ready."
+          status={<p role="status">{managedProgressLabel(install)}</p>} />
+      ) : status?.chatgptPlan?.needsInstall || install?.phase === "failed" ? (
         <SettingRow id={`${rows.program}-managed`} title="Managed Codex" description="Install or repair the Codex release tested with this Tau version."
-          control={<button type="button" className="settings-button" disabled={busy} onClick={() => { setBusy(true); void host.invoke("managed-codex-install", scope).then(() => read(true)).catch((failure) => { setError(errorMessage(failure)); setBusy(false); }); }}>Install managed Codex</button>} />
+          {...(install?.phase === "failed" ? { status: <p role="alert">{managedProgressLabel(install)}</p> } : {})}
+          control={<button type="button" className="settings-button" disabled={busy} onClick={installManaged}>{install?.phase === "failed" ? "Try again" : "Install managed Codex"}</button>} />
       ) : null}
       {status?.chatgptPlan ? (
         <SettingRow id={`${rows.account}-usage`} title={status.chatgptPlan.signedIn ? "Using ChatGPT plan" : "ChatGPT account"}
@@ -282,22 +319,29 @@ const dismissedBanners = new Set<string>();
 export function createChatGPTPlanBanner(host: HostExtensionClient) {
   return function ChatGPTPlanBanner({ snapshot, actions }: RegionProps) {
     const kind = snapshot?.backendKind;
-    const [plan, setPlan] = useState<CodexStatusReport["chatgptPlan"]>();
+    const [plan, setPlan] = useState<ChatGPTPlanSummary>();
     const [limited, setLimited] = useState(false);
+    const [install, setInstall] = useState<ManagedCodexState>();
     useEffect(() => {
       let active = true;
       setPlan(undefined);
       setLimited(false);
+      setInstall(undefined);
       if (!isRuntimeInstanceOf(kind, CODEX_BACKEND_KIND)) return;
-      const read = () => void host.invoke("chatgpt-plan-account", { instance: runtimeInstanceId(kind!) }).then((value) => { if (active) setPlan(value as CodexStatusReport["chatgptPlan"]); }).catch(() => undefined);
+      const read = () => void host.invoke("chatgpt-plan-account", { instance: runtimeInstanceId(kind!) }).then((value) => { if (active) setPlan(value as ChatGPTPlanSummary | undefined); }).catch(() => undefined);
       read();
       const stop = host.onEvent("sign-in", read);
       const stopLimits = host.onEvent("chatgpt-plan-limit", (value) => { if ((value as { instance?: string })?.instance === runtimeInstanceId(kind!)) setLimited(true); });
-      return () => { active = false; stop(); stopLimits(); };
+      const stopInstall = host.onEvent(MANAGED_CODEX_EVENT, (value) => {
+        if (!isManagedState(value) || !active) return;
+        setInstall(value.phase === "installed" ? undefined : value);
+        if (value.phase === "installed") read();
+      });
+      return () => { active = false; stop(); stopLimits(); stopInstall(); };
     }, [kind]);
     useEffect(() => { if (snapshot?.isStreaming) setLimited(false); }, [snapshot?.isStreaming]);
     if (!plan?.signedIn) return null;
-    return <div className="runtime-version-banner"><div className="runtime-version-banner-body"><strong>Using ChatGPT plan · {plan.label}</strong>{limited ? <p>ChatGPT plan usage is unavailable. Review your app limits and credits in ChatGPT.</p> : null}<div className="runtime-version-banner-actions"><button type="button" onClick={() => actions.openExternal(plan.usageUrl)}>Manage usage</button></div></div></div>;
+    return <div className="runtime-version-banner"><div className="runtime-version-banner-body"><strong>Using ChatGPT plan · {plan.label}</strong>{install ? <p role="status">{managedProgressLabel(install)}</p> : null}{limited ? <p>ChatGPT plan usage is unavailable. Review your app limits and credits in ChatGPT.</p> : null}<div className="runtime-version-banner-actions"><button type="button" onClick={() => actions.openExternal(plan.usageUrl)}>Manage usage</button></div></div></div>;
   };
 }
 

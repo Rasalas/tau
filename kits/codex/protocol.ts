@@ -22,12 +22,24 @@ export const CODEX_HOME_VARIABLE = "CODEX_HOME";
 /** Pushed with a `CodexInstancesReport` whenever an instance is added, changed or removed. */
 export const INSTANCES_EVENT = "instances";
 
+/** Pushed with a `ManagedCodexState` while Tau fetches its pinned Codex, and once more when it is done. */
+export const MANAGED_CODEX_EVENT = "managed-codex";
+
+/** Where fetching the Codex release Tau pins stands. */
+export interface ManagedCodexState {
+  version: string;
+  phase: "downloading" | "extracting" | "installed" | "failed";
+  downloadedBytes?: number;
+  totalBytes?: number;
+  error?: string;
+}
+
 /** A plan instance's account, for its card and the composer. */
 export interface ChatGPTPlanSummary {
   signedIn: boolean;
   label: string;
   usageUrl: string;
-  /** Tau's Codex is missing. */
+  /** Tau's Codex is missing and no fetch runs. */
   needsInstall?: boolean;
 }
 
@@ -66,6 +78,8 @@ export interface CodexStatusReport {
   models?: number;
   message?: string;
   chatgptPlan?: ChatGPTPlanSummary;
+  /** Present while this instance waits for Tau's Codex, or after fetching it failed. */
+  managedInstall?: ManagedCodexState;
 }
 
 /**
