@@ -16,6 +16,8 @@ function host(bundles: Array<{ path: string; module: unknown }>, extra: Partial<
   return {
     log,
     notify,
+    toast: vi.fn(),
+    openSettings: vi.fn(),
     host: {
       load: async () => ({
         bundles: bundles.map((entry) => ({
@@ -31,6 +33,8 @@ function host(bundles: Array<{ path: string; module: unknown }>, extra: Partial<
       importModule: async (bundle: { path: string }) => modules.get(bundle.path),
       isEnabled: () => true,
       notify,
+      toast: vi.fn(),
+      openSettings: vi.fn(),
       log,
       ...extra,
     },
@@ -150,6 +154,8 @@ describe("runtime desktop extensions", () => {
       importModule: async () => ({ default: { id: "x.ungranted", name: "Ungranted", activate } }),
       isEnabled: () => true,
       notify: vi.fn(),
+      toast: vi.fn(),
+      openSettings: vi.fn(),
       log: vi.fn(),
     };
     await new RuntimeExtensions(registry, h).sync("/project");
@@ -185,6 +191,8 @@ describe("runtime desktop extensions", () => {
       },
       isEnabled: () => true,
       notify: vi.fn(),
+      toast: vi.fn(),
+      openSettings: vi.fn(),
       log: vi.fn(),
     };
     await new RuntimeExtensions(registry, h).sync("/project");
@@ -213,6 +221,8 @@ describe("runtime desktop extensions", () => {
       importModule: async () => ({ default: { id: "x.styled", name: "Styled", activate() {} } }),
       isEnabled: () => true,
       notify: vi.fn(),
+      toast: vi.fn(),
+      openSettings: vi.fn(),
       log: vi.fn(),
     };
     await new RuntimeExtensions(registry, h).sync("/project");
@@ -272,6 +282,8 @@ describe("replacing one extension", () => {
         importModule: async (bundle: { id: string }) => modules.get(bundle.id),
         isEnabled: () => true,
         notify: vi.fn(),
+        toast: vi.fn(),
+        openSettings: vi.fn(),
         log: vi.fn(),
       },
     };
@@ -326,7 +338,7 @@ describe("replacing one extension", () => {
 
     expect(registry.isActive("x.hello")).toBe(true);
     expect(runtime.list().map((record) => record.extension)).toEqual([running]);
-    expect(h.notify).toHaveBeenCalledWith(expect.stringContaining("Unexpected token"));
+    expect(h.toast).toHaveBeenCalledWith(expect.objectContaining({ description: expect.stringContaining("Unexpected token") }));
   });
 
   it("toasts a build error with its file, line and column, and the whole text to copy", async () => {
@@ -434,6 +446,8 @@ describe("theme packages", () => {
       importModule: async (bundle: { id: string }) => ({ default: { id: bundle.id, name: bundle.id, activate() {} } }),
       isEnabled: () => true,
       notify: vi.fn(),
+      toast: vi.fn(),
+      openSettings: vi.fn(),
       log: vi.fn(),
     };
 
@@ -472,6 +486,8 @@ describe("overlapping syncs", () => {
     return {
       log,
       notify,
+      toast: vi.fn(),
+      openSettings: vi.fn(),
       imports,
       host: {
         load: async () => result([]),
@@ -482,6 +498,8 @@ describe("overlapping syncs", () => {
         }),
         isEnabled: () => true,
         notify,
+        toast: vi.fn(),
+        openSettings: vi.fn(),
         log,
       } satisfies RuntimeExtensionHost,
     };
