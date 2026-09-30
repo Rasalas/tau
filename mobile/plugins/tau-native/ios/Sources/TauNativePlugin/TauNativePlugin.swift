@@ -39,6 +39,7 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
 
     private let lock = NSLock()
     private var sockets: [String: PinnedSocket] = [:]
+    private var relays: [String: ConnectRelay] = [:]
     private var browser: HostBrowser?
 
     override public func load() {
@@ -138,13 +139,35 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
               url.scheme == "ws" || url.scheme == "wss" else { return call.reject("id and a ws: or wss: url are required") }
         var headers: [String: String] = [:]
         for (name, value) in call.getObject("headers") ?? [:] { if let value = value as? String { headers[name] = value } }
-        let socket = PinnedSocket(id: id, url: url, keyPin: call.getString("publicKey"), pin: call.getString("fingerprint"), allowAuthority: call.getBool("allowAuthority") ?? false, headers: headers) { [weak self] event in
+        let open: (URL) -> Void = { [weak self] socketURL in
             guard let self else { return }
-            if event["type"] as? String == "close" { self.forget(id) }
-            self.notifyListeners("socket", data: event)
+            let socket = PinnedSocket(id: id, url: socketURL, keyPin: call.getString("publicKey"), pin: call.getString("fingerprint"), allowAuthority: call.getObject("connect") == nil && (call.getBool("allowAuthority") ?? false), headers: headers) { [weak self] event in
+                guard let self else { return }
+                if event["type"] as? String == "close" { self.forget(id) }
+                self.notifyListeners("socket", data: event)
+            }
+            self.lock.lock(); self.sockets[id] = socket; self.lock.unlock()
+            call.resolve()
         }
-        lock.lock(); sockets[id] = socket; lock.unlock()
-        call.resolve()
+        guard let connect = call.getObject("connect") else { open(url); return }
+        guard url.scheme == "wss", url.host != nil, url.user == nil, url.password == nil,
+              call.getString("publicKey") != nil || call.getString("fingerprint") != nil,
+              let remoteText = connect["url"] as? String, let remote = URL(string: remoteText),
+              remote.scheme == "wss", remote.host != nil, remote.user == nil, remote.password == nil, remote.fragment == nil,
+              let token = connect["token"] as? String, token.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil
+        else { call.reject("Connect requires a secure relay and a pinned host."); return }
+        let relay = ConnectRelay(remote: remote, token: token) { [weak self] in
+            guard let self else { return }
+            if let socket = self.find(id) { socket.close(code: 1006, reason: "Connect relay disconnected.") }
+            else { self.forget(id); self.notifyListeners("socket", data: ["id": id, "type": "close", "code": 1006]) }
+        }
+        lock.lock(); relays[id] = relay; lock.unlock()
+        relay.start(inner: url) { result in
+            switch result {
+            case .success(let local): open(local)
+            case .failure: self.forget(id); call.reject("Connect relay could not start.")
+            }
+        }
     }
 
     @objc func socketSend(_ call: CAPPluginCall) {
@@ -156,7 +179,11 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func socketClose(_ call: CAPPluginCall) {
         guard let id = call.getString("id") else { return call.reject("id is required") }
-        guard let socket = find(id) else { return call.reject("unknown socket", "unknown-socket") }
+        guard let socket = find(id) else {
+            lock.lock(); let relay = relays.removeValue(forKey: id); lock.unlock()
+            if let relay { relay.close(); notifyListeners("socket", data: ["id": id, "type": "close", "code": call.getInt("code") ?? 1000]); call.resolve() } else { call.reject("unknown socket", "unknown-socket") }
+            return
+        }
         socket.close(code: call.getInt("code") ?? 1000, reason: call.getString("reason"))
         call.resolve()
     }
@@ -167,7 +194,8 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func forget(_ id: String) {
-        lock.lock(); sockets.removeValue(forKey: id); lock.unlock()
+        lock.lock(); sockets.removeValue(forKey: id); let relay = relays.removeValue(forKey: id); lock.unlock()
+        relay?.close()
     }
 
     // MARK: QR scanner
