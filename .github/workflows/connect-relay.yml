@@ -33,4 +33,3 @@ jobs:
       - run: bash -n connect-relay/deploy-cloud.sh
       # Build before an identity exists, so package scripts cannot see credentials.
       - run: docker build --tag tau-connect:check connect-relay
-
