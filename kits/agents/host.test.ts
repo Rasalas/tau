@@ -773,6 +773,13 @@ describe("Agents Kit", () => {
     }
   });
 
+  it("names the tool an agent is running now, before it ends", async () => {
+    const bench = await activated();
+    const handle = handleOf(await bench.runtime("parent").call("tau_spawn_thread", { prompt: "go" }));
+    bench.runtime(handle).fire("tool_execution_start", { type: "tool_execution_start", toolCallId: "c1", toolName: "bash", args: { command: "vitest run customers" } });
+    expect((await bench.state()).links[0]).toMatchObject({ lastTool: "bash vitest run customers" });
+  });
+
   it("surfaces a question the agent is holding as waiting, not as an answer for the parent", async () => {
     const bench = await activated();
     const parent = bench.runtime("parent");

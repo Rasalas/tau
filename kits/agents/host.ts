@@ -1158,6 +1158,8 @@ export function createAgentsHostExtension(options: {
         // thread; the parent only learns that it is waiting on one.
         pi.on("ui_prompt_start", (event) => { changed(threadId, book.notePrompt(threadId, event.title ?? event.kind)); });
         pi.on("ui_prompt_end", () => { changed(threadId, book.notePrompt(threadId, undefined)); });
+        // The row names the tool at work now, not only the last one that ended (design 1c).
+        pi.on("tool_execution_start", (event) => { changed(threadId, book.noteTool(threadId, toolLine({ name: event.toolName, args: event.args }))); });
 
         // A thread started from a definition carries it in its own link entry;
         // `null` until that entry was read for this runtime.
