@@ -1,3 +1,4 @@
+import ActivityKit
 import AVFoundation
 import Capacitor
 import Foundation
@@ -10,6 +11,15 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "TauNativePlugin"
     public let jsName = "TauNative"
     public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "activityTokens", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "activityUpdate", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "activityUsage", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "activityClear", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "dictationLanguages", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "dictationDownload", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "dictationStart", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "dictationFinish", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "dictationCancel", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "secureGet", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "secureSet", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "secureRemove", returnType: CAPPluginReturnPromise),
@@ -23,6 +33,8 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "pushAvailable", returnType: CAPPluginReturnPromise)
     ]
 
+    private var localDictation: Any?
+
     private let lock = NSLock()
     private var sockets: [String: PinnedSocket] = [:]
     private var browser: HostBrowser?
@@ -34,6 +46,57 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async { [weak self] in
             self?.bridge?.webView?.capacitor.setKeyboardShouldRequireUserInteraction(nil)
         }
+    }
+
+    @available(iOS 26.0, *)
+    @MainActor private func dictation() -> LocalDictation {
+        if let current = localDictation as? LocalDictation { return current }
+        let current = LocalDictation(); localDictation = current; return current
+    }
+    @objc func dictationLanguages(_ call: CAPPluginCall) {
+        Task { @MainActor in
+            guard #available(iOS 26.0, *) else { call.resolve(["available": false, "languages": []]); return }
+            let languages = await dictation().languages()
+            call.resolve(["available": !languages.isEmpty, "languages": languages])
+        }
+    }
+    @objc func dictationDownload(_ call: CAPPluginCall) { dictationAction(call, action: "download") }
+    @objc func dictationStart(_ call: CAPPluginCall) { dictationAction(call, action: "start") }
+    @objc func dictationFinish(_ call: CAPPluginCall) { dictationAction(call, action: "finish") }
+    @objc func dictationCancel(_ call: CAPPluginCall) { dictationAction(call, action: "cancel") }
+    private func dictationAction(_ call: CAPPluginCall, action: String) {
+        Task { @MainActor in
+            guard #available(iOS 26.0, *) else { call.reject("Local dictation requires iOS 26.", "unavailable"); return }
+            do {
+                let current = dictation()
+                if action == "cancel" { current.cancel(); call.resolve(); return }
+                if action == "finish" { call.resolve(["text": try await current.finish()]); return }
+                guard let language = call.getString("language") else { call.reject("Choose a dictation language."); return }
+                if action == "download" { try await current.download(language) } else { try await current.start(language) }
+                call.resolve()
+            } catch { call.reject(error.localizedDescription, "dictation-failed") }
+        }
+    }
+
+    @objc func activityTokens(_ call: CAPPluginCall) {
+        if #available(iOS 16.2, *) {
+            let tokens = Activity<TauActivityAttributes>.activities.compactMap { activity -> [String: Any]? in
+                guard let token = activity.pushToken else { return nil }
+                return ["hostId": activity.attributes.hostId, "threadId": activity.attributes.threadId, "token": token.map { String(format: "%02x", $0) }.joined(), "topic": Bundle.main.bundleIdentifier ?? "de.tbuck.tau"]
+            }
+            call.resolve(["tokens": tokens])
+        } else { call.resolve(["tokens": []]) }
+    }
+    @objc func activityUpdate(_ call: CAPPluginCall) {
+        Task { @MainActor in
+            guard #available(iOS 16.2, *) else { call.resolve(); return }
+            do { try await MobileActivityStore.update(call.options) { [weak self] event in self?.notifyListeners("activityToken", data: event, retainUntilConsumed: true) }; call.resolve() } catch { call.reject(error.localizedDescription) }
+        }
+    }
+    @objc func activityUsage(_ call: CAPPluginCall) { MobileActivityStore.usage(call.options); call.resolve() }
+    @objc func activityClear(_ call: CAPPluginCall) {
+        guard let host = call.getString("hostId") else { call.reject("hostId is required"); return }
+        Task { await MobileActivityStore.clear(host); call.resolve() }
     }
 
     // MARK: Secure store

@@ -1,3 +1,4 @@
+import { followActivities, type ActivityPort } from "./activities";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Server } from "lucide-react";
 import { parsePairingPayload, type PairingPayload } from "../../src/shared/connections";
@@ -27,6 +28,7 @@ import { createDemoHost } from "./demo-host";
 
 /** Everything the shell needs from the platform, so a test can hand it fakes. */
 export interface AppContext {
+  activities?: ActivityPort;
   storage: ClientStorage;
   book: HostBook;
   bridge: SocketBridge;
@@ -102,6 +104,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
   const [view, setView] = useState<View>({ name: "loading" });
   const [hosts, setHosts] = useState<Array<{ host: SavedHost; signedOut: boolean }>>([]);
   const [nearby, setNearby] = useState<NearbyState>({ state: "searching", hosts: [] });
+  const activityFollow = useRef<ReturnType<typeof followActivities>>(undefined);
   const viewRef = useRef(view);
   viewRef.current = view;
   /** The pairing attempt on screen; set at once, since a refused address can fail before the next render. */
@@ -142,6 +145,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
         void book.update(host.id, { lastUsedAt: now().toISOString(), ...(endpoint ? { lastEndpoint: endpoint } : {}) });
       },
       onUnauthorized: () => {
+        void activityFollow.current?.revoke();
         void book.forgetToken(host.id).finally(() => leaveTo("?view=hosts", `${host.name} no longer accepts this phone: its access was revoked, or it ran out unused. Open the host to ask again.`));
       },
       // After every hello: an old certificate pin moves to the key, and the host's addresses are taken as it names them.
@@ -153,9 +157,15 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       onCertificateRefused: (refusal) => leaveTo("?view=hosts", certificateRefusalNotice(host.name, refusal)),
     });
     setHostClient(client);
+    activityFollow.current?.stop();
+
     // The connection starts out "connected", so its first hello is the moment to hand over the push token.
     void connection.start("compact").then((reply) => {
-      if (reply) void pushRegistrar()?.register({ host, client }).catch(() => undefined);
+      if (reply) {
+        void Promise.resolve(pushRegistrar()?.register({ host, client })).catch(() => undefined).then(() => {
+          if (context.activities) activityFollow.current = followActivities(host.id, client, context.activities);
+        });
+      }
     }).catch(() => undefined);
     void book.update(host.id, { lastUsedAt: now().toISOString() });
     // Every other paired host, each over its own token, for the thread list and "Run on".
@@ -172,9 +182,9 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
         return new RacingSocket(socketCandidates(other.endpoints, pins, device), (candidate) => openCandidate({ bridge: context.bridge, userAgent: navigator.userAgent }, candidate), { onFailure });
       },
       navigate: (route) => leaveTo(routeSearch(route)),
-      forgetToken: (id) => book.forgetToken(id),
+      forgetToken: async (id) => { await context.activities?.clear(id); await book.forgetToken(id); },
       rename: (id, name) => book.update(id, { name }),
-      remove: async (id) => { await book.remove(id); clearHostStorage(storage, id); void pushRegistrar()?.forget(id).catch(() => undefined); },
+      remove: async (id) => { await context.activities?.clear(id); await book.remove(id); clearHostStorage(storage, id); void pushRegistrar()?.forget(id).catch(() => undefined); },
       visibility: context.visibility ?? documentVisibility,
     });
     const environment: ClientEnvironment = {
@@ -238,6 +248,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       const notice = storage.get(NOTICE_KEY) ?? undefined;
       storage.remove(NOTICE_KEY);
       const list = await refresh();
+      for (const entry of list) if (entry.signedOut) void context.activities?.clear(entry.host.id);
       if (initial.view === "workbench") {
         const saved = list.find((entry) => entry.host.id === initial.hostId);
         if (saved) { await openHost(saved.host, initial.threadId); return; }
@@ -316,7 +327,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
         {...(view.notice ? { notice: view.notice } : {})}
         now={now().getTime()}
         onOpen={(host) => void openHost(host)}
-        onRemove={(host) => void book.remove(host.id).then(() => { clearHostStorage(storage, host.id); void pushRegistrar()?.forget(host.id).catch(() => undefined); return refresh(); })}
+        onRemove={(host) => void Promise.resolve(context.activities?.clear(host.id)).then(() => book.remove(host.id)).then(() => { clearHostStorage(storage, host.id); void pushRegistrar()?.forget(host.id).catch(() => undefined); return refresh(); })}
         onAdd={() => setView({ name: "add" })}
         onDemo={() => {
           const demo = createDemoHost();

@@ -24,6 +24,11 @@ import java.util.concurrent.ConcurrentHashMap;
 @CapacitorPlugin(name = "TauNative")
 public class TauNativePlugin extends Plugin {
 
+    @PluginMethod public void activityTokens(PluginCall call) { JSObject result = new JSObject(); result.put("tokens", new org.json.JSONArray()); call.resolve(result); }
+    @PluginMethod public void activityUpdate(PluginCall call) { AgentActivity.update(getContext(), call.getData()); call.resolve(); }
+    @PluginMethod public void activityUsage(PluginCall call) { UsageWidget.save(getContext(), call.getData()); call.resolve(); }
+    @PluginMethod public void activityClear(PluginCall call) { AgentActivity.clear(getContext(), call.getString("hostId", "")); call.resolve(); }
+
     private final Map<String, PinnedSocket> sockets = new ConcurrentHashMap<>();
     private SecureStore store;
     private HostBrowser browser;

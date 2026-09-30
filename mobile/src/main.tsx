@@ -12,7 +12,7 @@ import { appleDynamicType, applyTypeScale, deviceClassFor } from "../../src/rend
 import { screenMinSide } from "../../src/renderer/use-layout-profile";
 import { Shell, type AppContext } from "./Shell";
 import { HostBook } from "./hosts";
-import { browseHosts, createSocketBridge, deviceInfo, scanQrCode, secureStore, textScalePort, type DeviceInfo } from "./native";
+import { nativeActivities, nativeDictation, browseHosts, createSocketBridge, deviceInfo, scanQrCode, secureStore, textScalePort, type DeviceInfo } from "./native";
 import { androidFontScale } from "./text-scale";
 import { linkRoute, readRoute } from "./routes";
 import { createPushRegistrar, createRelayPort, sealedTapRoute, setPushRegistrar, tapRoute } from "./push";
@@ -32,11 +32,12 @@ async function boot(): Promise<void> {
   const pushKeys = new PushKeys(secureStore);
   setPushRegistrar(createPushRegistrar(push, { relay: createRelayPort(), keys: pushKeys }));
   const context: AppContext = {
+    activities: nativeActivities,
     storage: createLocalStorageAdapter(),
     book: new HostBook(secureStore),
     bridge,
     device,
-    environment: webClientEnvironment("compact"),
+    environment: { ...webClientEnvironment("compact"), ...(device.platform === "ios" ? { dictation: nativeDictation } : {}) },
     wakes: nativeWakeSource(App, Network),
     scan: scanQrCode,
     browse: (listener) => browseHosts(TAU_BONJOUR_TYPE, listener),

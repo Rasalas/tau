@@ -26,6 +26,8 @@ export interface ApnsRequest {
   /** The app's bundle identifier. */
   topic: string;
   payload: unknown;
+  pushType?: "alert" | "liveactivity";
+  expiration?: number;
   /** Replaces an earlier notification with the same id; at most 64 bytes. */
   collapseId?: string;
 }
@@ -114,10 +116,10 @@ export class ApnsClient {
       [constants.HTTP2_HEADER_PATH]: `/3/device/${encodeURIComponent(request.token)}`,
       authorization: `bearer ${this.token()}`,
       "apns-topic": request.topic,
-      "apns-push-type": "alert",
+      "apns-push-type": request.pushType ?? "alert",
       "apns-priority": "10",
       // A day later the news is stale; Apple drops it rather than deliver it then.
-      "apns-expiration": String(Math.floor(this.now() / 1000) + 24 * 60 * 60),
+      "apns-expiration": String(request.expiration ?? Math.floor(this.now() / 1000) + 24 * 60 * 60),
       "content-type": "application/json",
       ...(request.collapseId ? { "apns-collapse-id": request.collapseId } : {}),
     };

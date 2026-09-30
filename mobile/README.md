@@ -91,3 +91,43 @@ is in `../docs/agents/testing-the-app.md` ("Remote access"); what needs a real p
 
 Anything offline beyond what the last visit to each host kept: a thread of a
 host out of reach opens only once the phone reaches it again.
+
+## Dictation, agent activity and usage widgets
+
+On a supported iPhone with iOS 26 or later, **Dictate** records up to five
+minutes and transcribes with Apple's on-device SpeechTranscriber. Choose a
+language first. A missing model downloads from Apple; after that, recording
+and transcription work offline. Tau asks for microphone permission and
+never sends audio to a host or transcription server. Review or edit the
+transcript, then **Insert into draft** places it at the cursor captured before
+recording. Sending remains a separate action. Cancel discards audio and late
+results. If the draft changes during recording, insertion appends to preserve
+those edits. Android and unsupported iPhones keep the system keyboard's dictation.
+
+While the phone is connected, thread events update iOS Live Activities and
+Android ongoing notifications with running, completed or needs-input states.
+A tap opens that thread on its paired host. Running cards become stale after
+eight hours; completed cards expire after fifteen minutes. Android requests
+Live Update promotion on compatible systems; permission and system policy decide
+whether the card is promoted. The phone does not run the agent and needs no
+foreground service to pretend that it does.
+
+The **Tau usage** home-screen widget reads bounded local snapshots. Accounts
+with the same known account identity pool once using the freshest reading.
+Unknown identities remain separate. Widgets receive quota labels, percentages,
+reset times and hashed grouping keys; no host tokens or provider credentials.
+Snapshots expire no later than fifteen minutes after their source reading.
+Open Tau to refresh. Removing a host or receiving a revoked-token response
+clears its cards and snapshots. Android widget redraws follow the system's
+widget schedule, so the last rendered text can remain until the next redraw.
+
+Native projects include the WidgetKit extension and app-group entitlements.
+The app and extension both need the `group.de.tbuck.tau` App Group in their
+provisioning profiles. The native shell targets iOS 17 or later; dictation
+requires iOS 26 and device/language model support. A production iOS Live
+Activity gets its own APNs update token, which the app registers with that
+host's Push Kit. Direct background updates require an APNs key on the host.
+The generic alert relay does not yet transport ActivityKit updates. Android
+background lifecycle data is handled by the relay-owned messaging service;
+that integration must preserve the encrypted activity payload. None of these
+source changes proves app-store rollout or real-device permission behavior.

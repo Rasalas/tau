@@ -1,3 +1,6 @@
+import { useClientEnvironment } from "../client-environment";
+import { insertDictation } from "../dictation";
+import { ComposerDictation } from "./ComposerDictation";
 import { lazy, Suspense, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ArrowUp, ChevronDown, Lock, Paperclip, Shrink, Sparkles, Terminal, X } from "lucide-react";
@@ -193,6 +196,8 @@ export function Composer({
   lead?: ReactNode;
 }) {
   const { readOnly } = useHostCapabilities();
+  const dictation = useClientEnvironment().dictation;
+  const dictationSelection = useRef({ start: 0, end: 0, text: "" });
   const clientStorage = useClientStorage();
   const attachmentScope = createDraftKey(draftStorageKey);
   const subscribeToScope = useCallback((listener: () => void) => scopeStore.subscribe(attachmentScope, listener), [attachmentScope, scopeStore]);
@@ -1053,6 +1058,15 @@ export function Composer({
           />
         </Suspense>
 
+        {dictation ? <ComposerDictation key={attachmentScope} port={dictation}
+          capture={() => { const input = textareaRef.current; dictationSelection.current = { start: input?.selectionStart ?? text.length, end: input?.selectionEnd ?? text.length, text }; }}
+          insert={(transcript) => {
+            const captured = dictationSelection.current;
+            // Editing the draft during recording changes the anchor. Preserve it and append in that case.
+            const next = insertDictation(text, captured.text === text ? captured.start : text.length, captured.text === text ? captured.end : text.length, transcript);
+            updateDraft(next.text);
+            requestAnimationFrame(() => { textareaRef.current?.focus(); textareaRef.current?.setSelectionRange(next.caret, next.caret); });
+          }} /> : null}
         <div className="composer-toolbar">
           <ComposerFooterControls
             revision={`${text.trimStart().startsWith("!!") ? "silent-shell" : text.trimStart().startsWith("!") ? "shell" : ""}|${snapshot?.model?.name ?? ""}|${snapshot?.thinkingLevel ?? ""}`}

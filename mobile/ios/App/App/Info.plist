@@ -51,6 +51,10 @@
 	<string>Tau scans the pairing code a computer running Tau shows in Settings → Connections.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Tau finds the computers running Tau on your network and connects to them directly.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Tau records dictation and transcribes it locally on your iPhone.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
