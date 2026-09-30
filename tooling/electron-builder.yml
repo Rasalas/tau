@@ -39,6 +39,10 @@ files:
   # The website and its screenshots (GitHub Pages, .github/workflows/pages.yml).
   - "!site"
   - "!release"
+  # Server deployments and native mobile projects ship separately.
+  - "!relay/**"
+  - "!connect-relay/**"
+  - "!mobile/**"
   # The renderer benchmark's own build (`npm run benchmark:renderer`).
   - "!dist-benchmark"
   # The extension API's declarations travel as a resource beside the archive (below).
