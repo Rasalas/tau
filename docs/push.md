@@ -90,7 +90,7 @@ keyId`. Changing version or key id makes it fail to open.
 nonce over the JSON `{ title, body, url?, kind?, tag? }`, with the associated data
 `tau-push:1:<keyId>`. The host seals with Node's crypto (`kits/push/relay.ts`), the app
 opens with WebCrypto (`mobile/src/push-crypto.ts`) and on Android with `javax.crypto`.
-The collapse id is `HMAC-SHA256(key, "collapse:" + threadId)`, cut to 22 characters, so
+The collapse id is `HMAC-SHA256(HKDF-SHA256(key, info "tau-push:collapse"), threadId)`, cut to 22 characters, so
 the relay cannot trace it back to a thread.
 
 A new layout gets a new version number; readers refuse versions they do not know.
