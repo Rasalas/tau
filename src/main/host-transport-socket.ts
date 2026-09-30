@@ -203,10 +203,13 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   const send = (socket: WebSocket, frame: HostServerFrame): void => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(frame));
   };
+  /** A paired device's access as it stands now: a new preset applies to its next request and push. */
+  const readOnlySession = (session: { connection: string; principal: HostInvocationPrincipal }): boolean =>
+    session.principal.kind === "workbench-client" && session.principal.pairedClient !== undefined && (access.accessOf?.(session.connection) ?? "read-only") === "read-only";
   /** A paired device's requests carry what it may do now and a way to record what it changed. */
   const principalFor = (session: { connection: string; principal: HostInvocationPrincipal }): HostInvocationPrincipal => {
     if (session.principal.kind !== "workbench-client" || session.principal.pairedClient === undefined) return session.principal;
-    const readOnly = (access.accessOf?.(session.connection) ?? "read-only") === "read-only";
+    const readOnly = readOnlySession(session);
     return Object.freeze({
       ...session.principal,
       ...(readOnly ? { readOnly: true as const } : {}),
@@ -382,8 +385,8 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         // The reply first: it carries the sequence this client starts from, and
         // the push that announces its own arrival must come after that number.
         const identity = options.host ? helloIdentity(options.host) : undefined;
-        const reply = helloReply(options.pushLog, frame.hello, { hostVersion: options.hostVersion, capabilities, ...(identity ? { host: identity } : {}) }, filter);
-        const readOnly = credential.kind === "client" && (access.accessOf?.(connection) ?? "read-only") === "read-only";
+        const readOnly = readOnlySession(session);
+        const reply = helloReply(options.pushLog, frame.hello, { hostVersion: options.hostVersion, capabilities, ...(identity ? { host: identity } : {}) }, filter, readOnly);
         // Said here so a client that manages nothing never asks for the list it would be refused.
         const owner = isHostOwner(session.principal);
         send(socket, { type: "hello-reply", id: frame.id, reply: { ...reply, ...(readOnly ? { access: "read-only" as const } : {}), owner } });
@@ -475,6 +478,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
       let frame: string | undefined;
       for (const [socket, session] of authenticated) {
         if (socket.readyState !== socket.OPEN || !(session.filter?.admits(push.event, scope) ?? true)) continue;
+        if (scope === "writers" && readOnlySession(session)) continue;
         event ??= JSON.stringify(push.event);
         // The first push after skipped ones says so, or the client would count a gap.
         const prev = session.lastSent === push.seq - 1 ? "" : `,"prev":${session.lastSent}`;
