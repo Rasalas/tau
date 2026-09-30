@@ -43,7 +43,7 @@ describe("packIconSet", () => {
 
   it("refuses an unbundled icon without elements, which would read as bundled", () => {
     expect(() => encodeIconSet({ empty: [] })).toThrow(/empty/u);
-    expect(encodeIconSet({ empty: [] }, {}, new Set(["empty"]))).toBe("#empty#");
+    expect(encodeIconSet({ empty: [] }, {}, new Set(["empty"]))).toBe("#0empty#");
   });
 
   it("keeps every value exactly, including an element without attributes", () => {
@@ -60,6 +60,18 @@ describe("packIconSet", () => {
     expect(Object.keys(aliases)).toEqual(["Empty", "Blank"]);
   });
 
+  it("writes each name after what it shares with the one before", () => {
+    const set = { arrow: [["g", {}]], "arrow-down": [["g", {}]], "arrow-down-left": [["g", {}]], "a-arrow": [["g", {}]], "arrow-up": [["g", {}]] } as const;
+    const data = encodeIconSet(structuredClone(set) as never, { "arrow-down": ["ArrowSouth"] });
+    expect(data.split("#")[1]).toBe("0arrow|5-down,ArrowSouth|a-left|1-arrow|1rrow-up");
+    const names: string[] = [];
+    decodeIconSet(data, (name) => (names.push(name), () => null));
+    expect(names).toEqual(Object.keys(set));
+    // One base-36 digit counts at most 35 shared characters.
+    const long = "a".repeat(40);
+    expect(encodeIconSet({ [long]: [["g", {}]], [`${long}-b`]: [["g", {}]] }).split("#")[1]).toBe(`0${long}|zaaaaa-b`);
+  });
+
   it("refuses a value that holds a separator", () => {
     expect(() => encodeIconSet({ odd: [["path", { d: "M0 0|h1" }]] })).toThrow(/odd/u);
   });
@@ -67,13 +79,13 @@ describe("packIconSet", () => {
   it("builds a module that exports the decoded set", () => {
     const code = iconSetModule({ dot: [["circle", { r: "1" }]] }, { dot: ["Point"] }, new Set());
     expect(code).toContain('import { createLucideIcon } from "lucide-react";');
-    expect(code).toContain('export const { icons, aliases } = decodeIconSet("circle/r#dot,Point#01", createLucideIcon, []);');
+    expect(code).toContain('export const { icons, aliases } = decodeIconSet("circle/r#0dot,Point#01", createLucideIcon, []);');
   });
 
   it("imports the bundled icons by their own names, in the set's order", () => {
     const code = iconSetModule({ x: [["path", { d: "M18 6 6 18" }]], check: [["path", { d: "M20 6 9 17l-5-5" }]], dot: [["circle", { r: "1" }]] }, {}, new Set(["check", "x"]));
     expect(code).toContain('import { createLucideIcon, X, Check } from "lucide-react";');
-    expect(code).toContain('decodeIconSet("circle/r#x|check|dot#||01", createLucideIcon, [X, Check]);');
+    expect(code).toContain('decodeIconSet("circle/r#0x|0check|0dot#||01", createLucideIcon, [X, Check]);');
   });
 });
 

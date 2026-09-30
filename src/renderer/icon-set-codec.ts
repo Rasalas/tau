@@ -25,15 +25,20 @@ function fail(name: string): never {
  * Packs icon element lists into one string: the distinct tag and attribute-name
  * combinations, the icon names each with its older names, then per icon and
  * element the combination's index and the attribute values. Names and elements
- * apart compress better. An icon in `bundled` keeps its names but no elements:
- * the decoder gets its component from the bundle.
+ * apart compress better. Each name starts with how many characters it shares
+ * with the one before, in base 36. An icon in `bundled` keeps its names but no
+ * elements: the decoder gets its component from the bundle.
  */
 export function encodeIconSet(icons: Record<string, IconNode>, aliases: IconAliases = {}, bundled: ReadonlySet<string> = new Set()): string {
   const shapes: string[] = [];
+  let previous = "";
   const names = Object.keys(icons).map((name) => {
     const older = aliases[name] ?? [];
     if ([name, ...older].some((entry) => NAME_SEPARATORS.test(entry))) fail(name);
-    return [name, ...older].join(",");
+    let shared = 0;
+    while (shared < 35 && name[shared] !== undefined && name[shared] === previous[shared]) shared += 1;
+    previous = name;
+    return [shared.toString(36) + name.slice(shared), ...older].join(",");
   });
   const bodies = Object.entries(icons).map(([name, elements]) => {
     if (bundled.has(name)) return "";
@@ -64,8 +69,11 @@ export function decodeIconSet(data: string, create: IconFactory, bundled: readon
     return [tag as IconNode[number][0], Object.fromEntries(attributes.map((attribute, index) => [attribute, values[index]!]))];
   };
   let next = 0;
+  let previous = "";
   names.split("|").forEach((entry, icon) => {
-    const [name = "", ...older] = entry.split(",");
+    const [packed = "", ...older] = entry.split(",");
+    const name = previous.slice(0, Number.parseInt(packed[0]!, 36)) + packed.slice(1);
+    previous = name;
     const list = elementLists[icon];
     const component = list ? create(name, list.split(";").map(element)) : bundled[next++]!;
     icons[component.displayName ?? name] = component;
