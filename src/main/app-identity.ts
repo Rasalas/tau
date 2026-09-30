@@ -2,13 +2,10 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, posix, win32 } from "node:path";
 
-/**
- * Which app this is: the released Tau, or Tau Dev, a build of a checkout that
- * installs beside it (K132). Every name two installed apps could share comes
- * from here, so a dev build never reads or replaces the released app's state.
- */
+/** The released Tau, or Tau Dev: a checkout's build installed beside it (K132). */
 export type AppFlavor = "stable" | "dev";
 
+/** Every name two installed apps could share, so Tau Dev never touches the released app's state. */
 export interface AppIdentity {
   flavor: AppFlavor;
   /** The macOS bundle id, Windows' AppUserModelID, the LaunchAgent's owner. */
@@ -70,11 +67,7 @@ export function flavorOf(manifest: unknown): AppFlavor {
   return value === "dev" ? "dev" : "stable";
 }
 
-/**
- * The unpacked `package.json` of the installed app a binary belongs to. Found
- * from the binary, not from the code, because a workbench overlay runs code
- * from userData and a checkout's Electron has no such file.
- */
+/** The installed app's unpacked `package.json`, found from its binary: a workbench overlay runs code from userData. */
 export function packagedManifestPath(execPath: string, platform: NodeJS.Platform): string {
   const path = platform === "win32" ? win32 : posix;
   const resources = platform === "darwin" ? path.join(path.dirname(execPath), "..", "Resources") : path.join(path.dirname(execPath), "resources");
