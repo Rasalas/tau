@@ -431,8 +431,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const sidebarShown = sidebarOpen && sidebarContributions.length > 0;
   const shownSidebar = sidebarShown ? shownSidebarWidth(sidebarWidth, windowWidth) : 0;
   const touchSidebarShown = split && touchSidebarOpen;
-  // A page with a sidebar of its own draws it in the thread list's place, on a desktop.
-  const pageSidebar = Boolean(openPage && sidebarShown && !compact && registry.getPage(openPage.id)?.Sidebar);
+  // A page with its own navigation replaces the visible desktop or tablet thread list.
+  const pageSidebar = Boolean(openPage && (split ? touchSidebarShown : sidebarShown && !compact) && registry.getPage(openPage.id)?.Sidebar);
   const drawnSidebar = split ? (touchSidebarShown ? compactSidebarWidth(windowWidth, sidebarWidthChosen ? sidebarWidth : undefined) : 0) : shownSidebar;
   const clearStageMaximized = useCallback(() => setStageMaximized(false), [setStageMaximized]);
   // A phone draws no stage (profile-compact.css): its panels are sheets.
@@ -711,7 +711,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         }))}
       /> : null}
       {macInset && sidebarShown ? <div className="sidebar-top" aria-hidden /> : null}
-      {split ? <div className="sidebar-slot">
+      {split ? <div className={pageSidebar ? "sidebar-slot covered" : "sidebar-slot"}>
         <Suspense fallback={<aside className="touch-browser sidebar" />}><LazyTouchThreadBrowser variant="sidebar" {...threadBrowserProps} /></Suspense>
       </div> : null}
       {pageSidebar ? <div className="sidebar-slot"><LazyFeatureBoundary label="sidebar" frame={pageSidebarFrame}>
