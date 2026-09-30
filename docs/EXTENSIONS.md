@@ -1839,8 +1839,9 @@ gives another kit the say over the rail (one at a time, the last wins): its
 `sections(threads)` splits what the rail would show — searched, newest first —
 into sections `{ id, label?, threads, shelf?, collapsed?, settled? }` in draw
 order, where the one section without a label is the main, paged list and a
-`shelf` folds away under its label with compact rows; `menu(session)` and
-`runMenu(session, itemId, actions)` are a row's right-click menu;
+`shelf` folds away under its label with compact rows; `menu(session, lookup?)` and
+`runMenu(session, itemId, actions)` are a row's right-click menu (`lookup` is the
+registry: chords for hints and the `thread-title` commands);
 `toggleSettled(session)` settles or returns a thread the rail moves itself; the
 optional `rowActions(session)` (API 1.11.0) is ignored since API 1.27.0, when rows
 stopped drawing hover buttons (Thread Rail's snooze clock is its menu's Snooze now); and
@@ -2043,6 +2044,13 @@ otherwise), `model` (what the thread would start with, absent when its runtime
 chooses), `runtime` (the backend kind) and `attachments` (how many images and
 files ride along). Thread Rail claims ⌘↵ to start a thread in the background,
 and a prompt with several models chosen to start one thread per model.
+
+`registerThreadMenu({ id, menu, run })` (API 1.37.0) makes one menu the
+thread's everywhere: the thread title opens `menu(session, registry)` in the
+page's `Menu` and passes a pick to `run(session, itemId, actions)`, and Thread
+Rail, the shipped caller, hands the same organizer menu to the rail's
+right-click. `menu` answers `undefined` to leave the title its own; `rename`
+on the title edits it in place. The last one registered wins.
 
 `registerModelSelection({ id, selected, subscribe, toggle, reset })` lets a new
 thread's model picker hold more than one model. Shift-click (or Shift+↵) on a

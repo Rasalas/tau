@@ -188,6 +188,8 @@ export type {
   PaletteSearchContext,
   PaletteSourceContribution,
   ModelSelectionContribution,
+  ThreadMenuContribution,
+  ThreadMenuLookup,
   UserKeybinding,
   UserKeymapContribution,
   NewThreadClaimEvent,

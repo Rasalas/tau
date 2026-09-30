@@ -44,13 +44,16 @@ export function acceleratorOf(label: string, platform: NodeJS.Platform): string 
   return accelerated ? [...modifiers, accelerated].join("+") : undefined;
 }
 
+/** Electron reads `&` as a mnemonic mark and drops it; `&&` is a literal one. */
+const literal = (label: string) => label.replaceAll("&", "&&");
+
 /** A heading is a native header on macOS 14 and later; elsewhere a disabled line. */
 function template(entries: readonly NativeMenuEntry[], ports: ContextMenuPorts, choose: (id: string) => void): MenuItemConstructorOptions[] {
   return entries.map((entry): MenuItemConstructorOptions => {
     if (entry.type === "separator") return { type: "separator" };
-    if (entry.type === "heading") return ports.platform === "darwin" ? { type: "header", label: entry.label } : { label: entry.label, enabled: false };
+    if (entry.type === "heading") return ports.platform === "darwin" ? { type: "header", label: literal(entry.label) } : { label: literal(entry.label), enabled: false };
     const icon = entry.icon ? ports.icon?.(entry.icon) : undefined;
-    const common = { label: entry.badge ? `${entry.label} (${entry.badge})` : entry.label, enabled: entry.enabled !== false, ...(icon ? { icon } : {}) };
+    const common = { label: literal(entry.badge ? `${entry.label} (${entry.badge})` : entry.label), enabled: entry.enabled !== false, ...(icon ? { icon } : {}) };
     if (entry.submenu) return { ...common, submenu: template(entry.submenu, ports, choose) };
     // A chord is shown only, the page's own keybinding does the work; any other hint is a sublabel.
     const accelerator = entry.hint ? acceleratorOf(entry.hint, ports.platform) : undefined;

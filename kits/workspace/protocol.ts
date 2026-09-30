@@ -7,6 +7,7 @@ import type {
   FileNode,
   HostActionResult,
   MenuSection,
+  ThreadMenuLookup,
   UiEditor,
   UiTerminal,
   UiFileContent,
@@ -591,8 +592,8 @@ export interface ThreadRailOrganizer {
   getVersion(): number;
   /** `threads` is what the rail would show, searched and newest first. */
   sections(threads: readonly UiSession[]): ThreadRailSection[];
-  /** A row's right-click menu; `shortcut` gives the chord bound to a command, for an item to show. */
-  menu(session: UiSession, shortcut?: (commandId: string) => string | undefined): MenuSection[];
+  /** A row's right-click menu; `lookup` gives chords for its hints and the commands offered on a thread. */
+  menu(session: UiSession, lookup?: ThreadMenuLookup): MenuSection[];
   runMenu(session: UiSession, itemId: string, actions: WorkbenchActions): void;
   /** Settles or returns a thread the rail itself moves (a drop on the shelf's heading). */
   toggleSettled(session: UiSession): void;
