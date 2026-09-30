@@ -426,7 +426,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
         ready = undefined;
         return;
       case "fatal": {
-        fail(`${options.name}: ${reviveError(message.error).message}`);
+        fail(reviveError(message.error).message);
         return;
       }
       case "command": {
@@ -443,7 +443,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
             },
           ));
         } catch (error) {
-          fail(`${options.name}: ${error instanceof Error ? error.message : String(error)}`);
+          fail(error instanceof Error ? error.message : String(error));
         }
         return;
       }
@@ -473,7 +473,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
           respond(message.id, () => services.sessions.exclusive(() => new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
               exits.delete(message.id);
-              const reason = `Host extension ${options.name} held the session lock for more than ${hookTimeoutMs}ms`;
+              const reason = `the worker held the session lock for more than ${hookTimeoutMs}ms`;
               fail(reason);
               reject(new Error(reason));
             }, hookTimeoutMs);
@@ -506,12 +506,12 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
     }
   });
 
-  worker.on("error", (error: Error) => { fail(`${options.name}: ${error.message}`); });
+  worker.on("error", (error: Error) => { fail(error.message); });
   worker.on("exit", (code) => {
     if (stopped) return;
     fail(started
-      ? `${options.name} left the host process (worker exit code ${code})`
-      : `${options.name} exited before it started (worker exit code ${code})`);
+      ? `the worker left the host process (exit code ${code})`
+      : `the worker exited before it started (exit code ${code})`);
   });
 
   const startupTimeoutMs = options.startupTimeoutMs ?? 30_000;
@@ -521,7 +521,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
       stopped = true;
       unwatchMemory();
       void worker.terminate();
-      reject(new Error(`${options.name} did not start within ${startupTimeoutMs}ms`));
+      reject(new Error(`the worker did not start within ${startupTimeoutMs}ms`));
     }, startupTimeoutMs);
     ready = {
       resolve: () => { clearTimeout(timer); resolve(); },
