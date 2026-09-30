@@ -589,7 +589,8 @@ export function ModelPicker({
     chosen: (key) => {
       const offering = offerings.find((entry) => entry.key === key);
       const selected = offering ? `${offering.runtime}::${modelKey(offering.model)}` : key;
-      return chosen.includes(selected) ? selectedLabel(chosen, selected) : chosen.includes(key) ? selectedLabel(chosen, key) : undefined;
+      const legacy = offering ? modelKey(offering.model) : key;
+      return chosen.includes(selected) ? selectedLabel(chosen, selected) : chosen.includes(legacy) ? selectedLabel(chosen, legacy) : undefined;
     },
     jump: (key) => jumps.get(key),
     onFavourite: (offering) => preferences.toggleFavouriteModel(offering.key),

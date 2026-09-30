@@ -469,7 +469,12 @@ export function Composer({
     subscribe: (listener) => modelSet.subscribe(listener),
     reset: () => modelSet.reset(),
     toggle: (model, current, runtime, currentRuntime) => {
-      if (modelSet.selected().includes(runtime ? `${runtime}::${modelKey(model)}` : modelKey(model))) { modelSet.toggle(model, current, runtime, currentRuntime); return; }
+      const key = modelKey(model);
+      const selected = modelSet.selected();
+      if (selected.includes(key) || (runtime && selected.includes(`${runtime}::${key}`))) {
+        modelSet.toggle(model, current, runtime, currentRuntime);
+        return;
+      }
       passGates(
         { action: "model", model, ...(runtime ? { runtime } : snapshot?.backendKind ? { runtime: snapshot.backendKind } : {}), ...(newThread ? { newThread: true } : {}), ...(snapshot ? { snapshot } : {}) },
         () => modelSet.toggle(model, current, runtime, currentRuntime),
