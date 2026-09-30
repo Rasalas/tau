@@ -592,6 +592,14 @@ describe("Codex ChatGPT plan instances", () => {
     expect(launches).toHaveLength(0);
   });
 
+  it("refuses to let a plan instance's commands see variables named *TOKEN*", async () => {
+    const { registry, root } = await harness();
+    await registry.invoke("tau.codex", "save-instance", { instance: { id: "work" } });
+    await new ChatGPTPlanStore(join(root, "state", "tau.codex", "chatgpt-plan")).write("work", { issuer: "https://auth.openai.com", subject: "fixture-subject", clientId: "oaiapp_fixture" });
+    await expect(registry.invoke("tau.codex", "save-instance", { instance: { id: "work", args: "-c shell_environment_policy.ignore_default_excludes=true" } })).rejects.toThrow("*TOKEN*");
+    await registry.invoke("tau.codex", "save-instance", { instance: { id: "work", args: "-c model_verbosity=low" } });
+  });
+
   it("shows plan permission accurately and retains the bound registration after logout", async () => {
     const { registry, root } = await harness();
     const credentials = new ChatGPTPlanStore(join(root, "state", "tau.codex", "chatgpt-plan"));

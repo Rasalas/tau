@@ -654,6 +654,9 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           throw new HostCommandError(`${CODEX_COMMAND_VARIABLE} is set in Tau's environment and decides the path.`);
         }
         if (requested.command && !services.findCommand(requested.command)) throw new HostCommandError(`No executable at "${requested.command}".`);
+        if (requested.args?.includes("ignore_default_excludes") && await chatgpt.read(requested.id)) {
+          throw new HostCommandError("This instance uses a ChatGPT plan: Codex keeps variables named *TOKEN* away from the commands it runs, so ignore_default_excludes cannot be set here.");
+        }
         try {
           await settings.save(requested);
         } catch (error) {

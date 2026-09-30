@@ -246,5 +246,7 @@ describe("ChatGPT plan authorization", () => {
     expect(ids[0]).toBe(ids[1]);
     expect(CHATGPT_PLAN_ARGS).toContain('model_providers.openai_chatgpt_plan.supports_websockets=false');
     expect(CHATGPT_PLAN_ARGS).toContain('disable_response_storage=true');
+    // ACCESS_TOKEN rides in Codex's environment; the *TOKEN* filter keeps it out of commands.
+    expect(CHATGPT_PLAN_ARGS).toContain("shell_environment_policy.ignore_default_excludes=false");
   });
 });

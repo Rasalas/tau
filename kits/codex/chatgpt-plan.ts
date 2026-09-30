@@ -16,6 +16,8 @@ export const CHATGPT_PLAN_ARGS = [
   "-c", "disable_response_storage=true",
   "-c", "features.apps=false",
   "-c", "features.image_generation=false",
+  // ACCESS_TOKEN is in Codex's environment: keep the *TOKEN* filter on for the commands it runs.
+  "-c", "shell_environment_policy.ignore_default_excludes=false",
 ];
 
 function tokens(response: TokenResponse, previous?: ChatGPTRegistration["tokens"]): NonNullable<ChatGPTRegistration["tokens"]> {
