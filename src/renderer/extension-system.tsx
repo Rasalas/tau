@@ -330,6 +330,8 @@ export interface ThreadListEntry {
   key: string;
   session: UiSession;
   running?: boolean;
+  /** Waits for an answer there (API 1.30.0). */
+  waiting?: boolean;
   /** Set while `open` is under way. */
   opening?: boolean;
   /** On the settled shelf rather than among the active threads. */

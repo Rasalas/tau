@@ -46,6 +46,8 @@ export interface MachineRailThread {
   key: string;
   session: UiSession;
   running?: boolean;
+  /** A question waits there; the phone's list shows it as one. */
+  waiting?: boolean;
   opening?: boolean;
   machine: { name: string; icon: ReactNode };
   unavailable?: string;
@@ -104,6 +106,7 @@ export function createMachineThreads(environments: PlatformEnvironments) {
           key: session.id,
           session,
           ...(thread.running ? { running: true } : {}),
+          ...(thread.waiting ? { waiting: true } : {}),
           ...(thread.settled ? { settled: true } : {}),
           ...(opening === session.id ? { opening: true } : {}),
           machine: { name: machine.name, icon: <MachineIcon environment={machine} size={13} /> },

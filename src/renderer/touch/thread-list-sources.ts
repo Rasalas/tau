@@ -1,14 +1,16 @@
 import { useCallback, useRef, useSyncExternalStore } from "react";
+import { outsideRow, type ThreadSupervisionRow } from "../../workbench/thread-supervision";
 import type { ExtensionRegistry, ThreadListEntry, ThreadListPlace, ThreadListSource } from "../extension-system";
 
 export interface OutsideThreads {
-  entries: readonly ThreadListEntry[];
+  /** The entries as list rows, keyed by `key`. */
+  rows: readonly ThreadSupervisionRow[];
   byKey: ReadonlyMap<string, ThreadListEntry>;
   /** Where this host's own threads run, from the first source that says. */
   here: ThreadListPlace | undefined;
 }
 
-const NONE: OutsideThreads = { entries: [], byKey: new Map(), here: undefined };
+const NONE: OutsideThreads = { rows: [], byKey: new Map(), here: undefined };
 
 /** Every source's threads in one list; the same object until a source or its threads change. */
 export function combineSources(sources: readonly ThreadListSource[], previous: { parts: unknown[]; value: OutsideThreads } | undefined): { parts: unknown[]; value: OutsideThreads } {
@@ -18,7 +20,7 @@ export function combineSources(sources: readonly ThreadListSource[], previous: {
   const parts: unknown[] = [here?.name, ...entries];
   if (previous && previous.parts.length === parts.length && previous.parts.every((part, index) => part === parts[index])) return previous;
   if (entries.length === 0 && !here) return { parts, value: NONE };
-  return { parts, value: { entries, byKey: new Map(entries.map((entry) => [entry.key, entry])), here } };
+  return { parts, value: { rows: entries.map(outsideRow), byKey: new Map(entries.map((entry) => [entry.key, entry])), here } };
 }
 
 /** The threads kits list for elsewhere (`registerThreadListSource`), followed while the list shows. */
