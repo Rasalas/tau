@@ -826,6 +826,7 @@ configuration. The secrets live in the environment `release`:
 | `APPLE_API_ISSUER` | its issuer id |
 | `IOS_DIST_P12` | base64 of the Apple Distribution `.p12` the iOS job imports into a temporary keychain; without it Xcode would need Apple's cloud signing and an Admin key |
 | `IOS_DIST_P12_PASSWORD` | its password |
+| `IOS_PROFILE` | base64 of the App Store provisioning profile for `de.tbuck.tau`; with it the iOS job signs by hand, since the App Store Connect key may not create profiles |
 
 Only the macOS build reads them: it is the only build job in the environment,
 and the Package step passes them only when the matrix entry is macOS, since
