@@ -421,6 +421,18 @@ export const packagesExtension: DesktopExtension = {
       run: (app) => app.openSettings(PACKAGES_SETTINGS_PAGE),
     });
 
+    // What a package author wants from /reload, without rebuilding Tau from its source.
+    plugin.registerCommand({
+      id: "packages.rebuild",
+      label: "Rebuild extension packages",
+      group: "Extensions",
+      access: "write",
+      run: async (app) => {
+        const failure = await report(app, plugin.host.invoke("rebuild"));
+        if (failure) app.notify(failure);
+      },
+    });
+
     plugin.registerSlashCommand({
       name: "install",
       description: "Install an extension package from npm:, git: or a folder",

@@ -136,6 +136,16 @@ describe("Packages kit", () => {
     unbind();
   });
 
+  it("rebuilds the packages from the palette without rebuilding Tau", async () => {
+    const invoke = vi.fn(async () => ({ message: "Rebuilt the installed packages." }));
+    const { registry } = createKitHarness(invoke);
+    registry.activate(packagesExtension);
+    const app = actions();
+    await registry.getCommands().find((command) => command.id === "packages.rebuild")?.run(app);
+    expect(invoke).toHaveBeenCalledWith(PACKAGES_EXTENSION_ID, "rebuild", undefined);
+    expect(app.notify).toHaveBeenCalledWith("Rebuilt the installed packages.");
+  });
+
   it("reports a source the user did not name instead of calling the host", async () => {
     const invoke = vi.fn(async () => ({}));
     const { registry } = createKitHarness(invoke);

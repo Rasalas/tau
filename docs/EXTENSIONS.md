@@ -3656,11 +3656,14 @@ Settings → Extensions as *waiting for approval* with the list it asks for;
 **Allow** writes the grant and starts both halves, **Deny** leaves it off. Until approved, the
 host half is never even imported, in either scope.
 
-**`/reload`** is the single "apply changes" command: it re-syncs packages
-(also done at startup and on every project change), rebuilds Tau if its own
-source changed, and reloads the renderer or restarts the app as needed.
-Installing, updating or removing a folder never needs a rebuild — only a
-`/reload`.
+**`/reload`** applies changes to Tau itself: it runs Tau's build from its
+source (a checkout Tau runs from or has open, or the source copy an installed
+Tau keeps for edits to itself; about ten seconds), re-syncs packages, and
+reloads the renderer or restarts the app as needed. A package never needs it:
+installing, approving, trusting and saving take effect by themselves, and
+**Rebuild extension packages** in the command palette (or *Rebuild* under
+Settings → Packages → *Develop a package*) rebuilds and rescans the packages
+alone, without building Tau.
 
 **Global vs. project scope.** `~/.tau/extensions/<name>/` and
 `~/.tau/packages.json` apply to every project; `<project>/.tau/extensions/<name>/`
