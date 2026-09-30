@@ -58,7 +58,10 @@ test("browser relay authenticates before opening a host route and accepts only b
     assert.equal(opened, 0); assert.equal(relay.stats().authenticating, 0);
 
     for (const auth of [Buffer.from("not TLS"), JSON.stringify({ type: "authenticate", token: route.hostToken }), JSON.stringify({ type: "authenticate", token: route.clientToken, extra: "ignored" }).repeat(30)]) {
+      // A single authentication slot requires sequential negative cases.
+      // oxlint-disable-next-line no-await-in-loop
       const denied = socket(`/v1/browser/${route.id}`, "tau-connect-v1"); await once(denied, "open");
+      // oxlint-disable-next-line no-await-in-loop
       const closed = once(denied, "close"); denied.send(auth); assert.equal((await closed)[0], 4401);
     }
     assert.equal(opened, 0);

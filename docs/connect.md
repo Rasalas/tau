@@ -78,8 +78,8 @@ form works in the compact browser client. Compare its six digits with the host
 before approving it. A browser requires an HTTPS page, WebAssembly, WebCrypto
 and IndexedDB. A storage or TLS initialization failure is shown before access
 is saved. A saved Connect session reconnects after a reload. The compact
-client's More menu offers "Forget Tau Connect" to close the connection and
-delete its saved credentials.
+client's More menu and the desktop browser's command palette offer "Forget Tau
+Connect" to close the connection and delete its saved credentials.
 
 Browser credentials are encrypted with AES-GCM in IndexedDB, using an
 origin-bound, non-exportable WebCrypto key. They never enter localStorage or a

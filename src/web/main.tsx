@@ -104,7 +104,7 @@ function connect(token: string, createSocket?: import("../workbench/host-connect
     <WebWorkbench
       client={host.client}
       storage={storage}
-      services={createRendererServices()}
+      services={createRendererServices(connectSession ? [{ id: "tau.browser-connect", name: "Tau Connect", activate: (context) => context.registerCommand({ id: "tau.browser-connect.forget", label: "Forget Tau Connect", group: "Connections", access: "read", destructive: true, run: forgetConnect }) }] : undefined)}
       environment={{ ...webClientEnvironment(profile), servedByHost: !connectSession, ...(connectSession ? { shell: { hostLabel: connectSession.name ?? "Tau Connect", actions: [{ id: "forget-connect", label: "Forget Tau Connect", run: () => { void forgetConnect(); } }] } } : {}) }}
     />
   </StrictMode>);
