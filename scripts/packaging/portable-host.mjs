@@ -21,8 +21,8 @@ export function portableHost({ root, out, platform, arch, version, run = execFil
   const name = `Tau-host-${version}-${platform}-${arch}.${platform === "win32" ? "zip" : "tar.gz"}`;
   const path = resolve(out, name);
   if (platform === "win32") {
-    // tar shipped by Windows handles zip creation with libarchive's zip format.
-    run("tar", ["-a", "-cf", path, "-C", root, "."]);
+    // Windows' own bsdtar writes zip; the GNU tar first on Git Bash's PATH cannot, and reads "D:" as a host.
+    run(join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe"), ["-a", "-cf", path, "-C", root, "."]);
   } else run("tar", ["-czf", path, "-C", root, "."]);
   const sha512 = createHash("sha512").update(readFileSync(path)).digest("base64");
   const feed = `version: ${version}\nfiles:\n  - url: ${basename(path)}\n    sha512: ${sha512}\n    size: ${statSync(path).size}\n`;
@@ -32,9 +32,11 @@ export function portableHost({ root, out, platform, arch, version, run = execFil
 
 export function findPortableRoot(folder, platform, arch) {
   const directories = readdirSync(folder, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => join(folder, entry.name));
-  const matches = directories.filter((root) => platform === "darwin"
-    ? existsSync(join(root, "Tau.app")) && (arch === "arm64" ? root.endsWith("arm64") : !root.endsWith("arm64"))
-    : existsSync(join(root, platform === "win32" ? "Tau.exe" : "tau")));
+  // electron-builder's app folders: mac, mac-arm64, linux-unpacked, linux-arm64-unpacked, win-unpacked. Its
+  // staging folders (an AppImage's, say) hold the executable too, so elsewhere only "-unpacked" counts.
+  const matches = directories.filter((root) => existsSync(join(root, platform === "darwin" ? "Tau.app" : platform === "win32" ? "Tau.exe" : "tau"))
+    && (platform === "darwin" || basename(root).endsWith("-unpacked"))
+    && basename(root).includes("arm64") === (arch === "arm64"));
   if (matches.length !== 1) throw new Error(`Expected one built ${platform}/${arch} app, found ${matches.length}.`);
   return matches[0];
 }
