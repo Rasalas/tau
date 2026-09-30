@@ -74,26 +74,42 @@ export async function bootstrapWslHost(distro: string, options: { cacheDir: stri
   const archive = (await run("wslpath", ["-u", release.path])).trim();
   // HOME is the distro user's home, not a Windows path or the client's data.
   await run("sh", ["-c", 'root="$HOME/.local/share/tau/wsl-host"; exec sh -c "$1" tau-bootstrap "$2" "$root"', "tau", portableBootstrapScript("linux", release.version, release.sha512), archive]);
-  await run("sh", ["-c", 'root="$HOME/.local/share/tau/wsl-host"; n=0; while [ ! -s "$root/data/host.json" ]; do n=$((n + 1)); [ "$n" -lt 30 ] || { echo "Tau host service did not start" >&2; exit 1; }; sleep 1; done']);
+  await resumeWslHost(distro, { execute, signal: options.signal });
   const child = (options.start ?? spawn)("wsl.exe", distributionCommand(distro, "sh", ["-c", 'root="$HOME/.local/share/tau/wsl-host"; export ELECTRON_RUN_AS_NODE=1 TAU_USER_DATA="$root/data"; exec "$root/current/tau" "$root/current/resources/app.asar.unpacked/bin/tau.mjs" machines accept-ssh']), { windowsHide: true, stdio: "pipe" });
   return wslPairingChannel(child, options.signal);
 }
 
 
+/** A descriptor is useful only after the socket answers, including a stale record after restart. */
+export async function waitForWslHostAddress(read: () => Promise<string>, probe: (url: string) => Promise<boolean>, pause: () => Promise<void>, attempts = 30): Promise<string> {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const endpoint = await read();
+      const url = new URL(endpoint);
+      if (["ws:", "wss:"].includes(url.protocol) && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) && await probe(endpoint)) return endpoint;
+    } catch { /* Startup can replace the descriptor between reads. */ }
+    await pause();
+  }
+  throw new Error("The WSL host did not become reachable. Check its user service and localhost forwarding.");
+}
+
 /** Starts the installed host and reads its current address, retaining the catalog's paired key. */
 export async function resumeWslHost(distro: string, { execute = runWsl, signal }: { execute?: WslExecutor; signal?: AbortSignal } = {}): Promise<string> {
+  const probeScript = `(${waitForWslHostAddress.toString()})(
+async () => JSON.parse(require("node:fs").readFileSync(process.env.TAU_USER_DATA+"/host.json","utf8")).url,
+(url) => new Promise((resolve) => { const socket = new WebSocket(url); const timer = setTimeout(() => { socket.close(); resolve(false); }, 1000); socket.onopen = () => { clearTimeout(timer); socket.close(); resolve(true); }; socket.onerror = () => { clearTimeout(timer); socket.close(); resolve(false); }; }),
+() => new Promise((resolve) => setTimeout(resolve, 1000))
+).then((url) => console.log(url), (error) => { console.error(error.message); process.exitCode=1; });`;
   const script = `set -eu
 root="$HOME/.local/share/tau/wsl-host"
 export ELECTRON_RUN_AS_NODE=1 TAU_USER_DATA="$root/data"
 [ -x "$root/current/tau" ] || { echo 'The distro host is missing. Add this WSL environment again.' >&2; exit 1; }
 "$root/current/tau" "$root/current/resources/app.asar.unpacked/bin/tau.mjs" service install >&2
-n=0
-while [ ! -s "$root/data/host.json" ]; do n=$((n + 1)); [ "$n" -lt 30 ] || exit 1; sleep 1; done
-exec "$root/current/tau" -e 'const fs=require("node:fs"); const d=JSON.parse(fs.readFileSync(process.env.TAU_USER_DATA+"/host.json","utf8")); console.log(d.url);'
+exec "$root/current/tau" -e "$1"
 `;
-  const endpoint = (await execute(distributionCommand(distro, "sh", ["-c", script]), signal)).trim();
+  const endpoint = (await execute(distributionCommand(distro, "sh", ["-c", script, "tau-resume", probeScript]), signal)).trim();
   const url = new URL(endpoint);
-  if (!["ws:", "wss:", "http:", "https:"].includes(url.protocol) || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) throw new Error("The WSL host did not return a localhost address.");
-  url.protocol = url.protocol === "wss:" ? "https:" : url.protocol === "ws:" ? "http:" : url.protocol;
+  if (!["ws:", "wss:"].includes(url.protocol) || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) throw new Error("The WSL host did not return a localhost address.");
+  url.protocol = url.protocol === "wss:" ? "https:" : "http:";
   return url.toString();
 }

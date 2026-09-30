@@ -2,7 +2,7 @@ import { PassThrough } from "node:stream";
 import { EventEmitter } from "node:events";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { expect, it, vi } from "vitest";
-import { bootstrapWslHost, distributionCommand, listWslDistributions, resumeWslHost, wslPairingChannel } from "./wsl-host.js";
+import { bootstrapWslHost, distributionCommand, listWslDistributions, resumeWslHost, waitForWslHostAddress, wslPairingChannel } from "./wsl-host.js";
 
 it("lists WSL quietly only on Windows, without localized headings", async () => {
   const execute = vi.fn(async () => "\uFEFFUbuntu\r\nDebian\r\nUbuntu\r\n");
@@ -54,4 +54,14 @@ it("resumes the saved distro host without downloading or returning its token", a
   expect(await resumeWslHost("Ubuntu", { execute })).toBe("http://127.0.0.1:47991/");
   expect(execute.mock.calls[0]?.[0].slice(0, 5)).toEqual(["--distribution", "Ubuntu", "--exec", "sh", "-c"]);
   await expect(resumeWslHost("Ubuntu", { execute: async () => "ws://example.com:123/" })).rejects.toThrow(/localhost/u);
+});
+
+it("waits through a stale host descriptor until the refreshed port answers", async () => {
+  const read = vi.fn().mockResolvedValueOnce("ws://127.0.0.1:1000/").mockResolvedValueOnce("ws://127.0.0.1:2000/");
+  const probe = vi.fn(async (url: string) => url.endsWith(":2000/"));
+  const pause = vi.fn(async () => undefined);
+  expect(await waitForWslHostAddress(read, probe, pause)).toBe("ws://127.0.0.1:2000/");
+  expect(probe.mock.calls).toEqual([["ws://127.0.0.1:1000/"], ["ws://127.0.0.1:2000/"]]);
+  expect(pause).toHaveBeenCalledTimes(1);
+  await expect(waitForWslHostAddress(async () => "ws://127.0.0.1:1000/", async () => false, pause, 2)).rejects.toThrow(/reachable/u);
 });
