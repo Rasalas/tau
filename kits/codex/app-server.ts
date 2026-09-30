@@ -29,6 +29,12 @@ export type CodexUserInput =
   | { type: "text"; text: string; text_elements: [] }
   | { type: "image"; url: string };
 
+export interface CodexServiceTier {
+  id: string;
+  name: string;
+  description?: string;
+}
+
 export interface CodexModel {
   id: string;
   model: string;
@@ -38,6 +44,9 @@ export interface CodexModel {
   defaultReasoningEffort: string;
   supportedReasoningEfforts: Array<{ reasoningEffort: string; description?: string }>;
   inputModalities?: string[];
+  serviceTiers?: CodexServiceTier[];
+  additionalSpeedTiers?: string[];
+  defaultServiceTier?: string | null;
 }
 
 export type CodexAccount =
@@ -175,17 +184,18 @@ export class CodexAppServer {
     return models;
   }
 
-  startThread(params: { cwd: string; model?: string; policy: CodexPolicy }): Promise<CodexThreadInfo> {
+  startThread(params: { cwd: string; model?: string; serviceTier?: string | null; policy: CodexPolicy }): Promise<CodexThreadInfo> {
     return this.connection.request("thread/start", {
       cwd: params.cwd,
       approvalPolicy: params.policy.approvalPolicy,
       sandbox: params.policy.sandbox,
       ...(params.model ? { model: params.model } : {}),
+      ...(params.serviceTier !== undefined ? { serviceTier: params.serviceTier } : {}),
     }, { timeoutMs: this.timeouts.requestMs });
   }
 
   /** Loads a stored thread; the history stays with the CLI, Tau keeps its own transcript. */
-  resumeThread(params: { threadId: string; cwd: string; model?: string; policy: CodexPolicy }): Promise<CodexThreadInfo> {
+  resumeThread(params: { threadId: string; cwd: string; model?: string; serviceTier?: string | null; policy: CodexPolicy }): Promise<CodexThreadInfo> {
     return this.connection.request("thread/resume", {
       threadId: params.threadId,
       cwd: params.cwd,
@@ -193,20 +203,26 @@ export class CodexAppServer {
       sandbox: params.policy.sandbox,
       excludeTurns: true,
       ...(params.model ? { model: params.model } : {}),
+      ...(params.serviceTier !== undefined ? { serviceTier: params.serviceTier } : {}),
     }, { timeoutMs: this.timeouts.requestMs });
   }
 
-  async startTurn(params: { threadId: string; input: CodexUserInput[]; policy: CodexPolicy; model?: string; effort?: string; mode?: CodexCollaborationMode }): Promise<string> {
+  async startTurn(params: { threadId: string; input: CodexUserInput[]; policy: CodexPolicy; model?: string; serviceTier?: string | null; effort?: string; mode?: CodexCollaborationMode }): Promise<string> {
     const result = await this.connection.request<{ turn: { id: string } }>("turn/start", {
       threadId: params.threadId,
       input: params.input,
       approvalPolicy: params.policy.approvalPolicy,
       sandboxPolicy: params.policy.sandboxPolicy,
       ...(params.model ? { model: params.model } : {}),
+      ...(params.serviceTier !== undefined ? { serviceTier: params.serviceTier } : {}),
       ...(params.effort ? { effort: params.effort } : {}),
       ...(params.mode ? { collaborationMode: params.mode } : {}),
     }, { timeoutMs: this.timeouts.requestMs });
     return result.turn.id;
+  }
+
+  async setServiceTier(threadId: string, serviceTier: string | null): Promise<void> {
+    await this.connection.request("thread/settings/update", { threadId, serviceTier }, { timeoutMs: this.timeouts.requestMs });
   }
 
   /** Adds input to the running turn; the CLI refuses when that turn is no longer the one expected. */

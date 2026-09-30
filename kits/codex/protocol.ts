@@ -75,3 +75,15 @@ export interface QuestionnaireQuestion {
 export function tagQuestionnaire(prompt: { extras?: Record<string, unknown> }, index: number, questions: readonly QuestionnaireQuestion[]): void {
   prompt.extras = { ...prompt.extras, [QUESTIONNAIRE_EXTRA]: { index, questions } };
 }
+
+
+/** Existing-thread account and tier choices, owned by the Codex kit. */
+export interface CodexThreadSettings {
+  account: string;
+  accounts: Array<{ id: string; label: string; reason?: string }>;
+  serviceTier: {
+    selected: string | null;
+    defaultTier: string | null;
+    choices: Array<{ id: string; name: string; description?: string }>;
+  };
+}

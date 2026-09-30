@@ -274,3 +274,37 @@ capabilities and reasoning choices. The official Responses provider disables
 WebSockets and server-side response storage. Local tools remain available;
 hosted connector and image-generation features are disabled. Pi integration
 can reuse the OAuth modules in a separate change.
+
+
+## Amendment, 2026-09-30: compatible Codex executing accounts
+
+A Codex thread may change its executing account between idle turns without
+changing its durable runtime backend owner. Its backend kind and owning
+instance keep identifying the same Tau thread, transcript, tools, permissions
+and canonical Codex session. This is a narrow same-driver account operation
+in the Codex kit, not a general runtime migration capability.
+
+CLI accounts are compatible only when they share a canonical session home,
+use the same launch configuration and have separate auth homes. An auth
+overlay links shared runtime data, including session files and MCP OAuth
+locks, while auth.json and model caches remain private files. Tau never
+copies credentials between accounts or overwrites conflicting overlay data.
+The account must be signed in. Tau refuses switches while prompts are being
+admitted, a turn runs or a session opens. It resumes the exact canonical
+session under the new account before persisting the executing account; a
+failed resume restores the original selection and never creates a substitute
+conversation. Later resumes of switched threads keep that restriction.
+
+Managed ChatGPT connections currently use independent session homes and
+provider registrations. Tau reports them as incompatible instead of moving
+a session between accounts without a supported provider contract. Model
+catalogs, billing and account-limit updates follow the executing account,
+while per-thread MCP credentials retain the same Tau thread and access policy.
+
+The protocol fields were checked against `codex app-server generate-ts
+--experimental` from CLI 0.159.2 with a fresh temporary home and the
+[official app-server documentation](https://developers.openai.com/codex/app-server).
+The compatibility and catalog behavior follows T3 Code v0.0.44's
+[home layout](https://github.com/pingdotgg/t3code/blob/v0.0.44/apps/server/src/provider/Drivers/CodexHomeLayout.ts)
+and [tier catalog](https://github.com/pingdotgg/t3code/blob/v0.0.44/apps/server/src/provider/Layers/CodexProvider.ts),
+implemented through Tau's existing kit interfaces.

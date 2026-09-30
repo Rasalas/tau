@@ -138,7 +138,8 @@ async function handle(message) {
       return send({ id, result: {} });
     // Shaped like codex-cli 0.156's `GetAccountRateLimitsResponse`; the params are logged for the test.
     case "account/rateLimits/read": return send({ id, result: JSON.parse(readFileSync(new URL("./rate-limits-read.json", import.meta.url), "utf8")) });
-    case "model/list": return send({ id, result: { data: fixture.models, nextCursor: null } });
+    case "model/list": return send({ id, result: { data: process.env.STUB_MODELS ? JSON.parse(readFileSync(process.env.STUB_MODELS, "utf8")) : fixture.models, nextCursor: null } });
+    case "thread/settings/update": return send({ id, result: {} });
     case "thread/start": {
       const thread = `thread-${process.pid}-${threads.size + 1}`;
       remember(thread);

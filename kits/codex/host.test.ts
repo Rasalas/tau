@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TurnActivityStore, findExecutable, type HostExtension, type HostMcpConnection, type HostRuntimeBackendProvider, type RuntimeSessionInfo } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { CodexAppServer, spawnInput } from "./app-server.js";
-import createCodexHostExtension, { codexNewThreadCatalog } from "./host.js";
+import createCodexHostExtension, { codexNewThreadCatalog, codexSignInAccount } from "./host.js";
 import { codexMcpLaunch, TAU_MCP_TOKEN_VARIABLE } from "./mcp.js";
 import { codexToolArgs } from "./tools.js";
 import { spawnRpcProcess } from "./rpc.js";
@@ -602,4 +602,32 @@ describe("Codex ChatGPT plan instances", () => {
     expect((await credentials.read("default"))!.subject).toBe("fixture-subject");
     expect((await registry.invoke("tau.codex", "sign-in-state") as { methods: unknown[] }).methods).toHaveLength(1);
   });
+});
+
+it("offers only signed-in accounts sharing the session home with private auth overlays", async () => {
+  const sharedRoot = await mkdtemp(join(tmpdir(), "tau-shared-home-choice-")); directories.push(sharedRoot);
+  const shared = join(sharedRoot, "shared");
+  const { provider, registry, root } = await harness({ env: { CODEX_HOME: shared }, settings: {
+    instances: [
+      { id: "work", home: shared, env: { TAU_CODEX_AUTH_HOME: join(sharedRoot, "work") } },
+      { id: "same", home: shared },
+      { id: "other", home: join(sharedRoot, "other") },
+    ],
+  } });
+  const thread = await provider.open("account-choice", root, { resume: false }, context);
+  try {
+    const state = await registry.invoke("tau.codex", "thread-settings", { threadId: "account-choice" }) as { account: string; accounts: Array<{ id: string; reason?: string }> };
+    expect(state.account).toBe("default");
+    expect(state.accounts.find((entry) => entry.id === "work")?.reason).toBeUndefined();
+    expect(state.accounts.find((entry) => entry.id === "same")?.reason).toContain("separate TAU_CODEX_AUTH_HOME");
+    expect(state.accounts.find((entry) => entry.id === "other")?.reason).toContain("different shared CODEX_HOME");
+    await expect(registry.invoke("tau.codex", "switch-thread-account", { threadId: "account-choice", account: "other" })).rejects.toThrow("different shared CODEX_HOME");
+    await expect(registry.invoke("tau.codex", "set-thread-tier", { threadId: "account-choice", tier: "invented" })).rejects.toThrow("do not offer");
+  } finally { await thread.dispose(); }
+});
+
+
+it("keeps Pro Max and future ChatGPT plans usable", () => {
+  expect(codexSignInAccount({ type: "chatgpt", email: "fixture@example.test", planType: "pro_max" })).toMatchObject({ signedIn: true, detail: "ChatGPT Pro Max" });
+  expect(codexSignInAccount({ type: "chatgpt", email: null, planType: "future-plan" })).toMatchObject({ signedIn: true, label: "ChatGPT future-plan" });
 });
