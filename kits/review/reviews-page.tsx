@@ -12,7 +12,6 @@ import {
   Search,
   Trash2,
   TriangleAlert,
-  X,
 } from "lucide-react";
 import {
   DiffView,
@@ -24,7 +23,6 @@ import {
   ProjectIcon,
   ProviderIconStack,
   READ_ONLY_REASON,
-  SettingsPageAction,
   Skeleton,
   Spinner,
   tooltipProps,
@@ -148,9 +146,9 @@ const cost = (review: LocalReview) => review.costUsd === undefined ? "—" : for
 
 /** What a row says in its last column when it has no button: the open ask, or where it was merged. */
 function Aside({ review }: { review: LocalReview }) {
-  if (review.state === "merged") return <span className="rv-aside">{review.mergedBy === "request" ? "Pull request merged" : review.mergedBy ? `Already in ${review.target}` : `into ${review.target}`}</span>;
-  if (review.ask?.kind === "note") return <span className="rv-aside" {...tooltipProps(review.ask.text)}><MessageSquare size={12} aria-hidden="true" /> Your note: {review.ask.text}</span>;
-  if (review.ask) return <span className="rv-aside"><RefreshCw size={12} aria-hidden="true" /> Rebase asked</span>;
+  if (review.state === "merged") return <span className="rv-aside"><span className="rv-act-label">{review.mergedBy === "request" ? "Pull request merged" : review.mergedBy ? `Already in ${review.target}` : `into ${review.target}`}</span></span>;
+  if (review.ask?.kind === "note") return <span className="rv-aside" {...tooltipProps(review.ask.text)}><MessageSquare size={12} aria-hidden="true" /><span className="rv-act-label">Your note: {review.ask.text}</span></span>;
+  if (review.ask) return <span className="rv-aside"><RefreshCw size={12} aria-hidden="true" /><span className="rv-act-label">Rebase asked</span></span>;
   return null;
 }
 
@@ -169,14 +167,14 @@ function RowAction({ review, act }: { review: LocalReview; act: RowActions }) {
     const blocked = !act.mayMerge ? READ_ONLY_REASON : mergeBlocker(review);
     return (
       <button type="button" className="rv-merge" disabled={Boolean(blocked) || act.busy === review.key} {...tooltipProps(blocked ?? `Merge ${review.branch} into ${review.target}`)} onClick={() => act.merge(review)}>
-        <GitMerge size={13} aria-hidden="true" /> {act.busy === review.key ? "Merging…" : "Merge"}
+        <GitMerge size={13} aria-hidden="true" /><span className="rv-act-label">{act.busy === review.key ? "Merging…" : "Merge"}</span>
       </button>
     );
   }
   if (review.state === "conflicts") {
     return (
       <button type="button" className="rv-ask" disabled={Boolean(rebaseBlocker(review, act.mayAsk)) || act.busy === review.key} {...tooltipProps(rebaseBlocker(review, act.mayAsk) ?? `Asks the thread to rebase onto ${review.target}`)} onClick={() => act.rebase(review)}>
-        <RefreshCw size={13} aria-hidden="true" /> Ask thread to rebase
+        <RefreshCw size={13} aria-hidden="true" /><span className="rv-act-label">Ask thread to rebase</span>
       </button>
     );
   }
@@ -251,19 +249,30 @@ function moveFocus(event: KeyboardEvent<HTMLElement>, list: HTMLElement | null) 
   buttons[next]?.focus();
 }
 
+/** Up and down step through the rows (the focus is the selection), Home and End to the ends; Enter opens the focused one. */
+function moveRow(event: KeyboardEvent<HTMLElement>) {
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) || (event.target as HTMLElement).closest("input, textarea, select")) return;
+  const rows = [...event.currentTarget.querySelectorAll<HTMLElement>(".rv-row-open, .rv-card > button")];
+  if (rows.length === 0) return;
+  event.preventDefault();
+  const at = rows.findIndex((row) => row.closest("li")?.contains(document.activeElement));
+  const next = event.key === "Home" ? 0
+    : event.key === "End" ? rows.length - 1
+    : at < 0 ? (event.key === "ArrowDown" ? 0 : rows.length - 1)
+    : Math.min(rows.length - 1, Math.max(0, at + (event.key === "ArrowDown" ? 1 : -1)));
+  rows[next]?.focus();
+}
+
 /**
- * The page's sidebar (1i), in Settings' column: the filter, the states with
- * their counts, the projects with their open reviews, and Remote.
+ * The page's sidebar (1i), in Settings' column: the states with their counts,
+ * the projects with their open reviews, and Remote.
  */
 export function ReviewsSidebar({ params, navigate, parts }: PageProps & { parts: ReviewsPageParts }) {
   const { counts } = useLocalReviews(parts.store);
   const remoteCount = useSyncExternalStore(parts.rows.subscribe, parts.rows.openCount);
-  const filter = useSyncExternalStore(parts.filter.subscribe, parts.filter.getSnapshot);
   const list = useRef<HTMLDivElement>(null);
-  const field = useRef<HTMLInputElement>(null);
   const tab = tabOf(params.tab);
   const project = text(params.project);
-  const inDetail = Boolean(params.review) || Boolean(params.url);
   const count = (entry: ReviewTab) => entry === "remote" ? remoteCount : counts[entry];
   // Out of a detail, into what the page lists.
   const select = (next: ReviewTab, nextProject?: string) => navigate({ tab: next, ...(nextProject ? { project: nextProject } : {}) }, { root: true, replace: true });
@@ -274,25 +283,6 @@ export function ReviewsSidebar({ params, navigate, parts }: PageProps & { parts:
   );
   return (
     <>
-      <label className="settings-nav-search">
-        <Search size={14} aria-hidden="true" />
-        <input
-          ref={field}
-          type="search"
-          value={filter}
-          placeholder="Filter reviews"
-          aria-label="Filter reviews"
-          onChange={(event) => {
-            parts.filter.set(event.target.value);
-            if (inDetail || tab === "remote") select(tab === "remote" ? "ready" : tab, project);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Escape" && filter) { event.preventDefault(); event.stopPropagation(); parts.filter.set(""); return; }
-            if (event.key === "ArrowDown") { event.preventDefault(); list.current?.querySelector<HTMLButtonElement>("button")?.focus(); }
-          }}
-        />
-        {filter ? <button type="button" className="settings-nav-search-clear" aria-label="Clear the filter" onClick={() => { parts.filter.set(""); field.current?.focus(); }}><X size={12} /></button> : null}
-      </label>
       <div className="settings-nav-list rv-sidebar" ref={list} onKeyDown={(event) => moveFocus(event, list.current)}>
         <div className="settings-nav-group" role="group" aria-label="Reviews">
           <h2 className="settings-nav-heading">Reviews</h2>
@@ -339,10 +329,18 @@ function Section({ state, title, count, children }: { state: ReviewState; title?
 
 const INTRO = "Finished work of threads that ran in a worktree of their own, ready to merge into the project's checkout here; Remote pull requests are the ones on GitHub and other hosts.";
 const EMPTY_TEXT: Record<ReviewState, { title: string; description: string }> = {
-  ready: { title: "Nothing to review", description: INTRO },
-  requested: { title: "No changes requested", description: "A note or a rebase you send back to a thread waits here until the thread commits again." },
-  conflicts: { title: "No conflicts", description: "A branch that would not merge cleanly into its main checkout shows here, to ask its thread to rebase." },
-  merged: { title: "Nothing merged yet", description: "Merging keeps the thread; its branch just stops appearing under Ready." },
+  ready: { title: "Nothing to review", description: "A thread that works in a worktree of its own lands here when it is done." },
+  requested: { title: "No changes requested", description: "Nothing waits on a thread." },
+  conflicts: { title: "No conflicts", description: "No branch is in the way of its target." },
+  merged: { title: "Nothing merged yet", description: "A branch you merge from here is listed after it." },
+};
+
+/** The sentence under a list's title. */
+const HEAD_TEXT: Record<ReviewState, string> = {
+  ready: INTRO,
+  requested: "A note or a rebase you send back to a thread waits here until the thread commits again.",
+  conflicts: "A branch that would not merge cleanly into its main checkout shows here, to ask its thread to rebase.",
+  merged: "Merging keeps the thread; its branch just stops appearing under Ready.",
 };
 
 /**
@@ -573,11 +571,10 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
       ? <Empty icon={<GitPullRequest size={18} />} title={filter ? "No review matches" : EMPTY_TEXT[tab].title} description={filter ? "Try other words, or clear the filter." : EMPTY_TEXT[tab].description} />
       : (
         <>
-          {tab === "ready" ? <p className="rv-intro">{INTRO}</p> : null}
           {compact ? null : (
             <div className="rv-columns" aria-hidden="true">
               <span />
-              <span>Thread</span><span>Changes</span><span>Checks</span><span>Model · cost</span><span>Age</span>
+              <span>Thread</span><span>Changes</span><span>Checks</span><span className="rv-col-cost"><span className="rv-col-model">Model · </span>cost</span><span>Age</span>
             </div>
           )}
           {sections.map((section) => (
@@ -591,16 +588,9 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
 
   const inDetail = Boolean(detailKey) || (tab === "remote" && Boolean(params.url));
   const count = (entry: ReviewTab) => entry === "remote" ? remoteCount : counts[entry];
+  const inList = !inDetail && !compact;
   return (
-    <div className={`rv-page${compact ? " compact" : ""}`} data-tab={tab}>
-      {!compact && !sidebar && tab !== "remote" && !detailKey ? (
-        <SettingsPageAction>
-          <label className="rv-filter">
-            <Search size={13} aria-hidden="true" />
-            <input type="search" value={filter} placeholder="Filter reviews" aria-label="Filter reviews" onChange={(event) => parts.filter.set(event.target.value)} />
-          </label>
-        </SettingsPageAction>
-      ) : null}
+    <div className={`rv-page${compact ? " compact" : ""}`} data-tab={tab} data-view={inList ? "list" : undefined}>
       <div className={`rv-main${tab === "remote" ? " remote" : ""}`}>
         {inDetail || sidebar ? null : (
           <div className="rv-tabs-row">
@@ -608,7 +598,29 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
             {compact || tab === "remote" ? null : <ProjectFilter {...(project ? { project } : {})} counts={counts} select={(next) => select(tab, next)} />}
           </div>
         )}
-        <div className="rv-scroll">{body}</div>
+        {inList && tab !== "remote" ? (
+          <header className="rv-head">
+            <div>
+              <h2>{TAB_LABELS[tab].section}</h2>
+              <p>{HEAD_TEXT[tab]}</p>
+            </div>
+            <label className="rv-filter">
+              <Search size={13} aria-hidden="true" />
+              <input
+                type="search"
+                value={filter}
+                placeholder="Filter reviews"
+                aria-label="Filter reviews"
+                onChange={(event) => parts.filter.set(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape" && filter) { event.preventDefault(); event.stopPropagation(); parts.filter.set(""); }
+                  else if (event.key === "ArrowDown") { event.preventDefault(); event.currentTarget.closest(".rv-main")?.querySelector<HTMLElement>(".rv-row-open")?.focus(); }
+                }}
+              />
+            </label>
+          </header>
+        ) : null}
+        <div className="rv-scroll" onKeyDown={tab === "remote" || detailKey ? undefined : moveRow}>{body}</div>
         {tab === "remote" || detailKey ? null : footer}
       </div>
     </div>
