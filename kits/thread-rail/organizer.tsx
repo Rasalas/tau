@@ -1,6 +1,6 @@
-import { AlarmClock, AlarmClockOff, Archive, ArchiveRestore, ArrowDown, ArrowUp, Check, Copy, Folder, Funnel, FunnelX, GitBranch, Hash, MessageSquareDot, Pencil, Pin, PinOff, Settings, Sparkles, SquarePen, Trash2, type LucideIcon } from "lucide-react";
+import { AlarmClock, AlarmClockOff, Archive, ArchiveRestore, ArrowDown, ArrowRightLeft, ArrowUp, ArrowUpDown, Check, Copy, CopyPlus, CornerUpLeft, Folder, Funnel, FunnelX, GitBranch, GitFork, Hash, ListTree, MessageSquareDot, MessageSquareText, Pencil, Pin, PinOff, ScrollText, Settings, Sparkles, SquareArrowOutUpRight, SquarePen, Trash2, type LucideIcon } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { ConfirmDialog, Dialog, errorMessage, hostIsReadOnly, READ_ONLY_REASON, useThreadStore, useWorkbenchShell, type MenuItem, type MenuSection, type ToastHandle, type UiSession, type WorkbenchActions } from "tau";
+import { ConfirmDialog, Dialog, errorMessage, hostIsReadOnly, READ_ONLY_REASON, useThreadStore, useWorkbenchShell, type MenuItem, type MenuSection, type ThreadMenuLookup, type ToastHandle, type UiSession, type WorkbenchActions } from "tau";
 import {
   UNARCHIVE_PATCH,
   WAKE_PATCH,
@@ -47,11 +47,21 @@ const EMPTY: RailSections = { pinned: [], active: [], snoozed: [], settled: [], 
 /** A menu item's icon; the OS's menu draws the same one by its name. */
 const glyph = (Icon: LucideIcon) => ({ icon: <Icon size={13} /> });
 
-/** The page's label for a command's chord, for a menu item to show. */
-export type ShortcutLabel = (commandId: string) => string | undefined;
-const chord = (shortcut: ShortcutLabel | undefined, commandId: string) => {
-  const label = shortcut?.(commandId);
+const chord = (lookup: ThreadMenuLookup | undefined, commandId: string) => {
+  const label = lookup?.keybindingLabel(commandId);
   return label ? { hint: label } : {};
+};
+
+/** Other kits' thread-title commands the menu places itself; the rail's own have items of their own. */
+const PLACED: Record<string, LucideIcon | undefined> = {
+  "handoff.continue-in": ArrowRightLeft,
+  "handoff.bring-back": CornerUpLeft,
+  "workspace.open-in-editor": SquareArrowOutUpRight,
+  "thread.snooze": undefined,
+  "thread.archive": undefined,
+  "thread.delete": undefined,
+  "thread-titles.regenerate": undefined,
+  "workspace.copy-branch": undefined,
 };
 
 /** The thread on screen, when it is this one and not a pending draft. */
@@ -181,17 +191,17 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     { items: [{ id: "snooze:custom", label: "Custom…" }] },
   ];
 
-  /** Titles are made from a thread's live runtime, so one elsewhere is opened first. */
-  const regenerateTitle = async (session: UiSession, actions: WorkbenchActions) => {
-    const titles = port.titles?.();
-    if (!titles) return;
+  /** Runs an action of the thread on screen for `session`, opening it first when it is elsewhere. */
+  const onThread = async (session: UiSession, actions: WorkbenchActions, run: () => unknown) => {
     if (!onScreen(actions, session.id) && !await actions.switchSession(session.path)) return;
     try {
-      await titles.regenerate(actions);
+      await run();
     } catch (error) {
       notify(actions, errorMessage(error));
     }
   };
+  /** Titles are made from a thread's live runtime. */
+  const regenerateTitle = (session: UiSession, actions: WorkbenchActions) => port.titles?.() && onThread(session, actions, () => port.titles?.()?.regenerate(actions));
 
   /** A running thread cannot be archived, and archiving the thread on screen opens a new one in its project. */
   const archive = async (session: UiSession, actions: WorkbenchActions | undefined, confirmed = false) => {
@@ -316,12 +326,12 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     );
   }
 
-  const lifecycleSection = (session: UiSession): MenuSection => {
+  const lifecycleSection = (session: UiSession, lookup: ThreadMenuLookup | undefined): MenuSection => {
     const running = port.running(session.id);
     return {
       items: [
-        { id: "archive", label: "Archive thread", ...glyph(Archive), disabled: running, ...(running ? { description: "Cannot archive a running thread." } : {}) },
-        { id: "delete", label: "Delete", ...glyph(Trash2), destructive: true, disabled: running, ...(running ? { description: "Stop the thread before deleting it." } : {}) },
+        { id: "archive", label: "Archive thread", ...glyph(Archive), ...chord(lookup, "thread.archive"), disabled: running, ...(running ? { description: "Cannot archive a running thread." } : {}) },
+        { id: "delete", label: "Delete", ...glyph(Trash2), ...chord(lookup, "thread.delete"), destructive: true, disabled: running, ...(running ? { description: "Stop the thread before deleting it." } : {}) },
       ],
     };
   };
@@ -344,7 +354,8 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
         { id: "settled", label: "Settled", shelf: true, collapsed: false, settled: true, threads: last.settled },
       ];
     },
-    menu(session, shortcut) {
+    // T3 Code's thread menu, on the title and the row alike; Tau's own actions sit under Fork, Move and Copy.
+    menu(session, lookup) {
       const current = meta(session.id);
       const section = sectionOf(current, now());
       const settled = section === "settled";
@@ -352,26 +363,55 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       const workspace = port.workspace?.();
       const branch = session.projectLabel;
       const filtered = workspace?.getSnapshot().railProjectFilter === session.projectName;
+      const offered = lookup?.getCommandsFor("thread-title") ?? [];
+      const command = (id: string): MenuItem[] => offered.filter((entry) => entry.id === id).map(commandItem);
+      const commandItem = (entry: (typeof offered)[number]): MenuItem => {
+        const reason = hostIsReadOnly() && entry.access !== "read" ? READ_ONLY_REASON : entry.unavailable?.();
+        const Icon = PLACED[entry.id];
+        return { id: `command:${entry.id}`, label: entry.label, ...(Icon ? glyph(Icon) : {}), ...chord(lookup, entry.id), ...(entry.destructive ? { destructive: true } : {}), ...(reason ? { disabled: true, description: reason } : {}) };
+      };
+      const others = offered.filter((entry) => !(entry.id in PLACED));
       const snoozeItems: MenuItem[] = settled ? [] : snoozed
-        ? [{ id: "wake", label: "Wake thread", ...glyph(AlarmClockOff) }, { id: "snooze:custom", label: "Snooze until…", ...glyph(AlarmClock) }]
+        ? [{ id: "wake", label: "Wake thread", ...glyph(AlarmClockOff) }, { id: "snooze:custom", label: "Snooze until…", ...glyph(AlarmClock), ...chord(lookup, "thread.snooze") }]
         : [{ id: "snooze", label: "Snooze", ...glyph(AlarmClock), submenu: snoozeSubmenu() }];
-      // Order: start, keep, then name and find, then copy and the project, then the lifecycle.
+      const lifecycle = lifecycleSection(session, lookup);
+      lifecycle.items.splice(1, 0, ...others.filter((entry) => entry.destructive).map(commandItem));
+      // Order: start and keep, then name and find, then copy and open, then the lifecycle.
       return lockWrites([
         {
           items: [
             ...(branch ? [{ id: "new-on-branch", label: `New thread on ${branch}`, ...glyph(SquarePen) }] : []),
-            current?.pinned ? { id: "unpin", label: "Unpin thread", ...glyph(PinOff), ...chord(shortcut, "thread.pin") } : { id: "pin", label: "Pin thread", ...glyph(Pin), ...chord(shortcut, "thread.pin") },
+            {
+              id: "fork",
+              label: "Fork",
+              ...glyph(GitFork),
+              submenu: [{
+                items: [
+                  { id: "tree", label: "Thread tree…", ...glyph(ListTree), ...chord(lookup, "runtime.thread-tree") },
+                  { id: "duplicate", label: "Duplicate thread", ...glyph(CopyPlus), ...chord(lookup, "runtime.duplicate-thread") },
+                  ...command("handoff.continue-in"),
+                  ...command("handoff.bring-back"),
+                ],
+              }],
+            },
+            current?.pinned ? { id: "unpin", label: "Unpin thread", ...glyph(PinOff), ...chord(lookup, "thread.pin") } : { id: "pin", label: "Pin thread", ...glyph(Pin), ...chord(lookup, "thread.pin") },
+            ...(settled || snoozed ? [] : [{
+              id: "move",
+              label: "Move",
+              ...glyph(ArrowUpDown),
+              submenu: [{ items: [{ id: "move-up", label: "Up", ...glyph(ArrowUp), ...chord(lookup, "thread.move-up") }, { id: "move-down", label: "Down", ...glyph(ArrowDown), ...chord(lookup, "thread.move-down") }] }],
+            }]),
             settled
-              ? { id: "unsettle", label: "Un-settle thread", ...glyph(ArchiveRestore), ...chord(shortcut, "thread.settle") }
-              : { id: "settle", label: "Settle thread", ...glyph(Check), ...chord(shortcut, "thread.settle") },
+              ? { id: "unsettle", label: "Un-settle thread", ...glyph(ArchiveRestore), ...chord(lookup, "thread.settle") }
+              : { id: "settle", label: "Settle thread", ...glyph(Check), ...chord(lookup, "thread.settle") },
             ...snoozeItems,
           ],
         },
         {
           items: [
-            { id: "rename", label: "Rename thread", ...glyph(Pencil) },
-            ...(port.titles?.() ? [{ id: "regenerate-title", label: "Regenerate title", ...glyph(Sparkles) }] : []),
-            { id: "mark-unread", label: "Mark unread", ...glyph(MessageSquareDot) },
+            { id: "rename", label: "Rename thread", ...glyph(Pencil), ...chord(lookup, "runtime.rename-thread") },
+            ...(port.titles?.() ? [{ id: "regenerate-title", label: "Regenerate title", ...glyph(Sparkles), ...chord(lookup, "thread-titles.regenerate") }] : []),
+            { id: "mark-unread", label: "Mark unread", ...glyph(MessageSquareDot), ...chord(lookup, "thread.mark-unread") },
             ...(workspace?.setRailProjectFilter ? [{ id: "filter-project", label: filtered ? "Show all projects" : `Filter by ${session.projectName}`, ...glyph(filtered ? FunnelX : Funnel) }] : []),
           ],
         },
@@ -386,14 +426,17 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
                   { id: "copy-path", label: "Path", ...glyph(Folder) },
                   ...(branch ? [{ id: "copy-branch", label: "Branch", ...glyph(GitBranch) }] : []),
                   { id: "copy-thread-id", label: "Thread ID", ...glyph(Hash) },
+                  { id: "copy-chat", label: "Chat as Markdown", ...glyph(MessageSquareText), ...chord(lookup, "runtime.copy-chat") },
                 ],
               }],
             },
+            ...command("workspace.open-in-editor"),
+            { id: "instructions", label: "Instructions & prompt…", ...glyph(ScrollText), ...chord(lookup, "runtime.instructions") },
             ...(workspace?.openProjectSettings ? [{ id: "project-settings", label: "Project settings…", ...glyph(Settings) }] : []),
           ],
         },
-        ...(settled || snoozed ? [] : [{ items: [{ id: "move-up", label: "Move up", ...glyph(ArrowUp) }, { id: "move-down", label: "Move down", ...glyph(ArrowDown) }] }]),
-        lifecycleSection(session),
+        ...(others.some((entry) => !entry.destructive) ? [{ items: others.filter((entry) => !entry.destructive).map(commandItem) }] : []),
+        lifecycle,
       ]);
     },
     runMenu(session, itemId, actions) {
@@ -420,6 +463,11 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       else if (itemId === "copy-branch") copy(session.projectLabel, "Branch");
       else if (itemId === "copy-thread-id") copy(session.id, "Thread ID");
       else if (itemId === "project-settings") workspace?.openProjectSettings?.(session);
+      else if (itemId === "tree") void onThread(session, actions, () => actions.openThreadTree("navigate"));
+      else if (itemId === "duplicate") void onThread(session, actions, () => actions.duplicateThread());
+      else if (itemId === "instructions") void onThread(session, actions, () => actions.openInstructions?.());
+      else if (itemId === "copy-chat") void onThread(session, actions, () => actions.copyChat?.());
+      else if (itemId.startsWith("command:")) void onThread(session, actions, () => actions.executeCommand?.(itemId.slice("command:".length)));
       else {
         const preset = snoozePresets(new Date(now())).find((entry) => entry.id === itemId);
         if (preset) snooze(session.id, preset.until, actions);
@@ -498,14 +546,18 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
 }
 
 /** Menu items that only read or stay on this device; a Read-only device gets the others disabled, with the reason. */
-const DEVICE_ITEMS = new Set(["new-on-branch", "mark-unread", "filter-project", "copy", "copy-path", "copy-branch", "copy-thread-id", "project-settings"]);
+const DEVICE_ITEMS = new Set(["new-on-branch", "mark-unread", "filter-project", "copy", "copy-path", "copy-branch", "copy-thread-id", "copy-chat", "project-settings", "fork", "tree", "instructions"]);
 
 function lockWrites(sections: MenuSection[]): MenuSection[] {
   if (!hostIsReadOnly()) return sections;
   return sections.map((section) => ({
     ...section,
-    items: section.items.map((item): MenuItem => DEVICE_ITEMS.has(item.id) ? item : {
-      id: item.id, label: item.label, disabled: true, description: READ_ONLY_REASON, ...(item.destructive ? { destructive: true } : {}),
+    items: section.items.map((item): MenuItem => {
+      // Commands carry their own refusal.
+      if (item.id.startsWith("command:")) return item;
+      const { submenu, ...rest } = item;
+      if (!DEVICE_ITEMS.has(item.id)) return { ...rest, disabled: true, description: READ_ONLY_REASON };
+      return submenu ? { ...rest, submenu: lockWrites(submenu) } : item;
     }),
   }));
 }

@@ -1,6 +1,6 @@
 // Type-only imports: both halves and other kits read this file.
 import type { ComponentType, ReactNode } from "react";
-import type { MenuSection, UiSession, WorkbenchActions } from "tau";
+import type { MenuSection, ThreadMenuLookup, UiSession, WorkbenchActions } from "tau";
 
 export const THREAD_RAIL_EXTENSION_ID = "tau.thread-rail";
 /** Pushed with the whole state whenever a thread's meta or the settings change. */
@@ -131,7 +131,7 @@ export interface RailOrganizer {
   getVersion(): number;
   sections(threads: readonly UiSession[]): Array<{ id: string; label?: string; threads: readonly UiSession[]; shelf?: boolean; collapsed?: boolean; settled?: boolean }>;
   /** `shortcut` names a command's chord, for an item that runs one. */
-  menu(session: UiSession, shortcut?: (commandId: string) => string | undefined): MenuSection[];
+  menu(session: UiSession, lookup?: ThreadMenuLookup): MenuSection[];
   runMenu(session: UiSession, itemId: string, actions: WorkbenchActions): void;
   toggleSettled(session: UiSession): void;
   rowActions?(session: UiSession): Array<{ id: string; label: string; icon: ReactNode; menu(): MenuSection[] }>;

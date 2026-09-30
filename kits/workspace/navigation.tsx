@@ -1116,7 +1116,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     if (!session) return;
     if (!selection.ids.has(session.id)) clearSelection();
     // The OS draws it where it can; the page draws its own elsewhere.
-    void openContextMenu(event, organizer.menu(session, (commandId) => registry.keybindingLabel(commandId))).then((choice) => { if (choice) organizer.runMenu(session, choice, actions); });
+    void openContextMenu(event, organizer.menu(session, registry)).then((choice) => { if (choice) organizer.runMenu(session, choice, actions); });
   };
 
   /** Files dropped on a row open its thread and wait at its composer. */
