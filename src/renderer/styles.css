@@ -277,9 +277,6 @@ button > svg { pointer-events: none; }
 
 /* -------------------------------------------------------------- sidebar */
 
-.project-switcher-results > button:hover, .project-switcher-results > button.selected { background: var(--raised); }
-.project-switcher-results > button > i.has-image { overflow: hidden; background: transparent; }
-
 .thread-row {
   position: relative; display: flex;
   border: 1px solid transparent; border-radius: var(--radius-row);
