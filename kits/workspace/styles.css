@@ -642,22 +642,12 @@ body[data-profile="compact"] :is(.files-explorer-view, .files-reading-view) > bu
 .workspace-storage-confirm > span { flex: 1 1 240px; }
 
 /* Project settings: the project and its icon. */
-.project-settings-dialog {
-  width: 440px; max-width: calc(100vw - 48px); max-height: calc(100vh - 96px);
-  display: flex; flex-direction: column; gap: 12px; padding: 18px;
-  border: 1px solid var(--line-float); border-radius: var(--radius-lg);
-  background: var(--overlay); box-shadow: var(--elevation-3); color: var(--ink);
-}
-.project-settings-dialog > h2 { margin: 0; font: 600 16px var(--sans); }
+.project-settings-dialog { width: 440px; max-height: calc(100vh - 96px); gap: 12px; }
 .project-settings-identity { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .project-settings-identity > strong { font: 600 var(--text-md) var(--sans); }
 .project-settings-identity > span { color: var(--muted); font: var(--text-xs) var(--mono); }
 .project-settings-dialog .segmented { max-width: none; }
 .project-icon-body { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: auto; }
-.project-icon-body input:not([type="file"]) {
-  padding: 7px 10px; border: 1px solid var(--line-field); border-radius: var(--radius-sm);
-  background: var(--field); color: var(--ink); font: var(--text-md) var(--sans);
-}
 .project-icon-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .project-icon-preview { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: 10px; background: var(--raised); }
 .project-icon-hues { display: flex; gap: 4px; }
@@ -677,10 +667,6 @@ body[data-profile="compact"] :is(.files-explorer-view, .files-reading-view) > bu
 .project-icon-note { display: flex; align-items: center; gap: 8px; margin: 0; }
 .project-icon-note > img { width: 24px; height: 24px; }
 .project-icon-file { padding: 7px 12px; border: 1px solid var(--line-field); border-radius: var(--radius-sm); background: transparent; color: var(--ink-2); cursor: pointer; font: calc(var(--text-sm) + .5px) var(--sans); }
-.project-settings-dialog footer { display: flex; justify-content: flex-end; gap: 8px; }
-.project-settings-dialog footer > button { padding: 7px 14px; border-radius: var(--radius-sm); font: 500 calc(var(--text-sm) + .5px) var(--sans); cursor: pointer; }
-.project-settings-dialog footer > button.primary { border: 0; background: var(--acid); color: var(--acid-ink); }
-.project-settings-dialog footer > button.primary:disabled { opacity: .45; cursor: default; }
 
 /* A rail row's hover card: the title, a line per fact with its icon, then other kits' sections. */
 .thread-card {

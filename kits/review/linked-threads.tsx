@@ -117,7 +117,7 @@ export function ThreadPicker({ url, linkedThreads, client, rows, onClose, notify
   };
 
   return createPortal(
-    <Dialog className="pr-link-dialog pr-thread-picker" label="Link to a thread" onClose={() => { if (!pending) onClose(); }}>
+    <Dialog className="confirm-dialog pr-link-dialog pr-thread-picker" label="Link to a thread" onClose={() => { if (!pending) onClose(); }}>
       <header>
         <h2>Link to thread</h2>
         <p>The thread keeps this request beside it, whichever project the thread works in.</p>

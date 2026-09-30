@@ -16,4 +16,3 @@
 .dialog-fields { display: flex; flex-direction: column; gap: var(--space-5); }
 .confirm-dialog > p.dialog-error { color: var(--danger); }
 .dialog-field > small.dialog-field-error { color: var(--danger); }
-.confirm-dialog > footer .tau-button { padding: 0 14px; }

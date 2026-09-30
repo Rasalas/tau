@@ -7,29 +7,13 @@
 .thread-rail-mark.sibling { color: var(--cyan); }
 .thread-rail-mark.sibling > svg { color: var(--cyan); }
 
-.thread-rail-snooze {
-  width: 380px; max-width: calc(100vw - 48px);
-  display: flex; flex-direction: column; gap: 14px; padding: 18px;
-  border: 1px solid var(--line-float); border-radius: var(--radius-lg);
-  background: var(--overlay); box-shadow: var(--elevation-3);
-  color: var(--ink); animation: fade-up .14s ease;
-}
-.thread-rail-snooze > h2 {
-  margin: 0; font: 600 16px var(--sans);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
+/* On the workbench's dialog card (.confirm-dialog). */
+.thread-rail-snooze { width: 380px; gap: 14px; }
+.thread-rail-snooze > h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .thread-rail-snooze > form { display: flex; flex-direction: column; gap: 14px; }
 .thread-rail-snooze-row { display: flex; gap: 8px; }
-.thread-rail-snooze-row > input, .thread-rail-snooze-row > select {
-  flex: 1; min-width: 0; padding: 8px 10px;
-  border: 1px solid var(--line-field); border-radius: var(--radius-sm);
-  background: var(--field); color: var(--ink); font: var(--text-md) var(--sans);
-}
+.thread-rail-snooze-row > :is(input, select) { flex: 1; min-width: 0; }
 .thread-rail-snooze-row > input[type="number"] { flex: 0 0 90px; }
-.thread-rail-snooze footer { display: flex; justify-content: flex-end; gap: 8px; }
-.thread-rail-snooze footer > button { padding: 7px 14px; border-radius: var(--radius-sm); font: 500 calc(var(--text-sm) + .5px) var(--sans); cursor: pointer; }
-.thread-rail-snooze footer > button.primary { border: 0; background: var(--acid); color: var(--acid-ink); }
-.thread-rail-snooze footer > button.primary:disabled { opacity: .45; cursor: default; }
 
 .thread-rail-fanout { color: var(--cyan); }
 
