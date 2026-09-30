@@ -1,10 +1,11 @@
 import type { DesktopExtension, DesktopExtensionContext, UiSession, WorkbenchActions } from "tau";
-import { TakeoverRowMark, createTakeoverRegion, putBack } from "./card.js";
+import { HAND, TakeoverFooter, TakeoverLine, createTakeoverBar, createTakeoverRegion, heldTakeover, putBack } from "./card.js";
 import {
   COMPUTER_USE_SCREEN_SERVICE,
   PREVIEW_BROWSER_SERVICE,
   PREVIEW_COOKIE_IMPORT_SERVICE,
   PREVIEW_EXTENSION_ID,
+  REQUEST_TAKEOVER_TOOL,
   TAKEOVER_EXTENSION_ID,
   TAKEOVER_STATE_EVENT,
   WORKSPACE_STORE_SERVICE,
@@ -90,11 +91,27 @@ const takeover: DesktopExtension = {
     }));
 
     const hosts = { own: context.host, preview: context.hostExtension(PREVIEW_EXTENSION_ID) };
-    disposers.push(context.registerRegion({ id: "takeover.card", placement: "composer-above", order: 1, profiles: [...PROFILES], Component: createTakeoverRegion(hosts) }));
+    // Last above the composer: the card and the composer read as one (design 3d).
+    disposers.push(context.registerRegion({ id: "takeover.card", placement: "composer-above", order: 100, profiles: [...PROFILES], Component: createTakeoverRegion(hosts) }));
+    disposers.push(context.registerToolCard({ id: "takeover.line", match: (tool) => tool.name.replace(/^mcp__.+?__/u, "") === REQUEST_TAKEOVER_TOOL, profiles: [...PROFILES], Component: TakeoverLine }));
     disposers.push(context.useService<PreviewBrowserService>(PREVIEW_BROWSER_SERVICE, hold(services.preview)));
     disposers.push(context.useService<PreviewCookieImportService>(PREVIEW_COOKIE_IMPORT_SERVICE, hold(services.cookies)));
     disposers.push(context.useService<ComputerUseScreenService>(COMPUTER_USE_SCREEN_SERVICE, hold(services.screen)));
-    disposers.push(context.useService<WorkspaceRowMarks>(WORKSPACE_STORE_SERVICE, (workspace) => workspace.registerThreadRowAccessory(TakeoverRowMark)));
+    disposers.push(context.useService<WorkspaceRowMarks>(WORKSPACE_STORE_SERVICE, (workspace) => {
+      const mark = () => workspace.setThreadRowStatuses?.(TAKEOVER_EXTENSION_ID, Object.fromEntries(takeovers.get().map((entry) => [entry.threadId, { label: "Your turn", hint: entry.reason, icon: HAND }])));
+      mark();
+      const stop = takeovers.subscribe(mark);
+      return () => { stop(); workspace.setThreadRowStatuses?.(TAKEOVER_EXTENSION_ID, {}); };
+    }));
+    // The Preview's amber frame, and the phone's bar and footnote, while the user holds a page or a window.
+    const control = { Bar: createTakeoverBar(hosts), Footer: TakeoverFooter };
+    let release: (() => void) | undefined;
+    const holdPreview = () => {
+      const wanted = Boolean(heldTakeover(takeovers.get()));
+      if (wanted && !release) release = services.preview.get()?.hold?.(control);
+      else if (!wanted && release) { release(); release = undefined; }
+    };
+    disposers.push(takeovers.subscribe(holdPreview), services.preview.subscribe(() => { release?.(); release = undefined; holdPreview(); }), () => release?.());
     return () => {
       for (const dispose of disposers.reverse()) dispose();
       for (const entry of takeovers.get()) announcer.ended(entry.id);

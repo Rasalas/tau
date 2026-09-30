@@ -1,3 +1,6 @@
+import type { ComponentType, ReactNode } from "react";
+import type { WorkbenchActions } from "tau";
+
 /**
  * Takeover Kit's contract between its halves. Core knows none of it: it routes
  * the commands by extension id and the state event to every attached client.
@@ -95,6 +98,8 @@ export interface PreviewBrowserService {
   watch?(target: { kind: "browser" } | { kind: "app"; threadId: string }, maxWidth: number, onFrame: (picture: { url: string; width: number; height: number } | undefined) => void): () => void;
   /** This client is not on the host's machine: `jump` opens the Preview here, where the user drives it. */
   remote?(): boolean;
+  /** The user holds the page: the amber frame, and on a phone `Bar` and `Footer` around it; returns the release. */
+  hold?(control: { Bar?: ComponentType<{ actions: WorkbenchActions }>; Footer?: ComponentType }): () => void;
 }
 
 export const PREVIEW_COOKIE_IMPORT_SERVICE = "tau.preview/cookie-import";
@@ -121,9 +126,10 @@ export interface ComputerUseScreenService {
   icon?(threadId: string): Promise<string | null>;
 }
 
-/** Workspace Kit's store, the part this kit uses: a mark on the rail's rows. */
+/** Workspace Kit's store, the part this kit uses: a state on the rail's rows. */
 export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
 
 export interface WorkspaceRowMarks {
-  registerThreadRowAccessory(accessory: (props: { session: { id: string } }) => unknown): () => void;
+  /** A row's state in place of Working, by thread id; `{}` withdraws them. */
+  setThreadRowStatuses?(owner: string, statuses: Readonly<Record<string, { label: string; hint?: string; icon: ReactNode }>>): void;
 }
