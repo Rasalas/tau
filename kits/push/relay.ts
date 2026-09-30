@@ -1,9 +1,11 @@
-import { createCipheriv, createHmac, randomBytes } from "node:crypto";
+import { createCipheriv, createHmac, hkdfSync, randomBytes } from "node:crypto";
 import type { SendOutcome } from "./apns.js";
 import { SEALED_PUSH_VERSION, sealedPushAad, type PushRelayRegistration, type SealedPushContent } from "./protocol.js";
 
 const NONCE_BYTES = 12;
 const REQUEST_TIMEOUT_MS = 15_000;
+/** HKDF's info for the collapse id key: the AES key itself never keys the HMAC. */
+const COLLAPSE_INFO = "tau-push:collapse";
 
 type PushKey = Pick<PushRelayRegistration, "keyId" | "key">;
 
@@ -16,9 +18,10 @@ export function sealPush(key: PushKey, content: SealedPushContent): string {
   return `${SEALED_PUSH_VERSION}.${key.keyId}.${sealed.toString("base64url")}`;
 }
 
-/** A thread's collapse id the relay cannot trace back to the thread: an HMAC under the phone's key. */
+/** A thread's collapse id the relay cannot trace back to the thread: an HMAC under a key derived from the phone's. */
 export function sealedCollapseId(key: PushKey, threadId: string): string {
-  return createHmac("sha256", Buffer.from(key.key, "base64url")).update(`collapse:${threadId}`).digest("base64url").slice(0, 22);
+  const collapseKey = Buffer.from(hkdfSync("sha256", Buffer.from(key.key, "base64url"), Buffer.alloc(0), COLLAPSE_INFO, 32));
+  return createHmac("sha256", collapseKey).update(threadId).digest("base64url").slice(0, 22);
 }
 
 export interface RelaySend {

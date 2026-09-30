@@ -1,4 +1,4 @@
-import { createDecipheriv, randomBytes } from "node:crypto";
+import { createDecipheriv, createHmac, hkdfSync, randomBytes } from "node:crypto";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -282,6 +282,9 @@ describe("the push host half through Tau's relay", () => {
     const opened = openSealed(toPixel.payload, PIXEL);
     expect(opened).toEqual({ title: "Fix the build", body: "Fixed the build", url: "tau://thread?host=host-1&thread=t1", kind: "completed", tag: toPixel.collapseId });
     expect(toPixel.collapseId).toMatch(/^[A-Za-z0-9_-]{22}$/u);
+    // Keyed by HKDF from the phone's key, never by the AES key itself.
+    const collapseKey = Buffer.from(hkdfSync("sha256", Buffer.from(PIXEL.key, "base64url"), Buffer.alloc(0), "tau-push:collapse", 32));
+    expect(toPixel.collapseId).toBe(createHmac("sha256", collapseKey).update("t1").digest("base64url").slice(0, 22));
     // Each phone's key makes its own collapse id for the same thread.
     expect(sent.find((request) => request.handle === IPHONE.handle)!.collapseId).not.toBe(toPixel.collapseId);
     expect(() => openSealed(toPixel.payload, { ...PIXEL, key: randomBytes(32).toString("base64url") })).toThrow();
