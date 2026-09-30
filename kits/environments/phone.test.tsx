@@ -5,6 +5,7 @@ import type { PlatformEnvironments, UiDiscoveredHosts, UiEnvironment, UiEnvironm
 import { createKitHarness, createMemoryStorage, setClientStorage, ThreadStore, ThreadStoreContext } from "../../src/renderer/test-support/kit-harness.js";
 import { createRailSection, environmentsExtension } from "./desktop.js";
 import { notReachable } from "./list-head.js";
+import { WORKSPACE_STORE_SERVICE, type DraftMachineSource } from "./protocol.js";
 
 afterEach(cleanup);
 
@@ -50,8 +51,13 @@ function fakeActions(patch: Partial<WorkbenchActions> = {}): WorkbenchActions {
 function phone(list: UiEnvironments) {
   const fake = fakeEnvironments(list);
   const { registry } = createKitHarness(undefined, "compact", { environments: fake.environments });
+  // Workspace Kit's store, as far as "Run on" goes: it keeps the machines' source for its pill.
+  let runOn: DraftMachineSource | undefined;
+  registry.activate({ id: "workspace-stub", name: "Workspace", activate: (context) => {
+    context.provideService(WORKSPACE_STORE_SERVICE, { registerDraftMachine: (source: DraftMachineSource) => { runOn = source; return () => undefined; } });
+  } });
   registry.activate(environmentsExtension);
-  return { ...fake, registry };
+  return { ...fake, registry, runOn: () => runOn! };
 }
 
 describe("Machines Kit on a phone", () => {
@@ -67,22 +73,20 @@ describe("Machines Kit on a phone", () => {
     stop();
     // No Settings page and no title-bar chip: the phone manages its hosts in its own host list.
     expect(registry.getSettingsPages()).toEqual([]);
-    expect(registry.getRegions("draft-actions").map((region) => region.id)).toEqual(["environments.run-on-sheet", "environments.arrival"]);
+    expect(registry.getRegions("draft-actions").map((region) => region.id)).toEqual(["environments.arrival"]);
   });
 
-  it("offers every paired host in a sheet, the one out of reach with its reason, and moves the draft to the one picked", () => {
-    const { registry, environments } = phone({ shown: "mac", environments: [mac, rex, box], secureStorage: true });
-    const Control = registry.getRegions("draft-actions").find((region) => region.id === "environments.run-on-sheet")!.Component;
+  it("offers every paired host in Run on's sheet, the one out of reach with its reason, and moves the draft to the one picked", () => {
+    const { runOn, environments } = phone({ shown: "mac", environments: [mac, rex, box], secureStorage: true });
+    const { Section } = runOn();
     const store = new ThreadStore();
     const setComposerDraft = vi.fn();
-    render(<ThreadStoreContext.Provider value={store}><Control actions={fakeActions({ activeThread: () => ({ draftPending: true, cwd: "/Users/me/shop" }) as never, composerDraft: () => "Fix checkout", setComposerDraft })} /></ThreadStoreContext.Provider>);
-    fireEvent.click(screen.getByRole("button", { name: "Run on mac" }));
-    const sheet = screen.getByRole("dialog", { name: "Run on" });
-    const rows = [...sheet.querySelectorAll<HTMLButtonElement>(".run-on-row")];
-    expect(rows.map((row) => [row.textContent, row.getAttribute("aria-pressed"), row.disabled])).toEqual([
-      ["maconline · idle", "true", false],
-      ["rexonline · 1 running", "false", false],
-      [expect.stringMatching(/^boxOffline · last seen/u), "false", true],
+    render(<ThreadStoreContext.Provider value={store}><Section touch actions={fakeActions({ activeThread: () => ({ draftPending: true, cwd: "/Users/me/shop" }) as never, composerDraft: () => "Fix checkout", setComposerDraft })} /></ThreadStoreContext.Provider>);
+    const rows = within(screen.getByRole("group", { name: "Machines" })).getAllByRole("button") as HTMLButtonElement[];
+    expect(rows.map((row) => [row.textContent, row.getAttribute("aria-pressed"), row.disabled, row.dataset.touch])).toEqual([
+      ["maconline · idle", "true", false, "true"],
+      ["rexonline · 1 running", "false", false, "true"],
+      [expect.stringMatching(/^boxOffline · last seen/u), "false", true, "true"],
     ]);
     // Opening the sheet asks the machine out of reach again.
     expect(environments.retry).toHaveBeenCalledWith("box");

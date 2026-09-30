@@ -6,7 +6,7 @@ import { followArrival, readPendingArrival } from "./machines.js";
 import { ENVIRONMENTS_EXTENSION_ID, MACHINES_SETTINGS_PAGE, REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE, type RemoteAgentThreadsService, type WorkspaceRailSlice } from "./protocol.js";
 import { agentThreadsSource, createMachineCardRow, createMachineThreads, createShownMachine } from "./rail.js";
 import { createListHead, hereOf } from "./list-head.js";
-import { createRunOnControl } from "./run-on.js";
+import { createRunOnSource } from "./run-on.js";
 import { createMachinesPage } from "./settings.js";
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -92,13 +92,11 @@ export const environmentsExtension: DesktopExtension = {
       run: (actions) => actions.openSettings(MACHINES_SETTINGS_PAGE),
     });
     context.registerRegion({ id: "environments.shown", placement: "title-bar", order: 0, profiles: ["desktop"], Component: createShownMachine(environments) });
-    // A new thread's machine: a pill under its heading; a sheet on a phone or tablet.
-    context.registerRegion({ id: "environments.run-on", placement: "draft-actions", order: 5, profiles: ["desktop"], Component: createRunOnControl(environments, context.host) });
-    context.registerRegion({ id: "environments.run-on-sheet", placement: "draft-actions", order: 5, profiles: ["compact"], Component: createRunOnControl(environments, context.host, { sheet: true }) });
     context.registerPromptHook(createAutoRunOnHook(environments, context.host));
     const RailSection = createRailSection(environments);
     const threads = createMachineThreads(environments);
     const MachineCardRow = createMachineCardRow(environments);
+    const runOnSource = createRunOnSource(environments, context.host);
     // A phone or tablet lists them in its own thread list, and says there which machine is out of reach (API 1.30.0).
     context.registerThreadListSource?.({ id: "environments.threads", subscribe: threads.subscribe, threads: threads.threads, here: hereOf(environments) });
     // The arrival follows from the list or from a draft the phone reopened, whichever mounts first.
@@ -109,7 +107,9 @@ export const environmentsExtension: DesktopExtension = {
       const section = store.registerRailSection?.(RailSection);
       const listed = store.registerRailThreads?.(threads);
       const card = store.registerThreadCardSection?.({ place: "row", order: 20, Component: MachineCardRow });
-      return () => { section?.(); listed?.(); card?.(); };
+      // A new thread's machine, in Workspace Kit's Run-on pill before the model (design 1k/1o).
+      const runOn = store.registerDraftMachine?.(runOnSource);
+      return () => { section?.(); listed?.(); card?.(); runOn?.(); };
     });
     context.useService<RemoteAgentThreadsService>(REMOTE_AGENT_THREADS_SERVICE, (service) => {
       agentThreadsSource.set(service);

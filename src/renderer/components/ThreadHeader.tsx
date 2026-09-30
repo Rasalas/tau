@@ -46,7 +46,7 @@ function SlotDetails({ slots, snapshot, branch }: { slots?: ThreadDetailSlots; s
   </>;
 }
 
-/** An empty thread's sub-line on the start screen: its branch alone, which no pill offers there. */
+/** The start screen's sub-line: an empty thread's branch, or what a kit says of a draft (design 1k). */
 export function StartDetails({ snapshot, slots }: { snapshot?: HostSnapshot; slots?: ThreadDetailSlots }) {
   return <div className="thread-details"><SlotDetails slots={slots} snapshot={snapshot} {...(snapshot?.projectLabel ? { branch: snapshot.projectLabel } : {})} /></div>;
 }

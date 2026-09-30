@@ -505,7 +505,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           ...(optionalString(input, "baseRef") ? { requested: optionalString(input, "baseRef") } : {}),
           ...(record(input).startFromOrigin === undefined ? {} : { startFromOrigin: record(input).startFromOrigin !== false }),
         });
-        return { ...base, shortCommit: base.commit.slice(0, 7) };
+        return { ...base, shortCommit: base.commit.slice(0, 7), ...await workspaceGit.readBaseChoices(project, base.ref) };
       }, { long: true });
       context.registerCommand("create-worktree", async (input) => {
         // A pending draft may sit on another project than the host's thread.

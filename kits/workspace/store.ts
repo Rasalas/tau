@@ -46,6 +46,8 @@ import {
   type WorkspaceStoreApi,
   type WorktreeNamer,
   type WorktreeSubmodules,
+  type BranchNaming,
+  type DraftMachineSource,
 } from "./protocol.js";
 import { recordTurnStat } from "./turn-stats.js";
 
@@ -80,6 +82,8 @@ const INITIAL: WorkspaceKitState = {
 
 /** The user's global answer for where a new thread runs. */
 export const NEW_THREAD_WORKSPACE_KEY = "new-thread-workspace";
+/** How an unnamed draft branch is named: `random` skips the naming kit. */
+export const BRANCH_NAMING_KEY = "branch-naming";
 /** Whether a new worktree starts from the freshly fetched remote; on by default. */
 export const START_FROM_ORIGIN_OPTION = "start-from-origin";
 /** How a new worktree fills its submodules; unset lets the checkout's project file decide. */
@@ -307,6 +311,16 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       ...("name" in branch ? { draftBranch: branch.name?.trim() || undefined } : {}),
       ...("base" in branch ? { draftBase: branch.base || undefined } : {}),
     });
+  }
+
+  branchNaming(): BranchNaming {
+    return this.state.branchNaming ?? (this.preferences.value(WORKSPACE_KIT_ID, BRANCH_NAMING_KEY) === "random" ? "random" : "prompt");
+  }
+
+  /** "If empty": a global choice, as Settings would keep it. */
+  setBranchNaming(naming: BranchNaming): void {
+    this.preferences.setValue(WORKSPACE_KIT_ID, BRANCH_NAMING_KEY, naming);
+    this.update({ branchNaming: naming });
   }
 
   /** Whether a new worktree starts from the freshly fetched remote commit. */
@@ -649,7 +663,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
    */
   private async threadBranchName(prompt: string): Promise<string> {
     const taken = this.state.workspace?.refs.map((ref) => ref.name) ?? [];
-    if (this.namer && this.actions) {
+    if (this.namer && this.actions && this.branchNaming() === "prompt") {
       try {
         const named = await this.namer({ hint: "", description: prompt, taken, actions: this.actions });
         if (named) return named;
@@ -747,6 +761,11 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   registerRailThreads(source: RailThreadSource): () => void {
     this.update({ railThreadSources: [...this.state.railThreadSources, source] });
     return () => this.update({ railThreadSources: this.state.railThreadSources.filter((entry) => entry !== source) });
+  }
+
+  registerDraftMachine(source: DraftMachineSource): () => void {
+    this.update({ draftMachine: source });
+    return () => { if (this.state.draftMachine === source) this.update({ draftMachine: undefined }); };
   }
 
   setRailProjectFilter(projectName: string | undefined): void {

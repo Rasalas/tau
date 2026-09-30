@@ -343,50 +343,111 @@
   display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; margin: -2px -4px; padding: 2px 4px;
   border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer;
 }
-/* As the design writes it: the checkout's branch in the sub-line's face, a draft's planned name in mono; the chevron shows on hover. */
+/* As the design writes it: the checkout's branch in the sub-line's face; the chevron shows on hover. */
 .thread-branch-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Its negative margins make the header's detail 8 px narrower than the trigger; it may take those back. */
 .thread-header .thread-branch-trigger { max-width: calc(100% + 8px); }
-.thread-branch-trigger.planned > span { font-family: var(--mono); }
 .thread-branch-trigger .chev { flex: none; color: var(--faint); opacity: 0; }
 .thread-branch-trigger:is(:hover, :focus-visible, [aria-expanded="true"]) .chev { opacity: 1; }
 .thread-branch-trigger:hover:not(:disabled), .thread-branch-trigger[aria-expanded="true"] { background: var(--raised); color: var(--ink-2); }
 .popover.branch-popover { width: min(380px, calc(100vw - 24px)); max-height: min(520px, calc(100vh - 80px)); padding: 0; overflow: auto; }
 .branch-menu .menu-heading { padding: 10px 12px 4px; color: var(--faint); font-size: var(--text-sm); }
-/* A new thread's Branch section, drawn as design 1k's popover draws it. */
-.branch-section .menu-heading { padding: 6px 16px 4px; color: var(--muted); font: var(--text-xs) var(--sans); letter-spacing: normal; text-transform: none; }
-.branch-note { margin: 0; padding: 4px 12px 12px; color: var(--muted); font: var(--text-sm)/1.5 var(--sans); }
-.branch-section { padding-bottom: 6px; }
 .branch-section.picking { padding: 0; }
+.branch-note { margin: 0; padding: 4px 12px 12px; color: var(--muted); font: var(--text-sm)/1.5 var(--sans); }
 .branch-name {
   display: flex; align-items: center; gap: 8px; margin: 0 6px; padding: 6px 10px; border-radius: 7px;
   background: var(--rail); color: var(--muted);
 }
 .branch-name > input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font: var(--text-xs) var(--mono); outline: none; }
 .branch-name > input::placeholder { color: var(--ink-3); }
-.branch-name > code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink); font: var(--text-xs) var(--mono); }
 .branch-name > small { color: var(--muted); font-size: var(--text-xs); }
-.branch-section button.branch-base {
-  width: auto; display: inline-flex; align-items: center; gap: 8px; margin: 1px 6px 0; padding: 6px 10px;
-  border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: var(--text-sm) var(--sans); cursor: pointer;
-}
-.branch-base > code { color: var(--ink-3); font: var(--text-xs) var(--mono); }
-.branch-base:hover { background: var(--raised); }
-.branch-worktree { display: flex; align-items: center; gap: 10px; margin: 2px 6px 0; padding: 6px 10px; cursor: pointer; }
+.branch-worktree { display: flex; align-items: center; gap: 10px; padding: 6px 10px; cursor: pointer; }
 .branch-worktree > span { flex: 1; min-width: 0; display: grid; gap: 1px; }
-.branch-worktree strong { color: var(--ink); font: 400 var(--text-md) var(--sans); }
+.branch-worktree strong { color: var(--ink); font: 400 var(--text-sm) var(--sans); }
 .branch-worktree small { color: var(--muted); font-size: var(--text-xs); }
 /* Kept against menu button rules that would flatten the switch. */
 .branch-worktree .switch, .branch-worktree .switch:hover:not(:disabled) { width: var(--switch-w); padding: 0; border-radius: var(--radius-pill); background: var(--track); }
 .branch-worktree .switch.on, .branch-worktree .switch.on:hover:not(:disabled) { background: var(--acid); }
+@media (pointer: fine) { .branch-worktree .switch { --switch-w: 26px; --switch-h: 15px; } }
+
+/* A new thread's machine and branch before the model (design 1k): machine, a dot, the branch in mono. */
+.runtime-chip.run-on-pill { flex: 0 1 auto; min-width: 0; background: var(--raised); color: var(--ink); }
+.runtime-chip.run-on-pill:hover, .run-on-pill[aria-expanded="true"] { background: var(--raised-hover); }
+.run-on-pill > svg { flex: none; color: var(--muted); }
+.run-on-pill > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.run-on-pill > i { font-style: normal; color: var(--muted); }
+.run-on-pill > code { max-width: 12ch; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font: calc(var(--text-sm) - .5px) var(--mono); }
+/* One popover for both (design 1k): Run on, a rule, then Branch. What is chosen sits on the rail's tone, a step up in dark. */
+.popover.run-on-popover {
+  width: min(320px, calc(100vw - 24px)); max-height: min(620px, calc(100vh - 80px)); overflow: auto; padding: 6px 0 0;
+  border-color: light-dark(transparent, var(--line-float)); border-radius: var(--radius-md); background: var(--float); box-shadow: var(--elevation-3);
+  font-size: calc(var(--text-sm) + .5px); text-align: left;
+}
+.run-on-popover > .run-on-rows { padding: 0 6px 6px; }
+.run-on-heading { padding: 6px 10px 2px; color: var(--muted); font: var(--text-xs) var(--sans); }
+.run-on-rows { display: flex; flex-direction: column; gap: 1px; }
+.run-on-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer;
+}
+.run-on-row:hover:not(:disabled) { background: var(--hover); }
+.run-on-row[aria-pressed="true"] { background: light-dark(var(--rail), var(--raised)); }
+.run-on-row[aria-pressed="true"] :is(strong, code) { font-weight: 600; }
+.run-on-row > svg { flex: none; color: var(--muted); }
+.run-on-row > svg:last-child:not(:first-child) { color: var(--acid-text); }
+.run-on-row > span { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.run-on-row strong { font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run-on-row code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: calc(var(--text-sm) - .5px) var(--mono); }
+.run-on-row small { color: var(--muted); font-size: var(--text-xs); }
+/* A machine out of reach is shown faded (design 1k), with why. */
+.run-on-row:disabled { opacity: .5; cursor: default; }
+.run-on-branch { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px 10px; border-top: 1px solid var(--line-soft); }
+.run-on-branch:first-child { border-top: 0; }
+.run-on-branch > .run-on-heading { padding: 0; }
+.run-on-branch > .run-on-heading ~ .run-on-heading { margin-top: 2px; }
+.run-on-branch .run-on-row { padding: 5px 8px; }
+.run-on-branch > .branch-worktree { padding: 2px 0 0; }
+.run-on-field {
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 7px;
+  background: light-dark(var(--rail), var(--raised)); color: var(--muted); font: calc(var(--text-sm) - .5px) var(--mono);
+}
+.run-on-field:focus-within { box-shadow: inset 0 0 0 1.5px var(--acid); }
+.run-on-field > span, .run-on-field > code { color: var(--ink); }
+.run-on-field > code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.run-on-field > small { font: var(--text-xs) var(--sans); }
+.run-on-field > input { flex: 1; min-width: 0; padding: 0; border: 0; background: transparent; color: var(--ink); font: inherit; outline: none; }
+.run-on-field > span + input { margin-left: -8px; }
+.run-on-field > input::placeholder { color: var(--faint); }
+.run-on-naming { display: flex; align-items: center; gap: 2px; color: var(--ink-2); font-size: calc(var(--text-xs) + .5px); }
+.run-on-naming > span { margin-right: 4px; color: var(--muted); }
+.run-on-naming > button { padding: 2px 8px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.run-on-naming > button[aria-checked="true"] { background: light-dark(var(--rail), var(--raised)); font-weight: 600; }
+.run-on-naming > button:disabled { color: var(--faint); cursor: default; }
+.run-on-note { margin: 0; color: var(--muted); font-size: var(--text-xs); }
+.run-on-branch .run-on-other { padding-top: 3px; padding-bottom: 3px; }
+/* The same as a phone's sheet (design 1o): 44 px rows, a wide Done. */
+.run-on-sheet { text-align: left; }
+.run-on-sheet .touch-sheet-content { display: flex; flex-direction: column; }
+.run-on-sheet .run-on-row { min-height: var(--touch-target); padding: 11px 10px; }
+/* The sheet is the rail's colour; what is chosen sits a step above it. */
+.run-on-sheet :is(.run-on-row[aria-pressed="true"], .run-on-field, .run-on-naming > button[aria-checked="true"]) { background: var(--raised); }
+.run-on-sheet .run-on-branch { padding: 12px 0 0; border: 0; }
+.run-on-sheet .run-on-branch > .run-on-heading { padding: 0 4px; }
+.run-on-sheet .run-on-branch .run-on-row { padding: 10px; }
+.run-on-sheet .run-on-field { min-height: var(--touch-target); padding: 11px 12px; border-radius: 8px; font-size: var(--text-md); }
+.run-on-sheet .run-on-naming { padding: 0 4px; font-size: var(--text-sm); }
+.run-on-sheet .run-on-naming > button { min-height: 32px; padding: 4px 10px; }
+.run-on-sheet .run-on-row code { font-size: var(--text-md); }
+.run-on-sheet .branch-worktree { min-height: var(--touch-target); padding: 0 4px; }
+.run-on-done {
+  display: flex; align-items: center; justify-content: center; gap: 5px; flex: none; margin-top: 14px; padding: 13px;
+  border: 0; border-radius: var(--radius-pill); background: var(--acid); color: var(--acid-ink); font: 600 var(--text-md) var(--sans); cursor: pointer;
+}
+.run-on-done:active { background: var(--acid-strong); }
 /* The draft's worktree suggestion (K125): a pill whose whole face is its switch's label. */
 .draft-pill.worktree-suggestion { gap: 8px; }
 .draft-pill.worktree-suggestion > svg { flex: none; color: var(--muted); }
 @media (pointer: fine) { .draft-pill.worktree-suggestion .switch { --switch-w: 26px; --switch-h: 15px; } }
-/* The Branch pill's sheet on touch: the sheet names it; rows of 44 px. */
-.branch-sheet { text-align: left; }
-.branch-sheet .branch-section > .menu-heading { display: none; }
-.branch-sheet :is(.branch-name, .branch-worktree, button.branch-base) { min-height: 44px; }
 .ref-create { max-height: none; padding-top: 0; }
 .ref-create code, .ref-list code { font: var(--text-sm) var(--mono); }
 .branch-menu .worktree-list { max-height: 240px; overflow: auto; padding: 2px 6px 6px; }
@@ -733,3 +794,6 @@ button.thread-card-row:hover, button.thread-card-row:focus-visible { color: var(
 .fresh-start-keys kbd { min-width: 18px; padding: 1px 6px; border-radius: 5px; background: var(--rail); box-shadow: 0 1px 0 var(--line-strong); color: var(--ink); font: 11px var(--mono); text-align: center; }
 .fresh-start-providers { gap: 8px; margin: 8px 0 0; }
 .fresh-start-providers button { padding: 0; border: 0; background: none; color: var(--acid-text); font: inherit; cursor: pointer; }
+/* A draft's "project · machine" on a phone keeps its dot (design 1o), at a line's end when the two wrap. */
+body[data-profile="compact"] .title-bar .thread-details:has(> .draft-detail) { gap: 0 5px; }
+body[data-profile="compact"] .title-bar .draft-detail:not(:last-child)::after { content: "·"; }

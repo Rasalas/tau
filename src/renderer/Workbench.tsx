@@ -694,9 +694,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       {split ? <button type="button" className="stage-tool" aria-label="Threads" {...tooltipProps("Threads", { side: "bottom" })} onClick={() => setTouchSidebarOpen((open) => !open)}><ListTree size={16} /></button> : null}
     </>}
     title={threadTitle}
-    // A draft's pills say project, machine and branch; an empty thread's branch has no pill.
     details={!showStartScreen && !split ? <ThreadDetails snapshot={conversationSnapshot} view={view} slots={detailSlots} />
-      : pendingNewThread ? undefined : <StartDetails snapshot={conversationSnapshot} slots={detailSlots} />}
+      : <StartDetails snapshot={conversationSnapshot} slots={detailSlots} />}
     actions={conversationFolded ? null : <PanelSlot host={titleActionsHost} />}
     tools={stageExpanded ? undefined : stageTools}
     {...(!split && (firstTool || stage.tabs.length > 0) ? { stage: { shown: stageExpanded, shortcut: registry.keybindingLabel?.("workbench.toggle-dock"), onToggle: toggleStage } } : {})}
@@ -709,7 +708,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         snapshot={snapshot}
         actions={actions}
         thread={threadTitle}
-        details={showStartScreen ? undefined : <ThreadDetails snapshot={conversationSnapshot} view={view} machine={hostName} />}
+        details={showStartScreen ? <StartDetails snapshot={conversationSnapshot} slots={detailSlots} /> : <ThreadDetails snapshot={conversationSnapshot} view={view} machine={hostName} />}
         onBack={phoneNav.showList}
         foldSheets
         sheets={sheetPanels.map((panel) => ({

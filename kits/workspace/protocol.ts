@@ -6,6 +6,7 @@ import type {
   DiffLoadOptions,
   FileNode,
   HostActionResult,
+  HostSnapshot,
   MenuSection,
   ThreadMenuLookup,
   UiEditor,
@@ -52,6 +53,30 @@ export interface EditorPosition {
   column?: number;
 }
 
+export type BranchNaming = "prompt" | "random";
+
+/** The machine a new thread starts on, as its Run-on pill and heading name it. */
+export interface DraftMachine {
+  name: string;
+  icon: ReactNode;
+  tooltip?: string;
+  /** The draft is on its way to another machine. */
+  moving?: boolean;
+}
+
+export interface DraftMachineProps {
+  snapshot?: HostSnapshot;
+  actions?: WorkbenchActions;
+}
+
+/** Machines Kit's half of a new thread's "Run on": the chosen machine, and the list to choose from. */
+export interface DraftMachineSource {
+  /** A hook; undefined where no machine can be chosen (a started thread). */
+  useMachine(props: DraftMachineProps): DraftMachine | undefined;
+  /** The rows under "Run on"; `touch` draws them 44 px high. */
+  Section: ComponentType<DraftMachineProps & { touch: boolean }>;
+}
+
 /** Where a new worktree starts, as the picker shows it. */
 export interface UiWorktreeBase {
   ref: string;
@@ -61,6 +86,10 @@ export interface UiWorktreeBase {
   fromOrigin: boolean;
   /** Why the base is not the one that was asked for. */
   note?: string;
+  /** When the remote was last fetched (FETCH_HEAD), for "fetched 2m ago". */
+  fetchedAt?: number;
+  /** A few other remote branches, latest first, for "Based on". */
+  others?: string[];
 }
 
 /** What removing a worktree would lose. */
@@ -442,6 +471,10 @@ export interface WorkspaceKitState {
   preparingWorktree: boolean;
   /** The draft offers its own worktree because another thread's turn runs in its folder (K125). */
   worktreeSuggested?: boolean;
+  /** How a draft's worktree branch is named when the field stays empty; unset is from the prompt. */
+  branchNaming?: BranchNaming;
+  /** Machines Kit's half of a new thread's "Run on". */
+  draftMachine?: DraftMachineSource;
   /** Sections other kits add to the Changes panel. */
   changesSections: ReadonlyArray<ComponentType<ChangesSectionProps>>;
   /** Marks other kits add to rail rows. */
@@ -711,6 +744,8 @@ export interface WorkspaceStoreApi {
   registerRailSection?(section: ComponentType<{ actions: WorkbenchActions }>): () => void;
   /** Threads listed among the rail's own, each with its machine's mark: other machines' threads. */
   registerRailThreads?(source: RailThreadSource): () => void;
+  /** The machines a new thread's "Run on" lists above its branch (design 1k/1o). */
+  registerDraftMachine?(source: DraftMachineSource): () => void;
   /** Places beside the list a dragged thread can go: other machines (design 2f). */
   registerThreadDropTargets?(targets: ThreadDropTargets): () => void;
   /** Shows only the threads of one repository, by its project name; `undefined` shows all again (API 1.11.0). */

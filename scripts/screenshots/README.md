@@ -31,7 +31,7 @@ The shots (`shots.mjs`):
 | `runtimes` | Settings → Runtimes: every runtime installed, with its version | 2560 × 1600 |
 | `usage` | The Usage page's spend, activity calendar and daily chart, in Tau and outside it | the page's top, down to the chart |
 | `kits` | Settings → Extensions: the kits Tau ships | 2560 × 1600 |
-| `machines` | A second machine, "studio": its threads in the list and a new thread's Run on menu | 2560 × 1600 |
+| `machines` | A second machine, "studio": its threads in the list and a new thread's Run on popover | 2560 × 1600 |
 | `phone` | The paired phone's thread list (headless Chromium as the `--phone` device) | the phone's screen |
 | `phone-thread` | A thread on the phone: the agent's reply and the composer | the phone's screen |
 | `phone-reviews` | Reviews on the phone, by state | the phone's screen |
