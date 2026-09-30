@@ -22,10 +22,9 @@ import { LayoutToggle, ReviewDetailFrame, useBackKeys, type FrameTab } from "./r
 import type { DetailNote, DetailState, ReviewDetailStore } from "./review-detail-store.js";
 import { ReviewDiffStack, type StackFile } from "./review-diff-stack.js";
 import { baseName } from "./review-lines.js";
+import { plural } from "./review-words.js";
 
 type Tab = "changes" | "timeline" | "checks";
-
-const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "" : "s"}`;
 
 interface RemoteProps {
   params: PullRequestTabParams;

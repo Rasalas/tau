@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { existsSync } from "node:fs";
-import { mergeThreadBranch, readThreadBranch, readThreadBranches, removeThreadBranch } from "./thread-branches.js";
+import { readFile } from "node:fs/promises";
+import { mergeThreadBranch, readThreadBranch, readThreadBranches, readThreadConflicts, removeThreadBranch } from "./thread-branches.js";
+import { applyPicks, parseConflictText } from "./merge-picks.js";
 
 const created: string[] = [];
 
@@ -208,5 +210,61 @@ describe("merging a thread's branch", () => {
     await expect(mergeThreadBranch(dir, { expectedTip: read })).rejects.toThrow(/moved since it was read/u);
     await writeFile(join(dir, "e.txt"), "e\n");
     await expect(mergeThreadBranch(dir)).rejects.toThrow(/1 file not committed/u);
+  });
+});
+
+const MIDDLE = ["2", "3", "4", "5", "6", "7", "8", "9"];
+
+describe("picking a side per conflicting hunk", () => {
+  async function conflicted() {
+    const repo = await repository();
+    const file = (first: string, last: string) => [first, ...MIDDLE, last, ""].join("\n");
+    await repo.commit(repo.cwd, "a.txt", file("one", "ten"));
+    const dir = repo.worktree("tau/picks");
+    await repo.commit(dir, "a.txt", file("ONE", "TEN"));
+    await repo.commit(repo.cwd, "a.txt", file("uno", "diez"));
+    await repo.commit(repo.cwd, "b.txt", "bee\n");
+    return { repo, dir };
+  }
+
+  it("reads each hunk with both sides and their line numbers, touching nothing", async () => {
+    const { repo, dir } = await conflicted();
+    const head = repo.run(repo.cwd, "rev-parse", "HEAD");
+    const read = await readThreadConflicts(dir);
+    expect(read.tip).toBe(repo.run(dir, "rev-parse", "HEAD"));
+    expect(read.files).toEqual([{ path: "a.txt", hunks: [
+      { main: ["uno"], thread: ["ONE"], mainLine: 1, threadLine: 1, after: "2" },
+      { main: ["diez"], thread: ["TEN"], mainLine: 10, threadLine: 10, before: "9", after: "" },
+    ] }]);
+    expect(repo.run(repo.cwd, "rev-parse", "HEAD")).toBe(head);
+    expect(repo.run(repo.cwd, "status", "--porcelain")).toBe("");
+  });
+
+  it("merges with the picks as a merge commit of both sides", async () => {
+    const { repo, dir } = await conflicted();
+    const tip = repo.run(dir, "rev-parse", "HEAD");
+    const outcome = await mergeThreadBranch(dir, { expectedTip: tip, picks: { "a.txt": ["thread", { text: "10" }] } });
+    expect(outcome).toMatchObject({ state: "merged", into: "main" });
+    expect(await readFile(join(repo.cwd, "a.txt"), "utf8")).toBe(["ONE", ...MIDDLE, "10", ""].join("\n"));
+    expect(await readFile(join(repo.cwd, "b.txt"), "utf8")).toBe("bee\n");
+    expect(repo.run(repo.cwd, "rev-list", "--parents", "-n", "1", "HEAD").split(" ").slice(1)).toContain(tip);
+    expect(repo.run(repo.cwd, "status", "--porcelain")).toBe("");
+    expect(await readThreadBranch(dir)).toMatchObject({ merged: true });
+  });
+
+  it("refuses picks that miss a hunk and leaves the checkout as it was", async () => {
+    const { repo, dir } = await conflicted();
+    const head = repo.run(repo.cwd, "rev-parse", "HEAD");
+    await expect(mergeThreadBranch(dir, { picks: { "a.txt": ["both"] } })).rejects.toThrow(/do not match/u);
+    await expect(mergeThreadBranch(dir, { picks: {} })).rejects.toThrow(/a.txt has no picks/u);
+    expect(repo.run(repo.cwd, "rev-parse", "HEAD")).toBe(head);
+    expect(repo.run(repo.cwd, "status", "--porcelain")).toBe("");
+  });
+
+  it("keeps both sides, the thread's first, and reads a diff3 base section past", () => {
+    const parts = parseConflictText("a\n<<<<<<< ours\nmain\n||||||| base\nold\n=======\nthread\n>>>>>>> theirs\nz");
+    expect(parts && applyPicks(parts, ["both"])).toBe("a\nthread\nmain\nz");
+    expect(parseConflictText("no markers\n")).toBeUndefined();
+    expect(parseConflictText("<<<<<<< ours\nopen")).toBeUndefined();
   });
 });

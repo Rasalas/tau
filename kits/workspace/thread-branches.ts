@@ -10,6 +10,7 @@ import {
   type BranchMergePreview,
 } from "./agent-worktrees.js";
 import { readDefaultBranch } from "./workspace-git.js";
+import { readConflictFiles, resolveTree, type ConflictFile, type HunkPick } from "./merge-picks.js";
 
 /**
  * A thread's worktree branch as Review Kit's Reviews page reads it: what it
@@ -207,7 +208,7 @@ export interface ThreadBranchMerge extends BranchMergeOutcome {
  * tip moved since `expectedTip` was read, and while the worktree holds work
  * not committed yet, which a merge would leave behind.
  */
-export async function mergeThreadBranch(path: string, options: { expectedTip?: string; runGit?: AgentGitRunner } = {}): Promise<ThreadBranchMerge> {
+export async function mergeThreadBranch(path: string, options: { expectedTip?: string; picks?: Record<string, HunkPick[]>; runGit?: AgentGitRunner } = {}): Promise<ThreadBranchMerge> {
   const runGit = options.runGit ?? runAgentGit;
   const branch = await readThreadBranch(path, runGit);
   if (!branch) throw new Error("This folder is no worktree on a branch of its own.");
@@ -217,8 +218,18 @@ export async function mergeThreadBranch(path: string, options: { expectedTip?: s
   // A spawned thread's base is a state commit carrying the checkout's work of then; a ref like origin/main is not.
   const recorded = await readBranchBase(branch.root, branch.branch, runGit);
   const base = recorded && /^[0-9a-f]{40,64}$/u.test(recorded) ? recorded : undefined;
-  const outcome = await mergeBranchIntoCheckout({ cwd: branch.root, branch: branch.branch, ...(base ? { base } : {}), runGit });
+  const picks = options.picks;
+  const resolved = picks ? { resolve: (tree: string, conflicts: readonly string[]) => resolveTree(branch.root, tree, conflicts, picks, runGit) } : {};
+  const outcome = await mergeBranchIntoCheckout({ cwd: branch.root, branch: branch.branch, ...(base ? { base } : {}), ...resolved, runGit });
   return { ...outcome, into: branch.target, root: branch.root };
+}
+
+/** The hunks a merge of the thread's branch would conflict in, for picks per hunk. */
+export async function readThreadConflicts(path: string, runGit: AgentGitRunner = runAgentGit): Promise<{ tip: string; files: ConflictFile[] }> {
+  const branch = await readThreadBranch(path, runGit);
+  if (!branch?.target || branch.unavailable) throw new Error(branch?.unavailable ?? "This folder is no worktree on a branch of its own.");
+  const preview = await previewBranchMerge(branch.root, branch.tip, runGit);
+  return { tip: branch.tip, files: await readConflictFiles(branch.root, preview.tree, preview.conflicts, runGit) };
 }
 
 /**

@@ -35,13 +35,14 @@ import {
   type WorkbenchActions,
 } from "tau";
 import { useCompactProfile } from "./compact-profile.js";
-import { mergeBlocker, mergedThisMonth, reviewRuntime, type LocalReview, type ReviewCounts, type ReviewState } from "./local-reviews.js";
+import { mergeBlocker, mergedThisMonth, reviewRuntime, type HunkPick, type LocalReview, type ReviewCounts, type ReviewState } from "./local-reviews.js";
 import { useLocalReviews, type LocalReviewsStore } from "./local-reviews-store.js";
 import { REVIEW_HOST_EXTENSION_ID } from "./protocol.js";
 import type { PullRequestsPageParts } from "./pull-requests-page.js";
 import type { ReviewsFilter } from "./reviews-filter.js";
 import type { RowRequests } from "./requests.js";
 import { ReviewDetailSidebar } from "./review-detail-sidebar.js";
+import { ALREADY, plural, rebaseBlocker } from "./review-words.js";
 import type { DetailParts } from "./review-detail-store.js";
 
 const PullRequestsPage = lazy(() => import("./pull-requests-page.js").then((module) => ({ default: module.PullRequestsPage })));
@@ -89,7 +90,6 @@ export function shortAge(at: number, now = Date.now()): string {
   return days < 60 ? `${days}d` : new Date(at).toISOString().slice(0, 10);
 }
 
-const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "" : "s"}`;
 
 function ProjectTile({ project }: { project: LocalReview["project"] }) {
   return <ProjectIcon project={{ path: project.root, name: project.name, workspaceId: project.key, icon: project.icon }} className="rv-tile" />;
@@ -129,24 +129,11 @@ function Model({ review, name = true }: { review: LocalReview; name?: boolean })
 function Into({ review }: { review: LocalReview }) {
   if (!review.target) return null;
   const off = review.offDefault;
-  return <span className="rv-into" data-off={off ? "" : undefined} {...(off ? tooltipProps(`Not ${off}: Merge lands on the branch the project's checkout has out.`) : {})}> into {review.target}</span>;
+  return <span className="rv-into" data-off={off ? "" : undefined} {...(off ? tooltipProps(`Not ${off}: Merge lands on the branch the project's checkout has out.`) : {})}> → {review.target}</span>;
 }
-
-/** Why a branch counts as merged without a merge of its own commits. */
-const ALREADY: Record<NonNullable<LocalReview["mergedBy"]>, string> = {
-  patches: "every commit's change is there already, under other commits (a cherry-pick, a rebase or rewritten history).",
-  tree: "merging would change nothing (a squash merge).",
-  request: "its pull request was merged on the host.",
-};
 
 /** A thread here to write to, or its link to one on another machine. */
 const askable = (review: LocalReview) => Boolean(review.threadId || review.remote);
-/** Why the thread cannot be asked to rebase: one on another machine does not see this checkout's branch. */
-const rebaseBlocker = (review: LocalReview, mayAsk: boolean) => !mayAsk ? READ_ONLY_REASON
-  : review.remote ? `The thread runs on ${review.remote.machine}, where ${review.target} is not this checkout's; merge it by hand or send a note.`
-  : !review.threadId ? "No thread works on this branch any more."
-  : undefined;
-
 const cost = (review: LocalReview) => review.costUsd === undefined ? "—" : formatCost(review.costUsd) ?? "$0.00";
 
 /** What a row says in its last column when it has no button: the open ask, or where it was merged. */
@@ -158,7 +145,7 @@ function Aside({ review }: { review: LocalReview }) {
 }
 
 interface RowActions {
-  merge(review: LocalReview): void;
+  merge(review: LocalReview, picks?: Record<string, HunkPick[]>): void;
   rebase(review: LocalReview): void;
   remove(review: LocalReview): void;
   busy: string | undefined;
@@ -338,7 +325,7 @@ function Section({ state, title, count, children }: { state: ReviewState; title?
   );
 }
 
-const INTRO = "Finished work of threads that ran in a worktree of their own, ready to merge into the project's checkout here; Remote pull requests are the ones on GitHub and other hosts.";
+const INTRO = "A thread that reports done lands here with its diff, its turns and the checks it ran. Merge it, send it back with a note, or commit without merging.";
 const EMPTY_TEXT: Record<ReviewState, { title: string; description: string }> = {
   ready: { title: "Nothing to review", description: "A thread that works in a worktree of its own lands here when it is done." },
   requested: { title: "No changes requested", description: "Nothing waits on a thread." },
@@ -531,9 +518,9 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
     mayMerge,
     mayAsk,
     mayRemove,
-    merge: (review) => {
+    merge: (review, picks) => {
       setBusy(review.key);
-      void store.merge(review).then((outcome) => {
+      void store.merge(review, picks).then((outcome) => {
         if (outcome.state === "merged" || outcome.state === "already-merged") actions.toast?.({ type: "success", title: `Merged ${review.branch} into ${outcome.into}`, description: review.title });
         else actions.toast?.({ type: "warning", title: outcome.state === "conflict" ? "Not merged: conflicts" : "Not merged", description: outcome.detail });
       }, (error) => actions.toast?.({ type: "error", title: `${review.branch} was not merged`, description: errorMessage(error) })).finally(() => { setBusy(undefined); void store.refresh(); });

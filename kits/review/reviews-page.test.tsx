@@ -103,8 +103,8 @@ describe("the Reviews page", () => {
     const conflicts = screen.getByRole("region", { name: "Conflicts" });
     expect(within(conflicts).getByRole("button", { name: /Ask thread to rebase/u })).toBeTruthy();
     const ready = screen.getByRole("region", { name: "Ready to merge" });
-    expect(ready.textContent).toContain("feat/pairing-flake into main");
-    expect(screen.getByText(/^Finished work of threads that ran in a worktree of their own/u)).toBeTruthy();
+    expect(ready.textContent).toContain("feat/pairing-flake → main");
+    expect(screen.getByText(/^A thread that reports done lands here/u)).toBeTruthy();
     expect(ready.textContent).toContain("3 files+59−5");
     expect(ready.textContent).toContain("no checks");
     expect(ready.textContent).toContain("$0.84");
@@ -233,7 +233,7 @@ describe("the Reviews page", () => {
 
   it("marks a target that is not the default branch", async () => {
     setup({ answer: { branches: [branch("aside", { target: "feat/chatgpt-plan-sign-in", defaultBranch: "main", workspace: "ws-pairing-flake" })], asks: {}, merged: [] } });
-    const into = await screen.findByText("into feat/chatgpt-plan-sign-in");
+    const into = await screen.findByText("→ feat/chatgpt-plan-sign-in");
     expect(into.dataset.tooltip).toBe("Not main: Merge lands on the branch the project's checkout has out.");
   });
 

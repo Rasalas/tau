@@ -6,8 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtension, HostExtensionServices } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { createWorkspaceHostExtension } from "../workspace/host.js";
-import { registerLocalReviewCommands, summaryFromEntries } from "./local-reviews-host.js";
-import { LOCAL_REVIEWS_EVENT, reviewKey, type LocalReviewsAnswer, type ThreadBranchMerge } from "./local-reviews.js";
+import { noteThreads, registerLocalReviewCommands, summaryFromEntries } from "./local-reviews-host.js";
+import { LOCAL_REVIEWS_EVENT, reviewKey, type ConflictFile, type LocalReviewsAnswer, type NoteThread, type ThreadBranchMerge } from "./local-reviews.js";
 
 const created: string[] = [];
 afterEach(async () => { for (const path of created.splice(0)) await rm(path, { recursive: true, force: true }); });
@@ -180,6 +180,51 @@ describe("Reviews on the host", () => {
     expect((await invoke("local-reviews", { workspaces }) as LocalReviewsAnswer).asks[key]).toBeUndefined();
   });
 
+  it("commits the worktree's uncommitted work on its branch and leaves the main checkout alone (Commit only)", async () => {
+    const repo = await fixture();
+    const { invoke } = await hosts(repo.stateDir);
+    await writeFile(join(repo.worktree, "notes.md"), "draft\n");
+    const workspaces = [`ws1_${repo.worktree}`];
+    const head = repo.git(repo.project, "rev-parse", "HEAD");
+    expect((await invoke("local-reviews", { workspaces }) as LocalReviewsAnswer).branches[0]).toMatchObject({ uncommitted: 1 });
+    await invoke("local-review-commit", { workspace: `ws1_${repo.worktree}`, message: "Rate limiting" });
+    expect(repo.git(repo.worktree, "log", "-1", "--format=%s")).toBe("Rate limiting");
+    expect((await invoke("local-reviews", { workspaces }) as LocalReviewsAnswer).branches[0]).toMatchObject({ uncommitted: 0, ahead: 2 });
+    expect(repo.git(repo.project, "rev-parse", "HEAD")).toBe(head);
+  });
+
+  it("reads a conflict's hunks and merges with a pick for each", async () => {
+    const repo = await fixture();
+    await writeFile(join(repo.project, "limit.ts"), "export const limit = 99;\n");
+    repo.git(repo.project, "add", "-A");
+    repo.git(repo.project, "commit", "-qm", "main moved");
+    const { invoke } = await hosts(repo.stateDir);
+    const [branch] = (await invoke("local-reviews", { workspaces: [`ws1_${repo.worktree}`] }) as LocalReviewsAnswer).branches;
+    const read = await invoke("local-review-conflicts", { workspace: branch!.workspace }) as { tip: string; files: ConflictFile[] };
+    expect(read.files).toEqual([{ path: "limit.ts", hunks: [{ main: ["export const limit = 99;"], thread: ["export const limit = 10;"], mainLine: 1, threadLine: 1, after: "" }] }]);
+    const outcome = await invoke("local-review-merge", { workspace: branch!.workspace, tip: branch!.tip, picks: { "limit.ts": ["thread"] } }) as ThreadBranchMerge;
+    expect(outcome).toMatchObject({ state: "merged", into: "main" });
+    expect(await readFile(join(repo.project, "limit.ts"), "utf8")).toBe("export const limit = 10;\n");
+    expect(repo.git(repo.project, "status", "--porcelain")).toBe("");
+  });
+
+  it("keeps notes sent from diff lines until the merge, with the thread's answer to each turn", async () => {
+    const repo = await fixture();
+    const transcript = vi.fn(async () => [
+      { id: "1", role: "user" as const, text: "note", timestamp: Date.now() + 10 },
+      { id: "2", role: "assistant" as const, text: "Yes — it dedupes by device id.", timestamp: Date.now() + 20 },
+    ]);
+    const { invoke } = await hosts(repo.stateDir, { thread: () => ({ transcript }) as unknown as ReturnType<HostExtensionServices["thread"]> });
+    const [branch] = (await invoke("local-reviews", { workspaces: [`ws1_${repo.worktree}`] }) as LocalReviewsAnswer).branches;
+    const where = { threadId: "t1", root: branch!.root, branch: branch!.branch, tip: branch!.tip };
+    await invoke("local-review-ask", { kind: "note", ...where, text: "`limit.ts:1`\nDoes it dedupe?", notes: [{ id: "n1", path: "limit.ts", line: 1, side: "new", body: "Does it dedupe?" }] });
+    expect((await invoke("local-reviews", { workspaces: [] }) as LocalReviewsAnswer).asks[reviewKey(branch!.root, branch!.branch)]).toMatchObject({ text: "Does it dedupe?" });
+    const threads = await invoke("local-review-notes", where) as NoteThread[];
+    expect(threads).toEqual([{ id: "n1", path: "limit.ts", line: 1, side: "new", said: [{ body: "Does it dedupe?", at: expect.any(Number), answer: "Yes — it dedupes by device id." }] }]);
+    await invoke("local-review-merge", { workspace: branch!.workspace, tip: branch!.tip });
+    expect(await invoke("local-review-notes", where)).toEqual([]);
+  });
+
   it("counts a branch whose linked pull request merged, and removes its worktree and branch", async () => {
     const repo = await fixture();
     const sessions = { list: async () => [{ sessionId: "t1", path: "", cwd: repo.worktree }] } as unknown as HostExtensionServices["sessions"];
@@ -244,5 +289,22 @@ describe("a review's summary", () => {
       { type: "message", message: { role: "assistant", content: [{ type: "toolCall", id: "1" }, { type: "text", text: "The watcher subscribes on construction now." }] } },
     ];
     expect(summaryFromEntries(entries)).toEqual({ summary: "The watcher subscribes on construction now.", turns: 2, prompts: ["Fix it", "Go on"] });
+  });
+});
+
+describe("a sent note's conversation", () => {
+  it("pairs each turn with the thread's last words before the next prompt, and none while it has not answered", () => {
+    const note = { id: "n1", note: "n1", path: "a.ts", line: 3, side: "new" as const, body: "Why?", at: 100 };
+    const reply = { ...note, id: "n2", body: "And then?", at: 30_000 };
+    const messages = [
+      { role: "user", text: "Why?", at: 101 },
+      { role: "assistant", text: "Looking.", at: 5_000 },
+      { role: "assistant", text: "Because of the replay.", at: 6_000 },
+      { role: "user", text: "And then?", at: 30_001 },
+    ];
+    expect(noteThreads([note, reply], messages)).toEqual([{ id: "n1", path: "a.ts", line: 3, side: "new", said: [
+      { body: "Why?", at: 100, answer: "Because of the replay." },
+      { body: "And then?", at: 30_000 },
+    ] }]);
   });
 });

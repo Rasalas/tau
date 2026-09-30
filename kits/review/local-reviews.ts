@@ -56,6 +56,31 @@ export interface ReviewAsk {
   threadId?: string;
 }
 
+/** A note sent to the thread from a diff line, or a reply under it (`note` names the first); kept until the merge. */
+export interface SentNote {
+  id: string;
+  note: string;
+  path: string;
+  line: number;
+  side: "new" | "old";
+  body: string;
+  at: number;
+}
+
+/** One line's conversation with the thread, oldest first; `answer` is what the thread said after that turn. */
+export interface NoteThread {
+  id: string;
+  path: string;
+  line: number;
+  side: "new" | "old";
+  said: Array<{ body: string; at: number; answer?: string }>;
+}
+
+/** Workspace Kit's `thread-branch-conflicts`, mirrored: each conflicting file's hunks, main's side and the thread's. */
+export interface ConflictHunk { main: string[]; thread: string[]; mainLine: number; threadLine: number; before?: string; after?: string }
+export interface ConflictFile { path: string; hunks: ConflictHunk[]; unpickable?: string }
+export type HunkPick = "main" | "thread" | "both" | { text: string };
+
 /** A merge made from the page, kept after the worktree is gone. */
 export interface MergedReview {
   key: string;
