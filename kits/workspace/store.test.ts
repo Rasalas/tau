@@ -145,6 +145,18 @@ describe("Workspace Kit thread worktrees", () => {
     expect(workspaceStore.getSnapshot().preparingWorktree).toBe(false);
   });
 
+  it("pins sibling worktrees to the first resolved commit in the draft project", async () => {
+    const createWorktree = vi.fn(async () => ({ workspaceId: "ws1_child", displayPath: "/worktrees/child", baseCommit: "abc123" }));
+    const workspaceStore = storeOver({ createWorktree });
+    workspaceStore.bind(actionsWith());
+    workspaceStore.update({ cwd: "/project", workspaceId: "ws1_project", draftPending: true, workspace: REPO });
+    workspaceStore.registerWorktreeNamer(async () => "fix/task");
+    const first = await workspaceStore.prepareThreadWorktree({ prompt: "do it", preparing: () => undefined, force: true });
+    expect(first.baseCommit).toBe("abc123");
+    await workspaceStore.prepareThreadWorktree({ prompt: "do it", preparing: () => undefined, force: true, branchSuffix: "2", baseCommit: first.baseCommit });
+    expect(createWorktree).toHaveBeenLastCalledWith("fix/task-2", { baseRef: "abc123", startFromOrigin: false }, "ws1_project");
+  });
+
   it("stays in the checkout when the mode is current, and when creation fails", async () => {
     const createWorktree = vi.fn(async (branch: string) => { throw new Error(`origin is unreachable for ${branch}`); });
     const notify = vi.fn();

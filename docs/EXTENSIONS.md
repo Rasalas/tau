@@ -2029,20 +2029,26 @@ pending draft's first prompt, and answering `true` takes it — core creates no
 thread, the composer empties and the draft stays open for the next prompt; the
 hook starts whatever it wants itself (usually through its host half and
 `services.sessions.start`). Hooks are asked in registration order and the first
-`true` wins; one that throws is reported and the prompt goes on as if nobody had
-claimed it. The event is `beforeNewThread`'s plus `alternate` (the prompt was
+`true` wins; one that throws rejects submission and keeps the draft for retry. The event is `beforeNewThread`'s plus `alternate` (the prompt was
 sent with the modifier held: ⌘↵ on macOS, Ctrl+↵ elsewhere — a plain send
 otherwise), `model` (what the thread would start with, absent when its runtime
 chooses), `runtime` (the backend kind) and `attachments` (how many images and
-files ride along). Thread Rail claims ⌘↵ to start a thread in the background,
-and a prompt with several models chosen to start one thread per model.
+files ride along). `promptAttachments` carries those images and host file paths,
+`skillDraft` carries the native skill chip, and `thinkingLevel` and `mode` carry
+the draft configuration. Thread Rail claims ⌘↵ to start a thread in the background,
+and a prompt with several models chosen to start one thread per model, across
+registered runtimes. Each sibling owns a worktree from the same resolved
+commit. A partial failure keeps the prompt, attachments and failed targets for
+retry; a retry uses the same sibling group and base without relaunching the
+successful targets. The launch requires a Git project and reports unavailable
+models or rejected images as failures instead of silently sending one thread.
 
 `registerModelSelection({ id, selected, subscribe, toggle, reset })` lets a new
 thread's model picker hold more than one model. Shift-click (or Shift+↵) on a
-row calls `toggle(model, current)` instead of choosing — `current` is the model
+row calls `toggle(model, current, runtime, currentRuntime)` instead of choosing — `current` is the model
 the draft has now — and the picker stays open, marking every key `selected()`
-answers (`provider/id`, once per time chosen, so a model may be in the set
-twice); a plain pick calls `reset()` first and then chooses as always. The
+answers (`runtime::provider/id`, once per time chosen, so a model may be in the set
+twice; existing `provider/id` keys remain supported); a plain pick calls `reset()` first and then chooses as always. The
 picker offers this only while the composer is a draft whose thread does not
 exist yet, and only while an extension registered one; the last registered
 wins. What to do with the set is the extension's own business — Thread Rail
@@ -2574,8 +2580,13 @@ carry the instance in their ids and its `rows` list them for the search, and
 an `instances` event from the host half keeps every client's cards in step.
 
 `services.sessions.start(options)` (`sessions`) creates a thread off screen:
-`cwd`, the first `prompt`, and optionally `title`, `model`, `parent` and
-`backend`. `backend` is the kind the thread runs on — `"pi"`, the default, or
+`cwd`, the first `prompt`, and optionally `title`, `model`, `parent`,
+`backend`, `attachments`, `skillDraft`, `thinkingLevel` and `mode`. The call
+returns after the runtime admits the first prompt. Rejected starts throw and
+remove their unused thread, so a kit can preserve the draft and clean up a
+worktree. Images use each backend's usual prompt path. Files stay native on backends
+that declare `fileAttachments`; other backends receive the absolute host paths
+in the prompt so their file tools can read them. `backend` is the kind the thread runs on — `"pi"`, the default, or
 any registered kind — and a kind nobody registered is refused before anything
 is created. A model is applied through the runtime's `catalogWrite`
 capability, so a runtime without model selection refuses one. `tools` (new in

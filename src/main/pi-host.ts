@@ -1,3 +1,6 @@
+import { rm } from "node:fs/promises";
+import { promptFiles } from "./prompt-attachments.js";
+import { decodeUiPromptAttachments, decodeUiSkillDraft } from "./ipc-input.js";
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { basename, dirname } from "node:path";
@@ -473,6 +476,9 @@ export class PiHost {
    */
   private async startThread(options: HostThreadStartOptions): Promise<HostStartedThread> {
     this.workbenchReload.assertAvailable();
+    const attachments = decodeUiPromptAttachments("sessions.start", "attachments", options.attachments) ?? [];
+    const skillDraft = decodeUiSkillDraft("sessions.start", "skillDraft", options.skillDraft);
+    const files = promptFiles(attachments);
     const cwd = options.cwd || this.cwd;
     const backendKind = options.backend ?? "pi";
     const provider = backendKind === "pi" ? undefined : this.requireBackend(backendKind);
@@ -480,6 +486,7 @@ export class PiHost {
       throw new Error(`The ${provider?.label ?? backendKind} runtime cannot restrict its tools${provider ? "" : " when a thread starts; a runtime extension sets them"}.`);
     }
     const requestedAt = performance.now();
+    let failedRuntime: ThreadRuntime | undefined;
     // Background starts share the queue's background lane: they build their own
     // thread and touch nothing the thread on screen depends on, so serialising
     // them behind each other only made fifty sub-agents start one per second.
@@ -502,6 +509,9 @@ export class PiHost {
         await this.adoptThread(runtime);
         marks.mark("adopt");
         if (options.model) await requireCapability(runtime.backend, "catalogWrite").setModel(options.model.provider, options.model.id);
+        if (options.thinkingLevel) await requireCapability(runtime.backend, "catalogWrite").setThinkingLevel(options.thinkingLevel);
+        if (options.mode) await requireCapability(runtime.backend, "mode").set(options.mode);
+        this.prompts.assertAttachmentInput(runtime, runtime.runtimeAdapter.capabilities.fileAttachments ? attachments : attachments.filter((attachment) => attachment.kind === "image"));
         marks.mark("model");
         // The shell has to exist before a title can be published against it.
         await this.index.refreshShell(runtime, true);
@@ -510,6 +520,7 @@ export class PiHost {
         marks.mark("title");
         this.log("thread.start.timing", `${runtime.threadId.slice(0, 8)} · ${marks.report()}`);
       } catch (error) {
+        failedRuntime = runtime;
         if (this.threads.has(runtime.threadId)) await this.threads.release(runtime.threadId);
         else await this.runtimes.dispose(runtime);
         throw error;
@@ -519,12 +530,37 @@ export class PiHost {
         else this.handleSessionEvent(event, owner, sessionId, eventCwd);
       }, (event) => this.emit(event), () => undefined);
       return runtime;
+    }).catch(async (error) => {
+      if (failedRuntime) await this.discardFailedStart(failedRuntime);
+      throw error;
     });
-    // Delivery is detached on purpose: the caller gets its thread id at once
-    // and reads the answer through the thread, the way the client does.
-    void this.prompt(options.prompt, [], thread.threadId)
-      .catch((error) => this.log("thread.start-prompt-failed", this.errorMessage(error)));
+    // Wait for admission, so callers can retain drafts and remove unused
+    // worktrees on rejection. The answer continues on the child's own thread.
+    try {
+      const nativeFiles = thread.runtimeAdapter.capabilities.fileAttachments === true;
+      const text = !nativeFiles && files.length ? `${options.prompt}\n\nAttached files:\n${files.map((file) => `- ${file.path}`).join("\n")}` : options.prompt;
+      const deliveredAttachments = nativeFiles ? attachments : attachments.filter((attachment) => attachment.kind === "image");
+      const prepared = await thread.backend.preparePrompt(text, skillDraft);
+      await this.prompt(text, deliveredAttachments, thread.threadId, undefined, prepared);
+    } catch (error) {
+      await this.threads.release(thread.threadId);
+      await this.discardFailedStart(thread);
+      throw error;
+    }
     return { sessionId: thread.threadId, cwd: thread.cwd, ...(thread.state.title ? { title: thread.state.title } : {}) };
+  }
+
+  /** Only a fresh background thread that never admitted its first turn. */
+  private async discardFailedStart(thread: ThreadRuntime): Promise<void> {
+    const kind = threadBackendKind(thread);
+    if (kind === "pi") {
+      // Pi may not have flushed a file yet. No trash entry is needed for a
+      // thread that rejected its first prompt and never held a conversation.
+      if (thread.sessionFile) await rm(thread.sessionFile, { force: true });
+    } else {
+      await this.requireBackend(kind).removeThread?.(thread.threadId);
+    }
+    await this.index.refresh("changes");
   }
 
   private runtimeExtensionsFor(settingsManager: SettingsManager, session: RuntimeSessionInfo): SessionRuntimeExtension[] {

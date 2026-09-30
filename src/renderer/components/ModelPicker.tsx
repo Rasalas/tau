@@ -452,15 +452,15 @@ export function ModelPicker({
   const kitActions = !draft && currentRuntime && currentRuntime.backend.kind !== threadRuntime && !needle && !blocked ? currentRuntime.backend : undefined;
 
   const choose = (offering: Offering, add = false) => {
+    if (multiSelect && add) {
+      multiSelect.toggle(offering.model, models.find((model) => modelKey(model) === activeKey), offering.runtime, onHand);
+      return;
+    }
     if (offering.runtime !== onHand) {
       multiSelect?.reset();
       preferences.noteModelUsed(offering.key);
       onSelect(offering.model, offering.runtime);
       onClose();
-      return;
-    }
-    if (multiSelect && add) {
-      multiSelect.toggle(offering.model, models.find((model) => modelKey(model) === activeKey));
       return;
     }
     multiSelect?.reset();
@@ -586,7 +586,11 @@ export function ModelPicker({
   const cells: RowCell = {
     badges,
     inUse: (key) => key === activeOffering && chosen.length === 0,
-    chosen: (key) => chosen.includes(key) ? selectedLabel(chosen, key) : undefined,
+    chosen: (key) => {
+      const offering = offerings.find((entry) => entry.key === key);
+      const selected = offering ? `${offering.runtime}::${modelKey(offering.model)}` : key;
+      return chosen.includes(selected) ? selectedLabel(chosen, selected) : chosen.includes(key) ? selectedLabel(chosen, key) : undefined;
+    },
     jump: (key) => jumps.get(key),
     onFavourite: (offering) => preferences.toggleFavouriteModel(offering.key),
     onHide: (offering) => preferences.toggleHiddenModel(offering.runtime, modelKey(offering.model)),

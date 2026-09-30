@@ -6,11 +6,12 @@ import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
 import { ThreadRuntime } from "./thread-runtime.js";
 
 /** A live Pi thread that records what was delivered to it. */
-function fakeThread(threadId: string, delivered: string[]): ThreadRuntime {
+function fakeThread(threadId: string, delivered: string[], images = false, nativeFiles = false): ThreadRuntime {
   let hasMessages = false;
+  const adapter = nativeFiles ? { ...PI_AGENT_RUNTIME_ADAPTER, capabilities: { ...PI_AGENT_RUNTIME_ADAPTER.capabilities, fileAttachments: true } } : PI_AGENT_RUNTIME_ADAPTER;
   const backend = {
     kind: "pi" as const,
-    runtimeAdapter: PI_AGENT_RUNTIME_ADAPTER,
+    runtimeAdapter: adapter,
     threadId,
     providerSessionId: threadId,
     cwd: "/repo",
@@ -23,7 +24,7 @@ function fakeThread(threadId: string, delivered: string[]): ThreadRuntime {
       providerSessionId: threadId,
       sessionId: threadId,
       backendKind: "pi" as const,
-      runtimeCapabilities: PI_AGENT_RUNTIME_ADAPTER.capabilities,
+      runtimeCapabilities: adapter.capabilities,
       visibleText: text,
       runtimeText: text,
       sourceFingerprint: clientMessageFingerprint(text, []),
@@ -41,7 +42,7 @@ function fakeThread(threadId: string, delivered: string[]): ThreadRuntime {
       hasMessages,
       sessionFile: `/${threadId}.jsonl`,
       activeTools: [],
-      supportsImageInput: false,
+      supportsImageInput: images,
       extensionCount: 0,
     }),
     catalogView: () => ({ thinkingLevel: "off", thinkingLevels: ["off"], allTools: [] }),
@@ -171,6 +172,39 @@ describe("PiHost background starts on another runtime backend", () => {
       .rejects.toThrow("The pi runtime cannot restrict its tools when a thread starts");
     expect(opened).toHaveLength(1);
     expect(bench.inFlight()).toBe(0);
+  });
+
+  it("delivers shared images and host file references through background prompt admission", async () => {
+    const bench = hostWithHeldStarts();
+    const attachment = { kind: "image" as const, name: "shot.png", mimeType: "image/png", data: "aGVsbG8=", size: 5 };
+    const file = { kind: "file" as const, name: "spec.md", mimeType: "text/markdown", path: "/shared/spec.md", size: 5 };
+    bench.internals.seam.backends.set("claude-code", { kind: "claude-code" });
+    bench.internals.runtimes.openExternal = async () => fakeThread("child", bench.delivered, true);
+    const prompt = vi.spyOn(bench.host, "prompt");
+    await bench.internals.startThread({ cwd: "/repo", prompt: "read these", backend: "claude-code", attachments: [attachment, file] });
+    expect(prompt).toHaveBeenCalledWith("read these\n\nAttached files:\n- /shared/spec.md", [attachment], "child", undefined, expect.any(Object));
+    expect(bench.delivered).toContain("child:read these\n\nAttached files:\n- /shared/spec.md");
+  });
+
+  it("keeps file payloads native when the selected backend accepts them", async () => {
+    const bench = hostWithHeldStarts();
+    const file = { kind: "file" as const, name: "spec.md", mimeType: "text/markdown", path: "/shared/spec.md", size: 5 };
+    bench.internals.seam.backends.set("codex", { kind: "codex" });
+    bench.internals.runtimes.openExternal = async () => fakeThread("native", bench.delivered, false, true);
+    const prompt = vi.spyOn(bench.host, "prompt");
+    await bench.internals.startThread({ cwd: "/repo", prompt: "read this", backend: "codex", attachments: [file] });
+    expect(prompt).toHaveBeenCalledWith("read this", [file], "native", undefined, expect.any(Object));
+  });
+
+  it("rejects before admission and removes the unused thread", async () => {
+    const bench = hostWithHeldStarts();
+    bench.internals.seam.backends.set("codex", { kind: "codex" });
+    bench.internals.runtimes.openExternal = async () => fakeThread("rejected", bench.delivered);
+    bench.internals.discardFailedStart = vi.fn(async () => undefined);
+    vi.spyOn(bench.host, "prompt").mockRejectedValue(new Error("Authentication failed"));
+    await expect(bench.internals.startThread({ cwd: "/repo", prompt: "hello", backend: "codex" })).rejects.toThrow("Authentication failed");
+    expect(bench.internals.threads.has("rejected")).toBe(false);
+    expect(bench.internals.discardFailedStart).toHaveBeenCalledWith(expect.objectContaining({ backend: expect.objectContaining({ threadId: "rejected" }) }));
   });
 
   it("refuses a backend nobody registered before it creates anything", async () => {

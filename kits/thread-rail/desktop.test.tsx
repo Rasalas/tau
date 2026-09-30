@@ -66,7 +66,7 @@ function setup(options: { isRepo?: boolean; initial?: Partial<RailState>; confir
     registerThreadRowAccessory: () => () => undefined,
     prepareThreadWorktree: async (request) => {
       worktrees.push({ ...(request.force ? { force: true } : {}), ...(request.branchSuffix ? { branchSuffix: request.branchSuffix } : {}) });
-      return request.force ? { workspace: { workspaceId: `ws-${worktrees.length}`, displayPath: `/worktrees/${worktrees.length}` } } : {};
+      return request.force ? { workspace: { workspaceId: `ws-${worktrees.length}`, displayPath: `/worktrees/${worktrees.length}` }, baseCommit: "first-base" } : {};
     },
   };
   registry.activate({ id: "tau.workspace", name: "Workspace Kit", activate: (context) => context.provideService(WORKSPACE_STORE_SERVICE, workspace) });
@@ -173,10 +173,10 @@ describe("Thread Rail on the desktop", () => {
     const { registry, actions, calls } = setup();
     await expect(registry.claimNewThread(claim(), actions)).resolves.toBe(false);
     await expect(registry.claimNewThread(claim({ alternate: true, model: { provider: "openai", id: "gpt-5.6-luna" } }), actions)).resolves.toBe(true);
-    expect(calls("start")).toEqual([{ cwd: "/project", prompt: "fix the queue", model: { provider: "openai", id: "gpt-5.6-luna" } }]);
+    expect(calls("start")).toEqual([expect.objectContaining({ cwd: "/project", prompt: "fix the queue", model: { provider: "openai", id: "gpt-5.6-luna" } })]);
     expect(actions.notify).toHaveBeenCalledWith("Started in the background: fix the queue");
-    await expect(registry.claimNewThread(claim({ alternate: true, runtime: "claude-code" }), actions)).resolves.toBe(false);
-    await expect(registry.claimNewThread(claim({ alternate: true, attachments: 1 }), actions)).resolves.toBe(false);
+    await expect(registry.claimNewThread(claim({ alternate: true, runtime: "claude-code" }), actions)).resolves.toBe(true);
+    await expect(registry.claimNewThread(claim({ alternate: true, attachments: 1 }), actions)).rejects.toThrow("attached files were not available");
   });
 
   it("sends one prompt to every model of the set, each in its own worktree, and groups them as siblings", async () => {
@@ -190,7 +190,7 @@ describe("Thread Rail on the desktop", () => {
     expect(selection.selected()).toEqual(["openai/luna", "openai/sol"]);
 
     await expect(registry.claimNewThread(claim(), actions)).resolves.toBe(true);
-    expect(worktrees).toEqual([{ force: true, branchSuffix: "1" }, { force: true, branchSuffix: "2" }]);
+    expect(worktrees).toEqual([{ force: true, branchSuffix: expect.stringMatching(/-1$/u) }, { force: true, branchSuffix: expect.stringMatching(/-2$/u) }]);
     const starts = calls("start") as Array<{ cwd: string; model: unknown; siblingGroupId: string }>;
     expect(starts.map((entry) => [entry.cwd, entry.model])).toEqual([
       ["/worktrees/1", { provider: "openai", id: "luna" }],
@@ -205,13 +205,51 @@ describe("Thread Rail on the desktop", () => {
     expect(siblings?.siblingsOf("one")).toEqual(["one", "two"]);
   });
 
+  it("fans out mixed runtimes with identical images, file and skill context", async () => {
+    const { registry, actions, calls } = setup();
+    const selection = registry.getModelSelection()!;
+    selection.toggle(model("claude"), model("pi"), "claude-code", "pi");
+    selection.toggle(model("codex"), undefined, "codex");
+    const promptAttachments = [
+      { kind: "image" as const, name: "shot.png", mimeType: "image/png", data: "aGVsbG8=", size: 5 },
+      { kind: "file" as const, name: "spec.md", mimeType: "text/markdown", path: "/shared/spec.md", size: 10 },
+    ];
+    const skillDraft = { source: "skill" as const, name: "tdd", visibleText: "/tdd", command: "/skill:tdd" };
+    await expect(registry.claimNewThread(claim({ promptAttachments, attachments: 2, skillDraft }), actions)).resolves.toBe(true);
+    const starts = calls("start") as Array<Record<string, unknown>>;
+    expect(starts.map((entry) => entry.backend)).toEqual(["pi", "claude-code", "codex"]);
+    for (const entry of starts) expect(entry).toMatchObject({ attachments: promptAttachments, skillDraft });
+    expect(new Set(starts.map((entry) => entry.cwd)).size).toBe(3);
+  });
+
+  it("keeps failed targets for retry and removes their unused worktrees", async () => {
+    const { registry, actions, invoke, workspace, calls } = setup();
+    const selection = registry.getModelSelection()!;
+    selection.toggle(model("claude"), model("pi"), "claude-code", "pi");
+    const original = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (id, command, input) => {
+      if (command === "start" && (input as { backend: string }).backend === "claude-code") throw new Error("Login required");
+      return original(id, command, input);
+    });
+    workspace.removeWorktree = vi.fn(async () => true);
+    await expect(registry.claimNewThread(claim(), actions)).rejects.toThrow("Started 1 of 2");
+    expect(selection.selected()).toEqual(["claude-code::openai/claude"]);
+    expect(workspace.removeWorktree).toHaveBeenCalledWith("/worktrees/2");
+    invoke.mockImplementation(original);
+    await expect(registry.claimNewThread(claim(), actions)).resolves.toBe(true);
+    expect(calls("start")).toHaveLength(3);
+    const starts = calls("start") as Array<{ siblingGroupId: string }>;
+    expect(starts[2]!.siblingGroupId).toBe(starts[0]!.siblingGroupId);
+    expect(selection.selected()).toEqual([]);
+  });
+
   it("keeps a model set for a Git project only", async () => {
     const { registry, actions, calls } = setup({ isRepo: false });
     const selection = registry.getModelSelection()!;
     selection.toggle(model("sol"), model("luna"));
-    await expect(registry.claimNewThread(claim(), actions)).resolves.toBe(false);
+    await expect(registry.claimNewThread(claim(), actions)).rejects.toThrow("needs a Git project");
     expect(calls("start")).toEqual([]);
-    expect(actions.notify).toHaveBeenCalledWith(expect.stringContaining("needs a Git project"));
+    expect(selection.selected()).toEqual(["openai/luna", "openai/sol"]);
   });
 
   it("walks the threads the rail drew with next, previous and the number jumps", async () => {

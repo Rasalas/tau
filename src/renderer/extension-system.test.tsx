@@ -637,7 +637,7 @@ describe("client profiles", () => {
 describe("new-thread claims and model selections", () => {
   const event = { prompt: "go", projectPath: "/project", preparing: () => undefined, alternate: true, runtime: "pi", attachments: 0 };
 
-  it("asks claim hooks in order, reports one that throws and stops at the first that takes the prompt", async () => {
+  it("rejects a failed claim without offering the same prompt to later hooks", async () => {
     const registry = new ExtensionRegistry();
     const later = vi.fn(async () => true);
     registry.activate({ id: "broken", name: "Broken", activate(context) {
@@ -653,12 +653,12 @@ describe("new-thread claims and model selections", () => {
     const notify = vi.fn();
     const actions = { notify } as unknown as import("./extension-system").WorkbenchActions;
 
-    await expect(registry.claimNewThread(event, actions)).resolves.toBe(true);
-    expect(notify).toHaveBeenCalledWith("broken.claim: no");
+    await expect(registry.claimNewThread(event, actions)).rejects.toThrow("no");
+    expect(notify).not.toHaveBeenCalled();
     expect(later).not.toHaveBeenCalled();
 
     registry.deactivate("takes");
-    await expect(registry.claimNewThread(event, actions)).resolves.toBe(false);
+    await expect(registry.claimNewThread(event, actions)).rejects.toThrow("no");
   });
 
   it("offers the model selection the last extension registered, and forgets it on deactivation", () => {

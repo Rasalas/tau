@@ -465,11 +465,11 @@ export function Composer({
     selected: () => modelSet.selected(),
     subscribe: (listener) => modelSet.subscribe(listener),
     reset: () => modelSet.reset(),
-    toggle: (model, current) => {
-      if (modelSet.selected().includes(modelKey(model))) { modelSet.toggle(model, current); return; }
+    toggle: (model, current, runtime, currentRuntime) => {
+      if (modelSet.selected().includes(runtime ? `${runtime}::${modelKey(model)}` : modelKey(model))) { modelSet.toggle(model, current, runtime, currentRuntime); return; }
       passGates(
-        { action: "model", model, ...(snapshot?.backendKind ? { runtime: snapshot.backendKind } : {}), ...(newThread ? { newThread: true } : {}), ...(snapshot ? { snapshot } : {}) },
-        () => modelSet.toggle(model, current),
+        { action: "model", model, ...(runtime ? { runtime } : snapshot?.backendKind ? { runtime: snapshot.backendKind } : {}), ...(newThread ? { newThread: true } : {}), ...(snapshot ? { snapshot } : {}) },
+        () => modelSet.toggle(model, current, runtime, currentRuntime),
       );
     },
   }, [modelSet, passGates, snapshot]);

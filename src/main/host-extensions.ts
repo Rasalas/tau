@@ -16,6 +16,8 @@ import type {
   UiComposerCommand,
   UiMessage,
   UiModel,
+  UiPromptAttachment,
+  UiSkillDraft,
   UiThreadOrigin,
   UiThreadUsage,
   UiToolRun,
@@ -276,6 +278,10 @@ export interface HostThreadStartOptions {
   cwd: string;
   /** First prompt, delivered as soon as the thread exists. */
   prompt: string;
+  attachments?: readonly UiPromptAttachment[];
+  skillDraft?: UiSkillDraft;
+  thinkingLevel?: string;
+  mode?: string;
   title?: string;
   /** Model the thread starts with; the host's own default otherwise. */
   model?: { provider: string; id: string };

@@ -398,7 +398,7 @@ describe("ModelPicker", () => {
     </TestProviders>);
 
     fireEvent.click(screen.getByText("Claude Opus 5"), { shiftKey: true });
-    expect(selection.toggle).toHaveBeenCalledWith(models[1], models[3]);
+    expect(selection.toggle).toHaveBeenCalledWith(models[1], models[3], "pi", "pi");
     expect(onSelect).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getAllByText("added")).toHaveLength(2);
