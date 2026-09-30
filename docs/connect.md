@@ -1,5 +1,12 @@
 # Tau Connect
 
+Cloud hosting is deliberately deferred because keeping a host connected incurs
+ongoing charges. Preparation is retained in [closed MR #4](https://github.com/Rasalas/tau/pull/4)
+on `feat/cloud-connect`, outside the current product changes. No new cloud
+resources were created. Neither `npm run relay:deploy` nor the existing Push
+relay workflow activates Connect hosting. Use Tailscale, SSH or a direct
+connection until a separate relay is needed.
+
 Tau Connect sends the host protocol through an outbound relay connection. The
 host needs no inbound firewall rule, VPN, public IP address, or router change.
 Desktop, iOS and Android clients support this transport. The browser cannot
