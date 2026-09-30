@@ -93,7 +93,8 @@ aktualisiert im selben Drive-Tresor. Die bisherige Firebase-App bleibt erhalten.
   sind angegeben. Kein eigener Inhaltskatalog mit Sex, Gewalt oder Drogen und
   keine Nutzerkommunikation, Standortweitergabe, Käufe oder Glücksspiel.
   Die Inhalte der selbst betriebenen Hosts werden nicht vom Entwickler kuratiert.
-  Die geplante Zielgruppe 18+ ist eine separate Erklärung, noch nicht gespeichert.
+  Die festgelegte Zielgruppe ab 13 Jahren ist eine separate Erklärung, noch nicht
+  in der Console gespeichert. Die Inhaltsbewertung ergibt sich aus dem IARC-Fragebogen.
 
 ## Was die öffentliche Veröffentlichung noch blockiert
 
@@ -107,8 +108,13 @@ aktualisiert im selben Drive-Tresor. Die bisherige Firebase-App bleibt erhalten.
    bestätigt, weil die Demo diesen Zugriff nicht bietet. Die Anleitung ist daher
    noch nicht in Play gespeichert. Nötig ist ein geeigneter vollständiger Prüfzugang
    oder eine mit Google geklärte Prüfmöglichkeit für diesen Companion-Anwendungsfall.
-2. **Zielgruppe.** Vorgesehen: 18 Jahre und älter. Die Console blockiert diesen
-   Fragebogen ausdrücklich, bis "Anmeldedaten" abgeschlossen ist.
+2. **Zielgruppe.** Festgelegt sind Jugendliche ab 13 und Erwachsene. In der Console
+   sind die Gruppen **13–15**, **16–17** und **18 Jahre und älter** auszuwählen.
+   Tau richtet sich damit auch an Jugendliche, die programmieren möchten, nicht
+   an Kinder unter 13. Die deutschen und englischen Store-Texte nennen diese
+   Zielgruppe und weisen auf eigene Altersvorgaben angeschlossener KI-Dienste hin.
+   Die Console blockiert den Fragebogen weiterhin ausdrücklich, bis "Anmeldedaten"
+   abgeschlossen ist. Die Auswahl konnte deshalb noch nicht gespeichert werden.
 3. **Datensicherheit.** Der ausgefüllte Entwurf kann erst nach der Zielgruppenangabe
    abgeschlossen werden. Er nennt In-App-Mitteilungen, Fotos, Dateien und Geräte-IDs
    für App-Funktionen. Inhaltsdaten sind optional, FCM-Kennungen automatisch erforderlich.
