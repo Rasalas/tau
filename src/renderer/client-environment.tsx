@@ -21,7 +21,11 @@ export interface ClientEnvironment {
   servedByHost?: boolean;
   /** What the app around the workbench adds, where there is one (the native app). */
   shell?: ClientShell;
-  dictation?: DictationPort;
+  /** Native clients supply their control so other clients do not ship its UI. */
+  dictation?: {
+    port: DictationPort;
+    Control: ComponentType<{ port: DictationPort; capture(): void; insert(text: string): void }>;
+  };
 }
 
 /**

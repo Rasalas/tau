@@ -1,6 +1,5 @@
 import { useClientEnvironment } from "../client-environment";
 import { insertDictation } from "../dictation";
-import { ComposerDictation } from "./ComposerDictation";
 import { lazy, Suspense, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ArrowUp, ChevronDown, Lock, Paperclip, Shrink, Sparkles, Terminal, X } from "lucide-react";
@@ -197,6 +196,7 @@ export function Composer({
 }) {
   const { readOnly } = useHostCapabilities();
   const dictation = useClientEnvironment().dictation;
+  const DictationControl = dictation?.Control;
   const dictationSelection = useRef({ start: 0, end: 0, text: "" });
   const clientStorage = useClientStorage();
   const attachmentScope = createDraftKey(draftStorageKey);
@@ -1058,7 +1058,7 @@ export function Composer({
           />
         </Suspense>
 
-        {dictation ? <ComposerDictation key={attachmentScope} port={dictation}
+        {dictation && DictationControl ? <DictationControl key={attachmentScope} port={dictation.port}
           capture={() => { const input = textareaRef.current; dictationSelection.current = { start: input?.selectionStart ?? text.length, end: input?.selectionEnd ?? text.length, text }; }}
           insert={(transcript) => {
             const captured = dictationSelection.current;
