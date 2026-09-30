@@ -21,7 +21,7 @@ final class ConnectRelay extends WebSocketListener {
     private static final int CHUNK = 64 * 1024;
     private static final OkHttpClient CLIENT = new OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS).readTimeout(0, TimeUnit.MILLISECONDS)
-        .followRedirects(false).followSslRedirects(false).build();
+        .callTimeout(15, TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).build();
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final ServerSocket listener;
     private final String remote;
@@ -30,6 +30,7 @@ final class ConnectRelay extends WebSocketListener {
     private volatile Socket local;
     private volatile WebSocket socket;
     private volatile boolean finished;
+    private Ready pending;
 
     ConnectRelay(String remote, String token, Runnable failure) throws Exception {
         URI url = new URI(remote);
@@ -41,18 +42,21 @@ final class ConnectRelay extends WebSocketListener {
         listener.setSoTimeout(15_000);
     }
 
-    void start(String inner, Ready ready) {
+    synchronized void start(String inner, Ready ready) {
+        if (finished) { ready.failed(); return; }
+        pending = ready;
         worker.execute(() -> {
-            boolean delivered = false;
             try {
                 URI url = new URI(inner);
                 if (!"wss".equals(url.getScheme()) || url.getHost() == null || url.getUserInfo() != null) throw new IllegalArgumentException("The host must use pinned TLS.");
                 String path = url.getRawPath();
                 String query = url.getRawQuery();
                 String loopback = "wss://127.0.0.1:" + listener.getLocalPort() + (path == null || path.isEmpty() ? "/" : path) + (query == null ? "" : "?" + query);
-                if (finished) return;
-                delivered = true;
-                ready.ready(loopback);
+                synchronized (this) {
+                    if (finished) return;
+                    pending = null;
+                    ready.ready(loopback);
+                }
                 Socket accepted = listener.accept();
                 synchronized (this) {
                     if (finished) { accepted.close(); return; }
@@ -61,11 +65,12 @@ final class ConnectRelay extends WebSocketListener {
                     listener.close();
                     socket = CLIENT.newWebSocket(new Request.Builder().url(remote).header("Authorization", "Bearer " + token).build(), this);
                 }
-            } catch (Exception error) { if (!delivered) ready.failed(); fail(); }
+            } catch (Exception error) { fail(); }
         });
     }
 
-    @Override public void onOpen(WebSocket webSocket, Response response) {
+    @Override public synchronized void onOpen(WebSocket webSocket, Response response) {
+        if (finished) { webSocket.cancel(); return; }
         worker.execute(() -> {
             try {
                 InputStream input = local.getInputStream();
@@ -98,6 +103,7 @@ final class ConnectRelay extends WebSocketListener {
         try { if (local != null) local.close(); } catch (Exception ignored) { }
         if (socket != null) socket.cancel();
         worker.shutdownNow();
+        if (pending != null) { Ready ready = pending; pending = null; ready.failed(); }
         if (notify) failure.run();
     }
 }

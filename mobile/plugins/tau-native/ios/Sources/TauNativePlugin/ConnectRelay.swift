@@ -20,7 +20,7 @@ final class ConnectRelay: NSObject, URLSessionWebSocketDelegate {
     }
 
     func start(inner: URL, ready: @escaping (Result<URL, Error>) -> Void) {
-        queue.async {
+        queue.async { [self] in
             self.ready = ready
             do {
                 let parameters = NWParameters.tcp
@@ -29,7 +29,7 @@ final class ConnectRelay: NSObject, URLSessionWebSocketDelegate {
                 self.listener = listener
                 listener.stateUpdateHandler = { [weak self] state in
                     guard let self, !self.finished else { return }
-                    if case .ready = state, let port = listener.port {
+                    if case .ready = state, let port = self.listener?.port {
                         var url = URLComponents(url: inner, resolvingAgainstBaseURL: false)!
                         url.host = "127.0.0.1"; url.port = Int(port.rawValue); url.fragment = nil
                         self.ready?(.success(url.url!)); self.ready = nil

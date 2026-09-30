@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, QrCode } from "lucide-react";
 import { parseMobilePairingPayload, type MobilePairingPayload } from "../relay-connect";
 
@@ -26,7 +26,12 @@ export function AddHostScreen({ error, initialText = "", onBack, onScan, onSubmi
   onSubmit(payload: MobilePairingPayload, text: string): void;
 }) {
   const [text, setText] = useState(initialText);
-  useEffect(() => setText(initialText), [initialText]);
+  const previousInitialText = useRef(initialText);
+  useEffect(() => {
+    if (previousInitialText.current === initialText) return;
+    previousInitialText.current = initialText;
+    setText(initialText);
+  }, [initialText]);
   const problem = pairingTextProblem(text);
   const payload = text.trim() && !problem ? parseMobilePairingPayload(text) : undefined;
   return <main className="shell-screen" aria-labelledby="add-title">
