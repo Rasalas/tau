@@ -581,7 +581,7 @@ does not.
 | signed with | the upload key (`ANDROID_UPLOAD_KEYSTORE`) | automatic signing through the App Store Connect key |
 | goes to | the release (APK) and Play's internal testing (App Bundle, `play` job) | TestFlight |
 | version | `package.json`'s | `package.json`'s |
-| build number | `versionCode` = major·10000 + minor·100 + patch (0.7.15 → 715) | 100 + the run number of `release.yml` |
+| build number | `versionCode` = (major·10000 + minor·100 + patch)·100 + revision (0.7.16 → 71600; the revision numbers Android-only rebuilds) | 100 + the run number of `release.yml` |
 
 Both build the web layer as a release (`vite build` without the development
 mode) and fail when it holds the automation bridge the simulator scripts use.
@@ -824,6 +824,8 @@ configuration. The secrets live in the environment `release`:
 | `APPLE_API_KEY_P8` | an App Store Connect API key (`.p8`) that notarizes; the workflow writes it to a file for electron-builder |
 | `APPLE_API_KEY_ID` | that key's id |
 | `APPLE_API_ISSUER` | its issuer id |
+| `IOS_DIST_P12` | base64 of the Apple Distribution `.p12` the iOS job imports into a temporary keychain; without it Xcode would need Apple's cloud signing and an Admin key |
+| `IOS_DIST_P12_PASSWORD` | its password |
 
 Only the macOS build reads them: it is the only build job in the environment,
 and the Package step passes them only when the matrix entry is macOS, since

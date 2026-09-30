@@ -17,15 +17,17 @@ export function iosBuildNumber(run) {
 }
 
 /**
- * Android's versionCode: major·10000 + minor·100 + patch, so 0.7.15 is 715.
- * mobile/android/app/build.gradle computes the same; minor and patch stay below 100.
+ * Android's versionCode: (major·10000 + minor·100 + patch)·100 + revision, so 0.7.16 is 71600.
+ * The revision (0–99) numbers Android-only rebuilds of one version; mobile/android/app/build.gradle
+ * computes the same from `tauAndroidRevision`.
  */
-export function androidVersionCode(version) {
+export function androidVersionCode(version, revision = 0) {
   const match = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?$/u.exec(version);
   if (!match) throw new Error(`"${version}" is not a version like 1.2.3.`);
   const [major, minor, patch] = match.slice(1).map(Number);
   if (minor > 99 || patch > 99) throw new Error(`${version}: minor and patch must stay below 100 for the versionCode.`);
-  return major * 10_000 + minor * 100 + patch;
+  if (!Number.isInteger(revision) || revision < 0 || revision > 99) throw new Error(`The Android revision must be 0–99, not ${revision}.`);
+  return (major * 10_000 + minor * 100 + patch) * 100 + revision;
 }
 
 if (isMain(import.meta.url)) {

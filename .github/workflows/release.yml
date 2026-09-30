@@ -489,6 +489,28 @@ jobs:
           npx vite build
           npx cap sync ios
           if grep -l tauAutomation dist/assets/*.js; then echo "::error::The release web layer contains the automation bridge."; exit 1; fi
+      # The runner has no signing certificate; Apple's cloud signing would need an Admin key.
+      - name: Import the distribution certificate
+        env:
+          IOS_DIST_P12: ${{ secrets.IOS_DIST_P12 }}
+          IOS_DIST_P12_PASSWORD: ${{ secrets.IOS_DIST_P12_PASSWORD }}
+        run: |
+          if [ -z "${IOS_DIST_P12:-}" ]; then
+            echo "::warning::No IOS_DIST_P12; signing falls back to Apple's cloud signing."
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/ios-signing.keychain-db"
+          password="$(openssl rand -hex 24)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$IOS_DIST_P12" | base64 --decode > "$RUNNER_TEMP/dist.p12"
+          security import "$RUNNER_TEMP/dist.p12" -k "$keychain" -P "$IOS_DIST_P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$RUNNER_TEMP/dist.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$keychain" | grep -q "Apple Distribution" || { echo "::error::The imported certificate is not an Apple Distribution identity."; exit 1; }
+          echo "IOS_SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
       - name: Archive, and upload to TestFlight
         env:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
@@ -531,6 +553,9 @@ jobs:
           PLIST
           xcodebuild -exportArchive -archivePath "$archive" -exportOptionsPlist "$RUNNER_TEMP/export.plist" -exportPath "$RUNNER_TEMP/export" "${auth[@]}"
           echo "::notice::Uploaded Tau for iOS $version ($build) to TestFlight."
+      - name: Remove the signing keychain
+        if: ${{ always() && env.IOS_SIGNING_KEYCHAIN != '' }}
+        run: security delete-keychain "$IOS_SIGNING_KEYCHAIN"
 
   # Merges the Mac feeds of the two architectures, then signs every latest*.yml with
   # TAU_RELEASE_SIGNING_KEY; installed hosts refuse a feed without the .sig (docs/host-updates.md).
