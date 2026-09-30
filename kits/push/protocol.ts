@@ -89,14 +89,14 @@ export interface PushDeviceRow {
   lastPush?: { at: string; ok: boolean; detail?: string };
 }
 
-/** What Settings shows. Never a key: only what identifies it. */
+/** What Settings shows. Never a key: only what identifies it. `error`: the saved key does not read, and nothing is sent for that platform. */
 export interface PushStatus {
-  apns?: { keyId: string; teamId: string; savedAt: string };
-  fcm?: { projectId: string; clientEmail: string; savedAt: string };
+  apns?: { keyId: string; teamId: string; savedAt: string; error?: string };
+  fcm?: { projectId: string; clientEmail: string; savedAt: string; error?: string };
   devices: PushDeviceRow[];
   /** Where the keys are kept, a file only this user may read. */
   file: string;
-  /** Per platform: this host's own key when one is saved, otherwise the relay. */
+  /** Per platform: this host's own key when one is saved, even one that does not read, otherwise the relay. */
   routes?: Record<PushPlatform, PushRoute>;
 }
 

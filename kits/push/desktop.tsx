@@ -138,12 +138,14 @@ function FcmForm({ context, onDone }: { context: DesktopExtensionContext; onDone
 }
 
 /** One service: what is saved, or the form to save it. Removing it is in the danger zone. */
-function KeySection({ title, id, row, description, saved, form }: {
+function KeySection({ title, id, row, description, saved, error, form }: {
   title: string;
   id: string;
   row: string;
   description: ReactNode;
   saved: ReactNode | undefined;
+  /** The saved key does not read: this platform gets no pushes until it is replaced or removed. */
+  error?: string;
   form(done: () => void): ReactNode;
 }) {
   const [replacing, setReplacing] = useState(false);
@@ -153,8 +155,8 @@ function KeySection({ title, id, row, description, saved, form }: {
       <SettingRow
         id={id}
         title={row}
-        description={saved ?? description}
-        status={saved ? <Badge tone="success" dot>Saved</Badge> : <Badge>Not set up</Badge>}
+        description={saved ? <>{saved}{error ? <><br /><span className="push-error" role="alert">This key does not read, so these phones get no pushes, not even through Tau's relay: {error}</span></> : null}</> : description}
+        status={saved ? (error ? <Badge tone="danger" dot>Does not read</Badge> : <Badge tone="success" dot>Saved</Badge>) : <Badge>Not set up</Badge>}
         control={saved ? <Button onClick={() => setReplacing(!replacing)}>{replacing ? "Keep this one" : "Replace…"}</Button> : undefined}
       >
         {editing ? form(() => setReplacing(false)) : null}
@@ -231,7 +233,7 @@ function createSettingsPage(context: DesktopExtensionContext, store: StatusStore
             <SettingRow
               id="setting-push-route"
               title="Route"
-              description={<>iPhone: {ROUTE_TEXT[status.routes.ios].ios} · Android: {ROUTE_TEXT[status.routes.android].android}</>}
+              description={<>iPhone: {ROUTE_TEXT[status.routes.ios].ios}{status.apns?.error ? " (does not read)" : ""} · Android: {ROUTE_TEXT[status.routes.android].android}{status.fcm?.error ? " (does not read)" : ""}</>}
               help="A key of your own sends directly to Apple or Google. Without one, Tau's relay forwards the push, encrypted with a key only your phone and this machine have. Until the iPhone app can decrypt it, an iPhone shows 'A thread needs your attention'."
             />
           </SettingsSection>
@@ -242,6 +244,7 @@ function createSettingsPage(context: DesktopExtensionContext, store: StatusStore
           row="APNs key"
           description="Optional: an APNs key (.p8) from your Apple Developer account, its Key ID and your Team ID. Without one, Tau's relay carries the pushes."
           saved={status.apns ? <>Key <code>{status.apns.keyId}</code> of team <code>{status.apns.teamId}</code>, saved {when(status.apns.savedAt)}</> : undefined}
+          error={status.apns?.error}
           form={(done) => <ApnsForm context={context} onDone={done} />}
         />
         <KeySection
@@ -250,6 +253,7 @@ function createSettingsPage(context: DesktopExtensionContext, store: StatusStore
           row="Service account"
           description="Optional: a service account of your Firebase project (Project settings → Service accounts → Generate new private key). Without one, Tau's relay carries the pushes."
           saved={status.fcm ? <>Project <code>{status.fcm.projectId}</code> as <code>{status.fcm.clientEmail}</code>, saved {when(status.fcm.savedAt)}</> : undefined}
+          error={status.fcm?.error}
           form={(done) => <FcmForm context={context} onDone={done} />}
         />
         <SettingsSection title="Where the keys are kept">

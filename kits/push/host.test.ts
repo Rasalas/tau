@@ -1,5 +1,5 @@
 import { createDecipheriv, createHmac, hkdfSync, randomBytes } from "node:crypto";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -37,9 +37,13 @@ function openSealed(sealed: string, relay: PushRelayRegistration): Record<string
 
 const relayFor = (platform: string, token: string): PushRelayRegistration => ({ handle: fakeRelayHandle(platform, token), keyId: randomBytes(16).toString("base64url"), key: randomBytes(32).toString("base64url") });
 
-async function harness(options: { content?: "title" | "excerpt"; attended?: boolean; notifications?: boolean; relayAnswer?: (request: FakeRequest) => { status: number; body?: unknown } } = {}) {
+async function harness(options: { content?: "title" | "excerpt"; attended?: boolean; notifications?: boolean; relayAnswer?: (request: FakeRequest) => { status: number; body?: unknown }; keysFile?: unknown } = {}) {
   const stateDir = await mkdtemp(join(tmpdir(), "tau-push-"));
   cleanups.push(() => rm(stateDir, { recursive: true, force: true }));
+  if (options.keysFile) {
+    await mkdir(join(stateDir, ID), { recursive: true });
+    await writeFile(join(stateDir, ID, "keys.json"), JSON.stringify(options.keysFile), { mode: 0o600 });
+  }
   const apple = await startFakeApns((request) => request.path.includes("dead") ? { status: 410, reason: "Unregistered" } : { status: 200 });
   const google = await startFakeFcm();
   const relay = await startFakeRelay(options.relayAnswer);
@@ -230,6 +234,17 @@ describe("the push host half", () => {
     expect(device!.lastPush).toMatchObject({ ok: true });
     await invoke("forget", { service: "apns" });
     await expect(invoke("test", { id: "iphone" })).resolves.toEqual({ ok: false, detail: "This phone's Tau app is too old for Tau's relay; update it, or save a key of your own." });
+  });
+
+  it("never falls back to the relay for a saved key that does not read, and says so", async () => {
+    const { invoke, relay } = await harness({ keysFile: { version: 1, apns: { keyId: "ABC123DEFG", teamId: "TEAM123456", key: "not a key", savedAt: "2026-09-24T10:00:00.000Z" } } });
+    await invoke("register", { platform: "ios", token: IOS_TOKEN, host: "host-1", topic: "de.tbuck.tau", relay: relayFor("ios", IOS_TOKEN) }, phone("iphone"));
+    const status = await invoke("status") as PushStatus;
+    expect(status.routes).toEqual({ ios: "direct", android: "relay" });
+    expect(status.apns!.error).toMatch(/\.p8/u);
+    expect(status.fcm).toBeUndefined();
+    await expect(invoke("test", { id: "iphone" })).resolves.toMatchObject({ ok: false, detail: expect.stringMatching(/^The saved APNs key does not read/u) });
+    expect(relay.requests).toHaveLength(0);
   });
 
   it("lets a device stop its own pushes", async () => {

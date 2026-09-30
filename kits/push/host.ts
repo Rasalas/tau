@@ -118,6 +118,8 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
       const store = await PushStore.open(services.stateDir, { warn: (message) => services.log("push.store", message) });
       let apns: ApnsClient | undefined;
       let fcm: FcmClient | undefined;
+      /** Why a saved key did not read; its platform stays on the direct route and fails visibly. */
+      let keyErrors: { apns?: string; fcm?: string } = {};
       const lastPushed = new Map<string, number>();
 
       /** Clients from the stored keys; a key that no longer reads is reported, never printed. */
@@ -125,16 +127,23 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         apns?.close();
         apns = undefined;
         fcm = undefined;
+        keyErrors = {};
         const keys = store.stored;
         if (keys.apns) {
           try {
             apns = new ApnsClient({ credentials: keys.apns, now, ...(apnsOrigin ? { origin: () => apnsOrigin } : {}) });
-          } catch (error) { services.log("push.apns-key", errorText(error)); }
+          } catch (error) {
+            keyErrors.apns = errorText(error);
+            services.log("push.apns-key", keyErrors.apns);
+          }
         }
         if (keys.fcm) {
           try {
             fcm = new FcmClient({ serviceAccount: keys.fcm.serviceAccount, now, ...(fcmOrigin ? { origin: fcmOrigin } : {}), ...(options.fetch ? { fetch: options.fetch } : {}) });
-          } catch (error) { services.log("push.fcm-key", errorText(error)); }
+          } catch (error) {
+            keyErrors.fcm = errorText(error);
+            services.log("push.fcm-key", keyErrors.fcm);
+          }
         }
       };
       connect();
@@ -142,8 +151,8 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
       /** The paired devices, or undefined on a host too old to say. */
       const paired = () => services.clients.devices?.();
 
-      /** A saved key that reads sends directly; otherwise the relay carries it. */
-      const routeFor = (platform: StoredDevice["platform"]): PushRoute => ((platform === "ios" ? apns : fcm) ? "direct" : "relay");
+      /** A saved key sends directly, and one that does not read fails there rather than falling back to the relay. */
+      const routeFor = (platform: StoredDevice["platform"]): PushRoute => ((platform === "ios" ? store.stored.apns : store.stored.fcm) ? "direct" : "relay");
       const deviceRoute = (device: StoredDevice): PushRoute | "unreachable" => {
         const route = routeFor(device.platform);
         return route === "relay" && !device.relay ? "unreachable" : route;
@@ -153,8 +162,8 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         const names = new Map((paired() ?? []).map((device) => [device.id, device.name]));
         const { apns: apnsKey, fcm: fcmKey } = store.stored;
         return {
-          ...(apnsKey ? { apns: { keyId: apnsKey.keyId, teamId: apnsKey.teamId, savedAt: apnsKey.savedAt } } : {}),
-          ...(fcmKey ? { fcm: { projectId: fcmKey.projectId, clientEmail: fcmKey.clientEmail, savedAt: fcmKey.savedAt } } : {}),
+          ...(apnsKey ? { apns: { keyId: apnsKey.keyId, teamId: apnsKey.teamId, savedAt: apnsKey.savedAt, ...(keyErrors.apns ? { error: keyErrors.apns } : {}) } } : {}),
+          ...(fcmKey ? { fcm: { projectId: fcmKey.projectId, clientEmail: fcmKey.clientEmail, savedAt: fcmKey.savedAt, ...(keyErrors.fcm ? { error: keyErrors.fcm } : {}) } } : {}),
           devices: store.devices().map((device) => ({
             id: device.id,
             name: names.get(device.id) ?? "Paired device",
@@ -192,7 +201,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
           return sendRelayed(device.relay, note, url);
         }
         if (device.platform === "android") {
-          if (!fcm) return { ok: false, gone: false, status: 0, reason: "No Firebase service account is set up on this host." };
+          if (!fcm) return { ok: false, gone: false, status: 0, reason: keyErrors.fcm ? `The saved Firebase service account does not read: ${keyErrors.fcm}` : "No Firebase service account is set up on this host." };
           return fcm.send(device.token, {
             notification: { title: note.title, body: note.body },
             data: { ...(url ? { url } : {}), ...(note.kind ? { kind: note.kind } : {}) },
@@ -203,7 +212,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
             },
           });
         }
-        if (!apns) return { ok: false, gone: false, status: 0, reason: "No APNs key is set up on this host." };
+        if (!apns) return { ok: false, gone: false, status: 0, reason: keyErrors.apns ? `The saved APNs key does not read: ${keyErrors.apns}` : "No APNs key is set up on this host." };
         const request = {
           token: device.token,
           topic: device.topic ?? "",
