@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, CircleCheck, CircleDashed, CircleDot, Circle
 import { errorMessage, Markdown, type WorkbenchActions } from "tau";
 import type { ComposerContextChips, PullRequestCheck, PullRequestCheckStatus, PullRequestChip, PullRequestComment, PullRequestThread, ReviewCommentChip } from "./protocol.js";
 import { CHECK_LABELS, relativeTime, ROLLUP_TITLES, type ChecksRollup } from "./pull-request-logic.js";
+import { githubHtml } from "./github-html.js";
 
 export function CheckIcon({ status, size = 13 }: { status: PullRequestCheckStatus; size?: number }) {
   const props = { size, className: `pr-check-icon ${status}`, "aria-hidden": true } as const;
@@ -109,7 +110,7 @@ export function CommentCard({ comment, where, outdated, onSend, onOpenWhere, onE
       ) : null}
       {editing && onEdit
         ? <MarkdownEditor label="Edit comment" initial={comment.body} onSave={async (body) => { await onEdit(body); setEditing(false); }} onCancel={() => setEditing(false)} />
-        : comment.body.trim() ? <div className="pr-comment-body"><Markdown>{comment.body}</Markdown></div> : null}
+        : comment.body.trim() ? <div className="pr-comment-body"><Markdown html={githubHtml}>{comment.body}</Markdown></div> : null}
       {children}
     </article>
   );
@@ -213,7 +214,7 @@ export function ThreadCard({ thread, onReply, onSend, onResolve, canEdit, onEdit
             </p>
             {editing === comment.id && onEdit
               ? <MarkdownEditor label="Edit comment" initial={comment.body} onSave={async (body) => { await onEdit(comment, body); setEditing(undefined); }} onCancel={() => setEditing(undefined)} />
-              : comment.body.trim() ? <div className="pr-comment-body"><Markdown>{comment.body}</Markdown></div> : null}
+              : comment.body.trim() ? <div className="pr-comment-body"><Markdown html={githubHtml}>{comment.body}</Markdown></div> : null}
           </div>
         ))}
         {!onReply ? null : replying
@@ -249,7 +250,7 @@ export function MarkdownEditor({ initial, label, allowEmpty = false, onSave, onC
         <button role="tab" aria-selected={preview} className={preview ? "active" : ""} onClick={() => setPreview(true)}>Preview</button>
       </div>
       {preview
-        ? <div className="pr-editor-preview">{text.trim() ? <Markdown>{text}</Markdown> : <p className="pr-empty">Nothing to preview.</p>}</div>
+        ? <div className="pr-editor-preview">{text.trim() ? <Markdown html={githubHtml}>{text}</Markdown> : <p className="pr-empty">Nothing to preview.</p>}</div>
         : <textarea
           autoFocus
           aria-label={label}

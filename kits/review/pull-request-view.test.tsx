@@ -129,6 +129,26 @@ describe("the pull-request view", () => {
     expect(rows.get("/project")).toMatchObject<Partial<UiReviewRequest>>({ number: 7, checks: { passed: 2, failed: 1, pending: 1, total: 4 } });
   });
 
+  it("renders the HTML GitHub allows in the description and comments, its details closed", async () => {
+    const detail = parseGitHubDetail(REF, fixture("gh-pr-view-dependabot.json"));
+    const discussed = parseGitHubDetail(REF, fixture("gh-pr-view-discussed.json"));
+    const comment = { ...discussed.comments[0]!, body: "<details><summary>Build log</summary>\n\n<a href=\"https://ci.example/1\">run 1</a> <a href=\"javascript:alert(1)\">bad</a>\n\n</details>\n<img src=x onerror=alert(1)>" };
+    renderView(fakeClient({ view: vi.fn(async () => ({ ...detail, comments: [comment] })), threads: vi.fn(async () => []) }));
+    const summary = await screen.findByText("Dependabot commands and options");
+    const description = summary.closest(".pr-comment-body")!;
+    expect(description.textContent).not.toMatch(/<\/?(details|summary|a|blockquote|ul|li|code|br)\b/u);
+    const folds = [...description.querySelectorAll("details")];
+    expect(folds.map((fold) => fold.querySelector("summary")?.textContent)).toEqual(["Release notes", "Commits", "Release notes", "Dependabot commands and options"]);
+    expect(folds.every((fold) => !fold.open)).toBe(true);
+    fireEvent.click(folds[0]!.querySelector("summary")!);
+    expect(folds[0]!.open).toBe(true);
+    expect(within(folds[0]! as HTMLElement).getByRole("link", { name: "#1164" }).getAttribute("href")).toBe("https://redirect.github.com/KnpLabs/php-github-api/issues/1164");
+    const log = (await screen.findByText("Build log")).closest("details")!;
+    expect(within(log as HTMLElement).getByRole("link", { name: "run 1" }).getAttribute("target")).toBe("_blank");
+    expect(within(log as HTMLElement).queryByRole("link", { name: "bad" })).toBeNull();
+    expect(log.closest(".pr-comment-body")!.querySelector("img")).toBeNull();
+  });
+
   it("on a device paired Read only, offers reading and disables or leaves out every change", async () => {
     renderView(fakeClient(), undefined, true);
     expect(await screen.findByRole("heading", { name: "Add the output helper" })).toBeTruthy();
