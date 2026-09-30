@@ -198,7 +198,7 @@ describe("the rest of the rail", () => {
     // A draft and an agent's thread are not in the rail, so they are not counted.
     const detail = (name: string) => within(list).getByRole("option", { name }).querySelector("small")?.textContent;
     expect(detail("All projects")).toBe("2 threads");
-    expect(detail("project")).toBe("1 thread · /project");
+    expect(detail("project")).toBe("1 thread ·\u00a0/project");
     await waitFor(() => expect(document.activeElement).toBe(within(list).getByRole("textbox", { name: "Search projects" })));
     expect(within(list).getByRole("button", { name: /Open a project…/ }).querySelector("kbd")).toBeTruthy();
     fireEvent.click(within(list).getByRole("button", { name: "Manage projects" }));

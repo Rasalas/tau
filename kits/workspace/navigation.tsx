@@ -7,6 +7,7 @@ import {
   errorMessage,
   ProjectIcon,
   Menu,
+  MiddleTruncate,
   type MenuSection,
   READ_ONLY_REASON,
   ThreadRow,
@@ -372,6 +373,9 @@ export function rankProjects(projects: readonly UiProject[], query: string): UiP
     .sort((left, right) => left.rank - right.rank).map((entry) => entry.project);
 }
 
+/** Keeps the last folder with its slash, up to 16 characters, so the count still fits. */
+const pathTail = (path: string) => Math.min(path.length - path.lastIndexOf("/"), 16);
+
 const threadsLabel = (count: number) => `${count} ${count === 1 ? "thread" : "threads"}`;
 
 /**
@@ -480,7 +484,8 @@ export function ProjectSwitcherPopover({
           const project = entry.kind === "project" ? entry.project : undefined;
           const name = project ? project.name : all?.label ?? "";
           const count = counts ? threadsLabel(project ? counts.byName.get(project.name) ?? 0 : counts.all) : undefined;
-          const detail = project ? [count, homeRelative(project.displayPath ?? project.path)].filter(Boolean).join(" · ") : count;
+          const fullPath = project ? project.displayPath ?? project.path : undefined;
+          const shortPath = fullPath ? homeRelative(fullPath) : undefined;
           return <div
             role="none"
             className={`project-switcher-option${selected === index ? " selected" : ""}${filtering && picked ? " picked" : ""}`}
@@ -499,7 +504,14 @@ export function ProjectSwitcherPopover({
               {project
                 ? <ProjectIcon project={project} />
                 : <i className="all-projects" aria-hidden="true"><Folder size={13} /></i>}
-              <span><strong>{name}</strong>{detail ? <small>{detail}</small> : null}</span>
+              <span>
+                <strong>{name}</strong>
+                {/* The count never shrinks; a long path gives up its middle and keeps its last folder. */}
+                {count || shortPath ? <small>
+                  {count ? <span className="project-switcher-count">{count}{shortPath ? " ·\u00a0" : ""}</span> : null}
+                  {shortPath ? <MiddleTruncate value={shortPath} tail={pathTail(shortPath)} {...tooltipProps(fullPath, { side: "right" })} /> : null}
+                </small> : null}
+              </span>
               {filtering ? picked ? <Check size={13} aria-hidden="true" /> : null : picked ? <small className="current">current</small> : null}
             </button>
             {project && onSettings ? <button

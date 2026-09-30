@@ -133,7 +133,8 @@
 .project-switcher-pick strong, .project-switcher-pick span > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-switcher-pick strong { font-weight: 400; color: var(--ink); }
 .project-switcher-option.picked strong { font-weight: 600; }
-.project-switcher-pick span > small { color: var(--muted); font-size: var(--text-xs); }
+.project-switcher-pick span > small { display: flex; min-width: 0; color: var(--muted); font-size: var(--text-xs); }
+.project-switcher-count { flex: none; }
 .project-switcher-pick > small.current { color: var(--acid-text); font: 9px var(--mono); }
 .project-switcher-pick > svg { flex: none; color: var(--info-ink); }
 .project-switcher-settings {

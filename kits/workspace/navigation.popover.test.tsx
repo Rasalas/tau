@@ -155,10 +155,35 @@ describe("railThreadCounts", () => {
       onSelect={() => {}}
     />);
     expect(screen.getByText("Show threads from")).toBeTruthy();
-    expect(screen.getByText("31 threads")).toBeTruthy();
-    expect(screen.getByText("31 threads · ~/dev/tau")).toBeTruthy();
-    expect(screen.getByText("0 threads · ~/empty")).toBeTruthy();
+    const detail = (name: string) => screen.getByRole("option", { name }).querySelector("small")!;
+    expect(detail("All projects").textContent).toBe("31 threads");
+    expect(detail("tau").textContent).toBe("31 threads ·\u00a0~/dev/tau");
+    expect(detail("empty").textContent).toBe("0 threads ·\u00a0~/empty");
     expect(screen.getByRole("option", { name: "All projects" }).closest(".picked")).toBeTruthy();
+  });
+});
+
+describe("a long project path", () => {
+  it("keeps the count and the last folder, cuts the middle, and has the whole path in its tooltip", () => {
+    const path = "/Volumes/WD-Black-SN850X/tbuck/repos/_self/tau-public-worktrees/k141/tau-scratch";
+    render(<ProjectSwitcherPopover
+      label="Filter by project"
+      open
+      projects={[{ name: "tau-scratch", path, lastOpenedAt: 1 }]}
+      all={{ label: "All projects", onSelect: () => {} }}
+      counts={{ all: 6, byName: new Map([["tau-scratch", 6]]) }}
+      onClose={() => {}}
+      onSelect={() => {}}
+    />);
+    const small = screen.getByRole("option", { name: "tau-scratch" }).querySelector("small")!;
+    const [count, truncated] = [...small.children] as HTMLElement[];
+    expect(count!.textContent).toBe("6 threads ·\u00a0");
+    expect(truncated!.getAttribute("data-tooltip")).toBe(path);
+    // The head gives way with an ellipsis; the tail with its slash does not shrink.
+    const [head, tail] = [...truncated!.children] as HTMLElement[];
+    expect(head!.textContent).toBe(path.slice(0, -"/tau-scratch".length));
+    expect(tail!.textContent).toBe("/tau-scratch");
+    expect(tail!.style.flexShrink).toBe("0");
   });
 });
 
