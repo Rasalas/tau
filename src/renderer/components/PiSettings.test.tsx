@@ -54,8 +54,9 @@ function createSettingsClient(initial: TauConfig, { failing = false, completionM
 async function openPiPage(ready = "Write Pi settings to"): Promise<HTMLElement> {
   await runPaletteCommand("Open Settings");
   const modal = await screen.findByRole("dialog", { name: "Settings" });
-  // Pi's page sits in the folded Threads group.
-  fireEvent.click(within(modal).getByRole("button", { name: "Threads" }));
+  // Pi's page sits in the Threads group, folded unless an earlier test opened it: Settings keeps an opened group open.
+  const threads = within(modal).getByRole("button", { name: "Threads" });
+  if (threads.getAttribute("aria-expanded") !== "true") fireEvent.click(threads);
   fireEvent.click(within(modal).getByRole("button", { name: "Pi" }));
   // The page reads Pi's file over the host, so its fields arrive a tick later.
   await within(modal).findByText(ready);
