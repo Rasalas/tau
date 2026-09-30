@@ -18,6 +18,7 @@
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		5E0E599C777106D7B5F3265E /* TauWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 395FFCB9413A7221B9EA8EAF /* TauWidgets.swift */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
+		961FE54EE1AED02AAFB6608C /* ActivityCipher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CA776543F5630733115FEA2 /* ActivityCipher.swift */; };
 		9EC7EBF9E121B769BAA7ED05 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B70AEB40658173B56A380937 /* Foundation.framework */; };
 /* End PBXBuildFile section */
 
@@ -59,6 +60,7 @@
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		5A679CC0F7131DED9B436260 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		76259163B7A5F730409CD05A /* TauWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TauWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		7CA776543F5630733115FEA2 /* ActivityCipher.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActivityCipher.swift; sourceTree = "<group>"; };
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		B70AEB40658173B56A380937 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
@@ -92,6 +94,7 @@
 				504EC3051FED79650016851F /* Products */,
 				B8532ED83BFB2CC37E757C30 /* Frameworks */,
 				5DD25684447C6F90F008541B /* TauWidgets */,
+				F79EF455601F62990DB2B3F2 /* Shared activity crypto */,
 			);
 			sourceTree = "<group>";
 		};
@@ -145,6 +148,15 @@
 				5CB834B75F74C3016DB70989 /* iOS */,
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		F79EF455601F62990DB2B3F2 /* Shared activity crypto */ = {
+			isa = PBXGroup;
+			children = (
+				7CA776543F5630733115FEA2 /* ActivityCipher.swift */,
+			);
+			name = "Shared activity crypto";
+			path = "../../plugins/tau-native/ios/Sources/TauNativePlugin";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -256,6 +268,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				5E0E599C777106D7B5F3265E /* TauWidgets.swift in Sources */,
+				961FE54EE1AED02AAFB6608C /* ActivityCipher.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

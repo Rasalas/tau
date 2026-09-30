@@ -5,9 +5,10 @@ import WidgetKit
 @available(iOS 16.2, *)
 public struct TauActivityAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
-        public var title: String
-        public var state: String
-        public var expiresAt: Double
+        public var title: String?
+        public var state: String?
+        public var expiresAt: Double?
+        public var sealed: String? = nil
     }
     public var hostId: String
     public var threadId: String
@@ -23,6 +24,7 @@ public enum MobileActivityStore {
         WidgetCenter.shared.reloadTimelines(ofKind: "TauUsage")
     }
     public static func clear(_ host: String) async {
+        ActivityCipher.forget(host: host)
         UserDefaults(suiteName: group)?.removeObject(forKey: "usage." + host)
         WidgetCenter.shared.reloadTimelines(ofKind: "TauUsage")
         if #available(iOS 16.2, *) {

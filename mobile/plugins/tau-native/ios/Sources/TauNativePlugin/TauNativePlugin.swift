@@ -11,6 +11,7 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "TauNativePlugin"
     public let jsName = "TauNative"
     public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "activityKey", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "activityTokens", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "activityUpdate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "activityUsage", returnType: CAPPluginReturnPromise),
@@ -84,6 +85,10 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    @objc func activityKey(_ call: CAPPluginCall) {
+        guard let host = call.getString("hostId"), let keyId = call.getString("keyId"), let key = call.getString("key") else { call.reject("A host and an activity key are required."); return }
+        do { try ActivityCipher.install(host: host, keyId: keyId, key: key); call.resolve() } catch { call.reject("The shared activity keychain could not save this key.", "activity-keychain") }
+    }
     @objc func activityTokens(_ call: CAPPluginCall) {
         if #available(iOS 16.2, *) {
             let tokens = Activity<TauActivityAttributes>.activities.compactMap { activity -> [String: Any]? in

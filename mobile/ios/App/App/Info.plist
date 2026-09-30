@@ -55,6 +55,8 @@
 	<string>Tau records dictation and transcribes it locally on your iPhone.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
+	<key>TauSharedKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)de.tbuck.tau.shared</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

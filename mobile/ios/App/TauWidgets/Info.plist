@@ -21,5 +21,7 @@
 		<key>NSExtensionPointIdentifier</key>
 		<string>com.apple.widgetkit-extension</string>
 	</dict>
+	<key>TauSharedKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)de.tbuck.tau.shared</string>
 </dict>
 </plist>

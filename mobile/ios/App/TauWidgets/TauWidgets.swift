@@ -4,7 +4,7 @@ import WidgetKit
 
 // Identical Codable contract to the native plugin. It is compiled into each target.
 struct TauActivityAttributes: ActivityAttributes {
-    struct ContentState: Codable, Hashable { var title: String; var state: String; var expiresAt: Double }
+    struct ContentState: Codable, Hashable { var title: String?; var state: String?; var expiresAt: Double?; var sealed: String? = nil }
     var hostId: String
     var threadId: String
 }
@@ -13,17 +13,27 @@ func threadURL(_ attributes: TauActivityAttributes) -> URL? {
     url.queryItems = [URLQueryItem(name: "host", value: attributes.hostId), URLQueryItem(name: "thread", value: attributes.threadId)]
     return url.url
 }
-func status(_ state: String) -> String { state == "running" ? "Agent working" : state == "needs-input" ? "Your input needed" : "Completed" }
+func activityDisplay(_ state: TauActivityAttributes.ContentState, attributes: TauActivityAttributes) -> (title: String, state: String) {
+    if let sealed = state.sealed {
+        guard let content = ActivityCipher.open(sealed), content["hostId"] as? String == attributes.hostId,
+              content["threadId"] as? String == attributes.threadId,
+              let title = content["title"] as? String, let status = content["state"] as? String else { return ("Tau", "unavailable") }
+        return (String(title.prefix(100)), status)
+    }
+    return (state.title ?? "Tau", state.state ?? "unavailable")
+}
+func status(_ state: String) -> String { state == "running" ? "Agent working" : state == "needs-input" ? "Your input needed" : state == "completed" ? "Completed" : "Open Tau to refresh" }
 struct TauLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: TauActivityAttributes.self) { context in
-            VStack(alignment: .leading) { Text(context.state.title).font(.headline).lineLimit(2); Text(context.isStale ? "Open Tau to refresh" : status(context.state.state)) }
+            let shown = activityDisplay(context.state, attributes: context.attributes)
+            VStack(alignment: .leading) { Text(shown.title).font(.headline).lineLimit(2); Text(context.isStale ? "Open Tau to refresh" : status(activityDisplay(context.state, attributes: context.attributes).state)) }
                 .padding().widgetURL(threadURL(context.attributes))
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) { Image(systemName: "terminal") }
-                DynamicIslandExpandedRegion(.bottom) { VStack { Text(context.state.title).lineLimit(1); Text(context.isStale ? "Open Tau to refresh" : status(context.state.state)) } }
-            } compactLeading: { Image(systemName: "terminal") } compactTrailing: { Image(systemName: context.state.state == "needs-input" ? "questionmark" : context.state.state == "completed" ? "checkmark" : "ellipsis") } minimal: { Image(systemName: "terminal") }
+                DynamicIslandExpandedRegion(.bottom) { VStack { Text(activityDisplay(context.state, attributes: context.attributes).title).lineLimit(1); Text(context.isStale ? "Open Tau to refresh" : status(activityDisplay(context.state, attributes: context.attributes).state)) } }
+            } compactLeading: { Image(systemName: "terminal") } compactTrailing: { Image(systemName: activityDisplay(context.state, attributes: context.attributes).state == "needs-input" ? "questionmark" : activityDisplay(context.state, attributes: context.attributes).state == "completed" ? "checkmark" : "ellipsis") } minimal: { Image(systemName: "terminal") }
             .widgetURL(threadURL(context.attributes))
         }
     }
