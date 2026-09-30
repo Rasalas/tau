@@ -21,7 +21,12 @@ const address = (raw: string | undefined): string | undefined => {
     return url.toString();
   } catch { return undefined; }
 };
-const endpoint = (raw: unknown): string => typeof raw === "string" && /^[a-z0-9]+(?:[.-][a-z0-9]+)+$/u.test(raw) ? raw : fail("Name the GitHub endpoint, such as github.com.");
+const endpoint = (raw: unknown): string => {
+  const host = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (!/^[a-z0-9]+(?:[.-][a-z0-9]+)+(?::\d{1,5})?$/u.test(host)) fail("Name the GitHub endpoint, such as github.com.");
+  const port = host.includes(":") ? Number(host.split(":")[1]) : undefined;
+  return port === undefined || port > 0 && port <= 65535 ? host : fail("The GitHub endpoint port must be between 1 and 65535.");
+};
 
 /** No filesystem operations, shell arguments or credentials cross this boundary. */
 function argumentsFor(operation: string, raw: unknown, host: string): unknown[] {
@@ -212,14 +217,15 @@ export function createGitHubRouting(context: HostExtensionContext, local: Source
     const write = ACTIONS.has(operation);
     // A write sent locally is never tried elsewhere, regardless of the error.
     // Local authentication is a preflight, before any mutation is started.
-    const host = endpoint(object(args[0]).host);
+    const rawHost = object(args[0]).host;
+    if (![...outgoing.values()].some((grant) => grant.host === rawHost)) return invokeLocal(operation, args);
+    const host = endpoint(rawHost);
     if ((operation === "merge" || operation === "autoMerge") && object(args[0]).cwd) return invokeLocal(operation, args);
     if (operation === "merge" || operation === "autoMerge") {
       const target = object(args[0]);
       const number = object(args[1]).number;
       args = [{ service: "github", host, repo: target.repo, number, url: `https://${host}/${target.repo}/pull/${number}` }, ...args.slice(1)];
     }
-    if (![...outgoing.values()].some((grant) => grant.host === host)) return invokeLocal(operation, args);
     let account: string;
     try { account = await identity(host); } catch (error) {
       if (write && [...outgoing.values()].some((grant) => grant.host === host && grant.preferred)) throw new HostCommandError(`No GitHub action was sent because this host could not verify its account: ${error instanceof Error ? error.message : String(error)}`);
