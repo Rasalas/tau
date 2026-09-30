@@ -3,7 +3,7 @@ import { spawn, execFileSync } from "node:child_process";
 import { once } from "node:events";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve as resolvePath } from "node:path";
 import { isMain, main } from "./release.mjs";
 
 /** Exercise the archive that will ship, with its own runtime and temporary state. */
@@ -15,7 +15,7 @@ export async function smokePortableHost(archive, version) {
   let child, socket;
   let output = "";
   try {
-    execFileSync("tar", ["-xf", resolve(archive), "-C", app], { timeout: 60_000 });
+    execFileSync("tar", ["-xf", resolvePath(archive), "-C", app], { timeout: 60_000 });
     const resources = process.platform === "darwin" ? join(app, "Tau.app", "Contents", "Resources") : join(app, "resources");
     const executable = process.platform === "darwin" ? join(app, "Tau.app", "Contents", "MacOS", "Tau") : join(app, process.platform === "win32" ? "Tau.exe" : "tau");
     const unpacked = join(resources, "app.asar.unpacked");

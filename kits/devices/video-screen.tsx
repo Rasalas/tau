@@ -57,7 +57,8 @@ export default function VideoDeviceScreen({ target, invoke, name, onCanvas, onFa
         id = lease.id;
         if (stopped) { void invoke("stream-close", { id }).catch(() => undefined); return; }
         firstFrame = setTimeout(() => fail("Device video received no frames. Showing screen captures."), 15_000);
-        while (!stopped) {
+        for (;;) {
+          if (stopped) return;
           const batch = await invoke<VideoBatch>("stream-read", { id });
           if (stopped) return;
           if (batch.error) throw new Error(batch.error);
