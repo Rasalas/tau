@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dailyFigures, dayStarts, figuresFrom, niceCeiling, rankUsage } from "./dashboard.js";
+import { dailyFigures, dayStarts, periodFrom, providerOf, rankUsage } from "./dashboard.js";
 import type { UsageEntry } from "./protocol.js";
 
 function entry(patch: Partial<UsageEntry>): UsageEntry {
@@ -23,9 +23,12 @@ describe("usage dashboard", () => {
     expect(days).toEqual([new Date(2026, 8, 25).getTime(), new Date(2026, 8, 26).getTime(), new Date(2026, 8, 27).getTime()]);
   });
 
-  it("answers today, the week and the month from one read, money and plan value apart", () => {
-    expect(figuresFrom(entries, 6)).toEqual({ costUsd: 0.25, apiValueUsd: 2, totalTokens: 9_250, requests: 5, threads: 2 });
-    expect(figuresFrom(entries, 0)).toMatchObject({ costUsd: 1.75, apiValueUsd: 2, threads: 3 });
+  it("counts a period from the month's first day, 30 days back, or from before the days read", () => {
+    const now = new Date(2026, 9, 3, 12);
+    const days = dayStarts(40, now);
+    expect(days[periodFrom("month", days, now)]).toBe(new Date(2026, 9, 1).getTime());
+    expect(periodFrom("30d", days, now)).toBe(10);
+    expect(periodFrom("all", days, now)).toBe(-1);
   });
 
   it("draws a bar for every day, empty ones included", () => {
@@ -41,14 +44,19 @@ describe("usage dashboard", () => {
     expect(rankUsage(entries, 6, "thread", "cost", 5).map((item) => item.threadId)).toEqual(["c1", "t2"]);
   });
 
-  it("rounds an axis up to 1, 2 or 5 of a power of ten", () => {
-    expect([0, 0.3, 1.2, 4, 7, 12_345].map(niceCeiling)).toEqual([1, 0.5, 2, 5, 10, 20_000]);
+  it("keeps a day's plan tokens and turns apart from what was paid per token", () => {
+    const days = dayStarts(7, new Date(2026, 8, 27));
+    expect(dailyFigures(entries, days, 6)[0]).toMatchObject({ costUsd: 0.25, apiValueUsd: 2, totalTokens: 9_250, planTokens: 9_000, planRequests: 4, requests: 5 });
   });
 
-  it("splits each day and each ranked row by provider colour, in one order", () => {
-    const days = dayStarts(7, new Date(2026, 8, 27));
-    const series = dailyFigures([...entries, entry({ day: 6, backend: "pi", provider: "google", totalTokens: 5 })], days, 4);
-    expect(series[2]!.parts.map((part) => [part.tone, part.totalTokens])).toEqual([["openai", 9_000], ["anthropic", 250], ["google", 5]]);
-    expect(rankUsage(entries, 0, "project", "cost", 5)[0]!.parts.map((part) => part.tone)).toEqual(["openai", "anthropic"]);
+  it("ranks providers by company, a runtime standing for its provider, with the threads each counts", () => {
+    expect([providerOf({ provider: "openai-codex", backend: "pi" }), providerOf({ backend: "claude-code" }), providerOf({ provider: "mistral", backend: "pi" })]).toEqual(["openai", "anthropic", "mistral"]);
+    const ranked = rankUsage([...entries, entry({ day: 6, backend: "claude-code", provider: undefined, threadId: "s1", costUsd: 3 })], 0, "provider", "cost", 5);
+    expect(ranked.map((item) => [item.provider, item.threads, item.costUsd])).toEqual([["anthropic", 3, 4.75], ["openai", 1, 0]]);
+  });
+
+  it("ranks projects by a key it is handed, so a worktree's threads count with their project", () => {
+    const ranked = rankUsage(entries, 0, "project", "cost", 5, () => "one project");
+    expect(ranked.map((item) => [item.key, item.threads])).toEqual([["\u0000one project", 3]]);
   });
 });

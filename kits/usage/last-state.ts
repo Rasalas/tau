@@ -31,7 +31,9 @@ function onDays(state: UsageLastState, days: readonly number[]): UsageLastState 
   if (!state.summary?.entries || state.days.length === 0 || (state.days.at(-1) === days.at(-1) && state.days.length === days.length)) return state;
   const index = new Map(days.map((start, position) => [start, position]));
   const entries = state.summary.entries.flatMap((entry) => {
-    const moved = index.get(state.days[entry.day] ?? Number.NaN);
+    // Day -1 holds everything before the days read; a day that moved out of them joins it.
+    const start = state.days[entry.day] ?? Number.NEGATIVE_INFINITY;
+    const moved = start < days[0]! ? -1 : index.get(start);
     return moved === undefined ? [] : [{ ...entry, day: moved }];
   });
   return { ...state, days, summary: { ...state.summary, entries } };

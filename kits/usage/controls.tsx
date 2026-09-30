@@ -1,7 +1,7 @@
-import { useSyncExternalStore, type ReactNode } from "react";
-import { Monitor, Network, Server } from "lucide-react";
-import { formatCost, ProviderIconStack, tooltipProps, usePreferences } from "tau";
-import { USAGE_RANGES, type UsageFigures, type UsageMetric, type UsageOrigin, type UsageRange } from "./dashboard.js";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { Monitor, Network, RefreshCw, Server, SlidersHorizontal } from "lucide-react";
+import { formatCost, ProviderIconStack, Sheet, tooltipProps, usePreferences } from "tau";
+import type { UsageFigures, UsageMetric, UsageOrigin, UsageRange } from "./dashboard.js";
 import type { UsageFacts, UsageFilters, UsageView } from "./filters.js";
 import type { UsageMachine } from "./machines.js";
 import type { MonthFigures } from "./month.js";
@@ -11,6 +11,29 @@ import { formatTokens } from "./view-model.js";
 export const RUNTIME_LABELS: Record<string, string> = Object.fromEntries([[PI_BACKEND, "Pi"], ...BACKEND_USAGE_SOURCES.map((source) => [source.backend, source.label])]);
 const METRICS: ReadonlyArray<{ id: UsageMetric; label: string }> = [{ id: "cost", label: "Cost" }, { id: "tokens", label: "Tokens" }, { id: "turns", label: "Turns" }];
 const ORIGINS: ReadonlyArray<{ id: UsageOrigin | "all"; label: string }> = [{ id: "all", label: "All" }, { id: "tau", label: "In Tau" }, { id: "outside", label: "Outside Tau" }];
+
+/** The periods, the month by its name: "October", "Oct" where room is short. */
+export function usageRanges(now: Date = new Date()): ReadonlyArray<{ id: UsageRange; label: string; short: string }> {
+  return [
+    { id: "month", label: now.toLocaleString(undefined, { month: "long" }), short: now.toLocaleString(undefined, { month: "short" }) },
+    { id: "30d", label: "30 days", short: "30d" },
+    { id: "all", label: "All time", short: "All" },
+  ];
+}
+
+/** Design 1h's period at the right of the page head; a phone shows the first two, short. */
+export function PeriodSwitch({ view, now }: { view: UsageView; now?: Date | undefined }) {
+  const { filters } = useView(view);
+  return (
+    <div className="usage-period" role="radiogroup" aria-label="Period">
+      {usageRanges(now).map((range) => (
+        <button key={range.id} type="button" role="radio" aria-checked={filters.range === range.id} aria-label={range.label} data-range={range.id} onClick={() => view.setFilters({ range: range.id })}>
+          <span className="long">{range.label}</span><span className="short" aria-hidden="true">{range.short}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export function Segmented<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: ReadonlyArray<{ id: T; label: string }>; onChange(value: T): void }) {
   return (
@@ -154,10 +177,6 @@ export function UsageSidebar({ view }: { view: UsageView }) {
         </NavGroup>
       ) : null}
       <div className="settings-nav-group usage-sidebar-segment">
-        <h2 className="settings-nav-heading">Period</h2>
-        <Segmented<UsageRange> label="Range" value={filters.range} options={USAGE_RANGES} onChange={(range) => view.setFilters({ range })} />
-      </div>
-      <div className="settings-nav-group usage-sidebar-segment">
         <h2 className="settings-nav-heading">Measure</h2>
         <Segmented<UsageMetric> label="Measure" value={filters.metric} options={METRICS} onChange={(metric) => view.setFilters({ metric })} />
       </div>
@@ -168,19 +187,31 @@ export function UsageSidebar({ view }: { view: UsageView }) {
   );
 }
 
-/** Without the sidebar (a phone, a tablet): the month and the filters on top of the page, in one wrapping row. */
-export function UsageTopBar({ view }: { view: UsageView }) {
+function SheetGroup({ label, children }: { label: string; children: ReactNode }) {
+  return <div className="usage-sheet-group"><h3>{label}</h3>{children}</div>;
+}
+
+/**
+ * Without the sidebar (a phone, a tablet): a Filters button beside the period
+ * opens the month, every filter and the read in a sheet (design 1r).
+ */
+export function UsageFilterButton({ view, now, status, busy, onReadAgain }: { view: UsageView; now?: Date | undefined; status: string; busy: boolean; onReadAgain(): void }) {
   const { filters, facts } = useView(view);
+  const [open, setOpen] = useState(false);
   return (
-    <div className="usage-topbar">
-      <MonthFigure month={facts.month} />
-      <div className="usage-topbar-filters">
-        {facts.machines.length > 0 ? <MachineFilter machines={facts.machines} value={filters.machine} onChange={(machine) => view.setFilters({ machine })} /> : null}
-        {facts.anyOutside ? <Segmented<UsageOrigin | "all"> label="Where the work ran" value={filters.origin ?? "all"} options={ORIGINS} onChange={(value) => view.setFilters({ origin: value === "all" ? undefined : value })} /> : null}
-        {facts.runtimes.length > 1 ? <RuntimeFilter runtimes={facts.runtimes} value={filters.runtime} onChange={(runtime) => view.setFilters({ runtime })} /> : null}
-        <Segmented<UsageRange> label="Range" value={filters.range} options={USAGE_RANGES} onChange={(range) => view.setFilters({ range })} />
-        <Segmented<UsageMetric> label="Measure" value={filters.metric} options={METRICS} onChange={(metric) => view.setFilters({ metric })} />
-      </div>
-    </div>
+    <>
+      <button type="button" className="usage-icon-button" aria-label="Filters" aria-haspopup="dialog" onClick={() => setOpen(true)} {...tooltipProps("Filters", { side: "bottom" })}><SlidersHorizontal size={16} /></button>
+      {open ? (
+        <Sheet title="Usage filters" className="usage-sheet" onClose={() => setOpen(false)}>
+          <MonthFigure month={facts.month} />
+          <SheetGroup label="Period"><Segmented<UsageRange> label="Range" value={filters.range} options={usageRanges(now)} onChange={(range) => view.setFilters({ range })} /></SheetGroup>
+          {facts.machines.length > 0 ? <SheetGroup label="Machine"><MachineFilter machines={facts.machines} value={filters.machine} onChange={(machine) => view.setFilters({ machine })} /></SheetGroup> : null}
+          {facts.anyOutside ? <SheetGroup label="Where it ran"><Segmented<UsageOrigin | "all"> label="Where the work ran" value={filters.origin ?? "all"} options={ORIGINS} onChange={(value) => view.setFilters({ origin: value === "all" ? undefined : value })} /></SheetGroup> : null}
+          {facts.runtimes.length > 1 ? <SheetGroup label="Runtime"><RuntimeFilter runtimes={facts.runtimes} value={filters.runtime} onChange={(runtime) => view.setFilters({ runtime })} /></SheetGroup> : null}
+          <SheetGroup label="Measure"><Segmented<UsageMetric> label="Measure" value={filters.metric} options={METRICS} onChange={(metric) => view.setFilters({ metric })} /></SheetGroup>
+          <p className="usage-sheet-read"><span>{status}</span><button type="button" className="mini-button" disabled={busy} onClick={onReadAgain}><RefreshCw size={13} />Read again</button></p>
+        </Sheet>
+      ) : null}
+    </>
   );
 }

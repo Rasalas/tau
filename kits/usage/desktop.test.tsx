@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PlatformEnvironments, TauConfig, WorkbenchActions } from "tau";
+import type { PlatformEnvironments, TauConfig, UiSession, WorkbenchActions } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { HostClientProvider, createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
+import { TestProviders, TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
 import usageExtension from "./desktop.js";
 import { UsageLimits } from "./limits.js";
 import { UsagePage } from "./page.js";
@@ -34,7 +34,8 @@ const rows = [
   row({ cwd: "/work/beta", projectName: "beta", costUsd: 0.2 }),
 ];
 
-const LAST = HISTORY_DAYS - 1;
+// The page asks for a first "day" at 0 that gathers everything older, then its own days: today is the last of them.
+const LAST = HISTORY_DAYS;
 
 function entry(overrides: Partial<UsageEntry>): UsageEntry {
   return {
@@ -49,7 +50,16 @@ const entries = [
   entry({ day: LAST - 3, backend: "codex", threadId: "t-codex", model: "gpt-5.6-luna", provider: "openai", modelId: "gpt-5.6-luna", billing: "subscription", costUsd: 0, apiValueUsd: 1.4, requests: 2, totalTokens: 500 }),
   entry({ day: LAST - 20, backend: "claude-code", threadId: "t-sdk", model: "haiku", provider: undefined, modelId: "haiku", costUsd: 0.5, requests: 3 }),
   entry({ day: LAST - 40, threadId: "t-beta", cwd: "/work/beta", costUsd: 0.2 }),
+  entry({ day: 0, threadId: "t-older", cwd: "/work/beta", costUsd: 7 }),
 ];
+
+/** Opens the filters a page without its sidebar keeps in a sheet. */
+async function openFilters() {
+  fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+  return within(await screen.findByRole("dialog", { name: "Usage filters" }));
+}
+
+const threadList = () => screen.getAllByRole("region", { name: "Threads" }).at(-1)!;
 
 function summary(overrides: Partial<UsageSummary> = {}): UsageSummary {
   return {
@@ -99,37 +109,41 @@ function renderPage(invoke: (command: string, input?: unknown) => Promise<unknow
 }
 
 describe("Usage page", () => {
-  it("asks for the last 90 of the user's days and answers today, the week and the month, money and plan value apart", async () => {
+  it("asks for its days after one that gathers everything older, and answers the period's four figures", async () => {
     const invoke = answers();
     renderPage(invoke);
     const totals = await screen.findByLabelText("Totals");
-    const days = dayStarts(HISTORY_DAYS, NOW);
-    expect(invoke).toHaveBeenCalledWith("summary", { since: days[0], days });
-    const today = within(totals).getByRole("region", { name: "Today" });
-    // The totals draw empty before the summary arrives.
-    expect(await within(today).findByText("$0.01")).toBeTruthy();
-    expect(within(today).getByText("—")).toBeTruthy();
-    const week = within(totals).getByRole("region", { name: "Last 7 days" });
-    expect(within(week).getByText("≈ $1.40")).toBeTruthy();
-    expect(within(week).getByText(/1\.6k tokens · 3 turns · 2 threads/u)).toBeTruthy();
-    expect(within(within(totals).getByRole("region", { name: "Last 30 days" })).getByText("$0.51")).toBeTruthy();
+    expect(invoke).toHaveBeenCalledWith("summary", { days: [0, ...dayStarts(HISTORY_DAYS, NOW)] });
+    // September so far: $0.01 today and $0.50 on the 2nd; the last week only today's.
+    const spend = within(totals).getByRole("region", { name: "API spend" });
+    expect(await within(spend).findByText("$0.51")).toBeTruthy();
+    expect(within(spend).getByText("$0.01 last week")).toBeTruthy();
+    const plans = within(totals).getByRole("region", { name: "On plans" });
+    expect(within(plans).getByText("500")).toBeTruthy();
+    expect(within(plans).getByText("tokens · ChatGPT")).toBeTruthy();
+    expect(within(plans).getByText("500").getAttribute("data-tooltip")).toBe("≈ $1.40 at API prices");
+    expect(within(within(totals).getByRole("region", { name: "Threads" })).getByText("3")).toBeTruthy();
+    expect(within(within(totals).getByRole("region", { name: "Local" })).getByText("tokens on local models")).toBeTruthy();
+    // All time takes in the older work too.
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Period" })).getByRole("radio", { name: "All time" }));
+    expect(within(spend).getByText("$7.71")).toBeTruthy();
   });
 
   it("opens with what it read last time, at once, and replaces it with the fresh answer", async () => {
     const first = renderPage(answers());
     const totals = await screen.findByLabelText("Totals");
-    await within(within(totals).getByRole("region", { name: "Today" })).findByText("$0.01");
+    await within(within(totals).getByRole("region", { name: "API spend" })).findByText("$0.51");
     await within(await screen.findByLabelText("Limits")).findByRole("region", { name: "Codex limits" });
     first.unmount();
 
     // The host is slow to answer the next time: the page does not wait for it.
     const answers2 = new Map<string, (value: unknown) => void>();
     renderPage(vi.fn((command: string) => new Promise((resolve) => { answers2.set(command, resolve); })));
-    expect(within(screen.getByRole("region", { name: "Today" })).getByText("$0.01")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "API spend" })).getByText("$0.51")).toBeTruthy();
     expect(within(screen.getByLabelText("Limits")).getByRole("region", { name: "Codex limits" })).toBeTruthy();
     expect(screen.getByRole("status").textContent).toMatch(/· updating…$/u);
     answers2.get("summary")?.(summary({ entries: [entry({ costUsd: 0.05 })] }));
-    await within(screen.getByRole("region", { name: "Today" })).findByText("$0.05");
+    await within(screen.getByRole("region", { name: "API spend" })).findByText("$0.05");
   });
 
   it("shows this host's figures without waiting for another machine", async () => {
@@ -142,8 +156,8 @@ describe("Usage page", () => {
       readExtension: vi.fn(() => new Promise(() => undefined)),
     } as unknown as PlatformEnvironments;
     render(<TestProviders><HostClientProvider client={createFakeHostClient()}><UsagePage host={host(answers())} environments={environments} now={() => NOW} navigate={vi.fn()} /></HostClientProvider></TestProviders>);
-    const today = await screen.findByRole("region", { name: "Today" });
-    expect(await within(today).findByText("$0.01")).toBeTruthy();
+    const spend = await screen.findByRole("region", { name: "API spend" });
+    expect(await within(spend).findByText("$0.51")).toBeTruthy();
     expect(await within(await screen.findByLabelText("Limits")).findByRole("region", { name: "Codex limits" })).toBeTruthy();
   });
 
@@ -151,22 +165,44 @@ describe("Usage page", () => {
     const outside = [
       entry({ day: LAST - 1, backend: "codex", threadId: "019a-cli-session", cwd: "/work/side-project", model: "gpt-5.6-luna", provider: "openai", modelId: "gpt-5.6-luna", costUsd: 3, outside: true }),
     ];
-    const reads: string[] = [];
-    const invoke = vi.fn(async (command: string) => { reads.push(command); return command === "limits" ? limits : summary({ entries: [...entries, ...outside] }); });
+    const invoke = vi.fn(async (command: string) => command === "limits" ? limits : summary({ entries: [...entries, ...outside] }));
     renderPage(invoke);
-    const threads = await screen.findByRole("region", { name: "Threads" });
-    await waitFor(() => expect(within(threads).getByText("Codex session 019a-cli")).toBeTruthy());
-    expect(within(threads).getByText("Outside Tau · side-project")).toBeTruthy();
-    const projects = screen.getByRole("region", { name: "Projects" });
+    await waitFor(() => expect(within(threadList()).getByText("Codex session 019a-cli")).toBeTruthy());
+    expect(within(threadList()).getByText("Codex session 019a-cli").getAttribute("data-tooltip")).toBe("Outside Tau · side-project");
+    const projects = screen.getByRole("region", { name: "By project" });
     expect(await within(projects).findByText("side-project")).toBeTruthy();
-    expect(within(projects).getByText("Outside Tau")).toBeTruthy();
+    expect(within(projects).getByText("side-project").getAttribute("data-tooltip")).toBe("/work/side-project · Outside Tau");
 
-    // The filter draws with the summary's origins, each region on its own render.
-    const where = await screen.findByRole("radiogroup", { name: "Where the work ran" });
+    const sheet = await openFilters();
+    const where = sheet.getByRole("radiogroup", { name: "Where the work ran" });
     fireEvent.click(within(where).getByRole("radio", { name: "In Tau" }));
-    await waitFor(() => expect(within(screen.getByRole("region", { name: "Threads" })).queryByText("Codex session 019a-cli")).toBeNull());
+    await waitFor(() => expect(within(threadList()).queryByText("Codex session 019a-cli")).toBeNull());
     fireEvent.click(within(where).getByRole("radio", { name: "Outside Tau" }));
-    await waitFor(() => expect(within(screen.getByRole("region", { name: "Threads" })).getAllByRole("listitem")).toHaveLength(1));
+    await waitFor(() => expect(within(threadList()).getAllByRole("listitem")).toHaveLength(1));
+  });
+
+  it("counts a worktree's threads, and a CLI run in that worktree, with their project; names the costliest thread with its agents", async () => {
+    const worktree = "/worktrees/feat-x/alpha";
+    const thread = (id: string, path: string, parentThreadId?: string): UiSession => ({ id, path: `/sessions/${id}`, title: id === "t-root" ? "Ship feature X" : id, modifiedAt: 0, projectPath: path, workspaceId: `ws-${path}`, projectName: "alpha", messageCount: 1, ...(parentThreadId ? { parentThreadId } : {}) });
+    const worked = [
+      entry({ threadId: "t-root", cwd: worktree, costUsd: 1 }),
+      entry({ threadId: "t-agent", cwd: worktree, costUsd: 2 }),
+      entry({ threadId: "t-main", costUsd: 0.5 }),
+      entry({ threadId: "cli-1", cwd: worktree, costUsd: 0.25, outside: true }),
+    ];
+    const switchSession = vi.fn();
+    render(
+      <TestProviders><TestThreadStore threads={[thread("t-root", worktree), thread("t-agent", worktree, "t-root"), thread("t-main", "/work/alpha")]} projects={[{ path: "/work/alpha", workspaceId: "ws-/work/alpha", name: "alpha", lastOpenedAt: 0 }]}>
+        <HostClientProvider client={createFakeHostClient()}><UsagePage host={host(answers(() => summary({ entries: worked })))} now={() => NOW} actions={{ switchSession } as unknown as WorkbenchActions} /></HostClientProvider>
+      </TestThreadStore></TestProviders>,
+    );
+    const projects = await screen.findByRole("region", { name: "By project" });
+    await waitFor(() => expect(within(projects).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Aalpha4$3.75"]));
+    expect(within(within(screen.getByLabelText("Totals")).getByRole("region", { name: "Threads" })).getByText("1 agent spawned")).toBeTruthy();
+    const costliest = within(projects).getByText(/^Most expensive thread:/u);
+    expect(costliest.textContent).toBe("Most expensive thread: Ship feature X · $3.00 across 1 agent");
+    fireEvent.click(within(costliest).getByRole("button", { name: "Ship feature X" }));
+    expect(switchSession).toHaveBeenCalledWith("/sessions/t-root");
   });
 
   it("marks a Pi plan account with its plan's mark and a shared ChatGPT account with the ChatGPT plan's", async () => {
@@ -191,23 +227,30 @@ describe("Usage page", () => {
     renderPage(answers(() => summary({ reading: true })));
     // The regions draw before the summary; ask about the filter once it is there.
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("still reading the CLIs' logs"));
-    expect(screen.queryByRole("radiogroup", { name: "Where the work ran" })).toBeNull();
+    const sheet = await openFilters();
+    expect(sheet.getByRole("radiogroup", { name: "Measure" })).toBeTruthy();
+    expect(sheet.queryByRole("radiogroup", { name: "Where the work ran" })).toBeNull();
   });
 
-  it("draws the days of the range and ranks projects, models and threads by the measure chosen", async () => {
+  it("draws the month's days and ranks providers, projects, models and threads by the measure chosen", async () => {
     renderPage(answers());
     const days = await screen.findByRole("list", { name: "Cost per day" });
+    // September: the 22 days so far and the 8 to come.
     expect(within(days).getAllByRole("listitem")).toHaveLength(30);
     // The days draw before the summary arrives; the rankings follow it.
-    await waitFor(() => expect(within(screen.getByRole("region", { name: "Projects" })).getAllByRole("listitem")).toHaveLength(1));
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "By project" })).getAllByRole("listitem")).toHaveLength(1));
+    const providers = within(screen.getByRole("region", { name: "By provider" })).getAllByRole("listitem");
+    expect(providers.map((item) => item.textContent)).toEqual(["OpenAI1500 tok", "Anthropic2$0.51"]);
     const models = within(screen.getByRole("region", { name: "Models" })).getAllByRole("listitem");
-    expect(models.map((item) => item.querySelector("strong")?.textContent)).toEqual(["gpt-5.6-luna", "haiku", "claude-haiku-4-5"]);
-    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Range" })).getByText("90 days"));
+    expect(models.map((item) => item.querySelector(".usage-table-name")?.textContent)).toEqual(["gpt-5.6-luna", "haiku", "claude-haiku-4-5"]);
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Period" })).getByRole("radio", { name: "30 days" }));
+    expect(within(screen.getByRole("list", { name: "Cost per day" })).getAllByRole("listitem")).toHaveLength(30);
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Period" })).getByRole("radio", { name: "All time" }));
     expect(within(screen.getByRole("list", { name: "Cost per day" })).getAllByRole("listitem")).toHaveLength(90);
-    expect(within(screen.getByRole("region", { name: "Projects" })).getAllByRole("listitem")).toHaveLength(2);
-    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Measure" })).getByText("Tokens"));
+    expect(within(screen.getByRole("region", { name: "By project" })).getAllByRole("listitem")).toHaveLength(2);
+    fireEvent.click((await openFilters()).getByRole("radio", { name: "Tokens" }));
     expect(screen.getByRole("list", { name: "Tokens per day" })).toBeTruthy();
-    expect(within(screen.getByRole("region", { name: "Threads" })).getAllByRole("listitem")[0]!.textContent).toContain("1.1k tok");
+    expect(within(threadList()).getAllByRole("listitem")[0]!.textContent).toContain("1.1k tok");
   });
 
   it("reads again on request and keeps the figures while it does", async () => {
@@ -215,7 +258,7 @@ describe("Usage page", () => {
     renderPage(invoke);
     await screen.findByLabelText("Totals");
     // The button stays disabled until the limits are read too.
-    const again = screen.getByRole("button", { name: "Read usage and limits again" }) as HTMLButtonElement;
+    const again = (await openFilters()).getByRole("button", { name: "Read again" }) as HTMLButtonElement;
     await waitFor(() => expect(again.disabled).toBe(false));
     fireEvent.click(again);
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("summary", expect.objectContaining({ refresh: true })));
@@ -368,8 +411,8 @@ describe("Usage across machines", () => {
       }),
     } as unknown as PlatformEnvironments;
     render(<TestProviders><HostClientProvider client={createFakeHostClient()}><UsagePage host={host(vi.fn(async (command: string) => command === "limits" ? local : summary()))} environments={environments} now={() => NOW} navigate={vi.fn()} /></HostClientProvider></TestProviders>);
-    const today = await screen.findByRole("region", { name: "Today" });
-    await waitFor(() => expect(within(today).getByText("$2.01")).toBeTruthy());
+    const spend = await screen.findByRole("region", { name: "API spend" });
+    await waitFor(() => expect(within(spend).getByText("$2.51")).toBeTruthy());
     expect(reads).toEqual(expect.arrayContaining([["rex-id", "tau.usage summary"], ["rex-id", "tau.usage limits"]]));
     expect(reads.some(([machine]) => machine !== "rex-id")).toBe(false);
     // The limits are an answer of their own, apart from the summary.
@@ -377,8 +420,8 @@ describe("Usage across machines", () => {
     await waitFor(() => expect(within(limitsList).getByRole("region", { name: "ChatGPT · Codex, Codex on rex limits" })).toBeTruthy());
     expect(within(limitsList).getByRole("region", { name: "Grok on rex limits" })).toBeTruthy();
     expect(screen.getByRole("status").textContent).toMatch(/this computer and rex$/u);
-    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Machine" })).getByText("rex"));
-    expect(within(screen.getByRole("region", { name: "Threads" })).getAllByRole("listitem").map((item) => item.textContent)).toEqual([expect.stringContaining("rex")]);
+    fireEvent.click(within((await openFilters()).getByRole("radiogroup", { name: "Machine" })).getByText("rex"));
+    expect(within(threadList()).getAllByRole("listitem").map((item) => item.querySelector(".usage-table-name > :nth-child(2)")?.getAttribute("data-tooltip"))).toEqual([expect.stringContaining("rex")]);
   });
 });
 
