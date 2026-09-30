@@ -141,6 +141,7 @@ export function Composer({
   onNewThreadOnRuntime,
   prompt,
   promptsPending = 0,
+  promptAgent,
   onAnswerPrompt,
   onCancelPrompt,
   onCompactContext,
@@ -152,6 +153,8 @@ export function Composer({
   lead,
 }: {
   snapshot?: HostSnapshot;
+  /** The sub-agent whose question this is, when a child thread asks on its parent's composer. */
+  promptAgent?: string | undefined;
   scopeStore: ComposerScopeStore;
   value?: string;
   seed?: string;
@@ -863,6 +866,7 @@ export function Composer({
                   prompt={prompt}
                   pending={promptsPending}
                   {...(snapshot?.model?.name ? { asker: snapshot.model.name } : {})}
+                  agent={promptAgent}
                   onAnswer={(answer, typed) => { onAnswerPrompt?.(answer, typed); updateDraft(""); }}
                   onCancel={() => { onCancelPrompt?.(); updateDraft(""); }}
                 />

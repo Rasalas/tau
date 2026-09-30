@@ -537,6 +537,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     activeDraftKey={activeDraftKey}
     onNotify={actions.notify}
     actions={actions}
+    threadStore={threadStore}
   />;
 
   // The frame goes around the card too: bare, it would fall into the shell grid's next free cell.
@@ -1054,8 +1055,9 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
 }
 
 /** The context meter reads the running token estimate, so the composer subscribes too. */
-function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, draftRuntime, activeDraftKey, onNotify, actions, lead }: {
+function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, draftRuntime, activeDraftKey, onNotify, actions, lead, threadStore }: {
   view: ThreadViewStore;
+  threadStore: ThreadStore;
   lead?: React.ReactNode;
   composer: WorkbenchComposer;
   snapshot?: HostSnapshot;
@@ -1084,8 +1086,11 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     () => contextBreakdownFor(snapshot?.contextUsage, transcript.tokenEstimate, toolKiloTokens * 1000),
     [snapshot?.contextUsage, toolKiloTokens, transcript.tokenEstimate],
   );
+  // A sub-agent's question arrives on its parent's composer, named after the agent.
+  const asking = threadStore.getSnapshot().threads.find((thread) => thread.id === prompts[0]?.sessionId && thread.parentThreadId);
   return <Composer
     snapshot={conversationSnapshot}
+    promptAgent={asking && `${asking.title} agent`}
     scopeStore={scopeStore}
     seed={seed}
     draftStorageKey={activeDraftKey}
