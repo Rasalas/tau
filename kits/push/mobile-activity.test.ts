@@ -13,3 +13,25 @@ describe("ActivityKit device registration", () => {
     expect(activityRequest(registration, { version: 1, hostId: "host", threadId: "thread", title: "Build", state: "completed", updatedAt: 5000, expiresAt: 905000 })).toMatchObject({ pushType: "liveactivity", topic: "de.tbuck.tau.push-type.liveactivity", expiration: 905, payload: { aps: { timestamp: 5, event: "end", "dismissal-date": 905, "content-state": { title: "Build", state: "completed" } } } });
   });
 });
+
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ActivityTokens } from "./mobile-activity.js";
+import { vi } from "vitest";
+
+it("persists activity registrations, expires them and never sends after device revocation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "tau-activities-"));
+  try {
+    const store = await ActivityTokens.open(dir, { warn: () => undefined });
+    const registration = readActivityRegistration({ hostId: "host", threadId: "thread", token: "ab".repeat(32), topic: "de.tbuck.tau" }, "phone", 1000);
+    await store.register(registration);
+    const reopened = await ActivityTokens.open(dir, { warn: () => undefined });
+    const send = vi.fn(async () => ({ ok: true as const }));
+    await reopened.update("thread", "running", "Build", 2000, new Set(["phone"]), () => "sandbox", send);
+    expect(send).toHaveBeenCalledOnce();
+    await reopened.retain(new Set(), 3000);
+    await reopened.update("thread", "completed", "Build", 4000, new Set(["phone"]), () => "sandbox", send);
+    expect(send).toHaveBeenCalledOnce();
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
