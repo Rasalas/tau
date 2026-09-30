@@ -47,7 +47,7 @@
     "cdp": "node scripts/tau-cdp.mjs",
     "cdp:mobile": "node scripts/tau-mobile-cdp.mjs",
     "lint": "oxlint .",
-    "typecheck": "npm run typecheck:extension && npm run typecheck:extensions && npm run typecheck:kits && npm run typecheck:examples && tsc -p tsconfig.json --noEmit && tsc -p tooling/tsconfig.electron.json --noEmit",
+    "typecheck": "npm run typecheck:extension && npm run typecheck:extensions && npm run typecheck:kits && npm run typecheck:examples && npm run typecheck:relay && tsc -p tsconfig.json --noEmit && tsc -p tooling/tsconfig.electron.json --noEmit",
     "typecheck:extension": "tsc -p tooling/tsconfig.extension.json --noEmit",
     "typecheck:extensions": "tsc -p tooling/tsconfig.pi-extensions.json --noEmit",
     "test": "vitest run",
@@ -68,7 +68,9 @@
     "site:catalog": "node scripts/site/build-model-catalog.mjs",
     "typecheck:kits": "tsc -p tooling/tsconfig.kits.json --noEmit",
     "typecheck:examples": "tsc -p tooling/tsconfig.examples.json --noEmit",
-    "build:kits": "node scripts/build-kits.mjs"
+    "typecheck:relay": "tsc -p tooling/tsconfig.relay.json --noEmit",
+    "build:kits": "node scripts/build-kits.mjs",
+    "relay:deploy": "npm --prefix relay ci && npm --prefix relay run typecheck && npm --prefix relay run deploy"
   },
   "dependencies": {
     "@amaster.ai/pi-computer-use": "^0.1.12",
