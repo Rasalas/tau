@@ -907,6 +907,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const organizer = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadRailOrganizer);
   const railSections = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railSections);
   const railThreadSources = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railThreadSources);
+  const dropTargets = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadDropTargets);
   const externalThreads = useRailExternalThreads(railThreadSources);
   const organizerVersion = useSyncExternalStore(organizer?.subscribe ?? noSubscription, organizer?.getVersion ?? noVersion);
   const projectFilter = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railProjectFilter);
@@ -1011,7 +1012,18 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const draftCount = useSyncExternalStore(threadStore.subscribeToDrafts, () => railDrafts(threadStore.getDrafts(), { ...(projectFilter ? { project: projectFilter } : {}), query: threadQuery }).length);
   const grouped = order.grouping !== "none";
   const visibleActive = grouped ? main.threads : main.threads.slice(0, threadLimit);
-  const { drag, onPointerDown } = useRailDrag(organizer, sections);
+  const inSections = (id: string) => sections.flatMap((section) => section.threads).find((session) => session.id === id);
+  const { drag, onPointerDown } = useRailDrag(organizer, sections, dropTargets && ((id, target) => {
+    const session = inSections(id);
+    if (session) dropTargets.drop(session, target, actions);
+  }));
+  // Read once per drag: what the machines say now.
+  const dragged = drag && inSections(drag.threadId);
+  const dragTargets = useMemo(
+    () => dragged && dropTargets ? dropTargets.targets(dragged, actions) : [],
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+    [dragged, dropTargets],
+  );
 
   const navigationRows = useMemo(() => navigationRowsFor(visibleActive, order, projects, openGroups), [openGroups, order, projects, visibleActive]);
   const rowVirtualizer = useVirtualizer({
@@ -1147,7 +1159,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     );
   };
 
-  const findSession = (id: string) => sections.flatMap((section) => section.threads).find((session) => session.id === id);
+  const findSession = inSections;
   const clearSelection = () => setSelection((current) => current.ids.size ? { ids: new Set(), ...(current.anchor ? { anchor: current.anchor } : {}) } : current);
 
   const openMenu = (event: ReactMouseEvent) => {
@@ -1343,7 +1355,27 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       </nav>
 
       {drag ? null : <ThreadCardLayer root={listRef} render={renderCard} />}
+      {drag && dragged ? (() => {
+        const status = activityFor(dragged.id);
+        return <div className="rail-drag-card" aria-hidden style={{ left: drag.x - drag.grab.x, top: drag.y - drag.grab.y, width: drag.grab.width }}>
+          {renderRow(dragged, status.activity, status.label, status.hint)}
+        </div>;
+      })() : null}
       {drag?.label ? <div className="rail-drag-label" style={{ left: drag.x + 14, top: drag.y + 10 }}>{drag.label}</div> : null}
+      {dragTargets.length && dropTargets ? <div className="rail-drop-panel" role="group" aria-label={dropTargets.heading}>
+        <div className="rail-drop-heading">{dropTargets.heading}</div>
+        {dragTargets.map((target) => (
+          <div
+            key={target.id}
+            className={`rail-drop-target${target.disabled ? " disabled" : ""}${drag?.target === target.id ? " over" : ""}`}
+            {...(target.disabled ? {} : { "data-rail-drop": target.id })}
+          >
+            {target.icon}
+            <div><b>{target.label}</b>{target.detail ? <small>{target.detail}</small> : null}</div>
+            {drag?.target === target.id ? <Check size={14} /> : null}
+          </div>
+        ))}
+      </div> : null}
       {organizer?.Layer ? <organizer.Layer actions={actions} /> : null}
       {projectSettings ? (
         <ProjectSettingsDialog

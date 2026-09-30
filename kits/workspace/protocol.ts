@@ -454,6 +454,8 @@ export interface WorkspaceKitState {
   railSections: ReadonlyArray<ComponentType<{ actions: WorkbenchActions }>>;
   /** Threads other kits list among this machine's own: other machines' threads. */
   railThreadSources: readonly RailThreadSource[];
+  /** Where a thread dragged in the rail can go besides the list: other machines. */
+  threadDropTargets?: ThreadDropTargets;
   /** Each project's main line as the host read it, by workspace id or path. */
   defaultBranches: Readonly<Record<string, string>>;
   /** The rail shows only this repository's threads (the row menu's "Filter by"). */
@@ -571,6 +573,26 @@ export interface ThreadRailDrop {
   beforeThreadId?: string;
 }
 
+/** A place a thread dragged in the rail can be let go of, drawn in a panel at the rail's foot (design 2f). */
+export interface ThreadDropTarget {
+  id: string;
+  label: string;
+  /** Under the label: its state, or why the thread cannot go there. */
+  detail?: string;
+  icon?: ReactNode;
+  /** Dimmed; letting go there does nothing. */
+  disabled?: boolean;
+}
+
+/** Another kit's drop targets for a dragged thread; one at a time, the last wins. */
+export interface ThreadDropTargets {
+  /** The panel's heading, e.g. "Drop to move the thread". */
+  heading: string;
+  /** Read when a drag starts; an empty list draws no panel. */
+  targets(thread: UiSession, actions: WorkbenchActions): readonly ThreadDropTarget[];
+  drop(thread: UiSession, targetId: string, actions: WorkbenchActions): void;
+}
+
 /** An icon button shown on hover or keyboard focus that opens a row action menu. */
 export interface ThreadRailRowAction {
   id: string;
@@ -678,6 +700,8 @@ export interface WorkspaceStoreApi {
   registerRailSection?(section: ComponentType<{ actions: WorkbenchActions }>): () => void;
   /** Threads listed among the rail's own, each with its machine's mark: other machines' threads. */
   registerRailThreads?(source: RailThreadSource): () => void;
+  /** Places beside the list a dragged thread can go: other machines (design 2f). */
+  registerThreadDropTargets?(targets: ThreadDropTargets): () => void;
   /** Shows only the threads of one repository, by its project name; `undefined` shows all again (API 1.11.0). */
   setRailProjectFilter(projectName: string | undefined): void;
   /** Opens the settings of the project a thread runs in: its icon, name and path (API 1.11.0). */
