@@ -55,7 +55,7 @@ bleiben in Kits. Der vorhandene Push-Relay-Zweig wurde wiederverwendet.
   schwebendes Fenster, ausgeschaltete Agent-Freigabe und Connect-Einstellungen
   wurden ebenfalls geprüft. Die Instanzen sind beendet.
 
-## Verbleibende Unterschiede und Voraussetzungen
+## Folge-MR und verbleibende Voraussetzungen
 
 Connect enthält zunächst einen selbst betriebenen Dienst. Für externen Betrieb
 braucht er einen veröffentlichten HTTPS-Endpunkt und signierte portable Releases.
@@ -75,22 +75,28 @@ Sicherheitsgrenzen und echte TLS-/Pairing-/Reconnect-Tests. Ein öffentlicher
 Relay und Tests auf allen Browser-Engines bleiben Betreiber- und Release-QA.
 
 
-Die 3D-Geräteansicht zeigt einen Screenshot in Perspektive. Sie bildet keine
-mehrteilige Foldable-Geometrie ab und streamt kein H.264-Video. Die native
-Orientierungs- und Fold-Steuerung ist implementiert. Gerätewerkzeuge werden
-privat in getesteten Versionen installiert; eine Versionsprüfung meldet neuere
-Pakete, ohne sie automatisch als kompatibel zu übernehmen.
+Der Folge-MR ergänzt die Perspektivansicht um zwei getrennte, scharnierbare
+Foldable-Panels mit soliden Rückseiten. Die native Fold-Steuerung bleibt getrennt
+von der Vorschau. Bestätigte Innen- und Cover-Aufnahmen werden passend aufgeteilt;
+fehlende Cover-Geometrie wird nicht erfunden. H.264-Video läuft über WebCodecs,
+mit ausdrücklichem PNG-Fallback bei fehlendem Decoder oder Stream. Die
+Gerätewerkzeuge bleiben privat in getesteten Versionen installiert.
 
-Wayland nutzt den Systemdialog. Eine automatische Auswahl des Vordergrundfensters
-für einzelne Compositoren ist noch nicht implementiert. Windows, WSL und Linux
-wurden über Plattform-Fixtures geprüft, nicht auf realen Systemen.
+Wayland erhält Vordergrundfenster-Capture für GNOME, KDE, Hyprland und Niri.
+Zusätzliche Helfer werden nur nach ausdrücklicher Installation verwendet; der
+Portal-Systemdialog bleibt als Fallback verfügbar. Windows, WSL und Linux wurden
+über Plattform-Fixtures und Linux-Transporttests geprüft. Reale Compositoren
+bleiben Teil der Geräteprüfung.
 
 Reale mobile Diktier-, Push- und Hintergrundabläufe brauchen die
-[Geräteprüfung](../mobile-device-checklist.md). Live Activities starten im
-Vordergrund; Push-to-start ist nicht enthalten. Der aktualisierte Push-Relay
-und passende App-Group-/Keychain-Signierungsprofile müssen veröffentlicht
-werden. Es wurden keine echten Geräte gestartet, Konten gewechselt,
-Reset-Credits verbraucht oder Dienste veröffentlicht.
+[Geräteprüfung](../mobile-device-checklist.md). Der Folge-MR ergänzt verschlüsselte
+iOS-Push-to-start-Nachrichten nach Opt-in. App und Widget benötigen getrennte
+App-Store-Profile mit passenden App-Group- und Keychain-Rechten. Das zusätzliche
+Release-Secret `IOS_WIDGET_PROFILE` fehlt derzeit. Unsigned Simulator-Builds
+belegen die Kompilierung; physische APNs- und Hintergrundabläufe brauchen ein
+signiertes Gerät. Der vorhandene Firebase-Push-Workflow wurde nach dem Merge
+von MR #3 erfolgreich ausgeführt. Es wurden keine neuen Connect-Cloud-Ressourcen
+angelegt, echten Geräte gestartet, Konten gewechselt oder Reset-Credits verbraucht.
 
 Die Desktop-Größenreserve beträgt 4.104 gzip-Bytes. Zusammengehörige Module
 für Syntaxhervorhebung und Dialoge teilen nachgeladene Chunks, ohne zusätzliche
