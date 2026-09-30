@@ -495,7 +495,7 @@ plugin.registerCommand({
 
 `actions.openStageTab(kind, params?, { preview?, key? })` opens one and answers
 with the tab's id; `actions.closeStageTab(id)` closes any tab and
-`actions.stageTabs()` lists what is on the stage. `actions.splitStage?(id?)` shows a
+`actions.stageTabs()` lists what is on the stage. `actions.splitStage?(id?)` (API 1.38.0) shows a
 tab beside the active one; without an id it splits off the active tab or joins the two
 panes again (a tab dragged onto the stage does the same). **`params` is plain JSON and
 is the whole of what the tab is:** two opens with the same params are the same
@@ -937,7 +937,7 @@ plugin.registerPaletteSource({
 ```
 
 The palette asks every source again on each keystroke, and only for a
-non-empty query — unless the source has a `scope` (`"threads"` or `"files"`):
+non-empty query — unless the source has a `scope` (`"threads"` or `"files"`, API 1.38.0):
 then it is also asked for an empty query, in All and in its own tab, and
 `context.scope` says which of the two it is (`"all"`, `"threads"`, `"files"`).
 The tabs (All, Threads, Files, > Commands) and the prefixes `#`, `/` and `>`
@@ -1525,8 +1525,8 @@ before the primary action, and `submit` (`{ label, disabled?, enter?,
 onSubmit }`) is that action, "✓ Send 2 ⏎" with `enter` when an empty
 composer's Enter does the same (register it with `usePromptSubmit` too).
 `PromptRendererProps.asker` is who asks as the composer knows it — the
-thread's model — for `from`; `PromptRendererProps.agent` (unreleased, next API
-bump) names a sub-agent ("GET /orders agent") when a child thread's question
+thread's model — for `from`; `PromptRendererProps.agent` (API
+1.38.0) names a sub-agent ("GET /orders agent") when a child thread's question
 shows on its parent's composer, and wins over `asker` and a topic. An approval
 (design 1a/1c) heads with its `title` ("Wants to edit") and puts a one-line
 `message` beside it in mono. `OptionRow` draws a 14 px box to tick for `mode`
@@ -1677,7 +1677,7 @@ It also exports the renderer's shared state and presentation:
 | `usePreferences` | the same store as `context.preferences`, for a component rendered in a slot. |
 | `useAppUpdate`, type `AppUpdate` | (new in API 1.28.0) the Tau release the host downloaded, `{ version, install() }`, or undefined. |
 | `useClientStorage`, `getClientStorage`, type `ClientStorage` | the renderer's key/value storage, in and out of the component tree. The phone app keeps each host's keys apart; a key under `device:` (API 1.30.0) is the device's own and shared across its hosts, as Usage Kit's choice of juicebars. |
-| `useHostCapabilities`, `useHostName`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced (`useHostName`: the name it gave, for "this page runs on …"); the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. `READ_ONLY_REASON` is core's wording for a disabled control. Core does it for the composer (a note instead of the field), setting rows (inert, with the reason), the palette and chords (for every command and row without `access: "read"`), the title menu (new thread, pin and settle included), the compact list (its Stop, swipe tray and new-thread button), Edit/Fork, the changes tree and the Models page's model, thinking and runtime; preferences stay on the device, and a copied chat goes to the device's own clipboard. |
+| `useHostCapabilities`, `useHostName`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced (`useHostName`, API 1.38.0: the name it gave, for "this page runs on …"); the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. `READ_ONLY_REASON` is core's wording for a disabled control. Core does it for the composer (a note instead of the field), setting rows (inert, with the reason), the palette and chords (for every command and row without `access: "read"`), the title menu (new thread, pin and settle included), the compact list (its Stop, swipe tray and new-thread button), Edit/Fork, the changes tree and the Models page's model, thinking and runtime; preferences stay on the device, and a copied chat goes to the device's own clipboard. |
 | `useCommandAllowed(extensionId, command)`, `hostCommandAllowed(extensionId, command, client?)` | (new in API 1.13.0) whether this device may run a kit's host command: always with Full access; on a Read-only device only a command registered `access: "read"`, and none until the host has said which those are (the hook re-renders then). One line disables a control: `disabled={!allowed}` with `READ_ONLY_REASON` as its tooltip. The function is for palette sources and other code outside a component. |
 | `useKeepClear` | keeps a floating element clear of the reserved regions of the window. |
 | `readCachedTurnActivity`, `changesSinceTurn`, `changesTouchedByTools` | what a turn touched, from the cache core writes. |
