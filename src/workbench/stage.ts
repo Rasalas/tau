@@ -60,6 +60,8 @@ export type StageTab = StageFileTab | StageThreadTab | StageExtensionTab | Stage
 export interface StageState {
   tabs: StageTab[];
   activeId?: string;
+  /** The tab shown beside the active one while the stage is split. */
+  splitId?: string | undefined;
 }
 
 export const EMPTY_STAGE: StageState = { tabs: [] };
@@ -135,7 +137,7 @@ function openTab(state: StageState, tab: StageTab): StageState {
 }
 
 function reopen(state: StageState, existing: StageTab, next: StageTab): StageState {
-  return { tabs: state.tabs.map((tab) => tab.id === existing.id ? next : tab), activeId: existing.id };
+  return { ...activateTab(state, existing.id), tabs: state.tabs.map((tab) => tab.id === existing.id ? next : tab) };
 }
 
 export function openFileTab(state: StageState, path: string, options: { view?: StageView; pin?: boolean; line?: number } = {}): StageState {
@@ -215,18 +217,36 @@ export function setExtensionTabDirty(state: StageState, id: string, dirty: boole
   return mapExtensionTab(state, id, (tab) => Boolean(tab.dirty) === dirty ? tab : { ...tab, dirty });
 }
 
+/** The split tab is already on screen, so activating it changes nothing. */
 export function activateTab(state: StageState, id: string): StageState {
-  if (state.activeId === id || !state.tabs.some((tab) => tab.id === id)) return state;
+  if (state.activeId === id || state.splitId === id || !state.tabs.some((tab) => tab.id === id)) return state;
   return { ...state, activeId: id };
+}
+
+/** The tab beside the active one, when the stage is split. */
+export function splitTab(state: StageState): StageTab | undefined {
+  return state.splitId === state.activeId ? undefined : state.tabs.find((tab) => tab.id === state.splitId);
+}
+
+/**
+ * Shows `id` beside the active tab, pinned; the active tab itself moves there
+ * and its neighbour takes its place. Without `id` the stage is one pane again.
+ */
+export function splitStage(state: StageState, id?: string): StageState {
+  const index = state.tabs.findIndex((tab) => tab.id === id);
+  if (index < 0 || state.tabs.length < 2) return { ...state, splitId: undefined };
+  const activeId = id === state.activeId ? (state.tabs[index - 1] ?? state.tabs[index + 1])!.id : state.activeId;
+  return { tabs: state.tabs.map((tab) => tab.id === id ? { ...tab, preview: false } : tab), activeId, splitId: id };
 }
 
 export function closeTab(state: StageState, id: string): StageState {
   const index = state.tabs.findIndex((tab) => tab.id === id);
   if (index < 0) return state;
   const tabs = state.tabs.filter((tab) => tab.id !== id);
-  if (state.activeId !== id) return { tabs, activeId: state.activeId };
-  const neighbour = tabs[index] ?? tabs[index - 1];
-  return { tabs, activeId: neighbour?.id };
+  const activeId = state.activeId !== id ? state.activeId : (tabs[index] ?? tabs[index - 1])?.id;
+  // Without the split tab, or with it in front, the stage is one pane again.
+  const { splitId } = state;
+  return { tabs, activeId, splitId: splitId !== id && splitId !== activeId ? splitId : undefined };
 }
 
 export function pinTab(state: StageState, id: string): StageState {
@@ -256,11 +276,13 @@ export function setFileView(state: StageState, id: string, view: StageView): Sta
   return { ...state, tabs: state.tabs.map((tab) => tab.id === id && tab.kind === "file" ? { ...tab, view } : tab) };
 }
 
+/** Walks the active pane's tabs; the split tab stays where it is. */
 export function cycleTab(state: StageState, direction: 1 | -1): StageState {
-  if (state.tabs.length <= 1) return state;
-  const currentIndex = state.tabs.findIndex((tab) => tab.id === state.activeId);
+  const tabs = state.tabs.filter((tab) => tab.id !== state.splitId);
+  if (tabs.length <= 1) return state;
+  const currentIndex = tabs.findIndex((tab) => tab.id === state.activeId);
   const nextIndex = currentIndex < 0
     ? 0
-    : (currentIndex + direction + state.tabs.length) % state.tabs.length;
-  return { ...state, activeId: state.tabs[nextIndex]?.id };
+    : (currentIndex + direction + tabs.length) % tabs.length;
+  return { ...state, activeId: tabs[nextIndex]?.id };
 }

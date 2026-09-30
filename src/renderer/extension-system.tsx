@@ -163,6 +163,8 @@ export interface WorkbenchActions {
   closeActiveStageTab?(): void;
   /** Moves forward or backward through stage tabs. */
   cycleStageTab?(direction: 1 | -1): void;
+  /** Shows a stage tab beside the active one; without an id, splits off the active tab or joins the panes again. */
+  splitStage?(tabId?: string): void;
   /** Puts text on the user's clipboard. */
   copyText(text: string): Promise<void>;
   /** Opens a URL outside the workbench, in whatever the client calls a browser. */

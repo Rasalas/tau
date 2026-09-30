@@ -53,7 +53,7 @@ export function RemoteThreadDocument({ machine, sessionId, registry, actions }: 
   /** For the kits' `look-in` region; without it the tab has none. */
   actions?: WorkbenchActions;
   /** Draws the tool runs with this page's tool cards; without it the tab shows messages only. */
-  registry?: ExtensionRegistry;
+  registry?: ExtensionRegistry | undefined;
 }) {
   const environments = usePlatform().environments;
   const view = useEnvironmentThread(environments, machine, sessionId);

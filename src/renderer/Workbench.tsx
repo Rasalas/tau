@@ -908,7 +908,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       // A panel lives as long as its tab or its drawer; a folded stage keeps it mounted, only hidden.
       if (!onStage && drawerPanel?.id !== panel.id) return null;
       const placement = onStage ? "stage" : "drawer";
-      const active = onStage ? stage.activeId === panelTabId(panel.id) && stageExpanded : true;
+      const active = onStage ? [stage.activeId, stage.splitId].includes(panelTabId(panel.id)) && stageExpanded : true;
       return createPortal(<MountedPanel
         Component={panel.Component}
         active={active}

@@ -495,7 +495,9 @@ plugin.registerCommand({
 
 `actions.openStageTab(kind, params?, { preview?, key? })` opens one and answers
 with the tab's id; `actions.closeStageTab(id)` closes any tab and
-`actions.stageTabs()` lists what is on the stage. **`params` is plain JSON and
+`actions.stageTabs()` lists what is on the stage. `actions.splitStage?(id?)` shows a
+tab beside the active one; without an id it splits off the active tab or joins the two
+panes again (a tab dragged onto the stage does the same). **`params` is plain JSON and
 is the whole of what the tab is:** two opens with the same params are the same
 tab, the params key the tab (`ext:<kind>:<key>` — pass `key` to name one
 yourself, or `singleton: true` for a kind with one tab whatever it is opened
@@ -1808,6 +1810,12 @@ by time without touching the rail's own order), `running`, `opening`, `machine`
 `unavailable` (why it cannot open now; the row is dimmed and says so), `open(actions)`
 and `lookIn?(actions)` (the row's hover button). Such a row cannot be settled, pinned,
 picked, dragged or given files. Machines Kit lists the other machines' threads this way.
+`registerThreadDropTargets?(targets)` lets a kit take a thread dragged in the rail
+(design 2f): while a row is dragged, a panel at the rail's foot headed `targets.heading`
+lists `targets.targets(session, actions)` (`id`, `label`, `detail`, `icon`, `disabled`
+dims a row that cannot take it), and letting go on one calls `drop(session, id, actions)`.
+One kit at a time, the last wins; Handoff Kit offers the machines this way ("Continue on").
+An older Workspace Kit lacks it, so call it as `registerThreadDropTargets?.(…)`.
 The shelves after the main list (snoozed, settled) share its scroll and
 follow right after the last active row, as the design draws them (since API 1.27.0; they
 sat at the rail's bottom before). Each is a quiet heading with its count ("Settled · 41")

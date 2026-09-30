@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore, type ComponentType } from "react";
-import { ArrowRightLeft, ChevronRight, CornerUpLeft, GitFork, Server, Undo2, X } from "lucide-react";
+import { ArrowRightLeft, ChevronRight, CornerUpLeft, GitFork, Laptop, Monitor, Server, Undo2, X } from "lucide-react";
 import {
   HostUnavailableError,
   Markdown,
@@ -19,6 +19,7 @@ import {
   type PreferencesStore,
   type RegionProps,
   type UiRuntimeBackend,
+  type UiSession,
   type WorkbenchActions,
 } from "tau";
 import {
@@ -37,6 +38,7 @@ import {
   type ResolveTransferResult,
 } from "./protocol.js";
 import { REMOTE_WORK_EXTENSION_ID, THREAD_LINK_EVENT, type RemoteThreadLink } from "../remote-work/protocol.js";
+import type { ThreadDropTarget, WorkspaceStoreApi } from "../workspace/protocol.js";
 import { HandoffStore, parseSaved } from "./store.js";
 
 const PROFILES = ["desktop", "web", "compact"] as const;
@@ -50,6 +52,7 @@ function isNative(source: string | undefined, target: string): boolean {
 }
 
 const MACHINE_ITEM = "machine:";
+const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
 
 /**
  * Why a thread on `backend` cannot continue on `target` now, or undefined.
@@ -167,14 +170,16 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
       };
 
       // Out of sight: the window stays on this thread, and a toast says where it went.
-      const continueOn = async (machine: string, actions: WorkbenchActions): Promise<void> => {
+      // `threadId` is a thread dragged onto the machine; only the one on screen takes the draft along.
+      const continueOn = async (machine: string, actions: WorkbenchActions, threadId?: string): Promise<void> => {
         store.openPicker(undefined);
-        const thread = currentThread(actions);
+        const shown = currentThread(actions);
+        const thread = threadId ? { sessionId: threadId } : shown;
         if (!thread) {
           actions.notify("Open a thread to continue it elsewhere.");
           return;
         }
-        const draft = actions.composerDraft().trim();
+        const draft = thread.sessionId === shown?.sessionId ? actions.composerDraft().trim() : "";
         const name = store.getSnapshot().targets.find((target) => target.id === machine)?.name ?? machine;
         const toast = actions.toast?.({ type: "loading", title: `Continuing on ${name}`, description: "Sending the project's state and the thread…", timeoutMs: 0 });
         try {
@@ -489,6 +494,40 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
           </div>
         );
       }
+
+      /**
+       * The machines a thread dragged in the rail can go to (design 2f): this one
+       * dimmed, the others as "Continue on" would take them, or why not.
+       */
+      const dropTargets = (thread: UiSession, actions: WorkbenchActions): ThreadDropTarget[] => {
+        const machines = environments?.getSnapshot()?.environments;
+        if (!machines || machines.length < 2 || !hostCommandAllowed(HANDOFF_EXTENSION_ID, "continue-on")) return [];
+        const view = store.getSnapshot();
+        const draft = actions.activeThread()?.sessionId === thread.id ? actions.composerDraft() : "";
+        return machines.map((machine) => {
+          const target = view.targets.find((entry) => entry.id === machine.id);
+          const running = machine.threads.filter((entry) => entry.running).length;
+          const why = machine.local ? "here already"
+            : machine.status !== "connected" ? machine.status
+            : !target ? "its agents may not work there"
+            : unavailableOn(target, thread.backendKind ?? "pi", view.runtimes, draft);
+          return {
+            id: machine.id,
+            label: machine.name,
+            icon: machine.local ? <Laptop size={14} /> : <Monitor size={14} />,
+            detail: why ?? `online · ${running ? `${running} running` : "idle"} · sends the worktree first`,
+            ...(why ? { disabled: true } : {}),
+          };
+        });
+      };
+      context.useService<Pick<WorkspaceStoreApi, "registerThreadDropTargets">>(WORKSPACE_STORE_SERVICE, (workspace) => workspace.registerThreadDropTargets?.({
+        heading: "Drop to move the thread",
+        targets: dropTargets,
+        // The host continues only an open thread, so a thread from further down the list opens first.
+        drop: (thread, machine, actions) => void (async () => {
+          if (actions.activeThread()?.sessionId === thread.id || await actions.switchSession(thread.path)) await continueOn(machine, actions, thread.id);
+        })(),
+      }));
 
       // A link no event brought yet (a reload, another window's continuation) is asked for once.
       const apply = (payload: unknown) => {

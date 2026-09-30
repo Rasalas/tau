@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  activeTab, addPanelTabBehind, closeTab, cycleTab, EMPTY_STAGE, extensionTabId, fileTabId, openExtensionTab, openFileTab, stageFilePath,
+  activateTab, activeTab, addPanelTabBehind, closeTab, cycleTab, EMPTY_STAGE, extensionTabId, fileTabId, openExtensionTab, openFileTab, stageFilePath,
   openThreadTab, otherTabIds, pinTab, setExtensionTabDirty, setExtensionTabTitle, setFileView, stageParamsKey,
-  openPanelTab, panelTabId, stagedPanelIds, tabIdsToTheRight, threadTabId, unpinTab,
+  openPanelTab, panelTabId, splitStage, splitTab, stagedPanelIds, tabIdsToTheRight, threadTabId, unpinTab,
 } from "./stage";
 
 const A = "/repo/src/a.ts";
@@ -251,6 +251,42 @@ describe("the tab strip's own commands", () => {
     expect(tabIdsToTheRight(state, fileTabId(C))).toEqual([]);
     expect(otherTabIds(state, "nothing")).toEqual([]);
     expect(tabIdsToTheRight(state, "nothing")).toEqual([]);
+  });
+});
+
+describe("a split stage", () => {
+  const three = () => openFileTab(openFileTab(openFileTab(EMPTY_STAGE, A, { pin: true }), B, { pin: true }), C);
+
+  it("shows a tab beside the active one, pinned, and joins the panes again", () => {
+    const state = splitStage(three(), fileTabId(A));
+    expect(state).toMatchObject({ activeId: fileTabId(C), splitId: fileTabId(A) });
+    const split = splitStage(three(), fileTabId(C));
+    // The active tab moves beside; its left neighbour takes the front.
+    expect(split).toMatchObject({ activeId: fileTabId(B), splitId: fileTabId(C) });
+    expect(splitTab(split)).toMatchObject({ id: fileTabId(C), preview: false });
+    expect(splitTab(splitStage(split))).toBeUndefined();
+    // One tab has nothing to be beside.
+    expect(splitStage(openFileTab(EMPTY_STAGE, A), fileTabId(A)).splitId).toBeUndefined();
+  });
+
+  it("keeps the split tab where it is while the other pane activates, cycles and reopens", () => {
+    let state = splitStage(three(), fileTabId(A));
+    state = activateTab(state, fileTabId(A));
+    expect(state.activeId).toBe(fileTabId(C));
+    state = cycleTab(state, 1);
+    expect(state).toMatchObject({ activeId: fileTabId(B), splitId: fileTabId(A) });
+    state = openFileTab(state, A);
+    expect(state).toMatchObject({ activeId: fileTabId(B), splitId: fileTabId(A) });
+  });
+
+  it("is one pane again when the split tab closes, or when it would take the front", () => {
+    const split = splitStage(three(), fileTabId(A));
+    expect(splitTab(closeTab(split, fileTabId(A)))).toBeUndefined();
+    expect(closeTab(split, fileTabId(B))).toMatchObject({ activeId: fileTabId(C), splitId: fileTabId(A) });
+    const beside = splitStage(three(), fileTabId(C));
+    const closed = closeTab(beside, fileTabId(B));
+    expect(closed.activeId).toBe(fileTabId(C));
+    expect(splitTab(closed)).toBeUndefined();
   });
 });
 

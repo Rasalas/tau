@@ -35,6 +35,7 @@ import {
   type WorkspaceHostClient,
   type WorkspaceKitState,
   type WorkspaceMode,
+  type ThreadDropTargets,
   type ThreadRailOrganizer,
   type ThreadCardSection,
   type ThreadRowAccessoryProps,
@@ -778,6 +779,11 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   recordTurnStat(sessionId: string, stat: TurnStat): void {
     const turnStats = recordTurnStat(this.state.turnStats, sessionId, stat);
     if (turnStats[sessionId] !== this.state.turnStats[sessionId]) this.update({ turnStats });
+  }
+
+  registerThreadDropTargets(targets: ThreadDropTargets): () => void {
+    this.update({ threadDropTargets: targets });
+    return () => { if (this.state.threadDropTargets === targets) this.update({ threadDropTargets: undefined }); };
   }
 
   registerThreadRailOrganizer(organizer: ThreadRailOrganizer): () => void {
