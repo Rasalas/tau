@@ -557,14 +557,6 @@ body:not([data-profile="compact"]) .conversation-start .composer-zone { padding-
 .thread-title-trigger:hover, .thread-title-trigger[aria-expanded="true"] { background: var(--raised); }
 .thread-title-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .thread-title-trigger > svg { flex: none; color: var(--faint); }
-.thread-title-control > .menu {
-  width: 292px; padding: 9px; border-radius: 16px; background: var(--float);
-  box-shadow: var(--elevation-2);
-}
-.thread-title-control > .menu > .menu-section > button {
-  min-height: 36px; padding: 7px 12px; border-radius: 8px; font-size: var(--text-lg);
-}
-.thread-title-control > .menu > .menu-section > hr { margin: 7px 12px; width: calc(100% - 24px); }
 .thread-title-rename { width: min(560px, 48vw); min-width: 220px; }
 .thread-title-rename input {
   width: 100%; border: 1px solid var(--line-control); border-radius: 7px;
