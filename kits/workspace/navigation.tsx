@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowLeft, Check, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, FolderPlus, GitBranch, Plus, Search, Settings, SquarePen, X } from "lucide-react";
+import { ArchiveRestore, ArrowLeft, Check, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, FolderPlus, GitBranch, Plus, Search, Settings, SquarePen, Trash2, X } from "lucide-react";
 import {
   DraftRow,
   draftTitle,
@@ -693,8 +693,8 @@ const RailDrafts = memo(function RailDrafts({ actions, project, query, listed }:
   const menu = (event: ReactMouseEvent, draft: DraftThread) => {
     event.stopPropagation();
     void openContextMenu(event, [
-      { items: [{ id: "open", label: "Open draft" }] },
-      ...(actions.discardDraft ? [{ items: [{ id: "discard", label: "Discard draft", destructive: true }] }] : []),
+      { items: [{ id: "open", label: "Open draft", icon: <SquarePen size={13} /> }] },
+      ...(actions.discardDraft ? [{ items: [{ id: "discard", label: "Discard draft", icon: <Trash2 size={13} />, destructive: true }] }] : []),
     ]).then((choice) => {
       if (choice === "open") actions.openDraft?.(draft.draftId);
       if (choice === "discard") actions.discardDraft?.(draft.draftId);
@@ -1100,7 +1100,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       const session = id ? findSession(id) : undefined;
       if (!session || readOnlyDevice) return;
       const settled = settings.settledThreadIds.includes(session.id);
-      void openContextMenu(event, [{ items: [{ id: "settle", label: settled ? "Un-settle thread" : "Settle thread" }] }]).then((choice) => { if (choice) toggleSettled(session); });
+      void openContextMenu(event, [{ items: [{ id: "settle", label: settled ? "Un-settle thread" : "Settle thread", icon: settled ? <ArchiveRestore size={13} /> : <Check size={13} /> }] }]).then((choice) => { if (choice) toggleSettled(session); });
       return;
     }
     if (selected.length > 1 && organizer.bulkMenu && (!id || selection.ids.has(id))) {
@@ -1116,7 +1116,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     if (!session) return;
     if (!selection.ids.has(session.id)) clearSelection();
     // The OS draws it where it can; the page draws its own elsewhere.
-    void openContextMenu(event, organizer.menu(session)).then((choice) => { if (choice) organizer.runMenu(session, choice, actions); });
+    void openContextMenu(event, organizer.menu(session, (commandId) => registry.keybindingLabel(commandId))).then((choice) => { if (choice) organizer.runMenu(session, choice, actions); });
   };
 
   /** Files dropped on a row open its thread and wait at its composer. */

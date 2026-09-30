@@ -130,7 +130,8 @@ export interface RailOrganizer {
   subscribe(listener: () => void): () => void;
   getVersion(): number;
   sections(threads: readonly UiSession[]): Array<{ id: string; label?: string; threads: readonly UiSession[]; shelf?: boolean; collapsed?: boolean; settled?: boolean }>;
-  menu(session: UiSession): MenuSection[];
+  /** `shortcut` names a command's chord, for an item that runs one. */
+  menu(session: UiSession, shortcut?: (commandId: string) => string | undefined): MenuSection[];
   runMenu(session: UiSession, itemId: string, actions: WorkbenchActions): void;
   toggleSettled(session: UiSession): void;
   rowActions?(session: UiSession): Array<{ id: string; label: string; icon: ReactNode; menu(): MenuSection[] }>;
