@@ -168,6 +168,9 @@ export interface LocalReview {
 
 export const reviewKey = (root: string, branch: string): string => `${root}\n${branch}`;
 
+/** The runtime whose catalog names the review's model; a thread without a kind is Pi's, as in the thread index. */
+export const reviewRuntime = (review: LocalReview): string => review.backendKind ?? "pi";
+
 export interface ReviewInputs {
   answer: LocalReviewsAnswer;
   threads: readonly UiSession[];

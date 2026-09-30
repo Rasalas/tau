@@ -35,7 +35,7 @@ import {
   type WorkbenchActions,
 } from "tau";
 import { useCompactProfile } from "./compact-profile.js";
-import { mergeBlocker, mergedThisMonth, type LocalReview, type ReviewCounts, type ReviewState } from "./local-reviews.js";
+import { mergeBlocker, mergedThisMonth, reviewRuntime, type LocalReview, type ReviewCounts, type ReviewState } from "./local-reviews.js";
 import { useLocalReviews, type LocalReviewsStore } from "./local-reviews-store.js";
 import { REVIEW_HOST_EXTENSION_ID } from "./protocol.js";
 import type { PullRequestsPageParts } from "./pull-requests-page.js";
@@ -115,11 +115,11 @@ function Checks({ review }: { review: LocalReview }) {
 }
 
 function Model({ review, name = true }: { review: LocalReview; name?: boolean }) {
-  const catalog = useModelName(review.backendKind, review.model, review.modelProvider);
+  const catalog = useModelName(reviewRuntime(review), review.model, review.modelProvider);
   const label = catalog ?? review.model;
   return (
     <span className="rv-model">
-      <ProviderIconStack modelProvider={review.modelProvider} runtimeProvider={review.backendKind} runtimeMark={false} {...(label ? { modelName: label } : {})} hint={{ side: "top" }} />
+      <ProviderIconStack modelProvider={review.modelProvider} runtimeProvider={reviewRuntime(review)} runtimeMark={false} {...(label ? { modelName: label } : {})} hint={{ side: "top" }} />
       {name && label ? <span className="rv-model-name">{label}</span> : null}
     </span>
   );

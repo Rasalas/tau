@@ -15,7 +15,7 @@ import {
   type UiFileDiff,
   type WorkbenchActions,
 } from "tau";
-import { mergeBlocker, type LocalReview } from "./local-reviews.js";
+import { mergeBlocker, reviewRuntime, type LocalReview } from "./local-reviews.js";
 import type { LocalReviewsStore, ReviewRun } from "./local-reviews-store.js";
 import type { PendingReviewComment } from "./protocol.js";
 import { lineKeys, orderFiles, threadKey } from "./pull-request-logic.js";
@@ -56,11 +56,11 @@ const askBlocker = (review: LocalReview, mayAsk: boolean) => !mayAsk ? READ_ONLY
   : !review.threadId && !review.remote ? "No thread works on this branch any more." : undefined;
 
 function ModelMark({ review }: { review: LocalReview }) {
-  const catalog = useModelName(review.backendKind, review.model, review.modelProvider);
+  const catalog = useModelName(reviewRuntime(review), review.model, review.modelProvider);
   const label = catalog ?? review.model;
   return (
     <span className="rvd-model">
-      <ProviderIconStack modelProvider={review.modelProvider} runtimeProvider={review.backendKind} runtimeMark={false} {...(label ? { modelName: label } : {})} hint={{ side: "top" }} />
+      <ProviderIconStack modelProvider={review.modelProvider} runtimeProvider={reviewRuntime(review)} runtimeMark={false} {...(label ? { modelName: label } : {})} hint={{ side: "top" }} />
       {label ? <span>{label}</span> : null}
     </span>
   );

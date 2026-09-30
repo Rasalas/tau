@@ -3,7 +3,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionClient, PageProps, UiSession, WorkbenchActions } from "tau";
 import { TestPageActionSlot, TestProviders, TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
-import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { createKitHarness, HostClientProvider } from "../../src/renderer/test-support/kit-harness.js";
+import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { reviewExtension } from "./desktop.js";
 import { reviewKey, type LocalReviewsAnswer, type ThreadBranch } from "./local-reviews.js";
 import { LocalReviewsStore } from "./local-reviews-store.js";
@@ -45,7 +46,7 @@ const ANSWER: LocalReviewsAnswer = {
 };
 const THREADS = [thread("t1", "ws-pairing-flake", "Fix flaky pairing test"), thread("t2", "ws-webhook-retries", "Write ADR for webhook retries"), thread("t3", "ws-pagination", "Add pagination to all list endpoints")];
 
-function setup(options: { answer?: LocalReviewsAnswer; params?: Record<string, unknown>; compact?: boolean; sidebar?: boolean } = {}) {
+function setup(options: { answer?: LocalReviewsAnswer; params?: Record<string, unknown>; compact?: boolean; sidebar?: boolean; client?: ReturnType<typeof createFakeHostClient> } = {}) {
   if (options.compact) document.body.dataset.profile = "compact";
   const invoke = vi.fn(async (command: string, input?: unknown) => {
     if (command === "local-reviews") return options.answer ?? ANSWER;
@@ -77,10 +78,12 @@ function setup(options: { answer?: LocalReviewsAnswer; params?: Record<string, u
   const props: PageProps = { actions, params: options.params ?? {}, navigate, close: vi.fn(), ...(options.sidebar ? { sidebar: true } : {}) };
   const view = render(
     <TestProviders>
-      <TestThreadStore threads={THREADS}>
-        {options.sidebar ? <nav aria-label="Page sidebar"><ReviewsSidebar {...props} parts={parts} /></nav> : null}
-        <TestPageActionSlot slot={slot}><ReviewsPage {...props} parts={parts} /></TestPageActionSlot>
-      </TestThreadStore>
+      <HostClientProvider client={options.client}>
+        <TestThreadStore threads={THREADS}>
+          {options.sidebar ? <nav aria-label="Page sidebar"><ReviewsSidebar {...props} parts={parts} /></nav> : null}
+          <TestPageActionSlot slot={slot}><ReviewsPage {...props} parts={parts} /></TestPageActionSlot>
+        </TestThreadStore>
+      </HostClientProvider>
     </TestProviders>,
   );
   return { invoke, navigate, toast, switchSession, slot, view, props, parts, workspace, notes };
@@ -104,6 +107,15 @@ describe("the Reviews page", () => {
     expect(ready.textContent).toContain("$0.84");
     expect(ready.textContent).toContain("4m");
     expect(screen.getByText(/^Merged · 1 this month, \$9\.30\./u)).toBeTruthy();
+  });
+
+  it("names a thread's model as the Pi catalog does when the thread carries no runtime", async () => {
+    const runtimeCatalog = vi.fn(async (kind: string) => kind === "pi" ? { kind, models: [{ provider: "anthropic", id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5" }], thinkingLevels: {} } : undefined);
+    setup({ client: createFakeHostClient({ runtimeCatalog }) });
+    const ready = await screen.findByRole("region", { name: "Ready to merge" });
+    await waitFor(() => expect(ready.textContent).toContain("Claude Sonnet 4.5"));
+    expect(ready.textContent).not.toContain("claude-sonnet-4-5");
+    expect(runtimeCatalog).toHaveBeenCalledWith("pi");
   });
 
   it("merges a ready branch from its row and says so", async () => {
