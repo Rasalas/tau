@@ -25,6 +25,9 @@ export interface ThreadBranch {
   uncommitted: number;
   committedAt?: number;
   merged: boolean;
+  /** Merged without the branch's own commits: same patches, same tree, or its pull request merged on the host. */
+  mergedBy?: "patches" | "tree" | "request";
+  defaultBranch?: string;
   conflicts: string[];
   unavailable?: string;
   /** The worktree's workspace id, as a thread working there names its project. */
@@ -147,6 +150,9 @@ export interface LocalReview {
   behind: number;
   conflicts: string[];
   unavailable?: string;
+  mergedBy?: ThreadBranch["mergedBy"];
+  /** The repository's default branch, when Merge would land elsewhere. */
+  offDefault?: string;
   ask?: ReviewAsk;
   costUsd?: number;
   modelProvider?: string;
@@ -234,6 +240,8 @@ export function deriveReviews({ answer, threads, projects, busy, checks }: Revie
       behind: branch.behind,
       conflicts: branch.conflicts,
       ...(branch.unavailable ? { unavailable: branch.unavailable } : {}),
+      ...(branch.mergedBy && !record ? { mergedBy: branch.mergedBy } : {}),
+      ...(branch.defaultBranch && branch.target && branch.defaultBranch !== branch.target ? { offDefault: branch.defaultBranch } : {}),
       ...(ask ? { ask } : {}),
       ...(cost !== undefined ? { costUsd: cost } : record?.costUsd !== undefined ? { costUsd: record.costUsd } : {}),
       ...(latest.modelProvider ? { modelProvider: latest.modelProvider } : {}),

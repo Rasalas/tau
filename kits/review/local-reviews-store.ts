@@ -156,6 +156,11 @@ export class LocalReviewsStore {
     });
   }
 
+  /** A merged branch's worktree and the branch go; the host checks it is merged. */
+  async remove(review: LocalReview): Promise<void> {
+    await this.host.invoke("local-review-remove", { workspace: review.workspace });
+  }
+
   async withdraw(review: LocalReview): Promise<void> {
     await this.host.invoke("local-review-withdraw", { root: review.root, branch: review.branch, ...(review.remote ? { link: review.remote.link } : {}) });
   }
