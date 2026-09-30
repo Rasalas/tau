@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { parseKeyring, sealHandle } from "./handle.js";
+import { parseKeyring as keyring, sealHandle } from "./handle.js";
 import { HANDLE_MAX_AGE_MS, callerAddress, createRelay, type Delivery, type RelayRequest } from "./relay.js";
 
 const IOS_TOKEN = "ab".repeat(32);
@@ -12,7 +12,7 @@ function relay(options: { answer?: Delivery; ios?: boolean } = {}) {
   const log = vi.fn();
   const android = vi.fn(async () => options.answer ?? { ok: true } as Delivery);
   const ios = vi.fn(async () => options.answer ?? { ok: true } as Delivery);
-  const ring = parseKeyring(`1:${randomBytes(32).toString("base64")}`);
+  const ring = keyring(`1:${randomBytes(32).toString("base64")}`);
   const handle = createRelay({ keyring: ring, senders: { android, ...(options.ios === false ? {} : { ios }) }, log, now: () => now });
   const call = async (path: string, body: unknown, extra: Partial<RelayRequest> = {}) => {
     const response = await handle({ method: "POST", path, body: body === undefined || typeof body === "string" ? body : Buffer.from(JSON.stringify(body)), headers: { "x-forwarded-for": "203.0.113.7" }, ...extra });
@@ -56,8 +56,18 @@ describe("the push relay", () => {
     expect((await call("/send", { handle, payload: "x".repeat(3073) })).status).toBe(400);
     expect((await call("/send", { handle, payload: "<script>" })).status).toBe(400);
     expect((await call("/send", { handle, payload: SEALED, collapseId: "c".repeat(65) })).status).toBe(400);
-    expect((await call("/send", JSON.stringify({ handle, payload: "x".repeat(9000) }))).status).toBe(413);
+    expect((await call("/send", JSON.stringify({ handle, payload: "x".repeat(11_000) }))).status).toBe(413);
+    // A declared length over the limit is refused before the body is read.
+    expect((await call("/send", "{}", { headers: { "content-length": "20000" } })).status).toBe(413);
     expect(android).not.toHaveBeenCalled();
+  });
+
+  it("takes the longest handle with the longest payload and collapse id within its body limit", async () => {
+    const { call, register, android } = relay();
+    const handle = await register("android", "f".repeat(4096));
+    const response = await call("/send", { handle, payload: "p".repeat(3072), collapseId: "c".repeat(64) });
+    expect(response.status).toBe(200);
+    expect(android).toHaveBeenCalledOnce();
   });
 
   it("says gone for a handle it cannot open and for a token FCM or APNs dropped", async () => {
@@ -104,16 +114,6 @@ describe("the push relay", () => {
     expect((await call("/register", { platform: "ios", token: IOS_TOKEN }, { headers: { "x-forwarded-for": "198.51.100.1" } })).status).toBe(200);
   });
 
-  it("counts registrations by the address Google's front end appends, not one the caller wrote", async () => {
-    expect(callerAddress({ "x-forwarded-for": "10.0.0.1, 192.0.2.9, 203.0.113.7" })).toBe("203.0.113.7");
-    expect(callerAddress({ "x-forwarded-for": ["10.0.0.1", "203.0.113.7"] })).toBe("203.0.113.7");
-    expect(callerAddress({})).toBeUndefined();
-    const { call } = relay();
-    const spoofed = (index: number) => ({ headers: { "x-forwarded-for": `198.51.100.${index}, 203.0.113.7` } });
-    await Promise.all(Array.from({ length: 10 }, (_, index) => call("/register", { platform: "ios", token: IOS_TOKEN }, spoofed(index))));
-    expect((await call("/register", { platform: "ios", token: IOS_TOKEN }, spoofed(99))).status).toBe(429);
-  });
-
   it("limits sends per phone too, however many handles it has", async () => {
     const { call, ring, tick } = relay();
     // Handles minted straight from the keyring: the register limit would stop these first.
@@ -126,12 +126,26 @@ describe("the push relay", () => {
     expect((await call("/send", { handle: fourth, payload: SEALED })).status).toBe(200);
   });
 
-  it("logs events and codes, never a token, handle, payload or address", async () => {
+  it("counts registrations by the address Google's front end appends, not one the caller wrote", async () => {
+    expect(callerAddress({ "x-forwarded-for": "10.0.0.1, 192.0.2.9, 203.0.113.7" })).toBe("203.0.113.7");
+    expect(callerAddress({ "x-forwarded-for": ["10.0.0.1", "203.0.113.7"] })).toBe("203.0.113.7");
+    expect(callerAddress({})).toBeUndefined();
+    const { call } = relay();
+    const spoofed = (index: number) => ({ headers: { "x-forwarded-for": `198.51.100.${index}, 203.0.113.7` } });
+    await Promise.all(Array.from({ length: 10 }, (_, index) => call("/register", { platform: "ios", token: IOS_TOKEN }, spoofed(index))));
+    expect((await call("/register", { platform: "ios", token: IOS_TOKEN }, spoofed(99))).status).toBe(429);
+  });
+
+  it("logs only what went wrong, as codes: never a token, handle, payload or address", async () => {
+    const quiet = relay();
+    await quiet.call("/send", { handle: await quiet.register("android", ANDROID_TOKEN), payload: SEALED });
+    await quiet.call("/send", { handle: "x".repeat(64), payload: SEALED });
+    expect(quiet.log).not.toHaveBeenCalled();
     const { call, register, log } = relay({ answer: { ok: false, gone: false, reason: "internal-error" } });
     const handle = await register("android", ANDROID_TOKEN);
     await call("/send", { handle, payload: SEALED });
     const logged = JSON.stringify(log.mock.calls);
-    expect(log).toHaveBeenCalledWith("send", { platform: "android", ok: false, reason: "internal-error", gone: false });
+    expect(log.mock.calls).toEqual([["warn", "send.upstream", { platform: "android", reason: "internal-error" }]]);
     for (const secret of [ANDROID_TOKEN, handle, SEALED, "203.0.113.7"]) expect(logged).not.toContain(secret);
   });
 });

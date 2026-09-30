@@ -5,7 +5,8 @@ import { RateLimiter } from "./limits.js";
 const PAYLOAD = /^[A-Za-z0-9._-]{1,3072}$/u;
 /** APNs takes a collapse id of at most 64 bytes. */
 const COLLAPSE_ID = /^[A-Za-z0-9_-]{1,64}$/u;
-const MAX_BODY_BYTES = 8 * 1024;
+/** Room for the longest handle, payload and collapse id with their JSON around them (relay.test.ts). */
+export const MAX_BODY_BYTES = 10 * 1024;
 /** The relay answers a handle older than this with 410; the app renews its handles at half this age. */
 export const HANDLE_MAX_AGE_MS = 60 * 24 * 60 * 60 * 1000;
 
@@ -15,7 +16,7 @@ export interface RelayRequest {
   method: string;
   path: string;
   body: Buffer | string | undefined;
-  /** Lower-case names, as Node gives them. */
+  /** For `content-length` and `x-forwarded-for`, lower-case names as Node gives them. */
   headers?: RelayHeaders;
 }
 
@@ -40,8 +41,8 @@ export type Sender = (token: string, message: OutboundMessage) => Promise<Delive
 /** A sender per platform; one left out answers 503 (APNs before its key is set up). */
 export type Senders = Partial<Record<RelayPlatform, Sender>>;
 
-/** Event names and codes only: never a token, handle, payload or address. */
-export type RelayLog = (event: string, fields: Record<string, string | number | boolean>) => void;
+/** Warnings and errors only, event names and codes: never a token, handle, payload or address. */
+export type RelayLog = (level: "warn" | "error", event: string, fields: Record<string, string | number | boolean>) => void;
 
 export interface RelayOptions {
   keyring: Keyring;
@@ -81,6 +82,12 @@ export function callerAddress(headers: RelayHeaders | undefined): string | undef
   return entries?.at(-1);
 }
 
+/** A declared length over the limit; the body is checked again once read. */
+function declaredTooLarge(headers: RelayHeaders | undefined): boolean {
+  const length = Number(header(headers, "content-length"));
+  return Number.isFinite(length) && length > MAX_BODY_BYTES;
+}
+
 function readJson(body: Buffer | string | undefined): Record<string, unknown> | "too-large" | undefined {
   const text = typeof body === "string" ? body : body?.toString("utf8") ?? "";
   if (Buffer.byteLength(text) > MAX_BODY_BYTES) return "too-large";
@@ -108,12 +115,8 @@ export function createRelay(options: RelayOptions): (request: RelayRequest) => P
 
   const register = (body: Record<string, unknown>, address: string | undefined): RelayResponse => {
     const wait = registers.take(`register:${address ?? "unknown"}`);
-    if (wait > 0) {
-      log("register.limited", {});
-      return limited(wait, CORS_HEADERS);
-    }
+    if (wait > 0) return limited(wait, CORS_HEADERS);
     if (!validToken(body.platform, body.token)) return reply(400, { error: "bad-request", detail: "register takes { platform: ios | android, token }." }, CORS_HEADERS);
-    log("register", { platform: body.platform as string });
     return reply(200, { handle: sealHandle(options.keyring, { platform: body.platform as RelayPlatform, token: body.token as string }, now()) }, CORS_HEADERS);
   };
 
@@ -123,24 +126,15 @@ export function createRelay(options: RelayOptions): (request: RelayRequest) => P
       return reply(400, { error: "bad-request", detail: "send takes { handle, payload (at most 3072 characters of base64url and dots), collapseId? }." });
     }
     const wait = sends.take(`send:${handle}`);
-    if (wait > 0) {
-      log("send.limited", {});
-      return limited(wait);
-    }
+    if (wait > 0) return limited(wait);
     const registration = openHandle(options.keyring, handle);
-    if (!registration) {
-      log("send.unknown-handle", {});
-      return reply(410, { error: "gone", reason: "unknown-handle" });
-    }
+    if (!registration) return reply(410, { error: "gone", reason: "unknown-handle" });
     if (now() - registration.issuedAt > HANDLE_MAX_AGE_MS) return reply(410, { error: "gone", reason: "expired-handle" });
     const tokenWait = tokenSends.take(`token:${registration.token}`);
-    if (tokenWait > 0) {
-      log("send.limited", {});
-      return limited(tokenWait);
-    }
+    if (tokenWait > 0) return limited(tokenWait);
     const sender = options.senders[registration.platform];
     if (!sender) {
-      log("send.unconfigured", { platform: registration.platform });
+      log("warn", "send.unconfigured", { platform: registration.platform });
       return reply(503, { error: "unavailable", reason: `${registration.platform === "ios" ? "apns" : "fcm"}-not-configured` });
     }
     let delivery: Delivery;
@@ -149,12 +143,14 @@ export function createRelay(options: RelayOptions): (request: RelayRequest) => P
     } catch {
       delivery = { ok: false, gone: false, reason: "sender-failed" };
     }
-    log("send", { platform: registration.platform, ok: delivery.ok, ...(delivery.ok ? {} : { reason: delivery.reason, gone: delivery.gone }) });
     if (delivery.ok) return reply(200, { ok: true });
-    return delivery.gone ? reply(410, { error: "gone", reason: delivery.reason }) : reply(502, { error: "upstream", reason: delivery.reason });
+    if (delivery.gone) return reply(410, { error: "gone", reason: delivery.reason });
+    log(delivery.reason === "sender-failed" ? "error" : "warn", "send.upstream", { platform: registration.platform, reason: delivery.reason });
+    return reply(502, { error: "upstream", reason: delivery.reason });
   };
 
   return async (request) => {
+    if (declaredTooLarge(request.headers)) return reply(413, { error: "too-large" });
     const path = request.path.replace(/\/+$/u, "") || "/";
     const route = path === "/register" ? "register" : path === "/send" ? "send" : undefined;
     if (!route) return reply(404, { error: "not-found" });
