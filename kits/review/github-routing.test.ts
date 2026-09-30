@@ -4,13 +4,12 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtension, HostExtensionContext, HostMachine, HostPairedDevice } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
-import type { HostExtensionRegistry } from "../../src/main/host-extensions.js";
 import { createGitHubRouting } from "./github-routing.js";
 import type { ProviderTools, SourceControlProvider } from "./provider.js";
 import { REVIEW_HOST_EXTENSION_ID as ID } from "./protocol.js";
 
 const roots: string[] = [];
-const registries: HostExtensionRegistry[] = [];
+const registries: Array<Awaited<ReturnType<typeof activateHostKit>>> = [];
 afterEach(async () => { await Promise.all(registries.splice(0).map((registry) => registry.dispose())); await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 const ref = { service: "github", host: "github.com", repo: "acme/tau", number: 7, url: "https://github.com/acme/tau/pull/7" };
 const principal = (id: string, readOnly = false) => ({ kind: "workbench-client" as const, pairedClient: id, ...(readOnly ? { readOnly: true as const } : {}) });
