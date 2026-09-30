@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
-import { ChevronDown, ChevronRight, Download, Ellipsis, GitCommitHorizontal, SquarePen, Upload } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, Ellipsis, GitCommitHorizontal, GitCompare, SquarePen, Upload } from "lucide-react";
 import { hostAvailable, Menu, tooltipProps, useHostCapabilities, usePreferences, type MenuSection, type RegionProps } from "tau";
 import { EditorIcon } from "./EditorIcon.js";
 import { pickProjectAction, ProjectActionEditor, ProjectActionsControl, projectActionItems, useProjectActions } from "./project-actions.js";
@@ -188,6 +188,7 @@ export function TitleActionsRow({ collapse, row, snapshot }: RegionProps & { col
                 label: "Review changes",
                 description: state.changes.files.length > 0 ? `${state.changes.files.length} changed files` : "The worktree is clean",
                 disabled: state.changes.files.length === 0,
+                icon: <GitCompare size={13} />,
               },
               {
                 id: "commit",
