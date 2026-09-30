@@ -896,7 +896,7 @@ async function pushScenario() {
     if (/smoke-registration-token|abababab/u.test(readFileSync(devicesFile, "utf8"))) fail("the host kept a token on the relay route");
     const refusedRegister = await push(owner, "register", { platform: "ios", token: iosToken, host: "h", topic: "a.b" }).then(() => "taken", (error) => error.message);
     if (!/paired device/u.test(refusedRegister)) fail(`the host token registered for pushes: ${refusedRegister}`);
-    step("push: paired devices register their tokens over the socket; the host token cannot");
+    step("push: paired devices register over the socket, on the relay route without their tokens; the host token cannot");
 
     const relayed = await push(owner, "status");
     if (JSON.stringify(relayed.routes) !== JSON.stringify({ ios: "relay", android: "relay" }) || relayed.devices.some((device) => device.route !== "relay")) fail(`routes without keys: ${JSON.stringify(relayed)}`);
