@@ -39,7 +39,7 @@ export class ActivityStarts {
     const saved = await readPersistedJson(store.path, { expectedVersion: 1, logger, decode: (value: unknown) => {
       const data = value as { registrations?: unknown; started?: unknown } | null;
       if (!Array.isArray(data?.registrations) || !Array.isArray(data.started)) return undefined;
-      const registrations = data.registrations.flatMap((row) => { try { const saved = row as ActivityStartRegistration; const checked = readActivityStart(row, saved.device, 0); return typeof saved.device === "string" && Number.isSafeInteger(saved.expiresAt) ? [{ ...checked, expiresAt: saved.expiresAt }] : []; } catch { return []; } });
+      const registrations = data.registrations.flatMap((row) => { try { const registration = row as ActivityStartRegistration; const checked = readActivityStart(row, registration.device, 0); return typeof registration.device === "string" && Number.isSafeInteger(registration.expiresAt) ? [{ ...checked, expiresAt: registration.expiresAt }] : []; } catch { return []; } });
       const started = data.started.filter((row): row is Started => Boolean(row && typeof row.device === "string" && typeof row.threadId === "string" && /^[A-Za-z0-9_-]{22}$/u.test(row.activityId) && Number.isSafeInteger(row.at) && ["running", "needs-input", "completed"].includes(row.state)));
       return { registrations, started };
     } });
