@@ -236,13 +236,13 @@ describe("work that came back from another machine", () => {
 });
 
 describe("a review's summary", () => {
-  it("is the thread's last answer, with its prompts counted", () => {
+  it("is the thread's last answer, with its prompts counted and named by their first line", () => {
     const entries = [
       { type: "message", message: { role: "user", content: [{ type: "text", text: "Fix it" }] } },
       { type: "message", message: { role: "assistant", content: [{ type: "text", text: "Looking." }] } },
-      { type: "message", message: { role: "user", content: [{ type: "text", text: "Go on" }] } },
+      { type: "message", message: { role: "user", content: [{ type: "text", text: "Go on\nand keep the tests green" }] } },
       { type: "message", message: { role: "assistant", content: [{ type: "toolCall", id: "1" }, { type: "text", text: "The watcher subscribes on construction now." }] } },
     ];
-    expect(summaryFromEntries(entries)).toEqual({ summary: "The watcher subscribes on construction now.", turns: 2 });
+    expect(summaryFromEntries(entries)).toEqual({ summary: "The watcher subscribes on construction now.", turns: 2, prompts: ["Fix it", "Go on"] });
   });
 });

@@ -17,6 +17,9 @@ interface ScriptRun { id: string; scriptId: string; name?: string; directory: st
 // A worktree's setup run is no check of the work.
 const isRun = (value: unknown): value is ScriptRun => Boolean(value && typeof (value as ScriptRun).id === "string" && typeof (value as ScriptRun).directory === "string" && (value as ScriptRun).trigger !== "worktree-create");
 
+/** One script's last run in a review's worktree: a check. */
+export interface ReviewRun { name: string; status: ScriptRun["status"]; at: number }
+
 export interface LocalReviewsSnapshot {
   answer?: LocalReviewsAnswer;
   loading: boolean;
@@ -33,6 +36,9 @@ function decodeAnswer(value: unknown): LocalReviewsAnswer {
     merged: Array.isArray(fields.merged) ? fields.merged : [],
   };
 }
+
+/** What the thread said last, and its prompts by their first line. */
+export interface ReviewSummary { summary?: string; turns?: number; prompts?: string[] }
 
 /** A thread's end is followed by its commit; the read waits a moment for both. */
 const SETTLE_MS = 800;
@@ -108,21 +114,26 @@ export class LocalReviewsStore {
     }
   }
 
-  /** The last run of each script in a worktree, summed. */
-  checks = (path: string): ReviewChecks | undefined => {
+  /** The last run of each script in a worktree. */
+  latestRuns = (path: string): ReviewRun[] => {
     const latest = new Map<string, ScriptRun>();
     for (const run of this.snapshot.runs) {
       if (run.directory !== path) continue;
       const held = latest.get(run.scriptId);
       if (!held || held.startedAt <= run.startedAt) latest.set(run.scriptId, run);
     }
-    if (latest.size === 0) return undefined;
-    const runs = [...latest.values()];
+    return [...latest.values()].map((run) => ({ name: run.name ?? run.scriptId, status: run.status, at: run.startedAt }));
+  };
+
+  /** The last run of each script in a worktree, summed. */
+  checks = (path: string): ReviewChecks | undefined => {
+    const runs = this.latestRuns(path);
+    if (runs.length === 0) return undefined;
     return {
       passed: runs.filter((run) => run.status === "succeeded").length,
       failed: runs.filter((run) => run.status === "failed").length,
       running: runs.filter((run) => run.status === "running").length,
-      names: runs.map((run) => run.name ?? run.scriptId),
+      names: runs.map((run) => run.name),
     };
   };
 
@@ -165,10 +176,10 @@ export class LocalReviewsStore {
     await this.host.invoke("local-review-withdraw", { root: review.root, branch: review.branch, ...(review.remote ? { link: review.remote.link } : {}) });
   }
 
-  summary(review: LocalReview): Promise<{ summary?: string; turns?: number }> {
+  summary(review: LocalReview): Promise<ReviewSummary> {
     // The thread there keeps its own history; what is here is the branch that came back.
     if (review.remote) return Promise.resolve({ summary: `Ran on ${review.remote.machine} and came back as \`${review.branch}\` here.` });
-    return this.host.invoke("local-review-summary", { threadId: review.threadId, workspace: review.workspace, target: review.target }) as Promise<{ summary?: string; turns?: number }>;
+    return this.host.invoke("local-review-summary", { threadId: review.threadId, workspace: review.workspace, target: review.target }) as Promise<ReviewSummary>;
   }
 
   dispose(): void {

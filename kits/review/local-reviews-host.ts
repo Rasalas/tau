@@ -41,6 +41,7 @@ const REMOTE_BUSY = new Set(["sending", "starting", "running", "waiting", "offli
 /** Merges the book keeps; the oldest go. */
 const MAX_MERGED = 500;
 const SUMMARY_CHARS = 1200;
+const PROMPT_CHARS = 80;
 
 const record = (input: unknown): Record<string, unknown> => input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
 const text = (value: unknown): string | undefined => typeof value === "string" && value.trim() ? value : undefined;
@@ -95,25 +96,33 @@ export class LocalReviewBook {
   }
 }
 
-/** The last answer of a Pi session's entries, and how many prompts it had. */
-export function summaryFromEntries(entries: readonly unknown[]): { summary?: string; turns: number } {
-  let turns = 0;
+interface Summary { summary?: string; turns: number; prompts: string[] }
+
+/** A turn's name in the sidebar: the first line of the prompt. */
+const promptTitle = (value: string): string => clipLine(value.trim().split("\n")[0] ?? "");
+const clipLine = (value: string) => value.length > PROMPT_CHARS ? `${value.slice(0, PROMPT_CHARS - 1).trimEnd()}…` : value;
+const contentText = (content: unknown): string => typeof content === "string" ? content
+  : Array.isArray(content) ? content.map(record).filter((part) => part.type === "text").map((part) => text(part.text) ?? "").join("\n") : "";
+
+/** The last answer of a Pi session's entries, and the prompts it had. */
+export function summaryFromEntries(entries: readonly unknown[]): Summary {
+  const prompts: string[] = [];
   let summary: string | undefined;
   for (const entry of entries) {
     const message = record(record(entry).message);
     if (record(entry).type !== "message") continue;
-    if (message.role === "user") turns += 1;
+    if (message.role === "user") prompts.push(promptTitle(contentText(message.content)));
     if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
     const said = message.content.map(record).filter((part) => part.type === "text").map((part) => text(part.text) ?? "").join("\n").trim();
     if (said) summary = said;
   }
-  return { ...(summary ? { summary: clip(summary) } : {}), turns };
+  return { ...(summary ? { summary: clip(summary) } : {}), turns: prompts.length, prompts };
 }
 
-function summaryFromMessages(messages: readonly UiMessage[]): { summary?: string; turns: number } {
-  const turns = messages.filter((message) => message.role === "user").length;
+function summaryFromMessages(messages: readonly UiMessage[]): Summary {
+  const prompts = messages.filter((message) => message.role === "user").map((message) => promptTitle(message.text));
   const said = [...messages].reverse().find((message) => message.role === "assistant" && message.text.trim())?.text.trim();
-  return { ...(said ? { summary: clip(said) } : {}), turns };
+  return { ...(said ? { summary: clip(said) } : {}), turns: prompts.length, prompts };
 }
 
 const clip = (value: string) => value.length > SUMMARY_CHARS ? `${value.slice(0, SUMMARY_CHARS).trimEnd()}…` : value;
@@ -291,10 +300,10 @@ export function registerLocalReviewCommands(
     changed();
   });
 
-  context.registerCommand("local-review-summary", async (input): Promise<{ summary?: string; turns?: number }> => {
+  context.registerCommand("local-review-summary", async (input): Promise<{ summary?: string; turns?: number; prompts?: string[] }> => {
     const fields = record(input);
     const threadId = text(fields.threadId);
-    let found: { summary?: string; turns: number } | undefined;
+    let found: Summary | undefined;
     const open = threadId ? services.thread(threadId) : undefined;
     if (open) found = summaryFromMessages(await open.transcript().catch(() => []));
     if (!found?.summary && threadId) {
@@ -310,6 +319,6 @@ export function registerLocalReviewCommands(
     const git = await workspace("review-request-context", { workspace: named, detail: true, ...(text(fields.target) ? { base: text(fields.target) } : {}) }).catch(() => undefined) as ReviewRequestContext | undefined;
     const commit = git?.commits?.[0];
     const said = commit ? [commit.subject, commit.body].filter((part) => part?.trim()).join("\n\n").trim() : "";
-    return { ...(said ? { summary: clip(said) } : {}), ...(found ? { turns: found.turns } : {}) };
+    return { ...(said ? { summary: clip(said) } : {}), ...(found ? { turns: found.turns, prompts: found.prompts } : {}) };
   }, { access: "read", long: true });
 }
