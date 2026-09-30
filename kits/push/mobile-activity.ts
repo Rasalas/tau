@@ -1,3 +1,4 @@
+import { sealActivity } from "./activity-start.js";
 import { sealPush, type RelaySend } from "./relay.js";
 import type { PushRelayRegistration } from "./protocol.js";
 import { join } from "node:path";
@@ -5,6 +6,8 @@ import { HostCommandError, readPersistedJson, writePersistedJson, type Persisted
 import type { ApnsEnvironment, ApnsRequest, SendOutcome } from "./apns.js";
 
 export interface ActivityRegistration {
+  activityId?: string;
+  tokenHash?: string;
   device: string;
   hostId: string;
   threadId: string;
@@ -23,7 +26,8 @@ export function readActivityRegistration(input: unknown, device: string, now: nu
   const relay = value.relay;
   if (relay && (typeof relay.handle !== "string" || !/^[A-Za-z0-9_-]{40,6000}$/u.test(relay.handle) || typeof relay.keyId !== "string" || !/^[A-Za-z0-9_-]{16,64}$/u.test(relay.keyId) || typeof relay.key !== "string" || !/^[A-Za-z0-9_-]{43}$/u.test(relay.key) || Buffer.from(relay.key, "base64url").length !== 32)) throw new HostCommandError("The activity relay registration does not read.");
   if (!relay && (typeof value.token !== "string" || !/^[0-9a-f]{32,200}$/iu.test(value.token))) throw new HostCommandError("A direct activity needs its APNs update token.");
-  return { device, hostId: value.hostId, threadId: value.threadId, ...(relay ? { relay: { handle: relay.handle, keyId: relay.keyId, key: relay.key } } : { token: value.token }), topic: value.topic, expiresAt: now + 8 * 60 * 60_000 };
+  if (value.activityId !== undefined && (typeof value.activityId !== "string" || !/^[A-Za-z0-9_-]{22}$/u.test(value.activityId) || typeof value.tokenHash !== "string" || !/^[0-9a-f]{64}$/u.test(value.tokenHash))) throw new HostCommandError("The activity token binding does not read.");
+  return { ...(value.activityId ? { activityId: value.activityId, tokenHash: value.tokenHash } : {}), device, hostId: value.hostId, threadId: value.threadId, ...(relay ? { relay: { handle: relay.handle, keyId: relay.keyId, key: relay.key } } : { token: value.token }), topic: value.topic, expiresAt: now + 8 * 60 * 60_000 };
 }
 
 export function activityRequest(registration: ActivityRegistration, update: ActivityUpdate): ApnsRequest {
@@ -58,20 +62,23 @@ export class ActivityTokens {
     this.registrations = [...this.registrations.filter((row) => row.device !== registration.device || row.threadId !== registration.threadId), registration].slice(-500);
     await this.save();
   }
+  has(device: string, threadId: string): boolean { return this.registrations.some((row) => row.device === device && row.threadId === threadId); }
+  async finish(device: string, activityId: string): Promise<void> { this.registrations = this.registrations.filter((row) => row.device !== device || row.activityId !== activityId); await this.save(); }
+  async remove(device: string): Promise<void> { this.registrations = this.registrations.filter((row) => row.device !== device); await this.save(); }
   async retain(devices: ReadonlySet<string>, now: number): Promise<void> {
     const next = this.registrations.filter((row) => devices.has(row.device) && row.expiresAt > now);
     if (next.length !== this.registrations.length) { this.registrations = next; await this.save(); }
   }
-  async update(threadId: string, state: ActivityUpdate["state"], title: string, now: number, devices: ReadonlySet<string>, environment: (device: string) => ApnsEnvironment | undefined, send: (request: ApnsRequest, environment: ApnsEnvironment) => Promise<SendOutcome>, relaySend?: (request: RelaySend) => Promise<SendOutcome>): Promise<void> {
+  async update(threadId: string, state: ActivityUpdate["state"], title: string, now: number, devices: ReadonlySet<string>, environment: (device: string) => ApnsEnvironment | undefined, send: (request: ApnsRequest, environment: ApnsEnvironment) => Promise<SendOutcome>, relaySend?: (request: RelaySend) => Promise<SendOutcome>, activityId?: string): Promise<void> {
     await this.retain(devices, now);
-    const rows = this.registrations.filter((row) => row.threadId === threadId);
+    const rows = this.registrations.filter((row) => row.threadId === threadId && (!activityId || row.activityId === activityId));
     const gone = new Set<string>();
     await Promise.all(rows.map(async (row) => {
       const at = now; const expiresAt = state === "running" ? row.expiresAt : at + 15 * 60_000;
       const update: ActivityUpdate = { version: 1, hostId: row.hostId, threadId, title: title.slice(0, 100), state, updatedAt: at, expiresAt };
       let outcome: SendOutcome;
       if (row.relay && relaySend) {
-        outcome = await relaySend({ handle: row.relay.handle, payload: sealPush(row.relay, update), activity: { event: state === "completed" ? "end" : "update", timestamp: Math.floor(at / 1000), expiresAt: Math.floor(expiresAt / 1000) } });
+        outcome = await relaySend({ handle: row.relay.handle, payload: row.activityId ? sealActivity(row.relay, update, "update", row.activityId, row.tokenHash) : sealPush(row.relay, update), activity: { event: state === "completed" ? "end" : "update", timestamp: Math.floor(at / 1000), expiresAt: Math.floor(expiresAt / 1000) } });
       } else if (!row.relay) {
         const request = activityRequest(row, update);
         const selected = environment(row.device);

@@ -52,6 +52,7 @@ enum SecureStore {
         guard !UserDefaults.standard.bool(forKey: installedKey) else { return }
         let all: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service]
         SecItemDelete(all as CFDictionary)
+        ActivityCipher.reset()
         UserDefaults.standard.set(true, forKey: installedKey)
     }
 }

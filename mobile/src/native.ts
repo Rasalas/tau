@@ -14,6 +14,9 @@ export interface DeviceInfo {
 
 /** The app's own plugin (`plugins/tau-native`): Keychain/Keystore, pinned sockets, QR scanner, Bonjour. */
 interface TauNativePlugin {
+  activityRemoteStatus(options: { hostId: string }): Promise<import("./activity-start").RemoteActivityStatus>;
+  activityRemoteConfigure(options: Parameters<import("./activity-start").RemoteActivityNative["configure"]>[0]): Promise<void>;
+  activityRemoteDisable(options: { hostId: string }): Promise<void>;
   activityKey(options: { hostId: string; keyId: string; key: string }): Promise<void>;
   activityTokens(): Promise<{ tokens: import("./activities").ActivityToken[] }>;
   activityUpdate(options: import("./activities").MobileActivity): Promise<void>;
@@ -130,3 +133,9 @@ export const nativeActivities: import("./activities").ActivityPort = {
 };
 
 export function installActivityKey(options: { hostId: string; keyId: string; key: string }): Promise<void> { return TauNative.activityKey(options); }
+
+export const nativeRemoteActivities: import("./activity-start").RemoteActivityNative = {
+  status: (hostId) => TauNative.activityRemoteStatus({ hostId }),
+  configure: (options) => TauNative.activityRemoteConfigure(options),
+  disable: (hostId) => TauNative.activityRemoteDisable({ hostId }),
+};

@@ -17,6 +17,7 @@ export interface HostRowInfo {
   signedOut: boolean;
   /** Seen on this network right now. */
   nearby: boolean;
+  remoteActivity?: import("../activity-start").RemoteActivityStatus;
 }
 
 const MINUTE = 60_000;
@@ -54,12 +55,13 @@ export function hostMeta(row: HostRowInfo, now: number): string {
  * The start screen: hosts this phone paired with, hosts on this network it
  * could ask, and Add host as the floating button at the bottom right.
  */
-export function HostsScreen({ rows, nearby, notice, onOpen, onRemove, onAdd, onDemo, onScan, onAsk, now = Date.now() }: {
+export function HostsScreen({ rows, nearby, notice, onOpen, onRemove, onRemoteActivity, onAdd, onDemo, onScan, onAsk, now = Date.now() }: {
   rows: HostRowInfo[];
   nearby: NearbyState;
   notice?: string;
   onOpen(host: SavedHost): void;
   onRemove(host: SavedHost): void;
+  onRemoteActivity?(host: SavedHost, enabled: boolean): void;
   onAdd(): void;
   onDemo?(): void;
   onScan(): void;
@@ -83,6 +85,10 @@ export function HostsScreen({ rows, nearby, notice, onOpen, onRemove, onAdd, onD
               <small>{hostMeta(row, now)}</small>
             </span>
           </button>
+          {(row.remoteActivity?.available || row.remoteActivity?.enabled) && !row.signedOut && onRemoteActivity ? <label className="shell-activity-setting">
+            <input type="checkbox" checked={row.remoteActivity.enabled} onChange={(event) => onRemoteActivity(row.host, event.target.checked)} aria-label={`Remote Live Activities for ${row.host.name}`} />
+            Live Activities
+          </label> : null}
           <button type="button" className="shell-icon-button" aria-label={`Remove ${row.host.name}`} title="Remove" onClick={() => setRemoving(row.host)}><Trash2 size={19} /></button>
         </li>)}
       </ul> : <div className="shell-empty">
@@ -91,6 +97,7 @@ export function HostsScreen({ rows, nearby, notice, onOpen, onRemove, onAdd, onD
         <button type="button" onClick={onScan}><QrCode size={18} />Scan a pairing code</button>
       </div>}
 
+      {onRemoteActivity ? <p className="shell-hint">Enable Live Activities for a host to show new agent work on your Lock Screen while Tau is closed. Turn it off here to stop remote starts and end its activities.</p> : null}
       <section className="shell-section" aria-labelledby="nearby-title">
         <h2 id="nearby-title">On this network</h2>
         <NearbyList state={nearby} hosts={unknownNearby} onAsk={onAsk} />

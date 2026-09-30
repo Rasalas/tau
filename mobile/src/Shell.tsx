@@ -29,6 +29,7 @@ import { createDemoHost } from "./demo-host";
 /** Everything the shell needs from the platform, so a test can hand it fakes. */
 export interface AppContext {
   activities?: ActivityPort;
+  remoteActivities?: import("./activity-start").RemoteActivities;
   storage: ClientStorage;
   book: HostBook;
   bridge: SocketBridge;
@@ -105,6 +106,8 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
   const [view, setView] = useState<View>({ name: "loading" });
   const [hosts, setHosts] = useState<Array<{ host: SavedHost; signedOut: boolean }>>([]);
   const [nearby, setNearby] = useState<NearbyState>({ state: "searching", hosts: [] });
+  const [remoteStatus, setRemoteStatus] = useState<Record<string, import("./activity-start").RemoteActivityStatus>>({});
+  const [remoteNotice, setRemoteNotice] = useState<string>();
   const activityFollow = useRef<ReturnType<typeof followActivities>>(undefined);
   const viewRef = useRef(view);
   viewRef.current = view;
@@ -117,6 +120,10 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
     const tokens = await Promise.all(list.map((host) => book.token(host.id)));
     const next = list.map((host, index) => ({ host, signedOut: !tokens[index] }));
     setHosts(next);
+    if (context.remoteActivities) {
+      const states = await Promise.all(next.map(async ({ host }) => [host.id, await context.remoteActivities!.status(host.id).catch(() => ({ available: false, enabled: false }))] as const));
+      setRemoteStatus(Object.fromEntries(states));
+    }
     return next;
   }, [book]);
 
@@ -165,6 +172,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
     void connection.start("compact").then((reply) => {
       if (reply) {
         void Promise.resolve(pushRegistrar()?.register({ host, client })).catch(() => undefined).then(() => {
+          void context.remoteActivities?.connect(current).catch(() => undefined);
           if (context.activities) activityFollow.current = followActivities(host.id, client, context.activities);
         });
       }
@@ -340,11 +348,15 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
     />;
     case "hosts": {
       const seen = new Set(nearby.state === "searching" ? nearby.hosts.map((host) => host.hostId) : []);
-      const rows: HostRowInfo[] = hosts.map(({ host, signedOut }) => ({ host, signedOut, nearby: seen.has(host.id) }));
+      const rows: HostRowInfo[] = hosts.map(({ host, signedOut }) => ({ host, signedOut, nearby: seen.has(host.id), ...(remoteStatus[host.id] ? { remoteActivity: remoteStatus[host.id] } : {}) }));
       return <HostsScreen
         rows={rows}
         nearby={nearby}
-        {...(view.notice ? { notice: view.notice } : {})}
+        {...(remoteNotice || view.notice ? { notice: remoteNotice ?? view.notice } : {})}
+        {...(context.remoteActivities ? { onRemoteActivity: (host: SavedHost, enabled: boolean) => {
+          setRemoteNotice(undefined);
+          void context.remoteActivities!.setEnabled(host, enabled).then(() => refresh()).catch((error: unknown) => setRemoteNotice(error instanceof Error ? error.message : "Live Activity settings could not be saved."));
+        } } : {})}
         now={now().getTime()}
         onOpen={(host) => void openHost(host)}
         onRemove={(host) => void Promise.resolve(context.activities?.clear(host.id)).then(() => book.remove(host.id)).then(() => { clearHostStorage(storage, host.id); void pushRegistrar()?.forget(host.id).catch(() => undefined); return refresh(); })}

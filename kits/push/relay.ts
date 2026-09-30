@@ -28,7 +28,7 @@ export interface RelaySend {
   handle: string;
   payload: string;
   collapseId?: string;
-  activity?: { event: "update" | "end"; timestamp: number; expiresAt: number };
+  activity?: { event: "start" | "update" | "end"; timestamp: number; expiresAt: number; activityId?: string; bootstrap?: string; inputPushToken?: boolean };
 }
 
 /** `POST <relay>/send`; a 410 means the phone's token or handle is gone for good. */

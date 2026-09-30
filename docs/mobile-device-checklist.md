@@ -165,3 +165,41 @@ Use a test host and a signed test build. No real push is needed for local dictat
 - [ ] Add the usage widget with two runtimes signed into one test account. Its quota
       appears once. Separate accounts remain separate. Sign out and refresh, then
       revoke/remove the host; its usage and activity disappear.
+
+## Remote iOS Live Activity starts
+
+These steps need a signed iOS 17.2+ test phone, with iOS 26 included in the test
+matrix. Use a disposable paired host. The app and `de.tbuck.tau.widgets` extension
+must have separate matching signed profiles with the app group and shared
+Keychain entitlement. APNs setup and a deployed relay that accepts
+`purpose: "activity-start"` are prerequisites. Fake-provider tests and an unsigned
+simulator build do not complete this checklist.
+
+- [ ] Confirm the host's **Live Activities** switch starts off in the phone's
+      Hosts screen. A turn from the Mac does not remotely create an activity.
+- [ ] Enable the switch on the phone, then close Tau. Start a new turn on the Mac.
+      A Live Activity appears with the matching title and running status. Tap it
+      and verify the correct paired host and thread open.
+- [ ] Start a turn while the phone is locked, including after app termination.
+      Verify the app's native background registration produces update delivery
+      without first opening the phone's workbench. Check both iOS 17.2 and 26.
+- [ ] Ask a question, answer it on the Mac, then finish the turn. The activity
+      follows needs-input, running and completed and ends. Finish a fast turn
+      before the native update-token registration returns; it must still end.
+- [ ] Rotate a synthetic start/update token in the native test harness. Confirm
+      the host replaces the old registration and a ciphertext bound to the old
+      update token fails to open. Do not record real tokens in logs or reports.
+- [ ] Open the phone during a remotely started turn. It keeps one activity for
+      that host/thread, including after reconnect and an app restart.
+- [ ] Turn Live Activities off in the phone's Hosts screen. Existing activities
+      end and later turns do not start one. Repeat offline, reconnect/relaunch,
+      and confirm the host removes start consent and update registrations.
+- [ ] Disable Live Activities in iOS Settings, then revoke/remove the paired host.
+      Its shared activity key, usage widget data and activities disappear.
+      An already queued start never reveals private content after key removal.
+- [ ] Capture synthetic provider requests only. Startup attributes contain only
+      an opaque activity id and ciphertext; no host/thread/title/prompt is readable.
+      Start/update/alert handle-purpose substitution and a stale start are refused.
+- [ ] Trigger more than three starts in an hour on the disposable host. No extra
+      start attempts are sent. Test the system's own limits without interpreting
+      APNs acceptance as proof of display; normal notifications remain available.

@@ -10,8 +10,10 @@ public struct TauActivityAttributes: ActivityAttributes {
         public var expiresAt: Double?
         public var sealed: String? = nil
     }
-    public var hostId: String
-    public var threadId: String
+    public var hostId: String?
+    public var threadId: String?
+    public var activityId: String? = nil
+    public var bootstrap: String? = nil
 }
 
 /// App-group storage contains bounded display snapshots only. No credentials enter the extension.
@@ -37,7 +39,15 @@ public enum MobileActivityStore {
               let state = value["state"] as? String, ["running", "completed", "needs-input"].contains(state),
               let expires = value["expiresAt"] as? Double, expires > Date().timeIntervalSince1970 * 1000 else { return }
         let content = ActivityContent(state: TauActivityAttributes.ContentState(title: String((value["title"] as? String ?? "Agent work").prefix(100)), state: state, expiresAt: expires), staleDate: Date(timeIntervalSince1970: expires / 1000))
-        if let current = Activity<TauActivityAttributes>.activities.first(where: { $0.attributes.hostId == host && $0.attributes.threadId == thread }) {
+        if let current = Activity<TauActivityAttributes>.activities.first(where: { activity in
+            if activity.attributes.hostId == host && activity.attributes.threadId == thread { return true }
+            guard let id = activity.attributes.activityId, let bootstrap = activity.attributes.bootstrap,
+                  let opened = ActivityCipher.openActivity(bootstrap, activityId: id, purpose: "start") else { return false }
+            return opened["hostId"] as? String == host && opened["threadId"] as? String == thread
+        }) {
+            // The host supplies ciphertext for remotely started activities. Keeping
+            // that contract also prevents a duplicate foreground activity.
+            if current.attributes.activityId != nil { return }
             if state == "completed" { await current.end(content, dismissalPolicy: .after(Date(timeIntervalSince1970: expires / 1000))) }
             else { await current.update(content) }
         } else if state != "completed" && ActivityAuthorizationInfo().areActivitiesEnabled {

@@ -162,3 +162,19 @@ it("routes only purpose-bound activity handles to ActivityKit updates", async ()
   expect(ios).toHaveBeenCalledWith(IOS_TOKEN, { sealed: SEALED, activity });
   expect((await call("/register", { platform: "android", token: ANDROID_TOKEN, purpose: "activity" })).status).toBe(400);
 });
+
+it("separates push-to-start from update and alert tokens and expires start consent handles", async () => {
+  const { call, ios, tick } = relay();
+  const start = await call("/register", { platform: "ios", token: IOS_TOKEN, purpose: "activity-start" });
+  const update = await call("/register", { platform: "ios", token: IOS_TOKEN, purpose: "activity" });
+  const startPayload = `2.${"k".repeat(22)}.${"c".repeat(60)}`;
+  const activity = { event: "start", activityId: "a".repeat(22), bootstrap: startPayload, timestamp: 1_700_000_000, expiresAt: 1_700_000_900 };
+  expect(start.json?.purpose).toBe("activity-start");
+  expect((await call("/send", { handle: start.json?.handle, payload: startPayload, activity })).status).toBe(200);
+  expect(ios).toHaveBeenCalledWith(IOS_TOKEN, { sealed: startPayload, activity });
+  expect((await call("/send", { handle: update.json?.handle, payload: startPayload, activity })).status).toBe(400);
+  expect((await call("/send", { handle: start.json?.handle, payload: startPayload, activity: { ...activity, event: "update" } })).status).toBe(400);
+  expect((await call("/send", { handle: start.json?.handle, payload: startPayload, activity: { ...activity, bootstrap: { title: "Private task" } } })).status).toBe(400);
+  tick(30 * 24 * 60 * 60_000 + 1000);
+  expect((await call("/send", { handle: start.json?.handle, payload: startPayload, activity })).status).toBe(410);
+});

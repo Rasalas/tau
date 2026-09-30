@@ -5,15 +5,29 @@ import WidgetKit
 // Identical Codable contract to the native plugin. It is compiled into each target.
 struct TauActivityAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable { var title: String?; var state: String?; var expiresAt: Double?; var sealed: String? = nil }
-    var hostId: String
-    var threadId: String
+    var hostId: String?
+    var threadId: String?
+    var activityId: String? = nil
+    var bootstrap: String? = nil
 }
 func threadURL(_ attributes: TauActivityAttributes) -> URL? {
+    let opened = attributes.activityId.flatMap { id in attributes.bootstrap.flatMap { ActivityCipher.openActivity($0, activityId: id, purpose: "start") } }
+    guard let host = opened?["hostId"] as? String ?? attributes.hostId,
+          let thread = opened?["threadId"] as? String ?? attributes.threadId else { return nil }
     var url = URLComponents(); url.scheme = "tau"; url.host = "thread"
-    url.queryItems = [URLQueryItem(name: "host", value: attributes.hostId), URLQueryItem(name: "thread", value: attributes.threadId)]
+    url.queryItems = [URLQueryItem(name: "host", value: host), URLQueryItem(name: "thread", value: thread)]
     return url.url
 }
 func activityDisplay(_ state: TauActivityAttributes.ContentState, attributes: TauActivityAttributes) -> (title: String, state: String) {
+    if let id = attributes.activityId, let bootstrap = attributes.bootstrap {
+        guard let initial = ActivityCipher.openActivity(bootstrap, activityId: id, purpose: "start") else { return ("Tau", "unavailable") }
+        let opened = state.sealed.flatMap { ActivityCipher.openActivity($0, activityId: id, purpose: "update") }
+        let content = opened ?? (state.sealed == bootstrap ? initial : [:])
+        guard content["hostId"] as? String == initial["hostId"] as? String,
+              content["threadId"] as? String == initial["threadId"] as? String,
+              let title = content["title"] as? String, let status = content["state"] as? String else { return ("Tau", "unavailable") }
+        return (String(title.prefix(100)), status)
+    }
     if let sealed = state.sealed {
         guard let content = ActivityCipher.open(sealed), content["hostId"] as? String == attributes.hostId,
               content["threadId"] as? String == attributes.threadId,

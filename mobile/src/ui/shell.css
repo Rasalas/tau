@@ -142,3 +142,5 @@ html, body { margin: 0; background: var(--shell); }
 .composer-dictation { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 12px; font-size: 12px; }
 .composer-dictation select { max-width: 180px; color: inherit; background: var(--bg); }
 .composer-dictation textarea { width: 100%; min-height: 80px; }
+
+.shell-activity-setting { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; max-width: 7rem; padding-inline: 0.5rem; }

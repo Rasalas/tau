@@ -6,7 +6,7 @@ export type RelayPlatform = "ios" | "android";
 export interface Registration {
   platform: RelayPlatform;
   token: string;
-  purpose?: "activity";
+  purpose?: "activity" | "activity-start";
 }
 
 /** An opened handle: the registration and when the relay sealed it (ms since the epoch, to the second). */
@@ -68,7 +68,7 @@ const additionalData = (version: number, keyId: number) => Buffer.concat([Buffer
 /** `version ‖ keyId ‖ nonce ‖ AES-256-GCM(JSON { p, t, i }) ‖ tag`, base64url; `i` is the issue time in seconds. */
 export function sealHandle(keyring: Keyring, registration: Registration, now = Date.now()): string {
   const keyId = keyring.current;
-  const version = registration.purpose === "activity" ? 3 : HANDLE_VERSION;
+  const version = registration.purpose ? 3 : HANDLE_VERSION;
   const nonce = randomBytes(NONCE_BYTES);
   const cipher = createCipheriv("aes-256-gcm", keyring.keys.get(keyId)!, nonce);
   cipher.setAAD(additionalData(version, keyId));
@@ -92,9 +92,9 @@ export function openHandle(keyring: Keyring, handle: unknown): OpenedHandle | un
     const plain = Buffer.concat([decipher.update(bytes.subarray(HEADER_BYTES + NONCE_BYTES, bytes.length - TAG_BYTES)), decipher.final()]);
     const value = JSON.parse(plain.toString("utf8")) as { p?: unknown; t?: unknown; i?: unknown; u?: unknown };
     if (!validToken(value.p, value.t) || !Number.isSafeInteger(value.i) || (value.i as number) < 0) return undefined;
-    if ((bytes[0] === 3) !== (value.u === "activity")) return undefined;
-    if (value.u !== undefined && (value.u !== "activity" || value.p !== "ios")) return undefined;
-    return { platform: value.p, token: value.t as string, ...(value.u === "activity" ? { purpose: "activity" as const } : {}), issuedAt: (value.i as number) * 1000 };
+    if ((bytes[0] === 3) !== (value.u === "activity" || value.u === "activity-start")) return undefined;
+    if (value.u !== undefined && ((value.u !== "activity" && value.u !== "activity-start") || value.p !== "ios")) return undefined;
+    return { platform: value.p, token: value.t as string, ...(value.u ? { purpose: value.u as "activity" | "activity-start" } : {}), issuedAt: (value.i as number) * 1000 };
   } catch {
     return undefined;
   }
