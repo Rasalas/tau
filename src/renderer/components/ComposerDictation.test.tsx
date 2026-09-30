@@ -29,3 +29,18 @@ describe("local composer dictation", () => {
     expect(insert).not.toHaveBeenCalled();
   });
 });
+
+
+it("ignores a language response from a replaced native port", async () => {
+  const first = port(); const second = port();
+  let resolveFirst!: (value: Awaited<ReturnType<DictationPort["languages"]>>) => void;
+  first.languages = () => new Promise((resolve) => { resolveFirst = resolve; });
+  second.languages = async () => ({ available: true, languages: [{ id: "fr-FR", name: "French", installed: true }] });
+  const capture = vi.fn(); const insert = vi.fn();
+  const rendered = render(<ComposerDictation port={first} capture={capture} insert={insert} />);
+  rendered.rerender(<ComposerDictation port={second} capture={capture} insert={insert} />);
+  await screen.findByRole("option", { name: "French" });
+  await act(async () => { resolveFirst({ available: true, languages: [{ id: "en-US", name: "English", installed: true }] }); });
+  expect(screen.getByRole("option", { name: "French" })).toBeTruthy();
+  expect(screen.queryByRole("option", { name: "English" })).toBeNull();
+});

@@ -11,8 +11,10 @@ export function ComposerDictation({ port, capture, insert }: { port: DictationPo
   const generation = useRef(0);
   useEffect(() => {
     alive.current = true;
-    void port.languages().then((result) => { if (alive.current && result.available) { setLanguages(result.languages); setLanguage(result.languages[0]?.id ?? ""); } }).catch(() => undefined);
-    return () => { alive.current = false; generation.current++; void port.cancel(); };
+    let cancelled = false;
+    setLanguages([]); setLanguage(""); setPhase("idle"); setTranscript(""); setError("");
+    void port.languages().then((result) => { if (!cancelled && result.available) { setLanguages(result.languages); setLanguage(result.languages[0]?.id ?? ""); } }).catch(() => undefined);
+    return () => { cancelled = true; alive.current = false; generation.current++; void port.cancel(); };
   }, [port]);
   async function act(work: () => Promise<void>) {
     const current = ++generation.current;
