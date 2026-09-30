@@ -42,7 +42,7 @@ export interface ThreadStoreSnapshot {
   runningStartedAt: Readonly<Record<string, number>>;
 }
 
-const EMPTY_SNAPSHOT: ThreadStoreSnapshot = {
+export const EMPTY_SNAPSHOT: ThreadStoreSnapshot = {
   projects: [],
   threads: [],
   activeThreadId: "",
@@ -55,6 +55,15 @@ const EMPTY_SNAPSHOT: ThreadStoreSnapshot = {
   limitedThreadIds: [],
   runningStartedAt: {},
 };
+
+const ACTIVITY_KEYS = [
+  "activeThreadId", "isStreaming", "runningToolName", "unreadThreadIds", "waitingThreadIds",
+  "runningThreadIds", "failedThreadIds", "interruptedThreadIds", "limitedThreadIds", "runningStartedAt",
+] as const satisfies ReadonlyArray<keyof ThreadActivitySnapshot>;
+
+function activityOf(snapshot: ThreadStoreSnapshot): ThreadActivitySnapshot {
+  return Object.fromEntries(ACTIVITY_KEYS.map((key) => [key, snapshot[key]])) as unknown as ThreadActivitySnapshot;
+}
 
 function threadEqual(left: UiSession, right: UiSession): boolean {
   return left.id === right.id &&
@@ -128,10 +137,7 @@ export class ThreadStore {
   private idListeners = new Set<() => void>();
   private projectListeners = new Set<() => void>();
   private activityListeners = new Set<() => void>();
-  private activitySnapshot: ThreadActivitySnapshot = {
-    activeThreadId: "", isStreaming: false, unreadThreadIds: [], waitingThreadIds: [],
-    runningThreadIds: [], failedThreadIds: [], interruptedThreadIds: [], limitedThreadIds: [], runningStartedAt: {},
-  };
+  private activitySnapshot = activityOf(EMPTY_SNAPSHOT);
   private shellListeners = new Map<string, Set<() => void>>();
   private runningTools = new Map<string, string>();
   /** Deliveries the host refused, by thread; the rest of `failedThreadIds` comes from the index. */
@@ -337,47 +343,13 @@ export class ThreadStore {
       && candidate.failedThreadIds === failedThreadIds && candidate.limitedThreadIds === limitedThreadIds
       ? candidate
       : { ...candidate, isStreaming, interruptedThreadIds, failedThreadIds, limitedThreadIds };
-    if (
-      next.projects === this.snapshot.projects &&
-      next.threads === this.snapshot.threads &&
-      next.activeThreadId === this.snapshot.activeThreadId &&
-      next.isStreaming === this.snapshot.isStreaming &&
-      next.runningToolName === this.snapshot.runningToolName &&
-      next.unreadThreadIds === this.snapshot.unreadThreadIds &&
-      next.waitingThreadIds === this.snapshot.waitingThreadIds &&
-      next.runningThreadIds === this.snapshot.runningThreadIds &&
-      next.failedThreadIds === this.snapshot.failedThreadIds &&
-      next.interruptedThreadIds === this.snapshot.interruptedThreadIds &&
-      next.limitedThreadIds === this.snapshot.limitedThreadIds &&
-      next.runningStartedAt === this.snapshot.runningStartedAt
-    ) return;
     const previous = this.snapshot;
+    const activityChanged = ACTIVITY_KEYS.some((key) => next[key] !== previous[key]);
+    if (!activityChanged && next.projects === previous.projects && next.threads === previous.threads) return;
     this.snapshot = next;
     if (next.projects !== previous.projects) this.projectListeners.forEach((listener) => listener());
-    if (
-      next.activeThreadId !== previous.activeThreadId ||
-      next.isStreaming !== previous.isStreaming ||
-      next.runningToolName !== previous.runningToolName ||
-      next.unreadThreadIds !== previous.unreadThreadIds ||
-      next.waitingThreadIds !== previous.waitingThreadIds ||
-      next.runningThreadIds !== previous.runningThreadIds ||
-      next.failedThreadIds !== previous.failedThreadIds ||
-      next.interruptedThreadIds !== previous.interruptedThreadIds ||
-      next.limitedThreadIds !== previous.limitedThreadIds ||
-      next.runningStartedAt !== previous.runningStartedAt
-    ) {
-      this.activitySnapshot = {
-        activeThreadId: next.activeThreadId,
-        isStreaming: next.isStreaming,
-        runningToolName: next.runningToolName,
-        unreadThreadIds: next.unreadThreadIds,
-        waitingThreadIds: next.waitingThreadIds,
-        runningThreadIds: next.runningThreadIds,
-        failedThreadIds: next.failedThreadIds,
-        interruptedThreadIds: next.interruptedThreadIds,
-        limitedThreadIds: next.limitedThreadIds,
-        runningStartedAt: next.runningStartedAt,
-      };
+    if (activityChanged) {
+      this.activitySnapshot = activityOf(next);
       this.activityListeners.forEach((listener) => listener());
     }
     if (next.threads !== previous.threads) {
