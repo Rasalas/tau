@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID, timingSafeEqual, createHash } from "node:crypto";
 import { readFile, mkdir, writeFile, rename } from "node:fs/promises";
 import { dirname } from "node:path";
+import { Transform } from "node:stream";
 import { WebSocketServer, createWebSocketStream, WebSocket } from "ws";
 
 const secret = () => randomBytes(32).toString("base64url");
@@ -96,7 +97,7 @@ export async function createConnectRelay(server, { adminToken, store, maxRoutes 
   };
   const attach = (peer, role, route, id) => {
       peer.on("error", () => peer.terminate());
-      peer.on("message", (_data, binary) => { if (role !== "host" && !binary) peer.close(1008, "TLS records must be binary"); });
+      peer.on("message", (_data, binary) => { if (role !== "host" && !binary) { peer.invalid = true; peer.close(1008, "TLS records must be binary"); } });
       peer.alive = true;
       peer.on("pong", () => { peer.alive = true; });
       if (role === "host") {
@@ -123,9 +124,21 @@ export async function createConnectRelay(server, { adminToken, store, maxRoutes 
         const stream = createWebSocketStream(peer, { highWaterMark: 65_536 });
         stream.on("error", () => peer.terminate());
         active.set(id, { route, host: peer, client: entry.client });
-        const stop = () => { active.delete(id); stream.destroy(); entry.stream.destroy(); peer.terminate(); entry.client.terminate(); };
+        // Closing a socket alone does not stop createWebSocketStream's message
+        // listener from consuming that same frame. Guard both stream directions.
+        const gate = (source) => new Transform({
+          highWaterMark: 65_536,
+          transform(bytes, _encoding, callback) {
+            if (source.invalid) callback(new Error("Relay TLS stream received a text frame."));
+            else callback(null, bytes);
+          },
+        });
+        const clientGate = gate(entry.client); const hostGate = gate(peer);
+        const stop = () => { active.delete(id); clientGate.destroy(); hostGate.destroy(); stream.destroy(); entry.stream.destroy(); peer.terminate(); entry.client.terminate(); };
+        clientGate.on("error", stop); hostGate.on("error", stop);
         peer.on("close", stop); entry.client.on("close", stop);
-        entry.stream.pipe(stream).pipe(entry.stream);
+        entry.stream.pipe(clientGate).pipe(stream);
+        stream.pipe(hostGate).pipe(entry.stream);
       }
   };
   server.on("upgrade", onUpgrade);

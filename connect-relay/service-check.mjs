@@ -71,6 +71,10 @@ test("browser relay authenticates before opening a host route and accepts only b
     const received = once(data, "message"); const ciphertext = randomBytes(1024); browser.send(ciphertext);
     assert.deepEqual((await received)[0], ciphertext);
     const returned = once(browser, "message"); data.send(ciphertext); assert.deepEqual((await returned)[0], ciphertext);
-    const closed = once(browser, "close"); browser.send("plaintext"); assert.equal((await closed)[0], 1008);
+    let plaintextForwarded = false;
+    data.on("message", () => { plaintextForwarded = true; });
+    const closed = once(browser, "close"); const dataClosed = once(data, "close");
+    browser.send("plaintext"); assert.equal((await closed)[0], 1008); await dataClosed;
+    assert.equal(plaintextForwarded, false);
   } finally { for (const peer of peers) peer.terminate(); relay.close(); await new Promise((resolve) => server.close(resolve)); }
 });
