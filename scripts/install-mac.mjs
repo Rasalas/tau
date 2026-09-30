@@ -48,7 +48,17 @@ export function parseArgs(argv) {
   return options;
 }
 
-/** Where `electron-builder --dir` leaves the app for an architecture. */
+/**
+ * electron-builder for this checkout on one architecture. The zip target, not
+ * `--dir`: electron-builder writes the update feed (`app-update.yml`) only into
+ * an app packed for a dmg or zip, and without it the build never updates.
+ */
+export function localBuildArgs(arch) {
+  if (arch !== "arm64" && arch !== "x64") throw new Error(`Unsupported architecture: ${arch}`);
+  return ["electron-builder", "-c", "tooling/electron-builder.yml", "--mac", "zip", `--${arch}`, "--publish", "never"];
+}
+
+/** Where electron-builder leaves the app for an architecture. */
 export function localAppPath(arch) {
   if (arch === "arm64") return join("release", "mac-arm64", APP_NAME);
   if (arch === "x64") return join("release", "mac", APP_NAME);
@@ -58,6 +68,11 @@ export function localAppPath(arch) {
 /** The release's .dmg for an architecture: `Tau-1.2.3-arm64.dmg` on Apple silicon, `Tau-1.2.3.dmg` on Intel. */
 export function dmgPattern(arch) {
   return arch === "arm64" ? "Tau-*-arm64.dmg" : "Tau-[0-9]*.dmg";
+}
+
+/** Where the updater reads the release feed inside a bundle. */
+export function updateFeedPath(app) {
+  return join(app, "Contents", "Resources", "app-update.yml");
 }
 
 /** The command line inside an installed bundle; `asarUnpack` keeps it a real file. */
@@ -171,8 +186,9 @@ function installApp(source, label, open) {
 function installLocal(arch, open) {
   const source = join(ROOT, localAppPath(arch));
   run("npm", ["run", "build"], { cwd: ROOT });
-  run("npx", ["electron-builder", "-c", "tooling/electron-builder.yml", "--mac", `--${arch}`, "--dir", "--publish", "never"], { cwd: ROOT });
+  run("npx", localBuildArgs(arch), { cwd: ROOT });
   if (!existsSync(source)) throw new Error(`electron-builder left no ${source}`);
+  if (!existsSync(updateFeedPath(source))) throw new Error(`${source} has no update feed; it would never update.`);
   installApp(source, "this checkout's build", open);
 }
 
