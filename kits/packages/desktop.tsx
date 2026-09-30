@@ -16,6 +16,7 @@ import {
   type DesktopExtension,
   type ExtensionInspection,
   type HostExtensionClient,
+  type RegionProps,
   type SettingsPageProps,
   type SettingsSectionProps,
   type WorkbenchActions,
@@ -30,6 +31,37 @@ interface PackagesCommandResult {
   installed?: PackageRow;
   /** `install`: Pi does not trust the project the package was installed for. */
   untrusted?: boolean;
+}
+
+/** Installs this window runs; their own caller raises the toast, so the host's event does not. */
+let ownInstalls = 0;
+async function ownInstall<T>(work: Promise<T>): Promise<T> {
+  ownInstalls += 1;
+  try { return await work; } finally { ownInstalls -= 1; }
+}
+
+/**
+ * The install toast for installs this window did not start: `tau kit new
+ * --install`, another window. One that lands while no thread is on screen
+ * waits for the next.
+ */
+export function followInstalls(host: HostExtensionClient): { bind(actions: WorkbenchActions): () => void } {
+  let bound: WorkbenchActions | undefined;
+  const waiting: PackagesCommandResult[] = [];
+  host.onEvent("changed", (payload) => {
+    const event = payload as { command?: string; result?: PackageRow; untrusted?: boolean } | undefined;
+    if (event?.command !== "install" || !event.result || ownInstalls > 0) return;
+    const result = { installed: event.result, ...(event.untrusted ? { untrusted: true } : {}) };
+    if (bound) announceInstall(host, bound, result);
+    else waiting.push(result);
+  });
+  return {
+    bind(actions) {
+      bound = actions;
+      for (const result of waiting.splice(0)) announceInstall(host, actions, result);
+      return () => { if (bound === actions) bound = undefined; };
+    },
+  };
 }
 
 /** Why a scan left a project's packages off, when it was Pi's trust. */
@@ -100,7 +132,8 @@ export function PackagesPage({ cwd, onNotify, onOpenSettings, host, inspect }: S
     setLog([]);
     setFailure(undefined);
     try {
-      const result = await host.invoke(command, input) as PackagesCommandResult;
+      const work = host.invoke(command, input) as Promise<PackagesCommandResult>;
+      const result = await (command === "install" ? ownInstall(work) : work);
       onNotify(result.message ?? "Done.");
       if (label === "install") setSource("");
       await refresh();
@@ -366,6 +399,18 @@ export const packagesExtension: DesktopExtension = {
       ),
     });
 
+    const installs = followInstalls(plugin.host);
+    plugin.registerRegion({
+      id: "packages.install-toasts",
+      placement: "composer-above",
+      order: 90,
+      profiles: ["desktop", "web"],
+      Component: function InstallToasts({ actions }: RegionProps) {
+        useEffect(() => installs.bind(actions), [actions]);
+        return null;
+      },
+    });
+
     plugin.registerSettingsSection({ id: "packages.extension", page: "extension", profiles: ["desktop", "web"], Component: createExtensionSection(plugin.host) });
 
     plugin.registerCommand({
@@ -385,7 +430,7 @@ export const packagesExtension: DesktopExtension = {
         if (!source) return "Name a source: npm:<package>, git:<url> or a folder path.";
         actions.notify(`Installing ${source}…`);
         try {
-          announceInstall(plugin.host, actions, await plugin.host.invoke("install", { source, scope }) as PackagesCommandResult);
+          announceInstall(plugin.host, actions, await ownInstall(plugin.host.invoke("install", { source, scope })) as PackagesCommandResult);
           return undefined;
         } catch (error) {
           return errorMessage(error);

@@ -88,9 +88,11 @@ export function createPackagesHostExtension(): HostExtension {
         services.log("packages.install", `${source} (${scope})`);
         const installed = row(await services.installPackage(source, scope, step));
         await rescan();
-        announce("install", installed);
         // A project install in a project Pi does not trust is skipped by every scan until it is trusted.
-        if (scope === "project" && services.projectTrust && !services.projectTrust.trusted()) {
+        const untrusted = scope === "project" && services.projectTrust !== undefined && !services.projectTrust.trusted();
+        // Windows that did not ask (the command line, another client) raise the same toast from this.
+        context.emit("changed", { command: "install", result: installed, ...(untrusted ? { untrusted } : {}) });
+        if (untrusted) {
           return { installed, untrusted: true, message: `${describeInstalled(installed)} — skipped: Pi does not trust this project. Trust it in Settings → Packages, then approve the package in Settings → Extensions.` };
         }
         return { installed, message: `${describeInstalled(installed)} — approve it in Settings → Extensions to start it.` };

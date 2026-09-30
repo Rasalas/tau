@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionInspection, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { PackagesPage, createExtensionSection, packagesExtension } from "./desktop.js";
+import { PackagesPage, createExtensionSection, followInstalls, packagesExtension } from "./desktop.js";
 import { PACKAGES_EXTENSION_ID, PACKAGES_SETTINGS_PAGE, parseInstallArguments } from "./protocol.js";
 
 afterEach(cleanup);
@@ -119,6 +119,21 @@ describe("Packages kit", () => {
     expect(installed.description).toMatch(/Settings → Extensions/u);
     installed.actions[0]?.run();
     expect(app.openSettings).toHaveBeenCalledWith("extensions/me.kit");
+  });
+
+  it("raises the install toast for an install the window did not start, once it has a thread to show it on", () => {
+    let emit: (payload: unknown) => void = () => undefined;
+    const client = { invoke: vi.fn(), onEvent: (_name: string, listener: (payload: unknown) => void) => { emit = listener; return () => undefined; } };
+    const installs = followInstalls(client);
+    const row = { source: "/k", scope: "global", directory: "/k", id: "me.kit", name: "My kit", signatureLabel: "unsigned" };
+    emit({ command: "install", result: row });
+    emit({ command: "remove", result: { source: "/k" } });
+    const toast = vi.fn();
+    const unbind = installs.bind({ ...actions(), toast } as unknown as WorkbenchActions);
+    expect(toast.mock.calls.map(([options]) => (options as { title: string }).title)).toEqual(["Installed My kit"]);
+    emit({ command: "install", result: row, untrusted: true });
+    expect((toast.mock.calls[1]?.[0] as { title: string }).title).toBe("My kit: skipped, project not trusted");
+    unbind();
   });
 
   it("reports a source the user did not name instead of calling the host", async () => {
