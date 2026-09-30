@@ -19,7 +19,7 @@ it("passes distribution names as one argument, never as shell code", () => {
 
 function channel() {
   const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill: vi.fn() });
-  return child as unknown as ChildProcessWithoutNullStreams;
+  return child as unknown as ChildProcessWithoutNullStreams & { stdout: PassThrough };
 }
 it("requests one pairing link and accepts only localhost forwarding", async () => {
   const child = channel();
@@ -50,9 +50,9 @@ it("cancels pairing without touching the distro host", async () => {
 });
 
 it("resumes the saved distro host without downloading or returning its token", async () => {
-  const execute = vi.fn(async () => "ws://127.0.0.1:47991/\n");
+  const execute = vi.fn(async (_args: string[]) => "ws://127.0.0.1:47991/\n");
   expect(await resumeWslHost("Ubuntu", { execute })).toBe("http://127.0.0.1:47991/");
-  expect(execute.mock.calls[0]?.[0].slice(0, 5)).toEqual(["--distribution", "Ubuntu", "--exec", "sh", "-c"]);
+  expect(execute.mock.calls[0]?.[0]?.slice(0, 5)).toEqual(["--distribution", "Ubuntu", "--exec", "sh", "-c"]);
   await expect(resumeWslHost("Ubuntu", { execute: async () => "ws://example.com:123/" })).rejects.toThrow(/localhost/u);
 });
 
