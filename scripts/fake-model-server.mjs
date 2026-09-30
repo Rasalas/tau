@@ -4,6 +4,8 @@
 //   "write <path> <word>"  → a `write` tool call, then "done" after the result
 //   "wait <ms>"            → a first delta, the pause (for aborts), then "ok"
 //   "fail <status> <text>" → HTTP <status> with <text> as the provider's error
+//   "run <seconds>"        → a `bash` call that runs `mkdir` and sleeps, then "done"
+//   "think <ms>"           → reasoning streamed for <ms> before each answer (with the others too)
 //   anything else          → "ok"
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -22,15 +24,19 @@ function text(content) {
 export function fakeReply(body) {
   const messages = Array.isArray(body?.messages) ? body.messages : [];
   const last = messages.at(-1);
-  if (last?.role === "tool") return { text: "done" };
   const prompt = text([...messages].reverse().find((message) => message.role === "user")?.content).trim();
+  const think = prompt.match(/\bthink\s+(\d+)\b/u);
+  const thinkMs = think ? { thinkMs: Math.min(Number(think[1]), 120_000) } : {};
+  if (last?.role === "tool") return { text: "done", ...thinkMs };
   const write = prompt.match(/\bwrite\s+(\S+)\s+(\S+)/u);
   if (write) return { toolCall: { name: "write", arguments: { path: write[1], content: `${write[2]}\n` } } };
+  const run = prompt.match(/\brun\s+(\d+)\b/u);
+  if (run) return { toolCall: { name: "bash", arguments: { command: `mkdir -p fake-run && sleep ${Math.min(Number(run[1]), 120)}` } }, ...thinkMs };
   const fail = prompt.match(/\bfail\s+([45]\d\d)\s+(.+)$/su);
   if (fail) return { status: Number(fail[1]), error: fail[2].trim() };
   const wait = prompt.match(/\bwait\s+(\d+)\b/u);
-  if (wait) return { text: "ok", waitMs: Math.min(Number(wait[1]), 120_000) };
-  return { text: "ok" };
+  if (wait) return { text: "ok", waitMs: Math.min(Number(wait[1]), 120_000), ...thinkMs };
+  return { text: "ok", ...thinkMs };
 }
 
 /** Starts the fake; `respond(body)` overrides `fakeReply`. Resolves with `baseUrl`, the `requests` seen and `close`. */
@@ -62,6 +68,11 @@ export async function startFakeModelServer({ respond = fakeReply } = {}) {
       let closed = false;
       const gone = new Promise((resolve) => response.on("close", () => { closed = true; resolve(); }));
       response.write(chunk({ delta: { role: "assistant", content: "" }, finish_reason: null }));
+      for (let spent = 0; reply.thinkMs && spent < reply.thinkMs && !closed; spent += 250) {
+        response.write(chunk({ delta: { reasoning_content: spent ? " and weighing it" : "Reading the request" }, finish_reason: null }));
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      if (closed) return;
       if (reply.toolCall) {
         response.write(chunk({ delta: { tool_calls: [{ index: 0, id: `call_${counter}`, type: "function", function: { name: reply.toolCall.name, arguments: JSON.stringify(reply.toolCall.arguments) } }] }, finish_reason: null }));
         response.write(chunk({ delta: {}, finish_reason: "tool_calls" }));

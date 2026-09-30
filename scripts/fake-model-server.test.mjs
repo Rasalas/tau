@@ -15,6 +15,12 @@ describe("fakeReply", () => {
     expect(fakeReply(user("fail 400 Unsupported parameter: temperature"))).toEqual({ status: 400, error: "Unsupported parameter: temperature" });
     expect(fakeReply({ messages: [...user("write a b").messages, { role: "assistant", content: null }, { role: "tool", content: "ok" }] })).toEqual({ text: "done" });
   });
+
+  it("runs a slow command and thinks before each answer when asked", () => {
+    expect(fakeReply(user("think 800 run 5"))).toEqual({ toolCall: { name: "bash", arguments: { command: "mkdir -p fake-run && sleep 5" } }, thinkMs: 800 });
+    expect(fakeReply({ messages: [...user("think 800 run 5").messages, { role: "assistant", content: null }, { role: "tool", content: "" }] })).toEqual({ text: "done", thinkMs: 800 });
+    expect(fakeReply(user("think 300"))).toEqual({ text: "ok", thinkMs: 300 });
+  });
 });
 
 describe("startFakeModelServer", () => {
@@ -51,6 +57,11 @@ describe("startFakeModelServer", () => {
     const message = await ask("fail 400 Unsupported parameter: temperature");
     expect(message.stopReason).toBe("error");
     expect(message.errorMessage).toContain("Unsupported parameter: temperature");
+  });
+
+  it("streams reasoning Pi reads as thinking", async () => {
+    const message = await ask("think 300");
+    expect(message.content).toEqual([expect.objectContaining({ type: "thinking" }), expect.objectContaining({ type: "text", text: "ok" })]);
   });
 
   it("streams a write tool call", async () => {
