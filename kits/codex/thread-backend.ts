@@ -52,6 +52,7 @@ export interface CodexSessionLike {
   account?(): Promise<CodexAccount | undefined>;
   /** `account/rateLimits/read`; see `limits.ts`. */
   rateLimits?(): Promise<unknown>;
+  consumeResetCredit?(idempotencyKey: string): Promise<unknown>;
   loginStart?(request: CodexLoginRequest): Promise<CodexLoginStart>;
   loginCancel?(loginId: string): Promise<void>;
   logout?(): Promise<void>;

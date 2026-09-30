@@ -492,6 +492,13 @@ export class WindowEnvironments {
    * window's connection there: the window's key could change things, so the
    * command must be one that machine lists as `access: "read"`.
    */
+  /** Forwards an explicit write over the window's authenticated connection.
+   * Both the origin method and the destination command enforce write access. */
+  async invokeExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown> {
+    const { watched } = this.reachable(machine);
+    return watched.monitor.call("host-extension", [extensionId, command, input]);
+  }
+
   async readExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown> {
     const { id, watched } = this.reachable(machine);
     if (!await this.onlyReads(id, watched, extensionId, command)) {

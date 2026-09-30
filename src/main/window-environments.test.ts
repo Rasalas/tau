@@ -476,6 +476,13 @@ describe("reading a kit of another machine (API 1.15.0)", () => {
     return { ...context, monitor, setReadCommands: (next: string[]) => { readCommands = next; } };
   }
 
+  it("forwards an explicit account write to the owning machine", async () => {
+    const { environments, monitor } = await connectedStudio();
+    await expect(environments.invokeExtension("studio", "tau.usage", "redeem-reset", { runtime: "codex", accountId: "codex:account" })).resolves.toEqual({ answered: ["tau.usage", "redeem-reset", { runtime: "codex", accountId: "codex:account" }] });
+    expect(monitor.calls.at(-1)?.method).toBe("host-extension");
+    await expect(environments.readExtension("studio", "tau.usage", "redeem-reset", {})).rejects.toThrow(/only reads/u);
+  });
+
   it("runs a command that machine registered to only read, over the window's connection there", async () => {
     const { environments, monitor } = await connectedStudio();
     await expect(environments.readExtension("studio", "tau.preview", "live-frame", { maxWidth: 320 }))

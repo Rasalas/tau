@@ -280,6 +280,14 @@ describe("Codex host half", () => {
     await expect(stranger.read!({})).rejects.toThrow("Caller acme.stranger is not allowed to invoke tau.codex/thread-texts.");
   });
 
+  it("redeems through the official app-server operation and refreshes the account", async () => {
+    const { registry } = await harness();
+    let redeem: (() => Promise<unknown>) | undefined;
+    await registry.activate({ id: "tau.usage", name: "Usage", activate(activation) { redeem = () => activation.invokeHostExtension("tau.codex", "usage-redeem-reset", { runtime: "codex" }); } });
+    await expect(redeem!()).resolves.toBe("reset");
+    await expect(registry.invoke("tau.codex", "usage-redeem-reset", { runtime: "unknown" })).rejects.toThrow("Unknown Codex account");
+  });
+
   it("reads the account's quota windows for the Usage kit without changing the account, and keeps them a while", async () => {
     const { registry, root } = await harness();
     // A made-up ChatGPT login in the stub's CODEX_HOME: the account shows as a hash only.

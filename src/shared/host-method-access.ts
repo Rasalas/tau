@@ -142,6 +142,7 @@ export const HOST_METHOD_ACCESS = {
   "environments-transcript-page": "read",
   "environments-watch-thread": "read",
   "environments-extension-read": "read",
+  "environments-extension-invoke": "write",
   // Only the connection a call went to may answer it; the answer changes nothing else.
   "client-call-result": "read",
   // The job's own method is checked when it starts.

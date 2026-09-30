@@ -73,3 +73,13 @@ A Pi you start in Tau's own terminal holds the session lock instead: [The window
 ## Apply changes with `/reload`
 
 Enter `/reload` in Tau, or run "Apply changes and reload Tau" from the command palette. Tau builds its source first and then picks the shortest way to apply it: a change to kits or to the renderer reloads those and the window while every thread keeps running, so a turn in flight never notices it; a change to a kit's runtime half (`pi.cjs`) reloads Pi's resources too, and that is the only path that still offers to wait for or stop running threads; a change to the Electron main process or preload restarts Tau.
+
+## Banked usage resets
+
+Usage shows banked reset counts for a Codex CLI ChatGPT account and for eligible Claude subscriptions. **Use reset** asks for confirmation, then redeems one reset on the machine that owns that account and refreshes its limits. A Read-only device cannot redeem a reset. Tau-managed ChatGPT plan connections continue to use **Manage usage** in ChatGPT Settings.
+
+Codex selects its credit through `account/rateLimitResetCredit/consume`. Claude uses the next eligible, unpaused, unexpired grant selected by its CLI usage endpoint. Claude resets are unavailable on macOS because Claude keeps its login in Keychain. Tau does not read Keychain for this feature. Other hosts use the credentials already stored by Claude in that instance's configuration directory.
+
+Overlapping requests on one host for the same account share one attempt. Tau retains its request ID in its own host state if the provider does not confirm the result, including across restart. **Check reset** retries that attempt instead of spending another reset. A confirmed reset can still leave the displayed limits stale if refreshing fails; refresh the Usage page to check. Authentication errors, cooldowns and provider rate limits are shown without credential data.
+
+Protocol references: OpenAI's [generated reset parameters](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/typescript/v2/ConsumeAccountRateLimitResetCreditParams.ts), [reset outcomes](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/typescript/v2/ConsumeAccountRateLimitResetCreditOutcome.ts) and [usage response](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/typescript/v2/GetAccountRateLimitsResponse.ts). Claude's banked reset endpoints are CLI compatibility operations rather than a documented public Anthropic API; their request and response shapes follow the implementation verified in [T3 Code v0.0.44](https://github.com/pingdotgg/t3code/blob/v0.0.44/apps/server/src/provider/Layers/claudeResetCredits.ts). Changes to those endpoints fail without claiming success.

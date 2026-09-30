@@ -23,6 +23,7 @@ export interface LimitAccount {
   label: string;
   plan?: string;
   checkedAt: number;
+  resetCredits?: { availableCount: number; pending?: boolean; nextExpiresAt?: number; nextCreditId?: string; unavailable?: string };
   windows: LimitWindow[];
   /** A hash of the provider's account id, for showing one account once; never the id itself. */
   identity?: { provider: string; key: string };

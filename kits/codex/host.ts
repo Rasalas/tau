@@ -1,4 +1,7 @@
 import { canonicalCodexHome, canonicalHomePath, codexHomeLayout, continuationEnvironment, prepareCodexHome } from "./home-layout.js";
+import { RpcError } from "./rpc.js";
+import { ResetCoordinator } from "./reset-coordinator.js";
+import { codexResetCredits } from "./limits.js";
 import { ChatGPTPlan, CHATGPT_PLAN_ARGS, CHATGPT_PLAN_METHOD, CHATGPT_USAGE_URL } from "./chatgpt-plan.js";
 import { PLAN_SCOPE } from "./chatgpt-plan-oauth.js";
 import { createManagedCodex, MANAGED_CODEX_VERSION } from "./managed-install.js";
@@ -372,7 +375,8 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       };
 
       /** Per instance: the quota windows last read or reported by a turn, and the login they belong to. */
-      const limits = new Map<string, { at: number; snapshot?: CodexRateSnapshot; account?: CodexAccount; identity?: AccountIdentity; error?: string; managementUrl?: string }>();
+      const limits = new Map<string, { at: number; snapshot?: CodexRateSnapshot; resetCredits?: LimitAccount["resetCredits"]; account?: CodexAccount; identity?: AccountIdentity; error?: string; managementUrl?: string }>();
+      const resets = new ResetCoordinator(services.stateDir);
       const reading = new Map<string, Promise<void>>();
       const noteRateLimits = (id: string, update: unknown): void => {
         const held = limits.get(id);
@@ -401,7 +405,10 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
             const read = account?.type === "chatgpt" ? await session.rateLimits?.() : undefined;
             // The home the app-server itself reports, so a test's never falls back to the real one.
             const identity = account?.type === "chatgpt" && session.codexHome ? await readCodexIdentity(session.codexHome) : undefined;
-            limits.set(id, { at: Date.now(), ...(account ? { account } : {}), ...(read ? { snapshot: codexReadSnapshot(read) } : {}), ...(identity ? { identity } : {}) });
+            const resetCredits = codexResetCredits(read);
+            const accountKey = identity?.key ?? await realpath(codexHome(instanceEnv(id))).catch(() => codexHome(instanceEnv(id)));
+            const pending = await resets.hasPending(accountKey);
+            limits.set(id, { at: Date.now(), ...(account ? { account } : {}), ...(read ? { snapshot: codexReadSnapshot(read), resetCredits: resetCredits || pending ? { availableCount: 0, ...resetCredits, pending } : undefined } : {}), ...(identity ? { identity } : {}) });
           } finally {
             await session.close().catch(() => undefined);
           }
@@ -413,7 +420,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       };
       const limitAccount = (id: string): LimitAccount => {
         const held = limits.get(id);
-        const base = { id: `${settings.kind(id)}:account`, runtime: settings.kind(id), label: settings.label(id), checkedAt: held?.at ?? Date.now(), ...(held?.identity ? { identity: held.identity } : {}) };
+        const base = { id: `${settings.kind(id)}:account`, runtime: settings.kind(id), label: settings.label(id), checkedAt: held?.at ?? Date.now(), ...(held?.resetCredits ? { resetCredits: held.resetCredits } : {}), ...(held?.identity ? { identity: held.identity } : {}) };
         const account = held?.account as { type?: string; planType?: string } | undefined;
         const accountPlan = account?.planType ?? held?.snapshot?.planType ?? undefined;
         if (held?.managementUrl) return { ...base, managementUrl: held.managementUrl, windows: [], unavailable: { reason: account ? "unsupported" : "signed-out", message: account ? "ChatGPT manages this connection’s usage and app limits." : "This ChatGPT account is signed out." } };
@@ -424,6 +431,40 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         if (!account) return { ...base, windows: [], unavailable: { reason: "signed-out", message: "Codex is not signed in." } };
         return { ...base, ...(accountPlan ? { plan: accountPlan } : {}), windows: [] };
       };
+
+      context.registerCommand("usage-redeem-reset", async (input) => {
+        const runtime = (input as { runtime?: unknown } | undefined)?.runtime;
+        const instance = settings.list().find((entry) => settings.kind(entry.id) === runtime);
+        if (!instance) throw new HostCommandError("Unknown Codex account.");
+        const id = instance.id;
+        if (await plan.read(id)) throw new HostCommandError("Manage resets in ChatGPT Settings for this connection.");
+        await readLimits(id);
+        const accountKey = limits.get(id)?.identity?.key ?? await realpath(codexHome(instanceEnv(id))).catch(() => codexHome(instanceEnv(id)));
+        return resets.redeem(accountKey, async (key) => {
+          await readLimits(id);
+          if (limits.get(id)?.error) throw new HostCommandError("Codex could not read this account. Retry to check the same request.");
+          const expectedIdentity = (input as { identity?: unknown } | undefined)?.identity;
+          if (expectedIdentity !== undefined && limits.get(id)?.identity?.key !== expectedIdentity) throw Object.assign(new HostCommandError("The account changed. Refresh before using a reset."), { settled: true });
+          if (limits.get(id)?.account?.type !== "chatgpt") throw new HostCommandError("Sign in with ChatGPT to redeem resets.");
+          const session = await spawnSession(id, { cwd: services.stateDir, onNotification: () => undefined, onRequest: async () => { throw new Error("No thread runs during a reset."); }, onExit: () => undefined });
+          try {
+            if (!session.consumeResetCredit) throw Object.assign(new HostCommandError("This Codex version does not support resets. Update Codex."), { settled: true });
+            const response = await session.consumeResetCredit(key) as { outcome?: unknown };
+            if (!["reset", "nothingToReset", "alreadyRedeemed", "noCredit"].includes(String(response?.outcome))) throw new HostCommandError("Codex could not confirm the reset. Retry to check the same request.");
+            await readLimits(id);
+
+            if (response.outcome === "reset" && (limits.get(id)?.error || !codexLimitWindows(limits.get(id)?.snapshot).length)) {
+              throw Object.assign(new HostCommandError("The reset was applied, but the new limits could not be confirmed. Refresh to check."), { settled: true });
+            }
+            return response.outcome;
+          } catch (error) {
+            if ((error as { settled?: boolean }).settled) throw error;
+            if (error instanceof RpcError && error.code === -32601) throw Object.assign(new HostCommandError("This Codex version does not support resets. Update Codex."), { settled: true });
+            throw new HostCommandError("Codex could not confirm the reset. Retry to check the same request.");
+          }
+          finally { await session.close().catch(() => undefined); }
+        });
+      }, { long: true, callers: [USAGE_KIT_ID] });
 
       const cachedModels = async (id: string): Promise<CodexStoredModel[]> => {
         const stored = await store.listModels(id);

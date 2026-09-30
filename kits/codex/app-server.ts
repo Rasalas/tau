@@ -151,10 +151,15 @@ export class CodexAppServer {
 
   /**
    * The account's quota windows, read without changing anything on the
-   * account: no reset-credit detail, no experiment flags.
+   * account, including its banked reset credits.
    */
   async rateLimits(): Promise<unknown> {
-    return this.connection.request("account/rateLimits/read", { excludeResetCreditDetails: true }, { timeoutMs: this.timeouts.requestMs });
+    return this.connection.request("account/rateLimits/read", { excludeResetCreditDetails: false }, { timeoutMs: this.timeouts.requestMs });
+  }
+
+  /** Redeems one provider-selected banked reset; retries keep the same key. */
+  async consumeResetCredit(idempotencyKey: string): Promise<unknown> {
+    return this.connection.request("account/rateLimitResetCredit/consume", { idempotencyKey }, { timeoutMs: 20_000 });
   }
 
   /** Starts a login; the CLI keeps the credential in its home and runs any callback listener itself. */

@@ -1,5 +1,8 @@
 import { execFile } from "node:child_process";
 import { realpath } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
+import { ResetCoordinator } from "./reset-coordinator.js";
+import { resetAccess, readClaudeResetCredits, consumeClaudeResetCredit } from "./reset-credits.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -242,11 +245,12 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
       const catalogKeys = new Map<string, string | undefined>();
 
       /** Per instance: the plan's windows last read or reported by a turn, and the login's billing. */
-      const limits = new Map<string, { at: number; windows: LimitWindow[]; plan?: string; billing?: UiModelBilling; identity?: AccountIdentity; error?: string; unsupported?: boolean }>();
+      const resets = new ResetCoordinator(services.stateDir);
+      const limits = new Map<string, { at: number; windows: LimitWindow[]; resetCredits?: LimitAccount["resetCredits"]; version?: string; plan?: string; billing?: UiModelBilling; identity?: AccountIdentity; error?: string; unsupported?: boolean }>();
       const noteProbe = (id: string, probe: ClaudeProbe): ClaudeProbe => {
         const billing = probeBilling(probe.account);
         const held = limits.get(id);
-        limits.set(id, { at: held?.at ?? 0, windows: held?.windows ?? [], ...(held?.plan ? { plan: held.plan } : {}), ...(held?.identity ? { identity: held.identity } : {}), ...(billing ? { billing } : {}) });
+        limits.set(id, { ...held, at: held?.at ?? 0, windows: held?.windows ?? [], ...(held?.plan ? { plan: held.plan } : {}), ...(held?.identity ? { identity: held.identity } : {}), ...(billing ? { billing } : {}) });
         return probe;
       };
       const noteRateLimits = (id: string, infos: ReadonlyArray<Record<string, unknown>>): void => {
@@ -261,15 +265,19 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           const windows = usageReadWindows(probe.usage);
           const plan = probe.account?.subscriptionType;
           const identity = probeBilling(probe.account) === "subscription" ? await readAgentSdkIdentity(settings.environment(id, env), plan) : undefined;
+          const version = probe.claudeCodeVersion ?? (windows ? await readVersion(services.findCommand(claudeCommand(id)) ?? claudeCommand(id)) : undefined);
+          const resetCredits = windows && version ? await readClaudeResetCredits(resetAccess(claudeConfigDir(settings.environment(id, env)), settings.environment(id, env), version)) : undefined;
+          const accountKey = identity?.key ?? await realpath(claudeConfigDir(settings.environment(id, env))).catch(() => claudeConfigDir(settings.environment(id, env)));
+          const pending = await resets.hasPending(accountKey);
           const { identity: _previous, ...held } = limits.get(id) ?? {};
-          limits.set(id, { ...held, at: Date.now(), windows: windows ?? [], ...(plan ? { plan } : {}), ...(identity ? { identity } : {}), ...(windows ? {} : { unsupported: true }) });
+          limits.set(id, { ...held, at: Date.now(), windows: windows ?? [], resetCredits: resetCredits || pending ? { availableCount: 0, ...resetCredits, pending } : undefined, version, error: undefined, unsupported: !windows, ...(plan ? { plan } : {}), ...(identity ? { identity } : {}), ...(windows ? {} : { unsupported: true }) });
         } catch (error) {
           limits.set(id, { ...limits.get(id), at: Date.now(), windows: limits.get(id)?.windows ?? [], error: error instanceof Error ? error.message : String(error) });
         }
       };
       const limitAccount = (id: string): LimitAccount => {
         const held = limits.get(id);
-        const base = { id: `${settings.kind(id)}:account`, runtime: settings.kind(id), label: settings.label(id), checkedAt: held?.at || Date.now(), ...(held?.plan ? { plan: held.plan } : {}), ...(held?.identity ? { identity: held.identity } : {}) };
+        const base = { id: `${settings.kind(id)}:account`, runtime: settings.kind(id), label: settings.label(id), checkedAt: held?.at || Date.now(), ...(held?.resetCredits ? { resetCredits: held.resetCredits } : {}), ...(held?.plan ? { plan: held.plan } : {}), ...(held?.identity ? { identity: held.identity } : {}) };
         if (held && held.windows.length > 0) return { ...base, windows: held.windows };
         if (held?.error) return { ...base, windows: [], unavailable: { reason: "failed", message: held.error } };
         if (held?.billing === "api-key") return { ...base, windows: [], unavailable: { reason: "unsupported", message: "An API key or a cloud provider has no plan limits." } };
@@ -492,9 +500,43 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           const held = limits.get(id);
           if (!refresh && held && held.at > 0 && !held.error && Date.now() - held.at < LIMITS_TTL_MS) return;
           await readLimits(id, adapters.get(id)!);
+          if (limits.get(id)?.error) throw new HostCommandError("Claude could not read this account. Retry to check the same request.");
+          const expectedIdentity = (input as { identity?: unknown } | undefined)?.identity;
+          if (expectedIdentity !== undefined && limits.get(id)?.identity?.key !== expectedIdentity) throw Object.assign(new HostCommandError("The account changed. Refresh before using a reset."), { settled: true });
         }));
         return { accounts: ids.map(limitAccount) };
       }, { access: "read", long: true, callers: [USAGE_KIT_ID] });
+      context.registerCommand("usage-redeem-reset", async (input) => {
+        const runtime = (input as { runtime?: unknown } | undefined)?.runtime;
+        const instance = settings.list().find((entry) => settings.kind(entry.id) === runtime);
+        if (!instance) throw new HostCommandError("Unknown Claude account.");
+        const id = instance.id;
+        const instanceEnvironment = settings.environment(id, env);
+        const config = claudeConfigDir(instanceEnvironment);
+        await readLimits(id, adapters.get(id)!);
+        const accountKey = limits.get(id)?.identity?.key ?? await realpath(config).catch(() => config);
+        return resets.redeem(accountKey, async (key, pendingCredit) => {
+          await readLimits(id, adapters.get(id)!);
+
+          const held = limits.get(id);
+          const grant = pendingCredit ?? held?.resetCredits?.nextCreditId;
+          if (!grant || !held?.version) throw Object.assign(new HostCommandError(held?.resetCredits?.unavailable ?? "No Claude reset is available."), { settled: !pendingCredit });
+          try {
+            await resets.bindCredit(accountKey, key, grant);
+            const outcome = await consumeClaudeResetCredit(resetAccess(config, instanceEnvironment, held.version), grant, key);
+            await readLimits(id, adapters.get(id)!);
+          if (limits.get(id)?.error) throw new HostCommandError("Claude could not read this account. Retry to check the same request.");
+          const expectedIdentity = (input as { identity?: unknown } | undefined)?.identity;
+          if (expectedIdentity !== undefined && limits.get(id)?.identity?.key !== expectedIdentity) throw Object.assign(new HostCommandError("The account changed. Refresh before using a reset."), { settled: true });
+            if (outcome === "reset" && (limits.get(id)?.error || !limits.get(id)?.windows.length)) throw Object.assign(new HostCommandError("The reset was applied, but the new limits could not be confirmed. Refresh to check."), { settled: true });
+            return outcome;
+          } catch (error) {
+            const failure = new HostCommandError(error instanceof Error ? error.message : "Claude could not confirm the reset.");
+            Object.assign(failure, { settled: (error as { settled?: boolean }).settled });
+            throw failure;
+          }
+        });
+      }, { long: true, callers: [USAGE_KIT_ID] });
       // Sessions the default instance's CLI ran on its own, for Onboarding to list and import as threads.
       const importDirs = () => claudeProjectDirs(settings.environment(DEFAULT_INSTANCE_ID, env));
       context.registerCommand("import-scan", async () => {

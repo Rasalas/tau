@@ -137,7 +137,12 @@ async function handle(message) {
       signOut();
       return send({ id, result: {} });
     // Shaped like codex-cli 0.156's `GetAccountRateLimitsResponse`; the params are logged for the test.
-    case "account/rateLimits/read": return send({ id, result: JSON.parse(readFileSync(new URL("./rate-limits-read.json", import.meta.url), "utf8")) });
+    case "account/rateLimits/read":
+      if (params.excludeResetCreditDetails !== false) return send({ id, error: { code: -32602, message: "Expected reset-credit details" } });
+      return send({ id, result: JSON.parse(readFileSync(new URL("./rate-limits-read.json", import.meta.url), "utf8")) });
+    case "account/rateLimitResetCredit/consume":
+      if (!/^[a-zA-Z0-9_-]{1,64}$/.test(params.idempotencyKey)) return send({ id, error: { code: -32602, message: "Missing idempotency key" } });
+      return send({ id, result: { outcome: "reset" } });
     case "model/list": return send({ id, result: { data: process.env.STUB_MODELS ? JSON.parse(readFileSync(process.env.STUB_MODELS, "utf8")) : fixture.models, nextCursor: null } });
     case "thread/settings/update": return send({ id, result: {} });
     case "thread/start": {

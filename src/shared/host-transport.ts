@@ -54,6 +54,7 @@ export const CLIENT_SIDE_METHODS = [
   "environments-transcript-page",
   "environments-watch-thread",
   "environments-extension-read",
+  "environments-extension-invoke",
 ] as const;
 
 export const isClientSideMethod = (method: string): boolean =>
