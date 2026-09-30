@@ -6,8 +6,11 @@ import { pullRequestTabParams } from "./pull-request-logic.js";
 import { PullRequestView, type PullRequestViewShared } from "./pull-request-view.js";
 import type { LinkDialogs } from "./link-dialog.js";
 import type { RowRequests } from "./requests.js";
+import type { ReviewDetailStore } from "./review-detail-store.js";
+import { useCompactProfile } from "./compact-profile.js";
 
 const PullRequestListView = lazy(() => import("./pull-request-list-view.js"));
+const RemoteReviewDetail = lazy(() => import("./remote-review-detail.js").then((module) => ({ default: module.RemoteReviewDetail })));
 
 /** The page has no tab to title; its bar names the request from the row. */
 const NO_TAB = { setTitle: () => undefined };
@@ -17,6 +20,8 @@ export interface PullRequestsPageParts {
   chips: () => ComposerContextChips | undefined;
   rows: RowRequests;
   shared: PullRequestViewShared & { dialogs: LinkDialogs };
+  /** What the review view (1e) tells the page's sidebar. */
+  sidebar: ReviewDetailStore;
 }
 
 /**
@@ -26,6 +31,7 @@ export interface PullRequestsPageParts {
  */
 export function PullRequestsPage({ params, navigate, actions, parts }: PageProps & { parts: PullRequestsPageParts }) {
   const detail = useMemo(() => pullRequestTabParams(params), [params]);
+  const phone = useCompactProfile();
   // What the page itself opened on: one project (`workspace`), or all of them.
   const [start] = useState(() => (!detail && typeof params.workspace === "string" ? { workspace: params.workspace } : { scope: "all" as const }));
   return (
@@ -47,7 +53,13 @@ export function PullRequestsPage({ params, navigate, actions, parts }: PageProps
       </div>
       {detail ? (
         <div className="pr-page-pane">
-          <PullRequestView key={detail.url} params={detail} handle={NO_TAB} actions={actions} client={parts.client} chips={parts.chips} rows={parts.rows} shared={parts.shared} />
+          {phone ? (
+            <PullRequestView key={detail.url} params={detail} handle={NO_TAB} actions={actions} client={parts.client} chips={parts.chips} rows={parts.rows} shared={parts.shared} />
+          ) : (
+            <Suspense fallback={<div className="stage-empty" role="status"><Spinner size="sm" label="Loading the pull request" /></div>}>
+              <RemoteReviewDetail key={detail.url} params={detail} actions={actions} client={parts.client} chips={parts.chips} rows={parts.rows} shared={parts.shared} sidebar={parts.sidebar} back={() => navigate({}, { root: true, replace: true })} />
+            </Suspense>
+          )}
         </div>
       ) : null}
     </div>
