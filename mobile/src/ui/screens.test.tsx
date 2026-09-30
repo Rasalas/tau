@@ -54,7 +54,7 @@ describe("HostsScreen", () => {
     const props = { nearby: { state: "searching" as const, hosts: [] }, onOpen: () => {}, onRemove: () => {}, onAdd: () => {}, onScan: () => {}, onAsk: () => {}, onRemoteActivity: (_host: SavedHost, enabled: boolean) => choices.push(enabled) };
     const view = render(<HostsScreen {...props} rows={[{ host: host(), signedOut: false, nearby: false, remoteActivity: { available: true, enabled: false } }]} />);
     const checkbox = screen.getByRole("checkbox", { name: "Remote Live Activities for Studio Mac" }) as HTMLInputElement;
-    expect(checkbox.checked).toBe(false);
+    expect(checkbox.getAttribute("aria-checked")).toBe("false");
     fireEvent.click(checkbox); expect(choices).toEqual([true]);
     view.rerender(<HostsScreen {...props} rows={[{ host: host(), signedOut: false, nearby: false, remoteActivity: { available: false, enabled: true } }]} />);
     fireEvent.click(screen.getByRole("checkbox")); expect(choices).toEqual([true, false]);

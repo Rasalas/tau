@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { RotateCcw } from "lucide-react";
+import { Button, HelpTip, Select, Slider } from "tau";
 import type { Device, FoldState } from "./protocol.js";
 import { articulated, bodyProfile, captureRegion, captureSurface, nativeAngle, panelGeometry, type BodyLayout, type PanelGeometry, type ScreenSize } from "./pose-model.js";
 
@@ -60,7 +62,7 @@ export default function DevicePoseView({ image, device, fold, source, captureRea
   const aspect = dimensions ? dimensions.width / dimensions.height : 1;
   // Initial closed captures have no interior dimensions. A generic body is explicit in the caption.
   const bodyAspect = articulated(layout) && !inner.current && fold?.posture === "closed" ? (layout === "flip" ? .5 : 1) : aspect;
-  const height = Math.min(350, Math.max(120, viewport.height - 70), Math.max(120, viewport.width - 90) / bodyAspect);
+  const height = Math.min(350, Math.max(120, viewport.height - 24), Math.max(120, viewport.width - 90) / bodyAspect);
   const width = height * bodyAspect;
   const depth = Math.max(6, Math.min(12, height * .026));
   const front = surface === "front" && angle > 5;
@@ -84,17 +86,20 @@ export default function DevicePoseView({ image, device, fold, source, captureRea
         {articulated(layout) && <span className={`devices-pose-hinge${layout === "flip" ? " devices-pose-hinge-horizontal" : ""}`} />}
       </div> : <span>Loading screen dimensions…</span>}
     </div>
-    <div className="devices-toolbar">
-      <label>Turn <input aria-label="3D turn" type="range" min="-180" max="180" value={((yaw + 180) % 360 + 360) % 360 - 180} onChange={(event) => setYaw(Number(event.target.value))} /></label>
-      <label>Tilt <input aria-label="3D tilt" type="range" min="-85" max="85" value={pitch} onChange={(event) => setPitch(Number(event.target.value))} /></label>
-      <label>Zoom <input aria-label="3D zoom" type="range" min="0.5" max="1.8" step="0.05" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /></label>
-      <button onClick={reset}>Reset view</button>
-      {fold?.supported && !profile.identified && <label>Preview layout <select aria-label="3D fold layout" value={layout} onChange={(event) => { setLayoutChoice(event.target.value as BodyLayout); inner.current = undefined; }}><option value="book">Book</option><option value="flip">Clamshell</option><option value="dual">Dual screen</option></select></label>}
-      {articulated(layout) && <label>Preview hinge <input aria-label="3D preview hinge" type="range" min="0" max={layout === "dual" ? 360 : 180} value={angle} onChange={(event) => setPreview(Number(event.target.value))} /><output>{Math.round(angle)}°</output></label>}
-      {preview !== undefined && <button onClick={() => setPreview(undefined)}>Follow device posture</button>}
+    <div className="devices-pose-adjustments">
+      <label className="devices-pose-adjustment"><span>Turn</span><Slider label="3D turn" min={-180} max={180} value={((yaw + 180) % 360 + 360) % 360 - 180} unit="°" onPreview={setYaw} onCommit={setYaw} /></label>
+      <label className="devices-pose-adjustment"><span>Tilt</span><Slider label="3D tilt" min={-85} max={85} value={pitch} unit="°" onPreview={setPitch} onCommit={setPitch} /></label>
+      <label className="devices-pose-adjustment"><span>Zoom</span><Slider label="3D zoom" min={.5} max={1.8} step={.05} value={zoom} format={(value) => `${Math.round(value * 100)}%`} onPreview={setZoom} onCommit={setZoom} /></label>
     </div>
-    <small>{layoutChoice ? "User-selected generic layout" : profile.label}. Generic frame and back, not a measured hardware model. Drag to orbit; scroll to zoom. Switch to the flat screen for touch input.</small>
-    {!captureReady && <small role="status">Waiting for a fresh capture after the posture change…</small>}
-    {articulated(layout) && <small>{preview !== undefined ? "Preview hinge changes this view only. " : ""}{actualAngle === undefined ? "Native hinge angle is unavailable. " : `Native hinge ${Math.round(actualAngle)}°. `}{surface === "unmapped" ? "Capture display is unknown; use the flat screen to see it." : surface === "cover" ? "Capture dimensions changed after closure; shown on a generic cover display." : "The native capture is split across the interior panels."}{!inner.current && fold?.posture === "closed" ? " Open the device to establish interior screen dimensions." : ""}</small>}
+    {articulated(layout) && <div className="devices-pose-hinge-control"><label>Preview hinge</label><Slider label="3D preview hinge" min={0} max={layout === "dual" ? 360 : 180} value={angle} unit="°" onPreview={setPreview} onCommit={setPreview} />{preview !== undefined && <Button variant="ghost" onClick={() => setPreview(undefined)}>Follow device posture</Button>}</div>}
+    <div className="devices-pose-caption">
+      <span>Drag to rotate · Scroll to zoom</span>
+      <HelpTip text={`${layoutChoice ? "User-selected generic layout" : profile.label}. Generic frame and back, not a measured hardware model. Switch to the flat screen for touch input.`} />
+      {fold?.supported && !profile.identified && <Select label="3D fold layout" value={layout} options={[{ value: "book", label: "Book" }, { value: "flip", label: "Clamshell" }, { value: "dual", label: "Dual screen" }]} onChange={(value) => { setLayoutChoice(value as BodyLayout); inner.current = undefined; }} />}
+      <Button variant="ghost" icon={<RotateCcw size={13} />} aria-label="Reset view" onClick={reset}>Reset view</Button>
+    </div>
+    {preview !== undefined && <p className="devices-pose-note">Preview hinge changes this view only.</p>}
+    {!captureReady && <p className="devices-pose-note" role="status">Updating the screen after the posture change…</p>}
+    {articulated(layout) && <p className="devices-pose-note">{surface === "unmapped" ? "Open the device to match its screen to the 3D view." : surface === "cover" ? "Showing the cover screen." : actualAngle !== undefined ? `Device hinge ${Math.round(actualAngle)}° · Interior screen` : "Interior screen · Device hinge unavailable"}</p>}
   </div>;
 }

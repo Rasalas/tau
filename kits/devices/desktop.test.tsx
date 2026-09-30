@@ -23,7 +23,7 @@ it("waits for consent data and requires Save before granting agent device contro
   render(<DeviceSettingsPage invoke={invoke} />);
   const consent = await screen.findByRole("checkbox");
   await waitFor(() => expect(invoke).toHaveBeenCalledWith("state"));
-  expect((consent as HTMLInputElement).checked).toBe(false);
+  expect(consent.getAttribute("aria-checked")).toBe("false");
   fireEvent.click(consent);
   expect(invoke).not.toHaveBeenCalledWith("configure", expect.anything());
   fireEvent.click(screen.getByRole("button", { name: "Save device settings" }));
@@ -60,7 +60,7 @@ it("shows a lazy articulated 3D inspection and floats the selected live device o
   render(<><DevicePanel active extensionName="Devices" actions={actions} invoke={invoke} floating={floating} /><FloatingDeviceView store={floating} actions={actions} invoke={invoke} /></>);
   fireEvent.click(await screen.findByRole("button", { name: /Test iPhone · ios/ }));
   await screen.findByRole("img", { name: "Test iPhone screen" });
-  fireEvent.click(screen.getByRole("button", { name: "3D view" }));
+  fireEvent.click(screen.getByRole("radio", { name: "3D view" }));
   expect(await screen.findByRole("slider", { name: "3D turn" })).toBeTruthy();
   fireEvent.change(screen.getByRole("slider", { name: "3D turn" }), { target: { value: "40" } });
   const scene = screen.getByRole("img", { name: "Test iPhone 3D inspection" });

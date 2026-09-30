@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Monitor, Plus, QrCode, Trash2, Wifi, X } from "lucide-react";
+import { Switch } from "../../../src/renderer/settings/controls";
 import { useFocusReturn, useFocusTrap } from "../../../src/renderer/components/ui/focus";
 import type { DiscoveredHost } from "../discovery";
 import { sortHosts, type SavedHost } from "../hosts";
@@ -77,19 +78,19 @@ export function HostsScreen({ rows, nearby, notice, onOpen, onRemove, onRemoteAc
     <div className="shell-scroll">
       {notice ? <p className="shell-notice" role="alert">{notice}</p> : null}
       {sorted.length > 0 ? <ul className="shell-list" aria-label="Paired hosts">
-        {sorted.map((row) => <li key={row.host.id} className="shell-row" data-signed-out={row.signedOut ? "" : undefined}>
-          <button type="button" className="shell-row-main" aria-label={`Open ${row.host.name}`} onClick={() => onOpen(row.host)}>
+        {sorted.map((row) => <li key={row.host.id} className="shell-row shell-paired-host" data-signed-out={row.signedOut ? "" : undefined}>
+          <div className="shell-host-main-row"><button type="button" className="shell-row-main" aria-label={`Open ${row.host.name}`} onClick={() => onOpen(row.host)}>
             <span className="shell-row-icon" aria-hidden="true">{row.nearby ? <Wifi size={20} /> : <Monitor size={20} />}</span>
             <span className="shell-row-text">
               <strong>{row.host.name}</strong>
               <small>{hostMeta(row, now)}</small>
             </span>
           </button>
-          {(row.remoteActivity?.available || row.remoteActivity?.enabled) && !row.signedOut && onRemoteActivity ? <label className="shell-activity-setting">
-            <input type="checkbox" checked={row.remoteActivity.enabled} onChange={(event) => onRemoteActivity(row.host, event.target.checked)} aria-label={`Remote Live Activities for ${row.host.name}`} />
-            Live Activities
-          </label> : null}
-          <button type="button" className="shell-icon-button" aria-label={`Remove ${row.host.name}`} title="Remove" onClick={() => setRemoving(row.host)}><Trash2 size={19} /></button>
+          <button type="button" className="shell-icon-button" aria-label={`Remove ${row.host.name}`} title="Remove" onClick={() => setRemoving(row.host)}><Trash2 size={19} /></button></div>
+          {(row.remoteActivity?.available || row.remoteActivity?.enabled) && !row.signedOut && onRemoteActivity ? <div className="shell-activity-setting">
+            <span><strong>Live Activities</strong><small>Updates on your Lock Screen</small></span>
+            <Switch role="checkbox" label={`Remote Live Activities for ${row.host.name}`} checked={row.remoteActivity.enabled} onChange={(enabled) => onRemoteActivity(row.host, enabled)} />
+          </div> : null}
         </li>)}
       </ul> : <div className="shell-empty">
         <strong>No hosts yet</strong>
@@ -97,7 +98,7 @@ export function HostsScreen({ rows, nearby, notice, onOpen, onRemove, onRemoteAc
         <button type="button" onClick={onScan}><QrCode size={18} />Scan a pairing code</button>
       </div>}
 
-      {onRemoteActivity ? <p className="shell-hint">Enable Live Activities for a host to show new agent work on your Lock Screen while Tau is closed. Turn it off here to stop remote starts and end its activities.</p> : null}
+      {onRemoteActivity && sorted.some((row) => row.remoteActivity?.available || row.remoteActivity?.enabled) ? <p className="shell-hint">Live Activities can start while Tau is closed. Turning them off ends current activities too.</p> : null}
       <section className="shell-section" aria-labelledby="nearby-title">
         <h2 id="nearby-title">On this network</h2>
         <NearbyList state={nearby} hosts={unknownNearby} onAsk={onAsk} />
