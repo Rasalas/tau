@@ -1,8 +1,12 @@
-import type { ManualChunkMeta } from "rollup";
+import type { ManualChunkMeta, RollupLog } from "rollup";
 import { readLucideExports } from "./icon-set";
 
 const LUCIDE_ICON = /\/lucide-react\/dist\/esm\/icons\/([\w-]+)\.mjs$/u;
-/** Small modules lazy surfaces import, under `src/`. None imports a stylesheet, whose place in the cascade a move could change. */
+/**
+ * Small modules lazy surfaces import, under `src/`. None imports a stylesheet
+ * or another lazy chunk's module: either would change the order in which
+ * dynamic imports add stylesheets, and so the cascade.
+ */
 export const COMMON_MODULES = [
   "shared/runtime-version.ts",
   "renderer/runtime-models.ts",
@@ -81,6 +85,11 @@ export const rendererBuild = {
       // avoids repeated imports and keeps message sheets out of the entry.
       return /\/renderer\/touch\/(?!Sheet\.tsx$).*\.tsx$/u.test(id) ? "touch-surfaces" : undefined;
     },
+  },
+  // A chunk cycle, such as one through the common chunk, reorders lazy stylesheets.
+  onwarn(warning: RollupLog, warn: (warning: RollupLog) => void) {
+    if (warning.code === "CIRCULAR_CHUNK") throw new Error(warning.message);
+    warn(warning);
   },
   // The oldest engines the renderer already needs (`structuredClone`, `Array.prototype.at`).
   // Vite's default lowers every class field to a helper call, 18 KB of the initial script.

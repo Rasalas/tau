@@ -81,3 +81,12 @@ describe("COMMON_MODULES", () => {
     for (const path of COMMON_MODULES) expect(readFileSync(new URL(`../src/${path}`, import.meta.url), "utf8"), path).not.toMatch(/\.css["']/u);
   });
 });
+
+describe("rendererBuild.onwarn", () => {
+  it("fails the build on a chunk cycle and passes other warnings on", () => {
+    const passed: string[] = [];
+    expect(() => rendererBuild.onwarn({ code: "CIRCULAR_CHUNK", message: "Circular chunk: a -> b -> a" }, () => undefined)).toThrow(/a -> b -> a/u);
+    rendererBuild.onwarn({ code: "EMPTY_BUNDLE", message: "empty" }, (warning) => passed.push(warning.code!));
+    expect(passed).toEqual(["EMPTY_BUNDLE"]);
+  });
+});

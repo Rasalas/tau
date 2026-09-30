@@ -23,7 +23,7 @@ export default defineConfig(({ mode }) => ({
     // opt-in for release debugging and are never silently shipped by start.
     sourcemap: mode === "development" || process.env.TAU_SOURCEMAP === "true",
     minify: "esbuild",
-    rollupOptions: { output: rendererBuild.output },
+    rollupOptions: { output: rendererBuild.output, onwarn: rendererBuild.onwarn },
     // Electron reads chunks from disk, so a lazy chunk's scripts need no preload
     // list; only its stylesheets still have to be fetched with it.
     modulePreload: { resolveDependencies: (_file, dependencies) => dependencies.filter((dependency) => dependency.endsWith(".css")) },

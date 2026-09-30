@@ -25,7 +25,7 @@ export default defineConfig(({ mode }) => ({
     outDir: path("../dist-web"),
     emptyOutDir: true,
     // The key keeps the entry chunk's name (`index.web-<hash>.js`) apart from the renderer's `index` chunks.
-    rollupOptions: { input: { "index.web": path("../src/web/index.html") }, output: rendererBuild.output },
+    rollupOptions: { input: { "index.web": path("../src/web/index.html") }, output: rendererBuild.output, onwarn: rendererBuild.onwarn },
     sourcemap: mode === "development" || process.env.TAU_SOURCEMAP === "true",
     minify: "esbuild",
     target: rendererBuild.target,
