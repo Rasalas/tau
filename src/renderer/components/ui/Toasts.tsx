@@ -28,21 +28,17 @@ export function toastSwipeDismisses(dx: number, width: number, velocity: number)
 interface Placed { toast: Toast; index: number; style: CSSProperties }
 
 /**
- * Where each visible toast sits in the stack, and how tall the stack is: the
- * newest last, nearest the bottom edge, and the others peeking above it.
+ * Where each visible toast sits, from the stack's bottom edge: the newest
+ * there, and the others peeking above it or, expanded, laid out apart.
  */
-export function layoutToasts(visible: readonly Toast[], heights: ReadonlyMap<string, number>, expanded: boolean): { items: Placed[]; height: number } {
+export function layoutToasts(visible: readonly Toast[], heights: ReadonlyMap<string, number>, expanded: boolean): Placed[] {
   const front = heights.get(visible[0]?.id ?? "") ?? 0;
-  const sizes = visible.map((toast) => heights.get(toast.id) ?? front);
-  const height = expanded
-    ? Math.max(0, sizes.reduce((sum, size) => sum + size + GAP, 0) - GAP)
-    : front + Math.max(0, visible.length - 1) * PEEK;
   let offset = 0;
-  const items = visible.map((toast, index) => {
-    const size = sizes[index]!;
+  return visible.map((toast, index) => {
     const scale = expanded ? 1 : 1 - index * SHRINK;
-    const y = expanded ? height - offset - size : height - front - index * PEEK - (1 - scale) * front;
-    offset += size + GAP;
+    // Anchored at the bottom, so the front toast stays put as the others fan out.
+    const y = expanded ? -offset : -index * PEEK - (1 - scale) * front;
+    offset += (heights.get(toast.id) ?? front) + GAP;
     const style: CSSProperties = {
       zIndex: visible.length - index,
       transform: `translateX(var(--toast-swipe-x, 0px)) translateY(${y}px) scale(${scale})`,
@@ -50,7 +46,6 @@ export function layoutToasts(visible: readonly Toast[], heights: ReadonlyMap<str
     };
     return { toast, index, style };
   });
-  return { items, height };
 }
 
 const ICONS: Record<ToastType, ReactNode> = {
@@ -67,8 +62,8 @@ function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
-    const timer = window.setTimeout(() => setCopied(false), 1400);
-    return () => window.clearTimeout(timer);
+    const timer = setTimeout(() => setCopied(false), 1400);
+    return () => clearTimeout(timer);
   }, [copied]);
   const label = copied ? "Copied" : "Copy";
   return (
@@ -182,7 +177,6 @@ export function ToastViewport({ store, touch = false }: { store: ToastStore; tou
     setFocused(false);
   }, [visible.length]);
 
-  const { items: layout, height: stackHeight } = layoutToasts(visible, heights.current, expanded);
 
   return (
     <section
@@ -191,13 +185,12 @@ export function ToastViewport({ store, touch = false }: { store: ToastStore; tou
       aria-label="Notifications"
       data-expanded={expanded || undefined}
       data-touch={touch || undefined}
-      style={{ height: stackHeight }}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
       onFocus={() => setFocused(true)}
       onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false); }}
     >
-      {layout.map(({ toast, index, style }) => (
+      {layoutToasts(visible, heights.current, expanded).map(({ toast, index, style }) => (
         <div
           key={toast.id}
           className="toast-item"
@@ -260,14 +253,15 @@ function useStackPlace(stack: RefObject<HTMLElement | null>, touch: boolean, cou
     for (const element of [composer, column]) if (element) resized?.observe(element);
     // `style`: the move between start and docked is a transform, measured again once it is cleared.
     if (composer) moved.observe(composer, { attributes: true, attributeFilter: ["class", "style"] });
-    const targets = [window, window.visualViewport];
-    for (const target of targets) target?.addEventListener("resize", measure);
-    window.visualViewport?.addEventListener("scroll", measure);
+    // The column and the composer resize with the window; the keyboard only moves the visual viewport.
+    const viewport = window.visualViewport;
+    viewport?.addEventListener("resize", measure);
+    viewport?.addEventListener("scroll", measure);
     return () => {
       resized?.disconnect();
       moved.disconnect();
-      for (const target of targets) target?.removeEventListener("resize", measure);
-      window.visualViewport?.removeEventListener("scroll", measure);
+      viewport?.removeEventListener("resize", measure);
+      viewport?.removeEventListener("scroll", measure);
     };
   }, [stack, touch, count]);
 }

@@ -139,15 +139,13 @@ describe("ToastViewport on a touch layout", () => {
     const toasts = [{ id: "new", type: "info" as const }, { id: "old", type: "info" as const }];
     const heights = new Map([["new", 60], ["old", 80]]);
     const collapsed = layoutToasts(toasts, heights, false);
-    expect(collapsed.height).toBe(68);
-    expect(collapsed.items[0]!.style.transform).toContain("translateY(8px) scale(1)");
-    // The older one's top edge peeks 8 px above the newest.
-    expect(collapsed.items[1]!.style.transform).toMatch(/translateY\(-3(\.0+\d*)?px\) scale\(0\.95\)/u);
-    const expanded = layoutToasts(toasts, heights, true);
-    expect(expanded.height).toBe(148);
-    expect(expanded.items.map((item) => item.style.transform)).toEqual([
-      "translateX(var(--toast-swipe-x, 0px)) translateY(88px) scale(1)",
+    expect(collapsed[0]!.style.transform).toContain("translateY(0px) scale(1)");
+    // The older one's top edge peeks 8 px above the newest: 8 px up, and 3 px for its smaller scale.
+    expect(collapsed[1]!.style.transform).toMatch(/translateY\(-11(\.0+\d*)?px\) scale\(0\.95\)/u);
+    expect(collapsed[1]!.style.height).toBe(60);
+    expect(layoutToasts(toasts, heights, true).map((item) => item.style.transform)).toEqual([
       "translateX(var(--toast-swipe-x, 0px)) translateY(0px) scale(1)",
+      "translateX(var(--toast-swipe-x, 0px)) translateY(-68px) scale(1)",
     ]);
   });
 

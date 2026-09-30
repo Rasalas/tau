@@ -10,7 +10,7 @@
   width: min(360px, calc(100vw - 24px)); pointer-events: none;
 }
 .toast-item {
-  position: absolute; top: 0; left: 0; right: 0; overflow: hidden; pointer-events: auto;
+  position: absolute; bottom: 0; left: 0; right: 0; overflow: hidden; pointer-events: auto;
   border: 1px solid var(--line-float); border-radius: var(--radius-md);
   background: var(--float); color: var(--ink); box-shadow: var(--elevation-2);
   transform-origin: bottom center; outline: none;
