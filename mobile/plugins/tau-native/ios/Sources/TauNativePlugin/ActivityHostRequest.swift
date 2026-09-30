@@ -33,7 +33,7 @@ import Foundation
     private func run(_ candidate: [String: Any]) async throws -> [String: Any] {
         try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
-            timeout = Task { try? await Task.sleep(for: .seconds(7)); if !Task.isCancelled { finish(.failure(ActivityRemote.Failure.unavailable)) } }
+            timeout = Task { try? await Task.sleep(nanoseconds: 7_000_000_000); if !Task.isCancelled { finish(.failure(ActivityRemote.Failure.unavailable)) } }
             guard let text = candidate["url"] as? String, let url = URL(string: text), url.scheme == "wss",
                   candidate["trust"] as? String == "pin" || candidate["trust"] as? String == "authority" else { finish(.failure(ActivityRemote.Failure.unavailable)); return }
             let open: (URL) -> Void = { [self] target in
