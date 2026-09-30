@@ -53,16 +53,23 @@ export class ChatGPTPlan {
       flow.verifying("Verifying your ChatGPT account…");
       const response = await this.oauth.token({ grant_type: "authorization_code", client_id: returned.clientId, code: returned.code, code_verifier: attempt.verifier, redirect_uri: attempt.redirectUri }, flow.signal);
       const next = tokens(response);
-      const identity = await this.oauth.identity(next.idToken, returned.clientId, attempt.nonce);
-      if (saved && (identity.subject !== saved.subject || saved.clientId !== returned.clientId)) throw new Error("This instance belongs to another ChatGPT account. Add a Codex instance for a different account.");
-      if (flow.signal.aborted) throw new Error("Sign-in cancelled.");
-      await this.store.lock(instance, async () => {
-        if (flow.signal.aborted) throw new Error("Sign-in cancelled.");
+      // Tokens issued for an account this instance cannot keep are revoked, not just dropped.
+      const discard = async (message: string): Promise<never> => {
+        await this.oauth.revoke({ clientId: returned.clientId, issuer: CHATGPT_ISSUER, subject: "", tokens: next });
+        throw new Error(message);
+      };
+      const identity = await this.oauth.identity(next.idToken, returned.clientId, attempt.nonce).catch((error: unknown) => discard(error instanceof Error ? error.message : String(error)));
+      if (saved && (identity.subject !== saved.subject || saved.clientId !== returned.clientId)) await discard("This instance belongs to another ChatGPT account. Add a Codex instance for a different account.");
+      if (flow.signal.aborted) await discard("Sign-in cancelled.");
+      const changed = await this.store.lock(instance, async () => {
+        if (flow.signal.aborted) return "Sign-in cancelled.";
         const current = await this.store.read(instance);
-        if (current && (current.clientId !== returned.clientId || current.subject !== identity.subject)) throw new Error("This instance's account changed while signing in. Start again.");
+        if (current && (current.clientId !== returned.clientId || current.subject !== identity.subject)) return "This instance's account changed while signing in. Start again.";
         await this.store.write(instance, { clientId: returned.clientId, issuer: CHATGPT_ISSUER, ...identity, confirmed: saved?.confirmed ?? false, tokens: next });
         await this.store.forget(`pending:${instance}`);
+        return undefined;
       });
+      if (changed) await discard(changed);
       if (!next.scopes.includes(PLAN_SCOPE)) return "Signed in to ChatGPT. Plan use is not enabled. Continue with ChatGPT again to authorize it.";
       if (!saved?.confirmed) {
         await flow.ask({ kind: "select", message: "Tau can now use your ChatGPT plan. Usage is shared with other apps and follows the limits you set in ChatGPT. Manage usage in ChatGPT Settings.", options: [{ id: "continue", label: "Continue" }] });

@@ -107,9 +107,12 @@ describe("ChatGPT plan authorization", () => {
     await f.plan.signIn("two", f.flow);
     expect((await f.plan.read("one"))!.tokens!.accessToken).toBe("access-1");
     expect((await f.plan.read("two"))!.tokens!.accessToken).toBe("second-access");
-    f.set({ clientId: "oaiapp_fixture" });
+    f.set({ clientId: "oaiapp_fixture", refresh: "stray-refresh" });
     await expect(f.plan.signIn("one", f.flow)).rejects.toThrow("belongs to another ChatGPT account");
     expect((await f.plan.read("one"))!.subject).toBe("account-1");
+    // The other account's tokens were issued to Tau; they are revoked, not only dropped.
+    const revoked = vi.mocked(f.fetcher).mock.calls.filter(([url]) => String(url).endsWith("/revoke")).map(([, init]) => new URLSearchParams(String(init!.body)).get("token"));
+    expect(revoked).toEqual(["stray-refresh"]);
   });
 
   it("does not enable inference without the granted plan scope", async () => {
