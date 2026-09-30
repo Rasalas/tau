@@ -20,6 +20,8 @@ import { getAgentDir, VERSION as PI_VERSION } from "@earendil-works/pi-coding-ag
 import { inspectExtensionPackages, loadHostExtensionPackages } from "./extension-packages.js";
 import { installShellEnvironment } from "./shell-environment.js";
 import { configureAppIdentity, installSingleInstance } from "./single-instance.js";
+import { appIdentity } from "./app-identity.js";
+import { builtFromSource } from "./update-installers.js";
 import { backgroundModeRequested, installBackgroundMode } from "./background-mode.js";
 import { EXTENSION_API_VERSION, type ExtensionHostVersions } from "../shared/extension-compat.js";
 import { HostLog } from "./host-log.js";
@@ -853,10 +855,11 @@ if (primaryInstance) app.whenReady().then(async () => {
   const linux = process.platform === "linux" && app.isPackaged
     ? linuxUpdates(electronUpdater, linuxInstall(process.env, process.resourcesPath, process.execPath))
     : undefined;
+  const unsupported = appIdentity().updates ? linux?.unsupported : builtFromSource(app.name);
   updates = createAppUpdates({
     updater: linux?.updater ?? electronUpdater.autoUpdater,
     enabled: app.isPackaged,
-    ...(linux?.unsupported ? { unsupported: linux.unsupported } : {}),
+    ...(unsupported ? { unsupported } : {}),
     ...(linux?.installOnQuit === false ? { installOnQuit: false } : {}),
     log: hostLog,
     onDownloaded: (version, info) => {

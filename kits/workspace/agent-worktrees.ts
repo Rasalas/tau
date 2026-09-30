@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { gitExecutable } from "tau/host-extension";
+import { gitExecutable, tauHomeDir } from "tau/host-extension";
 
 const execFileAsync = promisify(execFile);
 const PATCH_BUFFER = 64 * 1024 * 1024;
@@ -150,8 +150,8 @@ export async function readWorktreeConfig(mainRoot: string, cwd?: string): Promis
   }
 
   const globalCandidates = [
-    join(homedir(), ".tau", "project.json"),
-    join(homedir(), ".tau", "config.json"),
+    join(tauHomeDir(), "project.json"),
+    join(tauHomeDir(), "config.json"),
   ];
   for (const candidate of globalCandidates) {
     try {

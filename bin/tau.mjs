@@ -13,8 +13,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { UPDATE_WAIT_MS, describeUpdate, parseMachinesArgs, runMachines } from "./tau-machines.mjs";
 import { parseKitArgs, runKit } from "./tau-kit.mjs";
 
-/** `configureAppIdentity` in `src/main/single-instance.ts` names the folder the same way. */
-export const USER_DATA_FOLDER = "tau-pi-desktop-prototype";
+/** The userData folder of each app identity, as `src/main/app-identity.ts` names it. */
+export const USER_DATA_FOLDERS = { stable: "tau-pi-desktop-prototype", dev: "tau-dev" };
 const PROTOCOL = 1;
 const WORKSPACE_KIT = "tau.workspace";
 const PACKAGES_KIT = "tau.packages";
@@ -102,12 +102,23 @@ export function reportUpdate(status, { name, json }, out) {
   return status.phase === "failed" || status.phase === "unsupported" ? 1 : 0;
 }
 
+/** Tau Dev when the app this file ships in says so (`tauFlavor` in its unpacked package.json). */
+export function cliFlavor(self = fileURLToPath(import.meta.url)) {
+  try {
+    const manifest = JSON.parse(readFileSync(join(dirname(dirname(realpathSync(self))), "package.json"), "utf8"));
+    return manifest.tauFlavor === "dev" ? "dev" : "stable";
+  } catch {
+    return "stable";
+  }
+}
+
 /** Electron's `appData` joined with the folder the app names itself. */
-export function userDataDir(env = process.env, platform = process.platform, home = homedir()) {
+export function userDataDir(env = process.env, platform = process.platform, home = homedir(), flavor = cliFlavor()) {
   if (env.TAU_USER_DATA) return resolve(env.TAU_USER_DATA);
-  if (platform === "darwin") return join(home, "Library", "Application Support", USER_DATA_FOLDER);
-  if (platform === "win32") return join(env.APPDATA || join(home, "AppData", "Roaming"), USER_DATA_FOLDER);
-  return join(env.XDG_CONFIG_HOME || join(home, ".config"), USER_DATA_FOLDER);
+  const folder = USER_DATA_FOLDERS[flavor];
+  if (platform === "darwin") return join(home, "Library", "Application Support", folder);
+  if (platform === "win32") return join(env.APPDATA || join(home, "AppData", "Roaming"), folder);
+  return join(env.XDG_CONFIG_HOME || join(home, ".config"), folder);
 }
 
 function alive(pid) {

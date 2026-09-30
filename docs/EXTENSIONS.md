@@ -2108,7 +2108,9 @@ PATHEXT, a `.cmd` shim such as `npm.cmd` or `code.cmd` runs through `cmd.exe`
 — Node refuses to spawn one directly — and `killProcessTree` is
 `taskkill /T /F`; spawn with `commandInvocation(command, args)`'s `command`,
 `args` and `windowsVerbatimArguments`, see [docs/windows.md](windows.md)),
-`assertAllowedCloneSource`, `readBoundedImagePreview`,
+`assertAllowedCloneSource`, `tauHomeDir` (new in API 1.34.0: `~/.tau`, or
+`~/.tau-dev` in a Tau Dev build, the folder of the user's own Tau settings),
+`readBoundedImagePreview`,
 `assistantAnchorForBranch` (the persisted entry id of an assistant message)
 and the `PiKit*` types above. The Git and checkpoint engine that 1.3.0 briefly
 re-exported — the `workspaceGit` namespace, `GitCoordinator`, the checkpoint

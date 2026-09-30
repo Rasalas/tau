@@ -15,6 +15,7 @@ import {
   type HostResources,
   type RuntimeReadiness,
 } from "../shared/host-resources.js";
+import { tauHomeDir } from "./app-identity.js";
 
 /** The part of `node:os` a reading needs; tests hand in their own. */
 export interface ResourceOs {
@@ -319,7 +320,7 @@ async function runtimesReadiness(source: ReadinessRuntimes, waitMs: number): Pro
 
 /** Where new worktrees go on this machine: the configured folder, else Tau's own under the home folder. */
 export function worktreesFolder(env: NodeJS.ProcessEnv, home: string): string {
-  return env.TAU_WORKTREES_DIR?.trim() || join(home, ".tau");
+  return env.TAU_WORKTREES_DIR?.trim() || tauHomeDir(home);
 }
 
 async function diskReadiness(path: string, stat: NonNullable<ReadinessOptions["statfs"]>): Promise<HostReadiness["disk"]> {

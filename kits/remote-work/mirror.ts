@@ -1,16 +1,15 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
-import { assertAllowedCloneSource, HostCommandError } from "tau/host-extension";
+import { assertAllowedCloneSource, HostCommandError, tauHomeDir } from "tau/host-extension";
 import { branchBaseConfigKey } from "../workspace/agent-worktrees.js";
 import { gitMessage, receivingGitRunner, type GitRunner } from "./git.js";
 import { REPO_KEY, folderName, slugOf } from "./identity.js";
 import { DOWNLOAD_PIECE_BYTES, REMOTE_WORK_PROTOCOL, type PrepareResult, type RepoIdentity, type ResultAnswer, type TransferStepId, type TransferStepState } from "./protocol.js";
 
 /** The receiving machine's own folder for remote work: mirrors, worktrees, outgoing bundles. */
-export const defaultRemoteWorkRoot = () => join(homedir(), ".tau", "remote-work");
+export const defaultRemoteWorkRoot = () => join(tauHomeDir(), "remote-work");
 
 export const TRANSFER_ID = /^[a-z0-9]{8,40}$/u;
 const SHA = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u;

@@ -57,6 +57,8 @@ export { gitExecutable, findExecutable, type FindExecutableOptions } from "./she
 /** Starting a command the way the platform needs: `.cmd` shims through `cmd.exe`, process trees ended whole. */
 export { commandInvocation, killProcessTree, type CommandInvocation, type CommandInvocationOptions } from "./platform-process.js";
 export { assertAllowedCloneSource } from "./clone-source.js";
+// `~/.tau`, or Tau Dev's `~/.tau-dev`: where a kit reads the user's own settings (API 1.34.0).
+export { tauHomeDir } from "./app-identity.js";
 
 /** For a backend that drives a CLI: the newest npm release, the package manager's update command, version order. */
 export { homebrewLatestVersion, npmLatestVersion, packageInstallCommand, packageUpdateCommand, type HomebrewKind, type NpmLatestVersionOptions } from "./cli-versions.js";

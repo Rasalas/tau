@@ -5,7 +5,7 @@ import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** Where the user's own tools keep their state under the real home; no test writes there. */
-const GUARDED = [".pi", ".tau", ".codex", ".claude", ".claude.json", ".gemini", ".cursor", ".grok", ".config", ".local", ".zshrc", "Library"];
+const GUARDED = [".pi", ".tau", ".tau-dev", ".codex", ".claude", ".claude.json", ".gemini", ".cursor", ".grok", ".config", ".local", ".zshrc", "Library"];
 
 /** Variables that move a tool's state away from HOME. Unset, each one falls back to the test's home. */
 const HOME_VARIABLES = [
