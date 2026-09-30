@@ -11,15 +11,16 @@ export interface AttachmentImage {
 /** Owns image-preview state; the dialog itself loads with its own chunk. */
 export function AttachmentImageDialog({
   images,
+  origin,
   children,
 }: {
   images: readonly AttachmentImage[];
+  origin?: string;
   children(open: (index: number) => void): ReactNode;
 }) {
   const [previewIndex, setPreviewIndex] = useState<number>();
-  const preview = previewIndex === undefined ? undefined : images[previewIndex];
   return <>
     {children((index) => setPreviewIndex(index))}
-    {preview ? <AttachmentLightbox preview={preview} onClose={() => setPreviewIndex(undefined)} /> : null}
+    {previewIndex !== undefined && images[previewIndex] ? <AttachmentLightbox images={images} index={previewIndex} origin={origin} onClose={() => setPreviewIndex(undefined)} /> : null}
   </>;
 }

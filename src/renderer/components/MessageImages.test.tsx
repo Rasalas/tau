@@ -103,20 +103,32 @@ describe("message images", () => {
     await waitFor(() => expect(copyImage).toHaveBeenCalledWith("data:image/png;base64,iVBORw=="));
   });
 
-  it("opens and closes persisted images in an accessible lightbox", () => {
+  it("opens and closes persisted images in an accessible lightbox", async () => {
     render(<Message message={{ id: "user-image", role: "user", text: "please inspect", images: [{ mimeType: "image/png", data: "iVBORw==" }], timestamp: 0 }} />);
     const openButton = screen.getByRole("button", { name: "Open image 1" });
     openButton.focus();
     fireEvent.click(openButton);
-    const dialog = screen.getByRole("dialog", { name: "Image preview" });
-    expect(dialog.parentElement).toBe(document.body);
-    expect(dialog.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,iVBORw==");
+    const dialog = await screen.findByRole("dialog", { name: "Image preview" });
+    expect(dialog.parentElement?.parentElement).toBe(document.body);
+    expect(dialog.querySelector(".lightbox-stage img")?.getAttribute("src")).toBe("data:image/png;base64,iVBORw==");
     const closeButton = screen.getByRole("button", { name: "Close preview" });
-    expect(document.activeElement).toBe(closeButton);
-    fireEvent.keyDown(window, { key: "Tab" });
-    expect(document.activeElement).toBe(closeButton);
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(screen.queryByRole("dialog", { name: "Image preview" })).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(closeButton));
+    // One image: nothing to step through.
+    expect(screen.queryByRole("button", { name: "Next image" })).toBeNull();
+    fireEvent.keyDown(closeButton, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Image preview" })).toBeNull());
     expect(document.activeElement).toBe(openButton);
+  });
+
+  it("steps through a message's images by the names the prompt gave them", async () => {
+    const images = [{ mimeType: "image/png", data: "AAAA" }, { mimeType: "image/png", data: "BBBB" }];
+    render(<Message message={{ id: "user-images", role: "user", text: "checkout-429.png grafana.png Make it friendlier.", images, timestamp: 0 }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open image 1" }));
+    const dialog = await screen.findByRole("dialog", { name: "checkout-429.png" });
+    expect(dialog.textContent).toContain("1 of 2 · from your message");
+    fireEvent.keyDown(screen.getByRole("button", { name: "Close preview" }), { key: "ArrowRight" });
+    expect(await screen.findByRole("dialog", { name: "grafana.png" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Image 1" }));
+    expect(await screen.findByRole("dialog", { name: "checkout-429.png" })).toBeTruthy();
   });
 });

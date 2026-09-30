@@ -1,0 +1,39 @@
+/* The image lightbox: the whole window, dark in either theme, so pictures read true. */
+.attachment-lightbox {
+  position: fixed; inset: 0; z-index: 92; display: flex; flex-direction: column;
+  background: var(--scrim-deep); color: var(--media-ink); font: 13px var(--sans); outline: none;
+}
+.lightbox-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.lightbox-head { display: flex; align-items: center; gap: 10px; padding: 14px 18px; }
+:root:has(.app-shell.window-inset) .lightbox-head { padding-left: 88px; }
+.lightbox-head > strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lightbox-head > span { flex: 1; min-width: 0; color: var(--media-muted); white-space: nowrap; }
+.lightbox-action, .lightbox-close {
+  flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border: 0; border-radius: 6px;
+  background: transparent; color: inherit; font: 12px var(--sans); cursor: pointer;
+}
+.lightbox-close { width: 28px; height: 28px; padding: 0; justify-content: center; border-radius: 8px; }
+.lightbox-action:hover, .lightbox-close:hover { background: var(--media-hover); }
+.lightbox-stage {
+  position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+  padding: 10px 80px; overflow: hidden;
+}
+.lightbox-stage > img {
+  display: block; max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 10px;
+  background: var(--media-well); transition: transform .08s ease-out; cursor: zoom-in;
+}
+.lightbox-nav {
+  position: absolute; left: 24px; top: 50%; transform: translateY(-50%); width: 40px; height: 40px;
+  display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--media-control); color: var(--media-ink); cursor: pointer;
+}
+.lightbox-nav.next { left: auto; right: 24px; }
+.lightbox-nav:hover { background: var(--media-hover); }
+.lightbox-foot { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 12px 0 18px; min-height: 40px; }
+.lightbox-thumb {
+  flex: none; width: 64px; height: 40px; padding: 0; border: 0; border-radius: 6px; overflow: hidden;
+  background: var(--media-well); opacity: .6; cursor: pointer;
+}
+.lightbox-thumb[aria-current] { opacity: 1; box-shadow: 0 0 0 2px var(--media-ink); }
+.lightbox-thumb > img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.lightbox-foot > span { margin-left: 10px; color: var(--media-muted); font-size: 11px; }
+.palette-backdrop:has(> .attachment-lightbox) { z-index: 92; }

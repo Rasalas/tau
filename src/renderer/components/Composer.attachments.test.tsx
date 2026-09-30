@@ -81,9 +81,12 @@ describe("Composer attachments", () => {
     expect(thumbnail.closest(".composer-chip-list")).toBeTruthy();
     expect(plainChipText((screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement).value)).toBe("diagram.png ");
     fireEvent.click(thumbnail);
-    const dialog = screen.getByRole("dialog", { name: "diagram.png" });
-    expect(dialog.parentElement).toBe(document.body);
-    fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+    const dialog = await screen.findByRole("dialog", { name: "diagram.png" });
+    expect(dialog.parentElement?.parentElement).toBe(document.body);
+    expect(dialog.textContent).toContain("not sent yet");
+    // Escape closes it, as every dialog does.
+    fireEvent.keyDown(screen.getByRole("button", { name: "Close preview" }), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "diagram.png" })).toBeNull());
 
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());

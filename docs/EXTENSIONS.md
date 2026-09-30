@@ -4188,7 +4188,15 @@ Two grounds carry the window: the document area (`--stage`, `--shell`) and the s
 | `--chip-hover` | a small label, hovered | `#d8d4cd` | `#2e3136` |
 | `--track` | an empty progress track | `#d8d4cd` | `#2e3136` |
 | `--scrim` | the dim behind a modal | `#1c1b19a3` | `#050608e0` |
-| `--scrim-deep` | the dim behind a full-screen image | `#1c1b19e0` | `#020204ed` |
+| `--scrim-deep` | the dim behind a full-screen image, dark in either scheme | `#0e0e0df0` | `#0e0e0df0` |
+| `--media` | the ground of a full-window picture viewer (the lightbox, Evidence's viewer), dark in either scheme so pictures read true | `#0e0e0d` | `#0e0e0d` |
+| `--media-ink` | text on it | `#f1efeb` | `#f1efeb` |
+| `--media-muted` | secondary text on it | `#f1efeb8c` | `#f1efeb8c` |
+| `--media-faint` | times and small print on it | `#f1efeb73` | `#f1efeb73` |
+| `--media-control` | a round control beside a picture | `#ffffff1f` | `#ffffff1f` |
+| `--media-shade` | a round control on a picture | `#0000008c` | `#0000008c` |
+| `--media-hover` | a control on it, hovered | `#ffffff14` | `#ffffff14` |
+| `--media-well` | where a picture loads | `#2a2926` | `#2a2926` |
 | `--drop-card` | the card in a drag-and-drop overlay | `#fbfaf8ee` | `#191c21ee` |
 
 **Hairlines**

@@ -37,7 +37,7 @@ function MessageImageGallery({ images }: { images: readonly AttachmentImage[] })
     button.focus();
     setContextMenu({ image, x, y });
   };
-  return <AttachmentImageDialog images={images}>{(open) =>
+  return <AttachmentImageDialog images={images} origin="from your message">{(open) =>
     <div className="message-images" data-image-count={images.length}>
       {images.map((image, index) => (
         <button
@@ -156,11 +156,14 @@ function ImageContextMenu({
   );
 }
 
-export function PersistedMessageImages({ images }: { images: readonly UiMessageImage[] }) {
+export function PersistedMessageImages({ images, text = "" }: { images: readonly UiMessageImage[]; text?: string }) {
+  // Pi keeps no file names; the composer wrote them into the text, one per image, in order.
+  const names = text.match(/\S+\.(?:png|jpe?g|gif|webp)\b/giu) ?? [];
   return <MessageImageGallery images={images.map((image, index) => ({
     key: `${index}-${image.mimeType}-${image.data.slice(0, 16)}`,
     src: `data:${image.mimeType};base64,${image.data}`,
     alt: "Attached image",
+    ...(names.length === images.length ? { label: names[index] } : {}),
   }))} />;
 }
 
