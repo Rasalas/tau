@@ -232,7 +232,9 @@ function useStackPlace(stack: RefObject<HTMLElement | null>, touch: boolean, cou
     const composer = document.querySelector<HTMLElement>(".conversation-composer-host");
     const column = document.querySelector<HTMLElement>(".conversation-column");
     const measure = () => {
-      const dock = composer?.classList.contains("docked") && (touch ? composer : composer.querySelector(".composer-surface") ?? composer).getBoundingClientRect();
+      // A draft's composer is "start", not "docked", yet on the desktop it sits at the bottom all the same.
+      const surface = touch ? composer?.classList.contains("docked") ? composer : undefined : composer?.querySelector(".composer-surface") ?? composer;
+      const dock = surface?.getBoundingClientRect();
       const lift = dock && dock.height ? innerHeight - dock.top + GAP : 0;
       if (touch) { style.bottom = lift ? `${lift}px` : ""; return; }
       // Without a conversation on screen (a maximized stage), the window's corner.
@@ -244,7 +246,7 @@ function useStackPlace(stack: RefObject<HTMLElement | null>, touch: boolean, cou
       Object.assign(style, {
         right: `${innerWidth - edge}px`,
         width: `${width}px`,
-        bottom: `${dock && dock.right > edge - width && dock.left < edge ? Math.max(floor, lift) : floor}px`,
+        bottom: `${dock && dock.bottom > innerHeight - floor - 80 && dock.right > edge - width && dock.left < edge ? Math.max(floor, lift) : floor}px`,
       });
     };
     measure();

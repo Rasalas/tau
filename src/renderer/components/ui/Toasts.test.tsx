@@ -82,12 +82,12 @@ describe("ToastViewport", () => {
 describe("ToastViewport's place", () => {
   const box = (left: number, top: number, right: number, bottom: number) => () => ({ left, top, right, bottom, width: right - left, height: bottom - top, x: left, y: top, toJSON: () => ({}) });
   /** A conversation column and its docked composer, as the workbench draws them. */
-  function workbench(column: [number, number, number, number], surface: [number, number, number, number]) {
+  function workbench(column: [number, number, number, number], surface: [number, number, number, number], state = "docked") {
     const columnElement = document.createElement("div");
     columnElement.className = "conversation-column";
     columnElement.getBoundingClientRect = box(...column);
     const host = document.createElement("div");
-    host.className = "conversation-composer-host docked";
+    host.className = `conversation-composer-host ${state}`;
     host.getBoundingClientRect = box(column[0], surface[1] - 14, column[2], column[3]);
     const composer = document.createElement("div");
     composer.className = "composer-surface";
@@ -119,6 +119,28 @@ describe("ToastViewport's place", () => {
       const { store } = setup();
       act(() => { store.show({ description: "Saved" }); });
       expect([stackStyle().right, stackStyle().bottom, stackStyle().width]).toEqual(["924px", "104px", "356px"]);
+    } finally { remove(); vi.unstubAllGlobals(); }
+  });
+
+  it("lifts over a new thread's composer too, which is at the bottom though not docked", () => {
+    vi.stubGlobal("innerWidth", 1540);
+    vi.stubGlobal("innerHeight", 980);
+    const remove = workbench([248, 0, 1540, 980], [555, 876, 1234, 956], "start");
+    try {
+      const { store } = setup();
+      act(() => { store.show({ description: "Saved" }); });
+      expect([stackStyle().right, stackStyle().bottom]).toEqual(["12px", "112px"]);
+    } finally { remove(); vi.unstubAllGlobals(); }
+  });
+
+  it("stays in the corner when the composer sits higher up", () => {
+    vi.stubGlobal("innerWidth", 1540);
+    vi.stubGlobal("innerHeight", 980);
+    const remove = workbench([248, 0, 1540, 980], [555, 520, 1234, 600], "start");
+    try {
+      const { store } = setup();
+      act(() => { store.show({ description: "Saved" }); });
+      expect(stackStyle().bottom).toBe("12px");
     } finally { remove(); vi.unstubAllGlobals(); }
   });
 
