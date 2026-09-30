@@ -167,11 +167,11 @@ export function createGitHubRouting(context: HostExtensionContext, local: Source
       grants.set(id, { mode: fields.mode, host, account, access: device.access, machine: peer.id, address: address(peer.address), trust: peer.trustIdentity });
     }
     await persist();
-  }, { access: "owner" });
+  }, { access: "owner", long: true });
   context.registerCommand("github-sharing-identity", async (input, call) => {
     if (!call.device) fail("Identity verification requires a paired device.");
     return { account: await identity(endpoint(object(input).host)), source: machines?.self.id };
-  }, { access: "read" });
+  }, { access: "read", long: true });
 
   const invokeLocal = async (operation: string, args: unknown[]): Promise<unknown> => {
     if (operation.startsWith("viewed-") && !local.viewedMarks) fail("This host does not support GitHub viewed marks.");
@@ -204,8 +204,8 @@ export function createGitHubRouting(context: HostExtensionContext, local: Source
     try { return await receive(input, call, write); }
     catch (error) { throw new HostCommandError(error instanceof Error ? error.message : String(error)); }
   };
-  context.registerCommand("github-sharing-read", (input, call) => receiveCommand(input, call, false), { access: "read" });
-  context.registerCommand("github-sharing-act", (input, call) => receiveCommand(input, call, true));
+  context.registerCommand("github-sharing-read", (input, call) => receiveCommand(input, call, false), { access: "read", long: true });
+  context.registerCommand("github-sharing-act", (input, call) => receiveCommand(input, call, true), { long: true });
 
   const route = async (operation: string, args: unknown[]) => {
     await ready;
@@ -251,10 +251,10 @@ export function createGitHubRouting(context: HostExtensionContext, local: Source
       const request = { source: machines!.self.id, host, account, operation, args: argumentsFor(operation, args, host) };
       // Once a mutation leaves this host, its outcome may be unknown. Never retry it.
       if (write) {
-        try { return await machines!.call(id, REVIEW_HOST_EXTENSION_ID, "github-sharing-act", request); }
+        try { return await machines!.call(id, REVIEW_HOST_EXTENSION_ID, "github-sharing-act", request, { timeoutMs: 6 * 60_000 }); }
         catch (error) { throw new HostCommandError(`${error instanceof Error ? error.message : String(error)} Tau did not retry the action. Check GitHub before trying again.`); }
       }
-      try { return await machines!.call(id, REVIEW_HOST_EXTENSION_ID, "github-sharing-read", request); }
+      try { return await machines!.call(id, REVIEW_HOST_EXTENSION_ID, "github-sharing-read", request, { timeoutMs: 2 * 60_000 }); }
       catch (error) { routingError = `${machine.name}: ${error instanceof Error ? error.message : String(error)}`; }
     }
     if (preferred) fail("The selected GitHub action host could not verify its account. No action was sent. Check sharing on both hosts.");
@@ -263,7 +263,7 @@ export function createGitHubRouting(context: HostExtensionContext, local: Source
   };
   context.registerCommand("github-sharing-clear", async () => { await ready; ++generation; outgoing.clear(); incoming.clear(); await persist(); }, { access: "owner" });
   // Disposal closes listeners; persisted consent is checked against current trust on the next activation.
-  const dispose = async () => { stops.forEach((stop) => stop?.()); await ready; await writes; outgoing.clear(); incoming.clear(); };
+  const dispose = async () => { ++generation; stops.forEach((stop) => stop?.()); outgoing.clear(); incoming.clear(); await ready; outgoing.clear(); incoming.clear(); await writes; };
   const routed = { ...local };
   for (const operation of [...READS, ...ACTIONS].filter((name) => !name.startsWith("viewed-"))) {
     (routed as unknown as Record<string, unknown>)[operation] = (...args: unknown[]) => route(operation, args);
