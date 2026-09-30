@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cliPath, dmgPattern, downloadChecked, localAppPath, parseArgs, pickDmg, readRelease, releaseUrl } from "./install-mac.mjs";
+import { cliPath, dmgPattern, downloadChecked, localAppPath, localBuildArgs, parseArgs, pickDmg, readRelease, releaseUrl, updateFeedPath } from "./install-mac.mjs";
 
 const DMG = Buffer.from("a disk image");
 const SHA512 = createHash("sha512").update(DMG).digest("base64");
@@ -44,6 +44,17 @@ describe("install-mac", () => {
     expect(localAppPath("arm64")).toBe(join("release", "mac-arm64", "Tau.app"));
     expect(localAppPath("x64")).toBe(join("release", "mac", "Tau.app"));
     expect(() => localAppPath("ia32")).toThrow("Unsupported architecture");
+  });
+
+  it("builds a local app with the update feed a release carries", () => {
+    // electron-builder writes app-update.yml only for a dmg or zip, never for --dir.
+    expect(localBuildArgs("arm64")).toEqual(["electron-builder", "-c", "tooling/electron-builder.yml", "--mac", "zip", "--arm64", "--publish", "never"]);
+    expect(localBuildArgs("x64")).toContain("--x64");
+    expect(localBuildArgs("arm64")).not.toContain("--dir");
+    expect(() => localBuildArgs("ia32")).toThrow("Unsupported architecture");
+    expect(updateFeedPath("release/mac-arm64/Tau.app")).toBe(join("release", "mac-arm64", "Tau.app", "Contents", "Resources", "app-update.yml"));
+    const builder = readFileSync(new URL("../tooling/electron-builder.yml", import.meta.url), "utf8");
+    expect(builder).toMatch(/^publish:\n  provider: github\n  owner: Rasalas\n  repo: tau-releases$/mu);
   });
 
   it("names the command line inside the installed bundle", () => {

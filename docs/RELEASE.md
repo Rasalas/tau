@@ -167,7 +167,12 @@ and older) falls back to `gh` and `Rasalas/tau-private`, which it must be able
 to read (`gh auth status`). It then quits a running Tau, replaces
 `/Applications/Tau.app`, and removes the `com.apple.quarantine` attribute — the mark Gatekeeper uses to
 block an unsigned download, which is why an unsigned Tau otherwise needs
-right-click → Open on first launch.
+right-click → Open on first launch. With `--local` it builds the zip target
+instead of downloading, so electron-builder writes the release feed into the
+app (`Contents/Resources/app-update.yml`) as it does for a release, and the
+installed build updates to the next release with a higher version. macOS
+installs that update only over an app signed by the same team, which a build
+signed with the Developer ID certificate in the keychain is.
 
 ## Build one locally
 

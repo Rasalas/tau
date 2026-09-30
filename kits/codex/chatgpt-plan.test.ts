@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { generateKeyPair, exportJWK, SignJWT } from "jose";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SignInFlowContext } from "tau/host-extension";
-import { ChatGPTPlan, CHATGPT_PLAN_ARGS } from "./chatgpt-plan.js";
+import { ChatGPTPlan, CHATGPT_PLAN_ARGS, planCatalog } from "./chatgpt-plan.js";
 import { ChatGPTPlanStore } from "./chatgpt-plan-store.js";
 import { ChatGPTOAuthClient, CHATGPT_ISSUER, CHATGPT_RESOURCE, PLAN_SCOPE, startChatGPTOAuth } from "./chatgpt-plan-oauth.js";
 
@@ -107,9 +107,12 @@ describe("ChatGPT plan authorization", () => {
     await f.plan.signIn("two", f.flow);
     expect((await f.plan.read("one"))!.tokens!.accessToken).toBe("access-1");
     expect((await f.plan.read("two"))!.tokens!.accessToken).toBe("second-access");
-    f.set({ clientId: "oaiapp_fixture" });
+    f.set({ clientId: "oaiapp_fixture", refresh: "stray-refresh" });
     await expect(f.plan.signIn("one", f.flow)).rejects.toThrow("belongs to another ChatGPT account");
     expect((await f.plan.read("one"))!.subject).toBe("account-1");
+    // The other account's tokens were issued to Tau; they are revoked, not only dropped.
+    const revoked = vi.mocked(f.fetcher).mock.calls.filter(([url]) => String(url).endsWith("/revoke")).map(([, init]) => new URLSearchParams(String(init!.body)).get("token"));
+    expect(revoked).toEqual(["stray-refresh"]);
   });
 
   it("does not enable inference without the granted plan scope", async () => {
@@ -170,13 +173,13 @@ describe("ChatGPT plan authorization", () => {
     expect(f.issued[1]!.get("refresh_token")).toBe("refresh-1");
     expect(f.issued[1]!.has("scope")).toBe(false);
     expect((await f.plan.read("one"))!.tokens).toMatchObject({ accessToken: "access-2", refreshToken: "refresh-2" });
-    expect(await f.plan.models("one")).toEqual([expect.objectContaining({ id: "fixture-model", displayName: "Fixture model" })]);
+    expect(await f.plan.models("one")).toEqual([{ slug: "fixture-model", displayName: "Fixture model" }]);
   });
 
   it("revokes and clears only the selected account, retaining registration and host identity", async () => {
     const f = await fixture(); await f.plan.signIn("one", f.flow); await f.plan.signIn("two", f.flow);
     const host = await f.plan.store.hostId();
-    expect(await f.plan.signOut("one")).toBe("Signed out of ChatGPT.");
+    expect(await f.plan.signOut("one")).toEqual({ revoked: true, message: "Signed out of ChatGPT." });
     expect(await f.plan.read("one")).toMatchObject({ clientId: "oaiapp_fixture", subject: "account-1" });
     expect((await f.plan.read("one"))!.tokens).toBeUndefined();
     expect((await f.plan.read("two"))!.tokens).toBeDefined();
@@ -187,7 +190,7 @@ describe("ChatGPT plan authorization", () => {
 
   it("clears local credentials and reports failed remote revocation", async () => {
     const f = await fixture(); await f.plan.signIn("one", f.flow); f.set({ failRevoke: true });
-    expect(await f.plan.signOut("one")).toContain("Remote revocation was not confirmed");
+    expect(await f.plan.signOut("one")).toMatchObject({ revoked: false, message: expect.stringContaining("Remote revocation was not confirmed") });
     expect((await f.plan.read("one"))!.tokens).toBeUndefined();
   });
 
@@ -246,5 +249,13 @@ describe("ChatGPT plan authorization", () => {
     expect(ids[0]).toBe(ids[1]);
     expect(CHATGPT_PLAN_ARGS).toContain('model_providers.openai_chatgpt_plan.supports_websockets=false');
     expect(CHATGPT_PLAN_ARGS).toContain('disable_response_storage=true');
+    // ACCESS_TOKEN rides in Codex's environment; the *TOKEN* filter keeps it out of commands.
+    expect(CHATGPT_PLAN_ARGS).toContain("shell_environment_policy.ignore_default_excludes=false");
+  });
+
+  it("takes the default and the efforts from Codex's catalog and leaves out models Codex does not know", () => {
+    const codex = (id: string, isDefault: boolean) => ({ id, model: id, displayName: id, hidden: false, isDefault, defaultReasoningEffort: "medium", supportedReasoningEfforts: [{ reasoningEffort: "medium" }] });
+    const catalog = planCatalog([{ slug: "b", displayName: "Account B" }, { slug: "a", displayName: "Account A" }, { slug: "new", displayName: "New" }], [codex("a", true), codex("b", false)]);
+    expect(catalog.map((model) => [model.id, model.displayName, model.isDefault, model.supportedReasoningEfforts.length])).toEqual([["b", "Account B", false, 1], ["a", "Account A", true, 1]]);
   });
 });

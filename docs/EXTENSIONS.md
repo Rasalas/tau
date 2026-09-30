@@ -2657,7 +2657,9 @@ any of them: `sign-in-state` (the methods, the account and the last flow),
 `sign-in` (`{ target, method }`, answers the new flow at once), `sign-in-respond`
 (`{ target, flowId, value }`), `sign-in-cancel` and `sign-out`, each with a
 `target` naming an instance or a provider; the `sign-in` event carries a
-moved flow, or the whole report once a flow ended or a sign-out ran. The helper
+moved flow, or the whole report once a flow ended or a sign-out ran. The host
+sends that event only to clients that may change things: a device paired Read
+only neither runs the commands nor sees a flow's page, code or prompt. The helper
 keeps one flow per target, refuses an answer to a flow that ended, aborts
 the kit's signal on cancel, on a new flow for the same target and after ten
 minutes, and asks `changed(target)` after a sign-in or sign-out — the

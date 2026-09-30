@@ -98,8 +98,10 @@ npm run dist          # this machine's platform; also dist:mac, dist:linux, dist
 ```
 
 The artifacts land in `release/`. On a Mac, `npm run install:mac -- --local`
-builds this checkout for the machine's architecture, unpacked, and puts the
-app into `/Applications`.
+builds this checkout for the machine's architecture (the zip target, signed the
+way `npm run dist:mac` signs) and puts the app into `/Applications`. The app
+carries the same update feed as a release, so it updates to the next official
+release with a higher version.
 
 ## The `tau` command
 

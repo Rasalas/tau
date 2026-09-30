@@ -254,9 +254,14 @@ just as removing an instance retains its threads for restoration with that ID.
 For plan connections, Tau supplies a pinned, checksum-verified upstream Codex
 package unless the user explicitly overrides its executable with a supported
 release. The package includes the platform's runtime helpers. Tau owns that
-installation and advertises no user CLI update command for it. This supersedes
-the earlier statement that the Codex kit never installs anything. Existing
-CLI-owned logins still use the user's executable and account storage.
+installation and advertises no user CLI update command for it. When a Tau
+update pins another release, the host fetches it at start without being
+asked, shows the progress on the card and above the composer, and removes the
+release it replaced; the user never needs a console. This supersedes the
+earlier statement that the Codex kit never installs anything. CLI-owned logins
+keep their account storage and use the user's executable where there is one.
+An instance without an executable override and with no `codex` on the PATH
+runs Tau's managed Codex once Tau has it, and its card says "Managed by Tau".
 
 The plan connection's `CODEX_HOME` is under Tau's state, isolated from the
 user's CLI account and configuration. Credentials are stored atomically with

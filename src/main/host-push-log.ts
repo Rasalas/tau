@@ -72,7 +72,7 @@ export class HostPushLog {
    * What a client at `lastSeq` still needs. `resync` means the gap is no
    * longer in the buffer (or the host restarted): the client refetches instead.
    */
-  since(lastSeq: number | undefined, filter?: HostPushFilter): { resync: boolean; missed: HostPush[] } {
+  since(lastSeq: number | undefined, filter?: HostPushFilter, readOnly = false): { resync: boolean; missed: HostPush[] } {
     if (lastSeq === undefined) return { resync: false, missed: [] };
     if (lastSeq === this.seq) return { resync: false, missed: [] };
     if (lastSeq > this.seq) return { resync: true, missed: [] };
@@ -82,9 +82,9 @@ export class HostPushLog {
     // Sequences are contiguous, so the first missed push sits at a known index.
     const from = this.head + Math.max(0, lastSeq - oldest + 1);
     const missed = this.buffer.slice(from) as HostPush[];
-    if (!filter) return { resync: false, missed };
+    if (!filter && !readOnly) return { resync: false, missed };
     const scopes = this.scopes.slice(from);
-    return { resync: false, missed: missed.filter((push, index) => filter.admits(push.event, scopes[index])) };
+    return { resync: false, missed: missed.filter((push, index) => !(readOnly && scopes[index] === "writers") && (filter?.admits(push.event, scopes[index]) ?? true)) };
   }
 
   /** Whether a push after `lastSeq` that this client would have been sent was evicted. */
@@ -103,8 +103,9 @@ export function helloReply(
   hello: HostHello,
   options: { hostVersion: string; capabilities: string[]; host?: HostIdentity },
   filter?: HostPushFilter,
+  readOnly = false,
 ): HostHelloReply {
-  const { resync, missed } = pushLog.since(hello.lastSeq, filter);
+  const { resync, missed } = pushLog.since(hello.lastSeq, filter, readOnly);
   return {
     protocol: HOST_TRANSPORT_VERSION,
     hostVersion: options.hostVersion,
