@@ -68,7 +68,7 @@ export default function DevicePoseView({ image, device, fold, source, captureRea
   const panels = panelGeometry(layout, width, height, angle);
   const reset = () => { setYaw(-24); setPitch(12); setZoom(1); setPreview(undefined); };
   return <div className="devices-pose">
-    <img className="devices-pose-probe" src={image} alt="" onLoad={(event) => { const { naturalWidth, naturalHeight } = event.currentTarget; if (naturalWidth && naturalHeight) setDecoded({ image, size: { width: naturalWidth, height: naturalHeight } }); }} />
+    {image && <img className="devices-pose-probe" src={image} alt="" onLoad={(event) => { const { naturalWidth, naturalHeight } = event.currentTarget; if (naturalWidth && naturalHeight) setDecoded({ image, size: { width: naturalWidth, height: naturalHeight } }); }} />}
     <div ref={scene} className="devices-pose-scene" aria-label={`${device.name} 3D inspection`} role="img" onPointerDown={(event) => {
       if (event.button !== 0) return;
       dragging.current = { id: event.pointerId, x: event.clientX, y: event.clientY, yaw, pitch };

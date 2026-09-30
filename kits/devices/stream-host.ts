@@ -15,13 +15,18 @@ interface Stream {
 /** Only authenticated commands reach these leases. No upstream URL or socket reaches a client. */
 export class DeviceStreams {
   private streams = new Map<string, Stream>();
+  private generation = 0;
+  private closed = false;
   private reaper = setInterval(() => {
     for (const [id, stream] of this.streams) if (Date.now() - stream.touched > LEASE_MS) this.remove(id);
   }, 1000);
   constructor(private resolve: (target: Target) => Promise<VideoTarget>, private request: typeof fetch = fetch) { this.reaper.unref(); }
   async open(target: Target, principal: string): Promise<{ id: string }> {
+    const generation = this.generation;
+    if (this.closed) throw new Error("Device video is stopped.");
     if (this.streams.size >= 12 || [...this.streams.values()].filter((stream) => stream.principal === principal).length >= 3) throw new Error("Close another device video before opening this one.");
     const source = await this.resolve(target);
+    if (this.closed || generation !== this.generation) throw new Error("Device configuration changed. Reopen the screen.");
     // The manager supplies a hub it owns, never a user-provided media URL.
     const origin = new URL(source.origin);
     if (origin.protocol !== "http:" || origin.hostname !== "127.0.0.1" || origin.pathname !== "/") throw new Error("Invalid device video source.");
@@ -66,8 +71,8 @@ export class DeviceStreams {
     this.streams.delete(id); stream.controller.abort(); stream.socket?.close(); void stream.reader?.cancel().catch(() => undefined); stream.wake?.();
     stream.packets = []; stream.bytes = 0;
   }
-  closeAll(): void { for (const id of this.streams.keys()) this.remove(id); }
-  dispose(): void { clearInterval(this.reaper); this.closeAll(); }
+  closeAll(): void { this.generation++; for (const id of this.streams.keys()) this.remove(id); }
+  dispose(): void { this.closed = true; clearInterval(this.reaper); this.closeAll(); }
   private fail(stream: Stream, error: unknown): void {
     if (stream.controller.signal.aborted) return;
     stream.error = error instanceof Error ? error.message : "Device video stopped.";

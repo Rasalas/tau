@@ -1,10 +1,11 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Smartphone } from "lucide-react";
 import { useHostAvailability, type DesktopExtension, type PanelProps } from "tau";
 import { DEFAULT_SETTINGS, DEVICE_KIT, type ActionInput, type Device, type DeviceSettings, type HubState, type FoldState, type Target } from "./protocol.js";
 
 import { FloatingDevice, FloatingDeviceView } from "./floating.js";
 const DevicePoseView = lazy(() => import("./pose-view.js"));
+const VideoDeviceScreen = lazy(() => import("./video-screen.js"));
 
 export type Invoke = <T>(command: string, input?: unknown) => Promise<T>;
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -21,6 +22,10 @@ export function DevicePanel({ active, actions, invoke, floating }: PanelProps & 
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const [frame, setFrame] = useState<string>();
+  const [videoSource, setVideoSource] = useState<{ canvas: HTMLCanvasElement }>();
+  const [videoFallback, setVideoFallback] = useState("");
+  const receiveCanvas = useCallback((canvas: HTMLCanvasElement | undefined) => setVideoSource(canvas ? { canvas } : undefined), []);
+  const fallbackVideo = useCallback((reason: string) => setVideoFallback(reason), []);
   const [captureReady, setCaptureReady] = useState(true);
   const [captureEpoch, setCaptureEpoch] = useState(0);
   const [fold, setFold] = useState<FoldState>();
@@ -64,11 +69,12 @@ export function DevicePanel({ active, actions, invoke, floating }: PanelProps & 
       }
     } catch (reason) { setError(message(reason)); } finally { if (action === "fold") { folding.current = false; captureRevision.current++; setCaptureEpoch((value) => value + 1); } setBusy(false); }
   };
-  useEffect(() => { setFrame(undefined); setFold(undefined); setFoldError(""); setCaptureReady(true); }, [selected, device?.booted]);
+  useEffect(() => { setFrame(undefined); setFold(undefined); setFoldError(""); setCaptureReady(true); setVideoFallback(""); }, [selected, device?.booted]);
   useEffect(() => {
     if (!active || !availability.available || !selected || !device?.booted) return;
     let cancelled = false, timer: ReturnType<typeof setTimeout> | undefined;
     const capture = async () => {
+      if (document.hidden) { if (!cancelled && live) timer = setTimeout(() => { void capture(); }, 650); return; }
       const revision = captureRevision.current;
       try {
         let status: FoldState | undefined;
@@ -76,23 +82,34 @@ export function DevicePanel({ active, actions, invoke, floating }: PanelProps & 
           try { status = await invoke<FoldState>("fold-state", selected); if (!cancelled) setFoldError(""); }
           catch (reason) { if (!cancelled) setFoldError(message(reason)); }
         }
-        const next = await invoke<{ dataUrl: string }>("frame", selected);
-        if (!cancelled && revision === captureRevision.current && !folding.current) { setFrame(next.dataUrl); setCaptureReady(true); if (status) setFold(status); }
+        if (!videoSource || !captureReady || !live) {
+          const next = await invoke<{ dataUrl: string }>("frame", selected);
+          if (!cancelled && revision === captureRevision.current && !folding.current) { setFrame(next.dataUrl); setCaptureReady(true); if (status) setFold(status); }
+        } else if (!cancelled && status && !folding.current) setFold(status);
       }
       catch (reason) { if (!cancelled) setError(message(reason)); }
       if (!cancelled && live) timer = setTimeout(() => { void capture(); }, 650);
     };
     void capture();
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [active, availability.available, selected, device?.booted, live, invoke, captureEpoch]);
+  }, [active, availability.available, selected, device?.booted, live, invoke, captureEpoch, videoSource, captureReady]);
   const open = (next: Device) => {
     const target = targetOf(next);
     setTabs((previous) => previous.some((entry) => key(entry) === key(target)) ? previous : [...previous, target]);
     setSelected(target); setError("");
   };
-  const point = (event: React.PointerEvent<HTMLImageElement>) => {
+  const point = (event: React.PointerEvent<HTMLImageElement | HTMLCanvasElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
-    return { x: Math.round((event.clientX - bounds.left) * event.currentTarget.naturalWidth / bounds.width), y: Math.round((event.clientY - bounds.top) * event.currentTarget.naturalHeight / bounds.height) };
+    const surface = event.currentTarget;
+    const width = surface instanceof HTMLImageElement ? surface.naturalWidth : surface.width;
+    const height = surface instanceof HTMLImageElement ? surface.naturalHeight : surface.height;
+    return { x: Math.round((event.clientX - bounds.left) * width / bounds.width), y: Math.round((event.clientY - bounds.top) * height / bounds.height) };
+  };
+  const touchStart = (event: React.PointerEvent<HTMLImageElement | HTMLCanvasElement>) => { if (busy || !captureReady) return; pointer.current = point(event); event.currentTarget.setPointerCapture(event.pointerId); };
+  const touchEnd = (event: React.PointerEvent<HTMLImageElement | HTMLCanvasElement>) => {
+    const start = pointer.current; pointer.current = undefined; if (!start) return;
+    const end = point(event), distance = Math.hypot(end.x - start.x, end.y - start.y);
+    void perform(distance < 12 ? "tap" : "swipe", distance < 12 ? start : { ...start, endX: end.x, endY: end.y });
   };
   return <div className="devices-panel">
     {!availability.available && <p role="status">{availability.reason}</p>}
@@ -113,16 +130,15 @@ export function DevicePanel({ active, actions, invoke, floating }: PanelProps & 
       <div className="devices-toolbar">
         <button disabled={busy || !availability.available} onClick={() => { void perform(device.booted ? "shutdown" : "boot"); }}>{device.booted ? "Shut down" : "Boot"}</button>
         <label><input type="checkbox" checked={live} onChange={(event) => setLive(event.target.checked)} />Live screen</label>
-        <button disabled={!frame} onClick={() => setPose(!pose)}>{pose ? "Flat screen" : "3D view"}</button>
+        <button disabled={!frame && !videoSource} onClick={() => setPose(!pose)}>{pose ? "Flat screen" : "3D view"}</button>
         {floating && <button disabled={!device.booted} onClick={() => { floating.set({ ...targetOf(device), name: device.name }); setLive(false); }}>Float over chat</button>}
-        <small>Screen captures update while this tab is visible.</small>
+        <small>{videoSource ? "Live video" : videoFallback || "Connecting device video…"}</small>
       </div>
       {foldError && <small role="status">Cannot read device posture: {foldError}</small>}
-      <div className="devices-view">{frame && pose ? <Suspense fallback={<p>Loading 3D view…</p>}><DevicePoseView key={key(targetOf(device))} image={frame} device={device} fold={fold} captureReady={captureReady} /></Suspense> : frame ? <img src={frame} alt={`${device.name} screen`} draggable={false} onPointerDown={(event) => { if (busy || !captureReady) return; pointer.current = point(event); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerCancel={() => { pointer.current = undefined; }} onPointerUp={(event) => {
-        const start = pointer.current; pointer.current = undefined; if (!start) return;
-        const end = point(event), distance = Math.hypot(end.x - start.x, end.y - start.y);
-        void perform(distance < 12 ? "tap" : "swipe", distance < 12 ? start : { ...start, endX: end.x, endY: end.y });
-      }} /> : <p>{device.booted ? "Waiting for the screen…" : "Device is off"}</p>}</div>
+      <div className="devices-view">
+        {active && availability.available && selected && device.booted && live && captureReady && !videoFallback && <div style={{ display: pose || !videoSource ? "none" : "contents" }}><Suspense fallback={null}><VideoDeviceScreen target={selected} invoke={invoke} name={device.name} onCanvas={receiveCanvas} onFallback={fallbackVideo} onPointerDown={touchStart} onPointerUp={touchEnd} onPointerCancel={() => { pointer.current = undefined; }} /></Suspense></div>}
+        {(frame || videoSource) && pose ? <Suspense fallback={<p>Loading 3D view…</p>}><DevicePoseView key={key(targetOf(device))} image={frame ?? ""} source={videoSource?.canvas} device={device} fold={fold} captureReady={captureReady} /></Suspense> : frame && !videoSource ? <img src={frame} alt={`${device.name} screen`} draggable={false} onPointerDown={touchStart} onPointerUp={touchEnd} onPointerCancel={() => { pointer.current = undefined; }} /> : !videoSource ? <p>{device.booted ? "Waiting for the screen…" : "Device is off"}</p> : null}
+      </div>
       {device.booted && <div className="devices-controls">
         <button disabled={busy || !availability.available} onClick={() => { void perform("home"); }}>Home</button>
         {device.platform === "android" && <button disabled={busy || !availability.available} onClick={() => { void perform("back"); }}>Back</button>}

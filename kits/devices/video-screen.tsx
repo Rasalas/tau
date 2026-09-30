@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Target } from "./protocol.js";
 import type { VideoBatch } from "./stream-protocol.js";
 
@@ -15,7 +15,14 @@ interface Props {
 /** WebCodecs receives real AVCC/Annex-B packets through Tau's authenticated host protocol. */
 export default function VideoDeviceScreen({ target, invoke, name, onCanvas, onFallback, ...pointer }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const [visible, setVisible] = useState(!document.hidden);
   useEffect(() => {
+    const update = () => setVisible(!document.hidden);
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
+  useEffect(() => {
+    if (!visible) return;
     let stopped = false, id: string | undefined, decoder: VideoDecoder | undefined;
     let configured = false, awaitingKey = true, frameSeen = false;
     let firstFrame: ReturnType<typeof setTimeout> | undefined;
@@ -37,10 +44,11 @@ export default function VideoDeviceScreen({ target, invoke, name, onCanvas, onFa
               if (stopped || !surface) return;
               const paint = surface.getContext("2d");
               if (!paint) { fail("Device video cannot draw its screen."); return; }
+              const resized = surface.width !== frame.displayWidth || surface.height !== frame.displayHeight;
               if (surface.width !== frame.displayWidth) surface.width = frame.displayWidth;
               if (surface.height !== frame.displayHeight) surface.height = frame.displayHeight;
               paint.drawImage(frame, 0, 0, surface.width, surface.height);
-              if (!frameSeen) { frameSeen = true; clearTimeout(firstFrame); onCanvas(surface); }
+              if (!frameSeen || resized) { frameSeen = true; clearTimeout(firstFrame); onCanvas(surface); }
             } finally { frame.close(); }
           },
           error: () => fail("Device video could not be decoded. Showing screen captures."),
@@ -74,6 +82,6 @@ export default function VideoDeviceScreen({ target, invoke, name, onCanvas, onFa
     };
     void video();
     return stop;
-  }, [target.hostId, target.deviceId, invoke, onCanvas, onFallback]);
+  }, [target.hostId, target.deviceId, invoke, onCanvas, onFallback, visible]);
   return <canvas ref={canvas} role="img" aria-label={`${name} live screen`} {...pointer} />;
 }
