@@ -1,3 +1,4 @@
+import { createDecipheriv, randomBytes } from "node:crypto";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,9 +12,9 @@ import type {
   HostTurnObserver,
 } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
-import { startFakeApns, startFakeFcm, throwawayApnsKey, throwawayServiceAccount } from "../../src/main/test-support/push-fakes.js";
+import { fakeRelayHandle, startFakeApns, startFakeFcm, startFakeRelay, throwawayApnsKey, throwawayServiceAccount, type FakeRequest } from "../../src/main/test-support/push-fakes.js";
 import { createPushHostExtension } from "./host.js";
-import { PUSH_EXTENSION_ID as ID, PUSH_STATE_EVENT, type PushStatus } from "./protocol.js";
+import { PUSH_EXTENSION_ID as ID, PUSH_STATE_EVENT, sealedPushAad, type PushRelayRegistration, type PushStatus } from "./protocol.js";
 
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => { await Promise.all(cleanups.splice(0).map((cleanup) => cleanup())); });
@@ -23,12 +24,26 @@ const ANDROID_TOKEN = "fcm:APA91b-registration-token";
 const OWNER = { kind: "workbench-client" } as const;
 const phone = (id: string) => ({ kind: "workbench-client", connection: `c-${id}`, pairedClient: id }) as const;
 
-async function harness(options: { content?: "title" | "excerpt"; attended?: boolean; notifications?: boolean } = {}) {
+/** What the phone's app does with a sealed push (mobile/src/push-crypto.ts), in Node. */
+function openSealed(sealed: string, relay: PushRelayRegistration): Record<string, unknown> {
+  const [version, keyId, data] = sealed.split(".");
+  expect([version, keyId]).toEqual(["1", relay.keyId]);
+  const bytes = Buffer.from(data!, "base64url");
+  const decipher = createDecipheriv("aes-256-gcm", Buffer.from(relay.key, "base64url"), bytes.subarray(0, 12));
+  decipher.setAAD(Buffer.from(sealedPushAad(keyId!)));
+  decipher.setAuthTag(bytes.subarray(bytes.length - 16));
+  return JSON.parse(Buffer.concat([decipher.update(bytes.subarray(12, bytes.length - 16)), decipher.final()]).toString("utf8")) as Record<string, unknown>;
+}
+
+const relayFor = (platform: string, token: string): PushRelayRegistration => ({ handle: fakeRelayHandle(platform, token), keyId: randomBytes(16).toString("base64url"), key: randomBytes(32).toString("base64url") });
+
+async function harness(options: { content?: "title" | "excerpt"; attended?: boolean; notifications?: boolean; relayAnswer?: (request: FakeRequest) => { status: number; body?: unknown } } = {}) {
   const stateDir = await mkdtemp(join(tmpdir(), "tau-push-"));
   cleanups.push(() => rm(stateDir, { recursive: true, force: true }));
   const apple = await startFakeApns((request) => request.path.includes("dead") ? { status: 410, reason: "Unregistered" } : { status: 200 });
   const google = await startFakeFcm();
-  cleanups.push(apple.close, google.close);
+  const relay = await startFakeRelay(options.relayAnswer);
+  cleanups.push(apple.close, google.close, relay.close);
   const events: PublishedKitEvent[] = [];
   const observers: HostTurnObserver[] = [];
   const decorators: Array<(prompt: ExtensionUiPrompt) => void> = [];
@@ -50,7 +65,7 @@ async function harness(options: { content?: "title" | "excerpt"; attended?: bool
   };
   let now = 1_700_000_000_000;
   const work: Array<Promise<unknown>> = [];
-  const registry = await activateHostKit(createPushHostExtension({ apnsOrigin: apple.origin, fcmOrigin: google.origin, now: () => now, debounceMs: 5_000, track: (promise) => work.push(promise) }), services, (event) => events.push(event));
+  const registry = await activateHostKit(createPushHostExtension({ apnsOrigin: apple.origin, fcmOrigin: google.origin, relayUrl: relay.url, now: () => now, debounceMs: 5_000, track: (promise) => work.push(promise) }), services, (event) => events.push(event));
   cleanups.push(() => registry.dispose());
   if (options.notifications !== false) {
     await registry.activate({
@@ -70,7 +85,7 @@ async function harness(options: { content?: "title" | "excerpt"; attended?: bool
   const settle = async () => { await Promise.all(work.splice(0)); };
   const sends = () => google.requests.filter((request) => request.path !== "/token");
   return {
-    stateDir, apple, google, events, observers, decorators, clientObservers, registry, invoke, setUp, settle, sends,
+    stateDir, apple, google, relay, events, observers, decorators, clientObservers, registry, invoke, setUp, settle, sends,
     setDevices: (next: HostPairedDevice[]) => { devices = next; },
     tick: (ms: number) => { now += ms; },
   };
@@ -214,7 +229,7 @@ describe("the push host half", () => {
     const [device] = (await invoke("status") as PushStatus).devices;
     expect(device!.lastPush).toMatchObject({ ok: true });
     await invoke("forget", { service: "apns" });
-    await expect(invoke("test", { id: "iphone" })).resolves.toEqual({ ok: false, detail: "No APNs key is set up on this host." });
+    await expect(invoke("test", { id: "iphone" })).resolves.toEqual({ ok: false, detail: "This phone's Tau app is too old for Tau's relay; update it, or save a key of your own." });
   });
 
   it("lets a device stop its own pushes", async () => {
@@ -222,5 +237,78 @@ describe("the push host half", () => {
     await setUp();
     await expect(invoke("unregister", undefined, phone("pixel"))).resolves.toBe(true);
     expect((await invoke("status") as PushStatus).devices.map((device) => device.id)).toEqual(["iphone"]);
+  });
+});
+
+describe("the push host half through Tau's relay", () => {
+  const IPHONE = relayFor("ios", IOS_TOKEN);
+  const PIXEL = relayFor("android", ANDROID_TOKEN);
+  const registerBoth = async (invoke: Awaited<ReturnType<typeof harness>>["invoke"]) => {
+    await invoke("register", { platform: "ios", token: IOS_TOKEN, host: "host-1", topic: "de.tbuck.tau", relay: IPHONE }, phone("iphone"));
+    await invoke("register", { platform: "android", token: ANDROID_TOKEN, host: "host-1", relay: PIXEL }, phone("pixel"));
+  };
+
+  it("takes the relay without keys of its own, and says which way each platform goes", async () => {
+    const { invoke } = await harness();
+    await expect(invoke("register", { platform: "android", token: ANDROID_TOKEN, host: "host-1", relay: PIXEL }, phone("pixel"))).resolves.toEqual({ registered: true, ready: true, route: "relay" });
+    await expect(invoke("register", { platform: "ios", token: IOS_TOKEN, host: "host-1", topic: "de.tbuck.tau" }, phone("iphone"))).resolves.toEqual({ registered: true, ready: false, route: "relay" });
+    let status = await invoke("status") as PushStatus;
+    expect(status.routes).toEqual({ ios: "relay", android: "relay" });
+    expect(status.devices.map((device) => [device.id, device.route])).toEqual([["pixel", "relay"], ["iphone", "unreachable"]]);
+    // Neither the phone's key nor its handle leaves the host again.
+    expect(JSON.stringify(status)).not.toContain(PIXEL.key);
+    expect(JSON.stringify(status)).not.toContain(PIXEL.handle);
+    await invoke("set-apns", { keyId: "ABC123DEFG", teamId: "TEAM123456", key: throwawayApnsKey().pem });
+    status = await invoke("status") as PushStatus;
+    expect(status.routes).toEqual({ ios: "direct", android: "relay" });
+    expect(status.devices.find((device) => device.id === "iphone")!.route).toBe("direct");
+  });
+
+  it("seals what a push says with the phone's key, so the relay sees ciphertext and an opaque collapse id", async () => {
+    const { invoke, observers, settle, relay, apple, sends } = await harness();
+    await registerBoth(invoke);
+    await observers[0]!.ended!("t1", "turn-1", "completed");
+    await settle();
+    expect(apple.requests).toHaveLength(0);
+    expect(sends()).toHaveLength(0);
+    const sent = relay.sends();
+    expect(sent.map((request) => request.handle).sort()).toEqual([IPHONE.handle, PIXEL.handle].sort());
+    for (const request of relay.requests) {
+      // Spaces, colons and slashes never occur in base64url.
+      expect(request.body).not.toMatch(/Fix the build|tau:\/\/|thread=/u);
+      expect(request.body).not.toContain(IOS_TOKEN);
+    }
+    const toPixel = sent.find((request) => request.handle === PIXEL.handle)!;
+    const opened = openSealed(toPixel.payload, PIXEL);
+    expect(opened).toEqual({ title: "Fix the build", body: "Fixed the build", url: "tau://thread?host=host-1&thread=t1", kind: "completed", tag: toPixel.collapseId });
+    expect(toPixel.collapseId).toMatch(/^[A-Za-z0-9_-]{22}$/u);
+    // Each phone's key makes its own collapse id for the same thread.
+    expect(sent.find((request) => request.handle === IPHONE.handle)!.collapseId).not.toBe(toPixel.collapseId);
+    expect(() => openSealed(toPixel.payload, { ...PIXEL, key: randomBytes(32).toString("base64url") })).toThrow();
+  });
+
+  it("forgets a device whose token the relay calls gone", async () => {
+    const { invoke, observers, settle } = await harness({ relayAnswer: (request) => (request.body.includes(PIXEL.handle) ? { status: 410, body: { error: "gone", reason: "registration-token-not-registered" } } : { status: 200, body: { ok: true } }) });
+    await registerBoth(invoke);
+    await observers[0]!.ended!("t1", "turn-1", "completed");
+    await settle();
+    expect((await invoke("status") as PushStatus).devices.map((device) => device.id)).toEqual(["iphone"]);
+  });
+
+  it("reports the relay's refusal on the owner's test push", async () => {
+    const { invoke } = await harness({ relayAnswer: () => ({ status: 503, body: { error: "unavailable", reason: "apns-not-configured" } }) });
+    await registerBoth(invoke);
+    await expect(invoke("test", { id: "iphone" })).resolves.toEqual({ ok: false, detail: "relay: apns-not-configured" });
+    const [device] = (await invoke("status") as PushStatus).devices.filter((entry) => entry.id === "iphone");
+    expect(device!.lastPush).toMatchObject({ ok: false, detail: "relay: apns-not-configured" });
+  });
+
+  it("keeps the handle when the same token comes back without one, and leaves out one that does not read", async () => {
+    const { invoke } = await harness();
+    await invoke("register", { platform: "android", token: ANDROID_TOKEN, host: "host-1", relay: PIXEL }, phone("pixel"));
+    await invoke("register", { platform: "android", token: ANDROID_TOKEN, host: "host-1" }, phone("pixel"));
+    expect((await invoke("status") as PushStatus).devices[0]!.route).toBe("relay");
+    await invoke("register", { platform: "android", token: `${ANDROID_TOKEN}-new`, host: "host-1", relay: { ...PIXEL, key: "short" } }, phone("pixel"));
+    expect((await invoke("status") as PushStatus).devices[0]!.route).toBe("unreachable");
   });
 });
