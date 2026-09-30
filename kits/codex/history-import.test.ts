@@ -112,4 +112,29 @@ describe("Codex session import", () => {
     expect(refreshIndex).toHaveBeenCalledTimes(1);
     expect(await provider.listThreads()).toHaveLength(2);
   });
+
+  it("imports what the session used, each prompt apart, so the thread shows its cost before it opens", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-codex-import-"));
+    directories.push(root);
+    const day = join(root, "codex", "sessions", "2026", "09", "20");
+    await mkdir(day, { recursive: true });
+    const count = (minute: number, total: Record<string, number>, last: Record<string, number>) => line(minute, "event_msg", { type: "token_count", info: { total_token_usage: total, last_token_usage: last } });
+    const rollout = [
+      ...currentRollout("/work/alpha").slice(0, 5),
+      count(2, { input_tokens: 1_000, cached_input_tokens: 400, output_tokens: 100, total_tokens: 1_100 }, { input_tokens: 1_000, cached_input_tokens: 400, output_tokens: 100, total_tokens: 1_100 }),
+      line(3, "event_msg", { type: "user_message", message: "And a test?" }),
+      line(3, "turn_context", { cwd: "/work/alpha", model: "gpt-other" }),
+      count(4, { input_tokens: 3_000, cached_input_tokens: 1_400, output_tokens: 300, total_tokens: 3_300 }, { input_tokens: 2_000, cached_input_tokens: 1_000, output_tokens: 200, total_tokens: 2_200 }),
+      line(4, "response_item", item("assistant", "output_text", "Done.")),
+    ];
+    const file = join(day, `rollout-2026-09-20T10-00-00-${ALPHA}.jsonl`);
+    await writeFile(file, `${rollout.join("\n")}\n`);
+    const { registry, provider } = await harness(root);
+    await registry.invoke("tau.codex", "import-sessions", { paths: [file] });
+    const [thread] = await provider.listThreads();
+    expect(thread?.usage).toEqual([
+      { provider: "openai", model: "gpt-test", inputTokens: 600, outputTokens: 100, cacheReadTokens: 400, cacheWriteTokens: 0, totalTokens: 1_100, costUsd: 0, turns: 1 },
+      { provider: "openai", model: "gpt-other", inputTokens: 1_000, outputTokens: 200, cacheReadTokens: 1_000, cacheWriteTokens: 0, totalTokens: 2_200, costUsd: 0, turns: 1 },
+    ]);
+  });
 });

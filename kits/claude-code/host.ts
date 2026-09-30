@@ -502,7 +502,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
         return { source: CLAUDE_CODE_BACKEND_KIND, ...await scanClaudeSessions(importDirs(), (id) => held.has(id)) };
       }, { long: true, callers: [ONBOARDING_KIT_ID] });
       context.registerCommand("import-sessions", async (input) => {
-        const outcome = await importClaudeSessions(importDirs(), (input as { paths?: unknown } | undefined)?.paths, store);
+        const outcome = await importClaudeSessions(importDirs(), (input as { paths?: unknown } | undefined)?.paths, store, limits.get(DEFAULT_INSTANCE_ID)?.billing);
         return { ...outcome, ...(outcome.imported.length ? { update: await services.sessions.refreshIndex() } : {}) };
       }, { long: true, callers: [ONBOARDING_KIT_ID] });
 
