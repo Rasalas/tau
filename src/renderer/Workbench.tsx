@@ -26,7 +26,7 @@ import { HostConnectionStatus } from "./host-connection-status";
 import { COMPACT_SIDEBAR_MIN_WIDTH, compactSidebarMaxWidth, compactSidebarWidth, rendersOnProfile, type ClientProfile } from "../workbench/client-profile";
 import { useCompactForm } from "./use-layout-profile";
 import { useClientEnvironment } from "./client-environment";
-import { ThreadTitleMenu } from "./components/ThreadTitleMenu";
+import { coreThreadMenu, ThreadTitleMenu } from "./components/ThreadTitleMenu";
 import type { ThreadTreeMode } from "./components/ThreadTreeModal";
 import { TitleBar } from "./components/TitleBar";
 import { ThreadRuntimeBanner } from "./components/ThreadRuntimeBanner";
@@ -659,21 +659,32 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           <Region registry={registry} placement="thread-title" snapshot={snapshot} actions={actions} />
           <ThreadTitleMenu
             title={conversationSnapshot?.sessionTitle || "Untitled thread"}
-            label={snapshot?.projectLabel}
-            pinned={Boolean(snapshot?.sessionId && settings.pinnedThreadIds.includes(snapshot.sessionId))}
-            settled={Boolean(snapshot?.sessionId && settings.settledThreadIds.includes(snapshot.sessionId))}
-            onNewThread={() => actions.newSession()}
-            onOpenTree={() => openThreadTree("navigate")}
-            onOpenInstructions={() => setSystemPromptOpen(true)}
-            onDuplicate={() => void duplicateThread()}
-            onTogglePin={() => { if (snapshot?.sessionId) preferences.togglePinned(snapshot.sessionId); }}
-            onToggleSettled={settleActiveThread}
             onRename={renameThread}
-            commands={titleCommands}
-            onCommand={(id) => { void titleCommands.find((command) => command.id === id)?.run(actions); }}
-            onMarkUnread={() => { if (snapshot?.sessionId) threadStore.markUnread(snapshot.sessionId); }}
-            onCopy={(kind) => void copyThreadValue(kind)}
-            canCopyPath={hostCapabilities.localFiles}
+            menu={() => {
+              const id = snapshot?.sessionId;
+              const session = threadStore.getSnapshot().threads.find((entry) => entry.id === id);
+              const provider = registry.getThreadMenu();
+              const sections = session && provider?.menu(session, registry);
+              return sections ? { sections, run: (item) => provider!.run(session!, item, actions) } : coreThreadMenu({
+                label: snapshot?.projectLabel,
+                pinned: Boolean(id && settings.pinnedThreadIds.includes(id)),
+                settled: Boolean(id && settings.settledThreadIds.includes(id)),
+                readOnly: hostCapabilities.readOnly,
+                commands: titleCommands,
+                canCopyPath: hostCapabilities.localFiles,
+                run: (item) => {
+                  if (item === "new") actions.newSession();
+                  if (item === "tree") openThreadTree("navigate");
+                  if (item === "instructions") setSystemPromptOpen(true);
+                  if (item === "duplicate") void duplicateThread();
+                  if (item === "pin" && id) preferences.togglePinned(id);
+                  if (item === "settle") settleActiveThread();
+                  if (item === "unread" && id) threadStore.markUnread(id);
+                  if (item.startsWith("copy-")) void copyThreadValue(item.slice(5) as "chat" | "path" | "thread-id");
+                  if (item.startsWith("command:")) void titleCommands.find((command) => `command:${command.id}` === item)?.run(actions);
+                },
+              });
+            }}
           />
         </>;
   // The conversation's head replaces the window-wide bar everywhere but on a phone, whose bar is its own.
