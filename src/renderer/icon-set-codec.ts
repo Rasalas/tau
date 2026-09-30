@@ -17,32 +17,42 @@ export interface DecodedIconSet {
 const SEPARATORS = /[#|;/]/u;
 const NAME_SEPARATORS = /[#|;/,]/u;
 
+function fail(name: string): never {
+  throw new Error(`icon ${name} cannot be packed`);
+}
+
 /**
  * Packs icon element lists into one string: the distinct tag and attribute-name
  * combinations, the icon names each with its older names, then per icon and
  * element the combination's index and the attribute values. Names and elements
- * apart compress better.
+ * apart compress better. An icon in `bundled` keeps its names but no elements:
+ * the decoder gets its component from the bundle.
  */
-export function encodeIconSet(icons: Record<string, IconNode>, aliases: IconAliases = {}): string {
+export function encodeIconSet(icons: Record<string, IconNode>, aliases: IconAliases = {}, bundled: ReadonlySet<string> = new Set()): string {
   const shapes: string[] = [];
   const names = Object.keys(icons).map((name) => {
     const older = aliases[name] ?? [];
-    if ([name, ...older].some((entry) => NAME_SEPARATORS.test(entry))) throw new Error(`icon ${name} cannot be packed`);
+    if ([name, ...older].some((entry) => NAME_SEPARATORS.test(entry))) fail(name);
     return [name, ...older].join(",");
   });
-  const bodies = Object.entries(icons).map(([name, elements]) => elements.map(([tag, attributes]) => {
-    const shape = [tag, ...Object.keys(attributes)].join("/");
-    let index = shapes.indexOf(shape);
-    if (index < 0) index = shapes.push(shape) - 1;
-    const values = Object.values(attributes);
-    if (index >= 36 || values.some((value) => SEPARATORS.test(value))) throw new Error(`icon ${name} cannot be packed`);
-    return index.toString(36) + values.join("/");
-  }).join(";"));
+  const bodies = Object.entries(icons).map(([name, elements]) => {
+    if (bundled.has(name)) return "";
+    // An empty list stands for a bundled icon.
+    if (elements.length === 0) fail(name);
+    return elements.map(([tag, attributes]) => {
+      const shape = [tag, ...Object.keys(attributes)].join("/");
+      let index = shapes.indexOf(shape);
+      if (index < 0) index = shapes.push(shape) - 1;
+      const values = Object.values(attributes);
+      if (index >= 36 || values.some((value) => SEPARATORS.test(value))) fail(name);
+      return index.toString(36) + values.join("/");
+    }).join(";");
+  });
   return [shapes.join(";"), names.join("|"), bodies.join("|")].join("#");
 }
 
-/** The inverse of `encodeIconSet`. */
-export function decodeIconSet(data: string, create: IconFactory): DecodedIconSet {
+/** The inverse of `encodeIconSet`; `bundled` holds the bundled icons' components in the set's order. */
+export function decodeIconSet(data: string, create: IconFactory, bundled: readonly ComponentType[] = []): DecodedIconSet {
   const [header = "", names = "", bodies = ""] = data.split("#");
   const shapes = header.split(";").map((shape) => shape.split("/"));
   const icons: Record<string, ComponentType> = {};
@@ -53,10 +63,11 @@ export function decodeIconSet(data: string, create: IconFactory): DecodedIconSet
     const values = packed.slice(1).split("/");
     return [tag as IconNode[number][0], Object.fromEntries(attributes.map((attribute, index) => [attribute, values[index]!]))];
   };
+  let next = 0;
   names.split("|").forEach((entry, icon) => {
     const [name = "", ...older] = entry.split(",");
     const list = elementLists[icon];
-    const component = create(name, list ? list.split(";").map(element) : []);
+    const component = list ? create(name, list.split(";").map(element)) : bundled[next++]!;
     icons[component.displayName ?? name] = component;
     for (const alias of older) aliases[alias] = component;
   });
