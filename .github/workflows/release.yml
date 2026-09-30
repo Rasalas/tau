@@ -282,7 +282,10 @@ jobs:
 
       - name: Package the portable remote host
         shell: bash
-        run: node scripts/packaging/portable-host.mjs ${{ (matrix.artifact == 'macos-arm64' || matrix.artifact == 'linux-arm64') && 'arm64' || 'x64' }}
+        run: |
+          archive="$(node scripts/packaging/portable-host.mjs ${{ (matrix.artifact == 'macos-arm64' || matrix.artifact == 'linux-arm64') && 'arm64' || 'x64' }})"
+          version="$(node -p 'require("./package.json").version')"
+          node scripts/packaging/portable-host-smoke.mjs "$archive" "$version"
 
       # What apt installs and what DebUpdater downloads: Xvfb comes along, the
       # AppArmor profile is inside, and the feed names the package.

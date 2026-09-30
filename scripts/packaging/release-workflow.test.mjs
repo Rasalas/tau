@@ -30,6 +30,7 @@ describe("the release workflow", () => {
     expect(JOBS.build).toContain("runner: ubuntu-24.04-arm");
     expect(JOBS.build).toContain("platform: --linux --arm64 --dir");
     expect(JOBS.build).toContain("node scripts/packaging/portable-host.mjs");
+    expect(JOBS.build).toContain('node scripts/packaging/portable-host-smoke.mjs "$archive" "$version"');
     expect(JOBS.build).toContain("release/*.tar.gz");
     expect(JOBS.sign).toContain("release-signing.mjs sign feed/latest*.yml");
   });

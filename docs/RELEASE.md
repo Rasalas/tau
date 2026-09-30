@@ -65,6 +65,13 @@ signing secret, the publishing app's secrets or the phone apps' keys the run
 fails in `preflight`, before it builds. Every secret lives in the environment
 `release` ([Runners and environments](#runners-and-environments)).
 
+The desktop builds also package portable remote hosts, with a separate
+Linux ARM64 job. Before uploading an archive, each job extracts it into a
+temporary directory and checks its embedded CLI, native PTY dependency and
+authenticated host protocol with isolated state. Publishing requires all five
+host feeds, their signatures and the exact archives they name. The Windows
+portable ZIP has no differential-update blockmap.
+
 The tag drives nothing but the release name. If it does not match
 `package.json`, the artifacts carry the version from `package.json` and the
 updater will compare against that one. Keep them equal.
