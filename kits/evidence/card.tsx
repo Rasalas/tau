@@ -32,7 +32,8 @@ export function countLabel(count: number): string {
 /** "12 pictures · 0:38"; a running turn has no length yet. */
 export function turnSummary(turn: EvidenceTurn, short = false): string {
   const count = short ? String(turn.frames.length) : countLabel(turn.frames.length);
-  return turn.endedAt === undefined ? count : `${count} · ${clock(turn.endedAt - turn.startedAt)}`;
+  // A picture of the turn's last moments may be stored a moment after the turn ended.
+  return turn.endedAt === undefined ? count : `${count} · ${clock(Math.max(turn.endedAt, turn.frames.at(-1)?.at ?? 0) - turn.startedAt)}`;
 }
 
 /** One small picture, read from the host when it is first drawn. */
@@ -89,8 +90,8 @@ export function SaveVideoButton({ client, threadId, turn, notify }: {
     }
   };
   return (
-    <button type="button" className="evidence-text-button evidence-save-video" disabled={Boolean(progress) || turn.frames.length === 0} onClick={() => void save()}>
-      <Video size={12} aria-hidden="true" />{progress ?? "Save video"}
+    <button type="button" className="evidence-text-button evidence-save-video" aria-label={progress ?? "Save video"} disabled={Boolean(progress) || turn.frames.length === 0} onClick={() => void save()}>
+      <Video size={12} aria-hidden="true" /><span>{progress ?? "Save video"}</span>
     </button>
   );
 }

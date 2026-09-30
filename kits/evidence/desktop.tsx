@@ -77,7 +77,7 @@ function createController(client: EvidenceClient, rows: TranscriptRowsHandle, re
       return { turn, running: settled.endedAt === undefined, ...(anchor ? { anchor } : {}) };
     }), [messages, streaming, thread]);
     // Streaming changes the messages on every token; the rows change only when a placement does.
-    const key = `${placed.map((entry) => `${entry.turn.turnId}:${String(entry.turn.frames.length)}:${entry.turn.frames.at(-1)?.id ?? ""}:${entry.anchor ?? ""}:${String(entry.running)}`).join("|")}#${paused ?? ""}`;
+    const key = `${placed.map((entry) => `${entry.turn.turnId}:${String(entry.turn.endedAt)}:${String(entry.turn.frames.length)}:${entry.turn.frames.at(-1)?.id ?? ""}:${entry.anchor ?? ""}:${String(entry.running)}`).join("|")}#${paused ?? ""}`;
 
     useEffect(() => {
       if (!sessionId) return;

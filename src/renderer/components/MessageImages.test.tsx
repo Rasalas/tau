@@ -129,6 +129,11 @@ describe("message images", () => {
     fireEvent.keyDown(screen.getByRole("button", { name: "Close preview" }), { key: "ArrowRight" });
     expect(await screen.findByRole("dialog", { name: "grafana.png" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Image 1" }));
-    expect(await screen.findByRole("dialog", { name: "checkout-429.png" })).toBeTruthy();
+    const shown = await screen.findByRole("dialog", { name: "checkout-429.png" });
+    // Scrolling up zooms in; the next picture starts at fit again.
+    const picture = shown.querySelector<HTMLImageElement>(".lightbox-stage img")!;
+    fireEvent.wheel(picture, { deltaY: -100 });
+    fireEvent.wheel(picture, { deltaY: -100 });
+    await waitFor(() => expect(picture.style.transform).toBe(`scale(${String(1.15 * 1.15)})`));
   });
 });

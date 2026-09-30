@@ -38,8 +38,12 @@ export function AttachmentLightbox({ images, index: start, origin, onClose }: {
   // Zooms toward the pointer; back at 1 the picture fits again.
   const onWheel = (event: WheelEvent<HTMLImageElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
-    const scale = Math.min(6, Math.max(1, zoom.scale * (event.deltaY < 0 ? 1.15 : 1 / 1.15)));
-    setZoom(zoom.scale === 1 ? { scale, x: ((event.clientX - box.left) / box.width) * 100, y: ((event.clientY - box.top) / box.height) * 100 } : { ...zoom, scale });
+    const x = box.width ? ((event.clientX - box.left) / box.width) * 100 : 50;
+    const y = box.height ? ((event.clientY - box.top) / box.height) * 100 : 50;
+    setZoom((current) => {
+      const scale = Math.min(6, Math.max(1, current.scale * (event.deltaY < 0 ? 1.15 : 1 / 1.15)));
+      return current.scale === 1 ? { scale, x, y } : { ...current, scale };
+    });
   };
   const save = () => {
     const link = document.createElement("a");

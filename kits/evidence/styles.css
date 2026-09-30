@@ -17,6 +17,9 @@
   background: var(--warn-chip); color: var(--warn); font: 600 10.5px var(--sans);
 }
 .evidence-card-actions { margin-left: auto; display: flex; gap: 2px; flex: none; }
+/* A narrow chat keeps the count readable: Save video keeps only its icon. */
+.evidence-card { container-type: inline-size; }
+@container (max-width: 420px) { .evidence-card .evidence-save-video > span { display: none; } }
 
 .evidence-text-button {
   flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px;
