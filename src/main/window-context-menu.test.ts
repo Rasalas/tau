@@ -67,6 +67,15 @@ describe("the window's context menu", () => {
     expect((copy!.submenu as MenuItemConstructorOptions[])[0]!.icon).toBe("image:Trash2");
   });
 
+  it("keeps an ampersand in a label, which Electron would read as a mnemonic", () => {
+    const popup = fakePopup("darwin");
+    void showWindowContextMenu(popup.ports, decodeNativeMenu("test", [
+      { type: "heading", label: "Q&A" },
+      { type: "item", id: "instructions", label: "Instructions & prompt…", badge: "R&D" },
+    ]), { x: 0, y: 0 });
+    expect(popup.shown.template!.map((entry) => entry.label)).toEqual(["Q&&A", "Instructions && prompt… (R&&D)"]);
+  });
+
   it("reads the page's chord labels as accelerators", () => {
     expect(acceleratorOf("⌘K", "darwin")).toBe("Cmd+K");
     expect(acceleratorOf("⇧⌘S", "darwin")).toBe("Shift+Cmd+S");
