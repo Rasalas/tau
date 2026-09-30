@@ -158,10 +158,11 @@ describe("Usage page", () => {
     await waitFor(() => expect(within(threads).getByText("Codex session 019a-cli")).toBeTruthy());
     expect(within(threads).getByText("Outside Tau · side-project")).toBeTruthy();
     const projects = screen.getByRole("region", { name: "Projects" });
-    expect(within(projects).getByText("side-project")).toBeTruthy();
+    expect(await within(projects).findByText("side-project")).toBeTruthy();
     expect(within(projects).getByText("Outside Tau")).toBeTruthy();
 
-    const where = screen.getByRole("radiogroup", { name: "Where the work ran" });
+    // The filter draws with the summary's origins, each region on its own render.
+    const where = await screen.findByRole("radiogroup", { name: "Where the work ran" });
     fireEvent.click(within(where).getByRole("radio", { name: "In Tau" }));
     await waitFor(() => expect(within(screen.getByRole("region", { name: "Threads" })).queryByText("Codex session 019a-cli")).toBeNull());
     fireEvent.click(within(where).getByRole("radio", { name: "Outside Tau" }));
