@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { complete } from "@earendil-works/pi-ai/compat";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { FAKE_MODEL, FAKE_PROVIDER, fakeModelsJson, fakeReply, prepareFakePiAgentDir, startFakeModelServer } from "./fake-model-server.mjs";
+import { FAKE_MODEL, FAKE_PROVIDER, fakeModelsJson, fakeQuestion, fakeReply, prepareFakePiAgentDir, startFakeModelServer } from "./fake-model-server.mjs";
 
 describe("fakeReply", () => {
   const user = (content) => ({ messages: [{ role: "system", content: "sys" }, { role: "user", content }] });
@@ -14,6 +14,17 @@ describe("fakeReply", () => {
     expect(fakeReply(user("Reply with one word"))).toEqual({ text: "ok" });
     expect(fakeReply(user("fail 400 Unsupported parameter: temperature"))).toEqual({ status: 400, error: "Unsupported parameter: temperature" });
     expect(fakeReply({ messages: [...user("write a b").messages, { role: "assistant", content: null }, { role: "tool", content: "ok" }] })).toEqual({ text: "done" });
+  });
+
+  it("asks the ask-user tool's question, or spawns agents in one reply", () => {
+    expect(fakeReply(user("ask one"))).toEqual({ toolCall: { name: "ask_user_question", arguments: { questions: [fakeQuestion(false)] } } });
+    expect(fakeReply(user("ask any")).toolCall.arguments.questions[0].multiSelect).toBe(true);
+    expect(fakeReply(user("spawn[GET /orders=ask one; GET /products=run 900; broken]"))).toEqual({
+      toolCalls: [
+        { name: "tau_spawn_thread", arguments: { title: "GET /orders", prompt: "ask one" } },
+        { name: "tau_spawn_thread", arguments: { title: "GET /products", prompt: "run 900" } },
+      ],
+    });
   });
 
   it("runs a slow command and thinks before each answer when asked", () => {
@@ -62,6 +73,12 @@ describe("startFakeModelServer", () => {
   it("streams reasoning Pi reads as thinking", async () => {
     const message = await ask("think 300");
     expect(message.content).toEqual([expect.objectContaining({ type: "thinking" }), expect.objectContaining({ type: "text", text: "ok" })]);
+  });
+
+  it("streams several tool calls in one reply", async () => {
+    const message = await ask("spawn[A=ok; B=ok]");
+    expect(message.stopReason).toBe("toolUse");
+    expect(message.content.filter((part) => part.type === "toolCall").map((part) => part.arguments.title)).toEqual(["A", "B"]);
   });
 
   it("streams a write tool call", async () => {
