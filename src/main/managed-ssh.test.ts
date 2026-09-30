@@ -18,7 +18,7 @@ function fakeSsh() {
   const exec: SshExecutor = {
     run, upload,
     spawn(_target, _command, args) {
-      const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), exitCode: null as number | null, signalCode: null as string | null, kill: () => true }) as unknown as ChildProcessWithoutNullStreams;
+      const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), exitCode: null as number | null, signalCode: null as string | null, kill: () => true }) as unknown as ChildProcessWithoutNullStreams & { stdout: PassThrough };
       let server: Server | undefined;
       child.kill = (() => { if (child.exitCode !== null) return true; Object.assign(child, { exitCode: 0, signalCode: "SIGTERM" }); if (server) server.close(() => child.emit("close", 0)); else queueMicrotask(() => child.emit("close", 0)); return true; }) as typeof child.kill;
       if (args) {
