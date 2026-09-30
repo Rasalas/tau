@@ -315,7 +315,10 @@ export function registerCheckpoints(plugin: DesktopExtensionContext, workspaceSt
       // The capture is over: the thread has a runtime and holds nothing, which
       // is exactly what the two host answers behind a restore control need.
       if (event.status === "released") store.revalidate();
-      if (event.status === "skipped") store.update({ notice: "Turn changes were not recorded: another turn is active in this workspace." });
+      if (event.status === "skipped") {
+        const notice = workspaceStore.skippedCheckpointNotice(event.sessionId);
+        if (notice) store.update({ notice });
+      }
     } else if (event?.type === "turn-checkpoint-error") store.update({ notice: event.message });
   });
   plugin.registerRegion({ id: "workspace.checkpoints", placement: "composer-controls", order: 70, profiles: ["desktop"], Component: createController(store, workspaceStore, rows) });

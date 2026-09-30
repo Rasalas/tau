@@ -133,6 +133,12 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   private defaults?: ProjectDefaults;
   private commitMessageSuggester?: CommitMessageSuggester;
   private fileEditor?: WorkspaceFileEditor;
+  /** Another thread's turn runs in the draft's folder, as the follower last saw it. */
+  private busyCheckout = false;
+  /** The draft took the suggested worktree, but it could not be made. */
+  private draftFellBack = false;
+  /** Threads that run in the checkout only because their suggested worktree failed. */
+  private readonly fellBack = new Set<string>();
 
   /** Clones in flight and just finished, as toasts. */
   readonly clones: CloneToasts;
@@ -200,6 +206,12 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   follow(next: { cwd?: string; workspaceId?: string; sessionId?: string; draftPending: boolean }): void {
     const projectChanged = next.cwd !== this.state.cwd;
     const threadChanged = next.sessionId !== this.sessionId;
+    const draftChanged = projectChanged || threadChanged || next.draftPending !== this.state.draftPending;
+    if (this.draftFellBack && !next.draftPending && next.sessionId) {
+      this.fellBack.add(next.sessionId);
+      this.draftFellBack = false;
+    } else if (draftChanged && next.draftPending) this.draftFellBack = false;
+    const suggested = draftChanged && this.state.worktreeSuggested;
     this.sessionId = next.sessionId;
     this.update({
       cwd: next.cwd,
@@ -207,7 +219,9 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       draftPending: next.draftPending,
       ...(projectChanged ? { changes: NO_CHANGES, fileTree: [], workspace: undefined } : {}),
       ...(threadChanged ? { turnBaseline: next.sessionId ? readBaseline(next.sessionId) : undefined, turnSettled: false } : {}),
-      ...(projectChanged || threadChanged || next.draftPending !== this.state.draftPending ? { draftBranch: undefined, draftBase: undefined } : {}),
+      ...(draftChanged ? { draftBranch: undefined, draftBase: undefined } : {}),
+      // The suggestion was this draft's; the next one starts from the project's own default.
+      ...(suggested ? { worktreeSuggested: false, workspaceMode: this.defaultWorkspaceMode() } : {}),
     });
     if (next.cwd && (projectChanged || threadChanged)) {
       void this.refreshChanges();
@@ -219,6 +233,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       this.update({ workspaceMode: this.defaultWorkspaceMode(), worktreeBase: undefined });
       void this.loadProjectDefaults();
     }
+    this.suggestWorktree();
   }
 
   /**
@@ -239,7 +254,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       const defaults = await this.host.getProjectDefaults(this.workspace());
       if (cwd !== this.state.cwd) return;
       this.defaults = defaults;
-      this.update({ workspaceMode: this.defaultWorkspaceMode() });
+      // A suggestion already shown keeps its switch where it is.
+      if (!this.state.worktreeSuggested) this.update({ workspaceMode: this.defaultWorkspaceMode() });
     } catch { /* a project without the file simply has no answer */ }
   }
 
@@ -252,6 +268,33 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     const root = this.state.cwd;
     if (root) this.preferences.setValue(WORKSPACE_KIT_ID, projectWorkspaceModeKey(root), mode);
     this.update({ workspaceMode: mode });
+  }
+
+  /** Whether another thread's turn runs in the draft's folder; the follower reads it off the thread list. */
+  followBusyCheckout(busy: boolean): void {
+    this.busyCheckout = busy;
+    this.suggestWorktree();
+  }
+
+  /**
+   * Preselects a worktree once per draft while another turn runs in its folder.
+   * It stays when that turn ends, and a switch turned off is never turned on again.
+   */
+  private suggestWorktree(): void {
+    const { draftPending, worktreeSuggested, workspaceMode, workspace } = this.state;
+    if (!this.busyCheckout || !draftPending || worktreeSuggested || workspaceMode !== "current" || !workspace?.isRepo) return;
+    this.update({ worktreeSuggested: true, workspaceMode: "worktree" });
+  }
+
+  /** The suggestion's switch: this draft's choice only, never the project's default. */
+  setWorktreeSuggestion(on: boolean): void {
+    if (this.state.worktreeSuggested) this.update({ workspaceMode: on ? "worktree" : "current" });
+  }
+
+  /** What a skipped checkpoint says; nothing for a thread whose suggested worktree could not be made. */
+  skippedCheckpointNotice(sessionId: string): string | undefined {
+    if (this.fellBack.has(sessionId)) return undefined;
+    return "Turn changes were not recorded: another turn is active in this workspace. Start the next thread in its own worktree to keep changes separate.";
   }
 
   /** The draft's branch name and base; empty values go back to automatic. */
@@ -359,7 +402,10 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     this.update({ workspaceBusy: true });
     try {
       const next = this.state.draftPending && cwd ? await this.host.getWorkspaceInfo(this.workspace()) : await this.host.getWorkspaceInfo();
-      if (request === this.workspaceRequest && cwd === this.state.cwd) this.update({ workspace: next });
+      if (request === this.workspaceRequest && cwd === this.state.cwd) {
+        this.update({ workspace: next });
+        this.suggestWorktree();
+      }
     } catch (error) {
       if (request === this.workspaceRequest) this.notify(errorMessage(error));
     } finally {
@@ -576,6 +622,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       const created = await this.host.createWorktree(branch, { ...(base ? { baseRef: base } : {}), ...this.worktreeOptions() }, this.workspace());
       return { workspace: { workspaceId: created.workspaceId, displayPath: created.displayPath } };
     } catch (error) {
+      if (this.state.worktreeSuggested) this.draftFellBack = true;
       this.notify(`The worktree could not be created; this thread runs in the checkout. ${errorMessage(error)}`);
       return {};
     } finally {

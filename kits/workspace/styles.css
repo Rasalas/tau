@@ -352,6 +352,10 @@
 /* Kept against menu button rules that would flatten the switch. */
 .branch-worktree .switch, .branch-worktree .switch:hover:not(:disabled) { width: var(--switch-w); padding: 0; border-radius: var(--radius-pill); background: var(--track); }
 .branch-worktree .switch.on, .branch-worktree .switch.on:hover:not(:disabled) { background: var(--acid); }
+/* The draft's worktree suggestion (K125): a pill whose whole face is its switch's label. */
+.draft-pill.worktree-suggestion { gap: 8px; }
+.draft-pill.worktree-suggestion > svg { flex: none; color: var(--muted); }
+@media (pointer: fine) { .draft-pill.worktree-suggestion .switch { --switch-w: 26px; --switch-h: 15px; } }
 /* The Branch pill's sheet on touch: the sheet names it; rows of 44 px. */
 .branch-sheet { text-align: left; }
 .branch-sheet .branch-section > .menu-heading { display: none; }

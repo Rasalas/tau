@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import { ChevronDown, Folder, FolderGit2, GitBranch, Plus, Search, Trash2 } from "lucide-react";
-import { Popover, Sheet, Switch, VirtualList, type RegionProps, type UiRef, type UiWorktree, type UiWorktreeStatus } from "tau";
+import { Popover, Sheet, Switch, VirtualList, tooltipProps, type RegionProps, type UiRef, type UiWorktree, type UiWorktreeStatus } from "tau";
 import type { UiWorktreeRemoval } from "./protocol.js";
 import { useWorkspaceStore } from "./store-context.js";
 
@@ -274,4 +274,26 @@ export function createDraftBranchPill(sheet: boolean) {
         : <Popover anchor={anchor} label="Branch" className="branch-popover" onClose={close}><DraftBranchSection /></Popover> : null}
     </>;
   };
+}
+
+/** Why the draft suggests its own worktree, in the pill's tooltip. */
+export const WORKTREE_SUGGESTION_REASON = "Another thread is working in this folder. In its own worktree, the changes and checkpoints of both threads stay separate.";
+
+/**
+ * "Start in its own worktree" beside the draft's other pills (K125), shown
+ * while the store suggests it; the whole pill is the switch's label.
+ */
+export function WorktreeSuggestionPill() {
+  const { store, state } = useWorkspaceState();
+  if (!state.draftPending || !state.worktreeSuggested) return null;
+  return <label className="draft-pill worktree-suggestion" {...tooltipProps(WORKTREE_SUGGESTION_REASON)}>
+    <FolderGit2 size={13} aria-hidden />
+    <span>Start in its own worktree</span>
+    <Switch
+      label="Start in its own worktree"
+      checked={state.workspaceMode === "worktree"}
+      disabled={state.workspaceBusy || state.preparingWorktree}
+      onChange={(on) => store.setWorktreeSuggestion(on)}
+    />
+  </label>;
 }
