@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- Bonjour: multicast DNS needs the Wi-Fi multicast lock while it browses. -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <application>
         <!-- Push through Tau's relay: opens sealed data messages; the app's manifest removes Capacitor's own service. -->
         <service android:name="de.tbuck.tau.plugin.TauMessagingService" android:exported="false">
@@ -11,5 +12,9 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
+        <receiver android:name=".UsageWidget" android:exported="false" android:label="Tau usage">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/tau_usage_widget_info" />
+        </receiver>
     </application>
 </manifest>

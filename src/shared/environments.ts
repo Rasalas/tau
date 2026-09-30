@@ -155,6 +155,10 @@ export const ENVIRONMENT_THREAD_EVENT = "environment-thread";
  * from, or the host id of a machine the window's last Bonjour search found.
  */
 export interface EnvironmentPairInput {
+  /** Installs Tau's signed portable host and keeps a managed SSH forward. */
+  ssh?: string;
+  /** A Linux distribution on this Windows machine. */
+  wsl?: string;
   text?: string;
   /** Pairs with the found machine's addresses and pins the fingerprint its record carried. */
   nearby?: string;

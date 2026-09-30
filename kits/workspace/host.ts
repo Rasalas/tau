@@ -524,6 +524,7 @@ export function createWorkspaceHostExtension(): HostExtension {
             ...(startFromOrigin === undefined ? {} : { startFromOrigin: startFromOrigin !== false }),
             onStep: (stage) => step(stage),
           }, (path) => git.getWorkspaceInfo(path));
+          const baseCommit = (await workspaceGit.runGitCommand(destination, ["rev-parse", "--verify", "HEAD"])).trim();
           services.rememberProjectName(destination, await services.projectName(project));
           git.invalidate(project, ["branch", "status", "workspace"]);
           services.log("git.worktree.added", destination);
@@ -538,7 +539,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           }
           await runWorktreeSetup(project, destination, setupId);
           // The draft moves here before its thread exists, and asks about it at once.
-          return services.admitWorkspace(destination);
+          return { ...services.admitWorkspace(destination), baseCommit };
         } catch (error) {
           git.invalidate(project, ["branch", "status", "workspace"]);
           if (setupId) await setupCall("worktree-setup-failed", { setupId, error: error instanceof Error ? error.message : String(error) }).catch(() => undefined);

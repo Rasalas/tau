@@ -108,6 +108,7 @@ describe("Shell", () => {
     render(<Shell context={context()} initial={{ view: "add" }} />);
     const link = `https://192.168.1.2:7788/#pair=abc&fp=${FP}&host=h-1&name=Studio`;
     fireEvent.change(await screen.findByRole("textbox"), { target: { value: link } });
+    await waitFor(() => expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
     expect(await screen.findByText(/did not answer on any of its addresses/u)).toBeTruthy();
     expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(link);

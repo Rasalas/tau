@@ -1,4 +1,5 @@
-import { createContext, useContext, type ComponentType, type ReactNode } from "react";
+import type { DictationPort } from "./dictation";
+import { createContext, useContext, type ComponentType, type ReactNode, type RefObject } from "react";
 import { parseClientProfile, type ClientProfile } from "../workbench/client-profile";
 import { createElectronPlatform } from "./platform-electron";
 import type { ClientPlatformFactory } from "./client-platform";
@@ -20,6 +21,11 @@ export interface ClientEnvironment {
   servedByHost?: boolean;
   /** What the app around the workbench adds, where there is one (the native app). */
   shell?: ClientShell;
+  /** Native clients supply their control so other clients do not ship its UI. */
+  dictation?: {
+    port: DictationPort;
+    Control: ComponentType<{ port: DictationPort; text: string; inputRef: RefObject<HTMLTextAreaElement | null>; updateDraft(text: string): void }>;
+  };
 }
 
 /**

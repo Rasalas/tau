@@ -56,6 +56,7 @@ import { createQuitShortcut } from "./quit-shortcut.js";
 import { ReleaseNotesStore, fileReleaseNotes, githubReleaseNotes } from "./release-notes.js";
 import { DEFAULT_QUIT_CONFIRMATION, type QuitConfirmation, type WindowShellEvent } from "../shared/window-shell.js";
 import { WindowEnvironments, answerEnvironmentCommand, type EnvironmentConnection } from "./window-environments.js";
+import { listWslDistributions, bootstrapWslHost, resumeWslHost } from "./wsl-host.js";
 import { machineDisplayName } from "./host-discovery.js";
 import { installEnvironmentSession } from "./environment-session.js";
 import { DATA_FOLDER_BUSY_EXIT_CODE, claimDataFolder, dataFolderBusyMessage, describeDataFolderOwner } from "./data-folder-lock.js";
@@ -622,6 +623,13 @@ async function startEnvironments(local: WindowHost): Promise<void> {
     show: showEnvironment,
     // Looks from this machine's host, whichever machine the page shows.
     discover: () => local.request("connections-discover", [{}]),
+    wsl: {
+      list: () => listWslDistributions(),
+      bootstrap: (distro, signal) => bootstrapWslHost(distro, {
+        cacheDir: join(app.getPath("userData"), "managed-hosts"), signal,
+      }),
+      resume: (distro) => resumeWslHost(distro),
+    },
     // The agents' keys live with this machine's host, which reaches the machines without a window (ADR 0027).
     agents: {
       add: async (entry) => { await local.request("machines-add", [entry]); },

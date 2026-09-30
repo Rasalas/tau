@@ -1,5 +1,9 @@
-import { Suspense, lazy, useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Gauge, UserRound } from "lucide-react";
 import {
+  ComposerMenuItem,
+  ComposerMenuSection,
+  type ComposerControlProps,
   DEFAULT_INSTANCE_ID,
   SettingRow,
   SettingsState,
@@ -30,6 +34,7 @@ import {
   type CodexInstanceView,
   type CodexInstancesReport,
   type CodexStatusReport,
+  type CodexThreadSettings,
   type ManagedCodexState,
 } from "./protocol.js";
 
@@ -275,6 +280,7 @@ export function CodexProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_
         placeholder="codex, from your login shell's PATH"
         onSave={saveCommand}
       />
+      <SettingRow title="Separate CLI account" description={<>CLI accounts sharing <code>CODEX_HOME</code> use <code>TAU_CODEX_AUTH_HOME</code> with a different fresh folder in this instance's environment below. Managed ChatGPT accounts can share the same explicitly configured home below while Tau keeps their credentials private. Configure shared homes before starting threads, then switch accounts from the composer menu.</>} />
       {view ? (
         <InstanceSetup
           program="Codex"
@@ -319,6 +325,7 @@ const dismissedBanners = new Set<string>();
 export function createChatGPTPlanBanner(host: HostExtensionClient) {
   return function ChatGPTPlanBanner({ snapshot, actions }: RegionProps) {
     const kind = snapshot?.backendKind;
+    const threadId = snapshot?.sessionId;
     const [plan, setPlan] = useState<ChatGPTPlanSummary>();
     const [limited, setLimited] = useState(false);
     const [install, setInstall] = useState<ManagedCodexState>();
@@ -328,20 +335,84 @@ export function createChatGPTPlanBanner(host: HostExtensionClient) {
       setLimited(false);
       setInstall(undefined);
       if (!isRuntimeInstanceOf(kind, CODEX_BACKEND_KIND)) return;
-      const read = () => void host.invoke("chatgpt-plan-account", { instance: runtimeInstanceId(kind!) }).then((value) => { if (active) setPlan(value as ChatGPTPlanSummary | undefined); }).catch(() => undefined);
+      let account = runtimeInstanceId(kind!);
+      let request = 0;
+      const read = () => {
+        const current = ++request;
+        void host.invoke("chatgpt-plan-account", { instance: runtimeInstanceId(kind!), ...(threadId ? { threadId } : {}) }).then((value) => {
+          if (!active || current !== request) return;
+          const summary = value as ChatGPTPlanSummary | undefined;
+          account = summary?.instance ?? runtimeInstanceId(kind!);
+          setPlan(summary);
+        }).catch(() => undefined);
+      };
       read();
       const stop = host.onEvent("sign-in", read);
-      const stopLimits = host.onEvent("chatgpt-plan-limit", (value) => { if ((value as { instance?: string })?.instance === runtimeInstanceId(kind!)) setLimited(true); });
+      const stopSettings = host.onEvent("thread-settings", (value) => {
+        if ((value as { threadId?: string })?.threadId !== threadId) return;
+        setLimited(false);
+        read();
+      });
+      const stopLimits = host.onEvent("chatgpt-plan-limit", (value) => { if ((value as { instance?: string })?.instance === account) setLimited(true); });
       const stopInstall = host.onEvent(MANAGED_CODEX_EVENT, (value) => {
         if (!isManagedState(value) || !active) return;
         setInstall(value.phase === "installed" ? undefined : value);
         if (value.phase === "installed") read();
       });
-      return () => { active = false; stop(); stopLimits(); stopInstall(); };
-    }, [kind]);
+      return () => { active = false; stop(); stopSettings(); stopLimits(); stopInstall(); };
+    }, [kind, threadId]);
     useEffect(() => { if (snapshot?.isStreaming) setLimited(false); }, [snapshot?.isStreaming]);
     if (!plan?.signedIn) return null;
     return <div className="runtime-version-banner"><div className="runtime-version-banner-body"><strong>Using ChatGPT plan · {plan.label}</strong>{install ? <p role="status">{managedProgressLabel(install)}</p> : null}{limited ? <p>ChatGPT plan usage is unavailable. Review your app limits and credits in ChatGPT.</p> : null}<div className="runtime-version-banner-actions"><button type="button" onClick={() => actions.openExternal(plan.usageUrl)}>Manage usage</button></div></div></div>;
+  };
+}
+
+export function createThreadSettingsControl(host: HostExtensionClient) {
+  return function CodexThreadSettingsControl({ snapshot, actions }: ComposerControlProps) {
+    const [state, setState] = useState<CodexThreadSettings>();
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string>();
+    const threadId = snapshot?.sessionId;
+    const currentThread = useRef(threadId);
+    currentThread.current = threadId;
+    const isCodex = isRuntimeInstanceOf(snapshot?.backendKind, CODEX_BACKEND_KIND);
+    useEffect(() => {
+      let active = true;
+      setState(undefined);
+      setBusy(false);
+      setError(undefined);
+      if (!isCodex || !threadId) return;
+      const read = () => void host.invoke("thread-settings", { threadId }).then((value) => {
+        if (active) { setState(value as CodexThreadSettings); setError(undefined); }
+      }).catch((failure) => { if (active) setError(errorMessage(failure)); });
+      read();
+      const stop = host.onEvent("thread-settings", read);
+      const stopInstances = host.onEvent(INSTANCES_EVENT, read);
+      const stopLogin = host.onEvent("sign-in", read);
+      return () => { active = false; stop(); stopInstances(); stopLogin(); };
+    }, [isCodex, threadId, snapshot?.model?.id, snapshot?.isStreaming]);
+    if (!isCodex || !threadId) return null;
+    const change = async (command: string, input: Record<string, unknown>) => {
+      setBusy(true);
+      setError(undefined);
+      try {
+        const value = await host.invoke(command, { threadId, ...input }) as CodexThreadSettings;
+        if (currentThread.current === threadId) setState(value);
+      }
+      catch (failure) { const message = errorMessage(failure); if (currentThread.current === threadId) setError(message); actions?.notify(message); }
+      finally { if (currentThread.current === threadId) setBusy(false); }
+    };
+    const disabled = busy || Boolean(snapshot?.isStreaming);
+    return <>
+      <ComposerMenuSection heading="Codex account">
+        {state?.accounts.map((account) => <ComposerMenuItem key={account.id} icon={<UserRound size={13} />} label={account.label} selected={account.id === state.account} disabled={disabled || Boolean(account.reason)} disabledReason={account.reason ?? "Wait for Codex to finish"} onSelect={() => void change("switch-thread-account", { account: account.id })} />)}
+        {error ? <div role="alert">{error}</div> : null}
+      </ComposerMenuSection>
+      {state?.serviceTier.choices.length ? <ComposerMenuSection heading="Codex service tier">
+        <ComposerMenuItem icon={<Gauge size={13} />} label="Provider default" detail={state.serviceTier.choices.find((tier) => tier.id === state.serviceTier.defaultTier)?.name} selected={state.serviceTier.selected === null} disabled={disabled} disabledReason="Wait for Codex to finish" onSelect={() => void change("set-thread-tier", { tier: null })} />
+        {state.serviceTier.choices.map((tier) => <ComposerMenuItem key={tier.id} icon={<Gauge size={13} />} label={tier.name} detail={tier.description} selected={state.serviceTier.selected === tier.id} disabled={disabled} disabledReason="Wait for Codex to finish" onSelect={() => void change("set-thread-tier", { tier: tier.id })} />)}
+      </ComposerMenuSection> : null}
+    </>;
   };
 }
 
@@ -414,6 +485,7 @@ export const codexExtension: DesktopExtension = {
   id: CODEX_HOST_EXTENSION_ID,
   name: "Codex",
   activate(plugin) {
+    plugin.registerComposerControl({ id: "codex.thread-settings", placement: "menu", order: 21, profiles: ["desktop", "web", "compact"], Component: createThreadSettingsControl(plugin.host) });
     const instances = new CodexInstances();
     const terminal = () => plugin.hostExtension(TERMINAL_HOST_EXTENSION_ID);
     const cards = new Map<string, { label: string; dispose: () => void }>();

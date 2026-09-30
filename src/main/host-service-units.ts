@@ -71,7 +71,7 @@ export function serviceEnvironment(input: { userData: string; manager: HostServi
     ELECTRON_RUN_AS_NODE: "1",
     TAU_USER_DATA: input.userData,
     TAU_HOST_LISTEN: "127.0.0.1:0",
-    TAU_HOST_LOCAL_FILES: "1",
+    TAU_HOST_LOCAL_FILES: input.env.TAU_HOST_LOCAL_FILES === "0" ? "0" : "1",
     [HOST_SERVICE_ENV]: input.manager,
   };
   for (const key of FORWARDED_SERVICE_ENV) {

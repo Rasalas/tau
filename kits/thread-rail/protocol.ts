@@ -151,10 +151,12 @@ export interface WorkspaceStoreSlice {
   subscribe(listener: () => void): () => void;
   registerThreadRailOrganizer(organizer: RailOrganizer): () => void;
   registerThreadRowAccessory(accessory: ComponentType<{ session: UiSession }>): () => void;
+  removeWorktree?(path: string, branch?: string): Promise<boolean>;
   prepareThreadWorktree(request: {
     prompt: string;
     preparing(message: string): void;
     force?: boolean;
+    baseCommit?: string;
     branchSuffix?: string;
-  }): Promise<{ workspace?: { workspaceId: string; displayPath: string } }>;
+  }): Promise<{ workspace?: { workspaceId: string; displayPath: string }; baseCommit?: string }>;
 }

@@ -1,4 +1,4 @@
-import { SEALED_PUSH_VERSION, sealedPushAad, type SealedPushContent } from "../../kits/push/protocol";
+import { SEALED_PUSH_VERSION, sealedPushAad, readPushActivity, type SealedPushContent } from "../../kits/push/protocol";
 
 const KEY_BYTES = 32;
 const KEY_ID_BYTES = 16;
@@ -45,7 +45,10 @@ export async function openSealedPush(sealed: unknown, keyFor: (keyId: string) =>
     );
     const value = JSON.parse(new TextDecoder().decode(plain)) as Partial<SealedPushContent>;
     if (typeof value.title !== "string" || typeof value.body !== "string") return undefined;
+    const activity = value.activity === undefined ? undefined : readPushActivity(value.activity);
+    if (value.activity !== undefined && !activity) return undefined;
     return {
+      ...(activity ? { activity } : {}),
       title: value.title,
       body: value.body,
       ...(typeof value.url === "string" ? { url: value.url } : {}),

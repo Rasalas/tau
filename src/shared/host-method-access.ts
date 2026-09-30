@@ -109,6 +109,10 @@ export const HOST_METHOD_ACCESS = {
   // `tau machines`: the window's machines and the agents' in one list, pairing with a link, forgetting.
   "machines-overview": "owner",
   "machines-pair": "owner",
+  "connect-status": "owner",
+  "connect-configure": "owner",
+  "connect-link": "owner",
+  "connect-remove": "owner",
   "machines-forget": "owner",
   // `tau machines update`: another machine's Tau through the window's connection there (K103).
   "machines-update": "owner",
@@ -134,6 +138,7 @@ export const HOST_METHOD_ACCESS = {
   "environments-retry": "write",
   "environments-open": "write",
   "environments-discover": "write",
+  "environments-wsl-list": "read",
   "environments-set-preferences": "write",
   "environments-set-agents": "write",
   // Another machine's own Tau, with the window's key there; that machine decides (K103).
@@ -142,6 +147,7 @@ export const HOST_METHOD_ACCESS = {
   "environments-transcript-page": "read",
   "environments-watch-thread": "read",
   "environments-extension-read": "read",
+  "environments-extension-invoke": "write",
   // Only the connection a call went to may answer it; the answer changes nothing else.
   "client-call-result": "read",
   // The job's own method is checked when it starts.

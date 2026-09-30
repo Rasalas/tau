@@ -41,8 +41,12 @@ is taken, pick your own (for example `com.<you>.tau`) and change it in two place
    your App ID; if it is missing, **+ Capability** → **Push Notifications**. Nothing else
    to add: the Keychain works without a capability, and the camera, local network and
    Bonjour texts are already in `Info.plist`.
-5. **General** → **Version** (for example `0.1.0`) and **Build** (`1`). Every upload needs
-   a higher Build number.
+5. Select the **App project** under PROJECT, then **Build Settings → Versioning**.
+   Set **Marketing Version** (for example `0.1.0`) and **Current Project Version**
+   (`1`) there. App and TauWidgets inherit both values, so one change updates
+   both bundles. Every upload needs a higher Current Project Version. Avoid
+   target-specific Version or Build overrides, which can make the widget's
+   version differ from the app's.
 
 ## 4. Create the app in App Store Connect
 

@@ -105,9 +105,11 @@ export interface SnapShotContent {
 
 export type Permission = "granted" | "denied" | "not-determined" | "restricted" | "unavailable";
 
-/** What this machine lets Tau do; `platform` other than macOS means SnapShots are off here. */
+/** What the client desktop lets Tau do, without asking the system for access. */
 export interface SnapShotAccess {
   supported: boolean;
+  /** Wayland selection asks the person on every capture and has no inferred app identity. */
+  captureMode?: "foreground" | "picker";
   screen: Permission;
   accessibility: Permission;
 }

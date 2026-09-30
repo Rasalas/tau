@@ -46,3 +46,10 @@ describe("the relay's senders", () => {
     await expect(apnsSender(client)("ab".repeat(32), { sealed: SEALED })).resolves.toEqual({ ok: false, gone: true, reason: "Unregistered" });
   });
 });
+
+it("sends ciphertext as ActivityKit content-state with its own token/topic and no visible alert", async () => {
+  const send = vi.fn(async () => ({ ok: true as const }));
+  const activity = { event: "end" as const, timestamp: 1_700_000_000, expiresAt: 1_700_000_900 };
+  await apnsSender({ send })("activity-token", { sealed: SEALED, activity });
+  expect(send).toHaveBeenCalledWith({ token: "activity-token", topic: `${APNS_TOPIC}.push-type.liveactivity`, pushType: "liveactivity", expiration: activity.expiresAt, payload: { aps: { timestamp: activity.timestamp, event: "end", "content-state": { sealed: SEALED }, "stale-date": activity.expiresAt, "dismissal-date": activity.expiresAt } } }, "production");
+});

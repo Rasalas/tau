@@ -141,3 +141,27 @@ First set up your APNs key (and for Android your Firebase project) as in
 - [ ] Turn **Local network** and **Tailscale** back off on the Mac unless you want them on.
 - [ ] Revoke any test devices in Connections you do not keep.
 - [ ] Report the numbers of the steps that did not match, with what you saw.
+
+## Dictation and system activity
+
+Use a test host and a signed test build. No real push is needed for local dictation.
+
+- [ ] On an iOS 26 supported iPhone, deny the microphone permission. Dictate reports
+      the denial and leaves the draft unchanged.
+- [ ] Choose an uninstalled language, download its model, then turn off networking.
+      Record, stop, review, and insert. Audio never reaches the host.
+- [ ] Start in the middle of a draft or over a selection. Insertion uses that selection;
+      no message sends until Send is tapped.
+- [ ] Cancel during model download, permission request, recording and transcription.
+      No late transcript or microphone recording survives cancellation.
+- [ ] Record to the five-minute limit. Stop and insertion still work. Try an interruption,
+      such as an incoming call, and confirm the recording reports an error or stops.
+- [ ] Start a fake agent turn. iOS Live Activity / Android ongoing card shows running;
+      a question shows needs-input; completion shows completed. Tap opens the matching
+      thread and host. Unsupported OS versions keep normal notifications.
+- [ ] With fake APNs/FCM on loopback, capture a background activity update payload.
+      The APNs topic ends in `.push-type.liveactivity`, its push type is `liveactivity`,
+      and its update token is the activity's token, not the device's alert token.
+- [ ] Add the usage widget with two runtimes signed into one test account. Its quota
+      appears once. Separate accounts remain separate. Sign out and refresh, then
+      revoke/remove the host; its usage and activity disappear.

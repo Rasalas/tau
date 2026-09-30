@@ -18,6 +18,7 @@ import { openExternalEditor } from "./external-editor.js";
 import { HostJobRunner, NO_JOB_CONTEXT, type HostMethodContext } from "./host-jobs.js";
 import { WORKBENCH_CLIENT_PRINCIPAL, type HostInvocationPrincipal } from "./host-invocation.js";
 import { createConnectionsMethods, type HostConnectionsService } from "./host-connections.js";
+import { createConnectMethods, type HostConnect } from "./host-connect.js";
 import { createHostServiceMethods, type HostServiceManager } from "./host-service.js";
 import { createMachineMethods, type HostMachines } from "./host-machines.js";
 import { createMachinePairingMethods, localWindowPort } from "./host-machine-pairing.js";
@@ -167,6 +168,7 @@ export interface HostMethodDeps {
   platform: HostMethodPlatform;
   /** Who else may connect (ADR 0023); absent where no socket listens. */
   connections?(): HostConnectionsService | undefined;
+  connect?(): HostConnect | undefined;
   /** The host's machine running it as a service; absent for a host in the window's process. */
   service?(): HostServiceManager | undefined;
   /** Other machines this host's agents reach (ADR 0027); absent for a host in the window's process. */
@@ -435,6 +437,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     },
 
     ...createConnectionsMethods(() => deps.connections?.()),
+    ...createConnectMethods(() => deps.connect?.()),
     ...createHostServiceMethods(() => deps.service?.()),
     ...createMachineMethods(() => deps.machines?.()),
     ...createMachinePairingMethods({ machines: () => deps.machines?.(), window: () => localWindowPort(deps.clientCalls) }),

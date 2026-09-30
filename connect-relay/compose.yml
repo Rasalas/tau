@@ -1,0 +1,29 @@
+services:
+  relay:
+    build: .
+    restart: unless-stopped
+    environment:
+      TAU_CONNECT_ADMIN_TOKEN: ${TAU_CONNECT_ADMIN_TOKEN:?Run setup.sh first}
+      TAU_CONNECT_STORE: /data/routes.json
+    volumes:
+      - routes:/data
+    networks: [connect]
+    # Only Caddy can reach this plaintext listener. No host port is published.
+  caddy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    environment:
+      CONNECT_DOMAIN: ${CONNECT_DOMAIN:?Set your real relay DNS name}
+      ACME_EMAIL: ${ACME_EMAIL:?Set your certificate contact email}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [connect]
+volumes:
+  routes:
+  caddy_data:
+  caddy_config:
+networks:
+  connect:

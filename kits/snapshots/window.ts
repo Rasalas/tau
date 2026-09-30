@@ -17,6 +17,7 @@ import {
   type SnapShotTarget,
 } from "./protocol.js";
 import { isAccelerator } from "./shortcut.js";
+import { captureWaylandWindow } from "./wayland.js";
 
 const SETTINGS_PANES: Record<PermissionKind, string> = {
   screen: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
@@ -59,12 +60,23 @@ export function windowIdOfSource(id: string): number | undefined {
   return match ? Number(match[1]) : undefined;
 }
 
-/** macOS only; `isTrustedAccessibilityClient(false)` answers without asking. */
+/** Reads platform availability without listing windows or raising a permission prompt. */
 export function readAccess(
   platform: string = process.platform,
   screen: () => string = () => systemPreferences.getMediaAccessStatus("screen"),
   trusted: () => boolean = () => systemPreferences.isTrustedAccessibilityClient(false),
+  environment: NodeJS.ProcessEnv = process.env,
 ): SnapShotAccess {
+  if (platform === "win32") return { supported: true, screen: "granted", accessibility: "granted" };
+  if (platform === "linux") {
+    // Portal availability needs the user's session bus. The chooser is opened
+    // only on a capture action, never while checking access or arming a key.
+    const wayland = environment.XDG_SESSION_TYPE === "wayland" || Boolean(environment.WAYLAND_DISPLAY);
+    return { supported: true,
+      ...(wayland ? { captureMode: "picker" as const } : {}),
+      screen: wayland ? environment.DBUS_SESSION_BUS_ADDRESS ? "not-determined" : "unavailable" : environment.DISPLAY ? "granted" : "unavailable",
+      accessibility: !wayland && environment.DBUS_SESSION_BUS_ADDRESS ? "granted" : "unavailable" };
+  }
   if (platform !== "darwin") return { supported: false, screen: "unavailable", accessibility: "unavailable" };
   const answer = screen();
   const known: Permission[] = ["granted", "denied", "not-determined", "restricted"];
@@ -86,6 +98,7 @@ async function readWindows(app: AccessibleApp, retryMs = 300): Promise<Accessibl
 
 function executableName(pid: number): Promise<string | undefined> {
   return new Promise((resolve) => {
+    if (process.platform === "win32") return resolve(undefined);
     execFile("/bin/ps", ["-p", String(pid), "-o", "comm="], { timeout: 2_000 }, (error, stdout) => resolve(error ? undefined : basename(stdout.trim()) || undefined));
   });
 }
@@ -183,15 +196,24 @@ export default function activate(context: WindowExtensionContext): WindowExtensi
 
   const capture = async (target: SnapShotTarget | undefined, accessibility: boolean): Promise<SnapShotCapture> => {
     const access = readAccess();
-    if (!access.supported) throw new Error("SnapShots need macOS for now.");
+    if (!access.supported) throw new Error("SnapShots are available on macOS, Windows and Linux.");
+    if (access.captureMode === "picker") {
+      if (target) throw new Error("Wayland captures use the desktop picker. A client window number cannot identify a Wayland window.");
+      if (access.screen === "unavailable") throw new Error("The Wayland desktop picker needs a session D-Bus, xdg-desktop-portal and PipeWire.");
+      return captureWaylandWindow();
+    }
     // Recording asks the system for permission on its first try; only the Settings button may do that.
-    if (access.screen !== "granted") throw new Error("Tau may not record windows yet. Allow Screen Recording for Tau in System Settings.");
+    if (access.screen !== "granted") throw new Error(process.platform === "darwin"
+      ? "Tau may not record windows yet. Allow Screen Recording for Tau in System Settings."
+      : "Window capture is unavailable in this desktop session. On Linux, use an X11 session; Wayland does not expose foreground window capture without a portal chooser.");
     const trusted = access.accessibility === "granted";
     const ax = trusted ? await accessibilityClient() : undefined;
     let resolved: ResolvedWindow;
     if (target) resolved = await namedWindow(target, ax, windowSources);
     else {
-      if (!ax) throw new Error("Tau needs Accessibility to know which window is in front. Allow it in System Settings.");
+      if (!ax) throw new Error(process.platform === "darwin"
+        ? "Tau needs Accessibility to know which window is in front. Allow it in System Settings."
+        : "Tau cannot read the foreground window. Check that the accessibility backend is installed and available; Linux needs the session D-Bus and AT-SPI service, and Windows cannot read an elevated app from an unelevated Tau.");
       resolved = await frontWindow(ax, windowSources);
     }
     return captureResolved(resolved, {
@@ -228,7 +250,7 @@ export default function activate(context: WindowExtensionContext): WindowExtensi
     armed = undefined;
     if (!accelerator) return {};
     if (!isAccelerator(accelerator)) return { error: `“${accelerator}” is not a shortcut Tau can register.` };
-    if (!readAccess().supported) return { error: "SnapShots need macOS for now." };
+    if (!readAccess().supported) return { error: "SnapShots are available on macOS, Windows and Linux." };
     let ok = false;
     try {
       ok = globalShortcut.register(accelerator, fire);
@@ -245,11 +267,15 @@ export default function activate(context: WindowExtensionContext): WindowExtensi
     async handle(command: string, input?: unknown): Promise<unknown> {
       switch (command) {
         case "access":
-          return readAccess();
+          {
+            const access = readAccess();
+            if (process.platform !== "darwin" && access.accessibility === "granted" && !await accessibilityClient()) access.accessibility = "unavailable";
+            return access;
+          }
         case "request-access": {
           const kind = (input as { kind?: unknown } | undefined)?.kind;
           const access = readAccess();
-          if (!access.supported) return access;
+          if (!access.supported || process.platform !== "darwin") return access;
           if (kind === "accessibility") systemPreferences.isTrustedAccessibilityClient(true);
           // Listing windows is what raises the system's Screen Recording question the first time.
           else if (kind === "screen" && access.screen === "not-determined") await windowSources().catch(() => []);

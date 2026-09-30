@@ -251,3 +251,26 @@ Firebase entry, is checked by `npm --prefix relay run typecheck` after
 `npm --prefix relay ci`. For the host, `node scripts/push-fakes.mjs` also starts a fake
 relay and prints `TAU_PUSH_RELAY_URL`. Its handles are only encoded, and it records every
 send in `.tau-dev/push-fakes/pushes.jsonl` ([testing-the-app.md](agents/testing-the-app.md)).
+
+### Native agent activity
+
+The mobile app opts Android devices into ongoing cards with `activity-enable`.
+Running, needs-input and completed lifecycle data travels inside the existing
+sealed payload. A data message updates the card rather than creating another
+alert. Android 16-compatible systems may promote an ongoing card as a Live
+Update; system permissions and policy still decide.
+
+Each iOS Live Activity has its own APNs update token. The phone registers that
+token with the relay using `purpose: "activity"`, installs its content key in
+the shared app/widget Keychain, and gives the host an opaque handle. Activity
+handles use handle version 3, which an older relay cannot treat as alert tokens.
+The relay validates the sealed handle's purpose against the requested update
+metadata, then sends `apns-push-type: liveactivity` to
+`de.tbuck.tau.push-type.liveactivity`. The content-state contains only ciphertext.
+Host, thread, title and work state open in the widget on the device.
+
+This is a source-level protocol addition. It needs the matching relay revision
+and signed app/widget provisioning profiles before real background delivery.
+No deployment, store rollout or real push send is part of the automated tests.
+Activities start while Tau is in front; this path updates existing activities
+in the background and does not implement Apple's remote push-to-start feature.

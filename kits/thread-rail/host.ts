@@ -6,6 +6,7 @@ import {
   writePersistedJson,
   type HostExtension,
   type HostExtensionContext,
+  type HostThreadStartOptions,
 } from "tau/host-extension";
 import {
   EMPTY_STATE,
@@ -237,7 +238,12 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         const model = record(fields.model);
         const provider = typeof model.provider === "string" ? model.provider : "";
         const modelId = typeof model.id === "string" ? model.id : "";
-        const started = await services.sessions.start({ cwd, prompt, ...(provider && modelId ? { model: { provider, id: modelId } } : {}) });
+        const started = await services.sessions.start({ cwd, prompt,
+          ...(typeof fields.backend === "string" ? { backend: fields.backend } : {}),
+          ...(fields.attachments !== undefined ? { attachments: fields.attachments as HostThreadStartOptions["attachments"] } : {}),
+          ...(fields.skillDraft !== undefined ? { skillDraft: fields.skillDraft as HostThreadStartOptions["skillDraft"] } : {}),
+          ...(typeof fields.thinkingLevel === "string" ? { thinkingLevel: fields.thinkingLevel } : {}),
+          ...(typeof fields.mode === "string" ? { mode: fields.mode } : {}), ...(provider && modelId ? { model: { provider, id: modelId } } : {}) });
         const group = typeof fields.siblingGroupId === "string" && fields.siblingGroupId ? fields.siblingGroupId : undefined;
         change({
           [started.sessionId]: {

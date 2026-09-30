@@ -1,3 +1,4 @@
+import { useClientEnvironment } from "../client-environment";
 import { lazy, Suspense, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ArrowUp, ChevronDown, Lock, Paperclip, Shrink, Sparkles, Terminal, X } from "lucide-react";
@@ -193,6 +194,8 @@ export function Composer({
   lead?: ReactNode;
 }) {
   const { readOnly } = useHostCapabilities();
+  const dictation = useClientEnvironment().dictation;
+  const DictationControl = dictation?.Control;
   const clientStorage = useClientStorage();
   const attachmentScope = createDraftKey(draftStorageKey);
   const subscribeToScope = useCallback((listener: () => void) => scopeStore.subscribe(attachmentScope, listener), [attachmentScope, scopeStore]);
@@ -465,11 +468,16 @@ export function Composer({
     selected: () => modelSet.selected(),
     subscribe: (listener) => modelSet.subscribe(listener),
     reset: () => modelSet.reset(),
-    toggle: (model, current) => {
-      if (modelSet.selected().includes(modelKey(model))) { modelSet.toggle(model, current); return; }
+    toggle: (model, current, runtime, currentRuntime) => {
+      const key = modelKey(model);
+      const selected = modelSet.selected();
+      if (selected.includes(key) || (runtime && selected.includes(`${runtime}::${key}`))) {
+        modelSet.toggle(model, current, runtime, currentRuntime);
+        return;
+      }
       passGates(
-        { action: "model", model, ...(snapshot?.backendKind ? { runtime: snapshot.backendKind } : {}), ...(newThread ? { newThread: true } : {}), ...(snapshot ? { snapshot } : {}) },
-        () => modelSet.toggle(model, current),
+        { action: "model", model, ...(runtime ? { runtime } : snapshot?.backendKind ? { runtime: snapshot.backendKind } : {}), ...(newThread ? { newThread: true } : {}), ...(snapshot ? { snapshot } : {}) },
+        () => modelSet.toggle(model, current, runtime, currentRuntime),
       );
     },
   }, [modelSet, passGates, snapshot]);
@@ -1053,6 +1061,7 @@ export function Composer({
           />
         </Suspense>
 
+        {dictation && DictationControl ? <DictationControl key={attachmentScope} port={dictation.port} text={text} inputRef={textareaRef} updateDraft={updateDraft} /> : null}
         <div className="composer-toolbar">
           <ComposerFooterControls
             revision={`${text.trimStart().startsWith("!!") ? "silent-shell" : text.trimStart().startsWith("!") ? "shell" : ""}|${snapshot?.model?.name ?? ""}|${snapshot?.thinkingLevel ?? ""}`}

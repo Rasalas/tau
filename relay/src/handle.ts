@@ -6,6 +6,7 @@ export type RelayPlatform = "ios" | "android";
 export interface Registration {
   platform: RelayPlatform;
   token: string;
+  purpose?: "activity";
 }
 
 /** An opened handle: the registration and when the relay sealed it (ms since the epoch, to the second). */
@@ -67,30 +68,33 @@ const additionalData = (version: number, keyId: number) => Buffer.concat([Buffer
 /** `version ‖ keyId ‖ nonce ‖ AES-256-GCM(JSON { p, t, i }) ‖ tag`, base64url; `i` is the issue time in seconds. */
 export function sealHandle(keyring: Keyring, registration: Registration, now = Date.now()): string {
   const keyId = keyring.current;
+  const version = registration.purpose === "activity" ? 3 : HANDLE_VERSION;
   const nonce = randomBytes(NONCE_BYTES);
   const cipher = createCipheriv("aes-256-gcm", keyring.keys.get(keyId)!, nonce);
-  cipher.setAAD(additionalData(HANDLE_VERSION, keyId));
-  const plain = Buffer.from(JSON.stringify({ p: registration.platform, t: registration.token, i: Math.floor(now / 1000) }));
+  cipher.setAAD(additionalData(version, keyId));
+  const plain = Buffer.from(JSON.stringify({ p: registration.platform, t: registration.token, ...(registration.purpose ? { u: registration.purpose } : {}), i: Math.floor(now / 1000) }));
   const sealed = Buffer.concat([cipher.update(plain), cipher.final()]);
-  return Buffer.concat([Buffer.from([HANDLE_VERSION, keyId]), nonce, sealed, cipher.getAuthTag()]).toString("base64url");
+  return Buffer.concat([Buffer.from([version, keyId]), nonce, sealed, cipher.getAuthTag()]).toString("base64url");
 }
 
 /** The registration a handle seals, or undefined for one this relay did not make or can no longer open. */
 export function openHandle(keyring: Keyring, handle: unknown): OpenedHandle | undefined {
   if (typeof handle !== "string" || !HANDLE_TEXT.test(handle)) return undefined;
   const bytes = Buffer.from(handle, "base64url");
-  if (bytes.length <= HEADER_BYTES + NONCE_BYTES + TAG_BYTES || bytes[0] !== HANDLE_VERSION) return undefined;
+  if (bytes.length <= HEADER_BYTES + NONCE_BYTES + TAG_BYTES || (bytes[0] !== HANDLE_VERSION && bytes[0] !== 3)) return undefined;
   const keyId = bytes[1]!;
   const key = keyring.keys.get(keyId);
   if (!key) return undefined;
   try {
     const decipher = createDecipheriv("aes-256-gcm", key, bytes.subarray(HEADER_BYTES, HEADER_BYTES + NONCE_BYTES));
-    decipher.setAAD(additionalData(HANDLE_VERSION, keyId));
+    decipher.setAAD(additionalData(bytes[0]!, keyId));
     decipher.setAuthTag(bytes.subarray(bytes.length - TAG_BYTES));
     const plain = Buffer.concat([decipher.update(bytes.subarray(HEADER_BYTES + NONCE_BYTES, bytes.length - TAG_BYTES)), decipher.final()]);
-    const value = JSON.parse(plain.toString("utf8")) as { p?: unknown; t?: unknown; i?: unknown };
+    const value = JSON.parse(plain.toString("utf8")) as { p?: unknown; t?: unknown; i?: unknown; u?: unknown };
     if (!validToken(value.p, value.t) || !Number.isSafeInteger(value.i) || (value.i as number) < 0) return undefined;
-    return { platform: value.p, token: value.t as string, issuedAt: (value.i as number) * 1000 };
+    if ((bytes[0] === 3) !== (value.u === "activity")) return undefined;
+    if (value.u !== undefined && (value.u !== "activity" || value.p !== "ios")) return undefined;
+    return { platform: value.p, token: value.t as string, ...(value.u === "activity" ? { purpose: "activity" as const } : {}), issuedAt: (value.i as number) * 1000 };
   } catch {
     return undefined;
   }

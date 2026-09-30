@@ -23,6 +23,7 @@ import type {
   UiProject,
   UiSession,
   UiPromptAttachment,
+  UiSkillDraft,
   UiPromptImageAttachment,
   UiSharedFile,
   UiToolOutputPreview,
@@ -1179,6 +1180,10 @@ export interface NewThreadClaimEvent extends NewThreadPromptEvent {
   runtime: string;
   /** Images and files attached to the prompt. */
   attachments: number;
+  promptAttachments?: readonly UiPromptAttachment[];
+  skillDraft?: UiSkillDraft;
+  thinkingLevel?: string;
+  mode?: string;
 }
 
 export interface PromptHookContribution {
@@ -1186,8 +1191,8 @@ export interface PromptHookContribution {
   /**
    * Runs first when a pending draft's first prompt leaves the composer.
    * Answering `true` takes the prompt: core creates no thread, the composer
-   * empties and the draft stays open for the next one. A hook that throws is
-   * reported and the prompt goes on as if nobody had claimed it.
+   * empties and the draft stays open for the next one. A hook that throws
+   * rejects submission and keeps the draft for retry.
    */
   claimNewThread?(event: NewThreadClaimEvent, actions: WorkbenchActions): Promise<boolean | void>;
   /**
@@ -1248,7 +1253,7 @@ export interface ModelSelectionContribution {
   selected(): readonly string[];
   subscribe(listener: () => void): () => void;
   /** Shift-click on a row; `current` is the model the draft has now. */
-  toggle(model: UiModel, current: UiModel | undefined): void;
+  toggle(model: UiModel, current: UiModel | undefined, runtime?: string, currentRuntime?: string): void;
   /** A plain pick: back to one model. */
   reset(): void;
 }
@@ -2538,11 +2543,9 @@ export class ExtensionRegistry {
   async claimNewThread(event: NewThreadClaimEvent, actions: WorkbenchActions): Promise<boolean> {
     for (const hook of this.promptHooks.values()) {
       if (!hook.claimNewThread) continue;
-      try {
-        if (await hook.claimNewThread(event, actions)) return true;
-      } catch (error) {
-        actions.notify(`${hook.id}: ${errorMessage(error)}`);
-      }
+      // Claims run in order; a rejection must keep the draft out of later hooks.
+      // oxlint-disable-next-line no-await-in-loop
+      if (await hook.claimNewThread(event, actions)) return true;
     }
     return false;
   }

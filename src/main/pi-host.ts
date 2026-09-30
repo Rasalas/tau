@@ -1,3 +1,6 @@
+import { rm } from "node:fs/promises";
+import { promptFiles } from "./prompt-attachments.js";
+import { decodeUiPromptAttachments, decodeUiSkillDraft } from "./ipc-input.js";
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { basename, dirname } from "node:path";
@@ -31,8 +34,8 @@ import type {
   SystemPromptInspection,
   UiToolOutputPreview,
 } from "../shared/contracts.js";
-import { addModelProvider, loadModelsConfig } from "./models-config.js";
-import { discoverPromptOverrides } from "./system-prompt-resolver.js";
+import { loadModelsConfig } from "./models-config.js";
+import { inspectHostSystemPrompt, configureHostModelProvider, configuredComposerCommands } from "./host-model-configuration.js";
 import { createNewThreadRequestId } from "../shared/contracts.js";
 import {
   HOST_PROTOCOL_VERSION,
@@ -87,7 +90,6 @@ import type { TurnDelivery } from "./turn-delivery.js";
 import type { AttachedThreadBackend } from "./attached-thread-backend.js";
 import type { HostExtensionSeam } from "./host-ports.js";
 import { findPiBridge } from "./pi-bridge-client.js";
-import { composerCommandsForAdapter } from "./bridge-snapshot.js";
 import type { LiveTurnState } from "./live-turn-state.js";
 import { ThreadRuntime, isLocalPiRuntime, isPiBackend, threadBackendKind } from "./thread-runtime.js";
 import { requireCapability } from "./runtime-types.js";
@@ -104,7 +106,7 @@ import type { ThreadProjection } from "./thread-projection.js";
 import type { ExtensionUiCoordinator } from "./extension-ui-coordinator.js";
 import type { PiHostOptions } from "./pi-host-options.js";
 import { buildPiHostComponents, type PiHostComponents } from "./pi-host-components.js";
-import { PhaseTimer, promptRebindForThread, clientIdentityForRequest, externalThreadFromPath, externalThreadPath, findKnownWorkspacePath, processIsAlive, samePath, type ClientTurnRequest } from "./pi-host-support.js";
+import { finishHostShutdown, PhaseTimer, promptRebindForThread, clientIdentityForRequest, externalThreadFromPath, externalThreadPath, findKnownWorkspacePath, processIsAlive, samePath, type ClientTurnRequest } from "./pi-host-support.js";
 export type { PiHostOptions } from "./pi-host-options.js";
 export { workspaceLabel } from "./pi-host-support.js";
 import type { WorkspaceIdentity } from "./workspace-identity.js";
@@ -473,6 +475,9 @@ export class PiHost {
    */
   private async startThread(options: HostThreadStartOptions): Promise<HostStartedThread> {
     this.workbenchReload.assertAvailable();
+    const attachments = decodeUiPromptAttachments("sessions.start", "attachments", options.attachments) ?? [];
+    const skillDraft = decodeUiSkillDraft("sessions.start", "skillDraft", options.skillDraft);
+    const files = promptFiles(attachments);
     const cwd = options.cwd || this.cwd;
     const backendKind = options.backend ?? "pi";
     const provider = backendKind === "pi" ? undefined : this.requireBackend(backendKind);
@@ -480,6 +485,7 @@ export class PiHost {
       throw new Error(`The ${provider?.label ?? backendKind} runtime cannot restrict its tools${provider ? "" : " when a thread starts; a runtime extension sets them"}.`);
     }
     const requestedAt = performance.now();
+    let failedRuntime: ThreadRuntime | undefined;
     // Background starts share the queue's background lane: they build their own
     // thread and touch nothing the thread on screen depends on, so serialising
     // them behind each other only made fifty sub-agents start one per second.
@@ -502,6 +508,9 @@ export class PiHost {
         await this.adoptThread(runtime);
         marks.mark("adopt");
         if (options.model) await requireCapability(runtime.backend, "catalogWrite").setModel(options.model.provider, options.model.id);
+        if (options.thinkingLevel) await requireCapability(runtime.backend, "catalogWrite").setThinkingLevel(options.thinkingLevel);
+        if (options.mode) await requireCapability(runtime.backend, "mode").set(options.mode);
+        this.prompts.assertAttachmentInput(runtime, runtime.runtimeAdapter.capabilities.fileAttachments ? attachments : attachments.filter((attachment) => attachment.kind === "image"));
         marks.mark("model");
         // The shell has to exist before a title can be published against it.
         await this.index.refreshShell(runtime, true);
@@ -510,6 +519,7 @@ export class PiHost {
         marks.mark("title");
         this.log("thread.start.timing", `${runtime.threadId.slice(0, 8)} · ${marks.report()}`);
       } catch (error) {
+        failedRuntime = runtime;
         if (this.threads.has(runtime.threadId)) await this.threads.release(runtime.threadId);
         else await this.runtimes.dispose(runtime);
         throw error;
@@ -519,12 +529,37 @@ export class PiHost {
         else this.handleSessionEvent(event, owner, sessionId, eventCwd);
       }, (event) => this.emit(event), () => undefined);
       return runtime;
+    }).catch(async (error) => {
+      if (failedRuntime) await this.discardFailedStart(failedRuntime);
+      throw error;
     });
-    // Delivery is detached on purpose: the caller gets its thread id at once
-    // and reads the answer through the thread, the way the client does.
-    void this.prompt(options.prompt, [], thread.threadId)
-      .catch((error) => this.log("thread.start-prompt-failed", this.errorMessage(error)));
+    // Wait for admission, so callers can retain drafts and remove unused
+    // worktrees on rejection. The answer continues on the child's own thread.
+    try {
+      const nativeFiles = thread.runtimeAdapter.capabilities.fileAttachments === true;
+      const text = !nativeFiles && files.length ? `${options.prompt}\n\nAttached files:\n${files.map((file) => `- ${file.path}`).join("\n")}` : options.prompt;
+      const deliveredAttachments = nativeFiles ? attachments : attachments.filter((attachment) => attachment.kind === "image");
+      const prepared = await thread.backend.preparePrompt(text, skillDraft);
+      await this.prompt(text, deliveredAttachments, thread.threadId, undefined, prepared);
+    } catch (error) {
+      await this.threads.release(thread.threadId);
+      await this.discardFailedStart(thread);
+      throw error;
+    }
     return { sessionId: thread.threadId, cwd: thread.cwd, ...(thread.state.title ? { title: thread.state.title } : {}) };
+  }
+
+  /** Only a fresh background thread that never admitted its first turn. */
+  private async discardFailedStart(thread: ThreadRuntime): Promise<void> {
+    const kind = threadBackendKind(thread);
+    if (kind === "pi") {
+      // Pi may not have flushed a file yet. No trash entry is needed for a
+      // thread that rejected its first prompt and never held a conversation.
+      if (thread.sessionFile) await rm(thread.sessionFile, { force: true });
+    } else {
+      await this.requireBackend(kind).removeThread?.(thread.threadId);
+    }
+    await this.index.refresh("changes");
   }
 
   private runtimeExtensionsFor(settingsManager: SettingsManager, session: RuntimeSessionInfo): SessionRuntimeExtension[] {
@@ -1859,19 +1894,10 @@ export class PiHost {
       await this.runtimes.settleOpening();
       const results = await Promise.allSettled(this.threads.list().map((record) => this.threads.release(record.threadId)));
       for (const result of results) if (result.status === "rejected") teardownErrors.push(result.reason);
-      try {
-        await this.projectHistory.flush();
-      } catch (error) {
-        teardownErrors.push(error);
-      }
-      try {
-        await this.index.dispose();
-      } catch (error) {
-        teardownErrors.push(error);
-      }
-      if (teardownErrors.length > 0) {
-        throw new AggregateError(teardownErrors, "Pi runtime shutdown failed");
-      }
+      await finishHostShutdown(teardownErrors, [
+        () => this.projectHistory.flush(),
+        () => this.index.dispose(),
+      ]);
     });
   }
 
@@ -1978,25 +2004,11 @@ export class PiHost {
   }
 
   async addModelProvider(input: CustomProviderInput): Promise<UiModel[]> {
-    await addModelProvider(this.agentDir, input);
-    this.publication.invalidateModels();
-    await this.publication.publishActiveCatalog();
-    return this.publication.ensureModels();
+    return configureHostModelProvider(this.agentDir, input, this.publication);
   }
 
   async inspectSystemPrompt(threadId?: string, cwd?: string): Promise<SystemPromptInspection> {
-    const thread = (threadId ? this.threadFor(threadId) : undefined) ?? this.active;
-    if (thread?.backend.capabilities.systemPrompt) {
-      return await thread.backend.capabilities.systemPrompt.inspect();
-    }
-    const targetCwd = cwd || thread?.cwd || this.cwd;
-    const overrides = discoverPromptOverrides(targetCwd, this.agentDir);
-    return {
-      effectivePrompt: overrides.customPrompt?.content ?? "(No active thread — showing project configuration)",
-      ...(overrides.customPrompt ? { basePrompt: overrides.customPrompt.content, basePromptSource: overrides.customPrompt.path } : {}),
-      appends: overrides.appendPrompts.map((p) => ({ text: p.content, source: p.path })),
-      contextFiles: overrides.contextFiles,
-    };
+    return inspectHostSystemPrompt((threadId ? this.threadFor(threadId) : undefined) ?? this.active, cwd || this.cwd, this.agentDir, cwd);
   }
 
   /** Prompt completion updates one shell; the global scan is a startup/recovery path. */
@@ -2008,9 +2020,7 @@ export class PiHost {
 
   /** Commands of an external backend; a supplied catalog is re-spelled in the backend's dialect. */
   private externalComposerCommands(kind: ThreadBackendKind, cwd: string): UiComposerCommand[] {
-    const provider = this.requireBackend(kind);
-    if (this.runtimeCommands.length > 0) return composerCommandsForAdapter(this.runtimeCommands, provider.adapter);
-    return provider.composerCommands(cwd);
+    return configuredComposerCommands(this.requireBackend(kind), this.runtimeCommands, cwd);
   }
 
   /** The workspace a client named, by id or — for a client that still sends paths — by path. */

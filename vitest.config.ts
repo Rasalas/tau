@@ -1,9 +1,13 @@
 import { fileURLToPath } from "node:url";
+import { realpathSync } from "node:fs";
 import { configDefaults, defineConfig } from "vitest/config";
 
 const source = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
 export default defineConfig({
+  // A worktree may share installed dependencies with the main checkout.
+  // Vite follows their links when loading SVG assets, so allow that exact directory.
+  server: { fs: { allow: [source("."), realpathSync(source("./node_modules"))] } },
   // The API modules a kit imports, resolved the way the bundlers resolve them.
   resolve: {
     alias: {

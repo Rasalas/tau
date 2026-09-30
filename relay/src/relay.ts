@@ -26,7 +26,9 @@ export interface RelayResponse {
   body: string;
 }
 
+export interface RelayActivity { event: "update" | "end"; timestamp: number; expiresAt: number }
 export interface OutboundMessage {
+  activity?: RelayActivity;
   sealed: string;
   collapseId?: string;
 }
@@ -117,7 +119,9 @@ export function createRelay(options: RelayOptions): (request: RelayRequest) => P
     const wait = registers.take(`register:${address ?? "unknown"}`);
     if (wait > 0) return limited(wait, CORS_HEADERS);
     if (!validToken(body.platform, body.token)) return reply(400, { error: "bad-request", detail: "register takes { platform: ios | android, token }." }, CORS_HEADERS);
-    return reply(200, { handle: sealHandle(options.keyring, { platform: body.platform as RelayPlatform, token: body.token as string }, now()) }, CORS_HEADERS);
+    if (body.purpose !== undefined && (body.purpose !== "activity" || body.platform !== "ios")) return reply(400, { error: "bad-request" }, CORS_HEADERS);
+    const purpose = body.purpose === "activity" ? "activity" as const : undefined;
+    return reply(200, { handle: sealHandle(options.keyring, { platform: body.platform as RelayPlatform, token: body.token as string, ...(purpose ? { purpose } : {}) }, now()), ...(purpose ? { purpose } : {}) }, CORS_HEADERS);
   };
 
   const send = async (body: Record<string, unknown>): Promise<RelayResponse> => {
@@ -130,6 +134,12 @@ export function createRelay(options: RelayOptions): (request: RelayRequest) => P
     const registration = openHandle(options.keyring, handle);
     if (!registration) return reply(410, { error: "gone", reason: "unknown-handle" });
     if (now() - registration.issuedAt > HANDLE_MAX_AGE_MS) return reply(410, { error: "gone", reason: "expired-handle" });
+    const activity = body.activity as Partial<RelayActivity> | undefined;
+    if (registration.purpose === "activity") {
+      const at = Math.floor(now() / 1000);
+      if (!activity || (activity.event !== "update" && activity.event !== "end") || !Number.isSafeInteger(activity.timestamp) || !Number.isSafeInteger(activity.expiresAt)
+          || activity.timestamp! < at - 300 || activity.timestamp! > at + 60 || activity.expiresAt! < at || activity.expiresAt! > at + 8 * 60 * 60) return reply(400, { error: "bad-activity" });
+    } else if (activity !== undefined) return reply(400, { error: "wrong-purpose" });
     const tokenWait = tokenSends.take(`token:${registration.token}`);
     if (tokenWait > 0) return limited(tokenWait);
     const sender = options.senders[registration.platform];
@@ -139,7 +149,7 @@ export function createRelay(options: RelayOptions): (request: RelayRequest) => P
     }
     let delivery: Delivery;
     try {
-      delivery = await sender(registration.token, { sealed: payload, ...(typeof collapseId === "string" ? { collapseId } : {}) });
+      delivery = await sender(registration.token, { sealed: payload, ...(activity ? { activity: activity as RelayActivity } : {}), ...(typeof collapseId === "string" ? { collapseId } : {}) });
     } catch {
       delivery = { ok: false, gone: false, reason: "sender-failed" };
     }

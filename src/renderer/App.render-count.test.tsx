@@ -5,6 +5,7 @@ import { setHostClient } from "./host-client-context";
 import { setClientStorage } from "../workbench/client-storage";
 import { createFakeHostClient, type FakeHostClient } from "./test-support/fake-host-client";
 import { renderApp } from "./test-support/render-app";
+import { loadTauApi } from "./runtime-extensions";
 import { workspaceHostStub } from "./test-support/workspace-host-stub";
 import { useWorkbench } from "./workbench-context";
 import type { DesktopExtension } from "./extension-system";
@@ -50,6 +51,15 @@ vi.mock("./components/Composer", async (importOriginal) => {
 
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });
 
+async function renderLoadedApp(client: FakeHostClient, options?: Parameters<typeof renderApp>[1]) {
+  // Module loading and the initial extension reconciliation are structural
+  // renders. Complete them before measuring updates within an existing row.
+  await loadTauApi();
+  let view!: ReturnType<typeof renderApp>;
+  await act(async () => { view = renderApp(client, options); });
+  return view;
+}
+
 describe("app render isolation", () => {
   let client: FakeHostClient;
 
@@ -89,7 +99,7 @@ describe("app render isolation", () => {
     const requestFrame = vi.spyOn(window, "requestAnimationFrame")
       .mockImplementation((callback: FrameRequestCallback) => frames.push(callback));
     try {
-      const view = renderApp(client);
+      const view = await renderLoadedApp(client);
       await screen.findByText("hello");
       await waitFor(() => expect(workbenchRenders.count).toBeGreaterThan(0));
 
@@ -122,7 +132,7 @@ describe("app render isolation", () => {
     const flushFrames = () => act(() => { frames.splice(0).forEach((frame) => frame(0)); });
     const transcriptText = (view: ReturnType<typeof renderApp>) => view.container.querySelector(".transcript")?.textContent ?? "";
     try {
-      const view = renderApp(client);
+      const view = await renderLoadedApp(client);
       await screen.findByText("hello");
       await waitFor(() => expect(workbenchRenders.count).toBeGreaterThan(0));
 
@@ -145,6 +155,7 @@ describe("app render isolation", () => {
       });
       act(() => liveLine.click());
       await waitFor(() => expect(transcriptText(view)).toContain("line-1"));
+      await waitFor(() => expect(view.container.querySelector(".send-button.stop")).not.toBeNull());
 
       const appBefore = appRenders.count;
       const workbenchBefore = workbenchRenders.count;
@@ -174,7 +185,7 @@ describe("app render isolation", () => {
       activate: (context) => { context.registerRegion({ id: "reader", placement: "transcript-footer", Component: ToolOutput }); },
     };
     try {
-      renderApp(client, { extensions: [kit] });
+      await renderLoadedApp(client, { extensions: [kit] });
       await screen.findByText("hello");
       act(() => {
         client.emit({ type: "agent-status", sessionId: "session", running: true });

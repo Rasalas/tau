@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { Check, Ellipsis, Folder, MonitorSmartphone, Plus, Search, Settings, X } from "lucide-react";
+import { Check, ChevronLeft, Ellipsis, Folder, MonitorSmartphone, Plus, Search, Settings, X } from "lucide-react";
 import type { UiProject } from "../../shared/contracts";
 import { rootLast } from "../../workbench/new-thread-project";
 import { threadListGroups, type ThreadSupervisionRow } from "../../workbench/thread-supervision";
 import { useClientEnvironment } from "../client-environment";
 import { ProjectIcon } from "../components/ProjectIcon";
 import type { ExtensionRegistry, PageContribution, ThreadListEntry, WorkbenchActions } from "../extension-system";
+import { useOpenPage } from "../app-page-context";
 import { Region } from "../components/Regions";
 import { Popover } from "../components/ui/Dialog";
 import { tooltipProps } from "../components/ui/Tooltip";
@@ -96,6 +97,17 @@ export function TouchThreadBrowser({ variant, nav, onNewThread, onOpenSettings, 
 }
 
 const noPageBadge = () => undefined;
+const noPageSummary = () => undefined;
+
+function TabletSummaryButton({ page, actions }: { page: PageContribution; actions: WorkbenchActions }) {
+  const summary = (page.useSummary ?? noPageSummary)();
+  if (!summary) return <TabletPageButton page={page} actions={actions} />;
+  return <button type="button" className="touch-page-summary" aria-label={`${page.label}: ${summary.hint ?? summary.text}`} {...tooltipProps(summary.hint ?? page.label, { side: "top" })} onClick={() => actions.openPage?.(page.id)}>{summary.short ?? summary.text}</button>;
+}
+
+function TabletPageSummary({ page, actions }: { page: PageContribution; actions: WorkbenchActions }) {
+  return page.Summary ? <page.Summary actions={actions} /> : <TabletSummaryButton page={page} actions={actions} />;
+}
 
 function TabletPageButton({ page, actions }: { page: PageContribution; actions: WorkbenchActions }) {
   const count = (page.useBadge ?? noPageBadge)();
@@ -110,13 +122,17 @@ function TabletFooter({ registry, actions, onOpenSettings }: Pick<TouchThreadLis
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const { readOnly } = useHostCapabilities();
   const pages = registry.getPages();
+  const open = useOpenPage();
+  if (open) return <div className="touch-sidebar-footer" role="group" aria-label="Sidebar controls">
+    <button type="button" className="touch-sidebar-back" onClick={() => actions.closePage?.()}><ChevronLeft size={19} />Back to thread</button>
+  </div>;
   return <div className="touch-sidebar-footer" role="group" aria-label="Sidebar controls">
     {pages.filter((page) => !page.Summary && !page.useSummary).map((page) => <TabletPageButton key={page.id} page={page} actions={actions} />)}
     {registry.getCommandsFor("sidebar-footer").map((command) => <button key={command.id} type="button" className="touch-icon-button" aria-label={command.label} disabled={readOnly && command.access !== "read"} onClick={() => { void registry.executeCommand(command.id, actions).catch((error) => actions.notify(String(error))); }}>
       {command.Icon ? <command.Icon size={19} /> : command.label}
     </button>)}
     <span className="spacer" />
-    {pages.filter((page) => page.Summary || page.useSummary).map((page) => page.Summary ? <page.Summary key={page.id} actions={actions} /> : <TabletPageButton key={page.id} page={page} actions={actions} />)}
+    {pages.filter((page) => page.Summary || page.useSummary).map((page) => <TabletPageSummary key={page.id} page={page} actions={actions} />)}
     <button type="button" className="touch-icon-button" aria-label="Settings" {...tooltipProps("Settings", { side: "top" })} onClick={() => onOpenSettings()}><Settings size={19} /></button>
   </div>;
 }

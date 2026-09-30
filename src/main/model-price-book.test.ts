@@ -12,7 +12,7 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-/** Pi's own model data, offline, with an API key for OpenAI only. */
+/** Pi's own model data, offline, scoped to the fixture's OpenAI provider. */
 async function piCatalog() {
   vi.stubEnv("PI_OFFLINE", "1");
   const agentDir = await mkdtemp(join(tmpdir(), "tau-price-book-"));
@@ -21,7 +21,14 @@ async function piCatalog() {
   const completions = new HostCompletions({
     agentDir,
     cwd: () => agentDir,
-    createRuntime: (dir) => ModelRuntime.create({ authPath: join(dir, "auth.json"), modelsPath: join(dir, "models.json"), refreshOnCreate: false }),
+    createRuntime: async (dir) => {
+      const runtime = await ModelRuntime.create({ authPath: join(dir, "auth.json"), modelsPath: join(dir, "models.json"), refreshOnCreate: false });
+      const available = runtime.getAvailable.bind(runtime);
+      // Other providers may use inherited environment credentials. Scope this
+      // price fixture through Pi's provider API instead of reading or changing them.
+      vi.spyOn(runtime, "getAvailable").mockImplementation((_provider, options) => available("openai", options));
+      return runtime;
+    },
     settings: () => ({ getDefaultProvider: () => "openai", getDefaultModel: () => "gpt-5.6-luna" }),
   });
   const data = await completions.catalogData();
@@ -43,7 +50,7 @@ describe("Pi's catalog before a thread", () => {
       reasoning: true,
     });
     expect(catalog.model).toMatchObject({ provider: "openai", id: "gpt-5.6-luna" });
-    // Only what the key reaches; the rest of Pi's data is the book.
+    // Only the fixture's provider; the rest of Pi's data is the book.
     expect(catalog.models.every((model) => model.provider === "openai")).toBe(true);
     // Levels by provider and id: one id can reason differently at another provider (K137).
     expect(catalog.thinkingLevels["openai/gpt-5.6-luna"]).toEqual(["off", "low", "medium", "high", "xhigh", "max"]);

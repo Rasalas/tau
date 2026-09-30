@@ -100,7 +100,7 @@ const running = (sessionId: string): HostEvent => ({ type: "agent-status", sessi
 // The Workbench loads the Settings screen as a chunk of its own. Loaded here, outside the tests,
 // its first import on a busy machine does not count against findByRole's wait.
 beforeAll(async () => { await import("../renderer/settings/SettingsScreen"); });
-beforeEach(() => { installPointerEvents(); setViewport(400); archived.length = 0; });
+beforeEach(() => { window.history.replaceState(null, "", "/"); installPointerEvents(); setViewport(400); archived.length = 0; });
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); setViewport(1024); window.history.replaceState(null, "", "/"); });
 
 describe("the web client at 400 px", () => {
@@ -589,6 +589,43 @@ describe("a page's summary on a phone and a tablet", () => {
 
 describe("the compact client on a tablet", () => {
   beforeEach(() => setViewport(1024, 768));
+
+  it("renders page summaries at the tablet sidebar foot and replaces the list with page navigation", async () => {
+    const usage: DesktopExtension = { id: "test.tablet-usage", name: "Tablet usage", activate(plugin) {
+      plugin.registerRegion({ id: "phone-limits", placement: "thread-list-title", profiles: ["compact"], Component: () => <span>Phone juicebars</span> });
+      plugin.registerPage({ id: "tablet-usage", label: "Usage", profiles: ["compact"], Icon: ChartColumn,
+        Summary: ({ actions }) => <button type="button" aria-label="Plan limits" onClick={() => actions.openPage?.("tablet-usage")}>juicebars</button>,
+        Sidebar: ({ navigate }) => <button type="button" onClick={() => navigate({ detail: true })}>Usage filters</button>,
+        Component: ({ sidebar, params }) => <p>{sidebar ? "Sidebar filters active" : "Inline filters"}{params.detail ? " details" : ""}</p>,
+      });
+    } };
+    renderCompactClient({}, [usage]);
+    const bars = await screen.findByRole("button", { name: "Plan limits" });
+    expect(bars.closest(".touch-sidebar-footer")).toBeTruthy();
+    expect(screen.queryByText("Phone juicebars")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Usage" })).toBeNull();
+    fireEvent.click(bars);
+    const sidebar = await screen.findByRole("navigation", { name: "Usage" });
+    expect(await screen.findByText("Sidebar filters active")).toBeTruthy();
+    expect(screen.getByRole("navigation", { name: "Thread list" }).closest(".sidebar-slot")?.classList.contains("covered")).toBe(true);
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Usage filters" }));
+    expect(await screen.findByText("Sidebar filters active details")).toBeTruthy();
+    fireEvent.click(within(sidebar).getAllByRole("button", { name: "Back to thread" })[0]!);
+    expect(await screen.findByRole("navigation", { name: "Thread list" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Plan limits" })).toBeTruthy();
+  });
+
+  it("offers Back in the tablet sidebar footer for a page without its own sidebar", async () => {
+    renderCompactClient({}, [pageProbe]);
+    const footer = await screen.findByRole("group", { name: "Sidebar controls" });
+    fireEvent.click(await within(footer).findByRole("button", { name: "Pull requests" }));
+    expect(await screen.findByText("requests body")).toBeTruthy();
+    const back = await within(footer).findByRole("button", { name: "Back to thread" });
+    expect(within(footer).queryByRole("button", { name: "Settings" })).toBeNull();
+    fireEvent.click(back);
+    expect(await within(footer).findByRole("button", { name: "Settings" })).toBeTruthy();
+    expect(screen.queryByText("requests body")).toBeNull();
+  });
 
   it("shows only the branch under the tablet's thread title", async () => {
     const base = bootstrapWith(THREADS);

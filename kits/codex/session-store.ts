@@ -25,6 +25,11 @@ export interface CodexSessionRecord {
   tauThreadId: string;
   /** The instance the thread runs on; absent for the default one. */
   instance?: string;
+  /** Account executing this thread; backend ownership remains with instance. */
+  accountInstance?: string;
+  /** Canonical session home; account changes must keep it. */
+  sessionHome?: string;
+  serviceTier?: string;
   /** Codex's thread id, once one was started; a resume needs it. */
   codexThreadId?: string;
   cwd: string;
@@ -51,6 +56,8 @@ export interface CodexStoredModel {
   id: string;
   name: string;
   efforts: string[];
+  serviceTiers?: Array<{ id: string; name: string; description?: string }>;
+  defaultServiceTier?: string;
   defaultEffort?: string;
   isDefault?: boolean;
   /** It takes images; absent when `model/list` did not say. */
@@ -99,6 +106,9 @@ function storedRecord(value: unknown): CodexSessionRecord | undefined {
   const optional = {
     codexThreadId: text(item.codexThreadId, MAX_ID_LENGTH),
     instance: instanceOf(item.instance),
+    accountInstance: text(item.accountInstance, 48),
+    sessionHome: text(item.sessionHome, 4096),
+    serviceTier: text(item.serviceTier, MAX_ID_LENGTH),
     title: text(item.title, MAX_TITLE_LENGTH)?.trim() || undefined,
     titleSource: item.titleSource === "derived" || item.titleSource === "generated" || item.titleSource === "renamed" ? item.titleSource : undefined,
     usage: storedUsage(item.usage),
@@ -141,6 +151,12 @@ function storedModel(value: unknown): CodexStoredModel | undefined {
     id,
     name: text(item.name, MAX_TITLE_LENGTH) ?? id,
     efforts,
+    ...(Array.isArray(item.serviceTiers) ? { serviceTiers: item.serviceTiers.flatMap((entry) => {
+      const tier = entry as { id?: unknown; name?: unknown; description?: unknown };
+      const tierId = text(tier?.id, MAX_ID_LENGTH);
+      return tierId ? [{ id: tierId, name: text(tier.name, MAX_TITLE_LENGTH) ?? tierId, ...(text(tier.description, 4096) ? { description: text(tier.description, 4096) } : {}) }] : [];
+    }) } : {}),
+    ...(text(item.defaultServiceTier, MAX_ID_LENGTH) ? { defaultServiceTier: text(item.defaultServiceTier, MAX_ID_LENGTH) } : {}),
     ...(defaultEffort ? { defaultEffort } : {}),
     ...(item.isDefault === true ? { isDefault: true } : {}),
     ...(typeof item.images === "boolean" ? { images: item.images } : {}),
@@ -259,14 +275,31 @@ export class CodexSessionStore {
     return this.update(tauThreadId, cwd, (record) => { if (codexThreadId) record.codexThreadId = codexThreadId; else delete record.codexThreadId; });
   }
 
-  setSelection(tauThreadId: string, cwd: string, selection: { model?: string | null; effort?: string | null; mode?: string | null }): Promise<void> {
+  setSelection(tauThreadId: string, cwd: string, selection: { model?: string | null; effort?: string | null; mode?: string | null; serviceTier?: string | null }): Promise<void> {
     return this.update(tauThreadId, cwd, (record) => {
-      for (const key of ["model", "effort", "mode"] as const) {
+      for (const key of ["model", "effort", "mode", "serviceTier"] as const) {
         const value = selection[key];
         if (value === undefined) continue;
         if (value) record[key] = value; else delete record[key];
       }
     });
+  }
+
+  setSessionHome(tauThreadId: string, cwd: string, sessionHome: string): Promise<void> {
+    return this.update(tauThreadId, cwd, (record) => {
+      if (record.sessionHome && record.sessionHome !== sessionHome) throw new Error("This Codex thread belongs to a different shared session home. Restore its instance configuration to continue.");
+      record.sessionHome = sessionHome;
+    });
+  }
+
+  async setAccount(tauThreadId: string, cwd: string, accountInstance: string): Promise<void> {
+    const previous = await this.ensure(tauThreadId, cwd);
+    try {
+      await this.update(tauThreadId, cwd, (record) => { record.accountInstance = accountInstance; delete record.serviceTier; });
+    } catch (error) {
+      this.records.set(tauThreadId, previous);
+      throw error;
+    }
   }
 
   /** Restricts a new thread to these tools for good. */

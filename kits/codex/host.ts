@@ -1,7 +1,11 @@
+import { canonicalCodexHome, canonicalHomePath, codexHomeLayout, continuationEnvironment, prepareCodexHome } from "./home-layout.js";
+import { RpcError } from "./rpc.js";
+import { ResetCoordinator } from "./reset-coordinator.js";
+import { codexResetCredits } from "./limits.js";
 import { ChatGPTPlan, CHATGPT_PLAN_ARGS, CHATGPT_PLAN_METHOD, CHATGPT_USAGE_URL, planCatalog } from "./chatgpt-plan.js";
-import type { ChatGPTRegistration } from "./chatgpt-plan-store.js";
 import { PLAN_SCOPE } from "./chatgpt-plan-oauth.js";
 import { createManagedCodex, MANAGED_CODEX_VERSION } from "./managed-install.js";
+import type { ChatGPTRegistration } from "./chatgpt-plan-store.js";
 import type { ManagedCodexAsset } from "./managed-release.js";
 import { execFile } from "node:child_process";
 import { mkdir, realpath } from "node:fs/promises";
@@ -64,6 +68,7 @@ import {
   type ChatGPTPlanSummary,
   type CodexInstancesReport,
   type CodexStatusReport,
+  type CodexThreadSettings,
   type ManagedCodexState,
 } from "./protocol.js";
 import { createCodexRuntimeAdapter } from "./runtime-adapter.js";
@@ -144,7 +149,7 @@ export async function readCodexVersion(path: string): Promise<string | undefined
   }
 }
 
-const PLAN_NAMES: Record<string, string> = { free: "Free", go: "Go", plus: "Plus", pro: "Pro", team: "Team", business: "Business", enterprise: "Enterprise", edu: "Edu" };
+const PLAN_NAMES: Record<string, string> = { free: "Free", go: "Go", plus: "Plus", pro: "Pro", pro_max: "Pro Max", proMax: "Pro Max", promax: "Pro Max", team: "Team", business: "Business", enterprise: "Enterprise", edu: "Edu" };
 
 /** The ways Codex signs in: its own login server for the browser, a device code, a key, or `codex login` in a terminal. */
 export const CODEX_SIGN_IN_METHODS: readonly SignInMethod[] = [
@@ -203,7 +208,7 @@ function instanceInput(input: unknown): string {
  * or the CLI's own login. Each instance — the default one and
  * any the user adds on the Providers page, with its own executable, home
  * (`CODEX_HOME`), environment and arguments — registers a backend of its own
- * (`codex`, `codex@<id>`), so a thread keeps the instance it started on.
+ * (`codex`, `codex@<id>`), so a thread keeps its durable owner while compatible CLI accounts may execute its next turn.
  */
 export function createCodexHostExtension(options: CodexHostExtensionOptions = {}): HostExtension {
   return {
@@ -226,8 +231,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         env,
       });
       const policy = runtimeVersionPolicy(CODEX_BACKEND_KIND, CODEX_VERSION_POLICY, env);
-      const chatgpt = new ChatGPTPlan(join(services.stateDir, "chatgpt-plan"), options.fetch);
-      const planHome = (id: string): string => join(services.stateDir, "chatgpt-plan-homes", id);
+      const plan = new ChatGPTPlan(join(services.stateDir, "chatgpt-plan"), options.fetch);
       const managed = createManagedCodex({ directory: join(services.stateDir, "managed-codex"), ...(options.fetch ? { fetch: options.fetch } : {}), ...(options.managedAsset ? { asset: options.managedAsset } : {}) });
       let managedPath: string | undefined;
       /** An earlier pinned release is on disk: this host ran Tau's Codex before a Tau update. */
@@ -236,6 +240,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       const signingOut = new Set<string>();
       const transitioning = new Set<string>();
       const openingThreads = new Map<string, number>();
+      const threadAccounts = new Map<string, { backend: CodexThreadRuntimeBackend; account: string; change(account: string): void }>();
       const sessions = new Map<string, Set<CodexSessionLike>>();
       const sessionTokens = new WeakMap<CodexSessionLike, string>();
       const stopSessions = async (id: string) => {
@@ -256,12 +261,23 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
 
       const codexCommand = (id: string): string => settings.command(id).command;
       const instanceEnv = (id: string): NodeJS.ProcessEnv => settings.environment(id, env);
+      const managedHome = (id: string) => join(services.stateDir, "chatgpt-plan-homes", id);
+      // Managed homes share sessions only by explicit instance configuration.
+      const managedSharedHome = (id: string) => settings.home(id) ?? managedHome(id);
+      const sessionHomeOf = async (id: string, managedAccount: boolean) => managedAccount
+        ? canonicalHomePath(managedSharedHome(id)) : canonicalCodexHome(instanceEnv(id));
+      const sessionEnvironment = async (id: string, managedAccount: boolean) => {
+        if (!managedAccount) return prepareCodexHome(instanceEnv(id));
+        const shared = settings.home(id);
+        if (!shared || await canonicalHomePath(shared) === await canonicalHomePath(managedHome(id))) return { ...instanceEnv(id), CODEX_HOME: managedHome(id) };
+        return prepareCodexHome({ ...instanceEnv(id), CODEX_HOME: shared, TAU_CODEX_AUTH_HOME: managedHome(id) });
+      };
       const locate = (id: string): string | undefined => services.findCommand(codexCommand(id)) ?? (!settings.command(id).source ? managedPath : undefined);
       const planReady = (registration: ChatGPTRegistration): boolean => Boolean(registration.tokens?.scopes.includes(PLAN_SCOPE));
       /** Plan instances run Tau's Codex; so does a CLI instance without one of its own once Tau had fetched one. */
       const usesManaged = async (id: string): Promise<boolean> => {
         if (settings.command(id).source) return false;
-        if (await chatgpt.read(id)) return true;
+        if (await plan.read(id)) return true;
         return !services.findCommand(codexCommand(id)) && (managedPath !== undefined || hadManaged);
       };
       const requirePlanRelease = (version: string | undefined): void => {
@@ -300,6 +316,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         } finally { fetching = undefined; }
       })();
       const planSummary = (id: string, registration: ChatGPTRegistration): ChatGPTPlanSummary => ({
+        instance: id,
         signedIn: planReady(registration),
         label: registration.email ?? "ChatGPT account",
         usageUrl: CHATGPT_USAGE_URL,
@@ -319,7 +336,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       /** The instance's CLI and its version; read again once the file changed (an update). */
       const cli = async (id: string): Promise<{ path: string; version?: string }> => {
         await managedReady;
-        const registration = await chatgpt.read(id);
+        const registration = await plan.read(id);
         const path = registration && !settings.command(id).source ? managedPath : locate(id);
         if (!path && await usesManaged(id)) {
           if (fetchState?.phase === "failed") throw new Error(`Tau could not fetch Codex ${MANAGED_CODEX_VERSION}: ${fetchState.error ?? "unknown error"}`);
@@ -338,7 +355,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       };
       const assertSupported = async (id: string): Promise<string> => {
         const { path, version } = await cli(id);
-        if (await chatgpt.read(id)) requirePlanRelease(version);
+        if (await plan.read(id)) requirePlanRelease(version);
         const verdict = await compatibility(path, version);
         if (verdict?.status !== "broken") return path;
         const older = version !== undefined && compareVersions(version, MIN_CODEX_VERSION) < 0;
@@ -349,16 +366,21 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
 
       const spawnSession = async (id: string, input: CodexSessionInput): Promise<CodexSessionLike> => {
         if (signingOut.has(id)) throw new Error("This ChatGPT account is signing out.");
-        const registration = await chatgpt.read(id);
-        const credentials = registration ? await chatgpt.credentials(id) : undefined;
+        const registration = await plan.read(id);
+        const credentials = registration ? await plan.credentials(id) : undefined;
         const command = await assertSupported(id);
         // A thread's session reaches Tau's tools; without the endpoint it still runs, only without them.
         const mcp = input.threadId
           ? await services.mcp.connect({ sessionId: input.threadId, cwd: input.cwd }, input.tools ? { tools: input.tools } : undefined).catch(() => undefined)
           : undefined;
         const tau = mcp ? codexMcpLaunch(mcp) : { args: [], env: {} };
-        const launch = { args: [...tau.args, ...(input.tools ? codexToolArgs(input.tools) : []), ...settings.args(id), ...(credentials ? CHATGPT_PLAN_ARGS : [])], env: tau.env };
-        const sessionEnv = { ...instanceEnv(id), ...launch.env, ...(credentials ? { ACCESS_TOKEN: credentials.tokens!.accessToken, CODEX_HOME: planHome(id) } : {}) };
+        if (input.threadId) {
+          const sessionHome = await sessionHomeOf(id, Boolean(credentials));
+          await store.setSessionHome(input.threadId, input.cwd, sessionHome);
+        }
+        const cliEnv = await sessionEnvironment(id, Boolean(credentials));
+        const launch = { args: [...tau.args, ...(input.tools ? codexToolArgs(input.tools) : []), ...settings.args(id), ...(!credentials && codexHomeLayout(instanceEnv(id)).overlay ? ["-c", 'cli_auth_credentials_store="file"'] : []), ...(credentials ? CHATGPT_PLAN_ARGS : [])], env: tau.env };
+        const sessionEnv = { ...cliEnv, ...launch.env, ...(credentials ? { ACCESS_TOKEN: credentials.tokens!.accessToken } : {}) };
         const track = (session: CodexSessionLike): CodexSessionLike => {
           const held = sessions.get(id) ?? new Set<CodexSessionLike>();
           for (const previous of held) if (previous.closed) held.delete(previous);
@@ -369,14 +391,14 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
             session.account = async () => ({ type: "chatgpt", email: credentials.email ?? null, planType: "" });
             const catalog = session.models.bind(session);
             session.models = async () => {
-              const [allowed, codex] = await Promise.all([chatgpt.models(id), catalog()]);
-              return planCatalog(allowed, codex);
+              const [allowed, codex] = await Promise.all([plan.models(id), catalog()]);
+              return planCatalog(allowed, codex).map((model) => ({ ...model, serviceTiers: [], additionalSpeedTiers: [], defaultServiceTier: null }));
             };
           }
           return session;
         };
         const accept = async (session: CodexSessionLike) => {
-          if (signingOut.has(id) || credentials && !(await chatgpt.read(id))?.tokens) {
+          if (signingOut.has(id) || credentials && !(await plan.read(id))?.tokens) {
             await session.close();
             throw new Error("This ChatGPT account signed out while starting Codex.");
           }
@@ -425,7 +447,8 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       };
 
       /** Per instance: the quota windows last read or reported by a turn, and the login they belong to. */
-      const limits = new Map<string, { at: number; snapshot?: CodexRateSnapshot; account?: CodexAccount; identity?: AccountIdentity; error?: string; managementUrl?: string }>();
+      const limits = new Map<string, { at: number; snapshot?: CodexRateSnapshot; resetCredits?: LimitAccount["resetCredits"]; account?: CodexAccount; identity?: AccountIdentity; error?: string; managementUrl?: string }>();
+      const resets = new ResetCoordinator(services.stateDir);
       const reading = new Map<string, Promise<void>>();
       const noteRateLimits = (id: string, update: unknown): void => {
         const held = limits.get(id);
@@ -436,7 +459,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         const running = reading.get(id);
         if (running) return running;
         const next = (async () => {
-          const registration = await chatgpt.read(id);
+          const registration = await plan.read(id);
           if (registration) {
             limits.set(id, { at: Date.now(), managementUrl: CHATGPT_USAGE_URL,
               ...(planReady(registration) ? { account: { type: "chatgpt", email: registration.email ?? null, planType: "" } } : {}) });
@@ -454,7 +477,10 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
             const read = account?.type === "chatgpt" ? await session.rateLimits?.() : undefined;
             // The home the app-server itself reports, so a test's never falls back to the real one.
             const identity = account?.type === "chatgpt" && session.codexHome ? await readCodexIdentity(session.codexHome) : undefined;
-            limits.set(id, { at: Date.now(), ...(account ? { account } : {}), ...(read ? { snapshot: codexReadSnapshot(read) } : {}), ...(identity ? { identity } : {}) });
+            const resetCredits = codexResetCredits(read);
+            const accountKey = identity?.key ?? await realpath(codexHome(instanceEnv(id))).catch(() => codexHome(instanceEnv(id)));
+            const pending = await resets.hasPending(accountKey);
+            limits.set(id, { at: Date.now(), ...(account ? { account } : {}), ...(read ? { snapshot: codexReadSnapshot(read), resetCredits: resetCredits || pending ? { availableCount: 0, ...resetCredits, pending } : undefined } : {}), ...(identity ? { identity } : {}) });
           } finally {
             await session.close().catch(() => undefined);
           }
@@ -466,17 +492,51 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       };
       const limitAccount = (id: string): LimitAccount => {
         const held = limits.get(id);
-        const base = { id: `${settings.kind(id)}:account`, runtime: settings.kind(id), label: settings.label(id), checkedAt: held?.at ?? Date.now(), ...(held?.identity ? { identity: held.identity } : {}) };
+        const base = { id: `${settings.kind(id)}:account`, runtime: settings.kind(id), label: settings.label(id), checkedAt: held?.at ?? Date.now(), ...(held?.resetCredits ? { resetCredits: held.resetCredits } : {}), ...(held?.identity ? { identity: held.identity } : {}) };
         const account = held?.account as { type?: string; planType?: string } | undefined;
-        const planType = account?.planType ?? held?.snapshot?.planType ?? undefined;
+        const accountPlan = account?.planType ?? held?.snapshot?.planType ?? undefined;
         if (held?.managementUrl) return { ...base, managementUrl: held.managementUrl, windows: [], unavailable: { reason: account ? "unsupported" : "signed-out", message: account ? "ChatGPT manages this connection’s usage and app limits." : "This ChatGPT account is signed out." } };
         const windows = codexLimitWindows(held?.snapshot);
-        if (windows.length > 0) return { ...base, ...(planType ? { plan: planType } : {}), windows };
+        if (windows.length > 0) return { ...base, ...(accountPlan ? { plan: accountPlan } : {}), windows };
         if (held?.error) return { ...base, windows: [], unavailable: { reason: "failed", message: held.error } };
         if (account?.type === "apiKey") return { ...base, windows: [], unavailable: { reason: "unsupported", message: "An API key has no subscription limits." } };
         if (!account) return { ...base, windows: [], unavailable: { reason: "signed-out", message: "Codex is not signed in." } };
-        return { ...base, ...(planType ? { plan: planType } : {}), windows: [] };
+        return { ...base, ...(accountPlan ? { plan: accountPlan } : {}), windows: [] };
       };
+
+      context.registerCommand("usage-redeem-reset", async (input) => {
+        const runtime = (input as { runtime?: unknown } | undefined)?.runtime;
+        const instance = settings.list().find((entry) => settings.kind(entry.id) === runtime);
+        if (!instance) throw new HostCommandError("Unknown Codex account.");
+        const id = instance.id;
+        if (await plan.read(id)) throw new HostCommandError("Manage resets in ChatGPT Settings for this connection.");
+        await readLimits(id);
+        const accountKey = limits.get(id)?.identity?.key ?? await realpath(codexHome(instanceEnv(id))).catch(() => codexHome(instanceEnv(id)));
+        return resets.redeem(accountKey, async (key) => {
+          await readLimits(id);
+          if (limits.get(id)?.error) throw new HostCommandError("Codex could not read this account. Retry to check the same request.");
+          const expectedIdentity = (input as { identity?: unknown } | undefined)?.identity;
+          if (expectedIdentity !== undefined && limits.get(id)?.identity?.key !== expectedIdentity) throw Object.assign(new HostCommandError("The account changed. Refresh before using a reset."), { settled: true });
+          if (limits.get(id)?.account?.type !== "chatgpt") throw new HostCommandError("Sign in with ChatGPT to redeem resets.");
+          const session = await spawnSession(id, { cwd: services.stateDir, onNotification: () => undefined, onRequest: async () => { throw new Error("No thread runs during a reset."); }, onExit: () => undefined });
+          try {
+            if (!session.consumeResetCredit) throw Object.assign(new HostCommandError("This Codex version does not support resets. Update Codex."), { settled: true });
+            const response = await session.consumeResetCredit(key) as { outcome?: unknown };
+            if (!["reset", "nothingToReset", "alreadyRedeemed", "noCredit"].includes(String(response?.outcome))) throw new HostCommandError("Codex could not confirm the reset. Retry to check the same request.");
+            await readLimits(id);
+
+            if (response.outcome === "reset" && (limits.get(id)?.error || !codexLimitWindows(limits.get(id)?.snapshot).length)) {
+              throw Object.assign(new HostCommandError("The reset was applied, but the new limits could not be confirmed. Refresh to check."), { settled: true });
+            }
+            return response.outcome;
+          } catch (error) {
+            if ((error as { settled?: boolean }).settled) throw error;
+            if (error instanceof RpcError && error.code === -32601) throw Object.assign(new HostCommandError("This Codex version does not support resets. Update Codex."), { settled: true });
+            throw new HostCommandError("Codex could not confirm the reset. Retry to check the same request.");
+          }
+          finally { await session.close().catch(() => undefined); }
+        }, (input as { checkPending?: unknown } | undefined)?.checkPending === true);
+      }, { long: true, callers: [USAGE_KIT_ID] });
 
       const cachedModels = async (id: string): Promise<CodexStoredModel[]> => {
         const stored = await store.listModels(id);
@@ -510,7 +570,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           findCommand: (name) => services.findCommand(name),
           cacheFile: join(services.stateDir, "latest-version.json"),
           env,
-          commandEnv: signInEnv(id),
+          commandEnv: await signInEnv(id),
           home: homedir(),
           ...(options.fetch ? { fetch: options.fetch } : {}),
         });
@@ -533,7 +593,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       const providerFor = (id: string): HostRuntimeBackendProvider => {
         const kind = settings.kind(id);
         const adapter = createCodexRuntimeAdapter(kind);
-        const home = async (): Promise<string> => await chatgpt.read(id) ? planHome(id) : codexHome(instanceEnv(id));
+        const home = async (): Promise<string> => await plan.read(id) ? managedSharedHome(id) : codexHome(instanceEnv(id));
         return {
           kind,
           label: settings.label(id),
@@ -543,6 +603,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           homeProviders: ["openai"],
           listThreads: async () => (await store.list(id)).map(record),
           removeThread: async (threadId) => {
+            threadAccounts.delete(threadId);
             const taken = await store.take(threadId);
             const tools = await activity.take(threadId);
             return taken && tools ? { ...taken, activity: tools } : taken;
@@ -564,31 +625,35 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
               // Usually fetched at start already; otherwise the card and the composer show the progress.
               if (!managedPath && await usesManaged(id)) await fetchManaged();
               await assertSupported(id);
+              let account = (await store.get(threadId))?.accountInstance ?? id;
+              requireInstance(account);
+              const accountHome = async () => await plan.read(account) ? managedSharedHome(account) : codexHome(instanceEnv(account));
               const backend = new CodexThreadRuntimeBackend(threadId, cwd, {
                 adapter,
                 store,
                 activity,
                 instance: id,
-                configuredModel: async () => readCodexConfiguredModel(await home()),
-                openSession: (input) => spawnSession(id, input),
+                configuredModel: async () => readCodexConfiguredModel(await accountHome()),
+                openSession: (input) => spawnSession(account, input),
                 sessionCurrent: async (session) => {
-                  if (!await chatgpt.read(id)) return !sessionTokens.has(session);
-                  return (await chatgpt.credentials(id)).tokens!.accessToken === sessionTokens.get(session);
+                  if (!await plan.read(account)) return !sessionTokens.has(session);
+                  return (await plan.credentials(account)).tokens!.accessToken === sessionTokens.get(session);
                 },
-                storedModels: () => store.listModels(id),
-                models: () => cachedModels(id),
-                onModels: (models) => void store.setModels(models, id).catch(() => undefined),
+                storedModels: () => store.listModels(account),
+                models: () => cachedModels(account),
+                onModels: (models) => void store.setModels(models, account).catch(() => undefined),
                 permissionLevel: thread.permissionLevel,
                 ...(thread.executionPolicy ? { executionPolicy: thread.executionPolicy } : {}),
                 ...(thread.priceUsage ? { priceUsage: thread.priceUsage } : {}),
-                onRateLimits: (snapshot) => noteRateLimits(id, snapshot),
-                onUsageLimit: () => { void chatgpt.read(id).then((registration) => { if (registration) context.emit("chatgpt-plan-limit", { instance: id }); }); },
+                onRateLimits: (snapshot) => noteRateLimits(account, snapshot),
+                onUsageLimit: () => { void plan.read(account).then((registration) => { if (registration) context.emit("chatgpt-plan-limit", { instance: account }); }); },
                 ...(tools ? { tools } : {}),
                 onMessage: thread.onMessage,
                 onEvent: thread.onEvent,
                 ask: thread.ask,
               });
               await backend.start(resume ? "resume" : "create");
+              threadAccounts.set(threadId, { backend, get account() { return account; }, change: (next) => { account = next; } });
               return backend;
             } finally { openingThreads.set(id, (openingThreads.get(id) ?? 1) - 1); }
           },
@@ -599,7 +664,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           // The account's models, starting where config.toml points; the host keeps the answer and asks again now and then.
           newThreadCatalog: async () => {
             await managedReady;
-            if (!managedPath && await chatgpt.read(id) && await usesManaged(id)) return { models: [], thinkingLevels: {}, status: "not-installed", note: fetching ? `Tau is fetching Codex ${MANAGED_CODEX_VERSION}; its progress is on this account’s Providers card.` : "Install the Codex version managed by Tau on this account’s Providers card." };
+            if (!managedPath && await plan.read(id) && await usesManaged(id)) return { models: [], thinkingLevels: {}, status: "not-installed", note: fetching ? `Tau is fetching Codex ${MANAGED_CODEX_VERSION}; its progress is on this account’s Providers card.` : "Install the Codex version managed by Tau on this account’s Providers card." };
             if (!locate(id)) return { models: [], thinkingLevels: {}, status: "not-installed", note: `The Codex CLI "${codexCommand(id)}" is not installed.` };
             const probe = await runProbe(id);
             if (!probe.account) return { models: [], thinkingLevels: {}, status: "sign-in-required", note: `${settings.label(id)} is not signed in. Sign in on its card under Settings → Providers.` };
@@ -647,7 +712,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         requireInstance(id);
         const { command, source } = settings.command(id);
         const fresh = Boolean(input && typeof input === "object" && (input as { fresh?: unknown }).fresh);
-        const registration = await chatgpt.read(id);
+        const registration = await plan.read(id);
         const base = { instance: id, command, ...(source ? { commandSource: source } : {}), ...(registration ? { chatgptPlan: planSummary(id, registration) } : {}) };
         let found: { path: string; version?: string };
         try {
@@ -690,11 +755,70 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         return { installed: true };
       }, { long: true });
       context.registerCommand("chatgpt-plan-account", async (input) => {
-        const id = instanceInput(input);
+        const threadId = (input as { threadId?: unknown } | undefined)?.threadId;
+        const id = (typeof threadId === "string" ? threadAccounts.get(threadId)?.account : undefined) ?? instanceInput(input);
         requireInstance(id);
-        const registration = await chatgpt.read(id);
+        const registration = await plan.read(id);
         return registration ? planSummary(id, registration) : undefined;
       }, { access: "read" });
+      const heldThread = (input: unknown) => {
+        const threadId = (input as { threadId?: unknown } | undefined)?.threadId;
+        const held = typeof threadId === "string" ? threadAccounts.get(threadId) : undefined;
+        if (!held) throw new HostCommandError("Open a Codex thread first.");
+        return held;
+      };
+      const accountChoices = async (held: ReturnType<typeof heldThread>) => {
+        const current = held.account;
+        const currentManaged = Boolean(await plan.read(current));
+        const shared = await sessionHomeOf(current, currentManaged);
+        const effectivePath = currentManaged ? managedHome(current) : codexHomeLayout(instanceEnv(current)).effective;
+        const effective = await canonicalHomePath(effectivePath);
+        return Promise.all(settings.list().map(async (entry) => {
+          let reason: string | undefined;
+          if (entry.id !== current) {
+            if (transitioning.has(entry.id) || signingOut.has(entry.id)) reason = "Finish signing in to this account first.";
+            else if (currentManaged !== Boolean(await plan.read(entry.id))) reason = "CLI and managed ChatGPT connections use different inference providers.";
+            else if (currentManaged && (!settings.home(current) || !settings.home(entry.id))) reason = "Configure the same explicit shared home on both managed ChatGPT accounts first.";
+            else if (await sessionHomeOf(entry.id, currentManaged) !== shared) reason = "This account has a different shared CODEX_HOME. Managed accounts must explicitly configure the same shared home before starting their threads.";
+            else if ((await canonicalHomePath(currentManaged ? managedHome(entry.id) : codexHomeLayout(instanceEnv(entry.id)).effective)) === effective) reason = "Set a separate TAU_CODEX_AUTH_HOME for this account's credentials.";
+            else if (codexCommand(entry.id) !== codexCommand(current) || JSON.stringify(settings.args(entry.id)) !== JSON.stringify(settings.args(current)) || continuationEnvironment(instanceEnv(entry.id)) !== continuationEnvironment(instanceEnv(current))) reason = "This account uses a different Codex launch configuration.";
+            else {
+              const saved = currentManaged ? await plan.read(entry.id) : undefined;
+              const probe = currentManaged ? undefined : await runProbe(entry.id).catch(() => undefined);
+              if (currentManaged ? !saved?.tokens?.scopes.includes(PLAN_SCOPE) : !probe?.account) reason = "Sign in to this account on its Providers card first.";
+            }
+          }
+          return { id: entry.id, label: settings.label(entry.id), ...(reason ? { reason } : {}) };
+        }));
+      };
+      const threadSettings = async (held: ReturnType<typeof heldThread>): Promise<CodexThreadSettings> => {
+        await held.backend.models();
+        return {
+          account: held.account,
+          accounts: await accountChoices(held),
+          serviceTier: await plan.read(held.account) ? { selected: null, defaultTier: null, choices: [] } : held.backend.serviceTierState(),
+        };
+      };
+      context.registerCommand("thread-settings", (input) => threadSettings(heldThread(input)), { access: "read" });
+      context.registerCommand("set-thread-tier", async (input) => {
+        const held = heldThread(input);
+        const tier = (input as { tier?: unknown }).tier;
+        if (tier !== null && typeof tier !== "string") throw new HostCommandError("Choose a Codex service tier or the provider default.");
+        if (await plan.read(held.account)) throw new HostCommandError("Managed ChatGPT connections do not offer service tiers.");
+        await held.backend.setServiceTier(tier);
+        context.emit("thread-settings", { threadId: held.backend.threadId });
+        return threadSettings(held);
+      });
+      context.registerCommand("switch-thread-account", async (input) => {
+        const held = heldThread(input);
+        const account = (input as { account?: unknown }).account;
+        const choice = (await accountChoices(held)).find((entry) => entry.id === account);
+        if (!choice) throw new HostCommandError("Choose an existing Codex account.");
+        if (choice.reason) throw new HostCommandError(choice.reason);
+        if (choice.id !== held.account) await held.backend.switchAccount(choice.id, held.change, held.account);
+        context.emit("thread-settings", { threadId: held.backend.threadId });
+        return threadSettings(held);
+      });
       context.registerCommand("instances", () => instancesReport(), { access: "read" });
       // Adds or edits an instance from the Providers page; its backend is registered anew.
       context.registerCommand("save-instance", async (input) => {
@@ -704,7 +828,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           throw new HostCommandError(`${CODEX_COMMAND_VARIABLE} is set in Tau's environment and decides the path.`);
         }
         if (requested.command && !services.findCommand(requested.command)) throw new HostCommandError(`No executable at "${requested.command}".`);
-        if (requested.args?.includes("ignore_default_excludes") && await chatgpt.read(requested.id)) {
+        if (requested.args?.includes("ignore_default_excludes") && await plan.read(requested.id)) {
           throw new HostCommandError("This instance uses a ChatGPT plan: Codex keeps variables named *TOKEN* away from the commands it runs, so ignore_default_excludes cannot be set here.");
         }
         try {
@@ -719,11 +843,11 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       context.registerCommand("remove-instance", async (input) => {
         const id = instanceInput(input);
         if (id === DEFAULT_INSTANCE_ID) throw new HostCommandError("The default instance cannot be removed.");
-        if (await chatgpt.read(id)) {
+        if (await plan.read(id)) {
           signingOut.add(id);
           try {
             await stopSessions(id);
-            const { revoked, message } = await chatgpt.signOut(id);
+            const { revoked, message } = await plan.signOut(id);
             if (!revoked) throw new HostCommandError(message);
           } finally { signingOut.delete(id); }
         }
@@ -778,7 +902,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       // The account's quota windows, for the Usage kit: read at most every few minutes, fresher when a turn reported them.
       context.registerCommand("usage-limits", async (input) => {
         const refresh = Boolean(input && typeof input === "object" && (input as { refresh?: unknown }).refresh);
-        const ids = (await Promise.all(settings.list().map(async (instance) => locate(instance.id) || await chatgpt.read(instance.id) ? instance.id : undefined))).filter((id): id is string => id !== undefined);
+        const ids = (await Promise.all(settings.list().map(async (instance) => locate(instance.id) || await plan.read(instance.id) ? instance.id : undefined))).filter((id): id is string => id !== undefined);
         await Promise.all(ids.map(async (id) => {
           const held = limits.get(id);
           if (!refresh && held && !held.error && Date.now() - held.at < LIMITS_TTL_MS) return;
@@ -797,10 +921,11 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       }, { long: true, callers: [ONBOARDING_KIT_ID] });
 
       // Signing in from the window: Codex's own login over its app server, or `codex login` in a terminal.
-      const signInEnv = (id: string): Record<string, string> => {
+      const signInEnv = async (id: string): Promise<Record<string, string>> => {
+        const prepared = await prepareCodexHome(instanceEnv(id));
         const added = settings.environment(id, {});
         const inherited = env[CODEX_HOME_VARIABLE] && !added[CODEX_HOME_VARIABLE] ? { [CODEX_HOME_VARIABLE]: env[CODEX_HOME_VARIABLE] } : {};
-        return Object.fromEntries(Object.entries({ ...inherited, ...added }).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+        return Object.fromEntries(Object.entries({ ...inherited, ...added, ...(codexHomeLayout(instanceEnv(id)).overlay ? { CODEX_HOME: prepared.CODEX_HOME } : {}) }).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
       };
       const loginSession = async (id: string, completed: (event: CodexLoginCompleted) => void) => {
         await mkdir(services.stateDir, { recursive: true });
@@ -811,6 +936,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           onExit: () => undefined,
         });
       };
+      const ownsCliThreads = async (id: string) => (await store.list()).some((entry) => (entry.instance ?? DEFAULT_INSTANCE_ID) === id || entry.accountInstance === id);
       /** A cancelled sign-in stops waiting; the download goes on for the next attempt. */
       const waitForManaged = async (flow: SignInFlowContext): Promise<void> => {
         const say = (progress: ManagedCodexState) => {
@@ -827,8 +953,8 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         report: async (id) => {
           requireInstance(id);
           await managedReady;
-          const registration = await chatgpt.read(id);
-          const planMethod = !registration && (await store.list(id)).length ? { ...CHATGPT_PLAN_METHOD, unavailable: "Add a Codex instance to use your ChatGPT plan; this instance keeps its existing CLI threads." } : CHATGPT_PLAN_METHOD;
+          const registration = await plan.read(id);
+          const planMethod = !registration && await ownsCliThreads(id) ? { ...CHATGPT_PLAN_METHOD, unavailable: "Add a Codex instance to use your ChatGPT plan; this instance keeps its existing CLI threads." } : CHATGPT_PLAN_METHOD;
           if (registration) {
             const summary = planSummary(id, registration);
             return { methods: [planMethod], account: { signedIn: summary.signedIn, label: summary.label, detail: summary.signedIn ? "Using ChatGPT plan" : "Sign in again to this account", canSignOut: Boolean(registration.tokens) }, note: "Tau keeps this account’s credentials in a file on this computer that only your user account can read. Add an instance for another account." };
@@ -847,9 +973,9 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         signIn: async (id, method, flow) => {
           requireInstance(id);
           if (method === CHATGPT_PLAN_METHOD.id) {
-            const initial = !await chatgpt.read(id);
+            const initial = !await plan.read(id);
             if (initial) {
-              if ((await store.list(id)).length || openingThreads.get(id)) throw new Error("This instance already has CLI threads. Add a Codex instance to use your ChatGPT plan without changing their sessions.");
+              if (await ownsCliThreads(id) || openingThreads.get(id)) throw new Error("This instance already has CLI threads. Add a Codex instance to use your ChatGPT plan without changing their sessions.");
               transitioning.add(id);
             }
             try {
@@ -857,13 +983,13 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
               if (settings.command(id).source) requirePlanRelease((await cli(id)).version);
               else if (!managedPath) await waitForManaged(flow);
               await stopSessions(id);
-              return await chatgpt.signIn(id, flow);
+              return await plan.signIn(id, flow);
             } finally { transitioning.delete(id); }
           }
-          if (await chatgpt.read(id)) throw new Error("This instance uses its saved ChatGPT account. Add another instance for a CLI login.");
+          if (await plan.read(id)) throw new Error("This instance uses its saved ChatGPT account. Add another instance for a CLI login.");
           if (method === "terminal") {
             const path = await assertSupported(id);
-            flow.show({ terminal: { command: commandLine(path, ["login"], signInEnv(id), process.platform) } });
+            flow.show({ terminal: { command: commandLine(path, [...settings.args(id), ...(codexHomeLayout(instanceEnv(id)).overlay ? ["-c", 'cli_auth_credentials_store="file"'] : []), "login"], await signInEnv(id), process.platform) } });
             const ended = await flow.ask({ kind: "text", message: "Waiting for codex login to finish in the terminal." });
             flow.verifying();
             const account = (await runProbe(id, true)).account;
@@ -898,11 +1024,11 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         },
         signOut: async (id) => {
           requireInstance(id);
-          if (await chatgpt.read(id)) {
+          if (await plan.read(id)) {
             signingOut.add(id);
             try {
               await stopSessions(id);
-              return (await chatgpt.signOut(id)).message;
+              return (await plan.signOut(id)).message;
             } finally {
               await stopSessions(id);
               signingOut.delete(id);

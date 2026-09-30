@@ -28,10 +28,12 @@ export interface EnvironmentsService {
   open(id: string, target?: EnvironmentOpenTarget): Promise<void>;
   takeArrival(): EnvironmentTarget | undefined;
   discover(): Promise<UiDiscoveredHosts>;
+  listWsl?(): Promise<string[]>;
   setPreferences(preferences: EnvironmentPreferences): Promise<void>;
   setAgents(id: string, on: boolean): Promise<EnvironmentAgentsResult>;
   watchThread(machine: string, sessionId: string, on: boolean): UiEnvironmentThreadView | undefined;
   transcriptPage(machine: string, sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage>;
+  invokeExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown>;
   readExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown>;
   updateMachine(machine: string, action: HostUpdateAction): Promise<HostUpdateStatus>;
 }
@@ -57,14 +59,17 @@ export function createEnvironmentMethods(service: () => EnvironmentsService | un
   return {
     "environments-list": async () => require().snapshot(),
     "environments-pair": async (params) => {
-      const input = params[0] as { text?: unknown; nearby?: unknown; deviceName?: unknown; agents?: unknown } | undefined;
+      const input = params[0] as { text?: unknown; nearby?: unknown; ssh?: unknown; wsl?: unknown; deviceName?: unknown; agents?: unknown } | undefined;
       return require().pair({
         ...(input?.agents === false ? { agents: false } : {}),
-        ...(input?.nearby !== undefined ? { nearby: text("environments-pair", "nearby", input.nearby, 128) } : { text: text("environments-pair", "text", input?.text) }),
+        ...(input?.ssh !== undefined ? { ssh: text("environments-pair", "ssh", input.ssh, 255) }
+          : input?.wsl !== undefined ? { wsl: text("environments-pair", "wsl", input.wsl, 100) }
+            : input?.nearby !== undefined ? { nearby: text("environments-pair", "nearby", input.nearby, 128) } : { text: text("environments-pair", "text", input?.text, 16_384) }),
         ...(typeof input?.deviceName === "string" && input.deviceName.trim() ? { deviceName: input.deviceName.slice(0, 80) } : {}),
       });
     },
     "environments-discover": async () => require().discover(),
+    "environments-wsl-list": async () => require().listWsl?.() ?? [],
     "environments-set-preferences": async (params) => {
       const input = params[0] as { reopenShown?: unknown } | undefined;
       if (typeof input?.reopenShown !== "boolean") {
@@ -112,6 +117,12 @@ export function createEnvironmentMethods(service: () => EnvironmentsService | un
       text("environments-transcript-page", "machine", params[0], 200),
       text("environments-transcript-page", "sessionId", params[1], 512),
       decodeHostTranscriptCursor("environments-transcript-page", "cursor", params[2]),
+    ),
+    "environments-extension-invoke": async (params) => require().invokeExtension(
+      text("environments-extension-invoke", "machine", params[0], 200),
+      text("environments-extension-invoke", "extensionId", params[1], 200),
+      text("environments-extension-invoke", "command", params[2], 200),
+      params[3],
     ),
     "environments-extension-read": async (params) => require().readExtension(
       text("environments-extension-read", "machine", params[0], 200),

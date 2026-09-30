@@ -40,11 +40,12 @@ export function fcmSender(messaging: MessagingPort): Sender {
  * app may rewrite (`mutable-content`), the sealed text in its own field.
  */
 export function apnsSender(client: Pick<ApnsClient, "send">, topic = APNS_TOPIC): Sender {
-  return async (token, { sealed, collapseId }): Promise<Delivery> => {
+  return async (token, { sealed, collapseId, activity }): Promise<Delivery> => {
     const request: ApnsRequest = {
       token,
-      topic,
-      payload: {
+      topic: activity ? `${topic}.push-type.liveactivity` : topic,
+      ...(activity ? { pushType: "liveactivity" as const, expiration: activity.expiresAt } : {}),
+      payload: activity ? { aps: { timestamp: activity.timestamp, event: activity.event, "content-state": { sealed }, "stale-date": activity.expiresAt, ...(activity.event === "end" ? { "dismissal-date": activity.expiresAt } : {}) } } : {
         aps: { alert: GENERIC_ALERT, sound: "default", "mutable-content": 1, ...(collapseId ? { "thread-id": collapseId } : {}) },
         sealed,
       },

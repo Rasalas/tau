@@ -145,6 +145,7 @@ function defaults(): HostClient {
     setEnvironmentAgents: async (_id, on) => ({ state: on ? "on" : "off" }),
     watchEnvironmentThread: async () => undefined,
     loadEnvironmentTranscript: async (_machine, sessionId) => ({ sessionId, messages: [], hasMore: false }),
+    invokeEnvironmentExtension: async () => null,
     readEnvironmentExtension: async () => null,
     // Exposed only through the FakeHostClient wrapper below; kept here so
     // `emit` shares the same listener set as the default `onHostEvent`.

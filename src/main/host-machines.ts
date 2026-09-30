@@ -18,6 +18,9 @@ import type { HostMethodContext } from "./host-jobs.js";
 import { isHostOwner } from "./host-invocation.js";
 import type { HostLogger } from "./host-log.js";
 import { isMachineRequestMethod, methodAccess, ownerRefusal } from "./host-method-access.js";
+import { ConnectClientBridge } from "./connect-tunnel.js";
+import { freeLocalPort } from "./managed-ssh.js";
+import { decodeManagedRoute, type ConnectRoute } from "../shared/managed-connections.js";
 import { decodeString } from "./ipc-input.js";
 
 /** A machine this host's agents may reach: what a window saves for itself, with the agents' own token. */
@@ -33,6 +36,7 @@ export interface HostMachinesOptions {
   ownName?: string;
   ownVersion?: string;
   /** Test seam. */
+  connectBridge?(route: ConnectRoute): { start(): Promise<void>; close(): void };
   monitor?(options: EnvironmentMonitorOptions): EnvironmentMonitor;
   /** Answers `request` for this host's own id, so a kit asks this machine the way it asks the others. */
   local?(method: string, params: readonly unknown[]): Promise<unknown>;
@@ -60,13 +64,20 @@ const failure = (message: string, code: string = HOST_ERROR.failed): Error => Ob
 export class HostMachines {
   private readonly watched = new Map<string, Watched>();
   private readonly listeners = new Set<(machines: readonly HostMachine[]) => void>();
+  private readonly bridges = new Map<string, { close(): void }>();
   private closed = false;
 
   private constructor(private readonly catalog: EnvironmentCatalog, private readonly options: HostMachinesOptions) {}
 
   static async open(options: HostMachinesOptions): Promise<HostMachines> {
     const machines = new HostMachines(await EnvironmentCatalog.open(options.path, PLAIN, options.logger), options);
-    for (const entry of machines.catalog.list()) machines.connect(entry);
+    for (const entry of machines.catalog.list()) {
+      try {
+        const bridge = await machines.startBridge(entry);
+        if (bridge) machines.bridges.set(entry.id, bridge);
+      } catch (error: unknown) { options.logger.warn("machines.connect-route-failed", error); }
+      machines.connect(entry);
+    }
     return machines;
   }
 
@@ -86,9 +97,22 @@ export class HostMachines {
   /** Saves a machine's key and connects; a machine saved before is replaced, its watchers kept. */
   async add(entry: HostMachineEntry): Promise<void> {
     if (entry.id === this.options.ownId) throw failure("That machine is this one.", HOST_ERROR.invalidRequest);
-    await this.catalog.save(entry);
+    if (this.closed) throw failure("Machine connections are closed.");
+    if (entry.managed?.connect) {
+      const port = await freeLocalPort();
+      const url = `https://127.0.0.1:${port}/`;
+      entry = { ...entry, endpoints: [{ url, kind: "loopback" }], lastUrl: url,
+        managed: { connect: { ...entry.managed.connect, port } } };
+    }
+    const bridge = await this.startBridge(entry);
+    try {
+      if (this.closed) throw failure("Machine connections are closed.");
+      await this.catalog.save(entry);
+      if (this.closed) throw failure("Machine connections are closed.");
+    } catch (error: unknown) { bridge?.close(); throw error; }
     const topics = this.watched.get(entry.id)?.topics;
     this.unwatch(entry.id);
+    if (bridge) this.bridges.set(entry.id, bridge);
     this.connect(entry, topics);
     this.options.logger.info("machines.added", { id: entry.id, name: entry.name, endpoints: entry.endpoints.length });
     this.changed();
@@ -237,7 +261,7 @@ export class HostMachines {
         const page = saved.endpoints.find((endpoint) => socketUrl(endpoint.url) === url)?.url;
         // As a window does: a certificate pin that just held vouches for its key.
         const migrate = !saved.publicKey && saved.fingerprint && certificate?.via === "pin";
-        const endpoints = reply.host?.id === saved.id && reply.host.endpoints?.length
+        const endpoints = !saved.managed?.connect && reply.host?.id === saved.id && reply.host.endpoints?.length
           ? refreshEndpoints(saved.endpoints, reply.host.endpoints, page ?? saved.lastUrl) : saved.endpoints;
         void this.catalog.update(saved.id, {
           ...(page ? { lastUrl: page } : {}),
@@ -249,7 +273,17 @@ export class HostMachines {
     });
   }
 
+  private async startBridge(entry: HostMachineEntry): Promise<{ close(): void } | undefined> {
+    const route = entry.managed?.connect;
+    if (!route) return undefined;
+    const bridge = this.options.connectBridge?.(route) ?? new ConnectClientBridge(route);
+    try { await bridge.start(); return bridge; }
+    catch (error: unknown) { bridge.close(); throw error; }
+  }
+
   private unwatch(id: string): void {
+    this.bridges.get(id)?.close();
+    this.bridges.delete(id);
     const watched = this.watched.get(id);
     if (!watched) return;
     this.watched.delete(id);
@@ -273,8 +307,10 @@ function describe(watched: Watched): HostMachine {
     ...(state.detail ? { detail: state.detail } : {}),
     ...(state.roundTripMs !== undefined ? { roundTripMs: state.roundTripMs } : {}),
     ...(state.lastSeenAt !== undefined ? { lastSeenAt: state.lastSeenAt } : {}),
-    ...(state.address ?? entry.lastUrl ? { address: state.address ?? entry.lastUrl } : {}),
+    ...(entry.managed?.connect ? { address: `${entry.managed.connect.relay}/v1/routes/${entry.managed.connect.id}` }
+      : state.address ?? entry.lastUrl ? { address: state.address ?? entry.lastUrl } : {}),
     ...(state.hostVersion ? { hostVersion: state.hostVersion } : {}),
+    ...(entry.publicKey ?? entry.fingerprint ? { trustIdentity: entry.publicKey ?? entry.fingerprint } : {}),
     ...(state.readOnly ?? entry.readOnly ? { readOnly: true } : {}),
   };
 }
@@ -307,6 +343,7 @@ export function decodeMachineEntry(value: unknown): HostMachineEntry {
   });
   if (endpoints.length === 0 || endpoints.length > 16) throw failure("machines-add: a machine needs 1 to 16 addresses.", HOST_ERROR.invalidRequest);
   const text = (key: string, max: number): string | undefined => typeof item[key] === "string" && item[key] ? (item[key] as string).slice(0, max) : undefined;
+  const connect = decodeManagedRoute(item.managed)?.connect;
   const publicKey = text("publicKey", 200);
   const fingerprint = text("fingerprint", 200);
   const lastUrl = text("lastUrl", 2_048);
@@ -317,6 +354,7 @@ export function decodeMachineEntry(value: unknown): HostMachineEntry {
     ...(publicKey ? { publicKey } : {}),
     ...(fingerprint ? { fingerprint } : {}),
     token,
+    ...(connect ? { managed: { connect } } : {}),
     addedAt: text("addedAt", 40) ?? new Date().toISOString(),
     ...(lastUrl ? { lastUrl } : {}),
     ...(item.readOnly === true ? { readOnly: true } : {}),

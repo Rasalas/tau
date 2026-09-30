@@ -285,3 +285,36 @@ describe("ChatGPT plan UI", () => {
     expect(actions.openExternal).toHaveBeenCalledWith("https://chatgpt.com/settings/usage");
   });
 });
+
+it("renders dynamic Ultrafast tiers and compatible accounts, then displays a switch error", async () => {
+  const { createThreadSettingsControl } = await import("./desktop.js");
+  const state = { account: "default", accounts: [{ id: "default", label: "Personal" }, { id: "work", label: "Work" }, { id: "other", label: "Other", reason: "Different shared home" }], serviceTier: { selected: null, defaultTier: "ultrafast", choices: [{ id: "ultrafast", name: "Ultrafast", description: "Provider description" }, { id: "future", name: "Future tier" }] } };
+  const invoke = vi.fn(async (command: string) => { if (command === "switch-thread-account") throw new Error("Account cannot resume this session"); return state; });
+  const Control = createThreadSettingsControl(host(invoke));
+  render(<Control snapshot={{ sessionId: "thread", backendKind: "codex", isStreaming: false } as HostSnapshot} />);
+  const fast = await screen.findByRole("radio", { name: /^Ultrafast/u });
+  fireEvent.click(fast);
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith("set-thread-tier", { threadId: "thread", tier: "ultrafast" }));
+  const other = screen.getByRole("radio", { name: /Other/u });
+  expect(other.hasAttribute("disabled")).toBe(true);
+  const work = screen.getByRole("radio", { name: /Work/u });
+  await waitFor(() => expect(work.hasAttribute("disabled")).toBe(false));
+  fireEvent.click(work);
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Account cannot resume this session");
+  expect(screen.getByText("Future tier")).toBeTruthy();
+});
+
+it("keeps a managed thread's account banner and limit notices with its executing account after a switch", async () => {
+  const listeners = new Map<string, (value: unknown) => void>();
+  let account = "default";
+  const client = { invoke: vi.fn(async () => ({ instance: account, signedIn: true, label: `${account}@example.test`, usageUrl: "https://chatgpt.com/settings/usage" })), onEvent: (name: string, listener: (value: unknown) => void) => { listeners.set(name, listener); return () => listeners.delete(name); } };
+  const Banner = createChatGPTPlanBanner(client);
+  render(<Banner snapshot={{ sessionId: "thread", backendKind: "codex" } as HostSnapshot} actions={{ openExternal: vi.fn() } as unknown as WorkbenchActions} />);
+  await screen.findByText("Using ChatGPT plan · default@example.test");
+  account = "work";
+  listeners.get("thread-settings")!({ threadId: "thread" });
+  await screen.findByText("Using ChatGPT plan · work@example.test");
+  expect(client.invoke).toHaveBeenLastCalledWith("chatgpt-plan-account", { instance: "default", threadId: "thread" });
+  listeners.get("chatgpt-plan-limit")!({ instance: "work" });
+  await screen.findByText(/Review your app limits and credits/u);
+});

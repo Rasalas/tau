@@ -38,6 +38,7 @@ export interface LimitAccount {
   checkedAt: number;
   /** Provider controls for usage that is managed outside Tau. */
   managementUrl?: string;
+  resetCredits?: { availableCount: number; pending?: boolean; nextExpiresAt?: number; nextCreditId?: string; unavailable?: string };
   windows: LimitWindow[];
   /** A hash of the provider's account id, for showing one account once; never the id itself. */
   identity?: { provider: string; key: string };
@@ -111,4 +112,12 @@ export function mergeCodexSnapshot(previous: CodexRateSnapshot | undefined, upda
     ...(next.primary !== undefined ? { primary: next.primary } : {}),
     ...(next.secondary !== undefined ? { secondary: next.secondary } : {}),
   };
+}
+
+/** The official read response reports reset credits separately from quota windows. */
+export function codexResetCredits(response: unknown, now = Date.now()): LimitAccount["resetCredits"] {
+  const summary = (response as { rateLimitResetCredits?: { availableCount?: unknown; credits?: Array<{ status?: string; expiresAt?: number | null }> } } | undefined)?.rateLimitResetCredits;
+  if (!summary || typeof summary.availableCount !== "number" || !Number.isSafeInteger(summary.availableCount) || summary.availableCount < 0) return undefined;
+  const expiries = (summary.credits ?? []).filter((credit) => credit.status === "available" && typeof credit.expiresAt === "number" && Number.isFinite(credit.expiresAt) && credit.expiresAt * 1000 > now).map((credit) => credit.expiresAt! * 1000);
+  return { availableCount: summary.availableCount, ...(expiries.length ? { nextExpiresAt: Math.min(...expiries) } : {}) };
 }

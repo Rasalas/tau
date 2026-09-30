@@ -15,6 +15,11 @@ export const USAGE_SUMMARY_COMMAND = "summary";
 
 /** Host command: `{ refresh?: boolean }` → `UsageLimitsSummary`. */
 export const USAGE_LIMITS_COMMAND = "limits";
+/** Explicit account write; `{ runtime, accountId }` → `ResetOutcome`. */
+export const USAGE_REDEEM_RESET_COMMAND = "redeem-reset";
+export const BACKEND_REDEEM_RESET_COMMAND = "usage-redeem-reset";
+export type ResetOutcome = "reset" | "nothingToReset" | "alreadyRedeemed" | "alreadySettled" | "noCredit";
+
 
 /**
  * The command a backend kit registers for this kit (`callers: ["tau.usage"]`).
@@ -135,6 +140,7 @@ export interface UsageLimitAccount {
   checkedAt: number;
   /** Provider controls for usage that is managed outside Tau. */
   managementUrl?: string;
+  resetCredits?: { availableCount: number; pending?: boolean; nextExpiresAt?: number; nextCreditId?: string; unavailable?: string };
   windows: UsageLimitWindow[];
   /** Why there are no windows: an API key has none, a read failed, nobody is signed in. */
   unavailable?: { reason: "unsupported" | "failed" | "signed-out"; message?: string };

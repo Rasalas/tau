@@ -252,6 +252,14 @@ const NO_SECURE_STORAGE = "This computer offers Tau no encrypted storage (keycha
 function AddMachine({ environments, secureStorage, offerAgents }: { environments: PlatformEnvironments; secureStorage: boolean; offerAgents: boolean }) {
   const field = useRef<HTMLInputElement>(null);
   const [text, setText] = useState("");
+  const [method, setMethod] = useState<"link" | "ssh" | "wsl">("link");
+  const [distros, setDistros] = useState<string[]>([]);
+  useEffect(() => {
+    if (method !== "wsl") return;
+    let active = true;
+    void environments.listWsl?.().then((names) => { if (active) { setDistros(names); setText(names[0] ?? ""); } }, (error: unknown) => { if (active) setState({ kind: "done", tone: "problem", message: errorMessage(error) }); });
+    return () => { active = false; };
+  }, [method, environments]);
   const [withAgents, setWithAgents] = useState(true);
   const [state, setState] = useState<AddState>({ kind: "idle" });
   const list = useEnvironments(environments);
@@ -267,7 +275,7 @@ function AddMachine({ environments, secureStorage, offerAgents }: { environments
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (text.trim()) {
-      run({ text });
+      run(method === "ssh" ? { ssh: text.trim() } : method === "wsl" ? { wsl: text } : { text });
       return;
     }
     // The button stays pressable with an empty field: a silent, disabled one read as broken.
@@ -280,21 +288,32 @@ function AddMachine({ environments, secureStorage, offerAgents }: { environments
     <form className="machine-add" onSubmit={submit}>
       {list ? <NearbyMachines environments={environments} list={list} busy={busy} onAdd={(host) => run({ nearby: host.hostId })} /> : null}
       <label className="machine-add-field">
-        <span>Pairing link or address</span>
+        <span>Connection method</span>
+        <select aria-label="Connection method" value={method} disabled={busy} onChange={(event) => { setMethod(event.target.value as typeof method); setText(""); }}>
+          <option value="link">Pairing link or address</option>
+          <option value="ssh">SSH</option>
+          <option value="wsl">WSL distribution</option>
+        </select>
+      </label>
+      {method === "wsl" ? <label className="machine-add-field"><span>WSL distribution</span><select aria-label="WSL distribution" disabled={busy} value={text} onChange={(event) => setText(event.target.value)}><option value="">Choose a distribution</option>{distros.map((distro) => <option key={distro} value={distro}>{distro}</option>)}</select><small>Requires WSL 2 with systemd enabled. Tau installs its signed host inside this distribution.</small></label> : <>
+      <label className="machine-add-field">
+        <span>{method === "ssh" ? "SSH target" : "Pairing link or address"}</span>
         <TextField
           inputRef={field}
-          label="Pairing link or address"
+          label={method === "ssh" ? "SSH target" : "Pairing link or address"}
           value={text}
           width="full"
           mono
           disabled={busy}
-          placeholder="https://studio.local:7788/#pair=… or studio.local:7788"
+          placeholder={method === "ssh" ? "studio or user@hostname" : "Pairing link, Tau Connect link or studio.local:7788"}
           onChange={(next) => {
             setText(next);
             if (state.kind === "done" && state.tone === "problem") setState({ kind: "idle" });
           }}
         />
       </label>
+      {method === "ssh" ? <p className="machine-nearby-note">Tau downloads and verifies its official release, installs a user service, and reconnects through SSH. Your SSH config, agent and known host keys apply. Set up key authentication in a terminal first.</p> : null}
+      </>}
       {offerAgents ? (
         <SettingRow
           title="This computer's agents may work there"
