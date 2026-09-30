@@ -10,6 +10,7 @@
     "sessions",
     "process",
     "network",
+    "machines",
     "runtime:extend"
   ],
   "isolation": "in-process",

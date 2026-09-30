@@ -15,6 +15,8 @@ export const PUBLIC_REPO = { owner: "Rasalas", repo: "tau-releases" };
 
 /** One feed per platform the release builds. */
 export const FEEDS = ["latest-mac.yml", "latest.yml", "latest-linux.yml"];
+/** Portable hosts advertised by this workflow, including ARM Linux SSH hosts. */
+export const HOST_FEEDS = ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64", "win32-x64"].map((target) => `latest-host-${target}.yml`);
 
 /** The AUR package installs it from the release, so every release carries it. */
 export const LICENSE = "LICENSE";
@@ -48,7 +50,8 @@ export function releaseProblems(names, readText, { stable = false, sizeOf } = {}
   const have = new Set(names);
   const problems = [];
   const versions = new Set();
-  for (const feed of FEEDS) {
+  const portableArchives = new Set();
+  for (const feed of [...FEEDS, ...HOST_FEEDS]) {
     if (!have.has(feed)) {
       problems.push(`${feed} is missing.`);
       continue;
@@ -56,13 +59,19 @@ export function releaseProblems(names, readText, { stable = false, sizeOf } = {}
     if (!have.has(`${feed}.sig`)) problems.push(`${feed}.sig is missing.`);
     const info = parseReleaseInfo(readText(feed));
     versions.add(info.version);
+    if (HOST_FEEDS.includes(feed)) {
+      const target = feed.slice("latest-host-".length, -".yml".length);
+      const expected = `Tau-host-${info.version}-${target}.${target.startsWith("win32-") ? "zip" : "tar.gz"}`;
+      if (info.files.length !== 1 || info.files[0].url !== expected) problems.push(`${feed} must name only ${expected}.`);
+      else portableArchives.add(expected);
+    }
     for (const file of info.files) {
       if (!have.has(file.url)) problems.push(`${feed} names ${file.url}, which is missing.`);
     }
   }
   // Differential downloads need them; the AppImage, the .deb and the fixed-name copies carry none.
   for (const name of names) {
-    if (/\.(dmg|zip|exe)$/u.test(name) && !Object.hasOwn(STABLE_NAMES, name) && !have.has(`${name}.blockmap`)) problems.push(`${name}.blockmap is missing.`);
+    if (/\.(dmg|zip|exe)$/u.test(name) && !portableArchives.has(name) && !Object.hasOwn(STABLE_NAMES, name) && !have.has(`${name}.blockmap`)) problems.push(`${name}.blockmap is missing.`);
   }
   if (!have.has(LICENSE)) problems.push(`${LICENSE} is missing.`);
   if (!stable) {

@@ -27,7 +27,7 @@ function tokens(response: TokenResponse, previous?: ChatGPTRegistration["tokens"
   return { accessToken: response.access_token, refreshToken: response.refresh_token ?? previous?.refreshToken, idToken, scopes, expiresAt: Date.now() + response.expires_in * 1000 };
 }
 
-/** Owns only the selected instance's session; an account change requires a new instance. */
+/** Each saved instance retains its validated account registration and tokens. */
 export class ChatGPTPlan {
   readonly store: ChatGPTPlanStore;
   private readonly oauth: ChatGPTOAuthClient;

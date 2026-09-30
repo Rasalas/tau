@@ -1,10 +1,18 @@
 /** What the desktop and browser builds of the renderer share. */
 export const rendererBuild = {
-  // These surfaces are loaded together on compact clients. One lazy chunk avoids
-  // repeating their imports and keeps message sheets out of the desktop entry.
   output: {
     onlyExplicitManualChunks: true,
     manualChunks(id: string) {
+      // Every first highlight needs the core and a grammar. Keep their common
+      // grammar code in one lazy chunk, with registration still per language.
+      if (/\/node_modules\/highlight\.js\//u.test(id) || id.endsWith("/renderer/components/highlight-typescript.ts")) return "syntax-highlighting";
+      // Controls and row layout already import each other. Keep the shared
+      // Settings primitives together, without pulling in any Settings page.
+      if (/\/renderer\/settings\/(?:controls\.tsx|settings-layout\.tsx)$/u.test(id)) return "settings-controls";
+      // These dialogs share their focus and closing behavior.
+      if (/\/renderer\/components\/ui\/(?:Dialog|ConfirmDialog)\.tsx$/u.test(id)) return "dialogs";
+      // These surfaces are loaded together on compact clients. One lazy chunk
+      // avoids repeated imports and keeps message sheets out of the entry.
       return /\/renderer\/touch\/(?!Sheet\.tsx$).*\.tsx$/u.test(id) ? "touch-surfaces" : undefined;
     },
   },

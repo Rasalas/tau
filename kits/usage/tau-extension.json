@@ -4,7 +4,7 @@
   "description": "What threads have used, by period, project, runtime and model.",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.30.0"
+    "api": "^1.33.0"
   },
   "permissions": [
     "sessions"

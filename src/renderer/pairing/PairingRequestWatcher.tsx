@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
+import { errorMessage } from "../../workbench/error-message";
 import type { UiPairingRequest } from "../../shared/connections";
 import { formatVerification } from "../../shared/pairing";
 import { useHostClient } from "../host-client-context";
@@ -63,7 +64,7 @@ export function PairingRequestWatcher({ onNotify }: { onNotify?(message: string)
     try {
       if (!await run()) onNotify?.(gone);
     } catch (error: unknown) {
-      onNotify?.(error instanceof Error ? error.message : String(error));
+      onNotify?.(errorMessage(error));
     } finally {
       setBusy(false);
       setRequests((current) => current.filter((entry) => entry.id !== request.id));

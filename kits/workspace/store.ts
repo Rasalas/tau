@@ -620,16 +620,16 @@ export class WorkspaceStore implements WorkspaceStoreApi {
    * Anything that goes wrong leaves the thread in the checkout it was started
    * from: a prompt is never lost to a worktree that could not be made.
    */
-  async prepareThreadWorktree(event: ThreadWorktreeRequest): Promise<{ workspace?: { workspaceId: string; displayPath: string } }> {
+  async prepareThreadWorktree(event: ThreadWorktreeRequest): Promise<{ workspace?: { workspaceId: string; displayPath: string }; baseCommit?: string }> {
     if ((!event.force && this.workspaceMode() !== "worktree") || !this.state.workspace?.isRepo || !hostAvailable()) return {};
     this.update({ preparingWorktree: true });
     try {
       event.preparing("Setting up worktree…");
       const named = this.state.draftBranch ?? await this.threadBranchName(event.prompt);
       const branch = event.branchSuffix ? `${named}-${event.branchSuffix}` : named;
-      const base = this.state.draftBase;
-      const created = await this.host.createWorktree(branch, { ...(base ? { baseRef: base } : {}), ...this.worktreeOptions() }, this.workspace());
-      return { workspace: { workspaceId: created.workspaceId, displayPath: created.displayPath } };
+      const base = event.baseCommit ?? this.state.draftBase;
+      const created = await this.host.createWorktree(branch, { ...this.worktreeOptions(), ...(base ? { baseRef: base } : {}), ...(event.baseCommit ? { startFromOrigin: false } : {}) }, this.workspace());
+      return { workspace: { workspaceId: created.workspaceId, displayPath: created.displayPath }, ...(created.baseCommit ? { baseCommit: created.baseCommit } : {}) };
     } catch (error) {
       if (this.state.worktreeSuggested) this.draftFellBack = true;
       this.notify(`The worktree could not be created; this thread runs in the checkout. ${errorMessage(error)}`);

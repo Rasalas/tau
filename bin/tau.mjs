@@ -12,6 +12,7 @@ import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { UPDATE_WAIT_MS, describeUpdate, parseMachinesArgs, runMachines } from "./tau-machines.mjs";
 import { parseKitArgs, runKit } from "./tau-kit.mjs";
+import { CONNECT_USAGE, parseConnectArgs, runConnect } from "./tau-connect.mjs";
 
 /** The userData folder of each app identity, as `src/main/app-identity.ts` names it. */
 export const USER_DATA_FOLDERS = { stable: "tau-pi-desktop-prototype", dev: "tau-dev" };
@@ -26,6 +27,7 @@ export const USAGE = `Usage: tau app [path]
        tau service <install|status|uninstall|restart>
        tau service install --display | --no-display
        tau update [--check | --status] [--json]
+       tau connect <register|status|link|disconnect> [options]
        tau machines add --ssh <target> [--name <name>] [--agents] [--access full|read-only] [--json]
        tau machines list [--json]
        tau machines update <name or id> [--check | --status] [--json]
@@ -75,6 +77,7 @@ export function parseArgs(argv) {
     return { command, action, flags };
   }
   if (command === "machines") return { command, machines: parseMachinesArgs(rest) };
+  if (command === "connect") return { command, connect: parseConnectArgs(rest) };
   if (command === "kit") return { command, kit: parseKitArgs(rest) };
   if (command === "update") return { command, update: parseUpdateFlags(rest, "tau update") };
   if (command !== "app") throw new Error(`Unknown command "${command}". ${USAGE}`);
@@ -322,6 +325,14 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     } finally {
       session.close();
     }
+  }
+  if (options.command === "connect") {
+    if (options.connect.help) { out(CONNECT_USAGE); return 0; }
+    const host = (io.readRunningHost ?? readRunningHost)(userDataDir(env));
+    if (!host) throw new Error("Start Tau or its host service before configuring Tau Connect.");
+    const session = await (io.openSession ?? ((target) => openHostSession(target, io.WebSocket)))(host);
+    try { return await runConnect(options.connect, { session, out, env }); }
+    finally { session.close(); }
   }
   if (options.command === "kit") {
     return runKit(options.kit, {

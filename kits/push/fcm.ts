@@ -68,7 +68,7 @@ export interface FcmClientOptions {
 
 /** A message for FCM's HTTP v1 API, less the token. */
 export interface FcmMessage {
-  notification: { title: string; body: string };
+  notification?: { title: string; body: string };
   data?: Record<string, string>;
   android?: Record<string, unknown>;
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ComponentType } from "react";
 import { Link2, Plus, SlidersHorizontal, X } from "lucide-react";
+import { errorMessage } from "../../workbench/error-message";
 import {
   IDLE_EXPIRY_WARNING_MS,
   IDLE_TIMEOUT_CHOICES,
@@ -29,6 +30,7 @@ import { LINK_LIFETIMES, describeDevice, describeLastChange, formatAgo, formatEx
 import { PairingQrCode } from "./PairingQrCode";
 import { NetworkAccessSection } from "./NetworkAccessSection";
 import { NearbyMachinesDialog } from "./NearbyMachines";
+import { ConnectSettings } from "./ConnectSettings";
 import type { SettingsSectionProps } from "../extension-system";
 import { HostServiceSection } from "./HostServiceSection";
 
@@ -39,7 +41,7 @@ type PageState =
 
 function errorOf(error: unknown): { code?: string; message: string } {
   const code = typeof (error as { code?: unknown })?.code === "string" ? (error as { code: string }).code : undefined;
-  return { ...(code ? { code } : {}), message: error instanceof Error ? error.message : String(error) };
+  return { ...(code ? { code } : {}), message: errorMessage(error) };
 }
 
 /** Relative times move on their own; a quarter minute is fine enough for "5 min ago". */
@@ -301,6 +303,7 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
           onSave={(update) => void act(`edit:${editing.id}`, async () => { await client!.updateClient(editing.id, update); setEditing(undefined); })}
         />
       ) : null}
+      <ConnectSettings onNotify={onNotify} />
       {findingMachines ? <NearbyMachinesDialog onClose={() => setFindingMachines(false)} /> : null}
     </div>
   );

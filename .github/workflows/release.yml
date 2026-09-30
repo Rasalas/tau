@@ -201,6 +201,12 @@ jobs:
             runner: ubuntu-24.04
             platform: --linux --x64
             artifact: linux
+          # SSH hosts include ARM Linux machines. Only their portable archive is
+          # published here, so this does not replace the desktop Linux update feed.
+          - name: Linux arm64 portable host
+            runner: ubuntu-24.04-arm
+            platform: --linux --arm64 --dir
+            artifact: linux-arm64
           - name: Windows x64
             runner: windows-2025
             # node-pty's N-API binaries load as they are; a node-gyp rebuild fails on the runner.
@@ -274,6 +280,10 @@ jobs:
           rm -f "$RUNNER_TEMP/notary-api-key.p8"
           exit "$status"
 
+      - name: Package the portable remote host
+        shell: bash
+        run: node scripts/packaging/portable-host.mjs ${{ (matrix.artifact == 'macos-arm64' || matrix.artifact == 'linux-arm64') && 'arm64' || 'x64' }}
+
       # What apt installs and what DebUpdater downloads: Xvfb comes along, the
       # AppArmor profile is inside, and the feed names the package.
       - name: Check the .deb
@@ -310,6 +320,7 @@ jobs:
           path: |
             release/*.dmg
             release/*.zip
+            release/*.tar.gz
             release/*.AppImage
             release/*.deb
             release/*.exe
@@ -610,7 +621,7 @@ jobs:
           PUBLISHING: ${{ needs.gate.outputs.nightly == 'true' || startsWith(github.ref, 'refs/tags/v') || inputs.publish == true }}
         run: |
           # One per platform of the matrix; a missing one leaves that platform without updates.
-          for name in latest-mac.yml latest.yml latest-linux.yml; do
+          for name in latest-mac.yml latest.yml latest-linux.yml latest-host-darwin-arm64.yml latest-host-darwin-x64.yml latest-host-linux-x64.yml latest-host-linux-arm64.yml latest-host-win32-x64.yml; do
             [ -f "feed/$name" ] || { echo "::error::The builds wrote no $name."; exit 1; }
           done
           if [ -z "${TAU_RELEASE_SIGNING_KEY:-}" ]; then

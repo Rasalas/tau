@@ -47,7 +47,7 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
     // The source reads paths inside the project; a tab opened by its absolute path is one too.
     loadFile(relativePath).then(
       (next) => { if (!cancelled) setContent(next); },
-      (reason: unknown) => { if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason)); },
+      (reason: unknown) => { if (!cancelled) setError(errorMessage(reason)); },
     );
     return () => { cancelled = true; };
   }, [loadFile, relativePath]);

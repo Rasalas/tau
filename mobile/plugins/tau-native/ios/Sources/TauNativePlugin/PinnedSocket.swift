@@ -58,7 +58,8 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate {
     func close(code: Int, reason: String?) {
         queue.addOperation { [weak self] in
             guard let self, let task = self.task else { return }
-            task.cancel(with: URLSessionWebSocketTask.CloseCode(rawValue: code) ?? .normalClosure, reason: reason.map { Data($0.utf8) })
+            let wireCode = [1004, 1005, 1006, 1015].contains(code) ? 1001 : code
+            task.cancel(with: URLSessionWebSocketTask.CloseCode(rawValue: wireCode) ?? .normalClosure, reason: reason.map { Data($0.utf8) })
             self.finish(code: code, reason: reason)
         }
     }

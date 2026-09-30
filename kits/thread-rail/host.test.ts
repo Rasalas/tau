@@ -166,6 +166,15 @@ describe("Thread Rail host", () => {
     await expect(invoke("start", { cwd, prompt: "  " })).rejects.toThrow(/no prompt/u);
   });
 
+  it("forwards runtime, attachments and native skill context to the host start seam", async () => {
+    const { invoke, start } = await harness();
+    const cwd = await scratch();
+    const attachments = [{ kind: "file", name: "spec.md", mimeType: "text/markdown", path: "/shared/spec.md", size: 10 }];
+    const skillDraft = { source: "skill", name: "tdd", visibleText: "/tdd", command: "/skill:tdd" };
+    await invoke("start", { cwd, prompt: "fix it", backend: "codex", attachments, skillDraft, thinkingLevel: "high", mode: "plan" });
+    expect(start).toHaveBeenCalledWith({ cwd, prompt: "fix it", backend: "codex", attachments, skillDraft, thinkingLevel: "high", mode: "plan" });
+  });
+
   it("takes over core's old pins and settled shelf once", async () => {
     const { invoke } = await harness();
     const first = await invoke("import", { pinned: ["p"], settled: ["s"] });

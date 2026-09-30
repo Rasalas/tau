@@ -26,6 +26,13 @@ const needs = (job) => /^ {4}needs: (?:\[(.*)\]|(\S+))$/mu.exec(JOBS[job])?.slic
 const condition = (job) => /^ {4}if: (.*)$/mu.exec(JOBS[job])?.[1] ?? "";
 
 describe("the release workflow", () => {
+  it("publishes signed portable feeds and builds ARM Linux without replacing the desktop installer feed", () => {
+    expect(JOBS.build).toContain("runner: ubuntu-24.04-arm");
+    expect(JOBS.build).toContain("platform: --linux --arm64 --dir");
+    expect(JOBS.build).toContain("node scripts/packaging/portable-host.mjs");
+    expect(JOBS.build).toContain("release/*.tar.gz");
+    expect(JOBS.sign).toContain("release-signing.mjs sign feed/latest*.yml");
+  });
   it("has the jobs docs/RELEASE.md describes", () => {
     expect(Object.keys(JOBS)).toEqual(["gate", "preflight", "verify", "build", "android", "ios", "sign", "release", "nightly", "play"]);
   });

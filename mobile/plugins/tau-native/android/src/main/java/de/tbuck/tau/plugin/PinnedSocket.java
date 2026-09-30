@@ -120,7 +120,9 @@ final class PinnedSocket extends WebSocketListener {
     }
 
     void close(int code, String reason) {
-        if (!socket.close(code, reason)) socket.cancel();
+        // Abnormal closure is a local observation, never a reserved code sent on the wire.
+        if (code == 1006 || code == 1005 || code == 1004 || code == 1015) socket.cancel();
+        else if (!socket.close(code, reason)) socket.cancel();
         finish(code, reason);
     }
 

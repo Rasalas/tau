@@ -246,7 +246,7 @@ export interface WorkspaceHostCommands {
   /** Where a new worktree would start: the base ref, the commit it resolves to, and whether that came from origin. */
   "worktree-base": { input: { workspace?: string; baseRef?: string; startFromOrigin?: boolean } | undefined; output: UiWorktreeBase };
   /** Adds a worktree next to `workspace` (the host's own by default) and answers with its identity; opening it is the caller's move. */
-  "create-worktree": { input: { branch: string; baseRef?: string; startFromOrigin?: boolean; submodules?: WorktreeSubmodules; workspace?: string }; output: WorkspaceRef };
+  "create-worktree": { input: { branch: string; baseRef?: string; startFromOrigin?: boolean; submodules?: WorktreeSubmodules; workspace?: string }; output: WorkspaceRef & { baseCommit?: string } };
   /** What removing a worktree would lose: uncommitted files and commits beyond its base. */
   "worktree-removal-preview": { input: { path: string; workspace?: string }; output: UiWorktreeRemoval };
   /** Removes a linked worktree and the branch it held; the caller confirmed what the preview named. */
@@ -318,7 +318,7 @@ export interface WorkspaceHostClient {
   getWorkspaceInfo(workspace?: string): Promise<WorkspaceInfo>;
   getWorktreeStatuses(workspace?: string): Promise<UiWorktreeStatus[]>;
   getWorktreeBase(workspace?: string, options?: { baseRef?: string; startFromOrigin?: boolean }): Promise<UiWorktreeBase>;
-  createWorktree(branch: string, options?: { baseRef?: string; startFromOrigin?: boolean; submodules?: WorktreeSubmodules }, workspace?: string): Promise<WorkspaceRef>;
+  createWorktree(branch: string, options?: { baseRef?: string; startFromOrigin?: boolean; submodules?: WorktreeSubmodules }, workspace?: string): Promise<WorkspaceRef & { baseCommit?: string }>;
   getWorktreeRemoval(path: string, workspace?: string): Promise<UiWorktreeRemoval>;
   removeWorktree(path: string, branch?: string, workspace?: string): Promise<void>;
   ensureWorktree(path: string, branch?: string, workspace?: string): Promise<boolean>;
@@ -610,6 +610,7 @@ export interface ThreadRailOrganizer {
 
 /** What a kit asks of `prepareThreadWorktree` beyond what the pending draft already says. */
 export interface ThreadWorktreeRequest {
+  baseCommit?: string;
   prompt: string;
   preparing(message: string): void;
   /** Make one even when the draft runs in the current checkout. */

@@ -61,3 +61,10 @@ describe("relay handles", () => {
     try { parseKeyring(`1:${secret}x`); } catch (error) { expect(String(error)).not.toContain(secret); }
   });
 });
+
+it("purpose-binds ActivityKit tokens in a version older relay readers cannot route as alerts", () => {
+  const ring = parseKeyring(`1:${key()}`);
+  const handle = sealHandle(ring, { ...IOS, purpose: "activity" }, NOW);
+  expect(Buffer.from(handle, "base64url")[0]).toBe(3);
+  expect(openHandle(ring, handle)).toEqual({ ...IOS, purpose: "activity", issuedAt: NOW });
+});

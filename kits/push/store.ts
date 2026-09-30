@@ -22,6 +22,7 @@ export interface StoredDevice {
   /** The relay's handle and the phone's key for what a push says. */
   relay?: PushRelayRegistration;
   registeredAt: string;
+  activities?: boolean;
   /** The APNs environment that took this token, once one did. */
   environment?: ApnsEnvironment;
   lastPush?: { at: string; ok: boolean; detail?: string };
@@ -101,7 +102,7 @@ export class PushStore {
     await this.saveDevices();
   }
 
-  async update(id: string, change: Partial<Pick<StoredDevice, "environment" | "lastPush">>): Promise<void> {
+  async update(id: string, change: Partial<Pick<StoredDevice, "environment" | "lastPush" | "activities">>): Promise<void> {
     if (!this.list.some((entry) => entry.id === id)) return;
     this.list = this.list.map((entry) => entry.id === id ? { ...entry, ...change } : entry);
     await this.saveDevices();

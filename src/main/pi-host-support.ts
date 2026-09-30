@@ -83,3 +83,11 @@ export class PhaseTimer {
     return [`total ${total}ms`, ...parts].join(" · ");
   }
 }
+
+/** Flush each durable store despite earlier teardown failures, then report all failures together. */
+export async function finishHostShutdown(errors: unknown[], stores: readonly (() => Promise<unknown>)[]): Promise<void> {
+  for (const flush of stores) {
+    try { await flush(); } catch (error: unknown) { errors.push(error); }
+  }
+  if (errors.length > 0) throw new AggregateError(errors, "Pi runtime shutdown failed");
+}

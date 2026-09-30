@@ -1,3 +1,4 @@
+import { ActivityTokens, readActivityRegistration, type ActivityUpdate } from "./mobile-activity.js";
 import { createHash } from "node:crypto";
 import { HostCommandError, type HostCommandCall, type HostExtension, type HostExtensionContext } from "tau/host-extension";
 import { ApnsClient, readApnsKey, type ApnsEnvironment, type SendOutcome } from "./apns.js";
@@ -56,6 +57,7 @@ interface Note {
   body: string;
   threadId?: string;
   kind?: PushKind;
+  activity?: ActivityUpdate;
 }
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -121,6 +123,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
       if (relayOverride && !safeEndpoint(relayOverride)) services.log("push.relay-url", "TAU_PUSH_RELAY_URL is neither https nor loopback; using Tau's relay.");
       const relayUrl = (relayOverride && safeEndpoint(relayOverride) ? relayOverride : PUSH_RELAY_URL).replace(/\/+$/u, "");
       const store = await PushStore.open(services.stateDir, { warn: (message) => services.log("push.store", message) });
+      const activityTokens = await ActivityTokens.open(services.stateDir, { warn: (message) => services.log("push.activity", message) });
       let apns: ApnsClient | undefined;
       let fcm: FcmClient | undefined;
       /** Why a saved key did not read; its platform stays on the direct route and fails visibly. */
@@ -196,7 +199,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
       /** Sealed with the phone's key: the relay, Apple and Google see ciphertext and an opaque collapse id. */
       const sendRelayed = (relay: PushRelayRegistration, note: Note, url: string | undefined): Promise<SendOutcome> => {
         const tag = note.threadId ? sealedCollapseId(relay, note.threadId) : undefined;
-        const payload = sealPush(relay, { title: note.title, body: note.body, ...(url ? { url } : {}), ...(note.kind ? { kind: note.kind } : {}), ...(tag ? { tag } : {}) });
+        const payload = sealPush(relay, { ...(note.activity ? { activity: note.activity } : {}), title: note.title, body: note.body, ...(url ? { url } : {}), ...(note.kind ? { kind: note.kind } : {}), ...(tag ? { tag } : {}) });
         return sendThroughRelay(relayUrl, { handle: relay.handle, payload, ...(tag ? { collapseId: tag } : {}) }, options.fetch).then((outcome) => {
           if (!outcome.ok && outcome.gone) {
             rejectedHandles.add(handleDigest(relay.handle));
@@ -217,8 +220,8 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         if (device.platform === "android") {
           if (!fcm) return { ok: false, gone: false, status: 0, reason: keyErrors.fcm ? `The saved Firebase service account does not read: ${keyErrors.fcm}` : "No Firebase service account is set up on this host." };
           return fcm.send(token, {
-            notification: { title: note.title, body: note.body },
-            data: { ...(url ? { url } : {}), ...(note.kind ? { kind: note.kind } : {}) },
+            ...(note.activity ? {} : { notification: { title: note.title, body: note.body } }),
+            data: { ...(note.activity ? { activity: JSON.stringify(note.activity) } : {}), ...(url ? { url } : {}), ...(note.kind ? { kind: note.kind } : {}) },
             android: {
               priority: "HIGH",
               ...(note.threadId ? { collapse_key: collapseId(note.threadId) } : {}),
@@ -310,11 +313,51 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         options.track?.(work);
       };
 
+      const activityTimes = new Map<string, number>();
+      const activityWork = new Map<string, Promise<void>>();
+      const updateActivity = async (threadId: string, state: ActivityUpdate["state"]) => {
+        const targets = reachable();
+        const pairedIds = new Set((paired() ?? []).map((device) => device.id));
+        const title = (services.thread(threadId)?.sessionName() ?? "Agent work").slice(0, 100);
+        const at = Math.max(now(), (activityTimes.get(threadId) ?? 0) + 1000);
+        activityTimes.set(threadId, at);
+        await activityTokens.update(threadId, state, title, at, pairedIds,
+          (id) => store.devices().find((device) => device.id === id)?.environment,
+          (request, environment) => apns ? apns.send(request, environment) : Promise.resolve({ ok: false, gone: false, status: 0, reason: "No APNs key." }),
+          (request) => sendThroughRelay(relayUrl, request, options.fetch));
+        await Promise.all(targets.filter((device) => device.platform === "android" && device.activities).map((device) => sendOne(device, {
+          title, body: state === "running" ? "Agent working" : state === "needs-input" ? "Your input needed" : "Completed", threadId,
+          activity: { version: 1, hostId: device.host, threadId, title, state, updatedAt: at, expiresAt: at + (state === "running" ? 8 * 60 * 60_000 : 15 * 60_000) },
+        })));
+      };
+      const activityLater = (threadId: string, state: ActivityUpdate["state"]) => {
+        const work = (activityWork.get(threadId) ?? Promise.resolve()).then(() => updateActivity(threadId, state)).catch((error: unknown) => services.log("push.activity", errorText(error)));
+        activityWork.set(threadId, work);
+        void work.then(() => { if (activityWork.get(threadId) === work) activityWork.delete(threadId); });
+        options.track?.(work);
+      };
+      context.registerCommand("activity-enable", async (_input, call) => {
+        if (!call?.device) throw new HostCommandError("Only a paired device can enable its activity cards.");
+        const saved = store.devices().find((device) => device.id === call.device);
+        if (saved?.platform === "android") await store.update(saved.id, { activities: true });
+        return { enabled: saved?.platform === "android" };
+      });
+      context.registerCommand("activity-register", async (input, call) => {
+        if (!call?.device) throw new HostCommandError("Only a paired device can register its activity token.");
+        const registration = readActivityRegistration(input, call.device, now());
+        const saved = store.devices().find((device) => device.id === call.device);
+        if (!saved || saved.platform !== "ios" || saved.host !== registration.hostId || saved.topic !== registration.topic) throw new HostCommandError("The activity must belong to this device's registered host and app.");
+        await activityTokens.register(registration);
+        return { registered: true, ready: Boolean(registration.relay || apns) };
+      });
+
       const stops = [
         services.registerTurnObserver({
-          ended: async (sessionId, _turnId, outcome) => raiseLater(sessionId, outcome === "failed" ? "failed" : "completed"),
+          prepare: async (sessionId) => activityLater(sessionId, "running"),
+          ended: async (sessionId, _turnId, outcome) => { activityLater(sessionId, outcome === "failed" ? "needs-input" : "completed"); raiseLater(sessionId, outcome === "failed" ? "failed" : "completed"); },
         }),
         services.decorateUiPrompt((prompt) => {
+          activityLater(prompt.sessionId, "needs-input");
           const approval = prompt.kind === "confirm" || (prompt.kind === "select" && prompt.options?.some((option) => APPROVAL_OPTION.test(option)));
           raiseLater(prompt.sessionId, approval ? "approval" : "question", questionText(prompt));
         }),
@@ -322,7 +365,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         services.clients.observe({
           devicesChanged: () => {
             // Started before handing it over: `track?.(prune())` would skip the prune without a tracker.
-            const work = prune().catch((error: unknown) => services.log("push.store", errorText(error)));
+            const work = Promise.all([prune(), activityTokens.retain(new Set((paired() ?? []).map((device) => device.id)), now())]).catch((error: unknown) => services.log("push.store", errorText(error)));
             options.track?.(work);
           },
         }),

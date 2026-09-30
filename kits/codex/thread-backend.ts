@@ -52,13 +52,15 @@ export interface CodexSessionLike {
   account?(): Promise<CodexAccount | undefined>;
   /** `account/rateLimits/read`; see `limits.ts`. */
   rateLimits?(): Promise<unknown>;
+  consumeResetCredit?(idempotencyKey: string): Promise<unknown>;
   loginStart?(request: CodexLoginRequest): Promise<CodexLoginStart>;
   loginCancel?(loginId: string): Promise<void>;
   logout?(): Promise<void>;
   models(): Promise<CodexModel[]>;
-  startThread(params: { cwd: string; model?: string; policy: CodexPolicy }): Promise<CodexThreadInfo>;
-  resumeThread(params: { threadId: string; cwd: string; model?: string; policy: CodexPolicy }): Promise<CodexThreadInfo>;
-  startTurn(params: { threadId: string; input: CodexUserInput[]; policy: CodexPolicy; model?: string; effort?: string; mode?: CodexCollaborationMode }): Promise<string>;
+  setServiceTier?(threadId: string, serviceTier: string | null): Promise<void>;
+  startThread(params: { cwd: string; model?: string; serviceTier?: string | null; policy: CodexPolicy }): Promise<CodexThreadInfo>;
+  resumeThread(params: { threadId: string; cwd: string; model?: string; serviceTier?: string | null; policy: CodexPolicy }): Promise<CodexThreadInfo>;
+  startTurn(params: { threadId: string; input: CodexUserInput[]; policy: CodexPolicy; model?: string; serviceTier?: string | null; effort?: string; mode?: CodexCollaborationMode }): Promise<string>;
   steerTurn(params: { threadId: string; turnId: string; input: CodexUserInput[] }): Promise<void>;
   interruptTurn(threadId: string, turnId: string): Promise<void>;
   close(): Promise<void>;
@@ -154,9 +156,13 @@ function derivedTitle(text: string): string | undefined {
 }
 
 export function storedModel(model: CodexModel): CodexStoredModel {
+  const tiers = model.serviceTiers?.length ? model.serviceTiers : (model.additionalSpeedTiers ?? []).map((id) => ({ id, name: id === "fast" ? "Fast" : id }));
+  const serviceTiers = tiers.length && !tiers.some((tier) => tier.id === "default") ? [{ id: "default", name: "Standard" }, ...tiers] : tiers;
   return {
     id: model.id,
     name: model.displayName?.trim() || model.id,
+    serviceTiers,
+    ...(model.defaultServiceTier ? { defaultServiceTier: model.defaultServiceTier } : {}),
     efforts: model.supportedReasoningEfforts.map((effort) => effort.reasoningEffort),
     ...(model.defaultReasoningEffort ? { defaultEffort: model.defaultReasoningEffort } : {}),
     ...(model.isDefault ? { isDefault: true } : {}),
@@ -221,6 +227,11 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   private rateLimits: unknown;
   private context?: UiContextUsage;
   private chosenModel?: string;
+  private chosenServiceTier?: string;
+  private switchingAccount = false;
+  private admittingPrompts = 0;
+  private strictResume = false;
+  private protectContinuation = false;
   private chosenEffort?: string;
   private mode = DEFAULT_MODE;
   /** The project limits its commands' network; read before each turn. */
@@ -278,11 +289,13 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       ...(message.clientMessageId ? { clientMessageId: message.clientMessageId } : {}),
     }));
     this.codexThreadId = record.codexThreadId;
+    this.protectContinuation = Boolean(record.accountInstance);
     this.title = record.title;
     this.titleSource = record.titleSource;
     if (record.usage) this.usage = { ...record.usage };
     this.usageTurns = usageTurnsOf(record);
     this.chosenModel = record.model;
+    this.chosenServiceTier = record.serviceTier;
     this.chosenEffort = record.effort;
     this.mode = record.mode ?? DEFAULT_MODE;
     this.observedModel = record.observedModel;
@@ -364,7 +377,53 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     return this.modelList.map((model) => ({ provider: MODEL_PROVIDER, id: model.id, name: model.name }));
   }
 
+  serviceTierState() {
+    const model = this.currentModel();
+    return { selected: this.chosenServiceTier ?? null, defaultTier: model?.defaultServiceTier ?? null, choices: (model?.serviceTiers ?? []).map((tier) => ({ ...tier })) };
+  }
+
+  async setServiceTier(tier: string | null): Promise<void> {
+    if (this.turns.length || this.opening || this.switchingAccount || this.admittingPrompts) throw new Error("Wait for Codex to finish before changing the service tier.");
+    if (tier !== null && !this.currentModel()?.serviceTiers?.some((entry) => entry.id === tier)) throw new Error("This account and model do not offer that service tier.");
+    this.switchingAccount = true;
+    try {
+      if (this.live && !this.live.closed) {
+        if (!this.live.setServiceTier) throw new Error("This Codex version cannot change a thread's service tier.");
+        await this.live.setServiceTier(this.codexThreadId!, tier);
+      }
+      await this.store.setSelection(this.threadId, this.cwd, { serviceTier: tier });
+      this.chosenServiceTier = tier ?? undefined;
+    } finally { this.switchingAccount = false; }
+  }
+
+  async switchAccount(account: string, change: (account: string) => void, previous: string): Promise<void> {
+    if (this.turns.length || this.opening || this.switchingAccount || this.admittingPrompts) throw new Error("Wait for Codex to finish before switching accounts.");
+    this.switchingAccount = true;
+    this.strictResume = Boolean(this.codexThreadId);
+    const oldTier = this.chosenServiceTier;
+    const oldModels = this.modelList;
+    try {
+      await this.dispose();
+      change(account);
+      this.chosenServiceTier = undefined;
+      await this.ensureSession();
+      await this.store.setAccount(this.threadId, this.cwd, account);
+      this.protectContinuation = true;
+    } catch (error) {
+      await this.dispose();
+      change(previous);
+      this.chosenServiceTier = oldTier;
+      this.modelList = oldModels;
+      throw error;
+    } finally {
+      this.strictResume = false;
+      this.switchingAccount = false;
+    }
+  }
+
   private async setModel(id: string): Promise<void> {
+    if (this.switchingAccount) throw new Error("Wait for the Codex account switch to finish.");
+    if (this.chosenServiceTier) await this.setServiceTier(null);
     if (this.modelList.length > 0 && !this.modelList.some((model) => model.id === id)) throw new Error(`Codex offers no model "${id}" to this account.`);
     this.chosenModel = id;
     const efforts = this.currentModel()?.efforts;
@@ -375,6 +434,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   private async setEffort(level: string): Promise<void> {
+    if (this.switchingAccount) throw new Error("Wait for the Codex account switch to finish.");
     if (level.startsWith(DEFAULT_EFFORT)) this.chosenEffort = undefined;
     else {
       const efforts = this.currentModel()?.efforts;
@@ -407,56 +467,60 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   async prompt(input: ThreadBackendPromptInput): Promise<ThreadBackendPromptResult> {
+    if (this.switchingAccount) throw new Error("Wait for the Codex account switch to finish.");
     if (input.delivery !== "prompt" && input.delivery !== "steer" && input.delivery !== "followUp") throw new Error("Unsupported Codex delivery.");
-    await this.readNetworkLimit();
-    const prepared = input.prepared ?? await this.preparePrompt(input.text);
-    validatePreparedPrompt(input.text, prepared, this.bound());
-    const clientMessageId = input.identity?.clientMessageId;
-    if (clientMessageId) {
-      const existing = this.messages.find((message) => message.role === "user" && message.clientMessageId === clientMessageId);
-      if (existing?.text === prepared.visibleText) return {};
-      if (existing) throw new Error(`The Codex transcript already holds a different message '${clientMessageId}'.`);
-    }
-    const images = imagesOf(input.attachments);
-    const user: UiMessage = {
-      id: `codex-user-${clientMessageId ?? this.now()}`,
-      ...(clientMessageId ? { clientMessageId } : {}),
-      ...(input.identity?.clientTurnId ? { clientTurnId: input.identity.clientTurnId } : {}),
-      role: "user",
-      text: prepared.visibleText,
-      ...(images.length ? { images } : {}),
-      timestamp: this.now(),
-    };
-    this.messages.push(user);
-    await this.store.appendMessages(this.threadId, this.cwd, [user]);
-    this.deliver(user);
-    input.onAdmitted?.(true);
-    const codexInput = userInput(prepared.runtimeText, input.attachments);
-    const running = this.turns[0];
-    if (input.delivery === "steer" && running?.codexTurnId && this.live && !this.live.closed && this.codexThreadId) {
-      try {
-        await this.live.steerTurn({ threadId: this.codexThreadId, turnId: running.codexTurnId, input: codexInput });
-        return {};
-      } catch {
-        // The turn ended in between; the text becomes the next turn instead.
+    this.admittingPrompts += 1;
+    try {
+      await this.readNetworkLimit();
+      const prepared = input.prepared ?? await this.preparePrompt(input.text);
+      validatePreparedPrompt(input.text, prepared, this.bound());
+      const clientMessageId = input.identity?.clientMessageId;
+      if (clientMessageId) {
+        const existing = this.messages.find((message) => message.role === "user" && message.clientMessageId === clientMessageId);
+        if (existing?.text === prepared.visibleText) return {};
+        if (existing) throw new Error(`The Codex transcript already holds a different message '${clientMessageId}'.`);
       }
-    }
-    let complete!: () => void;
-    let finish!: () => void;
-    const turn: Turn = {
-      translator: new CodexTurnTranslator(this.now),
-      text: prepared.visibleText,
-      input: codexInput,
-      completed: new Promise<void>((resolve) => { complete = resolve; }),
-      complete: () => complete(),
-      done: new Promise<void>((resolve) => { finish = resolve; }),
-      finish: () => finish(),
-    };
-    this.turns.push(turn);
-    if (this.turns.length > 1) this.reportQueue();
-    const run = this.tail.then(() => this.runTurn(turn));
-    this.tail = run.then(() => undefined, () => undefined);
-    return run;
+      const images = imagesOf(input.attachments);
+      const user: UiMessage = {
+        id: `codex-user-${clientMessageId ?? this.now()}`,
+        ...(clientMessageId ? { clientMessageId } : {}),
+        ...(input.identity?.clientTurnId ? { clientTurnId: input.identity.clientTurnId } : {}),
+        role: "user",
+        text: prepared.visibleText,
+        ...(images.length ? { images } : {}),
+        timestamp: this.now(),
+      };
+      this.messages.push(user);
+      await this.store.appendMessages(this.threadId, this.cwd, [user]);
+      this.deliver(user);
+      input.onAdmitted?.(true);
+      const codexInput = userInput(prepared.runtimeText, input.attachments);
+      const running = this.turns[0];
+      if (input.delivery === "steer" && running?.codexTurnId && this.live && !this.live.closed && this.codexThreadId) {
+        try {
+          await this.live.steerTurn({ threadId: this.codexThreadId, turnId: running.codexTurnId, input: codexInput });
+          return {};
+        } catch {
+          // The turn ended in between; the text becomes the next turn instead.
+        }
+      }
+      let complete!: () => void;
+      let finish!: () => void;
+      const turn: Turn = {
+        translator: new CodexTurnTranslator(this.now),
+        text: prepared.visibleText,
+        input: codexInput,
+        completed: new Promise<void>((resolve) => { complete = resolve; }),
+        complete: () => complete(),
+        done: new Promise<void>((resolve) => { finish = resolve; }),
+        finish: () => finish(),
+      };
+      this.turns.push(turn);
+      if (this.turns.length > 1) this.reportQueue();
+      const run = this.tail.then(() => this.runTurn(turn));
+      this.tail = run.then(() => undefined, () => undefined);
+      return run;
+    } finally { this.admittingPrompts -= 1; }
   }
 
   private async runTurn(turn: Turn): Promise<ThreadBackendPromptResult> {
@@ -478,6 +542,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
         input: turn.input,
         policy: this.policy(level),
         ...(this.chosenModel ? { model: this.chosenModel } : {}),
+        ...(this.chosenServiceTier ? { serviceTier: this.chosenServiceTier } : {}),
         ...(this.chosenEffort ? { effort: this.chosenEffort } : {}),
         ...(mode ? { mode } : {}),
       });
@@ -600,15 +665,17 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       let info: CodexThreadInfo;
       if (this.codexThreadId) {
         try {
-          info = await session.resumeThread({ threadId: this.codexThreadId, cwd: this.cwd, policy, ...(model ? { model } : {}) });
+          info = await session.resumeThread({ threadId: this.codexThreadId, cwd: this.cwd, policy, ...(model ? { model } : {}), ...(this.strictResume ? { serviceTier: null } : this.chosenServiceTier ? { serviceTier: this.chosenServiceTier } : {}) });
         } catch (error) {
+          if (this.strictResume || this.protectContinuation) throw error;
           if (!MISSING_THREAD.test(error instanceof Error ? error.message : String(error))) throw error;
           this.report({ type: "notice", message: "Codex no longer has this conversation; a new one starts here.", level: "warning" });
-          info = await session.startThread({ cwd: this.cwd, policy, ...(model ? { model } : {}) });
+          info = await session.startThread({ cwd: this.cwd, policy, ...(model ? { model } : {}), ...(this.strictResume ? { serviceTier: null } : this.chosenServiceTier ? { serviceTier: this.chosenServiceTier } : {}) });
         }
       } else {
-        info = await session.startThread({ cwd: this.cwd, policy, ...(model ? { model } : {}) });
+        info = await session.startThread({ cwd: this.cwd, policy, ...(model ? { model } : {}), ...(this.strictResume ? { serviceTier: null } : this.chosenServiceTier ? { serviceTier: this.chosenServiceTier } : {}) });
       }
+      if (this.strictResume && info.thread.id !== this.codexThreadId) throw new Error("The new account did not resume the same Codex session.");
       if (info.thread.id !== this.codexThreadId) {
         this.codexThreadId = info.thread.id;
         await this.store.setCodexThread(this.threadId, this.cwd, info.thread.id);
@@ -619,8 +686,8 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
         await this.store.setObservedModel(this.threadId, this.cwd, info.model);
       }
       this.billing = codexBilling(await session.account?.().catch(() => undefined)) ?? this.billing;
-      const models = (await session.models().catch(() => [])).map(storedModel);
-      if (models.length > 0) {
+      const models = (await session.models().catch((error) => { if (this.strictResume) throw error; return []; })).map(storedModel);
+      if (models.length > 0 || this.strictResume) {
         this.modelList = models;
         this.options.onModels?.(models);
       }

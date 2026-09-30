@@ -84,6 +84,12 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   // Other machines this host's agents reach, with keys the owner's window handed over (ADR 0027).
   "./host-machines.js",
   "./host-machine-pairing.js",
+  // Host connectivity, pairing and signed bootstrap belong to core (CORE.md, ADRs 0025/0027).
+  // These carry host protocol bytes and machine identity; no kit owns their lifetime.
+  "./host-connect.js", "./connect-listener.js", "./connect-tunnel.js",
+  "./managed-ssh.js", "./managed-host-release.js", "./wsl-host.js",
+  // Host model configuration and runtime-aware system-prompt inspection.
+  "./host-model-configuration.js",
   // How busy the machine is and what it could run, read when asked (plan H §4).
   "./host-resources.js",
   // Files those machines' agents send in pieces, taken once by a kit (plan-H).

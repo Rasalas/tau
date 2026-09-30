@@ -10,9 +10,12 @@ import { createLocalStorageAdapter } from "../../src/renderer/browser-storage";
 import { webClientEnvironment } from "../../src/web/WebWorkbench";
 import { appleDynamicType, applyTypeScale, deviceClassFor } from "../../src/renderer/type-scale";
 import { screenMinSide } from "../../src/renderer/use-layout-profile";
+import { relayActivities } from "./activity-relay";
+import { NativeComposerDictation } from "../../src/renderer/components/ComposerDictation";
+import { PUSH_RELAY_URL } from "../../kits/push/protocol";
 import { Shell, type AppContext } from "./Shell";
 import { HostBook } from "./hosts";
-import { browseHosts, createSocketBridge, deviceInfo, scanQrCode, secureStore, textScalePort, type DeviceInfo } from "./native";
+import { installActivityKey, nativeActivities, nativeDictation, browseHosts, createSocketBridge, deviceInfo, scanQrCode, secureStore, textScalePort, type DeviceInfo } from "./native";
 import { androidFontScale } from "./text-scale";
 import { linkRoute, readRoute } from "./routes";
 import { createPushRegistrar, createRelayPort, sealedTapRoute, setPushRegistrar, tapRoute } from "./push";
@@ -30,13 +33,16 @@ async function boot(): Promise<void> {
   applyTypeScale(deviceClassFor("compact", true, screenMinSide()), system);
   const push = nativePushPort(device.platform);
   const pushKeys = new PushKeys(secureStore);
-  setPushRegistrar(createPushRegistrar(push, { relay: createRelayPort(), keys: pushKeys }));
+  const book = new HostBook(secureStore);
+  const pushRoutes = new Map<string, "direct" | "relay">();
+  setPushRegistrar(createPushRegistrar(push, { relay: createRelayPort(), keys: pushKeys, onRoute: (id, route) => pushRoutes.set(id, route) }));
   const context: AppContext = {
+    activities: device.platform === "ios" ? relayActivities(nativeActivities, { url: PUSH_RELAY_URL, keys: pushKeys, installKey: installActivityKey, authorized: async (id) => Boolean(await book.token(id)), direct: (id) => pushRoutes.get(id) === "direct" }) : nativeActivities,
     storage: createLocalStorageAdapter(),
-    book: new HostBook(secureStore),
+    book,
     bridge,
     device,
-    environment: webClientEnvironment("compact"),
+    environment: { ...webClientEnvironment("compact"), ...(device.platform === "ios" ? { dictation: { port: nativeDictation, Control: NativeComposerDictation } } : {}) },
     wakes: nativeWakeSource(App, Network),
     scan: scanQrCode,
     browse: (listener) => browseHosts(TAU_BONJOUR_TYPE, listener),

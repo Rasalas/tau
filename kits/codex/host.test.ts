@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TurnActivityStore, findExecutable, type HostExtension, type HostMcpConnection, type HostRuntimeBackendProvider, type RuntimeSessionInfo } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { CodexAppServer, spawnInput } from "./app-server.js";
-import createCodexHostExtension, { codexNewThreadCatalog } from "./host.js";
+import createCodexHostExtension, { codexNewThreadCatalog, codexSignInAccount } from "./host.js";
 import { codexMcpLaunch, TAU_MCP_TOKEN_VARIABLE } from "./mcp.js";
 import { codexToolArgs } from "./tools.js";
 import { spawnRpcProcess } from "./rpc.js";
@@ -49,7 +49,7 @@ async function managedFixture(): Promise<{ asset: ManagedCodexAsset; archive: Ui
 
 const TAU_SERVER: HostMcpConnection = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
 
-async function harness(options: { installed?: string | undefined; found?: boolean; env?: NodeJS.ProcessEnv; settings?: unknown; install?: (root: string) => Promise<string>; before?: (root: string) => Promise<void>; managed?: { asset: ManagedCodexAsset; archive: Uint8Array } } = {}) {
+async function harness(options: { installed?: string | undefined; found?: boolean; env?: NodeJS.ProcessEnv; settings?: unknown; sharedSessions?: boolean; install?: (root: string) => Promise<string>; before?: (root: string) => Promise<void>; managed?: { asset: ManagedCodexAsset; archive: Uint8Array } } = {}) {
   const root = await mkdtemp(join(tmpdir(), "tau-codex-host-"));
   directories.push(root);
   const path = await (options.install ?? caskInstall)(root);
@@ -75,7 +75,7 @@ async function harness(options: { installed?: string | undefined; found?: boolea
     openSession: (input) => (launches.push({ ...(input.threadId ? { threadId: input.threadId } : {}), args: input.args, env: input.env, instance: input.instance }), CodexAppServer.open({
       command: process.execPath,
       cwd: input.cwd,
-      env: { ...process.env, CODEX_HOME: join(root, "home") },
+      env: options.sharedSessions ? { ...process.env, ...input.env, STUB_THREADS: join(input.env.CODEX_HOME!, "sessions", "threads.json") } : { ...process.env, CODEX_HOME: join(root, "home") },
       clientVersion: "test",
       spawn: (spawn) => spawnRpcProcess({ ...spawn, args: [STUB, ...spawn.args] }),
       onNotification: input.onNotification,
@@ -301,6 +301,14 @@ describe("Codex host half", () => {
     expect(answer).toMatchObject({ threads: [{ threadId: "thread-1", messages: [{ role: "user", text: "Where is the luna launch?" }, { role: "assistant", text: "On Friday." }] }], removed: [], more: false });
     await expect(search.read!({ known: { "thread-1": answer.threads[0]!.updatedAt, gone: 1 } })).resolves.toEqual({ threads: [], removed: ["gone"], more: false });
     await expect(stranger.read!({})).rejects.toThrow("Caller acme.stranger is not allowed to invoke tau.codex/thread-texts.");
+  });
+
+  it("redeems through the official app-server operation and refreshes the account", async () => {
+    const { registry } = await harness();
+    let redeem: (() => Promise<unknown>) | undefined;
+    await registry.activate({ id: "tau.usage", name: "Usage", activate(activation) { redeem = () => activation.invokeHostExtension("tau.codex", "usage-redeem-reset", { runtime: "codex" }); } });
+    await expect(redeem!()).resolves.toBe("reset");
+    await expect(registry.invoke("tau.codex", "usage-redeem-reset", { runtime: "unknown" })).rejects.toThrow("Unknown Codex account");
   });
 
   it("reads the account's quota windows for the Usage kit without changing the account, and keeps them a while", async () => {
@@ -686,4 +694,70 @@ describe("Codex ChatGPT plan instances", () => {
     expect((await credentials.read("default"))!.subject).toBe("fixture-subject");
     expect((await registry.invoke("tau.codex", "sign-in-state") as { methods: unknown[] }).methods).toHaveLength(1);
   });
+});
+
+it("offers only signed-in accounts sharing the session home with private auth overlays", async () => {
+  const sharedRoot = await mkdtemp(join(tmpdir(), "tau-shared-home-choice-")); directories.push(sharedRoot);
+  const shared = join(sharedRoot, "shared");
+  const { provider, registry, root } = await harness({ env: { CODEX_HOME: shared }, settings: {
+    instances: [
+      { id: "work", home: shared, env: { TAU_CODEX_AUTH_HOME: join(sharedRoot, "work") } },
+      { id: "same", home: shared },
+      { id: "other", home: join(sharedRoot, "other") },
+    ],
+  } });
+  const thread = await provider.open("account-choice", root, { resume: false }, context);
+  try {
+    const state = await registry.invoke("tau.codex", "thread-settings", { threadId: "account-choice" }) as { account: string; accounts: Array<{ id: string; reason?: string }> };
+    expect(state.account).toBe("default");
+    expect(state.accounts.find((entry) => entry.id === "work")?.reason).toBeUndefined();
+    expect(state.accounts.find((entry) => entry.id === "same")?.reason).toContain("separate TAU_CODEX_AUTH_HOME");
+    expect(state.accounts.find((entry) => entry.id === "other")?.reason).toContain("different shared CODEX_HOME");
+    await expect(registry.invoke("tau.codex", "switch-thread-account", { threadId: "account-choice", account: "other" })).rejects.toThrow("different shared CODEX_HOME");
+    await expect(registry.invoke("tau.codex", "set-thread-tier", { threadId: "account-choice", tier: "invented" })).rejects.toThrow("do not offer");
+  } finally { await thread.dispose(); }
+});
+
+
+it("keeps Pro Max and future ChatGPT plans usable", () => {
+  expect(codexSignInAccount({ type: "chatgpt", email: "fixture@example.test", planType: "pro_max" })).toMatchObject({ signedIn: true, detail: "ChatGPT Pro Max" });
+  expect(codexSignInAccount({ type: "chatgpt", email: null, planType: "future-plan" })).toMatchObject({ signedIn: true, label: "ChatGPT future-plan" });
+});
+
+
+it("switches compatible managed registrations using shared rollouts and separate tokens", async () => {
+  const sharedRoot = await mkdtemp(join(tmpdir(), "tau-managed-continuity-")); directories.push(sharedRoot);
+  const shared = join(sharedRoot, "shared");
+  const { provider, registry, root, fetch, launches } = await harness({ installed: MANAGED_CODEX_VERSION, sharedSessions: true, settings: {
+    command: "codex", home: shared, instances: [{ id: "work", command: "codex", home: shared }, { id: "independent", command: "codex" }, { id: "cli", home: shared }],
+  } });
+  const credentials = new ChatGPTPlanStore(join(root, "state", "tau.codex", "chatgpt-plan"));
+  for (const id of ["default", "work", "independent"]) {
+    await credentials.write(id, { issuer: "https://auth.openai.com", subject: `fixture-${id}`, clientId: `oaiapp_fixture_${id}`, tokens: { accessToken: `fixture-access-${id}`, idToken: `fixture-id-${id}`, scopes: ["chatgpt.tokens.use.direct"], expiresAt: Date.now() + 3600_000 } });
+  }
+  fetch.mockImplementation(async () => Response.json({ models: [{ slug: "gpt-5.6-luna", display_name: "Account model", visibility: "list" }] }));
+  const thread = await provider.open("managed-continuity", root, { resume: false }, context);
+  try {
+    await thread.prompt({ text: "Hello", delivery: "prompt" });
+    const session = thread.providerSessionId;
+    const transcript = await thread.transcript();
+    const before = await registry.invoke("tau.codex", "thread-settings", { threadId: "managed-continuity" }) as { accounts: Array<{ id: string; reason?: string }> };
+    expect(before.accounts.find((entry) => entry.id === "work")?.reason).toBeUndefined();
+    expect(before.accounts.find((entry) => entry.id === "independent")?.reason).toContain("explicit shared home");
+    expect(before.accounts.find((entry) => entry.id === "cli")?.reason).toContain("different inference providers");
+    const after = await registry.invoke("tau.codex", "switch-thread-account", { threadId: "managed-continuity", account: "work" });
+    expect(after).toMatchObject({ account: "work", serviceTier: { choices: [], selected: null } });
+    expect(await registry.invoke("tau.codex", "chatgpt-plan-account", { instance: "default", threadId: "managed-continuity" })).toMatchObject({ instance: "work", signedIn: true });
+    expect(thread.providerSessionId).toBe(session);
+    expect(await thread.transcript()).toEqual(transcript);
+    expect(thread.kind).toBe("codex");
+    await thread.prompt({ text: "Continue", delivery: "prompt" });
+    const sessions = launches.filter((entry) => entry.threadId === "managed-continuity");
+    expect(sessions.map((entry) => entry.env.ACCESS_TOKEN)).toEqual(["fixture-access-default", "fixture-access-work"]);
+    expect(sessions[0]!.env.CODEX_HOME).not.toBe(sessions[1]!.env.CODEX_HOME);
+    expect(sessions.every((entry) => entry.args.includes('model_provider="openai_chatgpt_plan"'))).toBe(true);
+    expect(await credentials.read("default")).toMatchObject({ subject: "fixture-default", clientId: "oaiapp_fixture_default", tokens: { accessToken: "fixture-access-default" } });
+    expect(await credentials.read("work")).toMatchObject({ subject: "fixture-work", clientId: "oaiapp_fixture_work", tokens: { accessToken: "fixture-access-work" } });
+    await expect(registry.invoke("tau.codex", "set-thread-tier", { threadId: "managed-continuity", tier: "fast" })).rejects.toThrow("do not offer service tiers");
+  } finally { await thread.dispose(); }
 });

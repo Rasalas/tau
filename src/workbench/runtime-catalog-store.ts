@@ -1,3 +1,4 @@
+import { errorMessage } from "./error-message";
 import type { HostSnapshot, ThreadBackendKind, UiModel, UiRuntimeCatalog, UiRuntimeCatalogStatus } from "../shared/contracts";
 import type { NewThreadDraft } from "./draft-store";
 
@@ -55,7 +56,7 @@ export class RuntimeCatalogStore {
     this.put(kind, { status: "loading" });
     this.port.runtimeCatalog(kind).then(
       (catalog) => this.put(kind, catalogEntry(catalog)),
-      (error: unknown) => this.put(kind, { status: "unavailable", message: error instanceof Error ? error.message : String(error) }),
+      (error: unknown) => this.put(kind, { status: "unavailable", message: errorMessage(error) }),
     );
   }
 

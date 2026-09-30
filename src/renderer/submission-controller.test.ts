@@ -499,4 +499,11 @@ describe("SubmissionController", () => {
     expect(resultSilent).toEqual({ accepted: true });
     expect(actions.runShellAction).toHaveBeenCalledWith("echo silent", false);
   });
+  it("keeps a claimed launch failure out of ordinary new-thread creation", async () => {
+    const claimNewThread = vi.fn(async () => { throw new Error("Started 1 of 2 threads"); });
+    const { submission, client } = harness({ pending: DRAFT, claimNewThread });
+    await expect(submission.submit({ text: "fix it", delivery: "alternate" })).resolves.toEqual({ accepted: false, message: "Started 1 of 2 threads" });
+    expect(client.calls.some((call) => call.method === "newSession" || call.method === "sendPrompt" || call.method === "preparePrompt")).toBe(false);
+  });
+
 });

@@ -16,6 +16,8 @@ import type {
   UiComposerCommand,
   UiMessage,
   UiModel,
+  UiPromptAttachment,
+  UiSkillDraft,
   UiThreadOrigin,
   UiThreadUsage,
   UiToolRun,
@@ -276,6 +278,10 @@ export interface HostThreadStartOptions {
   cwd: string;
   /** First prompt, delivered as soon as the thread exists. */
   prompt: string;
+  attachments?: readonly UiPromptAttachment[];
+  skillDraft?: UiSkillDraft;
+  thinkingLevel?: string;
+  mode?: string;
   title?: string;
   /** Model the thread starts with; the host's own default otherwise. */
   model?: { provider: string; id: string };
@@ -551,6 +557,8 @@ export interface HostMachine {
   /** The socket URL in use, or the one last used. */
   address?: string;
   hostVersion?: string;
+  /** Pinned public host key or certificate fingerprint. Never a device token. */
+  trustIdentity?: string;
   /** Its owner let this machine's agents in Read only. */
   readOnly?: boolean;
 }

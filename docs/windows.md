@@ -179,3 +179,72 @@ gh run watch
 What to report from a first run: whether the window opens, whether a thread
 answers, whether a console window flashes when Git runs, and the host log
 under `%APPDATA%\tau-pi-desktop-prototype\logs`.
+
+## WSL environments
+
+The Windows desktop can list installed distributions through `wsl.exe --list
+--quiet`. Adding a distribution installs Tau's signed Linux portable host for
+its architecture under the distro user's `~/.local/share/tau/wsl-host`. The
+Windows client downloads and checks the signed release, then the distro checks
+the archive checksum again before extraction. It uses Tau's embedded runtime;
+Node and npm do not need to be installed in the distribution. The archive
+bootstrap follows [T3 Code's Linux archive approach](https://github.com/pingdotgg/t3code/pull/11511).
+
+The distro owns the host's data, Linux workspace paths and provider sign-ins.
+Windows credentials and Windows workspace paths are not copied into it. It
+needs `wslpath`, `tar`, `openssl`, a working user systemd service manager, and
+WSL localhost forwarding. A distribution without systemd must enable it and
+restart WSL before adding the environment. Tau never installs WSL, enables
+systemd, changes a distro's configuration, or asks for a root password.
+
+The pairing approval channel runs inside the selected distribution and accepts
+only the link made by that host. Closing the channel leaves the user host
+service running. Distribution names and archive paths are process arguments;
+they are never inserted into shell source.
+
+## SnapShots on Windows and Linux
+
+SnapShots captures one window through Electron and reads its text through the
+existing [xa11y accessibility backend](https://github.com/xa11y/xa11y), which
+uses Windows UI Automation or Linux AT-SPI2. Windows has no macOS permission
+prompt. Protected windows can reject capture, and an unelevated app cannot
+read an elevated app's accessibility tree. Tau does not elevate itself to
+work around this.
+
+On Linux, foreground shortcut capture needs X11, a session D-Bus and AT-SPI2.
+Wayland sessions, including XWayland apps, use a manual portal source picker.
+Press Choose a window or display in Settings, or the shortcut where supported, then
+approve one window or display in the desktop chooser. Tau captures that
+selected source only. It does not silently capture the foreground window or
+fall back after cancellation or denial. Picker captures have no accessibility
+text because the portal does not identify the app.
+
+The picker needs PipeWire, xdg-desktop-portal and the backend for your desktop,
+such as GNOME, KDE Plasma, Hyprland or GTK. These must already be installed and
+working. Tau does not install compositor helpers, change compositor config or
+claim a global shortcut is reserved when registration fails. The Settings
+button remains available when the compositor cannot register a global key.
+Native foreground capture and app text on Wayland would require compositor
+helpers with a separate installation and approval flow. Tau currently uses the
+manual picker across compositors.
+
+The implementation follows the manual picker approach in
+[T3 Code v0.0.44](https://github.com/pingdotgg/t3code/blob/v0.0.44/apps/desktop/src/snapShot/DesktopSnapShot.ts)
+and [Electron 44's generic PipeWire capturer](https://github.com/electron/electron/blob/v44.0.0/shell/browser/api/electron_api_desktop_capturer.cc).
+Electron requires both window and screen source types to open its delegated
+chooser. It labels the selected source as a window even when the user chose a
+display, so Tau describes it as Selected source and never guesses its app.
+Missing native accessibility binaries report unavailable rather than showing
+macOS permission instructions.
+
+Verification on 2026-09-30 used injected Windows and Linux environments,
+recordable window sources, accessibility trees, WSL executors and pairing
+channels on macOS. No real WSL installation or service, Windows capture, Linux
+capture, or system permission change was performed. A platform verification
+still needs an isolated Windows desktop instance with x64 and arm64 distros,
+WSL localhost forwarding and a distro with systemd, followed by a restart and
+reconnect. Test SnapShots against ordinary, protected and elevated windows,
+and against X11 and Wayland sessions. Check that startup and Settings access
+checks never open the chooser, that
+cancellation and denial store no image, and that the chosen source is captured
+without app identity or accessibility text.

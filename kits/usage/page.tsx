@@ -12,7 +12,7 @@ import { UsageHistory } from "./history.js";
 import { UsageLimits } from "./limits.js";
 import { ModelPrices } from "./prices.js";
 import { mergeEntries, mergeLimits, readMachines, useOtherMachines, type MachineRead } from "./machines.js";
-import { USAGE_LIMITS_COMMAND, USAGE_SUMMARY_COMMAND, type UsageLimitsSummary, type UsageSourceReport, type UsageSummary, type UsageSummaryInput } from "./protocol.js";
+import { USAGE_LIMITS_COMMAND, USAGE_SUMMARY_COMMAND, USAGE_REDEEM_RESET_COMMAND, type UsageLimitAccount, type UsageLimitsSummary, type UsageSourceReport, type UsageSummary, type UsageSummaryInput } from "./protocol.js";
 import { RankList, type RankRow } from "./top-lists.js";
 import { formatTokens } from "./view-model.js";
 import { readLastState, saveLastState } from "./last-state.js";
@@ -282,7 +282,15 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
 
           <section className="usage-section" id="usage-limits" aria-labelledby="usage-limits-title">
             <h2 id="usage-limits-title">Plan limits</h2>
-            <UsageLimits limits={allLimits} error={limitsError} now={clock} entries={allEntries} fromDay={last - 30} period="Last 30 days" choices={choices} onRetry={() => void loadLimits(true)} {...(actions ? { onOpenExternal: (url: string) => actions.openExternal(url) } : {})} />
+            <UsageLimits onRedeemReset={async (account: UsageLimitAccount, checkPending?: boolean) => {
+              const input = { runtime: account.runtime, accountId: account.id, identity: account.identity?.key, checkPending: checkPending === true };
+              try {
+                const outcome = account.machine
+                  ? await (environments?.invokeExtension ? environments.invokeExtension(account.machine, "tau.usage", USAGE_REDEEM_RESET_COMMAND, input) : Promise.reject(new Error("This Tau version cannot redeem a reset on another machine.")))
+                  : await host.invoke(USAGE_REDEEM_RESET_COMMAND, input);
+                return outcome === "reset" ? "Reset applied. The limits have been refreshed." : outcome === "nothingToReset" ? "The account is not limited yet." : outcome === "alreadyRedeemed" ? "This reset was already applied." : outcome === "alreadySettled" ? "The previous reset request is finished. The limits have been refreshed." : "No reset is available.";
+              } finally { await loadLimits(true); }
+            }} limits={allLimits} error={limitsError} now={clock} entries={allEntries} fromDay={last - 30} period="Last 30 days" choices={choices} onRetry={() => void loadLimits(true)} {...(actions ? { onOpenExternal: (url: string) => actions.openExternal(url) } : {})} />
             {allLimits ? <ReadingHistory limits={allLimits} now={clock} /> : null}
           </section>
 

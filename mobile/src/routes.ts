@@ -5,7 +5,7 @@
  */
 export type AppRoute =
   | { view: "workbench"; hostId: string; threadId?: string }
-  | { view: "add" }
+  | { view: "add"; text?: string }
   | { view: "hosts"; explicit: boolean };
 
 export function readRoute(search: string): AppRoute {
@@ -38,10 +38,12 @@ export function routeSearch(route: AppRoute): string {
  * token or a code.
  */
 export function linkRoute(url: string): AppRoute | undefined {
+  if (url.startsWith("tau-connect:")) return { view: "add", text: url };
   let parsed: URL;
   try { parsed = new URL(url); } catch { return undefined; }
   if (parsed.protocol !== "tau:") return undefined;
   const target = parsed.hostname || parsed.pathname.replace(/^\/+/u, "");
+  if (target === "hosts") return { view: "hosts", explicit: true };
   const hostId = parsed.searchParams.get("host");
   if (target !== "thread" || !hostId) return undefined;
   const threadId = parsed.searchParams.get("thread");

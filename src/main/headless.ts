@@ -24,7 +24,7 @@ import { publishedEndpoints, type HostConnectionsService, type HostListenInfo } 
 import { isHostOwner } from "./host-invocation.js";
 import { HostClientRegistry } from "./host-clients.js";
 import { hostAllowedOrigins } from "./host-origin.js";
-import { createProtocolServer, startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
+import { createProtocolServer, startSocketHostTransport, type SocketHostTransport, type SocketHostTransportOptions } from "./host-transport-socket.js";
 import { createWebClientServer } from "./host-web-server.js";
 import { isLoopbackHost, parseListen, rememberPort, rememberedPort, stickyListen } from "./host-listen.js";
 import { HostTlsReloader, resolveHostTls } from "./host-tls.js";
@@ -61,6 +61,8 @@ import { HostUpdater, localWindowUpdatePort } from "./host-updater.js";
 import { hostInstaller } from "./update-installers.js";
 import { readUpdateFeed, releaseKeysFor } from "./release-feed.js";
 import { RELEASE_PUBLIC_KEYS } from "../shared/release-keys.js";
+import { HostConnect } from "./host-connect.js";
+import { openConnectListener } from "./connect-listener.js";
 import { appIdentity, tauHomeDir } from "./app-identity.js";
 
 /**
@@ -310,6 +312,7 @@ async function main(): Promise<void> {
   }
   let listening: HostListenInfo | undefined;
   let network: HostNetworkAccess | undefined;
+  let connect: HostConnect | undefined;
   let mainTls: HostTlsReloader | undefined;
   const reloadCertificates = async (): Promise<{ changed: boolean }> => {
     const own = mainTls?.reload() ?? false;
@@ -383,6 +386,7 @@ async function main(): Promise<void> {
     updates: () => updates,
     clientCalls,
     connections: () => connectionsService(),
+    connect: () => connect,
     service: () => service,
     machines: () => machines,
     resources: () => resources,
@@ -433,6 +437,7 @@ async function main(): Promise<void> {
       keepAwake.dispose();
       clearInterval(networkPoll);
       updates?.dispose();
+      await connect?.close();
       await network?.close().catch((error: unknown) => hostLog.warn("host-network.close-failed", error));
       await socket?.close();
       // Only a service host wrote the file; a window's supervisor removes its own.
@@ -470,7 +475,7 @@ async function main(): Promise<void> {
   const web = existsSync(join(webRoot, "index.html"))
     ? createWebClientServer({ dir: webRoot, ...(tls ? { tls } : {}) })
     : undefined;
-  socket = await startSocketHostTransport({
+  const transportOptions: SocketHostTransportOptions = {
     listen: listenOn,
     methods: compactor.observe(methods),
     pushLog,
@@ -488,7 +493,18 @@ async function main(): Promise<void> {
     clients,
     calls: clientCalls,
     logger: hostLog,
+  };
+  socket = await startSocketHostTransport(transportOptions);
+  connect = new HostConnect({
+    userData,
+    host: { id: hostId, name: machineName },
+    createLink: () => access.createLink({ lifetimeMs: 120_000 }),
+    listen: async () => {
+      const material = resolveHostTls({ TAU_HOST_TLS: "1" }, { userData, bindHost: "127.0.0.1" })!;
+      return openConnectListener(socket!, material);
+    },
   });
+  await connect.start().catch((error: unknown) => hostLog.warn("connect.start-failed", error));
   if (mainTls) mainTls.track(socket.server as unknown as TlsServer);
   // The smoke test reads this line to learn the port when it asked for 0.
   listening = { scheme: socket.scheme, host: boundHost, port: socket.port, webClient: web !== undefined, ...(tls ? { fingerprint: tls.fingerprint, publicKey: tls.publicKey } : {}) };

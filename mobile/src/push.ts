@@ -69,7 +69,7 @@ export function createRelayPort(url = PUSH_RELAY_URL, fetcher: typeof fetch = (.
   };
 }
 
-export function createPushRegistrar(port: PushPort, options: { relay?: PushRelayPort; keys?: PushKeys; now?(): number } = {}): PushRegistrar {
+export function createPushRegistrar(port: PushPort, options: { relay?: PushRelayPort; keys?: PushKeys; now?(): number; onRoute?(hostId: string, route: "direct" | "relay"): void } = {}): PushRegistrar {
   const now = options.now ?? Date.now;
   let token: Promise<string> | undefined;
   /** A host's own handle, kept across runs; renewed when it ages, the token changes or the host asks. */
@@ -125,6 +125,7 @@ export function createPushRegistrar(port: PushPort, options: { relay?: PushRelay
           answer = await call(relay, false);
         }
         if (answer?.needsToken) await call(relay, true);
+        if (answer?.route === "direct" || answer?.route === "relay") options.onRoute?.(host.id, answer.route);
         return { state: "registered" };
       } catch (error) {
         // A host without Push Kit, or a Read-only device: the app works as before.

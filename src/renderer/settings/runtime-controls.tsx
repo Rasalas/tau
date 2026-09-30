@@ -1,3 +1,4 @@
+import { errorMessage } from "../../workbench/error-message";
 import { TRANSCRIPT_DETAIL_LEVELS, nextTranscriptDetail, type TranscriptDetail } from "../../workbench/transcript-folding";
 import type { DesktopExtension, WorkbenchActions } from "../extension-system";
 import type { PreferencesStore } from "../preferences";
@@ -91,7 +92,7 @@ export const runtimeControls: DesktopExtension = {
         label: "Back to this computer",
         group: "Workbench",
         access: "read",
-        run: (app) => environments.showLocal().catch((error: unknown) => app.notify(error instanceof Error ? error.message : String(error))),
+        run: (app) => environments.showLocal().catch((error: unknown) => app.notify(errorMessage(error))),
       });
     }
     // In the palette it lists the models; from a chord it opens the picker.

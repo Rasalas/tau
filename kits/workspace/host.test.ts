@@ -217,6 +217,7 @@ describe("Workspace Kit host extension", () => {
       const created = await kit.createWorktree("feature", { startFromOrigin: false });
       expect(admitWorkspace).toHaveBeenCalledWith(created.displayPath);
       expect(created.workspaceId).toBe(`admitted_${created.displayPath}`);
+      expect(created.baseCommit).toBe(execFileSync("git", ["-C", cwd, "rev-parse", "HEAD"], { encoding: "utf8" }).trim());
       expect(created.displayPath.startsWith(worktrees)).toBe(true);
     } finally {
       vi.unstubAllEnvs();

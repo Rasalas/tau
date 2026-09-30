@@ -37,6 +37,7 @@ repositories {
 }
 
 dependencies {
+    implementation "androidx.core:core:1.17.0"
     implementation project(':capacitor-android')
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'

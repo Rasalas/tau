@@ -1,4 +1,4 @@
-import { useSyncExternalStore, type CSSProperties } from "react";
+import { useState, useSyncExternalStore, type CSSProperties } from "react";
 import { CircleAlert, RotateCw, TriangleAlert } from "lucide-react";
 import { formatCost, ProviderIconStack, tooltipProps } from "tau";
 import { groupAccounts, memberCosts, memberName, type LimitGroup, type MemberCost } from "./accounts.js";
@@ -153,7 +153,13 @@ function ManagementLink({ url, onOpen }: { url: string | undefined; onOpen?: (ur
   return url ? <a className="usage-link" href={url} target="_blank" rel="noopener noreferrer" onClick={(event) => { if (onOpen) { event.preventDefault(); onOpen(url); } }}>Manage usage</a> : null;
 }
 
-function AccountCard({ group, costs, period, history, failed, now, choices, onOpenExternal }: { group: LimitGroup; costs: MemberCost[] | undefined; period: string; history: readonly UsageLimitSample[]; failed: string | undefined; now: number; choices?: JuicebarChoices | undefined; onOpenExternal?: (url: string) => void }) {
+/** A pending attempt keeps its owning host; otherwise use the newest credit reading. */
+function resetAccount(group: LimitGroup): UsageLimitAccount {
+  return group.members.filter((member) => member.resetCredits)
+    .sort((left, right) => Number(Boolean(right.resetCredits?.pending)) - Number(Boolean(left.resetCredits?.pending)) || right.checkedAt - left.checkedAt)[0] ?? group.shown;
+}
+
+function AccountCard({ group, costs, period, history, failed, now, choices, onOpenExternal, onRedeemReset }: { group: LimitGroup; costs: MemberCost[] | undefined; period: string; history: readonly UsageLimitSample[]; failed: string | undefined; now: number; choices?: JuicebarChoices | undefined; onOpenExternal?: (url: string) => void; onRedeemReset?: (account: UsageLimitAccount, checkPending?: boolean) => Promise<string> }) {
   const shown: UsageLimitAccount = failed ? { ...group.shown, unavailable: { reason: "failed", message: failed } } : group.shown;
   const shared = group.members.length > 1;
   const fresh = isFresh(shown, now);
@@ -178,6 +184,7 @@ function AccountCard({ group, costs, period, history, failed, now, choices, onOp
       </header>
       {shown.windows.map((window) => <WindowLine key={window.id} account={shown} window={window} history={history} now={now} />)}
       {shared && costs ? <SharedCost costs={costs} period={period} /> : null}
+      <ResetCredits account={resetAccount(group)} now={now} onRedeem={onRedeemReset} />
       <ManagementLink url={shown.managementUrl} onOpen={onOpenExternal} />
       {choices ? <SidebarChoice group={group} choices={choices} /> : null}
       <footer className="usage-account-updated">{updated(shown.checkedAt, now)}{shared ? ` via ${memberName(group.shown)}` : ""}</footer>
@@ -190,7 +197,7 @@ function AccountCard({ group, costs, period, history, failed, now, choices, onOp
  * left first; accounts without windows say why in one line. Runtimes
  * signed in to one account show as one, with their costs summed.
  */
-export function UsageLimits({ limits, error, now, entries = [], fromDay = 0, period = "Last 30 days", choices, onRetry, onOpenExternal }: {
+export function UsageLimits({ limits, error, now, entries = [], fromDay = 0, period = "Last 30 days", choices, onRetry, onOpenExternal, onRedeemReset }: {
   limits: UsageLimitsSummary | undefined;
   error: string | undefined;
   now: number;
@@ -200,6 +207,7 @@ export function UsageLimits({ limits, error, now, entries = [], fromDay = 0, per
   choices?: JuicebarChoices;
   onRetry?(): void;
   onOpenExternal?(url: string): void;
+  onRedeemReset?(account: UsageLimitAccount, checkPending?: boolean): Promise<string>;
 }) {
   if (!limits) {
     return error ? (
@@ -221,7 +229,7 @@ export function UsageLimits({ limits, error, now, entries = [], fromDay = 0, per
       ) : (
         <>
           <div className="usage-accounts">
-            {reporting.map((group) => <AccountCard key={group.key} group={group} costs={memberCosts(group, limits.accounts, entries, fromDay)} period={period} history={limits.history ?? []} failed={error} now={now} choices={choices} onOpenExternal={onOpenExternal} />)}
+            {reporting.map((group) => <AccountCard key={group.key} group={group} costs={memberCosts(group, limits.accounts, entries, fromDay)} period={period} history={limits.history ?? []} failed={error} now={now} choices={choices} onOpenExternal={onOpenExternal} onRedeemReset={onRedeemReset} />)}
           </div>
           <p className="usage-pace-legend"><i aria-hidden="true" />Target: what would be left now at an even pace over the window.</p>
         </>
@@ -233,6 +241,7 @@ export function UsageLimits({ limits, error, now, entries = [], fromDay = 0, per
               <span className="usage-silent-mark"><ProviderIconStack {...providerMark(group)} hint={false} /></span>
               <strong>{group.label}</strong>
               <span>{group.shown.unavailable?.message ?? "No limits reported."}</span>
+              <ResetCredits account={resetAccount(group)} now={now} onRedeem={onRedeemReset} />
               <ManagementLink url={group.shown.managementUrl} onOpen={onOpenExternal} />
             </li>
           ))}
@@ -240,4 +249,34 @@ export function UsageLimits({ limits, error, now, entries = [], fromDay = 0, per
       ) : null}
     </div>
   );
+}
+
+function ResetCredits({ account, now, onRedeem }: { account: UsageLimitAccount; now: number; onRedeem?: (account: UsageLimitAccount, checkPending?: boolean) => Promise<string> }) {
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string>();
+  const [uncertain, setUncertain] = useState(false);
+  const credits = account.resetCredits;
+  if (!credits) return null;
+  const expired = credits.nextExpiresAt !== undefined && credits.nextExpiresAt <= now;
+  const enabled = Boolean(onRedeem) && (uncertain || credits.pending || (!account.unavailable && !credits.unavailable && credits.availableCount > 0 && !expired));
+  const redeem = async () => {
+    if (busy || !enabled || !onRedeem) return;
+    setBusy(true);
+    setConfirm(false);
+    try { setMessage(await (uncertain || credits.pending ? onRedeem(account, true) : onRedeem(account))); setUncertain(false); }
+    catch (error) { const detail = error instanceof Error ? error.message : "Could not confirm the reset. Retry to check the same request."; setMessage(detail); setUncertain(detail.includes("same request")); }
+    finally { setBusy(false); }
+  };
+  return <div className="usage-reset-credits">
+    <span>{credits.availableCount} {credits.availableCount === 1 ? "banked reset" : "banked resets"}{credits.nextExpiresAt ? ` · next expires ${new Date(credits.nextExpiresAt).toLocaleString()}` : ""}</span>
+    {credits.unavailable ? <p className="usage-note">{credits.unavailable}</p> : null}
+    {enabled || busy ? <button type="button" className="usage-link" disabled={busy} onClick={() => setConfirm(true)}>{busy ? "Applying reset…" : uncertain || credits.pending ? "Check reset" : "Use reset"}</button> : null}
+    {confirm && enabled ? <div role="group" aria-label="Confirm quota reset">
+      <p>{uncertain || credits.pending ? `Check the previous reset request for ${account.label}? This retries the same request.` : `Use one banked reset for ${account.label}? The provider applies it to this account's usage limits.`}</p>
+      <button type="button" className="usage-link" onClick={() => void redeem()}>Confirm reset</button>{" "}
+      <button type="button" className="usage-link" onClick={() => setConfirm(false)}>Cancel</button>
+    </div> : null}
+    {message ? <p role="status" className="usage-note">{message}</p> : null}
+  </div>;
 }

@@ -57,6 +57,7 @@ export interface PlatformEnvironments {
    * A saved machine found there gets its current addresses (API 1.13.0).
    */
   discover(): Promise<UiDiscoveredHosts>;
+  listWsl?(): Promise<string[]>;
   setPreferences(preferences: EnvironmentPreferences): Promise<void>;
   /**
    * Lets this computer's agents work on a saved machine, or stops them (ADR
@@ -74,6 +75,8 @@ export interface PlatformEnvironments {
   watchThread?(machine: string, sessionId: string, listener: (view: UiEnvironmentThreadView) => void): () => void;
   /** The newest page of that thread's transcript, or the one before `cursor`; again at every new `revision`. New in API 1.15.0. */
   transcriptPage?(machine: string, sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage>;
+  /** Explicit kit action on another host. The origin and destination enforce write access. */
+  invokeExtension?(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown>;
   /**
    * Runs a kit's host command on a machine without showing it, over the
    * window's own connection there: only a command that kit registered
@@ -187,10 +190,12 @@ export function createPlatformEnvironments(client: HostClient, options: { shownE
       await client.openEnvironment(local.id);
     },
     discover: () => client.discoverEnvironments(),
+    listWsl: () => client.listWslEnvironments?.() ?? Promise.resolve([]),
     setPreferences: (preferences) => client.setEnvironmentPreferences(preferences),
     setAgents: (id, on) => client.setEnvironmentAgents(id, on),
     watchThread,
     transcriptPage: (machine, sessionId, cursor) => client.loadEnvironmentTranscript(machine, sessionId, cursor),
+    invokeExtension: (machine, extensionId, command, input) => client.invokeEnvironmentExtension(machine, extensionId, command, input),
     readExtension: (machine, extensionId, command, input) => client.readEnvironmentExtension(machine, extensionId, command, input),
     ...(client.updateEnvironment ? { update: (id: string, action: "check" | "install" | { automatic: boolean }) => client.updateEnvironment!(id, action) } : {}),
   };

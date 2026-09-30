@@ -10,7 +10,7 @@ const COLLAPSE_INFO = "tau-push:collapse";
 type PushKey = Pick<PushRelayRegistration, "keyId" | "key">;
 
 /** Encrypts what a push says for the phone alone (protocol.ts, `SEALED_PUSH_VERSION`). */
-export function sealPush(key: PushKey, content: SealedPushContent): string {
+export function sealPush(key: PushKey, content: SealedPushContent | { hostId: string; threadId: string; title: string; state: string; expiresAt: number }): string {
   const nonce = randomBytes(NONCE_BYTES);
   const cipher = createCipheriv("aes-256-gcm", Buffer.from(key.key, "base64url"), nonce);
   cipher.setAAD(Buffer.from(sealedPushAad(key.keyId)));
@@ -28,6 +28,7 @@ export interface RelaySend {
   handle: string;
   payload: string;
   collapseId?: string;
+  activity?: { event: "update" | "end"; timestamp: number; expiresAt: number };
 }
 
 /** `POST <relay>/send`; a 410 means the phone's token or handle is gone for good. */

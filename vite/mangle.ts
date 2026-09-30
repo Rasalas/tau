@@ -3,14 +3,15 @@ import { minify } from "terser";
 
 /** terser's compress and rename passes over esbuild's output, legal comments kept. */
 export async function mangleChunk(code: string, sourceMap: boolean): Promise<{ code: string; map: string | null }> {
-  const result = await minify(code, { module: true, ecma: 2020, compress: { passes: 2 }, mangle: true, format: { wrap_func_args: false }, sourceMap });
+  const result = await minify(code, { module: true, ecma: 2020, compress: { passes: 3 }, mangle: true, format: { wrap_func_args: false }, sourceMap });
   return { code: result.code ?? code, map: typeof result.map === "string" ? result.map : null };
 }
 
 /**
  * Compresses and renames once more after esbuild has minified a chunk. terser
- * finds code esbuild keeps, and picks short names by how often each character
- * occurs in the chunk, which gzip rewards.
+ * finds code esbuild keeps. Further compression passes fold expressions the
+ * previous pass exposed. It picks short names by how often each character occurs
+ * in the chunk, which gzip rewards.
  */
 export function mangleForGzip(): Plugin {
   let enabled = false;
