@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
-import { Dialog, getClientStorage, type PreferencesStore } from "tau";
+import { Dialog, MiddleTruncate, getClientStorage, tooltipProps, type PreferencesStore } from "tau";
 import { REVIEW_HOST_EXTENSION_ID, type MergeMethod, type MergeOutcome, type PullRequestStackLayer, type RequestService } from "./protocol.js";
 
 /** Labels for the three methods. */
@@ -82,11 +82,17 @@ export function MergeConfirm({ kind, service, short, number, base, branch, metho
       {kind !== "revert" && branch ? (
         deleteOffered ? (
           <label className="pr-merge-option">
-            <input type="checkbox" checked={deleteBranch} disabled={busy} onChange={(event) => onDeleteBranch(event.target.checked)} />
-            Delete <code>{branch}</code> {kind === "auto-merge" ? "once it merged" : "after merging"}
+            <input type="checkbox" aria-label={`Delete ${branch} ${kind === "auto-merge" ? "once it merged" : "after merging"}`} checked={deleteBranch} disabled={busy} onChange={(event) => onDeleteBranch(event.target.checked)} />
+            <span>
+              {kind === "auto-merge" ? "Delete the branch once it merged" : "Delete the branch after merging"}
+              <BranchName branch={branch} />
+            </span>
           </label>
         ) : kind === "auto-merge" && service === "github" ? (
-          <p className="pr-merge-note">GitHub deletes <code>{branch}</code> after an automatic merge when the repository is set to delete merged branches.</p>
+          <p className="pr-merge-note">
+            GitHub deletes the branch after an automatic merge when the repository is set to delete merged branches.
+            <BranchName branch={branch} />
+          </p>
         ) : null
       ) : null}
       {error ? <p className="pr-error" role="alert">{error}</p> : null}
@@ -99,10 +105,15 @@ export function MergeConfirm({ kind, service, short, number, base, branch, metho
   );
 }
 
+/** A branch on a line of its own, cut in the middle; the full name is its tooltip. */
+function BranchName({ branch }: { branch: string }) {
+  return <MiddleTruncate className="pr-merge-branch" value={branch} {...tooltipProps(branch, { variant: "code" })} />;
+}
+
 /** One layer as a stack's list and its confirmation name it. */
 export function layerLine(layer: PullRequestStackLayer): { title: string; detail: string; state: "open" | "draft" | "merged" | "closed" } {
   const state = layer.state === "open" && layer.draft ? "draft" : layer.state;
-  return { title: layer.title ?? layer.headRef, detail: `#${layer.number} · ${layer.headRef} · ${state}`, state };
+  return { title: layer.title ?? layer.headRef, detail: `#${layer.number} · ${layer.headRef}`, state };
 }
 
 /** Local state of one confirmation: which question is open, the method and the branch choice. */

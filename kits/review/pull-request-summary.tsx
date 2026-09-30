@@ -5,6 +5,7 @@ import type { PullRequestCheck, PullRequestComment, PullRequestDetail, PullReque
 import { checksRollup, checksSummary, commentChip, relativeTime } from "./pull-request-logic.js";
 import { ChecksList, CommentCard, MarkdownEditor, RollupIcon } from "./pull-request-parts.js";
 import { ChipPicker } from "./pull-request-review.js";
+import { githubHtml } from "./github-html.js";
 
 /** Comments shown at once before "Show older". */
 const WINDOW = 10;
@@ -142,7 +143,7 @@ export function PullRequestSummary({ detail, checks, threads, threadsError, acti
       >
         {editingBody && onSaveBody
           ? <MarkdownEditor label="Description" initial={detail.body} allowEmpty onSave={async (body) => { await onSaveBody(body); setEditingBody(false); }} onCancel={() => setEditingBody(false)} />
-          : detail.body.trim() ? <div className="pr-comment-body"><Markdown>{detail.body}</Markdown></div> : <p className="pr-empty"><em>No description provided.</em></p>}
+          : detail.body.trim() ? <div className="pr-comment-body"><Markdown html={githubHtml}>{detail.body}</Markdown></div> : <p className="pr-empty"><em>No description provided.</em></p>}
       </Section>
 
       {showChecks ? (

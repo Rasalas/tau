@@ -13,8 +13,6 @@
 }
 .request-link:hover { text-decoration: underline; }
 .request-state, .request-checks { font: 10px var(--mono); color: var(--muted-2); }
-.request-state.state-open { color: var(--acid-text); }
-.request-state.state-merged { color: var(--ink-3); }
 .request-checks.failed { color: var(--danger); }
 .request-checks.pending { color: var(--warn); }
 .request-problem, .request-error, .request-busy, .request-confirm { margin: 0; font: var(--text-xs)/1.45 var(--sans); }
@@ -88,10 +86,11 @@
 .pr-head-row { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px 0 16px; }
 .pr-number { display: inline-flex; align-items: center; gap: 3px; border: 0; padding: 0; background: transparent; font: 600 var(--text-sm) var(--mono); cursor: pointer; color: var(--ink); }
 .pr-number:hover { text-decoration: underline; }
-.pr-number.state-open, .pr-state.state-open { color: var(--ready); }
-.pr-number.state-draft, .pr-state.state-draft { color: var(--muted); }
-.pr-number.state-merged, .pr-state.state-merged { color: var(--merged); }
-.pr-number.state-closed, .pr-state.state-closed { color: var(--removed); }
+.pr-number.state-open { color: var(--ready); }
+.pr-number.state-draft { color: var(--muted); }
+.pr-number.state-merged { color: var(--merged); }
+.pr-number.state-closed { color: var(--removed); }
+.pr-state-icon { flex: none; display: inline-flex; align-items: center; }
 .pr-state { font: 10px var(--mono); }
 .pr-head-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-weight: 600; }
 .pr-fold { padding: 2px 16px 14px; }
@@ -186,6 +185,20 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 .pr-where .text-button { padding: 0; font-size: 10.5px; color: var(--acid-text); }
 .pr-comment-body { margin-top: 6px; color: var(--ink-prose); font-size: calc(var(--text-sm) + .5px); overflow-wrap: anywhere; }
 .pr-comment-body .markdown p { margin: 0 0 8px; }
+/* GitHub's HTML in descriptions and comments: details fold like a card, closed until asked. */
+:is(.pr-comment-body, .pr-editor-preview) details { margin: 0 0 12px; border: 1px solid var(--line-card); border-radius: var(--radius-sm); background: var(--sunken); }
+:is(.pr-comment-body, .pr-editor-preview) details > :not(summary) { margin-inline: 12px; }
+:is(.pr-comment-body, .pr-editor-preview) details > :last-child:not(summary) { margin-bottom: 10px; }
+:is(.pr-comment-body, .pr-editor-preview) summary { display: flex; align-items: center; gap: 8px; padding: 6px 10px; color: var(--ink-2); font-weight: 500; list-style: none; cursor: pointer; }
+:is(.pr-comment-body, .pr-editor-preview) summary::-webkit-details-marker { display: none; }
+:is(.pr-comment-body, .pr-editor-preview) summary::before { content: ""; flex: none; width: 5px; height: 5px; border: solid var(--muted); border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg); transition: transform .12s ease; }
+:is(.pr-comment-body, .pr-editor-preview) details[open] > summary { margin-bottom: 10px; border-bottom: 1px solid var(--line-card); }
+:is(.pr-comment-body, .pr-editor-preview) details[open] > summary::before { transform: rotate(45deg); }
+:is(.pr-comment-body, .pr-editor-preview) summary:hover { color: var(--ink); }
+:is(.pr-comment-body, .pr-editor-preview) summary:focus-visible { outline: 1px solid var(--focus); outline-offset: -1px; border-radius: var(--radius-sm); }
+:is(.pr-comment-body, .pr-editor-preview) kbd { padding: 0 5px; border: 1px solid var(--line-control); border-bottom-width: 2px; border-radius: 4px; background: var(--chip); font: var(--text-xs) var(--mono); }
+:is(.pr-comment-body, .pr-editor-preview) sub, :is(.pr-comment-body, .pr-editor-preview) sup { line-height: 0; }
+@media (prefers-reduced-motion: reduce) { :is(.pr-comment-body, .pr-editor-preview) summary::before { transition: none; } }
 .pr-reply { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .pr-reply textarea, .pr-editor textarea { width: 100%; resize: vertical; min-height: 56px; border: 1px solid var(--line-field); border-radius: var(--radius-sm); background: var(--sunken); color: var(--ink); padding: 6px 9px; font: var(--text-sm)/1.45 var(--sans); outline: none; }
 .pr-reply textarea:focus, .pr-editor textarea:focus { border-color: var(--line-focus); }
@@ -260,9 +273,7 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 .request-links .icon-button.compact { width: 22px; height: 22px; }
 .request-link-row { display: flex; align-items: center; gap: 6px; min-height: 22px; padding-left: 19px; }
 .request-link-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--text-xs); }
-.request-state.state-closed { color: var(--removed); }
 .request-state.state-armed { color: var(--info-ink); }
-.request-state.state-draft { color: var(--muted); }
 
 /* The link dialog, laid out like the other dialogs of the workbench. */
 .pr-link-dialog {
@@ -291,9 +302,11 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 .pr-head-notice { max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); }
 .pr-merge-dialog .toggle-group { align-self: flex-start; }
 .pr-merge-dialog .toggle-group > button.active { background: var(--raised); color: var(--ink); }
-.pr-merge-option { display: flex; align-items: center; gap: 7px; color: var(--ink-2); font: calc(var(--text-sm) + .5px) var(--sans); }
-.pr-merge-option code, .pr-merge-note code { padding: 0 4px; border-radius: var(--radius-xs); background: var(--chip); font: var(--text-xs) var(--mono); }
-.pr-merge-note { margin: 0; color: var(--muted); font: var(--text-sm)/1.45 var(--sans); }
+.pr-merge-option { display: flex; align-items: flex-start; gap: 8px; color: var(--ink-2); font: calc(var(--text-sm) + .5px)/1.45 var(--sans); cursor: pointer; }
+.pr-merge-option > input[type="checkbox"] { flex: none; margin: 3px 0 0; padding: 0; }
+.pr-merge-option > span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pr-merge-note { margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 2px; color: var(--muted); font: var(--text-sm)/1.45 var(--sans); }
+.pr-merge-branch { align-self: flex-start; color: var(--muted); font: var(--text-xs)/1.5 var(--mono); }
 .pr-stack-confirm { max-height: 12rem; overflow: auto; margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
 .pr-stack-confirm li { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: var(--radius-sm); background: var(--sunken); }
 .pr-stack-confirm li > span { min-width: 0; display: flex; flex-direction: column; }
@@ -496,7 +509,7 @@ body[data-profile="compact"] .pr-row-line.meta .pr-row-time { margin-left: auto;
   border: 0; border-radius: inherit; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
 }
 .review-pr-strip-open:focus-visible, .review-pr-strip-hide:focus-visible { outline: 1px solid var(--focus); outline-offset: -2px; }
-.review-pr-strip-glyph, .review-pr-strip-number, .review-pr-strip-more, .review-pr-strip-state { flex: none; }
+.review-pr-strip-glyph, .review-pr-strip-number, .review-pr-strip-more { flex: none; }
 .review-pr-strip-number { font-weight: 500; font-variant-numeric: tabular-nums; }
 .review-pr-strip-service { flex: none; display: inline-flex; margin-left: 6px; opacity: .7; }
 .review-pr-strip-repo { flex: none; max-width: 28%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: -3px; }
@@ -508,7 +521,6 @@ body[data-profile="compact"] .pr-row-line.meta .pr-row-time { margin-left: auto;
 .review-pr-strip-checks.passed { color: var(--ready); }
 .review-pr-strip-checks.failed { color: var(--fail); }
 .review-pr-strip-checks.pending { color: var(--warn); }
-.review-pr-strip-state { font-weight: 500; }
 .review-pr-strip-hide {
   flex: none; display: inline-grid; place-items: center; width: 26px; height: 26px; margin-right: 4px;
   border: 0; border-radius: var(--radius-sm); background: none; color: inherit; opacity: .7; cursor: pointer;
