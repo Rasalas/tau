@@ -43,8 +43,11 @@ project not trusted*, the install toast says so, and **Trust this project**
 (in that toast, or in Settings → Packages) records the trust in Pi's
 `trust.json` through Pi's own store, the way Pi's `/trust` does; the packages
 then load and wait for approval. A global install needs no trust. A project
-install writes `.tau/packages.json` into the project, with the path as you
-typed it; keep it out of Git if that path is yours alone.
+install writes `.tau/packages.json` into the project. A folder inside the
+project is recorded relative to it (`./kits/my-kit`), so every clone finds it.
+A folder outside is recorded as its absolute path, and while the file names
+only such folders Tau keeps it out of Git through the clone's own
+`.git/info/exclude` unless Git already tracks it, so the project shows no change.
 
 **What a package usually needs next:** the thread's branch and pull requests
 come from [two services](#a-threads-branch-and-pull-requests-tauworkspacebranch-and-taureviewpull-requests),

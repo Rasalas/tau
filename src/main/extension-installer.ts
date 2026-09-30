@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { MANIFEST_FILE, parseExtensionManifest } from "./extension-packages.js";
 import { HostCommandError } from "./host-extension-errors.js";
@@ -145,6 +145,69 @@ async function describe(source: string, scope: PackageScope, directory: string, 
   }
 }
 
+/** Whether two sources are the same package: a folder by where it resolves, the rest as written. */
+function sameSource(left: ExtensionSource, right: ExtensionSource): boolean {
+  return left.kind === right.kind && (left.kind === "path" ? left.value === right.value : left.raw === right.raw);
+}
+
+const outside = (cwd: string, path: string) => {
+  const rel = relative(cwd, path);
+  return rel.startsWith("..") || isAbsolute(rel);
+};
+
+/**
+ * How a project's `packages.json` records a source: a folder inside the
+ * project relative to it (`./kits/my-kit`), so every clone finds it.
+ */
+export function recordedSource(source: ExtensionSource, scope: PackageScope, cwd: string): string {
+  if (scope !== "project" || source.kind !== "path") return source.raw;
+  if (outside(cwd, source.value)) return source.value;
+  const rel = relative(cwd, source.value);
+  return rel ? `./${rel.split(sep).join("/")}` : ".";
+}
+
+/** The entry a packages file already has for this source, however it was typed. */
+async function listedEntry(file: string, source: ExtensionSource, cwd: string): Promise<string | undefined> {
+  return (await readPackagesFile(file)).sources.find((entry) => {
+    try { return sameSource(parseExtensionSource(entry, cwd), source); } catch { return false; }
+  });
+}
+
+const EXCLUDE_MARK = "# Tau: .tau/packages.json names only folders on this machine";
+const EXCLUDE_LINE = "/.tau/packages.json";
+
+/**
+ * Keeps a project's `packages.json` out of Git, in the clone's own
+ * `info/exclude`, while every entry is a folder outside the project: no other
+ * clone has those, and the project should not show a change for them.
+ */
+async function syncGitExclude(cwd: string, options: InstallerOptions): Promise<void> {
+  const git = locate(options, "git") ?? gitExecutable();
+  const sources = (await readPackagesFile(packagesFilePath("project", cwd))).sources;
+  const machineOnly = sources.length > 0 && sources.every((entry) => {
+    try {
+      const source = parseExtensionSource(entry, cwd);
+      return source.kind === "path" && outside(cwd, source.value);
+    } catch { return false; }
+  });
+  const excludePath = await run(git, ["rev-parse", "--git-path", "info/exclude"], { cwd }).then(({ stdout }) => resolve(cwd, stdout.trim()), () => undefined);
+  if (!excludePath) return;
+  // A tracked file is a change others see either way; ignoring it would only hide that.
+  if (machineOnly && await run(git, ["ls-files", "--error-unmatch", "--", ".tau/packages.json"], { cwd }).then(() => true, () => false)) return;
+  const text = await readFile(excludePath, "utf8").catch(() => "");
+  const lines = text.split("\n");
+  const at = lines.indexOf(EXCLUDE_MARK);
+  if (machineOnly === (at >= 0)) return;
+  if (machineOnly) {
+    await mkdir(dirname(excludePath), { recursive: true });
+    await writeFile(excludePath, `${text}${text && !text.endsWith("\n") ? "\n" : ""}${EXCLUDE_MARK}\n${EXCLUDE_LINE}\n`);
+  } else {
+    lines.splice(at, lines[at + 1] === EXCLUDE_LINE ? 2 : 1);
+    await writeFile(excludePath, lines.join("\n"));
+  }
+  options.progress?.(machineOnly ? "kept .tau/packages.json out of Git: it names folders only this machine has" : "Git sees .tau/packages.json again");
+}
+
 /**
  * Fetches a source, checks that it is a package and records it in the scope's
  * `packages.json`. Nothing is activated: an unapproved package still waits for
@@ -154,7 +217,9 @@ export async function installExtensionSource(raw: string, scope: PackageScope, o
   const home = options.home ?? packagesHome();
   const source = parseExtensionSource(raw, options.cwd);
   const directory = await fetchSource(source, home, options);
-  const installed = await describe(source.raw, scope, directory, options);
+  const file = packagesFilePath(scope, options.cwd, home);
+  const recorded = await listedEntry(file, source, options.cwd) ?? recordedSource(source, scope, options.cwd);
+  const installed = await describe(recorded, scope, directory, options);
   if (installed.error) {
     // Nothing was recorded, so leave nothing behind in the npm store either.
     if (source.kind === "npm") {
@@ -163,8 +228,9 @@ export async function installExtensionSource(raw: string, scope: PackageScope, o
     }
     throw new HostCommandError(`${source.raw}: ${installed.error}`);
   }
-  options.progress?.(`recording ${source.raw} in ${scope} packages.json`);
-  await addPackageSource(packagesFilePath(scope, options.cwd, home), source.raw);
+  options.progress?.(`recording ${recorded} in ${scope} packages.json`);
+  await addPackageSource(file, recorded);
+  if (scope === "project") await syncGitExclude(options.cwd, options).catch(() => undefined);
   return installed;
 }
 
@@ -180,7 +246,9 @@ export interface RemovalResult {
 export async function removeExtensionSource(raw: string, scope: PackageScope, options: InstallerOptions): Promise<RemovalResult> {
   const home = options.home ?? packagesHome();
   const source = parseExtensionSource(raw, options.cwd);
-  const removed = await removePackageSource(packagesFilePath(scope, options.cwd, home), source.raw);
+  const file = packagesFilePath(scope, options.cwd, home);
+  const removed = await removePackageSource(file, await listedEntry(file, source, options.cwd) ?? source.raw);
+  if (removed && scope === "project") await syncGitExclude(options.cwd, options).catch(() => undefined);
   let deleted = false;
   // A local path is the user's own checkout; Tau only forgets it.
   if (source.kind !== "path" && !(await stillListed(source.raw, scope, options.cwd, home))) {
@@ -209,9 +277,9 @@ async function stillListed(raw: string, removedFrom: PackageScope, cwd: string, 
 export async function updateExtensionSources(raw: string | undefined, options: InstallerOptions): Promise<InstalledExtension[]> {
   const home = options.home ?? packagesHome();
   const installed = await listInstalledSources(options.cwd, home);
-  const wanted = raw ? parseExtensionSource(raw, options.cwd).raw : undefined;
-  const targets = installed.filter((entry) => !entry.error && (wanted === undefined || entry.source.raw === wanted));
-  if (wanted !== undefined && targets.length === 0) throw new HostCommandError(`${wanted} is not installed.`);
+  const wanted = raw ? parseExtensionSource(raw, options.cwd) : undefined;
+  const targets = installed.filter((entry) => !entry.error && (wanted === undefined || sameSource(entry.source, wanted)));
+  if (wanted !== undefined && targets.length === 0) throw new HostCommandError(`${wanted.raw} is not installed.`);
   const results: InstalledExtension[] = [];
   for (const entry of targets) {
     try {
