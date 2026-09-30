@@ -305,6 +305,7 @@ export function extensionApiTypes({ env = process.env, self = fileURLToPath(impo
   }
   const built = join(root, "dist-types", "extension-api");
   if (existsSync(join(root, "scripts", "build-types.mjs"))) {
+    warn("Building the extension API types from this checkout's source…");
     const failure = build(root);
     if (failure && existsSync(join(built, "package.json"))) {
       warn(`Could not build the extension API types from this checkout (${failure}); copying the last build, from ${statSync(join(built, "package.json")).mtime.toLocaleString()}, which may be older than the source.`);

@@ -713,8 +713,10 @@ context.useService<ThreadBranchService>(THREAD_BRANCH_SERVICE, (service) => {
 | `THREAD_BRANCH_SERVICE` (`tau.workspace/branch`) | Workspace Kit | `current()`: `{ cwd, isRepo, branch?, upstream? }` for the thread or draft on screen — a worktree thread's own folder and branch — or undefined with no project; the same object until it changes, so `useSyncExternalStore(service.subscribe, service.current)` works. `branch` is absent on a detached HEAD. `subscribe(listener)`. |
 | `THREAD_PULL_REQUESTS_SERVICE` (`tau.review/pull-requests`) | Review Kit | `forThread(sessionId)`: the requests linked to the thread, `{ url, number, host, repo, title?, state?, draft?, headRef?, baseRef? }`, as the window last read them; asking reads them when it has not. The same array until they change. `subscribe(listener)`. |
 
-Both answer what the window last read: after a `git checkout` outside Tau,
-the branch follows once Workspace Kit refreshes the project.
+Both answer what the window last read. The branch follows a `git checkout`
+outside Tau within a moment: Workspace Kit's host half watches the `HEAD` of
+each checkout a window shows (no polling) and reads the branch again, and again
+after each turn of the thread on screen.
 
 #### Actions on a message
 
