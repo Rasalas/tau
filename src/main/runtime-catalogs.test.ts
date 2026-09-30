@@ -170,7 +170,7 @@ describe("RuntimeCatalogs", () => {
     const { cache } = catalogs(() => [source(load)], { file });
     await expect(cache.get("codex")).resolves.toMatchObject({ models: [{ id: "gpt-5.6-luna" }] });
     await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
-    await vi.waitFor(async () => expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ version: 2 }));
+    await vi.waitFor(async () => expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ version: 3 }));
   });
 
     it("drops what the file holds that it cannot read", async () => {

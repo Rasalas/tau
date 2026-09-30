@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useContext, useEffect, useLayoutEffect, us
 import { Check, ChevronDown, ChevronUp, Layers, Search, SlidersHorizontal, Star, X } from "lucide-react";
 import type { ThreadBackendKind, UiModel, UiRuntimeBackend } from "../../shared/contracts";
 import type { ModelBadgeContribution, ModelSelectionContribution } from "../extension-system";
-import type { RuntimeCatalogEntry } from "../../workbench/runtime-catalog-store";
+import { catalogLevels, type RuntimeCatalogEntry } from "../../workbench/runtime-catalog-store";
 import { withPriceOverride } from "../../shared/model-prices";
 import { modelPresentation } from "../model-manifest";
 import { getHostClient } from "../host-client-context";
@@ -296,7 +296,7 @@ export function ModelPicker({
           runtime: kind,
           runtimeLabel: entry.backend.label,
           model,
-          levels: catalog?.thinkingLevels[model.id] ?? [],
+          levels: catalogLevels(catalog, model),
           favourite: favourites.has(key),
           hidden: hidden.has(modelKey(model)),
           legacy: presentation.legacy,

@@ -620,7 +620,7 @@ export interface UiRuntimeCatalog {
   models: UiModel[];
   /** What a new thread runs on when nobody chooses. */
   model?: UiModel;
-  /** The levels each model offers, by model id; the first is the runtime's own default. */
+  /** The levels each model offers, by model id (Pi's by `provider/id`); the first is the runtime's own default, except Pi's. */
   thinkingLevels: Record<string, string[]>;
   runtimeCapabilities?: RuntimeCapabilities;
   /** Why the models are known only once a thread runs, or why the runtime cannot run now. */
