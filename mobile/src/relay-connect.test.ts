@@ -50,7 +50,7 @@ describe("phone Connect links", () => {
     expect(parseMobilePairingPayload(offer("https://127.0.0.1:7788/#pair=code"))).toBeUndefined();
     expect(parseMobilePairingPayload(offer(pairingUrl("http://127.0.0.1:7788/", { code: "code", publicKey: KEY })))).toBeUndefined();
     expect(parseMobilePairingPayload(offer(pairingUrl("https://user:password@host.example/", { code: "code", publicKey: KEY })))).toBeUndefined();
-    expect(parseMobilePairingPayload(encodeConnectOffer({ version: 1, relay: "https://relay.example?token=secret", id: ROUTE, token: TOKEN, link: "https://host.example/#pair=code" })))).toBeUndefined();
+    expect(parseMobilePairingPayload(encodeConnectOffer({ version: 1, relay: "https://relay.example?token=secret", id: ROUTE, token: TOKEN, link: "https://host.example/#pair=code" }))).toBeUndefined();
     expect(parseMobilePairingPayload("tau-connect:%broken")).toBeUndefined();
   });
 
