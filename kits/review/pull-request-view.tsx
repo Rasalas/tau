@@ -53,7 +53,7 @@ export interface PullRequestViewData {
  * detail and checks on a timer and on window focus, the conversations and
  * the diff again whenever the detail says the request moved.
  */
-function usePullRequest(client: PullRequestClient, url: string) {
+export function usePullRequest(client: PullRequestClient, url: string) {
   const [data, setData] = useState<PullRequestViewData>({});
   const alive = useRef(true);
   const updatedAt = useRef<string | undefined>(undefined);

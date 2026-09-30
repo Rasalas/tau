@@ -1,4 +1,4 @@
-/** What "Filter reviews" holds, shared by the page and its sidebar, which draws the field. */
+/** What "Filter reviews" holds: the page's head draws the field, and the list and the sidebar's counts read it. */
 export class ReviewsFilter {
   private value = "";
   private readonly listeners = new Set<() => void>();

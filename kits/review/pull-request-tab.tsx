@@ -3,7 +3,8 @@ import { GitPullRequest, GitPullRequestArrow } from "lucide-react";
 import { Spinner, type DesktopExtensionContext, type HostExtensionClient } from "tau";
 import { createLinkDialogLayer, type LinkDialogs } from "./link-dialog.js";
 import { linkPullRequestMenu } from "./link-menu.js";
-import { PULL_REQUEST_TAB, PULL_REQUESTS_TAB, type ComposerContextChips } from "./protocol.js";
+import { PULL_REQUEST_TAB, PULL_REQUESTS_TAB, WORKSPACE_HOST_EXTENSION_ID, type ComposerContextChips } from "./protocol.js";
+import { ReviewDetailStore } from "./review-detail-store.js";
 import { needsYou, REVIEWS_PAGE } from "./local-reviews.js";
 import { useLocalReviews, type LocalReviewsStore } from "./local-reviews-store.js";
 import { ReviewsFilter } from "./reviews-filter.js";
@@ -35,7 +36,11 @@ export function registerPullRequestTab(
   shared: PullRequestViewShared & { dialogs: LinkDialogs },
   reviews: { store: LocalReviewsStore; host: HostExtensionClient },
 ): () => void {
-  const pageParts = { store: reviews.store, host: reviews.host, rows, remote: { client, chips, rows, shared }, filter: new ReviewsFilter() };
+  const sidebar = new ReviewDetailStore();
+  const pageParts = {
+    store: reviews.store, host: reviews.host, rows, remote: { client, chips, rows, shared, sidebar }, filter: new ReviewsFilter(),
+    detail: { store: sidebar, notes: shared.pending, workspace: plugin.hostExtension(WORKSPACE_HOST_EXTENSION_ID) },
+  };
   const disposers = [
     plugin.registerStageTab<PullRequestTabParams>({
       kind: PULL_REQUEST_TAB,

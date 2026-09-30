@@ -2858,13 +2858,19 @@ caller (ADR 0020); no core seam is involved:
 
 | Kit | Command | What it does |
 |---|---|---|
-| Workspace (`kits/workspace/thread-branches.ts`) | `thread-branches { workspaces }` | For each workspace that is a linked worktree on a branch: the branch against the one its main checkout has out — `tip`, `ahead`, `behind`, files and lines from the fork point, `uncommitted`, `merged`, the `conflicts` `git merge-tree --write-tree` reports, and `workspace`/`rootWorkspace` ids to join threads and projects. A main checkout or a folder outside Git is left out. |
+| Workspace (`kits/workspace/thread-branches.ts`) | `thread-branches { workspaces }` | For each workspace that is a linked worktree on a branch: the branch against the one its main checkout has out — `tip`, `ahead`, `behind`, files and lines from the fork point, `uncommitted`, `merged`, the `conflicts` `git merge-tree --write-tree` reports, `defaultBranch` when a local branch has the repository's default name, and `workspace`/`rootWorkspace` ids to join threads and projects. A branch the target holds under other commits is `merged` too, with `mergedBy`: `tree` when the merge would leave the target's tree as it is (a squash merge), `patches` when `git cherry` finds every commit's patch in the target (a cherry-pick, a rebase merge, rewritten history; cached per tip and target). A main checkout or a folder outside Git is left out. |
+| | `remove-thread-branch { workspace, requestMerged? }` | Removes the worktree (`git worktree remove`, never forced) and deletes its branch, then forgets Workspace Kit's record of it; the threads stay. Refused unless the branch is `merged` (or `requestMerged`, Review's word that its pull request merged on the host) and nothing is uncommitted. |
 | | `merge-thread-branch { workspace, tip? }` | Merges the worktree's branch into its main checkout the way Remote Work applies a result (`mergeBranchIntoCheckout`: `merge-tree` first, then `merge --no-ff`); answers `{ state, branch, into, root, files, detail, commit? }`, `state` being `merged`, `already-merged`, `conflict` or `blocked`, and only `merged` touched the checkout. Refused when `tip` no longer is the branch's, or the worktree holds work not committed. |
 | Remote Work (`kits/remote-work/protocol.ts`, `REVIEW_CALLERS`) | `threads`, `preview`, `thread-send`, `thread-settle` | A link whose work came back as a branch here is a review: `preview` checks the merge, `thread-settle { how: "apply" }` merges it and lets the worktree there go, `thread-send` carries a note. |
 
 The page's own host commands (`local-reviews`, `local-review-merge`,
-`local-review-ask`, `local-review-withdraw`, `local-review-summary`) are for
-its desktop half; `local-reviews-changed` tells every window to read again.
+`local-review-ask`, `local-review-withdraw`, `local-review-summary`,
+`local-review-remove`) are for its desktop half; `local-reviews` also counts a
+branch merged when a thread in its worktree links a pull request of that branch
+last seen merged (`mergedBy: "request"`, from the stored link, no host call); `local-reviews-changed` tells every window to read again.
+`local-review-summary` also names the thread's turns (`prompts`, the first line of each prompt) for the review's sidebar.
+
+A review opens as one view (design 1e) for a local review and a remote pull request (`local-review-detail.tsx`, `remote-review-detail.tsx`, on the shared `review-detail-frame.tsx`). Its sidebar is the kit's `Sidebar` for the page: core's Back to thread buttons are hidden by the kit's stylesheet while `.rvd-side` is drawn, and the page tells the sidebar what it holds through `ReviewDetailStore`. Files are drawn under each other (`review-diff-stack.tsx`), each fetched and drawn when it comes near the viewport; a file over 400 lines scrolls inside its card.
 
 ### A package's own settings: `services.settings(cwd?)` (new in API 1.12.0)
 

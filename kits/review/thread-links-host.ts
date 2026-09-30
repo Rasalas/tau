@@ -27,6 +27,8 @@ Tau keeps the pull and merge requests each thread works on. Whenever you open a 
 export interface ThreadLinks {
   /** Links a request to a thread; the Changes panel calls this after creating one. */
   link(threadId: string, url: string, source: ThreadPullRequestLink["source"]): Promise<void>;
+  /** Whether one of these threads links a request of `branch` last seen merged; asks no host. */
+  merged(threadIds: readonly string[], branch: string): Promise<boolean>;
   dispose(): void;
 }
 
@@ -254,6 +256,7 @@ export function registerThreadLinks(
       const ref = parseRequestUrl(url);
       if (ref) await link(threadId, ref, source);
     },
+    merged: async (threadIds, branch) => (await Promise.all(threadIds.map((id) => store.list(id)))).flat().some((entry) => entry.state === "merged" && entry.headRef === branch),
     dispose: () => { for (const dispose of disposers.reverse()) dispose(); },
   };
 }

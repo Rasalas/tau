@@ -1,5 +1,5 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { HostCommandError, type HostExtensionContext, type UiMessage } from "tau/host-extension";
 import {
   LOCAL_REVIEWS_EVENT,
@@ -41,6 +41,7 @@ const REMOTE_BUSY = new Set(["sending", "starting", "running", "waiting", "offli
 /** Merges the book keeps; the oldest go. */
 const MAX_MERGED = 500;
 const SUMMARY_CHARS = 1200;
+const PROMPT_CHARS = 80;
 
 const record = (input: unknown): Record<string, unknown> => input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
 const text = (value: unknown): string | undefined => typeof value === "string" && value.trim() ? value : undefined;
@@ -95,25 +96,33 @@ export class LocalReviewBook {
   }
 }
 
-/** The last answer of a Pi session's entries, and how many prompts it had. */
-export function summaryFromEntries(entries: readonly unknown[]): { summary?: string; turns: number } {
-  let turns = 0;
+interface Summary { summary?: string; turns: number; prompts: string[] }
+
+/** A turn's name in the sidebar: the first line of the prompt. */
+const promptTitle = (value: string): string => clipLine(value.trim().split("\n")[0] ?? "");
+const clipLine = (value: string) => value.length > PROMPT_CHARS ? `${value.slice(0, PROMPT_CHARS - 1).trimEnd()}…` : value;
+const contentText = (content: unknown): string => typeof content === "string" ? content
+  : Array.isArray(content) ? content.map(record).filter((part) => part.type === "text").map((part) => text(part.text) ?? "").join("\n") : "";
+
+/** The last answer of a Pi session's entries, and the prompts it had. */
+export function summaryFromEntries(entries: readonly unknown[]): Summary {
+  const prompts: string[] = [];
   let summary: string | undefined;
   for (const entry of entries) {
     const message = record(record(entry).message);
     if (record(entry).type !== "message") continue;
-    if (message.role === "user") turns += 1;
+    if (message.role === "user") prompts.push(promptTitle(contentText(message.content)));
     if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
     const said = message.content.map(record).filter((part) => part.type === "text").map((part) => text(part.text) ?? "").join("\n").trim();
     if (said) summary = said;
   }
-  return { ...(summary ? { summary: clip(summary) } : {}), turns };
+  return { ...(summary ? { summary: clip(summary) } : {}), turns: prompts.length, prompts };
 }
 
-function summaryFromMessages(messages: readonly UiMessage[]): { summary?: string; turns: number } {
-  const turns = messages.filter((message) => message.role === "user").length;
+function summaryFromMessages(messages: readonly UiMessage[]): Summary {
+  const prompts = messages.filter((message) => message.role === "user").map((message) => promptTitle(message.text));
   const said = [...messages].reverse().find((message) => message.role === "assistant" && message.text.trim())?.text.trim();
-  return { ...(said ? { summary: clip(said) } : {}), turns };
+  return { ...(said ? { summary: clip(said) } : {}), turns: prompts.length, prompts };
 }
 
 const clip = (value: string) => value.length > SUMMARY_CHARS ? `${value.slice(0, SUMMARY_CHARS).trimEnd()}…` : value;
@@ -125,10 +134,28 @@ const clip = (value: string) => value.length > SUMMARY_CHARS ? `${value.slice(0,
  * side keeps what Git does not know: the asks sent back to a thread and the
  * merges made from the page, with what the thread cost.
  */
-export function registerLocalReviewCommands(context: HostExtensionContext, workspace: (command: string, input?: unknown) => Promise<unknown>): void {
+export function registerLocalReviewCommands(
+  context: HostExtensionContext,
+  workspace: (command: string, input?: unknown) => Promise<unknown>,
+  requestMerged?: (threadIds: readonly string[], branch: string) => Promise<boolean>,
+): void {
   const { services } = context;
   const book = new LocalReviewBook(services.stateDir);
   const changed = () => context.emit(LOCAL_REVIEWS_EVENT, {});
+
+  /** Git's answer, with the branches whose linked pull request is known to have merged on the host. */
+  const readBranches = async (workspaces: string[]): Promise<ThreadBranch[]> => {
+    const branches = workspaces.length ? await workspace("thread-branches", { workspaces }) as ThreadBranch[] : [];
+    const open = branches.filter((branch) => !branch.merged && branch.ahead > 0);
+    if (!requestMerged || open.length === 0) return branches;
+    const sessions = await services.sessions.list().catch(() => []);
+    const inside = (path: string, cwd: string) => cwd === path || cwd.startsWith(`${path}${sep}`);
+    return Promise.all(branches.map(async (branch) => {
+      if (!open.includes(branch)) return branch;
+      const ids = sessions.filter((session) => inside(branch.path, session.cwd)).map((session) => session.sessionId);
+      return ids.length && await requestMerged(ids, branch.branch).catch(() => false) ? { ...branch, merged: true, mergedBy: "request" as const, conflicts: [] } : branch;
+    }));
+  };
 
   const remoteWork = (command: string, input: unknown) => context.invokeHostExtension(REMOTE_WORK, command, input);
   /** Threads on other machines whose work came back as a branch here and is not merged; none without Remote Work. */
@@ -172,7 +199,7 @@ export function registerLocalReviewCommands(context: HostExtensionContext, works
 
   context.registerCommand("local-reviews", async (input): Promise<LocalReviewsAnswer> => {
     const workspaces = (Array.isArray(record(input).workspaces) ? record(input).workspaces as unknown[] : []).filter((id): id is string => typeof id === "string");
-    const branches = workspaces.length ? await workspace("thread-branches", { workspaces }) as ThreadBranch[] : [];
+    const branches = await readBranches(workspaces);
     const tips = new Map(branches.map((branch) => [reviewKey(branch.root, branch.branch), branch.tip]));
     const current = await book.read();
     // An ask is answered once the branch moves.
@@ -228,6 +255,17 @@ export function registerLocalReviewCommands(context: HostExtensionContext, works
     return outcome;
   }, { long: true, audit: { label: "merged a thread's branch from Reviews" } });
 
+  // A merged branch's worktree and branch go; its threads and any merge record stay.
+  context.registerCommand("local-review-remove", async (input) => {
+    const named = required(input, "workspace");
+    const [branch] = await readBranches([named]);
+    if (!branch) throw new HostCommandError("This worktree is gone already.");
+    const removed = await workspace("remove-thread-branch", { workspace: named, ...(branch.mergedBy === "request" ? { requestMerged: true } : {}) }) as { branch: string };
+    services.log("reviews.removed", removed.branch);
+    changed();
+    return removed;
+  }, { long: true, audit: { label: "removed a merged branch and its worktree from Reviews" } });
+
   // The thread gets the ask as the user's next message; the row shows it until the branch moves.
   context.registerCommand("local-review-ask", async (input) => {
     const fields = record(input);
@@ -262,10 +300,10 @@ export function registerLocalReviewCommands(context: HostExtensionContext, works
     changed();
   });
 
-  context.registerCommand("local-review-summary", async (input): Promise<{ summary?: string; turns?: number }> => {
+  context.registerCommand("local-review-summary", async (input): Promise<{ summary?: string; turns?: number; prompts?: string[] }> => {
     const fields = record(input);
     const threadId = text(fields.threadId);
-    let found: { summary?: string; turns: number } | undefined;
+    let found: Summary | undefined;
     const open = threadId ? services.thread(threadId) : undefined;
     if (open) found = summaryFromMessages(await open.transcript().catch(() => []));
     if (!found?.summary && threadId) {
@@ -281,6 +319,6 @@ export function registerLocalReviewCommands(context: HostExtensionContext, works
     const git = await workspace("review-request-context", { workspace: named, detail: true, ...(text(fields.target) ? { base: text(fields.target) } : {}) }).catch(() => undefined) as ReviewRequestContext | undefined;
     const commit = git?.commits?.[0];
     const said = commit ? [commit.subject, commit.body].filter((part) => part?.trim()).join("\n\n").trim() : "";
-    return { ...(said ? { summary: clip(said) } : {}), ...(found ? { turns: found.turns } : {}) };
+    return { ...(said ? { summary: clip(said) } : {}), ...(found ? { turns: found.turns, prompts: found.prompts } : {}) };
   }, { access: "read", long: true });
 }

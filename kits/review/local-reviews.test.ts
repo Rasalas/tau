@@ -52,6 +52,17 @@ const thread = (id: string, workspace: string, patch: Partial<UiSession> = {}): 
 const answer = (patch: Partial<LocalReviewsAnswer> = {}): LocalReviewsAnswer => ({ branches: [], asks: {}, merged: [], ...patch });
 
 describe("which threads are local merge requests", () => {
+  it("counts a branch the target holds under other commits as merged, and names a target off the default branch", () => {
+    const reviews = deriveReviews({
+      answer: answer({ branches: [branch("picked", { merged: true, mergedBy: "patches", defaultBranch: "main" }), branch("aside", { target: "feat/x", defaultBranch: "main" })] }),
+      threads: [thread("p", "ws-picked"), thread("a", "ws-aside")],
+      busy: new Set(),
+    });
+    expect(reviews.find((review) => review.branch === "tau/picked")).toMatchObject({ state: "merged", mergedBy: "patches" });
+    expect(reviews.find((review) => review.branch === "tau/picked")?.offDefault).toBeUndefined();
+    expect(reviews.find((review) => review.branch === "tau/aside")).toMatchObject({ state: "ready", offDefault: "main" });
+  });
+
   it("takes a finished thread's worktree branch, in its state from Git", () => {
     const reviews = deriveReviews({
       answer: answer({ branches: [branch("ready"), branch("conflict", { conflicts: ["a.ts"] }), branch("merged", { ahead: 0, merged: true })] }),
