@@ -150,6 +150,7 @@ export function Composer({
   onRunShellAction,
   newThread = false,
   lead,
+  notice,
 }: {
   snapshot?: HostSnapshot;
   /** The sub-agent whose question this is, when a child thread asks on its parent's composer. */
@@ -194,6 +195,8 @@ export function Composer({
   newThread?: boolean;
   /** Core's chips before the model, after the kits' `lead` controls (a draft's project). */
   lead?: ReactNode;
+  /** Why the thread stopped, drawn as a bar on top of the field. */
+  notice?: ReactNode;
 }) {
   const { readOnly } = useHostCapabilities();
   const dictation = useClientEnvironment().dictation;
@@ -876,6 +879,7 @@ export function Composer({
           </LazyFeatureBoundary>
         );
       })() : null}
+      {notice}
       <div
         ref={frameRef}
         className={`composer-frame ${prompt ? "stacked" : ""} ${answerable ? "answering" : ""}`}

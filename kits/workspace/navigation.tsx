@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArchiveRestore, ArrowLeft, Check, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, GitBranch, Plus, Search, Settings, SlidersHorizontal, SquarePen, Trash2 } from "lucide-react";
+import { ArchiveRestore, ArrowLeft, Check, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, GitBranch, MessageSquare, Plus, Search, Settings, SlidersHorizontal, SquarePen, Trash2 } from "lucide-react";
 import {
   DraftRow,
   errorMessage,
@@ -781,8 +781,8 @@ const ExternalThreadRow = memo(function ExternalThreadRow({ thread, onOpen, onLo
 }) {
   const { session, machine, unavailable, opening, running } = thread;
   const age = sessionAge(session.modifiedAt);
-  const activity: ThreadActivity = opening ? "ready" : running ? "working" : "idle";
-  const label = opening ? "Opening…" : running ? "Working" : undefined;
+  const activity: ThreadActivity = opening ? "ready" : unavailable ? "offline" : running ? "working" : "idle";
+  const label = opening ? "Opening…" : unavailable ? (running ? "Paused · offline" : "Offline") : running ? "Working" : undefined;
   const lookIn = thread.lookIn && !unavailable && !opening
     ? <button type="button" aria-label={`Look in on ${session.title} here`} {...tooltipProps("Read it in a tab here; the window stays on this machine")} onClick={() => onLookIn(thread)}><Eye size={13} /></button>
     : undefined;
@@ -795,6 +795,7 @@ const ExternalThreadRow = memo(function ExternalThreadRow({ thread, onOpen, onLo
         age={age}
         activity={activity}
         {...(label ? { activityLabel: label } : {})}
+        {...(unavailable ? { activityHint: unavailable } : {})}
         hoverCard
         actions={lookIn}
         onSelect={() => { if (!unavailable && !opening) onOpen(thread); }}
@@ -1315,7 +1316,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         ) : null}
 
         {matching.length === 0 && outside.size === 0 && draftCount === 0 ? (
-          <p className="sidebar-empty">{projectFilter ? `No threads in ${projectFilter}` : "No recent threads"}</p>
+          projectFilter
+            ? <p className="sidebar-empty">{`No threads in ${projectFilter}`}</p>
+            : <div className="sidebar-empty first"><i><MessageSquare size={16} aria-hidden /></i><p>No threads yet.<br />They’ll line up here.</p></div>
         ) : null}
 
         {(() => {

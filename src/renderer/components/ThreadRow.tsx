@@ -1,5 +1,5 @@
 import { memo, useEffect, useState, type ReactNode } from "react";
-import { ArchiveRestore, Check, CircleAlert, CircleHelp, GitBranch, Hourglass, PlugZap } from "lucide-react";
+import { ArchiveRestore, Check, CircleHelp, GitBranch, Monitor, PlugZap, TriangleAlert } from "lucide-react";
 import type { UiSession } from "../../shared/contracts";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { DEFAULT_RUNTIME, threadOnPlan } from "../runtime-marks";
@@ -64,7 +64,7 @@ function elapsedLabel(milliseconds: number): string {
 
 /** Whether a row shows its state rather than its age. */
 export function showsThreadStatus(activity: ThreadActivity): boolean {
-  return activity === "working" || activity === "tool" || activity === "waiting" || activity === "ready" || activity === "interrupted" || activity === "failed" || activity === "limited";
+  return activity === "working" || activity === "tool" || activity === "waiting" || activity === "ready" || activity === "interrupted" || activity === "failed" || activity === "limited" || activity === "offline";
 }
 
 /** A row's state badge, the same on every client: `Working 2:14` with a spinner, `? Question` in amber, and the rest. */
@@ -80,8 +80,8 @@ export function ThreadStatus({ activity, label, hint, icon, startedAt }: { activ
     <span className={`thread-status-age status-${activity}`} {...tooltipProps(hint)}>
       {working ? <i /> : null}
       {activity === "interrupted" ? <PlugZap size={11} aria-hidden="true" /> : null}
-      {activity === "failed" ? <CircleAlert size={11} aria-hidden="true" /> : null}
-      {activity === "limited" ? <Hourglass size={11} aria-hidden="true" /> : null}
+      {activity === "failed" || activity === "limited" ? <TriangleAlert size={11} aria-hidden="true" /> : null}
+      {activity === "offline" ? <Monitor size={11} aria-hidden="true" /> : null}
       {activity === "waiting" ? icon ?? <CircleHelp size={11} aria-hidden="true" /> : null}
       {activity === "ready" ? <Check size={11} aria-hidden="true" /> : null}
       {label}

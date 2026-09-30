@@ -67,7 +67,7 @@ export function MergeConfirm({ kind, service, short, number, base, branch, metho
       : `This opens a new ${short === "MR" ? "merge request" : "pull request"} that reverses the changes merged by #${number}.`;
   const confirm = kind === "merge" ? (method ? METHOD_LABELS[method] : "Merge") : kind === "auto-merge" ? "Enable auto-merge" : `Create revert ${short}`;
   return createPortal(
-    <Dialog className="pr-link-dialog pr-merge-dialog" label={title} onClose={() => { if (!busy) onCancel(); }}>
+    <Dialog className="confirm-dialog pr-link-dialog pr-merge-dialog" label={title} onClose={() => { if (!busy) onCancel(); }}>
       <header>
         <h2>{title}</h2>
         <p>{description}</p>

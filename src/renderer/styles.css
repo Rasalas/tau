@@ -312,8 +312,9 @@ button > svg { pointer-events: none; }
 }
 .thread-status-age.status-ready { color: var(--ready); }
 .thread-status-age.status-waiting { color: var(--warn); font-weight: 600; }
-.thread-status-age.status-interrupted, .status-limited { color: var(--warn); }
-.thread-status-age.status-failed { color: var(--fail-ink); }
+.thread-status-age.status-interrupted { color: var(--warn); }
+.thread-status-age:is(.status-failed, .status-limited) { color: var(--fail-ink); font-weight: 600; }
+.thread-status-age.status-offline { color: var(--muted); font-weight: 600; }
 /* The design's spinner: a pale ring with the ink's arc. */
 .thread-status-age > i {
   width: 9px; height: 9px; flex: none; border: 1.5px solid color-mix(in srgb, var(--info) 35%, transparent);
@@ -1455,23 +1456,34 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
   display: flex; justify-content: center; align-items: flex-start; padding-top: 64px;
 }
 .dialog-backdrop { align-items: center; padding: 24px; }
-/* ConfirmDialog: a question with Cancel and the action at the bottom right. */
+/* Every card dialog (1v): no edge, the answers in a bar. */
 .confirm-dialog {
-  width: 400px; max-width: calc(100vw - 48px); display: flex; flex-direction: column; gap: 10px; padding: 18px;
-  border: 1px solid var(--line-float); border-radius: var(--radius-lg); background: var(--overlay);
-  box-shadow: var(--elevation-3); color: var(--ink); animation: fade-up .14s ease;
+  width: 400px; max-width: calc(100vw - 48px); display: flex; flex-direction: column; gap: 10px; padding: 16px 18px 18px;
+  border-radius: 12px; background: var(--overlay); box-shadow: var(--elevation-3); color: var(--ink); animation: fade-up .14s ease;
 }
-.confirm-dialog > h2 { margin: 0; font: 600 15px var(--sans); }
-.confirm-dialog > p { margin: 0; color: var(--muted); font: var(--text-sm)/1.5 var(--sans); }
-.confirm-dialog-skip { display: flex; align-items: center; gap: 7px; color: var(--muted); font: var(--text-sm) var(--sans); }
+.confirm-dialog :where(h2) { margin: 0; font: 600 16px var(--sans); letter-spacing: -.01em; }
+.confirm-dialog :where(header) { display: flex; flex-direction: column; gap: 10px; }
+.confirm-dialog :where(p) { margin: 0; color: var(--ink-3); font: var(--text-sm)/1.5 var(--sans); }
+.confirm-dialog :where([type="checkbox"]) { width: 14px; height: 14px; margin: 0; accent-color: var(--acid); }
+.confirm-dialog :where(input:not([type="checkbox"], [type="radio"], [type="file"]), select) { padding: 8px 10px; border: 0; border-radius: 8px; background: var(--field); color: var(--ink); font: var(--text-md) var(--sans); outline: none; }
+.confirm-dialog :where(input, select):focus-visible { box-shadow: inset 0 0 0 1.5px var(--acid); }
+.confirm-dialog-skip { display: flex; align-items: center; gap: 9px; color: var(--ink-2); font: var(--text-sm) var(--sans); }
 .confirm-dialog-type { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font: var(--text-sm) var(--sans); }
 .confirm-dialog-type > span > b { color: var(--ink); font-weight: 600; }
-.confirm-dialog-type > input { height: 32px; padding: 0 10px; border: 1px solid var(--line-field); border-radius: var(--radius-sm); background: var(--field); color: var(--ink); font: var(--text-md) var(--sans); }
-.confirm-dialog > footer > button:disabled { opacity: .45; cursor: not-allowed; }
-.confirm-dialog > footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
-.confirm-dialog > footer > button { padding: 7px 14px; border-radius: var(--radius-sm); font: 500 var(--text-sm) var(--sans); cursor: pointer; }
-.confirm-dialog > footer > button.primary { border: 0; background: var(--acid); color: var(--acid-ink); }
-.confirm-dialog > footer > button.danger { border: 1px solid var(--danger-line); background: var(--danger-bg); color: var(--removed); }
+.confirm-dialog > footer, .confirm-dialog > form > footer {
+  display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; margin: 4px -18px -18px;
+  padding: 10px 12px 12px; border-radius: 0 0 12px 12px; background: color-mix(in srgb, var(--ink) 4%, var(--overlay));
+}
+.confirm-dialog footer button {
+  display: inline-flex; align-items: center; gap: 5px; height: auto; padding: 4px 8px; border: 0; border-radius: 6px;
+  background: none; box-shadow: none; color: var(--ink-3); font: var(--text-sm) var(--sans); white-space: nowrap; cursor: pointer;
+}
+.confirm-dialog footer button:hover { background: var(--hover); color: var(--ink); }
+.confirm-dialog footer :is(.primary, .danger, [data-variant="primary"], [data-variant="danger"]) { padding: 7px 16px; border-radius: 99px; background: var(--acid); color: var(--acid-ink); font-weight: 600; }
+.confirm-dialog footer .primary:hover { background: var(--acid-strong); color: var(--acid-ink); }
+.confirm-dialog footer :is(.danger, [data-variant="danger"]) { background: var(--stop); color: var(--stop-ink); }
+.confirm-dialog footer .danger:hover { background: var(--stop); color: var(--stop-ink); filter: brightness(.9); }
+.confirm-dialog footer :disabled { opacity: .45; cursor: not-allowed; }
 .release-notes { width: 460px; }
 .release-notes > ul { margin: 0; padding-left: 18px; max-height: min(50vh, 420px); overflow: auto; color: var(--ink-2); font: var(--text-sm)/1.55 var(--sans); }
 .release-notes > ul > li + li { margin-top: 4px; }

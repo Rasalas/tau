@@ -714,17 +714,20 @@ describe("a failed turn", () => {
     setHostClient(client);
     renderApp(client);
 
-    const line = await waitFor(() => {
-      const found = document.querySelector(".transcript .turn-error-line");
-      expect(found?.querySelector("span")?.textContent).toBe("stream disconnected before completion");
-      return found;
+    // The composer's bar says why and retries; the transcript keeps no second Retry.
+    const bar = await waitFor(() => {
+      const found = document.querySelector<HTMLElement>(".composer-notice");
+      expect(found?.textContent).toContain("Stopped with an error");
+      expect(found?.querySelector("p")?.textContent).toBe("stream disconnected before completion");
+      return found!;
     });
+    expect(document.querySelector(".transcript .turn-error-line")).toBeNull();
     // Retry sends the failed turn's prompt again.
-    fireEvent.click(within(line as HTMLElement).getByRole("button", { name: "Retry" }));
+    fireEvent.click(within(bar).getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith("Replay the turn.", [], "session", expect.anything(), undefined));
 
     act(() => client.emit({ type: "host-update", update: { version: 1, type: "thread-shell", update: { sessionId: "session", shell } } }));
-    await waitFor(() => expect(document.querySelector(".turn-error-line")).toBeNull());
+    await waitFor(() => expect(document.querySelector(".composer-notice")).toBeNull());
   });
 });
 
@@ -761,13 +764,13 @@ describe("a thread a provider limit stopped", () => {
     renderApp(client);
 
     const notice = await waitFor(() => {
-      const found = document.querySelector<HTMLElement>(".transcript .limit-notice");
-      expect(found?.textContent).toContain("Usage limit reached");
+      const found = document.querySelector<HTMLElement>(".composer-notice.warn");
+      expect(found?.textContent).toContain("Rate limit · resets in 1 h 30 min");
       return found!;
     });
-    expect(notice.textContent).toContain("in 1 h 30 min");
+    expect(notice.textContent).toContain("You have hit your usage limit.");
     expect(document.querySelector(".turn-error-line")).toBeNull();
-    fireEvent.click(within(notice).getByRole("button", { name: "Resume at reset" }));
+    fireEvent.click(within(notice).getByRole("button", { name: "Wait" }));
     await waitFor(() => expect(resumeLimited).toHaveBeenCalledWith("session", "reset"));
     // The buttons stay disabled until the host has answered the first request.
     const now = within(notice).getByRole("button", { name: "Resume now" }) as HTMLButtonElement;

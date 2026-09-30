@@ -583,6 +583,7 @@ function RailConfirmation({ question, onDone }: { question: RailQuestion; onDone
       message={text.message(count)}
       confirmLabel={text.verb}
       destructive={text.destructive ?? false}
+      {...(question.action === "delete" ? { icon: <Trash2 size={12} aria-hidden="true" /> } : {})}
       dontAskAgain
       onConfirm={(dontAskAgain) => answer(true, dontAskAgain)}
       onCancel={() => answer(false)}
@@ -614,7 +615,7 @@ export function SnoozeDialog({ sessions, now, onClose, onSnooze }: {
   const until = mode === "duration" ? now() + Number(amount) * UNIT_MS[unit] : new Date(date).getTime();
   const valid = Number.isFinite(until) && until > now() && (mode === "date" || Number(amount) > 0);
   return (
-    <Dialog className="thread-rail-snooze" label="Snooze thread" onClose={onClose}>
+    <Dialog className="confirm-dialog thread-rail-snooze" label="Snooze thread" onClose={onClose}>
       <h2>{sessions.length === 1 ? <>Snooze “{sessions[0]!.title}”</> : `Snooze ${sessions.length} threads`}</h2>
       <div className="segmented" role="group" aria-label="Snooze by">
         <button type="button" className={mode === "duration" ? "active" : ""} aria-pressed={mode === "duration"} onClick={() => setMode("duration")}>For a while</button>
@@ -654,7 +655,7 @@ export function RenameDialog({ session, onClose, onRename }: {
   const [saving, setSaving] = useState(false);
   const next = title.trim();
   return (
-    <Dialog className="thread-rail-snooze thread-rail-rename" label="Rename thread" onClose={onClose}>
+    <Dialog className="confirm-dialog thread-rail-snooze thread-rail-rename" label="Rename thread" onClose={onClose}>
       <h2>Rename thread</h2>
       <form
         onSubmit={(event) => {

@@ -111,7 +111,7 @@ export function PullRequestStackControl({ detail, client, actions, workspace, on
         {menu ? <Menu label={label} sections={sections} footer={<small className="pr-stack-base">↳ {stack.base}</small>} onSelect={pick} onClose={() => setMenu(false)} /> : null}
       </span>
       {confirm ? createPortal(
-        <Dialog className="pr-link-dialog pr-merge-dialog" label={confirm === "merge" ? "Merge the stack" : "Rebase the stack"} onClose={() => { if (!busy) setConfirm(undefined); }}>
+        <Dialog className="confirm-dialog pr-link-dialog pr-merge-dialog" label={confirm === "merge" ? "Merge the stack" : "Rebase the stack"} onClose={() => { if (!busy) setConfirm(undefined); }}>
           <header>
             <h2>{confirm === "merge" ? `Merge ${layers.length} ${layers.length === 1 ? "pull request" : "pull requests"}?` : `Rebase ${layers.length} ${layers.length === 1 ? "pull request" : "pull requests"}?`}</h2>
             <p>{confirm === "merge"
