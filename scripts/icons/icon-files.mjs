@@ -14,6 +14,8 @@ export const COLOURS = {
   // The document surfaces (K69, dark from K77); the splash screens sit on them.
   lightSurface: "#fbfaf8",
   darkSurface: "#0f1116",
+  // Tau Dev's band: a build of a checkout, never the released app.
+  devBand: "#e8912d",
 };
 
 /** The τ's strokes in an SVG: every path with a stroke width. */
@@ -188,15 +190,28 @@ export function iconComposerGlyph(iconLight, colour) {
   return svgRoot(1024, 1024, paths.join("\n"));
 }
 
-/** macOS 26's icon document (`.icon`); electron-builder compiles it with actool. */
-export function iconComposerDocument() {
+/** Tau Dev's mark (K132): a band across the foot of the icon with DEV in it, drawn as fills for Icon Composer. */
+export function devBandSvg() {
+  const [top, bottom, x] = [852, 940, 380];
+  const d = `M${x} ${top}H${x + 32}A44 44 0 0 1 ${x + 32} ${bottom}H${x}Z M${x + 20} ${top + 20}H${x + 32}A24 24 0 0 1 ${x + 32} ${bottom - 20}H${x + 20}Z`;
+  const e = `M${x + 100} ${top}H${x + 160}V${top + 20}H${x + 120}V${top + 34}H${x + 152}V${top + 54}H${x + 120}V${bottom - 20}H${x + 160}V${bottom}H${x + 100}Z`;
+  const v = `M${x + 184} ${top}H${x + 206}L${x + 224} ${bottom - 28}L${x + 242} ${top}H${x + 264}L${x + 235} ${bottom}H${x + 213}Z`;
+  return svgRoot(1024, 1024, [
+    `<rect x="0" y="824" width="1024" height="144" fill="${COLOURS.devBand}"/>`,
+    `<path d="${d} ${e} ${v}" fill="${COLOURS.paper}" fill-rule="evenodd"/>`,
+  ].join("\n"));
+}
+
+/** macOS 26's icon document (`.icon`); electron-builder compiles it with actool. Tau Dev's carries the band. */
+export function iconComposerDocument({ dev = false } = {}) {
   const gradient = (top, bottom) => ({ "linear-gradient": [srgb(top), srgb(bottom)] });
+  const band = { layers: [{ "image-name": "dev-band.svg", name: "dev" }], shadow: { kind: "neutral", opacity: 0.5 } };
   return JSON.stringify({
     "fill-specializations": [
       { value: gradient(COLOURS.plateTop, COLOURS.plateBottom) },
       { appearance: "dark", value: gradient(COLOURS.nightTop, COLOURS.nightBottom) },
     ],
-    groups: [{
+    groups: [...(dev ? [band] : []), {
       layers: [{
         "image-name-specializations": [{ value: "tau.svg" }, { appearance: "dark", value: "tau-dark.svg" }],
         name: "tau",

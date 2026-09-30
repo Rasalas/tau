@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
-  ANDROID_LAUNCHER, ANDROID_SPLASH, androidBackground, androidForeground, androidMonochrome, iconComposerDocument,
+  ANDROID_LAUNCHER, ANDROID_SPLASH, androidBackground, androidForeground, androidMonochrome, devBandSvg, iconComposerDocument,
   iconComposerGlyph, iosAppIconContents, iosSplashContents, nightFolder, readStrokes, splashSvg, strokeOutline, svgBody, webManifest,
 } from "./icon-files.mjs";
 import { decodePng, encodePng, packIco, withoutAlpha } from "./png.mjs";
@@ -25,10 +25,21 @@ describe("the committed icon files", () => {
     expect(text("assets/icon/Tau.icon/icon.json")).toBe(iconComposerDocument());
     expect(text("assets/icon/Tau.icon/Assets/tau.svg")).toBe(iconComposerGlyph(source("icon-light.svg"), "#fbfaf8"));
     expect(text("assets/icon/Tau.icon/Assets/tau-dark.svg")).toBe(iconComposerGlyph(source("icon-light.svg"), "#6b93e0"));
+    expect(text("assets/icon/TauDev.icon/icon.json")).toBe(iconComposerDocument({ dev: true }));
+    expect(text("assets/icon/TauDev.icon/Assets/dev-band.svg")).toBe(devBandSvg());
+    expect(text("assets/icon/TauDev.icon/Assets/tau.svg")).toBe(text("assets/icon/Tau.icon/Assets/tau.svg"));
     expect(text(`${assets}/AppIcon.appiconset/Contents.json`)).toBe(iosAppIconContents());
     expect(text(`${assets}/Splash.imageset/Contents.json`)).toBe(iosSplashContents());
     expect(text("src/web/public/manifest.webmanifest")).toBe(webManifest());
     expect(text("src/web/public/favicon.svg")).toBe(source("mark-light.svg"));
+  });
+
+  it("mark Tau Dev's icon with a band in front of the released icon's layers", () => {
+    const dev = JSON.parse(iconComposerDocument({ dev: true }));
+    const stable = JSON.parse(iconComposerDocument());
+    expect(dev.groups[0].layers).toEqual([{ "image-name": "dev-band.svg", name: "dev" }]);
+    expect(dev.groups.slice(1)).toEqual(stable.groups);
+    expect(dev["fill-specializations"]).toEqual(stable["fill-specializations"]);
   });
 
   it("wire the adaptive icon to all three layers, the themed one included", () => {
