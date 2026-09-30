@@ -1,3 +1,4 @@
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { UiModel, UiModelBilling, UiModelPrice } from "../shared/contracts.js";
 import { priceIds } from "../shared/model-prices.js";
 import type { HostCatalogModel, HostRuntimeNewThreadCatalog } from "./host-extensions.js";
@@ -9,6 +10,7 @@ export interface PiModelData {
   readonly name?: string;
   readonly baseUrl?: string;
   readonly reasoning?: boolean;
+  readonly thinkingLevelMap?: Readonly<Record<string, string | null>>;
   readonly input?: readonly string[];
   readonly cost?: { readonly input: number; readonly output: number; readonly cacheRead?: number; readonly cacheWrite?: number };
   readonly contextWindow?: number;
@@ -111,7 +113,7 @@ export interface PiCatalogInput {
   book: ModelPriceBook;
 }
 
-/** Pi's catalog before any thread exists; thinking levels stay the thread's own. */
+/** Pi's catalog before any thread exists; levels by `provider/id`, since an id recurs across providers. */
 export function piNewThreadCatalog(input: PiCatalogInput): HostRuntimeNewThreadCatalog {
   const model = (entry: PiModelData): UiModel => {
     const subscription = input.subscription(entry.provider);
@@ -132,6 +134,9 @@ export function piNewThreadCatalog(input: PiCatalogInput): HostRuntimeNewThreadC
   return {
     models: input.available.map(model),
     ...(input.defaultModel ? { model: model(input.defaultModel) } : {}),
-    thinkingLevels: {},
+    thinkingLevels: Object.fromEntries(input.available.map((entry) => [
+      `${entry.provider}/${entry.id}`,
+      getSupportedThinkingLevels(entry as Parameters<typeof getSupportedThinkingLevels>[0]),
+    ])),
   };
 }

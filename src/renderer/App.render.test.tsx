@@ -662,6 +662,38 @@ describe("App render isolation", () => {
     expect(await screen.findByRole("button", { name: /Select model: GPT-6 Astra/u })).toBeTruthy();
   });
 
+  it("shows the reasoning levels of a draft's model, not those of the thread on screen (K137)", async () => {
+    const fake = { provider: "tau-fake", id: "fake-1", name: "Fake 1" };
+    const luna = { provider: "openai-codex", id: "gpt-5.6-luna", name: "GPT-5.6 Luna", reasoning: true };
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
+        detail: { sessionId: "fake-thread", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "fake-thread", models: [fake, luna], model: fake, thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0 },
+        project: { cwd: "/project" },
+      }),
+      invokeHostExtension: workspaceHostStub({
+        listEditors: async () => [],
+        getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+        getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+        getFileTree: async () => [],
+      }),
+      runtimeCatalog: async (kind) => kind === "pi" ? {
+        kind: "pi",
+        models: [fake, luna],
+        model: luna,
+        thinkingLevels: { "tau-fake/fake-1": ["off"], "openai-codex/gpt-5.6-luna": ["off", "minimal", "low", "medium", "high", "xhigh", "max"] },
+      } : undefined,
+    });
+
+    const storage = createMemoryStorage();
+    writeNewThreadDraft(storage, { kind: "draft", draftId: "luna-draft", projectPath: "/project", projectName: "project", model: { provider: luna.provider, id: luna.id, name: luna.name } });
+    renderApp(client, { storage });
+    expect(await screen.findByRole("button", { name: "Reasoning: Medium" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Select model: GPT-5\.6 Luna/u })).toBeTruthy();
+  });
+
   it("keeps an in-flight history load when a same-thread action returns detail", async () => {
     let resolvePage!: (page: TranscriptPage) => void;
     const loadTranscript = vi.fn(() => new Promise<TranscriptPage>((resolve) => { resolvePage = resolve; }));

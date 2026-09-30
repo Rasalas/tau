@@ -45,7 +45,10 @@ describe("Pi's catalog before a thread", () => {
     expect(catalog.model).toMatchObject({ provider: "openai", id: "gpt-5.6-luna" });
     // Only what the key reaches; the rest of Pi's data is the book.
     expect(catalog.models.every((model) => model.provider === "openai")).toBe(true);
-    expect(catalog.thinkingLevels).toEqual({});
+    // Levels by provider and id: one id can reason differently at another provider (K137).
+    expect(catalog.thinkingLevels["openai/gpt-5.6-luna"]).toEqual(["off", "low", "medium", "high", "xhigh", "max"]);
+    const plain = data.available.find((model) => !model.reasoning);
+    if (plain) expect(catalog.thinkingLevels[`${plain.provider}/${plain.id}`]).toEqual(["off"]);
   });
 
   it("prices other runtimes' models by Pi's data, an alias by the id it resolves to", async () => {
