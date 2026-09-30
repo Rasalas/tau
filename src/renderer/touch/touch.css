@@ -30,7 +30,7 @@
   min-height: 52px; padding: 0 6px 0 14px;
 }
 .touch-browser-header:has(> .touch-icon-button:first-child) { padding-left: 4px; }
-.touch-browser-header > strong { min-width: 0; font: 650 var(--text-title)/1.2 var(--sans); letter-spacing: -0.01em; }
+.touch-browser-header > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 650 var(--text-title)/1.2 var(--sans); letter-spacing: -0.01em; }
 /* The phone's start page carries its title as Reviews, Usage and Settings do (design 1p, 1r, 1s). */
 .touch-browser.screen.home .touch-browser-header > strong { font-size: var(--text-display); }
 .touch-browser-header > .spacer { flex: 1; }
