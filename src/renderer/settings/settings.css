@@ -414,7 +414,20 @@
 /* The stacked page gives its width to the rows. */
 .settings-screen.stacked .settings-content { padding: 16px 12px 32px; }
 
-/* Settings → About: the version and the licences of what Tau ships. */
+/* Settings → About (design 2k): the mark, the version and its links over one card. */
+.about-page { display: flex; flex-direction: column; gap: 18px; max-width: 640px; }
+.about-page.settings-page > * { margin-top: 0; }
+.about-hero { display: flex; align-items: flex-start; gap: 20px; outline: none; }
+.about-mark { flex: none; width: 64px; height: 64px; }
+.about-mark rect { fill: var(--brand); }
+.about-mark path { fill: none; stroke: var(--brand-on); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+.about-hero-text { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: var(--text-md); color: var(--faint); }
+.about-hero-text strong { font-weight: 600; color: var(--ink); }
+.about-hero-text p { margin: 0; color: var(--ink-3); }
+.about-hero-text p[role="alert"] { color: var(--danger); }
+.about-links { display: flex; flex-wrap: wrap; gap: 2px; margin: 4px 0 0 -8px; outline: none; }
+.about-links .tau-button { height: 26px; padding: 0 8px; font-size: var(--text-sm); }
+.about-links .tau-button[data-variant="ghost"] { color: var(--ink-3); }
 .about-licenses-filter { height: var(--control-h); margin: var(--space-5) var(--space-6); }
 .about-licenses { list-style: none; margin: 0; padding: 0 0 var(--space-3); }
 .about-license-row { display: flex; align-items: center; gap: 6px; padding: 0 var(--space-5) 0 var(--space-4); }

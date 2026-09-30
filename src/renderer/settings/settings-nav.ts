@@ -51,7 +51,7 @@ export const CORE_PAGE_TITLES: Readonly<Record<CoreSettingsPage, string>> = {
 
 /** What a core page governs, in one sentence under its title; the search finds it too. */
 export const CORE_PAGE_DESCRIPTIONS: Readonly<Record<CoreSettingsPage, string>> = {
-  general: "How the transcript and the composer behave, and how Tau runs in the background, quits and updates.",
+  general: "How the transcript and the composer behave, and how Tau runs in the background and quits.",
   keybindings: "The keys for the workbench's commands and Pi's actions, and where each of them applies.",
   models: "What a new thread starts with: its model and how hard it thinks, and what Pi samples with.",
   providers: "Who each runtime is signed in as and the providers it reaches, where its program lives, and the models it offers.",

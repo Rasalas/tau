@@ -8,7 +8,7 @@ You install Tau once. After that it keeps itself current, with or without a wind
 - It downloads the release in the background and checks it against the release's SHA-512 checksum.
 - It installs once no agent has run for a quarter of an hour, and never while one is working. With a window open, it waits until you choose **Restart** or quit.
 
-Settings → About shows the version of the machine you're connected to, whether an update is waiting, **Update now**, and a switch for **Automatic updates**. Settings → General → Update track switches between stable releases and the nightly build.
+Settings → About shows the version of the machine you're connected to, whether an update is waiting, **Update now**, **Copy diagnostics** for a bug report, and switches for **Automatic updates** and **Pre-release builds** (the nightly build instead of stable releases).
 
 Each kind of install updates in its own way:
 

@@ -437,7 +437,7 @@ delete the old key).
 
 ### Stable and nightly
 
-Settings → General → **Update track** writes `updates.channel` (`stable` or
+Settings → About → **Pre-release builds** writes `updates.channel` (`stable` or
 `nightly`) to this machine's `~/.tau/config.json`; the row is hidden while the
 window is a client of a host on another machine, because the updater reads the
 file of the machine it runs on. `src/main/app-updates.ts` reads the channel

@@ -63,7 +63,7 @@ describe("settings search", () => {
 
   it("anchors every row of General and Models", () => {
     expect(searchSettings(entries, "temperature")[0]).toMatchObject({ page: "models", target: "setting-temperature" });
-    expect(searchSettings(entries, "update track")[0]).toMatchObject({ page: "general", target: "setting-update-track" });
+    expect(searchSettings(entries, "update track")[0]).toMatchObject({ page: "about", target: "setting-pre-release-builds" });
   });
 
   it("finds the rows a section named on a core page, and leaves out a section's rows on no fixed page", () => {

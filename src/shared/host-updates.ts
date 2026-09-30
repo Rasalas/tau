@@ -49,6 +49,9 @@ export interface HostUpdateStatus {
   checkedAt?: number;
   /** Paired devices with Full access may start an install; the owner can turn that off. */
   devicesMayInstall: boolean;
+  /** The host's `process.platform` and `process.arch`, for Settings → About. */
+  platform?: string;
+  arch?: string;
 }
 
 /** What `update-settings` changes; `devicesMayInstall` only with the host token. */
@@ -85,6 +88,8 @@ export function decodeHostUpdateStatus(value: unknown): HostUpdateStatus | undef
     devicesMayInstall: item.devicesMayInstall === true,
     ...(item.method === "deb" || item.method === "appimage" || item.method === "mac" || item.method === "windows" ? { method: item.method } : {}),
     ...text("latest"),
+    ...text("platform"),
+    ...text("arch"),
     ...text("reason"),
     ...number("progress"),
     ...number("runningTurns"),

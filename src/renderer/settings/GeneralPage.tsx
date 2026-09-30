@@ -5,10 +5,8 @@ import { usePreferences } from "../renderer-services-context";
 import type { SendShortcut } from "../components/composer-send-keys";
 import { CONFIG_DEFAULTS } from "../../shared/config-layers";
 import { composerFold } from "../components/composer-fold";
-import { UPDATE_CHANNELS, defaultUpdateChannel, isUpdateChannel, type UpdateChannel } from "../../shared/app-version";
 import { QUIT_CONFIRMATIONS, isQuitConfirmation, type QuitConfirmation } from "../../shared/window-shell";
 import { isMacPlatform } from "../keybindings";
-import { useHostClient } from "../host-client-context";
 import { useHostCapabilities } from "../use-host-capabilities";
 import { SegmentedControl, Select, Switch } from "./controls";
 import { SettingRow, SettingsSection, useSetting } from "./settings-layout";
@@ -21,7 +19,6 @@ const SEND_SHORTCUTS: ReadonlyArray<{ value: SendShortcut; label: string }> = [
 ];
 
 const DETAIL_LABELS: Record<TranscriptDetail, string> = { focused: "Focused", detailed: "Detailed", everything: "Everything" };
-const CHANNEL_LABELS: Record<UpdateChannel, string> = { stable: "Stable", nightly: "Nightly" };
 const QUIT_LABELS: Record<QuitConfirmation, string> = { hold: "Hold", "double-press": "Press twice", off: "At once" };
 const THEME_LABELS: Record<string, string> = { system: "System", light: "Light", dark: "Dark" };
 
@@ -58,12 +55,7 @@ export function GeneralPage({ themeHere }: {
   });
   // CONFIG_DEFAULTS' value, written out: reading it here would keep the entry in the start-up chunk.
   const watchFiles = useSetting<boolean>("extensions.watch", { defaultValue: true, read: readBoolean });
-  // Unset, a nightly build stays on nightly: the updater reads it the same way.
-  const versions = useHostClient()?.getVersions();
-  const updateChannel = useSetting<UpdateChannel>("updates.channel", {
-    defaultValue: defaultUpdateChannel(versions?.window ?? versions?.host), read: (raw) => (isUpdateChannel(raw) ? raw : undefined), format: (value) => CHANNEL_LABELS[value],
-  });
-  // The updater and the quit chord read this machine's config; a host elsewhere would store a choice nothing here applies.
+  // The quit chord reads this machine's config; a host elsewhere would store a choice nothing here applies.
   const { localFiles: hostIsThisMachine } = useHostCapabilities();
   const quitShortcut = useSetting<QuitConfirmation>("confirm.quit", {
     defaultValue: CONFIG_DEFAULTS["confirm.quit"] as QuitConfirmation, read: (raw) => (isQuitConfirmation(raw) ? raw : undefined), format: (value) => QUIT_LABELS[value],
@@ -167,18 +159,6 @@ export function GeneralPage({ themeHere }: {
         </SettingsSection>
       ) : null}
 
-      {hostIsThisMachine ? (
-        <SettingsSection title="Updates">
-          <SettingRow
-            id={settingAnchor("Update track")}
-            title="Update track"
-            description="Stable installs tagged releases; Nightly the build of main published each night there is something new."
-            help="Switching back to Stable returns to the latest release, even when it is older than the nightly build you have."
-            setting={updateChannel}
-            control={<SegmentedControl label="Update track" value={updateChannel.value} options={UPDATE_CHANNELS.map((channel) => ({ value: channel, label: CHANNEL_LABELS[channel] }))} onChange={updateChannel.set} />}
-          />
-        </SettingsSection>
-      ) : null}
     </div>
   );
 }
