@@ -129,7 +129,9 @@ export class ThreadStages {
       if (isEmpty(layout)) { this.ports.storage.remove(key); return; }
       this.ports.storage.set(key, JSON.stringify({
         tabs: layout.stage.tabs,
-        ...(layout.stage.activeId ? { activeId: layout.stage.activeId } : {}),
+        // Undefined members are left out.
+        activeId: layout.stage.activeId,
+        splitId: layout.stage.splitId,
         ...(layout.maximized && layout.stage.tabs.length > 0 ? { maximized: true } : {}),
         ...(layout.folded && layout.stage.tabs.length > 0 ? { folded: true } : {}),
         dock: layout.dock,

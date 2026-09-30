@@ -185,6 +185,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       applyHostResult,
       closeActiveStageTab: stageTabs.closeActive,
       cycleStageTab,
+      splitStage: stageTabs.split,
       openStageTab: stageTabs.open,
       closeStageTab: stageTabs.close,
       stageTabs: stageTabs.tabs,

@@ -7,6 +7,8 @@ import {
   otherTabIds,
   setExtensionTabDirty,
   setExtensionTabTitle,
+  splitStage,
+  splitTab,
   stageParamsKey,
   tabIdsToTheRight,
   type StageState,
@@ -89,6 +91,9 @@ export class StageTabController {
     this.ports.onOpen?.();
     return id;
   };
+
+  /** Shows `id` beside the active tab; without one, splits off the active tab or joins the panes again. */
+  split = (id?: string): void => this.ports.setStage((current) => splitStage(current, id ?? (splitTab(current) ? undefined : current.activeId)));
 
   close = (id: string): void => this.closeAll([id]);
 

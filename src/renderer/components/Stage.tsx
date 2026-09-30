@@ -1,12 +1,12 @@
-import { useMemo, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import { Maximize2, Minimize2 } from "lucide-react";
+import { useMemo, useState, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { Maximize2, Minimize2, PanelRight } from "lucide-react";
 import type { UiMessage } from "../../shared/contracts";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
-import { activeTab, type StageExtensionTab, type StageState, type StageView } from "../../workbench/stage";
+import { activeTab, splitTab, type StageExtensionTab, type StageState, type StageTab, type StageView } from "../../workbench/stage";
 import type { DocumentOrigin, ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import type { StageTabController } from "../stage-tab-controller";
 import { FileViewer } from "./FileViewer";
-import { StageTabs } from "./StageTabs";
+import { STAGE_TAB_DRAG, StageTabs } from "./StageTabs";
 import { lookInMachine } from "../../workbench/look-in";
 import { usePlatform } from "../platform-context";
 import { RemoteThreadDocument } from "./RemoteThreadDocument";
@@ -31,8 +31,8 @@ function isEditable(target: EventTarget | null): boolean {
  */
 function ExtensionPane({ tab, registry, stageTabs, actions, from }: {
   tab: StageExtensionTab;
-  registry?: ExtensionRegistry;
-  stageTabs?: StageTabController;
+  registry?: ExtensionRegistry | undefined;
+  stageTabs?: StageTabController | undefined;
   actions: WorkbenchActions;
   from: DocumentOrigin;
 }) {
@@ -89,8 +89,8 @@ export function Stage({
   renderPanel?(panelId: string): ReactNode;
 }) {
   const current = activeTab(stage);
+  const beside = splitTab(stage);
   const environments = usePlatform().environments;
-  const lookIn = current?.kind === "thread" ? lookInMachine(current.machine, environments) : undefined;
   const from = useMemo<DocumentOrigin>(() => workspace ? { workspace } : {}, [workspace]);
   const changedRelative = useMemo(() => new Set(changes.files.map((file) => file.path)), [changes.files]);
   // A tab names its file relative to the project, or absolutely when a source did.
@@ -108,13 +108,69 @@ export function Stage({
     onClose(current.id);
   };
 
-  return <section ref={focusRef} tabIndex={-1} className="stage" aria-label="Stage" data-keybinding-context="stage" onKeyDown={onKeyDown}>
+  // A tab dragged below the strip splits the stage when let go (design 2f).
+  const [dropping, setDropping] = useState(false);
+  const onDrag = (event: DragEvent<HTMLElement>) => {
+    const over = event.type === "dragover" && stage.tabs.length > 1 && event.dataTransfer.types.includes(STAGE_TAB_DRAG) && !(event.target as Element).closest(".stage-strip");
+    if (over) event.preventDefault();
+    if (event.type === "drop" && dropping) stageTabs?.split(event.dataTransfer.getData(STAGE_TAB_DRAG));
+    if (over || event.type !== "dragleave" || !event.currentTarget.contains(event.relatedTarget as Node)) setDropping(over);
+  };
+
+  const pane = (tab: StageTab | undefined) => {
+    const lookIn = tab?.kind === "thread" ? lookInMachine(tab.machine, environments) : undefined;
+    return !tab ? (
+      <div className="stage-empty" role="status">Nothing is open here.</div>
+    ) : tab.kind === "panel" ? (
+      <section key={tab.id} className="stage-pane panel-pane" aria-label={registry?.getPanels().find((panel) => panel.id === tab.panelId)?.label ?? tab.panelId}>
+        {renderPanel?.(tab.panelId) ?? <div className="stage-empty" role="status">The extension that draws this panel is not active.</div>}
+      </section>
+    ) : tab.kind === "extension" ? (
+      <ExtensionPane
+        key={tab.id}
+        tab={tab}
+        registry={registry}
+        stageTabs={stageTabs}
+        actions={actions}
+        from={from}
+      />
+    ) : tab.kind === "thread" && lookIn ? (
+      <RemoteThreadDocument key={tab.id} machine={lookIn} sessionId={tab.sessionId} actions={actions} registry={registry} />
+    ) : tab.kind === "thread" ? (
+      <ThreadDocument
+        key={tab.id}
+        sessionId={tab.sessionId}
+        loadThread={loadThread}
+        onTakeOver={onTakeOverThread}
+      />
+    ) : (
+      <FileViewer
+        key={tab.id}
+        tab={tab}
+        relativePath={relativeTo(cwd, tab.path)}
+        changed={changedRelative.has(relativeTo(cwd, tab.path))}
+        stat={changes.files.find((file) => file.path === relativeTo(cwd, tab.path))}
+        editor={editor}
+        commands={registry?.getCommandsFor("file-tab") ?? []}
+        actions={actions}
+        loadFile={loadFile}
+        loadDiff={loadDiff}
+        onChangeView={(view) => onChangeView(tab.id, view)}
+        onOpenInEditor={onOpenInEditor}
+        onClose={() => onClose(tab.id)}
+      />
+    );
+  };
+
+  return <section ref={focusRef} tabIndex={-1} className="stage" aria-label="Stage" data-keybinding-context="stage" onKeyDown={onKeyDown} onDragOver={onDrag} onDragLeave={onDrag} onDrop={onDrag}>
     <div className="stage-strip">
       <StageTabs
         tabs={stage.tabs}
         activeId={stage.activeId}
+        splitId={beside?.id}
+        onSplit={stageTabs?.split}
         changedPaths={changedPaths}
-        {...(registry ? { registry } : {})}
+        registry={registry}
         onActivate={onActivate}
         onClose={onClose}
         onPin={onPin}
@@ -137,46 +193,7 @@ export function Stage({
         </> : null}
       </div>
     </div>
-    {!current ? (
-      <div className="stage-empty" role="status">Nothing is open here.</div>
-    ) : current.kind === "panel" ? (
-      <section key={current.id} className="stage-pane panel-pane" aria-label={registry?.getPanels().find((panel) => panel.id === current.panelId)?.label ?? current.panelId}>
-        {renderPanel?.(current.panelId) ?? <div className="stage-empty" role="status">The extension that draws this panel is not active.</div>}
-      </section>
-    ) : current.kind === "extension" ? (
-      <ExtensionPane
-        key={current.id}
-        tab={current}
-        {...(registry ? { registry } : {})}
-        {...(stageTabs ? { stageTabs } : {})}
-        actions={actions}
-        from={from}
-      />
-    ) : current.kind === "thread" && lookIn ? (
-      <RemoteThreadDocument key={current.id} machine={lookIn} sessionId={current.sessionId} actions={actions} {...(registry ? { registry } : {})} />
-    ) : current.kind === "thread" ? (
-      <ThreadDocument
-        key={current.id}
-        sessionId={current.sessionId}
-        loadThread={loadThread}
-        onTakeOver={onTakeOverThread}
-      />
-    ) : (
-      <FileViewer
-        key={current.id}
-        tab={current}
-        relativePath={relativeTo(cwd, current.path)}
-        changed={changedRelative.has(relativeTo(cwd, current.path))}
-        stat={changes.files.find((file) => file.path === relativeTo(cwd, current.path))}
-        editor={editor}
-        commands={registry?.getCommandsFor("file-tab") ?? []}
-        actions={actions}
-        loadFile={loadFile}
-        loadDiff={loadDiff}
-        onChangeView={(view) => onChangeView(current.id, view)}
-        onOpenInEditor={onOpenInEditor}
-        onClose={() => onClose(current.id)}
-      />
-    )}
+    {beside ? <div className="stage-split">{pane(current)}{pane(beside)}</div> : pane(current)}
+    {dropping ? <div className="stage-split-drop"><PanelRight size={16} />Drop to split</div> : null}
   </section>;
 }

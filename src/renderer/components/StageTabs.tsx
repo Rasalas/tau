@@ -9,6 +9,9 @@ import { Menu, type MenuItem } from "./Menu";
 import { stageTabGlyph } from "./StageSpine";
 import { tooltipProps } from "./ui/Tooltip";
 
+/** What a tab dragged off the strip carries: its id. */
+export const STAGE_TAB_DRAG = "application/x-tau-stage-tab";
+
 /** What every tab of the strip does, whatever it holds. */
 interface TabChrome {
   id: string;
@@ -38,6 +41,8 @@ function StageTabButton({ chrome, title, label, icon, marker }: {
     onDoubleClick={chrome.pin}
     onContextMenu={(event) => { event.preventDefault(); chrome.openMenu(event, label); }}
     onAuxClick={(event) => { if (event.button === 1) chrome.close(); }}
+    draggable
+    onDragStart={(event) => event.dataTransfer.setData(STAGE_TAB_DRAG, chrome.id)}
     onKeyDown={(event) => {
       if (event.key === "Enter" || event.key === " ") { event.preventDefault(); chrome.activate(); }
     }}
@@ -105,21 +110,25 @@ function useOverflow(strip: React.RefObject<HTMLElement | null>, count: number):
 }
 
 export function StageTabs({
-  tabs, activeId, changedPaths, registry,
-  onActivate, onClose, onPin, onUnpin, onCloseOthers, onCloseToRight,
+  tabs, activeId, splitId, changedPaths, registry,
+  onActivate, onClose, onPin, onUnpin, onCloseOthers, onCloseToRight, onSplit,
 }: {
   tabs: StageTab[];
   activeId?: string;
+  /** The tab shown beside the active one. */
+  splitId?: string | undefined;
   /** Absolute paths with uncommitted changes. */
   changedPaths: ReadonlySet<string>;
   /** Where an extension tab's or a panel's glyph comes from. */
-  registry?: ExtensionRegistry;
+  registry?: ExtensionRegistry | undefined;
   onActivate(id: string): void;
   onClose(id: string): void;
   onPin(id: string): void;
   onUnpin(id: string): void;
   onCloseOthers(id: string): void;
   onCloseToRight(id: string): void;
+  /** Shows a tab beside the active one; without an id, joins the panes again. */
+  onSplit?: ((id?: string) => void) | undefined;
 }) {
   const [menu, setMenu] = useState<TabMenu>();
   const [listOpen, setListOpen] = useState(false);
@@ -135,6 +144,7 @@ export function StageTabs({
     { id: "close-others", label: "Close others", disabled: tabs.length < 2 },
     { id: "close-right", label: "Close to the right", disabled: tabs.findIndex((tab) => tab.id === menu.id) >= tabs.length - 1 },
     { id: "pin", label: menu.preview ? "Pin" : "Unpin" },
+    ...(onSplit ? [{ id: "split", label: menu.id === splitId ? "Unsplit" : "Split right", disabled: tabs.length < 2 }] : []),
   ] : [];
   const runMenu = (action: string) => {
     if (!menu) return;
@@ -142,6 +152,7 @@ export function StageTabs({
     else if (action === "close-others") onCloseOthers(menu.id);
     else if (action === "close-right") onCloseToRight(menu.id);
     else if (action === "pin") (menu.preview ? onPin : onUnpin)(menu.id);
+    else onSplit?.(menu.id === splitId ? undefined : menu.id);
   };
 
   return <div className="stage-tabs-frame">
@@ -149,7 +160,7 @@ export function StageTabs({
       {tabs.map((tab) => {
         const chrome: TabChrome = {
           id: tab.id,
-          active: tab.id === activeId,
+          active: tab.id === activeId || tab.id === splitId,
           preview: tab.preview,
           activate: () => onActivate(tab.id),
           close: () => onClose(tab.id),

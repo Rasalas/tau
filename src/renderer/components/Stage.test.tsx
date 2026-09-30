@@ -366,6 +366,43 @@ describe("a tab a kit drew", () => {
     expect(screen.getByRole("tab", { name: /shell t1/u })).toBeTruthy();
   });
 
+  it("splits the stage from a tab's menu, draws both panes, and joins them again (design 2f)", async () => {
+    render(<Harness initial={openFileTab(tab("t1"), `${CWD}/src/a.ts`, { pin: true })} registry={terminals()} />);
+    await screen.findByText("const a = 1;");
+
+    fireEvent.contextMenu(screen.getByRole("tab", { name: /shell t1/u }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Split right" }));
+
+    expect(await screen.findByRole("button", { name: /shell t1 output/u })).toBeTruthy();
+    // The pane in front is drawn anew beside the split one, so its file is read again.
+    expect(await screen.findByText("const a = 1;")).toBeTruthy();
+    expect(screen.getAllByRole("tab").filter((entry) => entry.classList.contains("active"))).toHaveLength(2);
+
+    fireEvent.contextMenu(screen.getByRole("tab", { name: /shell t1/u }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Unsplit" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /shell t1 output/u })).toBeNull());
+    expect(await screen.findByText("const a = 1;")).toBeTruthy();
+  });
+
+  it("splits when a tab dragged off the strip is let go over the stage, not over the strip", async () => {
+    render(<Harness initial={openFileTab(tab("t1"), `${CWD}/src/a.ts`, { pin: true })} registry={terminals()} />);
+    const body = await screen.findByText("const a = 1;");
+    const id = "ext:terminal:t1";
+    const carried = { types: ["application/x-tau-stage-tab"], getData: () => id, setData: vi.fn() };
+
+    fireEvent.dragStart(screen.getByRole("tab", { name: /shell t1/u }), { dataTransfer: carried });
+    expect(carried.setData).toHaveBeenCalledWith("application/x-tau-stage-tab", id);
+    fireEvent.dragOver(screen.getByRole("tab", { name: /a\.ts/u }), { dataTransfer: carried });
+    expect(screen.queryByText("Drop to split")).toBeNull();
+    fireEvent.dragOver(body, { dataTransfer: carried });
+    expect(await screen.findByText("Drop to split")).toBeTruthy();
+    fireEvent.drop(body, { dataTransfer: carried });
+
+    expect(await screen.findByRole("button", { name: /shell t1 output/u })).toBeTruthy();
+    expect(await screen.findByText("const a = 1;")).toBeTruthy();
+    expect(screen.queryByText("Drop to split")).toBeNull();
+  });
+
   it("unpins a tab from the context menu, which makes it the preview again", async () => {
     render(<Harness initial={tab("t1")} registry={terminals()} />);
 
