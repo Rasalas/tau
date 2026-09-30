@@ -174,7 +174,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       navigate: (route) => leaveTo(routeSearch(route)),
       forgetToken: (id) => book.forgetToken(id),
       rename: (id, name) => book.update(id, { name }),
-      remove: async (id) => { await book.remove(id); clearHostStorage(storage, id); },
+      remove: async (id) => { await book.remove(id); clearHostStorage(storage, id); void pushRegistrar()?.forget(id).catch(() => undefined); },
       visibility: context.visibility ?? documentVisibility,
     });
     const environment: ClientEnvironment = {
@@ -316,7 +316,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
         {...(view.notice ? { notice: view.notice } : {})}
         now={now().getTime()}
         onOpen={(host) => void openHost(host)}
-        onRemove={(host) => void book.remove(host.id).then(() => { clearHostStorage(storage, host.id); return refresh(); })}
+        onRemove={(host) => void book.remove(host.id).then(() => { clearHostStorage(storage, host.id); void pushRegistrar()?.forget(host.id).catch(() => undefined); return refresh(); })}
         onAdd={() => setView({ name: "add" })}
         onDemo={() => {
           const demo = createDemoHost();
