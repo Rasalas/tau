@@ -111,9 +111,10 @@ export class ChatGPTPlan {
     });
   }
 
-  async models(instance: string): Promise<CodexModel[]> {
+  /** The slugs this account may use, in the account's order. */
+  async models(instance: string): Promise<Array<{ slug: string; displayName: string }>> {
     const saved = await this.credentials(instance);
-    return (await this.oauth.models(saved.tokens!.accessToken)).map((model, index) => ({ id: model.slug, model: model.slug, displayName: model.display_name, hidden: false, isDefault: index === 0, defaultReasoningEffort: "", supportedReasoningEfforts: [] }));
+    return (await this.oauth.models(saved.tokens!.accessToken)).map((model) => ({ slug: model.slug, displayName: model.display_name }));
   }
 
   async signOut(instance: string): Promise<{ revoked: boolean; message: string }> {
@@ -126,4 +127,15 @@ export class ChatGPTPlan {
       return { revoked, message: revoked ? "Signed out of ChatGPT." : "Signed out locally. Remote revocation was not confirmed; disconnect Tau in ChatGPT Settings to end remote access." };
     });
   }
+}
+
+/**
+ * The account's models as Codex describes them. Codex's catalog names the
+ * default and the reasoning efforts; a model it does not know is left out.
+ */
+export function planCatalog(allowed: ReadonlyArray<{ slug: string; displayName: string }>, codex: readonly CodexModel[]): CodexModel[] {
+  return allowed.flatMap((model) => {
+    const details = codex.find((entry) => entry.model === model.slug || entry.id === model.slug);
+    return details ? [{ ...details, id: model.slug, model: model.slug, displayName: model.displayName, hidden: false }] : [];
+  });
 }

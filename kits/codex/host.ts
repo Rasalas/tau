@@ -1,4 +1,4 @@
-import { ChatGPTPlan, CHATGPT_PLAN_ARGS, CHATGPT_PLAN_METHOD, CHATGPT_USAGE_URL } from "./chatgpt-plan.js";
+import { ChatGPTPlan, CHATGPT_PLAN_ARGS, CHATGPT_PLAN_METHOD, CHATGPT_USAGE_URL, planCatalog } from "./chatgpt-plan.js";
 import type { ChatGPTRegistration } from "./chatgpt-plan-store.js";
 import { PLAN_SCOPE } from "./chatgpt-plan-oauth.js";
 import { createManagedCodex, MANAGED_CODEX_VERSION } from "./managed-install.js";
@@ -320,11 +320,8 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
             session.account = async () => ({ type: "chatgpt", email: credentials.email ?? null, planType: "" });
             const catalog = session.models.bind(session);
             session.models = async () => {
-              const [allowed, metadata] = await Promise.all([chatgpt.models(id), catalog().catch(() => [])]);
-              return allowed.map((model) => {
-                const details = metadata.find((entry) => entry.model === model.model || entry.id === model.id);
-                return { ...details, ...model, supportedReasoningEfforts: details?.supportedReasoningEfforts ?? [], defaultReasoningEffort: details?.defaultReasoningEffort ?? "" };
-              });
+              const [allowed, codex] = await Promise.all([chatgpt.models(id), catalog()]);
+              return planCatalog(allowed, codex);
             };
           }
           return session;

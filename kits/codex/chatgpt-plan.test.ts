@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { generateKeyPair, exportJWK, SignJWT } from "jose";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SignInFlowContext } from "tau/host-extension";
-import { ChatGPTPlan, CHATGPT_PLAN_ARGS } from "./chatgpt-plan.js";
+import { ChatGPTPlan, CHATGPT_PLAN_ARGS, planCatalog } from "./chatgpt-plan.js";
 import { ChatGPTPlanStore } from "./chatgpt-plan-store.js";
 import { ChatGPTOAuthClient, CHATGPT_ISSUER, CHATGPT_RESOURCE, PLAN_SCOPE, startChatGPTOAuth } from "./chatgpt-plan-oauth.js";
 
@@ -173,7 +173,7 @@ describe("ChatGPT plan authorization", () => {
     expect(f.issued[1]!.get("refresh_token")).toBe("refresh-1");
     expect(f.issued[1]!.has("scope")).toBe(false);
     expect((await f.plan.read("one"))!.tokens).toMatchObject({ accessToken: "access-2", refreshToken: "refresh-2" });
-    expect(await f.plan.models("one")).toEqual([expect.objectContaining({ id: "fixture-model", displayName: "Fixture model" })]);
+    expect(await f.plan.models("one")).toEqual([{ slug: "fixture-model", displayName: "Fixture model" }]);
   });
 
   it("revokes and clears only the selected account, retaining registration and host identity", async () => {
@@ -251,5 +251,11 @@ describe("ChatGPT plan authorization", () => {
     expect(CHATGPT_PLAN_ARGS).toContain('disable_response_storage=true');
     // ACCESS_TOKEN rides in Codex's environment; the *TOKEN* filter keeps it out of commands.
     expect(CHATGPT_PLAN_ARGS).toContain("shell_environment_policy.ignore_default_excludes=false");
+  });
+
+  it("takes the default and the efforts from Codex's catalog and leaves out models Codex does not know", () => {
+    const codex = (id: string, isDefault: boolean) => ({ id, model: id, displayName: id, hidden: false, isDefault, defaultReasoningEffort: "medium", supportedReasoningEfforts: [{ reasoningEffort: "medium" }] });
+    const catalog = planCatalog([{ slug: "b", displayName: "Account B" }, { slug: "a", displayName: "Account A" }, { slug: "new", displayName: "New" }], [codex("a", true), codex("b", false)]);
+    expect(catalog.map((model) => [model.id, model.displayName, model.isDefault, model.supportedReasoningEfforts.length])).toEqual([["b", "Account B", false, 1], ["a", "Account A", true, 1]]);
   });
 });

@@ -572,9 +572,19 @@ describe("Codex ChatGPT plan instances", () => {
     const { registry, provider, root, launches, fetch } = await harness({ installed: "0.159.2", env: { TAU_CODEX_COMMAND: "codex", CODEX_HOME: "/never-read-user-home" } });
     const credentials = new ChatGPTPlanStore(join(root, "state", "tau.codex", "chatgpt-plan"));
     await credentials.write("default", { issuer: "https://auth.openai.com", subject: "fixture-subject", clientId: "oaiapp_fixture", email: "fixture@example.test", tokens: { accessToken: "fixture-access", refreshToken: "fixture-refresh", idToken: "fixture-id", scopes: ["chatgpt.tokens.use.direct"], expiresAt: Date.now() + 3600_000 } });
-    fetch.mockImplementation(async () => Response.json({ models: [{ slug: "gpt-6.1-sol", display_name: "Account model", visibility: "list" }] }));
+    fetch.mockImplementation(async () => Response.json({ models: [
+      { slug: "gpt-5.6-sol", display_name: "Account Sol", visibility: "list" },
+      { slug: "gpt-6-astra", display_name: "Account Astra", visibility: "list" },
+      { slug: "gpt-7-unknown", display_name: "Not in Codex's catalog", visibility: "list" },
+    ] }));
     const catalog = await provider.newThreadCatalog!();
-    expect(catalog!.models).toEqual([expect.objectContaining({ id: "gpt-6.1-sol", name: "Account model", billing: "subscription" })]);
+    // The account's models Codex knows, starting on Codex's default, with Codex's efforts.
+    expect(catalog!.models).toEqual([
+      expect.objectContaining({ id: "gpt-5.6-sol", name: "Account Sol", billing: "subscription", reasoning: true }),
+      expect.objectContaining({ id: "gpt-6-astra", name: "Account Astra", reasoning: true }),
+    ]);
+    expect(catalog!.model).toMatchObject({ id: "gpt-6-astra" });
+    expect(catalog!.thinkingLevels["gpt-6-astra"]).toContain("high");
     expect(launches[0]!.env.ACCESS_TOKEN).toBe("fixture-access");
     expect(launches[0]!.env.CODEX_HOME).toBe(join(root, "state", "tau.codex", "chatgpt-plan-homes", "default"));
     expect(launches[0]!.args).toEqual(CHATGPT_PLAN_ARGS);
