@@ -1436,7 +1436,7 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 
 /* ---------------------------------------------------------- dividers */
 
-.resize-handle { position: absolute; z-index: 20; outline: none; }
+.resize-handle { touch-action: none; position: absolute; z-index: 20; outline: none; }
 .resize-handle[aria-orientation="vertical"] { top: 0; bottom: 0; width: 8px; cursor: col-resize; }
 .resize-handle[aria-orientation="horizontal"] { left: 0; right: 0; height: 8px; cursor: row-resize; }
 .resize-handle::after { content: ""; position: absolute; inset: 0 auto 0 3px; width: 1px; background: transparent; transition: background .12s ease; }
@@ -2273,3 +2273,17 @@ button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--i
   user-select: text;
 }
 .remote-thread-document > .region-look-in { flex: none; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+
+.stage-tools { --stage-tool-size: 28px; display: flex; flex: 0 1 auto; align-items: center; gap: 1px; min-width: 0; }
+.stage-tools > .stage-tool, .stage-tools > .menu-anchor { flex: none; }
+.stage-tool { position: relative; }
+.stage-tool-activity { position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; border-radius: 50%; background: var(--info); }
+body[data-profile="compact"] .stage-tools { --stage-tool-size: 44px; }
+body[data-profile="compact"] .touch-split .thread-header-tools { flex: 0 1 auto; min-width: 44px; max-width: 50%; }
+
+body[data-profile="compact"] .stage-tool[aria-pressed="true"] { background: var(--raised); color: var(--ink); }
+
+body[data-profile="compact"] .touch-split .thread-header { gap: 6px; padding-inline: 12px; }
+body[data-profile="compact"] .touch-split .thread-heading { flex: 1 1 0; min-width: 0; max-width: none; }
+body[data-profile="compact"] .touch-split .thread-header-actions:empty { display: none; }
+body[data-profile="compact"] .touch-split .thread-header-tools { max-width: 60%; }

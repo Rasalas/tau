@@ -59,3 +59,5 @@ body[data-profile="compact"] .stage-tab-close { width: 36px; height: 36px; right
 body[data-profile="compact"] .stage-strip-actions .stage-tool { width: 44px; height: 44px; }
 /* On the stage the tab names the panel: its own header keeps only its controls. */
 .panel-pane .panel-header > h2 { display: none; }
+
+body[data-profile="compact"] .stage-strip-actions { flex: 0 1 auto; min-width: 44px; max-width: 65%; }

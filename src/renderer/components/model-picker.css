@@ -2,7 +2,7 @@
  * The model picker: a popover at its chip with no scrim, in three columns —
  * runtimes as marks, the runtime's models (pinned first), the thinking level —
  * over "Recent". A phone and a narrow window stack the columns; on a compact
- * layout it is a bottom sheet (touch/touch.css). Loaded with the picker's
+ * phone layout it is a bottom sheet; tablets keep the popover. Loaded with the picker's
  * chunk when it first opens; the chip keeps its rules in styles.css.
  */
 .model-picker.popover {
