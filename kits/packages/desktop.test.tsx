@@ -132,7 +132,7 @@ describe("Packages kit", () => {
     const unbind = installs.bind({ ...actions(), toast } as unknown as WorkbenchActions);
     expect(toast.mock.calls.map(([options]) => (options as { title: string }).title)).toEqual(["Installed My kit"]);
     emit({ command: "install", result: row, untrusted: true });
-    expect((toast.mock.calls[1]?.[0] as { title: string }).title).toBe("My kit: skipped, project not trusted");
+    expect(toast.mock.calls[1]?.[0]).toMatchObject({ title: "My kit: skipped, project not trusted" });
     unbind();
   });
 
