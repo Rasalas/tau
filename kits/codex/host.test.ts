@@ -12,6 +12,7 @@ import { codexToolArgs } from "./tools.js";
 import { spawnRpcProcess } from "./rpc.js";
 import { ChatGPTPlanStore } from "./chatgpt-plan-store.js";
 import { CHATGPT_PLAN_ARGS } from "./chatgpt-plan.js";
+import { MANAGED_CODEX_VERSION } from "./managed-install.js";
 import { CodexSessionStore } from "./session-store.js";
 
 const STUB = fileURLToPath(new URL("./fixtures/stub-app-server.mjs", import.meta.url));
@@ -644,8 +645,8 @@ it("keeps Pro Max and future ChatGPT plans usable", () => {
 it("switches compatible managed registrations using shared rollouts and separate tokens", async () => {
   const sharedRoot = await mkdtemp(join(tmpdir(), "tau-managed-continuity-")); directories.push(sharedRoot);
   const shared = join(sharedRoot, "shared");
-  const { provider, registry, root, fetch, launches } = await harness({ sharedSessions: true, settings: {
-    home: shared, instances: [{ id: "work", home: shared }, { id: "independent" }, { id: "cli", home: shared }],
+  const { provider, registry, root, fetch, launches } = await harness({ installed: MANAGED_CODEX_VERSION, sharedSessions: true, settings: {
+    command: "codex", home: shared, instances: [{ id: "work", command: "codex", home: shared }, { id: "independent", command: "codex" }, { id: "cli", home: shared }],
   } });
   const credentials = new ChatGPTPlanStore(join(root, "state", "tau.codex", "chatgpt-plan"));
   for (const id of ["default", "work", "independent"]) {

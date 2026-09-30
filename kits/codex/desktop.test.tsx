@@ -263,7 +263,9 @@ it("renders dynamic Ultrafast tiers and compatible accounts, then displays a swi
   await waitFor(() => expect(invoke).toHaveBeenCalledWith("set-thread-tier", { threadId: "thread", tier: "ultrafast" }));
   const other = screen.getByRole("radio", { name: /Other/u });
   expect(other.hasAttribute("disabled")).toBe(true);
-  fireEvent.click(screen.getByRole("radio", { name: /Work/u }));
+  const work = screen.getByRole("radio", { name: /Work/u });
+  await waitFor(() => expect(work.hasAttribute("disabled")).toBe(false));
+  fireEvent.click(work);
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Account cannot resume this session");
   expect(screen.getByText("Future tier")).toBeTruthy();
 });
