@@ -138,7 +138,7 @@ export const HOST_METHOD_ACCESS = {
   "environments-retry": "write",
   "environments-open": "write",
   "environments-discover": "write",
-  "environments-wsl-list": "write",
+  "environments-wsl-list": "read",
   "environments-set-preferences": "write",
   "environments-set-agents": "write",
   // Another machine's own Tau, with the window's key there; that machine decides (K103).

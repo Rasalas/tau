@@ -25,7 +25,7 @@ import { publishedEndpoints, type HostConnectionsService, type HostListenInfo } 
 import { isHostOwner } from "./host-invocation.js";
 import { HostClientRegistry } from "./host-clients.js";
 import { hostAllowedOrigins } from "./host-origin.js";
-import { createProtocolServer, startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
+import { createProtocolServer, startSocketHostTransport, type SocketHostTransport, type SocketHostTransportOptions } from "./host-transport-socket.js";
 import { createWebClientServer } from "./host-web-server.js";
 import { isLoopbackHost, parseListen, rememberPort, rememberedPort, stickyListen } from "./host-listen.js";
 import { HostTlsReloader, resolveHostTls } from "./host-tls.js";
@@ -473,7 +473,7 @@ async function main(): Promise<void> {
   const web = existsSync(join(webRoot, "index.html"))
     ? createWebClientServer({ dir: webRoot, ...(tls ? { tls } : {}) })
     : undefined;
-  const transportOptions = {
+  const transportOptions: SocketHostTransportOptions = {
     listen: listenOn,
     methods: compactor.observe(methods),
     pushLog,

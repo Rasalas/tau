@@ -49,7 +49,7 @@ it("pairs and authenticates through an opaque TLS relay, refuses wrong credentia
     const waiting = access.overview().requests[0]; if (waiting) void access.approvePairing(waiting.id);
   } });
   cleanup.push(() => access.flush());
-  const transport = await startSocketHostTransport({ listen: "127.0.0.1:0", methods: { echo: async (params) => params[0] }, hostVersion: "connect-test", host: { id: "test-host", name: "Remote" }, pushLog: new HostPushLog(), access, tls: inner, trust: "proxy" });
+  const transport = await startSocketHostTransport({ listen: "127.0.0.1:0", methods: { echo: async (params) => params[0] }, capabilities: [], hostVersion: "connect-test", host: { id: "test-host", name: "Remote" }, pushLog: new HostPushLog(), access, tls: inner, trust: "proxy" });
   cleanup.push(() => transport.close());
   const host = new ConnectHostTunnel(route, transport.port, () => undefined, { ca: outer.cert }); host.start(); cleanup.push(() => host.close());
   await vi.waitFor(() => expect(relay.stats().hosts).toBe(1));

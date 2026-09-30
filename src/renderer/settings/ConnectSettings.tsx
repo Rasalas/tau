@@ -35,7 +35,7 @@ export function ConnectSettings({ onNotify }: { onNotify(message: string): void 
       <p role="status">{status.phase === "connected" ? "Connected" : status.phase === "connecting" ? "Connecting…" : "Offline"} · {status.relay}</p>
       {status.detail ? <p>{status.detail}</p> : null}
       <Button disabled={busy || status.phase !== "connected"} onClick={() => void run(async () => { const { link } = await client!.createConnectLink!(); await client!.copyText(link); onNotify("Tau Connect pairing link copied. Paste it in Settings → Machines on the other desktop."); })}>Copy pairing link</Button>
-      <Button disabled={busy} onClick={() => void run(async () => { setStatus(await client!.removeConnect!()); onNotify("Tau Connect stopped on this machine. Delete the route on your relay to revoke its transport credentials."); })}>Disconnect</Button>
+      <Button disabled={busy} onClick={() => void run(async () => { const next = await client!.removeConnect!(); setStatus(next); onNotify(next.detail ?? "Tau Connect disconnected and its relay route was revoked."); })}>Disconnect</Button>
     </>}
     {problem ? <p role="alert">{problem}</p> : null}
   </SettingsSection>;

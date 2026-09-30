@@ -99,10 +99,16 @@ export class ManagedSshTunnel {
   private attempts = 0;
   constructor(readonly route: SshRoute, private readonly exec: SshExecutor = sshExecutor) {}
   async start(signal?: AbortSignal): Promise<void> {
+    try { await this.startOnce(signal); }
+    catch (error) { if (signal?.aborted) this.close(); else this.reconnect(); throw error; }
+  }
+  private async startOnce(signal?: AbortSignal): Promise<void> {
+    if (this.closed) throw new Error("The SSH forward was closed.");
     const ready = await this.exec.run(this.route.target, `${managedCli(this.route.platform)} service status >/dev/null; ${this.descriptorCommand()}`, undefined, signal);
     const descriptor = JSON.parse(ready.trim().split("\n").at(-1)! ) as { url: string };
     const remote = new URL(descriptor.url);
     if (!/^(ws|wss):$/u.test(remote.protocol) || !["127.0.0.1", "localhost", "[::1]"].includes(remote.hostname)) throw new Error("The managed host must listen on loopback.");
+    if (this.closed || signal?.aborted) throw new Error("SSH setup was cancelled.");
     this.child = this.exec.spawn(this.route.target, "cat >/dev/null", ["-L", `127.0.0.1:${this.route.port}:127.0.0.1:${remote.port}`]);
     let problem = "";
     this.child.stderr.on("data", (bytes: Buffer) => { problem = (problem + bytes.toString()).slice(-2_000); });
@@ -114,11 +120,11 @@ export class ManagedSshTunnel {
       if (await reachable(this.route.port)) { this.attempts = 0; return; }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    this.close(); throw new Error("SSH forwarding did not open in time.");
+    this.child.kill(); throw new Error("SSH forwarding did not open in time.");
   }
   private descriptorCommand(): string {
     const executable = this.route.platform === "darwin" ? "Tau.app/Contents/MacOS/Tau" : "tau";
-    return `ELECTRON_RUN_AS_NODE=1 ${root}/current/${executable} -e ${shellQuote('const fs=require("fs"); const d=JSON.parse(fs.readFileSync(process.env.HOME+"/.local/share/tau-managed/data/host.json","utf8")); console.log(JSON.stringify({url:d.url}));')}`;
+    return `ELECTRON_RUN_AS_NODE=1 ${root}/current/${executable} -e ${shellQuote('const fs=require("fs");const limit=Date.now()+30000;function probe(){if(Date.now()>limit){console.error("Tau service did not become ready; inspect its service log");process.exit(1);}let d;try{d=JSON.parse(fs.readFileSync(process.env.HOME+"/.local/share/tau-managed/data/host.json","utf8"));}catch{setTimeout(probe,250);return;}const s=new WebSocket(d.url);let ended=false;const retry=()=>{if(ended)return;ended=true;s.close();setTimeout(probe,250);};const timer=setTimeout(retry,2000);s.onopen=()=>s.send(JSON.stringify({type:"hello",id:"probe",hello:{protocol:1,token:fs.readFileSync(d.tokenPath,"utf8").trim(),auxiliary:true}}));s.onerror=retry;s.onmessage=e=>{const f=JSON.parse(String(e.data));if(f.type==="hello-reply"&&f.reply.owner!==false){ended=true;clearTimeout(timer);console.log(JSON.stringify({url:d.url}));s.close();}};}probe();')}`;
   }
   private reconnect(): void {
     if (this.closed || this.timer) return;
@@ -128,21 +134,23 @@ export class ManagedSshTunnel {
   close(): void { this.closed = true; clearTimeout(this.timer); this.child?.kill(); }
 }
 
-export async function bootstrapSshHost(target: string, cacheDir: string, deviceName: string, signal?: AbortSignal, exec: SshExecutor = sshExecutor): Promise<{ pairing: ManagedPairing; tunnel: ManagedSshTunnel }> {
+export async function bootstrapSshHost(target: string, cacheDir: string, deviceName: string, signal?: AbortSignal, exec: SshExecutor = sshExecutor, releaseHost: typeof prepareManagedHostRelease = prepareManagedHostRelease): Promise<{ pairing: ManagedPairing; tunnel: ManagedSshTunnel }> {
   validateSshTarget(target);
   const probe = (await exec.run(target, "uname -s; uname -m", undefined, signal)).trim().split("\n").slice(-2);
   const platform: ManagedHostPlatform = probe[0] === "Linux" ? "linux" : probe[0] === "Darwin" ? "darwin" : "win32";
   if (platform === "win32") throw new Error("Managed SSH currently requires Linux or macOS. On Windows, add a WSL distribution.");
   const arch = ["aarch64", "arm64"].includes(probe[1]!) ? "arm64" : ["x86_64", "amd64"].includes(probe[1]!) ? "x64" : undefined;
   if (!arch) throw new Error(`Tau has no portable host for ${probe[1]}.`);
-  const release = await prepareManagedHostRelease(platform, arch, cacheDir, signal);
+  const release = await releaseHost(platform, arch, cacheDir, signal);
   await exec.upload(target, release.path, signal);
   await exec.run(target, `sh -s -- ${root}/archive.part ${root}`, portableBootstrapScript(platform, release.version, release.sha512), signal);
   const route: SshRoute = { target, platform, port: await freeLocalPort() };
   const tunnel = new ManagedSshTunnel(route, exec);
-  await tunnel.start(signal);
   try {
+    await tunnel.start(signal);
     const child = exec.spawn(target, `${managedCli(platform)} machines accept-ssh`);
+    child.stdin.on("error", () => undefined);
+    child.stderr.on("data", () => undefined);
     const lines = createInterface({ input: child.stdout });
     const link = await new Promise<string>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error("The remote host did not offer a pairing link.")), 30_000);
@@ -164,6 +172,10 @@ export async function bootstrapSshHost(target: string, cacheDir: string, deviceN
         }
       });
     }).catch((error) => { child.kill(); throw error; });
-    return { tunnel, pairing: { link, route, async finish() { child.stdin.end(`${JSON.stringify({ type: "done" })}\n`); lines.close(); }, close() { child.kill(); lines.close(); } } };
+    return { tunnel, pairing: { link, route, async finish() {
+      if (child.exitCode !== null) return;
+      const ended = new Promise<void>((resolve) => { const timer = setTimeout(resolve, 2_000); child.once("close", () => { clearTimeout(timer); resolve(); }); });
+      child.stdin.end(`${JSON.stringify({ type: "done" })}\n`); await ended; lines.close();
+    }, close() { child.kill(); lines.close(); } } };
   } catch (error) { tunnel.close(); throw error; }
 }

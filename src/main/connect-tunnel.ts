@@ -63,12 +63,13 @@ export class ConnectHostTunnel {
     let live = true;
     control.on("pong", () => { live = true; });
     control.once("open", () => {
+      if (this.closed) { control.terminate(); return; }
       this.attempts = 0; this.publish("connected");
       this.heartbeat = setInterval(() => { if (!live) control.terminate(); else { live = false; control.ping(); } }, 15_000);
       this.heartbeat.unref();
     });
     control.on("message", (data, binary) => {
-      if (binary || data.length > 512) { control.close(1008); return; }
+      if (binary || data.toString().length > 512) { control.close(1008); return; }
       let message: { type?: string; id?: string };
       try { message = JSON.parse(data.toString()); } catch { control.close(1008); return; }
       if (message.type !== "open" || !/^[a-f0-9-]{36}$/u.test(message.id ?? "")) { control.close(1008); return; }
@@ -81,7 +82,7 @@ export class ConnectHostTunnel {
         peer.on("close", () => this.connections.delete(close));
       });
     });
-    control.on("error", () => this.publish("offline", "The relay could not be reached or rejected this machine. Check its address and registration."));
+    control.on("error", () => { if (!this.closed) this.publish("offline", "The relay could not be reached or rejected this machine. Check its address and registration."); });
     control.on("close", () => {
       clearInterval(this.heartbeat);
       for (const close of this.connections) close(); this.connections.clear();
