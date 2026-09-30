@@ -116,7 +116,7 @@ export function createQuestionnairePrompt(store: QuestionnaireStore) {
    * One question of several: the header pages through them, earlier pages show
    * what was answered, later ones take a pick ahead of time.
    */
-  return function QuestionnairePrompt({ prompt, pending, asker, onAnswer, onCancel }: PromptRendererProps) {
+  return function QuestionnairePrompt({ prompt, pending, asker, agent, onAnswer, onCancel }: PromptRendererProps) {
     const choices = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
     const questionnaire = questionnaireOf(prompt)!;
     const total = questionnaire.questions.length;
@@ -124,8 +124,10 @@ export function createQuestionnairePrompt(store: QuestionnaireStore) {
     const [page, setPage] = useState(current);
     // Picks gathered on the current multi-select page before they are sent.
     const [picked, setPicked] = useState<string[]>([]);
+    // The option string a single choice will send; Answer sends it (design 1c).
+    const [single, setSingle] = useState<string>();
     // A new prompt lands on its own question, wherever the user was browsing.
-    useEffect(() => { setPage(current); setPicked([]); }, [prompt.id, current]);
+    useEffect(() => { setPage(current); setPicked([]); setSingle(undefined); }, [prompt.id, current]);
     const viewing = questionnaire.questions[page];
     const onCurrent = page === current;
     const asked = questionnaire.questions[current];
@@ -137,16 +139,19 @@ export function createQuestionnairePrompt(store: QuestionnaireStore) {
     const folded = prompt.kind === "select" ? splitPromptTitle(prompt.title) : { question: prompt.title, previews: [] };
     const input = prompt.kind === "input" ? splitInputTitle(prompt.title) : undefined;
     const title = viewing?.question ?? input?.question ?? folded.question;
-    // The question's topic names it better than the agent does, so it heads the card.
-    const from = viewing?.header || asker;
+    // A sub-agent is named; otherwise the question's topic names it better than the model does.
+    const from = agent ?? (viewing?.header || asker);
     const message = onCurrent ? (prompt.message ?? (input && !multi ? input.detail : undefined)) : undefined;
     const pick = choices[key(prompt.sessionId, page)];
     const preselect = (index: number, labels: string[]) => store.set(prompt.sessionId, index, { labels, answered: false });
+    const chosen = single !== undefined && currentChoices.includes(single) ? single : undefined;
     const submitPicked = useCallback(() => {
       if (multi && asked && picked.length > 0) onAnswer(multiSelectValue(asked, picked));
-    }, [asked, multi, onAnswer, picked]);
-    const sendLabel = onCurrent && multi ? `Send${picked.length > 0 ? ` ${picked.length}` : ""}` : undefined;
-    usePromptSubmit(sendLabel, picked.length === 0, submitPicked);
+      else if (!multi && chosen !== undefined) onAnswer(chosen);
+    }, [asked, chosen, multi, onAnswer, picked]);
+    const sendLabel = !onCurrent || !hasChoices ? undefined : multi ? `Send${picked.length > 0 ? ` ${picked.length}` : ""}` : "Answer";
+    const nothing = multi ? picked.length === 0 : chosen === undefined;
+    usePromptSubmit(sendLabel, nothing, submitPicked);
 
     return (
       <ExtensionPromptFrame
@@ -155,7 +160,7 @@ export function createQuestionnairePrompt(store: QuestionnaireStore) {
         message={message}
         {...(from ? { from } : {})}
         {...(viewing && viewing.options.length > 0 ? { pick: viewing.multiSelect ? "any" as const : "one" as const } : {})}
-        {...(sendLabel ? { submit: { label: sendLabel, disabled: picked.length === 0, enter: true, onSubmit: submitPicked } } : {})}
+        {...(sendLabel ? { submit: { label: sendLabel, disabled: nothing, enter: true, onSubmit: submitPicked } } : {})}
         header={<>
           {total > 1 ? (
             <nav className="extension-pager" aria-label="Questions">
@@ -197,9 +202,14 @@ export function createQuestionnairePrompt(store: QuestionnaireStore) {
               ))
             ) : (
               currentChoices.map((option) => {
-                const { index, label, detail } = splitOption(option);
+                const split = splitOption(option);
+                const { index } = split;
+                // The questionnaire knows each label whole; "Leave it — small enough" with no description is one label.
+                const known = asked?.options[Number(index) - 1];
+                const label = known?.label ?? split.label;
+                const detail = known ? known.description || undefined : split.detail;
                 const preview = folded.previews.find((entry) => String(entry.index) === index)?.text;
-                return <OptionRow key={option} index={index} label={label} detail={detail} preview={preview} mode="radio" onPick={() => onAnswer(option)} />;
+                return <OptionRow key={option} index={index} label={label} detail={detail} preview={preview} mode="radio" chosen={option === chosen} onPick={() => setSingle(option)} />;
               })
             )}
           </div>

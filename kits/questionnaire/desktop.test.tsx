@@ -36,7 +36,10 @@ describe("Questionnaire Kit", () => {
     fireEvent.click(screen.getByText("M"));
     expect(screen.getByText(/“S, M” is sent when the extension gets here/u)).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Previous question"));
+    // A single choice fills its radio; Answer sends it (design 1c).
     fireEvent.click(screen.getByText("red"));
+    expect(onAnswer).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Answer" }));
     expect(onAnswer).toHaveBeenCalledWith("red");
     registry.notifyPromptAnswered(first, { value: "red" });
     expect(store.choice("s1", 0)).toEqual({ labels: ["red"], answered: true });
@@ -98,6 +101,28 @@ describe("Questionnaire Kit", () => {
     fireEvent.click(screen.getByLabelText("Next question"));
     expect(screen.getByRole("region", { name: "Question from deploy" }).textContent).not.toContain("pick");
     expect(screen.getByText("Answered below when the extension gets here")).toBeTruthy();
+  });
+
+  it("reads an option's label whole from the questionnaire, dashes and all", () => {
+    const { registry } = createKitHarness();
+    registry.activate(createQuestionnaireExtension(new QuestionnaireStore()));
+    const form: UiQuestionnaireQuestion[] = [{ question: "How?", header: "", multiSelect: false, options: [{ label: "Add an index", description: "one migration" }, { label: "Leave it — small enough", description: "" }] }];
+    const prompt: ExtensionUiPrompt = { id: "q", sessionId: "s1", kind: "select", title: "How?", options: ["1. Add an index — one migration", "2. Leave it — small enough — ", "3. Type something."], extras: { [QUESTIONNAIRE_EXTRA]: { index: 0, questions: form } } };
+    const renderer = registry.getPromptRenderer(prompt)!;
+    render(<renderer.Component prompt={prompt} pending={0} onAnswer={() => {}} onCancel={() => {}} />);
+    const leave = screen.getByRole("button", { name: "Leave it — small enough" });
+    expect(leave.querySelector("small")).toBeNull();
+    expect(screen.getByRole("button", { name: /Add an index/u }).querySelector("small")?.textContent).toBe("one migration");
+  });
+
+  it("names the sub-agent that asks on its parent's composer before the question's topic", () => {
+    const { registry } = createKitHarness();
+    registry.activate(createQuestionnaireExtension(new QuestionnaireStore()));
+    const form: UiQuestionnaireQuestion[] = [{ question: "Which?", header: "Index", multiSelect: false, options: [{ label: "A", description: "" }, { label: "B", description: "" }] }];
+    const prompt: ExtensionUiPrompt = { id: "q", sessionId: "child", kind: "select", title: "[Index] Which?", options: ["1. A", "2. B"], extras: { [QUESTIONNAIRE_EXTRA]: { index: 0, questions: form } } };
+    const renderer = registry.getPromptRenderer(prompt)!;
+    render(<renderer.Component prompt={prompt} pending={0} asker="Fake 1" agent="GET /orders agent" onAnswer={() => {}} onCancel={() => {}} />);
+    expect(screen.getByRole("region", { name: "Question from GET /orders agent" })).toBeTruthy();
   });
 });
 
