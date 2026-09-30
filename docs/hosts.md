@@ -242,7 +242,7 @@ carries all of them. Turning a switch off closes its listener and every connecti
 that came through it. A host you start by hand opens a proxy listener with
 `TAU_HOST_PROXY_LISTEN=127.0.0.1:<port>`. The installed app ships the web client.
 
-While Local network is on, Tau also **announces itself with Bonjour** (`_tau._tcp`), so
+While Local network is on, Tau also **announces itself with Bonjour** (`_tau._tcp`; Tau Dev `_tau-dev._tcp`), so
 the Tau app on a phone and other machines on the same network find it without a link.
 The record carries the host's id, its key and certificate fingerprints and nothing secret; a
 device found this way still waits until you allow it with matching digits. Turn off

@@ -97,11 +97,36 @@ npm install
 npm run dist          # this machine's platform; also dist:mac, dist:linux, dist:win
 ```
 
-The artifacts land in `release/`. On a Mac, `npm run install:mac -- --local`
-builds this checkout for the machine's architecture (the zip target, signed the
-way `npm run dist:mac` signs) and puts the app into `/Applications`. The app
-carries the same update feed as a release, so it updates to the next official
-release with a higher version.
+The artifacts land in `release/`.
+
+### Tau Dev: a build of this checkout beside Tau
+
+On a Mac, `npm run install:mac -- --local` builds this checkout for the
+machine's architecture as **Tau Dev** and puts it into
+`/Applications/Tau Dev.app`. It never replaces `/Applications/Tau.app`: Tau Dev
+is a second app with names of its own, so both run at once.
+
+| | Tau | Tau Dev |
+|---|---|---|
+| bundle id, AppUserModelID | `de.tbuck.tau` | `de.tbuck.tau.dev` |
+| userData (host.json, locks, network.json, kit state) | `tau-pi-desktop-prototype` | `tau-dev` |
+| home folder (config, host token, packages, themes, grants, worktrees) | `~/.tau` | `~/.tau-dev` |
+| network access ports | 7788, 7789 | 7790, 7791 |
+| Bonjour | `_tau._tcp` | `_tau-dev._tcp` |
+| host service | `dev.tbuck.tau.host`, `tau-host.service`, `Tau Host` | `de.tbuck.tau.dev.host`, `tau-dev-host.service`, `Tau Dev Host` |
+| keychain entry | `Tau Safe Storage` | `Tau Dev Safe Storage` |
+| command line | `tau` | `tau-dev` |
+| updates | the release feed (Stable or Nightly) | none: Settings → About says it is built from source |
+
+`src/main/app-identity.ts` holds both. The build is Tau Dev because
+`tooling/electron-builder.dev.mjs` writes `tauFlavor: "dev"` into the packaged
+`package.json`; `npm start`, `npm run dev` and every release are Tau. Tau Dev
+starts empty: copy `~/.tau/config.json` to `~/.tau-dev/` if you want your
+settings in it. To update it, run the same command again. Nightly is not a
+separate app: it is an update track of Tau (Settings → General).
+
+Linux and Windows have no Tau Dev build yet; `npm run dist:linux` and
+`npm run dist:win` build Tau.
 
 ## The `tau` command
 
@@ -120,6 +145,8 @@ Elsewhere, link it yourself:
 ln -s "$PWD/bin/tau.mjs" ~/.local/bin/tau
 # an installed Tau on macOS (npm run install:mac prints this line)
 ln -s /Applications/Tau.app/Contents/Resources/app.asar.unpacked/bin/tau.mjs ~/.local/bin/tau
+# Tau Dev, beside it; this one reads Tau Dev's userData
+ln -s "/Applications/Tau Dev.app/Contents/Resources/app.asar.unpacked/bin/tau.mjs" ~/.local/bin/tau-dev
 ```
 
 `npm run smoke:cli-app` (after `npm run build`) drives it against a headless

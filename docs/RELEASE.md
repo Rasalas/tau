@@ -155,7 +155,7 @@ download it, so look at one before trusting that it holds no secret.
 npm run install:mac                    # the latest release
 npm run install:mac -- --version v0.1.1
 npm run install:mac -- --open          # and launch it
-npm run install:mac -- --local         # build this checkout instead
+npm run install:mac -- --local         # build this checkout as Tau Dev instead
 ```
 
 `scripts/install-mac.mjs` reads the release's `latest-mac.yml` from the
@@ -167,12 +167,12 @@ and older) falls back to `gh` and `Rasalas/tau-private`, which it must be able
 to read (`gh auth status`). It then quits a running Tau, replaces
 `/Applications/Tau.app`, and removes the `com.apple.quarantine` attribute — the mark Gatekeeper uses to
 block an unsigned download, which is why an unsigned Tau otherwise needs
-right-click → Open on first launch. With `--local` it builds the zip target
-instead of downloading, so electron-builder writes the release feed into the
-app (`Contents/Resources/app-update.yml`) as it does for a release, and the
-installed build updates to the next release with a higher version. macOS
-installs that update only over an app signed by the same team, which a build
-signed with the Developer ID certificate in the keychain is.
+right-click → Open on first launch. With `--local` it builds this checkout
+as Tau Dev instead (`tooling/electron-builder.dev.mjs`, `--dir`), checks that
+the bundle is `de.tbuck.tau.dev` and carries no `app-update.yml`, quits a
+running Tau Dev by its bundle id and installs `/Applications/Tau Dev.app`
+beside Tau. Tau Dev has its own data, ports and `~/.tau-dev` and never
+updates itself ([install.md](install.md#tau-dev-a-build-of-this-checkout-beside-tau)).
 
 ## Build one locally
 
