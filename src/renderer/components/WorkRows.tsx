@@ -17,7 +17,7 @@ import { useDisclosure, type WorkDisclosures } from "./work-disclosures";
  * The clock over a running turn. It writes its own text node every second, so
  * a turn that runs for minutes costs no React commit for the ticking.
  */
-function WorkingTimer({ startedAt }: { startedAt: number }) {
+export function WorkingTimer({ startedAt }: { startedAt: number }) {
   const ref = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     const write = () => {
@@ -114,7 +114,6 @@ function FoldRow({ row, context }: { row: Extract<WorkRow, { kind: "fold" }>; co
  */
 function LiveRow({ row, context }: { row: Extract<WorkRow, { kind: "live" }>; context: WorkRowActions }) {
   const [open, setOpen] = useDisclosure(context.disclosures, row.id, false, context.turn);
-  const running = row.tools.some((tool) => tool.status === "running");
   // Waiting on the person reads as the design's quiet line: a spinner and what is asked, no clock.
   if (context.waiting) {
     return <section className={`work-live waiting${open ? " expanded" : ""}`}>
@@ -126,9 +125,10 @@ function LiveRow({ row, context }: { row: Extract<WorkRow, { kind: "live" }>; co
       {open ? <ToolRunList tools={row.tools} context={context} /> : null}
     </section>;
   }
-  return <section className={`work-live${open ? " expanded" : ""}${running && !context.stalled ? " running" : ""}`}>
+  // A live row always shimmers, also between tools: the turn is still working on it.
+  return <section className={`work-live running${open ? " expanded" : ""}`}>
     <button type="button" className="work-live-line" aria-expanded={open} onClick={() => setOpen(!open)}>
-      {running && !context.stalled ? <span className="spinner info small" /> : <Hammer size={15} strokeWidth={1.7} />}
+      <Hammer size={15} strokeWidth={1.7} />
       <span className="work-live-label">{row.label}</span>
       <WorkingTimer startedAt={row.startedAt} />
       <ChevronRight className="activity-chevron" size={13} />

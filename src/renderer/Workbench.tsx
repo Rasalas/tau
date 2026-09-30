@@ -969,7 +969,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
     runStartedAt, activeDraftKey, copyMessage, forkMessage, editMessage,
   } = thread;
   const detail = preferences.transcriptDetailFor(conversationSnapshot?.sessionId);
-  const { conversationActivityTools, liveStatusLabel, transcriptActivities } = useConversationActivities({
+  const { thinking, liveStatusLabel, transcriptActivities } = useConversationActivities({
     pendingNewThread, conversationSnapshot, running: Boolean(snapshot?.isStreaming), lastMessageId, prompts,
     registry, viewStore: view, detail, actions, recoverThread, copyToolOutput, loadToolOutput,
     abortSessionId: snapshot?.sessionId, abort,
@@ -984,7 +984,6 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
   const onForkMessage = useCallback((message: UiMessage) => void forkMessage(message), [forkMessage]);
   const onEditMessage = useCallback((message: UiMessage) => void editMessage(message), [editMessage]);
   const { readOnly } = useHostCapabilities();
-  const showRunClock = Boolean(conversationSnapshot?.isStreaming) && conversationActivityTools.length === 0;
   const { queue, steerQueued, returnQueued, reorderQueue } = composer;
   const running = Boolean(conversationSnapshot?.isStreaming);
   const steerShortcut = registry.keybindingLabel("thread.steerQueuedMessage");
@@ -1006,12 +1005,12 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
   const liveStatus = useMemo(() => {
     const status = liveStatusLabel !== undefined
       ? <LiveStatus label={liveStatusLabel} />
-      : showRunClock ? <LiveStatus startedAt={runStartedAt} />
+      : thinking ? <LiveStatus startedAt={runStartedAt} />
       : limit && conversationSnapshot ? <Suspense fallback={null}><LazyLimitNotice sessionId={conversationSnapshot.sessionId} limit={limit} /></Suspense>
       : turnError ? <TurnErrorLine message={turnError} onRetry={readOnly ? undefined : () => retry()} /> : undefined;
     if (pendingNewThread || queue.length === 0) return status;
     return <>{status}<QueuedMessages queue={queue} streaming={running} held={queueHeld} steerShortcut={steerShortcut} onSteer={steerQueued} onReturn={returnQueued} onReorder={reorderQueue} /></>;
-  }, [conversationSnapshot, limit, liveStatusLabel, pendingNewThread, queue, queueHeld, readOnly, reorderQueue, retry, returnQueued, runStartedAt, running, showRunClock, steerQueued, steerShortcut, turnError]);
+  }, [conversationSnapshot, limit, liveStatusLabel, pendingNewThread, queue, queueHeld, readOnly, reorderQueue, retry, returnQueued, runStartedAt, running, thinking, steerQueued, steerShortcut, turnError]);
   return <TranscriptHistoryBoundary
     controller={transcriptHistory}
     showControl={!pendingNewThread && messages.length > 0}

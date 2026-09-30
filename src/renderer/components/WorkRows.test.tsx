@@ -94,7 +94,9 @@ describe("a running turn", () => {
     />);
     const line = view.container.querySelector(".work-live");
     expect(screen.getByText("Reading b.ts")).toBeTruthy();
-    expect(line?.querySelector(".spinner.info")).toBeTruthy();
+    // As T3 Code: the tool's glyph and a shining label, no spinner.
+    expect(line?.classList.contains("running")).toBe(true);
+    expect(line?.querySelector(".spinner")).toBeNull();
 
     view.rerender(<WorkGroup
       id="turn"
