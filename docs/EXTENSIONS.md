@@ -2461,9 +2461,13 @@ can change under a thread; Codex, the Agent SDK runtime and Antigravity do.
 Since API 1.30.0 a `listThreads` record carries `usage`, the thread's tallies
 from the backend's own store, and the index prices them as it prices a Pi
 session file's; a thread that is not open then shows its cost in the rail's
-hover card, in Reviews and on the phone, and a price change reprices it. Codex
-and the Agent SDK runtime answer it; their stores merge a thread's turns once
-per new turn, so a listing reads no file and redoes no sum.
+hover card, in Reviews and on the phone, and a price change reprices it. Every
+runtime kit Tau ships answers it. Codex, the Agent SDK runtime, Grok and
+Antigravity merge a thread's turns once per new turn, so a listing reads no
+file and redoes no sum; Cursor and OpenCode keep a running total only and list
+it as one tally without a model, the figure their open thread shows. A thread
+imported from a CLI keeps the usage its session file counts (Codex, Agent SDK;
+OpenCode's import already did).
 A host half that sums usage of its own asks `services.priceUsage(tallies)`
 (async, also on a worker) and gets one `PricedUsage` per tally: `billing`,
 `costUsd`, `apiValueUsd` and the price's `source` (`custom`, `runtime`,
