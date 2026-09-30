@@ -1,5 +1,6 @@
 ext {
     androidxAppCompatVersion = project.hasProperty('androidxAppCompatVersion') ? rootProject.ext.androidxAppCompatVersion : '1.7.1'
+    firebaseMessagingVersion = project.hasProperty('firebaseMessagingVersion') ? rootProject.ext.firebaseMessagingVersion : '25.0.1'
 }
 
 buildscript {
@@ -39,6 +40,9 @@ dependencies {
     implementation project(':capacitor-android')
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    // TauMessagingService hands every message it does not open to Capacitor's.
+    implementation project(':capacitor-push-notifications')
+    implementation "com.google.firebase:firebase-messaging:$firebaseMessagingVersion"
     // Google's code scanner: its own camera UI, no camera permission for the app.
     implementation 'com.google.android.gms:play-services-code-scanner:16.1.0'
 }

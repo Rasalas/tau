@@ -15,7 +15,8 @@ import { HostBook } from "./hosts";
 import { browseHosts, createSocketBridge, deviceInfo, scanQrCode, secureStore, textScalePort, type DeviceInfo } from "./native";
 import { androidFontScale } from "./text-scale";
 import { linkRoute, readRoute } from "./routes";
-import { createPushRegistrar, setPushRegistrar, tapRoute } from "./push";
+import { createPushRegistrar, createRelayPort, sealedTapRoute, setPushRegistrar, tapRoute } from "./push";
+import { PushKeys } from "./push-keys";
 import { nativePushPort } from "./push-native";
 import { nativeWakeSource } from "./wakes";
 
@@ -28,7 +29,8 @@ async function boot(): Promise<void> {
   const system = device.platform === "android" ? await androidFontScale(textScalePort).catch(() => undefined) : appleDynamicType();
   applyTypeScale(deviceClassFor("compact", true, screenMinSide()), system);
   const push = nativePushPort(device.platform);
-  setPushRegistrar(createPushRegistrar(push));
+  const pushKeys = new PushKeys(secureStore);
+  setPushRegistrar(createPushRegistrar(push, { relay: createRelayPort(), keys: pushKeys }));
   const context: AppContext = {
     storage: createLocalStorageAdapter(),
     book: new HostBook(secureStore),
@@ -41,8 +43,12 @@ async function boot(): Promise<void> {
     navigate: (search) => window.location.replace(`${window.location.pathname}${search}`),
     subscribeToLinks: (listener) => {
       const handle = App.addListener("appUrlOpen", ({ url }) => { const route = linkRoute(url); if (route) listener(route); });
-      // A tapped notification carries the same link.
-      const stopTaps = push.onTap((data) => { const route = tapRoute(data); if (route) listener(route); });
+      // A tapped notification carries the same link, in the clear or sealed (a relay push on iOS).
+      const stopTaps = push.onTap((data) => {
+        const route = tapRoute(data);
+        if (route) listener(route);
+        else void sealedTapRoute(data, pushKeys).then((sealed) => { if (sealed) listener(sealed); });
+      });
       return () => { stopTaps(); void handle.then((entry) => entry.remove()); };
     },
   };

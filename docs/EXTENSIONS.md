@@ -3255,11 +3255,14 @@ of them hears of a thread nobody is looking at. That kit is the shipped caller.
 
 ### A phone outside the app: Push Kit
 
-The host sends push notifications itself (`kits/push/`), with the user's own
-APNs key and Firebase service account, entered in Settings → Push and kept in
-`<userData>/kit-state/tau.push/keys.json` (mode 0600, not encrypted — the host
-has no keychain). The native app registers its token with the `register`
-command after connecting. A package that wants a phone to hear of something
+Push Kit (`kits/push/`) sends push notifications through Tau's relay, sealed
+with a key only the phone and this host have, or, for a platform the user
+saved keys for (an APNs key, a Firebase service account; Settings → Push,
+kept in `<userData>/kit-state/tau.push/keys.json`, mode 0600, not encrypted —
+the host has no keychain), directly to Apple or Google ([push.md](push.md)).
+The native app registers the relay's handle for this host and its key with the
+`register` command after connecting; it adds its token only when the host,
+sending with keys of its own, answers `needsToken`. A package that wants a phone to hear of something
 calls `invokeHostExtension("tau.push", "notify", { threadId, kind, text? })`
 from its host half — `kind` is `completed`, `failed`, `turn`, `question` or
 `approval` — once Push Kit grants it as a caller; Takeover does for "your turn".

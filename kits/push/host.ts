@@ -2,12 +2,13 @@ import { createHash } from "node:crypto";
 import { HostCommandError, type HostCommandCall, type HostExtension, type HostExtensionContext } from "tau/host-extension";
 import { ApnsClient, readApnsKey, type ApnsEnvironment, type SendOutcome } from "./apns.js";
 import { composePush, lastAgentText } from "./content.js";
-import { FcmClient, readServiceAccount } from "./fcm.js";
+import { FcmClient, readServiceAccount, safeEndpoint } from "./fcm.js";
 import {
   ATTENDED_COMMAND,
   NOTIFICATIONS_EXTENSION_ID,
   PUSH_CONTENT_KEY,
   PUSH_EXTENSION_ID,
+  PUSH_RELAY_URL,
   PUSH_STATE_EVENT,
   readPushContent,
   threadLink,
@@ -15,9 +16,13 @@ import {
   type FcmKeyInput,
   type PushKind,
   type PushNotifyInput,
+  type PushRegisterAnswer,
   type PushRegistration,
+  type PushRelayRegistration,
+  type PushRoute,
   type PushStatus,
 } from "./protocol.js";
+import { sealPush, sealedCollapseId, sendThroughRelay } from "./relay.js";
 import { PushStore, type StoredDevice } from "./store.js";
 
 const DEFAULT_DEBOUNCE_MS = 5_000;
@@ -25,14 +30,20 @@ const APNS_TOKEN = /^[0-9a-f]{32,200}$/iu;
 const FCM_TOKEN = /^[\w:.-]{20,4096}$/u;
 const BUNDLE_ID = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/u;
 const HOST_KEY = /^[\w.:-]{1,200}$/u;
+const RELAY_HANDLE = /^[A-Za-z0-9_-]{40,6000}$/u;
+const RELAY_KEY_ID = /^[A-Za-z0-9_-]{16,64}$/u;
 const KINDS: readonly PushKind[] = ["completed", "failed", "turn", "question", "approval"];
 const APPROVAL_OPTION = /^(?:allow|approve|deny|reject)\b/iu;
+/** Handles the relay called gone, remembered so the phone can be told to renew one it sends again. */
+const MAX_REJECTED_HANDLES = 1_000;
 
 export interface PushHostOptions {
   /** Where APNs requests go instead of Apple (a test's fake); `TAU_PUSH_APNS_ORIGIN` sets it too. */
   apnsOrigin?: string;
   /** Where FCM requests go instead of Google (a test's fake); `TAU_PUSH_FCM_ORIGIN` sets it too. */
   fcmOrigin?: string;
+  /** Tau's relay elsewhere (a test's fake); `TAU_PUSH_RELAY_URL` sets it too. https, or http on loopback. */
+  relayUrl?: string;
   fetch?: typeof fetch;
   now?: () => number;
   debounceMs?: number;
@@ -53,17 +64,29 @@ function ownerOnly(call: HostCommandCall | undefined): void {
   if (!call?.owner) throw new HostCommandError("Only this machine's owner can change push notifications (Settings → Push on the host).");
 }
 
+/** The relay's half of a registration; one that does not read is left out, not refused. */
+function decodeRelay(value: unknown): PushRelayRegistration | undefined {
+  const relay = (value ?? {}) as Partial<PushRelayRegistration>;
+  if (typeof relay.handle !== "string" || !RELAY_HANDLE.test(relay.handle)) return undefined;
+  if (typeof relay.keyId !== "string" || !RELAY_KEY_ID.test(relay.keyId)) return undefined;
+  if (typeof relay.key !== "string" || !/^[A-Za-z0-9_-]{43}$/u.test(relay.key) || Buffer.from(relay.key, "base64url").length !== 32) return undefined;
+  return { handle: relay.handle, keyId: relay.keyId, key: relay.key };
+}
+
 function decodeRegistration(input: unknown): PushRegistration {
   const value = (input ?? {}) as Partial<PushRegistration>;
   const platform = value.platform;
-  if (platform !== "ios" && platform !== "android") throw new HostCommandError("register takes { platform: ios | android, token, host, topic? }.");
-  const token = typeof value.token === "string" ? value.token.trim() : "";
-  if (!(platform === "ios" ? APNS_TOKEN : FCM_TOKEN).test(token)) throw new HostCommandError(`That is not an ${platform === "ios" ? "APNs device" : "FCM registration"} token.`);
+  if (platform !== "ios" && platform !== "android") throw new HostCommandError("register takes { platform: ios | android, token?, host, topic?, relay? }.");
+  const token = typeof value.token === "string" ? value.token.trim() : undefined;
+  if (token !== undefined && !(platform === "ios" ? APNS_TOKEN : FCM_TOKEN).test(token)) throw new HostCommandError(`That is not an ${platform === "ios" ? "APNs device" : "FCM registration"} token.`);
   if (typeof value.host !== "string" || !HOST_KEY.test(value.host)) throw new HostCommandError("register needs the app's id for this host.");
   const topic = typeof value.topic === "string" ? value.topic : undefined;
   if (platform === "ios" && (!topic || !BUNDLE_ID.test(topic))) throw new HostCommandError("An iOS device names its app's bundle identifier as topic.");
-  return { platform, token, host: value.host, ...(topic && platform === "ios" ? { topic } : {}) };
+  const relay = decodeRelay(value.relay);
+  return { platform, ...(token ? { token } : {}), host: value.host, ...(topic && platform === "ios" ? { topic } : {}), ...(relay ? { relay } : {}) };
 }
+
+const handleDigest = (handle: string) => createHash("sha256").update(handle).digest("base64url");
 
 /** APNs takes at most 64 bytes; a thread id longer than that is hashed. */
 function collapseId(threadId: string): string {
@@ -75,11 +98,12 @@ function questionText(prompt: { title: string; message?: string }): string {
 }
 
 /**
- * Push notifications, sent by the host itself with the user's own keys: APNs
- * for the iPhone app, FCM for the Android app (plan, decision 3). A paired
- * device registers its token over the socket; a turn that ends or fails, a
- * question and an agent's "your turn" reach it while nobody is at a client —
- * Notifications Kit says whether someone is.
+ * Push notifications: sent by the host itself with the user's own keys (APNs
+ * for the iPhone app, FCM for the Android app), or, for a platform without
+ * one, through Tau's relay, sealed with a key only the phone and this host
+ * know (docs/push.md). A paired device registers its token over the socket; a
+ * turn that ends or fails, a question and an agent's "your turn" reach it
+ * while nobody is at a client — Notifications Kit says whether someone is.
  */
 export function createPushHostExtension(options: PushHostOptions = {}): HostExtension {
   return {
@@ -93,26 +117,39 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
       const debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
       const apnsOrigin = options.apnsOrigin ?? process.env.TAU_PUSH_APNS_ORIGIN;
       const fcmOrigin = options.fcmOrigin ?? process.env.TAU_PUSH_FCM_ORIGIN;
+      const relayOverride = options.relayUrl ?? process.env.TAU_PUSH_RELAY_URL;
+      if (relayOverride && !safeEndpoint(relayOverride)) services.log("push.relay-url", "TAU_PUSH_RELAY_URL is neither https nor loopback; using Tau's relay.");
+      const relayUrl = (relayOverride && safeEndpoint(relayOverride) ? relayOverride : PUSH_RELAY_URL).replace(/\/+$/u, "");
       const store = await PushStore.open(services.stateDir, { warn: (message) => services.log("push.store", message) });
       let apns: ApnsClient | undefined;
       let fcm: FcmClient | undefined;
+      /** Why a saved key did not read; its platform stays on the direct route and fails visibly. */
+      let keyErrors: { apns?: string; fcm?: string } = {};
       const lastPushed = new Map<string, number>();
+      const rejectedHandles = new Set<string>();
 
       /** Clients from the stored keys; a key that no longer reads is reported, never printed. */
       const connect = () => {
         apns?.close();
         apns = undefined;
         fcm = undefined;
+        keyErrors = {};
         const keys = store.stored;
         if (keys.apns) {
           try {
             apns = new ApnsClient({ credentials: keys.apns, now, ...(apnsOrigin ? { origin: () => apnsOrigin } : {}) });
-          } catch (error) { services.log("push.apns-key", errorText(error)); }
+          } catch (error) {
+            keyErrors.apns = errorText(error);
+            services.log("push.apns-key", keyErrors.apns);
+          }
         }
         if (keys.fcm) {
           try {
             fcm = new FcmClient({ serviceAccount: keys.fcm.serviceAccount, now, ...(fcmOrigin ? { origin: fcmOrigin } : {}), ...(options.fetch ? { fetch: options.fetch } : {}) });
-          } catch (error) { services.log("push.fcm-key", errorText(error)); }
+          } catch (error) {
+            keyErrors.fcm = errorText(error);
+            services.log("push.fcm-key", keyErrors.fcm);
+          }
         }
       };
       connect();
@@ -120,20 +157,29 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
       /** The paired devices, or undefined on a host too old to say. */
       const paired = () => services.clients.devices?.();
 
+      /** A saved key sends directly, and one that does not read fails there rather than falling back to the relay. */
+      const routeFor = (platform: StoredDevice["platform"]): PushRoute => ((platform === "ios" ? store.stored.apns : store.stored.fcm) ? "direct" : "relay");
+      const deviceRoute = (device: StoredDevice): PushRoute | "unreachable" => {
+        const route = routeFor(device.platform);
+        return (route === "relay" ? device.relay : device.token) ? route : "unreachable";
+      };
+
       const status = (): PushStatus => {
         const names = new Map((paired() ?? []).map((device) => [device.id, device.name]));
         const { apns: apnsKey, fcm: fcmKey } = store.stored;
         return {
-          ...(apnsKey ? { apns: { keyId: apnsKey.keyId, teamId: apnsKey.teamId, savedAt: apnsKey.savedAt } } : {}),
-          ...(fcmKey ? { fcm: { projectId: fcmKey.projectId, clientEmail: fcmKey.clientEmail, savedAt: fcmKey.savedAt } } : {}),
+          ...(apnsKey ? { apns: { keyId: apnsKey.keyId, teamId: apnsKey.teamId, savedAt: apnsKey.savedAt, ...(keyErrors.apns ? { error: keyErrors.apns } : {}) } } : {}),
+          ...(fcmKey ? { fcm: { projectId: fcmKey.projectId, clientEmail: fcmKey.clientEmail, savedAt: fcmKey.savedAt, ...(keyErrors.fcm ? { error: keyErrors.fcm } : {}) } } : {}),
           devices: store.devices().map((device) => ({
             id: device.id,
             name: names.get(device.id) ?? "Paired device",
             platform: device.platform,
             registeredAt: device.registeredAt,
+            route: deviceRoute(device),
             ...(device.lastPush ? { lastPush: device.lastPush } : {}),
           })),
           file: store.keysPath,
+          routes: { ios: routeFor("ios"), android: routeFor("android") },
         };
       };
       // Word only: what changed is the owner's to ask for, not every client's to hear.
@@ -147,11 +193,30 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         if (await store.retain((device) => ids.has(device.id))) publish();
       };
 
+      /** Sealed with the phone's key: the relay, Apple and Google see ciphertext and an opaque collapse id. */
+      const sendRelayed = (relay: PushRelayRegistration, note: Note, url: string | undefined): Promise<SendOutcome> => {
+        const tag = note.threadId ? sealedCollapseId(relay, note.threadId) : undefined;
+        const payload = sealPush(relay, { title: note.title, body: note.body, ...(url ? { url } : {}), ...(note.kind ? { kind: note.kind } : {}), ...(tag ? { tag } : {}) });
+        return sendThroughRelay(relayUrl, { handle: relay.handle, payload, ...(tag ? { collapseId: tag } : {}) }, options.fetch).then((outcome) => {
+          if (!outcome.ok && outcome.gone) {
+            rejectedHandles.add(handleDigest(relay.handle));
+            if (rejectedHandles.size > MAX_REJECTED_HANDLES) rejectedHandles.delete(rejectedHandles.values().next().value!);
+          }
+          return outcome;
+        });
+      };
+
       const sendOne = async (device: StoredDevice, note: Note): Promise<SendOutcome> => {
         const url = note.threadId ? threadLink(device.host, note.threadId) : undefined;
+        if (routeFor(device.platform) === "relay") {
+          if (!device.relay) return { ok: false, gone: false, status: 0, reason: "This phone's Tau app is too old for Tau's relay; update it, or save a key of your own." };
+          return sendRelayed(device.relay, note, url);
+        }
+        if (!device.token) return { ok: false, gone: false, status: 0, reason: "This phone hands its token to your own key the next time it opens this machine in the Tau app." };
+        const token = device.token;
         if (device.platform === "android") {
-          if (!fcm) return { ok: false, gone: false, status: 0, reason: "No Firebase service account is set up on this host." };
-          return fcm.send(device.token, {
+          if (!fcm) return { ok: false, gone: false, status: 0, reason: keyErrors.fcm ? `The saved Firebase service account does not read: ${keyErrors.fcm}` : "No Firebase service account is set up on this host." };
+          return fcm.send(token, {
             notification: { title: note.title, body: note.body },
             data: { ...(url ? { url } : {}), ...(note.kind ? { kind: note.kind } : {}) },
             android: {
@@ -161,9 +226,9 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
             },
           });
         }
-        if (!apns) return { ok: false, gone: false, status: 0, reason: "No APNs key is set up on this host." };
+        if (!apns) return { ok: false, gone: false, status: 0, reason: keyErrors.apns ? `The saved APNs key does not read: ${keyErrors.apns}` : "No APNs key is set up on this host." };
         const request = {
-          token: device.token,
+          token,
           topic: device.topic ?? "",
           payload: {
             aps: { alert: { title: note.title, body: note.body }, sound: "default", ...(note.threadId ? { "thread-id": note.threadId } : {}) },
@@ -204,11 +269,11 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         return outcomes;
       };
 
-      /** Devices still paired whose platform has a key on this host. */
+      /** Devices still paired that a key of this host or the relay reaches. */
       const reachable = (): StoredDevice[] => {
         const devices = paired();
         const ids = devices ? new Set(devices.map((device) => device.id)) : undefined;
-        return store.devices().filter((device) => (!ids || ids.has(device.id)) && (device.platform === "ios" ? apns : fcm));
+        return store.devices().filter((device) => (!ids || ids.has(device.id)) && deviceRoute(device) !== "unreachable");
       };
 
       /** Someone at a focused client sees it there; without Notifications Kit nobody can say, so the phone hears. */
@@ -265,11 +330,31 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
 
       context.registerCommand("register", async (input, call) => {
         if (!call?.device) throw new HostCommandError("Only a paired device can receive push notifications from this host.");
-        const registration = decodeRegistration(input);
-        await store.upsert({ id: call.device, ...registration, registeredAt: new Date(now()).toISOString() });
-        services.log("push.registered", `${registration.platform} ${call.device}`);
+        const { token, relay, ...registration } = decodeRegistration(input);
+        const route = routeFor(registration.platform);
+        // A token only for this host's own key; a handle the relay refused is not kept.
+        const renewHandle = relay ? rejectedHandles.has(handleDigest(relay.handle)) : false;
+        // Until the phone confirms it, the direct route keeps the token it had.
+        const prior = store.devices().find((entry) => entry.id === call.device && entry.platform === registration.platform);
+        const kept = route === "direct" ? token ?? prior?.token : undefined;
+        const device: StoredDevice = {
+          id: call.device,
+          ...registration,
+          ...(kept ? { token: kept } : {}),
+          ...(relay && !renewHandle ? { relay } : {}),
+          registeredAt: new Date(now()).toISOString(),
+        };
+        await store.upsert(device);
+        services.log("push.registered", `${registration.platform} ${call.device} ${route}`);
         publish();
-        return { registered: true, ready: Boolean(registration.platform === "ios" ? apns : fcm) };
+        const answer: PushRegisterAnswer = {
+          registered: true,
+          ready: deviceRoute(device) !== "unreachable",
+          route,
+          ...(route === "direct" && !token ? { needsToken: true } : {}),
+          ...(renewHandle ? { renewHandle: true } : {}),
+        };
+        return answer;
       });
       context.registerCommand("unregister", async (_input, call) => {
         if (!call?.device) return false;
@@ -310,6 +395,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         if (service !== "apns" && service !== "fcm") throw new HostCommandError("forget takes { service: apns | fcm }.");
         const { [service]: _dropped, ...rest } = store.stored;
         await store.setKeys(rest);
+        await store.dropTokens(service === "apns" ? "ios" : "android");
         connect();
         publish();
         return status();

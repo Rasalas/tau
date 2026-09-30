@@ -23,6 +23,7 @@ export const PAGES = [
   { slug: "servers", source: "docs/servers.md", group: "Guides", title: "Servers", blurb: "Work on a site that lives on a server: upload, drift, roll back." },
   { slug: "runtimes", source: "docs/runtimes.md", group: "Reference", blurb: "Claude Code, Codex, Antigravity and Pi, pull request tools, and a live Pi session." },
   { slug: "hosts", source: "docs/hosts.md", group: "Reference", title: "Hosts and devices", blurb: "The host as a service, over a socket or TLS, other machines, the web client and the phone app." },
+  { slug: "push", source: "docs/push.md", group: "Reference", title: "Push notifications", blurb: "Tau's relay, what it sees, the end-to-end encryption, and your own keys." },
   { slug: "extensions", source: "docs/EXTENSIONS.md", group: "Reference", title: "Writing a package", blurb: "The manifest, the API a kit uses, permissions, isolation and signing." },
   { slug: "architecture", source: "docs/architecture.md", group: "Reference", blurb: "Core and kits, the window and the host, the extension seam." },
   { slug: "core", source: "docs/CORE.md", group: "Reference", title: "Core and kits", blurb: "What the core owns, and what each shipped kit does." },

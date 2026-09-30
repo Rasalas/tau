@@ -109,9 +109,11 @@ background and reconnect, the terminal's key bar and review, on your own phone.
 ## 8. Push notifications
 
 Your phone hears of a thread that finished, failed, asks you something or hands over to
-you ("your turn") while you are not at Tau. There is no relay: the Mac sends them
-itself, to Apple for the iPhone and to Google for Android, with keys of your own. You
-set them up once.
+you ("your turn") while you are not at Tau. The app from the App Store or Google Play
+gets them through Tau's relay with nothing to set up ([push.md](push.md)). An app you
+build and sign yourself, as here, has a bundle identifier of your own, which the relay
+does not push to: set up keys of your own once, and the Mac sends to Apple for the
+iPhone and to Google for Android itself.
 
 ### iPhone: an APNs key
 
@@ -153,7 +155,8 @@ first and remembers which one a phone's token works with.
    a test push; the row says when the last one went, or why it failed.
 3. **Content**: "Title and excerpt" (the thread's title and the first line of the agent's
    last message; the reason for "your turn", the question for a question) or "Title
-   only". Whatever you pick goes through Apple's or Google's servers.
+   only". With your own keys, whatever you pick goes through Apple's or Google's servers
+   readable; through Tau's relay it is encrypted for your phone.
 4. Tapping a notification opens its thread in the app.
 
 The keys live in Tau's user data folder, under `kit-state/tau.push/keys.json` (on macOS
