@@ -100,7 +100,7 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
         } else { call.resolve(["tokens": []]) }
     }
     @objc func activityUpdate(_ call: CAPPluginCall) {
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
             guard #available(iOS 16.2, *) else { call.resolve(); return }
             do { try await MobileActivityStore.update(call.options as? [String: Any] ?? [:]) { [weak self] event in self?.notifyListeners("activityToken", data: event, retainUntilConsumed: true) }; call.resolve() } catch { call.reject(error.localizedDescription) }
         }
