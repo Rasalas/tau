@@ -1038,7 +1038,7 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 @media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
   .work-live.running .work-live-label, .work-shine {
     color: var(--ink);
-    mask: linear-gradient(90deg, #0000, #000, #0000) -4.5rem 0 / 4.5rem 100% no-repeat, linear-gradient(#0009 0 0);
+    mask: linear-gradient(90deg, transparent, black, transparent) -4.5rem 0 / 4.5rem 100% no-repeat, linear-gradient(color-mix(in srgb, black 60%, transparent) 0 0);
     animation: work-shine 2.2s steps(30) infinite;
   }
 }
