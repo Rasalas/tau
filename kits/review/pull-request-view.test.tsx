@@ -373,6 +373,23 @@ describe("merging, auto-merge, revert and stacks from the view", () => {
     await waitFor(() => expect(workbench.notify).toHaveBeenCalledWith("PR #7 merged. Deleted feat/output."));
   });
 
+  it("names a long branch on a line of its own under the delete option, the full name in its tooltip", async () => {
+    const dependabot = parseGitHubDetail(REF, fixture("gh-pr-view-dependabot.json"));
+    const ready: PullRequestDetail = { ...dependabot, checks: dependabot.checks.map((check) => ({ ...check, status: "passed" as const })) };
+    renderView(fakeClient({ view: vi.fn(async () => ready), checks: vi.fn(async () => ready.checks) }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Squash and merge$/u }));
+    const dialog = screen.getByRole("dialog", { name: /^Merge PR #\d+\?$/u });
+    const option = dialog.querySelector(".pr-merge-option")!;
+    const branch = "dependabot/composer/static/backend/php-runtime-3063496fe1";
+    expect(within(dialog).getByRole("checkbox", { name: `Delete ${branch} after merging` })).toBeTruthy();
+    expect(option.querySelector(":scope > span")!.firstChild!.textContent).toBe("Delete the branch after merging");
+    const name = option.querySelector<HTMLElement>(".pr-merge-branch")!;
+    expect(name.textContent).toBe(branch);
+    expect(name.style.whiteSpace).toBe("nowrap");
+    expect(name.getAttribute("data-tooltip")).toBe(branch);
+    expect(option.querySelector("code")).toBeNull();
+  });
+
   it("reverts a merged request and opens the revert as its own tab", async () => {
     const merged: PullRequestDetail = { ...passing(), state: "merged" };
     const client = fakeClient({ view: vi.fn(async () => merged), action: vi.fn(async () => ({ detail: merged, created: "https://github.com/acme/tau/pull/8" })) });
