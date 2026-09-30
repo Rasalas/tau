@@ -430,8 +430,8 @@ export function SettingsScreen({
           <div className="settings-scroll" ref={scrollRef}>
             <div className="settings-content" data-page={page}>
               <SettingsPageHead
-                title={stacked || ownTitle ? undefined : pageLabel}
-                description={pageDescription}
+                title={stacked || ownTitle ? undefined : page === "about" ? "Tau" : pageLabel}
+                description={page === "about" ? undefined : pageDescription}
                 crumbs={stacked ? [] : crumbs}
                 scope={showScope ? { projects, current: project } : undefined}
                 actionSlot={setActionSlot}
