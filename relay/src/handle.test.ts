@@ -1,18 +1,19 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { openHandle, parseKeyring, sealHandle } from "./handle.js";
+import { MAX_HANDLE_CHARS, openHandle, parseKeyring, sealHandle } from "./handle.js";
 
 const key = () => randomBytes(32).toString("base64");
 const IOS = { platform: "ios", token: "ab".repeat(32) } as const;
 const ANDROID = { platform: "android", token: "fcm:APA91b-registration-token" } as const;
+const NOW = 1_700_000_000_000;
 
 describe("relay handles", () => {
   it("seal a registration that only the relay's keys open again", () => {
     const keyring = parseKeyring(`1:${key()}`);
-    const handle = sealHandle(keyring, IOS);
+    const handle = sealHandle(keyring, IOS, NOW + 999);
     expect(handle).toMatch(/^[A-Za-z0-9_-]+$/u);
     expect(handle).not.toContain(IOS.token);
-    expect(openHandle(keyring, handle)).toEqual(IOS);
+    expect(openHandle(keyring, handle)).toEqual({ ...IOS, issuedAt: NOW });
     expect(openHandle(parseKeyring(`1:${key()}`), handle)).toBeUndefined();
     // A random nonce: the same token never gives the same handle twice.
     expect(sealHandle(keyring, IOS)).not.toBe(handle);
@@ -21,10 +22,10 @@ describe("relay handles", () => {
   it("rotate: the first key seals, every listed key still opens", () => {
     const old = key();
     const before = parseKeyring(`1:${old}`);
-    const handle = sealHandle(before, ANDROID);
+    const handle = sealHandle(before, ANDROID, NOW);
     const after = parseKeyring(`2:${key()}, 1:${old}`);
     expect(after.current).toBe(2);
-    expect(openHandle(after, handle)).toEqual(ANDROID);
+    expect(openHandle(after, handle)).toEqual({ ...ANDROID, issuedAt: NOW });
     const fresh = sealHandle(after, ANDROID);
     expect(Buffer.from(fresh, "base64url")[1]).toBe(2);
     expect(openHandle(before, fresh)).toBeUndefined();
@@ -36,12 +37,19 @@ describe("relay handles", () => {
     const keyring = parseKeyring(`3:${keyA}, 4:${keyA}`);
     const bytes = Buffer.from(sealHandle(keyring, IOS), "base64url");
     const changed = (index: number, value: number) => { const copy = Buffer.from(bytes); copy[index] = value; return copy.toString("base64url"); };
-    expect(openHandle(keyring, changed(0, 2))).toBeUndefined();
+    expect(bytes[0]).toBe(2);
+    // Version 1, without an issue time, is no longer read.
+    expect(openHandle(keyring, changed(0, 1))).toBeUndefined();
     // Same key under another id: the id is bound as associated data.
     expect(openHandle(keyring, changed(1, 4))).toBeUndefined();
     expect(openHandle(keyring, changed(20, bytes[20]! ^ 1))).toBeUndefined();
     expect(openHandle(keyring, "short")).toBeUndefined();
     expect(openHandle(keyring, 42)).toBeUndefined();
+  });
+
+  it("stay within their length limit for the longest token the relay takes", () => {
+    const handle = sealHandle(parseKeyring(`1:${key()}`), { platform: "android", token: "f".repeat(4096) });
+    expect(handle.length).toBeLessThanOrEqual(MAX_HANDLE_CHARS);
   });
 
   it("read the secret strictly, and never repeat a key in an error", () => {
