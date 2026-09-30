@@ -2,36 +2,56 @@ import type { ManualChunkMeta } from "rollup";
 import { readLucideExports } from "./icon-set";
 
 const LUCIDE_ICON = /\/lucide-react\/dist\/esm\/icons\/([\w-]+)\.mjs$/u;
-const entryIconsByBuild = new WeakMap<ManualChunkMeta["getModuleInfo"], Set<string> | undefined>();
+/** Small modules lazy surfaces import, under `src/`. None imports a stylesheet, whose place in the cascade a move could change. */
+export const COMMON_MODULES = [
+  "shared/runtime-version.ts",
+  "renderer/runtime-models.ts",
+  "renderer/file-mention-expander.ts",
+  "renderer/pairing/pairing-format.ts",
+  "renderer/touch/sheet-drag.ts",
+  "renderer/components/composer-fold.ts",
+  "renderer/components/VirtualList.tsx",
+  "renderer/components/ChangesTree.tsx",
+  "renderer/components/ui/Feedback.tsx",
+  "renderer/components/ui/escape-layers.ts",
+  "renderer/settings/page-action.tsx",
+  "renderer/settings/provider-card-state.ts",
+  "renderer/settings/connections-format.ts",
+];
+const COMMON = new Set(COMMON_MODULES.map((path) => `/src/${path}`));
 
-/**
- * The icon files the entry's own modules import from `lucide-react`, or none
- * when one of them takes the whole namespace. The module graph cannot tell:
- * lucide's barrel imports every icon.
- */
-export function entryIconFiles({ getModuleIds, getModuleInfo }: ManualChunkMeta, exports: ReadonlyMap<string, string> = readLucideExports()): Set<string> | undefined {
-  const files = new Set<string>();
-  const seen = new Set<string>();
+export interface EntryGraph {
+  /** The modules the entry reaches through static imports, packages left out. */
+  modules: Set<string>;
+  /** The icon files those modules import by name, or none when one takes lucide's whole namespace. */
+  icons: Set<string> | undefined;
+}
+
+const graphs = new WeakMap<ManualChunkMeta["getModuleInfo"], EntryGraph>();
+
+/** The entry's static graph. Icons are read from the imports: lucide's barrel reaches every icon. */
+export function entryGraph({ getModuleIds, getModuleInfo }: ManualChunkMeta, exports: ReadonlyMap<string, string> = readLucideExports()): EntryGraph {
+  const modules = new Set<string>();
+  let icons: Set<string> | undefined = new Set<string>();
   const queue = [...getModuleIds()].filter((id) => getModuleInfo(id)?.isEntry);
   while (queue.length > 0) {
     const id = queue.pop()!;
-    if (seen.has(id) || id.includes("/node_modules/")) continue;
-    seen.add(id);
+    if (modules.has(id) || id.includes("/node_modules/")) continue;
+    modules.add(id);
     const info = getModuleInfo(id);
     queue.push(...(info?.importedIds ?? []));
     for (const node of info?.ast?.body ?? []) {
       if (!("source" in node) || node.source?.value !== "lucide-react") continue;
-      if (node.type === "ExportAllDeclaration") return undefined;
-      for (const specifier of node.specifiers) {
-        const name = specifier.type === "ImportSpecifier" ? specifier.imported : specifier.type === "ExportSpecifier" ? specifier.local : undefined;
-        if (!name) return undefined;
+      for (const specifier of node.type === "ExportAllDeclaration" ? [undefined] : node.specifiers) {
+        const name = specifier?.type === "ImportSpecifier" ? specifier.imported : specifier?.type === "ExportSpecifier" ? specifier.local : undefined;
         // Names that are no icon (`Icon`, `createLucideIcon`) are not in the map.
-        const file = exports.get(name.type === "Identifier" ? name.name : String(name.value));
-        if (file) files.add(file);
+        const file = name && exports.get(name.type === "Identifier" ? name.name : String(name.value));
+        if (!name) icons = undefined;
+        else if (file) icons?.add(file);
       }
     }
   }
-  return files;
+  return { modules, icons };
 }
 
 /** What the desktop and browser builds of the renderer share. */
@@ -45,15 +65,17 @@ export const rendererBuild = {
       // Controls and row layout already import each other. Keep the shared
       // Settings primitives together, without pulling in any Settings page.
       if (/\/renderer\/settings\/(?:controls\.tsx|settings-layout\.tsx)$/u.test(id)) return "settings-controls";
-      // These dialogs share their focus and closing behavior.
-      if (/\/renderer\/components\/ui\/(?:Dialog|ConfirmDialog)\.tsx$/u.test(id)) return "dialogs";
-      // Icons only lazy surfaces draw go with the dialogs, which most of those surfaces open,
-      // instead of one chunk per icon that two surfaces share.
+      // One lazy chunk for what several surfaces share: the dialogs, the icons only
+      // lazy code draws and small helpers. One chunk each costs more than it saves.
+      if (/\/renderer\/components\/ui\/(?:Dialog|ConfirmDialog)\.tsx$/u.test(id)) return "common";
       const icon = LUCIDE_ICON.exec(id)?.[1];
-      if (icon) {
-        if (!entryIconsByBuild.has(meta.getModuleInfo)) entryIconsByBuild.set(meta.getModuleInfo, entryIconFiles(meta));
-        const entryIcons = entryIconsByBuild.get(meta.getModuleInfo);
-        return entryIcons && !entryIcons.has(icon) ? "dialogs" : undefined;
+      const common = COMMON.has(id.slice(id.lastIndexOf("/src/")));
+      if (icon || common) {
+        if (!graphs.has(meta.getModuleInfo)) graphs.set(meta.getModuleInfo, entryGraph(meta));
+        const entry = graphs.get(meta.getModuleInfo)!;
+        // Never what the entry imports itself, which would load the chunk at start-up.
+        if (icon) return entry.icons && !entry.icons.has(icon) ? "common" : undefined;
+        return entry.modules.has(id) ? undefined : "common";
       }
       // These surfaces are loaded together on compact clients. One lazy chunk
       // avoids repeated imports and keeps message sheets out of the entry.
