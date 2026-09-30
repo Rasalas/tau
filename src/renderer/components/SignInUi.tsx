@@ -255,7 +255,7 @@ export function SignInSetup({ host, target, program, heading = "Account", runInT
 
   const account = report?.account;
   const active = signInActive(flow);
-  const methods = report?.methods ?? [];
+  const methods = (report?.methods ?? []).filter((method) => !account?.signedIn || method.availableWhenSignedIn);
   const ended = flow && !active ? flow : undefined;
   useProviderCardBadge("account", showAccount && cardBadge ? accountBadge(report, active) : undefined);
   const who = account?.label && account.label !== program ? ` (${account.label})` : "";
@@ -339,9 +339,9 @@ export function SignInSetup({ host, target, program, heading = "Account", runInT
         </div>
       ) : null}
 
-      {!active && report && methods.some((method) => !account?.signedIn || method.availableWhenSignedIn) ? (
+      {!active && methods.length > 0 ? (
         <div className="sign-in-methods" role="group" aria-label={`Sign in to ${program}`}>
-          {methods.filter((method) => !account?.signedIn || method.availableWhenSignedIn).map((method) => <MethodRow key={method.id} method={method} busy={busy !== undefined} onStart={() => start(method)} />)}
+          {methods.map((method) => <MethodRow key={method.id} method={method} busy={busy !== undefined} onStart={() => start(method)} />)}
         </div>
       ) : null}
     </>
