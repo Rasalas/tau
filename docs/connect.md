@@ -129,3 +129,18 @@ grants local owner or local file privileges.
 The deployment is a single relay process with one persisted route store. It
 does not provide multi-region routing, accounts, quota billing, or shared-store
 multi-instance operation. Do not run multiple instances against the same store.
+
+## Browser compatibility
+
+The [WebSocket standard](https://websockets.spec.whatwg.org/#the-websocket-interface)
+exposes a URL and optional subprotocols, with no caller-supplied Authorization
+header, certificate callback or access to raw TCP. The current relay needs a
+Bearer header and the inner host needs a strict key pin.
+
+[libcurl.js](https://github.com/ading2210/libcurl.js) offers browser TLS 1.3 and
+custom byte transports through WebAssembly. Its documented TLS socket options
+cover verbosity and proxy selection, without a host SPKI pin option. Adapting
+its transport would also need a reviewed way for a browser to authenticate the
+outer relay socket. It is a possible future integration, not a drop-in client
+for this protocol. Tau ships no browser TLS adapter and does not substitute a
+custom cryptographic implementation or relax the host pin to enable one.
