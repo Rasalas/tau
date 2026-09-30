@@ -442,8 +442,17 @@ export class WorkspaceStore implements WorkspaceStoreApi {
 
   turnSettled(sessionId: string): void {
     // Another thread's tools reach only the clients showing it; the end of its turn reaches all.
-    if (sessionId === this.sessionId) this.update({ turnSettled: true });
+    if (sessionId === this.sessionId) {
+      this.update({ turnSettled: true });
+      // The turn may have switched the branch; the header and THREAD_BRANCH_SERVICE follow.
+      void this.refreshWorkspace();
+    }
     void this.refreshChanges();
+  }
+
+  /** The host saw HEAD move in a checkout, e.g. `git checkout` in a terminal. */
+  headChanged(root: unknown): void {
+    if (root === this.state.workspace?.root) void this.refresh();
   }
 
   toolFinished(tool: UiToolRun): void {

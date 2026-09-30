@@ -12,6 +12,7 @@ import {
 } from "tau";
 import {
   CLONE_PROGRESS_EVENT,
+  HEAD_CHANGED_EVENT,
   createWorkspaceHostClient,
   WORKSPACE_CHANGES_PANEL,
   WORKSPACE_FILES_PANEL,
@@ -162,6 +163,7 @@ export const workspaceExtension: DesktopExtension = {
     context.events.on("user-message", (event) => store.turnStarted(event.sessionId));
     context.events.on("agent-status", (event) => { if (!event.running) store.turnSettled(event.sessionId); });
     context.events.on("tool-end", (event) => store.toolFinished(event.tool));
+    context.host.onEvent(HEAD_CHANGED_EVENT, (payload) => store.headChanged((payload as { root?: unknown } | undefined)?.root));
     // Transcript checkpoint cards and their historical review belong to the
     // workspace contribution. Removing Workspace Kit therefore removes both
     // the card and its diff surface without App knowing their implementation.

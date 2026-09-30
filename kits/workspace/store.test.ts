@@ -339,6 +339,28 @@ describe("Workspace Kit changes after a turn", () => {
   });
 });
 
+describe("Workspace Kit branch after a checkout outside Tau", () => {
+  it("rereads the branch when the shown thread's turn ends and when the host sees HEAD move", async () => {
+    let branch = "main";
+    const getWorkspaceInfo = vi.fn(async () => ({ ...REPO, branch }));
+    const workspaceStore = storeOver({ getWorkspaceInfo });
+    workspaceStore.follow({ cwd: "/project", workspaceId: "ws1_project", sessionId: "shown", draftPending: false });
+    await vi.waitFor(() => expect(workspaceStore.getSnapshot().workspace?.branch).toBe("main"));
+
+    branch = "feature";
+    workspaceStore.turnSettled("shown");
+    await vi.waitFor(() => expect(workspaceStore.getSnapshot().workspace?.branch).toBe("feature"));
+
+    branch = "other";
+    getWorkspaceInfo.mockClear();
+    workspaceStore.headChanged("/elsewhere");
+    workspaceStore.turnSettled("background");
+    expect(getWorkspaceInfo).not.toHaveBeenCalled();
+    workspaceStore.headChanged("/project");
+    await vi.waitFor(() => expect(workspaceStore.getSnapshot().workspace?.branch).toBe("other"));
+  });
+});
+
 describe("Workspace Kit's Changes entry", () => {
   it("opens the review while a kit draws it, and leaves the panel to open otherwise", () => {
     const workspaceStore = storeOver({});

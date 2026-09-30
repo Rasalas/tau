@@ -113,6 +113,9 @@ export interface CloneSnapshot {
 
 export const CLONE_PROGRESS_EVENT = "clone-progress";
 
+/** A checkout's HEAD moved outside Tau (a `git checkout` in a terminal); payload `{ root }`. */
+export const HEAD_CHANGED_EVENT = "head-changed";
+
 /** The folder a clone lands in, from the last path segment of its URL. */
 export function repositoryFolderName(repositoryUrl: string): string {
   const normalized = repositoryUrl.trim().replace(/[\\/]+$/u, "").replace(/\.git$/iu, "");
