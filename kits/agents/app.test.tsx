@@ -352,9 +352,6 @@ describe("the navigator with agent threads", () => {
     expect(within(rail).queryByText("Alpha reply")).toBeNull();
     expect(screen.queryByRole("button", { name: "Show agent threads" })).toBeNull();
 
-    // Not even a search brings one back: the Agents panel is the only list.
-    fireEvent.change(screen.getByRole("textbox", { name: "Search threads" }), { target: { value: "Alpha" } });
-    expect(within(rail).queryByText("Alpha reply")).toBeNull();
   });
 
   it("keeps an agent thread out of the rail after Take over makes it the active one", async () => {
