@@ -10,6 +10,8 @@ export const KEEP_HISTORY = "Keep full history";
 export const NEVER_ASK = "Don't ask again";
 
 const SUMMARY_LIMIT = 240;
+/** Questionnaire Kit's tag (`kits/questionnaire/protocol.ts`): it pages the questions and draws checkboxes. */
+const QUESTIONNAIRE_EXTRA = "tau.questionnaire";
 
 export interface PermissionRequest {
   toolName: string;
@@ -97,30 +99,46 @@ export interface QuestionPrompt {
   prompt: BackendPrompt;
   /** The label behind each option string, in order. */
   labels: string[];
+  multiSelect?: boolean;
 }
 
-/** One workbench select per question; the option rows read "Label — description". */
+/**
+ * One workbench dialog per question, paged by Questionnaire Kit. A single choice
+ * is a select ("Label — description"); a multi-select is an input it fills with
+ * option numbers (`1,3`) from checkboxes, as the ask-user tool asks one.
+ */
 export function askUserQuestionPrompts(input: Record<string, unknown>): QuestionPrompt[] {
-  const questions = Array.isArray(input.questions) ? input.questions as AskUserQuestion[] : [];
-  return questions.filter((question) => typeof question?.question === "string").map((question) => {
-    const options = Array.isArray(question.options) ? question.options.filter((option) => typeof option?.label === "string") : [];
-    return {
-      question: question.question,
-      labels: options.map((option) => option.label),
-      prompt: {
+  const questions = (Array.isArray(input.questions) ? input.questions as AskUserQuestion[] : [])
+    .filter((question) => typeof question?.question === "string")
+    .map((question) => ({ ...question, options: Array.isArray(question.options) ? question.options.filter((option) => typeof option?.label === "string") : [] }));
+  const paged = questions.map((question) => ({
+    question: question.question,
+    header: question.header?.trim() ?? "",
+    multiSelect: question.multiSelect === true,
+    options: question.options.map((option) => ({ label: option.label, description: option.description ?? "" })),
+  }));
+  return questions.map((question, index) => {
+    const multiSelect = question.multiSelect === true;
+    const prompt: BackendPrompt = multiSelect
+      ? { kind: "input", title: question.header ? `[${question.header.trim()}] ${question.question}` : question.question, placeholder: "Option numbers, e.g. 1,3" }
+      : {
         kind: "select",
         title: question.question,
-        ...(question.header ? { message: question.multiSelect ? `${question.header} · several may apply; name them all in one answer` : question.header } : {}),
-        options: options.map((option) => option.description ? `${option.label} — ${option.description}` : option.label),
-      },
-    };
+        ...(question.header ? { message: question.header } : {}),
+        options: question.options.map((option) => option.description ? `${option.label} — ${option.description}` : option.label),
+      };
+    if (questions.length > 1 || multiSelect) prompt.extras = { ...prompt.extras, [QUESTIONNAIRE_EXTRA]: { index, questions: paged } };
+    return { question: question.question, labels: question.options.map((option) => option.label), prompt, ...(multiSelect ? { multiSelect } : {}) };
   });
 }
 
-/** The answer Claude reads: a chosen label, or what the user typed instead. */
+/** The answer Claude reads: a chosen label, the labels of several, or what the user typed instead. */
 export function askUserQuestionAnswer(answer: ExtensionUiAnswer, prompt: QuestionPrompt): string | undefined {
   if (!("value" in answer)) return undefined;
   if (answer.typed) return answer.value;
+  if (prompt.multiSelect && /^\s*\d+(?:\s*,\s*\d+)*\s*$/u.test(answer.value)) {
+    return answer.value.split(",").flatMap((entry) => prompt.labels[Number(entry.trim()) - 1] ?? []).join(", ");
+  }
   const at = prompt.prompt.options?.indexOf(answer.value) ?? -1;
   return at >= 0 ? prompt.labels[at] : answer.value;
 }
