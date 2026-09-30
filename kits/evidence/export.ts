@@ -92,3 +92,15 @@ export function exportName(at: number, extension: string): string {
   const pad = (value: number) => String(value).padStart(2, "0");
   return `evidence-${String(date.getFullYear())}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}.${extension}`;
 }
+
+/** Reads a turn's pictures, records them and hands the video to `saveFile`. */
+export async function saveTurnVideo(
+  turn: { startedAt: number; frames: ReadonlyArray<{ id: string; caption: string; at: number }> },
+  image: (id: string) => Promise<string | null>,
+  progress: (label: string) => void,
+): Promise<void> {
+  progress("Preparing…");
+  const urls = await Promise.all(turn.frames.map((frame) => image(frame.id)));
+  const playable = turn.frames.flatMap((frame, index) => urls[index] ? [{ url: urls[index], caption: frame.caption, at: frame.at }] : []);
+  saveFile(await exportVideo(playable, (done, total) => progress(`Recording ${String(done)}/${String(total)}…`)), exportName(turn.startedAt, "webm"));
+}

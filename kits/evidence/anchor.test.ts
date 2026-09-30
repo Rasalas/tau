@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { settledTurn, turnAnchor } from "./anchor.js";
+import { settledTurn, turnAnchor, turnNumber } from "./anchor.js";
 
 const messages = [
   { id: "u1", role: "user", timestamp: 1_000 },
@@ -25,5 +25,14 @@ describe("turnAnchor", () => {
     expect(turnAnchor({ startedAt: 1_000 }, messages)).toBeUndefined();
     expect(settledTurn(turn, true)).toBe(turn);
     expect(settledTurn(turn, false).endedAt).toBe(5_000);
+  });
+});
+
+describe("turnNumber", () => {
+  it("counts the turn by its prompt, and says nothing while older messages are missing", () => {
+    expect(turnNumber({ startedAt: 1_200, endedAt: 10_000 }, messages, true)).toBe(1);
+    expect(turnNumber({ startedAt: 20_100 }, messages, true)).toBe(2);
+    expect(turnNumber({ startedAt: 20_100 }, messages, false)).toBeUndefined();
+    expect(turnNumber({ startedAt: 100_000, endedAt: 110_000 }, messages, true)).toBeUndefined();
   });
 });

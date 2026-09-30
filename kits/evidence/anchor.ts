@@ -37,3 +37,13 @@ export function settledTurn(turn: EvidenceTurn, streaming: boolean): EvidenceTur
   if (turn.endedAt !== undefined || streaming) return turn;
   return { ...turn, endedAt: turn.frames.at(-1)?.at ?? turn.startedAt };
 }
+
+/** The turn's place in the thread, counted by prompts; nothing while older messages are not loaded. */
+export function turnNumber(turn: Pick<EvidenceTurn, "startedAt" | "endedAt">, messages: readonly TimedMessage[], complete: boolean): number | undefined {
+  if (!complete) return undefined;
+  const prompts = messages.filter((message) => message.role === "user");
+  const until = (turn.endedAt ?? Number.POSITIVE_INFINITY) + ANSWER_SLACK_MS;
+  let number: number | undefined;
+  prompts.forEach((message, index) => { if (message.timestamp >= turn.startedAt - PROMPT_SLACK_MS && message.timestamp <= until) number = index + 1; });
+  return number;
+}

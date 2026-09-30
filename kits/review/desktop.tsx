@@ -32,8 +32,8 @@ import { ThreadLinkRows } from "./thread-links-store.js";
 import type { StripParts } from "./pull-request-strip.js";
 import { EVIDENCE_SERVICE, localRequestClient, type EvidenceService } from "./local-request-client.js";
 import { PROJECT_SCRIPTS_EXTENSION_ID } from "./local-request-checks.js";
-import { registerLocalRequestTab } from "./local-request-tab.js";
-import { LocalDrafts } from "./local-request.js";
+import { openLocalPullRequest, registerLocalRequestTab } from "./local-request-tab.js";
+import { evidenceKey, LocalDrafts, REVIEW_ATTACH_SERVICE, type ReviewAttachService } from "./local-request.js";
 import { CompactReviewStore } from "./compact-store.js";
 import { createCompactTurnPill } from "./turn-pill.js";
 import type { CompactReviewDeps } from "./compact-review.js";
@@ -136,6 +136,17 @@ export const reviewExtension: DesktopExtension = {
       const off = service.subscribe(() => { for (const listener of [...evidenceListeners]) listener(); });
       return () => { off(); if (evidence === service) evidence = undefined; };
     });
+    const drafts = new LocalDrafts(getClientStorage);
+    const attachService: ReviewAttachService = {
+      attach: (media, actions) => {
+        const snapshot = workspaceStore?.getSnapshot();
+        if (!snapshot?.cwd) return false;
+        drafts.attach(snapshot.cwd, snapshot.workspace?.branch, media.map(evidenceKey));
+        openLocalPullRequest(actions);
+        return true;
+      },
+    };
+    const releaseAttach = plugin.provideService(REVIEW_ATTACH_SERVICE, attachService);
     const releaseLocal = registerLocalRequestTab(plugin, {
       client: localRequestClient(plugin.host, () => evidence),
       requests,
@@ -144,7 +155,7 @@ export const reviewExtension: DesktopExtension = {
       store: () => workspaceStore,
       scripts: plugin.hostExtension(PROJECT_SCRIPTS_EXTENSION_ID),
       preferences: plugin.preferences,
-      drafts: new LocalDrafts(getClientStorage),
+      drafts,
       onEvidence: (listener) => { evidenceListeners.add(listener); return () => { evidenceListeners.delete(listener); }; },
     });
     const releaseProactive = plugin.registerRegion({ id: "review.proactive-panels", placement: "title-bar", profiles: ["desktop"], Component: createProactivePanels(plugin, links, () => workspaceStore) });
@@ -169,7 +180,7 @@ export const reviewExtension: DesktopExtension = {
       ];
       return () => { if (workspaceStore === store) workspaceStore = undefined; for (const dispose of disposers.reverse()) dispose(); };
     });
-    return () => { releaseStore(); releaseStrip(); releaseProactive(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
+    return () => { releaseStore(); releaseStrip(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
   },
 };
 
