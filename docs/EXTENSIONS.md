@@ -904,7 +904,7 @@ when there is nothing to say. An older core never draws the placement.
 lists threads that are not this host's among a phone's or tablet's own:
 another machine's. Each entry (`ThreadListEntry`) has a `key` that is never a
 thread id of this host, the thread's `session` as its own host lists it,
-`running`, `opening` while `open` is under way, `settled` for the settled
+`running`, `waiting` while it waits for an answer there (API 1.35.0), `opening` while `open` is under way, `settled` for the settled
 shelf, the `machine` it runs on (`{ name, icon }`, drawn after the project
 on the row's project line) and `unavailable`, the reason it cannot be reached
 now, which greys the row. The rows stand among the host's by the list's own
