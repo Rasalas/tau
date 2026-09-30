@@ -291,6 +291,7 @@ export interface ThreadCardProps {
   activity: ThreadActivity;
   activityLabel?: string;
   activityHint?: string;
+  activityIcon?: ReactNode;
   age: string;
   projectIcon?: string;
   /** Another machine's thread: its name and mark, and why it cannot open now. */
@@ -307,12 +308,12 @@ export interface ThreadCardProps {
 
 type CardRow = { order: number; key: string; node: ReactNode };
 
-function statusRow(activity: ThreadActivity, label: string | undefined, hint: string | undefined, age: string): { icon: ReactNode; text: string; tone?: ThreadCardRowProps["tone"] } {
+function statusRow(activity: ThreadActivity, label: string | undefined, hint: string | undefined, age: string, glyph?: ReactNode): { icon: ReactNode; text: string; tone?: ThreadCardRowProps["tone"] } {
   const text = label && hint ? `${label}: ${hint}` : label ?? "";
   switch (activity) {
     case "working":
     case "tool": return { icon: <LoaderCircle size={12} />, text: text || "Working", tone: "working" };
-    case "waiting": return { icon: <MessageCircleQuestion size={12} />, text: text || THREAD_QUESTION_LABEL, tone: "warning" };
+    case "waiting": return { icon: glyph ?? <MessageCircleQuestion size={12} />, text: text || THREAD_QUESTION_LABEL, tone: "warning" };
     case "failed": return { icon: <CircleAlert size={12} />, text, tone: "danger" };
     case "limited": return { icon: <Hourglass size={12} />, text, tone: "warning" };
     case "interrupted":
@@ -343,7 +344,7 @@ export function ThreadCard(props: ThreadCardProps) {
   const modelName = useModelName(runtime, session.model, session.modelProvider);
   const route = providerStackLabel(session.modelProvider, runtime);
   const cost = showCost ? threadCostLabel(session.usage) : undefined;
-  const status = statusRow(props.activity, props.activityLabel, props.activityHint, props.age);
+  const status = statusRow(props.activity, props.activityLabel, props.activityHint, props.age, props.activityIcon);
   const external = Boolean(machine);
   const rows: CardRow[] = [
     {

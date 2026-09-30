@@ -21,6 +21,12 @@ describe("fakeReply", () => {
     expect(fakeReply({ messages: [...user("think 800 run 5").messages, { role: "assistant", content: null }, { role: "tool", content: "" }] })).toEqual({ text: "done", thinkMs: 800 });
     expect(fakeReply(user("think 300"))).toEqual({ text: "ok", thinkMs: 300 });
   });
+
+  it("asks the user to take over the Preview at a page", () => {
+    const reply = fakeReply(user("takeover http://localhost:4100/login"));
+    expect(reply.toolCall).toEqual({ name: "request_takeover", arguments: { reason: "Sign in to localhost in the preview", target: "preview", url: "http://localhost:4100/login" } });
+    expect(reply.text).toMatch(/handed the preview to you/u);
+  });
 });
 
 describe("startFakeModelServer", () => {

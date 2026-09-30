@@ -7,7 +7,7 @@ import { HostClientProvider, setHostClient } from "../../src/renderer/test-suppo
 import { EMPTY_PREVIEW_STATE, type PreviewState } from "./protocol.js";
 import RemotePreview, { fit, layoutOwner } from "./remote-view.js";
 import { viewerId } from "./viewer.js";
-import { windowName } from "./screen-store.js";
+import { previewHold, windowName } from "./screen-store.js";
 import { connectPreviewHost, drawsFrames, previewStore } from "./store.js";
 import { hostMachineName } from "./machine.js";
 
@@ -29,6 +29,7 @@ afterEach(() => {
   disconnect();
   previewStore.set(EMPTY_PREVIEW_STATE);
   hostMachineName.set(undefined);
+  previewHold.set(undefined);
 });
 
 function setup(options: { readOnly?: boolean; focus?: "secret" | "field" | "none"; url?: string; state?: Partial<PreviewState> } = {}) {
@@ -212,5 +213,13 @@ describe("a machine without a window for the page", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("draws the holder's bar above the page and its footnote under it on a phone", () => {
+    previewHold.set({ Bar: () => <div role="region" aria-label="Your turn">Your turn</div>, Footer: () => <p>Evidence is paused while you type.</p> });
+    const { view } = setup();
+    const section = view.container.querySelector(".preview-remote.held")!;
+    expect(section.firstElementChild?.getAttribute("aria-label")).toBe("Your turn");
+    expect(section.lastElementChild?.textContent).toBe("Evidence is paused while you type.");
   });
 });

@@ -227,3 +227,19 @@ describe("profiles and recent pages", () => {
     vi.restoreAllMocks();
   });
 });
+
+describe("a page the user holds", () => {
+  it("puts the password note on the page and on the next one, and takes it off at the end", async () => {
+    const kit = await activate();
+    await kit.invoke("open", { url: "http://localhost:3000/login" });
+    const notes = () => kit.evaluated.filter((entry) => entry.expression.includes("secret-note"));
+    await kit.invoke("hold", { on: true });
+    expect(notes().map((entry) => [entry.isolated, entry.expression.endsWith("(true)")])).toEqual([[true, true]]);
+    await kit.invoke("open", { url: "http://localhost:3000/next" });
+    expect(notes()).toHaveLength(2);
+    await kit.invoke("hold", { on: false });
+    expect(notes().at(-1)?.expression.endsWith("(false)")).toBe(true);
+    await kit.invoke("open", { url: "http://localhost:3000/after" });
+    expect(notes()).toHaveLength(3);
+  });
+});

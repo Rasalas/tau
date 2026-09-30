@@ -446,6 +446,8 @@ export interface WorkspaceKitState {
   changesSections: ReadonlyArray<ComponentType<ChangesSectionProps>>;
   /** Marks other kits add to rail rows. */
   threadRowAccessories: ReadonlyArray<ComponentType<ThreadRowAccessoryProps>>;
+  /** Other kits' states for some threads, by thread id, drawn in place of the row's own. */
+  threadRowStatuses: Readonly<Record<string, ThreadRowStatusMark>>;
   /** Rows and sections other kits add to a rail row's hover card. */
   threadCardSections: readonly ThreadCardSection[];
   /** Another kit's say over the rail's sections, menus and drops. */
@@ -516,6 +518,13 @@ export interface RailThreadSource {
 /** A small mark another kit draws on a thread's rail row, e.g. its request status. */
 export interface ThreadRowAccessoryProps {
   session: UiSession;
+}
+
+/** A state another kit gives a thread's row, drawn like a question: a takeover's "Your turn". */
+export interface ThreadRowStatusMark {
+  label: string;
+  hint?: string;
+  icon: ReactNode;
 }
 
 /**
@@ -670,6 +679,8 @@ export interface WorkspaceStoreApi {
   revertFile(path: string): Promise<void>;
   /** A mark drawn on every thread row of the rail. */
   registerThreadRowAccessory(accessory: ComponentType<ThreadRowAccessoryProps>): () => void;
+  /** `owner`'s states for rows, by thread id, in place of Working or Question; `{}` withdraws them. */
+  setThreadRowStatuses?(owner: string, statuses: Readonly<Record<string, ThreadRowStatusMark>>): void;
   /** A row or section on every rail row's hover card: a terminal count, the thread's pull requests (API 1.23.0). */
   registerThreadCardSection?(section: ThreadCardSection): () => void;
   /** Sections, row menus and drops of the rail. */

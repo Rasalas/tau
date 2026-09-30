@@ -1669,7 +1669,7 @@ It also exports the renderer's shared state and presentation:
 | `usePreferences` | the same store as `context.preferences`, for a component rendered in a slot. |
 | `useAppUpdate`, type `AppUpdate` | (new in API 1.28.0) the Tau release the host downloaded, `{ version, install() }`, or undefined. |
 | `useClientStorage`, `getClientStorage`, type `ClientStorage` | the renderer's key/value storage, in and out of the component tree. The phone app keeps each host's keys apart; a key under `device:` (API 1.30.0) is the device's own and shared across its hosts, as Usage Kit's choice of juicebars. |
-| `useHostCapabilities`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced; the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. `READ_ONLY_REASON` is core's wording for a disabled control. Core does it for the composer (a note instead of the field), setting rows (inert, with the reason), the palette and chords (for every command and row without `access: "read"`), the title menu (new thread, pin and settle included), the compact list (its Stop, swipe tray and new-thread button), Edit/Fork, the changes tree and the Models page's model, thinking and runtime; preferences stay on the device, and a copied chat goes to the device's own clipboard. |
+| `useHostCapabilities`, `useHostName`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced (`useHostName`: the name it gave, for "this page runs on …"); the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. `READ_ONLY_REASON` is core's wording for a disabled control. Core does it for the composer (a note instead of the field), setting rows (inert, with the reason), the palette and chords (for every command and row without `access: "read"`), the title menu (new thread, pin and settle included), the compact list (its Stop, swipe tray and new-thread button), Edit/Fork, the changes tree and the Models page's model, thinking and runtime; preferences stay on the device, and a copied chat goes to the device's own clipboard. |
 | `useCommandAllowed(extensionId, command)`, `hostCommandAllowed(extensionId, command, client?)` | (new in API 1.13.0) whether this device may run a kit's host command: always with Full access; on a Read-only device only a command registered `access: "read"`, and none until the host has said which those are (the hook re-renders then). One line disables a control: `disabled={!allowed}` with `READ_ONLY_REASON` as its tooltip. The function is for palette sources and other code outside a component. |
 | `useKeepClear` | keeps a floating element clear of the reserved regions of the window. |
 | `readCachedTurnActivity`, `changesSinceTurn`, `changesTouchedByTools` | what a turn touched, from the cache core writes. |
@@ -1706,7 +1706,11 @@ machine (a phone, a browser, a window on another computer) `jump` opens the
 Preview there instead, where the user drives the page or window by tapping and
 typing, and `remote()` (new in API 1.13.0) says so. `watch(target, maxWidth, onFrame)`
 (new in API 1.13.0) delivers a small live picture of the page or of a thread's
-driven window while the calling page is visible, until the returned stop. Preview Kit also publishes
+driven window while the calling page is visible, until the returned stop.
+`hold({ Bar?, Footer? })` marks the page as the user's while they take over:
+the panel draws an amber frame and "you have control", a phone's Preview sheet
+draws `Bar` above the page and `Footer` under it, and the page says a focused
+password field is not captured; the returned function releases it. Preview Kit also publishes
 `tau.preview/cookie-import` (new in API 1.12.0): `importSite({ site, profile? })`
 opens its cookie import dialog with that site filtered to and ticked and that
 Preview profile as the target, and answers the import's result, or `undefined`
@@ -1767,6 +1771,9 @@ panel, clean worktree or not, with the panel's `actions`, the commit message as
 the user left it and `committed()` to hand the box back to the proposal; and
 `registerThreadRowAccessory(Component)` draws a mark on every rail row, given
 the row's `session` (Terminal Kit marks a thread whose shells run a program this way).
+`setThreadRowStatuses?(owner, { [threadId]: { label, hint?, icon } })` gives rows a
+state of the kit's own, drawn like a question in place of Working (Takeover Kit's
+"Your turn"); `{}` withdraws them.
 `registerThreadCardSection?({ place, order?, Component })` (new in API 1.23.0) adds to
 the card a rail row opens: a pointer resting 180 ms on a row
 (a sweep over the rail opens nothing) or keyboard focus on it shows the whole title and a

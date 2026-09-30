@@ -6,6 +6,8 @@
 //   "fail <status> <text>" → HTTP <status> with <text> as the provider's error
 //   "run <seconds>"        → a `bash` call that runs `mkdir` and sleeps, then "done"
 //   "think <ms>"           → reasoning streamed for <ms> before each answer (with the others too)
+//   "takeover <url>"       → a line, then a `request_takeover` call for the Preview at <url>, then "done"
+//                            (GET /login on this server is a sign-in page to point it at)
 //   anything else          → "ok"
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -20,7 +22,7 @@ function text(content) {
   return "";
 }
 
-/** What the fake says to a request body: `{ text }`, `{ toolCall }`, `{ text, waitMs }`, or `{ status, error }`. */
+/** What the fake says to a request body: `{ text }`, `{ toolCall }` (a `text` streams before it), `{ text, waitMs }`, or `{ status, error }`. */
 export function fakeReply(body) {
   const messages = Array.isArray(body?.messages) ? body.messages : [];
   const last = messages.at(-1);
@@ -30,6 +32,14 @@ export function fakeReply(body) {
   if (last?.role === "tool") return { text: "done", ...thinkMs };
   const write = prompt.match(/\bwrite\s+(\S+)\s+(\S+)/u);
   if (write) return { toolCall: { name: "write", arguments: { path: write[1], content: `${write[2]}\n` } } };
+  const takeover = prompt.match(/\btakeover\s+(https?:\/\/\S+)/u);
+  if (takeover) {
+    const host = new URL(takeover[1]).hostname;
+    return {
+      text: "The admin page redirects to the staff sign-in. I can't enter your credentials, so I've paused here and handed the preview to you.",
+      toolCall: { name: "request_takeover", arguments: { reason: `Sign in to ${host} in the preview`, target: "preview", url: takeover[1] } },
+    };
+  }
   const run = prompt.match(/\brun\s+(\d+)\b/u);
   if (run) return { toolCall: { name: "bash", arguments: { command: `mkdir -p fake-run && sleep ${Math.min(Number(run[1]), 120)}` } }, ...thinkMs };
   const fail = prompt.match(/\bfail\s+([45]\d\d)\s+(.+)$/su);
@@ -39,12 +49,23 @@ export function fakeReply(body) {
   return { text: "ok", ...thinkMs };
 }
 
+const SIGN_IN_PAGE = `<!doctype html><meta charset="utf-8"><title>Staff sign-in</title>
+<style>body{font:14px system-ui;display:grid;place-items:center;min-height:100vh;margin:0;background:#fbfaf8}
+form{width:300px;display:flex;flex-direction:column;gap:10px;padding:22px;border-radius:12px;background:#f0eeea}
+input{padding:8px 10px;border:0;border-radius:8px;font:inherit}button{padding:8px;border:0;border-radius:8px;font:600 14px system-ui}</style>
+<form><b>Staff sign-in</b><label>Email<br><input name="email" value="you@shop.local"></label>
+<label>Password<br><input name="password" type="password"></label><button type="button">Sign in</button></form>`;
+
 /** Starts the fake; `respond(body)` overrides `fakeReply`. Resolves with `baseUrl`, the `requests` seen and `close`. */
 export async function startFakeModelServer({ respond = fakeReply } = {}) {
   const requests = [];
   const open = new Set();
   let counter = 0;
   const server = createServer((request, response) => {
+    if (request.method === "GET" && request.url?.startsWith("/login")) {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(SIGN_IN_PAGE);
+      return;
+    }
     if (request.method !== "POST" || !request.url?.endsWith("/chat/completions")) {
       response.writeHead(404, { "content-type": "application/json" }).end(JSON.stringify({ error: { message: "not found" } }));
       return;
@@ -75,6 +96,7 @@ export async function startFakeModelServer({ respond = fakeReply } = {}) {
       }
       if (closed) return;
       if (reply.toolCall) {
+        if (reply.text) response.write(chunk({ delta: { content: reply.text }, finish_reason: null }));
         response.write(chunk({ delta: { tool_calls: [{ index: 0, id: `call_${counter}`, type: "function", function: { name: reply.toolCall.name, arguments: JSON.stringify(reply.toolCall.arguments) } }] }, finish_reason: null }));
         response.write(chunk({ delta: {}, finish_reason: "tool_calls" }));
       } else {
