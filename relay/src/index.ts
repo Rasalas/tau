@@ -1,5 +1,5 @@
 // The Cloud Function around the relay (docs/push.md). Everything it decides lives in relay.ts.
-import { initializeApp } from "firebase-admin/app";
+import { initializeApp, type App } from "firebase-admin/app";
 import { getMessaging } from "firebase-admin/messaging";
 import { logger } from "firebase-functions";
 import { defineSecret } from "firebase-functions/params";
@@ -18,13 +18,17 @@ const APNS_KEY = defineSecret("APNS_KEY_P8");
 const APNS_KEY_ID = defineSecret("APNS_KEY_ID");
 const APNS_TEAM_ID = defineSecret("APNS_TEAM_ID");
 
+let app: App | undefined;
 let handler: ((request: RelayRequest) => Promise<RelayResponse>) | undefined;
+let failureLogged = false;
 
 /** Built on the first request: secrets are readable only then. */
 function relayHandler(): (request: RelayRequest) => Promise<RelayResponse> {
   if (handler) return handler;
-  initializeApp();
-  const senders: Senders = { android: fcmSender(getMessaging()) };
+  // Once per instance: a keyring that failed to parse brings the next request here again.
+  app ??= initializeApp();
+  const keyring = parseKeyring(HANDLE_KEYS.value());
+  const senders: Senders = { android: fcmSender(getMessaging(app)) };
   try {
     const credentials = { keyId: APNS_KEY_ID.value().trim().toUpperCase(), teamId: APNS_TEAM_ID.value().trim().toUpperCase(), key: APNS_KEY.value() };
     senders.ios = apnsSender(new ApnsClient({ credentials }));
@@ -32,7 +36,7 @@ function relayHandler(): (request: RelayRequest) => Promise<RelayResponse> {
     // Until the APNs key exists its secrets may hold a placeholder; iPhones then get 503.
     logger.warn("apns.unconfigured");
   }
-  handler = createRelay({ keyring: parseKeyring(HANDLE_KEYS.value()), senders, log: (level, event, fields) => (level === "error" ? logger.error(event, fields) : logger.warn(event, fields)) });
+  handler = createRelay({ keyring, senders, log: (level, event, fields) => (level === "error" ? logger.error(event, fields) : logger.warn(event, fields)) });
   return handler;
 }
 
@@ -54,8 +58,9 @@ export const relay = onRequest(
     try {
       answer = await relayHandler()({ method: request.method, path: request.path, body: request.rawBody, headers: request.headers });
     } catch (error) {
-      // A keyring that does not parse; the message names the entry, never a key.
-      logger.error("relay.failed", { detail: error instanceof Error ? error.message : "unknown" });
+      // A keyring that does not parse; the message names the entry, never a key. Logged once per instance.
+      if (!failureLogged) logger.error("relay.failed", { detail: error instanceof Error ? error.message : "unknown" });
+      failureLogged = true;
       answer = { status: 503, headers: { "content-type": "application/json; charset=utf-8" }, body: JSON.stringify({ error: "unavailable" }) };
     }
     response.status(answer.status).set(answer.headers).send(answer.body);
