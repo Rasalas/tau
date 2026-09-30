@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, ToastOptions, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { CodexInstances, CodexProviderCard, codexExtension, createUpdateToasts, createVersionBanner, searchRows } from "./desktop.js";
+import { CodexInstances, CodexProviderCard, codexExtension, createUpdateToasts, createVersionBanner, createChatGPTPlanBanner, searchRows } from "./desktop.js";
 
 afterEach(cleanup);
 
@@ -204,5 +204,50 @@ describe("Codex desktop extension", () => {
     await waitFor(() => expect(toasts.get("runtime-update:codex@home")).toMatchObject({ type: "success", title: "Codex · Home updated: v0.156.1" }));
     expect(run).toHaveBeenCalledWith({ command: "brew upgrade --cask codex", label: "Update Codex · Home" }, actions);
     expect(invoke).toHaveBeenCalledWith("recheck", { instance: "home" });
+  });
+});
+
+describe("ChatGPT plan UI", () => {
+  it("offers Continue with ChatGPT when permission is missing and opens plan usage controls", async () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const invoke = vi.fn(async (command: string) => command === "sign-in-state" ? {
+      methods: [{ id: "chatgpt-plan", label: "Continue with ChatGPT", actionLabel: "Continue with ChatGPT", kind: "browser" }], account: { signedIn: false },
+    } : { command: "codex", chatgptPlan: { signedIn: false, label: "fixture@example.test", usageUrl: "https://chatgpt.com/settings/usage" } });
+    render(<CodexProviderCard onNotify={vi.fn()} host={host(invoke)} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue with ChatGPT" })).toBeTruthy());
+    fireEvent.click(await screen.findByRole("button", { name: "Manage usage" }));
+    expect(open).toHaveBeenCalledWith("https://chatgpt.com/settings/usage", "_blank", "noopener");
+    open.mockRestore();
+  });
+
+  it("keeps plan connection reachable while a new instance inherits a signed-in CLI account", async () => {
+    const invoke = vi.fn(async (command: string) => command === "sign-in-state" ? {
+      methods: [{ id: "chatgpt-plan", label: "Continue with ChatGPT", actionLabel: "Continue with ChatGPT", availableWhenSignedIn: true, kind: "browser" }, { id: "chatgpt", label: "CLI sign-in", kind: "browser" }],
+      account: { signedIn: true, label: "CLI account" },
+    } : { command: "codex" });
+    render(<CodexProviderCard onNotify={vi.fn()} host={host(invoke)} />);
+    expect(await screen.findByRole("button", { name: "Continue with ChatGPT" })).toBeTruthy();
+    expect(screen.queryByText("CLI sign-in")).toBeNull();
+  });
+
+  it("offers an explicit managed install repair for a registered account", async () => {
+    const invoke = vi.fn(async (command: string) => command === "sign-in-state" ? { methods: [], account: { signedIn: true } } : { command: "codex", chatgptPlan: { signedIn: true, label: "fixture@example.test", usageUrl: "https://chatgpt.com/settings/usage", needsInstall: true } });
+    render(<CodexProviderCard onNotify={vi.fn()} host={host(invoke)} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Install managed Codex" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("managed-codex-install", {}));
+  });
+
+  it("shows the active account beside the composer and directs a limit error to Manage usage", async () => {
+    const listeners = new Map<string, (value: unknown) => void>();
+    const client = { invoke: vi.fn(async () => ({ signedIn: true, label: "fixture@example.test", usageUrl: "https://chatgpt.com/settings/usage" })), onEvent: (name: string, listener: (value: unknown) => void) => { listeners.set(name, listener); return () => listeners.delete(name); } };
+    const Banner = createChatGPTPlanBanner(client);
+    const actions = { openExternal: vi.fn() } as unknown as WorkbenchActions;
+    render(<Banner snapshot={{ backendKind: "codex@work" } as HostSnapshot} actions={actions} />);
+    await screen.findByText("Using ChatGPT plan · fixture@example.test");
+    expect(client.invoke).toHaveBeenCalledWith("chatgpt-plan-account", { instance: "work" });
+    listeners.get("chatgpt-plan-limit")!({ instance: "work" });
+    await screen.findByText(/Review your app limits and credits/u);
+    fireEvent.click(screen.getByRole("button", { name: "Manage usage" }));
+    expect(actions.openExternal).toHaveBeenCalledWith("https://chatgpt.com/settings/usage");
   });
 });

@@ -85,6 +85,8 @@ export interface CodexThreadBackendOptions {
   /** What the instance's `config.toml` sets, which a thread runs on until Codex names its model. */
   configuredModel?(): Promise<CodexConfiguredModel>;
   openSession(input: CodexSessionInput): Promise<CodexSessionLike>;
+  /** Refresh external credentials between turns; false restarts and resumes the stored thread. */
+  sessionCurrent?(session: CodexSessionLike): Promise<boolean>;
   /** The account's models as last seen; cheap, read when the thread opens. */
   storedModels?(): Promise<readonly CodexStoredModel[]>;
   /** The account's models before any session of this thread exists; may ask the CLI. */
@@ -107,6 +109,8 @@ export interface CodexThreadBackendOptions {
   priceUsage?(tallies: readonly UsageTally[]): UiThreadUsage | undefined;
   /** A turn reported the account's quota windows (`account/rateLimits/updated`). */
   onRateLimits?(snapshot: unknown): void;
+  /** Direct the user to the plan controls when the Responses grant reaches its limit. */
+  onUsageLimit?(): void;
 }
 
 /** A ChatGPT login is the subscription; an API key is billed per token. */
@@ -487,6 +491,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       this.turnBaseline = undefined;
       this.usageTurns = appendUsageTurn(this.usageTurns, finished);
       await this.store.recordUsage(this.threadId, this.cwd, this.usage, finished);
+      if (outcome?.usageLimit) this.options.onUsageLimit?.();
       const limit = outcome?.usageLimit ? codexLimitReset(this.rateLimits, this.now()) : undefined;
       this.settle(turn, outcome?.status === "interrupted" ? "interrupted" : outcome?.status === "failed" ? "error" : "completed", outcome?.error,
         outcome?.usageLimit ? { ...(limit ? { resetsAt: limit } : {}) } : undefined);
@@ -563,8 +568,14 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   /** The live app-server, spawned on demand; the stored thread is resumed, a gone one started afresh. */
-  private ensureSession(): Promise<CodexSessionLike> {
-    if (this.live && !this.live.closed) return Promise.resolve(this.live);
+  private async ensureSession(): Promise<CodexSessionLike> {
+    const previous = this.live;
+    if (previous && !previous.closed) {
+      const current = !this.options.sessionCurrent || await this.options.sessionCurrent(previous);
+      if (current && this.live === previous && !previous.closed) return previous;
+      if (this.live === previous) this.live = undefined;
+      await previous.close();
+    }
     this.opening ??= this.openSession().finally(() => { this.opening = undefined; });
     return this.opening;
   }

@@ -259,3 +259,9 @@ describe("Usage host half", () => {
     expect(calls).toHaveLength(3);
   });
 });
+
+it("keeps HTTPS usage management controls from a provider and rejects unsafe link schemes", () => {
+  const account = { id: "plan", runtime: "codex", label: "ChatGPT plan", checkedAt: 1, windows: [] };
+  expect(readLimitsAnswer({ accounts: [{ ...account, managementUrl: "https://chatgpt.com/settings/usage" }] })![0]!.managementUrl).toBe("https://chatgpt.com/settings/usage");
+  expect(readLimitsAnswer({ accounts: [{ ...account, managementUrl: "javascript:alert(1)" }] })![0]!.managementUrl).toBeUndefined();
+});

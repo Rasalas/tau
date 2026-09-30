@@ -28,7 +28,7 @@ Type `/welcome` in the composer to open it again later.
 Tau uses the tools and sign-ins you already have. It never copies a login from one tool to another. Settings → Runtimes lists every runtime with its version; Settings → Providers has a card for each with its sign-in.
 
 - **Claude Code:** install Anthropic's Claude Code and sign in there. Tau drives it for Anthropic's models, on your Claude plan. Don't sign Pi in with a Claude subscription: Anthropic sells it for Claude Code only.
-- **Codex:** install the Codex CLI and sign in with `codex login`.
+- **Codex:** open Settings → Providers → Codex and choose Continue with ChatGPT. Tau manages the Codex download and connects your plan. You can also use an installed CLI and `codex login`.
 - **Gemini:** Settings → Providers → Antigravity → **Install** downloads Google's Antigravity runtime. Sign in with your Google account on the same card.
 - **Pi:** built in. Add API keys or sign-ins for OpenAI, Google, OpenCode Go and other providers under Settings → Providers.
 - **OpenCode, Cursor and Grok:** install their command-line tools. Tau finds them on the `PATH` of your login shell.

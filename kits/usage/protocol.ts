@@ -133,6 +133,8 @@ export interface UsageLimitAccount {
   label: string;
   plan?: string;
   checkedAt: number;
+  /** Provider controls for usage that is managed outside Tau. */
+  managementUrl?: string;
   windows: UsageLimitWindow[];
   /** Why there are no windows: an API key has none, a read failed, nobody is signed in. */
   unavailable?: { reason: "unsupported" | "failed" | "signed-out"; message?: string };

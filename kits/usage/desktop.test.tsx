@@ -6,6 +6,7 @@ import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-
 import { HostClientProvider, createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import usageExtension from "./desktop.js";
+import { UsageLimits } from "./limits.js";
 import { UsagePage } from "./page.js";
 import { priceFromDraft } from "./prices.js";
 import { dayStarts, HISTORY_DAYS } from "./dashboard.js";
@@ -393,4 +394,11 @@ describe("Usage kit", () => {
     expect(registry.getPages()).toEqual([]);
     expect(registry.getCommands().filter((command) => command.id === "usage.open")).toEqual([]);
   });
+});
+
+it("opens the provider's usage management page for plans that report no quota windows", () => {
+  const open = vi.fn();
+  render(<UsageLimits limits={{ checkedAt: NOW.getTime(), sources: [], accounts: [{ id: "plan", runtime: "codex", label: "ChatGPT plan", checkedAt: NOW.getTime(), windows: [], managementUrl: "https://chatgpt.com/settings/usage", unavailable: { reason: "unsupported", message: "ChatGPT manages this connection's usage." } }] }} error={undefined} now={NOW.getTime()} onOpenExternal={open} />);
+  fireEvent.click(screen.getByRole("link", { name: "Manage usage" }));
+  expect(open).toHaveBeenCalledWith("https://chatgpt.com/settings/usage");
 });

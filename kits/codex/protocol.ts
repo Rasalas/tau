@@ -56,6 +56,7 @@ export interface CodexStatusReport {
   signedIn?: boolean;
   models?: number;
   message?: string;
+  chatgptPlan?: { signedIn: boolean; label: string; usageUrl: string; needsInstall?: boolean };
 }
 
 /**

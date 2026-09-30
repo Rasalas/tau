@@ -303,7 +303,7 @@ export class CodexTurnTranslator {
       events.push({ type: "tool-end", tool: { ...tool, status: "error", output, endedAt: this.now() } });
     }
     const error = turn?.error?.message?.trim();
-    const usageLimit = status === "failed" && turn?.error?.codexErrorInfo === "usageLimitExceeded";
+    const usageLimit = status === "failed" && (turn?.error?.codexErrorInfo === "usageLimitExceeded" || /subscription_sharing_usage_(?:limit_exceeded|unavailable)/u.test(error ?? ""));
     this.outcome = { status, texts: [...this.texts], ...(error ? { error } : {}), ...(usageLimit ? { usageLimit } : {}) };
     return events;
   }

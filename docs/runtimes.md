@@ -1,6 +1,6 @@
 # Runtimes and tools
 
-Tau drives agents it does not ship: Pi, built in, and the command-line tools of Anthropic, OpenAI, Google and others. It uses them the way you set them up, with your sign-ins. [Get started](site/get-started.md#connect-your-agents) has the short version.
+Tau runs Pi, built in, and the command-line tools of Anthropic, OpenAI, Google and others. Tau can manage a pinned Codex installation for ChatGPT plan connections. It uses them the way you set them up, with your sign-ins. [Get started](site/get-started.md#connect-your-agents) has the short version.
 
 ## What Tau takes from your machine
 
@@ -18,7 +18,17 @@ Antigravity threads drive Google's Antigravity agent through the Agent Client Pr
 
 ## Codex
 
-Codex threads drive the installed `codex` CLI through its app server (`codex app-server`), signed in the way the CLI is (`codex login` with your ChatGPT plan, or an API key) with your `~/.codex` (or `CODEX_HOME`) sessions and config; Tau reads no credential. A different executable is set on its card under Settings → Providers (or with `TAU_CODEX_COMMAND`). Codex's approval requests appear in the thread like any other question, and Tau's access levels become Codex's sandbox and approval policy.
+Codex threads drive `codex app-server`. Under **Settings → Providers → Codex**, choose **Continue with ChatGPT** to authorize Tau to use your ChatGPT plan. Tau downloads a pinned Codex release when needed, verifies its archive, and keeps it in its own host state. You do not need to install the CLI first. If a Tau update needs a newer managed release or its files need repair, use **Install managed Codex** on that account’s card. An explicit executable override must support this connection. The existing CLI browser, device-code, API-key and terminal logins remain available for instances using the CLI’s own account and `~/.codex` or `CODEX_HOME`. A different executable is set on its card under Settings → Providers (or with `TAU_CODEX_COMMAND`). Codex's approval requests appear in the thread like any other question, and Tau's access levels become Codex's sandbox and approval policy.
+
+The first successful plan connection shows a usage confirmation. The composer shows **Using ChatGPT plan** and the active account. **Manage usage** opens [ChatGPT Settings → Usage](https://chatgpt.com/settings/usage), including after a plan-limit error. ChatGPT usage is shared with other apps and follows the limits and credit settings you authorize there.
+
+Each Codex instance keeps one account registration and its own protected credentials and sessions. Use **Add instance** for another ChatGPT account or workspace, even if its email address is the same. A thread keeps the instance it started on. An instance that already has CLI threads cannot be converted to the Tau-managed plan connection; add an instance so those conversations keep their original sessions.
+
+The browser normally completes sign-in through a loopback callback on the Tau host. If the browser is on another computer, copy its final `http://127.0.0.1:…/auth/callback?…` URL into the sign-in prompt. Tau validates that attempt's URI and state before exchanging the code. Do not share the callback URL with others.
+
+Tau stores one stable host ID, issued account registrations, and owner-only credential files under the Codex kit’s host state. Access, refresh and identity tokens never enter browser storage or logs. Tau refreshes rotating credentials under a process lock, then restarts Codex between turns and resumes the same stored conversation. A turn that expires while running may fail; Tau does not replay it automatically. Sign out stops local Codex sessions, attempts remote refresh-token revocation, and clears local tokens. If revocation cannot be confirmed, Tau tells you to disconnect it in ChatGPT Settings. The account registration and host ID remain for a later sign-in.
+
+This connection uses the public Responses API and the account’s current model catalog. Local shell and MCP tools work. Hosted connectors, image generation and Responses `tool_search` are not supported by this route. Pi does not use this connection yet. See OpenAI’s [open-source sign-in documentation](https://developers.openai.com/siwc/token-sharing-open-source) and [current limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations).
 
 ## Keeping the CLIs current
 

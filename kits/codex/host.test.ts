@@ -10,6 +10,8 @@ import createCodexHostExtension, { codexNewThreadCatalog } from "./host.js";
 import { codexMcpLaunch, TAU_MCP_TOKEN_VARIABLE } from "./mcp.js";
 import { codexToolArgs } from "./tools.js";
 import { spawnRpcProcess } from "./rpc.js";
+import { ChatGPTPlanStore } from "./chatgpt-plan-store.js";
+import { CHATGPT_PLAN_ARGS } from "./chatgpt-plan.js";
 import { CodexSessionStore } from "./session-store.js";
 
 const STUB = fileURLToPath(new URL("./fixtures/stub-app-server.mjs", import.meta.url));
@@ -447,10 +449,10 @@ describe("Codex host half", () => {
       return found!;
     };
 
-    it("reports the account and the four ways to sign in, and signs out through the CLI", async () => {
+    it("reports the account and the plan and CLI ways to sign in, and signs out through the CLI", async () => {
       const { registry, provider, root, events } = await harness();
       const report = await registry.invoke("tau.codex", "sign-in-state") as Report;
-      expect(report.methods.map((method) => method.id)).toEqual(["chatgpt", "device", "api-key", "terminal"]);
+      expect(report.methods.map((method) => method.id)).toEqual(["chatgpt-plan", "chatgpt", "device", "api-key", "terminal"]);
       expect(report.account).toMatchObject({ signedIn: true, label: "stub@example.com", detail: "ChatGPT Pro" });
 
       const after = await registry.invoke("tau.codex", "sign-out") as Report & { note?: string };
@@ -524,10 +526,12 @@ describe("Codex host half", () => {
       expect((await finalReport(events, again.flowId)).flow).toMatchObject({ phase: "succeeded" });
     });
 
-    it("offers nothing to start while the CLI is missing", async () => {
+    it("offers managed ChatGPT sign-in while the CLI is missing", async () => {
       const { registry } = await harness({ found: false });
       const report = await registry.invoke("tau.codex", "sign-in-state") as Report;
-      expect(report.methods.every((method) => method.unavailable?.startsWith("Install Codex first"))).toBe(true);
+      expect(report.methods[0]).toMatchObject({ id: "chatgpt-plan" });
+      expect(report.methods[0]!.unavailable).toBeUndefined();
+      expect(report.methods.slice(1).every((method) => method.unavailable?.startsWith("Install Codex first"))).toBe(true);
       await expect(registry.invoke("tau.codex", "sign-in", { method: "chatgpt" })).rejects.toThrow(/Install Codex first/u);
     });
   });
@@ -549,5 +553,53 @@ describe("Codex host half", () => {
     expect(listed.get("legacy")).toEqual([{ provider: "openai", model: "gpt-5.6-sol", ...total }]);
     expect(listed.has("unused")).toBe(true);
     expect(listed.get("unused")).toBeUndefined();
+  });
+});
+
+describe("Codex ChatGPT plan instances", () => {
+  it("blocks new CLI threads during the first plan registration and releases the gate on cancellation", async () => {
+    const { registry, provider, events, root } = await harness({ installed: "0.159.2", env: { TAU_CODEX_COMMAND: "codex", CODEX_HOME: join(tmpdir(), "unused-fixture-home") } });
+    const flow = await registry.invoke("tau.codex", "sign-in", { method: "chatgpt-plan" }) as { flowId: string };
+    await vi.waitFor(() => expect(events.some((event) => event.name === "sign-in" && Boolean((event.payload as { flow?: { browser?: unknown } }).flow?.browser))).toBe(true));
+    await expect(provider.open("during-sign-in", root, { resume: false }, context)).rejects.toThrow("Finish or cancel");
+    await registry.invoke("tau.codex", "sign-in-cancel", { flowId: flow.flowId });
+    await vi.waitFor(() => expect(events.some((event) => event.name === "sign-in" && (event.payload as { report?: { flow?: { phase?: string } } }).report?.flow?.phase === "cancelled")).toBe(true));
+    const backend = await provider.open("after-cancel", root, { resume: false }, context);
+    await backend.dispose();
+  });
+
+  it("uses protected instance credentials and an isolated home with an account-specific model catalog", async () => {
+    const { registry, provider, root, launches, fetch } = await harness({ installed: "0.159.2", env: { TAU_CODEX_COMMAND: "codex", CODEX_HOME: "/never-read-user-home" } });
+    const credentials = new ChatGPTPlanStore(join(root, "state", "tau.codex", "chatgpt-plan"));
+    await credentials.write("default", { issuer: "https://auth.openai.com", subject: "fixture-subject", clientId: "oaiapp_fixture", email: "fixture@example.test", tokens: { accessToken: "fixture-access", refreshToken: "fixture-refresh", idToken: "fixture-id", scopes: ["chatgpt.tokens.use.direct"], expiresAt: Date.now() + 3600_000 } });
+    fetch.mockImplementation(async () => Response.json({ models: [{ slug: "gpt-6.1-sol", display_name: "Account model", visibility: "list" }] }));
+    const catalog = await provider.newThreadCatalog!();
+    expect(catalog!.models).toEqual([expect.objectContaining({ id: "gpt-6.1-sol", name: "Account model", billing: "subscription" })]);
+    expect(launches[0]!.env.ACCESS_TOKEN).toBe("fixture-access");
+    expect(launches[0]!.env.CODEX_HOME).toBe(join(root, "state", "tau.codex", "chatgpt-plan-homes", "default"));
+    expect(launches[0]!.args).toEqual(CHATGPT_PLAN_ARGS);
+    expect(await registry.invoke("tau.codex", "chatgpt-plan-account")).toMatchObject({ signedIn: true, label: "fixture@example.test" });
+    expect((await registry.invoke("tau.codex", "sign-in-state") as { methods: unknown[] }).methods).toHaveLength(1);
+  });
+
+  it("links usage to ChatGPT Settings without probing the CLI quota endpoint", async () => {
+    const { registry, root, launches } = await harness({ found: false });
+    const credentials = new ChatGPTPlanStore(join(root, "state", "tau.codex", "chatgpt-plan"));
+    await credentials.write("default", { issuer: "https://auth.openai.com", subject: "fixture-subject", clientId: "oaiapp_fixture", tokens: { accessToken: "fixture-access", idToken: "fixture-id", scopes: ["chatgpt.tokens.use.direct"], expiresAt: Date.now() + 3600_000 } });
+    let read: (() => Promise<unknown>) | undefined;
+    await registry.activate({ id: "tau.usage", name: "Usage", activate(activation) { read = () => activation.invokeHostExtension("tau.codex", "usage-limits"); } });
+    expect(await read!()).toMatchObject({ accounts: [{ managementUrl: "https://chatgpt.com/settings/usage", windows: [], unavailable: { reason: "unsupported" } }] });
+    expect(launches).toHaveLength(0);
+  });
+
+  it("shows plan permission accurately and retains the bound registration after logout", async () => {
+    const { registry, root } = await harness();
+    const credentials = new ChatGPTPlanStore(join(root, "state", "tau.codex", "chatgpt-plan"));
+    await credentials.write("default", { issuer: "https://auth.openai.com", subject: "fixture-subject", clientId: "oaiapp_fixture", tokens: { accessToken: "fixture-access", idToken: "fixture-id", scopes: ["openid"], expiresAt: Date.now() + 3600_000 } });
+    expect(await registry.invoke("tau.codex", "chatgpt-plan-account")).toMatchObject({ signedIn: false });
+    await registry.invoke("tau.codex", "sign-out");
+    expect((await credentials.read("default"))!.tokens).toBeUndefined();
+    expect((await credentials.read("default"))!.subject).toBe("fixture-subject");
+    expect((await registry.invoke("tau.codex", "sign-in-state") as { methods: unknown[] }).methods).toHaveLength(1);
   });
 });

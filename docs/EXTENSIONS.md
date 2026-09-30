@@ -2634,7 +2634,11 @@ in the user's environment stays there.
 The vocabulary is `src/shared/sign-in.ts`, on `tau` and `tau/host-extension`
 alike. A **method** (`SignInMethod`) says how a sign-in runs — `browser`,
 `device-code`, `api-key`, `terminal` or `credentials` — and why it cannot
-start yet (`unavailable`: "Set GEMINI_API_KEY first"). An **account**
+start yet (`unavailable`: "Set GEMINI_API_KEY first"). Optional `actionLabel`
+sets the button text when a provider requires specific wording; otherwise Tau
+uses the usual action for its method kind. `availableWhenSignedIn` keeps a
+method visible for a separate connection or reauthorization while signed in.
+Both fields and `tryProcessLock` are available in API 1.32.0. An **account**
 (`SignInAccount`) says whether the program is signed in, as whom and through
 what, and whether a sign-out has anything to remove (a key from the
 environment does not). A **flow** (`SignInFlowState`) has an id and a phase
@@ -2643,6 +2647,8 @@ while it waits, what the user acts on: a consent page to open (`browser`), a
 code to enter on a page (`deviceCode`), a command to run in a terminal the
 user sees (`terminal`), a question (`prompt`: `text`, `secret`, `select` or
 `code`, the last one for a code or an address pasted back), a line and links.
+
+Host kits that serialize protected session updates can use `tryProcessLock(path, { pid, startedAt, app })` from `tau/host-extension`. It returns an OS-held `ProcessLock` or `undefined` while the path is held. Call `release()` in `finally`; the OS also releases it on process exit.
 
 A kit's host half registers the flows with `registerSignIn(context, {
 report, signIn, signOut, changed })` from `tau/host-extension`. It registers
