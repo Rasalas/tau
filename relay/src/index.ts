@@ -52,7 +52,7 @@ export const relay = onRequest(
   async (request, response) => {
     let answer: RelayResponse;
     try {
-      answer = await relayHandler()({ method: request.method, path: request.path, body: request.rawBody, ip: request.ip });
+      answer = await relayHandler()({ method: request.method, path: request.path, body: request.rawBody, headers: request.headers });
     } catch (error) {
       // A keyring that does not parse; the message names the entry, never a key.
       logger.error("relay.failed", { detail: error instanceof Error ? error.message : "unknown" });

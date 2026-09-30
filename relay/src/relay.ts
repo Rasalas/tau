@@ -9,12 +9,14 @@ const MAX_BODY_BYTES = 8 * 1024;
 /** The relay answers a handle older than this with 410; the app renews its handles at half this age. */
 export const HANDLE_MAX_AGE_MS = 60 * 24 * 60 * 60 * 1000;
 
+export type RelayHeaders = Record<string, string | string[] | undefined>;
+
 export interface RelayRequest {
   method: string;
   path: string;
   body: Buffer | string | undefined;
-  /** The caller's address, for the register limit; hashed, never logged. */
-  ip?: string;
+  /** Lower-case names, as Node gives them. */
+  headers?: RelayHeaders;
 }
 
 export interface RelayResponse {
@@ -65,6 +67,20 @@ function reply(status: number, value: unknown, headers: Record<string, string> =
   return { status, headers: { ...BASE_HEADERS, ...headers }, body: JSON.stringify(value) };
 }
 
+const header = (headers: RelayHeaders | undefined, name: string): string | undefined => {
+  const value = headers?.[name];
+  return Array.isArray(value) ? value.join(",") : value;
+};
+
+/**
+ * The caller's address: the last `X-Forwarded-For` entry, the one Google's
+ * front end appends. Entries before it are the caller's to write.
+ */
+export function callerAddress(headers: RelayHeaders | undefined): string | undefined {
+  const entries = header(headers, "x-forwarded-for")?.split(",").map((entry) => entry.trim()).filter(Boolean);
+  return entries?.at(-1);
+}
+
 function readJson(body: Buffer | string | undefined): Record<string, unknown> | "too-large" | undefined {
   const text = typeof body === "string" ? body : body?.toString("utf8") ?? "";
   if (Buffer.byteLength(text) > MAX_BODY_BYTES) return "too-large";
@@ -90,8 +106,8 @@ export function createRelay(options: RelayOptions): (request: RelayRequest) => P
   const registers = new RateLimiter({ capacity: options.registerBurst ?? 10, refillMs: options.registerRefillMs ?? 60_000, now });
   const limited = (wait: number, headers: Record<string, string> = {}) => reply(429, { error: "rate-limited" }, { ...headers, "retry-after": String(Math.max(1, Math.ceil(wait / 1000))) });
 
-  const register = (body: Record<string, unknown>, ip: string | undefined): RelayResponse => {
-    const wait = registers.take(`register:${ip ?? "unknown"}`);
+  const register = (body: Record<string, unknown>, address: string | undefined): RelayResponse => {
+    const wait = registers.take(`register:${address ?? "unknown"}`);
     if (wait > 0) {
       log("register.limited", {});
       return limited(wait, CORS_HEADERS);
@@ -148,6 +164,6 @@ export function createRelay(options: RelayOptions): (request: RelayRequest) => P
     const body = readJson(request.body);
     if (body === "too-large") return reply(413, { error: "too-large" }, cors);
     if (!body) return reply(400, { error: "bad-request", detail: "The body is not a JSON object." }, cors);
-    return route === "register" ? register(body, request.ip) : send(body);
+    return route === "register" ? register(body, callerAddress(request.headers)) : send(body);
   };
 }

@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { parseKeyring, sealHandle } from "./handle.js";
-import { HANDLE_MAX_AGE_MS, createRelay, type Delivery, type RelayRequest } from "./relay.js";
+import { HANDLE_MAX_AGE_MS, callerAddress, createRelay, type Delivery, type RelayRequest } from "./relay.js";
 
 const IOS_TOKEN = "ab".repeat(32);
 const ANDROID_TOKEN = "fcm:APA91b-registration-token";
@@ -15,7 +15,7 @@ function relay(options: { answer?: Delivery; ios?: boolean } = {}) {
   const ring = parseKeyring(`1:${randomBytes(32).toString("base64")}`);
   const handle = createRelay({ keyring: ring, senders: { android, ...(options.ios === false ? {} : { ios }) }, log, now: () => now });
   const call = async (path: string, body: unknown, extra: Partial<RelayRequest> = {}) => {
-    const response = await handle({ method: "POST", path, body: body === undefined || typeof body === "string" ? body : Buffer.from(JSON.stringify(body)), ip: "203.0.113.7", ...extra });
+    const response = await handle({ method: "POST", path, body: body === undefined || typeof body === "string" ? body : Buffer.from(JSON.stringify(body)), headers: { "x-forwarded-for": "203.0.113.7" }, ...extra });
     return { ...response, json: response.body ? JSON.parse(response.body) as Record<string, unknown> : undefined };
   };
   const register = async (platform: string, token: string) => (await call("/register", { platform, token })).json!.handle as string;
@@ -101,7 +101,17 @@ describe("the push relay", () => {
     expect((await call("/send", { handle, payload: SEALED })).status).toBe(200);
     await Promise.all(Array.from({ length: 8 }, () => call("/register", { platform: "ios", token: IOS_TOKEN })));
     expect((await call("/register", { platform: "ios", token: IOS_TOKEN })).status).toBe(429);
-    expect((await call("/register", { platform: "ios", token: IOS_TOKEN }, { ip: "198.51.100.1" })).status).toBe(200);
+    expect((await call("/register", { platform: "ios", token: IOS_TOKEN }, { headers: { "x-forwarded-for": "198.51.100.1" } })).status).toBe(200);
+  });
+
+  it("counts registrations by the address Google's front end appends, not one the caller wrote", async () => {
+    expect(callerAddress({ "x-forwarded-for": "10.0.0.1, 192.0.2.9, 203.0.113.7" })).toBe("203.0.113.7");
+    expect(callerAddress({ "x-forwarded-for": ["10.0.0.1", "203.0.113.7"] })).toBe("203.0.113.7");
+    expect(callerAddress({})).toBeUndefined();
+    const { call } = relay();
+    const spoofed = (index: number) => ({ headers: { "x-forwarded-for": `198.51.100.${index}, 203.0.113.7` } });
+    await Promise.all(Array.from({ length: 10 }, (_, index) => call("/register", { platform: "ios", token: IOS_TOKEN }, spoofed(index))));
+    expect((await call("/register", { platform: "ios", token: IOS_TOKEN }, spoofed(99))).status).toBe(429);
   });
 
   it("limits sends per phone too, however many handles it has", async () => {
