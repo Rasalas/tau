@@ -108,6 +108,8 @@ describe("dragging a thread onto a machine (design 2f)", () => {
 
     offered!.drop(other, "rex-id", actions);
     await settle();
+    // The host continues an open thread only: the dragged one is opened first.
+    expect(actions.switchSession).toHaveBeenCalledWith("/sessions/other.jsonl");
     expect(invoke.mock.calls.filter(([, command]) => command === "continue-on").map(([, , input]) => input)).toEqual([{ threadId: "other", machine: "rex-id" }]);
   });
 });

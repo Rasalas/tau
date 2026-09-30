@@ -1357,7 +1357,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       {drag ? null : <ThreadCardLayer root={listRef} render={renderCard} />}
       {drag && dragged ? (() => {
         const status = activityFor(dragged.id);
-        return <div className="rail-drag-card" aria-hidden style={{ left: drag.x - drag.grab.x, top: drag.y - drag.grab.y, width: drag.grab.width }}>
+        // Over a machine the card rises above the pointer, so the row it would land on stays readable.
+        return <div className="rail-drag-card" aria-hidden style={{ left: drag.x - drag.grab.x, top: drag.y - (drag.target ? 90 : drag.grab.y), width: drag.grab.width }}>
           {renderRow(dragged, status.activity, status.label, status.hint)}
         </div>;
       })() : null}

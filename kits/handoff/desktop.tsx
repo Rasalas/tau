@@ -523,7 +523,10 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
       context.useService<Pick<WorkspaceStoreApi, "registerThreadDropTargets">>(WORKSPACE_STORE_SERVICE, (workspace) => workspace.registerThreadDropTargets?.({
         heading: "Drop to move the thread",
         targets: dropTargets,
-        drop: (thread, machine, actions) => void continueOn(machine, actions, thread.id),
+        // The host continues only an open thread, so a thread from further down the list opens first.
+        drop: (thread, machine, actions) => void (async () => {
+          if (actions.activeThread()?.sessionId === thread.id || await actions.switchSession(thread.path)) await continueOn(machine, actions, thread.id);
+        })(),
       }));
 
       // A link no event brought yet (a reload, another window's continuation) is asked for once.

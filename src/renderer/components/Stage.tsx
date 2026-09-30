@@ -1,4 +1,4 @@
-import { useMemo, useState, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { Maximize2, Minimize2, PanelRight } from "lucide-react";
 import type { UiMessage } from "../../shared/contracts";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
@@ -108,14 +108,22 @@ export function Stage({
     onClose(current.id);
   };
 
-  // A tab dragged below the strip splits the stage when let go (design 2f).
+  // A tab dragged below the strip splits the stage when let go (design 2f). On the window:
+  // a panel on the stage is drawn elsewhere in React's tree, so its events never reach this section's props.
   const [dropping, setDropping] = useState(false);
-  const onDrag = (event: DragEvent<HTMLElement>) => {
-    const over = event.type === "dragover" && stage.tabs.length > 1 && event.dataTransfer.types.includes(STAGE_TAB_DRAG) && !(event.target as Element).closest(".stage-strip");
-    if (over) event.preventDefault();
-    if (event.type === "drop" && dropping) stageTabs?.split(event.dataTransfer.getData(STAGE_TAB_DRAG));
-    if (over || event.type !== "dragleave" || !event.currentTarget.contains(event.relatedTarget as Node)) setDropping(over);
-  };
+  const tabCount = stage.tabs.length;
+  useEffect(() => {
+    const on = (event: DragEvent) => {
+      const target = event.target as Element;
+      const over = event.type === "dragover" && tabCount > 1 && !!event.dataTransfer?.types.includes(STAGE_TAB_DRAG) && !!target.closest?.(".stage") && !target.closest(".stage-strip");
+      if (over) event.preventDefault();
+      if (event.type === "drop" && dropping) stageTabs?.split(event.dataTransfer!.getData(STAGE_TAB_DRAG));
+      setDropping(over);
+    };
+    const kinds = ["dragover", "drop", "dragend"] as const;
+    for (const kind of kinds) addEventListener(kind, on);
+    return () => { for (const kind of kinds) removeEventListener(kind, on); };
+  }, [tabCount, dropping, stageTabs]);
 
   const pane = (tab: StageTab | undefined) => {
     const lookIn = tab?.kind === "thread" ? lookInMachine(tab.machine, environments) : undefined;
@@ -162,7 +170,7 @@ export function Stage({
     );
   };
 
-  return <section ref={focusRef} tabIndex={-1} className="stage" aria-label="Stage" data-keybinding-context="stage" onKeyDown={onKeyDown} onDragOver={onDrag} onDragLeave={onDrag} onDrop={onDrag}>
+  return <section ref={focusRef} tabIndex={-1} className="stage" aria-label="Stage" data-keybinding-context="stage" onKeyDown={onKeyDown}>
     <div className="stage-strip">
       <StageTabs
         tabs={stage.tabs}
