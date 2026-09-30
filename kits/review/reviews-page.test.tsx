@@ -48,6 +48,7 @@ function setup(options: { answer?: LocalReviewsAnswer; params?: Record<string, u
   const invoke = vi.fn(async (command: string, input?: unknown) => {
     if (command === "local-reviews") return options.answer ?? ANSWER;
     if (command === "local-review-merge") return { branch: "feat/pairing-flake", state: "merged", files: [], detail: "Merged.", into: "main", root: "/repo/shop-api" };
+    if (command === "local-review-remove") return { branch: "feat/picked" };
     if (command === "local-review-summary") return { summary: "The watcher subscribes on construction now.", turns: 4 };
     if (command === "file-diff") return { path: (input as { relPath: string }).relPath, hunks: [], additions: 6, deletions: 3 };
     return undefined;
@@ -90,7 +91,8 @@ describe("the Reviews page", () => {
     const conflicts = screen.getByRole("region", { name: "Conflicts" });
     expect(within(conflicts).getByRole("button", { name: /Ask thread to rebase/u })).toBeTruthy();
     const ready = screen.getByRole("region", { name: "Ready to merge" });
-    expect(ready.textContent).toContain("feat/pairing-flake → main");
+    expect(ready.textContent).toContain("feat/pairing-flake into main");
+    expect(screen.getByText(/^Finished work of threads that ran in a worktree of their own/u)).toBeTruthy();
     expect(ready.textContent).toContain("3 files+59−5");
     expect(ready.textContent).toContain("no checks");
     expect(ready.textContent).toContain("$0.84");
@@ -150,9 +152,32 @@ describe("the Reviews page", () => {
     expect(merge.dataset.tooltip).toBe("2 files are not committed; ask the thread to commit first.");
   });
 
+  it("lists a branch the target holds under other commits as merged, and removes its worktree on a confirmed click", async () => {
+    const picked = branch("picked", { merged: true, mergedBy: "patches", workspace: "ws-pairing-flake" });
+    const answer = { branches: [picked], asks: {}, merged: [] };
+    const { invoke, toast } = setup({ answer, params: { tab: "merged" } });
+    expect((await screen.findByRole("region", { name: "Merged" })).textContent).toContain("Already in main");
+    cleanup();
+    const detail = setup({ answer, params: { tab: "merged", review: reviewKey("/repo/shop-api", "feat/picked") } });
+    expect(await screen.findByText(/^Already in main: every commit's change is there already/u)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Remove worktree and branch/u }));
+    fireEvent.click(within(screen.getByRole("group", { name: "Remove" })).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(detail.invoke).toHaveBeenCalledWith("local-review-remove", { workspace: "ws-pairing-flake" }));
+    await waitFor(() => expect(detail.toast).toHaveBeenCalledWith(expect.objectContaining({ type: "success", title: "Removed feat/picked and its worktree" })));
+    expect(invoke).not.toHaveBeenCalledWith("local-review-remove", expect.anything());
+    expect(toast).not.toHaveBeenCalled();
+  });
+
+  it("marks a target that is not the default branch", async () => {
+    setup({ answer: { branches: [branch("aside", { target: "feat/chatgpt-plan-sign-in", defaultBranch: "main", workspace: "ws-pairing-flake" })], asks: {}, merged: [] } });
+    const into = await screen.findByText("into feat/chatgpt-plan-sign-in");
+    expect(into.dataset.tooltip).toBe("Not main: Merge lands on the branch the project's checkout has out.");
+  });
+
   it("says what lands here when nothing does", async () => {
     setup({ answer: { branches: [], asks: {}, merged: [] } });
     expect(await screen.findByText("Nothing to review")).toBeTruthy();
+    expect(screen.getByText(/ready to merge into the project's checkout here; Remote pull requests are the ones on GitHub/u)).toBeTruthy();
     expect(screen.getByText(/^Merged · 0 this month\./u)).toBeTruthy();
   });
 

@@ -10,6 +10,7 @@ import {
   MessageSquare,
   RefreshCw,
   Search,
+  Trash2,
   TriangleAlert,
   X,
 } from "lucide-react";
@@ -121,6 +122,20 @@ function Model({ review, name = true }: { review: LocalReview; name?: boolean })
   );
 }
 
+/** Where Merge lands; a target other than the default branch says so. */
+function Into({ review }: { review: LocalReview }) {
+  if (!review.target) return null;
+  const off = review.offDefault;
+  return <span className="rv-into" data-off={off ? "" : undefined} {...(off ? tooltipProps(`Not ${off}: Merge lands on the branch the project's checkout has out.`) : {})}> into {review.target}</span>;
+}
+
+/** Why a branch counts as merged without a merge of its own commits. */
+const ALREADY: Record<NonNullable<LocalReview["mergedBy"]>, string> = {
+  patches: "every commit's change is there already, under other commits (a cherry-pick, a rebase or rewritten history).",
+  tree: "merging would change nothing (a squash merge).",
+  request: "its pull request was merged on the host.",
+};
+
 /** A thread here to write to, or its link to one on another machine. */
 const askable = (review: LocalReview) => Boolean(review.threadId || review.remote);
 /** Why the thread cannot be asked to rebase: one on another machine does not see this checkout's branch. */
@@ -133,7 +148,7 @@ const cost = (review: LocalReview) => review.costUsd === undefined ? "—" : for
 
 /** What a row says in its last column when it has no button: the open ask, or where it was merged. */
 function Aside({ review }: { review: LocalReview }) {
-  if (review.state === "merged") return <span className="rv-aside">into {review.target}</span>;
+  if (review.state === "merged") return <span className="rv-aside">{review.mergedBy === "request" ? "Pull request merged" : review.mergedBy ? `Already in ${review.target}` : `into ${review.target}`}</span>;
   if (review.ask?.kind === "note") return <span className="rv-aside" {...tooltipProps(review.ask.text)}><MessageSquare size={12} aria-hidden="true" /> Your note: {review.ask.text}</span>;
   if (review.ask) return <span className="rv-aside"><RefreshCw size={12} aria-hidden="true" /> Rebase asked</span>;
   return null;
@@ -142,8 +157,10 @@ function Aside({ review }: { review: LocalReview }) {
 interface RowActions {
   merge(review: LocalReview): void;
   rebase(review: LocalReview): void;
+  remove(review: LocalReview): void;
   busy: string | undefined;
   mayMerge: boolean;
+  mayRemove: boolean;
   mayAsk: boolean;
 }
 
@@ -173,7 +190,7 @@ function ReviewRow({ review, open, act }: { review: LocalReview; open(review: Lo
         <ProjectTile project={review.project} />
         <span className="rv-thread">
           <span className="rv-title">{review.title}</span>
-          <span className="rv-branch">{review.remote ? `${review.remote.machine}: ` : ""}{review.branch} → {review.target}</span>
+          <span className="rv-branch">{review.remote ? `${review.remote.machine}: ` : ""}{review.branch}<Into review={review} /></span>
         </span>
         <Changes review={review} />
         <Checks review={review} />
@@ -192,7 +209,7 @@ function ReviewCard({ review, open }: { review: LocalReview; open(review: LocalR
       <button type="button" onClick={() => open(review)}>
         <span className="rv-card-line">
           <ProjectTile project={review.project} />
-          <span className="rv-branch">{review.branch} → {review.target}</span>
+          <span className="rv-branch">{review.branch}<Into review={review} /></span>
           <span className="rv-age">{shortAge(review.at)}</span>
         </span>
         <span className="rv-title">{review.title}</span>
@@ -310,18 +327,19 @@ function ProjectFilter({ project, counts, select }: { project?: string; counts: 
   );
 }
 
-function Section({ title, count, children }: { title?: string; count: number; children: ReactNode }) {
+function Section({ state, title, count, children }: { state: ReviewState; title?: string; count: number; children: ReactNode }) {
   if (count === 0) return null;
   return (
-    <section className="rv-section" aria-label={title ?? "Ready to merge"}>
+    <section className="rv-section" aria-label={title ?? TAB_LABELS[state].section}>
       {title ? <h3>{title} · {count}</h3> : null}
       <ul>{children}</ul>
     </section>
   );
 }
 
+const INTRO = "Finished work of threads that ran in a worktree of their own, ready to merge into the project's checkout here; Remote pull requests are the ones on GitHub and other hosts.";
 const EMPTY_TEXT: Record<ReviewState, { title: string; description: string }> = {
-  ready: { title: "Nothing to review", description: "A thread that finishes work on a branch of its own, in a worktree, lands here with its diff and the checks it ran." },
+  ready: { title: "Nothing to review", description: INTRO },
   requested: { title: "No changes requested", description: "A note or a rebase you send back to a thread waits here until the thread commits again." },
   conflicts: { title: "No conflicts", description: "A branch that would not merge cleanly into its main checkout shows here, to ask its thread to rebase." },
   merged: { title: "Nothing merged yet", description: "Merging keeps the thread; its branch just stops appearing under Ready." },
@@ -337,6 +355,7 @@ function ReviewDetail({ review, parts, act, actions, compact }: { review: LocalR
   const [noting, setNoting] = useState(false);
   const [note, setNote] = useState("");
   const [sending, setSending] = useState(false);
+  const [removing, setRemoving] = useState(false);
   let threads: ReturnType<typeof useThreadStore> | undefined;
   try { threads = useThreadStore(); } catch { threads = undefined; }
   useEffect(() => {
@@ -364,7 +383,7 @@ function ReviewDetail({ review, parts, act, actions, compact }: { review: LocalR
   return (
     <article className="rv-detail" aria-label={review.title}>
       <p className="rv-detail-sub">
-        <span className="rv-branch">{review.branch} → {review.target}</span>
+        <span className="rv-branch">{review.branch}<Into review={review} /></span>
         <span aria-hidden="true">·</span>
         <Changes review={review} files={false} />
         <span aria-hidden="true">·</span>
@@ -386,6 +405,7 @@ function ReviewDetail({ review, parts, act, actions, compact }: { review: LocalR
           <button type="button" disabled={!act.mayAsk} onClick={() => { void parts.store.withdraw(review).catch((error) => actions.notify(errorMessage(error))); }}>Withdraw</button>
         </div>
       ) : null}
+      {review.mergedBy ? <p className="rv-already" role="status"><GitMerge size={13} aria-hidden="true" /> Already in {review.target}: {ALREADY[review.mergedBy]}</p> : null}
       {review.conflicts.length > 0 ? (
         <p className="rv-conflicts" role="status"><TriangleAlert size={13} aria-hidden="true" /> Conflicts with {review.target} in {review.conflicts.slice(0, 6).join(", ")}{review.conflicts.length > 6 ? " …" : ""}</p>
       ) : null}
@@ -425,11 +445,22 @@ function ReviewDetail({ review, parts, act, actions, compact }: { review: LocalR
           </button>
           {thread ? <button type="button" className="rv-open-thread" onClick={() => { void actions.switchSession(thread.path); }}>Open thread</button> : null}
         </div>
-      ) : thread ? (
-        <div className="rv-detail-actions">
-          <button type="button" className="rv-open-thread" onClick={() => { void actions.switchSession(thread.path); }}>Open thread</button>
+      ) : removing ? (
+        <div className="rv-detail-actions" role="group" aria-label="Remove">
+          <span>Remove the worktree and delete {review.branch}? The threads stay.</span>
+          <button type="button" onClick={() => setRemoving(false)}>Cancel</button>
+          <button type="button" className="danger" disabled={act.busy === review.key} onClick={() => act.remove(review)}>{act.busy === review.key ? "Removing…" : "Remove"}</button>
         </div>
-      ) : null}
+      ) : (
+        <div className="rv-detail-actions">
+          {review.workspace && !review.remote ? (
+            <button type="button" disabled={!act.mayRemove} {...tooltipProps(act.mayRemove ? `Removes the worktree and deletes ${review.branch}; ${review.target} holds its work` : READ_ONLY_REASON)} onClick={() => setRemoving(true)}>
+              <Trash2 size={14} aria-hidden="true" /> Remove worktree and branch
+            </button>
+          ) : null}
+          {thread ? <button type="button" className="rv-open-thread" onClick={() => { void actions.switchSession(thread.path); }}>Open thread</button> : null}
+        </div>
+      )}
     </article>
   );
 }
@@ -461,6 +492,7 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
   const [busy, setBusy] = useState<string>();
   const mayMerge = useCommandAllowed(REVIEW_HOST_EXTENSION_ID, "local-review-merge");
   const mayAsk = useCommandAllowed(REVIEW_HOST_EXTENSION_ID, "local-review-ask");
+  const mayRemove = useCommandAllowed(REVIEW_HOST_EXTENSION_ID, "local-review-remove");
   const tab = tabOf(params.tab);
   const project = text(params.project);
   const detailKey = text(params.review);
@@ -474,6 +506,7 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
     busy,
     mayMerge,
     mayAsk,
+    mayRemove,
     merge: (review) => {
       setBusy(review.key);
       void store.merge(review).then((outcome) => {
@@ -487,6 +520,13 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
         () => actions.toast?.({ type: "success", title: "Asked the thread to rebase", description: review.title }),
         (error) => actions.toast?.({ type: "error", title: "The thread was not asked", description: errorMessage(error) }),
       ).finally(() => setBusy(undefined));
+    },
+    remove: (review) => {
+      setBusy(review.key);
+      void store.remove(review).then(
+        () => actions.toast?.({ type: "success", title: `Removed ${review.branch} and its worktree`, description: review.title }),
+        (error) => actions.toast?.({ type: "error", title: `${review.branch} was not removed`, description: errorMessage(error) }),
+      ).finally(() => { setBusy(undefined); void store.refresh(); });
     },
   };
 
@@ -533,6 +573,7 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
       ? <Empty icon={<GitPullRequest size={18} />} title={filter ? "No review matches" : EMPTY_TEXT[tab].title} description={filter ? "Try other words, or clear the filter." : EMPTY_TEXT[tab].description} />
       : (
         <>
+          {tab === "ready" ? <p className="rv-intro">{INTRO}</p> : null}
           {compact ? null : (
             <div className="rv-columns" aria-hidden="true">
               <span />
@@ -540,7 +581,7 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
             </div>
           )}
           {sections.map((section) => (
-            <Section key={section.state} {...(section.title ? { title: section.title } : {})} count={of(section.state).length}>
+            <Section key={section.state} state={section.state} {...(section.title ? { title: section.title } : {})} count={of(section.state).length}>
               {of(section.state).map(row)}
             </Section>
           ))}
