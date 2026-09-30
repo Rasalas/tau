@@ -36,7 +36,7 @@ async function pair() {
       const local = { kind: "github", detail, comment, merge: comment, autoMerge: comment, revert: comment, stackAction: comment, stack: detail, changes: vi.fn(async () => []), create: vi.fn(async () => "created") } as unknown as SourceControlProvider;
       const tools = { cli: vi.fn(async () => JSON.stringify({ id: account() })) } as unknown as ProviderTools;
       const routing = createGitHubRouting(context, local, tools);
-      context.registerCommand("test-detail", () => routing.provider.detail(ref as never, true), { access: "read" });
+      context.registerCommand("test-detail", (input) => routing.provider.detail((input ?? ref) as never, true), { access: "read" });
       context.registerCommand("test-comment", () => routing.provider.comment(ref as never, "hello"));
       context.registerCommand("test-merge", () => routing.provider.merge({ host: ref.host, repo: ref.repo }, { number: ref.number } as never, "squash"));
       context.registerCommand("test-auto-merge", () => routing.provider.autoMerge!({ host: ref.host, repo: ref.repo }, { number: ref.number } as never, true, "squash"));
@@ -82,6 +82,8 @@ describe("GitHub access across paired hosts", () => {
     p.localDetail.mockResolvedValueOnce({ title: "Local PR" } as never);
     p.callsA.mockClear();
     await expect(p.registryA.invoke(ID, "test-detail")).resolves.toEqual({ title: "Local PR" });
+    p.localDetail.mockResolvedValueOnce({ title: "Enterprise PR" } as never);
+    await expect(p.registryA.invoke(ID, "test-detail", { ...ref, host: "github.enterprise:8443", url: "https://github.enterprise:8443/acme/tau/pull/7" })).resolves.toEqual({ title: "Enterprise PR" });
     await expect(p.registryA.invoke(ID, "test-changes")).resolves.toEqual([]);
     expect(p.callsA).not.toHaveBeenCalled();
   });
