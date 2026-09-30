@@ -227,6 +227,89 @@ describe("Workspace Kit thread worktrees", () => {
   });
 });
 
+describe("Workspace Kit's worktree suggestion (K125)", () => {
+  const actions = () => ({ holdComposer: () => () => undefined, openWorkspace: vi.fn(async () => true), notify: vi.fn() } as unknown as WorkbenchActions);
+  const draftIn = async (overrides: WorkspaceHostStubOverrides = {}, preferences = new PreferencesStore()) => {
+    const workspaceStore = storeOver({ getWorkspaceInfo: async () => REPO, ...overrides }, preferences);
+    workspaceStore.bind(actions());
+    workspaceStore.follow({ cwd: "/project", workspaceId: "ws1_project", draftPending: true });
+    await vi.waitFor(() => expect(workspaceStore.getSnapshot().workspace).toBeDefined());
+    return workspaceStore;
+  };
+
+  it("preselects a worktree only while another turn runs in the draft's folder, and never as the project's default", async () => {
+    const preferences = new PreferencesStore();
+    const workspaceStore = await draftIn({}, preferences);
+    expect(workspaceStore.getSnapshot().worktreeSuggested).toBeFalsy();
+    expect(workspaceStore.workspaceMode()).toBe("current");
+
+    workspaceStore.followBusyCheckout(true);
+    expect(workspaceStore.getSnapshot().worktreeSuggested).toBe(true);
+    expect(workspaceStore.workspaceMode()).toBe("worktree");
+    expect(preferences.value("tau.workspace", "workspace-mode:/project")).toBeUndefined();
+
+    // Turned off, it stays off: the other turn ending and a new one starting change nothing.
+    workspaceStore.setWorktreeSuggestion(false);
+    workspaceStore.followBusyCheckout(false);
+    workspaceStore.followBusyCheckout(true);
+    expect(workspaceStore.getSnapshot().worktreeSuggested).toBe(true);
+    expect(workspaceStore.workspaceMode()).toBe("current");
+    expect(preferences.value("tau.workspace", "workspace-mode:/project")).toBeUndefined();
+
+    // The next draft of the project starts from its default and is asked again.
+    workspaceStore.follow({ cwd: "/project", workspaceId: "ws1_project", sessionId: "started", draftPending: false });
+    expect(workspaceStore.getSnapshot().worktreeSuggested).toBe(false);
+    workspaceStore.follow({ cwd: "/project", workspaceId: "ws1_project", draftPending: true });
+    expect(workspaceStore.getSnapshot().worktreeSuggested).toBe(true);
+    expect(workspaceStore.workspaceMode()).toBe("worktree");
+  });
+
+  it("keeps the suggestion on screen when the other turn ends before the prompt is sent", async () => {
+    const workspaceStore = await draftIn();
+    workspaceStore.followBusyCheckout(true);
+    workspaceStore.followBusyCheckout(false);
+    expect(workspaceStore.getSnapshot().worktreeSuggested).toBe(true);
+    expect(workspaceStore.workspaceMode()).toBe("worktree");
+  });
+
+  it("suggests nothing for a folder that is no repository, or a draft that already runs in a worktree", async () => {
+    const plain = await draftIn({ getWorkspaceInfo: async () => ({ ...REPO, isRepo: false }) });
+    plain.followBusyCheckout(true);
+    expect(plain.getSnapshot().worktreeSuggested).toBeFalsy();
+
+    const workspaceStore = await draftIn();
+    workspaceStore.setWorkspaceMode("worktree");
+    workspaceStore.followBusyCheckout(true);
+    expect(workspaceStore.getSnapshot().worktreeSuggested).toBeFalsy();
+  });
+
+  it("sends the suggested worktree down the thread-worktree path", async () => {
+    const createWorktree = vi.fn(async () => ({ workspaceId: "ws1_worktree", displayPath: "/project-worktrees/fix" }));
+    const workspaceStore = await draftIn({ createWorktree });
+    workspaceStore.followBusyCheckout(true);
+    await expect(workspaceStore.prepareThreadWorktree({ prompt: "fix", preparing: () => undefined }))
+      .resolves.toEqual({ workspace: { workspaceId: "ws1_worktree", displayPath: "/project-worktrees/fix" } });
+    expect(createWorktree).toHaveBeenCalledWith(expect.stringMatching(/^tau\/[0-9a-f]{8}$/u), { startFromOrigin: true }, "ws1_project");
+  });
+
+  it("says a turn was not recorded only for a thread that stayed in the checkout on purpose", async () => {
+    const workspaceStore = await draftIn({ createWorktree: async () => { throw new Error("disk full"); } });
+    workspaceStore.followBusyCheckout(true);
+    await workspaceStore.prepareThreadWorktree({ prompt: "fix", preparing: () => undefined });
+    workspaceStore.follow({ cwd: "/project", workspaceId: "ws1_project", sessionId: "fell-back", draftPending: false });
+    // Its worktree failed, which the user was told; it did not choose the checkout.
+    expect(workspaceStore.skippedCheckpointNotice("fell-back")).toBeUndefined();
+
+    workspaceStore.follow({ cwd: "/project", workspaceId: "ws1_project", draftPending: true });
+    workspaceStore.setWorktreeSuggestion(false);
+    await workspaceStore.prepareThreadWorktree({ prompt: "fix", preparing: () => undefined });
+    workspaceStore.follow({ cwd: "/project", workspaceId: "ws1_project", sessionId: "stayed", draftPending: false });
+    expect(workspaceStore.skippedCheckpointNotice("stayed")).toBe(
+      "Turn changes were not recorded: another turn is active in this workspace. Start the next thread in its own worktree to keep changes separate.",
+    );
+  });
+});
+
 describe("Workspace Kit files of the followed project", () => {
   it("lists a draft's project, which need not be the one the host has open", async () => {
     const getFileTree = vi.fn(async (relPath?: string) => [{ name: "only-in-b.ts", path: relPath ? `${relPath}/only-in-b.ts` : "only-in-b.ts", kind: "file" }]);
@@ -265,6 +348,28 @@ describe("Workspace Kit changes after a turn", () => {
     workspaceStore.turnSettled("background");
     await vi.waitFor(() => expect(getChanges).toHaveBeenCalledTimes(1));
     expect(workspaceStore.getSnapshot().turnSettled).toBe(false);
+  });
+});
+
+describe("Workspace Kit branch after a checkout outside Tau", () => {
+  it("rereads the branch when the shown thread's turn ends and when the host sees HEAD move", async () => {
+    let branch = "main";
+    const getWorkspaceInfo = vi.fn(async () => ({ ...REPO, branch }));
+    const workspaceStore = storeOver({ getWorkspaceInfo });
+    workspaceStore.follow({ cwd: "/project", workspaceId: "ws1_project", sessionId: "shown", draftPending: false });
+    await vi.waitFor(() => expect(workspaceStore.getSnapshot().workspace?.branch).toBe("main"));
+
+    branch = "feature";
+    workspaceStore.turnSettled("shown");
+    await vi.waitFor(() => expect(workspaceStore.getSnapshot().workspace?.branch).toBe("feature"));
+
+    branch = "other";
+    getWorkspaceInfo.mockClear();
+    workspaceStore.headChanged("/elsewhere");
+    workspaceStore.turnSettled("background");
+    expect(getWorkspaceInfo).not.toHaveBeenCalled();
+    workspaceStore.headChanged("/project");
+    await vi.waitFor(() => expect(workspaceStore.getSnapshot().workspace?.branch).toBe("other"));
   });
 });
 

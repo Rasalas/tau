@@ -39,7 +39,7 @@ export function parseAsyncActivity(text: string): AsyncActivity | undefined {
 function ThinkingDisclosure({ thinking, streaming, open, onToggle }: { thinking: string; streaming?: boolean; open: boolean; onToggle(open: boolean): void }) {
   return (
     <details className="message-thinking" open={open} onToggle={(event) => { const next = (event.target as HTMLDetailsElement).open; if (next !== open) onToggle(next); }}>
-      <summary><Brain size={14} strokeWidth={1.8} /><span>{streaming ? "Thinking…" : "Thought"}</span><ChevronRight size={12} className="chev" /></summary>
+      <summary><Brain size={14} strokeWidth={1.8} /><span className={streaming ? "work-shine" : ""}>{streaming ? "Thinking" : "Thought"}</span><ChevronRight size={12} className="chev" /></summary>
       {open ? <div className="message-thinking-body"><Markdown streaming={streaming}>{thinking}</Markdown></div> : null}
     </details>
   );

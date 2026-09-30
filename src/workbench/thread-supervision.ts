@@ -1,5 +1,5 @@
 import type { UiProject, UiSession, UiThreadUsage } from "../shared/contracts";
-import type { ThreadActivitySnapshot } from "./thread-store";
+import { EMPTY_SNAPSHOT, type ThreadActivitySnapshot } from "./thread-store";
 import type { DraftThread } from "./draft-threads";
 import { threadRowStatus, type ThreadRowStatus } from "./thread-row-status";
 
@@ -117,26 +117,10 @@ export interface ThreadListOptions extends ThreadOrganization {
   extra?: readonly ThreadSupervisionRow[];
 }
 
-/** Another machine's thread as a list row: running or idle, as far as that machine's list says. */
-export function outsideRow(key: string, thread: UiSession, options: { running?: boolean; settled?: boolean } = {}): ThreadSupervisionRow {
-  return {
-    id: key,
-    path: thread.path,
-    title: thread.title || "Untitled thread",
-    projectName: thread.projectName,
-    projectPath: thread.projectPath,
-    ...(thread.workspaceId ? { workspaceId: thread.workspaceId } : {}),
-    ...(thread.projectLabel ? { projectLabel: thread.projectLabel } : {}),
-    ...(thread.usage ? { usage: thread.usage } : {}),
-    status: options.running ? "running" : "done",
-    state: options.running ? { activity: "working", label: "Working" } : { activity: "idle", label: "Idle" },
-    unread: false,
-    modifiedAt: thread.modifiedAt,
-    pinned: false,
-    settled: !options.running && options.settled === true,
-    ...(thread.backendKind ? { backendKind: thread.backendKind } : {}),
-    ...(thread.modelProvider ? { modelProvider: thread.modelProvider } : {}),
-  };
+/** Another machine's thread as a list row: asking, running or idle, as far as that machine's list says. */
+export function outsideRow({ key, session, running, waiting, settled }: { key: string; session: UiSession; running?: boolean; waiting?: boolean; settled?: boolean }): ThreadSupervisionRow {
+  const ids = (on?: boolean) => on ? [session.id] : [];
+  return { ...rowFor(session, { ...EMPTY_SNAPSHOT, waitingThreadIds: ids(waiting), runningThreadIds: ids(running) }, { settled: ids(settled) }), id: key };
 }
 
 /** A thread belongs to a project by its id, or by its path where one side has no id. */

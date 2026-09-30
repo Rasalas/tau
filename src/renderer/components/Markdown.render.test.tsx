@@ -3,6 +3,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Markdown, inlineCodeFile, loadHighlightLanguage, pendingHighlightCount } from "./Markdown";
 import { TRICKY_MARKDOWN } from "./markdown-fixtures";
+import type { MarkdownHtml } from "./markdown-pipeline";
 
 beforeAll(async () => {
   await Promise.all(["typescript", "bash", "shell", "json", "python", "javascript", "markdown"].map(loadHighlightLanguage));
@@ -38,6 +39,37 @@ async function streamedHtml(text: string, step: number, inspect?: (html: string,
   unmount();
   return html;
 }
+
+describe("raw HTML", () => {
+  const source = "a <kbd>K</kbd>\n\n<details><summary>s</summary></details>\n";
+
+  it("stays text without html", () => {
+    const { container } = render(<Markdown>{source}</Markdown>);
+    expect(container.querySelector("kbd, details")).toBeNull();
+    expect(container.textContent).toContain("<details><summary>s</summary></details>");
+  });
+
+  it("reaches html as raw nodes, and the tree html returns is drawn", () => {
+    const seen: string[] = [];
+    const html: MarkdownHtml = (tree) => {
+      const visit = (node: { type: string; value?: string; children?: unknown[] }) => {
+        if (node.type === "raw") seen.push(node.value!);
+        node.children?.forEach((child) => visit(child as never));
+      };
+      visit(tree);
+      return { type: "root", children: [{ type: "element", tagName: "kbd", properties: {}, children: [{ type: "text", value: "drawn" }] }] };
+    };
+    const { container } = render(<Markdown html={html}>{source}</Markdown>);
+    expect(seen).toEqual(["<kbd>", "</kbd>", "<details><summary>s</summary></details>"]);
+    expect(container.querySelector(".markdown kbd")?.textContent).toBe("drawn");
+  });
+
+  it("never reaches html while text streams", () => {
+    const html: MarkdownHtml = () => { throw new Error("called"); };
+    const { container } = render(<Markdown streaming html={html}>{source}</Markdown>);
+    expect(container.textContent).toContain("<details>");
+  });
+});
 
 describe("streamed Markdown", () => {
   for (const [name, text] of Object.entries(TRICKY_MARKDOWN)) {

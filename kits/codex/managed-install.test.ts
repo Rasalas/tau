@@ -45,6 +45,17 @@ describe("managed Codex", () => {
     expect(onProgress.mock.calls.at(-1)?.[0]).toEqual({ phase: "installed" });
   });
 
+  it("removes the release it replaced once the pinned one is installed", async () => {
+    const { installer, directory } = await fixture();
+    await mkdir(join(directory, "0.100.0-linux-x64", "bin"), { recursive: true });
+    await mkdir(join(directory, "0.100.0-darwin-arm64"), { recursive: true });
+    expect(await installer.hadEarlier()).toBe(true);
+    const path = await installer.ensure();
+    expect((await readdir(directory)).sort()).toEqual(["0.100.0-darwin-arm64", `${MANAGED_CODEX_VERSION}-linux-x64`]);
+    expect(await installer.hadEarlier()).toBe(false);
+    expect(await installer.resolveInstalled()).toBe(path);
+  });
+
   it("shares concurrent installs across callers", async () => {
     const { installer, config, fetcher } = await fixture();
     const [first, second] = await Promise.all([installer.ensure(), createManagedCodex(config).ensure()]);

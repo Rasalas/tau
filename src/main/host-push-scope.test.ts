@@ -28,8 +28,11 @@ describe("host push scope", () => {
     expect(hostPushScope({ type: "job-progress", jobId: "j", message: "" })).toBeUndefined();
   });
 
-  it("scopes an extension event only when it names a topic", () => {
+  it("scopes an extension event when it names a topic, and a sign-in to the clients that may sign in", () => {
     expect(hostPushScope({ type: "extension-event", extensionId: "tau.terminal", name: "sessions" })).toBeUndefined();
+    expect(hostPushScope({ type: "extension-event", extensionId: "tau.codex", name: "sign-in", payload: {} })).toBe("writers");
+    // A filter is about threads and topics: a sign-in passes it, and the transport decides by access.
+    expect(new HostPushFilter({ threads: [], topics: [] }).admits({ type: "extension-event", extensionId: "tau.codex", name: "sign-in" })).toBe(true);
     expect(hostPushScope({ type: "extension-event", extensionId: "tau.terminal", name: "data", topic: "output/1" })).toBe("topic:tau.terminal/output/1");
   });
 

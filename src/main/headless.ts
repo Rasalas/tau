@@ -3,7 +3,6 @@ import { rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createServer as createNetServer } from "node:net";
 import type { Server as TlsServer } from "node:tls";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
@@ -31,7 +30,7 @@ import { isLoopbackHost, parseListen, rememberPort, rememberedPort, stickyListen
 import { HostTlsReloader, resolveHostTls } from "./host-tls.js";
 import { HostNetworkAccess } from "./host-network.js";
 import { ServiceAnnouncer, discoverHosts, machineDisplayName } from "./host-discovery.js";
-import { TAU_SERVICE_TYPE, isServiceType } from "../shared/discovery.js";
+import { isServiceType } from "../shared/discovery.js";
 import { NetworkContributions } from "./host-network-contributions.js";
 import { NO_BUNDLED_KITS, inspectBundledKits, loadBundledKitDesktopHalves, shippedHostExtensions } from "./bundled-kits.js";
 import { loadHostExtensionPackages, inspectExtensionPackages } from "./extension-packages.js";
@@ -64,6 +63,7 @@ import { readUpdateFeed, releaseKeysFor } from "./release-feed.js";
 import { RELEASE_PUBLIC_KEYS } from "../shared/release-keys.js";
 import { HostConnect } from "./host-connect.js";
 import { openConnectListener } from "./connect-listener.js";
+import { appIdentity, tauHomeDir } from "./app-identity.js";
 
 /**
  * The host without a window: the same `PiHost` and the same method table,
@@ -72,12 +72,12 @@ import { openConnectListener } from "./connect-listener.js";
  */
 const requestedWorkspace = process.env.TAU_WORKSPACE || undefined;
 const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
-const userData = process.env.TAU_USER_DATA || join(homedir(), ".tau", "headless");
+const userData = process.env.TAU_USER_DATA || join(tauHomeDir(), "headless");
 const listen = process.env.TAU_HOST_LISTEN || "127.0.0.1:0";
 // A loopback listener for a reverse proxy on this machine; every peer on it counts as remote.
 const proxyListen = process.env.TAU_HOST_PROXY_LISTEN;
 // Isolated instances and tests announce and browse `_tau-test._tcp`, never the real type.
-const bonjourType = process.env.TAU_BONJOUR_SERVICE_TYPE || TAU_SERVICE_TYPE;
+const bonjourType = process.env.TAU_BONJOUR_SERVICE_TYPE || appIdentity().bonjourType;
 if (!isServiceType(bonjourType)) throw new Error(`TAU_BONJOUR_SERVICE_TYPE must look like _name._tcp; ${bonjourType} does not.`);
 /** How often network access looks again at Tailscale's addresses and the certificate files. */
 const NETWORK_POLL_MS = 60_000;
@@ -374,7 +374,8 @@ async function main(): Promise<void> {
     dir: join(userData, "updates"),
     fetch: (url, init) => fetch(url, init),
     channel: async () => (await defaultHostConfigManager.read()).updates?.channel,
-    window: localWindowUpdatePort(clientCalls),
+    // A build that never updates has no window updater to hand an install to.
+    ...(appIdentity().updates ? { window: localWindowUpdatePort(clientCalls) } : {}),
     // Only a service is started again; any other host keeps running until its next start.
     ...(serviceKind ? { restart: () => shutdown(RESTART_EXIT_CODE) } : {}),
     exit: () => shutdown(0),

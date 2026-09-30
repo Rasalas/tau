@@ -7,7 +7,7 @@ while writing this, a footnote says so.
 ## Your first package
 
 The rest of this document is a reference. The path from nothing to a package
-you use is short:
+you use is short; [the tutorial](kit-tutorial.md) walks it with a real kit:
 
 1. **Start one**: `tau kit new my-kit` in a terminal writes `my-kit/` with a
    manifest for the extension API this Tau runs (`engines.api`), a desktop half
@@ -15,7 +15,9 @@ you use is short:
    half in a worker with one command, a stylesheet, a README and a
    `tsconfig.json` with the API's types in `.tau-types/`, so your editor checks
    the package without an `npm install`. Its id is `local.my-kit` unless
-   `--id` names one; `--no-host` leaves the host half out. Tau compiles the
+   `--id` names one. Settings shows it as `--name`, else as the folder name in
+   title case with acronyms kept (`pr-title` → *PR Title*); `--no-host` leaves
+   the host half out. Tau compiles the
    entries itself; there is no build step. [§2](#2-a-minimal-example-exampleshello-package)
    is a package written by hand.
 2. **Install it**: `/install /path/to/my-kit` in the composer (every project),
@@ -41,8 +43,11 @@ project not trusted*, the install toast says so, and **Trust this project**
 (in that toast, or in Settings → Packages) records the trust in Pi's
 `trust.json` through Pi's own store, the way Pi's `/trust` does; the packages
 then load and wait for approval. A global install needs no trust. A project
-install writes `.tau/packages.json` into the project, with the path as you
-typed it; keep it out of Git if that path is yours alone.
+install writes `.tau/packages.json` into the project. A folder inside the
+project is recorded relative to it (`./kits/my-kit`), so every clone finds it.
+A folder outside is recorded as its absolute path, and while the file names
+only such folders Tau keeps it out of Git through the clone's own
+`.git/info/exclude` unless Git already tracks it, so the project shows no change.
 
 **What a package usually needs next:** the thread's branch and pull requests
 come from [two services](#a-threads-branch-and-pull-requests-tauworkspacebranch-and-taureviewpull-requests),
@@ -708,8 +713,10 @@ context.useService<ThreadBranchService>(THREAD_BRANCH_SERVICE, (service) => {
 | `THREAD_BRANCH_SERVICE` (`tau.workspace/branch`) | Workspace Kit | `current()`: `{ cwd, isRepo, branch?, upstream? }` for the thread or draft on screen — a worktree thread's own folder and branch — or undefined with no project; the same object until it changes, so `useSyncExternalStore(service.subscribe, service.current)` works. `branch` is absent on a detached HEAD. `subscribe(listener)`. |
 | `THREAD_PULL_REQUESTS_SERVICE` (`tau.review/pull-requests`) | Review Kit | `forThread(sessionId)`: the requests linked to the thread, `{ url, number, host, repo, title?, state?, draft?, headRef?, baseRef? }`, as the window last read them; asking reads them when it has not. The same array until they change. `subscribe(listener)`. |
 
-Both answer what the window last read: after a `git checkout` outside Tau,
-the branch follows once Workspace Kit refreshes the project.
+Both answer what the window last read. The branch follows a `git checkout`
+outside Tau within a moment: Workspace Kit's host half watches the `HEAD` of
+each checkout a window shows (no polling) and reads the branch again, and again
+after each turn of the thread on screen.
 
 #### Actions on a message
 
@@ -897,7 +904,7 @@ when there is nothing to say. An older core never draws the placement.
 lists threads that are not this host's among a phone's or tablet's own:
 another machine's. Each entry (`ThreadListEntry`) has a `key` that is never a
 thread id of this host, the thread's `session` as its own host lists it,
-`running`, `opening` while `open` is under way, `settled` for the settled
+`running`, `waiting` while it waits for an answer there (API 1.35.0), `opening` while `open` is under way, `settled` for the settled
 shelf, the `machine` it runs on (`{ name, icon }`, drawn after the project
 on the row's project line) and `unavailable`, the reason it cannot be reached
 now, which greys the row. The rows stand among the host's by the list's own
@@ -1659,7 +1666,7 @@ It also exports the renderer's shared state and presentation:
 | `readCachedTurnActivity`, `changesSinceTurn`, `changesTouchedByTools` | what a turn touched, from the cache core writes. |
 | `formatCost` | core's money formatting. `ThreadRow` draws no cost since API 1.26.0; the rail's hover card does. `threadCostLabel(usage)` and `threadCostOrigin(usage)` (API 1.23.0) are the row's own figure ("$0.42", a plan's API value, or tokens) and the sentence that says where it comes from, for a card that repeats it. |
 | `StageTabContribution`, `StageTabHandle`, `StageTab` and its three kinds, `StageState` | the stage-tab seam above, and the shape `actions.stageTabs()` answers with. |
-| `Markdown`, `highlightSource`, `loadHighlightLanguage`, `canonicalHighlightLanguage` | core's Markdown renderer, the one the transcript draws with, and the highlight.js core behind its code blocks (new in API 1.10.0). highlight.js and each language load on first use; `highlightSource(code, language)` answers HTML once `loadHighlightLanguage(language)` resolved, and nothing for a language core does not ship. |
+| `Markdown`, `highlightSource`, `loadHighlightLanguage`, `canonicalHighlightLanguage` | core's Markdown renderer, the one the transcript draws with, and the highlight.js core behind its code blocks (new in API 1.10.0). highlight.js and each language load on first use; `highlightSource(code, language)` answers HTML once `loadHighlightLanguage(language)` resolved, and nothing for a language core does not ship. `html` (new in API 1.33.0, type `MarkdownHtml`) receives the hast tree with the text's raw HTML as `raw` nodes and returns the tree to draw; Review Kit passes its allowlist of GitHub's HTML. Without it HTML stays text. |
 | `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `ThreadRowMachine`, `usePagedWorkspaceFiles`, `ProviderIconStack` | presentation core owns; `ProviderIconStack` (API 1.15.0) draws a runtime's or model provider's mark (`runtimeProvider`, `modelProvider`) with its name as tooltip and accessible name (`name` replaces it), for the same reason as `ThreadRow`. Given both, it follows core's one rule and never draws more than two marks: a runtime with a provider it owns (its declared `homeProviders`, API 1.24.0) shows its own mark alone ("Codex (OpenAI)"); any other pair shows the access mark (provider or plan) and the runtime's side by side, the runtime's a shade quieter ("Pi via OpenAI", "Antigravity via Anthropic"); a subscription plan wears its product's mark ("Pi via ChatGPT plan" for `openai-codex`). The model's maker is never a mark. API 1.22.0 adds `plan` (a provider whose id does not tell, such as Pi's `anthropic` behind a plan login, is reached through a plan), `modelName` (leads the name: "DeepSeek V4 Flash · Pi via OpenCode Go"), `runtimeName` (an instance's name for the runtime) and `runtimeMark: false` (the runtime stays in the name but not on screen, where the UI around already names it). Given only `modelProvider` it draws the provider alone, for a list that is one runtime's; the UI primitives have their own table above. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. Its optional `accessory` node is drawn beside the branch label (and before the age on a compact row): a navigator passes other kits' marks through it. Since API 1.11.0 `actions` are buttons drawn before Settle while the row is hovered or focused (not on a settled row); Workspace Kit's rail passes neither since API 1.27.0, so its rows keep their state on hover, and `showLabel: false` leaves out a label that says nothing — Workspace Kit's rail passes it for `main` and `master`, since the default branch says nothing on a card. `details` (API 1.11.0) is a few lines shown beside the row on hover in place of the title's own tooltip, and the branch is cut in the middle (`MiddleTruncate`). `hoverCard` (API 1.23.0) says a navigator draws its own card for the row, so the row shows neither `details` nor the title's tooltip; `details` stays the plain-text fallback. `providerStackLabel(modelProvider, runtimeProvider, { plan })` (API 1.23.0) is the name `ProviderIconStack` gives its marks ("Pi via OpenAI"), for text beside them, and `useModelName(runtime, modelId, provider?)` answers that model's name from the runtime's catalog, asking for the catalog once, or nothing until it is in. A `UiSession` carries `model` since API 1.23.0: the id of the thread's model, from a Pi session file's last model on its branch or from a live runtime; since API 1.24.0 also from a backend's `listThreads` record (`model: { provider, id }`), so a thread that is not open names the model and provider it last ran on (Antigravity and Cursor do) instead of the backend's `modelProvider`. A `UiSession` carries `createdAt` since API 1.11.0 where the runtime's store knows it (Pi's threads), which the rail's "Order threads by: Created" reads. Since API 1.17.0 `machine` (`ThreadRowMachine`: `{ name, icon }`) marks another machine's thread with that machine's icon just before the provider marks, the name as its tooltip; without `onToggleSettled` the row has no Settle button. Since API 1.26.0 the row draws no cost: the rail's hover card carries it (`threadCostLabel`, `threadCostOrigin`), and `showCost` is ignored. The meta line never runs out of the card: the branch shrinks first, then the agent count and the `accessory` marks drop, while the machine and the provider marks stay. |
 | `threadRowStatus`, `ThreadRowStatus`, `THREAD_QUESTION_LABEL`, `threadLimitHint` | new in API 1.27.0: the one derivation of a thread row's state that the desktop rail and the tablet and phone lists share. `threadRowStatus(id, activity, thread?)` takes the thread store's activity (`useThreadStore().getActivity()`) and the thread's shell and answers `{ activity, label, hint?, startedAt? }` for `ThreadRow`: a question is "Question", a run "Working" with the host's start of the run, then Limited, Failed, Interrupted, Ready and Idle. A navigator that draws its own rows calls it rather than naming the states itself. |
 | `DraftRow`, `draftTitle`, `DraftThread` | new in API 1.21.0: a new thread's draft in the card `ThreadRow` draws: the project line with a quiet grey "draft" where a thread shows its state and the title `draftTitle` gives (the first line typed, chips as their labels, else "N attachments", else "New thread") in muted type, two lines without a branch (the design's, since API 1.27.0; before, a pen, "Draft" and a tint). `onOpen(draftId)` opens it, `onDiscard` adds the hover Discard button, `actions` replaces that button (a touch list's More). A `DraftThread` is `{ draftId, projectName, projectPath, workspaceId?, preview, attachments, createdAt, active, sessionId? }`; `sessionId` is set once the host made the thread, whose row then replaces the draft's. |
@@ -2114,7 +2121,9 @@ PATHEXT, a `.cmd` shim such as `npm.cmd` or `code.cmd` runs through `cmd.exe`
 — Node refuses to spawn one directly — and `killProcessTree` is
 `taskkill /T /F`; spawn with `commandInvocation(command, args)`'s `command`,
 `args` and `windowsVerbatimArguments`, see [docs/windows.md](windows.md)),
-`assertAllowedCloneSource`, `readBoundedImagePreview`,
+`assertAllowedCloneSource`, `tauHomeDir` (new in API 1.34.0: `~/.tau`, or
+`~/.tau-dev` in a Tau Dev build, the folder of the user's own Tau settings),
+`readBoundedImagePreview`,
 `assistantAnchorForBranch` (the persisted entry id of an assistant message)
 and the `PiKit*` types above. The Git and checkpoint engine that 1.3.0 briefly
 re-exported — the `workspaceGit` namespace, `GitCoordinator`, the checkpoint
@@ -2465,9 +2474,13 @@ can change under a thread; Codex, the Agent SDK runtime and Antigravity do.
 Since API 1.30.0 a `listThreads` record carries `usage`, the thread's tallies
 from the backend's own store, and the index prices them as it prices a Pi
 session file's; a thread that is not open then shows its cost in the rail's
-hover card, in Reviews and on the phone, and a price change reprices it. Codex
-and the Agent SDK runtime answer it; their stores merge a thread's turns once
-per new turn, so a listing reads no file and redoes no sum.
+hover card, in Reviews and on the phone, and a price change reprices it. Every
+runtime kit Tau ships answers it. Codex, the Agent SDK runtime, Grok and
+Antigravity merge a thread's turns once per new turn, so a listing reads no
+file and redoes no sum; Cursor and OpenCode keep a running total only and list
+it as one tally without a model, the figure their open thread shows. A thread
+imported from a CLI keeps the usage its session file counts (Codex, Agent SDK;
+OpenCode's import already did).
 A host half that sums usage of its own asks `services.priceUsage(tallies)`
 (async, also on a worker) and gets one `PricedUsage` per tally: `billing`,
 `costUsd`, `apiValueUsd` and the price's `source` (`custom`, `runtime`,
@@ -2668,7 +2681,9 @@ any of them: `sign-in-state` (the methods, the account and the last flow),
 `sign-in` (`{ target, method }`, answers the new flow at once), `sign-in-respond`
 (`{ target, flowId, value }`), `sign-in-cancel` and `sign-out`, each with a
 `target` naming an instance or a provider; the `sign-in` event carries a
-moved flow, or the whole report once a flow ended or a sign-out ran. The helper
+moved flow, or the whole report once a flow ended or a sign-out ran. The host
+sends that event only to clients that may change things: a device paired Read
+only neither runs the commands nor sees a flow's page, code or prompt. The helper
 keeps one flow per target, refuses an answer to a flow that ended, aborts
 the kit's signal on cancel, on a new flow for the same target and after ten
 minutes, and asks `changed(target)` after a sign-in or sign-out — the
@@ -2867,13 +2882,19 @@ caller (ADR 0020); no core seam is involved:
 
 | Kit | Command | What it does |
 |---|---|---|
-| Workspace (`kits/workspace/thread-branches.ts`) | `thread-branches { workspaces }` | For each workspace that is a linked worktree on a branch: the branch against the one its main checkout has out — `tip`, `ahead`, `behind`, files and lines from the fork point, `uncommitted`, `merged`, the `conflicts` `git merge-tree --write-tree` reports, and `workspace`/`rootWorkspace` ids to join threads and projects. A main checkout or a folder outside Git is left out. |
+| Workspace (`kits/workspace/thread-branches.ts`) | `thread-branches { workspaces }` | For each workspace that is a linked worktree on a branch: the branch against the one its main checkout has out — `tip`, `ahead`, `behind`, files and lines from the fork point, `uncommitted`, `merged`, the `conflicts` `git merge-tree --write-tree` reports, `defaultBranch` when a local branch has the repository's default name, and `workspace`/`rootWorkspace` ids to join threads and projects. A branch the target holds under other commits is `merged` too, with `mergedBy`: `tree` when the merge would leave the target's tree as it is (a squash merge), `patches` when `git cherry` finds every commit's patch in the target (a cherry-pick, a rebase merge, rewritten history; cached per tip and target). A main checkout or a folder outside Git is left out. |
+| | `remove-thread-branch { workspace, requestMerged? }` | Removes the worktree (`git worktree remove`, never forced) and deletes its branch, then forgets Workspace Kit's record of it; the threads stay. Refused unless the branch is `merged` (or `requestMerged`, Review's word that its pull request merged on the host) and nothing is uncommitted. |
 | | `merge-thread-branch { workspace, tip? }` | Merges the worktree's branch into its main checkout the way Remote Work applies a result (`mergeBranchIntoCheckout`: `merge-tree` first, then `merge --no-ff`); answers `{ state, branch, into, root, files, detail, commit? }`, `state` being `merged`, `already-merged`, `conflict` or `blocked`, and only `merged` touched the checkout. Refused when `tip` no longer is the branch's, or the worktree holds work not committed. |
 | Remote Work (`kits/remote-work/protocol.ts`, `REVIEW_CALLERS`) | `threads`, `preview`, `thread-send`, `thread-settle` | A link whose work came back as a branch here is a review: `preview` checks the merge, `thread-settle { how: "apply" }` merges it and lets the worktree there go, `thread-send` carries a note. |
 
 The page's own host commands (`local-reviews`, `local-review-merge`,
-`local-review-ask`, `local-review-withdraw`, `local-review-summary`) are for
-its desktop half; `local-reviews-changed` tells every window to read again.
+`local-review-ask`, `local-review-withdraw`, `local-review-summary`,
+`local-review-remove`) are for its desktop half; `local-reviews` also counts a
+branch merged when a thread in its worktree links a pull request of that branch
+last seen merged (`mergedBy: "request"`, from the stored link, no host call); `local-reviews-changed` tells every window to read again.
+`local-review-summary` also names the thread's turns (`prompts`, the first line of each prompt) for the review's sidebar.
+
+A review opens as one view (design 1e) for a local review and a remote pull request (`local-review-detail.tsx`, `remote-review-detail.tsx`, on the shared `review-detail-frame.tsx`). Its sidebar is the kit's `Sidebar` for the page: core's Back to thread buttons are hidden by the kit's stylesheet while `.rvd-side` is drawn, and the page tells the sidebar what it holds through `ReviewDetailStore`. Files are drawn under each other (`review-diff-stack.tsx`), each fetched and drawn when it comes near the viewport; a file over 400 lines scrolls inside its card.
 
 ### A package's own settings: `services.settings(cwd?)` (new in API 1.12.0)
 
@@ -3575,7 +3596,9 @@ Tau ships the types of `tau`, `tau/host` and `tau/host-extension` with the
 app: `@tau/extension-api`, a folder of declarations at the extension API's
 version. It is `extension-api/` among an installed Tau's resources, and
 `dist-types/extension-api/` in a checkout after `npm run build`
-(`node scripts/build-types.mjs` rebuilds it alone). It carries the
+(`node scripts/build-types.mjs` rebuilds it alone; `tau kit new` and
+`tau kit types` run from a checkout rebuild it first, and say so when they
+have to copy an older build). It carries the
 declarations of React, csstype, lucide-react and Node that the API refers to,
 each with its licence, so nothing needs installing. It is not on npm.
 
@@ -3650,11 +3673,14 @@ Settings → Extensions as *waiting for approval* with the list it asks for;
 **Allow** writes the grant and starts both halves, **Deny** leaves it off. Until approved, the
 host half is never even imported, in either scope.
 
-**`/reload`** is the single "apply changes" command: it re-syncs packages
-(also done at startup and on every project change), rebuilds Tau if its own
-source changed, and reloads the renderer or restarts the app as needed.
-Installing, updating or removing a folder never needs a rebuild — only a
-`/reload`.
+**`/reload`** applies changes to Tau itself: it runs Tau's build from its
+source (a checkout Tau runs from or has open, or the source copy an installed
+Tau keeps for edits to itself; about ten seconds), re-syncs packages, and
+reloads the renderer or restarts the app as needed. A package never needs it:
+installing, approving, trusting and saving take effect by themselves, and
+**Rebuild extension packages** in the command palette (or *Rebuild* under
+Settings → Packages → *Develop a package*) rebuilds and rescans the packages
+alone, without building Tau.
 
 **Global vs. project scope.** `~/.tau/extensions/<name>/` and
 `~/.tau/packages.json` apply to every project; `<project>/.tau/extensions/<name>/`

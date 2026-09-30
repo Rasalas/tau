@@ -2,6 +2,8 @@ import { useLayoutEffect, useRef } from "react";
 
 /** Set on the conversation column; the transcript's end spacer and its bottom insets read it. */
 export const COMPOSER_RESERVE_PROPERTY = "--composer-reserve";
+/** Actual dock coverage; unlike the end reservation, this shrinks when the composer folds. */
+export const COMPOSER_DOCK_PROPERTY = "--composer-dock-height";
 
 export interface ComposerReserveState {
   /** Room the transcript keeps at its end, in px. */
@@ -44,9 +46,13 @@ export function ComposerReserve() {
     const host = column?.querySelector<HTMLElement>(".conversation-composer-host");
     if (!probe || !column || !host) return undefined;
     let state: ComposerReserveState = { reserve: -1, unfoldedHost: 0 };
+    let dockHeight = -1;
     const measure = () => {
+      const dock = Math.ceil(probe.getBoundingClientRect().height);
+      if (dock !== dockHeight) column.style.setProperty(COMPOSER_DOCK_PROPERTY, `${dock}px`);
+      dockHeight = dock;
       const next = resolveComposerReserve(state, {
-        dock: probe.getBoundingClientRect().height,
+        dock,
         host: host.getBoundingClientRect().height,
         folded: host.querySelector(".composer-zone.collapsed") !== null,
       });
@@ -60,6 +66,7 @@ export function ComposerReserve() {
     return () => {
       observer?.disconnect();
       column.style.removeProperty(COMPOSER_RESERVE_PROPERTY);
+      column.style.removeProperty(COMPOSER_DOCK_PROPERTY);
     };
   }, []);
   return <div ref={probeRef} className="composer-reserve-probe" aria-hidden="true" />;

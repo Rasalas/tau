@@ -19,6 +19,7 @@ export const PAGES = [
   { slug: "get-started", source: "docs/site/get-started.md", group: "Guides", blurb: "Install Tau, connect your agents, start a thread, pair your phone." },
   { slug: "install", source: "docs/install.md", group: "Guides", blurb: "Every installer, Linux details, updates, the tau command, and running from a checkout." },
   { slug: "make-a-change", source: "docs/site/make-a-change.md", group: "Guides", blurb: "Write a kit of your own, or change Tau and open a pull request." },
+  { slug: "kit-tutorial", source: "docs/kit-tutorial.md", group: "Guides", title: "Your first kit", blurb: "Create, install, trust, approve, edit and rebuild one small kit, step by step." },
   { slug: "updates-and-machines", source: "docs/site/updates-and-machines.md", group: "Guides", blurb: "How Tau updates itself, other computers, and a host without a window." },
   { slug: "servers", source: "docs/servers.md", group: "Guides", title: "Servers", blurb: "Work on a site that lives on a server: upload, drift, roll back." },
   { slug: "runtimes", source: "docs/runtimes.md", group: "Reference", blurb: "Claude Code, Codex, Antigravity and Pi, pull request tools, and a live Pi session." },
@@ -31,8 +32,8 @@ export const PAGES = [
   { slug: "contributing", source: "CONTRIBUTING.md", group: "Reference", title: "Contributing", blurb: "Setting up, where a change goes, and what a pull request needs." },
   { slug: "features", source: "docs/features.md", group: "Project", blurb: "The workbench's features, in one list." },
   { slug: "roadmap", source: "docs/roadmap.md", group: "Project", title: "Roadmap", blurb: "What is not done yet, and what Tau does not try to be." },
-  { slug: "privacy", source: "docs/site/privacy.md", group: "Project", title: "Privacy policy", blurb: "How the Android app handles connections, notifications and your data." },
-  { slug: "privacy-de", source: "docs/site/privacy-de.md", group: "Project", title: "Datenschutzerklärung", lang: "de", blurb: "Datenschutz für die Android-App, auf Deutsch." },
+  { slug: "privacy", source: "docs/site/privacy.md", group: "Project", title: "Privacy policy", blurb: "Where to read how Tau handles connections, notifications and your data." },
+  { slug: "privacy-de", source: "docs/site/privacy-de.md", group: "Project", title: "Datenschutzerklärung", lang: "de", blurb: "Wo die Datenschutzerklärung steht, auf Deutsch." },
 ];
 
 const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);

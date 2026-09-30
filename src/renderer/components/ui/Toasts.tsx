@@ -60,10 +60,10 @@ export function layoutToasts(visible: readonly Toast[], heights: ReadonlyMap<str
 }
 
 const ICONS: Record<ToastType, ReactNode> = {
-  info: <Info size={15} />,
-  success: <CircleCheck size={15} />,
-  warning: <TriangleAlert size={15} />,
-  error: <CircleAlert size={15} />,
+  info: <Info size={14} />,
+  success: <CircleCheck size={14} />,
+  warning: <TriangleAlert size={14} />,
+  error: <CircleAlert size={14} />,
   loading: <Spinner size="sm" />,
 };
 
@@ -95,18 +95,18 @@ function ToastCard({ toast, store }: { toast: Toast; store: ToastStore }) {
       <div className="toast-body">
         {toast.title ? <strong>{toast.title}</strong> : null}
         {toast.description ? <p>{toast.description}</p> : null}
-        {toast.actions?.length ? (
-          <div className="toast-actions">
-            {toast.actions.map((action) => (
-              <button
-                key={action.label}
-                type="button"
-                onClick={() => { action.run(); if (!action.keepOpen) store.dismiss(toast.id); }}
-              >{action.label}</button>
-            ))}
-          </div>
-        ) : null}
       </div>
+      {toast.actions?.length ? (
+        <div className="toast-actions">
+          {toast.actions.map((action) => (
+            <button
+              key={action.label}
+              type="button"
+              onClick={() => { action.run(); if (!action.keepOpen) store.dismiss(toast.id); }}
+            >{action.label}</button>
+          ))}
+        </div>
+      ) : null}
       {toast.copyText ? <CopyButton text={toast.copyText} /> : null}
       <button type="button" className="toast-icon-button" aria-label="Dismiss notification" onClick={() => store.dismiss(toast.id)}>
         <X size={13} />

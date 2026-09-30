@@ -92,5 +92,8 @@ jobs:
           # 712111328256 is the project number of tau-push-e3c95.
           workload_identity_provider: projects/712111328256/locations/global/workloadIdentityPools/${{ vars.PUSH_RELAY_WIF_POOL }}/providers/${{ vars.PUSH_RELAY_WIF_PROVIDER }}
           service_account: ${{ vars.PUSH_RELAY_SERVICE_ACCOUNT }}
+      # Fails here with Google's reason when the identity federation or the deployer's roles are off.
+      - name: Check the Google sign-in
+        run: gcloud auth print-access-token > /dev/null
       # The local firebase-tools from the lockfile; firebase.json's predeploy builds lib/ first.
       - run: npm --prefix relay run deploy

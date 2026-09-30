@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import {
   ChevronRight,
   CircleCheck,
@@ -10,8 +10,8 @@ import {
   MessageSquare,
   RefreshCw,
   Search,
+  Trash2,
   TriangleAlert,
-  X,
 } from "lucide-react";
 import {
   DiffView,
@@ -23,7 +23,6 @@ import {
   ProjectIcon,
   ProviderIconStack,
   READ_ONLY_REASON,
-  SettingsPageAction,
   Skeleton,
   Spinner,
   tooltipProps,
@@ -36,14 +35,17 @@ import {
   type WorkbenchActions,
 } from "tau";
 import { useCompactProfile } from "./compact-profile.js";
-import { mergeBlocker, mergedThisMonth, type LocalReview, type ReviewCounts, type ReviewState } from "./local-reviews.js";
+import { mergeBlocker, mergedThisMonth, reviewRuntime, type LocalReview, type ReviewCounts, type ReviewState } from "./local-reviews.js";
 import { useLocalReviews, type LocalReviewsStore } from "./local-reviews-store.js";
 import { REVIEW_HOST_EXTENSION_ID } from "./protocol.js";
 import type { PullRequestsPageParts } from "./pull-requests-page.js";
 import type { ReviewsFilter } from "./reviews-filter.js";
 import type { RowRequests } from "./requests.js";
+import { ReviewDetailSidebar } from "./review-detail-sidebar.js";
+import type { DetailParts } from "./review-detail-store.js";
 
 const PullRequestsPage = lazy(() => import("./pull-requests-page.js").then((module) => ({ default: module.PullRequestsPage })));
+const LocalReviewDetail = lazy(() => import("./local-review-detail.js").then((module) => ({ default: module.LocalReviewDetail })));
 
 export type ReviewTab = ReviewState | "remote";
 const TABS: readonly ReviewTab[] = ["ready", "requested", "conflicts", "merged", "remote"];
@@ -67,8 +69,10 @@ export interface ReviewsPageParts {
   host: HostExtensionClient;
   rows: RowRequests;
   remote: PullRequestsPageParts;
-  /** "Filter reviews": in the sidebar while it shows, in the page's head otherwise. */
+  /** "Filter reviews", drawn in the list's page head. */
   filter: ReviewsFilter;
+  /** What the detail view (1e) shares with its sidebar, and what it reads beside the review. */
+  detail: DetailParts;
 }
 
 const tabOf = (value: unknown): ReviewTab => TABS.includes(value as ReviewTab) ? value as ReviewTab : "ready";
@@ -111,15 +115,29 @@ function Checks({ review }: { review: LocalReview }) {
 }
 
 function Model({ review, name = true }: { review: LocalReview; name?: boolean }) {
-  const catalog = useModelName(review.backendKind, review.model, review.modelProvider);
+  const catalog = useModelName(reviewRuntime(review), review.model, review.modelProvider);
   const label = catalog ?? review.model;
   return (
     <span className="rv-model">
-      <ProviderIconStack modelProvider={review.modelProvider} runtimeProvider={review.backendKind} runtimeMark={false} {...(label ? { modelName: label } : {})} hint={{ side: "top" }} />
+      <ProviderIconStack modelProvider={review.modelProvider} runtimeProvider={reviewRuntime(review)} runtimeMark={false} {...(label ? { modelName: label } : {})} hint={{ side: "top" }} />
       {name && label ? <span className="rv-model-name">{label}</span> : null}
     </span>
   );
 }
+
+/** Where Merge lands; a target other than the default branch says so. */
+function Into({ review }: { review: LocalReview }) {
+  if (!review.target) return null;
+  const off = review.offDefault;
+  return <span className="rv-into" data-off={off ? "" : undefined} {...(off ? tooltipProps(`Not ${off}: Merge lands on the branch the project's checkout has out.`) : {})}> into {review.target}</span>;
+}
+
+/** Why a branch counts as merged without a merge of its own commits. */
+const ALREADY: Record<NonNullable<LocalReview["mergedBy"]>, string> = {
+  patches: "every commit's change is there already, under other commits (a cherry-pick, a rebase or rewritten history).",
+  tree: "merging would change nothing (a squash merge).",
+  request: "its pull request was merged on the host.",
+};
 
 /** A thread here to write to, or its link to one on another machine. */
 const askable = (review: LocalReview) => Boolean(review.threadId || review.remote);
@@ -133,17 +151,19 @@ const cost = (review: LocalReview) => review.costUsd === undefined ? "—" : for
 
 /** What a row says in its last column when it has no button: the open ask, or where it was merged. */
 function Aside({ review }: { review: LocalReview }) {
-  if (review.state === "merged") return <span className="rv-aside">into {review.target}</span>;
-  if (review.ask?.kind === "note") return <span className="rv-aside" {...tooltipProps(review.ask.text)}><MessageSquare size={12} aria-hidden="true" /> Your note: {review.ask.text}</span>;
-  if (review.ask) return <span className="rv-aside"><RefreshCw size={12} aria-hidden="true" /> Rebase asked</span>;
+  if (review.state === "merged") return <span className="rv-aside"><span className="rv-act-label">{review.mergedBy === "request" ? "Pull request merged" : review.mergedBy ? `Already in ${review.target}` : `into ${review.target}`}</span></span>;
+  if (review.ask?.kind === "note") return <span className="rv-aside" {...tooltipProps(review.ask.text)}><MessageSquare size={12} aria-hidden="true" /><span className="rv-act-label">Your note: {review.ask.text}</span></span>;
+  if (review.ask) return <span className="rv-aside"><RefreshCw size={12} aria-hidden="true" /><span className="rv-act-label">Rebase asked</span></span>;
   return null;
 }
 
 interface RowActions {
   merge(review: LocalReview): void;
   rebase(review: LocalReview): void;
+  remove(review: LocalReview): void;
   busy: string | undefined;
   mayMerge: boolean;
+  mayRemove: boolean;
   mayAsk: boolean;
 }
 
@@ -152,14 +172,14 @@ function RowAction({ review, act }: { review: LocalReview; act: RowActions }) {
     const blocked = !act.mayMerge ? READ_ONLY_REASON : mergeBlocker(review);
     return (
       <button type="button" className="rv-merge" disabled={Boolean(blocked) || act.busy === review.key} {...tooltipProps(blocked ?? `Merge ${review.branch} into ${review.target}`)} onClick={() => act.merge(review)}>
-        <GitMerge size={13} aria-hidden="true" /> {act.busy === review.key ? "Merging…" : "Merge"}
+        <GitMerge size={13} aria-hidden="true" /><span className="rv-act-label">{act.busy === review.key ? "Merging…" : "Merge"}</span>
       </button>
     );
   }
   if (review.state === "conflicts") {
     return (
       <button type="button" className="rv-ask" disabled={Boolean(rebaseBlocker(review, act.mayAsk)) || act.busy === review.key} {...tooltipProps(rebaseBlocker(review, act.mayAsk) ?? `Asks the thread to rebase onto ${review.target}`)} onClick={() => act.rebase(review)}>
-        <RefreshCw size={13} aria-hidden="true" /> Ask thread to rebase
+        <RefreshCw size={13} aria-hidden="true" /><span className="rv-act-label">Ask thread to rebase</span>
       </button>
     );
   }
@@ -168,12 +188,12 @@ function RowAction({ review, act }: { review: LocalReview; act: RowActions }) {
 
 function ReviewRow({ review, open, act }: { review: LocalReview; open(review: LocalReview): void; act: RowActions }) {
   return (
-    <li className="rv-row" data-state={review.state}>
+    <li className="rv-row" data-state={review.state} data-key={review.key}>
       <button type="button" className="rv-row-open" onClick={() => open(review)} aria-label={`${review.title}, ${review.branch}`}>
         <ProjectTile project={review.project} />
         <span className="rv-thread">
           <span className="rv-title">{review.title}</span>
-          <span className="rv-branch">{review.remote ? `${review.remote.machine}: ` : ""}{review.branch} → {review.target}</span>
+          <span className="rv-branch">{review.remote ? `${review.remote.machine}: ` : ""}{review.branch}<Into review={review} /></span>
         </span>
         <Changes review={review} />
         <Checks review={review} />
@@ -188,11 +208,11 @@ function ReviewRow({ review, open, act }: { review: LocalReview; open(review: Lo
 /** A phone's row (1p): branch and age, the title, then changes, checks, cost and the model's mark. */
 function ReviewCard({ review, open }: { review: LocalReview; open(review: LocalReview): void }) {
   return (
-    <li className="rv-card" data-state={review.state}>
+    <li className="rv-card" data-state={review.state} data-key={review.key}>
       <button type="button" onClick={() => open(review)}>
         <span className="rv-card-line">
           <ProjectTile project={review.project} />
-          <span className="rv-branch">{review.branch} → {review.target}</span>
+          <span className="rv-branch">{review.branch}<Into review={review} /></span>
           <span className="rv-age">{shortAge(review.at)}</span>
         </span>
         <span className="rv-title">{review.title}</span>
@@ -234,16 +254,28 @@ function moveFocus(event: KeyboardEvent<HTMLElement>, list: HTMLElement | null) 
   buttons[next]?.focus();
 }
 
+/** Up and down step through the rows (the focus is the selection), Home and End to the ends; Enter opens the focused one. */
+function moveRow(event: KeyboardEvent<HTMLElement>) {
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) || (event.target as HTMLElement).closest("input, textarea, select")) return;
+  const rows = [...event.currentTarget.querySelectorAll<HTMLElement>(".rv-row-open, .rv-card > button")];
+  if (rows.length === 0) return;
+  event.preventDefault();
+  const at = rows.findIndex((row) => row.closest("li")?.contains(document.activeElement));
+  const next = event.key === "Home" ? 0
+    : event.key === "End" ? rows.length - 1
+    : at < 0 ? (event.key === "ArrowDown" ? 0 : rows.length - 1)
+    : Math.min(rows.length - 1, Math.max(0, at + (event.key === "ArrowDown" ? 1 : -1)));
+  rows[next]?.focus();
+}
+
 /**
- * The page's sidebar (1i), in Settings' column: the filter, the states with
- * their counts, the projects with their open reviews, and Remote.
+ * The page's sidebar (1i), in Settings' column: the states with their counts,
+ * the projects with their open reviews, and Remote.
  */
 export function ReviewsSidebar({ params, navigate, parts }: PageProps & { parts: ReviewsPageParts }) {
   const { counts } = useLocalReviews(parts.store);
   const remoteCount = useSyncExternalStore(parts.rows.subscribe, parts.rows.openCount);
-  const filter = useSyncExternalStore(parts.filter.subscribe, parts.filter.getSnapshot);
   const list = useRef<HTMLDivElement>(null);
-  const field = useRef<HTMLInputElement>(null);
   const tab = tabOf(params.tab);
   const project = text(params.project);
   const inDetail = Boolean(params.review) || Boolean(params.url);
@@ -255,27 +287,13 @@ export function ReviewsSidebar({ params, navigate, parts }: PageProps & { parts:
       {icon}<span>{label}</span>{figure ? <small className="rv-nav-count">{figure}</small> : null}
     </button>
   );
+  // A review open: the sidebar is the review's own (1e), and the way back is its own too.
+  if (inDetail) {
+    const remote = tab === "remote";
+    return <ReviewDetailSidebar store={parts.detail.store} detailKey={text(params.review) ?? text(params.url) ?? ""} backLabel={remote ? "All pull requests" : "All reviews"} back={() => select(remote ? "remote" : tab, remote ? undefined : project)} />;
+  }
   return (
     <>
-      <label className="settings-nav-search">
-        <Search size={14} aria-hidden="true" />
-        <input
-          ref={field}
-          type="search"
-          value={filter}
-          placeholder="Filter reviews"
-          aria-label="Filter reviews"
-          onChange={(event) => {
-            parts.filter.set(event.target.value);
-            if (inDetail || tab === "remote") select(tab === "remote" ? "ready" : tab, project);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Escape" && filter) { event.preventDefault(); event.stopPropagation(); parts.filter.set(""); return; }
-            if (event.key === "ArrowDown") { event.preventDefault(); list.current?.querySelector<HTMLButtonElement>("button")?.focus(); }
-          }}
-        />
-        {filter ? <button type="button" className="settings-nav-search-clear" aria-label="Clear the filter" onClick={() => { parts.filter.set(""); field.current?.focus(); }}><X size={12} /></button> : null}
-      </label>
       <div className="settings-nav-list rv-sidebar" ref={list} onKeyDown={(event) => moveFocus(event, list.current)}>
         <div className="settings-nav-group" role="group" aria-label="Reviews">
           <h2 className="settings-nav-heading">Reviews</h2>
@@ -310,21 +328,30 @@ function ProjectFilter({ project, counts, select }: { project?: string; counts: 
   );
 }
 
-function Section({ title, count, children }: { title?: string; count: number; children: ReactNode }) {
+function Section({ state, title, count, children }: { state: ReviewState; title?: string; count: number; children: ReactNode }) {
   if (count === 0) return null;
   return (
-    <section className="rv-section" aria-label={title ?? "Ready to merge"}>
+    <section className="rv-section" aria-label={title ?? TAB_LABELS[state].section}>
       {title ? <h3>{title} · {count}</h3> : null}
       <ul>{children}</ul>
     </section>
   );
 }
 
+const INTRO = "Finished work of threads that ran in a worktree of their own, ready to merge into the project's checkout here; Remote pull requests are the ones on GitHub and other hosts.";
 const EMPTY_TEXT: Record<ReviewState, { title: string; description: string }> = {
-  ready: { title: "Nothing to review", description: "A thread that finishes work on a branch of its own, in a worktree, lands here with its diff and the checks it ran." },
-  requested: { title: "No changes requested", description: "A note or a rebase you send back to a thread waits here until the thread commits again." },
-  conflicts: { title: "No conflicts", description: "A branch that would not merge cleanly into its main checkout shows here, to ask its thread to rebase." },
-  merged: { title: "Nothing merged yet", description: "Merging keeps the thread; its branch just stops appearing under Ready." },
+  ready: { title: "Nothing to review", description: "A thread that works in a worktree of its own lands here when it is done." },
+  requested: { title: "No changes requested", description: "Nothing waits on a thread." },
+  conflicts: { title: "No conflicts", description: "No branch is in the way of its target." },
+  merged: { title: "Nothing merged yet", description: "A branch you merge from here is listed after it." },
+};
+
+/** The sentence under a list's title. */
+const HEAD_TEXT: Record<ReviewState, string> = {
+  ready: INTRO,
+  requested: "A note or a rebase you send back to a thread waits here until the thread commits again.",
+  conflicts: "A branch that would not merge cleanly into its main checkout shows here, to ask its thread to rebase.",
+  merged: "Merging keeps the thread; its branch just stops appearing under Ready.",
 };
 
 /**
@@ -337,6 +364,7 @@ function ReviewDetail({ review, parts, act, actions, compact }: { review: LocalR
   const [noting, setNoting] = useState(false);
   const [note, setNote] = useState("");
   const [sending, setSending] = useState(false);
+  const [removing, setRemoving] = useState(false);
   let threads: ReturnType<typeof useThreadStore> | undefined;
   try { threads = useThreadStore(); } catch { threads = undefined; }
   useEffect(() => {
@@ -364,7 +392,7 @@ function ReviewDetail({ review, parts, act, actions, compact }: { review: LocalR
   return (
     <article className="rv-detail" aria-label={review.title}>
       <p className="rv-detail-sub">
-        <span className="rv-branch">{review.branch} → {review.target}</span>
+        <span className="rv-branch">{review.branch}<Into review={review} /></span>
         <span aria-hidden="true">·</span>
         <Changes review={review} files={false} />
         <span aria-hidden="true">·</span>
@@ -386,6 +414,7 @@ function ReviewDetail({ review, parts, act, actions, compact }: { review: LocalR
           <button type="button" disabled={!act.mayAsk} onClick={() => { void parts.store.withdraw(review).catch((error) => actions.notify(errorMessage(error))); }}>Withdraw</button>
         </div>
       ) : null}
+      {review.mergedBy ? <p className="rv-already" role="status"><GitMerge size={13} aria-hidden="true" /> Already in {review.target}: {ALREADY[review.mergedBy]}</p> : null}
       {review.conflicts.length > 0 ? (
         <p className="rv-conflicts" role="status"><TriangleAlert size={13} aria-hidden="true" /> Conflicts with {review.target} in {review.conflicts.slice(0, 6).join(", ")}{review.conflicts.length > 6 ? " …" : ""}</p>
       ) : null}
@@ -425,11 +454,22 @@ function ReviewDetail({ review, parts, act, actions, compact }: { review: LocalR
           </button>
           {thread ? <button type="button" className="rv-open-thread" onClick={() => { void actions.switchSession(thread.path); }}>Open thread</button> : null}
         </div>
-      ) : thread ? (
-        <div className="rv-detail-actions">
-          <button type="button" className="rv-open-thread" onClick={() => { void actions.switchSession(thread.path); }}>Open thread</button>
+      ) : removing ? (
+        <div className="rv-detail-actions" role="group" aria-label="Remove">
+          <span>Remove the worktree and delete {review.branch}? The threads stay.</span>
+          <button type="button" onClick={() => setRemoving(false)}>Cancel</button>
+          <button type="button" className="danger" disabled={act.busy === review.key} onClick={() => act.remove(review)}>{act.busy === review.key ? "Removing…" : "Remove"}</button>
         </div>
-      ) : null}
+      ) : (
+        <div className="rv-detail-actions">
+          {review.workspace && !review.remote ? (
+            <button type="button" disabled={!act.mayRemove} {...tooltipProps(act.mayRemove ? `Removes the worktree and deletes ${review.branch}; ${review.target} holds its work` : READ_ONLY_REASON)} onClick={() => setRemoving(true)}>
+              <Trash2 size={14} aria-hidden="true" /> Remove worktree and branch
+            </button>
+          ) : null}
+          {thread ? <button type="button" className="rv-open-thread" onClick={() => { void actions.switchSession(thread.path); }}>Open thread</button> : null}
+        </div>
+      )}
     </article>
   );
 }
@@ -461,6 +501,7 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
   const [busy, setBusy] = useState<string>();
   const mayMerge = useCommandAllowed(REVIEW_HOST_EXTENSION_ID, "local-review-merge");
   const mayAsk = useCommandAllowed(REVIEW_HOST_EXTENSION_ID, "local-review-ask");
+  const mayRemove = useCommandAllowed(REVIEW_HOST_EXTENSION_ID, "local-review-remove");
   const tab = tabOf(params.tab);
   const project = text(params.project);
   const detailKey = text(params.review);
@@ -468,12 +509,28 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
   useEffect(() => { void store.refresh(); }, [store]);
 
   const select = (next: ReviewTab, nextProject?: string) => navigate({ tab: next, ...(nextProject ? { project: nextProject } : {}) }, { replace: true });
-  const openReview = (review: LocalReview) => navigate({ tab, ...(project ? { project } : {}), review: review.key }, { label: review.title });
+  const scroller = useRef<HTMLDivElement>(null);
+  // Where the list was when a review opened: back from it, the same row has the focus and the list its scroll.
+  const left = useRef<{ key: string; top: number }>(undefined);
+  const openReview = (review: LocalReview) => {
+    left.current = { key: review.key, top: scroller.current?.scrollTop ?? 0 };
+    navigate({ tab, ...(project ? { project } : {}), review: review.key }, { label: review.title });
+  };
+  const listed = !detailKey && tab !== "remote" && Boolean(snapshot.answer);
+  useLayoutEffect(() => {
+    const from = left.current;
+    if (!listed || !from || !scroller.current) return;
+    left.current = undefined;
+    scroller.current.scrollTop = from.top;
+    const row = [...scroller.current.querySelectorAll<HTMLElement>("li[data-key]")].find((item) => item.dataset.key === from.key);
+    row?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
+  }, [listed]);
 
   const act: RowActions = {
     busy,
     mayMerge,
     mayAsk,
+    mayRemove,
     merge: (review) => {
       setBusy(review.key);
       void store.merge(review).then((outcome) => {
@@ -487,6 +544,13 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
         () => actions.toast?.({ type: "success", title: "Asked the thread to rebase", description: review.title }),
         (error) => actions.toast?.({ type: "error", title: "The thread was not asked", description: errorMessage(error) }),
       ).finally(() => setBusy(undefined));
+    },
+    remove: (review) => {
+      setBusy(review.key);
+      void store.remove(review).then(
+        () => actions.toast?.({ type: "success", title: `Removed ${review.branch} and its worktree`, description: review.title }),
+        (error) => actions.toast?.({ type: "error", title: `${review.branch} was not removed`, description: errorMessage(error) }),
+      ).finally(() => { setBusy(undefined); void store.refresh(); });
     },
   };
 
@@ -513,7 +577,13 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
     );
   } else if (detailKey) {
     body = detail
-      ? <ReviewDetail review={detail} parts={parts} act={act} actions={actions} compact={compact} />
+      ? compact
+        ? <ReviewDetail review={detail} parts={parts} act={act} actions={actions} compact={compact} />
+        : (
+          <Suspense fallback={<Skeleton className="rv-row-skeleton" />}>
+            <LocalReviewDetail review={detail} parts={parts} detail={parts.detail} act={act} actions={actions} back={() => navigate({ tab, ...(project ? { project } : {}) }, { root: true, replace: true })} />
+          </Suspense>
+        )
       : snapshot.answer ? <Empty title="This review is gone" description="Its branch was removed, or its thread started working again." /> : <Skeleton className="rv-row-skeleton" />;
   } else if (!snapshot.answer) {
     body = snapshot.error
@@ -536,11 +606,11 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
           {compact ? null : (
             <div className="rv-columns" aria-hidden="true">
               <span />
-              <span>Thread</span><span>Changes</span><span>Checks</span><span>Model · cost</span><span>Age</span>
+              <span>Thread</span><span>Changes</span><span>Checks</span><span className="rv-col-cost"><span className="rv-col-model">Model · </span>cost</span><span>Age</span>
             </div>
           )}
           {sections.map((section) => (
-            <Section key={section.state} {...(section.title ? { title: section.title } : {})} count={of(section.state).length}>
+            <Section key={section.state} state={section.state} {...(section.title ? { title: section.title } : {})} count={of(section.state).length}>
               {of(section.state).map(row)}
             </Section>
           ))}
@@ -550,24 +620,39 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
 
   const inDetail = Boolean(detailKey) || (tab === "remote" && Boolean(params.url));
   const count = (entry: ReviewTab) => entry === "remote" ? remoteCount : counts[entry];
+  const inList = !inDetail && !compact;
   return (
-    <div className={`rv-page${compact ? " compact" : ""}`} data-tab={tab}>
-      {!compact && !sidebar && tab !== "remote" && !detailKey ? (
-        <SettingsPageAction>
-          <label className="rv-filter">
-            <Search size={13} aria-hidden="true" />
-            <input type="search" value={filter} placeholder="Filter reviews" aria-label="Filter reviews" onChange={(event) => parts.filter.set(event.target.value)} />
-          </label>
-        </SettingsPageAction>
-      ) : null}
-      <div className={`rv-main${tab === "remote" ? " remote" : ""}`}>
+    <div className={`rv-page${compact ? " compact" : ""}`} data-tab={tab} data-view={inList ? "list" : undefined}>
+      <div className={`rv-main${tab === "remote" || (detailKey && !compact) ? " remote" : ""}`}>
         {inDetail || sidebar ? null : (
           <div className="rv-tabs-row">
             <Tabs tab={tab} count={count} select={(next) => select(next, next === "remote" ? undefined : project)} />
             {compact || tab === "remote" ? null : <ProjectFilter {...(project ? { project } : {})} counts={counts} select={(next) => select(tab, next)} />}
           </div>
         )}
-        <div className="rv-scroll">{body}</div>
+        {inList && tab !== "remote" ? (
+          <header className="rv-head">
+            <div>
+              <h2>{TAB_LABELS[tab].section}</h2>
+              <p>{HEAD_TEXT[tab]}</p>
+            </div>
+            <label className="rv-filter">
+              <Search size={13} aria-hidden="true" />
+              <input
+                type="search"
+                value={filter}
+                placeholder="Filter reviews"
+                aria-label="Filter reviews"
+                onChange={(event) => parts.filter.set(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape" && filter) { event.preventDefault(); event.stopPropagation(); parts.filter.set(""); }
+                  else if (event.key === "ArrowDown") { event.preventDefault(); event.currentTarget.closest(".rv-main")?.querySelector<HTMLElement>(".rv-row-open")?.focus(); }
+                }}
+              />
+            </label>
+          </header>
+        ) : null}
+        <div className="rv-scroll" ref={scroller} onKeyDown={tab === "remote" || detailKey ? undefined : moveRow}>{body}</div>
         {tab === "remote" || detailKey ? null : footer}
       </div>
     </div>

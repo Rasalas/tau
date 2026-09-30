@@ -242,7 +242,7 @@ describe("Review Kit request lifecycle in the workbench", () => {
 
     await waitFor(() => expect(review).toHaveBeenCalledWith("pr-create", { title: "Review every changed file", body: "## Summary\nAll of it.", base: "main", draft: true }));
     expect(await screen.findByRole("button", { name: "PR #7" })).toBeTruthy();
-    expect(screen.getByText("draft")).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Draft" }).getAttribute("data-tooltip")).toBe("Draft");
     expect(screen.getByText("checks 1 pending")).toBeTruthy();
   });
 
@@ -289,7 +289,7 @@ describe("Review Kit request lifecycle in the workbench", () => {
     fireEvent.click(screen.getByRole("button", { name: "Merge now" }));
 
     await waitFor(() => expect(review).toHaveBeenCalledWith("pr-merge", { method: "rebase" }));
-    expect(await screen.findByText("merged")).toBeTruthy();
+    expect(await screen.findByRole("img", { name: "Merged" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Merge…" })).toBeNull();
   });
 

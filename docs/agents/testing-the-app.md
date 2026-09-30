@@ -377,7 +377,7 @@ Three helpers, each touching only what it started (recorded under `.tau-dev/`, c
 | `node scripts/tau-test-host.mjs …` | A headless host with its own home, userData and token under `.tau-dev/test-host` (`--name <name>`: `.tau-dev/test-host-<name>`), on 127.0.0.1, optionally with the proxy listener (`--proxy`) or TLS (`--tls`). |
 | `node mobile/scripts/sim-device.mjs …` | A simulator of this worktree's own: create, boot, install, launch and the automation bridge in one step, and `down` deletes exactly that device. |
 
-The phone uses Playwright's Chromium from `~/Library/Caches/ms-playwright` (`~/.cache/ms-playwright` on Linux), else an installed Chrome or Chromium, else `TAU_MOBILE_CHROME`. It opens only loopback URLs and names that `launch --resolve` maps to 127.0.0.1.
+The phone uses Playwright's Chromium from `~/Library/Caches/ms-playwright` (`~/.cache/ms-playwright` on Linux), else an installed Chrome or Chromium, else `TAU_MOBILE_CHROME`. It opens only loopback URLs and names that `launch --resolve` maps to 127.0.0.1. It starts with `--use-mock-keychain` and `--password-store=basic`, so it never asks the login keychain, under a fake `HOME` included; `TAU_MOBILE_CHROME` or a Playwright cache there points it at a browser.
 
 ### The phone: pair, prompt, reconnect
 
@@ -505,7 +505,7 @@ Tau clones only HTTPS and SSH URLs. Instances and test hosts set `TAU_TEST_CLONE
 
 ### A fake model instead of a login
 
-`scripts/fake-model-server.mjs` is an OpenAI-compatible model on 127.0.0.1 (`startFakeModelServer()`), and `prepareFakePiAgentDir(agentDir, baseUrl)` gives a Pi agent dir only that provider (`tau-fake/fake-1`, priced so a thread costs more than zero). It answers from the last user message: `write <path> <word>` makes a `write` tool call and then says "done", `wait <ms>` pauses mid-answer (for aborts), `fail <status> <text>` answers with that HTTP status and `<text>` as the provider's error (a failed turn), anything else is "ok". A test host started from a script takes it through `startTestHost(flags, { prepare: (env) => prepareFakePiAgentDir(env.PI_CODING_AGENT_DIR, baseUrl) })` with `login: false`.
+`scripts/fake-model-server.mjs` is an OpenAI-compatible model on 127.0.0.1 (`startFakeModelServer()`), and `prepareFakePiAgentDir(agentDir, baseUrl)` gives a Pi agent dir only that provider (`tau-fake/fake-1`, priced so a thread costs more than zero). It answers from the last user message: `write <path> <word>` makes a `write` tool call and then says "done", `wait <ms>` pauses mid-answer (for aborts), `fail <status> <text>` answers with that HTTP status and `<text>` as the provider's error (a failed turn), `run <seconds>` makes a `bash` call (`mkdir -p fake-run && sleep <seconds>`) and then says "done", `think <ms>` streams reasoning for that long before each answer (combine it with the others), anything else is "ok". A desktop instance runs on it with `--agent-dir` pointing at a folder `prepareFakePiAgentDir` filled, with the fake started from a small script beside it. A test host started from a script takes it through `startTestHost(flags, { prepare: (env) => prepareFakePiAgentDir(env.PI_CODING_AGENT_DIR, baseUrl) })` with `login: false`.
 
 ### The remote-work smoke
 

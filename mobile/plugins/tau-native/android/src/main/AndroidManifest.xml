@@ -6,7 +6,7 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <application>
-        <!-- Opens sealed data messages sent through the relay. -->
+        <!-- Push through Tau's relay: opens sealed data messages; the app's manifest removes Capacitor's own service. -->
         <service android:name="de.tbuck.tau.plugin.TauMessagingService" android:exported="false">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />

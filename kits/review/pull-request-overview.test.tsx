@@ -11,7 +11,7 @@ import { hideWhitespace } from "./pull-request-diff.js";
 import { parseGitHubList } from "./pull-request-list-json.js";
 import { PullRequestListView } from "./pull-request-list-view.js";
 import { ThreadLinkRows } from "./thread-links-store.js";
-import { TestPageActionSlot, TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
+import { TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
 import { LinkWatcher, worthShowing } from "./proactive-panels.js";
 
 afterEach(cleanup);
@@ -40,26 +40,19 @@ describe("the Pull Requests page", () => {
   });
 
 
-  it("puts Refresh in the page head while the list is on screen", async () => {
-    const client = { listMany: vi.fn(async () => ({ lists: [], failures: [] })) } as unknown as PullRequestClient;
-    const slot = document.createElement("div");
-    document.body.append(slot);
-    const page = (headAction: boolean) => (
-      <TestThreadStore threads={[]} projects={[{ path: "/cli", workspaceId: "/cli", name: "cli", lastOpenedAt: 1 }]}>
-        <TestPageActionSlot slot={slot}>
-          <PullRequestListView surface="page" headAction={headAction} params={{ scope: "all" }} actions={actions()} client={client} open={vi.fn()} />
-        </TestPageActionSlot>
-      </TestThreadStore>
-    );
-    const { rerender } = render(page(true));
-    await waitFor(() => expect(client.listMany).toHaveBeenCalled());
-    expect(within(slot).getByRole("button", { name: "Refresh pull requests" })).toBeTruthy();
-    expect(within(screen.getByLabelText("Pull requests")).queryByRole("button", { name: "Refresh pull requests" })).toBeNull();
-    // A request's view covers the list: Refresh goes back into the hidden list.
-    rerender(page(false));
-    expect(within(slot).queryByRole("button")).toBeNull();
-    expect(within(screen.getByLabelText("Pull requests")).getByRole("button", { name: "Refresh pull requests" })).toBeTruthy();
-    slot.remove();
+  it("draws the page's list as a table, and a thread's tab as rows", async () => {
+    const client = listClient(() => ({ service: "github", host: "github.com", repo: "cli/cli", entries: rows.slice(0, 2), truncated: false, limit: 100 }));
+    render(<TestThreadStore threads={[]} projects={[]}><PullRequestListView surface="page" params={{ scope: "all" }} actions={actions()} client={{ ...client, listMany: vi.fn(async () => ({ lists: [{ service: "github" as const, host: "github.com", repo: "cli/cli", entries: rows.slice(0, 2), truncated: false, limit: 100, workspaces: ["/cli"] }], failures: [] })) } as unknown as PullRequestClient} open={vi.fn()} /></TestThreadStore>);
+    const first = await screen.findByRole("button", { name: `#${rows[0]!.ref.number} ${rows[0]!.title}` });
+    expect(screen.getByRole("heading", { name: "Remote pull requests" })).toBeTruthy();
+    expect([...document.querySelectorAll(".pr-tcolumns > span")].map((cell) => cell.textContent)).toEqual(["", "Pull request", "Changes", "Checks", "Author", "Updated"]);
+    expect(first.textContent).toContain(`${rows[0]!.headRef} → ${rows[0]!.baseRef}`);
+    expect(within(first).getByRole("img", { name: /^(Open|Draft)$/u })).toBeTruthy();
+    expect(within(first).getByText(rows[0]!.author!.login)).toBeTruthy();
+    cleanup();
+    render(<PullRequestListView params={{ workspace: "/project" }} handle={handle()} actions={actions()} client={client} open={vi.fn()} />);
+    await screen.findAllByRole("button", { name: /^#/u });
+    expect(document.querySelector(".pr-tcolumns")).toBeNull();
   });
 
   it("lists every project across hosts, each row with its repository and its host's own viewer", async () => {

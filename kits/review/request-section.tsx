@@ -6,6 +6,7 @@ import type { PullRequestClient } from "./pull-request-client.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
 import { commitMessageModel, followRequestTemplate, writingInstructions } from "./commit-messages.js";
 import { providerInfo, type ChangesSectionProps, type MergeMethod, type ReviewRequest, type ReviewRequestStatus, type WorkspaceStoreApi } from "./protocol.js";
+import { RequestStateIcon } from "./request-state-icon.js";
 import { checksLabel, checksTone, requestShort, requestStateLabel, type RequestClient, type RowRequests } from "./requests.js";
 import { openPullRequest } from "./pull-request-tab.js";
 import { openLocalPullRequest } from "./local-request-tab.js";
@@ -271,7 +272,7 @@ function RequestSummary({ request, onOpen, onBrowse }: { request: ReviewRequest;
       <button className="icon-button compact" aria-label={`Open ${short} #${request.number} in the browser`} title="Open in the browser" onClick={onBrowse}>
         <ExternalLink size={10} />
       </button>
-      <span className={`request-state state-${state}`}>{state}</span>
+      <RequestStateIcon state={state} size={12} />
       {checks ? <span className={`request-checks ${checksTone(request.checks)}`}>checks {checks}</span> : null}
       {armed ? <span className="request-state state-armed" title="The host merges it on its own once its requirements are met">{armed}</span> : null}
     </>
@@ -320,7 +321,7 @@ function LinkedRequests({ actions, parts }: { actions: WorkbenchActions; parts: 
               {short} #{link.number}
             </button>
             <span className="request-link-title" title={`${link.repo}${link.title ? ` · ${link.title}` : ""}`}>{link.title ?? link.repo}</span>
-            <span className={`request-state state-${state}`}>{state}</span>
+            <RequestStateIcon state={state} size={12} />
             {readOnly ? null : <button className="icon-button compact" aria-label={`Unlink ${short} #${link.number}`} title="Unlink" onClick={() => void unlink(link.url)}>
               <X size={11} />
             </button>}

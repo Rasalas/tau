@@ -7,7 +7,9 @@ import {
   runAgentGit,
   type AgentGitRunner,
   type BranchMergeOutcome,
+  type BranchMergePreview,
 } from "./agent-worktrees.js";
+import { readDefaultBranch } from "./workspace-git.js";
 
 /**
  * A thread's worktree branch as Review Kit's Reviews page reads it: what it
@@ -36,8 +38,12 @@ export interface ThreadBranch {
   uncommitted: number;
   /** When the tip was committed, in ms. */
   committedAt?: number;
-  /** The target already holds the branch's own commits. */
+  /** The target already holds the branch's own commits, or their changes. */
   merged: boolean;
+  /** Merged without its own commits: the same patches (cherry-pick, rebase, rewritten history) or the same tree (squash). */
+  mergedBy?: "patches" | "tree";
+  /** The repository's default branch, when a local branch has that name. */
+  defaultBranch?: string;
   /** Files `merge-tree` reports conflicted. */
   conflicts: string[];
   /** Why no merge can be checked (a detached main checkout, the same branch). */
@@ -92,6 +98,34 @@ async function ownStart(root: string, branch: string, tip: string, runGit: Agent
   return base && /^[0-9a-f]{40,64}$/u.test(base) && base !== tip ? base : undefined;
 }
 
+/** `git cherry` answers by tip and target; both are commits, so an answer never goes stale. */
+const cherries = new Map<string, boolean>();
+const CHERRIES = 500;
+
+/**
+ * Whether the target holds the branch's changes under other commits: the
+ * merge would leave the target's tree as it is, or every commit's patch is
+ * already there.
+ */
+async function alreadyIn(root: string, head: string, tip: string, preview: BranchMergePreview, runGit: AgentGitRunner): Promise<ThreadBranch["mergedBy"]> {
+  if (preview.conflicts.length === 0 && preview.tree === (await runGit(root, ["rev-parse", `${head}^{tree}`])).trim()) return "tree";
+  const key = `${head}\0${tip}`;
+  let same = cherries.get(key);
+  if (same === undefined) {
+    const lines = (await runGit(root, ["cherry", head, tip]).catch(() => "")).split("\n").filter(Boolean);
+    same = lines.length > 0 && lines.every((line) => line.startsWith("-"));
+    if (cherries.size >= CHERRIES) cherries.delete(cherries.keys().next().value!);
+    cherries.set(key, same);
+  }
+  return same ? "patches" : undefined;
+}
+
+async function defaultBranchOf(root: string, runGit: AgentGitRunner): Promise<string | undefined> {
+  const name = await readDefaultBranch(root, (cwd, args) => runGit(cwd, args)).catch(() => undefined);
+  const known = name && await runGit(root, ["rev-parse", "--verify", "--quiet", `refs/heads/${name}`]).then(() => true, () => false);
+  return known ? name : undefined;
+}
+
 /** Whether `path` is inside a linked worktree: its git dir is not the repository's common one. */
 export async function isLinkedWorktree(path: string, runGit: AgentGitRunner = runAgentGit): Promise<boolean> {
   const [gitDir, commonDir] = (await runGit(path, ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"]).catch(() => "")).trim().split("\n");
@@ -116,6 +150,8 @@ export async function readThreadBranch(path: string, runGit: AgentGitRunner = ru
   const target = main.branch;
   if (!target) return { ...base, ...empty, unavailable: "The main checkout is not on a branch." };
   if (target === branch) return { ...base, target, ...empty, unavailable: "The main checkout has this branch out." };
+  const defaultBranch = await defaultBranchOf(root, runGit);
+  const into = { target, ...(defaultBranch ? { defaultBranch } : {}) };
 
   const head = (await runGit(root, ["rev-parse", "--verify", "HEAD"])).trim();
   const counts = (await runGit(root, ["rev-list", "--left-right", "--count", `${head}...${tip}`])).trim().split(/\s+/u).map(Number);
@@ -123,21 +159,23 @@ export async function readThreadBranch(path: string, runGit: AgentGitRunner = ru
   if (ahead === 0) {
     // Nothing the target lacks: either merged, with what it carried from where it started, or a branch that never did anything.
     const start = await ownStart(root, branch, tip, runGit);
-    if (!start) return { ...base, target, ...empty, behind };
+    if (!start) return { ...base, ...into, ...empty, behind };
     const paths = parseNumstat(await runGit(root, ["diff", "--numstat", "--no-renames", start, tip]).catch(() => ""));
-    return { ...base, target, ...empty, behind, merged: true, ...totals(paths) };
+    return { ...base, ...into, ...empty, behind, merged: true, ...totals(paths) };
   }
   const forkPoint = (await runGit(root, ["merge-base", head, tip])).trim();
   const paths = parseNumstat(await runGit(root, ["diff", "--numstat", "--no-renames", forkPoint, tip]));
   const preview = await previewBranchMerge(root, tip, runGit);
+  const mergedBy = preview.merged ? undefined : await alreadyIn(root, head, tip, preview, runGit);
   return {
     ...base,
-    target,
+    ...into,
     ahead,
     behind,
     ...totals(paths),
-    merged: preview.merged,
-    conflicts: preview.conflicts,
+    merged: preview.merged || Boolean(mergedBy),
+    conflicts: mergedBy ? [] : preview.conflicts,
+    ...(mergedBy ? { mergedBy } : {}),
   };
 }
 
@@ -181,4 +219,21 @@ export async function mergeThreadBranch(path: string, options: { expectedTip?: s
   const base = recorded && /^[0-9a-f]{40,64}$/u.test(recorded) ? recorded : undefined;
   const outcome = await mergeBranchIntoCheckout({ cwd: branch.root, branch: branch.branch, ...(base ? { base } : {}), runGit });
   return { ...outcome, into: branch.target, root: branch.root };
+}
+
+/**
+ * Removes a merged thread branch's worktree, then the branch. Refused while
+ * the target lacks its work (unless its pull request merged elsewhere) or the
+ * worktree holds anything not committed.
+ */
+export async function removeThreadBranch(path: string, options: { requestMerged?: boolean; runGit?: AgentGitRunner } = {}): Promise<{ branch: string; root: string }> {
+  const runGit = options.runGit ?? runAgentGit;
+  const branch = await readThreadBranch(path, runGit);
+  if (!branch) throw new Error("This folder is no worktree on a branch of its own.");
+  if (!branch.merged && !options.requestMerged) throw new Error(`${branch.target ?? "The main checkout"} does not hold ${branch.branch} yet; nothing was removed.`);
+  if (branch.uncommitted > 0) throw new Error(`${branch.branch} has ${branch.uncommitted} file${branch.uncommitted === 1 ? "" : "s"} not committed; nothing was removed.`);
+  const top = (await runGit(path, ["rev-parse", "--show-toplevel"])).trim();
+  await runGit(branch.root, ["worktree", "remove", top]);
+  await runGit(branch.root, ["branch", "-D", branch.branch]);
+  return { branch: branch.branch, root: branch.root };
 }

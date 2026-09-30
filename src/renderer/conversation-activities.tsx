@@ -109,6 +109,14 @@ export function useConversationActivities(input: ConversationActivityInput) {
     viewStore.resolvePendingAnchors(extensionRows.flatMap((row) => row.afterMessageId === undefined ? [] : [row.afterMessageId]));
   }, [extensionRows, viewStore]);
 
+  // T3 Code's rule: output after the newest call ends its live row, and "Thinking" stands in
+  // for any turn without a live row, unless its reasoning streams in the message itself.
+  const newest = conversationActivityTools.at(-1);
+  const last = messages?.at(-1);
+  const replied = newest !== undefined && last?.role === "assistant" && last.timestamp > newest.startedAt && Boolean(last.text.trim() || last.thinking?.trim());
+  const thinking = Boolean(conversationSnapshot?.isStreaming) && !(last?.role === "assistant" && !last.text && last.thinking?.trim())
+    && (!newest || newest.status === "error" || replied);
+
   // A yes-or-no question is an approval; the live line then says what it waits to do.
   const waitingFor = prompts[0] ? (prompts[0].kind === "confirm" ? "approval" : "question") : undefined;
   const transcriptActivities = useMemo<readonly TranscriptActivity[]>(() => [
@@ -132,7 +140,7 @@ export function useConversationActivities(input: ConversationActivityInput) {
         detail={detail}
         disclosures={disclosures}
         status={conversationSnapshot?.isStreaming ? "running" : "completed"}
-        streaming={conversationSnapshot?.isStreaming && (index === segments.length - 1 || segment.tools.some((tool) => tool.status === "running"))}
+        streaming={conversationSnapshot?.isStreaming && ((index === segments.length - 1 && !replied) || segment.tools.some((tool) => tool.status === "running"))}
         waiting={prompts.length > 0}
         {...(waitingFor ? { waitingFor } : {})}
         {...(actions ? { actions } : {})}
@@ -142,9 +150,9 @@ export function useConversationActivities(input: ConversationActivityInput) {
         onLoadOutput={loadToolOutput}
       />,
     })),
-  ], [abort, abortSessionId, actions, conversationActivityTools, prompts.length, waitingFor, conversationSnapshot?.isStreaming, conversationSnapshot?.sessionId, conversationSnapshot?.taskHistory, copyToolOutput, detail, disclosures, historicalActivityRows, liveTaskProgress, loadToolOutput, recoverThread, registry, registryVersion, visibleToolAnchorId, messages]);
+  ], [abort, abortSessionId, actions, conversationActivityTools, prompts.length, replied, waitingFor, conversationSnapshot?.isStreaming, conversationSnapshot?.sessionId, conversationSnapshot?.taskHistory, copyToolOutput, detail, disclosures, historicalActivityRows, liveTaskProgress, loadToolOutput, recoverThread, registry, registryVersion, visibleToolAnchorId, messages]);
 
-  return { conversationActivityTools, liveStatusLabel, transcriptActivities };
+  return { thinking, liveStatusLabel, transcriptActivities };
 }
 
 /** Keep calls before later replies, splitting only at messages within this turn. */

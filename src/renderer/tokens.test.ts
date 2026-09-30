@@ -37,6 +37,8 @@ const RUNTIME_PROPERTIES = [
   "--run-on-left",
   // The unfolded dock's height, kept free at the transcript's end (components/ComposerReserve.tsx).
   "--composer-reserve",
+  // Actual dock coverage for the transcript mask, including when folded.
+  "--composer-dock-height",
   // The chat's width beside the stage, from its divider (Workbench.tsx).
   "--chat-width",
   "--font-family-override",

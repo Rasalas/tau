@@ -3,7 +3,9 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cliPath, dmgPattern, downloadChecked, localAppPath, parseArgs, pickDmg, readRelease, releaseUrl } from "./install-mac.mjs";
+import { APP_IDENTITIES, FLAVOR_FIELD } from "../src/main/app-identity.ts";
+import { devBuilderConfig } from "./packaging/dev-app.mjs";
+import { RELEASED_APP, cliPath, dmgPattern, downloadChecked, localAppPath, localBuildArgs, localInstallTarget, parseArgs, pickDmg, quitScript, readRelease, releaseUrl, updateFeedPath } from "./install-mac.mjs";
 
 const DMG = Buffer.from("a disk image");
 const SHA512 = createHash("sha512").update(DMG).digest("base64");
@@ -40,10 +42,38 @@ describe("install-mac", () => {
     expect(dmgPattern("arm64")).toBe("Tau-*-arm64.dmg");
   });
 
-  it("finds a local build where electron-builder --dir leaves it", () => {
-    expect(localAppPath("arm64")).toBe(join("release", "mac-arm64", "Tau.app"));
-    expect(localAppPath("x64")).toBe(join("release", "mac", "Tau.app"));
-    expect(() => localAppPath("ia32")).toThrow("Unsupported architecture");
+  it("builds this checkout as Tau Dev, beside the released app and without a feed", () => {
+    const dev = APP_IDENTITIES.dev;
+    expect(localBuildArgs("arm64")).toEqual(["electron-builder", "-c", "tooling/electron-builder.dev.mjs", "--mac", "--dir", "--arm64", "--publish", "never"]);
+    expect(localBuildArgs("x64")).toContain("--x64");
+    expect(() => localBuildArgs("ia32")).toThrow("Unsupported architecture");
+    expect(localAppPath("arm64", dev.productName)).toBe(join("release", "dev", "mac-arm64", "Tau Dev.app"));
+    expect(localAppPath("x64", dev.productName)).toBe(join("release", "dev", "mac", "Tau Dev.app"));
+    expect(localInstallTarget(dev)).toBe("/Applications/Tau Dev.app");
+    expect(() => localInstallTarget(APP_IDENTITIES.stable)).toThrow("must not replace /Applications/Tau.app");
+    expect(updateFeedPath("release/dev/mac-arm64/Tau Dev.app")).toBe(join("release", "dev", "mac-arm64", "Tau Dev.app", "Contents", "Resources", "app-update.yml"));
+  });
+
+  it("quits only the app it replaces, by bundle id", () => {
+    expect(quitScript("de.tbuck.tau.dev")).toBe('if application id "de.tbuck.tau.dev" is running then tell application id "de.tbuck.tau.dev" to quit');
+    const { productName, appId, cliName } = APP_IDENTITIES.stable;
+    expect(RELEASED_APP).toEqual({ productName, appId, cliName });
+  });
+
+  it("gives Tau Dev's build the identity's names, its icon and no release feed", () => {
+    const dev = APP_IDENTITIES.dev;
+    const config = devBuilderConfig(dev, FLAVOR_FIELD);
+    expect(config).toMatchObject({ appId: "de.tbuck.tau.dev", productName: "Tau Dev", extraMetadata: { tauFlavor: "dev" }, publish: null });
+    expect(config.extends).toBe("tooling/electron-builder.yml");
+    expect(config.asarUnpack).toEqual(["package.json"]);
+    expect(config.mac.icon).toBe("assets/icon/TauDev.icon");
+    expect(existsSync(new URL(`../${config.mac.icon}/icon.json`, import.meta.url))).toBe(true);
+    expect(config.mac.extendInfo.NSBonjourServices).toEqual([dev.bonjourType]);
+    // Its output stays inside release/, which the base configuration keeps out of the archive.
+    expect(config.directories.output.startsWith("release/")).toBe(true);
+    // The released app keeps its feed; only the dev configuration drops it.
+    const builder = readFileSync(new URL("../tooling/electron-builder.yml", import.meta.url), "utf8");
+    expect(builder).toMatch(/^publish:\n  provider: github\n  owner: Rasalas\n  repo: tau-releases$/mu);
   });
 
   it("names the command line inside the installed bundle", () => {

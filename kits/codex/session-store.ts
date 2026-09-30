@@ -338,7 +338,7 @@ export class CodexSessionStore {
    * A Codex thread id Tau already holds is skipped, so importing twice adds
    * nothing; the answer is the new thread id, or `undefined` for a skipped one.
    */
-  async adopt(sessions: readonly { codexThreadId: string; cwd: string; title: string; model?: string; messages: readonly CodexStoredMessage[]; updatedAt: number }[]): Promise<Array<string | undefined>> {
+  async adopt(sessions: readonly { codexThreadId: string; cwd: string; title: string; model?: string; messages: readonly CodexStoredMessage[]; usage?: UiThreadUsage; usageTurns?: readonly UsageTurn[]; updatedAt: number }[]): Promise<Array<string | undefined>> {
     const held = await this.codexThreadIds();
     const ids = sessions.map((session) => {
       if (held.has(session.codexThreadId)) return undefined;
@@ -353,6 +353,8 @@ export class CodexSessionStore {
         title: session.title.trim().slice(0, MAX_TITLE_LENGTH),
         titleSource: "derived",
         ...(session.model ? { observedModel: session.model } : {}),
+        ...(session.usage ? { usage: { ...session.usage } } : {}),
+        ...(session.usageTurns?.length ? { usageTurns: session.usageTurns.map((turn) => ({ ...turn })) } : {}),
         updatedAt: session.updatedAt,
       });
       return tauThreadId;

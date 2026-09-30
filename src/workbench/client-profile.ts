@@ -105,7 +105,16 @@ export function compactFormFor(profile: ClientProfile, width: number, screenMinS
   return width >= COMPACT_SPLIT_MIN_WIDTH_PX - (previous === "split" ? LAYOUT_HYSTERESIS_PX : 0) ? "split" : "single";
 }
 
-/** The split's thread list: a third of the width, within bounds. */
-export function compactSidebarWidth(width: number): number {
-  return Math.min(380, Math.max(280, Math.round(width * 0.32)));
+export const COMPACT_SIDEBAR_MIN_WIDTH = 280;
+const COMPACT_CONTENT_MIN_WIDTH = 320;
+
+/** Leave enough room for the conversation beside a touch sidebar. */
+export function compactSidebarMaxWidth(width: number): number {
+  return Math.max(COMPACT_SIDEBAR_MIN_WIDTH, Math.floor(width) - COMPACT_CONTENT_MIN_WIDTH);
+}
+
+/** The tablet's saved width, or a third of its window; narrow windows only clamp the drawing. */
+export function compactSidebarWidth(width: number, preferred?: number): number {
+  const fallback = Math.min(380, Math.max(COMPACT_SIDEBAR_MIN_WIDTH, Math.round(width * 0.32)));
+  return Math.min(compactSidebarMaxWidth(width), Math.max(COMPACT_SIDEBAR_MIN_WIDTH, preferred !== undefined && Number.isFinite(preferred) ? Math.round(preferred) : fallback));
 }

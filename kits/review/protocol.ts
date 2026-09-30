@@ -552,4 +552,6 @@ export interface PendingReviewComment {
   line: number;
   side: "new" | "old";
   body: string;
+  /** The line as the diff shows it, sent along with a note to a thread. */
+  code?: string;
 }

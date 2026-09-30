@@ -155,7 +155,7 @@ download it, so look at one before trusting that it holds no secret.
 npm run install:mac                    # the latest release
 npm run install:mac -- --version v0.1.1
 npm run install:mac -- --open          # and launch it
-npm run install:mac -- --local         # build this checkout instead
+npm run install:mac -- --local         # build this checkout as Tau Dev instead
 ```
 
 `scripts/install-mac.mjs` reads the release's `latest-mac.yml` from the
@@ -167,7 +167,12 @@ and older) falls back to `gh` and `Rasalas/tau-private`, which it must be able
 to read (`gh auth status`). It then quits a running Tau, replaces
 `/Applications/Tau.app`, and removes the `com.apple.quarantine` attribute — the mark Gatekeeper uses to
 block an unsigned download, which is why an unsigned Tau otherwise needs
-right-click → Open on first launch.
+right-click → Open on first launch. With `--local` it builds this checkout
+as Tau Dev instead (`tooling/electron-builder.dev.mjs`, `--dir`), checks that
+the bundle is `de.tbuck.tau.dev` and carries no `app-update.yml`, quits a
+running Tau Dev by its bundle id and installs `/Applications/Tau Dev.app`
+beside Tau. Tau Dev has its own data, ports and `~/.tau-dev` and never
+updates itself ([install.md](install.md#tau-dev-a-build-of-this-checkout-beside-tau)).
 
 ## Build one locally
 
@@ -827,6 +832,7 @@ configuration. The secrets live in the environment `release`:
 | `APPLE_API_ISSUER` | its issuer id |
 | `IOS_DIST_P12` | base64 of the Apple Distribution `.p12` the iOS job imports into a temporary keychain; without it Xcode would need Apple's cloud signing and an Admin key |
 | `IOS_DIST_P12_PASSWORD` | its password |
+| `IOS_PROFILE` | base64 of the App Store provisioning profile for `de.tbuck.tau`; with it the iOS job signs by hand, since the App Store Connect key may not create profiles |
 
 Only the macOS build reads them: it is the only build job in the environment,
 and the Package step passes them only when the matrix entry is macOS, since

@@ -19,8 +19,14 @@ import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from 
 import type { HostLogger } from "./host-log.js";
 import { instanceName, type ServiceAnnouncement, type ServiceAnnouncer } from "./host-discovery.js";
 import { tauServiceTxt } from "../shared/discovery.js";
+import { appIdentity, type AppIdentity } from "./app-identity.js";
 
 const STORE_VERSION = 1;
+
+/** The app identity's fixed ports, so Tau Dev never binds the released app's. */
+export function defaultNetworkSettings(identity: AppIdentity = appIdentity()): UiNetworkSettings {
+  return { ...DEFAULT_NETWORK_SETTINGS, port: identity.networkPort, proxyPort: identity.proxyPort };
+}
 const MIN_PORT = 1024;
 const MAX_PORT = 65535;
 
@@ -106,7 +112,7 @@ function decodeStored(value: unknown): UiNetworkSettings | undefined {
   try {
     const input = decodeNetworkSettingsInput(settings ?? {});
     // Written before Bonjour: announcing would ask macOS for local network access at start, unasked.
-    return applyNetworkSettings(DEFAULT_NETWORK_SETTINGS, { announce: false, ...input });
+    return applyNetworkSettings(defaultNetworkSettings(), { announce: false, ...input });
   } catch {
     return undefined;
   }
@@ -153,7 +159,7 @@ interface OpenListener {
  * cannot open is reported, never replaced by a plaintext one.
  */
 export class HostNetworkAccess {
-  private settings: UiNetworkSettings = DEFAULT_NETWORK_SETTINGS;
+  private settings: UiNetworkSettings = defaultNetworkSettings();
   private readonly open = new Map<string, OpenListener>();
   private problems: string[] = [];
   private tls: HostTlsReloader | undefined;

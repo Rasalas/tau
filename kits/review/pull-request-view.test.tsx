@@ -129,6 +129,41 @@ describe("the pull-request view", () => {
     expect(rows.get("/project")).toMatchObject<Partial<UiReviewRequest>>({ number: 7, checks: { passed: 2, failed: 1, pending: 1, total: 4 } });
   });
 
+  it.each([
+    [{ state: "open", draft: false }, "Open", "open"],
+    [{ state: "open", draft: true }, "Draft", "draft"],
+    [{ state: "merged" }, "Merged", "merged"],
+    [{ state: "closed" }, "Closed", "closed"],
+  ] as const)("shows the state %j in the header as an icon named %s", async (patch, name, tone) => {
+    const detail = { ...parseGitHubDetail(REF, fixture("gh-pr-view-discussed.json")), ...patch };
+    renderView(fakeClient({ view: vi.fn(async () => detail) }));
+    const header = (await screen.findByRole("heading", { name: "Add the output helper" })).closest(".pr-view")!.querySelector(".pr-head-row")! as HTMLElement;
+    const icon = within(header).getByRole("img", { name });
+    expect(icon.getAttribute("data-tooltip")).toBe(name);
+    expect(icon.classList.contains(tone)).toBe(true);
+    expect(header.textContent).not.toMatch(/\b(open|draft|merged|closed)\b/u);
+  });
+
+  it("renders the HTML GitHub allows in the description and comments, its details closed", async () => {
+    const detail = parseGitHubDetail(REF, fixture("gh-pr-view-dependabot.json"));
+    const discussed = parseGitHubDetail(REF, fixture("gh-pr-view-discussed.json"));
+    const comment = { ...discussed.comments[0]!, body: "<details><summary>Build log</summary>\n\n<a href=\"https://ci.example/1\">run 1</a> <a href=\"javascript:alert(1)\">bad</a>\n\n</details>\n<img src=x onerror=alert(1)>" };
+    renderView(fakeClient({ view: vi.fn(async () => ({ ...detail, comments: [comment] })), threads: vi.fn(async () => []) }));
+    const summary = await screen.findByText("Dependabot commands and options");
+    const description = summary.closest(".pr-comment-body")!;
+    expect(description.textContent).not.toMatch(/<\/?(details|summary|a|blockquote|ul|li|code|br)\b/u);
+    const folds = [...description.querySelectorAll("details")];
+    expect(folds.map((fold) => fold.querySelector("summary")?.textContent)).toEqual(["Release notes", "Commits", "Release notes", "Dependabot commands and options"]);
+    expect(folds.every((fold) => !fold.open)).toBe(true);
+    fireEvent.click(folds[0]!.querySelector("summary")!);
+    expect(folds[0]!.open).toBe(true);
+    expect(within(folds[0]! as HTMLElement).getByRole("link", { name: "#1164" }).getAttribute("href")).toBe("https://redirect.github.com/KnpLabs/php-github-api/issues/1164");
+    const log = (await screen.findByText("Build log")).closest("details")!;
+    expect(within(log as HTMLElement).getByRole("link", { name: "run 1" }).getAttribute("target")).toBe("_blank");
+    expect(within(log as HTMLElement).queryByRole("link", { name: "bad" })).toBeNull();
+    expect(log.closest(".pr-comment-body")!.querySelector("img")).toBeNull();
+  });
+
   it("on a device paired Read only, offers reading and disables or leaves out every change", async () => {
     renderView(fakeClient(), undefined, true);
     expect(await screen.findByRole("heading", { name: "Add the output helper" })).toBeTruthy();
@@ -351,6 +386,23 @@ describe("merging, auto-merge, revert and stacks from the view", () => {
     fireEvent.click(within(screen.getByRole("dialog", { name: "Merge PR #7?" })).getByRole("button", { name: "Rebase and merge" }));
     await waitFor(() => expect(client.action).toHaveBeenCalledWith(REF.url, { action: "merge", method: "rebase", deleteBranch: true, threadId: "thread-1" }));
     await waitFor(() => expect(workbench.notify).toHaveBeenCalledWith("PR #7 merged. Deleted feat/output."));
+  });
+
+  it("names a long branch on a line of its own under the delete option, the full name in its tooltip", async () => {
+    const dependabot = parseGitHubDetail(REF, fixture("gh-pr-view-dependabot.json"));
+    const ready: PullRequestDetail = { ...dependabot, checks: dependabot.checks.map((check) => ({ ...check, status: "passed" as const })) };
+    renderView(fakeClient({ view: vi.fn(async () => ready), checks: vi.fn(async () => ready.checks) }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Squash and merge$/u }));
+    const dialog = screen.getByRole("dialog", { name: /^Merge PR #\d+\?$/u });
+    const option = dialog.querySelector(".pr-merge-option")!;
+    const branch = "dependabot/composer/static/backend/php-runtime-3063496fe1";
+    expect(within(dialog).getByRole("checkbox", { name: `Delete ${branch} after merging` })).toBeTruthy();
+    expect(option.querySelector(":scope > span")!.firstChild!.textContent).toBe("Delete the branch after merging");
+    const name = option.querySelector<HTMLElement>(".pr-merge-branch")!;
+    expect(name.textContent).toBe(branch);
+    expect(name.style.whiteSpace).toBe("nowrap");
+    expect(name.getAttribute("data-tooltip")).toBe(branch);
+    expect(option.querySelector("code")).toBeNull();
   });
 
   it("reverts a merged request and opens the revert as its own tab", async () => {

@@ -1,9 +1,10 @@
-import { useSyncExternalStore } from "react";
-import { getClientStorage, HostUnavailableError, type HostExtensionClient, type PreferencesStore, type WorkbenchActions } from "tau";
+import { useEffect, useSyncExternalStore } from "react";
+import { getClientStorage, HostUnavailableError, useWorkbench, type HostExtensionClient, type PreferencesStore, type WorkbenchActions } from "tau";
 import {
-  createTerminalHostClient, TERMINAL_HOST_EXTENSION_ID, TERMINAL_LIST_EVENT, terminalOutputTopic,
+  createTerminalHostClient, TERMINAL_HOST_EXTENSION_ID, TERMINAL_LIST_EVENT, TERMINAL_DATA_EVENT, terminalOutputTopic,
   type TerminalFontDefaults, type TerminalFontService, type TerminalFontServiceState, type UiTerminalSession, type WorkspaceStoreMirror,
 } from "./protocol.js";
+import { TerminalActivity } from "./activity.js";
 import { EMPTY_LAYOUT, focusPane, paneIds, parseLayout, reconcileLayout, type TerminalLayout } from "./layout.js";
 import type { ComposerContextChips, PreviewBrowserService } from "./protocol.js";
 import {
@@ -147,6 +148,18 @@ export class TerminalStore {
 }
 
 export const terminalStore = new TerminalStore();
+export const terminalActivity = new TerminalActivity();
+
+/** Output from the current thread's shells and unscoped shells, acknowledged when the tool is visible. */
+export function useTerminalActivity(visible: boolean): boolean {
+  const state = useTerminalKit();
+  const activeSessionId = useWorkbench().snapshot?.sessionId ?? state.activeSessionId;
+  const unseen = useSyncExternalStore(terminalActivity.subscribe, terminalActivity.getSnapshot);
+  const ids = state.sessions.filter((session) => !session.sessionId || session.sessionId === activeSessionId).map((session) => session.id);
+  const activity = ids.some((id) => unseen.has(id));
+  useEffect(() => { if (visible && activity) terminalActivity.read(ids); }, [visible, activity, unseen, state, activeSessionId]);
+  return !visible && activity;
+}
 
 export function isTerminalSessionList(value: unknown): value is UiTerminalSession[] {
   return Array.isArray(value) && value.every((entry) => {
@@ -161,6 +174,10 @@ export function connectTerminalHost(host: HostExtensionClient): () => void {
   let revision = 0;
   let disposed = false;
   terminalStore.loadLayout();
+  const stopActivity = host.onEvent(TERMINAL_DATA_EVENT, (payload) => {
+    const event = payload as { id?: string; offset?: number; data?: string } | undefined;
+    if (typeof event?.id === "string" && typeof event.offset === "number" && event.data) terminalActivity.output(event.id, event.offset);
+  });
   const stop = host.onEvent(TERMINAL_LIST_EVENT, (payload) => {
     if (isTerminalSessionList(payload)) {
       revision++;
@@ -175,6 +192,8 @@ export function connectTerminalHost(host: HostExtensionClient): () => void {
   return () => {
     disposed = true;
     stop();
+    stopActivity();
+    terminalActivity.reset();
     if (connection === host) {
       connection = undefined;
       terminalStore.forgetSessions();

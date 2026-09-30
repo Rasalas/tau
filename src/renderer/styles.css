@@ -136,7 +136,8 @@ button > svg { pointer-events: none; }
 .thread-detail-cost { font-family: var(--mono); }
 .thread-details .thread-cost { font-size: inherit; color: inherit; }
 .thread-details .thread-cost-popover { top: calc(100% + 6px); bottom: auto; left: -8px; right: auto; }
-.thread-header-actions { flex: 1 1 0; display: flex; justify-content: flex-end; min-width: 0; overflow: hidden; }
+/* Clipped sideways only, so the actions fold but their menus still drop below the header. */
+.thread-header-actions { flex: 1 1 0; display: flex; justify-content: flex-end; min-width: 0; overflow: clip visible; }
 .thread-header-actions .region-title-bar { flex: 1 1 auto; min-width: 0; }
 .thread-header-tools { flex: none; display: flex; align-items: center; gap: 1px; }
 .thread-header-tools > .workbench-region { flex-direction: row; align-items: center; gap: 1px; }
@@ -581,6 +582,15 @@ body:not([data-profile="compact"]) .conversation-start .composer-zone { padding-
   position: relative; flex: 1; min-height: 0; overflow: auto; overflow-anchor: none; overscroll-behavior-y: contain;
   padding: calc(26px * var(--density)) var(--space-8) var(--space-5); outline: none;
 }
+/* Fade before the complete dock, including its pills. Keep the scrollbar lane visible,
+ * as T3 Code's virtualized scroll masks do. The end spacer alone cannot hide text while scrolling. */
+.conversation-column:not(.conversation-start) .transcript {
+  --transcript-dock-mask: linear-gradient(to bottom, black calc(100% - var(--composer-dock-height, 0px) - 24px), transparent calc(100% - var(--composer-dock-height, 0px)));
+  mask-image: var(--transcript-dock-mask), linear-gradient(black, black);
+  mask-position: left, right;
+  mask-size: calc(100% - 8px) 100%, 8px 100%;
+  mask-repeat: no-repeat;
+}
 .transcript-search-bar {
   position: absolute; top: 12px; right: 24px; z-index: 10;
   display: flex; align-items: center; gap: 6px; padding: 4px 8px;
@@ -912,6 +922,8 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 
 /* ------------------------------------------------------------- markdown */
 
+/* Reading bodies share the chat's type role; inline Markdown keeps its label's size. */
+.markdown:not(.markdown-inline) { font-size: var(--text-md); line-height: 1.75; }
 .markdown > :first-child { margin-top: 0; }
 .markdown > :last-child { margin-bottom: 0; }
 .markdown p { margin: 0 0 12px; }
@@ -1016,26 +1028,22 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
   color: inherit; font: inherit; text-align: left;
 }
 .work-live-line:hover { color: var(--ink-2); }
-.work-live-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.work-live.running .work-live-label {
-  background: linear-gradient(90deg, var(--muted) 30%, var(--ink-2) 50%, var(--muted) 70%) 0 0 / 300% 100%;
-  background-clip: text; -webkit-background-clip: text; color: transparent;
-  animation: work-live-shine 2.4s linear infinite;
-}
-@keyframes work-live-shine {
-  from { background-position: 100% 0; }
-  to { background-position: -100% 0; }
-}
+/* As wide as its text, so the shine crosses the words and not the empty row. */
+.work-live-label { margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .work-live-clock { flex: none; font: var(--text-xs) var(--mono); color: var(--faint); font-variant-numeric: tabular-nums; }
 .work-live-line > .activity-chevron { flex: none; opacity: .6; transition: transform 120ms ease; }
 .work-live.expanded > .work-live-line > .activity-chevron { transform: rotate(90deg); }
-@media (prefers-reduced-motion: reduce) {
-  /* No shimmer, and the label goes back to a plain colour rather than the
-     transparent text the gradient paints through. */
-  .work-live.running .work-live-label {
-    background: none; color: var(--ink-2); animation: none; -webkit-background-clip: border-box; background-clip: border-box;
+.work-live.thinking .work-live-line { cursor: default; }
+.work-live.thinking .work-shine { margin-right: auto; display: flex; align-items: center; gap: 8px; }
+/* T3 Code's shine: a 4.5rem band of ink across the muted label, 2.2 s in 30 steps; still text without motion. */
+@media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
+  .work-live.running .work-live-label, .work-shine {
+    color: var(--ink);
+    mask: linear-gradient(90deg, transparent, black, transparent) -4.5rem 0 / 4.5rem 100% no-repeat, linear-gradient(color-mix(in srgb, black 60%, transparent) 0 0);
+    animation: work-shine 2.2s steps(30) infinite;
   }
 }
+@keyframes work-shine { to { mask-position: calc(100% + 4.5rem) 0, 0 0; } }
 
 /* ------------------------------------------------------------ tool card */
 
@@ -1125,7 +1133,7 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 }
 .mini-button:hover { background: var(--raised); color: var(--ink); }
 
-.static-activity-transcript + .live-status { margin-top: 22px; }
+.static-activity-transcript + :is(.live-status, .work-live) { margin-top: 22px; }
 .live-status { display: flex; align-items: center; gap: 10px; }
 .live-status > span { color: var(--muted); font-variant-numeric: tabular-nums; }
 .turn-error-line { display: flex; align-items: flex-start; gap: 8px; padding: 7px 2px; color: var(--fail-ink); overflow-wrap: anywhere; }
@@ -1436,7 +1444,7 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 
 /* ---------------------------------------------------------- dividers */
 
-.resize-handle { position: absolute; z-index: 20; outline: none; }
+.resize-handle { touch-action: none; position: absolute; z-index: 20; outline: none; }
 .resize-handle[aria-orientation="vertical"] { top: 0; bottom: 0; width: 8px; cursor: col-resize; }
 .resize-handle[aria-orientation="horizontal"] { left: 0; right: 0; height: 8px; cursor: row-resize; }
 .resize-handle::after { content: ""; position: absolute; inset: 0 auto 0 3px; width: 1px; background: transparent; transition: background .12s ease; }
@@ -1553,8 +1561,8 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .extension-prompt > header > small { flex: none; font: 10px var(--mono); color: var(--faint); }
 .extension-prompt > header .spacer { flex: 1; }
 .extension-prompt-pick { flex: none; color: var(--muted); font-size: var(--text-xs); white-space: nowrap; }
-.extension-prompt-title { margin: 8px 0 0; font-size: var(--text-sm); line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
-.extension-prompt-message { margin: 4px 0 0; font-size: var(--text-sm); line-height: 1.5; color: var(--ink-2); white-space: pre-wrap; }
+.extension-prompt-title { margin: 8px 0 0; font-size: var(--text-md); line-height: 1.75; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
+.extension-prompt-message { margin: 4px 0 0; font-size: var(--text-md); line-height: 1.75; color: var(--ink-2); white-space: pre-wrap; }
 .extension-prompt-subject {
   display: block; margin: 6px 0 0; padding: 6px 9px; border-radius: var(--radius-sm); background: var(--sunken);
   font: var(--text-sm)/1.45 var(--mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto;
@@ -2273,3 +2281,17 @@ button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--i
   user-select: text;
 }
 .remote-thread-document > .region-look-in { flex: none; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+
+.stage-tools { --stage-tool-size: 28px; display: flex; flex: 0 1 auto; align-items: center; gap: 1px; min-width: 0; }
+.stage-tools > .stage-tool, .stage-tools > .menu-anchor { flex: none; }
+.stage-tool { position: relative; }
+.stage-tool-activity { position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; border-radius: 50%; background: var(--info); }
+body[data-profile="compact"] .stage-tools { --stage-tool-size: 44px; }
+body[data-profile="compact"] .touch-split .thread-header-tools { flex: 0 1 auto; min-width: 44px; max-width: 50%; }
+
+body[data-profile="compact"] .stage-tool[aria-pressed="true"] { background: var(--raised); color: var(--ink); }
+
+body[data-profile="compact"] .touch-split .thread-header { gap: 6px; padding-inline: 12px; }
+body[data-profile="compact"] .touch-split .thread-heading { flex: 1 1 0; min-width: 0; max-width: none; }
+body[data-profile="compact"] .touch-split .thread-header-actions:empty { display: none; }
+body[data-profile="compact"] .touch-split .thread-header-tools { max-width: 60%; }

@@ -26,6 +26,7 @@ import { useFocusTrap } from "./ui/focus";
 import { WorkbenchShellContext } from "../workbench-context";
 import { tooltipProps } from "./ui/Tooltip";
 import { VirtualList } from "./VirtualList";
+import { useCompactForm } from "../use-layout-profile";
 import { useSheetDrag } from "../touch/sheet-drag";
 import "./model-picker.css";
 
@@ -221,10 +222,12 @@ export function ModelPicker({
   const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const shell = useContext(WorkbenchShellContext);
-  // On a compact layout (phone, iPad) the picker is a bottom sheet (touch/touch.css): a close button and a pull down.
-  const [asSheet] = useState(() => typeof document !== "undefined" && document.body.dataset.profile === "compact");
+  // Phones use a bottom sheet; tablets keep the bounded popover and touch-sized rows.
+  const [compact] = useState(() => typeof document !== "undefined" && document.body.dataset.profile === "compact");
+  const form = useCompactForm(compact ? "compact" : "desktop");
+  const asSheet = compact && form === "single";
   // A phone's Settings has no runtime cards to sign in on; there the reason stands alone.
-  const onOpenSettings = openSettings ?? (shell?.actions && !asSheet ? (kind: ThreadBackendKind, part: "runtime" | "models") => {
+  const onOpenSettings = openSettings ?? (shell?.actions && !compact ? (kind: ThreadBackendKind, part: "runtime" | "models") => {
     const card = shell.registry.getSettingsPages().find((page) => page.runtime === kind)?.id;
     shell.actions!.openSettings(part === "models" ? `providers#runtime-models-${kind}` : card ?? "providers");
   } : undefined);
@@ -756,7 +759,7 @@ export function ModelPicker({
             <VirtualList
               id={listId}
               items={rows}
-              itemHeight={asSheet ? touchRowHeight : rowHeight}
+              itemHeight={compact ? touchRowHeight : rowHeight}
               className="model-list"
               role="listbox"
               ariaLabel={needle ? "Models in every runtime" : current ? `${viewLabel(current)} models` : "Models"}
@@ -919,7 +922,7 @@ export function ModelPicker({
 
   // A press in the form would count as outside the popover, so the form takes the popover's place.
   return addProvider ?? (
-    <Popover anchor={anchor} side={side} align="start" label="Select model" className={`model-picker${thinking ? " with-thinking" : ""}`} onClose={dismiss}>
+    <Popover anchor={anchor} side={side} align="start" label="Select model" className={`model-picker${asSheet ? " model-picker-sheet" : ""}${thinking ? " with-thinking" : ""}`} onClose={dismiss}>
       {content}
     </Popover>
   );

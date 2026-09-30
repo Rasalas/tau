@@ -95,7 +95,7 @@ export function HostsScreen({ rows, nearby, notice, onOpen, onRemove, onAdd, onD
         <h2 id="nearby-title">On this network</h2>
         <NearbyList state={nearby} hosts={unknownNearby} onAsk={onAsk} />
       </section>
-      <p className="shell-hint"><a href="https://rasalas.github.io/tau/docs/privacy.html" target="_blank" rel="noopener noreferrer">Privacy policy</a></p>
+      <p className="shell-hint"><a href="https://tbuck.de/privacy/tau/" target="_blank" rel="noopener noreferrer">Privacy policy</a></p>
       {onDemo ? <section className="shell-demo" aria-label="Local demo">
         <button type="button" className="shell-secondary" onClick={onDemo}>Try demo</button>
         <p className="shell-hint">Explore sample threads with scripted replies. No computer or AI account needed. Demo messages disappear when you exit.</p>

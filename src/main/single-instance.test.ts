@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
-import { APP_ID, configureAppIdentity, installSingleInstance } from "./single-instance.js";
+import { APP_IDENTITIES } from "./app-identity.js";
+import { configureAppIdentity, installSingleInstance } from "./single-instance.js";
+
+const APP_ID = APP_IDENTITIES.stable.appId;
 
 function fakeApp(lock: boolean) {
   const listeners = new Map<string, () => void>();
@@ -30,6 +33,18 @@ describe("single Electron instance", () => {
       "userData:/Users/example/Library/Application Support/tau-pi-desktop-prototype",
       "name:Tau",
     ]);
+  });
+
+  it("gives Tau Dev its own name, userData and AppUserModelID", () => {
+    const calls: string[] = [];
+    const app = {
+      getPath: () => "/appdata",
+      setPath: (name: string, path: string) => { calls.push(`${name}:${path}`); },
+      setName: (name: string) => { calls.push(`name:${name}`); },
+      setAppUserModelId: (id: string) => { calls.push(`aumid:${id}`); },
+    };
+    configureAppIdentity(app, undefined, "win32", APP_IDENTITIES.dev);
+    expect(calls).toEqual(["userData:/appdata/tau-dev", "name:Tau Dev", "aumid:de.tbuck.tau.dev"]);
   });
 
   it("gives Windows the AppUserModelID the installer's shortcut carries, so toasts show", async () => {

@@ -3,6 +3,7 @@ import { Check, Copy, ExternalLink, GitBranch, Link2, Link2Off, MessageSquare, M
 import { errorMessage, READ_ONLY_REASON, tooltipProps, type PreferencesStore, type StageTabHandle, type WorkbenchActions } from "tau";
 import type { PendingReviewStore } from "./pending-review.js";
 import { providerInfo, REVIEW_HOST_EXTENSION_ID, type ComposerContextChips, type PullRequestCheck, type PullRequestComment, type PullRequestDetail, type PullRequestFile, type PullRequestFiles, type PullRequestReviewEvent, type PullRequestThread } from "./protocol.js";
+import { RequestStateIcon } from "./request-state-icon.js";
 import type { PullRequestClient, PullRequestCommentInput } from "./pull-request-client.js";
 import { LinkedThreadsControl, ThreadPicker, useLinkedThreads } from "./linked-threads.js";
 import { PullRequestCode } from "./pull-request-code.js";
@@ -52,7 +53,7 @@ export interface PullRequestViewData {
  * detail and checks on a timer and on window focus, the conversations and
  * the diff again whenever the detail says the request moved.
  */
-function usePullRequest(client: PullRequestClient, url: string) {
+export function usePullRequest(client: PullRequestClient, url: string) {
   const [data, setData] = useState<PullRequestViewData>({});
   const alive = useRef(true);
   const updatedAt = useRef<string | undefined>(undefined);
@@ -278,7 +279,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
           <button className={`pr-number state-${state}`} title={`${state} · open on ${host}`} onClick={() => actions.openExternal(detail.ref.url)}>
             #{detail.ref.number}<ExternalLink size={10} aria-hidden="true" />
           </button>
-          <span className={`pr-state state-${state}`}>{state}</span>
+          <RequestStateIcon state={state} />
           {condensed ? <strong className="pr-head-title" title={detail.title}>{detail.title}</strong> : <span className="spacer" />}
           <PullRequestStackControl detail={detail} client={client} actions={actions} writes={writes} {...(params.workspace ? { workspace: params.workspace } : {})} onChanged={(next) => setData({ detail: next })} />
           <LinkedThreadsControl threadIds={linkedThreads} actions={actions} />

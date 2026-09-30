@@ -23,7 +23,7 @@ import { ContextMenuLayer } from "./components/ui/ContextMenu";
 import type { ToastStore } from "../workbench/toast-store";
 import { Region, StatusLine } from "./components/Regions";
 import { HostConnectionStatus } from "./host-connection-status";
-import { compactSidebarWidth, rendersOnProfile, type ClientProfile } from "../workbench/client-profile";
+import { COMPACT_SIDEBAR_MIN_WIDTH, compactSidebarMaxWidth, compactSidebarWidth, rendersOnProfile, type ClientProfile } from "../workbench/client-profile";
 import { useCompactForm } from "./use-layout-profile";
 import { useClientEnvironment } from "./client-environment";
 import { ThreadTitleMenu } from "./components/ThreadTitleMenu";
@@ -326,7 +326,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const windowWidth = useSyncExternalStore(subscribeToViewport, viewportWidth);
   const windowHeight = useSyncExternalStore(subscribeToViewport, viewportHeight);
   const [sidebarWidth, setSidebarWidthState] = useState(() => storedSidebarWidth(clientStorage.get(STORAGE_KEYS.sidebarWidth)));
+  const [sidebarWidthChosen, setSidebarWidthChosen] = useState(() => Boolean(clientStorage.get(STORAGE_KEYS.sidebarWidth)));
   const setSidebarWidth = (width: number) => {
+    setSidebarWidthChosen(true);
     setSidebarWidthState(width);
     clientStorage.set(STORAGE_KEYS.sidebarWidth, String(width));
   };
@@ -431,7 +433,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const touchSidebarShown = split && touchSidebarOpen;
   // A page with a sidebar of its own draws it in the thread list's place, on a desktop.
   const pageSidebar = Boolean(openPage && sidebarShown && !compact && registry.getPage(openPage.id)?.Sidebar);
-  const drawnSidebar = split ? (touchSidebarShown ? compactSidebarWidth(windowWidth) : 0) : shownSidebar;
+  const drawnSidebar = split ? (touchSidebarShown ? compactSidebarWidth(windowWidth, sidebarWidthChosen ? sidebarWidth : undefined) : 0) : shownSidebar;
   const clearStageMaximized = useCallback(() => setStageMaximized(false), [setStageMaximized]);
   // A phone draws no stage (profile-compact.css): its panels are sheets.
   const { stageShown, tabs, canSplit } = useCenterLayout({
@@ -475,9 +477,17 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     ...(stageExpanded && frontTab?.kind === "panel" ? [frontTab.panelId] : []),
     ...(drawerPanel ? [drawerPanel.id] : []),
   ]), [drawerPanel, frontTab, stageExpanded]);
-  const openTool = (id: string) => (drawerPanel?.id === id ? actions.closePanel?.(id) : openPanel(id));
+  const openedTools = useMemo(() => new Set([
+    ...stage.tabs.flatMap((tab) => tab.kind === "panel" ? [tab.panelId] : []),
+    ...(drawerPanel ? [drawerPanel.id] : []),
+  ]), [drawerPanel, stage.tabs]);
+  const openTool = (id: string) => {
+    if (drawerPanel?.id === id) { actions.closePanel?.(id); return; }
+    if (split && stageExpanded && frontTab?.kind === "panel" && frontTab.panelId === id) { setStageFolded(true); return; }
+    openPanel(id);
+  };
   const stageTools = <>
-    <Suspense fallback={null}><LazyStageTools panels={panels} shown={shownTools} onOpen={openTool} /></Suspense>
+    <Suspense fallback={null}><LazyStageTools panels={panels} shown={shownTools} opened={split ? openedTools : undefined} onOpen={openTool} /></Suspense>
     <Region registry={registry} placement="stage-bar" snapshot={snapshot} actions={actions} />
   </>;
 
@@ -674,11 +684,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     </>}
     title={threadTitle}
     // A draft's pills say project, machine and branch; an empty thread's branch has no pill.
-    details={!showStartScreen ? <ThreadDetails snapshot={conversationSnapshot} view={view} slots={detailSlots} />
+    details={!showStartScreen && !split ? <ThreadDetails snapshot={conversationSnapshot} view={view} slots={detailSlots} />
       : pendingNewThread ? undefined : <StartDetails snapshot={conversationSnapshot} slots={detailSlots} />}
     actions={conversationFolded ? null : <PanelSlot host={titleActionsHost} />}
     tools={stageExpanded ? undefined : stageTools}
-    {...(firstTool || stage.tabs.length > 0 ? { stage: { shown: stageExpanded, shortcut: registry.keybindingLabel?.("workbench.toggle-dock"), onToggle: toggleStage } } : {})}
+    {...(!split && (firstTool || stage.tabs.length > 0) ? { stage: { shown: stageExpanded, shortcut: registry.keybindingLabel?.("workbench.toggle-dock"), onToggle: toggleStage } } : {})}
   />;
   return providers(<>
     {/* Settings covers the shell rather than unmounting it, so threads, terminals and scroll stay as they were. */}
@@ -717,15 +727,15 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       >
         <Suspense fallback={<LazyFeatureFallback label="sidebar" />}><contribution.Component actions={actions} /></Suspense>
       </LazyFeatureBoundary>)}</div>
-      {sidebarShown && !compact ? <ResizeHandle
+      {touchSidebarShown || (sidebarShown && !compact) ? <ResizeHandle
         className="sidebar-resizer"
         label="Resize sidebar"
         orientation="vertical"
         grows="right"
-        value={shownSidebar}
-        min={SIDEBAR_MIN_WIDTH}
-        max={sidebarMaxWidth(windowWidth)}
-        defaultValue={SIDEBAR_DEFAULT_WIDTH}
+        value={drawnSidebar}
+        min={split ? COMPACT_SIDEBAR_MIN_WIDTH : SIDEBAR_MIN_WIDTH}
+        max={split ? compactSidebarMaxWidth(windowWidth) : sidebarMaxWidth(windowWidth)}
+        defaultValue={split ? compactSidebarWidth(windowWidth) : SIDEBAR_DEFAULT_WIDTH}
         onChange={setSidebarWidth}
       /> : null}
       <div className="workbench-main" inert={Boolean(openPage) && !pageScreen}>
@@ -959,7 +969,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
     runStartedAt, activeDraftKey, copyMessage, forkMessage, editMessage,
   } = thread;
   const detail = preferences.transcriptDetailFor(conversationSnapshot?.sessionId);
-  const { conversationActivityTools, liveStatusLabel, transcriptActivities } = useConversationActivities({
+  const { thinking, liveStatusLabel, transcriptActivities } = useConversationActivities({
     pendingNewThread, conversationSnapshot, running: Boolean(snapshot?.isStreaming), lastMessageId, prompts,
     registry, viewStore: view, detail, actions, recoverThread, copyToolOutput, loadToolOutput,
     abortSessionId: snapshot?.sessionId, abort,
@@ -974,7 +984,6 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
   const onForkMessage = useCallback((message: UiMessage) => void forkMessage(message), [forkMessage]);
   const onEditMessage = useCallback((message: UiMessage) => void editMessage(message), [editMessage]);
   const { readOnly } = useHostCapabilities();
-  const showRunClock = Boolean(conversationSnapshot?.isStreaming) && conversationActivityTools.length === 0;
   const { queue, steerQueued, returnQueued, reorderQueue } = composer;
   const running = Boolean(conversationSnapshot?.isStreaming);
   const steerShortcut = registry.keybindingLabel("thread.steerQueuedMessage");
@@ -996,12 +1005,12 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
   const liveStatus = useMemo(() => {
     const status = liveStatusLabel !== undefined
       ? <LiveStatus label={liveStatusLabel} />
-      : showRunClock ? <LiveStatus startedAt={runStartedAt} />
+      : thinking ? <LiveStatus startedAt={runStartedAt} />
       : limit && conversationSnapshot ? <Suspense fallback={null}><LazyLimitNotice sessionId={conversationSnapshot.sessionId} limit={limit} /></Suspense>
       : turnError ? <TurnErrorLine message={turnError} onRetry={readOnly ? undefined : () => retry()} /> : undefined;
     if (pendingNewThread || queue.length === 0) return status;
     return <>{status}<QueuedMessages queue={queue} streaming={running} held={queueHeld} steerShortcut={steerShortcut} onSteer={steerQueued} onReturn={returnQueued} onReorder={reorderQueue} /></>;
-  }, [conversationSnapshot, limit, liveStatusLabel, pendingNewThread, queue, queueHeld, readOnly, reorderQueue, retry, returnQueued, runStartedAt, running, showRunClock, steerQueued, steerShortcut, turnError]);
+  }, [conversationSnapshot, limit, liveStatusLabel, pendingNewThread, queue, queueHeld, readOnly, reorderQueue, retry, returnQueued, runStartedAt, running, thinking, steerQueued, steerShortcut, turnError]);
   return <TranscriptHistoryBoundary
     controller={transcriptHistory}
     showControl={!pendingNewThread && messages.length > 0}

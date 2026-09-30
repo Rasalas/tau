@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { HostCommandError, type HostExtensionServices, type InstalledPackage } from "tau/host-extension";
-import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
+import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { createPackagesHostExtension, describeInstalled } from "./host.js";
 import { PACKAGES_EXTENSION_ID } from "./protocol.js";
 
@@ -69,10 +69,13 @@ describe("Packages host extension", () => {
       trust: vi.fn((cwd = "/project") => { trusted.add(cwd); return cwd; }),
     };
     const services = installer({ projectTrust });
-    const registry = await activateHostKit(createPackagesHostExtension(), services);
+    const events: PublishedKitEvent[] = [];
+    const registry = await activateHostKit(createPackagesHostExtension(), services, (event) => events.push(event));
 
     const skipped = await registry.invoke(PACKAGES_EXTENSION_ID, "install", { source: "/src/hello", scope: "project" }) as { message: string; untrusted?: boolean };
     expect(skipped.untrusted).toBe(true);
+    // A window that did not ask raises the same toast from the event.
+    expect(events.find((event) => event.name === "changed")?.payload).toMatchObject({ command: "install", result: { source: "/src/hello" }, untrusted: true });
     expect(skipped.message).toMatch(/skipped: Pi does not trust this project/u);
     expect(skipped.message).toMatch(/Settings → Packages/u);
 

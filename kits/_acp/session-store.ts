@@ -1,6 +1,6 @@
 import { chmod } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { DEFAULT_INSTANCE_ID, appendUsageTurn, readPersistedJson, readUsageTurns, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage, type UsageTurn } from "tau/host-extension";
+import { DEFAULT_INSTANCE_ID, appendUsageTurn, legacyUsageTurn, mergeTallies, readPersistedJson, readUsageTurns, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage, type UsageTally, type UsageTurn } from "tau/host-extension";
 
 /**
  * App-data persistence for an ACP runtime's threads, one file per kit: the
@@ -57,6 +57,22 @@ export interface AcpStoredModel {
 }
 
 const USAGE_FIELDS = ["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "totalTokens", "costUsd", "turns"] as const;
+
+/** A thread's turns; a thread that kept none has one from its total, named by `origin`. */
+export function usageTurnsOf(record: Pick<AcpSessionRecord, "usage" | "usageTurns" | "updatedAt">, origin?: { provider?: string; model?: string }): UsageTurn[] {
+  if (record.usageTurns) return record.usageTurns.map((turn) => ({ ...turn }));
+  return record.usage && record.usage.turns > 0 ? [legacyUsageTurn(record.usage, record.updatedAt, origin)] : [];
+}
+
+const mergedTurns = new WeakMap<readonly UsageTurn[], UsageTally[]>();
+
+/** What a listed thread was billed for, per model; its turn list is merged once, since a new turn replaces the list. */
+export function talliesOfRecord(record: Pick<AcpSessionRecord, "usage" | "usageTurns" | "updatedAt">, origin?: { provider?: string; model?: string }): UsageTally[] {
+  if (!record.usageTurns) return mergeTallies(usageTurnsOf(record, origin));
+  let merged = mergedTurns.get(record.usageTurns);
+  if (!merged) mergedTurns.set(record.usageTurns, merged = mergeTallies(record.usageTurns));
+  return merged.map((tally) => ({ ...tally }));
+}
 
 function text(value: unknown, max: number): string | undefined {
   return typeof value === "string" && value.length > 0 && value.length <= max ? value : undefined;
@@ -192,6 +208,12 @@ export class AcpSessionStore<K extends string = string> {
     await this.load();
     const record = this.records.get(tauThreadId);
     return record ? clone(record) : undefined;
+  }
+
+  /** A listed thread's tallies, for its row before it opens; `origin` names a thread that kept only its total. */
+  talliesOf(tauThreadId: string, origin?: (record: AcpSessionRecord<K>) => { provider?: string; model?: string }): UsageTally[] {
+    const record = this.records.get(tauThreadId);
+    return record ? talliesOfRecord(record, origin?.(record)) : [];
   }
 
   /** Every thread, or those of one instance (`default` included). */

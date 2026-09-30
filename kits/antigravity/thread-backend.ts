@@ -1,6 +1,5 @@
 import {
   appendUsageTurn,
-  legacyUsageTurn,
   mergeTallies,
   unpricedUsage,
   type RuntimePermissionLevel,
@@ -19,7 +18,8 @@ import { AcpThreadBackend, type AcpThreadBackendOptions, type AcpTurn } from "..
 import { answerElicitation, modeForLevel, permissionDialog } from "./approvals.js";
 import type { AuthorizationLink } from "./profile.js";
 import type { AntigravityRuntimeAdapter } from "./runtime-adapter.js";
-import type { AntigravitySessionStore } from "./session-store.js";
+import type { AntigravitySessionRecord, AntigravitySessionStore } from "./session-store.js";
+import { usageTurnsOf } from "../_acp/session-store.js";
 
 /** What the backend needs of a live ACP session; `AntigravitySession` is the real one, tests script one. */
 export interface AntigravitySessionLike {
@@ -82,6 +82,12 @@ export const MODEL_PROVIDER = "google";
 export function antigravityModelProvider(model: { id: string; name?: string }): string {
   return modelProvider(model, MODEL_PROVIDER);
 }
+
+/** Who a thread that kept only its total ran on. */
+export function antigravityUsageOrigin(record: Pick<AntigravitySessionRecord, "model" | "observedModel">): { provider: string; model?: string } {
+  const model = record.observedModel ?? record.model;
+  return model ? { provider: antigravityModelProvider({ id: model }), model } : { provider: MODEL_PROVIDER };
+}
 const RESUME_MISSING = /(?:session|conversation)[^\n]*(?:not found|does not exist|unknown|missing|invalid|expired)|(?:no|cannot|could not)\s+(?:find\s+|load\s+|resume\s+)?(?:the\s+)?(?:session|conversation)/iu;
 
 export { promptBlocks };
@@ -130,9 +136,7 @@ export class AntigravityThreadRuntimeBackend extends AcpThreadBackend<Antigravit
     this.title = record.title;
     this.titleSource = record.titleSource;
     if (record.usage) this.usage = { ...record.usage };
-    const model = record.observedModel ?? record.model;
-    this.usageTurns = record.usageTurns?.map((turn) => ({ ...turn }))
-      ?? (record.usage && record.usage.turns > 0 ? [legacyUsageTurn(record.usage, record.updatedAt, { provider: model ? antigravityModelProvider({ id: model }) : MODEL_PROVIDER, ...(model ? { model } : {}) })] : []);
+    this.usageTurns = usageTurnsOf(record, antigravityUsageOrigin(record));
     this.chosenModel = record.model;
     this.observedModel = record.observedModel;
     this.rememberModels(await this.options.cachedModels?.() ?? []);

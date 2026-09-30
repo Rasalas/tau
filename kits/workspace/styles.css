@@ -143,10 +143,13 @@
 .project-switcher-results > p { margin: 12px 8px; color: var(--faint); font-size: var(--text-xs); }
 .project-switcher-footer { margin: 4px 0 0; padding-top: 4px; border-top: 1px solid var(--line-soft); }
 .project-switcher-footer > button {
-  width: 100%; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 9px;
+  width: 100%; height: 32px; display: flex; align-items: center; gap: 9px; padding: 0 9px;
   border: 0; border-radius: 8px; background: transparent; color: var(--ink-3); font: 500 var(--text-sm) var(--sans); cursor: pointer;
 }
 .project-switcher-footer > button:hover { background: var(--raised); color: var(--ink); }
+/* The icon sits in the tiles' column, so the label lines up with the project names. */
+.project-switcher-footer > button > svg { flex: none; margin-inline: 4px; }
+.project-filter-popover .project-switcher-footer > button > svg { margin-inline: 2px; }
 
 .thread-search kbd { font: 10.5px var(--mono); color: var(--muted); }
 .thread-search button {
@@ -352,6 +355,10 @@
 /* Kept against menu button rules that would flatten the switch. */
 .branch-worktree .switch, .branch-worktree .switch:hover:not(:disabled) { width: var(--switch-w); padding: 0; border-radius: var(--radius-pill); background: var(--track); }
 .branch-worktree .switch.on, .branch-worktree .switch.on:hover:not(:disabled) { background: var(--acid); }
+/* The draft's worktree suggestion (K125): a pill whose whole face is its switch's label. */
+.draft-pill.worktree-suggestion { gap: 8px; }
+.draft-pill.worktree-suggestion > svg { flex: none; color: var(--muted); }
+@media (pointer: fine) { .draft-pill.worktree-suggestion .switch { --switch-w: 26px; --switch-h: 15px; } }
 /* The Branch pill's sheet on touch: the sheet names it; rows of 44 px. */
 .branch-sheet { text-align: left; }
 .branch-sheet .branch-section > .menu-heading { display: none; }

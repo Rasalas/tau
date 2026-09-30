@@ -21,6 +21,8 @@ export interface UiEnvironmentThread {
   workspaceId?: string;
   modifiedAt: number;
   running?: boolean;
+  /** A question there waits for an answer; set where the client follows that machine's questions. */
+  waiting?: boolean;
   /** As that machine's index lists them, so its rail row reads like one of this machine's. */
   projectLabel?: string;
   usage?: UiThreadUsage;

@@ -311,9 +311,9 @@ export interface TranscriptRowsHandle {
  * plain label (both API 1.27.0). `draft-actions` adds pills beside the
  * project under a new thread's heading, each opening its own popover.
  * `thread-list-head` tops a phone's or tablet's thread list, under its header
- * (API 1.30.0).
+ * (API 1.30.0). `thread-list-title` adds compact controls beside that header's title.
  */
-export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in" | "thread-list-head";
+export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in" | "thread-list-head" | "thread-list-title";
 
 /** Where a thread of a list source runs: its mark and name on the row's project line. */
 export interface ThreadListPlace {
@@ -331,6 +331,8 @@ export interface ThreadListEntry {
   key: string;
   session: UiSession;
   running?: boolean;
+  /** Waits for an answer there (API 1.35.0). */
+  waiting?: boolean;
   /** Set while `open` is under way. */
   opening?: boolean;
   /** On the settled shelf rather than among the active threads. */
@@ -674,6 +676,8 @@ export interface PanelContribution extends ProfileScoped {
   stageButton?: boolean;
   /** A hook for a count beside the panel's tab title, say running agents; nothing for `undefined` or 0 (API 1.27.0). */
   useBadge?(): number | undefined;
+  /** Unseen background activity. `visible` lets the tool mark its activity as read. */
+  useActivity?(visible: boolean): boolean;
   Component: ComponentType<PanelProps>;
 }
 

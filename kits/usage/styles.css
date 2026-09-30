@@ -343,22 +343,9 @@ button.usage-rank-label:hover { background: var(--hover); }
 .usage-topbar > .usage-month { padding: 0; }
 .usage-topbar-filters { display: flex; flex-wrap: wrap; gap: 8px 10px; }
 
-/*
- * A phone's thread list: the same bars on top of it, larger, each account
- * with its mark and what its lowest window has left. One tap opens Usage.
- */
+/* Mobile uses the desktop's bars beside the thread-list title. */
 .usage-juicestrip {
-  width: 100%; min-height: var(--touch-target); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px;
-  padding: 6px 10px; border: 0; border-radius: 12px; background: var(--sunken); color: var(--ink-2); cursor: pointer;
-  font: var(--text-xs) var(--sans); font-variant-numeric: tabular-nums; text-align: left;
+  min-width: var(--touch-target); min-height: var(--touch-target); display: flex; align-items: center; gap: 8px;
+  padding: 0 7px; border: 0; border-radius: 10px; background: transparent; cursor: pointer;
 }
 .usage-juicestrip:active { background: var(--hover-strong); }
-.usage-juicestrip-group { display: inline-flex; align-items: center; gap: 7px; min-height: 30px; }
-.usage-juicestrip-group .provider-icon-stack { margin: 0; }
-.usage-juicestrip-group > span:not(.provider-icon-stack) { display: inline-flex; align-items: flex-end; gap: 3px; }
-.usage-juicestrip .usage-juicebar { width: 6px; height: 22px; border-radius: 2px; }
-.usage-juicestrip-group > b { font-weight: 600; color: var(--ink-2); }
-.usage-juicestrip-group[data-level="warn"] > b { color: var(--warn); }
-.usage-juicestrip-group[data-level="fail"] > b { color: var(--fail); }
-.usage-juicestrip-group[data-level="stale"] > b { color: var(--faint); font-weight: 500; }
-

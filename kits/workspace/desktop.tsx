@@ -12,6 +12,7 @@ import {
 } from "tau";
 import {
   CLONE_PROGRESS_EVENT,
+  HEAD_CHANGED_EVENT,
   createWorkspaceHostClient,
   WORKSPACE_CHANGES_PANEL,
   WORKSPACE_FILES_PANEL,
@@ -22,7 +23,7 @@ import { addProjectMenu } from "./add-project-menu.js";
 import { threadBranchService } from "./branch-service.js";
 import { registerCheckpoints } from "./checkpoints.js";
 import { WorkspaceFollower } from "./dock.js";
-import { createDraftBranchPill, ThreadBranch } from "./branch-menu.js";
+import { createDraftBranchPill, ThreadBranch, WorktreeSuggestionPill } from "./branch-menu.js";
 import { CloneProjectSource, LocalFolderSource, requestProjectSwitcher, WorkspaceSidebar } from "./navigation.js";
 import { ChangesPanel, FilesPanel, SEARCH_FILES_SERVICE, serviceSlot, type SearchFilesService } from "./panels.js";
 import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, WorkspaceStore } from "./store.js";
@@ -122,6 +123,8 @@ export const workspaceExtension: DesktopExtension = {
     // A new thread's branch as a pill under its heading, beside project and machine; a sheet on touch.
     context.registerRegion({ id: "workspace.draft-branch", placement: "draft-actions", order: 10, profiles: ["desktop"], Component: bind(createDraftBranchPill(false)) });
     context.registerRegion({ id: "workspace.draft-branch-sheet", placement: "draft-actions", order: 10, profiles: ["compact"], Component: bind(createDraftBranchPill(true)) });
+    // Offered while another thread's turn runs in the draft's folder; the phone gets it too.
+    context.registerRegion({ id: "workspace.worktree-suggestion", placement: "draft-actions", order: 11, profiles: ["desktop", "compact"], Component: bind(WorktreeSuggestionPill) });
     const documents = documentStates(store);
     context.registerDocumentSource({
       profiles: ["desktop", "compact"],
@@ -160,6 +163,7 @@ export const workspaceExtension: DesktopExtension = {
     context.events.on("user-message", (event) => store.turnStarted(event.sessionId));
     context.events.on("agent-status", (event) => { if (!event.running) store.turnSettled(event.sessionId); });
     context.events.on("tool-end", (event) => store.toolFinished(event.tool));
+    context.host.onEvent(HEAD_CHANGED_EVENT, (payload) => store.headChanged((payload as { root?: unknown } | undefined)?.root));
     // Transcript checkpoint cards and their historical review belong to the
     // workspace contribution. Removing Workspace Kit therefore removes both
     // the card and its diff surface without App knowing their implementation.

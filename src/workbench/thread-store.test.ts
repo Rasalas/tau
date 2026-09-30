@@ -66,6 +66,31 @@ describe("ThreadStore selective navigation subscriptions", () => {
     expect(store.getThread("one")?.usage).toEqual(repriced);
   });
 
+  it("compares a fresh copy of a shell's records by value, and sees a field added, removed or changed", () => {
+    const store = new ThreadStore();
+    const usage = { inputTokens: 10, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 11, costUsd: 0.01, turns: 1 };
+    const queued = [{ id: "q1", text: "next", attachments: 0 }];
+    const limit = { kind: "rate-limit", resetsAt: 5 };
+    const full = (extra: Record<string, unknown> = {}) => ({ ...shell("one"), usage: { ...usage }, queued: queued.map((item) => ({ ...item })), limit: { ...limit }, ...extra }) as never;
+    store.applyThreadIndex({ projects: [], sessions: [full()] });
+    const kept = store.getThread("one");
+    store.applyThreadShell("one", full());
+    expect(store.getThread("one")).toBe(kept);
+    for (const changed of [
+      { usage: { ...usage, costUsd: 0.02 } },
+      { usage: { ...usage, subscription: { inputTokens: 10, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 11, turns: 1, apiValueUsd: 0.01 } } },
+      { usage: { inputTokens: 10, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 11, costUsd: 0.01 } },
+      { usage: undefined },
+      { queued: [...queued, { id: "q2", text: "then", attachments: 1 }] },
+      { limit: { ...limit, resetsAt: 6 } },
+    ]) {
+      store.applyThreadIndex({ projects: [], sessions: [full()] });
+      const before = store.getThread("one");
+      store.applyThreadShell("one", full(changed));
+      expect(store.getThread("one")).not.toBe(before);
+    }
+  });
+
   it("keeps an observed provider when a later index shell omits it", () => {
     const store = new ThreadStore();
     store.applyThreadIndex({ projects: [], sessions: [shell("one"), shell("two")] });

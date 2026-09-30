@@ -27,6 +27,8 @@ body[data-keyboard] .app-shell { --safe-bottom: 0px; }
 /* The tablet's desktop chrome at touch size: the head's glyphs, a divider a finger can take. */
 body[data-profile="compact"] .thread-header .stage-tool { width: 44px; height: 44px; }
 body[data-profile="compact"] .resize-handle[aria-orientation="vertical"] { width: 24px; }
+body[data-profile="compact"] .sidebar-resizer { margin-right: -12px; }
+body[data-profile="compact"] .sidebar-resizer::after { left: 11px; }
 body[data-profile="compact"] .chat-resizer { left: calc(var(--chat-width) - 12px); }
 body[data-profile="compact"] .resize-handle[aria-orientation="vertical"]::after { left: 11px; }
 body[data-profile="compact"] .panel-maximize { width: 44px; height: 44px; top: 4px; right: 4px; }
@@ -130,15 +132,18 @@ body[data-profile="compact"] [data-tooltip] { -webkit-touch-callout: none; user-
 body[data-profile="compact"] .tool-output { max-height: 180px; overflow: auto; }
 body[data-profile="compact"] .tool-output-pending { height: 180px; }
 
-/* No hover: what a pointer would uncover shows on a tap (a message) or always (stopping a tool). */
-body[data-profile="compact"] .message-shell[data-touch-actions] :is(.message-actions, .message-user-meta) { opacity: 1; pointer-events: auto; }
-/* A tapped message's actions take their room in the flow, each 44 px high. */
-body[data-profile="compact"] .message-shell[data-touch-actions] .message-actions { position: static; }
-body[data-profile="compact"] .message-actions button { min-height: var(--touch-target); padding: 0 12px; font-size: var(--text-sm); }
-body[data-profile="compact"] .message-shell.assistant .message-actions { margin-left: -12px; }
+/* Message actions open by long press as a sheet; a tap or sticky hover shows no toolbar. */
+body[data-profile="compact"] .message-actions { display: none; }
+body[data-profile="compact"] .message-shell { -webkit-touch-callout: none; }
+
 /* A message's time: meta, never under 12px on a touch device (ADR 0029). */
 body[data-profile="compact"] .message.user time { font-size: var(--text-xs); }
 @media (hover: none) {
   .tool-run.stoppable > .tool-run-stop { opacity: 1; }
 }
 
+
+/* A tablet's heading keeps only the branch directly under the title. */
+body[data-profile="compact"] .touch-split .thread-heading { gap: 0; }
+body[data-profile="compact"] .touch-split .thread-header .thread-title-trigger { position: relative; min-height: 28px; }
+body[data-profile="compact"] .touch-split .thread-header .thread-title-trigger::before { content: ""; position: absolute; inset: -8px 0; }

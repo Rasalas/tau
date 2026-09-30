@@ -9,6 +9,7 @@ import {
   HostCommandError,
   PARENT_LINK_ENTRY,
   readPersistedJson,
+  tauHomeDir,
   writePersistedJson,
   type HostExtension,
   type HostExtensionContext,
@@ -119,11 +120,11 @@ const ACCESS_THREAD_LEVEL_COMMAND = "thread-level";
 
 /**
  * How many children of one thread may run at a time is the user's setting, so
- * it stays in their own `~/.tau`. The kit only ever reads it; no instance,
+ * it stays in their own `~/.tau` (`~/.tau-dev` in Tau Dev). The kit only ever reads it; no instance,
  * least of all a dev one, writes here.
  */
 export function agentsSettingsPath(home = homedir()): string {
-  return join(home, ".tau", "agents.json");
+  return join(tauHomeDir(home), "agents.json");
 }
 
 /**
@@ -138,7 +139,7 @@ export function agentsLinksPath(stateDir: string): string {
 
 /** Where the links lived before they were a kit's own state; read once, then left alone. */
 export function legacyAgentsLinksPath(home = homedir()): string {
-  return join(home, ".tau", "agents-links.json");
+  return join(tauHomeDir(home), "agents-links.json");
 }
 
 /** v2 added `startedAt`/`endedAt`, so a restored agent still shows how long it ran. */

@@ -622,7 +622,7 @@ default and combine:
 | Tailscale | each Tailscale address (100.64.0.0/10, fd7a:115c:a1e0::/48) on `<port>`, so the LAN sees no open port; not needed while Local network covers them | TLS |
 | Tailscale, or a package's hold | `127.0.0.1:<proxyPort>`, for a reverse proxy such as `tailscale serve` | plain HTTP |
 
-`port` (default 7788) and `proxyPort` (default 7789) are fixed, so a paired
+`port` (default 7788) and `proxyPort` (default 7789; 7790 and 7791 in Tau Dev) are fixed, so a paired
 device and a `tailscale serve --bg` mapping find the host again after a
 restart. The TLS certificate is the self-signed one of [TLS](#tls) or one of
 the user's own (`certificate`); a pair that does not load is refused before
@@ -665,7 +665,7 @@ the host announces it as a DNS-SD service (`src/main/host-discovery.ts`):
 
 | Field | Value |
 |---|---|
-| Type | `_tau._tcp` (`TAU_BONJOUR_SERVICE_TYPE` overrides it; isolated instances use `_tau-test._tcp`) |
+| Type | `_tau._tcp`, `_tau-dev._tcp` in Tau Dev (`TAU_BONJOUR_SERVICE_TYPE` overrides it; isolated instances use `_tau-test._tcp`) |
 | Instance | the machine's host name without `.local`; the network may suffix it after a clash |
 | Port | the Local network listener's, TLS |
 | TXT | `v=1`, `id=<host id>`, `fp=<SHA-256 of the certificate, 64 hex>`, `pk=<SHA-256 of its public key, 64 hex>` |

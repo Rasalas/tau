@@ -7,7 +7,6 @@ import {
   threadAge,
   threadListDrafts,
   threadListGroups,
-  outsideRow,
   type ThreadListGroup,
   type ThreadSupervisionRow,
   inProject,
@@ -89,10 +88,7 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
   });
   const outside = useThreadListSources(registry);
   // Another machine's projects are other projects; the filter keeps those of the same name.
-  const extra = useMemo(() => outside.entries
-    .filter((entry) => !project || entry.session.projectName === project.name)
-    .map((entry) => outsideRow(entry.key, entry.session, { ...(entry.running ? { running: true } : {}), ...(entry.settled ? { settled: true } : {}) })),
-  [outside.entries, project]);
+  const extra = useMemo(() => project ? outside.rows.filter((row) => row.projectName === project.name) : outside.rows, [outside.rows, project]);
   const groups = useMemo(
     () => threadListGroups(snapshot.threads, current, { pinned: pinnedThreadIds, settled: settledThreadIds, shown, extra, ...(project ? { project } : {}) }),
     [current, extra, pinnedThreadIds, project, settledThreadIds, shown, snapshot.threads],
@@ -155,7 +151,7 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
     onOpen,
     onSheet: setSheetFor,
     outside: outside.byKey,
-    here: outside.entries.length > 0 ? outside.here : undefined,
+    here: outside.rows.length > 0 ? outside.here : undefined,
     actions,
   };
   const more = (group: ThreadListGroup) => () => setShown((value) => group.id === "settled"

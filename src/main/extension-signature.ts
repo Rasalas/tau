@@ -3,6 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { packagesHome } from "./extension-sources.js";
 import { readPersistedJson } from "./persisted-json.js";
+import { tauHomeDir } from "./app-identity.js";
 
 export const SIGNATURE_FILE = "tau-extension.sig";
 const TRUSTED_PUBLISHERS_FILE = "trusted-publishers.json";
@@ -88,7 +89,7 @@ export async function hashPackageFiles(directory: string): Promise<Record<string
 }
 
 export function trustedPublishersPath(home: string = packagesHome()): string {
-  return join(home, ".tau", TRUSTED_PUBLISHERS_FILE);
+  return join(tauHomeDir(home), TRUSTED_PUBLISHERS_FILE);
 }
 
 function decodePublishers(value: unknown): TrustedPublisher[] | undefined {

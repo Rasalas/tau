@@ -204,6 +204,50 @@ describe("socket host transport", () => {
   });
 });
 
+describe("socket host transport and paired devices", () => {
+  it("keeps sign-in pushes from a device paired Read only, live and on replay, and follows a changed preset", async () => {
+    const access: Record<string, "full" | "read-only"> = { "reader-token": "read-only", "writer-token": "full" };
+    const connections = new Map<string, string>();
+    const pushLog = new HostPushLog();
+    transport = await startSocketHostTransport({
+      listen: "127.0.0.1:0", methods, pushLog, hostVersion: "test", capabilities: [],
+      access: {
+        authenticate: (token) => token && token in access ? { kind: "client", clientId: token } : undefined,
+        attach: (credential) => { const id = `c-${connections.size}`; connections.set(id, (credential as { clientId: string }).clientId); return id; },
+        touch: () => undefined,
+        detach: () => undefined,
+        accessOf: (connection) => access[connections.get(connection)!]!,
+      },
+    });
+    const signIn: HostPushEvent = { type: "extension-event", extensionId: "tau.codex", name: "sign-in", payload: { target: "default", flow: { flowId: "f", method: "chatgpt-plan", phase: "waiting", browser: { url: "https://auth.example/consent" } } } };
+    const other: HostPushEvent = { type: "event-log", label: "for everyone", timestamp: 0 };
+    const reader = await hello(transport.port, "reader-token");
+    const writer = await hello(transport.port, "writer-token");
+    await Promise.all([reader.frame, writer.frame]);
+    const seen = (socket: WebSocket) => {
+      const frames: HostServerFrame[] = [];
+      socket.on("message", (data) => { const frame = decodeHostServerFrame(JSON.parse(String(data)) as unknown); if (frame) frames.push(frame); });
+      return frames;
+    };
+    const readerFrames = seen(reader.socket);
+    const writerFrames = seen(writer.socket);
+    transport.deliver(pushLog.record(signIn));
+    transport.deliver(pushLog.record(other));
+    await vi.waitFor(() => expect(readerFrames).toHaveLength(1));
+    await vi.waitFor(() => expect(writerFrames).toHaveLength(2));
+    expect(readerFrames[0]).toMatchObject({ type: "push", push: { seq: 2, prev: 0, event: { type: "event-log" } } });
+
+    const replay = await hello(transport.port, "reader-token", 0);
+    const reply = await replay.frame;
+    expect(reply.type === "hello-reply" && reply.reply.missed.map((push) => push.event.type)).toEqual(["event-log"]);
+
+    access["reader-token"] = "full";
+    transport.deliver(pushLog.record(signIn));
+    await vi.waitFor(() => expect(readerFrames).toHaveLength(2));
+    expect(readerFrames[1]).toMatchObject({ type: "push", push: { event: { name: "sign-in" } } });
+  });
+});
+
 describe("more than one listener", () => {
   async function secondListener(trust: "proxy" | "network") {
     const server = createProtocolServer();

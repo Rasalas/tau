@@ -11,6 +11,7 @@ import { listInstalledSources, packagesHome } from "./extension-sources.js";
 import { describeBuildError, packageBuilds } from "./package-builds.js";
 import type { ExtensionHostVersions } from "../shared/extension-compat.js";
 import { DEFERRED_SHARED_MODULES } from "../shared/shared-modules.js";
+import { tauHomeDir } from "./app-identity.js";
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs"]);
 
@@ -29,7 +30,7 @@ export function desktopEntryId(entry: DesktopEntryDetailed): string {
 /** Where desktop extensions live: one folder for the user, one per project. */
 export function desktopExtensionDirectories(cwd: string, home = packagesHome()): Array<{ scope: "global" | "project"; directory: string }> {
   return [
-    { scope: "global", directory: join(home, ".tau", "extensions") },
+    { scope: "global", directory: join(tauHomeDir(home), "extensions") },
     { scope: "project", directory: join(cwd, ".tau", "extensions") },
   ];
 }

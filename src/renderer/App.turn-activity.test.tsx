@@ -177,6 +177,50 @@ describe("last-turn activity", () => {
     await waitFor(() => expect(view.container.querySelectorAll(".inline-transcript-activity")).toHaveLength(2));
   });
 
+  it("says Thinking whenever the running turn has no live tool row, as T3 Code does", async () => {
+    const view = renderApp(client);
+    await screen.findByRole("heading", { name: /do next\?$/ });
+    const thinking = () => view.container.querySelector(".work-live.thinking");
+    const liveTool = () => view.container.querySelector(".work-live.running");
+    act(() => {
+      client.emit({ type: "user-message", sessionId: "session", message: { id: "u", role: "user", text: "Inspect", timestamp: 1 } });
+      client.emit({ type: "agent-status", sessionId: "session", running: true });
+    });
+    await waitFor(() => expect(thinking()).toBeTruthy());
+
+    // A call takes the line over, and keeps it after it ends until output follows.
+    act(() => client.emit({ type: "tool-start", sessionId: "session", tool: { ...tool("one"), startedAt: 2, status: "running", endedAt: undefined } }));
+    await waitFor(() => expect(liveTool()).toBeTruthy());
+    expect(thinking()).toBeNull();
+    act(() => client.emit({ type: "tool-end", sessionId: "session", tool: { ...tool("one"), startedAt: 2, endedAt: 3 } }));
+    expect(await screen.findByText("Reading one.ts")).toBeTruthy();
+    expect(thinking()).toBeNull();
+
+    // Reasoning that streams says Thinking in the message itself, and nothing else does.
+    act(() => {
+      client.emit({ type: "assistant-start", sessionId: "session", id: "a", timestamp: 4 });
+      client.emit({ type: "assistant-thinking", sessionId: "session", id: "a", delta: "Weighing it" });
+    });
+    await waitFor(() => expect(view.container.querySelector(".message-thinking .work-shine")).toBeTruthy());
+    expect(liveTool()).toBeNull();
+    expect(thinking()).toBeNull();
+
+    // Once the answer streams, the line below it says Thinking again.
+    act(() => client.emit({ type: "assistant-delta", sessionId: "session", id: "a", delta: "Found it" }));
+    await waitFor(() => expect(thinking()).toBeTruthy());
+    expect(view.container.querySelector(".message-thinking .work-shine")).toBeNull();
+
+    // A failed newest call has its own row; the line falls back to Thinking.
+    act(() => client.emit({ type: "tool-start", sessionId: "session", tool: { ...tool("two"), startedAt: 5, status: "running", endedAt: undefined } }));
+    await waitFor(() => expect(thinking()).toBeNull());
+    act(() => client.emit({ type: "tool-end", sessionId: "session", tool: { ...tool("two"), startedAt: 5, endedAt: 6, status: "error" } }));
+    await waitFor(() => expect(thinking()).toBeTruthy());
+    expect(liveTool()).toBeNull();
+
+    act(() => client.emit({ type: "agent-status", sessionId: "session", running: false }));
+    await waitFor(() => expect(thinking()).toBeNull());
+  });
+
   it("keeps a tool without a terminal frame visibly interrupted after settling", async () => {
     const view = renderApp(client);
     await screen.findByRole("heading", { name: /do next\?$/ });
@@ -523,14 +567,14 @@ describe("last-turn activity", () => {
       client.emit({ type: "tool-start", sessionId: "session", tool: { ...tool("two"), status: "running", endedAt: undefined } });
       client.emit({ type: "tool-end", sessionId: "session", tool: tool("two") });
     });
-    expect(await screen.findByText("Read two.ts")).toBeTruthy();
+    expect(await screen.findByText("Reading two.ts")).toBeTruthy();
 
     act(() => {
       client.emit({ type: "queue", sessionId: "session", steering: ["keep going"], followUp: [] });
       client.emit({ type: "tool-start", sessionId: "session", tool: { ...tool("three"), status: "running", endedAt: undefined } });
       client.emit({ type: "tool-end", sessionId: "session", tool: tool("three") });
     });
-    expect(await screen.findByText("Read three.ts")).toBeTruthy();
+    expect(await screen.findByText("Reading three.ts")).toBeTruthy();
 
     act(() => {
       client.emit({ type: "agent-status", sessionId: "session", running: false });
@@ -538,8 +582,8 @@ describe("last-turn activity", () => {
       client.emit({ type: "tool-start", sessionId: "session", tool: { ...tool("four"), status: "running", endedAt: undefined } });
       client.emit({ type: "tool-end", sessionId: "session", tool: tool("four") });
     });
-    await waitFor(() => expect(screen.queryByText("Read three.ts")).toBeNull());
-    expect(screen.getByText("Read four.ts")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText("Reading three.ts")).toBeNull());
+    expect(screen.getByText("Reading four.ts")).toBeTruthy();
   });
 
   it("renders completed activity at each persisted turn anchor", async () => {

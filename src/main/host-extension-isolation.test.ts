@@ -572,7 +572,7 @@ describe("isolated host extensions", () => {
     await registry.activate(extension);
     await expect(registry.invoke("acme.worker", "die")).rejects.toThrow(/left the host process/u);
     await until(() => !registry.isActive("acme.worker"));
-    expect(registry.summaries()[0]?.error).toContain("worker exit code 3");
+    expect(registry.summaries()[0]?.error).toBe("the worker left the host process (exit code 3)");
     // "Try again" is the next call: it starts a new worker.
     await expect(registry.invoke("acme.worker", "hello", 1)).resolves.toMatchObject({ input: 1 });
     expect(registry.summaries()[0]?.error).toBeUndefined();
@@ -827,9 +827,11 @@ describe("isolated host extensions", () => {
     const denied = (recorder: Recorder) => recorder.logs.filter((line) => line.startsWith("host-extension.denied"));
 
     it.skipIf(!addon)("keeps a package that loads an addon at its top from starting, and says why", async () => {
-      const { registry, extension } = native(["sessions"], nativeKitBundle);
+      const { registry, extension, recorder } = native(["sessions"], nativeKitBundle);
       await expect(registry.activate(extension)).resolves.toBe(false);
-      expect(registry.summaries()[0]?.error).toBe("Native Package: Extension acme.native lacks permission native");
+      expect(registry.summaries()[0]?.error).toBe("Extension acme.native lacks permission native");
+      // The name once: the log line adds it, the reason does not carry it too.
+      expect(recorder.logs).toContain("host-extension.failed Native Package: Extension acme.native lacks permission native");
       expect(registry.isActive("acme.native")).toBe(false);
     }, 30_000);
 

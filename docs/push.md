@@ -213,15 +213,19 @@ Project `tau-push-e3c95`, number `712111328256`. Replace the placeholders in ang
    gcloud iam workload-identity-pools create github --location global --display-name GitHub --project tau-push-e3c95
    gcloud iam workload-identity-pools providers create-oidc tau-repo --location global --workload-identity-pool github \
      --issuer-uri https://token.actions.githubusercontent.com \
-     --attribute-mapping 'google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_owner_id=assertion.repository_owner_id' \
+     --attribute-mapping 'google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_owner_id=assertion.repository_owner_id,attribute.environment=assertion.environment' \
      --attribute-condition "assertion.repository_owner_id == '7483565' && assertion.repository == 'Rasalas/tau'" \
      --project tau-push-e3c95
    gcloud iam service-accounts add-iam-policy-binding push-relay-deployer@tau-push-e3c95.iam.gserviceaccount.com --role roles/iam.workloadIdentityUser \
-     --member 'principal://iam.googleapis.com/projects/712111328256/locations/global/workloadIdentityPools/github/subject/repo:Rasalas/tau:environment:push-relay' \
+     --member 'principalSet://iam.googleapis.com/projects/712111328256/locations/global/workloadIdentityPools/github/attribute.environment/push-relay' \
      --project tau-push-e3c95
    ```
-   Only a job in the `push-relay` environment of `Rasalas/tau` can act as the deployer.
-7. **GitHub environment** `push-relay` (Settings → Environments): deployment branches
+   Only a job in the `push-relay` environment of `Rasalas/tau` can act as the deployer. The binding
+   uses the environment attribute, not the subject: this repository's OIDC subject carries
+   immutable ids (`repo:Rasalas@7483565/tau@1395847403:…`).
+7. **Allowed actions.** Settings → Actions allows only selected actions; add
+   `google-github-actions/auth@*`.
+8. **GitHub environment** `push-relay` (Settings → Environments): deployment branches
    `main` only, and three variables:
 
    | Variable | Value |

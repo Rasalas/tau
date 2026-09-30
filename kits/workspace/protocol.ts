@@ -113,6 +113,9 @@ export interface CloneSnapshot {
 
 export const CLONE_PROGRESS_EVENT = "clone-progress";
 
+/** A checkout's HEAD moved outside Tau (a `git checkout` in a terminal); payload `{ root }`. */
+export const HEAD_CHANGED_EVENT = "head-changed";
+
 /** The folder a clone lands in, from the last path segment of its URL. */
 export function repositoryFolderName(repositoryUrl: string): string {
   const normalized = repositoryUrl.trim().replace(/[\\/]+$/u, "").replace(/\.git$/iu, "");
@@ -436,6 +439,8 @@ export interface WorkspaceKitState {
   draftBase?: string;
   /** A worktree is being created for the thread that is starting. */
   preparingWorktree: boolean;
+  /** The draft offers its own worktree because another thread's turn runs in its folder (K125). */
+  worktreeSuggested?: boolean;
   /** Sections other kits add to the Changes panel. */
   changesSections: ReadonlyArray<ComponentType<ChangesSectionProps>>;
   /** Marks other kits add to rail rows. */
