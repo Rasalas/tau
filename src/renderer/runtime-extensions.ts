@@ -87,10 +87,10 @@ export interface RuntimeExtensionHost {
   importModule?(bundle: DesktopExtensionBundle): Promise<unknown>;
   isEnabled(id: string): boolean;
   notify(message: string): void;
-  /** A toast with a type, lines and actions; without it, `notify` carries the first line. */
-  toast?(options: ToastOptions): void;
+  /** A toast with a type, lines and actions. */
+  toast(options: ToastOptions): void;
   /** Opens a place in Settings, for a toast's action. */
-  openSettings?(target: string): void;
+  openSettings(target: string): void;
   log(label: string, detail?: string): void;
 }
 
@@ -207,10 +207,7 @@ export class RuntimeExtensions {
         if (bundle.granted === false) this.announceWaiting(id, record.extension.name);
         else this.host.notify(`Reloaded ${record.extension.name}`);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.registry.noteLoadFailure(bundle.path, message);
-        this.host.log("desktop-extension.failed", `${bundle.path}: ${message}`);
-        this.host.notify(`Desktop extension ${bundle.path.split("/").pop()}: ${message.split("\n")[0]}`);
+        this.reportLoadFailure(bundle, error);
       }
     }
     return this.loaded;
@@ -252,6 +249,14 @@ export class RuntimeExtensions {
     return { extension, bundle };
   }
 
+  /** A module that would not load or activate: the record, the log, and its first line as a notice. */
+  private reportLoadFailure(bundle: DesktopExtensionBundle, error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    this.registry.noteLoadFailure(bundle.path, message);
+    this.host.log("desktop-extension.failed", `${bundle.path}: ${message}`);
+    this.host.notify(`Desktop extension ${bundle.path.split("/").pop()}: ${message.split("\n")[0]}`);
+  }
+
   /**
    * A package entry that did not compile: the whole message in the log, and a
    * toast with the first error's file, line and column. The version that was
@@ -262,11 +267,6 @@ export class RuntimeExtensions {
     const first = failure.diagnostics?.[0];
     const more = (failure.diagnostics?.length ?? 0) - 1;
     const line = first ? `${diagnosticLine(first)}${more > 0 ? ` (and ${more} more)` : ""}` : failure.message.split("\n")[0] ?? failure.message;
-    if (!this.host.toast) {
-      this.host.notify(`${entryLabel(failure.path)} did not build: ${line}`);
-      return;
-    }
-    const openSettings = this.host.openSettings;
     this.host.toast({
       id: `build:${failure.path}`,
       type: "error",
@@ -274,25 +274,20 @@ export class RuntimeExtensions {
       description: `${line}. The version that was running stays.`,
       timeoutMs: 15_000,
       copyText: failure.message,
-      ...(openSettings ? { actions: [{ label: "Details", run: () => openSettings("inspector") }] } : {}),
+      actions: [{ label: "Details", run: () => this.host.openSettings("inspector") }],
     });
   }
 
   /** A package whose permissions changed runs no more until the user allows them again. */
   private announceWaiting(id: string, name: string): void {
     this.host.log("extension.awaiting-approval", id);
-    if (!this.host.toast) {
-      this.host.notify(`${name} is waiting for approval in Settings → Extensions`);
-      return;
-    }
-    const openSettings = this.host.openSettings;
     this.host.toast({
       id: `approval:${id}`,
       type: "warning",
       title: `${name} is waiting for approval`,
       description: "What it asks for changed, so it is off until you allow it again in Settings → Extensions.",
       timeoutMs: 15_000,
-      ...(openSettings ? { actions: [{ label: "Review", run: () => openSettings(`extensions/${id}`) }] } : {}),
+      actions: [{ label: "Review", run: () => this.host.openSettings(`extensions/${id}`) }],
     });
   }
 
@@ -353,10 +348,7 @@ export class RuntimeExtensions {
         next.push(record);
       } catch (error) {
         if (generation !== this.generation) return this.loaded;
-        const message = error instanceof Error ? error.message : String(error);
-        this.registry.noteLoadFailure(bundle.path, message);
-        this.host.log("desktop-extension.failed", `${bundle.path}: ${message}`);
-        this.host.notify(`Desktop extension ${bundle.path.split("/").pop()}: ${message.split("\n")[0]}`);
+        this.reportLoadFailure(bundle, error);
       }
     }
     // Newly added kit styles must still precede retained themes. Leave every

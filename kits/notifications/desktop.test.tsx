@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlatformAttention, SettingsPageProps, UiSession, WorkbenchActions } from "tau";
-import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { ThreadStore, ThreadStoreContext, ToastStore, ToastViewport, createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import notifications from "./desktop.js";
 import { ATTENTION_EVENT, IDLE_AFTER_MS, NOTIFICATIONS_EXTENSION_ID, NOTIFY_EVENT, PRESENCE_REQUEST_EVENT, type AttentionItem } from "./protocol.js";
@@ -30,18 +30,21 @@ function setup(options: { presence?: unknown; mode?: string } = {}) {
   // Off by default; most cases are about what an opted-in client shows.
   if (options.mode !== "default") preferences.setValue(NOTIFICATIONS_EXTENSION_ID, "mode", options.mode ?? "notification");
   registry.activate(notifications);
+  const toasts = new ToastStore({ schedule: () => () => undefined });
   const actions = {
     switchSession: vi.fn(async () => true),
     activeThread: vi.fn(() => ({ sessionId: "on-screen", draftPending: false })),
     notify: vi.fn(),
+    toast: toasts.show,
   } as unknown as WorkbenchActions;
   const Region = registry.getRegions("composer-above")[0]!.Component;
-  render(<Region actions={actions} />);
+  const threads = new ThreadStore();
+  threads.applyThreadIndex({ projects: [], sessions: [session("t1")] });
+  render(<ThreadStoreContext.Provider value={threads}><Region actions={actions} /><ToastViewport store={toasts} /></ThreadStoreContext.Provider>);
   const push = (name: string, payload?: unknown) => act(() => registry.dispatchExtensionEvent({ type: "extension-event", extensionId: NOTIFICATIONS_EXTENSION_ID, name, payload }));
   const presences = () => invoke.mock.calls.filter((call) => call[1] === "presence").map((call) => call[2] as { clientKey: string; focused: boolean; threadId?: string; idle?: boolean });
   const clientKey = () => presences()[0]!.clientKey;
-  registry.dispatchWorkbenchEvent({ type: "thread-index", threadIndex: { projects: [], sessions: [session("t1")] } });
-  return { registry, preferences, invoke, attention, outcomes, actions, push, presences, clientKey };
+  return { registry, preferences, invoke, attention, outcomes, actions, toasts, threads, push, presences, clientKey };
 }
 
 describe("Notifications on the desktop", () => {
@@ -115,7 +118,7 @@ describe("Notifications on the desktop", () => {
       createGain() { return { gain: { setValueAtTime: () => undefined, exponentialRampToValueAtTime: () => undefined }, connect: (next: unknown) => next }; }
     }
     vi.stubGlobal("AudioContext", FakeAudio);
-    const { push, preferences, attention, actions, clientKey } = setup();
+    const { push, preferences, attention, actions, toasts, clientKey } = setup();
     await flush();
     act(() => {
       preferences.setValue(NOTIFICATIONS_EXTENSION_ID, "mode", "both");
@@ -126,16 +129,31 @@ describe("Notifications on the desktop", () => {
     push(NOTIFY_EVENT, { clientKey: clientKey(), items: [item("t1", "question")] });
     expect(attention.notify).not.toHaveBeenCalled();
     expect(oscillators).toHaveLength(1);
-    expect(screen.getByText("Waiting for your answer")).toBeTruthy();
-    // The rail's status mark for the reason.
-    expect(document.querySelector('.notifications-toast[data-reason="question"] > svg')?.getAttribute("class")).toContain("lucide-message-circle-question-mark");
-    fireEvent.click(screen.getByText("Open"));
+    // On core's stack, one row: the thread's title and what it waits for, with the question mark.
+    const toast = await screen.findByText("Thread t1 · Waiting for your answer");
+    expect(toast.closest(".toast-item")?.getAttribute("data-type")).toBe("question");
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
     expect(actions.switchSession).toHaveBeenCalledWith("/sessions/t1.jsonl");
-    expect(screen.queryByText("Waiting for your answer")).toBeNull();
+    await waitFor(() => expect(screen.queryByText("Thread t1 · Waiting for your answer")).toBeNull());
+    expect(toasts.getToasts()).toEqual([]);
     // Without the toast the same window gets the system notification.
     act(() => { preferences.setOption(NOTIFICATIONS_EXTENSION_ID, "toasts", false); });
     push(NOTIFY_EVENT, { clientKey: clientKey(), items: [item("t1")] });
     expect(attention.notify).toHaveBeenCalledOnce();
+  });
+
+  it("names a thread made after the window connected by the title the rail shows, and keeps one toast per thread", async () => {
+    const { push, preferences, toasts, threads, clientKey } = setup();
+    await flush();
+    act(() => { preferences.setOption(NOTIFICATIONS_EXTENSION_ID, "toasts", true); });
+    focused = true;
+    // Only the window's live index knows the new thread; the host has no title for it.
+    act(() => { threads.applyThreadIndex({ projects: [], sessions: [session("t1"), session("t2")] }); });
+    push(NOTIFY_EVENT, { clientKey: clientKey(), items: [{ threadId: "t2", reason: "completed", at: 1 }] });
+    expect(await screen.findByText("Thread t2 · Finished")).toBeTruthy();
+    push(NOTIFY_EVENT, { clientKey: clientKey(), items: [{ threadId: "t2", reason: "failed", at: 2 }] });
+    expect(await screen.findByText("Thread t2 · Stopped with an error")).toBeTruthy();
+    expect(toasts.getToasts().map((toast) => toast.type)).toEqual(["error"]);
   });
 
   it("speaks about the thread on screen only when asked to", async () => {

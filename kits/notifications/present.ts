@@ -71,6 +71,8 @@ const HEADLINES: Record<AttentionReason, string> = {
   approval: "Waiting for your approval",
 };
 
+export const headline = (reason: AttentionReason): string => HEADLINES[reason];
+
 /** Title and body of one notification for one or several threads, newest first. */
 export function describe(items: readonly AttentionItem[], titleOf: (item: AttentionItem) => string): { title: string; body: string } {
   const [first] = items;

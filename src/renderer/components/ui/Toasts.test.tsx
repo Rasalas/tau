@@ -7,15 +7,15 @@ import { ThreadViewStore } from "../../../workbench/thread-view-store";
 import { ToastStore } from "../../../workbench/toast-store";
 import { PlatformProvider } from "../../platform-context";
 import { showNoticesAsToasts } from "../../use-workbench-toasts";
-import { ToastViewport, layoutToasts, toastSwipeDismisses, type ToastPlacement } from "./Toasts";
+import { ToastViewport, layoutToasts, toastSwipeDismisses } from "./Toasts";
 
 afterEach(cleanup);
 
-function setup(writeText = vi.fn(async () => undefined), placement?: ToastPlacement) {
+function setup(writeText = vi.fn(async () => undefined), touch = false) {
   const timers: Array<{ run: () => void; cancelled: boolean }> = [];
   const store = new ToastStore({ schedule: (run) => { const timer = { run, cancelled: false }; timers.push(timer); return () => { timer.cancelled = true; }; } });
   const platform: Platform = { clipboard: { writeText }, openExternal: () => undefined, storage: createMemoryStorage(), importModule: async () => ({}) };
-  render(<PlatformProvider platform={platform}><ToastViewport store={store} {...(placement ? { placement } : {})} /></PlatformProvider>);
+  render(<PlatformProvider platform={platform}><ToastViewport store={store} touch={touch} /></PlatformProvider>);
   /** Runs every clock that is still set, as if its time ran out. */
   const expire = () => act(() => { for (const timer of timers.splice(0)) if (!timer.cancelled) timer.run(); });
   return { store, writeText, expire };
@@ -36,6 +36,14 @@ describe("ToastViewport", () => {
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     expect(undo).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Archived 1 thread")).toBeNull();
+  });
+
+  it("reads as one line: the title, then the description", () => {
+    const { store } = setup();
+    act(() => { store.show({ type: "question", title: "Rate limiting", description: "Waiting for your answer" }); });
+    const item = document.querySelector<HTMLElement>(".toast-item")!;
+    expect(item.querySelector(".toast-body")!.textContent).toBe("Rate limiting · Waiting for your answer");
+    expect(item.querySelector(".toast-type svg")!.getAttribute("class")).toMatch(/lucide-circle-(help|question-mark)/u);
   });
 
   it("copies what it was given to copy and closes on its own button", async () => {
@@ -71,26 +79,78 @@ describe("ToastViewport", () => {
   });
 });
 
+describe("ToastViewport's place", () => {
+  const box = (left: number, top: number, right: number, bottom: number) => () => ({ left, top, right, bottom, width: right - left, height: bottom - top, x: left, y: top, toJSON: () => ({}) });
+  /** A conversation column and its docked composer, as the workbench draws them. */
+  function workbench(column: [number, number, number, number], surface: [number, number, number, number]) {
+    const columnElement = document.createElement("div");
+    columnElement.className = "conversation-column";
+    columnElement.getBoundingClientRect = box(...column);
+    const host = document.createElement("div");
+    host.className = "conversation-composer-host docked";
+    host.getBoundingClientRect = box(column[0], surface[1] - 14, column[2], column[3]);
+    const composer = document.createElement("div");
+    composer.className = "composer-surface";
+    composer.getBoundingClientRect = box(...surface);
+    host.append(composer);
+    columnElement.append(host);
+    document.body.append(columnElement);
+    return () => columnElement.remove();
+  }
+  const stackStyle = () => screen.getByRole("region", { name: "Notifications" }).style;
+
+  it("sits in the conversation's bottom-right corner where the composer leaves room", () => {
+    vi.stubGlobal("innerWidth", 1920);
+    vi.stubGlobal("innerHeight", 1000);
+    const remove = workbench([248, 0, 1920, 1000], [694, 890, 1474, 980]);
+    try {
+      const { store } = setup();
+      act(() => { store.show({ description: "Saved" }); });
+      expect([stackStyle().right, stackStyle().bottom, stackStyle().width]).toEqual(["12px", "12px", "360px"]);
+    } finally { remove(); vi.unstubAllGlobals(); }
+  });
+
+  it("lifts over the composer it would cover, and keeps left of an open stage", () => {
+    vi.stubGlobal("innerWidth", 1540);
+    vi.stubGlobal("innerHeight", 980);
+    // The stage takes the window's right from x 628; the column is narrower than a toast.
+    const remove = workbench([248, 0, 628, 980], [280, 884, 596, 964]);
+    try {
+      const { store } = setup();
+      act(() => { store.show({ description: "Saved" }); });
+      expect([stackStyle().right, stackStyle().bottom, stackStyle().width]).toEqual(["924px", "104px", "356px"]);
+    } finally { remove(); vi.unstubAllGlobals(); }
+  });
+
+  it("on a touch layout, keeps over the docked composer and leaves its width to the stylesheet", () => {
+    vi.stubGlobal("innerWidth", 390);
+    vi.stubGlobal("innerHeight", 844);
+    const remove = workbench([0, 0, 390, 844], [8, 760, 382, 836]);
+    try {
+      const { store } = setup(undefined, true);
+      act(() => { store.show({ description: "Saved" }); });
+      expect([stackStyle().right, stackStyle().bottom, stackStyle().width]).toEqual(["", "106px", ""]);
+    } finally { remove(); vi.unstubAllGlobals(); }
+  });
+});
+
 describe("ToastViewport on a touch layout", () => {
-  it("stacks from the bottom, the newest nearest the thumb and the older ones peeking above it", () => {
+  it("stacks from the bottom, the newest nearest the edge and the older ones peeking above it", () => {
     const toasts = [{ id: "new", type: "info" as const }, { id: "old", type: "info" as const }];
     const heights = new Map([["new", 60], ["old", 80]]);
-    const collapsed = layoutToasts(toasts, heights, false, "bottom");
-    expect(collapsed.height).toBe(68);
-    expect(collapsed.items[0]!.style.transform).toContain("translateY(8px) scale(1)");
-    // The older one's top edge peeks 8 px above the newest.
-    expect(collapsed.items[1]!.style.transform).toMatch(/translateY\(-3(\.0+\d*)?px\) scale\(0\.95\)/u);
-    const expanded = layoutToasts(toasts, heights, true, "bottom");
-    expect(expanded.height).toBe(148);
-    expect(expanded.items.map((item) => item.style.transform)).toEqual([
-      "translateX(var(--toast-swipe-x, 0px)) translateY(88px) scale(1)",
+    const collapsed = layoutToasts(toasts, heights, false);
+    expect(collapsed[0]!.style.transform).toContain("translateY(0px) scale(1)");
+    // The older one's top edge peeks 8 px above the newest: 8 px up, and 3 px for its smaller scale.
+    expect(collapsed[1]!.style.transform).toMatch(/translateY\(-11(\.0+\d*)?px\) scale\(0\.95\)/u);
+    expect(collapsed[1]!.style.height).toBe(60);
+    expect(layoutToasts(toasts, heights, true).map((item) => item.style.transform)).toEqual([
       "translateX(var(--toast-swipe-x, 0px)) translateY(0px) scale(1)",
+      "translateX(var(--toast-swipe-x, 0px)) translateY(-68px) scale(1)",
     ]);
-    expect(layoutToasts(toasts, heights, true, "top").items[1]!.style.transform).toContain("translateY(68px)");
   });
 
   it("keeps a toast a sheet is drawn over until it can be seen", () => {
-    const { store, expire } = setup(undefined, "bottom");
+    const { store, expire } = setup(undefined, true);
     act(() => { store.show({ id: "update", title: "Update available" }); });
     const item = document.querySelector<HTMLElement>(".toast-item")!;
     item.getBoundingClientRect = () => ({ left: 0, top: 700, width: 360, height: 80, right: 360, bottom: 780, x: 0, y: 700, toJSON: () => ({}) });
@@ -122,7 +182,7 @@ describe("ToastViewport on a touch layout", () => {
   it("slides a toast out under a finger that swipes it sideways", () => {
     vi.useFakeTimers();
     try {
-      const { store } = setup(undefined, "bottom");
+      const { store } = setup(undefined, true);
       act(() => { store.show({ id: "a", title: "Saved", actions: [{ label: "Undo", run: vi.fn() }] }); });
       const item = document.querySelector<HTMLElement>(".toast-item")!;
       Object.defineProperty(item, "offsetWidth", { configurable: true, value: 360 });
@@ -147,7 +207,7 @@ describe("ToastViewport on a touch layout", () => {
   });
 
   it("springs back after a short swipe and keeps the toast", () => {
-    const { store } = setup(undefined, "bottom");
+    const { store } = setup(undefined, true);
     act(() => { store.show({ id: "a", title: "Saved" }); });
     const item = document.querySelector<HTMLElement>(".toast-item")!;
     Object.defineProperty(item, "offsetWidth", { configurable: true, value: 360 });

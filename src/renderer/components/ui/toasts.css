@@ -1,37 +1,37 @@
 /*
- * The toast stack, top right under the title bar: the newest in
- * front, the others peeking under it until the pointer or focus opens the
- * stack. Positions come from `ToastViewport`; these rules draw the frame.
+ * The toast stack, bottom right beside the composer: the newest in front,
+ * the others peeking above it until the pointer or focus opens the stack.
+ * Place and positions come from `ToastViewport`; these rules draw the frame.
  * Loaded with the stack's own chunk on the first toast, so it costs the first
  * paint nothing.
  */
 .toast-stack {
-  position: fixed; top: 54px; right: 12px; z-index: 90;
+  position: fixed; right: 12px; bottom: 12px; z-index: 90;
   width: min(360px, calc(100vw - 24px)); pointer-events: none;
 }
 .toast-item {
-  position: absolute; top: 0; left: 0; right: 0; overflow: hidden; pointer-events: auto;
+  position: absolute; bottom: 0; left: 0; right: 0; overflow: hidden; pointer-events: auto;
   border: 1px solid var(--line-float); border-radius: var(--radius-md);
-  background: var(--float); color: var(--ink-2); box-shadow: var(--elevation-2);
-  transform-origin: top center; outline: none;
-  transition: transform var(--motion) var(--ease), height var(--motion) var(--ease);
+  background: var(--float); color: var(--ink); box-shadow: var(--elevation-2);
+  transform-origin: bottom center; outline: none;
+  transition: transform var(--motion) var(--ease), height var(--motion) var(--ease), opacity var(--motion) var(--ease);
   animation: toast-enter var(--motion) var(--ease);
 }
 .toast-item:focus-visible { border-color: var(--focus); }
-@keyframes toast-enter { from { opacity: 0; translate: 0 -8px; } }
+@keyframes toast-enter { from { opacity: 0; translate: 0 8px; } }
 @media (prefers-reduced-motion: reduce) { .toast-item { animation: none; transition: none; } }
 /* One row, as in the design: icon, text, action, dismiss, all on the first line's 28px. */
 .toast-card { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px 10px 14px; }
 .toast-item[data-behind] .toast-card { visibility: hidden; }
 .toast-type { flex: none; display: grid; height: 28px; place-items: center; color: var(--muted); }
 .toast-item[data-type="success"] .toast-type { color: var(--ready); }
-.toast-item[data-type="warning"] .toast-type { color: var(--warn); }
+.toast-item[data-type="warning"] .toast-type, .toast-item[data-type="question"] .toast-type { color: var(--warn); }
 .toast-item[data-type="error"] .toast-type { color: var(--danger); }
-.toast-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding-block: 5px; font: calc(var(--text-sm) + .5px)/18px var(--sans); }
-.toast-body > strong { color: var(--ink); font-weight: 500; }
 /* `anywhere`: an error is often a bare URL or a JSON blob with no space to break at. */
-.toast-body > p { margin: 0; color: var(--ink-2); overflow-wrap: anywhere; max-height: 180px; overflow: auto; }
-.toast-body > strong + p { color: var(--muted); }
+.toast-body {
+  flex: 1; min-width: 0; margin: 0; padding-block: 5px; max-height: 180px; overflow: auto; overflow-wrap: anywhere;
+  font: calc(var(--text-sm) + .5px)/18px var(--sans);
+}
 .toast-actions { flex: none; display: flex; }
 .toast-actions > button {
   border: 0; border-radius: var(--radius-sm); background: transparent; white-space: nowrap;
@@ -47,26 +47,20 @@
 .toast-actions + .toast-icon-button, .toast-icon-button + .toast-icon-button { margin-left: -6px; }
 
 /*
- * A touch layout: the stack sits at the bottom, over the docked composer
- * (`ToastViewport` sets `bottom` from it) or over the keyboard and home
- * indicator, and under every sheet, dialog and Settings (z-index 50 and up),
- * so a toast never takes a tap meant for one. Swiped sideways, it goes.
+ * A touch layout: the stack sits over the docked composer (`ToastViewport`
+ * sets `bottom` from it) or over the keyboard and home indicator, and under
+ * every sheet, dialog and Settings (z-index 50 and up), so a toast never
+ * takes a tap meant for one. Swiped sideways, it goes.
  */
-.toast-stack[data-placement="bottom"] {
-  top: auto; z-index: 45; margin-inline: auto; width: auto; max-width: 480px;
+.toast-stack[data-touch] {
+  z-index: 45; margin-inline: auto; width: auto; max-width: 480px;
   left: max(12px, env(safe-area-inset-left, 0px)); right: max(12px, env(safe-area-inset-right, 0px));
   bottom: calc(var(--tau-keyboard-inset, 0px) + env(safe-area-inset-bottom, 0px) + 12px);
 }
-.toast-stack[data-placement="bottom"] .toast-item {
-  transform-origin: bottom center; touch-action: pan-y;
-  transition: transform var(--motion) var(--ease), height var(--motion) var(--ease), opacity var(--motion) var(--ease);
-  animation-name: toast-enter-up;
-}
-@keyframes toast-enter-up { from { opacity: 0; translate: 0 8px; } }
-@media (prefers-reduced-motion: reduce) { .toast-stack[data-placement="bottom"] .toast-item { animation: none; } }
-.toast-stack[data-placement="bottom"] .toast-card { padding: 4px 4px 4px 14px; }
-.toast-stack[data-placement="bottom"] .toast-type { height: 44px; }
-.toast-stack[data-placement="bottom"] .toast-body { padding-block: 12px; font-size: var(--text-md); line-height: 20px; }
-.toast-stack[data-placement="bottom"] .toast-icon-button { width: 44px; height: 44px; }
-.toast-stack[data-placement="bottom"] .toast-icon-button > svg { width: 18px; height: 18px; }
-.toast-stack[data-placement="bottom"] .toast-actions > button { line-height: var(--touch-target); padding: 0 12px; font-size: var(--text-md); }
+.toast-stack[data-touch] .toast-item { touch-action: pan-y; }
+.toast-stack[data-touch] .toast-card { padding: 4px 4px 4px 14px; }
+.toast-stack[data-touch] .toast-type { height: 44px; }
+.toast-stack[data-touch] .toast-body { padding-block: 12px; font-size: var(--text-md); line-height: 20px; }
+.toast-stack[data-touch] .toast-icon-button { width: 44px; height: 44px; }
+.toast-stack[data-touch] .toast-icon-button > svg { width: 18px; height: 18px; }
+.toast-stack[data-touch] .toast-actions > button { line-height: var(--touch-target); padding: 0 12px; font-size: var(--text-md); }

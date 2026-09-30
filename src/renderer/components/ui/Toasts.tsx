@@ -1,8 +1,7 @@
-import { useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { Check, CircleAlert, CircleCheck, Copy, Info, TriangleAlert, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
+import { Check, CircleAlert, CircleCheck, CircleHelp, Copy, Info, TriangleAlert, X } from "lucide-react";
 import type { Toast, ToastStore, ToastType } from "../../../workbench/toast-store";
 import { usePlatform } from "../../platform-context";
-import { useKeepClear } from "../../reserved-region";
 import { swipeAxis, type SwipeAxis } from "../../touch/swipe-gesture";
 import { tooltipProps } from "./Tooltip";
 import { Spinner } from "./Feedback";
@@ -26,29 +25,20 @@ export function toastSwipeDismisses(dx: number, width: number, velocity: number)
   return distance >= width * SWIPE_DISMISS_SHARE || (distance >= SWIPE_DISMISS_MIN_PX && sameWay && Math.abs(velocity) >= SWIPE_DISMISS_VELOCITY);
 }
 
-export type ToastPlacement = "top" | "bottom";
-
 interface Placed { toast: Toast; index: number; style: CSSProperties }
 
 /**
- * Where each visible toast sits in the stack, and how tall the stack is. From
- * the top, the newest is first and the others peek under it; from the bottom,
- * the newest is last, nearest the thumb, and the others peek above it.
+ * Where each visible toast sits, from the stack's bottom edge: the newest
+ * there, and the others peeking above it or, expanded, laid out apart.
  */
-export function layoutToasts(visible: readonly Toast[], heights: ReadonlyMap<string, number>, expanded: boolean, placement: ToastPlacement): { items: Placed[]; height: number } {
+export function layoutToasts(visible: readonly Toast[], heights: ReadonlyMap<string, number>, expanded: boolean): Placed[] {
   const front = heights.get(visible[0]?.id ?? "") ?? 0;
-  const sizes = visible.map((toast) => heights.get(toast.id) ?? front);
-  const height = expanded
-    ? Math.max(0, sizes.reduce((sum, size) => sum + size + GAP, 0) - GAP)
-    : front + Math.max(0, visible.length - 1) * PEEK;
   let offset = 0;
-  const items = visible.map((toast, index) => {
-    const size = sizes[index]!;
+  return visible.map((toast, index) => {
     const scale = expanded ? 1 : 1 - index * SHRINK;
-    let y: number;
-    if (placement === "top") y = expanded ? offset : index * PEEK + (1 - scale) * front;
-    else y = expanded ? height - offset - size : height - front - index * PEEK - (1 - scale) * front;
-    offset += size + GAP;
+    // Anchored at the bottom, so the front toast stays put as the others fan out.
+    const y = expanded ? -offset : -index * PEEK - (1 - scale) * front;
+    offset += (heights.get(toast.id) ?? front) + GAP;
     const style: CSSProperties = {
       zIndex: visible.length - index,
       transform: `translateX(var(--toast-swipe-x, 0px)) translateY(${y}px) scale(${scale})`,
@@ -56,7 +46,6 @@ export function layoutToasts(visible: readonly Toast[], heights: ReadonlyMap<str
     };
     return { toast, index, style };
   });
-  return { items, height };
 }
 
 const ICONS: Record<ToastType, ReactNode> = {
@@ -65,6 +54,7 @@ const ICONS: Record<ToastType, ReactNode> = {
   warning: <TriangleAlert size={14} />,
   error: <CircleAlert size={14} />,
   loading: <Spinner size="sm" />,
+  question: <CircleHelp size={14} />,
 };
 
 function CopyButton({ text }: { text: string }) {
@@ -72,8 +62,8 @@ function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
-    const timer = window.setTimeout(() => setCopied(false), 1400);
-    return () => window.clearTimeout(timer);
+    const timer = setTimeout(() => setCopied(false), 1400);
+    return () => clearTimeout(timer);
   }, [copied]);
   const label = copied ? "Copied" : "Copy";
   return (
@@ -92,10 +82,7 @@ function ToastCard({ toast, store }: { toast: Toast; store: ToastStore }) {
   return (
     <>
       <span className="toast-type" aria-hidden="true">{ICONS[toast.type]}</span>
-      <div className="toast-body">
-        {toast.title ? <strong>{toast.title}</strong> : null}
-        {toast.description ? <p>{toast.description}</p> : null}
-      </div>
+      <p className="toast-body">{[toast.title, toast.description].filter(Boolean).join(" · ")}</p>
       {toast.actions?.length ? (
         <div className="toast-actions">
           {toast.actions.map((action) => (
@@ -116,15 +103,16 @@ function ToastCard({ toast, store }: { toast: Toast; store: ToastStore }) {
 }
 
 /**
- * The toast stack in the window's top-right corner: the
- * newest in front, up to `maxVisible` peeking behind it, all of them laid out
- * apart while the pointer or focus is on the stack. F6 moves focus into it.
+ * The toast stack in the bottom-right corner of the conversation, beside the
+ * stage and over the docked composer where the two would meet: the newest in
+ * front, up to `maxVisible` peeking behind it, all of them laid out apart
+ * while the pointer or focus is on the stack. F6 moves focus into it.
  *
- * On a touch layout (`placement: "bottom"`) the stack sits above the docked
- * composer, under every sheet and dialog, so it never takes a tap meant for
- * one; a toast a sheet covers keeps its time, and a sideways swipe dismisses.
+ * On a touch layout the stack sits above the docked composer, under every
+ * sheet and dialog, so it never takes a tap meant for one; a toast a sheet
+ * covers keeps its time, and a sideways swipe dismisses.
  */
-export function ToastViewport({ store, placement = "top" }: { store: ToastStore; placement?: ToastPlacement }) {
+export function ToastViewport({ store, touch = false }: { store: ToastStore; touch?: boolean }) {
   const toasts = useSyncExternalStore(store.subscribe, store.getToasts);
   const visible = toasts.slice(0, store.maxVisible);
   const [hovered, setHovered] = useState(false);
@@ -146,14 +134,12 @@ export function ToastViewport({ store, placement = "top" }: { store: ToastStore;
     if (changed) remeasured();
   }));
   useEffect(() => () => observer?.disconnect(), [observer]);
-  useKeepClear(stack, visible.length > 0);
-  const bottom = placement === "bottom";
-  const floor = useComposerFloor(bottom && visible.length > 0);
-  useEffect(() => bottom ? store.deferExpiry((id) => isCovered(stack.current, id)) : undefined, [bottom, store]);
+  useStackPlace(stack, touch, visible.length);
+  useEffect(() => touch ? store.deferExpiry((id) => isCovered(stack.current, id)) : undefined, [touch, store]);
   const swipe = useToastSwipe(store);
 
   useEffect(() => {
-    const onVisibility = () => document.visibilityState === "hidden" ? store.hold("hidden") : store.release("hidden");
+    const onVisibility = () => store[document.visibilityState === "hidden" ? "hold" : "release"]("hidden");
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "F6" || !stack.current?.firstElementChild) return;
       event.preventDefault();
@@ -182,18 +168,15 @@ export function ToastViewport({ store, placement = "top" }: { store: ToastStore;
     if (focused && !stack.current?.contains(document.activeElement)) setFocused(false);
   }, [focused, toasts]);
   useEffect(() => {
-    if (hovered) store.hold("hover"); else store.release("hover");
-  }, [hovered, store]);
-  useEffect(() => {
-    if (focused) store.hold("focus"); else store.release("focus");
-  }, [focused, store]);
+    store[hovered ? "hold" : "release"]("hover");
+    store[focused ? "hold" : "release"]("focus");
+  }, [hovered, focused, store]);
   useEffect(() => {
     if (visible.length > 0) return;
     setHovered(false);
     setFocused(false);
   }, [visible.length]);
 
-  const { items: layout, height: stackHeight } = layoutToasts(visible, heights.current, expanded, placement);
 
   return (
     <section
@@ -201,14 +184,13 @@ export function ToastViewport({ store, placement = "top" }: { store: ToastStore;
       className="toast-stack"
       aria-label="Notifications"
       data-expanded={expanded || undefined}
-      data-placement={placement}
-      style={{ height: stackHeight, ...(bottom && floor !== undefined ? { bottom: floor } : {}) }}
+      data-touch={touch || undefined}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
       onFocus={() => setFocused(true)}
       onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false); }}
     >
-      {layout.map(({ toast, index, style }) => (
+      {layoutToasts(visible, heights.current, expanded).map(({ toast, index, style }) => (
         <div
           key={toast.id}
           className="toast-item"
@@ -218,7 +200,7 @@ export function ToastViewport({ store, placement = "top" }: { store: ToastStore;
           role={toast.type === "error" ? "alert" : "status"}
           tabIndex={-1}
           style={style}
-          {...(bottom ? swipe(toast.id) : {})}
+          {...(touch ? swipe(toast.id) : {})}
         >
           {/* Measured, not the frame: a toast behind the front one is clipped to the front's height. */}
           <div
@@ -239,40 +221,49 @@ export function ToastViewport({ store, placement = "top" }: { store: ToastStore;
 }
 
 /**
- * How far above the bottom edge the stack keeps: over the composer while it is
- * docked there, else `undefined` and the stylesheet's keyboard and safe-area
- * inset apply.
+ * Places the stack. Desktop: the conversation's bottom right, clear of the
+ * stage, lifted over the docked composer where the two would overlap. Touch:
+ * over the docked composer, else the stylesheet's insets apply.
  */
-function useComposerFloor(active: boolean): number | undefined {
-  const [floor, setFloor] = useState<number | undefined>(undefined);
+function useStackPlace(stack: RefObject<HTMLElement | null>, touch: boolean, count: number): void {
   useLayoutEffect(() => {
-    if (!active) { setFloor(undefined); return undefined; }
+    const style = stack.current?.style;
+    if (!style || !count) return undefined;
     const composer = document.querySelector<HTMLElement>(".conversation-composer-host");
+    const column = document.querySelector<HTMLElement>(".conversation-column");
     const measure = () => {
-      const rect = composer?.isConnected && composer.classList.contains("docked") ? composer.getBoundingClientRect() : undefined;
-      setFloor(rect && rect.height > 0 ? Math.max(0, Math.round(window.innerHeight - rect.top)) + GAP : undefined);
+      const dock = composer?.classList.contains("docked") && (touch ? composer : composer.querySelector(".composer-surface") ?? composer).getBoundingClientRect();
+      const lift = dock && dock.height ? innerHeight - dock.top + GAP : 0;
+      if (touch) { style.bottom = lift ? `${lift}px` : ""; return; }
+      // Without a conversation on screen (a maximized stage), the window's corner.
+      const box = column?.getBoundingClientRect();
+      const area = box?.width ? box : new DOMRect(0, 0, innerWidth, innerHeight);
+      const edge = area.right - 12;
+      const width = Math.min(360, area.width - 24);
+      const floor = innerHeight - area.bottom + 12;
+      Object.assign(style, {
+        right: `${innerWidth - edge}px`,
+        width: `${width}px`,
+        bottom: `${dock && dock.right > edge - width && dock.left < edge ? Math.max(floor, lift) : floor}px`,
+      });
     };
     measure();
     const resized = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
-    const moved = typeof MutationObserver === "undefined" ? undefined : new MutationObserver(measure);
-    if (composer) {
-      resized?.observe(composer);
-      // `style`: the move between start and docked is a transform, measured again once it is cleared.
-      moved?.observe(composer, { attributes: true, attributeFilter: ["class", "style"] });
-    }
+    const moved = new MutationObserver(measure);
+    for (const element of [composer, column]) if (element) resized?.observe(element);
+    // `style`: the move between start and docked is a transform, measured again once it is cleared.
+    if (composer) moved.observe(composer, { attributes: true, attributeFilter: ["class", "style"] });
+    // The column and the composer resize with the window; the keyboard only moves the visual viewport.
     const viewport = window.visualViewport;
-    window.addEventListener("resize", measure);
     viewport?.addEventListener("resize", measure);
     viewport?.addEventListener("scroll", measure);
     return () => {
       resized?.disconnect();
-      moved?.disconnect();
-      window.removeEventListener("resize", measure);
+      moved.disconnect();
       viewport?.removeEventListener("resize", measure);
       viewport?.removeEventListener("scroll", measure);
     };
-  }, [active]);
-  return floor;
+  }, [stack, touch, count]);
 }
 
 /** Whether something is drawn over the toast's middle: a sheet, a dialog, Settings. */
