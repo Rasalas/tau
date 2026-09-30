@@ -68,7 +68,8 @@ export async function startFakeModelServer({ respond = fakeReply } = {}) {
       let closed = false;
       const gone = new Promise((resolve) => response.on("close", () => { closed = true; resolve(); }));
       response.write(chunk({ delta: { role: "assistant", content: "" }, finish_reason: null }));
-      for (let spent = 0; reply.thinkMs && spent < reply.thinkMs && !closed; spent += 250) {
+      for (let spent = 0; reply.thinkMs && spent < reply.thinkMs; spent += 250) {
+        if (closed) return;
         response.write(chunk({ delta: { reasoning_content: spent ? " and weighing it" : "Reading the request" }, finish_reason: null }));
         await new Promise((resolve) => setTimeout(resolve, 250));
       }
