@@ -61,9 +61,13 @@ Connect enthält zunächst einen selbst betriebenen Dienst. Für externen Betrie
 braucht er einen veröffentlichten HTTPS-Endpunkt und signierte portable Releases.
 Das vorhandene Firebase-Projekt `tau-push-e3c95` betreibt bereits das
 Push-Message-Relay für APNs und FCM. Der Connect-Transport für dauerhafte
-Chat-Verbindungen wird im Folge-MR für Cloud Run im selben Projekt vorbereitet;
-dafür ist kein separater Server oder eine eigene Domain erforderlich. Dieser
-kostenpflichtige Betrieb bleibt optional und wurde nicht aktiviert.
+Chat-Verbindungen wurde für Cloud Run im selben Projekt vorbereitet, aber
+wegen laufender Kosten ausdrücklich zurückgestellt. Die Vorbereitung bleibt
+in [MR #4](https://github.com/Rasalas/tau/pull/4) auf `feat/cloud-connect`,
+geschlossen ohne Merge. Sie wird nicht in den Folge-MR übernommen. Es wurden
+keine Cloud-Ressourcen angelegt. Der bestehende Push-Deploy-Befehl aktiviert
+keinen Connect-Dienst. Tailscale, SSH und direkte Verbindungen bleiben die
+zunächst vorgesehenen Wege für Fernzugriff.
 Browser-Connect ist in dieser ersten Umsetzung noch nicht unterstützt; die Plattform stellt
 die benötigte zweite TLS-Verbindung mit Host-Pin nicht direkt bereit.
 

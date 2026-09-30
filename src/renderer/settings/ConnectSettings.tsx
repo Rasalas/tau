@@ -27,7 +27,8 @@ export function ConnectSettings({ onNotify }: { onNotify(message: string): void 
     finally { setBusy(false); }
   };
   return <SettingsSection title="Tau Connect">
-    <p>Reach this machine across networks through your own Tau relay. Deploy the relay before registering this machine.</p>
+    <p>Reach this machine across networks through a relay you already operate. Registering here does not create or deploy a relay.</p>
+    <p>Keeping this machine connected can incur ongoing hosting charges, even without messages. Check your relay provider's costs first. Tailscale and SSH are also available.</p>
     {status.phase === "disabled" ? <form onSubmit={(event) => { event.preventDefault(); void run(async () => { const next = await client!.configureConnect!({ relay, enrollmentToken: token }); setStatus(next); setToken(""); }); }}>
       <label className="machine-add-field"><span>Relay address</span><input aria-label="Relay address" type="url" placeholder="https://connect.example.com" value={relay} onChange={(event) => setRelay(event.target.value)} disabled={busy} required /></label>
       <label className="machine-add-field"><span>Enrollment token</span><input aria-label="Enrollment token" type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} disabled={busy} required /></label>
