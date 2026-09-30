@@ -18,7 +18,7 @@ import {
 import { mergeBlocker, type LocalReview } from "./local-reviews.js";
 import type { LocalReviewsStore, ReviewRun } from "./local-reviews-store.js";
 import type { PendingReviewComment } from "./protocol.js";
-import { threadKey, lineKeys } from "./pull-request-logic.js";
+import { lineKeys, orderFiles, threadKey } from "./pull-request-logic.js";
 import { CheckIcon, ReplyBox } from "./pull-request-parts.js";
 import { LayoutToggle, ReviewDetailFrame, useBackKeys, type FrameTab } from "./review-detail-frame.js";
 import type { DetailNote, DetailParts, DetailState } from "./review-detail-store.js";
@@ -126,7 +126,11 @@ export function LocalReviewDetail({ review, parts, detail, act, actions, back }:
     return () => { live = false; };
   }, [parts.store, review.key, review.tip]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const files = useMemo<StackFile[]>(() => review.paths.map((file) => ({ ...file, ...(review.conflicts.includes(file.path) ? { conflict: true } : {}) })), [review.paths, review.conflicts]);
+  // The conflicting files first, as 2e shows them.
+  const files = useMemo<StackFile[]>(() => {
+    const ordered = orderFiles(review.paths).map((file) => ({ ...file, ...(review.conflicts.includes(file.path) ? { conflict: true } : {}) }));
+    return [...ordered.filter((file) => file.conflict), ...ordered.filter((file) => !file.conflict)];
+  }, [review.paths, review.conflicts]);
   const runs: ReviewRun[] = parts.store.latestRuns(review.path ?? "");
 
   const readDiff = useCallback((path: string): Promise<UiFileDiff> => parts.host.invoke("file-diff", { workspace: review.workspace, relPath: path, options: { scope: "branch", baseRef: review.target } }) as Promise<UiFileDiff>,

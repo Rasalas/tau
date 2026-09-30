@@ -953,6 +953,8 @@ body[data-profile="compact"] .pr-verdict { min-height: var(--touch-target); padd
 .rvd-layout > button.active { background: var(--rail); color: var(--ink); font-weight: 600; }
 .rvd-body { flex: 1; min-height: 0; overflow: auto; margin-left: var(--space-8); border-radius: var(--radius-lg) 0 0 0; background: var(--rail); }
 .rvd-stack { display: flex; flex-direction: column; }
+/* Room under the last file, so a jump from the sidebar can put it at the top. */
+.rvd-stack::after { content: ""; display: block; height: 40vh; }
 .rvd-file { display: block; }
 .rvd-file + .rvd-file { margin-top: var(--space-5); }
 .rvd-file-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: var(--space-5); min-height: 36px; padding: 0 var(--space-7) 0 var(--space-3); background: var(--rail); color: var(--muted); font: var(--text-sm) var(--sans); border-bottom: 1px solid var(--line-soft); }
@@ -979,12 +981,16 @@ body[data-profile="compact"] .pr-verdict { min-height: var(--touch-target); padd
 .rvd-note-body { white-space: pre-wrap; overflow-wrap: anywhere; }
 .rvd-note-body > strong { margin-right: 6px; color: var(--ink); }
 .rvd-note-actions { display: flex; gap: var(--space-5); }
+.rvd-note-actions .text-button { font: 500 var(--text-sm) var(--sans); }
 .rvd-turns, .rvd-runs { margin: 0; padding: var(--space-4) var(--space-7); list-style: none; display: flex; flex-direction: column; gap: 2px; background: var(--stage); }
 .rvd-turns > li, .rvd-runs > li { display: flex; align-items: center; gap: var(--space-5); padding: 6px var(--space-4); border-radius: var(--radius-sm); font: var(--text-md) var(--sans); }
 .rvd-turns > li > span:first-child { min-width: 18px; color: var(--faint); font-variant-numeric: tabular-nums; }
 .rvd-runs > li > span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rvd-run-status { color: var(--muted); font: var(--text-xs) var(--mono); }
 .rvd-run-status.failed { color: var(--fail-ink); }
+
+/* The review names itself and its sidebar leads back; the page head above it would say the same twice. */
+.app-page:has(.rvd) .app-page-head { display: none; }
 
 /* The sidebar in a review: core's Back to thread goes, this column has its own way back at both ends. */
 .page-sidebar[data-page-sidebar="review.reviews"]:has(.rvd-side) > .settings-back-top,

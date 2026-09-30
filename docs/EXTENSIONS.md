@@ -2868,6 +2868,9 @@ The page's own host commands (`local-reviews`, `local-review-merge`,
 `local-review-remove`) are for its desktop half; `local-reviews` also counts a
 branch merged when a thread in its worktree links a pull request of that branch
 last seen merged (`mergedBy: "request"`, from the stored link, no host call); `local-reviews-changed` tells every window to read again.
+`local-review-summary` also names the thread's turns (`prompts`, the first line of each prompt) for the review's sidebar.
+
+A review opens as one view (design 1e) for a local review and a remote pull request (`local-review-detail.tsx`, `remote-review-detail.tsx`, on the shared `review-detail-frame.tsx`). Its sidebar is the kit's `Sidebar` for the page: core's Back to thread buttons are hidden by the kit's stylesheet while `.rvd-side` is drawn, and the page tells the sidebar what it holds through `ReviewDetailStore`. Files are drawn under each other (`review-diff-stack.tsx`), each fetched and drawn when it comes near the viewport; a file over 400 lines scrolls inside its card.
 
 ### A package's own settings: `services.settings(cwd?)` (new in API 1.12.0)
 
