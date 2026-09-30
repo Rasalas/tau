@@ -33,7 +33,7 @@ import { DefaultBranchPuller } from "./default-branch-pull.js";
 import { CloneJobs } from "./clone-jobs.js";
 import { decodeRepoFromTree, repoFromTree } from "./repo-writes.js";
 import { commitFilesToBranch, decodeBranchFiles, mergeBranch } from "./branch-commit.js";
-import { mergeThreadBranch, readThreadBranch, readThreadBranches } from "./thread-branches.js";
+import { mergeThreadBranch, readThreadBranch, readThreadBranches, removeThreadBranch } from "./thread-branches.js";
 import { createCheckoutTurns } from "./checkout-turns.js";
 import { countThreadChanges } from "./thread-changes.js";
 import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
@@ -447,6 +447,17 @@ export function createWorkspaceHostExtension(): HostExtension {
           return outcome;
         }, (result) => `${result.branch} into ${result.into}: ${result.state}`, "git.merge-thread-branch");
       }, { long: true, callers: [REVIEW_KIT_ID], audit: { label: "merged a thread's branch" } });
+      // Reviews' cleanup of a merged branch; the threads stay.
+      context.registerCommand("remove-thread-branch", async (input) => {
+        const path = await services.knownWorkspacePath(requiredString(input, "workspace"));
+        const root = (await readThreadBranch(path).catch(() => undefined))?.root ?? path;
+        return gitWrite(root, async () => {
+          const removed = await git.write(root, () => removeThreadBranch(path, { requestMerged: record(input).requestMerged === true }));
+          await worktrees.storage.forget(path).catch(noteFailure("git.worktree.record-failed"));
+          git.invalidate(root, ["branch", "status", "workspace"]);
+          return removed;
+        }, (result) => result.branch, "git.remove-thread-branch");
+      }, { long: true, callers: [REVIEW_KIT_ID], audit: { label: "removed a merged thread's worktree and branch" } });
       // Servers Kit keeps a server's files in its own repository; the project's Git is written here.
       context.registerCommand("repo-from-tree", async (input) => {
         const request = decodeRepoFromTree(input);
