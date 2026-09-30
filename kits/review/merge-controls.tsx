@@ -113,7 +113,7 @@ function BranchName({ branch }: { branch: string }) {
 /** One layer as a stack's list and its confirmation name it. */
 export function layerLine(layer: PullRequestStackLayer): { title: string; detail: string; state: "open" | "draft" | "merged" | "closed" } {
   const state = layer.state === "open" && layer.draft ? "draft" : layer.state;
-  return { title: layer.title ?? layer.headRef, detail: `#${layer.number} · ${layer.headRef} · ${state}`, state };
+  return { title: layer.title ?? layer.headRef, detail: `#${layer.number} · ${layer.headRef}`, state };
 }
 
 /** Local state of one confirmation: which question is open, the method and the branch choice. */

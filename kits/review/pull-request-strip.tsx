@@ -1,7 +1,8 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { CircleCheck, CircleDashed, CircleX, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, X } from "lucide-react";
+import { CircleCheck, CircleDashed, CircleX, X } from "lucide-react";
 import { MiddleTruncate, getClientStorage, tooltipProps, type DesktopExtensionContext, type RegionProps } from "tau";
 import { REVIEW_HOST_EXTENSION_ID, providerInfo } from "./protocol.js";
+import { RequestStateIcon } from "./request-state-icon.js";
 import { openPullRequest } from "./pull-request-open.js";
 import { STRIP_OPTION, StripDismissals, stripRequests, type StripRequest, type StripState } from "./pull-request-strip-logic.js";
 import { checksLabel, checksTone, type RowRequests } from "./requests.js";
@@ -18,13 +19,6 @@ export interface StripParts {
 const STATE_WORDS: Record<StripState, string> = { open: "Open", draft: "Draft", merged: "Merged", closed: "Closed" };
 const shared = { dismissals: undefined as StripDismissals | undefined };
 
-function Glyph({ state }: { state: StripState }) {
-  const props = { size: 14, "aria-hidden": true, className: "review-pr-strip-glyph" } as const;
-  if (state === "merged") return <GitMerge {...props} />;
-  if (state === "closed") return <GitPullRequestClosed {...props} />;
-  if (state === "draft") return <GitPullRequestDraft {...props} />;
-  return <GitPullRequest {...props} />;
-}
 
 function ChecksIcon({ tone }: { tone: "passed" | "failed" | "pending" }) {
   const props = { size: 13, "aria-hidden": true } as const;
@@ -76,7 +70,7 @@ export default function PullRequestStrip({ snapshot, actions, parts }: RegionPro
     <div className={`review-pr-strip state-${primary.state}`}>
       <button type="button" className="review-pr-strip-open" aria-label={label}
         onClick={() => openPullRequest(actions, { url: primary.url, number: primary.number, provider: primary.service }, cwd)}>
-        <Glyph state={primary.state} />
+        <RequestStateIcon state={primary.state} size={14} className="review-pr-strip-glyph" />
         <span className="review-pr-strip-number" {...tooltipProps(primary.title)}>#{primary.number}</span>
         <span className="review-pr-strip-service" {...tooltipProps(where ? `${info.name} · ${where}` : info.name)}><ServiceIcon service={primary.service} /></span>
         {primary.repo ? <span className="review-pr-strip-repo">{primary.repo.split("/").at(-1)}</span> : null}
@@ -84,7 +78,6 @@ export default function PullRequestStrip({ snapshot, actions, parts }: RegionPro
         <span className="review-pr-strip-fill" />
         {others.length > 0 ? <span className="review-pr-strip-more" {...tooltipProps(others.map(otherLine).join("\n"), { variant: "lines" })}>+{others.length}</span> : null}
         {tone ? <span className={`review-pr-strip-checks ${tone}`} {...tooltipProps(`Checks: ${checks}`)}><ChecksIcon tone={tone} /></span> : null}
-        <span className="review-pr-strip-state">{state}</span>
       </button>
       <button type="button" className="review-pr-strip-hide" aria-label={`Hide ${info.short} #${primary.number} for this thread`} {...tooltipProps("Hide for this thread")}
         onClick={() => dismissals.hide(threadId, primary)}>

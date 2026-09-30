@@ -129,6 +129,21 @@ describe("the pull-request view", () => {
     expect(rows.get("/project")).toMatchObject<Partial<UiReviewRequest>>({ number: 7, checks: { passed: 2, failed: 1, pending: 1, total: 4 } });
   });
 
+  it.each([
+    [{ state: "open", draft: false }, "Open", "open"],
+    [{ state: "open", draft: true }, "Draft", "draft"],
+    [{ state: "merged" }, "Merged", "merged"],
+    [{ state: "closed" }, "Closed", "closed"],
+  ] as const)("shows the state %j in the header as an icon named %s", async (patch, name, tone) => {
+    const detail = { ...parseGitHubDetail(REF, fixture("gh-pr-view-discussed.json")), ...patch };
+    renderView(fakeClient({ view: vi.fn(async () => detail) }));
+    const header = (await screen.findByRole("heading", { name: "Add the output helper" })).closest(".pr-view")!.querySelector(".pr-head-row")! as HTMLElement;
+    const icon = within(header).getByRole("img", { name });
+    expect(icon.getAttribute("data-tooltip")).toBe(name);
+    expect(icon.classList.contains(tone)).toBe(true);
+    expect(header.textContent).not.toMatch(/\b(open|draft|merged|closed)\b/u);
+  });
+
   it("renders the HTML GitHub allows in the description and comments, its details closed", async () => {
     const detail = parseGitHubDetail(REF, fixture("gh-pr-view-dependabot.json"));
     const discussed = parseGitHubDetail(REF, fixture("gh-pr-view-discussed.json"));

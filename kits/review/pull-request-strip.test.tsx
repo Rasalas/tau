@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ClientStorage, HostSnapshot, PreferencesStore, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
@@ -89,7 +89,9 @@ describe("the pull-request strip", () => {
     const open = await screen.findByRole("button", { name: /^Open pull request #224 in acme\/lakebed on GitHub, open, checks 3\/3 passed/u });
     expect(load).toHaveBeenCalledWith("/work");
     expect(strip()!.className).toBe("review-pr-strip state-open");
-    expect(open.textContent).toBe("#224lakebedfix/refresh-apps-without-socketOpen");
+    expect(open.textContent).toBe("#224lakebedfix/refresh-apps-without-socket");
+    // The state is its glyph, named in the tooltip.
+    expect(within(open).getByRole("img", { name: "Open" }).getAttribute("data-tooltip")).toBe("Open");
     expect(open.querySelector(".review-pr-strip-checks.passed")!.getAttribute("data-tooltip")).toBe("Checks: 3/3 passed");
     // The provider is a mark with a tooltip, never a name beside it.
     expect(open.querySelector(".review-pr-strip-service")!.getAttribute("data-tooltip")).toBe("GitHub · github.com/acme/lakebed");
@@ -107,7 +109,9 @@ describe("the pull-request strip", () => {
     setup({ branch: { ...BRANCH, checks: undefined, ...patch } as ReviewRequest });
     await waitFor(() => expect(strip()).not.toBeNull());
     expect(strip()!.classList.contains(className)).toBe(true);
-    expect(strip()!.querySelector(".review-pr-strip-state")!.textContent).toBe(word);
+    const glyph = strip()!.querySelector(".review-pr-strip-glyph")!;
+    expect(glyph.getAttribute("aria-label")).toBe(word);
+    expect(glyph.classList.contains(className.replace("state-", ""))).toBe(true);
     expect(strip()!.querySelector(".review-pr-strip-checks")?.classList[1]).toBe(checks);
   });
 
