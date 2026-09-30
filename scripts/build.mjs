@@ -3,7 +3,6 @@ import { performance } from "node:perf_hooks";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { collectBuildReport } from "./build-report.mjs";
-import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -22,9 +21,10 @@ const parallel = async (jobs) => {
 };
 
 const started = performance.now();
-const managedSource = existsSync(join(ROOT, ".tau-source.json"));
+// `npm run typecheck` checks every target separately, including in CI. Build emits
+// the host as the editable-source build already does, without repeating that check.
 await parallel([
-  run("typescript/bin/tsc", ["-p", "tooling/tsconfig.electron.json", ...(managedSource ? ["--noCheck"] : [])]),
+  run("typescript/bin/tsc", ["-p", "tooling/tsconfig.electron.json", "--noCheck"]),
   run("../scripts/build-preload.mjs", []),
   run("../scripts/build-host-worker.mjs", []),
 ]);
