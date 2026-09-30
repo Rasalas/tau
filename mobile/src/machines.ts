@@ -1,4 +1,4 @@
-import type { HostBootstrap, HostExtensionSummary, ThreadIndexSnapshot } from "../../src/shared/contracts";
+import type { ExtensionUiPrompt, HostBootstrap, HostExtensionSummary, ThreadIndexSnapshot } from "../../src/shared/contracts";
 import {
   applyIndexUpdate,
   environmentProjects,
@@ -25,6 +25,8 @@ import { hostStorage } from "./storage";
 
 /** Another host's list, read again this often while the app is in front. */
 export const MACHINES_REFRESH_MS = 2 * 60_000;
+/** …and this often while a thread runs or asks there. */
+export const MACHINES_BUSY_MS = 30_000;
 /** Coming back to the app reads them again, unless they were read this recently. */
 export const MACHINES_FOCUS_MIN_MS = 15_000;
 /** The first read waits for the shown host's own connection to settle. */
@@ -71,6 +73,8 @@ interface Kept {
   detail?: string;
   index?: ThreadIndexSnapshot;
   running: string[];
+  /** Open questions there: prompt id and thread. */
+  asking?: Array<[string, string]>;
   lastSeq?: number;
   lastSeenAt?: number;
   threadCount?: number;
@@ -87,6 +91,7 @@ interface Machine {
   index?: ThreadIndexSnapshot;
   threadCount: number;
   running: Set<string>;
+  asking: Map<string, string>;
   lastSeq?: number;
   link?: MachineLink;
   reading?: Promise<void>;
@@ -106,9 +111,10 @@ function shownStatus(state: HostConnectionState): EnvironmentStatus {
  * The phone's `Platform.environments` (ADR 0025, K106): every host it paired
  * with, one connection each with its own token. The shown host streams through
  * the workbench's own connection; the others are read in short visits — at
- * start, every two minutes while the app is in front, when it comes back to
- * the front, and on Retry — that replay what the host pushed since the last
- * one, or take a snapshot when it cannot. Opening a thread or starting one on
+ * start, every two minutes while the app is in front (every 30 s while a
+ * thread runs or asks there), when it comes back to the front, and on Retry —
+ * that replay what the host pushed since the last one, or take a snapshot
+ * when it cannot. Opening a thread or starting one on
  * another host loads the app afresh there.
  */
 export class PhoneMachines implements PlatformEnvironments {
@@ -122,6 +128,7 @@ export class PhoneMachines implements PlatformEnvironments {
   private lastRound = 0;
   private stops: Array<() => void> = [];
   private poll: unknown;
+  private disposed = false;
   private readonly timers: RaceTimers;
 
   constructor(private readonly options: PhoneMachinesOptions) {
@@ -142,6 +149,7 @@ export class PhoneMachines implements PlatformEnvironments {
 
   /** Stops every timer and link; the page is going away. */
   dispose(): void {
+    this.disposed = true;
     for (const stop of this.stops) stop();
     this.stops = [];
     this.timers.clearTimeout(this.poll);
@@ -165,6 +173,7 @@ export class PhoneMachines implements PlatformEnvironments {
           ...(kept?.index ? { index: kept.index } : {}),
           threadCount: kept?.threadCount ?? kept?.index?.sessions.length ?? 0,
           running: new Set(kept?.running ?? []),
+          asking: new Map(kept?.asking ?? []),
           ...(kept?.lastSeq !== undefined ? { lastSeq: kept.lastSeq } : {}),
         });
       }
@@ -184,7 +193,15 @@ export class PhoneMachines implements PlatformEnvironments {
 
   private tick(): void {
     if (this.options.visibility.visible()) this.readAll();
-    this.poll = this.timers.setTimeout(() => this.tick(), MACHINES_REFRESH_MS);
+    else this.schedule();
+  }
+
+  /** The next visit: sooner while something runs or asks on another host, and only while the app is in front. */
+  private schedule(): void {
+    if (this.disposed) return;
+    this.timers.clearTimeout(this.poll);
+    const busy = this.options.visibility.visible() && [...this.machines.values()].some((machine) => machine.token && (machine.running.size > 0 || machine.asking.size > 0));
+    this.poll = this.timers.setTimeout(() => this.tick(), busy ? MACHINES_BUSY_MS : MACHINES_REFRESH_MS);
   }
 
   private onVisibility(): void {
@@ -198,7 +215,7 @@ export class PhoneMachines implements PlatformEnvironments {
 
   private readAll(): void {
     this.lastRound = this.now();
-    for (const machine of this.machines.values()) void this.read(machine);
+    void Promise.all([...this.machines.values()].map((machine) => this.read(machine))).then(() => this.schedule());
   }
 
   /** One visit: hello, what changed since the last one, the host's own update state. */
@@ -230,6 +247,9 @@ export class PhoneMachines implements PlatformEnvironments {
     machine.index = trimmed(bootstrap.threadIndex);
     machine.threadCount = bootstrap.threadIndex.sessions.length;
     machine.running = new Set(Object.keys(bootstrap.threadIndex.runs ?? {}));
+    // Questions are no part of the snapshot. The host announces its open ones to every client again, which drop repeats.
+    const open = await link.call<ExtensionUiPrompt[] | undefined>("sync-extension-ui").catch(() => undefined);
+    machine.asking = new Map(Array.isArray(open) ? open.map((prompt) => [prompt.id, prompt.sessionId]) : []);
   }
 
   private linkOf(machine: Machine): MachineLink {
@@ -254,7 +274,7 @@ export class PhoneMachines implements PlatformEnvironments {
 
   private apply(machine: Machine, push: HostPush, live: boolean): void {
     machine.lastSeq = Math.max(machine.lastSeq ?? 0, push.seq);
-    const event = push.event as { type?: string; threadIndex?: ThreadIndexSnapshot; update?: IndexUpdate; sessionId?: string; running?: boolean };
+    const event = push.event as { type?: string; threadIndex?: ThreadIndexSnapshot; update?: IndexUpdate; sessionId?: string; running?: boolean; id?: string; prompt?: { id?: unknown } };
     let changed = false;
     if (event.type === "thread-index" && event.threadIndex) {
       const index = applyIndexUpdate(machine.index, { type: "thread-index", index: event.threadIndex });
@@ -273,6 +293,11 @@ export class PhoneMachines implements PlatformEnvironments {
       if (event.running === true) machine.running.add(event.sessionId);
       else machine.running.delete(event.sessionId);
       changed = true;
+    } else if (event.type === "extension-ui-prompt" && typeof event.prompt?.id === "string" && typeof event.sessionId === "string") {
+      machine.asking.set(event.prompt.id, event.sessionId);
+      changed = true;
+    } else if (event.type === "extension-ui-resolved" && typeof event.id === "string") {
+      changed = machine.asking.delete(event.id);
     }
     if (changed && live) {
       this.set(machine, { lastSeenAt: this.now() });
@@ -316,6 +341,7 @@ export class PhoneMachines implements PlatformEnvironments {
       ...(machine.status === "offline" && machine.detail ? { detail: machine.detail } : {}),
       ...(machine.index ? { index: machine.index } : {}),
       running: [...machine.running],
+      ...(machine.asking.size ? { asking: [...machine.asking] } : {}),
       ...(machine.index && machine.lastSeq !== undefined ? { lastSeq: machine.lastSeq } : {}),
       ...(machine.lastSeenAt !== undefined ? { lastSeenAt: machine.lastSeenAt } : {}),
       threadCount: machine.threadCount,
@@ -336,8 +362,13 @@ export class PhoneMachines implements PlatformEnvironments {
 
   private entry(machine: Machine): UiEnvironment {
     const settled = this.settledOn(machine.host.id);
+    const waiting = new Set(machine.asking.values());
+    // Every thread a visit kept, so the list's search finds them too.
     const threads = machine.index
-      ? environmentThreads(machine.index, machine.running).map((thread) => settled.has(thread.id) ? Object.assign(thread, { settled: true }) : thread)
+      ? environmentThreads(machine.index, new Set([...machine.running, ...waiting]), KEPT_SESSIONS).map((thread) => Object.assign(thread, {
+        ...(settled.has(thread.id) ? { settled: true } : {}),
+        ...(waiting.has(thread.id) ? { waiting: true } : {}),
+      }))
       : [];
     return {
       id: machine.host.id,
@@ -420,6 +451,7 @@ export class PhoneMachines implements PlatformEnvironments {
     if (!machine) return;
     if (machine.status !== "connected") this.set(machine, { status: "connecting" });
     await this.read(machine);
+    this.schedule();
   }
 
   async readExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown> {
