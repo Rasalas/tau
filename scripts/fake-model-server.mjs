@@ -10,6 +10,8 @@
 //                            (GET /login on this server is a sign-in page to point it at)
 //   "ask one" / "ask any"  → an `ask_user_question` call, one question to pick one or several, then "done"
 //   "spawn[<title>=<prompt>; …]" → one `tau_spawn_thread` call per entry in one reply, then "done"
+//   "tools[<step> | <step> …]" → one reply per step, then "done"; a step is `read <path>…` (one call
+//                            per path), `sh <command>` (a `bash` call) or `edit <path> <old> <new>`
 //   anything else          → "ok"
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -49,6 +51,14 @@ export function fakeQuestion(multiSelect) {
     };
 }
 
+/** The calls of one `tools[…]` step. */
+function stepCalls(step) {
+  const [verb, ...rest] = step.split(/\s+/u);
+  if (verb === "read") return rest.map((path) => ({ name: "read", arguments: { path } }));
+  if (verb === "edit") return [{ name: "edit", arguments: { path: rest[0], edits: [{ oldText: rest[1], newText: rest[2] }] } }];
+  return [{ name: "bash", arguments: { command: step.slice(verb.length).trim() } }];
+}
+
 /** What the fake says to a request body: `{ text }`, `{ toolCall }` (a `text` streams before it), `{ toolCalls }`, `{ text, waitMs }`, or `{ status, error }`. */
 export function fakeReply(body) {
   const messages = Array.isArray(body?.messages) ? body.messages : [];
@@ -56,6 +66,12 @@ export function fakeReply(body) {
   const prompt = text([...messages].reverse().find((message) => message.role === "user")?.content).trim();
   const think = prompt.match(/\bthink\s+(\d+)\b/u);
   const thinkMs = think ? { thinkMs: Math.min(Number(think[1]), 120_000) } : {};
+  const steps = prompt.match(/\btools\[(.+?)\]$/su);
+  if (steps) {
+    const turn = messages.slice(messages.findLastIndex((message) => message.role === "user"));
+    const step = steps[1].split("|")[turn.filter((message) => message.role === "assistant").length]?.trim();
+    return step ? { toolCalls: stepCalls(step) } : { text: "done", ...thinkMs };
+  }
   if (last?.role === "tool") return { text: "done", ...thinkMs };
   const spawn = prompt.match(/\bspawn\[(.+?)\]/su);
   if (spawn) {
