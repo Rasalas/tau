@@ -26,6 +26,8 @@ interface ThreadRowProps {
   activityLabel?: string;
   /** Tooltip for the activity badge; what the state means, in the caller's words. */
   activityHint?: string;
+  /** A kit's glyph for a waiting state in place of the question mark (a takeover's hand). */
+  activityIcon?: ReactNode;
   active: boolean;
   age: string;
   compact?: boolean;
@@ -66,7 +68,7 @@ export function showsThreadStatus(activity: ThreadActivity): boolean {
 }
 
 /** A row's state badge, the same on every client: `Working 2:14` with a spinner, `? Question` in amber, and the rest. */
-export function ThreadStatus({ activity, label, hint, startedAt }: { activity: ThreadActivity; label: string; hint?: string; startedAt: number }) {
+export function ThreadStatus({ activity, label, hint, icon, startedAt }: { activity: ThreadActivity; label: string; hint?: string; icon?: ReactNode; startedAt: number }) {
   const working = activity === "working" || activity === "tool";
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -80,7 +82,7 @@ export function ThreadStatus({ activity, label, hint, startedAt }: { activity: T
       {activity === "interrupted" ? <PlugZap size={11} aria-hidden="true" /> : null}
       {activity === "failed" ? <CircleAlert size={11} aria-hidden="true" /> : null}
       {activity === "limited" ? <Hourglass size={11} aria-hidden="true" /> : null}
-      {activity === "waiting" ? <CircleHelp size={11} aria-hidden="true" /> : null}
+      {activity === "waiting" ? icon ?? <CircleHelp size={11} aria-hidden="true" /> : null}
       {activity === "ready" ? <Check size={11} aria-hidden="true" /> : null}
       {label}
       {working ? <time>{elapsedLabel(now - startedAt)}</time> : null}
@@ -92,6 +94,7 @@ export const ThreadRow = memo(function ThreadRow({
   activity,
   activityLabel,
   activityHint,
+  activityIcon,
   active,
   age,
   compact,
@@ -159,7 +162,7 @@ export const ThreadRow = memo(function ThreadRow({
           {projectMark}
           <strong>{session.projectName}</strong>
           {showStatus
-            ? <ThreadStatus activity={activity} label={working ? "Working" : label} {...(activityHint ? { hint: activityHint } : {})} startedAt={startedAt ?? session.modifiedAt} />
+            ? <ThreadStatus activity={activity} label={working ? "Working" : label} {...(activityHint ? { hint: activityHint } : {})} icon={activityIcon} startedAt={startedAt ?? session.modifiedAt} />
             : <time>{age}</time>}
         </span>
         <span className="thread-title" {...titleTip}>{session.title}</span>

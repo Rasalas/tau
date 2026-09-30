@@ -651,6 +651,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   activity,
   activityLabel,
   activityHint,
+  activityIcon,
   compact,
   workingChildren,
   modelProvider,
@@ -666,6 +667,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   activity: ThreadActivity;
   activityLabel?: string;
   activityHint?: string;
+  activityIcon?: ReactNode;
   compact: boolean;
   workingChildren: number;
   modelProvider?: string;
@@ -701,6 +703,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
       activity={activity}
       activityLabel={activityLabel}
       activityHint={activityHint}
+      activityIcon={activityIcon}
       hoverCard
       compact={compact}
       workingChildren={workingChildren}
@@ -806,6 +809,7 @@ interface RailCardFacts {
   activity: ThreadActivity;
   activityLabel?: string;
   activityHint?: string;
+  activityIcon?: ReactNode;
   agents: { total: number; working: number };
 }
 
@@ -830,6 +834,7 @@ function RailThreadCard({ id, facts, actions, onClose }: { id: string; facts: Ra
       activity={facts.activity}
       {...(facts.activityLabel ? { activityLabel: facts.activityLabel } : {})}
       {...(facts.activityHint ? { activityHint: facts.activityHint } : {})}
+      {...(facts.activityIcon ? { activityIcon: facts.activityIcon } : {})}
       age={sessionAge(session.modifiedAt)}
       {...(icon ? { projectIcon: icon } : {})}
       agents={facts.agents}
@@ -895,8 +900,11 @@ const rowIdOf = (target: EventTarget | null) => target instanceof Element ? targ
 
 type ActivitySets = Record<"running" | "waiting", ReadonlySet<string>>;
 
+/** A row's state as the rail draws it: another kit's may bring its own glyph. */
+type RailStatus = ThreadRowStatus & { icon?: ReactNode };
+
 /** A settled row shows its age; the label is only the hover card's. */
-const SETTLED_STATUS: ThreadRowStatus = { activity: "settled", label: "Settled" };
+const SETTLED_STATUS: RailStatus = { activity: "settled", label: "Settled" };
 
 export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: SidebarContributionProps) {
   const { snapshot, registry } = useWorkbenchShell();
@@ -907,6 +915,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const organizer = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadRailOrganizer);
   const railSections = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railSections);
   const railThreadSources = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railThreadSources);
+  const rowStatuses = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadRowStatuses);
   const externalThreads = useRailExternalThreads(railThreadSources);
   const organizerVersion = useSyncExternalStore(organizer?.subscribe ?? noSubscription, organizer?.getVersion ?? noVersion);
   const projectFilter = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railProjectFilter);
@@ -1023,7 +1032,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   });
 
   // The same derivation as a tablet's and a phone's list, so every client names a state alike.
-  const activityFor = (sessionId: string): ThreadRowStatus => threadRowStatus(sessionId, activityState, threadStore.getThread(sessionId));
+  const activityFor = (sessionId: string): RailStatus => {
+    const mark = rowStatuses[sessionId];
+    return mark ? { activity: "waiting", ...mark } : threadRowStatus(sessionId, activityState, threadStore.getThread(sessionId));
+  };
 
   const toggleSettled = useCallback((session: UiSession) => {
     if (organizer) organizer.toggleSettled(session);
@@ -1044,12 +1056,13 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       activity: status.activity,
       ...(status.label ? { activityLabel: status.label } : {}),
       ...(status.hint ? { activityHint: status.hint } : {}),
+      ...(status.icon ? { activityIcon: status.icon } : {}),
       agents: agentCounts(key, threads, lineage.parents, lineage.workingChildren[key] ?? 0),
     };
     return <RailThreadCard id={key} facts={facts} actions={actions} onClose={close} />;
   };
 
-  const renderRow = (session: UiSession, status: ThreadActivity, label?: string, hint?: string, compact = false) => (
+  const renderRow = (session: UiSession, { activity: status, label, hint, icon }: RailStatus, compact = false) => (
     <ConnectedThreadRow
       key={session.id}
       id={session.id}
@@ -1057,6 +1070,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       activity={status}
       activityLabel={label}
       activityHint={hint}
+      activityIcon={icon}
       compact={(compact || compactRows) && status !== "settled"}
       workingChildren={lineage.workingChildren[session.id] ?? 0}
       modelProvider={!draftOnScreen && session.id === activityState.activeThreadId ? snapshot?.model?.provider : undefined}
@@ -1133,7 +1147,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           const status = section.settled ? SETTLED_STATUS : activityFor(session.id);
           return (
             <div key={session.id} className={rowClass(section.id, session.id, index === rows.length - 1)} {...rowData(section.id, session.id)}>
-              {renderRow(session, status.activity, status.label, status.hint, Boolean(section.shelf))}
+              {renderRow(session, status, Boolean(section.shelf))}
             </div>
           );
         })}
@@ -1316,7 +1330,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
                   const external = outside.get(row.id);
                   if (external) return <ExternalThreadRow thread={external} onOpen={openExternal} onLookIn={lookInExternal} />;
                   const status = activityFor(row.session.id);
-                  return renderRow(row.session, status.activity, status.label, status.hint);
+                  return renderRow(row.session, status);
                 })()}
               </div>
             );

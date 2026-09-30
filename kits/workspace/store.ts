@@ -38,6 +38,7 @@ import {
   type ThreadRailOrganizer,
   type ThreadCardSection,
   type ThreadRowAccessoryProps,
+  type ThreadRowStatusMark,
   type RailThreadSource,
   type ThreadWorktreeRequest,
   type TurnStat,
@@ -68,6 +69,7 @@ const INITIAL: WorkspaceKitState = {
   preparingWorktree: false,
   changesSections: [],
   threadRowAccessories: [],
+  threadRowStatuses: {},
   threadCardSections: [],
   railSections: [],
   railThreadSources: [],
@@ -126,6 +128,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   private actions?: WorkbenchActions;
   /** Kits that draw the review overlay. */
   private reviewViews = 0;
+  private rowStatuses = new Map<string, Readonly<Record<string, ThreadRowStatusMark>>>();
   private changesRequest = 0;
   private workspaceRequest = 0;
   private sessionId?: string;
@@ -722,6 +725,12 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   registerThreadRowAccessory(accessory: ComponentType<ThreadRowAccessoryProps>): () => void {
     this.update({ threadRowAccessories: [...this.state.threadRowAccessories, accessory] });
     return () => this.update({ threadRowAccessories: this.state.threadRowAccessories.filter((entry) => entry !== accessory) });
+  }
+
+  setThreadRowStatuses(owner: string, statuses: Readonly<Record<string, ThreadRowStatusMark>>): void {
+    if (Object.keys(statuses).length) this.rowStatuses.set(owner, statuses);
+    else if (!this.rowStatuses.delete(owner)) return;
+    this.update({ threadRowStatuses: Object.assign({}, ...this.rowStatuses.values()) as Record<string, ThreadRowStatusMark> });
   }
 
   registerThreadCardSection(section: ThreadCardSection): () => void {
