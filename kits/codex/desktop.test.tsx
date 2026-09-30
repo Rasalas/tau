@@ -258,7 +258,7 @@ it("renders dynamic Ultrafast tiers and compatible accounts, then displays a swi
   const invoke = vi.fn(async (command: string) => { if (command === "switch-thread-account") throw new Error("Account cannot resume this session"); return state; });
   const Control = createThreadSettingsControl(host(invoke));
   render(<Control snapshot={{ sessionId: "thread", backendKind: "codex", isStreaming: false } as HostSnapshot} />);
-  const fast = await screen.findByRole("radio", { name: /Ultrafast/u });
+  const fast = await screen.findByRole("radio", { name: /^Ultrafast/u });
   fireEvent.click(fast);
   await waitFor(() => expect(invoke).toHaveBeenCalledWith("set-thread-tier", { threadId: "thread", tier: "ultrafast" }));
   const other = screen.getByRole("radio", { name: /Other/u });

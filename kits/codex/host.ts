@@ -251,6 +251,17 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
 
       const codexCommand = (id: string): string => settings.command(id).command;
       const instanceEnv = (id: string): NodeJS.ProcessEnv => settings.environment(id, env);
+      const managedHome = (id: string) => join(services.stateDir, "chatgpt-plan-homes", id);
+      // Managed homes share sessions only by explicit instance configuration.
+      const managedSharedHome = (id: string) => settings.home(id) ?? managedHome(id);
+      const sessionHomeOf = async (id: string, managedAccount: boolean) => managedAccount
+        ? canonicalHomePath(managedSharedHome(id)) : canonicalCodexHome(instanceEnv(id));
+      const sessionEnvironment = async (id: string, managedAccount: boolean) => {
+        if (!managedAccount) return prepareCodexHome(instanceEnv(id));
+        const shared = settings.home(id);
+        if (!shared || await canonicalHomePath(shared) === await canonicalHomePath(managedHome(id))) return { ...instanceEnv(id), CODEX_HOME: managedHome(id) };
+        return prepareCodexHome({ ...instanceEnv(id), CODEX_HOME: shared, TAU_CODEX_AUTH_HOME: managedHome(id) });
+      };
       const locate = (id: string): string | undefined => services.findCommand(codexCommand(id)) ?? (!settings.command(id).source ? managedPath : undefined);
       const updateCommand = async (path: string | undefined): Promise<string> => {
         const real = path ? await realpath(path).catch(() => path) : undefined;
@@ -300,12 +311,12 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           : undefined;
         const tau = mcp ? codexMcpLaunch(mcp) : { args: [], env: {} };
         if (input.threadId) {
-          const sessionHome = credentials ? join(services.stateDir, "chatgpt-plan-homes", id) : await canonicalCodexHome(instanceEnv(id));
+          const sessionHome = await sessionHomeOf(id, Boolean(credentials));
           await store.setSessionHome(input.threadId, input.cwd, sessionHome);
         }
-        const cliEnv = credentials ? instanceEnv(id) : await prepareCodexHome(instanceEnv(id));
+        const cliEnv = await sessionEnvironment(id, Boolean(credentials));
         const launch = { args: [...tau.args, ...(input.tools ? codexToolArgs(input.tools) : []), ...settings.args(id), ...(!credentials && codexHomeLayout(instanceEnv(id)).overlay ? ["-c", 'cli_auth_credentials_store="file"'] : []), ...(credentials ? CHATGPT_PLAN_ARGS : [])], env: tau.env };
-        const sessionEnv = { ...cliEnv, ...launch.env, ...(credentials ? { ACCESS_TOKEN: credentials.tokens!.accessToken, CODEX_HOME: join(services.stateDir, "chatgpt-plan-homes", id) } : {}) };
+        const sessionEnv = { ...cliEnv, ...launch.env, ...(credentials ? { ACCESS_TOKEN: credentials.tokens!.accessToken } : {}) };
         const track = (session: CodexSessionLike): CodexSessionLike => {
           const held = sessions.get(id) ?? new Set<CodexSessionLike>();
           for (const previous of held) if (previous.closed) held.delete(previous);
@@ -521,7 +532,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       const providerFor = (id: string): HostRuntimeBackendProvider => {
         const kind = settings.kind(id);
         const adapter = createCodexRuntimeAdapter(kind);
-        const home = async (): Promise<string> => await plan.read(id) ? join(services.stateDir, "chatgpt-plan-homes", id) : codexHome(instanceEnv(id));
+        const home = async (): Promise<string> => await plan.read(id) ? managedSharedHome(id) : codexHome(instanceEnv(id));
         return {
           kind,
           label: settings.label(id),
@@ -554,7 +565,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
               await assertSupported(id);
               let account = (await store.get(threadId))?.accountInstance ?? id;
               requireInstance(account);
-              const accountHome = async () => await plan.read(account) ? join(services.stateDir, "chatgpt-plan-homes", account) : codexHome(instanceEnv(account));
+              const accountHome = async () => await plan.read(account) ? managedSharedHome(account) : codexHome(instanceEnv(account));
               const backend = new CodexThreadRuntimeBackend(threadId, cwd, {
                 adapter,
                 store,
@@ -693,20 +704,22 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       const accountChoices = async (held: ReturnType<typeof heldThread>) => {
         const current = held.account;
         const currentManaged = Boolean(await plan.read(current));
-        const shared = await canonicalCodexHome(instanceEnv(current));
-        const effectivePath = codexHomeLayout(instanceEnv(current)).effective;
+        const shared = await sessionHomeOf(current, currentManaged);
+        const effectivePath = currentManaged ? managedHome(current) : codexHomeLayout(instanceEnv(current)).effective;
         const effective = await canonicalHomePath(effectivePath);
         return Promise.all(settings.list().map(async (entry) => {
           let reason: string | undefined;
           if (entry.id !== current) {
             if (transitioning.has(entry.id) || signingOut.has(entry.id)) reason = "Finish signing in to this account first.";
-            else if (currentManaged || await plan.read(entry.id)) reason = "Managed ChatGPT accounts keep separate session homes; this connection cannot resume another account's session.";
-            else if (await canonicalCodexHome(instanceEnv(entry.id)) !== shared) reason = "This account has a different shared CODEX_HOME.";
-            else if ((await canonicalHomePath(codexHomeLayout(instanceEnv(entry.id)).effective)) === effective) reason = "Set a separate TAU_CODEX_AUTH_HOME for this account's credentials.";
+            else if (currentManaged !== Boolean(await plan.read(entry.id))) reason = "CLI and managed ChatGPT connections use different inference providers.";
+            else if (currentManaged && (!settings.home(current) || !settings.home(entry.id))) reason = "Configure the same explicit shared home on both managed ChatGPT accounts first.";
+            else if (await sessionHomeOf(entry.id, currentManaged) !== shared) reason = "This account has a different shared CODEX_HOME. Managed accounts must explicitly configure the same shared home before starting their threads.";
+            else if ((await canonicalHomePath(currentManaged ? managedHome(entry.id) : codexHomeLayout(instanceEnv(entry.id)).effective)) === effective) reason = "Set a separate TAU_CODEX_AUTH_HOME for this account's credentials.";
             else if (codexCommand(entry.id) !== codexCommand(current) || JSON.stringify(settings.args(entry.id)) !== JSON.stringify(settings.args(current)) || continuationEnvironment(instanceEnv(entry.id)) !== continuationEnvironment(instanceEnv(current))) reason = "This account uses a different Codex launch configuration.";
             else {
-              const probe = await runProbe(entry.id).catch(() => undefined);
-              if (!probe?.account) reason = "Sign in to this account on its Providers card first.";
+              const saved = currentManaged ? await plan.read(entry.id) : undefined;
+              const probe = currentManaged ? undefined : await runProbe(entry.id).catch(() => undefined);
+              if (currentManaged ? !saved?.tokens?.scopes.includes(PLAN_SCOPE) : !probe?.account) reason = "Sign in to this account on its Providers card first.";
             }
           }
           return { id: entry.id, label: settings.label(entry.id), ...(reason ? { reason } : {}) };

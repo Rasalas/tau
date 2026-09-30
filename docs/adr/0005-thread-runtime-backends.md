@@ -295,9 +295,14 @@ session under the new account before persisting the executing account; a
 failed resume restores the original selection and never creates a substitute
 conversation. Later resumes of switched threads keep that restriction.
 
-Managed ChatGPT connections currently use independent session homes and
-provider registrations. Tau reports them as incompatible instead of moving
-a session between accounts without a supported provider contract. Model
+Managed ChatGPT registrations keep independent credential stores and effective
+homes. They may share canonical rollouts when both instances explicitly
+configure the same shared home before creating their conversations. Tau
+uses the same Responses provider with response storage disabled, restarts
+the process with the selected registration's token, and resumes the local
+Codex session. Independent managed homes and mixed CLI/managed provider
+connections remain incompatible. No account ID or email is used to infer
+compatibility or combine credential registrations. Model
 catalogs, billing and account-limit updates follow the executing account,
 while per-thread MCP credentials retain the same Tau thread and access policy.
 
@@ -308,3 +313,11 @@ The compatibility and catalog behavior follows T3 Code v0.0.44's
 [home layout](https://github.com/pingdotgg/t3code/blob/v0.0.44/apps/server/src/provider/Drivers/CodexHomeLayout.ts)
 and [tier catalog](https://github.com/pingdotgg/t3code/blob/v0.0.44/apps/server/src/provider/Layers/CodexProvider.ts),
 implemented through Tau's existing kit interfaces.
+
+The [official account-switching guidance](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions)
+requires distinct validated registration/client/token mappings. The
+[managed app-server contract](https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server)
+supplies the selected OAuth token through the child environment and resumes
+a saved thread after restarting the process. Sharing local rollouts for
+stateless Responses turns is Tau's implementation choice; successfully
+resuming locally does not prove the target account's inference entitlement.
