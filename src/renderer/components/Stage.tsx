@@ -115,15 +115,15 @@ export function Stage({
   useEffect(() => {
     const on = (event: DragEvent) => {
       const target = event.target as Element;
-      const over = event.type === "dragover" && tabCount > 1 && !!event.dataTransfer?.types.includes(STAGE_TAB_DRAG) && !!target.closest?.(".stage") && !target.closest(".stage-strip");
-      if (over) event.preventDefault();
-      if (event.type === "drop" && dropping) stageTabs?.split(event.dataTransfer!.getData(STAGE_TAB_DRAG));
-      setDropping(over);
+      const inside = event.type !== "dragend" && tabCount > 1 && !!event.dataTransfer?.types.includes(STAGE_TAB_DRAG) && !!target.closest?.(".stage") && !target.closest(".stage-strip");
+      if (inside) event.preventDefault();
+      if (inside && event.type === "drop") stageTabs?.split(event.dataTransfer!.getData(STAGE_TAB_DRAG));
+      setDropping(inside && event.type === "dragover");
     };
     const kinds = ["dragover", "drop", "dragend"] as const;
     for (const kind of kinds) addEventListener(kind, on);
     return () => { for (const kind of kinds) removeEventListener(kind, on); };
-  }, [tabCount, dropping, stageTabs]);
+  }, [tabCount, stageTabs]);
 
   const pane = (tab: StageTab | undefined) => {
     const lookIn = tab?.kind === "thread" ? lookInMachine(tab.machine, environments) : undefined;
