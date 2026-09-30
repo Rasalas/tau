@@ -11,7 +11,21 @@ export interface PaletteSourceResult {
 
 export type PaletteRow =
   | { kind: "command"; key: string; command: PaletteCommand }
-  | { kind: "item"; key: string; item: PaletteItem; source: string };
+  | { kind: "item"; key: string; item: PaletteItem; source: string }
+  | { kind: "head"; key: string; label: string };
+
+export type PaletteScope = "all" | "threads" | "files" | "commands";
+
+/** The tabs in their order, with the prefix that picks each. */
+export const PALETTE_SCOPES: ReadonlyArray<readonly [PaletteScope, string, string]> = [
+  ["all", "", "All"], ["threads", "#", "Threads"], ["files", "/", "Files"], ["commands", ">", "> Commands"],
+];
+
+/** A leading `#`, `/` or `>` narrows the palette; the rest is the query. */
+export function paletteScope(query: string): { scope: PaletteScope; text: string } {
+  const found = PALETTE_SCOPES.find(([, prefix]) => prefix && query.startsWith(prefix));
+  return found ? { scope: found[0], text: query.slice(1) } : { scope: "all", text: query };
+}
 
 /** Rows a source may put in one list; the rest is the source's own view's business. */
 export const PALETTE_SOURCE_LIMIT = 8;
@@ -37,31 +51,37 @@ function commandRows(commands: readonly PaletteCommand[]): PaletteRow[] {
 }
 
 /**
- * One list out of the commands and what the sources answered: commands whose
- * label matches, then each source's rows in source order, then commands that
- * matched only by their group. An empty query lists the commands alone.
+ * One list out of the commands and what the sources answered, in sections:
+ * each source label's rows in source order, then Commands (label matches,
+ * the Settings rows, then commands that matched only by their group).
  */
 export function paletteRows(
   commands: readonly PaletteCommand[],
   needle: string,
   sources: readonly PaletteSourceResult[] = [],
   limit = PALETTE_SOURCE_LIMIT,
+  settings: readonly PaletteItem[] = [],
 ): PaletteRow[] {
   const ranked = commands
     .map((command) => ({ command, rank: scoreCommand(command, needle) }))
     .filter((entry) => entry.rank > 0)
     .sort((left, right) => right.rank - left.rank);
-  if (!needle) return commandRows(ranked.map((entry) => entry.command));
-  const strong = commandRows(ranked.filter((entry) => entry.rank > 1).map((entry) => entry.command));
-  const weak = commandRows(ranked.filter((entry) => entry.rank === 1).map((entry) => entry.command));
-  const found = sources.flatMap((source) => {
+  const sections = new Map<string, PaletteRow[]>();
+  for (const source of sources) {
     const seen = new Set<string>();
-    return source.items
+    const rows = source.items
       .filter((item) => !seen.has(item.id) && Boolean(seen.add(item.id)))
       .slice(0, limit)
       .map((item): PaletteRow => ({ kind: "item", key: `${source.id}:${item.id}`, item, source: source.label }));
-  });
-  return [...strong, ...found, ...weak];
+    if (rows.length) sections.set(source.label, [...sections.get(source.label) ?? [], ...rows]);
+  }
+  const found = [
+    ...commandRows(ranked.filter((entry) => !needle || entry.rank > 1).map((entry) => entry.command)),
+    ...settings.map((item): PaletteRow => ({ kind: "item", key: `settings:${item.id}`, item, source: "Settings" })),
+    ...commandRows(ranked.filter((entry) => needle && entry.rank === 1).map((entry) => entry.command)),
+  ];
+  if (found.length) sections.set("Commands", found);
+  return [...sections].flatMap(([label, rows]): PaletteRow[] => [{ kind: "head", key: `head:${label}`, label }, ...rows]);
 }
 
 /** 3: the label starts with the query, 2: it holds it, 1: every word is somewhere in the row, 0: not. */
@@ -102,9 +122,9 @@ export function readOnlySources(sources: readonly PaletteSourceResult[]): Palett
   return sources.filter((source) => source.items.some((item) => item.access === "read"));
 }
 
-/** The row's command or item, which carries its `access`. */
-export function rowEntry(row: PaletteRow): PaletteCommand | PaletteItem {
-  return row.kind === "command" ? row.command : row.item;
+/** The row's command or item, which carries its `access`; a heading has none. */
+export function rowEntry(row: PaletteRow): PaletteCommand | PaletteItem | undefined {
+  return row.kind === "command" ? row.command : row.kind === "item" ? row.item : undefined;
 }
 
 /** The next row from `from` in `step` direction that `usable` allows, wrapping; `from` itself when none is. */

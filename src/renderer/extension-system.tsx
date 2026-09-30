@@ -916,6 +916,8 @@ export interface PaletteItem {
   submenu?: PaletteMenu;
   /** What the row does; a row with a `submenu` needs none. */
   run?(actions: WorkbenchActions): void | Promise<void>;
+  /** What ⌘⏎ does instead: the row opened in the stage. */
+  stage?(actions: WorkbenchActions): void;
   /** As on a command: without `"read"`, a Read-only device shows the row disabled with the reason (API 1.13.0). */
   access?: "read" | "write";
 }
@@ -945,21 +947,26 @@ export interface PaletteMenu {
 /** What the palette hands a source with every query. */
 export interface PaletteSearchContext {
   actions: WorkbenchActions;
-  /** The thread index as this window holds it. */
-  index: { projects: readonly UiProject[]; threads: readonly UiSession[]; activeThreadId?: string };
+  /** The thread index as this window holds it; `running` are the threads with a turn going. */
+  index: { projects: readonly UiProject[]; threads: readonly UiSession[]; activeThreadId?: string; running?: readonly string[] };
+  /** The tab or prefix the palette is narrowed to; "all" when none is. */
+  scope?: "all" | "threads" | "files";
   /** Aborted when the query changes or the palette closes; a late answer is dropped either way. */
   signal: AbortSignal;
 }
 
 /**
  * Rows the palette asks for as the user types, beside the commands: threads,
- * projects, anything a query finds. Asked only for a non-empty query.
+ * projects, anything a query finds. Asked only for a non-empty query, unless
+ * it has a `scope`: then also for an empty one, in All and in its own tab.
  */
 export interface PaletteSourceContribution {
   id: string;
-  /** What the rows are, shown beside each: "Threads", "Projects". */
+  /** The section heading its rows stand under; sources with one label share a section. */
   label: string;
   order?: number;
+  /** The tab (and prefix: `#` threads, `/` files) that narrows the palette to this source. */
+  scope?: "threads" | "files";
   search(query: string, context: PaletteSearchContext): readonly PaletteItem[] | Promise<readonly PaletteItem[]>;
 }
 

@@ -63,34 +63,34 @@
 .sidebar-controls { padding: calc(12px * var(--density)) calc(12px * var(--density)) var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); }
 .thread-search-row { display: flex; align-items: center; gap: var(--space-2); }
 
-/* The search is a filled field with its key, the design's; "+" beside it starts a thread. */
+/* Design 1a: the search is a filled field with ⌘K that opens the palette; "+" beside it starts a thread. */
 .thread-search {
-  flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--space-4);
-  height: calc(30px * var(--density)); padding: 0 10px; border-radius: var(--radius-row);
-  background: var(--stage); color: var(--muted);
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
+  height: calc(30px * var(--density)); padding: 0 10px; border: 0; border-radius: var(--radius-row);
+  background: var(--stage); color: var(--muted); font: calc(var(--text-sm) - 1px) var(--sans); text-align: left; cursor: pointer;
 }
-.thread-search:focus-within { box-shadow: inset 0 0 0 1px var(--line-focus); }
-.thread-search > svg { color: var(--muted); }
-.thread-search input {
-  flex: 1; min-width: 0; border: 0; background: transparent;
-  color: var(--ink); font: var(--text-sm) var(--sans); outline: none;
-}
-.thread-search input::placeholder { color: var(--muted); }
-.thread-search button {
-  display: grid; place-items: center; border: 0; background: transparent;
-  color: var(--faint); cursor: pointer; padding: 0 2px;
-}
-.thread-search button:hover { color: var(--ink); }
+.thread-search:hover { color: var(--ink-2); }
+.thread-search > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-search > kbd { font: 10.5px var(--mono); color: var(--muted); }
+/* A chosen project's name takes the room ⌘K had, as design 2b drops it. */
+.thread-search { container-type: inline-size; }
+@container (width < 120px) { .thread-search > kbd { display: none; } }
 .thread-search-row > .sidebar-action.new-thread {
   width: calc(30px * var(--density)); height: calc(30px * var(--density));
   background: var(--stage); color: var(--ink);
 }
-.thread-search-row > .sidebar-action.new-thread:hover { background: var(--chip); }
+.thread-search-row > .sidebar-action:is(.new-thread, .project-filter):hover { background: var(--chip); color: var(--ink); }
 
-/* The project filter between the search and "+": a folder, or the shown project's tile. */
-.thread-search-row > .sidebar-action.project-filter { width: calc(30px * var(--density)); height: calc(30px * var(--density)); }
+/* The project filter between the search and "+": a folder and a chevron, or the shown project's tile and name in the accent. */
+.thread-search-row > .sidebar-action.project-filter {
+  width: auto; max-width: 42%; height: calc(30px * var(--density)); padding: 0 8px;
+  display: flex; gap: 6px; background: var(--stage); color: var(--ink-2); font: 600 calc(var(--text-sm) - 1px) var(--sans);
+}
+.project-filter > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-filter > svg:last-child { flex: none; opacity: .7; }
+.thread-search-row > .sidebar-action.project-filter.filtered { background: var(--acid-bg); color: var(--acid-text); }
 .thread-search-row > .sidebar-action.project-filter[aria-expanded="true"] { background: var(--raised); color: var(--ink); }
-.project-filter-tile.thread-project-icon { width: 16px; height: 16px; font-size: 9px; }
+.project-filter-tile.thread-project-icon { width: 14px; height: 14px; flex: none; font-size: 8px; }
 
 .sidebar-action {
   width: 30px; height: 30px; flex: none; display: grid; place-items: center;
@@ -159,13 +159,6 @@
 .project-switcher-footer > button > svg { flex: none; color: var(--muted); }
 .project-switcher-footer > button > span { flex: 1; }
 .project-switcher-footer kbd { font: 10.5px var(--mono); color: var(--faint); }
-
-.thread-search kbd { font: 10.5px var(--mono); color: var(--muted); }
-.thread-search button {
-  border: 0; background: transparent; color: var(--faint);
-  cursor: pointer; font-size: var(--text-md); padding: 0 2px;
-}
-.thread-search button:hover { color: var(--ink); }
 
 /* One scroll: the shelves (snoozed, settled) follow right after the active threads, the design's. */
 .session-list { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }

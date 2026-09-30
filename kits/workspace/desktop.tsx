@@ -19,6 +19,7 @@ import {
   WORKSPACE_HOST_EXTENSION_ID,
   WORKSPACE_STORE_SERVICE,
 } from "./protocol.js";
+import { outsideThreadItems } from "./rail-external.js";
 import { addProjectMenu } from "./add-project-menu.js";
 import { threadBranchService } from "./branch-service.js";
 import { registerCheckpoints } from "./checkpoints.js";
@@ -76,6 +77,8 @@ export const workspaceExtension: DesktopExtension = {
     const unpublishIcons = publishProjectIcons(context.preferences, (icons) => context.setProjectIcons?.(icons));
 
     context.registerSidebar({ id: "workspace.sidebar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceSidebar) });
+    // Other machines' threads the rail lists, found by the palette as this machine's are.
+    context.registerPaletteSource({ id: "workspace.outside-threads", label: "Threads", order: 25, scope: "threads", search: (query) => outsideThreadItems(store.getSnapshot().railThreadSources, query) });
     context.registerProjectSource({
       id: "workspace.local-folder",
       label: "Local folder",

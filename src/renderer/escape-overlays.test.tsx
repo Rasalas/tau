@@ -66,7 +66,7 @@ describe("Escape during a running turn", () => {
 
   it("closes the command palette, which closes itself on its own keydown, and stops nothing", () => {
     const { abort, registry } = running();
-    open((close) => <CommandPalette open commands={[]} extensionCount={0} actions={{} as WorkbenchActions} registry={registry} onClose={close} />);
+    open((close) => <CommandPalette open commands={[]} actions={{} as WorkbenchActions} registry={registry} onClose={close} />);
     const palette = screen.getByRole("dialog");
     escape(palette.querySelector("input"));
     expect(screen.queryByRole("dialog")).toBeNull();
