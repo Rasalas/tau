@@ -6,9 +6,12 @@ No VM, domain purchase, DNS change or Firebase Hosting rewrite is needed.
 The push function keeps its existing deployment and permissions.
 
 This is an optional deployment, not a running service or a free hosted account.
-The workflow checks changes on main and pull requests. It publishes only after
-someone manually runs `Connect relay` on main with `deploy=true`, through the
-`connect-relay` GitHub environment. The default is `false`.
+The `Connect relay checks` workflow only tests and builds. It has no deployment
+job, Google credentials or paid-service activation input, including manual runs.
+The existing `Push relay` workflow and `npm run relay:deploy` only deploy the
+existing Firebase push function. They never call the Connect deployment script.
+The optional script refuses all cloud operations unless its caller explicitly
+sets `TAU_CONNECT_PAID_DEPLOY_ACK=I_ACCEPT_ONGOING_CLOUD_COSTS`.
 
 ## Operating cost
 
@@ -98,7 +101,7 @@ The following Connect resources were absent:
 
 The locally installed Google Cloud CLI 557.0.0 lacks `--readiness-probe`.
 The deploy script checks support and exits before changing the fence on such
-a CLI. The GitHub job installs the current CLI through the pinned setup action.
+a CLI. A project administrator must separately install a CLI with readiness-probe support.
 
 These commands repeat the relevant read-only checks. They do not read secrets.
 
@@ -178,10 +181,13 @@ and set these variables. Reuse the existing provider, not the push deployer.
 
 ## Publish and verify
 
-Run the `Connect relay` workflow on main with `deploy=true`. It tests and builds
-before authenticating, pushes an image, resolves its immutable digest, fences
-the next revision, deploys it and checks `/ready`. The service URL appears in
-the final step. Use that exact HTTPS URL in Tau's Connections settings.
+There is deliberately no publish workflow or npm deploy command for Connect.
+After separately choosing and provisioning this paid service, an administrator
+must build/push its image, resolve its immutable digest and explicitly invoke
+`connect-relay/deploy-cloud.sh` with the paid-cost acknowledgment, that digest
+and a new revision suffix. The script fences the next revision, deploys it and
+checks `/ready`. This operation is separate from the existing Firebase push
+function's deployment. Use the resulting HTTPS URL in Tau's Connections settings.
 Keep the enrollment credential private, transferring it through a private token
 file or the settings field. Never put it in a URL or a command argument.
 

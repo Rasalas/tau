@@ -19,7 +19,8 @@ apply. The relay sees route ids, connection timing and ciphertext sizes.
 For the existing Firebase project `tau-push-e3c95`, use the optional
 [Cloud Run deployment](connect-cloud.md). It needs no VM or domain, but an open
 host connection incurs Cloud Run charges. It has durable hash-only route state,
-a single active process lease and a manual deployment workflow. The service
+a single active process lease. Its CI workflow only checks source; paid
+deployment requires a separate administrator operation. The service
 has not been activated by adding its source.
 
 Tau also supports an operator's own Linux server. That path needs Docker with

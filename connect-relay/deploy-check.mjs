@@ -29,7 +29,7 @@ esac
 printf 'node %s\\n' "$*" >> "$TEST_CALLS"
 echo '{"previousRevision":"tau-connect-old"}'
 `, { mode: 0o700 });
-    const env = { ...process.env, PATH: `${folder}:${process.env.PATH}`, TEST_CALLS: log, TEST_READY_FLAG: "0" };
+    const env = { ...process.env, PATH: `${folder}:${process.env.PATH}`, TEST_CALLS: log, TEST_READY_FLAG: "0", TAU_CONNECT_PAID_DEPLOY_ACK: "I_ACCEPT_ONGOING_CLOUD_COSTS" };
     await assert.rejects(run("bash", [script, image, "next"], { env }));
     assert.ok(!(await readFile(log, "utf8")).includes("cloud-state.mjs"));
     await writeFile(log, "");
@@ -39,5 +39,18 @@ echo '{"previousRevision":"tau-connect-old"}'
     assert.ok(calls.includes("node cloud-state.mjs tau-connect-old"));
     assert.ok(calls.includes("--to-revisions=tau-connect-old=100"));
     assert.ok(calls.indexOf("tau-connect-next") < calls.indexOf("node cloud-state.mjs tau-connect-old"));
+  } finally { await rm(folder, { recursive: true, force: true }); }
+});
+
+
+test("paid cloud deployment requires a separate explicit acknowledgment; CI never deploys", async () => {
+  const folder = await mkdtemp(join(tmpdir(), "tau-connect-no-deploy-"));
+  const log = join(folder, "calls");
+  try {
+    await writeFile(join(folder, "gcloud"), '#!/bin/sh\necho called >> "$TEST_CALLS"\n', { mode: 0o700 });
+    await assert.rejects(run("bash", [script, image, "next"], { env: { ...process.env, PATH: `${folder}:${process.env.PATH}`, TEST_CALLS: log, TAU_CONNECT_PAID_DEPLOY_ACK: "" } }), (error) => error.code === 2 && error.stderr.includes("ongoing hosting charges"));
+    await assert.rejects(readFile(log), { code: "ENOENT" });
+    const workflow = await readFile(new URL("../.github/workflows/connect-relay.yml", import.meta.url), "utf8");
+    assert.ok(!workflow.includes("id-token: write") && !workflow.includes("google-github-actions/auth") && !workflow.includes("inputs.deploy") && !workflow.includes("  deploy:"));
   } finally { await rm(folder, { recursive: true, force: true }); }
 });

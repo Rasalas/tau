@@ -1,4 +1,4 @@
-name: Connect relay
+name: Connect relay checks
 
 on:
   push:
@@ -7,11 +7,6 @@ on:
   pull_request:
     paths: ['connect-relay/**', '.github/workflows/connect-relay.yml']
   workflow_dispatch:
-    inputs:
-      deploy:
-        description: Deploy to tau-push-e3c95 after checks
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -39,51 +34,3 @@ jobs:
       # Build before an identity exists, so package scripts cannot see credentials.
       - run: docker build --tag tau-connect:check connect-relay
 
-  deploy:
-    needs: check
-    # Publishing is opt-in. Main changes are checked without changing cloud state.
-    if: github.repository == 'Rasalas/tau' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.deploy
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    environment: connect-relay
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 22
-      - name: Check federation variables
-        env:
-          POOL: ${{ vars.CONNECT_RELAY_WIF_POOL }}
-          PROVIDER: ${{ vars.CONNECT_RELAY_WIF_PROVIDER }}
-          SERVICE_ACCOUNT: ${{ vars.CONNECT_RELAY_SERVICE_ACCOUNT }}
-        run: |
-          missing=""
-          [ -n "$POOL" ] || missing="$missing CONNECT_RELAY_WIF_POOL"
-          [ -n "$PROVIDER" ] || missing="$missing CONNECT_RELAY_WIF_PROVIDER"
-          [ -n "$SERVICE_ACCOUNT" ] || missing="$missing CONNECT_RELAY_SERVICE_ACCOUNT"
-          if [ -n "$missing" ]; then
-            echo "::error::Environment connect-relay lacks:$missing. See docs/connect-cloud.md."
-            exit 1
-          fi
-      - name: Build image before signing in
-        run: docker build --tag europe-west3-docker.pkg.dev/tau-push-e3c95/tau-connect/relay:${{ github.sha }} connect-relay
-      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
-        with:
-          project_id: tau-push-e3c95
-          workload_identity_provider: projects/712111328256/locations/global/workloadIdentityPools/${{ vars.CONNECT_RELAY_WIF_POOL }}/providers/${{ vars.CONNECT_RELAY_WIF_PROVIDER }}
-          service_account: ${{ vars.CONNECT_RELAY_SERVICE_ACCOUNT }}
-      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
-      - name: Push immutable image and deploy with revision fence
-        env:
-          IMAGE: europe-west3-docker.pkg.dev/tau-push-e3c95/tau-connect/relay:${{ github.sha }}
-          REVISION_SUFFIX: c${{ github.run_id }}-${{ github.run_attempt }}
-        run: |
-          gcloud auth configure-docker europe-west3-docker.pkg.dev --quiet
-          docker push "$IMAGE"
-          digest="$(gcloud artifacts docker images describe "$IMAGE" --project=tau-push-e3c95 --format='value(image_summary.digest)' --quiet)"
-          bash connect-relay/deploy-cloud.sh "${IMAGE%:*}@$digest" "$REVISION_SUFFIX"

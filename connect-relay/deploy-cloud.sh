@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Normal push-relay deployment never calls this optional paid-service script.
+if [[ "${TAU_CONNECT_PAID_DEPLOY_ACK:-}" != I_ACCEPT_ONGOING_CLOUD_COSTS ]]; then
+  echo 'Cloud Run has ongoing hosting charges. Deployment is disabled without explicit TAU_CONNECT_PAID_DEPLOY_ACK=I_ACCEPT_ONGOING_CLOUD_COSTS. No cloud resources changed.' >&2
+  exit 2
+fi
+
 # Build/push the image before calling this script. This script writes cloud state.
 if [[ $# != 2 || ! "$1" =~ ^europe-west3-docker\.pkg\.dev/tau-push-e3c95/tau-connect/relay@sha256:[a-f0-9]{64}$ || ! "$2" =~ ^[a-z0-9][a-z0-9-]{0,38}$ ]]; then
   echo 'Usage: deploy-cloud.sh <tau-connect image digest> <revision suffix>' >&2
