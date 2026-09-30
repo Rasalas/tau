@@ -32,7 +32,7 @@ function relayHandler(): (request: RelayRequest) => Promise<RelayResponse> {
     // Until the APNs key exists its secrets may hold a placeholder; iPhones then get 503.
     logger.warn("apns.unconfigured");
   }
-  handler = createRelay({ keyring: parseKeyring(HANDLE_KEYS.value()), senders, log: (event, fields) => logger.info(event, fields) });
+  handler = createRelay({ keyring: parseKeyring(HANDLE_KEYS.value()), senders, log: (level, event, fields) => (level === "error" ? logger.error(event, fields) : logger.warn(event, fields)) });
   return handler;
 }
 
@@ -42,9 +42,9 @@ export const relay = onRequest(
     invoker: "public",
     serviceAccount: RUNTIME_SERVICE_ACCOUNT,
     secrets: [HANDLE_KEYS, APNS_KEY, APNS_KEY_ID, APNS_TEAM_ID],
-    // Small on purpose: a flood costs at most two instances.
+    // Small on purpose: a flood costs at most two instances of ten requests each.
     maxInstances: 2,
-    concurrency: 40,
+    concurrency: 10,
     cpu: 1,
     memory: "256MiB",
     timeoutSeconds: 30,
