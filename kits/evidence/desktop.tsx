@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { Images } from "lucide-react";
 import { ConfirmDialog, errorMessage, useWorkbench, type DesktopExtension, type DesktopExtensionContext, type RegionProps, type TranscriptRowsHandle } from "tau";
-import { settledTurn, turnAnchor } from "./anchor.js";
+import { settledTurn, turnAnchor, turnNumber } from "./anchor.js";
 import { EvidenceCard } from "./card.js";
 import { EvidenceClient } from "./client.js";
 import {
@@ -9,8 +9,10 @@ import {
   EVIDENCE_EXTENSION_ID,
   EVIDENCE_PAUSED_EVENT,
   EVIDENCE_SERVICE,
+  REVIEW_ATTACH_SERVICE,
   type EvidenceCaptureService,
   type EvidenceTurn,
+  type ReviewAttachService,
 } from "./protocol.js";
 import { EVIDENCE_SETTINGS_ROWS, EvidenceSettingsPage } from "./settings-page.js";
 import { EvidenceViewer, type ViewerRequest } from "./viewer.js";
@@ -44,7 +46,7 @@ interface Placed {
  * Invisible region that turns the thread's pictures into transcript rows under
  * each turn's answer, and hosts the viewer and the delete question.
  */
-function createController(client: EvidenceClient, rows: TranscriptRowsHandle) {
+function createController(client: EvidenceClient, rows: TranscriptRowsHandle, review: () => ReviewAttachService | undefined) {
   const view = new ViewState();
   return function EvidenceController({ actions }: RegionProps) {
     const { snapshot } = useWorkbench();
@@ -52,6 +54,8 @@ function createController(client: EvidenceClient, rows: TranscriptRowsHandle) {
     const sessionId = snapshot?.sessionId;
     const streaming = Boolean(snapshot?.isStreaming);
     const messages = snapshot?.messages;
+    const title = snapshot?.sessionTitle;
+    const complete = !snapshot?.olderCursor;
     const { viewer, deleting } = useSyncExternalStore(view.subscribe, view.get, view.get);
     const shown = useRef<string | undefined>(undefined);
 
@@ -73,7 +77,7 @@ function createController(client: EvidenceClient, rows: TranscriptRowsHandle) {
       return { turn, running: settled.endedAt === undefined, ...(anchor ? { anchor } : {}) };
     }), [messages, streaming, thread]);
     // Streaming changes the messages on every token; the rows change only when a placement does.
-    const key = `${placed.map((entry) => `${entry.turn.turnId}:${String(entry.turn.frames.length)}:${entry.turn.frames.at(-1)?.id ?? ""}:${entry.anchor ?? ""}:${String(entry.running)}`).join("|")}#${paused ?? ""}`;
+    const key = `${placed.map((entry) => `${entry.turn.turnId}:${String(entry.turn.endedAt)}:${String(entry.turn.frames.length)}:${entry.turn.frames.at(-1)?.id ?? ""}:${entry.anchor ?? ""}:${String(entry.running)}`).join("|")}#${paused ?? ""}`;
 
     useEffect(() => {
       if (!sessionId) return;
@@ -87,12 +91,16 @@ function createController(client: EvidenceClient, rows: TranscriptRowsHandle) {
             turn={entry.turn}
             running={entry.running}
             {...(entry.running && paused ? { paused } : {})}
-            onOpen={(index, play) => view.set({ viewer: { threadId: sessionId, turn: entry.turn, index, ...(play ? { play } : {}) } })}
+            onOpen={(index, play) => {
+              const number = turnNumber(entry.turn, messages ?? [], complete);
+              view.set({ viewer: { threadId: sessionId, turn: entry.turn, index, ...(play ? { play } : {}), ...(title ? { title } : {}), ...(number ? { turnNumber: number } : {}) } });
+            }}
+            notify={(message) => actions.notify(message)}
           />
         ),
       })));
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [key, sessionId]);
+    }, [key, sessionId, title, complete]);
 
     if (deleting) {
       return (
@@ -111,6 +119,7 @@ function createController(client: EvidenceClient, rows: TranscriptRowsHandle) {
       );
     }
     if (!viewer) return null;
+    const attach = review();
     return (
       <EvidenceViewer
         key={`${viewer.turn.turnId}:${String(viewer.index)}`}
@@ -119,6 +128,11 @@ function createController(client: EvidenceClient, rows: TranscriptRowsHandle) {
         onClose={() => view.set({})}
         onDelete={() => view.set({ viewer, deleting: { threadId: viewer.threadId, turnId: viewer.turn.turnId } })}
         notify={(message) => actions.notify(message)}
+        {...(attach ? { onAttach: () => {
+          const media = viewer.turn.frames.map((frame) => ({ threadId: viewer.threadId, source: EVIDENCE_EXTENSION_ID, id: frame.id, caption: frame.caption }));
+          if (!attach.attach(media, actions)) actions.notify("Open a project to review before attaching pictures.");
+          else { view.set({}); actions.notify(`${String(media.length)} pictures added to the local pull request.`); }
+        } } : {})}
       />
     );
   };
@@ -145,9 +159,14 @@ const evidence: DesktopExtension = {
     }));
     void (context.host.invoke("paused") as Promise<Record<string, string>>).then((paused) => client.setPaused(paused ?? {}), () => undefined);
 
-    const rows = context.registerTranscriptRows("evidence", 30, { profiles: ["desktop"] });
+    let review: ReviewAttachService | undefined;
+    disposers.push(context.useService<ReviewAttachService>(REVIEW_ATTACH_SERVICE, (service) => {
+      review = service;
+      return () => { if (review === service) review = undefined; };
+    }));
+    const rows = context.registerTranscriptRows("evidence", 30, { profiles: ["desktop", "web", "compact"] });
     disposers.push(() => rows.dispose());
-    disposers.push(context.registerRegion({ id: "evidence.controller", placement: "transcript-header", order: 110, profiles: ["desktop"], Component: createController(client, rows) }));
+    disposers.push(context.registerRegion({ id: "evidence.controller", placement: "transcript-header", order: 110, profiles: ["desktop", "web", "compact"], Component: createController(client, rows, () => review) }));
     disposers.push(context.registerSettingsPage({
       id: "evidence",
       label: "Evidence",

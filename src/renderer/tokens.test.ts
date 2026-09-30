@@ -15,6 +15,7 @@ const LAZY_STYLES = [
   "./components/reload-conflict.css",
   "./renderer-benchmark.css",
   "./components/diff-view.css",
+  "./components/attachment-lightbox.css",
 ].map((path) => new URL(path, import.meta.url));
 const KITS = fileURLToPath(new URL("../../kits", import.meta.url));
 
@@ -148,9 +149,10 @@ describe("the token contract", () => {
   it("gives every colour token a value in both schemes", async () => {
     const tokens = await readTokens();
     const single = [...tokens].filter(([, value]) => /^#|^hsl\(/u.test(value) && !value.startsWith("light-dark("));
-    // The mark on the stop button and a QR code are the same in both schemes on
-    // purpose; anything else with one value is a token that was not themed.
-    expect(single.map(([name]) => name).sort()).toEqual(["--qr-ink", "--qr-paper", "--stop-ink"]);
+    // The mark on the stop button, a QR code and the dark picture viewer are the same in
+    // both schemes on purpose; anything else with one value is a token that was not themed.
+    const media = ["--media", "--media-control", "--media-faint", "--media-hover", "--media-ink", "--media-muted", "--media-shade", "--media-well", "--scrim-deep"];
+    expect(single.map(([name]) => name).sort()).toEqual([...media, "--qr-ink", "--qr-paper", "--stop-ink"].sort());
   });
 
   it("sets the side surface lighter than the document area in the dark scheme only", async () => {

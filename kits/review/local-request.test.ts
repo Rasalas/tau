@@ -39,4 +39,18 @@ describe("local pull request logic", () => {
     drafts.clear("/repo", "feature");
     expect(drafts.get("/repo", "feature")).toBeUndefined();
   });
+
+  it("adds attached pictures to a branch's draft and tells the view", () => {
+    const map = new Map<string, string>();
+    const storage = { get: (key: string) => map.get(key) ?? null, set: (key: string, value: string) => { map.set(key, value); }, remove: (key: string) => { map.delete(key); }, keys: () => [...map.keys()] };
+    const drafts = new LocalDrafts(() => storage, () => 1);
+    let heard = 0;
+    drafts.subscribe(() => { heard += 1; });
+    drafts.attach("/repo", "feature", ["a"]);
+    expect(drafts.get("/repo", "feature")).toMatchObject({ title: "", body: "", selected: ["a"] });
+    drafts.set("/repo", "feature", { title: "T", body: "B", base: "main", draft: false, selected: ["a"] });
+    drafts.attach("/repo", "feature", ["a", "b"]);
+    expect(drafts.get("/repo", "feature")).toMatchObject({ title: "T", body: "B", selected: ["a", "b"] });
+    expect(heard).toBe(2);
+  });
 });
