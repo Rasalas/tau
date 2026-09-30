@@ -621,7 +621,7 @@ jobs:
           PUBLISHING: ${{ needs.gate.outputs.nightly == 'true' || startsWith(github.ref, 'refs/tags/v') || inputs.publish == true }}
         run: |
           # One per platform of the matrix; a missing one leaves that platform without updates.
-          for name in latest-mac.yml latest.yml latest-linux.yml; do
+          for name in latest-mac.yml latest.yml latest-linux.yml latest-host-darwin-arm64.yml latest-host-darwin-x64.yml latest-host-linux-x64.yml latest-host-linux-arm64.yml latest-host-win32-x64.yml; do
             [ -f "feed/$name" ] || { echo "::error::The builds wrote no $name."; exit 1; }
           done
           if [ -z "${TAU_RELEASE_SIGNING_KEY:-}" ]; then
