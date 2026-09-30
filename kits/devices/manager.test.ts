@@ -104,7 +104,11 @@ describe("device operations through the real loopback transport", () => {
       expect(execute).toHaveBeenLastCalledWith("xcrun", ["simctl", "ui", "ios-phone", "appearance", "dark"], { signal: undefined });
       await expect(manager.action({ ...target, action: "location", latitude: 200, longitude: 0 })).rejects.toThrow("latitude");
       await expect(manager.action({ ...target, action: "fold", enabled: true })).rejects.toThrow("Android");
-      await manager.action({ ...target, deviceId: "android-phone", action: "fold", enabled: true });
+      const android = { ...target, deviceId: "android-phone" };
+      expect(await manager.foldState(android)).toEqual({ supported: true, posture: "opened", hingeAngle: 180 });
+      expect(await manager.action({ ...android, action: "fold", enabled: true })).toEqual({ supported: true, posture: "closed", hingeAngle: 0 });
+      expect(await manager.foldState(android)).toEqual({ supported: true, posture: "closed", hingeAngle: 0 });
+      expect(await manager.foldState(target)).toEqual({ supported: false, posture: null, hingeAngle: null });
       await manager.action({ ...target, action: "shutdown" });
       await expect(manager.frame(target)).rejects.toThrow("Boot");
       await manager.action({ ...target, action: "boot" });

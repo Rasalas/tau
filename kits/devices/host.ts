@@ -45,6 +45,7 @@ export default {
     context.registerCommand("configure", guarded((input) => manager.configure(input)), { access: "owner" });
     context.registerCommand("install", guarded((input) => { const request = input as { tool: "hub" | "agent"; hostId: string }; return manager.install(request.tool, request.hostId); }), { access: "owner" });
     context.registerCommand("discover", guarded((input) => manager.discover((input as { hostId: string }).hostId)), { access: "read" });
+    context.registerCommand("fold-state", guarded((input) => manager.foldState(input as Target)), { access: "read" });
     context.registerCommand("frame", guarded((input) => manager.frame(input as Target)), { access: "read" });
     context.registerCommand("action", guarded((input) => manager.action(input as ActionInput)));
     const releasePi = context.services.registerRuntimeExtension("tau-devices", (pi) => { for (const tool of deviceTools(manager)) pi.registerTool(tool); });

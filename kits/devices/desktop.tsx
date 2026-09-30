@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Smartphone } from "lucide-react";
 import { useHostAvailability, type DesktopExtension, type PanelProps } from "tau";
-import { DEFAULT_SETTINGS, DEVICE_KIT, type ActionInput, type Device, type DeviceSettings, type HubState, type Target } from "./protocol.js";
+import { DEFAULT_SETTINGS, DEVICE_KIT, type ActionInput, type Device, type DeviceSettings, type HubState, type FoldState, type Target } from "./protocol.js";
 
 import { FloatingDevice, FloatingDeviceView } from "./floating.js";
 const DevicePoseView = lazy(() => import("./pose-view.js"));
@@ -18,7 +18,15 @@ export function DevicePanel({ active, actions, invoke, floating }: PanelProps & 
   const [devices, setDevices] = useState<Device[]>([]);
   const [tabs, setTabs] = useState<Target[]>([]);
   const [selected, setSelected] = useState<Target>();
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
   const [frame, setFrame] = useState<string>();
+  const [captureReady, setCaptureReady] = useState(true);
+  const [captureEpoch, setCaptureEpoch] = useState(0);
+  const [fold, setFold] = useState<FoldState>();
+  const [foldError, setFoldError] = useState("");
+  const captureRevision = useRef(0);
+  const folding = useRef(false);
   const [pose, setPose] = useState(false);
   const [live, setLive] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -40,7 +48,9 @@ export function DevicePanel({ active, actions, invoke, floating }: PanelProps & 
     if (!selected || busy) return;
     setBusy(true); setError("");
     try {
-      const result = await invoke<{ id?: string; serial?: string }>("action", { ...selected, action, ...rest });
+      if (action === "fold") { folding.current = true; captureRevision.current++; setCaptureReady(false); }
+      const result = await invoke<{ id?: string; serial?: string } & Partial<FoldState>>("action", { ...selected, action, ...rest });
+      if (action === "fold" && selectedRef.current && key(selectedRef.current) === key(selected) && typeof result.supported === "boolean") setFold(result as FoldState);
       if (action === "boot" || action === "shutdown") {
         const list = await invoke<Device[]>("discover", { hostId: selected.hostId });
         setDevices((previous) => [...previous.filter((entry) => entry.hostId !== selected.hostId), ...list]);
@@ -52,20 +62,29 @@ export function DevicePanel({ active, actions, invoke, floating }: PanelProps & 
           setSelected(next);
         }
       }
-    } catch (reason) { setError(message(reason)); } finally { setBusy(false); }
+    } catch (reason) { setError(message(reason)); } finally { if (action === "fold") { folding.current = false; captureRevision.current++; setCaptureEpoch((value) => value + 1); } setBusy(false); }
   };
+  useEffect(() => { setFrame(undefined); setFold(undefined); setFoldError(""); setCaptureReady(true); }, [selected, device?.booted]);
   useEffect(() => {
-    setFrame(undefined);
     if (!active || !availability.available || !selected || !device?.booted) return;
     let cancelled = false, timer: ReturnType<typeof setTimeout> | undefined;
     const capture = async () => {
-      try { const next = await invoke<{ dataUrl: string }>("frame", selected); if (!cancelled) setFrame(next.dataUrl); }
+      const revision = captureRevision.current;
+      try {
+        let status: FoldState | undefined;
+        if (device.platform === "android") {
+          try { status = await invoke<FoldState>("fold-state", selected); if (!cancelled) setFoldError(""); }
+          catch (reason) { if (!cancelled) setFoldError(message(reason)); }
+        }
+        const next = await invoke<{ dataUrl: string }>("frame", selected);
+        if (!cancelled && revision === captureRevision.current && !folding.current) { setFrame(next.dataUrl); setCaptureReady(true); if (status) setFold(status); }
+      }
       catch (reason) { if (!cancelled) setError(message(reason)); }
       if (!cancelled && live) timer = setTimeout(() => { void capture(); }, 650);
     };
     void capture();
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [active, availability.available, selected, device?.booted, live, invoke]);
+  }, [active, availability.available, selected, device?.booted, live, invoke, captureEpoch]);
   const open = (next: Device) => {
     const target = targetOf(next);
     setTabs((previous) => previous.some((entry) => key(entry) === key(target)) ? previous : [...previous, target]);
@@ -98,7 +117,8 @@ export function DevicePanel({ active, actions, invoke, floating }: PanelProps & 
         {floating && <button disabled={!device.booted} onClick={() => { floating.set({ ...targetOf(device), name: device.name }); setLive(false); }}>Float over chat</button>}
         <small>Screen captures update while this tab is visible.</small>
       </div>
-      <div className="devices-view">{frame && pose ? <Suspense fallback={<p>Loading 3D view…</p>}><DevicePoseView image={frame} name={device.name} /></Suspense> : frame ? <img src={frame} alt={`${device.name} screen`} draggable={false} onPointerDown={(event) => { if (busy) return; pointer.current = point(event); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerCancel={() => { pointer.current = undefined; }} onPointerUp={(event) => {
+      {foldError && <small role="status">Cannot read device posture: {foldError}</small>}
+      <div className="devices-view">{frame && pose ? <Suspense fallback={<p>Loading 3D view…</p>}><DevicePoseView key={key(targetOf(device))} image={frame} device={device} fold={fold} captureReady={captureReady} /></Suspense> : frame ? <img src={frame} alt={`${device.name} screen`} draggable={false} onPointerDown={(event) => { if (busy || !captureReady) return; pointer.current = point(event); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerCancel={() => { pointer.current = undefined; }} onPointerUp={(event) => {
         const start = pointer.current; pointer.current = undefined; if (!start) return;
         const end = point(event), distance = Math.hypot(end.x - start.x, end.y - start.y);
         void perform(distance < 12 ? "tap" : "swipe", distance < 12 ? start : { ...start, endX: end.x, endY: end.y });
@@ -117,7 +137,7 @@ export function DevicePanel({ active, actions, invoke, floating }: PanelProps & 
           <select aria-label="App permission" value={permission} onChange={(event) => setPermission(event.target.value)}>{["camera", "microphone", "location", "contacts", "calendar"].map((name) => <option key={name}>{name}</option>)}</select>
           <button disabled={busy || !availability.available || !appId} onClick={() => { void perform("permission", { appId, permission, value: "grant" }); }}>Grant permission</button><button disabled={busy || !availability.available || !appId} onClick={() => { void perform("permission", { appId, permission, value: "revoke" }); }}>Revoke permission</button>
           {(device.platform === "ios" ? ["reduceMotion", "increaseContrast", "reduceTransparency", "voiceOver"] : ["reduceMotion"]).map((setting) => <span key={setting}>{setting} <button disabled={busy || !availability.available} onClick={() => { void perform("accessibility", { value: setting, enabled: true }); }}>On</button><button disabled={busy || !availability.available} onClick={() => { void perform("accessibility", { value: setting, enabled: false }); }}>Off</button></span>)}
-          {device.platform === "android" && <span>Foldable posture <button disabled={busy || !availability.available} onClick={() => { void perform("fold", { enabled: true }); }}>Closed</button><button disabled={busy || !availability.available} onClick={() => { void perform("fold", { enabled: false }); }}>Opened</button></span>}
+          {device.platform === "android" && fold?.supported && <span>Device posture: {fold.posture ?? "Unknown"}{fold.hingeAngle !== null ? ` · ${Math.round(fold.hingeAngle)}°` : ""} <button disabled={busy || !availability.available} onClick={() => { void perform("fold", { enabled: true }); }}>Closed</button><button disabled={busy || !availability.available} onClick={() => { void perform("fold", { enabled: false }); }}>Opened</button></span>}
         </div></details>
       </div>}
     </>}
