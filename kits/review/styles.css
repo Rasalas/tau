@@ -25,7 +25,7 @@
   width: 100%; border: 1px solid var(--line-control); border-radius: 7px;
   background: var(--sunken); color: var(--ink); padding: 6px 9px; font: var(--text-sm)/1.45 var(--sans); outline: none;
 }
-.request-form textarea { resize: vertical; min-height: 110px; }
+.request-form textarea { resize: vertical; min-height: 110px; font: var(--text-input)/1.75 var(--sans); }
 .request-form input:focus, .request-form textarea:focus { border-color: var(--line-float); }
 .request-base { display: flex; align-items: center; gap: 6px; color: var(--faint); font: 10.5px var(--mono); }
 .request-base input { flex: 1; font-family: var(--mono) !important; }
@@ -50,21 +50,21 @@
 .review-comment-editor small { color: var(--muted); font: 9.5px var(--mono); }
 .review-comment-editor textarea {
   min-height: 52px; resize: vertical; border: 1px solid var(--line-control); border-radius: 6px;
-  background: var(--sunken); color: var(--ink); padding: 6px 9px; font: var(--text-sm)/1.45 var(--sans); outline: none;
+  background: var(--sunken); color: var(--ink); padding: 6px 9px; font: var(--text-input)/1.75 var(--sans); outline: none;
 }
 .review-comment-editor textarea:focus { border-color: var(--line-float); }
 .review-comment-editor footer { display: flex; align-items: center; gap: 6px; }
 .review-comment-editor footer > span { flex: 1; color: var(--fainter); font-size: 10px; }
 .review-comment-note { display: flex; align-items: flex-start; gap: 8px; padding: 7px 8px; border-left: 2px solid var(--acid-line); }
 .review-comment-note > svg { flex: none; margin-top: 3px; color: var(--acid-text); }
-.review-comment-note p { flex: 1; margin: 0; color: var(--ink-2); font-size: var(--text-sm); line-height: 1.45; white-space: pre-wrap; }
+.review-comment-note p { flex: 1; margin: 0; color: var(--ink-2); font-size: var(--text-md); line-height: 1.75; white-space: pre-wrap; }
 .review-comments { width: min(330px, 36vw); flex: none; display: flex; flex-direction: column; overflow: auto; border-left: 1px solid var(--line); background: var(--chrome); }
 .review-comments > header { position: sticky; top: 0; display: flex; align-items: center; gap: 8px; padding: 11px 12px; border-bottom: 1px solid var(--line); background: var(--chrome); }
 .review-comments > header strong { flex: 1; font-size: var(--text-xs); }
 .review-comments > p { padding: 14px; color: var(--faint); font-size: var(--text-xs); line-height: 1.5; }
 .review-comments article { margin: 9px 9px 0; padding: 10px; border: 1px solid var(--line-control); border-radius: 7px; background: var(--field); }
 .review-comments article small { color: var(--acid-text); font: 9.5px var(--mono); }
-.review-comments article p { margin: 7px 0; color: var(--ink-2); font-size: calc(var(--text-xs) + .5px); line-height: 1.45; white-space: pre-wrap; }
+.review-comments article p { margin: 7px 0; color: var(--ink-2); font-size: var(--text-md); line-height: 1.75; white-space: pre-wrap; }
 .review-comments > footer { position: sticky; bottom: 0; margin-top: auto; padding: 10px 9px; background: var(--chrome); }
 .review-comments > footer .primary { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .review-toolbar > .review-comments-action.active { color: var(--ink); }
@@ -183,7 +183,7 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 .pr-verb.changes-requested, .pr-event.verdict-changes-requested .pr-verb { color: var(--removed); }
 .pr-where { display: flex; align-items: center; gap: 6px; margin: 4px 0 0; font: 10.5px var(--mono); color: var(--muted); }
 .pr-where .text-button { padding: 0; font-size: 10.5px; color: var(--acid-text); }
-.pr-comment-body { margin-top: 6px; color: var(--ink-prose); font-size: calc(var(--text-sm) + .5px); overflow-wrap: anywhere; }
+.pr-comment-body { margin-top: 6px; color: var(--ink-prose); font-size: var(--text-md); line-height: 1.75; overflow-wrap: anywhere; }
 .pr-comment-body .markdown p { margin: 0 0 8px; }
 /* GitHub's HTML in descriptions and comments: details fold like a card, closed until asked. */
 :is(.pr-comment-body, .pr-editor-preview) details { margin: 0 0 12px; border: 1px solid var(--line-card); border-radius: var(--radius-sm); background: var(--sunken); }
@@ -200,7 +200,7 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 :is(.pr-comment-body, .pr-editor-preview) sub, :is(.pr-comment-body, .pr-editor-preview) sup { line-height: 0; }
 @media (prefers-reduced-motion: reduce) { :is(.pr-comment-body, .pr-editor-preview) summary::before { transition: none; } }
 .pr-reply { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
-.pr-reply textarea, .pr-editor textarea { width: 100%; resize: vertical; min-height: 56px; border: 1px solid var(--line-field); border-radius: var(--radius-sm); background: var(--sunken); color: var(--ink); padding: 6px 9px; font: var(--text-sm)/1.45 var(--sans); outline: none; }
+.pr-reply textarea, .pr-editor textarea { width: 100%; resize: vertical; min-height: 56px; border: 1px solid var(--line-field); border-radius: var(--radius-sm); background: var(--sunken); color: var(--ink); padding: 6px 9px; font: var(--text-input)/1.75 var(--sans); outline: none; }
 .pr-reply textarea:focus, .pr-editor textarea:focus { border-color: var(--line-focus); }
 .pr-reply footer, .pr-editor footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .pr-reply footer > span { flex: 1; color: var(--fainter); font-size: 10px; }
@@ -434,7 +434,7 @@ body[data-profile="compact"] .pr-row-line.meta .pr-row-time { margin-left: auto;
 .pr-composer { display: flex; flex-direction: column; gap: 8px; }
 .pr-composer .toggle-group { align-self: flex-start; }
 .pr-composer .toggle-group > button.active { background: var(--raised); color: var(--ink); }
-.pr-composer textarea { width: 100%; resize: vertical; min-height: 72px; border: 1px solid var(--line-field); border-radius: var(--radius-sm); background: var(--sunken); color: var(--ink); padding: 6px 9px; font: 12px/1.45 var(--sans); outline: none; }
+.pr-composer textarea { width: 100%; resize: vertical; min-height: 72px; border: 1px solid var(--line-field); border-radius: var(--radius-sm); background: var(--sunken); color: var(--ink); padding: 6px 9px; font: var(--text-input)/1.75 var(--sans); outline: none; }
 .pr-composer textarea:focus { border-color: var(--line-focus); }
 .pr-composer footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .pr-composer footer > span { flex: 1; color: var(--fainter); font-size: 10px; }
@@ -447,7 +447,7 @@ body[data-profile="compact"] .pr-row-line.meta .pr-row-time { margin-left: auto;
 .pr-pending code { flex: none; color: var(--acid-text); font: 10.5px var(--mono); }
 .pr-pending span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
 .pr-pending-note { display: flex; align-items: flex-start; gap: 8px; margin: 6px 0; padding: 7px 10px; border: 1px dashed var(--line-control); border-radius: var(--radius-md); background: var(--field); }
-.pr-pending-note p { flex: 1; margin: 0; color: var(--ink-2); font-size: var(--text-sm); white-space: pre-wrap; }
+.pr-pending-note p { flex: 1; margin: 0; color: var(--ink-2); font-size: var(--text-md); line-height: 1.75; white-space: pre-wrap; }
 .pr-comment-fab .pr-fab-count { position: absolute; top: -4px; right: -4px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: var(--radius-pill); background: var(--acid); color: var(--acid-ink); font: 600 9.5px/16px var(--mono); }
 .pr-resolve { font-size: 10.5px; }
 .pr-thread-comment > p .icon-button.compact { width: 20px; height: 20px; }
@@ -542,7 +542,7 @@ body[data-profile="compact"] .pr-row-line.meta .pr-row-time { margin-left: auto;
   background: var(--sunken); color: var(--ink); padding: 7px 10px; font: var(--text-sm)/1.5 var(--sans); outline: none;
 }
 .lpr-title { font-weight: 600; font-size: var(--text-md); }
-.lpr-body { min-height: 180px; resize: vertical; font-family: var(--mono); font-size: calc(var(--text-xs) + .5px); }
+.lpr-body { min-height: 180px; resize: vertical; font: var(--text-input)/1.75 var(--mono); }
 .lpr-title:focus, .lpr-body:focus { border-color: var(--line-float); }
 .lpr-writer-bar, .lpr-writer-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .lpr-writer-bar .spacer, .lpr-writer-foot .spacer { flex: 1; }
@@ -603,7 +603,7 @@ span.lpr-thumb-image { cursor: default; }
 .lpr-commit-line { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--faint); font: 10.5px var(--mono); }
 .lpr-commit-line strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font: 600 var(--text-sm) var(--sans); }
 .lpr-commit-line .spacer { flex: 1; }
-.lpr-commit-body { margin: 4px 0 0; color: var(--muted); font-size: calc(var(--text-xs) + .5px); white-space: pre-wrap; }
+.lpr-commit-body { margin: 4px 0 0; color: var(--muted); font-size: var(--text-md); line-height: 1.75; white-space: pre-wrap; }
 .lpr-commit .lpr-group { margin: 8px 0 0; }
 
 /* ------------------------------------------------ the review on a compact client */
@@ -839,7 +839,7 @@ body[data-profile="compact"] .pr-verdict { min-height: var(--touch-target); padd
 .rv-diff { margin: var(--space-2) 0 var(--space-3); border: 1px solid var(--line-soft); border-radius: var(--radius-md); overflow: hidden; }
 .rv-diff-loading, .rv-diff-error { padding: var(--space-4); color: var(--muted); font: calc(var(--text-sm) + .5px) var(--sans); }
 .rv-note { display: flex; flex-direction: column; gap: var(--space-3); }
-.rv-note > textarea { width: 100%; min-height: 72px; padding: var(--space-3) var(--space-4); border: 1px solid var(--line-field); border-radius: var(--radius-md); background: var(--field); color: var(--ink); font: calc(var(--text-md) + .5px)/1.45 var(--sans); resize: vertical; }
+.rv-note > textarea { width: 100%; min-height: 72px; padding: var(--space-3) var(--space-4); border: 1px solid var(--line-field); border-radius: var(--radius-md); background: var(--field); color: var(--ink); font: var(--text-input)/1.75 var(--sans); resize: vertical; }
 .rv-note > textarea:focus { outline: none; border-color: var(--line-focus); }
 .rv-note > div { display: flex; justify-content: flex-end; gap: var(--space-3); }
 .rv-note button.primary { border-color: transparent; background: var(--brand); color: var(--brand-on); }

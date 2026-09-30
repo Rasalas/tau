@@ -921,6 +921,8 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 
 /* ------------------------------------------------------------- markdown */
 
+/* Reading bodies share the chat's type role; inline Markdown keeps its label's size. */
+.markdown:not(.markdown-inline) { font-size: var(--text-md); line-height: 1.75; }
 .markdown > :first-child { margin-top: 0; }
 .markdown > :last-child { margin-bottom: 0; }
 .markdown p { margin: 0 0 12px; }
@@ -1562,8 +1564,8 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .extension-prompt > header > small { flex: none; font: 10px var(--mono); color: var(--faint); }
 .extension-prompt > header .spacer { flex: 1; }
 .extension-prompt-pick { flex: none; color: var(--muted); font-size: var(--text-xs); white-space: nowrap; }
-.extension-prompt-title { margin: 8px 0 0; font-size: var(--text-sm); line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
-.extension-prompt-message { margin: 4px 0 0; font-size: var(--text-sm); line-height: 1.5; color: var(--ink-2); white-space: pre-wrap; }
+.extension-prompt-title { margin: 8px 0 0; font-size: var(--text-md); line-height: 1.75; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
+.extension-prompt-message { margin: 4px 0 0; font-size: var(--text-md); line-height: 1.75; color: var(--ink-2); white-space: pre-wrap; }
 .extension-prompt-subject {
   display: block; margin: 6px 0 0; padding: 6px 9px; border-radius: var(--radius-sm); background: var(--sunken);
   font: var(--text-sm)/1.45 var(--mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto;
