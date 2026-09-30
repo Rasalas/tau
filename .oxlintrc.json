@@ -7,7 +7,7 @@
     "perf": "warn"
   },
   "rules": {},
-  "ignorePatterns": ["dist/", "dist-electron/", "node_modules/", "mobile/ios/App/App/public/", "mobile/android/app/src/main/assets/public/", "mobile/.build/", "relay/lib/"],
+  "ignorePatterns": ["dist/", "dist-electron/", "node_modules/", "mobile/ios/App/App/public/", "mobile/android/app/src/main/assets/public/", "mobile/.build/", "relay/lib/", "browser-connect/pkg/tau_browser_connect.js"],
   "overrides": [
     {
       "files": ["kits/**", "scripts/**", "mobile/scripts/**", "src/main/**", ".pi/**"],
