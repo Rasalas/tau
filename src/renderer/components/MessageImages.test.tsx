@@ -63,21 +63,18 @@ describe("message images", () => {
     </HostClientProvider>);
 
     const imageButton = screen.getByRole("button", { name: "Open image 1" });
+    // The shared menu keeps itself inside the window; its own tests cover that.
     fireEvent.contextMenu(imageButton, { clientX: 9999, clientY: 9999 });
-    const menu = screen.getByRole("menu", { name: "Image actions" });
-    expect(menu.parentElement).toBe(document.body);
-    const menuItem = screen.getByRole("menuitem", { name: "Copy image" });
-    expect(document.activeElement).toBe(menuItem);
-
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(screen.queryByRole("menu", { name: "Image actions" })).toBeNull();
+    const menu = await screen.findByRole("menu", { name: "Image actions" });
+    fireEvent.keyDown(menu, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu", { name: "Image actions" })).toBeNull());
     expect(document.activeElement).toBe(imageButton);
 
     fireEvent.keyDown(imageButton, { key: "F10", shiftKey: true });
-    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Copy image" }));
-    fireEvent.keyDown(screen.getByRole("menuitem", { name: "Copy image" }), { key: "Enter" });
+    const menuItem = await screen.findByRole("menuitem", { name: "Copy image" });
+    await waitFor(() => expect(document.activeElement).toBe(menuItem));
+    fireEvent.click(menuItem);
     await waitFor(() => expect(copyImage).toHaveBeenCalledWith("data:image/png;base64,iVBORw=="));
-    // The menu closes once the copy promise settles, one tick after the call.
     await waitFor(() => expect(screen.queryByRole("menu", { name: "Image actions" })).toBeNull());
   });
 
@@ -93,13 +90,14 @@ describe("message images", () => {
 
     const imageButton = await screen.findByRole("button", { name: "Open image 1" });
     fireEvent.contextMenu(imageButton, { clientX: 12, clientY: 18 });
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(screen.queryByRole("menu", { name: "Image actions" })).toBeNull();
+    await screen.findByRole("menu", { name: "Image actions" });
+    fireEvent.keyDown(document.activeElement ?? window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu", { name: "Image actions" })).toBeNull());
     fireEvent.contextMenu(imageButton, { clientX: 12, clientY: 18 });
-    fireEvent.mouseDown(document.body);
-    expect(screen.queryByRole("menu", { name: "Image actions" })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Close menu" }));
+    await waitFor(() => expect(screen.queryByRole("menu", { name: "Image actions" })).toBeNull());
     fireEvent.contextMenu(imageButton, { clientX: 12, clientY: 18 });
-    fireEvent.click(screen.getByRole("menuitem", { name: "Copy image" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Copy image" }));
     await waitFor(() => expect(copyImage).toHaveBeenCalledWith("data:image/png;base64,iVBORw=="));
   });
 

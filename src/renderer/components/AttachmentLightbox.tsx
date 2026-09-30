@@ -1,8 +1,8 @@
-import { ChevronLeft, ChevronRight, Copy, Download, X } from "lucide-react";
+import { ArrowDownToLine, ChevronLeft, ChevronRight, Copy, X } from "lucide-react";
 import { useState, type KeyboardEvent, type WheelEvent } from "react";
 import { createPortal } from "react-dom";
 import { usePlatform } from "../platform-context";
-import type { AttachmentImage } from "./AttachmentImageDialog";
+import type { AttachmentImage } from "./MessageImages";
 import { Dialog } from "./ui/Dialog";
 import "./attachment-lightbox.css";
 
@@ -45,12 +45,6 @@ export function AttachmentLightbox({ images, index: start, origin, onClose }: {
       return current.scale === 1 ? { scale, x, y } : { ...current, scale };
     });
   };
-  const save = () => {
-    const link = document.createElement("a");
-    link.href = image.src;
-    link.download = name;
-    link.click();
-  };
   const nav = count > 1;
 
   return createPortal(
@@ -62,7 +56,7 @@ export function AttachmentLightbox({ images, index: start, origin, onClose }: {
           {platform.clipboard.writeImage ? (
             <button type="button" className="lightbox-action" onClick={() => void platform.clipboard.writeImage?.(image.src)}><Copy size={12} />Copy</button>
           ) : null}
-          <button type="button" className="lightbox-action" onClick={save}><Download size={12} />Save</button>
+          <a className="lightbox-action" href={image.src} download={name}><ArrowDownToLine size={12} />Save</a>
           <button type="button" className="lightbox-close" aria-label="Close preview" autoFocus onClick={onClose}><X size={13} /></button>
         </header>
         <div className="lightbox-stage">

@@ -10,7 +10,7 @@
 .lightbox-head > span { flex: 1; min-width: 0; color: var(--media-muted); white-space: nowrap; }
 .lightbox-action, .lightbox-close {
   flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border: 0; border-radius: 6px;
-  background: transparent; color: inherit; font: 12px var(--sans); cursor: pointer;
+  background: transparent; color: inherit; font: 12px var(--sans); text-decoration: none; cursor: pointer;
 }
 .lightbox-close { width: 28px; height: 28px; padding: 0; justify-content: center; border-radius: 8px; }
 .lightbox-action:hover, .lightbox-close:hover { background: var(--media-hover); }

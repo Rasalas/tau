@@ -1,6 +1,5 @@
 import type { PendingAttachment } from "../../workbench/composer-scope-store";
 import { allocateAttachmentId } from "../../workbench/composer-scope-store";
-import { AttachmentImageDialog } from "./AttachmentImageDialog";
 
 export function readImage(file: File): Promise<PendingAttachment> {
   return new Promise((resolve, reject) => {
@@ -27,4 +26,3 @@ export function readImage(file: File): Promise<PendingAttachment> {
   });
 }
 
-export { AttachmentImageDialog };

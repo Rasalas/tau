@@ -10,7 +10,8 @@ export const rendererBuild = {
       // Settings primitives together, without pulling in any Settings page.
       if (/\/renderer\/settings\/(?:controls\.tsx|settings-layout\.tsx)$/u.test(id)) return "settings-controls";
       // These dialogs share their focus and closing behavior.
-      if (/\/renderer\/components\/ui\/(?:Dialog|ConfirmDialog)\.tsx$/u.test(id)) return "dialogs";
+      // The close mark goes with them: most chunks that draw it also open a dialog.
+      if (/\/renderer\/components\/ui\/(?:Dialog|ConfirmDialog)\.tsx$/u.test(id) || /\/lucide-react\/dist\/esm\/icons\/x\.mjs$/u.test(id)) return "dialogs";
       // These surfaces are loaded together on compact clients. One lazy chunk
       // avoids repeated imports and keeps message sheets out of the entry.
       return /\/renderer\/touch\/(?!Sheet\.tsx$).*\.tsx$/u.test(id) ? "touch-surfaces" : undefined;
