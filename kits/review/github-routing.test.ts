@@ -161,6 +161,8 @@ describe("GitHub access across paired hosts", () => {
   it("keeps approvals across restart and persists account-change revocation", async () => {
     const p = await pair();
     await p.grant();
+    p.machinesA[0]!.address = "wss://b/";
+    p.machinesB[0]!.address = "wss://a/";
     await p.registryA.deactivate(ID);
     await p.registryB.deactivate(ID);
     await p.registryA.activateKnown(ID);

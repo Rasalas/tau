@@ -11,6 +11,16 @@ const ACTIONS = new Set(["comment", "reply", "lineComment", "update", "review", 
 interface Grant { mode: GitHubSharing; host: string; account: string; address?: string; access?: string; machine?: string; trust?: string; preferred?: boolean }
 const object = (input: unknown): Record<string, unknown> => input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
 function fail(message: string): never { throw new HostCommandError(message); }
+const address = (raw: string | undefined): string | undefined => {
+  if (!raw) return undefined;
+  try {
+    const url = new URL(raw);
+    url.protocol = url.protocol.replace(/^ws/u, "http");
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch { return undefined; }
+};
 const endpoint = (raw: unknown): string => typeof raw === "string" && /^[a-z0-9]+(?:[.-][a-z0-9]+)+$/u.test(raw) ? raw : fail("Name the GitHub endpoint, such as github.com.");
 
 /** No filesystem operations, shell arguments or credentials cross this boundary. */
@@ -103,12 +113,12 @@ export function createGitHubRouting(context: HostExtensionContext, local: Source
     const count = outgoing.size + incoming.size;
     for (const [id, grant] of outgoing) {
       const machine = machines?.list().find((entry) => entry.id === id);
-      if (!machine || machine.status === "refused" || machine.address !== grant.address || machine.trustIdentity !== grant.trust || machine.readOnly && grant.mode === "act") outgoing.delete(id);
+      if (!machine || machine.status === "refused" || address(machine.address) !== grant.address || machine.trustIdentity !== grant.trust || machine.readOnly && grant.mode === "act") outgoing.delete(id);
     }
     for (const [id, grant] of incoming) {
       const device = devices().find((entry) => entry.id === id);
       const peer = machines?.list().find((entry) => entry.id === grant.machine);
-      if (!device || device.access !== grant.access || !peer || peer.status === "refused" || peer.address !== grant.address || peer.trustIdentity !== grant.trust) incoming.delete(id);
+      if (!device || device.access !== grant.access || !peer || peer.status === "refused" || address(peer.address) !== grant.address || peer.trustIdentity !== grant.trust) incoming.delete(id);
     }
     if (count !== outgoing.size + incoming.size) void persist().catch(() => undefined);
   };
@@ -141,9 +151,9 @@ export function createGitHubRouting(context: HostExtensionContext, local: Source
       const remote = object(await machines!.call(id, REVIEW_HOST_EXTENSION_ID, "github-sharing-identity", { host }));
       if (remote.account !== account || remote.source !== id) fail("The hosts are signed into different GitHub accounts.");
       const current = machines!.list().find((entry) => entry.id === id);
-      if (started !== generation || !current || current.address !== machine.address || current.trustIdentity !== machine.trustIdentity || current.status !== "connected" || fields.mode === "act" && current.readOnly) fail("Sharing changed during verification. No approval was saved.");
+      if (started !== generation || !current || address(current.address) !== address(machine.address) || current.trustIdentity !== machine.trustIdentity || current.status !== "connected" || fields.mode === "act" && current.readOnly) fail("Sharing changed during verification. No approval was saved.");
       if (fields.preferred === true) for (const other of outgoing.values()) if (other.host === host) other.preferred = false;
-      grants.set(id, { mode: fields.mode, host, account, address: machine.address, trust: machine.trustIdentity, preferred: fields.preferred === true && fields.mode === "act" });
+      grants.set(id, { mode: fields.mode, host, account, address: address(machine.address), trust: machine.trustIdentity, preferred: fields.preferred === true && fields.mode === "act" });
     } else {
       const device = devices().find((entry) => entry.id === id);
       if (!device) fail("That paired device is no longer allowed here.");
@@ -153,8 +163,8 @@ export function createGitHubRouting(context: HostExtensionContext, local: Source
       const verified = object(await machines!.call(peer.id, REVIEW_HOST_EXTENSION_ID, "github-sharing-identity", { host }));
       if (verified.account !== account || verified.source !== peer.id) fail("The hosts are signed into different GitHub accounts.");
       const current = machines!.list().find((entry) => entry.id === peer.id);
-      if (started !== generation || !devices().some((entry) => entry.id === id && entry.access === device.access) || !current || current.address !== peer.address || current.trustIdentity !== peer.trustIdentity || current.status !== "connected") fail("Sharing changed during verification. No approval was saved.");
-      grants.set(id, { mode: fields.mode, host, account, access: device.access, machine: peer.id, address: peer.address, trust: peer.trustIdentity });
+      if (started !== generation || !devices().some((entry) => entry.id === id && entry.access === device.access) || !current || address(current.address) !== address(peer.address) || current.trustIdentity !== peer.trustIdentity || current.status !== "connected") fail("Sharing changed during verification. No approval was saved.");
+      grants.set(id, { mode: fields.mode, host, account, access: device.access, machine: peer.id, address: address(peer.address), trust: peer.trustIdentity });
     }
     await persist();
   }, { access: "owner" });
