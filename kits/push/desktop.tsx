@@ -24,6 +24,7 @@ import {
   decodePushStatus,
   type PushContent,
   type PushDeviceRow,
+  type PushRoute,
   type PushStatus,
 } from "./protocol.js";
 
@@ -162,14 +163,21 @@ function KeySection({ title, id, row, description, saved, form }: {
   );
 }
 
+const ROUTE_TEXT: Record<PushRoute, Record<"ios" | "android", string>> = {
+  direct: { ios: "your APNs key", android: "your Firebase project" },
+  relay: { ios: "Tau's relay", android: "Tau's relay" },
+};
+
 function DeviceRow({ device, onTest, onRemove }: { device: PushDeviceRow; onTest(): Promise<void>; onRemove(): Promise<void> }) {
   const [busy, setBusy] = useState<"test" | "remove">();
   const run = (what: "test" | "remove", work: () => Promise<void>) => { setBusy(what); void work().finally(() => setBusy(undefined)); };
   const last = device.lastPush;
+  const relayed = device.route === "relay" || device.route === "unreachable";
   return (
     <SettingRow
-      title={<>{device.name} <Badge>{device.platform === "ios" ? "iPhone · APNs" : "Android · FCM"}</Badge></>}
+      title={<>{device.name} <Badge>{`${device.platform === "ios" ? "iPhone" : "Android"} · ${relayed ? "relay" : device.platform === "ios" ? "APNs" : "FCM"}`}</Badge></>}
       description={<>
+        {device.route === "unreachable" ? <><span className="push-error">Update the Tau app on this phone to get pushes through Tau's relay.</span>{" "}</> : null}
         Asked {when(device.registeredAt)}
         {last ? <> · {last.ok ? `last push ${when(last.at)}` : <span className="push-error">last push failed: {last.detail ?? "no reason given"}</span>}</> : null}
       </>}
@@ -218,11 +226,21 @@ function createSettingsPage(context: DesktopExtensionContext, store: StatusStore
             control={<SegmentedControl label="Content" value={content.value} options={CONTENTS} onChange={content.set} />}
           />
         </SettingsSection>
+        {status.routes ? (
+          <SettingsSection title="How pushes travel">
+            <SettingRow
+              id="setting-push-route"
+              title="Route"
+              description={<>iPhone: {ROUTE_TEXT[status.routes.ios].ios} · Android: {ROUTE_TEXT[status.routes.android].android}</>}
+              help="A key of your own sends directly to Apple or Google. Without one, Tau's relay forwards the push, encrypted with a key only your phone and this machine have. Until the iPhone app can decrypt it, an iPhone shows 'A thread needs your attention'."
+            />
+          </SettingsSection>
+        ) : null}
         <KeySection
           title="iPhone: Apple Push Notification service"
           id="setting-push-apns"
           row="APNs key"
-          description="An APNs key (.p8) from your Apple Developer account, its Key ID and your Team ID."
+          description="Optional: an APNs key (.p8) from your Apple Developer account, its Key ID and your Team ID. Without one, Tau's relay carries the pushes."
           saved={status.apns ? <>Key <code>{status.apns.keyId}</code> of team <code>{status.apns.teamId}</code>, saved {when(status.apns.savedAt)}</> : undefined}
           form={(done) => <ApnsForm context={context} onDone={done} />}
         />
@@ -230,7 +248,7 @@ function createSettingsPage(context: DesktopExtensionContext, store: StatusStore
           title="Android: Firebase Cloud Messaging"
           id="setting-push-fcm"
           row="Service account"
-          description="A service account of your Firebase project (Project settings → Service accounts → Generate new private key)."
+          description="Optional: a service account of your Firebase project (Project settings → Service accounts → Generate new private key). Without one, Tau's relay carries the pushes."
           saved={status.fcm ? <>Project <code>{status.fcm.projectId}</code> as <code>{status.fcm.clientEmail}</code>, saved {when(status.fcm.savedAt)}</> : undefined}
           form={(done) => <FcmForm context={context} onDone={done} />}
         />
@@ -267,20 +285,20 @@ function createSettingsPage(context: DesktopExtensionContext, store: StatusStore
             {status.apns ? (
               <DangerAction
                 title="Remove the APNs key"
-                description="iPhones get no more pushes until you save a key again. Apple lets you download a .p8 key only once."
+                description="iPhones get their pushes through Tau's relay again. Apple lets you download a .p8 key only once."
                 actionLabel="Remove key…"
                 confirmTitle="Remove the APNs key?"
-                confirmMessage={<>Tau deletes key {status.apns.keyId} from this machine and stops sending to iPhones. To send again you need the .p8 file, which Apple offers for download only once.</>}
+                confirmMessage={<>Tau deletes key {status.apns.keyId} from this machine; iPhones get their pushes through Tau's relay. To send directly again you need the .p8 file, which Apple offers for download only once.</>}
                 onConfirm={() => void forget("apns")}
               />
             ) : null}
             {status.fcm ? (
               <DangerAction
                 title="Remove the Firebase service account"
-                description="Android phones get no more pushes until you save a service account again."
+                description="Android phones get their pushes through Tau's relay again."
                 actionLabel="Remove service account…"
                 confirmTitle="Remove the Firebase service account?"
-                confirmMessage={<>Tau deletes the service account of project {status.fcm.projectId} from this machine and stops sending to Android phones. Firebase can generate a new private key for it.</>}
+                confirmMessage={<>Tau deletes the service account of project {status.fcm.projectId} from this machine; Android phones get their pushes through Tau's relay. Firebase can generate a new private key for it.</>}
                 onConfirm={() => void forget("fcm")}
               />
             ) : null}
@@ -294,6 +312,7 @@ function createSettingsPage(context: DesktopExtensionContext, store: StatusStore
 /** The rows the Settings search finds; each id is a row's on the page. */
 export const PUSH_ROWS = [
   { id: "setting-push-content", label: "Content", keywords: ["notification text", "excerpt", "title only"] },
+  { id: "setting-push-route", label: "Route", keywords: ["relay", "end-to-end", "encrypted", "direct"] },
   { id: "setting-push-apns", label: "APNs key", keywords: ["apple", "iphone", "ios", "p8", "key id", "team id"] },
   { id: "setting-push-fcm", label: "Service account", keywords: ["firebase", "android", "fcm", "json"] },
   { id: "setting-push-key-file", label: "Key file", keywords: ["encrypted", "keychain", "storage"] },
@@ -313,12 +332,12 @@ const push: DesktopExtension = {
     return context.registerSettingsPage({
       id: "push.settings",
       label: "Push",
-      description: "Your phone hears of a thread that finished, failed or needs you while you are away from Tau. This machine sends the notifications itself, with your own keys and through no relay.",
+      description: "Your phone hears of a thread that finished, failed or needs you while you are away from Tau: through Tau's relay, encrypted for your phone alone, or directly with keys of your own.",
       Icon: BellRing,
       group: "remote",
       order: 46,
       profiles: ["desktop", "web"],
-      keywords: ["notifications", "phone", "apns", "firebase", "fcm"],
+      keywords: ["notifications", "phone", "apns", "firebase", "fcm", "relay"],
       rows: PUSH_ROWS,
       Component: createSettingsPage(context, store),
     });

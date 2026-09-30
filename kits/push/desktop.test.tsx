@@ -12,8 +12,9 @@ const flush = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
 
 const STATUS: PushStatus = {
   apns: { keyId: "ABC123DEFG", teamId: "TEAM123456", savedAt: "2026-09-24T10:00:00.000Z" },
-  devices: [{ id: "iphone", name: "Test iPhone", platform: "ios", registeredAt: "2026-09-24T10:05:00.000Z", lastPush: { at: "2026-09-24T10:06:00.000Z", ok: false, detail: "BadDeviceToken" } }],
+  devices: [{ id: "iphone", name: "Test iPhone", platform: "ios", registeredAt: "2026-09-24T10:05:00.000Z", route: "direct", lastPush: { at: "2026-09-24T10:06:00.000Z", ok: false, detail: "BadDeviceToken" } }],
   file: "/userData/kit-state/tau.push/keys.json",
+  routes: { ios: "direct", android: "relay" },
 };
 
 function setup(answer: (command: string, input?: unknown) => unknown) {
@@ -116,6 +117,22 @@ describe("Settings → Push", () => {
     const rows = page.rows ?? [];
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) expect(document.getElementById(row.id), row.label).toBeTruthy();
+  });
+
+  it("says which way each platform's pushes go, and which phone's app is too old for the relay", async () => {
+    const relayed: PushStatus = {
+      devices: [
+        { id: "pixel", name: "Pixel", platform: "android", registeredAt: "2026-09-24T10:05:00.000Z", route: "relay" },
+        { id: "old", name: "Old iPhone", platform: "ios", registeredAt: "2026-09-24T10:05:00.000Z", route: "unreachable" },
+      ],
+      file: STATUS.file,
+      routes: { ios: "relay", android: "relay" },
+    };
+    setup((command) => (command === "status" ? relayed : undefined));
+    await flush();
+    expect(document.getElementById("setting-push-route")!.textContent).toContain("iPhone: Tau's relay · Android: Tau's relay");
+    expect(screen.getByText("Android · relay")).toBeTruthy();
+    expect(screen.getByText(/Update the Tau app on this phone/u)).toBeTruthy();
   });
 
   it("switches what a notification says", async () => {
