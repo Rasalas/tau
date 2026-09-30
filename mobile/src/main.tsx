@@ -33,9 +33,10 @@ async function boot(): Promise<void> {
   const push = nativePushPort(device.platform);
   const pushKeys = new PushKeys(secureStore);
   const book = new HostBook(secureStore);
-  setPushRegistrar(createPushRegistrar(push, { relay: createRelayPort(), keys: pushKeys }));
+  const pushRoutes = new Map<string, "direct" | "relay">();
+  setPushRegistrar(createPushRegistrar(push, { relay: createRelayPort(), keys: pushKeys, onRoute: (id, route) => pushRoutes.set(id, route) }));
   const context: AppContext = {
-    activities: device.platform === "ios" ? relayActivities(nativeActivities, { url: PUSH_RELAY_URL, keys: pushKeys, installKey: installActivityKey, authorized: async (id) => Boolean(await book.token(id)) }) : nativeActivities,
+    activities: device.platform === "ios" ? relayActivities(nativeActivities, { url: PUSH_RELAY_URL, keys: pushKeys, installKey: installActivityKey, authorized: async (id) => Boolean(await book.token(id)), direct: (id) => pushRoutes.get(id) === "direct" }) : nativeActivities,
     storage: createLocalStorageAdapter(),
     book,
     bridge,
