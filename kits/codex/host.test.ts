@@ -12,7 +12,6 @@ import { codexToolArgs } from "./tools.js";
 import { spawnRpcProcess } from "./rpc.js";
 import { ChatGPTPlanStore } from "./chatgpt-plan-store.js";
 import { CHATGPT_PLAN_ARGS } from "./chatgpt-plan.js";
-import { MANAGED_CODEX_VERSION } from "./managed-install.js";
 import { CodexSessionStore } from "./session-store.js";
 import { MANAGED_CODEX_VERSION } from "./managed-install.js";
 import type { ManagedCodexAsset } from "./managed-release.js";
