@@ -135,6 +135,14 @@ describe("Settings → Push", () => {
     expect(screen.getByText(/Update the Tau app on this phone/u)).toBeTruthy();
   });
 
+  it("shows a saved key that does not read as an error on its platform", async () => {
+    setup((command) => (command === "status" ? { ...STATUS, apns: { ...STATUS.apns!, error: "That is not a .p8 key." } } : undefined));
+    await flush();
+    expect(screen.getByText("Does not read")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toMatch(/no pushes, not even through Tau's relay: That is not a \.p8 key\./u);
+    expect(document.getElementById("setting-push-route")!.textContent).toContain("iPhone: your APNs key (does not read)");
+  });
+
   it("switches what a notification says", async () => {
     const { preferences } = setup((command) => (command === "status" ? STATUS : undefined));
     await flush();
