@@ -758,6 +758,21 @@ describe("Agents Kit", () => {
     await expect(parent.call("tau_get_thread_status", { threadId: "someone-else" })).rejects.toThrow("not a thread this one spawned");
   });
 
+  it("keeps a child that is still at work when its first turn was accepted before the start returned", async () => {
+    const bench = await activated();
+    const parent = bench.runtime("parent");
+    // The host waits for the first prompt's admission inside `sessions.start`.
+    bench.holdStarts(async () => { await bench.notify("accepted", "child-1"); });
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      const handle = handleOf(await parent.call("tau_spawn_thread", { prompt: "run 900" }));
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+      await expect(parent.call("tau_get_thread_status", { threadId: handle })).resolves.toMatchObject({ status: "running" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("surfaces a question the agent is holding as waiting, not as an answer for the parent", async () => {
     const bench = await activated();
     const parent = bench.runtime("parent");
