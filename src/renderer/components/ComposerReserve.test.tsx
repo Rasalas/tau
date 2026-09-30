@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { COMPOSER_RESERVE_PROPERTY, ComposerReserve, composerReserve, resolveComposerReserve } from "./ComposerReserve";
+import { COMPOSER_DOCK_PROPERTY, COMPOSER_RESERVE_PROPERTY, ComposerReserve, composerReserve, resolveComposerReserve } from "./ComposerReserve";
 
 describe("the room the transcript keeps for the dock", () => {
   it("follows the unfolded dock, as the composer grows with its draft or a pill comes", () => {
@@ -70,11 +70,14 @@ describe("ComposerReserve", () => {
     dock.resize();
     expect(dock.reserve()).toBe("128px");
     expect(composerReserve(dock.column)).toBe(128);
+    expect(dock.column.style.getPropertyValue(COMPOSER_DOCK_PROPERTY)).toBe("128px");
 
     dock.zone.classList.add("collapsed");
     setDock(76, 76, dock);
     dock.resize();
     expect(dock.reserve()).toBe("128px");
+    // The visual mask follows the actual dock, even when the end reservation stays unfolded.
+    expect(dock.column.style.getPropertyValue(COMPOSER_DOCK_PROPERTY)).toBe("76px");
 
     dock.zone.classList.remove("collapsed");
     setDock(128, 128, dock);
@@ -88,6 +91,7 @@ describe("ComposerReserve", () => {
 
     dock.view.unmount();
     expect(dock.column.style.getPropertyValue(COMPOSER_RESERVE_PROPERTY)).toBe("");
+    expect(dock.column.style.getPropertyValue(COMPOSER_DOCK_PROPERTY)).toBe("");
   });
 });
 

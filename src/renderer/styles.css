@@ -581,6 +581,15 @@ body:not([data-profile="compact"]) .conversation-start .composer-zone { padding-
   position: relative; flex: 1; min-height: 0; overflow: auto; overflow-anchor: none; overscroll-behavior-y: contain;
   padding: calc(26px * var(--density)) var(--space-8) var(--space-5); outline: none;
 }
+/* Fade before the complete dock, including its pills. Keep the scrollbar lane visible,
+ * as T3 Code's virtualized scroll masks do. The end spacer alone cannot hide text while scrolling. */
+.conversation-column:not(.conversation-start) .transcript {
+  --transcript-dock-mask: linear-gradient(to bottom, black calc(100% - var(--composer-dock-height, 0px) - 24px), transparent calc(100% - var(--composer-dock-height, 0px)));
+  mask-image: var(--transcript-dock-mask), linear-gradient(black, black);
+  mask-position: left, right;
+  mask-size: calc(100% - 8px) 100%, 8px 100%;
+  mask-repeat: no-repeat;
+}
 .transcript-search-bar {
   position: absolute; top: 12px; right: 24px; z-index: 10;
   display: flex; align-items: center; gap: 6px; padding: 4px 8px;
