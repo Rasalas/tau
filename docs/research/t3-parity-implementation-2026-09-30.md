@@ -98,6 +98,27 @@ signiertes Gerät. Der vorhandene Firebase-Push-Workflow wurde nach dem Merge
 von MR #3 erfolgreich ausgeführt. Es wurden keine neuen Connect-Cloud-Ressourcen
 angelegt, echten Geräte gestartet, Konten gewechselt oder Reset-Credits verbraucht.
 
-Die Desktop-Größenreserve beträgt 4.104 gzip-Bytes. Zusammengehörige Module
+Der abschließende Folge-Build misst 496.393 gzip-Bytes Desktop-JavaScript
+bei unverändertem Limit von 500.000 Bytes. Der Desktop-Build dauert 15.467 ms;
+auch das Web-Budget ist bestanden. Die Größenreserve beträgt 3.607 Bytes. Zusammengehörige Module
 für Syntaxhervorhebung und Dialoge teilen nachgeladene Chunks, ohne zusätzliche
 statische Imports im Einstieg. Die Größenlimits bleiben unverändert.
+
+## Prüfung des Folge-MR
+
+[MR #6](https://github.com/Rasalas/tau/pull/6) basiert auf dem gemergten
+[MR #3](https://github.com/Rasalas/tau/pull/3). Gesamt-Typecheck und Lint sind
+bestanden. 125 gezielte Geräte-/Push-/Release-Tests, 123 mobile Tests und
+135 Browser-/Snapshot-/Packaging-Tests sind bestanden. Weitere Regressionstests
+prüfen Geometrievariablen, Video-Abbruch und die gemeinsame Minifizierung.
+Der Browser-Test verbindet den tatsächlichen WASM-Adapter mit dem realen
+Host-Protokoll über einen CA-geprüften Relay, einschließlich Pairing,
+Pin-Ablehnung, gespeichertem Token, Wiederverbindung und Routenbereinigung.
+
+Der vollständige iOS-Simulator-Build einschließlich Widget sowie Androids
+Java-Kompilierung sind ohne Release-Signierung bestanden. Die isolierte
+Tau-Instanz verwendet ausschließlich eigene Daten und Geräte-Fixtures. Zwei
+3D-Panels mit Vorder- und Rückseiten, das Vorschau-Scharnier, die native
+Fold-Umschaltung mit bestätigter Cover-Aufnahme und der PNG-Fallback wurden
+in der App geprüft. Physische Geräte und reale Linux-Compositoren bleiben
+Teil der dokumentierten Release-Prüfung.
