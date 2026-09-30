@@ -187,8 +187,8 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       socket: (other, onFailure) => {
         const pins = { ...(other.publicKey ? { publicKey: other.publicKey } : {}), ...(other.fingerprint ? { fingerprint: other.fingerprint } : {}) };
         const relay = otherRelays.get(other.id);
-        const candidate = relay ? connectCandidate(relay, pins) : undefined;
-        return new RacingSocket([...socketCandidates(other.endpoints, pins, device), ...(candidate ? [candidate] : [])], (candidate) => openCandidate({ bridge: context.bridge, userAgent: navigator.userAgent }, candidate), { onFailure });
+        const relayCandidate = relay ? connectCandidate(relay, pins) : undefined;
+        return new RacingSocket([...socketCandidates(other.endpoints, pins, device), ...(relayCandidate ? [relayCandidate] : [])], (candidate) => openCandidate({ bridge: context.bridge, userAgent: navigator.userAgent }, candidate), { onFailure });
       },
       navigate: (route) => leaveTo(routeSearch(route)),
       forgetToken: async (id) => { await context.activities?.clear(id); await book.forgetToken(id); },
