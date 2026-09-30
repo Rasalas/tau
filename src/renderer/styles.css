@@ -1027,12 +1027,13 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
   color: inherit; font: inherit; text-align: left;
 }
 .work-live-line:hover { color: var(--ink-2); }
-.work-live-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* As wide as its text, so the shine crosses the words and not the empty row. */
+.work-live-label { margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .work-live-clock { flex: none; font: var(--text-xs) var(--mono); color: var(--faint); font-variant-numeric: tabular-nums; }
 .work-live-line > .activity-chevron { flex: none; opacity: .6; transition: transform 120ms ease; }
 .work-live.expanded > .work-live-line > .activity-chevron { transform: rotate(90deg); }
 .work-live.thinking .work-live-line { cursor: default; }
-.work-live.thinking .work-shine { flex: 1; display: flex; align-items: center; gap: 8px; }
+.work-live.thinking .work-shine { margin-right: auto; display: flex; align-items: center; gap: 8px; }
 /* T3 Code's shine: a 4.5rem band of ink across the muted label, 2.2 s in 30 steps; still text without motion. */
 @media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
   .work-live.running .work-live-label, .work-shine {
