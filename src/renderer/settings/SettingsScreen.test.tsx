@@ -242,6 +242,17 @@ describe("the section column", () => {
     expect(within(page).getByRole("button", { name: "Threads" }).getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("opens Settings with the groups folded as they were left", () => {
+    const first = renderScreen();
+    const extensions = () => within(within(document.body).getByRole("group", { name: "Extensions" })).getByRole("button", { name: "Extensions" });
+    // Folds live as long as the window, so an earlier test may have left this one either way.
+    const was = extensions().getAttribute("aria-expanded");
+    fireEvent.click(within(first.page).getByRole("button", { name: "Extensions" }));
+    cleanup();
+    renderScreen();
+    expect(extensions().getAttribute("aria-expanded")).toBe(was === "true" ? "false" : "true");
+  });
+
   it("opens a row a link names, and an extension's page by its older link", async () => {
     const { page } = renderScreen({ page: "general#setting-show-costs" });
     await waitFor(() => expect(document.activeElement?.id).toBe("setting-show-costs"));
