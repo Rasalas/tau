@@ -4,8 +4,12 @@ import {
   countReviews,
   deriveReviews,
   LOCAL_REVIEWS_EVENT,
+  type ConflictFile,
+  type HunkPick,
   type LocalReview,
   type LocalReviewsAnswer,
+  type NoteThread,
+  type SentNote,
   type ReviewChecks,
   type ReviewCounts,
   type ThreadBranchMerge,
@@ -137,9 +141,10 @@ export class LocalReviewsStore {
     };
   };
 
-  async merge(review: LocalReview): Promise<ThreadBranchMerge> {
+  async merge(review: LocalReview, picks?: Record<string, HunkPick[]>): Promise<ThreadBranchMerge> {
     return await this.host.invoke("local-review-merge", {
       ...(review.remote ? { link: review.remote.link, branch: review.branch, target: review.target } : { workspace: review.workspace }),
+      ...(picks ? { picks } : {}),
       tip: review.tip,
       rootWorkspace: review.project.key,
       threadId: review.threadId,
@@ -154,9 +159,11 @@ export class LocalReviewsStore {
     }) as ThreadBranchMerge;
   }
 
-  async ask(review: LocalReview, kind: "rebase" | "note", text?: string): Promise<void> {
+  /** `notes` are the diff lines the note is about; their conversation shows under them. */
+  async ask(review: LocalReview, kind: "rebase" | "note", text?: string, notes?: ReadonlyArray<Omit<SentNote, "at">>): Promise<void> {
     await this.host.invoke("local-review-ask", {
       kind,
+      ...(notes?.length ? { notes } : {}),
       ...(review.remote ? { link: review.remote.link } : { threadId: review.threadId }),
       root: review.root,
       branch: review.branch,
@@ -174,6 +181,19 @@ export class LocalReviewsStore {
 
   async withdraw(review: LocalReview): Promise<void> {
     await this.host.invoke("local-review-withdraw", { root: review.root, branch: review.branch, ...(review.remote ? { link: review.remote.link } : {}) });
+  }
+
+  /** "Commit only": the worktree's uncommitted files as a commit on the branch. */
+  async commit(review: LocalReview): Promise<{ detail: string }> {
+    return await this.host.invoke("local-review-commit", { workspace: review.workspace, message: review.title }) as { detail: string };
+  }
+
+  conflicts(review: LocalReview): Promise<{ tip: string; files: ConflictFile[] }> {
+    return this.host.invoke("local-review-conflicts", { workspace: review.workspace }) as Promise<{ tip: string; files: ConflictFile[] }>;
+  }
+
+  notes(review: LocalReview): Promise<NoteThread[]> {
+    return this.host.invoke("local-review-notes", { root: review.root, branch: review.branch, threadId: review.threadId }) as Promise<NoteThread[]>;
   }
 
   summary(review: LocalReview): Promise<ReviewSummary> {

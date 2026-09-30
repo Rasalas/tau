@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientStorage, HostExtensionClient, PageProps, PreferencesStore, UiFileDiff, UiSession, WorkbenchActions } from "tau";
 import { TestPageActionSlot, TestProviders, TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
-import { reviewKey, type LocalReviewsAnswer, type ThreadBranch } from "./local-reviews.js";
+import { reviewKey, type ConflictFile, type LocalReviewsAnswer, type NoteThread, type ThreadBranch } from "./local-reviews.js";
 import { LocalReviewsStore } from "./local-reviews-store.js";
 import { PendingReviewStore } from "./pending-review.js";
 import type { PullRequestFiles } from "./protocol.js";
@@ -62,7 +62,7 @@ const diffOf = (path: string, lines = 4): UiFileDiff => ({
   }],
 });
 
-interface Options { answer?: LocalReviewsAnswer; params?: Record<string, unknown>; lines?: number; runs?: unknown[] }
+interface Options { answer?: LocalReviewsAnswer; params?: Record<string, unknown>; lines?: number; runs?: unknown[]; conflicts?: { tip: string; files: ConflictFile[] }; notes?: NoteThread[] }
 
 function setupLocal(options: Options = {}) {
   const answer: LocalReviewsAnswer = options.answer ?? { branches: [branch("pairing-flake")], asks: {}, merged: [] };
@@ -70,6 +70,9 @@ function setupLocal(options: Options = {}) {
     if (command === "local-reviews") return answer;
     if (command === "local-review-summary") return { summary: "The watcher subscribes on construction now.", turns: 4, prompts: ["Reproduce the flake", "Move the subscription", "Regression tests", "20× green"] };
     if (command === "file-diff") return diffOf((input as { relPath: string }).relPath, options.lines);
+    if (command === "local-review-conflicts") return options.conflicts;
+    if (command === "local-review-notes") return options.notes ?? [];
+    if (command === "local-review-commit") return { detail: "Committed abc1234" };
     if (command === "local-review-ask" || command === "local-review-merge") return { branch: "fix/pairing-flake", state: "merged", files: [], detail: "Merged.", into: "main", root: "/repo/shop-api" };
     return undefined;
   });
@@ -217,7 +220,9 @@ describe("a local review's detail (1e)", () => {
     await within(sidebar()).findByText("Review notes · 2");
     fireEvent.click(within(sidebar()).getByRole("button", { name: "Send both as one turn" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("local-review-ask", expect.objectContaining({ kind: "note", threadId: "t1", branch: "fix/pairing-flake" })));
-    const sent = (invoke.mock.calls.find(([command]) => command === "local-review-ask")![1] as { text: string }).text;
+    const ask = invoke.mock.calls.find(([command]) => command === "local-review-ask")![1] as { text: string; notes: Array<{ line: number }> };
+    expect(ask.notes.map((note) => note.line)).toEqual([33, 34]);
+    const sent = ask.text;
     expect(sent).toContain("`src/PairingRequestWatcher.tsx:33`");
     expect(sent).toContain("useMemo for a side-effecting constructor is fragile");
     expect(sent).toContain("`src/PairingRequestWatcher.tsx:34`");
@@ -241,19 +246,75 @@ describe("a local review's detail (1e)", () => {
     expect(within(checks).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Unit testsPassed", "LintFailed"]);
   });
 
-  it("shows a conflict (2e): where it is, the clean files apart, and the way to ask the thread to rebase", async () => {
+  it("picks a side per hunk in a conflict (2e), merges with the picks, and can still ask the thread to rebase", async () => {
     const key = reviewKey("/repo/shop-api", "fix/pagination");
     const answer: LocalReviewsAnswer = { branches: [branch("pagination", { conflicts: ["src/watcher.ts"], behind: 14 })], asks: {}, merged: [] };
-    const { sidebar, invoke } = setupLocal({ answer, params: { tab: "conflicts", review: key } });
+    const conflicts = { tip: "pagination-tip", files: [{ path: "src/watcher.ts", hunks: [
+      { main: ["return { rows, total };"], thread: ["return page(rows, limit);"], mainLine: 41, threadLine: 41, before: "const limit = 1;" },
+      { main: ["import { requireTenant } from \"./tenant\";"], thread: ["import { page } from \"./envelope\";"], mainLine: 3, threadLine: 3 },
+    ] }] };
+    const { sidebar, invoke } = setupLocal({ answer, params: { tab: "conflicts", review: key }, conflicts });
     const article = await screen.findByRole("article", { name: "Add pagination to all list endpoints" });
     expect(article.textContent).toContain("main moved 14 commits since this branch started");
-    expect(within(article).getByRole("status").textContent).toContain("Conflicts with main in 1 file");
-    expect((within(article).getByRole("button", { name: "Merge into main" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(article.textContent).toContain("1 file changed on both sides. Pick a side per hunk");
+    expect(within(article).queryByRole("tab")).toBeNull();
+    const merge = within(article).getByRole("button", { name: "Merge with my picks" }) as HTMLButtonElement;
+    expect(merge.disabled).toBe(true);
     await within(sidebar()).findByText("Conflicts · 1 of 3 files");
-    expect(within(within(sidebar()).getByRole("list", { name: "Conflicting files" })).getAllByRole("button")).toHaveLength(1);
     expect(within(sidebar()).getByText("Clean · 2")).toBeTruthy();
+    await within(sidebar()).findByText("2 hunks");
+    const first = await within(article).findByRole("group", { name: "Hunk 1 of 2" });
+    expect(first.textContent).toContain("return page(rows, limit);");
+    fireEvent.click(within(first).getByRole("button", { name: "Keep this thread" }));
+    await within(first).findByText("Kept this thread");
+    expect(merge.disabled).toBe(true);
+    fireEvent.click(within(within(article).getByRole("group", { name: "Hunk 2 of 2" })).getByRole("button", { name: "Keep both" }));
+    await waitFor(() => expect(merge.disabled).toBe(false));
+    fireEvent.click(merge);
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("local-review-merge", expect.objectContaining({ workspace: "ws-pagination", picks: { "src/watcher.ts": ["thread", "both"] } })));
     fireEvent.click(within(article).getByRole("button", { name: "Ask the thread to rebase" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("local-review-ask", expect.objectContaining({ kind: "rebase", threadId: "t3", conflicts: ["src/watcher.ts"] })));
+  });
+
+  it("writes a hunk by hand in a conflict", async () => {
+    const key = reviewKey("/repo/shop-api", "fix/pagination");
+    const answer: LocalReviewsAnswer = { branches: [branch("pagination", { conflicts: ["src/watcher.ts"] })], asks: {}, merged: [] };
+    const conflicts = { tip: "pagination-tip", files: [{ path: "src/watcher.ts", hunks: [{ main: ["b"], thread: ["a"], mainLine: 1, threadLine: 1 }] }] };
+    const { invoke } = setupLocal({ answer, params: { tab: "conflicts", review: key }, conflicts });
+    const hunk = await screen.findByRole("group", { name: "Hunk 1 of 1" });
+    fireEvent.click(within(hunk).getByRole("button", { name: "Edit by hand" }));
+    const field = within(hunk).getByRole("textbox", { name: "Hunk 1 by hand" }) as HTMLTextAreaElement;
+    expect(field.value).toBe("a\nb");
+    fireEvent.change(field, { target: { value: "ab" } });
+    fireEvent.click(within(hunk).getByRole("button", { name: "Done" }));
+    await within(hunk).findByText("Edited by hand");
+    fireEvent.click(screen.getByRole("button", { name: "Merge with my picks" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("local-review-merge", expect.objectContaining({ picks: { "src/watcher.ts": [{ text: "ab" }] } })));
+  });
+
+  it("commits the worktree without merging (Commit only), which only offers itself with work not committed", async () => {
+    const answer: LocalReviewsAnswer = { branches: [branch("pairing-flake", { uncommitted: 2 })], asks: {}, merged: [] };
+    const { invoke, toast } = setupLocal({ answer });
+    const commit = await screen.findByRole("button", { name: "Commit only" }) as HTMLButtonElement;
+    expect((screen.getByRole("button", { name: "Merge into main" }) as HTMLButtonElement).disabled).toBe(true);
+    await waitFor(() => expect(commit.disabled).toBe(false));
+    fireEvent.click(commit);
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("local-review-commit", { workspace: "ws-pairing-flake", message: "Fix flaky pairing test" }));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({ type: "success", title: "Committed on fix/pairing-flake" })));
+  });
+
+  it("shows a sent note's conversation under its line, and a reply goes to the thread as a turn", async () => {
+    const notes: NoteThread[] = [{ id: "n1", path: "src/PairingRequestWatcher.tsx", line: 33, side: "new", said: [{ body: "Does replay() dedupe?", at: 1, answer: "Yes — the host keys requests by device id." }] }];
+    const { invoke } = setupLocal({ notes });
+    const first = (await screen.findAllByRole("region"))[0]!;
+    const talk = await within(first).findByRole("group", { name: "Note on line 33, sent" });
+    expect(talk.textContent).toContain("Does replay() dedupe?");
+    expect(talk.textContent).toContain("Yes — the host keys requests by device id.");
+    const reply = within(talk).getByRole("group", { name: "Reply on line 33" });
+    fireEvent.change(within(reply).getByRole("textbox"), { target: { value: "Add the test" } });
+    fireEvent.click(within(reply).getByRole("button", { name: "Reply" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("local-review-ask", expect.objectContaining({ kind: "note", notes: [expect.objectContaining({ note: "n1", line: 33, body: "Add the test" })] })));
+    await within(talk).findByText("The thread has not answered yet.");
   });
 
   it("merges from the header", async () => {
