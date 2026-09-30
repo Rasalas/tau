@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { ConnectStatus } from "../../shared/connect";
 import { useHostClient } from "../host-client-context";
-import { Button, SettingsSection } from "./controls";
+import { Button } from "./controls";
+import { SettingsSection } from "./settings-layout";
 
 export function ConnectSettings({ onNotify }: { onNotify(message: string): void }) {
   const client = useHostClient();
