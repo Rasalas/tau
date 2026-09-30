@@ -86,10 +86,8 @@ aktualisiert im selben Drive-Tresor. Die bisherige Firebase-App bleibt erhalten.
   <https://tbuck.de/privacy/tau/>, auf Deutsch und Englisch (Quelle:
   `content/privacy/tau.md` im Repo `tbuck-www`). Die Seiten `privacy.html` und
   `privacy-de.html` auf GitHub Pages verweisen nur noch dorthin.
-- **Offen, von Hand:** In der Play Console ist als Datenschutz-URL noch
-  `https://rasalas.github.io/tau/docs/privacy.html` gespeichert. Sie muss dort unter
-  App-Inhalte → Datenschutzerklärung auf `https://tbuck.de/privacy/tau/` geändert
-  werden.
+- In der Play Console steht seit dem 30. September 2026 `https://tbuck.de/privacy/tau/`
+  als Datenschutz-URL (App-Inhalte → Datenschutzerklärung).
 - Englische und deutsche Store-Texte, App-Icon, Vorstellungsgrafiken und je zwei
   echte Android-Screenshots sind in Play gespeichert. Quellen: `mobile/play/`.
 - IARC-Fragebogen am 30. September gespeichert, Status **Abgeschlossen**.
