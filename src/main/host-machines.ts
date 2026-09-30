@@ -275,6 +275,7 @@ function describe(watched: Watched): HostMachine {
     ...(state.lastSeenAt !== undefined ? { lastSeenAt: state.lastSeenAt } : {}),
     ...(state.address ?? entry.lastUrl ? { address: state.address ?? entry.lastUrl } : {}),
     ...(state.hostVersion ? { hostVersion: state.hostVersion } : {}),
+    ...(entry.publicKey ?? entry.fingerprint ? { trustIdentity: entry.publicKey ?? entry.fingerprint } : {}),
     ...(state.readOnly ?? entry.readOnly ? { readOnly: true } : {}),
   };
 }

@@ -557,6 +557,8 @@ export interface HostMachine {
   /** The socket URL in use, or the one last used. */
   address?: string;
   hostVersion?: string;
+  /** Pinned public host key or certificate fingerprint. Never a device token. */
+  trustIdentity?: string;
   /** Its owner let this machine's agents in Read only. */
   readOnly?: boolean;
 }

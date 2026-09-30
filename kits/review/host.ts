@@ -48,7 +48,7 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
   return {
     id: REVIEW_HOST_EXTENSION_ID,
     name: "Review Kit",
-    permissions: ["sessions", "process", "network", "runtime:extend"],
+    permissions: ["sessions", "process", "network", "runtime:extend", "machines"],
     activate(context: HostExtensionContext) {
       const { services } = context;
       // Review's desktop half reaches the Workspace read API through this
@@ -105,7 +105,7 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
         services.log("commit-message.suggested", message.split(/\r?\n/u)[0]);
         return { message };
       });
-      return () => links?.dispose();
+      return async () => { links?.dispose(); await sources.dispose(); };
     },
   };
 }
