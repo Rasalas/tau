@@ -13,7 +13,7 @@ const APP = "https://androidpublisher.googleapis.com/androidpublisher/v3/applica
 const UPLOAD = "https://androidpublisher.googleapis.com/upload/androidpublisher/v3/applications/de.tbuck.tau";
 
 /** Google as far as the script sees it; `draftApp` answers a completed release like a never-published app does. */
-function fakePlay({ bundles = [], draftApp = false, uploadedCode = 716 } = {}) {
+function fakePlay({ bundles = [], draftApp = false, uploadedCode = 71600 } = {}) {
   const calls = [];
   const reply = (status, body) => ({ ok: status < 300, status, text: async () => (body === undefined ? "" : JSON.stringify(body)) });
   const fetchUrl = async (url, init = {}) => {
@@ -56,7 +56,7 @@ describe("an upload to Play", () => {
   it("uploads the bundle, releases it on the internal track and commits", async () => {
     const play = fakePlay();
     const bundle = Buffer.from("aab");
-    expect(await uploadBundle({ account: ACCOUNT, bundle, version: "0.7.16", fetchUrl: play.fetchUrl, log: quiet, now: NOW })).toEqual({ uploaded: true, versionCode: 716, status: "completed" });
+    expect(await uploadBundle({ account: ACCOUNT, bundle, version: "0.7.16", fetchUrl: play.fetchUrl, log: quiet, now: NOW })).toEqual({ uploaded: true, versionCode: 71600, status: "completed" });
     expect(play.calls.map((entry) => `${entry.method} ${entry.url.replace(/^https:\/\/[^/]+/u, "")}`)).toEqual([
       "POST /token",
       "POST /androidpublisher/v3/applications/de.tbuck.tau/edits",
@@ -68,12 +68,12 @@ describe("an upload to Play", () => {
     const upload = play.calls[3].init;
     expect(upload.body).toBe(bundle);
     expect(upload.headers).toMatchObject({ authorization: "Bearer ya29.token", "content-type": "application/octet-stream" });
-    expect(JSON.parse(play.calls[4].init.body)).toEqual({ track: "internal", releases: [{ name: "0.7.16", versionCodes: ["716"], status: "completed" }] });
+    expect(JSON.parse(play.calls[4].init.body)).toEqual({ track: "internal", releases: [{ name: "0.7.16", versionCodes: ["71600"], status: "completed" }] });
   });
 
   it("leaves a versionCode Play already has alone", async () => {
-    const play = fakePlay({ bundles: [{ versionCode: 716 }] });
-    expect(await uploadBundle({ account: ACCOUNT, bundle: Buffer.from("aab"), version: "0.7.16", fetchUrl: play.fetchUrl, log: quiet })).toEqual({ uploaded: false, versionCode: 716 });
+    const play = fakePlay({ bundles: [{ versionCode: 71600 }] });
+    expect(await uploadBundle({ account: ACCOUNT, bundle: Buffer.from("aab"), version: "0.7.16", fetchUrl: play.fetchUrl, log: quiet })).toEqual({ uploaded: false, versionCode: 71600 });
     expect(play.calls.at(-1)).toMatchObject({ method: "DELETE", url: `${APP}/edits/e1` });
     expect(play.calls.some((entry) => entry.url.startsWith(UPLOAD))).toBe(false);
   });
@@ -87,8 +87,8 @@ describe("an upload to Play", () => {
   });
 
   it("stops when the bundle is not the version it was built as", async () => {
-    const play = fakePlay({ uploadedCode: 715 });
-    await expect(uploadBundle({ account: ACCOUNT, bundle: Buffer.from("aab"), version: "0.7.16", fetchUrl: play.fetchUrl, log: quiet })).rejects.toThrow(/versionCode 715, not 716/u);
+    const play = fakePlay({ uploadedCode: 71500 });
+    await expect(uploadBundle({ account: ACCOUNT, bundle: Buffer.from("aab"), version: "0.7.16", fetchUrl: play.fetchUrl, log: quiet })).rejects.toThrow(/versionCode 71500, not 71600/u);
     expect(play.calls.some((entry) => entry.url.endsWith(":commit"))).toBe(false);
   });
 
