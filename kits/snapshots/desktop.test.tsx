@@ -198,7 +198,7 @@ describe("Settings → SnapShots", () => {
     expect(screen.getByText("Not asked yet")).toBeTruthy();
     // Only the permission still missing offers its buttons.
     expect(screen.getAllByRole("button", { name: "Open System Settings" })).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "Ask macOS" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask the system" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith(ID, "request-access", { kind: "accessibility" }));
     expect(missingSettingsRows(page)).toEqual([]);
   });
@@ -206,7 +206,7 @@ describe("Settings → SnapShots", () => {
   it("says what it needs where macOS is not there", async () => {
     const { page } = settingsPage({ supported: false, screen: "unavailable", accessibility: "unavailable" });
     renderKitSettingsPage(page.Component);
-    expect(await screen.findByText("SnapShots need macOS")).toBeTruthy();
+    expect(await screen.findByText("SnapShots are unavailable")).toBeTruthy();
     expect(screen.queryByRole("switch")).toBeNull();
   });
 });

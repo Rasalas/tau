@@ -45,7 +45,12 @@ describe("SnapShots' window half", () => {
   it("reads both macOS permissions without asking, and nothing elsewhere", () => {
     expect(readAccess("darwin", () => "granted", () => false)).toEqual({ supported: true, screen: "granted", accessibility: "denied" });
     expect(readAccess("darwin", () => "odd", () => true)).toEqual({ supported: true, screen: "unavailable", accessibility: "granted" });
-    expect(readAccess("linux", () => "granted", () => true)).toEqual({ supported: false, screen: "unavailable", accessibility: "unavailable" });
+    expect(readAccess("linux", () => "granted", () => true, {})).toEqual({ supported: true, screen: "unavailable", accessibility: "unavailable" });
+    const macProbe = vi.fn(() => { throw new Error("macOS only"); });
+    expect(readAccess("win32", macProbe, macProbe)).toEqual({ supported: true, screen: "granted", accessibility: "granted" });
+    expect(readAccess("linux", macProbe, macProbe, { DISPLAY: ":0", DBUS_SESSION_BUS_ADDRESS: "unix:path=/session" })).toEqual({ supported: true, screen: "granted", accessibility: "granted" });
+    expect(readAccess("linux", macProbe, macProbe, { DISPLAY: ":0", WAYLAND_DISPLAY: "wayland-0", DBUS_SESSION_BUS_ADDRESS: "unix:path=/session" })).toEqual({ supported: true, screen: "unavailable", accessibility: "granted" });
+    expect(macProbe).not.toHaveBeenCalled();
     expect(windowIdOfSource("window:35210:0")).toBe(35210);
     expect(windowIdOfSource("screen:1:0")).toBeUndefined();
   });
@@ -145,4 +150,34 @@ describe("SnapShots' window half", () => {
     expect(electron.shell.openExternal).toHaveBeenCalledWith(expect.stringMatching(/Privacy_ScreenCapture/u));
     await expect(window.handle("screenshot")).rejects.toThrow(/no command/u);
   });
+});
+
+it("reports a missing Windows accessibility backend without macOS permission calls", async () => {
+  Object.defineProperty(process, "platform", { ...platform, value: "win32" });
+  try {
+    const { half: window } = half(async () => { throw new Error("Native UI Automation binary missing"); });
+    expect(await window.handle("access")).toEqual({ supported: true, screen: "granted", accessibility: "unavailable" });
+    await expect(window.handle("capture", { accessibility: true })).rejects.toThrow(/accessibility backend/u);
+    expect(electron.systemPreferences.getMediaAccessStatus).not.toHaveBeenCalled();
+    expect(electron.systemPreferences.isTrustedAccessibilityClient).not.toHaveBeenCalled();
+    expect(electron.desktopCapturer.getSources).not.toHaveBeenCalled();
+    window.dispose?.();
+  } finally {
+    Object.defineProperty(process, "platform", { ...platform, value: "darwin" });
+  }
+});
+
+it("refuses Wayland capture before source enumeration or a portal prompt", async () => {
+  Object.defineProperty(process, "platform", { ...platform, value: "linux" });
+  vi.stubEnv("WAYLAND_DISPLAY", "wayland-0");
+  try {
+    const { half: window } = half();
+    await expect(window.handle("capture", { target: { windowId: 12, pid: 34 } })).rejects.toThrow(/Wayland/u);
+    expect(electron.desktopCapturer.getSources).not.toHaveBeenCalled();
+    expect(electron.WebContentsView).not.toHaveBeenCalled();
+    window.dispose?.();
+  } finally {
+    vi.unstubAllEnvs();
+    Object.defineProperty(process, "platform", { ...platform, value: "darwin" });
+  }
 });

@@ -75,7 +75,7 @@ function PermissionControl({ kind, state, host, refresh }: { kind: PermissionKin
   return <>
     {badge}
     {state === "not-determined" || kind === "accessibility"
-      ? <Button onClick={() => void host("request-access", { kind }).then(refresh, () => refresh())}>Ask macOS</Button>
+      ? <Button onClick={() => void host("request-access", { kind }).then(refresh, () => refresh())}>Ask the system</Button>
       : null}
     <Button onClick={() => void host("open-settings", { kind }).then(() => refresh(), () => refresh())}>Open System Settings</Button>
   </>;
@@ -116,7 +116,7 @@ export function createSnapShotsSettingsPage(context: DesktopExtensionContext, ho
       return (
         <div className="settings-page snapshots-settings">
           <h3>SnapShots</h3>
-          <SettingsState kind="empty" title="SnapShots need macOS" description="They capture a window through macOS's Screen Recording and read it through its Accessibility." />
+          <SettingsState kind="empty" title="SnapShots are unavailable" description="Window capture is available in the Tau desktop app on macOS, Windows and Linux." />
         </div>
       );
     }
@@ -126,15 +126,15 @@ export function createSnapShotsSettingsPage(context: DesktopExtensionContext, ho
         <SettingsSection title="Shortcut">
           <SettingRow id="setting-snapshots-enabled" title="Capture with a global shortcut" description="Works while Tau runs, whichever app is in front. Off until you turn it on." setting={enabled}
             control={<Switch label="Capture with a global shortcut" checked={enabled.value} onChange={enabled.set} />} />
-          <SettingRow id="setting-snapshots-shortcut" title="Shortcut" description={conflict ?? "Click, then press the keys: a letter, digit or F-key with ⌘, ⌃ or ⌥."} status={shortcutStatus} setting={shortcut}
+          <SettingRow id="setting-snapshots-shortcut" title="Shortcut" description={conflict ?? "Click, then press a letter, digit or F-key with Control, Alt or Command."} status={shortcutStatus} setting={shortcut}
             control={<ShortcutRecorder setting={shortcut} suspend={suspend} />} />
           <SettingRow id="setting-snapshots-accessibility" title="Include what the window says" description="Lets the agent read the window instead of guessing from pixels."
             help="The accessibility tree: roles, labels and texts of the window's elements, with where they sit in the picture." setting={accessibility}
             control={<Switch label="Include what the window says" checked={accessibility.value} onChange={accessibility.set} />} />
         </SettingsSection>
-        <SettingsSection title="macOS permissions">
+        <SettingsSection title="System access">
           <SettingRow id="setting-snapshots-screen" title="Screen Recording" description="To capture the picture of one window. Tau never records a whole screen."
-            help="After you allow it, macOS may ask you to restart Tau."
+            help="macOS may need a restart after granting access. Linux needs X11 for foreground window capture; Wayland portal selection is not supported. Windows blocks capture of protected windows."
             control={access ? <PermissionControl kind="screen" state={access.screen} host={host} refresh={refresh} /> : null} />
           <SettingRow id="setting-snapshots-accessibility-permission" title="Accessibility" description="To know which window is in front and to read its text and controls. Tau only reads; it never clicks or types into other apps."
             control={access ? <PermissionControl kind="accessibility" state={access.accessibility} host={host} refresh={refresh} /> : null} />
