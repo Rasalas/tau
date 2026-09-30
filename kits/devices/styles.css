@@ -16,6 +16,12 @@
 .devices-pose-probe { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .devices-pose-scene { display: grid; place-items: center; perspective: 900px; height: clamp(280px, 48vh, 480px); min-width: 0; overflow: hidden; touch-action: none; cursor: grab; user-select: none; }
 .devices-pose-scene:active { cursor: grabbing; }
+/* Defaults are local to the view; measured geometry overrides them inline. */
+.devices-pose-body {
+  --device-radius: 18px;
+  --device-depth: 8px;
+  --device-half-depth: 4px;
+}
 .devices-pose-body, .devices-pose-panel { position: relative; transform-style: preserve-3d; }
 .devices-pose-panel { position: absolute; transition: transform 220ms ease-out; }
 .devices-pose-front, .devices-pose-back { position: absolute; inset: 0; border-radius: var(--device-radius); background: var(--raised-strong); backface-visibility: hidden; border: 1px solid var(--line-control); }
