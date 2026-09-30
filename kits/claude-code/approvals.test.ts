@@ -46,21 +46,36 @@ describe("Claude approvals", () => {
     ]);
   });
 
-  it("turns AskUserQuestion into selects keyed by the full question text", () => {
+  it("turns AskUserQuestion into selects, and a multi-select into checkboxes it reads back as labels", () => {
     const prompts = askUserQuestionPrompts({
       questions: [
         { question: "Which library?", header: "Library", options: [{ label: "date-fns", description: "small" }, { label: "luxon", description: "zones" }] },
-        { question: "Which features?", header: "Features", multiSelect: true, options: [{ label: "a" }, { label: "b" }] },
+        { question: "Which features?", header: "Features", multiSelect: true, options: [{ label: "a" }, { label: "b" }, { label: "c" }] },
         { question: 42 },
       ],
     });
+    const paged = {
+      "tau.questionnaire": {
+        index: 0,
+        questions: [
+          { question: "Which library?", header: "Library", multiSelect: false, options: [{ label: "date-fns", description: "small" }, { label: "luxon", description: "zones" }] },
+          { question: "Which features?", header: "Features", multiSelect: true, options: [{ label: "a", description: "" }, { label: "b", description: "" }, { label: "c", description: "" }] },
+        ],
+      },
+    };
     expect(prompts.map((entry) => entry.prompt)).toEqual([
-      { kind: "select", title: "Which library?", message: "Library", options: ["date-fns — small", "luxon — zones"] },
-      { kind: "select", title: "Which features?", message: "Features · several may apply; name them all in one answer", options: ["a", "b"] },
+      { kind: "select", title: "Which library?", message: "Library", options: ["date-fns — small", "luxon — zones"], extras: paged },
+      { kind: "input", title: "[Features] Which features?", placeholder: "Option numbers, e.g. 1,3", extras: { "tau.questionnaire": { ...paged["tau.questionnaire"], index: 1 } } },
     ]);
     expect(askUserQuestionAnswer({ value: "luxon — zones" }, prompts[0]!)).toBe("luxon");
+    expect(askUserQuestionAnswer({ value: "1,3" }, prompts[1]!)).toBe("a, c");
     expect(askUserQuestionAnswer({ value: "a and b", typed: true }, prompts[1]!)).toBe("a and b");
     expect(askUserQuestionAnswer({ cancelled: true }, prompts[0]!)).toBeUndefined();
+  });
+
+  it("leaves a lone single-choice question untagged", () => {
+    const [prompt] = askUserQuestionPrompts({ questions: [{ question: "Which?", options: [{ label: "x" }, { label: "y" }] }] });
+    expect(prompt!.prompt).toEqual({ kind: "select", title: "Which?", options: ["x", "y"] });
   });
 
   it("asks about a plan and about compacting a resumed conversation", () => {

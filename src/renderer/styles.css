@@ -1509,69 +1509,74 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .prompt-arrival.waiting > * { opacity: .55; transition: opacity .2s var(--ease); }
 /* Part of the card: the composer's frame tucks 9 px under whatever sits above it. */
 .prompt-arrival-note { max-width: 780px; margin: 0 auto; padding: 0 14px 14px; background: var(--field); color: var(--muted); font: 12px/1.4 var(--sans); }
-/* The question and the composer under it read as one filled card, a hairline between them (design 1n). */
+/* The question and the composer under it read as one filled card, a hairline between them (design 1c/1n). */
 .extension-prompt {
-  max-width: 780px; margin: 0 auto; padding: 12px 14px 10px;
+  max-width: 780px; margin: 0 auto; padding: 10px 10px 8px; display: flex; flex-direction: column; gap: 6px;
   border: 1px solid transparent; border-bottom: 0;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--field);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--field); font-size: var(--text-xs);
 }
-.extension-prompt > header { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--text-sm); }
-/* A question is amber wherever it shows: the rail, the live line, the card on the composer. */
-.extension-prompt-kind { flex: none; display: inline-flex; align-items: center; gap: 6px; color: var(--warn); font-weight: 600; }
+.extension-prompt.is-approval { padding: 10px 12px 8px; }
+.extension-prompt > header { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 0 2px; }
+.extension-prompt.is-approval > header { gap: 8px; padding: 0; }
+/* A question is amber wherever it shows: the rail, the live line, the card on the composer. An approval is not a question. */
+.extension-prompt-kind { flex: none; display: inline-flex; align-items: center; gap: 5px; color: var(--warn); font-weight: 600; }
+.is-approval .extension-prompt-kind { color: var(--ink-3); }
 .extension-prompt-from { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .extension-prompt > header > small { flex: none; font: 10px var(--mono); color: var(--faint); }
 .extension-prompt > header .spacer { flex: 1; }
-.extension-prompt-pick { flex: none; color: var(--muted); font-size: var(--text-xs); white-space: nowrap; }
-.extension-prompt-title { margin: 8px 0 0; font-size: var(--text-md); line-height: 1.75; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
-.extension-prompt-message { margin: 4px 0 0; font-size: var(--text-md); line-height: 1.75; color: var(--ink-2); white-space: pre-wrap; }
+.extension-prompt-pick { flex: none; color: var(--muted); font-size: calc(var(--text-xs) - 1px); white-space: nowrap; }
+.extension-prompt-title, .extension-prompt-message { margin: 0; padding: 0 2px; line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
+.extension-prompt-message { color: var(--ink-3); }
 .extension-prompt-subject {
-  display: block; margin: 6px 0 0; padding: 6px 9px; border-radius: var(--radius-sm); background: var(--sunken);
-  font: var(--text-sm)/1.45 var(--mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto;
+  display: block; padding: 6px 9px; border-radius: var(--radius-sm); background: var(--sunken);
+  font: calc(var(--text-xs) - .5px)/1.45 var(--mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto;
 }
+.extension-prompt > header > .extension-prompt-subject { flex: 1; min-width: 0; padding: 0; background: none; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Options: a box to tick, the label and its second line; no frame until hovered. */
-.extension-prompt-options { display: flex; flex-direction: column; gap: 2px; margin: 8px -6px 0; }
+.extension-prompt-options { display: flex; flex-direction: column; gap: 1px; }
 .extension-option {
-  display: flex; align-items: flex-start; gap: 12px; width: 100%; text-align: left;
-  border: 0; border-radius: 8px; background: transparent;
-  padding: 7px 6px; cursor: pointer; color: var(--ink);
-  transition: background 0.12s ease;
+  display: flex; align-items: flex-start; gap: 9px; width: 100%; text-align: left;
+  border: 0; border-radius: var(--radius-sm); background: transparent;
+  padding: 6px 8px; cursor: pointer; color: var(--ink); font: inherit;
 }
-@media (hover: hover) { .extension-option:hover { background: var(--raised); } }
+@media (hover: hover) { .extension-option:hover { background: var(--wash-2); } }
 .extension-option:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+/* 14 px, a 1.5 px edge; the accent once chosen: a dot in a ring, or a filled box with its tick. */
 .extension-option-indicator {
-  width: 16px; height: 16px; flex: none; margin-top: 2px; display: grid; place-items: center;
-  border: 1.5px solid var(--line-strong); border-radius: 4px; background: var(--field); color: var(--acid-ink);
+  width: 14px; height: 14px; flex: none; margin-top: 2px; display: grid; place-items: center;
+  border: 1.5px solid var(--fainter); border-radius: 4px; color: var(--acid-ink);
 }
 .extension-option-indicator.is-radio { border-radius: 50%; }
 .extension-option.chosen .extension-option-indicator { border-color: var(--acid); background: var(--acid); }
-.extension-option.chosen .extension-option-indicator.is-radio { background: var(--field); box-shadow: inset 0 0 0 3px var(--field), inset 0 0 0 8px var(--acid); }
-.extension-option > span { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.extension-option strong { font-size: var(--text-sm); font-weight: 400; line-height: 1.45; }
-.extension-option small { font-size: var(--text-xs); line-height: 1.45; color: var(--muted); }
+.extension-option.chosen .extension-option-indicator.is-radio { background: radial-gradient(circle, var(--acid) 3.5px, transparent 4px); }
+.extension-option > span { min-width: 0; display: flex; flex-direction: column; }
+.extension-option strong { font-weight: 400; line-height: 1.45; }
+.extension-option small { font-size: calc(var(--text-xs) - 1px); line-height: 1.45; color: var(--muted); }
 .extension-option-preview {
   margin: 4px 0 2px; padding: 7px 9px; max-height: 180px; overflow: auto;
   background: var(--code-bg); border-radius: 6px;
   font: var(--text-xs)/1.35 var(--mono); color: var(--muted); white-space: pre-wrap;
 }
 .extension-option.read { cursor: default; color: var(--ink-2); }
+.extension-prompt-custom { margin: 0; padding: 8px; border-radius: var(--radius-sm); background: var(--code-bg); overflow-x: auto; font: var(--text-xs)/1.4 var(--mono); }
 .extension-option.read:hover { background: transparent; }
 
-.extension-prompt > footer { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-height: 30px; }
-.extension-prompt > footer > span { font-size: var(--text-xs); color: var(--muted); }
+.extension-prompt > footer { display: flex; align-items: center; gap: 2px; padding: 2px 2px 0; }
+.is-approval > footer { padding: 0; }
+.extension-prompt > footer > span { font-size: calc(var(--text-xs) - 1px); color: var(--muted); }
 .extension-prompt > footer .spacer { flex: 1; }
 .extension-prompt > footer > button {
-  height: 30px; border: 0; background: transparent; color: var(--muted);
-  font: 500 var(--text-sm) var(--sans); padding: 0 10px; border-radius: var(--radius-pill); cursor: pointer;
+  display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--ink-3);
+  font: inherit; padding: 4px 8px; border-radius: var(--radius-sm); cursor: pointer; white-space: nowrap;
 }
-.extension-prompt > footer > button:hover { background: var(--raised); color: var(--ink); }
+.extension-prompt > footer > button:hover { background: var(--hover); color: var(--ink); }
 .extension-prompt > footer > button.extension-prompt-send {
-  display: inline-flex; align-items: center; gap: 6px; padding: 0 14px;
-  background: var(--acid); color: var(--acid-ink); font-weight: 600;
+  padding: 5px 12px; border-radius: var(--radius-pill); background: var(--acid); color: var(--acid-ink); font-weight: 600;
 }
 .extension-prompt > footer > button.extension-prompt-send:hover:not(:disabled) { background: var(--acid-strong); color: var(--acid-ink); }
 .extension-prompt > footer > button.extension-prompt-send:disabled { background: var(--raised); color: var(--faint); cursor: default; }
-.extension-prompt-send > kbd { font: var(--text-xs) var(--sans); opacity: .8; }
+.extension-prompt-send > kbd { font-family: var(--mono); font-weight: 400; opacity: .8; }
 
 /* The composer becomes the answer field while a question is open. */
 .composer-frame.answering { border-top-color: var(--line); }
@@ -1583,41 +1588,6 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 
 /* An approval gates a live run, so it sits above every other overlay. */
 .modal-scrim.urgent { z-index: 95; }
-.approval {
-  width: 460px; max-width: calc(100vw - 48px);
-  display: flex; flex-direction: column;
-  border: 1px solid var(--line-float); border-radius: 12px;
-  background: var(--overlay); box-shadow: var(--elevation-3);
-  overflow: hidden; color: var(--ink); animation: fade-up .14s ease;
-}
-.approval > header {
-  display: flex; align-items: center; gap: 10px;
-  padding: 14px 16px 12px; border-bottom: 1px solid var(--line);
-}
-.approval > header > strong { flex: 1; font-size: var(--text-md); font-weight: 700; }
-.approval > header > small { font: 10px var(--mono); color: var(--faint); }
-.approval > pre {
-  margin: 0; padding: 14px 16px; max-height: 220px; overflow: auto;
-  font: var(--text-sm)/1.4 var(--mono); color: var(--ink-2);
-  white-space: pre-wrap; word-break: break-word;
-}
-.approval > footer {
-  display: flex; align-items: center; gap: 8px;
-  padding: 10px 12px; border-top: 1px solid var(--line);
-}
-.approval > footer > span { font: 10px var(--mono); color: var(--faint); }
-.approval > footer .spacer { flex: 1; }
-.approval > footer > button {
-  display: flex; align-items: center; gap: 7px;
-  border: 1px solid var(--line-control); border-radius: 8px; background: transparent;
-  color: var(--ink-3); font: 500 var(--text-sm) var(--sans); padding: 7px 12px; cursor: pointer;
-}
-.approval > footer > button:hover { background: var(--raised); color: var(--ink); }
-.approval > footer > button.primary {
-  border-color: var(--acid-line); background: var(--acid-bg); color: var(--acid-text); font-weight: 600;
-}
-.approval > footer > button.primary:hover { background: var(--acid-bg); }
-.approval > footer kbd { font: 10px var(--mono); opacity: .6; }
 
 /* ------------------------------------------------------ checkpoint restore */
 

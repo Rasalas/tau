@@ -124,6 +124,9 @@ body[data-profile="compact"] .control-pill::before { content: ""; position: abso
 body[data-profile="compact"] .menu button[role="menuitem"] { min-height: var(--touch-target); }
 body[data-profile="compact"] .message-thinking > summary { min-height: var(--touch-target); }
 body[data-profile="compact"] .extension-option { min-height: var(--touch-target); }
+/* The card's buttons stay the design's size and reach 44 px for a finger. */
+body[data-profile="compact"] .extension-prompt > footer > button { position: relative; }
+body[data-profile="compact"] .extension-prompt > footer > button::before { content: ""; position: absolute; inset: calc((var(--touch-target) - 100%) / -2) 0; }
 body[data-profile="compact"] :is(button, a, [data-tooltip]) { -webkit-tap-highlight-color: transparent; }
 /* A long press on something with a label shows the label, not the system's callout. */
 body[data-profile="compact"] [data-tooltip] { -webkit-touch-callout: none; user-select: none; }

@@ -241,17 +241,18 @@ export function formatCost(costUsd: number | undefined): string {
  * What an agent changed in its own worktree, then the branch: `+48 −0 · 1 file ·
  * tau/agent-1`, as the design's done row. Empty for one that shared the parent's checkout.
  */
-export function worktreeLine(row: AgentRow): string {
+export function worktreeLine(row: AgentRow, withBranch = true): string {
   const workspace = row.workspace;
   if (!workspace || workspace.mode !== "worktree" || !workspace.branch) return "";
-  if (workspace.settled) return `${workspace.settled} · ${workspace.branch}`;
+  const branch = withBranch ? ` · ${workspace.branch}` : "";
+  if (workspace.settled) return `${workspace.settled}${branch}`;
   const changes = workspace.changes;
-  if (!changes) return workspace.branch;
-  if (changes.files === 0) return `no changes · ${workspace.branch}`;
+  if (!changes) return withBranch ? workspace.branch : "";
+  if (changes.files === 0) return `no changes${branch}`;
   const files = `${changes.files} file${changes.files === 1 ? "" : "s"}`;
   // Work that came back from another machine counts files, not lines.
   const lines = changes.added === 0 && changes.removed === 0 ? "" : `+${changes.added} −${changes.removed} · `;
-  return `${lines}${files} · ${workspace.branch}`;
+  return `${lines}${files}${branch}`;
 }
 
 /** Whether the parent can still take or drop what this agent did. */
@@ -261,9 +262,11 @@ export function canSettleWorktree(row: AgentRow): boolean {
     && row.status !== "running" && row.status !== "waiting" && row.status !== "pending";
 }
 
-/** The amber line of an agent holding on a question, in the rail's word for it. */
+/** The amber line of an agent holding on a question: "Asks: …" (design 1c), an approval in its own words. */
 export function questionLine(row: Pick<AgentRow, "pendingToolPrompt">): string {
-  return row.pendingToolPrompt ? `${THREAD_QUESTION_LABEL}: ${row.pendingToolPrompt}` : THREAD_QUESTION_LABEL;
+  const asked = row.pendingToolPrompt?.replace(/^\[[^\]\n]*\]\s*/u, "").split("\n")[0];
+  if (!asked) return THREAD_QUESTION_LABEL;
+  return asked.startsWith("Wants to ") ? asked : `Asks: ${asked}`;
 }
 
 /** Where a row stands, the last part of its mono line: its tool now, or what it left behind. */
@@ -274,7 +277,7 @@ export function rowStand(row: AgentRow): string {
   if (row.status === "cancelled") return "cancelled";
   if (row.status === "waiting") return questionLine(row);
   if (row.status === "running") return row.lastTool ?? "working";
-  return worktreeLine(row) || row.result?.split("\n")[0] || "done";
+  return worktreeLine(row, false) || row.result?.split("\n")[0] || "done";
 }
 
 /** `openai/gpt-5.6-luna` reads as `gpt-5.6-luna`; the tooltip keeps the provider. */
@@ -314,10 +317,11 @@ export function doneLabel(section: DoneSection): string {
 }
 
 /** The rows one view shows of a group: questions and work first; the finished ones under it by turn. */
-export function viewRows(rows: readonly AgentRow[], view: AgentsView): { open: AgentRow[]; done: DoneSection[] } {
+export function viewRows(rows: readonly AgentRow[], view: AgentsView, byStatus = true): { open: AgentRow[]; done: DoneSection[] } {
   const open = view === "done" ? [] : rows
     .filter((row) => view === "asks" ? row.status === "waiting" : viewOf(row.status) !== "done")
-    .sort((left, right) => (OPEN_ORDER[left.status] ?? 3) - (OPEN_ORDER[right.status] ?? 3));
+    // Rows arrive in spawn order; sorting by status puts what needs the user first.
+    .sort((left, right) => byStatus ? (OPEN_ORDER[left.status] ?? 3) - (OPEN_ORDER[right.status] ?? 3) : 0);
   return { open, done: view === "asks" ? [] : doneSections(rows) };
 }
 

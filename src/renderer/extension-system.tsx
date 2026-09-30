@@ -1135,6 +1135,8 @@ export interface PromptRendererProps {
   pending: number;
   /** Who asks, for the card's head (`ExtensionPromptFrame`'s `from`): the thread's agent, by its model. */
   asker?: string;
+  /** The sub-agent that asks ("GET /orders agent") when the question is a child thread's, shown on its parent's composer. */
+  agent?: string | undefined;
   onAnswer(value: string | boolean, typed?: boolean): void;
   onCancel(): void;
 }

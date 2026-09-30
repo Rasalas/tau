@@ -189,10 +189,10 @@ describe("the web client at 400 px", () => {
     await openChat();
     client.emit({ type: "extension-ui-prompt", sessionId: "t-a", prompt: { id: "q7", sessionId: "t-a", kind: "confirm", title: "Run the migration?" } });
     await screen.findByText("Run the migration?");
-    // The phone draws it as the design's approval card: its head, and Approve in the card.
-    expect(screen.getByRole("region", { name: /^Approval/u })).toBeTruthy();
+    // The phone draws it as the design's permission card: what it wants in the head, and Allow in the card.
+    expect(screen.getByRole("region", { name: "Run the migration?" })).toBeTruthy();
     expect((screen.getByRole("textbox") as HTMLTextAreaElement).placeholder).toBe("Answer in text…");
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(within(screen.getByRole("region", { name: "Run the migration?" })).getByRole("button", { name: "Allow" }));
     await waitFor(() => expect(client.calls.some((call) => call.method === "answerExtensionUi")).toBe(true));
     const answer = client.calls.find((call) => call.method === "answerExtensionUi");
     expect(answer?.args).toEqual(["q7", { confirmed: true }]);

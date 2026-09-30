@@ -8,6 +8,8 @@
 //   "think <ms>"           → reasoning streamed for <ms> before each answer (with the others too)
 //   "takeover <url>"       → a line, then a `request_takeover` call for the Preview at <url>, then "done"
 //                            (GET /login on this server is a sign-in page to point it at)
+//   "ask one" / "ask any"  → an `ask_user_question` call, one question to pick one or several, then "done"
+//   "spawn[<title>=<prompt>; …]" → one `tau_spawn_thread` call per entry in one reply, then "done"
 //   anything else          → "ok"
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -22,7 +24,32 @@ function text(content) {
   return "";
 }
 
-/** What the fake says to a request body: `{ text }`, `{ toolCall }` (a `text` streams before it), `{ text, waitMs }`, or `{ status, error }`. */
+/** The question the ask-user tool puts for "ask one" and "ask any"; the texts of the workbench design. */
+export function fakeQuestion(multiSelect) {
+  return multiSelect
+    ? {
+      question: "Orders have no index on created_at. Which of these may I do?",
+      header: "Index",
+      multiSelect: true,
+      options: [
+        { label: "Add an index on created_at", description: "one migration" },
+        { label: "Backfill cursors for existing rows", description: "" },
+        { label: "Change the default sort to id", description: "visible in the UI" },
+      ],
+    }
+    : {
+      question: "Orders are sorted by created_at, which has no index. Paginating 2M rows without one will time out on the first page. How should I proceed?",
+      header: "Index",
+      multiSelect: false,
+      options: [
+        { label: "Add an index on created_at", description: "one migration, ~40s on prod-size data" },
+        { label: "Paginate by id instead", description: "no migration, but order differs from the UI" },
+        { label: "Leave it — page size is small enough", description: "" },
+      ],
+    };
+}
+
+/** What the fake says to a request body: `{ text }`, `{ toolCall }` (a `text` streams before it), `{ toolCalls }`, `{ text, waitMs }`, or `{ status, error }`. */
 export function fakeReply(body) {
   const messages = Array.isArray(body?.messages) ? body.messages : [];
   const last = messages.at(-1);
@@ -30,6 +57,14 @@ export function fakeReply(body) {
   const think = prompt.match(/\bthink\s+(\d+)\b/u);
   const thinkMs = think ? { thinkMs: Math.min(Number(think[1]), 120_000) } : {};
   if (last?.role === "tool") return { text: "done", ...thinkMs };
+  const spawn = prompt.match(/\bspawn\[(.+?)\]/su);
+  if (spawn) {
+    const toolCalls = spawn[1].split(";").map((entry) => entry.split("=")).filter(([title, task]) => title?.trim() && task?.trim())
+      .map(([title, task]) => ({ name: "tau_spawn_thread", arguments: { title: title.trim(), prompt: task.trim() } }));
+    if (toolCalls.length > 0) return { toolCalls };
+  }
+  const ask = prompt.match(/\bask\s+(one|any)\b/u);
+  if (ask) return { toolCall: { name: "ask_user_question", arguments: { questions: [fakeQuestion(ask[1] === "any")] } } };
   const write = prompt.match(/\bwrite\s+(\S+)\s+(\S+)/u);
   if (write) return { toolCall: { name: "write", arguments: { path: write[1], content: `${write[2]}\n` } } };
   const takeover = prompt.match(/\btakeover\s+(https?:\/\/\S+)/u);
@@ -95,9 +130,10 @@ export async function startFakeModelServer({ respond = fakeReply } = {}) {
         await new Promise((resolve) => setTimeout(resolve, 250));
       }
       if (closed) return;
-      if (reply.toolCall) {
+      const calls = reply.toolCalls ?? (reply.toolCall ? [reply.toolCall] : []);
+      if (calls.length > 0) {
         if (reply.text) response.write(chunk({ delta: { content: reply.text }, finish_reason: null }));
-        response.write(chunk({ delta: { tool_calls: [{ index: 0, id: `call_${counter}`, type: "function", function: { name: reply.toolCall.name, arguments: JSON.stringify(reply.toolCall.arguments) } }] }, finish_reason: null }));
+        calls.forEach((call, index) => response.write(chunk({ delta: { tool_calls: [{ index, id: `call_${counter}_${index}`, type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments) } }] }, finish_reason: null })));
         response.write(chunk({ delta: {}, finish_reason: "tool_calls" }));
       } else {
         if (reply.waitMs) {

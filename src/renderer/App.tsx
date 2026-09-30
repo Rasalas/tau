@@ -476,19 +476,21 @@ export default function App() {
     setStage((current) => openThreadTab(current, sessionId, { ...(options?.pin ? { pin: true } : {}), ...(machine ? { machine } : {}) }));
     revealDocuments.current();
   }, [platform]);
+  // A sub-agent's question waits on its parent too: that is where it is answered (design 1c).
+  const parentOf = useCallback((sessionId: string) => threadStore.getSnapshot().threads.find((thread) => thread.id === sessionId)?.parentThreadId, [threadStore]);
   useEffect(() => {
-    threadStore.setWaiting(uiPrompts.map((entry) => entry.sessionId));
-  }, [threadStore, uiPrompts]);
+    threadStore.setWaiting(uiPrompts.flatMap((entry) => [entry.sessionId, parentOf(entry.sessionId) ?? entry.sessionId]));
+  }, [parentOf, threadStore, uiPrompts]);
 
   // A prompt must never be unanswerable. Workspace-level questions (project trust
   // is asked before any session exists) and questions naming a thread we do not
-  // know surface on whatever thread is open; only a known other thread defers to
-  // its own rail badge.
+  // know surface on whatever thread is open, a child's on its parent's; only a
+  // known other thread defers to its own rail badge.
   const threadPrompts = useMemo(() => {
     const known = new Set(threadStore.getSnapshot().threads.map((thread) => thread.id));
-    return uiPrompts.filter((entry) =>
-      !entry.sessionId || entry.sessionId === snapshot?.sessionId || !known.has(entry.sessionId));
-  }, [snapshot?.sessionId, threadStore, uiPrompts]);
+    return uiPrompts.filter((entry) => !entry.sessionId || entry.sessionId === snapshot?.sessionId
+      || !known.has(entry.sessionId) || (snapshot && parentOf(entry.sessionId) === snapshot.sessionId));
+  }, [parentOf, snapshot?.sessionId, threadStore, uiPrompts]);
 
   const copyMessage = useCallback((message: UiMessage) => threadCommands.copyText(
     message.role === "user" ? message.skill?.copyText ?? visibleUserMessageText(message.text) : message.text,
