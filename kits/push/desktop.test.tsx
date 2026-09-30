@@ -135,6 +135,13 @@ describe("Settings → Push", () => {
     expect(screen.getByText(/Update the Tau app on this phone/u)).toBeTruthy();
   });
 
+  it("asks a phone on the direct route without a token to open this machine once", async () => {
+    setup((command) => (command === "status" ? { ...STATUS, devices: [{ ...STATUS.devices[0]!, route: "unreachable", lastPush: undefined }] } : undefined));
+    await flush();
+    expect(screen.getByText("iPhone · APNs")).toBeTruthy();
+    expect(screen.getByText(/hands over its token for your own key/u)).toBeTruthy();
+  });
+
   it("shows a saved key that does not read as an error on its platform", async () => {
     setup((command) => (command === "status" ? { ...STATUS, apns: { ...STATUS.apns!, error: "That is not a .p8 key." } } : undefined));
     await flush();

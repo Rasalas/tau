@@ -31,7 +31,7 @@ export type PushRoute = "direct" | "relay";
 
 /** What the app hands a host for the relay: the relay's handle and a key only the phone and this host know. */
 export interface PushRelayRegistration {
-  /** The relay's sealed form of the push token; the relay alone opens it. */
+  /** The relay's sealed form of the push token, made for this host alone; the relay alone opens it. */
   handle: string;
   /** Names the key in every sealed push, so the phone knows which one opens it. */
   keyId: string;
@@ -42,14 +42,29 @@ export interface PushRelayRegistration {
 /** What the app sends once a host's workbench is connected (`register`). */
 export interface PushRegistration {
   platform: PushPlatform;
-  /** An APNs device token (hex) or an FCM registration token. */
-  token: string;
+  /**
+   * An APNs device token (hex) or an FCM registration token, sent only when the
+   * host asks (`needsToken`): a host on the relay route never gets it.
+   */
+  token?: string;
   /** The app's own id for this host, echoed in every notification so a tap opens the right one. */
   host: string;
   /** iOS: the app's bundle identifier, the APNs topic. */
   topic?: string;
   /** Absent from an app older than the relay, or one that could not reach it. */
   relay?: PushRelayRegistration;
+}
+
+/** The host's answer to `register`. */
+export interface PushRegisterAnswer {
+  registered: true;
+  /** A push can reach this phone now. */
+  ready: boolean;
+  route: PushRoute;
+  /** This host sends with a key of its own: register again with the token. */
+  needsToken?: true;
+  /** The relay called this handle gone: get a new one and register again. */
+  renewHandle?: true;
 }
 
 /**
@@ -84,7 +99,7 @@ export interface PushDeviceRow {
   name: string;
   platform: PushPlatform;
   registeredAt: string;
-  /** `unreachable`: no key for its platform here, and its app sent nothing for the relay. */
+  /** `unreachable`: on the relay route its app sent no handle; on the direct route, no token yet. */
   route?: PushRoute | "unreachable";
   lastPush?: { at: string; ok: boolean; detail?: string };
 }
