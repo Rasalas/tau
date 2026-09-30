@@ -92,3 +92,42 @@ export async function startFakeFcm(answer: (request: FakeRequest) => { status: n
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }
+
+/**
+ * Tau's push relay on loopback HTTP/1.1. Its handles are not sealed, only
+ * encoded, so a test can read which token one names; `answer` decides each send.
+ */
+export async function startFakeRelay(answer: (request: FakeRequest) => { status: number; body?: unknown } = () => ({ status: 200, body: { ok: true } }), onRequest: (request: FakeRequest) => void = () => undefined) {
+  const requests: FakeRequest[] = [];
+  const server = createHttpServer((request, response) => {
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk: string) => { body += chunk; });
+    request.on("end", () => {
+      const seen = { path: request.url ?? "", headers: Object.fromEntries(Object.entries(request.headers).map(([key, value]) => [key, String(value)])), body };
+      requests.push(seen);
+      onRequest(seen);
+      let reply: { status: number; body?: unknown };
+      if (seen.path === "/register") {
+        const { platform, token } = JSON.parse(body || "{}") as { platform?: string; token?: string };
+        reply = { status: 200, body: { handle: fakeRelayHandle(platform ?? "", token ?? "") } };
+      } else {
+        reply = seen.path === "/send" ? answer(seen) : { status: 404, body: { error: "not-found" } };
+      }
+      response.writeHead(reply.status, { "content-type": "application/json", "access-control-allow-origin": "*" });
+      response.end(JSON.stringify(reply.body ?? {}));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return {
+    requests,
+    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    sends: () => requests.filter((request) => request.path === "/send").map((request) => JSON.parse(request.body) as { handle: string; payload: string; collapseId?: string }),
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
+}
+
+/** The fake relay's handle for a token: readable, and long enough to pass for a sealed one. */
+export function fakeRelayHandle(platform: string, token: string): string {
+  return Buffer.from(JSON.stringify({ fake: "tau-relay", platform, token })).toString("base64url");
+}

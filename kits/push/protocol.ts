@@ -23,6 +23,22 @@ export function readPushContent(value: unknown): PushContent {
   return value === "title" ? "title" : DEFAULT_PUSH_CONTENT;
 }
 
+/** Tau's push relay (docs/push.md); a host sends through it for a platform it has no key of its own for. */
+export const PUSH_RELAY_URL = "https://europe-west3-tau-push-e3c95.cloudfunctions.net/relay";
+
+/** How pushes reach a platform: with this host's own key, or through Tau's relay. */
+export type PushRoute = "direct" | "relay";
+
+/** What the app hands a host for the relay: the relay's handle and a key only the phone and this host know. */
+export interface PushRelayRegistration {
+  /** The relay's sealed form of the push token; the relay alone opens it. */
+  handle: string;
+  /** Names the key in every sealed push, so the phone knows which one opens it. */
+  keyId: string;
+  /** 32 random bytes, base64url: AES-256-GCM over what a push says. */
+  key: string;
+}
+
 /** What the app sends once a host's workbench is connected (`register`). */
 export interface PushRegistration {
   platform: PushPlatform;
@@ -32,6 +48,26 @@ export interface PushRegistration {
   host: string;
   /** iOS: the app's bundle identifier, the APNs topic. */
   topic?: string;
+  /** Absent from an app older than the relay, or one that could not reach it. */
+  relay?: PushRelayRegistration;
+}
+
+/**
+ * A sealed push, version 1: `1.<keyId>.<base64url(nonce ‖ ciphertext ‖ tag)>`,
+ * AES-256-GCM with a random 96-bit nonce over the JSON of `SealedPushContent`,
+ * the associated data `sealedPushAad(keyId)`. A new layout takes a new version.
+ */
+export const SEALED_PUSH_VERSION = 1;
+export const sealedPushAad = (keyId: string) => `tau-push:${SEALED_PUSH_VERSION}:${keyId}`;
+
+export interface SealedPushContent {
+  title: string;
+  body: string;
+  /** The thread's `tau://thread?…` link. */
+  url?: string;
+  kind?: PushKind;
+  /** Replaces the thread's earlier notification; the same opaque id the relay sees as collapse id. */
+  tag?: string;
 }
 
 /** Another kit asks for a push about a thread (`notify`); Takeover does for "your turn". */
@@ -48,6 +84,8 @@ export interface PushDeviceRow {
   name: string;
   platform: PushPlatform;
   registeredAt: string;
+  /** `unreachable`: no key for its platform here, and its app sent nothing for the relay. */
+  route?: PushRoute | "unreachable";
   lastPush?: { at: string; ok: boolean; detail?: string };
 }
 
@@ -58,6 +96,8 @@ export interface PushStatus {
   devices: PushDeviceRow[];
   /** Where the keys are kept, a file only this user may read. */
   file: string;
+  /** Per platform: this host's own key when one is saved, otherwise the relay. */
+  routes?: Record<PushPlatform, PushRoute>;
 }
 
 export interface ApnsKeyInput {

@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "tau/host-extension";
 import type { ApnsCredentials, ApnsEnvironment } from "./apns.js";
-import type { PushPlatform } from "./protocol.js";
+import type { PushPlatform, PushRelayRegistration } from "./protocol.js";
 
 const VERSION = 1;
 
@@ -18,6 +18,8 @@ export interface StoredDevice {
   token: string;
   host: string;
   topic?: string;
+  /** The relay's handle and the phone's key for what a push says. */
+  relay?: PushRelayRegistration;
   registeredAt: string;
   /** The APNs environment that took this token, once one did. */
   environment?: ApnsEnvironment;
@@ -40,12 +42,16 @@ function decodeKeys(value: unknown): StoredKeys | undefined {
   return keys;
 }
 
+const isRelay = (value: unknown): value is PushRelayRegistration => isObject(value)
+  && typeof value.handle === "string" && typeof value.keyId === "string" && typeof value.key === "string";
+
 function decodeDevices(value: unknown): StoredDevice[] | undefined {
   const list = isObject(value) ? value.devices : undefined;
   if (!Array.isArray(list)) return undefined;
   return list.filter((entry): entry is StoredDevice => isObject(entry)
     && typeof entry.id === "string" && (entry.platform === "ios" || entry.platform === "android")
-    && typeof entry.token === "string" && typeof entry.host === "string" && typeof entry.registeredAt === "string");
+    && typeof entry.token === "string" && typeof entry.host === "string" && typeof entry.registeredAt === "string")
+    .map(({ relay, ...device }) => (isRelay(relay) ? { ...device, relay } : device));
 }
 
 /**
@@ -87,8 +93,9 @@ export class PushStore {
 
   async upsert(device: StoredDevice): Promise<void> {
     const prior = this.list.find((entry) => entry.id === device.id);
-    // The same token keeps what was learned about it.
-    const kept = prior && prior.token === device.token ? { ...(prior.environment ? { environment: prior.environment } : {}), ...(prior.lastPush ? { lastPush: prior.lastPush } : {}) } : {};
+    // The same token keeps what was learned about it, and its handle when the relay was out of reach this time.
+    const same = prior && prior.token === device.token ? prior : undefined;
+    const kept = same ? { ...(same.environment ? { environment: same.environment } : {}), ...(same.lastPush ? { lastPush: same.lastPush } : {}), ...(same.relay && !device.relay ? { relay: same.relay } : {}) } : {};
     this.list = [...this.list.filter((entry) => entry.id !== device.id), { ...device, ...kept }];
     await this.saveDevices();
   }

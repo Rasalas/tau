@@ -17,7 +17,7 @@ export interface FcmServiceAccount {
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
 /** https, or plain http to this machine alone (a test's fake). */
-function safeEndpoint(value: string): boolean {
+export function safeEndpoint(value: string): boolean {
   try {
     const url = new URL(value);
     return url.protocol === "https:" || (url.protocol === "http:" && LOOPBACK.has(url.hostname));
