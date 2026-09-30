@@ -1,5 +1,20 @@
-import { useEffect, useRef, useState } from "react";
-import type { DictationPort } from "../dictation";
+import { useEffect, useRef, useState, type RefObject } from "react";
+import { insertDictation, type DictationPort } from "../dictation";
+
+/** The native client's editor adapter retains the insertion point during recording. */
+export function NativeComposerDictation({ port, text, inputRef, updateDraft }: {
+  port: DictationPort; text: string; inputRef: RefObject<HTMLTextAreaElement | null>; updateDraft(text: string): void;
+}) {
+  const selection = useRef({ start: 0, end: 0, text: "" });
+  return <ComposerDictation port={port}
+    capture={() => { const input = inputRef.current; selection.current = { start: input?.selectionStart ?? text.length, end: input?.selectionEnd ?? text.length, text }; }}
+    insert={(transcript) => {
+      const captured = selection.current;
+      const next = insertDictation(text, captured.text === text ? captured.start : text.length, captured.text === text ? captured.end : text.length, transcript);
+      updateDraft(next.text);
+      requestAnimationFrame(() => { inputRef.current?.focus(); inputRef.current?.setSelectionRange(next.caret, next.caret); });
+    }} />;
+}
 
 export function ComposerDictation({ port, capture, insert }: { port: DictationPort; capture(): void; insert(text: string): void }) {
   const [languages, setLanguages] = useState<Array<{ id: string; name: string; installed: boolean }>>([]);

@@ -1,5 +1,5 @@
 import type { DictationPort } from "./dictation";
-import { createContext, useContext, type ComponentType, type ReactNode } from "react";
+import { createContext, useContext, type ComponentType, type ReactNode, type RefObject } from "react";
 import { parseClientProfile, type ClientProfile } from "../workbench/client-profile";
 import { createElectronPlatform } from "./platform-electron";
 import type { ClientPlatformFactory } from "./client-platform";
@@ -24,7 +24,7 @@ export interface ClientEnvironment {
   /** Native clients supply their control so other clients do not ship its UI. */
   dictation?: {
     port: DictationPort;
-    Control: ComponentType<{ port: DictationPort; capture(): void; insert(text: string): void }>;
+    Control: ComponentType<{ port: DictationPort; text: string; inputRef: RefObject<HTMLTextAreaElement | null>; updateDraft(text: string): void }>;
   };
 }
 
