@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArchiveRestore, ArrowLeft, Check, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, GitBranch, Plus, Search, Settings, SlidersHorizontal, SquarePen, Trash2, X } from "lucide-react";
+import { ArchiveRestore, ArrowLeft, Check, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, GitBranch, MessageSquare, Plus, Search, Settings, SlidersHorizontal, SquarePen, Trash2, X } from "lucide-react";
 import {
   DraftRow,
   draftTitle,
@@ -1332,7 +1332,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         ) : null}
 
         {matching.length === 0 && outside.size === 0 && draftCount === 0 ? (
-          <p className="sidebar-empty">{threadQuery ? "No threads found" : projectFilter ? `No threads in ${projectFilter}` : "No recent threads"}</p>
+          threadQuery || projectFilter
+            ? <p className="sidebar-empty">{threadQuery ? "No threads found" : `No threads in ${projectFilter}`}</p>
+            : <div className="sidebar-empty first"><i><MessageSquare size={16} aria-hidden /></i><p>No threads yet.<br />They’ll line up here.</p></div>
         ) : null}
 
         {(() => {

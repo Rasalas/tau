@@ -203,6 +203,10 @@
 .settled-shelf-toggle:hover { color: var(--ink-3); }
 .rail-section-snoozed > .settled-shelf-toggle { color: var(--info-ink); }
 .sidebar-empty { margin: 18px 10px; color: var(--faint); font-size: var(--text-sm); }
+/* A rail with no thread at all (2a): a quiet note in its middle. */
+.sidebar-empty.first { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--muted); text-align: center; }
+.sidebar-empty.first > i { width: 36px; height: 36px; display: grid; place-items: center; border-radius: var(--radius-md); background: var(--stage); }
+.sidebar-empty.first > p { margin: 0; }
 
 /* Sections another kit organises the rail into, and dragging a thread between them. */
 .rail-section { display: flex; flex-direction: column; gap: 2px; }
@@ -696,3 +700,25 @@ button.thread-card-row:hover, button.thread-card-row:focus-visible { color: var(
 .thread-card-row.tone-warning .thread-card-text, .thread-card-row.tone-danger .thread-card-text { white-space: normal; overflow-wrap: anywhere; }
 .thread-card-section { padding-top: 8px; border-top: 1px solid var(--line-soft); }
 .thread-card-section:empty { display: none; }
+
+/* A fresh install (2a): the draft's heading, pills and composer step aside for what to do first. */
+.conversation-start:has(.fresh-start) :is(.conversation-empty > :not(.region-draft-actions), .region-draft-actions > :not(.fresh-start), .region-composer-above, .conversation-composer-host, .region-composer-below) { display: none; }
+.conversation-start:has(.fresh-start) .thread-header > * { visibility: hidden; }
+.fresh-start { display: flex; flex-direction: column; align-items: center; gap: 22px; padding: 40px; text-align: center; color: var(--muted); font-size: var(--text-sm); }
+.fresh-start-mark { width: 56px; height: 56px; }
+.fresh-start-mark rect { fill: var(--brand); }
+.fresh-start-mark path { fill: none; stroke: var(--brand-on); stroke-width: 3.6; stroke-linecap: round; stroke-linejoin: round; }
+.fresh-start > h2 { margin: 0 0 -16px; color: var(--ink); font: 600 var(--text-display)/1.25 var(--sans); letter-spacing: -.015em; }
+.fresh-start-lede { max-width: 380px; margin: 0; font: var(--text-md)/1.5 var(--sans); }
+.fresh-start-actions { display: flex; gap: 8px; }
+.fresh-start-actions > button { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); font: 600 var(--text-md) var(--sans); white-space: nowrap; cursor: pointer; }
+.fresh-start-actions > button:hover { background: var(--hover); }
+.fresh-start-actions > button.primary { padding: 9px 18px; border-radius: var(--radius-pill); background: var(--acid); color: var(--acid-ink); }
+.fresh-start-actions > button.primary:hover { background: var(--acid-strong); }
+.fresh-start-keys { display: grid; grid-template-columns: auto auto; align-items: center; gap: 6px 10px; margin: 10px 0 0; text-align: left; }
+.fresh-start-keys > div { display: contents; }
+.fresh-start-keys dt, .fresh-start-providers { display: flex; align-items: center; gap: 10px; }
+.fresh-start-keys dd { margin: 0; }
+.fresh-start-keys kbd { min-width: 18px; padding: 1px 6px; border-radius: 5px; background: var(--rail); box-shadow: 0 1px 0 var(--line-strong); color: var(--ink); font: 11px var(--mono); text-align: center; }
+.fresh-start-providers { gap: 8px; margin: 8px 0 0; }
+.fresh-start-providers button { padding: 0; border: 0; background: none; color: var(--acid-text); font: inherit; cursor: pointer; }

@@ -24,6 +24,7 @@ import { threadBranchService } from "./branch-service.js";
 import { registerCheckpoints } from "./checkpoints.js";
 import { WorkspaceFollower } from "./dock.js";
 import { createDraftBranchPill, ThreadBranch, WorktreeSuggestionPill } from "./branch-menu.js";
+import { FreshStart } from "./fresh-start.js";
 import { CloneProjectSource, LocalFolderSource, requestProjectSwitcher, WorkspaceSidebar } from "./navigation.js";
 import { ChangesPanel, FilesPanel, SEARCH_FILES_SERVICE, serviceSlot, type SearchFilesService } from "./panels.js";
 import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, WorkspaceStore } from "./store.js";
@@ -121,6 +122,8 @@ export const workspaceExtension: DesktopExtension = {
     // The branch in the thread header: a menu over the checkout, or a new thread's Branch section.
     context.registerRegion({ id: "workspace.branch", placement: "thread-branch", order: 10, profiles: ["desktop"], Component: bind(ThreadBranch) });
     // A new thread's branch as a pill under its heading, beside project and machine; a sheet on touch.
+    // A fresh install's first screen (2a), in place of the draft until a thread exists.
+    context.registerRegion({ id: "workspace.fresh-start", placement: "draft-actions", order: 0, profiles: ["desktop"], Component: bind(FreshStart) });
     context.registerRegion({ id: "workspace.draft-branch", placement: "draft-actions", order: 10, profiles: ["desktop"], Component: bind(createDraftBranchPill(false)) });
     context.registerRegion({ id: "workspace.draft-branch-sheet", placement: "draft-actions", order: 10, profiles: ["compact"], Component: bind(createDraftBranchPill(true)) });
     // Offered while another thread's turn runs in the draft's folder; the phone gets it too.
