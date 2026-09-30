@@ -1,6 +1,5 @@
 import { execFile } from "node:child_process";
 import { realpath } from "node:fs/promises";
-import { realpath } from "node:fs/promises";
 import { ResetCoordinator } from "./reset-coordinator.js";
 import { resetAccess, readClaudeResetCredits, consumeClaudeResetCredit } from "./reset-credits.js";
 import { homedir } from "node:os";

@@ -29,7 +29,7 @@ export async function captureWaylandWindow(
   try {
     sources = await select();
   } catch (error) {
-    throw new Error(`The desktop's window picker could not capture a window. Check xdg-desktop-portal, your desktop's portal backend and PipeWire. ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`The desktop's window picker could not capture a window. Check xdg-desktop-portal, your desktop's portal backend and PipeWire. ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
   if (sources.length === 0) throw new Error("Window selection was cancelled.");
   if (sources.length !== 1) throw new Error("The desktop did not return one selected window. Tau did not capture another source.");
