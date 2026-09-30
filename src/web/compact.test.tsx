@@ -558,6 +558,35 @@ describe("a new thread's draft in the phone's list", () => {
   });
 });
 
+/** Usage's shape: a page that draws its own summary, and bars beside a phone's list title. */
+const summaryProbe: DesktopExtension = {
+  id: "test.summary",
+  name: "Summary probe",
+  activate(plugin) {
+    plugin.registerPage({ id: "probe.usage", label: "Usage", Icon: ChartColumn, profiles: ["desktop", "web", "compact"], Summary: () => <button type="button">Plan bars</button>, Component: () => <p>usage body</p> });
+    plugin.registerRegion({ id: "probe.title", placement: "thread-list-title", profiles: ["compact"], Component: () => <button type="button">Title bars</button> });
+  },
+};
+
+describe("a page's summary on a phone and a tablet", () => {
+  it("sits at the tablet sidebar's foot, not beside the list title", async () => {
+    setViewport(1024, 768);
+    renderCompactClient({}, [summaryProbe]);
+    const list = await screen.findByRole("navigation", { name: "Thread list" });
+    const foot = within(list).getByRole("group", { name: "Sidebar controls" });
+    expect(await within(foot).findByRole("button", { name: "Plan bars" })).toBeTruthy();
+    expect(within(foot).queryByRole("button", { name: "Usage" })).toBeNull();
+    expect(within(list).queryByRole("button", { name: "Title bars" })).toBeNull();
+  });
+
+  it("stays beside a phone's list title", async () => {
+    renderCompactClient({}, [summaryProbe]);
+    const home = await screen.findByRole("region", { name: "Threads" });
+    expect((await within(home).findByRole("button", { name: "Title bars" })).closest(".touch-browser-header")).toBeTruthy();
+    expect(within(home).queryByRole("button", { name: "Plan bars" })).toBeNull();
+  });
+});
+
 describe("the compact client on a tablet", () => {
   beforeEach(() => setViewport(1024, 768));
 

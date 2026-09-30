@@ -274,6 +274,13 @@ button.usage-rank-label:hover { background: var(--hover); }
  * reading faint.
  */
 .sidebar-footer button.usage-juicebars { width: auto; min-width: 30px; display: flex; align-items: center; gap: 8px; padding: 0 7px; }
+/* A tablet's sidebar foot: the same bars, 44 px tall like the foot's icons. */
+.touch-sidebar-footer :is(.usage-juicebars, .usage-juice-icon) {
+  min-width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 0 10px; border: 0; border-radius: 12px; background: transparent; color: var(--ink-2); cursor: pointer;
+}
+.touch-sidebar-footer :is(.usage-juicebars, .usage-juice-icon):active { background: var(--hover-strong); }
+.touch-sidebar-footer .usage-juice-icon > svg { width: 19px; height: 19px; }
 .usage-juicebar-group { display: flex; align-items: flex-end; gap: 2px; }
 .usage-juicebar {
   --usage-left: 0%;

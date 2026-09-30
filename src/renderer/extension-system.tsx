@@ -310,7 +310,8 @@ export interface TranscriptRowsHandle {
  * plain label (both API 1.27.0). `draft-actions` adds pills beside the
  * project under a new thread's heading, each opening its own popover.
  * `thread-list-head` tops a phone's or tablet's thread list, under its header
- * (API 1.30.0). `thread-list-title` adds compact controls beside that header's title.
+ * (API 1.30.0). `thread-list-title` adds compact controls beside a phone's header title;
+ * a tablet's sidebar has a foot for them (`PageContribution.Summary`).
  */
 export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in" | "thread-list-head" | "thread-list-title";
 

@@ -26,7 +26,7 @@ const account = (id: string, runtime: string, used: number[], identity?: { provi
 const host = (answer: unknown): HostExtensionClient => ({ invoke: vi.fn(async () => answer), onEvent: () => () => undefined }) as unknown as HostExtensionClient;
 
 beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(NOW); });
-afterEach(() => { forgetLastState(); cleanup(); vi.useRealTimers(); setClientStorage(undefined); document.body.removeAttribute("data-profile"); });
+afterEach(() => { forgetLastState(); cleanup(); vi.useRealTimers(); setClientStorage(undefined); document.body.removeAttribute("data-profile"); document.querySelector(".touch-browser")?.remove(); });
 
 describe("the juicebars on top of a phone's thread list", () => {
   const renderStrip = (feed: ReturnType<typeof createLimitsFeed>, openPage = vi.fn()) => {
@@ -103,5 +103,18 @@ describe("choosing a phone's bars on its Usage page", () => {
     const choice = within(card).getByRole("group", { name: "Show in thread list" });
     fireEvent.click(within(choice).getByRole("button", { name: "Weekly" }));
     expect(choices.getSnapshot()).toEqual({ "openai:k|secondary": false });
+  });
+
+  it("names the sidebar on a tablet, whose sidebar's foot draws them", async () => {
+    setClientStorage(createMemoryStorage());
+    document.body.dataset.profile = "compact";
+    const sidebar = document.body.appendChild(document.createElement("nav"));
+    sidebar.className = "touch-browser sidebar";
+    const limits: UsageLimitsSummary = { checkedAt: NOW, accounts: [account("codex:a", "codex", [41, 95], { provider: "openai", key: "k" })], sources: [] };
+    const answers = vi.fn(async (command: string) => command === "limits" ? limits : { entries: [], scannedAt: NOW, rows: [], sources: [], totals: { requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, costUsd: 0, threads: 0 } });
+    const client = { invoke: answers, onEvent: () => () => undefined } as unknown as HostExtensionClient;
+    render(<TestProviders><HostClientProvider client={createFakeHostClient()}><UsagePage host={client} now={() => new Date(NOW)} navigate={vi.fn()} choices={createJuicebarChoices()} /></HostClientProvider></TestProviders>);
+    const card = await screen.findByRole("region", { name: "Codex limits" });
+    expect(within(card).getByRole("group", { name: "Show in sidebar" })).toBeTruthy();
   });
 });

@@ -9,7 +9,7 @@ import { createLimitsFeed } from "./limits-feed.js";
 import { UsagePage } from "./page.js";
 import { USAGE_EXTENSION_ID, USAGE_PAGE } from "./protocol.js";
 
-/** Usage is a page of the app: the juicebars at the sidebar's foot (a phone's list's top) and the palette open it. */
+/** Usage is a page of the app: the juicebars at the sidebar's foot (beside a phone's list title) and the palette open it. */
 export const usageExtension: DesktopExtension = {
   id: USAGE_EXTENSION_ID,
   name: "Usage",
@@ -35,7 +35,7 @@ export const usageExtension: DesktopExtension = {
       Sidebar: () => <UsageSidebar view={view} />,
     });
 
-    // Mobile draws the compact bars beside the thread-list title.
+    // A phone has no sidebar foot: the bars sit beside its list title; a tablet's foot draws `Summary`.
     plugin.registerRegion({
       id: "usage.juicebars",
       placement: "thread-list-title",

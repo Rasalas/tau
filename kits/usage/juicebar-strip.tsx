@@ -5,7 +5,7 @@ import { tone, titleOf, useRunEnded } from "./juicebars-view.js";
 import type { LimitsFeed } from "./limits-feed.js";
 import { USAGE_PAGE } from "./protocol.js";
 
-/** Compact plan bars beside the mobile thread-list title. A tap opens Usage. */
+/** Compact plan bars beside a phone's thread-list title. A tap opens Usage. */
 export function JuicebarStrip({ actions, feed, choices }: Pick<RegionProps, "actions"> & { feed: LimitsFeed; choices: JuicebarChoices }) {
   const limits = useSyncExternalStore(feed.subscribe, feed.getSnapshot);
   const chosen = useSyncExternalStore(choices.subscribe, choices.getSnapshot);

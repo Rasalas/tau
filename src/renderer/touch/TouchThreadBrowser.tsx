@@ -51,7 +51,7 @@ export function TouchThreadBrowser({ variant, nav, onNewThread, onOpenSettings, 
   const filter = onProjectChange ? <ProjectFilter projects={projects} project={list.project} onChange={onProjectChange} /> : null;
   const header = <header className="touch-browser-header">
     <strong>Threads</strong>
-    <Region registry={list.registry} placement="thread-list-title" actions={list.actions} />
+    {screen ? <Region registry={list.registry} placement="thread-list-title" actions={list.actions} /> : null}
     <span className="spacer" />
     <button ref={searchButton} type="button" className="touch-icon-button" aria-label="Search threads" aria-expanded={popover === "search"} {...tooltipProps("Search threads", { side: "bottom" })} onClick={() => setPopover(popover === "search" ? undefined : "search")}><Search size={19} /></button>
     {filter}
@@ -116,7 +116,7 @@ function TabletFooter({ registry, actions, onOpenSettings }: Pick<TouchThreadLis
       {command.Icon ? <command.Icon size={19} /> : command.label}
     </button>)}
     <span className="spacer" />
-    {pages.filter((page) => page.Summary || page.useSummary).map((page) => <TabletPageButton key={page.id} page={page} actions={actions} />)}
+    {pages.filter((page) => page.Summary || page.useSummary).map((page) => page.Summary ? <page.Summary key={page.id} actions={actions} /> : <TabletPageButton key={page.id} page={page} actions={actions} />)}
     <button type="button" className="touch-icon-button" aria-label="Settings" {...tooltipProps("Settings", { side: "top" })} onClick={() => onOpenSettings()}><Settings size={19} /></button>
   </div>;
 }
