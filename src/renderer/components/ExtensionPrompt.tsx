@@ -174,8 +174,8 @@ export function ExtensionPrompt({
   const waiting = hasChoices && chosen === undefined;
   // A confirm answers true, a runtime's approval its own word.
   const submit = () => onAnswer(approval ? !permission || "Allow" : chosen!);
-  // Enter in the empty composer does what the card's ⏎ says.
-  usePromptSubmit(action, waiting, submit);
+  // Enter in the empty composer answers a question; it never allows (K83), so an approval draws no ⏎.
+  usePromptSubmit(approval ? undefined : action, waiting, submit);
 
   const folded = prompt.kind === "select" ? splitPromptTitle(prompt.title) : { question: prompt.title, previews: [] };
   const input = prompt.kind === "input" ? splitInputTitle(prompt.title) : undefined;
@@ -205,7 +205,7 @@ export function ExtensionPrompt({
           {always ? <button type="button" onClick={() => onAnswer(always)}>Always for this thread</button> : null}
         </>
         : <button type="button" onClick={onCancel}>Skip</button>}
-      {...(action ? { submit: { label: action, enter: true, disabled: waiting, onSubmit: submit } } : {})}
+      {...(action ? { submit: { label: action, enter: !approval, disabled: waiting, onSubmit: submit } } : {})}
     >
       {hasChoices ? (
         <div className="extension-prompt-options">

@@ -87,7 +87,7 @@ describe("ExtensionPrompt", () => {
     expect(screen.getByRole("button", { name: /Add an index/u }).querySelector("small")?.textContent).toBe("one migration");
   });
 
-  it("draws a yes-or-no question as a permission: what it wants in the head, Deny, and Allow on Enter", () => {
+  it("draws a yes-or-no question as a permission: what it wants in the head, Deny and Allow, and Enter never allows (K83)", () => {
     const onAnswer = vi.fn();
     let action: PromptSubmitAction | undefined;
     const prompt: ExtensionUiPrompt = { id: "p1", sessionId: "s1", kind: "confirm", title: "Wants to edit", message: "src/lib/cursor-helper.ts" };
@@ -105,8 +105,8 @@ describe("ExtensionPrompt", () => {
     expect(onAnswer).toHaveBeenLastCalledWith(true);
     fireEvent.click(screen.getByRole("button", { name: "Deny" }));
     expect(onAnswer).toHaveBeenLastCalledWith(false);
-    action?.submit();
-    expect(onAnswer).toHaveBeenLastCalledWith(true);
+    expect(action).toBeUndefined();
+    expect(card.querySelector("kbd")).toBeNull();
   });
 
   it("draws a runtime's Allow / Allow for this session / Deny as the same permission card, naming a sub-agent", () => {

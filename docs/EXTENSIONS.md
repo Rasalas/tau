@@ -1533,7 +1533,7 @@ shows on its parent's composer, and wins over `asker` and a topic. An approval
 `"checkbox"`, a round one for `"radio"`, and `detail` as the second line; it
 no longer draws `index`. Core's own dialogs use the same frame: a `confirm`,
 and a runtime's `select` of Allow / Allow for this session / Deny, is an
-approval with Deny, "Always for this thread" where offered, and "Allow ⏎"; a
+approval with Deny, "Always for this thread" where offered, and "Allow" (Enter never allows, K83); a
 `select` is a question whose pick fills its radio and "Answer ⏎" sends.
 
 `actions.shareFile(path)` (new in API 1.10.0) answers with a URL the page
