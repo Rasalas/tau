@@ -7,15 +7,16 @@
 // device to reads, revokes live connections and rotates the host token (ADR 0023,
 // ADR 0024). A last run with kits sends a call into a window and checks that it
 // reaches one connection and only its answer counts, and that a Read-only device
-// runs only the kit commands that just look. A push run sends through loopback fakes
-// of APNs and FCM with throwaway keys. A proxy run checks that a peer behind
+// runs only the kit commands that just look. A push run sends through a loopback fake
+// of Tau's relay, sealed with the phone's key, and then through loopback fakes of APNs
+// and FCM with throwaway keys. A proxy run checks that a peer behind
 // a reverse proxy is remote though it dials from 127.0.0.1.
 // Node 22 has WebSocket globally; the TLS run pins with `ws` and the host's
 // own pinning code, because a global WebSocket cannot pin a certificate.
 import { execFileSync, spawn } from "node:child_process";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { X509Certificate, createPrivateKey } from "node:crypto";
+import { X509Certificate, createDecipheriv, createPrivateKey, randomBytes } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -836,8 +837,20 @@ async function callsScenario() {
   }
 }
 
+/** A sealed push opened the way the phone does (kits/push/protocol.ts, version 1). */
+function openSealedPush(sealed, key) {
+  const [version, keyId, data] = sealed.split(".");
+  if (version !== "1" || keyId !== key.keyId) return undefined;
+  const bytes = Buffer.from(data, "base64url");
+  const decipher = createDecipheriv("aes-256-gcm", Buffer.from(key.key, "base64url"), bytes.subarray(0, 12));
+  decipher.setAAD(Buffer.from(`tau-push:1:${keyId}`));
+  decipher.setAuthTag(bytes.subarray(bytes.length - 16));
+  return JSON.parse(Buffer.concat([decipher.update(bytes.subarray(12, bytes.length - 16)), decipher.final()]).toString("utf8"));
+}
+
 /**
- * Push: the host sends to loopback fakes of APNs and FCM with throwaway keys.
+ * Push: without keys the host sends through a loopback fake of Tau's relay,
+ * sealed with the phone's key; with them, to loopback fakes of APNs and FCM.
  * Paired devices register over the socket, only the owner sets keys, a test
  * push carries a signed provider token and the payload, a revoked device is
  * forgotten, and the keys sit in a 0600 file and never in the log.
@@ -846,6 +859,7 @@ async function pushScenario() {
   const fakes = await import(pathToFileURL(join(ROOT, "dist-electron", "main", "test-support", "push-fakes.js")).href);
   const apple = await fakes.startFakeApns();
   const google = await fakes.startFakeFcm();
+  const relay = await fakes.startFakeRelay();
   const workspace = await mkdtemp(join(tmpdir(), "tau-remote-smoke-"));
   const userData = mkdtempSync(join(tmpdir(), "tau-remote-userdata-"));
   const tokenHome = mkdtempSync(join(tmpdir(), "tau-remote-home-"));
@@ -854,8 +868,8 @@ async function pushScenario() {
   execFileSync("git", ["init", "-b", "main", workspace], { stdio: "ignore" });
   let host;
   try {
-    host = await startHost({ workspace, userData, tokenHome, tls: false, webClient, kits: true, env: { TAU_PUSH_APNS_ORIGIN: apple.origin, TAU_PUSH_FCM_ORIGIN: google.origin } });
-    step("push: host started with kits and fake APNs/FCM", `${apple.origin} ${google.origin}`);
+    host = await startHost({ workspace, userData, tokenHome, tls: false, webClient, kits: true, env: { TAU_PUSH_APNS_ORIGIN: apple.origin, TAU_PUSH_FCM_ORIGIN: google.origin, TAU_PUSH_RELAY_URL: relay.url } });
+    step("push: host started with kits, fake APNs/FCM and a fake relay", `${apple.origin} ${google.origin} ${relay.url}`);
     const owner = createClient(host.url, readFileSync(join(tokenHome, ".tau", "host-token"), "utf8").trim());
     await owner.opened;
     await owner.hello();
@@ -869,11 +883,29 @@ async function pushScenario() {
     const pixel = await connect((await pairDevice(host.url, owner, { code: (await owner.request("connections-create-link", [{}])).code, name: "Smoke Pixel" })).token);
     const push = (client, command, input) => client.request("host-extension", ["tau.push", command, input]);
     const iosToken = "ab".repeat(32);
-    await push(iphone, "register", { platform: "ios", token: iosToken, host: "smoke-host", topic: "de.tbuck.tau" });
-    await push(pixel, "register", { platform: "android", token: "fcm:smoke-registration-token", host: "smoke-host" });
+    const pushKey = (platform, token) => ({ handle: fakes.fakeRelayHandle(platform, token), keyId: randomBytes(16).toString("base64url"), key: randomBytes(32).toString("base64url") });
+    const iphoneKey = pushKey("ios", iosToken);
+    const pixelKey = pushKey("android", "fcm:smoke-registration-token");
+    await push(iphone, "register", { platform: "ios", token: iosToken, host: "smoke-host", topic: "de.tbuck.tau", relay: iphoneKey });
+    await push(pixel, "register", { platform: "android", token: "fcm:smoke-registration-token", host: "smoke-host", relay: pixelKey });
     const refusedRegister = await push(owner, "register", { platform: "ios", token: iosToken, host: "h", topic: "a.b" }).then(() => "taken", (error) => error.message);
     if (!/paired device/u.test(refusedRegister)) fail(`the host token registered for pushes: ${refusedRegister}`);
     step("push: paired devices register their tokens over the socket; the host token cannot");
+
+    const relayed = await push(owner, "status");
+    if (JSON.stringify(relayed.routes) !== JSON.stringify({ ios: "relay", android: "relay" }) || relayed.devices.some((device) => device.route !== "relay")) fail(`routes without keys: ${JSON.stringify(relayed)}`);
+    const viaRelay = await Promise.all(relayed.devices.map((device) => push(owner, "test", { id: device.id })));
+    if (!viaRelay.every((outcome) => outcome.ok)) fail(`test pushes through the relay: ${JSON.stringify(viaRelay)}`);
+    const relaySends = relay.sends();
+    for (const [key, name] of [[iphoneKey, "iPhone"], [pixelKey, "Pixel"]]) {
+      const sent = relaySends.find((entry) => entry.handle === key.handle);
+      const opened = sent && openSealedPush(sent.payload, key);
+      if (opened?.body !== "Push notifications reach this device.") fail(`relay push to the ${name}: ${JSON.stringify(sent)}`);
+    }
+    if (relay.requests.some((request) => /reach this device|PRIVATE KEY/u.test(request.body))) fail("the relay saw a push's text");
+    if (apple.requests.length + google.requests.length > 0) fail("a push without keys went to APNs or FCM");
+    if (host.output().includes(pixelKey.key) || host.output().includes(pixelKey.handle)) fail("the host log printed a phone's key or handle");
+    step("push: without keys, test pushes go through the relay sealed with each phone's key; the relay sees no text");
 
     const apnsKey = fakes.throwawayApnsKey();
     const account = fakes.throwawayServiceAccount(google.tokenUri);
@@ -918,6 +950,7 @@ async function pushScenario() {
     await host?.stop();
     await apple.close();
     await google.close();
+    await relay.close();
     const removal = { recursive: true, force: true, maxRetries: 10, retryDelay: 200 };
     await rm(workspace, removal);
     await rm(userData, removal);
