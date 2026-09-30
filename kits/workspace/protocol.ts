@@ -436,6 +436,8 @@ export interface WorkspaceKitState {
   draftBase?: string;
   /** A worktree is being created for the thread that is starting. */
   preparingWorktree: boolean;
+  /** The draft offers its own worktree because another thread's turn runs in its folder (K125). */
+  worktreeSuggested?: boolean;
   /** Sections other kits add to the Changes panel. */
   changesSections: ReadonlyArray<ComponentType<ChangesSectionProps>>;
   /** Marks other kits add to rail rows. */
