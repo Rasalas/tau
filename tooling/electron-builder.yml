@@ -166,6 +166,8 @@ linux:
   icon: assets/tau-icon.png
   category: Development
   executableName: tau
+  # Electron's Wayland shortcut portal identity must match the installed entry.
+  syncDesktopName: true
   # Packages and the menu entry show these, not package.json's description. Never rename
   # package.json's `name`: Electron names every user's data folder after it.
   synopsis: Desktop workbench for the Pi coding agent

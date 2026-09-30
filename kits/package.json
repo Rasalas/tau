@@ -19,6 +19,8 @@
     "*/desktop.js.map",
     "*/styles.css",
     "*/pi.cjs",
-    "*/pi.cjs.map"
+    "*/pi.cjs.map",
+    "tau.snapshots/wayland-helpers/*",
+    "tau.snapshots/wayland-helpers/gnome/*"
   ]
 }

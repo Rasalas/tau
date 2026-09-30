@@ -10,7 +10,7 @@ const electron = vi.hoisted(() => ({
 }));
 vi.mock("electron", () => electron);
 
-const { captureResolved, default: activate, frontWindow, namedWindow, readAccess, windowIdOfSource } = await import("./window.js");
+const { addWaylandAccessibility, captureResolved, default: activate, frontWindow, namedWindow, readAccess, windowIdOfSource } = await import("./window.js");
 
 type Client = Parameters<typeof frontWindow>[0];
 const element = (name: string, active = false, bounds = { x: 100, y: 50, width: 400, height: 300 }) => ({
@@ -42,6 +42,19 @@ beforeEach(() => {
 });
 
 describe("SnapShots' window half", () => {
+  it("attaches Wayland text only when app identity and coordinates match, including negative monitor origins and scale", async () => {
+    const bounds = { x: -1920, y: -200, width: 800, height: 600 };
+    const root = element("Private doc", true, bounds);
+    root.children = async () => [{ ...element("Press me"), role: "button", bounds: { x: -1900, y: -180, width: 50, height: 20 } }];
+    const frame = { boundsReliable: true, window: { title: "Private doc", appName: "Editor", processId: 43, bounds }, capture: {
+      app: "Editor", title: "Private doc", pid: 43, capturedAt: 1234, image: { data: "png", mimeType: "image/png", width: 1200, height: 900 },
+    } };
+    const full = await addWaylandAccessibility(frame, client([root], 43), () => 1234);
+    expect(full.accessibility?.root.children[0]?.bounds).toEqual({ x: 30, y: 30, width: 75, height: 30 });
+    expect((await addWaylandAccessibility({ ...frame, boundsReliable: false }, client([root], 43))).accessibility).toBeUndefined();
+    expect((await addWaylandAccessibility(frame, client([root, root], 43))).accessibilityNote).toMatch(/did not match/u);
+    expect((await addWaylandAccessibility(frame, client([element("Private doc", true)], 43))).accessibilityNote).toMatch(/did not match/u);
+  });
   it("reads both macOS permissions without asking, and nothing elsewhere", () => {
     expect(readAccess("darwin", () => "granted", () => false)).toEqual({ supported: true, screen: "granted", accessibility: "denied" });
     expect(readAccess("darwin", () => "odd", () => true)).toEqual({ supported: true, screen: "unavailable", accessibility: "granted" });

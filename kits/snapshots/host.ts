@@ -95,7 +95,7 @@ export function createSnapShotsHostExtension(): HostExtension {
   return {
     id: SNAPSHOTS_EXTENSION_ID,
     name: "SnapShots",
-    permissions: [],
+    permissions: ["process"],
     async activate(context: HostExtensionContext) {
       const store = new SnapShotStore(join(context.services.stateDir, "captures"));
       await store.load();
@@ -119,8 +119,14 @@ export function createSnapShotsHostExtension(): HostExtension {
 
       register("capture", async (input) => {
         const accessibility = (input as { accessibility?: unknown } | undefined)?.accessibility !== false;
+        const picker = (input as { picker?: unknown } | undefined)?.picker === true;
         const target = targetOf(input);
-        return accept(decodeCapture(await callWindow("capture", { ...(target ? { target } : {}), accessibility })));
+        return accept(decodeCapture(await callWindow("capture", { ...(target ? { target } : {}), accessibility, ...(picker ? { picker } : {}) })));
+      });
+      register("wayland-helper", (input) => {
+        const action = (input as { action?: unknown } | undefined)?.action;
+        if (action !== "install" && action !== "remove") throw new Error("Choose install or remove for the capture helper.");
+        return callWindow("wayland-helper", { action });
       });
       // The window half's own report after the shortcut fired.
       register(CAPTURED_COMMAND, async (input) => {

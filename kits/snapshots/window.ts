@@ -18,6 +18,7 @@ import {
 } from "./protocol.js";
 import { isAccelerator } from "./shortcut.js";
 import { captureWaylandWindow } from "./wayland.js";
+import { WaylandForeground, type WaylandFrame } from "./wayland-foreground.js";
 
 const SETTINGS_PANES: Record<PermissionKind, string> = {
   screen: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
@@ -174,13 +175,43 @@ export async function captureResolved(
   };
 }
 
+/** AT-SPI bounds must agree with compositor coordinates before attaching text to the image. */
+export async function addWaylandAccessibility(frame: WaylandFrame, client: AccessibilityClient | undefined, now = Date.now): Promise<SnapShotCapture> {
+  const capture = frame.capture;
+  const window = frame.window;
+  if (!client || !window?.processId || !frame.boundsReliable) return { ...capture, accessibilityNote: "The compositor did not provide reliable accessibility coordinates for this window, or AT-SPI is unavailable." };
+  try {
+    const app = await client.App.byPid(window.processId, { timeout: 0 });
+    const matches = (await readWindows(app)).filter((element) => element.name?.trim() === window.title.trim());
+    const element = matches.length === 1 ? matches[0] : undefined;
+    const bounds = element?.bounds;
+    if (!element || !bounds || !(["x", "y", "width", "height"] as const).every((key) => Math.abs(bounds[key] - window.bounds[key]) <= 2))
+      return { ...capture, accessibilityNote: "The app's window and coordinates did not match the captured window. Accessibility text was omitted." };
+    const accessibility = await readElementTree(element, window.bounds, capture.image, { deadline: now() + ACCESSIBILITY_BUDGET_MS, now });
+    return { ...capture, accessibility };
+  } catch { return { ...capture, accessibilityNote: "The app did not provide accessibility text for this window." }; }
+}
+
 /**
  * SnapShots' window half: the global shortcut, the permissions and the
- * capture itself, all where the user's windows are. It records one window,
- * never a screen, and asks the system for nothing unless the user pressed a
- * button that says so.
+ * capture itself, all where the user's windows are. Foreground capture records
+ * one window. The explicit Wayland portal chooser may also select a display.
  */
 export default function activate(context: WindowExtensionContext): WindowExtension {
+  let wayland: WaylandForeground | undefined;
+  const foreground = () => wayland ??= new WaylandForeground();
+  const accessNow = async (): Promise<SnapShotAccess> => {
+    const access = readAccess();
+    if (access.captureMode === "picker") {
+      access.wayland = await foreground().state();
+      if (access.wayland.status === "ready") {
+        access.captureMode = "foreground";
+        access.screen = "granted";
+        access.accessibility = process.env.DBUS_SESSION_BUS_ADDRESS ? "granted" : "unavailable";
+      }
+    }
+    return access;
+  };
   let client: Promise<AccessibilityClient | undefined> | undefined;
   const accessibilityClient = (): Promise<AccessibilityClient | undefined> => client ??= (context.loadDependency
     ? context.loadDependency(ACCESSIBILITY_PACKAGE).then((module) => module as AccessibilityClient, (error: unknown) => {
@@ -194,11 +225,18 @@ export default function activate(context: WindowExtensionContext): WindowExtensi
   let busy = false;
   let last = 0;
 
-  const capture = async (target: SnapShotTarget | undefined, accessibility: boolean): Promise<SnapShotCapture> => {
+  const capture = async (target: SnapShotTarget | undefined, accessibility: boolean, picker = false): Promise<SnapShotCapture> => {
     const access = readAccess();
     if (!access.supported) throw new Error("SnapShots are available on macOS, Windows and Linux.");
     if (access.captureMode === "picker") {
-      if (target) throw new Error("Wayland captures use the desktop picker. A client window number cannot identify a Wayland window.");
+      if (target) throw new Error("A client window number cannot identify a Wayland window. Capture the focused window or use the desktop picker.");
+      const backend = foreground();
+      const state = !picker ? await backend.state() : undefined;
+      if (state?.status === "ready") {
+        // A denied or failed native capture stays a failure. The manual chooser remains an explicit action.
+        const frame = await backend.capture(state);
+        return accessibility ? addWaylandAccessibility(frame, process.env.DBUS_SESSION_BUS_ADDRESS ? await accessibilityClient() : undefined) : frame.capture;
+      }
       if (access.screen === "unavailable") throw new Error("The Wayland desktop picker needs a session D-Bus, xdg-desktop-portal and PipeWire.");
       return captureWaylandWindow();
     }
@@ -257,7 +295,9 @@ export default function activate(context: WindowExtensionContext): WindowExtensi
     } catch (error) {
       return { error: error instanceof Error ? error.message : String(error) };
     }
-    if (!ok) return { error: "Another app or the system already uses this shortcut." };
+    if (!ok) return { error: readAccess().captureMode === "picker"
+      ? "Your desktop could not register this global shortcut. Check the desktop's shortcut permission and portal backend, or use capture in Settings."
+      : "Another app or the system already uses this shortcut." };
     registered = accelerator;
     armed = input;
     return { registered };
@@ -268,7 +308,7 @@ export default function activate(context: WindowExtensionContext): WindowExtensi
       switch (command) {
         case "access":
           {
-            const access = readAccess();
+            const access = await accessNow();
             if (process.platform !== "darwin" && access.accessibility === "granted" && !await accessibilityClient()) access.accessibility = "unavailable";
             return access;
           }
@@ -289,9 +329,16 @@ export default function activate(context: WindowExtensionContext): WindowExtensi
         }
         case "shortcut":
           return arm(input as ArmInput);
+        case "wayland-helper": {
+          if (readAccess().captureMode !== "picker") throw new Error("Capture helpers are available only in a Wayland desktop session.");
+          const action = (input as { action?: unknown } | undefined)?.action;
+          if (action !== "install" && action !== "remove") throw new Error("Choose install or remove for the capture helper.");
+          await foreground().setup(action);
+          return accessNow();
+        }
         case "capture": {
-          const { target, accessibility } = (input ?? {}) as { target?: SnapShotTarget; accessibility?: boolean };
-          return capture(target, accessibility !== false);
+          const { target, accessibility, picker } = (input ?? {}) as { target?: SnapShotTarget; accessibility?: boolean; picker?: boolean };
+          return capture(target, accessibility !== false, picker === true);
         }
         default:
           throw new Error(`SnapShots' window half has no command "${command}".`);
