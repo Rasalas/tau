@@ -99,36 +99,43 @@
 }
 .sidebar-action:hover { background: var(--raised); color: var(--ink); }
 .project-switcher-scrim { position: fixed; inset: 0; z-index: 54; border: 0; background: transparent; cursor: default; }
+/* Design 1u's popover: rows 7/10 px at 7 px radius, a name over "N threads · ~/path". */
 .project-switcher-popover {
-  position: fixed; z-index: 55; top: calc(var(--window-top, 0px) + 50px); left: 12px; width: min(272px, calc(100vw - 24px));
-  padding: 8px; border: 1px solid var(--line-float); border-radius: 11px;
-  background: var(--overlay); box-shadow: var(--elevation-2); animation: fade-up .12s ease;
+  position: fixed; z-index: 55; top: calc(var(--window-top, 0px) + 50px); left: 12px; width: min(260px, calc(100vw - 24px));
+  display: flex; flex-direction: column; gap: 1px; padding: 6px;
+  border: 1px solid var(--line-float); border-radius: var(--radius-md);
+  background: var(--float); box-shadow: var(--elevation-2); animation: fade-up .12s ease;
+  font: 400 calc(var(--text-sm) + .5px) var(--sans); color: var(--ink-2);
 }
-.project-switcher-popover > label {
-  height: 40px; display: flex; align-items: center; gap: 8px; margin: 0 6px 5px;
-  border-bottom: 1px solid var(--line-field); color: var(--muted);
+.project-switcher-search {
+  display: flex; align-items: center; gap: 10px; padding: 7px 10px;
+  border-bottom: 1px solid var(--line-soft); margin-bottom: 3px; color: var(--faint);
 }
-.project-switcher-popover > label:focus-within { color: var(--ink-2); border-bottom-color: var(--info); }
-.project-switcher-popover input {
-  flex: 1; min-width: 0; border: 0; outline: none; background: transparent;
-  color: var(--ink); font-size: var(--text-md);
-}
-.project-switcher-popover input::placeholder { color: var(--muted); }
-.project-switcher-results { max-height: min(420px, calc(100vh - 200px)); overflow: auto; }
-.project-switcher-option { display: flex; align-items: center; border-radius: 8px; }
-.project-switcher-option.selected { background: var(--raised); }
+.project-switcher-search:focus-within { color: var(--muted); }
+.project-switcher-search input { flex: 1; min-width: 0; padding: 0; border: 0; outline: none; background: transparent; color: var(--ink); font: inherit; }
+.project-switcher-search input::placeholder { color: var(--faint); }
+.project-switcher-heading { padding: 6px 10px 2px; color: var(--muted); font: var(--label-size) var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case); }
+.project-switcher-results { max-height: min(405px, calc(100vh - 220px)); overflow: auto; }
+.project-switcher-option { height: 44px; margin-bottom: 1px; display: flex; align-items: center; border-radius: 7px; }
+.project-switcher-option.selected { background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.project-switcher-option.picked { background: var(--raised); }
 .project-switcher-pick {
-  flex: 1; min-width: 0; height: 42px; display: flex; align-items: center; gap: 9px;
-  padding: 0 9px; border: 0; background: transparent;
-  color: var(--ink-2); cursor: pointer; text-align: left;
+  flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 10px;
+  padding: 0 10px; border: 0; background: transparent;
+  color: inherit; font: inherit; cursor: pointer; text-align: left;
 }
 .project-switcher-pick > i {
-  width: 22px; height: 22px; display: grid; place-items: center; flex: none; overflow: hidden;
-  border-radius: 6px; font: 600 10px var(--sans); font-style: normal;
+  width: 14px; height: 14px; display: grid; place-items: center; flex: none; overflow: hidden;
+  border-radius: 3px; font: 700 8px var(--sans); font-style: normal;
 }
-.project-switcher-pick > i.all-projects { background: var(--chip); color: var(--ink-3); }
-.project-switcher-pick > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(var(--text-sm) + .5px); font-weight: 600; }
-.project-switcher-pick > small { color: var(--acid-text); font: 9px var(--mono); }
+.project-switcher-pick > i.all-projects { background: transparent; color: var(--muted); }
+.project-switcher-pick > span { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.project-switcher-pick strong, .project-switcher-pick span > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-switcher-pick strong { font-weight: 400; color: var(--ink); }
+.project-switcher-option.picked strong { font-weight: 600; }
+.project-switcher-pick span > small { display: flex; min-width: 0; color: var(--muted); font-size: var(--text-xs); }
+.project-switcher-count { flex: none; }
+.project-switcher-pick > small.current { color: var(--acid-text); font: 9px var(--mono); }
 .project-switcher-pick > svg { flex: none; color: var(--info-ink); }
 .project-switcher-settings {
   width: 26px; height: 26px; margin-right: 6px; flex: none; display: grid; place-items: center;
@@ -137,19 +144,21 @@
 .project-switcher-option:is(:hover, .selected) .project-switcher-settings, .project-switcher-settings:focus-visible { opacity: 1; }
 .project-switcher-settings:hover { background: var(--chip); color: var(--ink); }
 @media (hover: none) { .project-switcher-settings { opacity: 1; } }
-/* As the rail's filter the rows are 34 px, the tiles the rows' own. */
-.project-filter-popover .project-switcher-pick { height: 34px; }
-.project-filter-popover .project-switcher-pick > i { width: 18px; height: 18px; border-radius: 5px; font-size: 9px; }
-.project-switcher-results > p { margin: 12px 8px; color: var(--faint); font-size: var(--text-xs); }
-.project-switcher-footer { margin: 4px 0 0; padding-top: 4px; border-top: 1px solid var(--line-soft); }
-.project-switcher-footer > button {
-  width: 100%; height: 32px; display: flex; align-items: center; gap: 9px; padding: 0 9px;
-  border: 0; border-radius: 8px; background: transparent; color: var(--ink-3); font: 500 var(--text-sm) var(--sans); cursor: pointer;
+/* A finger gets 44 px targets: the rows are, the gear and the footer grow to it. */
+@media (pointer: coarse) {
+  .project-switcher-settings { width: 40px; height: 44px; margin-right: 0; }
+  .project-switcher-footer > button { min-height: 44px; }
 }
-.project-switcher-footer > button:hover { background: var(--raised); color: var(--ink); }
-/* The icon sits in the tiles' column, so the label lines up with the project names. */
-.project-switcher-footer > button > svg { flex: none; margin-inline: 4px; }
-.project-filter-popover .project-switcher-footer > button > svg { margin-inline: 2px; }
+.project-switcher-results > p { margin: 12px 10px; color: var(--faint); font-size: var(--text-xs); }
+.project-switcher-footer { display: flex; flex-direction: column; gap: 1px; margin-top: 3px; padding-top: 4px; border-top: 1px solid var(--line-soft); }
+.project-switcher-footer > button {
+  width: 100%; display: flex; align-items: center; gap: 10px; padding: 6px 10px;
+  border: 0; border-radius: 7px; background: transparent; color: var(--ink-2); font: inherit; cursor: pointer; text-align: left;
+}
+.project-switcher-footer > button:is(:hover, :focus-visible) { outline: none; background: color-mix(in srgb, var(--ink) 7%, transparent); color: var(--ink); }
+.project-switcher-footer > button > svg { flex: none; color: var(--muted); }
+.project-switcher-footer > button > span { flex: 1; }
+.project-switcher-footer kbd { font: 10.5px var(--mono); color: var(--faint); }
 
 .thread-search kbd { font: 10.5px var(--mono); color: var(--muted); }
 .thread-search button {
