@@ -32,3 +32,20 @@ it("selects the requested Mac app architecture and refuses an ambiguous app dire
   expect(findPortableRoot(root, "darwin", "x64")).toBe(join(root, "mac"));
   mkdirSync(join(root, "second", "Tau.app"), { recursive: true }); expect(() => findPortableRoot(root, "darwin", "x64")).toThrow(/Expected one/u);
 });
+
+it("selects the requested Linux and Windows architecture beside the other one", () => {
+  const root = folder();
+  for (const name of ["linux-unpacked", "linux-arm64-unpacked", "__appImage-x64"]) { mkdirSync(join(root, name)); writeFileSync(join(root, name, "tau"), ""); }
+  expect(findPortableRoot(root, "linux", "x64")).toBe(join(root, "linux-unpacked"));
+  expect(findPortableRoot(root, "linux", "arm64")).toBe(join(root, "linux-arm64-unpacked"));
+  const win = folder();
+  for (const name of ["win-unpacked", "win-arm64-unpacked"]) { mkdirSync(join(win, name)); writeFileSync(join(win, name, "Tau.exe"), ""); }
+  expect(findPortableRoot(win, "win32", "x64")).toBe(join(win, "win-unpacked"));
+});
+
+it("zips on Windows with the system's own tar, not the one first on PATH", () => {
+  const root = folder(); const out = folder(); writeFileSync(join(root, "Tau.exe"), "");
+  const run = vi.fn((command, args) => writeFileSync(args[2], "zip"));
+  portableHost({ root, out, platform: "win32", arch: "x64", version: "1.2.3", run });
+  expect(run.mock.calls[0][0]).toMatch(/System32[\\/]tar\.exe$/u);
+});

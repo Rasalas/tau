@@ -526,6 +526,16 @@ export const threadRailExtension: DesktopExtension = {
       context.registerKeybinding({ keys: "mod+alt+arrowdown", commandId: "thread.next" }),
       context.registerKeybinding({ keys: "mod+alt+arrowup", commandId: "thread.prev" }),
     ];
+    // The thread menu, on the title as on the row; `?.`: a core before API 1.37.0 keeps its own.
+    const stopMenu = context.registerThreadMenu?.({ id: "thread-rail.menu", menu: organizer.menu, run: (session, itemId, app) => organizer.runMenu(session, itemId, app) });
+    if (stopMenu) disposers.push(stopMenu);
+    // The menu's items the palette has no other command for, on the open thread.
+    for (const [item, label, access] of [
+      ["move-up", "Move thread up", "write"], ["move-down", "Move thread down", "write"], ["mark-unread", "Mark thread unread", "read"],
+      ["copy-path", "Copy thread path", "read"], ["copy-thread-id", "Copy thread ID", "read"], ["filter-project", "Filter the rail by the thread's project", "read"],
+    ] as const) {
+      disposers.push(context.registerCommand({ id: `thread.${item}`, label, group: "Thread", access, run: (app) => withActiveSession(app, async (session) => organizer.runMenu(session, item, app)) }));
+    }
     // The open model picker answers the same digits with its own jumps.
     for (let position = 1; position <= 9; position += 1) {
       const id = `thread.jump-${position}`;

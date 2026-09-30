@@ -44,6 +44,7 @@ import { parseListen } from "./host-listen.js";
 import { WINDOW_SERVICES_ID } from "./window-extensions.js";
 import { createWindowAttention, OVERLAY_BADGE_SIZE, overlayBadgeBitmap } from "./window-attention.js";
 import { showWindowContextMenu } from "./window-context-menu.js";
+import { menuIconImage } from "./menu-icons.js";
 import type { MenuPoint, NativeMenuEntry } from "../shared/context-menu.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import electronUpdater from "electron-updater";
@@ -274,9 +275,17 @@ const windowAttention = createWindowAttention({
   },
   log: (label, detail) => hostLog.info(label, { ...detail as object, ...(app.dock ? { dock: app.dock.getBadge() } : {}) }),
 });
+const menuIcons = new Map<string, ReturnType<typeof menuIconImage>>();
 /** Right-click menus the page asks for; the coordinates arrive in CSS pixels of the page. */
 const windowContextMenu = (entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined> => showWindowContextMenu({
   platform: process.platform,
+  // Template images only on macOS; a Windows or Linux menu's background is not known here.
+  ...(process.platform === "darwin" ? {
+    icon: (name: string) => {
+      if (!menuIcons.has(name)) menuIcons.set(name, menuIconImage(nativeImage, name));
+      return menuIcons.get(name);
+    },
+  } : {}),
   popup: (template, at, closed) => {
     if (!mainWindow || mainWindow.isDestroyed()) { closed(); return; }
     const zoom = mainWindow.webContents.getZoomFactor();

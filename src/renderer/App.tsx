@@ -579,13 +579,12 @@ export default function App() {
     viewStore.subscribeToConversation,
     () => viewStore.selectConversation(activeDraftKey, Boolean(pendingNewThread)),
   );
-  // A draft bound for another runtime than the one on screen chooses from that runtime's own catalog.
+  // A draft chooses from the catalog of the runtime it is bound for; the thread on screen's levels are its model's.
   const boundRuntime = pendingNewThread && !pendingNewThread.sessionId ? effectiveNewThreadRuntime(pendingNewThread.runtime ?? settings.newThreadRuntime, snapshot) : undefined;
-  const otherDraftRuntime = boundRuntime && boundRuntime !== (snapshot?.backendKind ?? "pi") ? boundRuntime : undefined;
-  const draftCatalog = useRuntimeCatalog(otherDraftRuntime);
-  const draftSnapshot = useMemo(() => pendingNewThread && snapshot && otherDraftRuntime
-    ? draftRuntimeSnapshot(snapshot, pendingNewThread, otherDraftRuntime, draftCatalog)
-    : snapshot, [draftCatalog, otherDraftRuntime, pendingNewThread, snapshot]);
+  const draftCatalog = useRuntimeCatalog(boundRuntime);
+  const draftSnapshot = useMemo(() => pendingNewThread && snapshot && boundRuntime
+    ? draftRuntimeSnapshot(snapshot, pendingNewThread, boundRuntime, draftCatalog)
+    : snapshot, [draftCatalog, boundRuntime, pendingNewThread, snapshot]);
   const conversationSnapshot = useMemo(() => pendingNewThread && snapshot && draftSnapshot ? {
     ...draftSnapshot,
     cwd: pendingNewThread.projectPath,

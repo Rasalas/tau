@@ -672,6 +672,18 @@ describe("new-thread claims and model selections", () => {
     registry.deactivate("first");
     expect(registry.getModelSelection()).toBeUndefined();
   });
+
+  it("offers the thread menu the last extension registered, and forgets it on deactivation", () => {
+    const registry = new ExtensionRegistry();
+    const menu = (id: string) => ({ id, menu: () => [], run: () => undefined });
+    registry.activate({ id: "first", name: "First", activate(context) { context.registerThreadMenu(menu("first.menu")); } });
+    registry.activate({ id: "second", name: "Second", activate(context) { context.registerThreadMenu(menu("second.menu")); } });
+    expect(registry.getThreadMenu()?.id).toBe("second.menu");
+    registry.deactivate("second");
+    expect(registry.getThreadMenu()?.id).toBe("first.menu");
+    registry.deactivate("first");
+    expect(registry.getThreadMenu()).toBeUndefined();
+  });
 });
 
 describe("ExtensionRegistry prompt tools seams", () => {

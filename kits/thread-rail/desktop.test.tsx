@@ -110,8 +110,9 @@ describe("Thread Rail on the desktop", () => {
     await flush();
     organizer().sections([thread("a")]);
     const items = organizer().menu(thread("a")).flatMap((section) => section.items);
-    expect(items.map((item) => item.id)).toEqual(["pin", "settle", "snooze", "rename", "mark-unread", "filter-project", "copy", "project-settings", "move-up", "move-down", "archive", "delete"]);
-    const presets = items[2]!.submenu!.flatMap((section) => section.items.map((item) => item.id));
+    expect(items.map((item) => item.id)).toEqual(["fork", "pin", "move", "settle", "snooze", "rename", "mark-unread", "filter-project", "copy", "instructions", "project-settings", "archive", "delete"]);
+    expect(items[2]!.submenu![0]!.items.map((item) => item.id)).toEqual(["move-up", "move-down"]);
+    const presets = items[4]!.submenu!.flatMap((section) => section.items.map((item) => item.id));
     expect(presets.slice(0, 2)).toEqual(["snooze:1h", "snooze:3h"]);
     expect(presets).toContain("snooze:tomorrow");
     expect(presets.at(-1)).toBe("snooze:custom");
@@ -128,7 +129,8 @@ describe("Thread Rail on the desktop", () => {
     try {
       const items = organizer().menu(thread("a")).flatMap((section) => section.items);
       const enabled = items.filter((item) => !item.disabled).map((item) => item.id);
-      expect(enabled).toEqual(["mark-unread", "filter-project", "copy", "project-settings"]);
+      expect(enabled).toEqual(["fork", "mark-unread", "filter-project", "copy", "instructions", "project-settings"]);
+      expect(items[0]!.submenu![0]!.items.map((item) => [item.id, Boolean(item.disabled)])).toEqual([["tree", false], ["duplicate", true]]);
       expect(items.find((item) => item.id === "archive")?.description).toMatch(/Read only/u);
       organizer().runMenu(thread("a"), "pin", actions);
       expect(calls("patch")).toEqual([]);
@@ -427,17 +429,16 @@ describe("Thread Rail on the desktop", () => {
     organizer().sections([branched]);
     const sections = organizer().menu(branched);
     expect(sections.map((section) => section.items.map((item) => item.label))).toEqual([
-      ["New thread on feature/rail", "Pin thread", "Settle thread", "Snooze"],
+      ["New thread on feature/rail", "Fork", "Pin thread", "Move", "Settle thread", "Snooze"],
       ["Rename thread", "Regenerate title", "Mark unread", "Filter by project"],
-      ["Copy", "Project settings…"],
-      ["Move up", "Move down"],
+      ["Copy", "Instructions & prompt…", "Project settings…"],
       ["Archive thread", "Delete"],
     ]);
-    expect(sections[2]!.items[0]!.submenu![0]!.items.map((item) => item.label)).toEqual(["Path", "Branch", "Thread ID"]);
+    expect(sections[2]!.items[0]!.submenu![0]!.items.map((item) => item.label)).toEqual(["Path", "Branch", "Thread ID", "Chat as Markdown"]);
     // Without a branch there is nothing to start on or copy.
     const plain = organizer().menu(thread("a"));
-    expect(plain[0]!.items[0]!.id).toBe("pin");
-    expect(plain[2]!.items[0]!.submenu![0]!.items.map((item) => item.id)).toEqual(["copy-path", "copy-thread-id"]);
+    expect(plain[0]!.items[0]!.id).toBe("fork");
+    expect(plain[2]!.items[0]!.submenu![0]!.items.map((item) => item.id)).toEqual(["copy-path", "copy-thread-id", "copy-chat"]);
   });
 
   it("runs the row menu's new items against the workbench, Workspace Kit and Thread Titles", async () => {
@@ -467,6 +468,68 @@ describe("Thread Rail on the desktop", () => {
     await flush();
     expect(actions.switchSession).toHaveBeenCalledWith("/sessions/a.jsonl");
     expect(regenerate).toHaveBeenCalledWith(actions);
+  });
+
+  it("hands the title the row's menu, with other kits' thread commands in their places and chords as hints", async () => {
+    const { organizer, actions, registry } = setup();
+    registry.activate({ id: "kits", name: "Kits", activate: (context) => {
+      const command = (id: string, label: string, extra = {}) => context.registerCommand({ id, label, group: "Thread", surfaces: ["thread-title"], access: "write", run: vi.fn(), ...extra });
+      command("handoff.continue-in", "Continue in…");
+      command("handoff.bring-back", "Bring back to parent");
+      command("workspace.open-in-editor", "Open in external editor");
+      command("probe.look", "Look", { access: "read" });
+      command("probe.wipe", "Wipe", { destructive: true, unavailable: () => "Not now." });
+      context.registerKeybinding({ keys: "mod+o", commandId: "workspace.open-in-editor" });
+    } });
+    await flush();
+    organizer().sections([thread("a")]);
+    const menu = registry.getThreadMenu()!;
+    const sections = menu.menu(thread("a"), registry)!;
+    expect(sections).toEqual(organizer().menu(thread("a"), registry));
+    const ids = sections.map((section) => section.items.map((item) => item.id));
+    expect(ids.slice(2)).toEqual([
+      ["copy", "command:workspace.open-in-editor", "instructions", "project-settings"],
+      ["command:probe.look"],
+      ["archive", "command:probe.wipe", "delete"],
+    ]);
+    expect(sections[0]!.items[0]!.submenu![0]!.items.map((item) => item.id)).toEqual(["tree", "duplicate", "command:handoff.continue-in", "command:handoff.bring-back"]);
+    expect(sections[0]!.items.find((item) => item.id === "pin")?.hint).toBeTruthy();
+    expect(sections[2]!.items[1]).toMatchObject({ label: "Open in external editor", hint: registry.keybindingLabel("workspace.open-in-editor") });
+    expect(sections[4]!.items[1]).toMatchObject({ destructive: true, disabled: true, description: "Not now." });
+    // Every item carries an icon but another package's unknown command.
+    expect(sections.flatMap((section) => section.items).filter((item) => !item.icon).map((item) => item.id)).toEqual(["command:probe.look", "command:probe.wipe"]);
+
+    // The thread on screen is "b": an action of the open thread opens "a" first.
+    const executeCommand = vi.mocked(actions.executeCommand!);
+    const openThreadTree = vi.fn();
+    Object.assign(actions, { openThreadTree });
+    menu.run(thread("a"), "command:handoff.continue-in", actions);
+    await flush();
+    expect(actions.switchSession).toHaveBeenCalledWith("/sessions/a.jsonl");
+    expect(executeCommand).toHaveBeenCalledWith("handoff.continue-in");
+    vi.mocked(actions.activeThread).mockReturnValue({ sessionId: "a", draftPending: false });
+    vi.mocked(actions.switchSession).mockClear();
+    menu.run(thread("a"), "tree", actions);
+    await flush();
+    expect(actions.switchSession).not.toHaveBeenCalled();
+    expect(openThreadTree).toHaveBeenCalledWith("navigate");
+  });
+
+  it("puts the menu's other actions in the palette, for the open thread", async () => {
+    const { registry, actions, calls, organizer } = setup();
+    await flush();
+    organizer().sections([thread("a", 2), thread("b", 1)]);
+    const threads = new ThreadStore();
+    threads.applyThreadIndex({ projects: [], sessions: [thread("a", 2), thread("b", 1)] } as never);
+    render(<WorkbenchShellContext.Provider value={{ registry } as never}>
+      <ThreadStoreContext.Provider value={threads}>{(() => { const Layer = organizer().Layer!; return <Layer actions={{ ...actions, toast: vi.fn(() => ({ id: "t", update: vi.fn(), dismiss: vi.fn() })) } as never} />; })()}</ThreadStoreContext.Provider>
+    </WorkbenchShellContext.Provider>);
+    await registry.executeCommand("thread.move-up", actions);
+    expect(calls("patch").at(-1)).toMatchObject({ patches: { b: expect.any(Object) } });
+    await registry.executeCommand("thread.copy-thread-id", actions);
+    await flush();
+    expect(actions.copyText).toHaveBeenLastCalledWith("b");
+    for (const id of ["thread.move-down", "thread.mark-unread", "thread.copy-path", "thread.filter-project"]) expect(registry.getCommand(id)).toBeDefined();
   });
 
   it("renames a thread from the row menu, opening it first", async () => {

@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runningTurn } from "../../src/renderer/test-support/kit-harness.js";
-import { ProjectSwitcherPopover } from "./navigation.js";
+import { ProjectSwitcherPopover, railThreadCounts, rankProjects } from "./navigation.js";
 
 afterEach(cleanup);
 
@@ -127,5 +127,75 @@ describe("ProjectSwitcherPopover as the rail's project filter", () => {
     expect(onSettings).toHaveBeenCalledWith(expect.objectContaining({ path: "/repos/tau" }));
     expect(onSelect).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Add project…" })).toBeTruthy();
+  });
+});
+
+describe("railThreadCounts", () => {
+  const session = (id: string, projectName: string, patch: Record<string, unknown> = {}) =>
+    ({ id, path: `/s/${id}`, title: id, modifiedAt: 1, projectPath: `/${projectName}`, projectName, messageCount: 1, ...patch });
+
+  it("counts what the rail lists, per project name", () => {
+    const counts = railThreadCounts([
+      session("a", "tau"), session("b", "tau"), session("c", "shop"),
+      session("draft", "tau", { messageCount: 0 }), session("agent", "tau", { parentThreadId: "a" }), session("spawned", "shop"),
+    ], { spawned: "c" });
+    expect(counts.all).toBe(3);
+    expect([...counts.byName]).toEqual([["tau", 2], ["shop", 1]]);
+  });
+
+  it("puts the count and the home-relative path under each name", () => {
+    render(<ProjectSwitcherPopover
+      label="Filter by project"
+      heading="Show threads from"
+      open
+      projects={[{ name: "tau", path: "/Users/me/dev/tau", lastOpenedAt: 1 }, { name: "empty", path: "/home/me/empty", lastOpenedAt: 0 }]}
+      all={{ label: "All projects", onSelect: () => {} }}
+      counts={{ all: 31, byName: new Map([["tau", 31]]) }}
+      onClose={() => {}}
+      onSelect={() => {}}
+    />);
+    expect(screen.getByText("Show threads from")).toBeTruthy();
+    const detail = (name: string) => screen.getByRole("option", { name }).querySelector("small")!;
+    expect(detail("All projects").textContent).toBe("31 threads");
+    expect(detail("tau").textContent).toBe("31 threads ·\u00a0~/dev/tau");
+    expect(detail("empty").textContent).toBe("0 threads ·\u00a0~/empty");
+    expect(screen.getByRole("option", { name: "All projects" }).closest(".picked")).toBeTruthy();
+  });
+});
+
+describe("a long project path", () => {
+  it("keeps the count and the last folder, cuts the middle, and has the whole path in its tooltip", () => {
+    const path = "/Volumes/WD-Black-SN850X/tbuck/repos/_self/tau-public-worktrees/k141/tau-scratch";
+    render(<ProjectSwitcherPopover
+      label="Filter by project"
+      open
+      projects={[{ name: "tau-scratch", path, lastOpenedAt: 1 }]}
+      all={{ label: "All projects", onSelect: () => {} }}
+      counts={{ all: 6, byName: new Map([["tau-scratch", 6]]) }}
+      onClose={() => {}}
+      onSelect={() => {}}
+    />);
+    const small = screen.getByRole("option", { name: "tau-scratch" }).querySelector("small")!;
+    const [count, truncated] = [...small.children] as HTMLElement[];
+    expect(count!.textContent).toBe("6 threads ·\u00a0");
+    expect(truncated!.getAttribute("data-tooltip")).toBe(path);
+    // The head gives way with an ellipsis; the tail with its slash does not shrink.
+    const [head, tail] = [...truncated!.children] as HTMLElement[];
+    expect(head!.textContent).toBe(path.slice(0, -"/tau-scratch".length));
+    expect(tail!.textContent).toBe("/tau-scratch");
+    expect(tail!.style.flexShrink).toBe("0");
+  });
+});
+
+describe("rankProjects", () => {
+  const project = (name: string, path: string) => ({ name, path, lastOpenedAt: 0 });
+  const projects = [project("tau-scratch", "/work/k141/tau-scratch"), project("dotfiles", "/work/k141/dotfiles"), project("shop-api", "/work/k141/shop-api"), project("sh-op", "/work/k141/sh-op")];
+
+  it("does not match every sibling repo by the letters of their shared path", () => {
+    expect(rankProjects(projects, "shop").map((entry) => entry.name)).toEqual(["shop-api", "sh-op"]);
+  });
+
+  it("still finds a project by its folder", () => {
+    expect(rankProjects(projects, "k141/dot").map((entry) => entry.name)).toEqual(["dotfiles"]);
   });
 });

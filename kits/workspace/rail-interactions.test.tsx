@@ -185,6 +185,27 @@ describe("the rest of the rail", () => {
     expect(screen.queryByText("Thread a")).toBeNull();
   });
 
+  it("lists each project with the rail's thread count and its path, and manages projects in Settings", async () => {
+    await renderRail([
+      shell("a", 0),
+      shell("c", 2, { messageCount: 0 }),
+      shell("d", 3, { parentThreadId: "a" }),
+      shell("b", 1, { projectPath: "/other", projectName: "other" }),
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Filter threads by project" }));
+    const list = await screen.findByRole("dialog", { name: "Filter by project" });
+    expect(within(list).getByText("Show threads from")).toBeTruthy();
+    // A draft and an agent's thread are not in the rail, so they are not counted.
+    const detail = (name: string) => within(list).getByRole("option", { name }).querySelector("small")?.textContent;
+    expect(detail("All projects")).toBe("2 threads");
+    expect(detail("project")).toBe("1 thread ·\u00a0/project");
+    await waitFor(() => expect(document.activeElement).toBe(within(list).getByRole("textbox", { name: "Search projects" })));
+    expect(within(list).getByRole("button", { name: /Open a project…/ }).querySelector("kbd")).toBeTruthy();
+    fireEvent.click(within(list).getByRole("button", { name: "Manage projects" }));
+    expect(screen.queryByRole("dialog", { name: "Filter by project" })).toBeNull();
+    expect((await screen.findAllByRole("heading", { name: "Source control" })).length).toBeGreaterThan(0);
+  });
+
   it("puts the last turn's changes on the row and the details on its hover card", async () => {
     const { workspace, row } = await renderRail([shell("a", 0, { projectLabel: "feature/very-long-branch-name-20260923" })]);
     act(() => workspace.recordTurnStat("a", { added: 12, removed: 3, files: 2, at: 5 }));

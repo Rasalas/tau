@@ -5,6 +5,7 @@ import { evaluateWhen, isSpecificWhen, parseWhen, whenOverlaps, type WhenNode } 
 import { domKeybindingContext } from "./keybinding-context";
 import type { ComponentType, ReactNode } from "react";
 import type { PanelIconComponent } from "./components/PanelIcon";
+import type { MenuSection } from "./components/Menu";
 import type { HostClient } from "../workbench/host-client";
 import type { HostConnectionState } from "../workbench/host-connection";
 import type { HostActionResult } from "../shared/host-protocol";
@@ -311,7 +312,8 @@ export interface TranscriptRowsHandle {
  * plain label (both API 1.27.0). `draft-actions` adds pills beside the
  * project under a new thread's heading, each opening its own popover.
  * `thread-list-head` tops a phone's or tablet's thread list, under its header
- * (API 1.30.0). `thread-list-title` adds compact controls beside that header's title.
+ * (API 1.30.0). `thread-list-title` adds compact controls beside a phone's header title;
+ * a tablet's sidebar has a foot for them (`PageContribution.Summary`).
  */
 export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in" | "thread-list-head" | "thread-list-title";
 
@@ -1256,6 +1258,21 @@ export interface ModelSelectionContribution {
   reset(): void;
 }
 
+/** What a thread menu reads from the window: chords for its hints, and the commands offered on a thread. */
+export type ThreadMenuLookup = Pick<ExtensionRegistry, "keybindingLabel" | "getCommandsFor">;
+
+/**
+ * A thread's menu, the same on its title and on its row in the thread list
+ * (API 1.37.0). The last one registered wins; without one the title keeps
+ * core's own. On the title, `rename` edits the title in place.
+ */
+export interface ThreadMenuContribution {
+  id: string;
+  /** Undefined leaves the title's own menu. */
+  menu(session: UiSession, lookup: ThreadMenuLookup): MenuSection[] | undefined;
+  run(session: UiSession, itemId: string, actions: WorkbenchActions): void;
+}
+
 /** Which project a document belongs to; absent, the source reads the project it follows. */
 export interface DocumentOrigin {
   /** The workspace's id where the host mints one, its path otherwise (API 1.26.0). */
@@ -1455,6 +1472,8 @@ export interface DesktopExtensionContext {
   registerPromptHook(hook: PromptHookContribution): () => void;
   /** Lets a new thread's model picker hold several models; one extension at a time, the last one wins. */
   registerModelSelection(selection: ModelSelectionContribution): () => void;
+  /** The menu of a thread, on its title and its row; the last one wins (API 1.37.0). */
+  registerThreadMenu(menu: ThreadMenuContribution): () => void;
   registerMessageAction(action: MessageActionContribution): () => void;
   /** Draws a tagged block of an assistant reply itself. New in API 1.11.0. */
   registerMessageBlock(block: MessageBlockContribution): () => void;
@@ -1619,6 +1638,7 @@ export class ExtensionRegistry {
   private shadowedCommands = new Map<string, number>();
   private promptHooks = new Map<string, Owned<PromptHookContribution>>();
   private modelSelections = new Map<string, Owned<ModelSelectionContribution>>();
+  private threadMenus = new Map<string, Owned<ThreadMenuContribution>>();
   private messageActions = new Map<string, Owned<MessageActionContribution>>();
   private messageBlocks = new Map<string, Owned<MessageBlockContribution>>();
   private promptRenderers = new Map<string, Owned<PromptRendererContribution>>();
@@ -1977,6 +1997,10 @@ export class ExtensionRegistry {
       registerModelSelection: (selection) => {
         note("model selection");
         return this.register(this.modelSelections, selection.id, { ...selection, ...owner }, disposers);
+      },
+      registerThreadMenu: (menu) => {
+        note("thread menu");
+        return this.register(this.threadMenus, menu.id, { ...menu, ...owner }, disposers);
       },
       registerMessageAction: (action) => {
         if (!this.scopeToProfile(owner, "message action", action.id, action.label, action)) return noContribution;
@@ -2529,6 +2553,10 @@ export class ExtensionRegistry {
   /** The model set a new thread's picker builds, from the extension that registered last. */
   getModelSelection(): Owned<ModelSelectionContribution> | undefined {
     return [...this.modelSelections.values()].at(-1);
+  }
+
+  getThreadMenu(): Owned<ThreadMenuContribution> | undefined {
+    return [...this.threadMenus.values()].at(-1);
   }
 
   streamingDelivery(): "followUp" | "steer" | undefined {

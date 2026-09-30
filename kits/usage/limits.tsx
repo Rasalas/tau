@@ -127,11 +127,12 @@ function SharedCost({ costs, period }: { costs: MemberCost[]; period: string }) 
   );
 }
 
-/** Which of the account's windows the sidebar's foot draws as juicebars, or a phone's thread list; chosen on this device. */
+/** Which of the account's windows the sidebar's foot draws as juicebars (a phone: beside its list title); chosen on this device. */
 function SidebarChoice({ group, choices }: { group: LimitGroup; choices: JuicebarChoices }) {
   const chosen = useSyncExternalStore(choices.subscribe, choices.getSnapshot);
   const windows = group.shown.windows;
-  const where = typeof document !== "undefined" && document.body.dataset.profile === "compact" ? "Show in thread list" : "Show in sidebar";
+  // A tablet's thread list is a sidebar with a foot.
+  const where = typeof document !== "undefined" && document.body.dataset.profile === "compact" && !document.querySelector(".touch-browser.sidebar") ? "Show in thread list" : "Show in sidebar";
   return (
     <div className="usage-show-in-sidebar" role="group" aria-label={where}>
       <span>{where}</span>

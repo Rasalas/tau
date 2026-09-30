@@ -30,7 +30,7 @@
   min-height: 52px; padding: 0 6px 0 14px;
 }
 .touch-browser-header:has(> .touch-icon-button:first-child) { padding-left: 4px; }
-.touch-browser-header > strong { min-width: 0; font: 650 var(--text-title)/1.2 var(--sans); letter-spacing: -0.01em; }
+.touch-browser-header > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 650 var(--text-title)/1.2 var(--sans); letter-spacing: -0.01em; }
 /* The phone's start page carries its title as Reviews, Usage and Settings do (design 1p, 1r, 1s). */
 .touch-browser.screen.home .touch-browser-header > strong { font-size: var(--text-display); }
 .touch-browser-header > .spacer { flex: 1; }
@@ -274,3 +274,8 @@ body[data-profile="compact"] :is(.extension-prompt-pick, .extension-option small
 .touch-sidebar-footer > .spacer { flex: 1; }
 .touch-sidebar-footer .touch-icon-button { position: relative; }
 .touch-sidebar-footer .page-badge { position: absolute; top: 2px; right: 2px; border-radius: var(--radius-pill); padding: 0 4px; background: var(--acid); color: var(--acid-ink); font: 600 var(--text-xs)/1.4 var(--sans); }
+
+.touch-sidebar-footer button { min-width: 44px; min-height: 44px; border: 0; border-radius: var(--radius-row); background: transparent; color: var(--ink-3); cursor: pointer; }
+.touch-sidebar-footer button:hover { background: var(--hover-strong); color: var(--ink); }
+.touch-sidebar-back { display: flex; align-items: center; gap: var(--space-4); flex: 1; padding: 0 var(--space-4); font: 500 var(--text-md) var(--sans); }
+.touch-page-summary { padding: 0 8px; font: var(--text-sm) var(--mono); }

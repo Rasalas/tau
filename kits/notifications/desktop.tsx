@@ -1,13 +1,15 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { Bell, CircleAlert, CircleCheck, MessageCircleQuestionMark, Play, ShieldQuestionMark, X, type LucideIcon } from "lucide-react";
-import { Button, SegmentedControl, SettingRow, SettingsSection, Switch, useSetting } from "tau";
+import { Bell, Play } from "lucide-react";
+import { Button, SegmentedControl, SettingRow, SettingsSection, Switch, useSetting, useThreadStore } from "tau";
 import type {
   DesktopExtension,
   DesktopExtensionContext,
   PreferencesStore,
   RegionProps,
   SettingsPageProps,
-  UiSession,
+  ThreadStore,
+  ToastHandle,
+  ToastType,
   WorkbenchActions,
 } from "tau";
 import {
@@ -16,6 +18,7 @@ import {
   SOUNDS,
   badgeCount,
   describe,
+  headline,
   presentation,
   readMode,
   readSound,
@@ -46,44 +49,6 @@ export function readSettings(preferences: PreferencesStore): NotificationSetting
   };
 }
 
-interface Toast { id: number; item: AttentionItem; title: string; body: string }
-
-/** The in-window toasts, newest first, each gone after a few seconds. */
-class Toasts {
-  private items: Toast[] = [];
-  private readonly listeners = new Set<() => void>();
-  private readonly timers = new Map<number, ReturnType<typeof setTimeout>>();
-  private next = 0;
-
-  subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
-  get = () => this.items;
-
-  show(toast: Omit<Toast, "id">): void {
-    const id = this.next += 1;
-    const replaced = this.items.filter((entry) => entry.item.threadId === toast.item.threadId);
-    for (const entry of replaced) clearTimeout(this.timers.get(entry.id));
-    this.items = [{ ...toast, id }, ...this.items.filter((entry) => !replaced.includes(entry))].slice(0, 3);
-    this.timers.set(id, setTimeout(() => this.dismiss(id), TOAST_MS));
-    this.changed();
-  }
-
-  dismiss(id: number): void {
-    clearTimeout(this.timers.get(id));
-    this.timers.delete(id);
-    this.items = this.items.filter((entry) => entry.id !== id);
-    this.changed();
-  }
-
-  clear(): void {
-    for (const timer of this.timers.values()) clearTimeout(timer);
-    this.timers.clear();
-    this.items = [];
-    this.changed();
-  }
-
-  private changed(): void { for (const listener of this.listeners) listener(); }
-}
-
 /**
  * The client's half: says which thread this window shows and whether it has
  * focus, keeps the app icon's badge at the count of unseen threads, and shows
@@ -91,8 +56,8 @@ class Toasts {
  */
 function coordinate(context: DesktopExtensionContext) {
   const clientKey = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  const toasts = new Toasts();
-  const threads = new Map<string, UiSession>();
+  const toasts = new Map<string, ToastHandle>();
+  let threads: ThreadStore | undefined;
   let items: AttentionItem[] = [];
   let actions: WorkbenchActions | undefined;
   let eventThread: string | undefined;
@@ -109,7 +74,9 @@ function coordinate(context: DesktopExtensionContext) {
     if (active) return active.draftPending ? undefined : active.sessionId;
     return eventThread;
   };
-  const titleOf = (item: AttentionItem) => threads.get(item.threadId)?.title || item.title || "A thread";
+  // The live index: a thread made after this window connected is in it, with the title the rail shows.
+  const threadOf = (item: AttentionItem) => threads?.getSnapshot().threads.find((thread) => thread.id === item.threadId);
+  const titleOf = (item: AttentionItem) => threadOf(item)?.title || item.title || "A thread";
 
   const applyBadge = () => {
     const next = badgeCount(settings(), items);
@@ -120,8 +87,23 @@ function coordinate(context: DesktopExtensionContext) {
   const setItems = (next: AttentionItem[]) => { items = next; applyBadge(); };
 
   const open = (item: AttentionItem) => {
-    const path = threads.get(item.threadId)?.path ?? item.path;
+    const path = threadOf(item)?.path ?? item.path;
     if (path && actions) void actions.switchSession(path);
+  };
+
+  /** One toast per thread on core's stack; news of the same thread replaces it. */
+  const toast = (item: AttentionItem) => {
+    const id = `${ID}:${item.threadId}`;
+    const handle = actions?.toast?.({
+      id,
+      type: TOAST_TYPES[item.reason],
+      title: titleOf(item),
+      description: headline(item.reason),
+      timeoutMs: TOAST_MS,
+      actions: [{ label: "Open", run: () => open(item) }],
+      onClose: () => { if (toasts.get(id) === handle) toasts.delete(id); },
+    });
+    if (handle) toasts.set(id, handle);
   };
 
   const present = (delivered: AttentionItem[], seen = false) => {
@@ -130,7 +112,7 @@ function coordinate(context: DesktopExtensionContext) {
     const current = settings();
     const plan = presentation(current, seen ? "on-screen" : focused() ? "other-thread" : "background");
     if (plan.sound) playSound(current.sound);
-    if (plan.toast) for (const item of delivered.slice(0, 3).reverse()) toasts.show({ item, ...describe([item], titleOf) });
+    if (plan.toast) for (const item of delivered.slice(0, 3).reverse()) toast(item);
     const attention = context.attention;
     if (!plan.system || !attention) return;
     const tag = delivered.length === 1 ? `tau.thread:${first.threadId}` : "tau.threads";
@@ -159,10 +141,6 @@ function coordinate(context: DesktopExtensionContext) {
   // A client came or went, or this one reconnected to a host that may have restarted.
   context.events.on("client-count", () => report(true));
   context.events.on("active-thread-changed", (event) => { eventThread = event.sessionId; report(); });
-  context.events.on("thread-index", (event) => {
-    threads.clear();
-    for (const session of event.threadIndex.sessions) threads.set(session.id, session);
-  });
 
   const changed = () => report();
   // A touch, a key or a click; a focused window nobody used for a while stops counting as attended.
@@ -188,10 +166,9 @@ function coordinate(context: DesktopExtensionContext) {
   report(true);
 
   return {
-    toasts,
-    open,
-    bind(next: WorkbenchActions) {
+    bind(next: WorkbenchActions, store: ThreadStore) {
       actions = next;
+      threads = store;
       report();
     },
     dispose() {
@@ -202,7 +179,7 @@ function coordinate(context: DesktopExtensionContext) {
       document.removeEventListener("pointerdown", gesture, true);
       document.removeEventListener("keydown", gesture, true);
       stopPreferences();
-      toasts.clear();
+      for (const handle of [...toasts.values()]) handle.dismiss();
       if (badge) context.attention?.setBadge(0);
       void context.host.invoke("leave", { clientKey }).catch(() => undefined);
     },
@@ -211,36 +188,15 @@ function coordinate(context: DesktopExtensionContext) {
 
 type Coordinator = ReturnType<typeof coordinate>;
 
-/** The rail's status marks: done, failed, waiting for an answer, waiting for a permission. */
-const REASON_ICONS: Record<AttentionReason, LucideIcon> = {
-  completed: CircleCheck,
-  failed: CircleAlert,
-  question: MessageCircleQuestionMark,
-  approval: ShieldQuestionMark,
-};
+/** A toast's icon is the rail's status mark: done, failed, or waiting for the user. */
+const TOAST_TYPES: Record<AttentionReason, ToastType> = { completed: "success", failed: "error", question: "question", approval: "question" };
 
-function ReasonIcon({ reason }: { reason: AttentionReason }) {
-  const Icon = REASON_ICONS[reason];
-  return <Icon size={13} aria-hidden="true" />;
-}
-
-function createToastRegion(coordinator: Coordinator) {
-  return function NotificationToasts({ actions }: RegionProps) {
-    useEffect(() => coordinator.bind(actions), [actions]);
-    const toasts = useSyncExternalStore(coordinator.toasts.subscribe, coordinator.toasts.get);
-    if (toasts.length === 0) return null;
-    return (
-      <div className="notifications-toasts" role="status">
-        {toasts.map((toast) => (
-          <div className="notifications-toast" key={toast.id} data-reason={toast.item.reason}>
-            <ReasonIcon reason={toast.item.reason} />
-            <span className="notifications-toast-text"><strong>{toast.title}</strong><small>{toast.body}</small></span>
-            <button type="button" className="text-button" onClick={() => { coordinator.open(toast.item); coordinator.toasts.dismiss(toast.id); }}>Open</button>
-            <button type="button" className="icon-button" aria-label="Dismiss" onClick={() => coordinator.toasts.dismiss(toast.id)}><X size={12} /></button>
-          </div>
-        ))}
-      </div>
-    );
+/** Draws nothing: core's toast stack shows the toasts, and a region is where a kit receives the actions. */
+function createActionsRegion(coordinator: Coordinator) {
+  return function NotificationActions({ actions }: RegionProps) {
+    const threads = useThreadStore();
+    useEffect(() => coordinator.bind(actions, threads), [actions, threads]);
+    return null;
   };
 }
 
@@ -330,7 +286,7 @@ const notifications: DesktopExtension = {
   name: "Notifications",
   activate(context) {
     const coordinator = coordinate(context);
-    context.registerRegion({ id: "notifications.toasts", placement: "composer-above", profiles: ["desktop", "web", "compact"], Component: createToastRegion(coordinator) });
+    context.registerRegion({ id: "notifications.toasts", placement: "composer-above", profiles: ["desktop", "web", "compact"], Component: createActionsRegion(coordinator) });
     context.registerSettingsPage({ id: "notifications.settings", label: "Notifications",
       description: "How Tau tells you that a thread finished, failed or asks you something while you look elsewhere. The window you used last hears of it.",
       Icon: Bell, group: "general", order: 45, profiles: ["desktop", "web", "compact"],

@@ -27,11 +27,13 @@ await parallel([
   run("typescript/bin/tsc", ["-p", "tooling/tsconfig.electron.json", "--noCheck"]),
   run("../scripts/build-preload.mjs", []),
   run("../scripts/build-host-worker.mjs", []),
+  // This copies source inputs only, so it can overlap compilation instead of
+  // extending the critical path after the renderer and kits are finished.
+  run("../scripts/prepare-customization-source.mjs", []),
 ]);
 // The runtime loads prebuilt kits; an installed app keeps editable sources and build tools outside its archive.
 await run("../scripts/verify-sandboxed-preload.mjs", ["dist-electron/preload/bundle.cjs"]);
 await parallel([run("../scripts/build-kits.mjs", []), run("vite/bin/vite.js", ["build"])]);
-await run("../scripts/prepare-customization-source.mjs", []);
 const buildTimeMs = Math.round(performance.now() - started);
 const report = await collectBuildReport(join(ROOT, "dist"), { buildTimeMs, kitsDirectory: join(ROOT, "dist-kits") });
 await mkdir(join(ROOT, "reports"), { recursive: true });

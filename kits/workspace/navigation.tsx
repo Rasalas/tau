@@ -1,12 +1,13 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowLeft, Check, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, FolderPlus, GitBranch, Plus, Search, Settings, SquarePen, X } from "lucide-react";
+import { ArchiveRestore, ArrowLeft, Check, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, GitBranch, Plus, Search, Settings, SlidersHorizontal, SquarePen, Trash2, X } from "lucide-react";
 import {
   DraftRow,
   draftTitle,
   errorMessage,
   ProjectIcon,
   Menu,
+  MiddleTruncate,
   type MenuSection,
   READ_ONLY_REASON,
   ThreadRow,
@@ -351,11 +352,37 @@ export function requestProjectSwitcher(): void {
 
 type ProjectEntry = { kind: "all" } | { kind: "project"; project: UiProject };
 
+/** Threads the rail lists, per project name (the filter's key) and in all. */
+export function railThreadCounts(sessions: readonly UiSession[], parents: Readonly<Record<string, string>>): { all: number; byName: ReadonlyMap<string, number> } {
+  const byName = new Map<string, number>();
+  const shown = visibleThreads(sessions, parents);
+  for (const session of shown) byName.set(session.projectName, (byName.get(session.projectName) ?? 0) + 1);
+  return { all: shown.length, byName };
+}
+
+/** Name hits first, then letters of the name in order, then the path; a fuzzy path would match every sibling repo. */
+export function rankProjects(projects: readonly UiProject[], query: string): UiProject[] {
+  const needle = query.toLocaleLowerCase();
+  const tier = (project: UiProject) => {
+    const name = project.name.toLocaleLowerCase();
+    if (name.includes(needle)) return 0;
+    if (fuzzyMatch(name, needle)) return 1;
+    return homeRelative(project.displayPath ?? project.path).toLocaleLowerCase().includes(needle) ? 2 : 3;
+  };
+  return projects.map((project) => ({ project, rank: tier(project) })).filter((entry) => entry.rank < 3)
+    .sort((left, right) => left.rank - right.rank).map((entry) => entry.project);
+}
+
+/** Keeps the last folder with its slash, up to 16 characters, so the count still fits. */
+const pathTail = (path: string) => Math.min(path.length - path.lastIndexOf("/"), 16);
+
+const threadsLabel = (count: number) => `${count} ${count === 1 ? "thread" : "threads"}`;
+
 /**
- * A searchable list of the host's projects under the rail's search. As the
- * switcher (`workspace.switch-project`) a pick opens the project; as the
- * rail's project filter "All projects" leads it, the
- * shown one is checked, and each row has its project's settings.
+ * A searchable list of the host's projects under the rail's search (design 1u).
+ * As the switcher (`workspace.switch-project`) a pick opens the project; as the
+ * rail's project filter "All projects" leads it, the shown one is checked, and
+ * each row has its project's settings.
  */
 export function ProjectSwitcherPopover({
   activePath,
@@ -364,8 +391,10 @@ export function ProjectSwitcherPopover({
   onClose,
   onSelect,
   label = "Switch project",
+  heading,
   all,
   selectedName,
+  counts,
   onSettings,
   footer,
 }: {
@@ -375,10 +404,13 @@ export function ProjectSwitcherPopover({
   onClose(): void;
   onSelect(project: UiProject): void;
   label?: string;
+  heading?: string;
   /** A first row for every project, while nothing is typed. */
   all?: { label: string; onSelect(): void };
   /** The filter's project: checked, and the rows say "current" no more. */
   selectedName?: string | undefined;
+  /** Thread counts for each row's second line. */
+  counts?: { all: number; byName: ReadonlyMap<string, number> } | undefined;
   onSettings?(project: UiProject): void;
   footer?: ReactNode;
 }) {
@@ -388,7 +420,7 @@ export function ProjectSwitcherPopover({
   const filtering = all !== undefined;
   const entries = useMemo((): ProjectEntry[] => {
     const needle = query.trim();
-    const matches = projects.filter((project) => fuzzyMatch(`${project.name} ${project.path}`, needle));
+    const matches = needle ? rankProjects(projects, needle) : projects;
     return [...(all && !needle ? [{ kind: "all" as const }] : []), ...matches.map((project) => ({ kind: "project" as const, project }))];
   }, [all, projects, query]);
   const currentProject = useMemo(
@@ -420,7 +452,7 @@ export function ProjectSwitcherPopover({
   return <>
     <button type="button" className="project-switcher-scrim" aria-label={`Close ${label.toLocaleLowerCase()}`} onClick={onClose} />
     <section className={`project-switcher-popover${filtering ? " project-filter-popover" : ""}`} role="dialog" aria-label={label}>
-      <label><Search size={15} /><input
+      <label className="project-switcher-search"><Search size={13} aria-hidden="true" /><input
         ref={inputRef}
         value={query}
         placeholder="Search projects…"
@@ -438,9 +470,10 @@ export function ProjectSwitcherPopover({
           }
         }}
       /></label>
+      {heading ? <div className="project-switcher-heading">{heading}</div> : null}
       <VirtualList
         items={entries}
-        itemHeight={filtering ? 34 : 42}
+        itemHeight={45}
         overscan={5}
         className="project-switcher-results"
         role="listbox"
@@ -450,9 +483,12 @@ export function ProjectSwitcherPopover({
           const picked = isPicked(entry);
           const project = entry.kind === "project" ? entry.project : undefined;
           const name = project ? project.name : all?.label ?? "";
+          const count = counts ? threadsLabel(project ? counts.byName.get(project.name) ?? 0 : counts.all) : undefined;
+          const fullPath = project ? project.displayPath ?? project.path : undefined;
+          const shortPath = fullPath ? homeRelative(fullPath) : undefined;
           return <div
             role="none"
-            className={`project-switcher-option${selected === index ? " selected" : ""}`}
+            className={`project-switcher-option${selected === index ? " selected" : ""}${filtering && picked ? " picked" : ""}`}
             key={project?.path ?? "all"}
             onMouseMove={() => setSelected(index)}
           >
@@ -467,9 +503,16 @@ export function ProjectSwitcherPopover({
             >
               {project
                 ? <ProjectIcon project={project} />
-                : <i className="all-projects" aria-hidden="true"><Folder size={14} /></i>}
-              <span>{name}</span>
-              {filtering ? picked ? <Check size={14} aria-hidden="true" /> : null : picked ? <small>current</small> : null}
+                : <i className="all-projects" aria-hidden="true"><Folder size={13} /></i>}
+              <span>
+                <strong>{name}</strong>
+                {/* The count never shrinks; a long path gives up its middle and keeps its last folder. */}
+                {count || shortPath ? <small>
+                  {count ? <span className="project-switcher-count">{count}{shortPath ? " ·\u00a0" : ""}</span> : null}
+                  {shortPath ? <MiddleTruncate value={shortPath} tail={pathTail(shortPath)} {...tooltipProps(fullPath, { side: "right" })} /> : null}
+                </small> : null}
+              </span>
+              {filtering ? picked ? <Check size={13} aria-hidden="true" /> : null : picked ? <small className="current">current</small> : null}
             </button>
             {project && onSettings ? <button
               type="button"
@@ -489,19 +532,24 @@ export function ProjectSwitcherPopover({
 
 /**
  * The rail's project filter as an icon between the search and "+": a folder
- * for every project, the shown project's tile while one is. Its list adds a
- * project too. The design has no project block.
+ * for every project, the shown project's tile while one is. Its footer opens
+ * a project and the project settings.
  */
 function ProjectFilterButton({ actions }: { actions: WorkbenchActions }) {
   const threadStore = useThreadStore();
   const workspace = useWorkspaceStore();
+  const { registry } = useWorkbenchShell();
   const projects = useSyncExternalStore(threadStore.subscribeToProjects, threadStore.getProjects);
   const filter = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railProjectFilter);
   const [open, setOpen] = useState(false);
   const { readOnly } = useHostCapabilities();
+  // Counted from the thread index when it opens; no host call.
+  // oxlint-disable-next-line react-hooks/exhaustive-deps
+  const counts = useMemo(() => open ? railThreadCounts(threadStore.getSnapshot().threads, registry.getThreadLineage().parents) : undefined, [open]);
   const shown = filter ? projects.find((project) => project.name === filter) : undefined;
   const label = filter ? `Filter threads by project: ${filter}` : "Filter threads by project";
   const close = () => setOpen(false);
+  const openShortcut = registry.keybindingLabel("workspace.open-project");
   return <>
     <button
       type="button"
@@ -516,15 +564,24 @@ function ProjectFilterButton({ actions }: { actions: WorkbenchActions }) {
     </button>
     <ProjectSwitcherPopover
       label="Filter by project"
+      heading="Show threads from"
       open={open}
       projects={projects}
       all={{ label: "All projects", onSelect: () => { close(); workspace.setRailProjectFilter(undefined); } }}
       selectedName={filter}
+      counts={counts}
       onClose={close}
       onSelect={(project) => { close(); workspace.setRailProjectFilter(project.name); }}
       onSettings={(project) => { close(); workspace.openProjectSettings({ projectPath: project.path, projectName: project.name, ...(project.workspaceId ? { workspaceId: project.workspaceId } : {}) }); }}
-      // Adding a project changes the host's list; a Read-only device may not (ADR 0024).
-      footer={readOnly ? undefined : <button type="button" onClick={() => { close(); actions.openProjectSources(); }}><FolderPlus size={14} /> Add project…</button>}
+      footer={<>
+        {/* Adding a project changes the host's list; a Read-only device may not (ADR 0024). */}
+        {readOnly ? null : <button type="button" onClick={() => { close(); actions.openProjectSources(); }}>
+          <Plus size={13} aria-hidden="true" /><span>Open a project…</span>{openShortcut ? <kbd>{openShortcut}</kbd> : null}
+        </button>}
+        <button type="button" onClick={() => { close(); actions.openSettings("workspace.source-control"); }}>
+          <SlidersHorizontal size={13} aria-hidden="true" /><span>Manage projects</span>
+        </button>
+      </>}
     />
   </>;
 }
@@ -693,8 +750,8 @@ const RailDrafts = memo(function RailDrafts({ actions, project, query, listed }:
   const menu = (event: ReactMouseEvent, draft: DraftThread) => {
     event.stopPropagation();
     void openContextMenu(event, [
-      { items: [{ id: "open", label: "Open draft" }] },
-      ...(actions.discardDraft ? [{ items: [{ id: "discard", label: "Discard draft", destructive: true }] }] : []),
+      { items: [{ id: "open", label: "Open draft", icon: <SquarePen size={13} /> }] },
+      ...(actions.discardDraft ? [{ items: [{ id: "discard", label: "Discard draft", icon: <Trash2 size={13} />, destructive: true }] }] : []),
     ]).then((choice) => {
       if (choice === "open") actions.openDraft?.(draft.draftId);
       if (choice === "discard") actions.discardDraft?.(draft.draftId);
@@ -1100,7 +1157,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       const session = id ? findSession(id) : undefined;
       if (!session || readOnlyDevice) return;
       const settled = settings.settledThreadIds.includes(session.id);
-      void openContextMenu(event, [{ items: [{ id: "settle", label: settled ? "Un-settle thread" : "Settle thread" }] }]).then((choice) => { if (choice) toggleSettled(session); });
+      void openContextMenu(event, [{ items: [{ id: "settle", label: settled ? "Un-settle thread" : "Settle thread", icon: settled ? <ArchiveRestore size={13} /> : <Check size={13} /> }] }]).then((choice) => { if (choice) toggleSettled(session); });
       return;
     }
     if (selected.length > 1 && organizer.bulkMenu && (!id || selection.ids.has(id))) {
@@ -1116,7 +1173,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     if (!session) return;
     if (!selection.ids.has(session.id)) clearSelection();
     // The OS draws it where it can; the page draws its own elsewhere.
-    void openContextMenu(event, organizer.menu(session)).then((choice) => { if (choice) organizer.runMenu(session, choice, actions); });
+    void openContextMenu(event, organizer.menu(session, registry)).then((choice) => { if (choice) organizer.runMenu(session, choice, actions); });
   };
 
   /** Files dropped on a row open its thread and wait at its composer. */
