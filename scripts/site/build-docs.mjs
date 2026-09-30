@@ -30,8 +30,8 @@ export const PAGES = [
   { slug: "contributing", source: "CONTRIBUTING.md", group: "Reference", title: "Contributing", blurb: "Setting up, where a change goes, and what a pull request needs." },
   { slug: "features", source: "docs/features.md", group: "Project", blurb: "The workbench's features, in one list." },
   { slug: "roadmap", source: "docs/roadmap.md", group: "Project", title: "Roadmap", blurb: "What is not done yet, and what Tau does not try to be." },
-  { slug: "privacy", source: "docs/site/privacy.md", group: "Project", title: "Privacy policy", blurb: "How the Android app handles connections, notifications and your data." },
-  { slug: "privacy-de", source: "docs/site/privacy-de.md", group: "Project", title: "Datenschutzerklärung", lang: "de", blurb: "Datenschutz für die Android-App, auf Deutsch." },
+  { slug: "privacy", source: "docs/site/privacy.md", group: "Project", title: "Privacy policy", blurb: "Where to read how Tau handles connections, notifications and your data." },
+  { slug: "privacy-de", source: "docs/site/privacy-de.md", group: "Project", title: "Datenschutzerklärung", lang: "de", blurb: "Wo die Datenschutzerklärung steht, auf Deutsch." },
 ];
 
 const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
