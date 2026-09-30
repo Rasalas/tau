@@ -129,19 +129,24 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
     onResolve: resolve, canEdit, onEdit: editComment,
   });
 
+  // A complete file list is what the sidebar shows, so the header and the tab count from it; the host's totals otherwise.
+  const listed = data.files && ordered.length >= detail.changedFiles;
+  const totals = useMemo(() => listed
+    ? { files: ordered.length, added: ordered.reduce((sum, file) => sum + file.added, 0), removed: ordered.reduce((sum, file) => sum + file.removed, 0) }
+    : { files: detail.changedFiles, added: detail.additions, removed: detail.deletions }, [detail, listed, ordered]);
   const notes = useMemo<DetailNote[]>(() => pending.map((entry) => ({ id: entry.id, label: `${baseName(entry.path)}:${entry.line}`, text: entry.body })), [pending]);
   const state = useMemo<DetailState>(() => ({
     key: params.url,
     kind: "remote",
     files: ordered.map((file) => ({ path: file.path, added: file.added, removed: file.removed })),
-    moreFiles: 0,
+    moreFiles: data.files ? Math.max(0, totals.files - ordered.length) : 0,
     turnsHeading: "Commits",
     turns: detail.commits.map((commit) => commit.headline || "Untitled commit"),
     notes,
     sendLabel: "Submit review",
     ...(!writes.review && !writes.comment ? { sendDisabled: READ_ONLY_REASON } : {}),
     ...(active ? { active } : {}),
-  }), [active, detail.commits, notes, ordered, params.url, writes.comment, writes.review]);
+  }), [active, data.files, detail.commits, notes, ordered, params.url, totals.files, writes.comment, writes.review]);
   useEffect(() => {
     side.publish(state, {
       jump: (path) => { setTab("changes"); setJump({ path, at: ++jumps.current }); },
@@ -170,7 +175,7 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
     { id: "view:composer", label: "Add to the composer", icon: <SquarePlus size={13} />, run: () => handOver({ kind: "pull-request", payload: { number: detail.ref.number, title: detail.title, url: detail.ref.url, ...(detail.headRef ? { branch: detail.headRef } : {}) } }, chips(), actions) },
   ];
   const tabs: FrameTab<Tab>[] = [
-    ...(capabilities.files ? [{ id: "changes" as const, label: "Changes", aside: String(detail.changedFiles) }] : []),
+    ...(capabilities.files ? [{ id: "changes" as const, label: "Changes", aside: String(totals.files) }] : []),
     { id: "timeline", label: "Timeline" },
     ...(capabilities.checks ? [{ id: "checks" as const, label: "Checks", aside: <>· {rollup ? <RollupIcon rollup={rollup} /> : null}{checksSummary(checks)}</> }] : []),
   ];
@@ -182,8 +187,8 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
       <RequestStateIcon state={shownState} />
       {detail.headRef ? <><span className="rvd-mono">{detail.headRef}</span><span aria-hidden="true">→</span></> : null}
       <span className="rvd-mono">{detail.baseRef}</span>
-      {capabilities.files ? <><span aria-hidden="true">·</span><span>{plural(detail.changedFiles, "file")}</span></> : null}
-      {detail.additions || detail.deletions ? <><span className="stat-add">+{detail.additions}</span><span className="stat-del">−{detail.deletions}</span></> : null}
+      {capabilities.files ? <><span aria-hidden="true">·</span><span>{plural(totals.files, "file")}</span></> : null}
+      {totals.added || totals.removed ? <><span className="stat-add">+{totals.added}</span><span className="stat-del">−{totals.removed}</span></> : null}
       {detail.author ? <><span aria-hidden="true">·</span><span><strong>{detail.author.name ?? detail.author.login}</strong> opened {relativeTime(detail.createdAt)}</span></> : null}
     </>
   );

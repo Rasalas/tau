@@ -336,6 +336,11 @@ describe("a pull request's detail (1e)", () => {
     const names = [...article.querySelectorAll("[data-stack-file]")].map((file) => file.getAttribute("aria-label"));
     const list = await within(sidebar()).findByRole("list", { name: "Files" });
     expect(within(list).getAllByRole("button")).toHaveLength(names.length);
+    // The fixture's detail counts one file; the header, the tab and the sidebar count the listed ones.
+    expect(names.length).toBe(4);
+    expect(meta.textContent).toContain("4 files");
+    expect(within(article).getByRole("tab", { name: /^Changes/u }).textContent).toContain("4");
+    expect(within(sidebar()).getByText("Files · 4")).toBeTruthy();
     expect(within(sidebar()).getAllByRole("button", { name: "All pull requests" })).toHaveLength(2);
     expect(within(sidebar()).getByText(/^Commits · \d+$/u)).toBeTruthy();
   });
