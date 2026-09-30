@@ -35,6 +35,16 @@ function ownNames(): Map<string, string> {
   return own;
 }
 
+/** The icon file behind each name lucide's entry exports (`Check`, `CheckIcon`, `LucideCheck` → `check`). */
+export function readLucideExports(): Map<string, string> {
+  const files = new Map<string, string>();
+  for (const [, list, file] of readFileSync(join(esmDirectory(), "lucide-react.mjs"), "utf8").matchAll(NAMES)) {
+    for (const entry of list!.split(", ")) files.set(entry.replace(/^default as /u, ""), file!);
+  }
+  if (files.size === 0) throw new Error("lucide-react changed its entry; revisit vite/icon-set.ts");
+  return files;
+}
+
 /**
  * The older names lucide's entry still exports for each icon file: every name
  * but the icon's own and the `…Icon` and `Lucide…` forms of each.
