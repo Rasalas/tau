@@ -9,6 +9,8 @@ import { reviewKey, type LocalReviewsAnswer, type ThreadBranch } from "./local-r
 import { LocalReviewsStore } from "./local-reviews-store.js";
 import { RowRequests } from "./requests.js";
 import { ReviewsFilter } from "./reviews-filter.js";
+import { ReviewDetailStore } from "./review-detail-store.js";
+import { PendingReviewStore } from "./pending-review.js";
 import { ReviewsPage, ReviewsSidebar, shortAge, type ReviewsPageParts } from "./reviews-page.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 
@@ -55,12 +57,16 @@ function setup(options: { answer?: LocalReviewsAnswer; params?: Record<string, u
   });
   const host = { invoke, onEvent: () => () => undefined } as unknown as HostExtensionClient;
   const store = new LocalReviewsStore(host);
+  const sidebar = new ReviewDetailStore();
+  const notes = new PendingReviewStore(() => undefined);
+  const workspace = { invoke: vi.fn(async (command: string) => command === "list-editors" ? [{ id: "zed", name: "Zed" }] : undefined), onEvent: () => () => undefined } as unknown as HostExtensionClient;
   const parts: ReviewsPageParts = {
     store,
     host,
     rows: new RowRequests(async () => undefined),
-    remote: { client: { listMany: vi.fn(async () => ({ lists: [], failures: [] })) } as unknown as PullRequestClient, chips: () => undefined, rows: new RowRequests(async () => undefined), shared: {} as never },
+    remote: { client: { listMany: vi.fn(async () => ({ lists: [], failures: [] })) } as unknown as PullRequestClient, chips: () => undefined, rows: new RowRequests(async () => undefined), shared: {} as never, sidebar },
     filter: new ReviewsFilter(),
+    detail: { store: sidebar, notes, workspace },
   };
   const navigate = vi.fn();
   const toast = vi.fn();
@@ -77,7 +83,7 @@ function setup(options: { answer?: LocalReviewsAnswer; params?: Record<string, u
       </TestThreadStore>
     </TestProviders>,
   );
-  return { invoke, navigate, toast, switchSession, slot, view, props, parts };
+  return { invoke, navigate, toast, switchSession, slot, view, props, parts, workspace, notes };
 }
 
 describe("the Reviews page", () => {
@@ -130,9 +136,9 @@ describe("the Reviews page", () => {
     expect(screen.getByText("Write ADR for webhook retries")).toBeTruthy();
   });
 
-  it("shows one review (1q): the summary, its files with a diff on a click, and a note back to the thread", async () => {
+  it("shows one review on a phone (1q): the summary, its files with a diff on a click, and a note back to the thread", async () => {
     const key = reviewKey("/repo/shop-api", "feat/pairing-flake");
-    const { invoke, switchSession } = setup({ params: { tab: "ready", review: key } });
+    const { invoke, switchSession } = setup({ compact: true, params: { tab: "ready", review: key } });
     expect(await screen.findByText("The watcher subscribes on construction now.")).toBeTruthy();
     expect(screen.getByText("4 turns")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /PairingRequestWatcher\.tsx/u }));
@@ -205,8 +211,8 @@ describe("the Reviews sidebar", () => {
     expect(within(slot).queryByRole("searchbox")).toBeNull();
   });
 
-  it("switches what the page lists out of any detail, filters it, and moves with the arrows", async () => {
-    const { navigate } = setup({ sidebar: true, params: { tab: "ready", review: "some-key" } });
+  it("switches what the page lists, filters it, and moves with the arrows", async () => {
+    const { navigate } = setup({ sidebar: true });
     const sidebar = screen.getByRole("navigation", { name: "Page sidebar" });
     await within(sidebar).findByRole("group", { name: "Projects" });
     fireEvent.click(within(sidebar).getByRole("button", { name: /Conflicts/u }));
