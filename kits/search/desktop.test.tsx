@@ -5,7 +5,7 @@ import type { PaletteSearchContext, UiProject, UiSession, WorkbenchActions } fro
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { createSearchExtension } from "./desktop.js";
 import { SearchDialogs, SearchDialogsLayer, type SearchHost } from "./dialogs.js";
-import { projectItems, threadContentItems, threadTitleItems } from "./palette-sources.js";
+import { fileItems, projectItems, threadContentItems, threadTitleItems } from "./palette-sources.js";
 import { SEARCH_FILES_SERVICE, SEARCH_KIT_ID, WORKSPACE_STORE_SERVICE, type ContentSearchResult, type FileSearchResult, type SearchFilesService, type WorkspaceStoreView } from "./protocol.js";
 
 afterEach(cleanup);
@@ -27,14 +27,58 @@ function searchContext(actions = {} as WorkbenchActions): PaletteSearchContext {
 }
 
 describe("Search Kit: palette sources", () => {
-  it("finds threads by title and project, newest first, and says which one is on screen", () => {
-    const context = searchContext();
+  it("finds threads by title and project, newest first, with project, state and branch", () => {
+    vi.spyOn(Date, "now").mockReturnValue(3 * 86_400_000);
+    const context = { ...searchContext(), index: { ...searchContext().index, running: ["b"] } };
+    context.index.threads[0]!.projectLabel = "fix/stage";
     expect(threadTitleItems("stage", context).map((item) => [item.label, item.detail])).toEqual([
-      ["Stage restore", "orbit · on screen"],
-      ["Fix the stage tabs", "tau"],
+      ["Stage restore", "orbit · working"],
+      ["Fix the stage tabs", "tau · 2d · fix/stage"],
     ]);
     expect(threadTitleItems("stage tau", context).map((item) => item.id)).toEqual(["a"]);
     expect(threadTitleItems(" ", context)).toEqual([]);
+    vi.restoreAllMocks();
+  });
+
+  it("lists the recent threads for an empty query in All and in its tab, leaving agents out", () => {
+    const base = searchContext();
+    const threads = [...base.index.threads, { ...thread("d", "Agent reply", 9), parentThreadId: "a" }];
+    const all = { ...base, index: { ...base.index, threads }, scope: "all" as const };
+    expect(threadTitleItems("", all).map((item) => item.id)).toEqual(["b", "c", "a"]);
+    expect(threadTitleItems("agent", all).map((item) => item.id)).toEqual(["d"]);
+  });
+
+  it("opens a thread in the stage and a file as source, pinned there with the modifier", () => {
+    const actions = { openThread: vi.fn(), openFile: vi.fn() } as unknown as WorkbenchActions;
+    threadTitleItems("luna", searchContext())[0]!.stage!(actions);
+    expect(actions.openThread).toHaveBeenCalledWith("c");
+    const [file] = fileItems([{ path: "src/renderer/pairing/Watcher.tsx", positions: [] }], new Map([["src/renderer/pairing/Watcher.tsx", "M"]]));
+    expect([file!.label, file!.detail]).toEqual(["Watcher.tsx", "src/renderer/pairing · M"]);
+    file!.run!(actions);
+    file!.stage!(actions);
+    expect(actions.openFile).toHaveBeenNthCalledWith(1, "src/renderer/pairing/Watcher.tsx");
+    expect(actions.openFile).toHaveBeenNthCalledWith(2, "src/renderer/pairing/Watcher.tsx", { pin: true });
+  });
+
+  it("asks the host for the files of the thread on screen, under a heading that names its branch", async () => {
+    const invoke = vi.fn(async (_id: string, command: string) => command === "files" ? { files: [{ path: "README.md", positions: [] }], total: 1 } : undefined);
+    const { registry } = createKitHarness(invoke);
+    let listener: () => void = () => undefined;
+    let state: ReturnType<WorkspaceStoreView["getSnapshot"]> = { cwd: "/repo", changes: { branch: "main", files: [{ path: "README.md", status: "untracked" }] } };
+    const store: WorkspaceStoreView = { getSnapshot: () => state, subscribe: (next) => { listener = next; return () => undefined; } };
+    registry.activate({ id: "fixture.workspace", name: "Workspace", activate: (context) => { context.provideService(WORKSPACE_STORE_SERVICE, store); } });
+    registry.activate(createSearchExtension());
+    const files = () => registry.getPaletteSources().find((entry) => entry.id === "search.files")!;
+    expect([files().label, files().scope]).toEqual(["Files · in main", "files"]);
+    const actions = { activeThread: () => ({ cwd: "/repo", draftPending: false }) } as unknown as WorkbenchActions;
+    const context = { ...searchContext(actions), scope: "all" as const };
+    expect(await files().search("", context)).toEqual([]);
+    const found = await files().search("", { ...context, scope: "files" });
+    expect(found.map((item) => item.detail)).toEqual(["A"]);
+    expect(invoke).toHaveBeenCalledWith(SEARCH_KIT_ID, "files", { cwd: "/repo", query: "", limit: 60 });
+    state = { cwd: "/repo", changes: { branch: "fix/tabs", files: [] } };
+    listener();
+    expect(files().label).toBe("Files · in fix/tabs");
   });
 
   it("switches to a thread and opens a project by its workspace id", async () => {
@@ -79,7 +123,7 @@ describe("Search Kit: palette sources", () => {
     const invoke = vi.fn(async () => undefined);
     const { registry } = createKitHarness(invoke);
     let listener: () => void = () => undefined;
-    let state = { cwd: "/repo", changes: {} as unknown };
+    let state: ReturnType<WorkspaceStoreView["getSnapshot"]> = { cwd: "/repo", changes: {} };
     const store: WorkspaceStoreView = { getSnapshot: () => state, subscribe: (next) => { listener = next; return () => undefined; } };
     registry.activate({ id: "fixture.workspace", name: "Workspace", activate: (context) => { context.provideService(WORKSPACE_STORE_SERVICE, store); } });
     registry.activate(createSearchExtension());
