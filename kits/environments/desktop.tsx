@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { Network } from "lucide-react";
 import { getClientStorage, type DesktopExtension, type EnvironmentTarget, type PlatformEnvironments, type WorkbenchActions } from "tau";
 import { createAutoRunOnHook } from "./auto.js";
@@ -8,6 +8,7 @@ import { agentThreadsSource, createMachineCardRow, createMachineThreads, createS
 import { createListHead, hereOf } from "./list-head.js";
 import { createRunOnControl } from "./run-on.js";
 import { createMachinesPage } from "./settings.js";
+import { createPhoneMachinesPage, onlineCount } from "./phone-machines.js";
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -83,6 +84,18 @@ export const environmentsExtension: DesktopExtension = {
       profiles: ["desktop"],
       keywords: ["environments", "computers", "remote", "hosts", "add machine", "pair"],
       Component: createMachinesPage(environments, context.host),
+    });
+    // A phone lists the machines it paired with and shows another from there (design 1t).
+    context.registerSettingsPage({
+      id: MACHINES_SETTINGS_PAGE,
+      label: "Machines",
+      description: "The machines this phone paired with. Tap one to show its threads.",
+      group: "general",
+      Icon: Network,
+      order: -1,
+      profiles: ["compact"],
+      useSummary: () => useSyncExternalStore(environments.subscribe, () => onlineCount(environments)),
+      Component: createPhoneMachinesPage(environments),
     });
     context.registerCommand({
       id: "environments.add",

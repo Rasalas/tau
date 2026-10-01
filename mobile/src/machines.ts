@@ -492,8 +492,11 @@ export class PhoneMachines implements PlatformEnvironments {
     else this.publish();
   }
 
-  // The phone pairs from its host list, not from inside a workbench.
-  pair = async () => ({ state: "failed" as const, message: "Add a machine from the phone's host list: More → Hosts." });
+  // The phone pairs from its own Add screen, not from inside a workbench: this leaves for it.
+  pair = async () => {
+    this.options.navigate({ view: "add" });
+    return { state: "cancelled" as const };
+  };
   cancelPairing = async () => undefined;
   discover = async () => ({ hosts: [], serviceType: "" });
   setPreferences = async () => undefined;

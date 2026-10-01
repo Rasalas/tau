@@ -65,8 +65,8 @@ describe("Machines Kit on a phone", () => {
     set({ shown: "mac", environments: [mac], secureStorage: true });
     expect(source!.here!()).toBeUndefined();
     stop();
-    // No Settings page and no title-bar chip: the phone manages its hosts in its own host list.
-    expect(registry.getSettingsPages()).toEqual([]);
+    // Its own Machines page (1t), no title-bar chip: the phone pairs in its own host list.
+    expect(registry.getSettingsPages().map((page) => page.id)).toEqual(["environments.machines"]);
     expect(registry.getRegions("draft-actions").map((region) => region.id)).toEqual(["environments.run-on-sheet", "environments.arrival"]);
   });
 
@@ -107,6 +107,31 @@ describe("Machines Kit on a phone", () => {
     expect(environments.open).toHaveBeenCalledWith("attic");
     // What the page was sent here for is asked for once.
     expect(environments.takeArrival).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers a machine that answers when the one on screen is gone, once (2p)", () => {
+    const { registry, environments } = phone({ shown: "box", environments: [box, rex], secureStorage: true });
+    const Head = registry.getRegions("thread-list-head").find((region) => region.id === "environments.list-head")!.Component;
+    render(<Head actions={fakeActions()} />);
+    const card = screen.getByText("Showing what the phone last saw").closest("div")!;
+    fireEvent.click(within(card).getByRole("button", { name: "Use rex" }));
+    expect(environments.open).toHaveBeenCalledWith("rex");
+    fireEvent.click(within(card).getByRole("button", { name: "OK" }));
+    expect(screen.queryByText("Showing what the phone last saw")).toBeNull();
+  });
+
+  it("lists the paired machines in Settings, shows another on a tap and pairs in the app's own screen (1t)", () => {
+    const { registry, environments } = phone({ shown: "mac", environments: [mac, rex, box], secureStorage: true });
+    const page = registry.getSettingsPages().find((entry) => entry.id === "environments.machines")!;
+    render(<page.Component onNotify={vi.fn()} onOpenSettings={vi.fn()} />);
+    const rows = screen.getByRole("group", { name: "Machines" });
+    expect(within(rows).getByRole("button", { name: /^rex/u }).textContent).toContain("online · 1 running · other, shop");
+    fireEvent.click(within(rows).getByRole("button", { name: /^rex/u }));
+    expect(environments.open).toHaveBeenCalledWith("rex");
+    fireEvent.click(within(rows).getByRole("button", { name: /^box/u }));
+    expect(environments.retry).toHaveBeenCalledWith("box");
+    fireEvent.click(screen.getByRole("button", { name: "Pair a machine" }));
+    expect(environments.pair).toHaveBeenCalled();
   });
 
   it("goes on placing a new thread's draft after the list that took it gave way to the draft, with the draft's own actions", async () => {
