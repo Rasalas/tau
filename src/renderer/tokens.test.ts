@@ -73,7 +73,7 @@ const ON_FILL: ReadonlyArray<[string, string]> = [
   ["acid-ink", "acid"], ["acid-ink", "acid-strong"],
   ["diff-add-mark-ink", "diff-add-mark"], ["diff-del-mark-ink", "diff-del-mark"],
   ["diff-add-ink", "diff-add-bg"], ["diff-del-ink", "diff-del-bg"], ["acid-text", "acid-chip"],
-  ["acid-text", "acid-bg"], ["user-bubble-ink", "user-bubble"], ["warn", "warn-chip"], ["danger", "danger-bg"],
+  ["acid-text", "acid-bg"], ["user-bubble-ink", "user-bubble"], ["term-ink", "term"], ["warn", "warn-chip"], ["danger", "danger-bg"],
 ];
 
 /** A shape rather than a glyph: non-text contrast, 3:1. */
@@ -149,10 +149,10 @@ describe("the token contract", () => {
   it("gives every colour token a value in both schemes", async () => {
     const tokens = await readTokens();
     const single = [...tokens].filter(([, value]) => /^#|^hsl\(/u.test(value) && !value.startsWith("light-dark("));
-    // The mark on the stop button, a QR code and the dark picture viewer are the same in
-    // both schemes on purpose; anything else with one value is a token that was not themed.
+    // The mark on the stop button, a QR code, the dark picture viewer and a command's dark output
+    // are the same in both schemes on purpose; anything else with one value was not themed.
     const media = ["--media", "--media-control", "--media-faint", "--media-hover", "--media-ink", "--media-muted", "--media-shade", "--media-well", "--scrim-deep"];
-    expect(single.map(([name]) => name).sort()).toEqual([...media, "--qr-ink", "--qr-paper", "--stop-ink"].sort());
+    expect(single.map(([name]) => name).sort()).toEqual([...media, "--qr-ink", "--qr-paper", "--stop-ink", "--term-ink"].sort());
   });
 
   it("sets the side surface lighter than the document area in the dark scheme only", async () => {

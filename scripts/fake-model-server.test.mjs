@@ -33,6 +33,15 @@ describe("fakeReply", () => {
     expect(fakeReply(user("think 300"))).toEqual({ text: "ok", thinkMs: 300 });
   });
 
+  it("takes one reply per step of a tools[…] turn, then says done", () => {
+    const turn = user("think 200 tools[read a.ts b.ts | sh echo FAIL; exit 1 | edit a.ts one two]").messages;
+    const after = (steps) => ({ messages: [...turn, ...Array.from({ length: steps }, () => [{ role: "assistant", content: null }, { role: "tool", content: "" }]).flat()] });
+    expect(fakeReply(after(0))).toEqual({ toolCalls: [{ name: "read", arguments: { path: "a.ts" } }, { name: "read", arguments: { path: "b.ts" } }] });
+    expect(fakeReply(after(1))).toEqual({ toolCalls: [{ name: "bash", arguments: { command: "echo FAIL; exit 1" } }] });
+    expect(fakeReply(after(2))).toEqual({ toolCalls: [{ name: "edit", arguments: { path: "a.ts", edits: [{ oldText: "one", newText: "two" }] } }] });
+    expect(fakeReply(after(3))).toEqual({ text: "done", thinkMs: 200 });
+  });
+
   it("asks the user to take over the Preview at a page", () => {
     const reply = fakeReply(user("takeover http://localhost:4100/login"));
     expect(reply.toolCall).toEqual({ name: "request_takeover", arguments: { reason: "Sign in to localhost in the preview", target: "preview", url: "http://localhost:4100/login" } });

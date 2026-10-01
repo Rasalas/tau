@@ -9,6 +9,7 @@ import { ProviderIconStack } from "./ProviderIconStack";
 import { ThreadCost } from "./ThreadCost";
 import { tooltipProps } from "./ui/Tooltip";
 import { Region, RegionOr } from "./Regions";
+import { startsTurn } from "./MessageText";
 import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
 
 const turnCounts = new WeakMap<TranscriptState, number>();
@@ -17,7 +18,7 @@ const turnCounts = new WeakMap<TranscriptState, number>();
 function countTurns(transcript: TranscriptState): number {
   let count = turnCounts.get(transcript);
   if (count === undefined) {
-    count = transcript.messages.reduce((sum, message) => sum + (message.role === "user" ? 1 : 0), 0);
+    count = transcript.messages.filter(startsTurn).length;
     turnCounts.set(transcript, count);
   }
   return count;

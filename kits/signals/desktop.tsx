@@ -1,4 +1,4 @@
-import { Activity } from "lucide-react";
+import { Activity, Terminal } from "lucide-react";
 import { Badge, SettingsSection, SettingsState, ValueList, useObservatory, type DesktopExtension } from "tau";
 import { SIGNALS_EXTENSION_ID, SIGNALS_SETTINGS_PAGE } from "./protocol.js";
 
@@ -57,7 +57,7 @@ export const observatoryExtension: DesktopExtension = {
       "observatory.shell-renderer",
       (tool) => tool.name === "bash" || tool.name === "powershell",
       (tool) => ({
-        glyph: "$",
+        glyph: <Terminal size={13} />,
         title: tool.name,
         tone: "shell",
         detail: String(tool.args.command ?? "shell command"),
