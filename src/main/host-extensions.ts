@@ -414,8 +414,11 @@ export interface HostSessionServices {
   abort?(sessionId: string): Promise<void>;
   /** Serializes with the host's own thread lifecycle work (open, switch, fork). */
   exclusive<T>(work: () => Promise<T>): Promise<T>;
-  /** Rescans persisted sessions and returns the index update. The sweep runs inside, so release any lease first. */
-  refreshIndex(): Promise<HostUpdate>;
+  /**
+   * Rescans persisted sessions and returns the index update. Release any lease before the sweep.
+   * `publish` also sends a changed index to connected clients. New in API 1.45.0.
+   */
+  refreshIndex(options?: { publish?: boolean }): Promise<HostUpdate>;
 }
 
 /** Work an extension wraps around a thread becoming visible; core commits after activation and rolls back when it fails. */

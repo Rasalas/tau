@@ -9,6 +9,13 @@ function shell(id: string, modifiedAt: number, title = id): UiSession {
 }
 
 describe("session index reconciliation", () => {
+  it("publishes a changed home workspace identity without changing the directory or timestamp", () => {
+    const before = { ...shell("rex~one", 1), backendKind: "machine", workspaceId: "ws1_old", projectDisplayPath: "/home/rex/repo" };
+    expect(sessionShellEqual(before, { ...before })).toBe(true);
+    expect(sessionIndexUpdates([before], [{ ...before, workspaceId: "ws1_home" }])).toHaveLength(1);
+    expect(sessionIndexUpdates([before], [{ ...before, projectDisplayPath: "~/repo" }])).toHaveLength(1);
+  });
+
   it("keeps the home machine on activation and republishes changes to its name or runtime", () => {
     const existing = { ...shell("rex~t1", 1), machine: { id: "rex", name: "rex", backendKind: "codex", modelProvider: "openai" } };
     const live = reconcileActiveThreadShell({ id: existing.id, path: existing.path, derivedTitle: "Work", now: 2, projectPath: "/remote", projectName: "remote", messageCount: 2 }, existing, false);

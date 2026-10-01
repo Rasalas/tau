@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostEvent, UiMessage } from "../shared/contracts.js";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
-import type { HostBackendThreadRecord, HostExtension, HostRuntimeBackendProvider } from "./host-extensions.js";
+import type { HostBackendThreadRecord, HostExtension, HostRuntimeBackendProvider, HostSessionServices } from "./host-extensions.js";
 import { PiHost } from "./pi-host.js";
 import { externalThreadPath } from "./pi-host-support.js";
 import { ProjectHistory } from "./project-history.js";
@@ -89,9 +89,11 @@ async function fixture() {
       kind: "fixture", adapter: adapter("fixture"), listThreads: async () => [], lookup: async () => undefined, composerCommands: () => [],
       open: async (threadId, cwd) => backend("fixture", { threadId, cwd, updatedAt: 0, messages: [] }),
     };
+    let refreshIndex: HostSessionServices["refreshIndex"];
     const kit: HostExtension = {
-      id: "test.machine", name: "Machine prerequisite fixture", permissions: ["runtime:extend"],
+      id: "test.machine", name: "Machine prerequisite fixture", permissions: ["runtime:extend", "sessions"],
       activate: (context) => {
+        refreshIndex = (options) => context.services.sessions.refreshIndex(options);
         const stops = [context.services.registerRuntimeBackend(initial), context.services.registerRuntimeBackend(machine)];
         return () => { for (const stop of stops) stop(); };
       },
@@ -109,12 +111,28 @@ async function fixture() {
     cleanups.push(dispose);
     await host.start();
     await expect.poll(() => host.threadPath(record.threadId)).toBe(externalThreadPath("machine", record.threadId));
-    return { host, events, opened, listed, dispose };
+    return { host, events, opened, listed, dispose, refreshIndex: refreshIndex! };
   };
-  return { open, record, missingCwd };
+  return { open, record, missingCwd, store };
 }
 
 describe("machine backend host prerequisites", () => {
+  it("publishes a refreshed machine index to already connected clients when requested", async () => {
+    const { open, record, store } = await fixture();
+    const { refreshIndex, events } = await open();
+    await refreshIndex();
+    events.length = 0;
+    await writeFile(store, JSON.stringify({ ...record, title: "Updated rex thread", updatedAt: 2 }));
+    const update = await refreshIndex({ publish: true });
+    expect(events).toContainEqual({ type: "thread-index", threadIndex: update.type === "thread-index" ? update.index : undefined });
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "thread-index", threadIndex: expect.objectContaining({ sessions: expect.arrayContaining([expect.objectContaining({ id: record.threadId })]) }),
+    }));
+    events.length = 0;
+    await refreshIndex({ publish: true });
+    expect(events.filter((event) => event.type === "thread-index")).toEqual([]);
+  });
+
   it("activates and publishes a machine thread whose cwd is absent here without creating its folder", async () => {
     const { open, record, missingCwd } = await fixture();
     const { host, opened, events } = await open();

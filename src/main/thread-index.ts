@@ -174,13 +174,13 @@ export class ThreadIndex {
    * share it, so the recovery timer can never run a second sweep into the
    * lifecycle hooks while one is still in flight.
    */
-  async refresh(publish: "none" | "index" | "changes"): Promise<ThreadIndexSnapshot> {
+  async refresh(publish: "none" | "index" | "changes" | "changed-index"): Promise<ThreadIndexSnapshot> {
     if (!this.scan) {
       this.scan = this.scanSessions().finally(() => { this.scan = undefined; });
       this.scan.then(() => this.firstScan.resolve(), (error: unknown) => this.firstScan.reject(error));
     }
     const { previous, next } = await this.scan;
-    if (publish === "index") this.port.emit({ type: "thread-index", threadIndex: this.snapshot() });
+    if (publish === "index" || publish === "changed-index" && sessionIndexUpdates(previous, next).length > 0) this.port.emit({ type: "thread-index", threadIndex: this.snapshot() });
     else if (publish === "changes") for (const update of sessionIndexUpdates(previous, next)) this.port.emitUpdate(update);
     return this.snapshot();
   }

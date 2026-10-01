@@ -1,7 +1,10 @@
-import { useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Bot, MessageCircleQuestionMark, Server } from "lucide-react";
 import type { UiEnvironmentThreadView } from "../../shared/environments";
 import { formatCost } from "../cost-format";
+import { useHostClient } from "../host-client-context";
+import { useThreadStore } from "../workbench-context";
+import { machineThreadPath } from "../machine-thread-navigation";
 import { errorMessage } from "../../workbench/error-message";
 import { answerTimestampAfter } from "../../workbench/transcript-folding";
 import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
@@ -44,8 +47,9 @@ function statusNote(view: UiEnvironmentThreadView | undefined, canWatch: boolean
 /**
  * A thread of another machine in a stage tab, read-only (API 1.15.0): its
  * transcript comes over the window's own connection to that machine, and the
- * window receives the thread's stream only while the tab is open. Answering
- * or taking it over happens there: "Open on <machine>" moves the window.
+ * window receives the thread's stream only while the tab is open. "Open on
+ * <machine>" opens a connected agents thread here, or follows the machine on
+ * the legacy desktop connection.
  */
 export function RemoteThreadDocument({ machine, sessionId, registry, actions }: {
   machine: string;
@@ -56,6 +60,18 @@ export function RemoteThreadDocument({ machine, sessionId, registry, actions }: 
   registry?: ExtensionRegistry | undefined;
 }) {
   const environments = usePlatform().environments;
+  const client = useHostClient();
+  const threads = useThreadStore();
+  useSyncExternalStore(threads.subscribe, threads.getSnapshot, threads.getSnapshot);
+  const indexed = threads.getThread(`${machine}~${sessionId}`);
+  const [proxyPath, setProxyPath] = useState<string>();
+  useEffect(() => {
+    let disposed = false;
+    void machineThreadPath(machine, sessionId, client, threads).then((path) => {
+      if (!disposed) setProxyPath(path);
+    });
+    return () => { disposed = true; };
+  }, [machine, sessionId, client, threads, indexed?.backendKind, indexed?.path, indexed?.machine?.id]);
   const view = useEnvironmentThread(environments, machine, sessionId);
   const transcript = useEnvironmentTranscript(environments, view);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -100,18 +116,22 @@ export function RemoteThreadDocument({ machine, sessionId, registry, actions }: 
     ? view.asking ? "waiting for an answer" : running ? "working" : thread ? "idle" : undefined
     : view?.status === "offline" ? "offline" : view?.status === "refused" ? "refused" : undefined;
   const status = [state, cost].filter(Boolean).join(" · ");
-  const reason = openReason(view, Boolean(environments));
+  const reason = proxyPath && actions ? undefined : openReason(view, Boolean(environments));
   const note = statusNote(view, canWatch);
 
   const open = () => {
-    if (!environments || !view?.thread || reason) return;
+    if (reason) return;
     setOpening(true);
     setProblem(undefined);
-    // The page loads again on that machine; an error leaves this one as it was.
-    environments.open(view.machine, { thread: { path: view.thread.path } }).catch((error: unknown) => {
-      setOpening(false);
-      setProblem(errorMessage(error));
-    });
+    void machineThreadPath(machine, sessionId, client, threads).then(async (path) => {
+      if (path) {
+        if (!actions) throw new Error("This client cannot open the thread yet.");
+        await actions.switchSession(path);
+      } else {
+        if (!environments || !view?.thread) throw new Error("This client cannot show another machine.");
+        await environments.open(view.machine, { thread: { path: view.thread.path } });
+      }
+    }).catch((error: unknown) => setProblem(errorMessage(error))).finally(() => setOpening(false));
   };
 
   return <section className="stage-pane thread-document remote-thread-document" aria-label={`Thread ${title} on ${name}`}>
@@ -128,7 +148,7 @@ export function RemoteThreadDocument({ machine, sessionId, registry, actions }: 
         className="text-button"
         disabled={Boolean(reason) || opening}
         aria-label={`Open on ${name}`}
-        {...tooltipProps(reason ?? `Show ${name} in this window, with this thread, to answer or take it over`)}
+        {...tooltipProps(reason ?? `Open this thread to answer or steer it on ${name}`)}
         onClick={open}
       ><Server size={13} aria-hidden="true" /><span>{opening ? "Opening…" : `Open on ${name}`}</span></button>
     </header>

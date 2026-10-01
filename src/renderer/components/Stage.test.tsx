@@ -6,6 +6,8 @@ import type { UiMessage, UiSession } from "../../shared/contracts";
 import type { UiFileContent, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
 import { activateTab, closeTab, EMPTY_STAGE, openExtensionTab, openFileTab, openThreadTab, otherTabIds, pinTab, setFileView, tabIdsToTheRight, unpinTab, type StageState } from "../../workbench/stage";
 import { ThreadStore } from "../../workbench/thread-store";
+import { HostClientProvider } from "../host-client-context";
+import type { HostClient } from "../../workbench/host-client";
 import { ThreadStoreContext } from "../workbench-context";
 import { TestProviders } from "../test-support/test-providers";
 import { ExtensionRegistry, type WorkbenchActions } from "../extension-system";
@@ -482,12 +484,31 @@ describe("a thread of another machine", () => {
     expect(screen.getByText("Answer it on rex")).toBeTruthy();
     expect(screen.getByText(/waiting for an answer/u)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open on rex" }));
-    expect(environments.open).toHaveBeenCalledWith("host-rex", { thread: { path: "/rex/t9.jsonl" } });
+    await waitFor(() => expect(environments.open).toHaveBeenCalledWith("host-rex", { thread: { path: "/rex/t9.jsonl" } }));
     await push({ ...base, status: "offline", lastSeenAt: 5, revision: 3 });
     expect(screen.getByText(/rex is offline/u)).toBeTruthy();
     expect((screen.getByRole("button", { name: "Open on rex" }) as HTMLButtonElement).disabled).toBe(true);
     // What it showed last stays.
     expect(screen.getByText("First words.")).toBeTruthy();
+  });
+
+  it("opens a connected agents thread here from an existing look-in tab even if the window's old key is refused", async () => {
+    const { platform, environments, push } = lookIn();
+    const switchSession = vi.fn(async () => true);
+    const actions = new Proxy(NO_ACTIONS, { get: (target, name) => name === "switchSession" ? switchSession : Reflect.get(target, name) });
+    const invokeHostExtension = vi.fn(async () => ({ machines: [{ id: "host-rex", status: "connected" }] }));
+    const client = { invokeHostExtension } as unknown as HostClient;
+    render(<HostClientProvider client={client}><PlatformProvider platform={platform}><Harness
+      initial={openThreadTab(EMPTY_STAGE, SESSION, { pin: true, machine: "host-rex" })}
+      actions={actions}
+    /></PlatformProvider></HostClientProvider>);
+    await screen.findByText("First words.");
+    await push({ ...base, status: "refused", revision: 1 });
+    await waitFor(() => expect((screen.getByRole("button", { name: "Open on rex" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Open on rex" }));
+    await waitFor(() => expect(switchSession).toHaveBeenCalledWith("tau-thread:machine:host-rex~t9"));
+    expect(invokeHostExtension).toHaveBeenCalledWith("tau.environments", "agents");
+    expect(environments.open).not.toHaveBeenCalled();
   });
 
   it("lends kits a look-in region that names the machine and thread, and whether it is reached", async () => {

@@ -103,6 +103,7 @@ describe("Machines Kit on the host", () => {
       expect(refreshIndex).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(1);
       expect(refreshIndex).toHaveBeenCalledOnce();
+      expect(refreshIndex).toHaveBeenCalledWith({ publish: true });
       changedIndex?.();
       await vi.advanceTimersByTimeAsync(1000);
       expect(refreshIndex).toHaveBeenCalledTimes(2);

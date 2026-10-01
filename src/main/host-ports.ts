@@ -147,7 +147,7 @@ export interface ExtensionServicesPort {
   /** Writes a session another machine made as a thread of this one and indexes it. */
   importThread(options: HostThreadImportOptions): Promise<HostImportedThread>;
   exclusive<T>(work: () => Promise<T>): Promise<T>;
-  refreshThreadIndex(): Promise<ThreadIndexSnapshot>;
+  refreshThreadIndex(options?: { publish?: boolean }): Promise<ThreadIndexSnapshot>;
   /** Moves a persisted thread to the trash; the `threadDeleted` hooks run when it is purged. */
   removeThread(sessionId: string): Promise<void>;
   restoreThread(sessionId: string): Promise<void>;
@@ -392,10 +392,10 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
       }),
       abort: (sessionId) => port.abortThread(sessionId),
       exclusive: (work) => port.exclusive(work),
-      refreshIndex: async () => ({
+      refreshIndex: async (options) => ({
         version: HOST_PROTOCOL_VERSION,
         type: "thread-index",
-        index: await port.refreshThreadIndex(),
+        index: await port.refreshThreadIndex(options),
       }),
     },
     clients: port.clients,

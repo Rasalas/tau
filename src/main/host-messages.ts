@@ -567,6 +567,7 @@ export function threadUsageEqual(left: UiThreadUsage | undefined, right: UiThrea
 export function sessionShellEqual(left: UiSession, right: UiSession): boolean {
   return left.id === right.id && left.path === right.path && left.title === right.title &&
     left.modifiedAt === right.modifiedAt && left.projectPath === right.projectPath &&
+    left.workspaceId === right.workspaceId && left.projectDisplayPath === right.projectDisplayPath &&
     left.projectName === right.projectName && left.projectLabel === right.projectLabel &&
     left.messageCount === right.messageCount && left.backendKind === right.backendKind &&
     left.modelProvider === right.modelProvider && left.model === right.model && left.parentThreadId === right.parentThreadId &&

@@ -36,6 +36,7 @@ import { useRuntimeCatalog } from "./use-runtime-catalog";
 import { draftRuntimeSnapshot } from "../workbench/runtime-catalog-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { activeTab as activeStageTab, openFileTab, openThreadTab, stageFilePath as projectFilePath, stageTabPath, type StageView } from "../workbench/stage";
+import { machineThreadPath } from "./machine-thread-navigation";
 import { lookInMachine } from "../workbench/look-in";
 import { useStageTabs } from "./stage-tab-controller";
 import { useWorkbenchLayoutState } from "./use-workbench-layout-state";
@@ -476,9 +477,10 @@ export default function App() {
   }, [workspaceCwd]);
   const openThread = useCallback((sessionId: string, options?: { pin?: boolean; machine?: string }) => {
     const machine = lookInMachine(options?.machine, platform.environments);
-    setStage((current) => openThreadTab(current, sessionId, { ...(options?.pin ? { pin: true } : {}), ...(machine ? { machine } : {}) }));
-    revealDocuments.current();
-  }, [platform]);
+    const lookIn = () => { setStage((current) => openThreadTab(current, sessionId, { ...(options?.pin ? { pin: true } : {}), ...(machine ? { machine } : {}) })); revealDocuments.current(); };
+    if (!machine) { lookIn(); return; }
+    void machineThreadPath(machine, sessionId, client, threadStore).then(async (path) => { if (path) await switchSession(path); else lookIn(); }).catch((error: unknown) => setNotice(errorMessage(error)));
+  }, [client, platform, threadStore, switchSession, setNotice]);
   // A sub-agent's question waits on its parent too: that is where it is answered (design 1c).
   const parentOf = useCallback((sessionId: string) => threadStore.getSnapshot().threads.find((thread) => thread.id === sessionId)?.parentThreadId, [threadStore]);
   useEffect(() => {

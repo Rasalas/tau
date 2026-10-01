@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, 2026-10-01. Supersedes the part of
+Accepted, 2026-10-01; implemented 2026-10-01. Supersedes the part of
 [ADR 0025](0025-a-window-follows-the-threads-machine.md) where a workbench
 shows one machine and moves by reloading. ADR 0025's catalog of saved
 machines, pairing and pinning stay. Builds on
@@ -94,6 +94,23 @@ stored keys, and offers to import that
 machine's earlier conversations. Onboarding never opens by itself for a machine
 the window only shows.
 
+## Implementation
+
+The Machines Kit registers the proxy runtime backend in
+`kits/environments/machine-backend.ts`. Core routes Workspace, Files, Terminal
+and Review calls and topic subscriptions through
+`src/main/machine-kit-route.ts`, retaining each thread's home workspace identity.
+The backend requests publication of changed indexes through
+`sessions.refreshIndex({ publish: true })` (API 1.45), so new machine threads
+reach already open windows without echoing unchanged indexes between peers.
+The host protocol's `start-thread` and `send-to-thread` methods start and steer
+threads off screen without changing the home machine's active thread.
+
+Connected agents threads open through the local thread index. Run on, remote
+question notices, handoff links and look-in actions keep the workbench on its
+own host. Window navigation and arrival handling remain for machines without
+an agents connection and for explicit `tau machines open` commands.
+
 ## Alternatives
 
 - **Keep the reload (ADR 0025) and patch it.** Phase 1 of the spec does this
@@ -124,8 +141,9 @@ the window only shows.
   are not relayed at first.
 - Window halves (folder picker, Preview's native view) still serve the own
   machine only.
-- Look-in tabs and external rows go away; the external row's mark stays as the
-  machine mark.
+- Connected agents threads use ordinary rows and thread navigation, with a
+  machine mark. Look-in tabs and external rows remain for machines without
+  an agents connection.
 
 ## Out of scope
 

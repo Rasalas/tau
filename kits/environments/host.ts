@@ -74,7 +74,7 @@ export function createEnvironmentsHostExtension(): HostExtension {
         if (refreshTimer) return;
         refreshTimer = setTimeout(() => {
           refreshTimer = undefined;
-          void context.services.sessions.refreshIndex().catch((error: unknown) => context.services.log("machines.index-refresh-failed", error instanceof Error ? error.message : String(error)));
+          void context.services.sessions.refreshIndex({ publish: true }).catch((error: unknown) => context.services.log("machines.index-refresh-failed", error instanceof Error ? error.message : String(error)));
         }, 1000);
         refreshTimer.unref?.();
       }) : undefined;
