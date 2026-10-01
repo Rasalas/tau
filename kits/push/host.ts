@@ -1,5 +1,6 @@
+import { ACTIVITY_BUNDLE, ActivityBundle } from "./activity-bundle.js";
 import { ActivityStarts, readActivityStart } from "./activity-start.js";
-import { ActivityTokens, readActivityRegistration, type ActivityUpdate } from "./mobile-activity.js";
+import { ActivityTokens, readActivityRegistration, type ActivityRow, type ActivityUpdate } from "./mobile-activity.js";
 import { createHash } from "node:crypto";
 import { HostCommandError, type HostCommandCall, type HostExtension, type HostExtensionContext } from "tau/host-extension";
 import { ApnsClient, readApnsKey, type ApnsEnvironment, type SendOutcome } from "./apns.js";
@@ -321,28 +322,42 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
       const activityTimes = new Map<string, number>();
       const activityStates = new Map<string, ActivityUpdate["state"]>();
       const activityWork = new Map<string, Promise<void>>();
-      const updateActivity = async (threadId: string, state: ActivityUpdate["state"]) => {
-        const targets = reachable();
+      // An iPhone gets one Live Activity for all of this host's threads (K163); Android a card per thread.
+      const bundle = new ActivityBundle(now);
+      const pushBundle = async () => {
         const pairedIds = new Set((paired() ?? []).map((device) => device.id));
+        const content = bundle.content();
+        const at = Math.max(now(), (activityTimes.get(ACTIVITY_BUNDLE) ?? 0) + 1000);
+        activityTimes.set(ACTIVITY_BUNDLE, at);
+        activityStates.set(ACTIVITY_BUNDLE, content.state);
+        await activityStarts.note(ACTIVITY_BUNDLE, content.state);
+        if (content.state !== "completed") await activityStarts.start(ACTIVITY_BUNDLE, content.title, now(), pairedIds, (id) => activityTokens.has(id, ACTIVITY_BUNDLE), (request) => sendThroughRelay(relayUrl, request, options.fetch), content.threads);
+        await activityTokens.update(ACTIVITY_BUNDLE, content.state, content.title, at, pairedIds,
+          (id) => store.devices().find((device) => device.id === id)?.environment,
+          (request, environment) => apns ? apns.send(request, environment) : Promise.resolve({ ok: false, gone: false, status: 0, reason: "No APNs key." }),
+          (request) => sendThroughRelay(relayUrl, request, options.fetch), undefined, content.threads);
+        if (content.state === "completed") bundle.reset();
+      };
+      const updateActivity = async (threadId: string, state: ActivityUpdate["state"], row: { state: ActivityRow["state"]; reason?: string }) => {
+        const targets = reachable();
         const title = (services.thread(threadId)?.sessionName() ?? "Agent work").slice(0, 100);
         const at = Math.max(now(), (activityTimes.get(threadId) ?? 0) + 1000);
         activityTimes.set(threadId, at);
-        await activityStarts.note(threadId, state);
-        if (state === "running" && !services.thread(threadId)?.parentThreadId) await activityStarts.start(threadId, title, now(), pairedIds, (id) => activityTokens.has(id, threadId), (request) => sendThroughRelay(relayUrl, request, options.fetch));
-        await activityTokens.update(threadId, state, title, at, pairedIds,
-          (id) => store.devices().find((device) => device.id === id)?.environment,
-          (request, environment) => apns ? apns.send(request, environment) : Promise.resolve({ ok: false, gone: false, status: 0, reason: "No APNs key." }),
-          (request) => sendThroughRelay(relayUrl, request, options.fetch));
+        if (!services.thread(threadId)?.parentThreadId) {
+          bundle.note(threadId, row.state, title, row.reason);
+          await pushBundle();
+        }
         await Promise.all(targets.filter((device) => device.platform === "android" && device.activities).map((device) => sendOne(device, {
           title, body: state === "running" ? "Agent working" : state === "needs-input" ? "Your input needed" : "Completed", threadId,
           activity: { version: 1, hostId: device.host, threadId, title, state, updatedAt: at, expiresAt: at + (state === "running" ? 8 * 60 * 60_000 : 15 * 60_000) },
         })));
       };
-      const activityLater = (threadId: string, state: ActivityUpdate["state"]) => {
+      const activityLater = (threadId: string, state: ActivityUpdate["state"], row: { state: ActivityRow["state"]; reason?: string }) => {
         activityStates.set(threadId, state);
-        const work = (activityWork.get(threadId) ?? Promise.resolve()).then(() => updateActivity(threadId, state)).catch((error: unknown) => services.log("push.activity", errorText(error)));
-        activityWork.set(threadId, work);
-        void work.then(() => { if (activityWork.get(threadId) === work) activityWork.delete(threadId); });
+        // One queue for all threads: the bundle's rows are written in order.
+        const work = (activityWork.get(ACTIVITY_BUNDLE) ?? Promise.resolve()).then(() => updateActivity(threadId, state, row)).catch((error: unknown) => services.log("push.activity", errorText(error)));
+        activityWork.set(ACTIVITY_BUNDLE, work);
+        void work.then(() => { if (activityWork.get(ACTIVITY_BUNDLE) === work) activityWork.delete(ACTIVITY_BUNDLE); });
         options.track?.(work);
       };
       context.registerCommand("activity-enable", async (_input, call) => {
@@ -380,24 +395,30 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         if (registration.activityId) registration.expiresAt = Math.min(registration.expiresAt, activityStarts.expiry(registration));
         await activityTokens.register(registration);
         const state = registration.activityId ? activityStarts.state(registration) : activityStates.get(registration.threadId);
-        if (state && registration.activityId) {
-          const at = Math.max(now(), (activityTimes.get(registration.threadId) ?? 0) + 1000);
-          const work = activityTokens.update(registration.threadId, state, services.thread(registration.threadId)?.sessionName() ?? "Agent work", at,
-            new Set((paired() ?? []).map((device) => device.id)), () => undefined,
-            () => Promise.resolve({ ok: false, gone: false, status: 0, reason: "Encrypted activity required." }),
-            (request) => sendThroughRelay(relayUrl, request, options.fetch), registration.activityId);
+        if (state && registration.threadId === ACTIVITY_BUNDLE) {
+          // A token that arrives late gets what the activity should show now.
+          const content = bundle.content();
+          const at = Math.max(now(), (activityTimes.get(ACTIVITY_BUNDLE) ?? 0) + 1000);
+          activityTimes.set(ACTIVITY_BUNDLE, at);
+          const work = activityTokens.update(ACTIVITY_BUNDLE, registration.activityId ? state : content.state, content.title, at,
+            new Set((paired() ?? []).map((device) => device.id)), (id) => store.devices().find((device) => device.id === id)?.environment,
+            (request, environment) => apns ? apns.send(request, environment) : Promise.resolve({ ok: false, gone: false, status: 0, reason: "No APNs key." }),
+            (request) => sendThroughRelay(relayUrl, request, options.fetch), registration.activityId, content.threads);
           options.track?.(work); await work;
-        } else if (state) activityLater(registration.threadId, state);
+        }
         return { registered: true, ready: Boolean(registration.relay || apns) };
       });
 
       const stops = [
         services.registerTurnObserver({
-          prepare: async (sessionId) => activityLater(sessionId, "running"),
-          ended: async (sessionId, _turnId, outcome) => { activityLater(sessionId, outcome === "failed" ? "needs-input" : "completed"); raiseLater(sessionId, outcome === "failed" ? "failed" : "completed"); },
+          prepare: async (sessionId) => activityLater(sessionId, "running", { state: "running" }),
+          ended: async (sessionId, _turnId, outcome) => {
+            activityLater(sessionId, outcome === "failed" ? "needs-input" : "completed", outcome === "failed" ? { state: "failed", reason: "The turn failed" } : { state: "done" });
+            raiseLater(sessionId, outcome === "failed" ? "failed" : "completed");
+          },
         }),
         services.decorateUiPrompt((prompt) => {
-          activityLater(prompt.sessionId, "needs-input");
+          activityLater(prompt.sessionId, "needs-input", { state: "waiting", reason: questionText(prompt) });
           const approval = prompt.kind === "confirm" || (prompt.kind === "select" && prompt.options?.some((option) => APPROVAL_OPTION.test(option)));
           raiseLater(prompt.sessionId, approval ? "approval" : "question", questionText(prompt));
         }),

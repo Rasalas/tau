@@ -1,7 +1,7 @@
 import { createCipheriv, randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { HostCommandError, readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "tau/host-extension";
-import { readActivityRegistration, type ActivityRegistration, type ActivityUpdate } from "./mobile-activity.js";
+import { readActivityRegistration, type ActivityRegistration, type ActivityRow, type ActivityUpdate } from "./mobile-activity.js";
 import type { SendOutcome } from "./apns.js";
 import type { RelaySend } from "./relay.js";
 import type { PushRelayRegistration } from "./protocol.js";
@@ -71,13 +71,13 @@ export class ActivityStarts {
     return Boolean(consent && consent.expiresAt > now && this.expiry(row) > now && consent.hostId === row.hostId && consent.relay?.keyId === row.relay?.keyId && consent.relay?.key === row.relay?.key
       && this.started.some((start) => start.device === row.device && start.threadId === row.threadId && start.activityId === row.activityId));
   }
-  async start(threadId: string, title: string, now: number, devices: ReadonlySet<string>, active: (device: string) => boolean, relay: (request: RelaySend) => Promise<SendOutcome>): Promise<void> {
+  async start(threadId: string, title: string, now: number, devices: ReadonlySet<string>, active: (device: string) => boolean, relay: (request: RelaySend) => Promise<SendOutcome>, threads?: ActivityRow[]): Promise<void> {
     await this.retain(devices, now);
     for (const row of this.registrations) {
       if (active(row.device) || this.started.some((prior) => prior.device === row.device && prior.threadId === threadId && prior.state !== "completed")
           || this.started.filter((prior) => prior.device === row.device && prior.at > now - 60 * 60_000).length >= 3) continue;
       const activityId = randomBytes(16).toString("base64url");
-      const content: ActivityUpdate = { version: 1, hostId: row.hostId, threadId, title: title.slice(0, 100), state: "running", updatedAt: now, expiresAt: now + 8 * 60 * 60_000 };
+      const content: ActivityUpdate = { version: 1, hostId: row.hostId, threadId, title: title.slice(0, 100), state: "running", updatedAt: now, expiresAt: now + 8 * 60 * 60_000, ...(threads ? { threads } : {}) };
       const sealed = sealActivity(row.relay!, content, "start", activityId);
       this.started.push({ device: row.device, threadId, activityId, at: now, state: "running" });
       await this.save();

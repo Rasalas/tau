@@ -382,8 +382,8 @@ it("requires paired phone consent for encrypted remote starts and cleans up on d
   expect(relay.sends()).toHaveLength(1);
   const wire = JSON.stringify(relay.sends()[0]); expect(wire).not.toContain("Fix the build"); expect(wire).not.toContain("host-1");
   const start = relay.sends()[0] as unknown as { activity: { activityId: string } };
-  await expect(invoke("activity-register", { hostId: "host-1", threadId: "t1", topic: "de.tbuck.tau", relay: key, activityId: "a".repeat(22), tokenHash: "b".repeat(64) }, phone("iphone"))).rejects.toThrow(/not started/u);
-  await invoke("activity-register", { hostId: "host-1", threadId: "t1", topic: "de.tbuck.tau", relay: key, activityId: start.activity.activityId, tokenHash: "b".repeat(64) }, phone("iphone"));
+  await expect(invoke("activity-register", { hostId: "host-1", threadId: "tau.threads", topic: "de.tbuck.tau", relay: key, activityId: "a".repeat(22), tokenHash: "b".repeat(64) }, phone("iphone"))).rejects.toThrow(/not started/u);
+  await invoke("activity-register", { hostId: "host-1", threadId: "tau.threads", topic: "de.tbuck.tau", relay: key, activityId: start.activity.activityId, tokenHash: "b".repeat(64) }, phone("iphone"));
   await settle(); expect(relay.sends()).toHaveLength(2);
   await invoke("activity-disable", undefined, phone("iphone"));
   await observers[0]!.ended!("t1", "turn-2", "completed"); await settle();
@@ -402,10 +402,50 @@ it("ends a fast turn when its remote update token arrives after completion, then
   await observers[0]!.prepare!("t1", "fast-turn"); await settle();
   const first = relay.sends()[0] as unknown as { activity: { activityId: string } };
   await observers[0]!.ended!("t1", "fast-turn", "completed"); await settle();
-  await invoke("activity-register", { hostId: "host-1", threadId: "t1", topic: "de.tbuck.tau", relay: key, activityId: first.activity.activityId, tokenHash: "b".repeat(64) }, phone("iphone"));
+  await invoke("activity-register", { hostId: "host-1", threadId: "tau.threads", topic: "de.tbuck.tau", relay: key, activityId: first.activity.activityId, tokenHash: "b".repeat(64) }, phone("iphone"));
   await settle();
   const activityRequests = relay.sends().filter((row) => "activity" in row) as unknown as Array<{ activity: { event: string } }>;
   expect(activityRequests.map((row) => row.activity.event)).toEqual(["start", "end"]);
   tick(1000); await observers[0]!.prepare!("t1", "next-turn"); await settle();
   expect((relay.sends().filter((row) => "activity" in row) as unknown as Array<{ activity: { event: string } }>).map((row) => row.activity.event)).toEqual(["start", "end", "start"]);
+});
+
+/** What the widget extension does with a version 2 activity payload (ActivityCipher.openActivity), in Node. */
+function openActivity(sealed: string, relay: PushRelayRegistration, purpose: "start" | "update", activityId: string, tokenHash = ""): Record<string, unknown> {
+  const [version, keyId, data] = sealed.split(".");
+  expect([version, keyId]).toEqual(["2", relay.keyId]);
+  const bytes = Buffer.from(data!, "base64url");
+  const decipher = createDecipheriv("aes-256-gcm", Buffer.from(relay.key, "base64url"), bytes.subarray(0, 12));
+  decipher.setAAD(Buffer.from(`tau-activity:2:${keyId}:${purpose}:${activityId}:${tokenHash}`));
+  decipher.setAuthTag(bytes.subarray(bytes.length - 16));
+  return JSON.parse(Buffer.concat([decipher.update(bytes.subarray(12, bytes.length - 16)), decipher.final()]).toString("utf8")) as Record<string, unknown>;
+}
+
+it("starts one Live Activity for all of the host's threads and ends it when the last one finishes", async () => {
+  const { invoke, observers, decorators, settle, relay, tick } = await harness();
+  const key = relayFor("ios", IOS_TOKEN);
+  await invoke("register", { platform: "ios", host: "host-1", topic: "de.tbuck.tau", relay: key }, phone("iphone"));
+  await invoke("activity-start-register", { hostId: "host-1", topic: "de.tbuck.tau", enabled: true, relay: key }, phone("iphone"));
+  await observers[0]!.prepare!("t1", "turn-1"); await settle();
+  tick(1000); await observers[0]!.prepare!("t2", "turn-1"); await settle();
+  await observers[0]!.prepare!("child", "turn-1"); await settle();
+  const sends = () => relay.sends().filter((row) => "activity" in row) as unknown as Array<{ payload: string; activity: { event: string; activityId?: string } }>;
+  expect(sends().map((row) => row.activity.event)).toEqual(["start"]);
+  const start = sends()[0]!;
+  const opened = openActivity(start.payload, key, "start", start.activity.activityId!);
+  expect(opened).toMatchObject({ threadId: "tau.threads", state: "running", threads: [{ id: "t1", title: "Fix the build", state: "running" }] });
+  await invoke("activity-register", { hostId: "host-1", threadId: "tau.threads", topic: "de.tbuck.tau", relay: key, activityId: start.activity.activityId, tokenHash: "c".repeat(64) }, phone("iphone"));
+  await settle();
+  decorators[0]!({ id: "q1", sessionId: "t2", kind: "confirm", title: "Allow edit?", message: "src/app.ts" }); await settle();
+  const asked = openActivity(sends().at(-1)!.payload, key, "update", start.activity.activityId!, "c".repeat(64));
+  expect(asked).toMatchObject({ state: "needs-input", threads: [{ id: "t2", state: "waiting", reason: "Allow edit? — src/app.ts" }, { id: "t1", state: "running" }] });
+  await observers[0]!.ended!("t1", "turn-1", "completed"); await settle();
+  expect(sends().at(-1)!.activity.event).toBe("update");
+  tick(60_000); await observers[0]!.ended!("t2", "turn-1", "failed"); await settle();
+  expect(sends().at(-1)!.activity.event).toBe("end");
+  const ended = openActivity(sends().at(-1)!.payload, key, "update", start.activity.activityId!, "c".repeat(64));
+  expect(ended).toMatchObject({ state: "completed", threads: [{ id: "t2", state: "failed" }, { id: "t1", state: "done" }] });
+  // The next run is a new activity.
+  tick(1000); await observers[0]!.prepare!("t1", "turn-2"); await settle();
+  expect(sends().map((row) => row.activity.event).filter((event) => event === "start")).toHaveLength(2);
 });
