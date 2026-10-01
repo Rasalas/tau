@@ -316,10 +316,15 @@ it("keeps a managed thread's account banner and limit notices with its executing
   const client = { invoke: vi.fn(async () => ({ instance: account, signedIn: true, label: `${account}@example.test`, usageUrl: "https://chatgpt.com/settings/usage" })), onEvent: (name: string, listener: (value: unknown) => void) => { listeners.set(name, listener); return () => listeners.delete(name); } };
   const Banner = createChatGPTPlanBanner(client);
   render(<Banner snapshot={{ sessionId: "thread", backendKind: "codex" } as HostSnapshot} actions={{ openExternal: vi.fn() } as unknown as WorkbenchActions} />);
-  await screen.findByText("Using ChatGPT plan · default@example.test");
+  fireEvent.click(await screen.findByRole("button", { name: "Show email address" }));
+  expect(screen.getByText("default@example.test")).toBeTruthy();
   account = "work";
   listeners.get("thread-settings")!({ threadId: "thread" });
-  await screen.findByText("Using ChatGPT plan · work@example.test");
+  const reveal = await screen.findByRole("button", { name: "Show email address" });
+  expect(screen.queryByText("default@example.test")).toBeNull();
+  expect(screen.queryByText("work@example.test")).toBeNull();
+  fireEvent.click(reveal);
+  expect(screen.getByText("work@example.test")).toBeTruthy();
   expect(client.invoke).toHaveBeenLastCalledWith("chatgpt-plan-account", { instance: "default", threadId: "thread" });
   listeners.get("chatgpt-plan-limit")!({ instance: "work" });
   await screen.findByText(/Review your app limits and credits/u);
