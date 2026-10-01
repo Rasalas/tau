@@ -137,8 +137,13 @@ an agents connection and for explicit `tau machines open` commands.
 - The renderer's stores stay single-host: another machine's threads are this
   host's threads. Kits that keep state per workspace already tell machines
   apart, since a workspace id includes its host id.
-- Attachments, renaming and changing the model of another machine's thread
-  are not relayed at first.
+- Renaming, images and changing the model of another machine's thread go to
+  its home machine as commands of the Machines Kit there (`thread-rename`,
+  `thread-send`, `thread-model`), because the core methods act on the home
+  machine's own active thread. A machine without them answers with the "Update
+  <machine>" guidance. The picker lists `runtime-catalog` of the home machine,
+  and an image travels as content: a file attachment names a path of the
+  sender's disk and is refused.
 - Window halves (folder picker, Preview's native view) still serve the own
   machine only.
 - Connected agents threads use ordinary rows and thread navigation, with a

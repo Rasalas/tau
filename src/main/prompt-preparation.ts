@@ -95,4 +95,10 @@ export class PromptPreparation {
       throw new Error("This thread's runtime does not take file attachments; embed them in the prompt instead.");
     }
   }
+
+  /** `assertAttachmentInput` for attachments that are stored, not sent now. */
+  checked(thread: ThreadRuntime, attachments: readonly UiPromptAttachment[]): UiPromptAttachment[] {
+    this.assertAttachmentInput(thread, attachments);
+    return [...attachments];
+  }
 }

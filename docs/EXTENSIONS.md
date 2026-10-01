@@ -2729,6 +2729,19 @@ then waits for the user. Agents Kit's `tau_send_to_thread` and
 `tau_cancel_thread` are built on these two, and so is the message that wakes a
 parent when a child it was not waiting for finished.
 
+`attachments` in `send`'s options and `services.sessions.setModel(sessionId,
+provider, id)` (new in API 1.46.0, `sessions`, in-process only; absent on an
+older host) let a kit act for another device's composer. `attachments` are
+images the thread's model must read, checked as a composer's are (count, size,
+`The active model does not support image input.`); a file attachment is refused
+because its path is a path of the sender. `setModel` changes any thread's
+model, on screen or not, and rejects where its runtime has no model selection.
+`setThreadTitle(…, "renamed")` now reopens a released thread off screen, as
+`send` does; `"generated"` still needs the thread to be open. Machines Kit
+builds its `thread-rename`, `thread-send` and `thread-model` commands on these
+three, so another machine's window renames, attaches to and re-models a thread
+that lives here; a proxy thread of a third machine is refused.
+
 `services.sessions.import({ cwd, jsonl, title?, origin })` (new in API 1.15.0,
 `sessions`; absent on an older host) takes over a Pi session another machine
 wrote. The file gets a new id and `cwd` — a folder that must exist on this

@@ -20,6 +20,6 @@ export function machineKitError(error: unknown, machine: string, extensionId: st
 
 /** Notices carry text only. Recognize the complete sentences our compatibility callers produce, before headline truncation. */
 export function isMachineUpdateNotice(message: string): boolean {
-  return /^(.+) runs an older Tau that cannot (take messages from here|start threads) yet\. Update \1 in Settings → Machines\.$/u.test(message)
+  return /^(.+) runs an older Tau that cannot (take messages from here|start threads|rename threads from here|take images from here|change models from here) yet\. Update \1 in Settings → Machines\.$/u.test(message)
     || /^(.+) has no (Workspace Kit|Files|Terminal|Review Kit) that can do this yet\. Update \1\.$/u.test(message);
 }

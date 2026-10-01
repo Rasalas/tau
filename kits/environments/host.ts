@@ -3,6 +3,7 @@ import { readWeights } from "./choice.js";
 import { createMachineChooser } from "./chooser.js";
 import { createMachineBackendProvider } from "./machine-backend.js";
 import { machineMethodError } from "./compatibility.js";
+import { registerThreadCommands } from "./thread-commands.js";
 import {
   AGENTS_EVENT,
   AGENTS_KIT_ID,
@@ -95,6 +96,7 @@ export function createEnvironmentsHostExtension(): HostExtension {
           throw machineMethodError(error, machines.list().find((entry) => entry.id === machine)?.name ?? machine, "start threads");
         }
       }, { audit: { label: "started a thread on another machine" } });
+      registerThreadCommands(context);
       context.registerCommand("whoami", (_input, call): MachineIdentity => ({ device: call.device ?? null, owner: call.owner }), { access: "read" });
       context.registerCommand("probe", async (input): Promise<MachineProbe> => {
         const machine = machineOf(input, "probe");

@@ -5,6 +5,11 @@ import type { MachineRailThread } from "./rail.js";
 export const ENVIRONMENTS_EXTENSION_ID = "tau.environments";
 export const MACHINES_SETTINGS_PAGE = "environments.machines";
 
+/** Commands of this kit's host half on a thread's home machine (K166): rename, change model, send with images. */
+export const THREAD_RENAME_COMMAND = "thread-rename";
+export const THREAD_MODEL_COMMAND = "thread-model";
+export const THREAD_SEND_COMMAND = "thread-send";
+
 /** Onboarding Kit's desktop service (`kits/onboarding/protocol.ts`); its UI imports on the named machine. */
 export const MACHINE_IMPORT_SERVICE = "tau.onboarding/machine-import";
 export interface MachineImportProps { machine: string; name: string }

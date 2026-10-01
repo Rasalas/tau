@@ -282,11 +282,9 @@ export class PiHost {
       purgeThread: (sessionId) => this.purgeThread(sessionId),
       pendingHostExtensions: () => this.pendingHostExtensions,
       deliverQueued: (sessionId, message) => this.deliverQueued(sessionId, message),
-      sendToThread: (sessionId, text, delivery, from) => this.sendToThread(sessionId, text, delivery, from),
-      continueThread: async (sessionId, text) => {
-        const thread = await this.reopenThread(sessionId);
-        await this.prompt(text, [], thread.threadId, undefined, undefined, { hidden: thread.backend.capabilities.resume?.hiddenPrompt === true });
-      },
+      sendToThread: (sessionId, text, delivery, from, attachments) => this.sendToThread(sessionId, text, delivery, from, attachments),
+      reopenThread: (sessionId) => this.reopenThread(sessionId),
+      continueThread: async (sessionId, text) => this.reopenThread(sessionId).then((thread) => this.prompt(text, [], thread.threadId, undefined, undefined, { hidden: thread.backend.capabilities.resume?.hiddenPrompt === true })),
     });
     this.agentDir = components.agentDir;
     this.sessionsDirOverride = components.sessionsDirOverride;
@@ -1144,10 +1142,10 @@ export class PiHost {
     return thread;
   }
 
-  async sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string): Promise<void> {
+  async sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string, attachments: UiPromptAttachment[] = []): Promise<void> {
     const thread = await this.reopenThread(sessionId);
-    if (delivery === "queue") this.queue.add(thread.threadId, { text, attachments: [], ...(from ? { fromThreadId: from } : {}) });
-    else await (delivery === "steer" ? this.steer(text, [], thread.threadId) : this.prompt(text, [], thread.threadId));
+    if (delivery === "queue") this.queue.add(thread.threadId, { text, attachments: this.prompts.checked(thread, attachments), ...(from ? { fromThreadId: from } : {}) });
+    else await (delivery === "steer" ? this.steer(text, attachments, thread.threadId) : this.prompt(text, attachments, thread.threadId));
   }
 
   /** A queued message is prepared when it leaves, against the thread as it is then. */
