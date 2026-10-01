@@ -169,6 +169,11 @@ internal object Ui {
 
     fun time(context: Context, at: Long): String = DateFormat.getTimeFormat(context).format(Date(at))
 
+    /** "15:13" or "3:13": no AM/PM, so a 2 × 2 header fits on a 12-hour clock too. */
+    fun shortTime(context: Context, at: Long): String =
+        if (DateFormat.is24HourFormat(context)) time(context, at)
+        else DateFormat.format(DateFormat.getBestDateTimePattern(Locale.getDefault(), "hmm").replace(Regex("\\s*a\\s*"), ""), at).toString()
+
     /** "Fri 09:00", or just the time today. */
     fun dayTime(context: Context, at: Long, now: Long): String {
         if (DateFormat.format("yyyyMMdd", at) == DateFormat.format("yyyyMMdd", now)) return time(context, at)

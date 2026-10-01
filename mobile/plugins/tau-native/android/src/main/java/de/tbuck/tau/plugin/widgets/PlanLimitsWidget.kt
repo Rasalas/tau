@@ -90,7 +90,7 @@ private fun valueColour(window: LimitWindow): ColorProvider? = when (window.leve
 private fun Small(limits: PlanLimits, now: Long) {
     val context = LocalContext.current
     Column(GlanceModifier.fillMaxSize()) {
-        Ui.Header("Plan limits", Ui.time(context, limits.asOf), limits.stale, tight = limits.stale)
+        Ui.Header("Plan limits", Ui.shortTime(context, limits.asOf), limits.stale, tight = limits.stale)
         Box(GlanceModifier.fillMaxWidth().defaultWeight(), contentAlignment = Alignment.Center) { Juicebars(limits.accounts, barWidth = 9, barHeight = 36) }
         limits.lowest?.let { (account, window) -> Lowest(account, window, limits.stale, now, big = 28) }
     }
