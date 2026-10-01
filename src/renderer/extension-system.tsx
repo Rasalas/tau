@@ -90,6 +90,8 @@ export interface WorkbenchActions {
   toggleDock(): void;
   /** Hides or shows the sidebar (the thread sheet on a compact client). */
   toggleSidebar?(): void;
+  /** Collapses the conversation to its spine beside the stage, or opens it again (design 1b). */
+  toggleSpine?(): void;
   notify(message: string): void;
   /**
    * A toast on the window's stack: a type icon, a title and a line, actions,
@@ -922,9 +924,17 @@ export interface SettingsPageContribution extends ProfileScoped {
 /**
  * Core's own Settings pages a package may add a section to (API 1.13.0):
  * Connections; the list of extensions, above it; each extension's own page,
- * after its settings (both API 1.18.0); and Runtimes, below its table (API 1.27.0).
+ * after its settings (both API 1.18.0); Runtimes, below its table (API 1.27.0);
+ * and General, as rows of one of its cards.
  */
-export type SettingsSectionPage = "connections" | "extensions" | "extension" | "runtimes";
+export type SettingsSectionPage = "connections" | "extensions" | "extension" | "runtimes" | "general";
+
+/**
+ * The cards a section's rows join (design 2i, 2h): General's appearance,
+ * notify, new-threads and threads, Connections' this-machine. Such a section
+ * draws `SettingRow`s only; the card draws the frame and the heading.
+ */
+export type SettingsCardId = "appearance" | "notify" | "new-threads" | "threads" | "this-machine";
 
 export interface SettingsSectionProps {
   onNotify(message: string): void;
@@ -943,6 +953,8 @@ export interface SettingsSectionProps {
 export interface SettingsSectionContribution extends ProfileScoped {
   id: string;
   page: SettingsSectionPage;
+  /** The card on the page its rows join, in `order` among the card's rows. */
+  card?: SettingsCardId;
   order?: number;
   /** The rows the Settings search finds in the section, as on a page (API 1.18.0). */
   rows?: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] }>;

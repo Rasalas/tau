@@ -48,7 +48,10 @@ describe("Settings → Connections", () => {
     expect(screen.getByText(/Safari · iPadOS · 192\.0\.2\.7 · paired 1 h ago · connected/u)).toBeTruthy();
     expect(screen.getByText("This device")).toBeTruthy();
     expect(screen.getByText("http://127.0.0.1:4100/")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    // A tablet that is connected reads Online; the window has its own row.
+    expect(screen.getByText("Kitchen iPad").closest("tr")?.querySelector(".connection-state")?.textContent).toBe("Online");
+    expect(screen.getByText("Tau window")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Unpair" }));
     await waitFor(() => expect(revokeClient).toHaveBeenCalledWith("c1"));
     expect(notify).toHaveBeenCalledWith("Kitchen iPad can no longer connect");
   });
@@ -63,7 +66,7 @@ describe("Settings → Connections", () => {
     const createPairingLink = vi.fn(async () => { listed = { ...listed, links: [created.link] }; return created; });
     const copyText = vi.fn(async () => undefined);
     renderPage({ listConnections: async () => listed, createPairingLink, copyText });
-    fireEvent.click(await screen.findByRole("button", { name: /Create link/u }));
+    fireEvent.click(await screen.findByRole("button", { name: /Pair a device/u }));
     const dialog = screen.getByRole("dialog", { name: "Create pairing link" });
     const label = within(dialog).getByRole("textbox", { name: "Client label" });
     fireEvent.change(label, { target: { value: "Laptop" } });
@@ -104,7 +107,7 @@ describe("Settings → Connections", () => {
 
   it("still offers a link where no web client is served: the app pairs over the socket", async () => {
     renderPage({ listConnections: async () => connections({ webClient: false }) });
-    expect((await screen.findByRole("button", { name: /Create link/u }) as HTMLButtonElement).disabled).toBe(false);
+    expect((await screen.findByRole("button", { name: /Pair a device/u }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("shows a device waiting with its code and lets it in with the access picked", async () => {

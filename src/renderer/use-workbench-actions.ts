@@ -44,6 +44,7 @@ export interface UseWorkbenchActionsOptions {
   /** Brings the chat into view (out of a maximized stage, a sheet); with `focusComposer`, the composer takes the keyboard once drawn. */
   showThread?: (options: { focusComposer: true }) => void;
   toggleSidebar?: () => void;
+  toggleSpine?: () => void;
   openPanel: (id: string) => void;
   closePanel?: (id: string) => void;
   togglePanelMaximized?: () => void;
@@ -180,6 +181,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       focusStage,
       toggleDock: () => { options.setDockOpen((open) => !open); },
       ...(toggleSidebar ? { toggleSidebar } : {}),
+      ...(options.toggleSpine ? { toggleSpine: options.toggleSpine } : {}),
       notify: options.setNotice,
       ...(options.toasts ? { toast: options.toasts.show } : {}),
       openProjectSources: options.openProjectSources,
@@ -360,7 +362,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
   }, [
     applyHostResult, client, openPanel, openThread, activeDraftKey, openWorkspace,
     reloadWorkbench, settleActiveThread, snapshot, switchSession, openThreadTree, duplicateThread,
-    stageTabs, cycleStageTab, openModelPicker, focusStage, openInstructions, toggleSidebar, options.attachFiles, options.pages,
+    stageTabs, cycleStageTab, openModelPicker, focusStage, openInstructions, toggleSidebar, options.toggleSpine, options.attachFiles, options.pages,
     options.openDraft, options.discardDraft,
   ]);
 }

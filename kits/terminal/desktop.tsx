@@ -4,7 +4,7 @@ import { TerminalPanel } from "./panel.js";
 import { CompactTerminalPanel } from "./compact.js";
 import { restoreTerminalTab, TerminalStageTab, terminalTabParams } from "./stage-tab.js";
 import { connectTerminalFont, connectTerminalHost, createTerminalFontService, terminalKit, terminalServices, terminalStore, useTerminalActivity } from "./store.js";
-import { TERMINAL_SETTINGS_ROWS, TerminalSettingsPage } from "./settings.js";
+import { ShellRow, TERMINAL_SETTINGS_ROWS, TerminalSettingsPage } from "./settings.js";
 import { paneIds } from "./layout.js";
 import { closeTerminals, focusNextPane, keyboardShell, naturalSplit, onStage, openTerminal, runInTerminal, targetShell, toggleTerminal } from "./controller.js";
 import {
@@ -142,6 +142,7 @@ export const terminalExtension: DesktopExtension = {
       Component: (props) => <TerminalSettingsPage {...props} preferences={plugin.preferences} />,
     });
     const disposers = [
+      plugin.registerSettingsSection({ id: "terminal.shell", page: "connections", card: "this-machine", order: 30, profiles: ["desktop"], Component: ShellRow }),
       plugin.registerCommand({ id: "terminal.open", label: "Open terminal panel", group: "Terminal", access: "read", run: (app) => app.openPanel(TERMINAL_PANEL) }),
       // The terminal opens in the app; the external one is Workspace Kit's command (mod+alt+j).
       ...["terminal", "term"].map((name) => plugin.registerSlashCommand({

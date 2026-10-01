@@ -26,7 +26,12 @@ export interface DraftMachineProps {
 export interface DraftMachineSource {
   useMachine(props: DraftMachineProps): { name: string; icon: ReactNode; tooltip?: string; moving?: boolean } | undefined;
   Section: ComponentType<DraftMachineProps & { touch: boolean }>;
+  openOnDraft?(): boolean;
 }
+
+/** `values.tau.environments.run-on`: where a new thread starts (design 2i); unset is the machine used last. */
+export const RUN_ON_DEFAULT_KEY = "run-on";
+export type RunOnDefault = "this" | "last" | "ask";
 
 /** The part of Workspace Kit's `ThreadCardSectionProps` the machine's line reads. */
 export interface MachineCardRowProps {

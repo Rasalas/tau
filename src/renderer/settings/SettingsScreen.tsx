@@ -194,7 +194,7 @@ export function SettingsScreen({
   const found = search.trim() ? searchSettings(settingsSearchEntries({
     // A runtime's card is found like a page: its id opens Providers at the card.
     pages: [...pages, ...providers].map((entry) => ({ id: entry.id, label: entry.label, description: entry.description, keywords: entry.keywords, extensionName: entry.extensionName, rows: entry.rows })),
-    sections: (["connections", "extensions", "runtimes"] as const).flatMap((sectionPage) => registry.getSettingsSections(sectionPage)),
+    sections: (["general", "connections", "extensions", "runtimes"] as const).flatMap((sectionPage) => registry.getSettingsSections(sectionPage)),
     extensions: catalog.map((entry) => ({ id: entry.id, name: entry.name, core: entry.locked, options: entry.summary?.options ?? [] })),
     keybindings: registry.getKeybindings().map((binding) => ({
       commandId: binding.commandId,
@@ -228,6 +228,9 @@ export function SettingsScreen({
     const show = () => {
       const row = document.getElementById(scrollTarget);
       if (!row) return;
+      // A row under Connections' Advanced is folded away.
+      const fold = row.closest("details");
+      if (fold) fold.open = true;
       row.scrollIntoView?.({ block: "center" });
       if (row === shown) return;
       shown = row;
@@ -444,7 +447,7 @@ export function SettingsScreen({
             <div className="settings-content" data-page={page}>
               <SettingsPageHead
                 title={stacked || ownTitle ? undefined : page === "about" ? "Tau" : pageLabel}
-                description={page === "about" ? undefined : pageDescription}
+                description={page === "about" || page === "general" ? undefined : pageDescription}
                 crumbs={stacked ? [] : crumbs}
                 scope={showScope ? { projects, current: project } : undefined}
                 actionSlot={setActionSlot}
@@ -452,13 +455,13 @@ export function SettingsScreen({
               {readOnly ? <p className="settings-read-only" role="note">This device is paired Read only: the host keeps its settings as they are. Theme and layout stay on this device.</p> : null}
               <SettingsPageActionSlot.Provider value={actionSlot}>
                 {page === "general" ? (
-                  <GeneralPage themeHere={!pages.some((entry) => entry.keywords?.includes("theme"))} />
+                  <GeneralPage themeHere={!pages.some((entry) => entry.keywords?.includes("theme"))} sections={registry.getSettingsSections("general")} onNotify={onNotify} />
                 ) : page === "models" ? (
                   <ModelsPage snapshot={snapshot} providersHere={providers.length > 0} onSetModel={onSetModel} onSetThinking={onSetThinking} onOpen={openPage} />
                 ) : page === "runtimes" ? (
                   <RuntimesPage snapshot={snapshot} cards={providers} sections={registry.getSettingsSections("runtimes")} onOpen={openPage} onNotify={onNotify} />
                 ) : page === "keybindings" ? (
-                  <KeybindingsPage key={keybindingFilter.seq} registry={registry} initialFilter={keybindingFilter.filter} onNotify={onNotify} />
+                  <KeybindingsPage key={keybindingFilter.seq} registry={registry} initialFilter={keybindingFilter.filter} onNotify={onNotify} onOpen={openPage} />
                 ) : page === "pi" ? (
                   <PiSettingsPage snapshot={snapshot} onNotify={onNotify} />
                 ) : onProviders ? (

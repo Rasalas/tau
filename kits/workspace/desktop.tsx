@@ -29,7 +29,7 @@ import { createHeadingBranch, createRunOnControl } from "./run-on.js";
 import { FreshStart } from "./fresh-start.js";
 import { CloneProjectSource, LocalFolderSource, requestProjectSwitcher, WorkspaceSidebar } from "./navigation.js";
 import { ChangesPanel, FilesPanel, SEARCH_FILES_SERVICE, serviceSlot, type SearchFilesService } from "./panels.js";
-import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, WorkspaceStore } from "./store.js";
+import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, TRACE_TABS_OPTION, WorkspaceStore } from "./store.js";
 import { withWorkspaceStore } from "./store-context.js";
 import { RAIL_ORDER_OPTIONS } from "./rail-order.js";
 import { publishProjectIcons } from "./project-icons.js";
@@ -38,7 +38,7 @@ import { TraceTabs } from "./trace-tabs.js";
 import { createStoragePage, STORAGE_SETTINGS_ROWS } from "./storage-page.js";
 import { OPEN_REQUEST_EVENT, OPEN_REQUEST_WAITING_COMMAND, STORAGE_CHANGED_EVENT, TAKE_OPEN_REQUEST_COMMAND, type WorktreeStorageHostCommands } from "./storage-protocol.js";
 import { OpenRequests } from "./open-requests.js";
-import { SOURCE_CONTROL_SETTINGS_ROWS, SourceControlPage } from "./source-control-page.js";
+import { NewThreadRows, SOURCE_CONTROL_SETTINGS_ROWS, SourceControlPage, ThisMachineRows, TraceTabsRow } from "./source-control-page.js";
 import { presentRead, presentWrite, READ_TOOLS, WRITE_TOOLS } from "./tool-cards.js";
 
 /** No need to poll every 30 s; a tick, a focus and a project switch are enough here. */
@@ -123,7 +123,11 @@ export const workspaceExtension: DesktopExtension = {
     // A phone or tablet follows too: its Files panel and documents read the thread's project.
     context.registerRegion({ id: "workspace.follower", placement: "composer-above", order: 0, profiles: ["desktop", "compact"], Component: bind(WorkspaceFollower) });
     context.registerRegion({ id: "workspace.title-actions", placement: "title-bar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceTitleActions) });
-    context.registerRegion({ id: "workspace.trace-tabs", placement: "title-bar", profiles: ["desktop"], Component: TraceTabs });
+    context.registerRegion({ id: "workspace.trace-tabs", placement: "title-bar", profiles: ["desktop"], Component: () => <TraceTabs enabled={() => context.preferences.optionValue(WORKSPACE_HOST_EXTENSION_ID, TRACE_TABS_OPTION, true)} /> });
+    context.registerSettingsSection({ id: "workspace.new-threads", page: "general", card: "new-threads", order: 20, profiles: ["desktop"], Component: bind(NewThreadRows),
+      rows: [{ id: "setting-new-thread-workspace", label: "New threads run in" }] });
+    context.registerSettingsSection({ id: "workspace.this-machine", page: "connections", card: "this-machine", order: 10, profiles: ["desktop"], Component: bind(ThisMachineRows) });
+    context.registerSettingsSection({ id: "workspace.trace-tabs", page: "general", card: "threads", profiles: ["desktop"], Component: TraceTabsRow });
     // The design's Editor button at the stage strip's right end.
     context.registerRegion({ id: "workspace.open-in", placement: "stage-bar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceEditorButton) });
     // The header's branch: a menu over the checkout; for a new thread "project · machine · no worktree yet".
@@ -203,7 +207,7 @@ export const workspaceExtension: DesktopExtension = {
     context.registerSettingsPage({
       id: "workspace.source-control",
       label: "Source control",
-      description: "Where new threads run and what they start from: worktrees, branches, submodules, and the folder new projects start in.",
+      description: "How a new worktree fills its submodules, whether the default branch keeps itself current, and where new projects start.",
       group: "projects",
       Icon: GitBranch,
       order: 35,
@@ -332,6 +336,10 @@ export const workspaceExtension: DesktopExtension = {
       } });
       context.registerKeybinding({ keys, commandId: id, when: "!terminalFocus" });
     }
+    // The header's Commit as a command; no chord, since ⇧⌘C is T3 Code's and VS Code's (K159).
+    context.registerCommand({ id: "workspace.commit", label: "Commit…", group: "Thread", access: "write", run: () => store.openReview(undefined, false) });
+    // Not the design's ⌘E, which edits the prompt outside.
+    context.registerKeybinding({ keys: "mod+alt+e", commandId: "workspace.files" });
     context.registerKeybinding({ keys: "mod+alt+p", commandId: "workspace.open-project" });
     context.registerKeybinding({ keys: "mod+o", commandId: "workspace.open-in-editor" });
     context.registerKeybinding({ keys: "mod+alt+j", commandId: "workspace.open-terminal" });

@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
-import { SettingRow, SettingsSection, SettingsState, Switch, useWorkbenchShell, type PreferencesStore } from "tau";
-import { OFF_KEY, RESUME_COMPACTION_EXTENSION_ID } from "./protocol.js";
+import { SegmentedControl, SettingRow, SettingsSection, SettingsState, Switch, useSetting, useWorkbenchShell, type PreferencesStore } from "tau";
+import { COMPACT_AT_CHOICES, COMPACT_AT_KEY, DEFAULT_COMPACT_AT, OFF_KEY, readCompactAt, RESUME_COMPACTION_EXTENSION_ID, type CompactAt } from "./protocol.js";
 import { readList } from "./rule.js";
 
 type Preferences = Pick<PreferencesStore, "subscribe" | "getSnapshot" | "value" | "setValue">;
@@ -48,4 +48,17 @@ export function createSettingsPage(preferences: Preferences) {
       </div>
     );
   };
+}
+
+/** General's Threads card (design 2i); only Pi threads follow it, which the row says. */
+export function CompactAtRow() {
+  const compactAt = useSetting<CompactAt>(`values.${RESUME_COMPACTION_EXTENSION_ID}.${COMPACT_AT_KEY}`, { defaultValue: DEFAULT_COMPACT_AT, read: readCompactAt });
+  return (
+    <SettingRow
+      title="Compact context"
+      description="when it passes · Pi threads"
+      setting={compactAt}
+      control={<SegmentedControl label="Compact context" value={compactAt.value} options={COMPACT_AT_CHOICES.map((value) => ({ value, label: value === "never" ? "Never" : `${value}%` }))} onChange={compactAt.set} />}
+    />
+  );
 }

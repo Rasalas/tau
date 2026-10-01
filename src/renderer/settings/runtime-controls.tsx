@@ -165,6 +165,7 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerCommand({ id: "workbench.close-stage-tab", label: "Close active stage tab", group: "Workbench", access: "read", run: (app) => app.closeActiveStageTab?.() });
     plugin.registerCommand({ id: "workbench.next-stage-tab", label: "Next stage tab", group: "Workbench", access: "read", run: (app) => app.cycleStageTab?.(1) });
     plugin.registerCommand({ id: "workbench.prev-stage-tab", label: "Previous stage tab", group: "Workbench", access: "read", run: (app) => app.cycleStageTab?.(-1) });
+    plugin.registerCommand({ id: "workbench.toggle-spine", label: "Collapse to spine", group: "Workbench", access: "read", run: (app) => app.toggleSpine?.() });
     plugin.registerCommand({ id: "workbench.split-stage", label: "Split or join the stage", group: "Workbench", access: "read", run: (app) => app.splitStage?.() });
     plugin.registerCommand({
       id: "runtime.instructions",
@@ -212,7 +213,10 @@ export const runtimeControls: DesktopExtension = {
     // Pi's chord, in the composer only: elsewhere Ctrl+P is `mod+p` off macOS, the file picker.
     plugin.registerKeybinding({ keys: "ctrl+p", commandId: "runtime.cycle-model", when: "composerFocus" });
     plugin.registerKeybinding({ keys: "shift+tab", commandId: "runtime.cycle-thinking" });
-    plugin.registerKeybinding({ keys: "mod+shift+r", commandId: "runtime.rename-thread" });
+    // F2 as in VS Code; ⇧⌘R opens Reviews (design 2g). A terminal keeps its function keys.
+    plugin.registerKeybinding({ keys: "f2", commandId: "runtime.rename-thread", when: "!terminalFocus" });
+    // Not the design's ⇧⌘K: T3 Code and VS Code use it (K159).
+    plugin.registerKeybinding({ keys: "mod+alt+k", commandId: "runtime.compact" });
     plugin.registerKeybinding({ keys: "ctrl+g", commandId: "runtime.open-prompt-editor" });
     plugin.registerKeybinding({ keys: "mod+alt+shift+a", commandId: "runtime.theme" });
     // ⌘1–⌘9 jump between threads, so focus moves with ⌥ added.
@@ -226,5 +230,8 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerKeybinding({ keys: "mod+w", commandId: "workbench.close-stage-tab" });
     plugin.registerKeybinding({ keys: "ctrl+tab", commandId: "workbench.next-stage-tab" });
     plugin.registerKeybinding({ keys: "ctrl+shift+tab", commandId: "workbench.prev-stage-tab" });
+    // ⌘\ splits as it does in VS Code; the spine takes the design's ⇧ variant.
+    plugin.registerKeybinding({ keys: "mod+\\", commandId: "workbench.split-stage" });
+    plugin.registerKeybinding({ keys: "mod+shift+\\", commandId: "workbench.toggle-spine" });
   },
 };

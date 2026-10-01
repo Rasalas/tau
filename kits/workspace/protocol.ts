@@ -75,6 +75,8 @@ export interface DraftMachineSource {
   useMachine(props: DraftMachineProps): DraftMachine | undefined;
   /** The rows under "Run on"; `touch` draws them 44 px high. */
   Section: ComponentType<DraftMachineProps & { touch: boolean }>;
+  /** Whether a new draft opens the popover at once: Settings' Run on is Ask. */
+  openOnDraft?(): boolean;
 }
 
 /** Where a new worktree starts, as the picker shows it. */

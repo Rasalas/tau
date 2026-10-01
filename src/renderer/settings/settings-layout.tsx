@@ -103,6 +103,16 @@ export function SettingsSection({ title, id, headerAction, children, plain = fal
   );
 }
 
+/** A card of rows with its heading inside (design 2i, 2h), as General's grid and Connections' This machine draw them. */
+export function SettingsCard({ title, id, wide = false, children }: { title: string; id?: string; wide?: boolean; children: ReactNode }) {
+  return (
+    <section className="settings-card" id={id} aria-label={title} data-wide={wide ? "" : undefined}>
+      <h2>{title}</h2>
+      {children}
+    </section>
+  );
+}
+
 function notWritableReason(setting: SettingHandle<unknown>): string {
   if (setting.readOnly) return "This device is paired Read only: it can see settings, not change them.";
   return setting.editing === "project"

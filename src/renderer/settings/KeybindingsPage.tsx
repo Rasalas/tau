@@ -1,16 +1,17 @@
-import { useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
-import { Keyboard, MoreHorizontal, Plus, Search, TriangleAlert, X } from "lucide-react";
+import { useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { Keyboard, MoreHorizontal, Pencil, Search, TriangleAlert, X } from "lucide-react";
 import type { ExtensionRegistry, KeybindingCollision, ResolvedKeybinding, UserKeymapContribution } from "../extension-system";
 import { KEYBINDING_CAPTURE_ATTRIBUTE } from "../keybinding-context";
-import { chordFromKeyboardEvent, formatKeyChord, isMacPlatform, parseKeyChord } from "../keybindings";
+import { chordFromKeyboardEvent, formatKeyChord, isMacPlatform, keyChordParts, parseKeyChord } from "../keybindings";
+import { usePreferences } from "../renderer-services-context";
 import { Menu } from "../components/Menu";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { tooltipProps } from "../components/ui/Tooltip";
 import { errorMessage } from "../../workbench/error-message";
-import { chordsAfterEdit, keybindingSource, pressesKeys, whenError, whenSuggestions } from "./keybinding-editor";
-import { Badge, Button, HelpTip, SettingsState, TextField } from "./controls";
-import { SettingsSection } from "./settings-layout";
-
+import { chordsAfterEdit, KEYBINDING_CARDS, keybindingPlace, keybindingSource, pressesKeys, whenError, whenSuggestions, type KeybindingCard } from "./keybinding-editor";
+import { Badge, Button, SettingsState, TextField } from "./controls";
+import { SettingsCard, SettingsSection } from "./settings-layout";
+import { SettingsPageAction } from "./page-action";
 
 const chordLabel = (keys: string, mac: boolean) => {
   const chord = parseKeyChord(keys);
@@ -18,6 +19,14 @@ const chordLabel = (keys: string, mac: boolean) => {
 };
 
 const hasModifier = (event: ReactKeyboardEvent) => event.metaKey || event.ctrlKey || event.altKey || event.shiftKey;
+
+/** Every key of a chord as a keycap of its own (design 2g). */
+function Keycaps({ keys, mac, last }: { keys: string; mac: boolean; last?: string }) {
+  const chord = parseKeyChord(keys);
+  const parts = chord ? keyChordParts(chord, mac) : [keys];
+  if (last) parts[parts.length - 1] = last;
+  return <span className="keycaps" aria-label={chordLabel(keys, mac)}>{parts.map((part, index) => <kbd key={index} aria-hidden>{part}</kbd>)}</span>;
+}
 
 /**
  * A field that takes the next chord pressed. Escape gives up, a bare Tab
@@ -59,6 +68,8 @@ interface EditorContext {
 }
 
 interface Draft {
+  /** The live chord it replaces; absent for one more chord. */
+  target?: ResolvedKeybinding | undefined;
   recording: boolean;
   key?: string;
   when: string;
@@ -66,12 +77,12 @@ interface Draft {
   whenOnly?: boolean;
 }
 
-/** One chord being recorded or changed: the old one it replaces (`target`), or a new one for the command. */
-function useChordDraft({ registry, keymap, onNotify }: EditorContext, commandId: string, target?: ResolvedKeybinding) {
+/** The one chord of a command being recorded or changed. */
+function useChordDraft({ registry, keymap, onNotify }: EditorContext, commandId: string) {
   const [draft, setDraft] = useState<Draft>();
   const [saving, setSaving] = useState(false);
   const inherited = registry.getDefaultKeybindings(commandId)[0]?.when;
-  const startWhen = target ? target.when ?? "" : inherited ?? "";
+  const startWhen = (target?: ResolvedKeybinding) => (target ? target.when ?? "" : inherited ?? "");
   const write = async (chords: Parameters<UserKeymapContribution["setChords"]>[1]) => {
     setSaving(true);
     try {
@@ -86,16 +97,16 @@ function useChordDraft({ registry, keymap, onNotify }: EditorContext, commandId:
   return {
     draft,
     saving,
-    record: () => setDraft((current) => ({ recording: true, key: current?.key, when: current?.when ?? startWhen })),
-    editWhen: () => setDraft({ recording: false, key: target?.keys, when: startWhen, whenOnly: true }),
-    recorded: (key: string) => setDraft((current) => ({ recording: false, key, when: current?.when ?? startWhen })),
+    record: (target?: ResolvedKeybinding) => setDraft((current) => (current && current.target === target ? { ...current, recording: true } : { target, recording: true, when: startWhen(target) })),
+    editWhen: (target: ResolvedKeybinding) => setDraft({ target, recording: false, key: target.keys, when: startWhen(target), whenOnly: true }),
+    recorded: (key: string) => setDraft((current) => current && { ...current, recording: false, key }),
     // Leaving the recorder keeps a chord already recorded, else drops the draft.
     stopRecording: () => setDraft((current) => (current?.key ? { ...current, recording: false } : undefined)),
     setWhen: (when: string) => setDraft((current) => current && { ...current, when }),
     cancel: () => setDraft(undefined),
-    dirty: Boolean(draft?.key) && (draft!.key !== target?.keys || draft!.when.trim() !== startWhen.trim()),
-    save: () => draft?.key ? write(chordsAfterEdit(registry.getKeybindings(), commandId, inherited, { target, next: { key: draft.key, when: draft.when } })) : Promise.resolve(),
-    remove: () => write(chordsAfterEdit(registry.getKeybindings(), commandId, inherited, { target })),
+    dirty: Boolean(draft?.key) && (draft!.key !== draft!.target?.keys || draft!.when.trim() !== startWhen(draft!.target).trim()),
+    save: () => draft?.key ? write(chordsAfterEdit(registry.getKeybindings(), commandId, inherited, { target: draft.target, next: { key: draft.key, when: draft.when } })) : Promise.resolve(),
+    remove: (target: ResolvedKeybinding) => write(chordsAfterEdit(registry.getKeybindings(), commandId, inherited, { target })),
     reset: () => write(undefined),
   };
 }
@@ -108,7 +119,7 @@ function collisionText(collision: KeybindingCollision, commandLabel: (id: string
   return `Same keys as ${other}: only one of the two stays bound.`;
 }
 
-/** The `when` field, the collisions of the chord drafted, Save and Cancel. */
+/** The `when` field, the conflicts of the chord drafted, Save and Cancel. */
 function DraftPanel({ context, commandId, label, editor, commandLabel }: {
   context: EditorContext;
   commandId: string;
@@ -136,7 +147,7 @@ function DraftPanel({ context, commandId, label, editor, commandLabel }: {
     >
       <label className="keybinding-when">
         <span>When</span>
-        {/* Checked, with its collisions, at each key. */}
+        {/* Checked, with its conflicts, at each key. */}
         <TextField
           label={`When clause for ${label}`}
           value={draft.when}
@@ -162,23 +173,8 @@ function DraftPanel({ context, commandId, label, editor, commandLabel }: {
   );
 }
 
-/** The chord of a row: a button that starts recording, the recorder, or the chord drafted. */
-function ChordControl({ label, keys, editor, mac }: { label: string; keys?: string; editor: ChordDraft; mac: boolean }) {
-  const { draft } = editor;
-  if (draft?.recording) {
-    return <ChordRecorder label={`Press the new chord for ${label}`} mac={mac} onRecord={editor.recorded} onStop={editor.stopRecording} />;
-  }
-  const shown = draft?.key ?? keys;
-  return (
-    <button type="button" className="keybinding-chord" data-drafted={draft?.key ? "" : undefined} aria-label={`Change the chord for ${label}${shown ? `: ${chordLabel(shown, mac)}` : ""}`} onClick={editor.record}>
-      {shown ? <kbd>{chordLabel(shown, mac)}</kbd> : <span className="settings-row-empty">Record</span>}
-    </button>
-  );
-}
-
 function RowMenu({ label, items, onSelect }: { label: string; items: Array<{ id: string; label: string; destructive?: boolean }>; onSelect(id: string): void }) {
   const [open, setOpen] = useState(false);
-  if (items.length === 0) return null;
   return (
     <span className="menu-anchor keybinding-row-menu">
       <button type="button" className="tau-icon-button" aria-label={`More for ${label}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
@@ -189,121 +185,118 @@ function RowMenu({ label, items, onSelect }: { label: string; items: Array<{ id:
   );
 }
 
-/** One live chord: click it to record another, or change where it applies. */
-function KeybindingRow({ binding, commandLabel, context, siblings }: {
-  binding: ResolvedKeybinding;
-  commandLabel(id: string): string;
-  context: EditorContext | undefined;
-  /** How many live chords the command has, this one included. */
-  siblings: number;
-}) {
-  const source = keybindingSource(binding, context?.keymap.extensionId);
-  const label = commandLabel(binding.commandId);
-  const editable = context !== undefined && source !== "config";
-  const title = (
-    <span>
-      <strong>
-        {label}
-        {source === "custom" ? <Badge>Custom</Badge> : null}
-        {source === "config" ? <span {...tooltipProps("Set in config.json's keybindings; change it there")}><Badge>config.json</Badge></span> : null}
-      </strong>
-      <small>{binding.commandId} · {binding.extensionName.toLowerCase()}{binding.when ? <> · when <code>{binding.when}</code></> : null}</small>
+interface CommandEntry {
+  id: string;
+  label: string;
+  /** Where it comes from and where it applies, for the name's tooltip. */
+  detail: string;
+  bindings: ResolvedKeybinding[];
+  card: KeybindingCard;
+  rank: number;
+  named: boolean;
+  inert?: boolean;
+}
+
+/** One command: its name, each chord as keycaps, and the pen that records a new one. */
+function CommandRow({ entry, context, commandLabel }: { entry: CommandEntry; context: EditorContext | undefined; commandLabel(id: string): string }) {
+  const editable = entry.bindings.filter((binding) => keybindingSource(binding) !== "config");
+  const custom = context !== undefined && entry.bindings.some((binding) => keybindingSource(binding, context.keymap.extensionId) === "custom");
+  const name = (
+    <span className="keybinding-label" {...tooltipProps(entry.detail)}>
+      {entry.label}
+      {custom ? <Badge>Custom</Badge> : null}
+      {entry.inert ? <Badge tone="warn">Not implemented</Badge> : null}
+      {entry.bindings.length > editable.length ? <Badge>config.json</Badge> : null}
     </span>
   );
-  if (!editable) {
-    return <div className="keybinding-row">{title}<kbd>{binding.label}</kbd></div>;
+  const chords = (bindings: readonly ResolvedKeybinding[]) => bindings.map((binding) => <Keycaps key={`${binding.keys}|${binding.when ?? ""}`} keys={binding.keys} mac={context?.mac ?? isMacPlatform()} />);
+  if (!context || entry.inert || entry.id === "thread.jump") {
+    return <div className="keybinding-row">{name}{entry.id === "thread.jump" ? <Keycaps keys={entry.bindings[0]?.keys ?? ""} mac={context?.mac ?? isMacPlatform()} last="1–9" /> : chords(entry.bindings)}</div>;
   }
-  return <EditableKeybindingRow binding={binding} label={label} title={title} source={source} context={context} siblings={siblings} commandLabel={commandLabel} />;
+  return <EditableCommandRow entry={entry} name={name} context={context} editable={editable} custom={custom} commandLabel={commandLabel} />;
 }
 
-function EditableKeybindingRow({ binding, label, title, source, context, siblings, commandLabel }: {
-  binding: ResolvedKeybinding;
-  label: string;
-  title: ReactNode;
-  source: ReturnType<typeof keybindingSource>;
+function EditableCommandRow({ entry, name, context, editable, custom, commandLabel }: {
+  entry: CommandEntry;
+  name: ReactNode;
   context: EditorContext;
-  siblings: number;
+  editable: ResolvedKeybinding[];
+  custom: boolean;
   commandLabel(id: string): string;
 }) {
-  const editor = useChordDraft(context, binding.commandId, binding);
-  const adder = useChordDraft(context, binding.commandId);
+  const editor = useChordDraft(context, entry.id);
+  const { draft } = editor;
+  const { mac } = context;
+  const recorder = <ChordRecorder label={`Press the new chord for ${entry.label}`} mac={mac} onRecord={editor.recorded} onStop={editor.stopRecording} />;
   const items = [
-    { id: "when", label: "Change where it applies" },
+    ...(editable[0] ? [{ id: "when", label: "Change where it applies" }] : []),
     { id: "add", label: "Add another chord" },
-    ...(source === "custom" ? [{ id: "reset", label: "Reset to default" }] : []),
-    ...(siblings > 1 ? [{ id: "remove", label: "Remove this chord", destructive: true }] : []),
+    ...(custom ? [{ id: "reset", label: "Reset to default" }] : []),
+    ...(editable.length > 1 ? editable.map((binding, index) => ({ id: `remove:${index}`, label: `Remove ${chordLabel(binding.keys, mac)}`, destructive: true })) : []),
   ];
   return (
-    <div className="keybinding-row-group" data-editing={editor.draft || adder.draft ? "" : undefined}>
-      <div className="keybinding-row" data-source={source}>
-        {title}
-        <RowMenu label={label} items={items} onSelect={(id) => {
-          if (id === "when") editor.editWhen();
-          else if (id === "add") adder.record();
+    <div className="keybinding-row-group" data-editing={draft ? "" : undefined}>
+      <div className="keybinding-row">
+        {name}
+        {entry.bindings.map((binding) => {
+          const key = `${binding.keys}|${binding.when ?? ""}`;
+          if (!editable.includes(binding)) return <Keycaps key={key} keys={binding.keys} mac={mac} />;
+          if (draft?.target === binding && draft.recording) return <span key={key}>{recorder}</span>;
+          const shown = draft?.target === binding && draft.key ? draft.key : binding.keys;
+          return (
+            <button key={key} type="button" className="keybinding-chord" data-drafted={shown !== binding.keys ? "" : undefined} aria-label={`Change the chord for ${entry.label}: ${chordLabel(shown, mac)}`} onClick={() => editor.record(binding)}>
+              <Keycaps keys={shown} mac={mac} />
+            </button>
+          );
+        })}
+        {draft && !draft.target ? (draft.recording ? recorder : <span className="keybinding-chord" data-drafted=""><Keycaps keys={draft.key!} mac={mac} /></span>) : null}
+        {entry.bindings.length === 0 && !draft ? <span className="settings-row-empty">Unbound</span> : null}
+        <RowMenu label={entry.label} items={items} onSelect={(id) => {
+          if (id === "when") editor.editWhen(editable[0]!);
+          else if (id === "add") editor.record();
           else if (id === "reset") void editor.reset();
-          else if (id === "remove") void editor.remove();
+          else if (id.startsWith("remove:")) void editor.remove(editable[Number(id.slice(7))]!);
         }} />
-        <ChordControl label={label} keys={binding.keys} editor={editor} mac={context.mac} />
+        <button type="button" className="tau-icon-button keybinding-pen" aria-label={`Change ${entry.label}`} {...tooltipProps("Change")} onClick={() => editor.record(editable[0])}>
+          <Pencil size={13} />
+        </button>
       </div>
-      <DraftPanel context={context} commandId={binding.commandId} label={label} editor={editor} commandLabel={commandLabel} />
-      {adder.draft ? (
-        <div className="keybinding-row keybinding-add-row">
-          <span><small>Another chord for {label}</small></span>
-          <ChordControl label={label} editor={adder} mac={context.mac} />
-        </div>
-      ) : null}
-      <DraftPanel context={context} commandId={binding.commandId} label={label} editor={adder} commandLabel={commandLabel} />
+      <DraftPanel context={context} commandId={entry.id} label={entry.label} editor={editor} commandLabel={commandLabel} />
     </div>
   );
 }
 
-/** A command in the full list: its chords, and a way to add one. */
-function CommandRow({ command, bound, context, commandLabel }: {
-  command: { id: string; label: string; group: string };
-  bound: readonly ResolvedKeybinding[];
-  context: EditorContext | undefined;
-  commandLabel(id: string): string;
-}) {
-  const row = (control?: ReactNode) => (
-    <div className="keybinding-row">
-      <span>
-        <strong>{command.label}</strong>
-        <small><code>{command.id}</code> ({command.group})</small>
-      </span>
-      <div className="keybinding-keys">
-        {bound.length > 0 ? [...new Set(bound.map((b) => b.label))].map((label) => <kbd key={label}>{label}</kbd>) : <span className="settings-row-empty">Unbound</span>}
-      </div>
-      {control}
+/** The composer's own keys: they follow Send with on General, which the pen opens. */
+function ComposerKeys({ registry, mac, onOpen }: { registry: ExtensionRegistry; mac: boolean; onOpen?(target: string): void }) {
+  const preferences = usePreferences();
+  const { sendShortcut } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const modSends = sendShortcut === "mod-enter";
+  const send = modSends ? "mod+enter" : "enter";
+  const other = modSends ? "mod+shift+enter" : "mod+enter";
+  const steers = registry.streamingDelivery() === "steer";
+  const rows: Array<[string, string]> = [
+    ["Send", send],
+    ["Steer while running", steers ? send : other],
+    ["Queue a follow-up", steers ? other : send],
+    ["New line", modSends ? "enter" : "shift+enter"],
+  ];
+  return <>{rows.map(([label, keys]) => (
+    <div className="keybinding-row" key={label}>
+      <span className="keybinding-label">{label}</span>
+      <Keycaps keys={keys} mac={mac} />
+      {onOpen ? <button type="button" className="tau-icon-button keybinding-pen" aria-label={`Change ${label}: Send with, on General`} {...tooltipProps("Send with, on General")} onClick={() => onOpen("general#setting-send-with")}><Pencil size={13} /></button> : null}
     </div>
-  );
-  if (!context) return row();
-  return <EditableCommandRow command={command} context={context} commandLabel={commandLabel} row={row} />;
-}
-
-function EditableCommandRow({ command, context, commandLabel, row }: {
-  command: { id: string; label: string };
-  context: EditorContext;
-  commandLabel(id: string): string;
-  row(control: ReactNode): ReactNode;
-}) {
-  const adder = useChordDraft(context, command.id);
-  return (
-    <div className="keybinding-row-group" data-editing={adder.draft ? "" : undefined}>
-      {row(adder.draft ? <ChordControl label={command.label} editor={adder} mac={context.mac} /> : (
-        <button type="button" className="tau-icon-button" aria-label={`Add a chord for ${command.label}`} {...tooltipProps("Add a chord")} onClick={adder.record}><Plus size={14} /></button>
-      ))}
-      <DraftPanel context={context} commandId={command.id} label={command.label} editor={adder} commandLabel={commandLabel} />
-    </div>
-  );
+  ))}</>;
 }
 
 /**
- * Every live chord, the Pi actions `keybindings.json` names that Tau does not
- * implement, and on request every command id. Where an extension offers a
- * user keymap (`registerUserKeymap`) a chord is changed by clicking it and
- * pressing the new keys; without one the page only lists.
+ * Settings → Keybindings (design 2g): the live chords in cards by the layer
+ * they work in, each key a keycap of its own and a pen that records a new
+ * chord; conflicts show as soon as one is pressed. Below, chords that lost to
+ * another, and on request every command with the Pi actions Tau does not
+ * implement. Without a user keymap (`registerUserKeymap`) the page only lists.
  */
-export function KeybindingsPage({ registry, initialFilter = "", onNotify = () => {} }: { registry: ExtensionRegistry; initialFilter?: string; onNotify?(message: string): void }) {
+export function KeybindingsPage({ registry, initialFilter = "", onNotify = () => {}, onOpen }: { registry: ExtensionRegistry; initialFilter?: string; onNotify?(message: string): void; onOpen?(target: string): void }) {
   const [filter, setFilter] = useState(initialFilter);
   const [keyFilter, setKeyFilter] = useState<string>();
   const [searchingKeys, setSearchingKeys] = useState(false);
@@ -319,21 +312,37 @@ export function KeybindingsPage({ registry, initialFilter = "", onNotify = () =>
   const commandLabel = (id: string) => commands.find((command) => command.id === id)?.label ?? id;
 
   const query = filter.trim().toLowerCase();
-  // A keybindings.json names a Pi action by its own id. When Tau implements no
-  // command for it the chord is registered but nothing runs, so it belongs in
-  // its own list rather than under "active".
-  const implemented = keybindings.filter((binding) => commands.some((command) => command.id === binding.commandId));
-  const unimplemented = keybindings.filter((binding) => !commands.some((command) => command.id === binding.commandId));
-
   const matches = (...texts: Array<string | undefined>) => !query || texts.some((text) => text?.toLowerCase().includes(query));
   const pressed = (binding: { keys: string }) => !keyFilter || pressesKeys(binding, keyFilter, mac);
-  const filteredBindings = implemented.filter((b) => pressed(b) && matches(commandLabel(b.commandId), b.commandId, b.keys, b.label, b.extensionName, b.when));
-  const rowKey = (b: (typeof keybindings)[number]) => `${b.keys}|${b.when ?? ""}|${b.commandId}`;
-  const filteredUnimplemented = unimplemented.filter((b) => pressed(b) && matches(b.commandId, b.keys, b.extensionName));
-  const filteredCommands = commands.filter((c) => (!keyFilter || keybindings.some((b) => b.commandId === c.id && pressed(b))) && matches(c.label, c.id, c.group));
+  // A keybindings.json names a Pi action by its own id; without a Tau command its chord does nothing.
+  const unimplemented = keybindings.filter((binding) => !commands.some((command) => command.id === binding.commandId));
+  const entries: CommandEntry[] = [];
+  for (const command of commands) {
+    const chords = keybindings.filter((binding) => binding.commandId === command.id);
+    // ⌘1–⌘9 are one row: one thread each.
+    const jump = /^thread\.jump-\d$/u.test(command.id);
+    const id = jump ? "thread.jump" : command.id;
+    const existing = entries.find((entry) => entry.id === id);
+    if (existing) { existing.bindings.push(...chords); continue; }
+    const where = [...new Set(chords.map((binding) => binding.when).filter(Boolean))];
+    entries.push({
+      id,
+      label: jump ? "Open thread 1–9 of the rail" : command.label,
+      detail: `${id} · ${chords[0]?.extensionName.toLowerCase() ?? command.group}${where.length ? ` · when ${where.join(", ")}` : ""}`,
+      bindings: chords,
+      ...keybindingPlace(id, command.group),
+    });
+  }
+  // Pi actions keybindings.json binds that Tau has no command for: listed with every command, never bound.
+  for (const binding of unimplemented) entries.push({ id: binding.commandId, label: binding.commandId, detail: binding.extensionName, bindings: [binding], card: "app", rank: 99, named: false, inert: true });
+  const shown = (entry: CommandEntry) => (!keyFilter || entry.bindings.some(pressed)) && matches(entry.label, entry.id, entry.detail, ...entry.bindings.map((binding) => chordLabel(binding.keys, mac)));
+  // A row the design names stays in its card unbound, so it can be given a chord there.
+  const bound = entries.filter((entry) => !entry.inert && (entry.bindings.length > 0 || entry.named) && shown(entry)).sort((left, right) => left.rank - right.rank || left.label.localeCompare(right.label));
+  const composerKeys = !query && !keyFilter || matches("send steer queue follow-up new line return enter");
   // Pi actions Tau has no command for stay Pi's, so they do not call for Reset all.
-  const custom = implemented.some((binding) => keybindingSource(binding, keymap?.extensionId) === "custom");
-  const noMatch = keyFilter ? `No keybinding presses ${chordLabel(keyFilter, mac)}` : `No keybinding matches “${filter.trim()}”`;
+  const custom = keybindings.some((binding) => commands.some((command) => command.id === binding.commandId) && keybindingSource(binding, keymap?.extensionId) === "custom");
+  const filtering = Boolean(query || keyFilter);
+  const noMatch = keyFilter ? `No keybinding presses ${chordLabel(keyFilter, mac)}` : `No shortcut matches “${filter.trim()}”`;
 
   const resetAll = async () => {
     setConfirmReset(false);
@@ -343,117 +352,76 @@ export function KeybindingsPage({ registry, initialFilter = "", onNotify = () =>
       onNotify(`Could not write ${keymap?.label}: ${errorMessage(error)}`);
     }
   };
-
   const clearFilter = () => { setFilter(""); setKeyFilter(undefined); };
-  const filtering = Boolean(query || keyFilter);
+  const row = (entry: CommandEntry) => <CommandRow key={entry.id} entry={entry} context={context} commandLabel={commandLabel} />;
 
   return (
-    <div className="settings-page">
-      {keymap ? (
-        <p className="lede">Click a chord and press the new keys, or pick where it applies from its menu; a save writes <code>{keymap.label}</code> and applies at once. A chord without a <code>when</code> clause keeps its default&rsquo;s.</p>
-      ) : (
-        <p className="lede">Rebind any command id or Pi action in <code>~/.pi/agent/keybindings.json</code>, as a chord or as <code>{"{"} "key": "mod+d", "when": "terminalFocus" {"}"}</code> to say where it applies; a rebound chord without <code>when</code> keeps the default&rsquo;s.</p>
-      )}
-
-      <div className="keybinding-search">
-        <label className="settings-filter">
-          <Search size={14} aria-hidden />
+    <div className="settings-page keybindings-page">
+      <SettingsPageAction>
+        <label className="keybinding-find">
+          <Search size={13} aria-hidden />
           {searchingKeys ? (
-            <ChordRecorder label="Press the keys to search for" placeholder="Press the keys to search for…" mac={mac} onRecord={(keys) => { setKeyFilter(keys); setFilter(""); setSearchingKeys(false); }} onStop={() => setSearchingKeys(false)} />
+            <ChordRecorder label="Press the keys to search for" placeholder="Press the keys…" mac={mac} onRecord={(keys) => { setKeyFilter(keys); setFilter(""); setSearchingKeys(false); }} onStop={() => setSearchingKeys(false)} />
           ) : keyFilter ? (
             <span className="keybinding-key-filter">
-              <kbd>{chordLabel(keyFilter, mac)}</kbd>
-              <button type="button" className="tau-icon-button" aria-label="Clear the key search" onClick={() => setKeyFilter(undefined)}><X size={13} /></button>
+              <Keycaps keys={keyFilter} mac={mac} />
+              <button type="button" className="tau-icon-button" aria-label="Clear the key search" onClick={() => setKeyFilter(undefined)}><X size={12} /></button>
             </span>
           ) : (
-            <>
-              <input
-                type="search"
-                placeholder="Filter keybindings or commands…"
-                aria-label="Filter keybindings or commands"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                onKeyDown={(event) => { if (event.key === "Escape" && filter) { event.preventDefault(); event.stopPropagation(); setFilter(""); } }}
-              />
-              {filter ? <button type="button" className="tau-icon-button" aria-label="Clear the filter" onClick={() => setFilter("")}><X size={13} /></button> : null}
-            </>
+            <input
+              type="search"
+              placeholder="Find a shortcut"
+              aria-label="Find a shortcut"
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Escape" && filter) { event.preventDefault(); event.stopPropagation(); setFilter(""); } }}
+            />
           )}
+          <button type="button" className="tau-icon-button" aria-label="Search by keys" aria-pressed={searchingKeys} {...tooltipProps("Search by pressing the keys")} onClick={() => setSearchingKeys(!searchingKeys)}>
+            <Keyboard size={13} />
+          </button>
         </label>
-        <Button
-          className="keybinding-keys-button"
-          icon={<Keyboard size={15} />}
-          aria-label="Search by keys"
-          aria-pressed={searchingKeys}
-          {...tooltipProps("Search by pressing the keys")}
-          onClick={() => setSearchingKeys(!searchingKeys)}
-        />
-      </div>
+      </SettingsPageAction>
 
-      <SettingsSection
-        title={`Active keybindings (${filteredBindings.length})`}
-        headerAction={<>
-          {keymap && custom ? <Button variant="ghost" onClick={() => setConfirmReset(true)}>Reset all</Button> : null}
-          <Button variant="ghost" onClick={() => setShowAllCommands((v) => !v)}>{showAllCommands ? "Hide command ids" : "Show all command ids"}</Button>
-        </>}
-      >
-        {filteredBindings.map((binding) => (
-          <KeybindingRow
-            key={rowKey(binding)}
-            binding={binding}
-            commandLabel={commandLabel}
-            context={context}
-            siblings={keybindings.filter((other) => other.commandId === binding.commandId && keybindingSource(other) !== "config").length}
-          />
-        ))}
-        {filteredBindings.length === 0 ? (
-          filtering
-            ? <SettingsState kind="empty" title={noMatch} description="Search by a command's name, its id, its keys or where it applies." action={<Button onClick={clearFilter}>Clear the search</Button>} />
-            : <SettingsState kind="empty" title="No keybindings" description="Extensions bind their chords as they load; none has bound one yet." />
+      <div className="settings-cards">
+        {KEYBINDING_CARDS.map((id) => {
+          const rows = bound.filter((entry) => entry.card === id);
+          const composer = id === "conversation" && composerKeys;
+          return rows.length || composer ? (
+            <SettingsCard key={id} title={id[0]!.toUpperCase() + id.slice(1)}>
+              {composer ? <ComposerKeys registry={registry} mac={mac} {...(onOpen ? { onOpen } : {})} /> : null}
+              {rows.map(row)}
+            </SettingsCard>
+          ) : null;
+        })}
+        {bound.length === 0 && filtering ? (
+          <SettingsState kind="empty" title={noMatch} description="Search by a command's name, its id or its keys." action={<Button onClick={clearFilter}>Clear the search</Button>} />
         ) : null}
-      </SettingsSection>
-
-      {filteredUnimplemented.length > 0 ? (
-        <SettingsSection
-          title={`Not implemented by Tau (${filteredUnimplemented.length})`}
-          headerAction={<HelpTip label="Why" text="~/.pi/agent/keybindings.json names these Pi actions, but Tau has no command for them, so pressing the chord does nothing." />}
-        >
-          {filteredUnimplemented.map((binding) => (
-            <div className="keybinding-row" key={rowKey(binding)} data-level="unimplemented">
-              <span>
-                <strong>{binding.commandId}</strong>
-                <small>{binding.extensionName.toLowerCase()}</small>
-              </span>
-              <kbd>{binding.label}</kbd>
-            </div>
-          ))}
-        </SettingsSection>
-      ) : null}
+        {showAllCommands ? (
+          <SettingsCard title="Every command" wide>
+            {entries.filter(shown).sort((left, right) => left.label.localeCompare(right.label)).map(row)}
+          </SettingsCard>
+        ) : null}
+      </div>
 
       {conflicts.length > 0 ? (
         <SettingsSection title={`Ignored chords (${conflicts.length})`}>
           {conflicts.map((conflict) => (
             <div className="keybinding-row" key={`${conflict.keys}:${conflict.commandId}`} data-level="ignored">
-              <span>
-                <strong>{commandLabel(conflict.commandId)} <Badge tone="warn">Ignored</Badge></strong>
-                <small>{conflict.extensionId} · {conflict.boundTo.extensionId} bound it to {conflict.boundTo.commandId} first</small>
+              <span className="keybinding-label" {...tooltipProps(`${conflict.extensionId} · ${conflict.boundTo.extensionId} bound it to ${conflict.boundTo.commandId} first`)}>
+                {commandLabel(conflict.commandId)} <Badge tone="warn">Ignored</Badge>
               </span>
-              <kbd>{chordLabel(conflict.keys, mac)}</kbd>
+              <Keycaps keys={conflict.keys} mac={mac} />
             </div>
           ))}
         </SettingsSection>
       ) : null}
 
-      {showAllCommands ? (
-        <SettingsSection
-          title={`All registered commands (${filteredCommands.length})`}
-          headerAction={<HelpTip label="How to bind" text={keymap ? "Add a chord to any command with its + button." : "Use any of these command ids in ~/.pi/agent/keybindings.json to bind a chord."} />}
-        >
-          {filteredCommands.map((command) => (
-            <CommandRow key={command.id} command={command} bound={keybindings.filter((b) => b.commandId === command.id)} context={context} commandLabel={commandLabel} />
-          ))}
-          {filteredCommands.length === 0 ? <SettingsState kind="empty" title="No command matches" action={<Button onClick={clearFilter}>Clear the search</Button>} /> : null}
-        </SettingsSection>
-      ) : null}
+      <p className="settings-footnote keybinding-foot">
+        {keymap ? <>A change is written to <code>{keymap.label}</code> and applies at once.</> : <>Rebind any command id or Pi action in <code>~/.pi/agent/keybindings.json</code>.</>}
+        <Button variant="ghost" aria-pressed={showAllCommands} onClick={() => setShowAllCommands((value) => !value)}>Every command</Button>
+        {keymap && custom ? <Button variant="ghost" onClick={() => setConfirmReset(true)}>Reset all</Button> : null}
+      </p>
 
       {confirmReset ? (
         <ConfirmDialog
@@ -465,7 +433,6 @@ export function KeybindingsPage({ registry, initialFilter = "", onNotify = () =>
           onConfirm={() => void resetAll()}
         />
       ) : null}
-
     </div>
   );
 }

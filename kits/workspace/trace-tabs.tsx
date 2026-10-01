@@ -6,7 +6,7 @@ import { useWorkbench } from "tau";
  * as one italic tab behind the one in front. Only calls that arrive while the
  * thread is on screen count, not the turn found on opening it.
  */
-export function TraceTabs() {
+export function TraceTabs({ enabled }: { enabled(): boolean }) {
   const { tools, registry, openFile, snapshot } = useWorkbench();
   const seen = useRef<{ thread?: string | undefined; ids: Set<string> }>({ ids: new Set() });
   const thread = snapshot?.sessionId;
@@ -19,7 +19,7 @@ export function TraceTabs() {
       if (seen.current.ids.has(tool.id)) continue;
       seen.current.ids.add(tool.id);
       const file = registry.presentTool(tool).file;
-      if (file) openFile(file, { trace: true });
+      if (file && enabled()) openFile(file, { trace: true });
     }
   }, [openFile, registry, thread, tools]);
   return null;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chordFromKeyboardEvent, chordMatchesEvent, formatKeyChord, isModified, normalizeKeyChord, parseKeyChord, platformChordId } from "./keybindings";
+import { chordFromKeyboardEvent, chordMatchesEvent, formatKeyChord, isModified, keyChordParts, normalizeKeyChord, parseKeyChord, platformChordId } from "./keybindings";
 
 const event = (init: Partial<KeyboardEvent> & { key: string }) =>
   ({ metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...init }) as KeyboardEvent;
@@ -63,6 +63,9 @@ describe("key chords", () => {
   it("formats chords the way each platform writes them", () => {
     expect(formatKeyChord(parseKeyChord("mod+shift+s")!, true)).toBe("⇧⌘S");
     expect(formatKeyChord(parseKeyChord("mod+shift+s")!, false)).toBe("Ctrl+Shift+S");
+    // A keycap per key (design 2g).
+    expect(keyChordParts(parseKeyChord("mod+shift+\\")!, true)).toEqual(["⇧", "⌘", "\\"]);
+    expect(keyChordParts(parseKeyChord("f2")!, false)).toEqual(["F2"]);
     expect(formatKeyChord(parseKeyChord("escape")!, true)).toBe("Esc");
     expect(formatKeyChord(parseKeyChord("ctrl+l")!, true)).toBe("⌃L");
     expect(formatKeyChord(parseKeyChord("alt+enter")!, false)).toBe("Alt+↵");

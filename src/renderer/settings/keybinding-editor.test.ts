@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ExtensionRegistry } from "../extension-system";
-import { chordsAfterEdit, keybindingSource, pressesKeys, userChord, whenError, whenSuggestions } from "./keybinding-editor";
+import { chordsAfterEdit, keybindingPlace, keybindingSource, pressesKeys, userChord, whenError, whenSuggestions } from "./keybinding-editor";
 
 function registry() {
   const keys = new ExtensionRegistry();
@@ -68,5 +68,15 @@ describe("the keybinding editor's rules", () => {
     expect(pressesKeys({ keys: "mod+p" }, "ctrl+p", false)).toBe(true);
     expect(pressesKeys({ keys: "mod+p" }, "ctrl+p", true)).toBe(false);
     expect(pressesKeys({ keys: "mod+shift+p" }, "mod+p", true)).toBe(false);
+  });
+
+  it("places a command in the design's card, its rows first in order, the rest by id and group", () => {
+    expect(keybindingPlace("runtime.command-palette")).toEqual({ card: "app", rank: 0, named: true });
+    expect(keybindingPlace("workspace.commit")).toMatchObject({ card: "thread", named: true });
+    expect(keybindingPlace("terminal.split")).toMatchObject({ card: "stage", named: false });
+    expect(keybindingPlace("prompt-tools.stash")).toMatchObject({ card: "conversation", named: false });
+    expect(keybindingPlace("thread.archive")).toMatchObject({ card: "thread", named: false });
+    expect(keybindingPlace("acme.thing", "Terminal").card).toBe("stage");
+    expect(keybindingPlace("acme.thing", "Extensions").card).toBe("app");
   });
 });

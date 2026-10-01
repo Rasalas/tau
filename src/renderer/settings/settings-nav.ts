@@ -52,12 +52,12 @@ export const CORE_PAGE_TITLES: Readonly<Record<CoreSettingsPage, string>> = {
 /** What a core page governs, in one sentence under its title; the search finds it too. */
 export const CORE_PAGE_DESCRIPTIONS: Readonly<Record<CoreSettingsPage, string>> = {
   general: "How the transcript and the composer behave, and how Tau runs in the background and quits.",
-  keybindings: "The keys for the workbench's commands and Pi's actions, and where each of them applies.",
+  keybindings: "Shortcuts follow the layer you are in: the app, the conversation, the stage. Conflicts are shown as you type.",
   models: "What a new thread starts with: its model and how hard it thinks, and what Pi samples with.",
   providers: "Who each runtime is signed in as and the providers it reaches, where its program lives, and the models it offers.",
   runtimes: "A runtime is the program that runs a thread, with its own tools, approvals and sessions; providers are what it talks to. The composer picks one per thread.",
   pi: "Pi's own settings, shared with the Pi CLI. A change applies to the next thread Tau starts; a running one keeps what it began with.",
-  connections: "How other devices reach this machine's Tau: its addresses, the devices you paired and links to pair another.",
+  connections: "Devices that talk to this machine directly, and the tools threads hand off to. Pairing uses a code you compare on both sides.",
   extensions: "Everything that adds to Tau, bundled or installed. Turn one on or off, approve what it asks for, or open its page.",
   inspector: "Every extension both halves know and the package folders on disk, to find out why something did not load.",
   about: "The version of Tau on this machine, its updates and the licences of the software it ships.",

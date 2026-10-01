@@ -64,7 +64,8 @@ describe("the Settings screen", () => {
     // "defaults" is the older name of General. A page at the top has no breadcrumb.
     const head = page.querySelector<HTMLElement>(".settings-page-head")!;
     expect(within(head).getByRole("heading", { level: 1, name: "General" })).toBeTruthy();
-    expect(within(head).getByText(CORE_PAGE_DESCRIPTIONS.general)).toBeTruthy();
+    // General is cards under its title alone (design 2i).
+    expect(within(head).queryByText(CORE_PAGE_DESCRIPTIONS.general)).toBeNull();
     expect(within(page).queryByRole("navigation", { name: "Settings breadcrumb" })).toBeNull();
     // Above the search and under About: both go to the thread, past a page Settings was opened over.
     const backs = within(page).getAllByRole("button", { name: "Back to thread" });

@@ -130,6 +130,8 @@ export interface WorkbenchControlHandle {
   focusStage(): void;
   /** Hides or shows the sidebar; on a compact client, the thread sheet. */
   toggleSidebar(): void;
+  /** Collapses the conversation to its spine beside a shown stage, or opens it again. */
+  toggleSpine(): void;
   /** On a compact layout a panel is a sheet: true when this opened or closed one, false where the dock does it. */
   openSheet(id: string): boolean;
   closeSheet(id: string): boolean;
@@ -391,6 +393,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         return !open;
       });
     },
+    toggleSpine: () => setSpine((on) => !on),
     openSheet: (id) => {
       if (!compactRef.current.sheets.includes(id)) return false;
       setPanelSheet(id);

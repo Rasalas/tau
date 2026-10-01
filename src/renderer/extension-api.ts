@@ -180,6 +180,7 @@ export type {
   PageSummary,
   PageSummaryProps,
   PageProps,
+  SettingsCardId,
   SettingsSectionContribution,
   SettingsSectionPage,
   SettingsSectionProps,
