@@ -350,6 +350,8 @@ export interface HostThreadSendOptions {
   delivery?: "prompt" | "steer" | "queue";
   /** The thread that sent the message; the queue shows where it came from. */
   from?: string;
+  /** Images for the message, checked as a composer's are; a file is refused. New in API 1.46.0. */
+  attachments?: readonly UiPromptAttachment[];
 }
 
 /** A deleted thread waiting in the trash. */
@@ -412,6 +414,11 @@ export interface HostSessionServices {
   send?(sessionId: string, text: string, options?: HostThreadSendOptions): Promise<void>;
   /** Stops a thread's running turn, as the stop button does; what it had queued waits for the user. New in API 1.11.0. */
   abort?(sessionId: string): Promise<void>;
+  /**
+   * Changes a thread's model, on screen or not; a released runtime is reopened off screen.
+   * Rejects where its runtime has no model selection. New in API 1.46.0; absent on an older host.
+   */
+  setModel?(sessionId: string, provider: string, id: string): Promise<void>;
   /** Serializes with the host's own thread lifecycle work (open, switch, fork). */
   exclusive<T>(work: () => Promise<T>): Promise<T>;
   /**

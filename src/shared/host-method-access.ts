@@ -169,8 +169,8 @@ export function methodAccess(method: string): MethodAccess {
 /**
  * What a host may ask another machine's host on its threads' behalf
  * (`services.machines.request`, ADR 0027): reading, starting or continuing a
- * thread there, answering its questions, steering or stopping its run, and how
- * busy and how ready that machine is. A kit's own commands go through `call`; access
+ * thread there, answering its questions, steering or stopping its run, what models
+ * it offers, and how busy and how ready that machine is. A kit's own commands go through `call`; access
  * management, jobs, subscriptions and a window's methods never go.
  */
 export const MACHINE_REQUEST_METHODS = [
@@ -184,6 +184,7 @@ export const MACHINE_REQUEST_METHODS = [
   "send-to-thread",
   "answer-extension-ui",
   "sync-extension-ui",
+  "runtime-catalog",
   "host-resources",
   "readiness",
 ] as const satisfies readonly (keyof typeof HOST_METHOD_ACCESS)[];

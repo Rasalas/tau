@@ -938,7 +938,7 @@ as `host-extension`, and `request` sends only the methods in
 `MACHINE_REQUEST_METHODS` (`src/shared/host-method-access.ts`:
 `transcript-page`, `thread-tree`, `tool-output`, `abort`, `steer`,
 `follow-up`, `start-thread`, `send-to-thread`, `answer-extension-ui`,
-`sync-extension-ui`, `host-resources`, `readiness`); every other name is refused
+`sync-extension-ui`, `runtime-catalog`, `host-resources`, `readiness`); every other name is refused
 before it leaves. Named by the host's own id, a `read` method of that list is
 answered by the host itself. Writes to its own id are refused.
 
