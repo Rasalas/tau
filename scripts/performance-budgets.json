@@ -8,7 +8,7 @@
   "kitDesktopJavascriptBytes": 3100000,
   "buildTimeMs": 30000,
   "buildTimeReference": {
-    "referenceMs": 360,
+    "referenceMs": 266,
     "minSpeedFactor": 0.5,
     "historyEpoch": 1,
     "historyRuns": 20,
