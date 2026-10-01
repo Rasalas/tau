@@ -273,7 +273,7 @@ export class HostPublication {
    */
   runtimeBackends(): UiRuntimeBackend[] {
     const withModes = (modes: readonly string[] | undefined) => modes?.length ? { modes: [...modes] } : {};
-    const registered = sortByRuntimeOrder([...this.deps.backends()]).map((provider) => {
+    const registered = sortByRuntimeOrder([...this.deps.backends()].filter((provider) => !provider.hidden)).map((provider) => {
       const found = this.runtimeVersions.get(provider.kind);
       const updates = found ? this.deps.toolUpdates?.(provider.kind) : undefined;
       const version = found && updates ? { ...found, updates } : found;

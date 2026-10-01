@@ -50,7 +50,15 @@ there (`transcript-page`), sends and steers with `send-to-thread`, aborts with
 that thread, which the host follows over its connection there, into runtime
 events. It never calls `switch-session` or `new-session` there: the other
 machine's own active thread never changes. A new thread there starts with
-`start-thread`, off screen.
+`start-thread`, off screen. Host IDs are persisted 32-character hexadecimal
+identities, separate from machine display names. Loading an invalid saved ID
+fails without replacing it, so existing machine and workspace associations
+are never silently reassigned. A proxy ID is split at its first `~`; the full
+remote session ID after it is preserved, including further `~` characters.
+Each connection lists only threads whose home is that machine. Rows owned by
+its `machine` backend are excluded from discovery and lookup, so mutually
+paired hosts never mirror each other's proxy rows. Thread metadata follows
+the same ownership rule.
 
 **Kit calls follow the thread.** A call to Workspace, Files, Terminal or
 Review that names another machine's workspace, or that is made while such a

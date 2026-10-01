@@ -8,13 +8,20 @@ import { WORKSPACE_ID_PREFIX, isWorkspaceId, type WorkspaceRef } from "../shared
  * The host's own id, kept next to its other state. It survives restarts, so a
  * client's stored workspace ids keep pointing at the same directories, and it
  * is random, so an id says nothing about the machine that minted it.
+ * A saved id must be 32 hexadecimal characters; invalid ids are never replaced.
  */
 export function readOrCreateHostId(path: string): string {
+  let existing: string | undefined;
   try {
-    const existing = readFileSync(path, "utf8").trim();
-    if (existing.length >= 32) return existing;
-  } catch {
-    // Missing or unreadable: fall through and write a new one.
+    existing = readFileSync(path, "utf8").trim();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  if (existing !== undefined) {
+    if (!/^[0-9a-f]{32}$/iu.test(existing)) {
+      throw new Error(`Invalid host id in ${path}: must contain exactly 32 hexadecimal characters. The saved id was not replaced.`);
+    }
+    return existing;
   }
   const hostId = randomBytes(16).toString("hex");
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });

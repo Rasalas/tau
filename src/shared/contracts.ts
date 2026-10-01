@@ -411,6 +411,8 @@ export interface UiSession {
   messageCount: number;
   /** Lifecycle owner; older index entries default to Pi. */
   backendKind?: ThreadBackendKind;
+  /** The home machine of a proxy thread and its runtime marks. New in API 1.42.0. */
+  machine?: { id: string; name: string; backendKind?: string; modelProvider?: string };
   /** Provider of the thread's selected model, when the host has observed it. */
   modelProvider?: string;
   /** Id of that model, where the runtime or its session file names it (API 1.23.0). */

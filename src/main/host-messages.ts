@@ -571,6 +571,8 @@ export function sessionShellEqual(left: UiSession, right: UiSession): boolean {
     left.messageCount === right.messageCount && left.backendKind === right.backendKind &&
     left.modelProvider === right.modelProvider && left.model === right.model && left.parentThreadId === right.parentThreadId &&
     left.origin?.hostId === right.origin?.hostId && left.origin?.threadId === right.origin?.threadId &&
+    left.machine?.id === right.machine?.id && left.machine?.name === right.machine?.name &&
+    left.machine?.backendKind === right.machine?.backendKind && left.machine?.modelProvider === right.machine?.modelProvider &&
     threadUsageEqual(left.usage, right.usage);
 }
 
@@ -634,6 +636,7 @@ export function reconcileActiveThreadShell(
       ? { parentThreadId: input.parentThreadId ?? existing?.parentThreadId }
       : {}),
     ...(existing?.origin ? { origin: existing.origin } : {}),
+    ...(existing?.machine ? { machine: existing.machine } : {}),
   };
 }
 

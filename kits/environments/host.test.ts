@@ -64,4 +64,43 @@ describe("Machines Kit on the host", () => {
     const registry = await activateHostKit(createEnvironmentsHostExtension());
     await expect(registry.invoke(ENVIRONMENTS_EXTENSION_ID, "resources", { machine: "rex" })).rejects.toThrow(/keeps no machines/u);
   });
+
+  it("registers the hidden backend and throttles index rescans to one per second, then cleans up", async () => {
+    vi.useFakeTimers();
+    try {
+      const { machines } = fakeMachines([]);
+      let changedIndex: (() => void) | undefined;
+      const stopIndex = vi.fn();
+      machines.index = () => ({ projects: [], sessions: [] });
+      machines.followThread = vi.fn(() => () => undefined);
+      machines.subscribeIndex = (listener) => { changedIndex = () => listener("rex-id"); return stopIndex; };
+      const stopBackend = vi.fn();
+      const registerRuntimeBackend = vi.fn(() => stopBackend);
+      const refreshIndex = vi.fn(async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }));
+      const registry = await activateHostKit(createEnvironmentsHostExtension(), {
+        machines, registerRuntimeBackend, sessions: {
+          list: async () => [], open: () => { throw new Error("Not used."); },
+          prepare: async () => { throw new Error("Not used."); }, start: async () => { throw new Error("Not used."); },
+          remove: async () => undefined, restore: async () => undefined, trash: async () => [], purge: async () => undefined,
+          exclusive: (work) => work(), refreshIndex,
+        },
+      });
+      expect(registerRuntimeBackend).toHaveBeenCalledWith(expect.objectContaining({ kind: "machine", hidden: true, order: 90 }));
+      changedIndex?.();
+      changedIndex?.();
+      await vi.advanceTimersByTimeAsync(999);
+      expect(refreshIndex).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(refreshIndex).toHaveBeenCalledOnce();
+      changedIndex?.();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(refreshIndex).toHaveBeenCalledTimes(2);
+      changedIndex?.();
+      await registry.deactivate(ENVIRONMENTS_EXTENSION_ID);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(refreshIndex).toHaveBeenCalledTimes(2);
+      expect(stopIndex).toHaveBeenCalledOnce();
+      expect(stopBackend).toHaveBeenCalledOnce();
+    } finally { vi.useRealTimers(); }
+  });
 });

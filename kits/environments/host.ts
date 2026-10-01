@@ -1,6 +1,7 @@
 import type { HostExtension, HostMachineServices, HostReadiness, HostResources } from "tau/host-extension";
 import { readWeights } from "./choice.js";
 import { createMachineChooser } from "./chooser.js";
+import { createMachineBackendProvider } from "./machine-backend.js";
 import {
   AGENTS_EVENT,
   AGENTS_KIT_ID,
@@ -62,10 +63,20 @@ export function createEnvironmentsHostExtension(): HostExtension {
   return {
     id: ENVIRONMENTS_EXTENSION_ID,
     name: "Machines",
-    permissions: ["machines"],
+    permissions: ["machines", "runtime:extend", "sessions"],
     isolation: "in-process",
     activate(context) {
       const machines = context.services.machines;
+      const stopBackend = machines?.index && machines.followThread ? context.services.registerRuntimeBackend(createMachineBackendProvider(machines)) : undefined;
+      let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+      const stopIndex = stopBackend ? machines?.subscribeIndex?.(() => {
+        if (refreshTimer) return;
+        refreshTimer = setTimeout(() => {
+          refreshTimer = undefined;
+          void context.services.sessions.refreshIndex().catch((error: unknown) => context.services.log("machines.index-refresh-failed", error instanceof Error ? error.message : String(error)));
+        }, 1000);
+        refreshTimer.unref?.();
+      }) : undefined;
       context.registerCommand("agents", () => view(machines), { access: "read" });
       context.registerCommand("whoami", (_input, call): MachineIdentity => ({ device: call.device ?? null, owner: call.owner }), { access: "read" });
       context.registerCommand("probe", async (input): Promise<MachineProbe> => {
@@ -88,7 +99,7 @@ export function createEnvironmentsHostExtension(): HostExtension {
       });
       context.registerCommand(CHOOSE_MACHINE_COMMAND, (input) => choose(chooseInput(input)), { access: "read", callers: [AGENTS_KIT_ID] });
       const stop = machines?.subscribe(() => context.emit(AGENTS_EVENT, view(machines)));
-      return () => stop?.();
+      return () => { stop?.(); stopIndex?.(); clearTimeout(refreshTimer); stopBackend?.(); };
     },
   };
 }

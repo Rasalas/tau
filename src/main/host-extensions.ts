@@ -22,6 +22,7 @@ import type {
   UiThreadOrigin,
   UiThreadUsage,
   UiToolRun,
+  UiSession,
 } from "../shared/contracts.js";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
 import type { HostPushEvent } from "../shared/host-transport.js";
@@ -77,6 +78,10 @@ export interface HostBackendThreadRecord {
   updatedAt: number;
   /** Visible messages, enough for a title and a count. */
   messages: ReadonlyArray<Pick<UiMessage, "role" | "text">>;
+  /** A count without loading the transcript. New in API 1.42.0. */
+  messageCount?: number;
+  /** The home machine of a proxy thread and its runtime marks. New in API 1.42.0. */
+  machine?: UiSession["machine"];
   /** The model it last ran on, for its row before it opens; else the row shows `modelProvider` (API 1.24.0). */
   model?: Pick<UiModel, "provider" | "id">;
   /**
@@ -147,6 +152,8 @@ export interface HostRuntimeBackendProvider {
    * 10, 20 and 30 (API 1.11.0).
    */
   readonly order?: number;
+  /** Lists existing threads but stays out of new-thread runtime pickers. New in API 1.42.0. */
+  readonly hidden?: true;
   readonly adapter: AgentRuntimeAdapter;
   /** Provider identity used for the thread index when the backend has no selectable model. */
   readonly modelProvider?: string;

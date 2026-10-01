@@ -5,10 +5,12 @@
   "icon": "Network",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.35.0"
+    "api": "^1.42.0"
   },
   "permissions": [
-    "machines"
+    "machines",
+    "runtime:extend",
+    "sessions"
   ],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",

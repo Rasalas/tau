@@ -9,6 +9,16 @@ function shell(id: string, modifiedAt: number, title = id): UiSession {
 }
 
 describe("session index reconciliation", () => {
+  it("keeps the home machine on activation and republishes changes to its name or runtime", () => {
+    const existing = { ...shell("rex~t1", 1), machine: { id: "rex", name: "rex", backendKind: "codex", modelProvider: "openai" } };
+    const live = reconcileActiveThreadShell({ id: existing.id, path: existing.path, derivedTitle: "Work", now: 2, projectPath: "/remote", projectName: "remote", messageCount: 2 }, existing, false);
+    expect(live.machine).toEqual(existing.machine);
+    expect(sessionShellEqual(existing, { ...existing, machine: { ...existing.machine } })).toBe(true);
+    for (const machine of [{ ...existing.machine, name: "Rex" }, { ...existing.machine, backendKind: "pi" }, { ...existing.machine, modelProvider: "anthropic" }, { ...existing.machine, id: "other" }]) {
+      expect(sessionIndexUpdates([existing], [{ ...existing, machine }])).toHaveLength(1);
+    }
+  });
+
   it("keeps every persisted thread when the renderer virtualizes the list", async () => {
     const sessions = Array.from({ length: 120 }, (_, index) => ({
       id: `thread-${index}`,
