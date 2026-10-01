@@ -55,6 +55,7 @@ export function CompactAtRow() {
   const compactAt = useSetting<CompactAt>(`values.${RESUME_COMPACTION_EXTENSION_ID}.${COMPACT_AT_KEY}`, { defaultValue: DEFAULT_COMPACT_AT, read: readCompactAt });
   return (
     <SettingRow
+      id="setting-compact-context"
       title="Compact context"
       description="when it passes · Pi threads"
       setting={compactAt}

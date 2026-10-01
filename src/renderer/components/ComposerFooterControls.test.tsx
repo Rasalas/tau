@@ -123,6 +123,21 @@ describe("ComposerFooterControls", () => {
     expect([...menu.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Kit", "Compact context", "Attach files", "Access"]);
   });
 
+  it("never folds a pinned block, however narrow the row gets", () => {
+    available = 400;
+    const pinned: FooterBlock[] = [
+      { id: "reasoning", pinned: true, node: <button type="button" className="runtime-chip">High · 1M</button> },
+      { id: "kit", node: chip("Kit", "kit.open") },
+    ];
+    const Row = ({ revision }: { revision: string }) => <ComposerFooterControls revision={revision} leading={<button type="button" className="runtime-chip">Model</button>} blocks={pinned} />;
+    const view = render(<Row revision="a" />);
+    available = 60;
+    view.rerender(<Row revision="b" />);
+    expect(block("reasoning")).not.toBeNull();
+    expect(block("kit")).toBeNull();
+    expect(screen.getByLabelText("More composer controls")).toBeTruthy();
+  });
+
   it("keeps a menu-only block in the menu at any width, before the menu's own entries", () => {
     available = 900;
     render(<ComposerFooterControls revision="a" leading={null} blocks={[

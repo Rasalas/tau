@@ -13,6 +13,8 @@ export interface RowCell {
   chosen(way: Offering): string | undefined;
   /** ⌘n reaches it. */
   jump(key: string): number | undefined;
+  /** In "Recent": the thinking level the model was last used with. */
+  level(way: Offering): string | undefined;
   onFavourite(way: Offering): void;
   onHide(entry: ModelEntry): void;
   /** Search lists legacy models flat, tagged. */
@@ -49,6 +51,7 @@ export function EntryRow({ id, entry, way, selected, cells, onPoint, onLeave, on
   const current = cells.inUse(entry);
   const chosen = cells.chosen(way);
   const jump = cells.jump(way.key);
+  const level = cells.level(way);
   const hidden = entry.ways.every((item) => item.hidden);
   const legacy = entry.ways.every((item) => item.legacy);
   const facts = entryFacts(entry.ways);
@@ -71,6 +74,7 @@ export function EntryRow({ id, entry, way, selected, cells, onPoint, onLeave, on
           {cells.showLegacy && legacy ? <span className="model-badge">legacy</span> : null}
           {hidden ? <span className="model-badge">hidden</span> : null}
           {chosen ? <em className="model-chosen">{chosen}</em> : null}
+          {level ? <em className="model-chosen">{level}</em> : null}
           {cells.badges.filter((badge) => wears(badge, model, runtime)).map((badge) => (
             <span key={badge.id} className={`model-badge${badge.tone === "warning" ? " model-badge-warning" : ""}`} title={badge.title}>{badge.label}</span>
           ))}

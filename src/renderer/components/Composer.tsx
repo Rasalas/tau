@@ -17,7 +17,7 @@ import { WorkbenchShellContext } from "../workbench-context";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { AttachmentLightbox, ComposerMenuItem, ExtensionPrompt, ThinkingMenu } from "../deferred-surfaces";
 import { tooltipProps } from "./ui/Tooltip";
-import { contextChoices, formatTokens, modelFamily, modelKey } from "./model-offerings";
+import { contextChoices, formatTokens, modelFamily, modelKey, offeringKey } from "./model-offerings";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { DEFAULT_RUNTIME, modelOnPlan } from "../runtime-marks";
 import { usePreferences } from "../renderer-services-context";
@@ -501,7 +501,8 @@ export function Composer({
     if (runtimeChoice && runtime && runtimeChoice.kind !== runtime) runtimeChoice.onSelect(runtime);
     onSetModel(model.provider, model.id);
   };
-  const chooseModel = (model: UiModel, from?: ThreadBackendKind) => {
+  /** `recentLevel` is a recent row's thinking level, put back with the model. */
+  const chooseModel = (model: UiModel, from?: ThreadBackendKind, recentLevel?: string) => {
     const runtime = from ?? snapshot?.backendKind;
     // A thread keeps its runtime; another runtime's model means a thread of its own, carried over where a kit can.
     if (from && from !== snapshot?.backendKind && !runtimeChoice) {
@@ -515,6 +516,7 @@ export function Composer({
       () => {
         passed = true;
         const before = { model: snapshot?.model, level: snapshot?.thinkingLevel, runtime: runtimeChoice?.kind ?? snapshot?.backendKind };
+        const wantLevel = recentLevel || before.level;
         const wasFast = speed.state?.fast === true && speed.state.available;
         applyModel(model, runtime);
         // The level carries over, or the next lower one the model has.
@@ -522,10 +524,11 @@ export function Composer({
         const levels = catalogLevels(cached?.status === "ready" ? cached.catalog : undefined, model);
         const parts: string[] = [];
         // Only a level that was chosen: a model without levels reports "off".
-        if (before.level && levels.length > 0 && thinkingSelectionAvailable) {
-          const next = carriedLevel(before.level, levels);
+        if (wantLevel && levels.length > 0 && thinkingSelectionAvailable) {
+          const next = carriedLevel(wantLevel, levels);
           onSetThinking(next);
-          if (next !== before.level) parts.push(`Thinking is ${thinkingLabel(next)} now: ${model.name} has no ${thinkingLabel(before.level)}.`);
+          preferences.noteModelLevel(offeringKey(runtime, model), next);
+          if (!recentLevel && before.level && next !== before.level) parts.push(`Thinking is ${thinkingLabel(next)} now: ${model.name} has no ${thinkingLabel(before.level)}.`);
         }
         const undo = () => {
           setAdjusted(undefined);
@@ -834,7 +837,7 @@ export function Composer({
   // Kits' chips fold into the menu first; attach lives there (and in drag and paste).
   const contextPercent = contextUsage ? Math.round(Math.min(100, Math.max(0, contextUsage.percent))) : 0;
   const footerBlocks: FooterBlock[] = [
-    ...(thinkingWords ? [{ id: "reasoning", rank: 3, node: (
+    ...(thinkingWords ? [{ id: "reasoning", pinned: true, node: (
       <button
         ref={thinkingChipRef}
         className="runtime-chip composer-thinking-chip"
@@ -1283,7 +1286,11 @@ export function Composer({
           snapshot={snapshot}
           levels={thinkingSelectionAvailable ? snapshot?.thinkingLevels ?? [] : []}
           ownsThinking={runtimeOwnsModel}
-          onLevel={onSetThinking}
+          onLevel={(level) => {
+            onSetThinking(level);
+            // Kept with the model's entry in "Recent".
+            if (snapshot?.model) preferences.noteModelLevel(offeringKey(runtimeChoice?.kind ?? snapshot.backendKind, snapshot.model), level);
+          }}
           contexts={contexts}
           onContext={(twin) => { if (twin.id !== inUse?.id) chooseModel(twin); }}
           speed={speed.state}

@@ -160,6 +160,32 @@ describe("ModelPicker (K142 B: model first)", () => {
     expect(optionNames()).toEqual(["GPT-5.6 Sol, Codex, Plan"]);
   });
 
+  it("lists a recent model with the thinking level it was last used with, and hands it back on a pick", () => {
+    const preferences = new PreferencesStore();
+    preferences.noteModelUsed("openai/gpt-5.6-sol");
+    preferences.noteModelLevel("openai/gpt-5.6-sol", "high");
+    // A model that is no recent one keeps no level.
+    preferences.noteModelLevel("openai/gpt-5.6-luna", "low");
+    expect(preferences.getSnapshot().recentLevels).toEqual({ "openai/gpt-5.6-sol": "high" });
+    const onSelect = renderPicker({ preferences, runtime: "pi", onSelect: vi.fn() }) as ReturnType<typeof vi.fn>;
+    fireEvent.click(railButton("Recent"));
+    expect(screen.getByRole("option", { name: /GPT-5.6 Sol/u }).textContent).toContain("High");
+    fireEvent.click(screen.getByRole("option", { name: /GPT-5.6 Sol/u }));
+    expect(onSelect).toHaveBeenCalledWith(models[5], undefined, "high");
+    // Another rail entry hands over no level.
+    fireEvent.click(railButton("OpenAI"));
+    onSelect.mockClear();
+    fireEvent.click(screen.getByRole("option", { name: /GPT-5.6 Sol/u }));
+    expect(onSelect.mock.calls[0]).toHaveLength(1);
+  });
+
+  it("adds a badge's line after the facts under Runs with, for the way highlighted", () => {
+    const badge = { id: "test.left", applies: () => false, label: "Plan", WayLine: ({ runtime }: { runtime: string }) => <> · 65% left on {runtime}</> };
+    render(<TestProviders><ModelPicker models={models} activeKey="anthropic/claude-opus-5" onSelect={vi.fn()} onClose={() => {}} anchor={{ current: null }} badges={[badge]} /></TestProviders>);
+    expect(document.querySelector(".model-ways-note")!.textContent).toMatch(/ · 65% left on pi$/u);
+    expect(screen.queryByText("Plan", { selector: ".model-badge" })).toBeNull();
+  });
+
   it("folds a maker's legacy models behind one row and badges the newest", () => {
     renderPicker();
     fireEvent.click(railButton("Anthropic"));

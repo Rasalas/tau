@@ -135,7 +135,8 @@ export const environmentsExtension: DesktopExtension = {
     }
     const MachineCardRow = createMachineCardRow(environments);
     const runOnSource = createRunOnSource(environments, context.host, bringing, () => context.preferences.value(ENVIRONMENTS_EXTENSION_ID, RUN_ON_DEFAULT_KEY) as RunOnDefault);
-    context.registerSettingsSection({ id: "environments.run-on", page: "general", card: "new-threads", order: 10, profiles: ["desktop"], Component: RunOnDefaultRow });
+    context.registerSettingsSection({ id: "environments.run-on", page: "general", card: "new-threads", order: 10, profiles: ["desktop"], Component: RunOnDefaultRow,
+      rows: [{ id: "setting-run-on", label: "Run on", keywords: ["machine", "ask", "this machine", "last used", "new threads"] }] });
     // A phone or tablet lists them in its own thread list, and says there which machine is out of reach (API 1.30.0).
     context.registerThreadListSource?.({ id: "environments.threads", subscribe: threads.subscribe, threads: threads.threads, here: hereOf(environments) });
     // The arrival follows from the list or from a draft the phone reopened, whichever mounts first.

@@ -658,7 +658,7 @@ export interface ComposerSpeedContribution extends ProfileScoped {
   set(fast: boolean, snapshot: HostSnapshot | undefined): void | Promise<void>;
 }
 
-/** A mark on a model's row in the model picker. */
+/** A mark on a model's row in the model picker, and optionally a line under "Runs with". */
 export interface ModelBadgeContribution extends ProfileScoped {
   id: string;
   order?: number;
@@ -670,6 +670,12 @@ export interface ModelBadgeContribution extends ProfileScoped {
   tone?: "neutral" | "warning";
   /** One line under the list while any listed model wears this badge. */
   note?: string;
+  /**
+   * Added after the facts under "Runs with" for the way highlighted there,
+   * whether or not the model wears the badge: what an account has left, say.
+   * It draws nothing when it has nothing to say, and must not throw.
+   */
+  WayLine?: ComponentType<{ model: UiModel; runtime: ThreadBackendKind }>;
 }
 
 export interface PanelProps {

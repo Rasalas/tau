@@ -8,6 +8,7 @@ import { ComposerScopeStore } from "../../workbench/composer-scope-store";
 import { createKitHarness } from "../test-support/kit-harness";
 import { TestProviders } from "../test-support/test-providers";
 import { WorkbenchShellContext } from "../workbench-context";
+import { PreferencesStore } from "../preferences";
 import { Composer } from "./Composer";
 
 const opus: UiModel = { provider: "anthropic", id: "claude-opus-5-5", name: "Claude Opus 5.5", contextWindow: 200_000 };
@@ -35,19 +36,19 @@ function speedKit() {
   };
 }
 
-function renderComposer(snapshot: HostSnapshot, speed?: ReturnType<typeof speedKit>) {
+function renderComposer(snapshot: HostSnapshot, speed?: ReturnType<typeof speedKit>, preferences?: PreferencesStore) {
   const { registry } = createKitHarness();
   if (speed) registry.activate({ id: "test.speed", name: "Speed", activate(context) { context.registerComposerSpeed(speed.contribution); } });
   const onSetModel = vi.fn();
   const onSetThinking = vi.fn();
-  const view = render(<TestProviders><WorkbenchShellContext.Provider value={{ registry }}>
+  const view = render(<TestProviders preferences={preferences}><WorkbenchShellContext.Provider value={{ registry }}>
     <Composer
       scopeStore={new ComposerScopeStore()} snapshot={snapshot} queue={[]} contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
       textareaRef={createRef<HTMLTextAreaElement>()} onSubmit={vi.fn(async () => ({ accepted: true as const }))}
       onAbort={() => {}} onCancelQueued={() => {}} onSteerQueued={() => {}} onSetModel={onSetModel} onSetThinking={onSetThinking} onCompactContext={() => {}}
     />
   </WorkbenchShellContext.Provider></TestProviders>);
-  const rerender = (next: HostSnapshot) => view.rerender(<TestProviders><WorkbenchShellContext.Provider value={{ registry }}>
+  const rerender = (next: HostSnapshot) => view.rerender(<TestProviders preferences={preferences}><WorkbenchShellContext.Provider value={{ registry }}>
     <Composer
       scopeStore={new ComposerScopeStore()} snapshot={next} queue={[]} contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
       textareaRef={createRef<HTMLTextAreaElement>()} onSubmit={vi.fn(async () => ({ accepted: true as const }))}
@@ -81,6 +82,14 @@ describe("the thinking chip (K142)", () => {
     fireEvent.click(within(menu).getByRole("radio", { name: /^Standard/u }));
     expect(speed.set).toHaveBeenCalledWith(false, expect.objectContaining({ sessionId: "session" }));
     expect(screen.getByLabelText("Thinking: High · 200k").querySelector(".composer-fast")).toBeNull();
+  });
+
+  it("keeps the level set in the menu with the model's entry in Recent", async () => {
+    const preferences = new PreferencesStore();
+    preferences.noteModelUsed("anthropic/claude-opus-5-5");
+    renderComposer(base, speedKit(), preferences);
+    fireEvent.click(within(await openMenu(/^Thinking: High/u)).getByRole("radio", { name: /^Low/u }));
+    expect(preferences.getSnapshot().recentLevels).toEqual({ "anthropic/claude-opus-5-5": "low" });
   });
 
   it("greys Fast with the reason where no kit offers it, and leaves out a context window there is no choice of", async () => {

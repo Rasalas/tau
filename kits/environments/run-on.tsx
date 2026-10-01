@@ -155,7 +155,8 @@ export function createRunOnSource(environments: PlatformEnvironments, host?: Hos
   // Settings' Run on: This machine brings a new draft home once, as it opens.
   let homed = false;
   const source: DraftMachineSource = {
-    openOnDraft: () => runOnDefault() === "ask",
+    // With one machine there is nothing to ask.
+    openOnDraft: () => runOnDefault() === "ask" && (environments.getSnapshot()?.environments.length ?? 0) > 1,
     useMachine(props) {
       const state = useRunOn(props);
       const draft = state?.isDraft;
@@ -233,6 +234,6 @@ const RUN_ON_CHOICES: ReadonlyArray<{ value: RunOnDefault; label: string }> = [{
 /** General's New threads card (design 2i): the machine a new thread starts on. */
 export function RunOnDefaultRow() {
   const runOn = useSetting<RunOnDefault>(`values.${ENVIRONMENTS_EXTENSION_ID}.${RUN_ON_DEFAULT_KEY}`, { defaultValue: "last", read: (raw) => raw as RunOnDefault | undefined });
-  return <SettingRow title="Run on" setting={runOn}
+  return <SettingRow id="setting-run-on" title="Run on" setting={runOn}
     control={<SegmentedControl label="Run on" value={runOn.value} options={RUN_ON_CHOICES} onChange={runOn.set} />} />;
 }

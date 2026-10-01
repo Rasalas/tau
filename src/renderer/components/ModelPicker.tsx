@@ -10,6 +10,7 @@ import { usePreferences } from "../renderer-services-context";
 import { DEFAULT_RUNTIME, modelOnPlan } from "../runtime-marks";
 import { runtimeInstanceId } from "../../shared/runtime-instances";
 import { runtimeUpdate } from "../runtime-update";
+import { THINKING_LABELS } from "../thinking-levels";
 import {
   FAVOURITES_VIEW, RUNTIME_STATUS_LABELS, makerView, pickerRuntimes, pickerViews, runtimeView, type RuntimeEntry, type RuntimeStatus, type ViewEntry,
 } from "./model-picker-rail";
@@ -172,8 +173,8 @@ export function ModelPicker({
   models: readonly UiModel[];
   /** `provider/id` of the model in use, from the catalog on hand. */
   activeKey?: string;
-  /** `runtime` is set for a model of another runtime's catalog than the one on hand. */
-  onSelect(model: UiModel, runtime?: ThreadBackendKind): void;
+  /** `runtime` is set for a model of another runtime's catalog than the one on hand; `level` for a recent row's thinking level. */
+  onSelect(model: UiModel, runtime?: ThreadBackendKind, level?: string): void;
   onClose(): void;
   /** The runtime the thread runs on, or the one a thread that does not exist yet will start on. */
   runtime?: ThreadBackendKind;
@@ -427,6 +428,8 @@ export function ModelPicker({
   const wayBackend = highlightedWay ? runtimes.find((entry) => entry.backend.kind === highlightedWay.runtime)?.backend : undefined;
   const update = wayBackend ? runtimeUpdate(wayBackend) : undefined;
 
+  // A row of "Recent" brings back the level it was last used with.
+  const recentLevel = (way: Offering) => current.kind === "recent" && !needle ? settings.recentLevels[way.key] : undefined;
   /** Applies `way`. A sheet stays open while the thread stays where it is, so a way or Thinking can follow. */
   const choose = (way: Offering, add = false) => {
     if (multiSelect && add) {
@@ -436,7 +439,9 @@ export function ModelPicker({
     multiSelect?.reset();
     preferences.noteModelUsed(way.key);
     const moves = way.runtime !== onHand;
-    if (moves) onSelect(way.model, way.runtime);
+    const level = recentLevel(way);
+    if (level) onSelect(way.model, moves ? way.runtime : undefined, level);
+    else if (moves) onSelect(way.model, way.runtime);
     else onSelect(way.model);
     if (!asSheet || (moves && !draft)) onClose();
   };
@@ -587,6 +592,7 @@ export function ModelPicker({
       return chosen.includes(selected) ? selectedLabel(chosen, selected) : chosen.includes(legacy) ? selectedLabel(chosen, legacy) : undefined;
     },
     jump: (key) => jumps.get(key),
+    level: (way) => THINKING_LABELS[recentLevel(way) ?? ""],
     onFavourite: (way) => preferences.toggleFavouriteModel(way.key),
     onHide: (entry) => {
       const hide = !entry.ways.every((way) => way.hidden);
@@ -659,7 +665,10 @@ export function ModelPicker({
         {leaves ? <>
           <CornerDownRight size={13} className="model-ways-glyph" aria-hidden />
           <span>This thread runs with {threadRuntimeName}. <b>{compact ? "Choosing it" : "↵"} {carries ? "continues in a new thread" : "starts a new thread"}</b> with {leaves.runtimeLabel}{carries ? ", carrying a summary" : ""}.</span>
-        </> : [providerStackLabel(highlightedWay.model.provider, highlightedWay.runtime, { plan: modelOnPlan(highlightedWay.model) }), ...modelFacts(highlightedWay.model, highlightedWay.customPrice)].join(" · ")}
+        </> : <>
+          {[providerStackLabel(highlightedWay.model.provider, highlightedWay.runtime, { plan: modelOnPlan(highlightedWay.model) }), ...modelFacts(highlightedWay.model, highlightedWay.customPrice)].join(" · ")}
+          {badges.map(({ id, WayLine }) => WayLine ? <WayLine key={id} model={highlightedWay.model} runtime={highlightedWay.runtime} /> : null)}
+        </>}
       </p>
     </footer>
   ) : null;

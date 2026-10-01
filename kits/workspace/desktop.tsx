@@ -129,9 +129,11 @@ export const workspaceExtension: DesktopExtension = {
     context.registerRegion({ id: "workspace.title-actions", placement: "title-bar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceTitleActions) });
     context.registerRegion({ id: "workspace.trace-tabs", placement: "title-bar", profiles: ["desktop"], Component: () => <TraceTabs enabled={() => context.preferences.optionValue(WORKSPACE_HOST_EXTENSION_ID, TRACE_TABS_OPTION, true)} /> });
     context.registerSettingsSection({ id: "workspace.new-threads", page: "general", card: "new-threads", order: 20, profiles: ["desktop"], Component: bind(NewThreadRows),
-      rows: [{ id: "setting-new-thread-workspace", label: "New threads run in" }] });
-    context.registerSettingsSection({ id: "workspace.this-machine", page: "connections", card: "this-machine", order: 10, profiles: ["desktop"], Component: bind(ThisMachineRows) });
-    context.registerSettingsSection({ id: "workspace.trace-tabs", page: "general", card: "threads", profiles: ["desktop"], Component: TraceTabsRow });
+      rows: [{ id: "setting-new-thread-workspace", label: "New threads run in" }, { id: "setting-branch-name", label: "Branch name", keywords: ["worktree", "from prompt", "random"] }] });
+    context.registerSettingsSection({ id: "workspace.this-machine", page: "connections", card: "this-machine", order: 10, profiles: ["desktop"], Component: bind(ThisMachineRows),
+      rows: [{ id: "setting-editor", label: "Editor", keywords: ["open in editor", "vscode", "zed"] }, { id: "setting-worktrees-under", label: "Worktrees under", keywords: ["git", "folder", "directory", "worktree"] }] });
+    context.registerSettingsSection({ id: "workspace.trace-tabs", page: "general", card: "threads", profiles: ["desktop"], Component: TraceTabsRow,
+      rows: [{ id: "setting-trace-tabs", label: "Trace tabs", keywords: ["files the agent touches", "tabs"] }] });
     // The design's Editor button at the stage strip's right end.
     context.registerRegion({ id: "workspace.open-in", placement: "stage-bar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceEditorButton) });
     // The header's branch: a menu over the checkout; for a new thread "project · machine · no worktree yet".
@@ -418,8 +420,10 @@ export const workspaceExtension: DesktopExtension = {
       },
     });
     context.registerKeybinding({ keys: "mod+e", commandId: "workspace.open-prompt-editor" });
+    const stopDefault = store.followDefaultChanges();
     return () => {
       stopTopics.forEach((stop) => stop?.());
+      stopDefault();
       unpublishIcons();
       window.clearInterval(autoPullTimer);
       window.removeEventListener("focus", autoPull);
