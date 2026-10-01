@@ -212,7 +212,7 @@ function createSettleRow(store: RailStore, update: (settings: Partial<Record<key
     const days = settings.inactiveDays;
     const on = settings.onMerged || days !== undefined;
     return (
-      <SettingRow id="setting-settle-automatically" title="Settle automatically" description={on ? `after a merge, or ${daysLabel(days ?? 7)} idle` : undefined}
+      <SettingRow id="setting-settle-automatically" title="Settle automatically" wholeMachine description={on ? `after a merge, or ${daysLabel(days ?? 7)} idle` : undefined}
         control={<Switch label="Settle automatically" checked={on} onChange={(next) => {
           update(next ? { onMerged: true, inactiveDays: days ?? 7 } : { onMerged: false, onClosed: false, inactiveDays: null }).catch((error: unknown) => onNotify(errorMessage(error)));
         }} />} />

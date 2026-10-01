@@ -217,7 +217,6 @@ export const workspaceExtension: DesktopExtension = {
       group: "projects",
       Icon: GitBranch,
       order: 35,
-      scope: "both",
       keywords: ["git", "worktree", "submodules", "pull", "fast-forward", "default branch", "clone", "base folder", "origin"],
       rows: SOURCE_CONTROL_SETTINGS_ROWS,
       profiles: ["desktop", "web"],

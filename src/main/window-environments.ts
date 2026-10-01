@@ -21,7 +21,8 @@ import type {
 } from "../shared/environments.js";
 import type { HostExtensionSummary } from "../shared/contracts.js";
 import type { TranscriptPage } from "../shared/host-protocol.js";
-import type { HostPushEvent } from "../shared/host-transport.js";
+import { HOST_ERROR, type HostPushEvent } from "../shared/host-transport.js";
+import type { ConfigLayers } from "../shared/config-layers.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import { agentsDeviceName, environmentProjects, environmentThreads, orderEndpoints, refreshEndpoints, sameEndpoints, socketUrl } from "../shared/environments.js";
 import type { PairingEndpoint } from "../shared/connections.js";
@@ -606,6 +607,36 @@ export class WindowEnvironments {
       ? await watched.monitor.call<unknown>("update-config", [personPreferences(patch), "global"])
       : await watched.monitor.call<unknown>("get-config", []);
     return personPreferences(config);
+  }
+
+  /**
+   * A machine's own settings (K170), read and written at its machine level
+   * over the window's connection there. Its host decides with the window's
+   * key, so a Read-only pairing reads but is refused a change.
+   */
+  async configLayers(machine: string): Promise<ConfigLayers> {
+    const { id, watched } = this.reachable(machine);
+    return this.settingsCall(id, () => watched.monitor.call<ConfigLayers>("get-config-layers", []));
+  }
+
+  async updateConfig(machine: string, patch: Record<string, unknown>): Promise<unknown> {
+    const { id, watched } = this.reachable(machine);
+    return this.settingsCall(id, () => watched.monitor.call("update-config", [patch, "global"]));
+  }
+
+  async clearConfig(machine: string, keys: readonly string[]): Promise<unknown> {
+    const { id, watched } = this.reachable(machine);
+    return this.settingsCall(id, () => watched.monitor.call("clear-config", [keys, "global"]));
+  }
+
+  private async settingsCall<T>(id: string, call: () => Promise<T>): Promise<T> {
+    try {
+      return await call();
+    } catch (error) {
+      if ((error as { code?: unknown } | null)?.code !== HOST_ERROR.unknownMethod) throw error;
+      const name = this.machineName(id);
+      throw Object.assign(new Error(`${name} runs an older Tau that cannot share its settings yet. Update ${name} in Settings → Machines.`, { cause: error }), { code: HOST_ERROR.unknownMethod });
+    }
   }
 
   async readExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown> {

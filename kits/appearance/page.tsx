@@ -16,7 +16,7 @@ const DENSITY_CHOICES = (Object.keys(DENSITY_LABELS) as Density[]).map((next) =>
 
 /** Density, on this page and in General's Appearance card. */
 export function DensityRow({ description }: { description?: string }) {
-  const density = useSetting<Density>(value(SETTING_KEYS.density), { defaultValue: "normal", scope: "both", read: readDensity, format: (next) => DENSITY_LABELS[next] });
+  const density = useSetting<Density>(value(SETTING_KEYS.density), { defaultValue: "normal", read: readDensity, format: (next) => DENSITY_LABELS[next] });
   return (
     <SettingRow
       id="setting-appearance-density"

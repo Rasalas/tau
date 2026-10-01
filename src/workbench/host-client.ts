@@ -294,6 +294,10 @@ export interface HostClient {
   readEnvironmentExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown>;
   /** Another machine's own Tau over the window's connection there: how it stands, a check, or an install (K103). */
   updateEnvironment?(machine: string, action: HostUpdateAction): Promise<HostUpdateStatus>;
+  /** Another machine's settings at its machine level, over the window's connection there (K170). */
+  getEnvironmentConfig(machine: string): Promise<ConfigLayers>;
+  updateEnvironmentConfig(machine: string, patch: Partial<TauConfig>): Promise<unknown>;
+  clearEnvironmentConfig(machine: string, keys: readonly string[]): Promise<unknown>;
   /** The person's preferences as the window's own machine keeps them; with a patch, written there. */
   personPreferences?(patch?: PersonPreferences): Promise<PersonPreferences>;
 
@@ -498,6 +502,9 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     followEnvironmentExtension: (machine, extensionId, on) => call<void>("environments-extension-follow", [machine, extensionId, on]),
     readEnvironmentExtension: (machine, extensionId, command, input) => call<unknown>("environments-extension-read", input === undefined ? [machine, extensionId, command] : [machine, extensionId, command, input]),
     updateEnvironment: (machine, action) => call<HostUpdateStatus>("environments-update", [machine, action]),
+    getEnvironmentConfig: (machine) => call<ConfigLayers>("environments-config", [machine]),
+    updateEnvironmentConfig: (machine, patch) => call<unknown>("environments-update-config", [machine, patch]),
+    clearEnvironmentConfig: (machine, keys) => call<unknown>("environments-clear-config", [machine, keys]),
     personPreferences: (patch) => patch ? call<PersonPreferences>("environments-set-person-preferences", [patch]) : call<PersonPreferences>("environments-person-preferences", []),
 
     // Literal names: the protocol contract test reads them from this file.

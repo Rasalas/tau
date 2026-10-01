@@ -52,7 +52,7 @@ export function createSettingsPage(preferences: Preferences) {
 
 /** General's Threads card (design 2i); only Pi threads follow it, which the row says. */
 export function CompactAtRow() {
-  const compactAt = useSetting<CompactAt>(`values.${RESUME_COMPACTION_EXTENSION_ID}.${COMPACT_AT_KEY}`, { defaultValue: DEFAULT_COMPACT_AT, read: readCompactAt });
+  const compactAt = useSetting<CompactAt>(`values.${RESUME_COMPACTION_EXTENSION_ID}.${COMPACT_AT_KEY}`, { defaultValue: DEFAULT_COMPACT_AT, scope: "both", read: readCompactAt });
   return (
     <SettingRow
       id="setting-compact-context"

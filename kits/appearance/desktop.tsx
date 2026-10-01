@@ -35,7 +35,6 @@ export const appearanceExtension: DesktopExtension = {
       Icon: Palette,
       order: 5,
       profiles: ["desktop", "web", "compact"],
-      scope: "both",
       rows: [
         { id: "setting-appearance-mode", label: "Mode", keywords: ["theme", "dark", "light", "system"] },
         { id: "setting-appearance-themes", label: "Themes", keywords: ["theme", "colors", "colours", "vs code", "import", "new theme"] },

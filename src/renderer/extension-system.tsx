@@ -916,11 +916,7 @@ export interface SettingsPageContribution extends ProfileScoped {
    * buttons open the card.
    */
   runtimeRows?: { program?: string; addInstance?: string };
-  /**
-   * The levels this page's settings may be written to. With "project" or
-   * "both" the Settings bar offers the project a change applies to, and a row
-   * built with `useSetting` follows it; "host", the default, edits this machine.
-   */
+  /** @deprecated No longer read: "Applies to" offers a project while a row with its own `scope` is on the page. */
   scope?: SettingScope;
   /** A hook for the value a phone's Settings list shows beside the page's name: "2 online" (design 1s, API 1.39.0). */
   useSummary?(): string | undefined;

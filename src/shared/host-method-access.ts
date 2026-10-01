@@ -154,6 +154,10 @@ export const HOST_METHOD_ACCESS = {
   // This window's own machine's look, read and written with its own key.
   "environments-person-preferences": "read",
   "environments-set-person-preferences": "write",
+  // Another machine's settings at its machine level, with the window's own key there (K170); that machine decides.
+  "environments-config": "read",
+  "environments-update-config": "write",
+  "environments-clear-config": "write",
   // Only the connection a call went to may answer it; the answer changes nothing else.
   "client-call-result": "read",
   // The job's own method is checked when it starts.

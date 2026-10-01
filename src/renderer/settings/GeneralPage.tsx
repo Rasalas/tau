@@ -48,14 +48,14 @@ export function GeneralPage({ themeHere, sections = [], onNotify = () => undefin
   const mod = isMacPlatform() ? "⌘" : "Ctrl+";
 
   const detail = useSetting<TranscriptDetail>("transcriptDetail", {
-    defaultValue: CONFIG_DEFAULTS.transcriptDetail as TranscriptDetail, scope: "both", read: (raw) => (isTranscriptDetail(raw) ? raw : undefined),
+    defaultValue: CONFIG_DEFAULTS.transcriptDetail as TranscriptDetail, read: (raw) => (isTranscriptDetail(raw) ? raw : undefined),
     format: (value) => DETAIL_LABELS[value], offline: (value) => preferences.setTranscriptDetail(value),
   });
   const theme = useSetting<string>("theme", {
     defaultValue: CONFIG_DEFAULTS.theme as string, read: (raw) => (typeof raw === "string" && raw ? raw : undefined),
     format: (value) => getUserTheme(value)?.name ?? THEME_LABELS[value] ?? value, offline: (value) => preferences.setTheme(value),
   });
-  const showCosts = useSetting<boolean>("showCosts", { defaultValue: CONFIG_DEFAULTS.showCosts as boolean, scope: "both", read: readBoolean, offline: (value) => preferences.setShowCosts(value) });
+  const showCosts = useSetting<boolean>("showCosts", { defaultValue: CONFIG_DEFAULTS.showCosts as boolean, read: readBoolean, offline: (value) => preferences.setShowCosts(value) });
   const vimMode = useSetting<boolean>("vimMode", {
     defaultValue: CONFIG_DEFAULTS.vimMode as boolean, read: readBoolean, format: (value) => (value ? "Vim" : "Standard"), offline: (value) => preferences.setVimMode(value),
   });
@@ -129,12 +129,14 @@ export function GeneralPage({ themeHere, sections = [], onNotify = () => undefin
         <SettingRow
           id={settingAnchor("Send with")}
           title="Send with"
+          wholeMachine
           help={`While a turn runs, the send key queues a follow-up and ${mod}Return steers the turn (${mod}⇧Return when ${mod}Return sends).`}
           control={<Select label="Send with" width="md" value={sendShortcut} options={SEND_SHORTCUTS.map((entry) => ({ value: entry.value, label: entry.label.replace("⌘", mod) }))} onChange={(value) => preferences.setSendShortcut(value)} />}
         />
         <SettingRow
           id={settingAnchor("Fold the composer while scrolling")}
           title="Fold the composer while scrolling"
+          wholeMachine
           help="Scrolling back folds an idle one-line composer to its text; typing, a click or reaching the end opens it again."
           control={<Switch label="Fold the composer while scrolling" checked={composerFolds} onChange={composerFold.set} />}
         />

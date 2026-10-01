@@ -585,6 +585,39 @@ describe("the person's look, kept by this machine", () => {
   });
 });
 
+describe("another machine's settings (K170)", () => {
+  async function connectedStudio() {
+    const context = await setup();
+    await context.environments.pair({ text: "link" });
+    const monitor = context.monitors.get("wss://192.168.1.4:7788/")!;
+    monitor.set({ status: "connected", running: new Set() });
+    return { ...context, monitor };
+  }
+
+  it("reads, writes and resets at the machine level there, never on this machine's host", async () => {
+    const { environments, monitor, monitors } = await connectedStudio();
+    monitor.answers["get-config-layers"] = () => ({ host: { hostBackground: true } });
+    await expect(environments.configLayers("studio")).resolves.toEqual({ host: { hostBackground: true } });
+    await environments.updateConfig("host-studio", { hostBackground: false });
+    await environments.clearConfig("studio", ["values.tau.environments.run-on"]);
+    expect(monitor.calls.map(({ method, params }) => ({ method, params }))).toEqual([
+      { method: "get-config-layers", params: [] },
+      { method: "update-config", params: [{ hostBackground: false }, "global"] },
+      { method: "clear-config", params: [["values.tau.environments.run-on"], "global"] },
+    ]);
+    expect(monitors.get("ws://127.0.0.1:5000")!.calls).toEqual([]);
+  });
+
+  it("guides to an update when the machine does not know the settings methods, and says so while unreachable", async () => {
+    const { environments, monitor } = await connectedStudio();
+    monitor.answers["get-config-layers"] = () => { throw Object.assign(new Error("Unknown method"), { code: "unknown-method" }); };
+    await expect(environments.configLayers("studio")).rejects.toThrow(/studio runs an older Tau.*Update studio in Settings → Machines/u);
+    monitor.set({ status: "offline", detail: "gone" });
+    await expect(environments.updateConfig("studio", {})).rejects.toThrow(/not reachable/u);
+    await expect(environments.configLayers("nowhere")).rejects.toThrow(/does not know/u);
+  });
+});
+
 describe("core's window half for `tau machines`", () => {
   it("lists the saved machines without keys or threads, pairs with a link under a name of its own, and forgets one", async () => {
     const agents = { add: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) };

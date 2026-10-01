@@ -5,17 +5,19 @@ import compactAtExtension from "./host.js";
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 
-async function harness(values: Record<string, string>) {
+async function harness(values: Record<string, string>, projects: Record<string, Record<string, string>> = {}) {
   let factory: RuntimeExtensionFactory | undefined;
   let changed: ((change: HostConfigChange) => void) | undefined;
   const settings = { options: {}, values: { ...values } };
   await activateHostKit(compactAtExtension, {
-    settings: async () => settings,
+    settings: (async (_id: string, cwd?: string) => (cwd && projects[cwd] ? { options: {}, values: { ...settings.values, ...projects[cwd] } } : settings)) as never,
     observeConfigChanges: (listener) => { changed = listener; return () => undefined; },
     registerRuntimeExtension: (_name, next) => { factory = next; return () => undefined; },
   });
   const handlers: Record<string, Handler> = {};
   factory!({ on: (event: string, handler: Handler) => { handlers[event] = handler; } } as never, { sessionId: "s1", cwd: "/project" });
+  // The kit reads the project's settings when its runtime opens.
+  await new Promise((resolve) => setTimeout(resolve, 0));
   const settle = (percent: number | null) => {
     const compact = vi.fn();
     handlers.agent_settled!({ type: "agent_settled" }, { getContextUsage: () => ({ tokens: 1, contextWindow: 100, percent }), compact });
@@ -47,5 +49,10 @@ describe("Compact context (General → Threads)", () => {
     expect(beforeCompact("threshold")).toEqual({ cancel: true });
     expect(beforeCompact("overflow")).toBeUndefined();
     expect(beforeCompact("manual")).toBeUndefined();
+  });
+
+  it("takes the threshold from the project the thread runs in", async () => {
+    const { settle } = await harness({ "compact-at": "80" }, { "/project": { "compact-at": "60" } });
+    expect(settle(65)).toHaveBeenCalledOnce();
   });
 });

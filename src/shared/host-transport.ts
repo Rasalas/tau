@@ -59,6 +59,9 @@ export const CLIENT_SIDE_METHODS = [
   "environments-extension-follow",
   "environments-person-preferences",
   "environments-set-person-preferences",
+  "environments-config",
+  "environments-update-config",
+  "environments-clear-config",
 ] as const;
 
 export const isClientSideMethod = (method: string): boolean =>

@@ -13,7 +13,8 @@ import {
 import type { TranscriptPage } from "../shared/host-protocol.js";
 import { HOST_ERROR } from "../shared/host-transport.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
-import { decodeHostTranscriptCursor } from "./ipc-input.js";
+import { decodeHostTranscriptCursor, decodeSettingKeys } from "./ipc-input.js";
+import type { ConfigLayers } from "../shared/config-layers.js";
 import type { HostMethodTable } from "./host-methods.js";
 import type { HostUpdateAction, HostUpdateStatus } from "../shared/host-updates.js";
 import { personPreferences, type PersonPreferences } from "../shared/person-preferences.js";
@@ -39,6 +40,9 @@ export interface EnvironmentsService {
   readExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown>;
   updateMachine(machine: string, action: HostUpdateAction): Promise<HostUpdateStatus>;
   personPreferences?(patch?: PersonPreferences): Promise<PersonPreferences>;
+  configLayers(machine: string): Promise<ConfigLayers>;
+  updateConfig(machine: string, patch: Record<string, unknown>): Promise<unknown>;
+  clearConfig(machine: string, keys: readonly string[]): Promise<unknown>;
 }
 
 function text(method: string, name: string, value: unknown, max = 4_096): string {
@@ -118,6 +122,18 @@ export function createEnvironmentMethods(service: () => EnvironmentsService | un
       }
       return ownMachine().personPreferences(personPreferences(params[0]));
     },
+    // A machine's settings (K170): its host checks the keys and the access, so a newer machine's keys pass.
+    "environments-config": async (params) => require().configLayers(text("environments-config", "machine", params[0], 200)),
+    "environments-update-config": async (params) => {
+      if (params[1] === null || typeof params[1] !== "object" || Array.isArray(params[1])) {
+        throw Object.assign(new Error("environments-update-config: patch must be an object."), { code: HOST_ERROR.invalidRequest });
+      }
+      return require().updateConfig(text("environments-update-config", "machine", params[0], 200), params[1] as Record<string, unknown>);
+    },
+    "environments-clear-config": async (params) => require().clearConfig(
+      text("environments-clear-config", "machine", params[0], 200),
+      decodeSettingKeys("environments-clear-config", "keys", params[1]),
+    ),
     "environments-watch-thread": async (params) => {
       if (typeof params[2] !== "boolean") {
         throw Object.assign(new Error("environments-watch-thread: on must be a boolean."), { code: HOST_ERROR.invalidRequest });

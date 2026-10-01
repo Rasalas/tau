@@ -78,6 +78,8 @@ export const HOST_METHOD_AUDIT: Readonly<Record<string, { label: string; thread?
   "environments-set-agents": { label: "changed where this machine's agents may work" },
   "environments-extension-invoke": { label: "ran a command on another machine" },
   "environments-update": { label: "updated a machine's Tau" },
+  "environments-update-config": { label: "changed another machine's settings" },
+  "environments-clear-config": { label: "reset another machine's settings" },
   "environments-set-person-preferences": { label: "changed how the workbench looks", automatic: true, quiet: true },
   "cancel-job": { label: "cancelled a job" },
   // One entry per file, not per 8 MB piece.

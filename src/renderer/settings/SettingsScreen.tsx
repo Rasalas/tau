@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ArrowLeft, Blocks, Bot, ChevronLeft, ChevronRight, Command, Cpu, Info, MonitorSmartphone, Puzzle, Search, Server, Settings2, Sparkles, X, type LucideIcon } from "lucide-react";
-import type { HostSnapshot, UiProject } from "../../shared/contracts";
+import type { HostSnapshot, UiProject, UiSession } from "../../shared/contracts";
 import type { ExtensionRegistry } from "../extension-system";
 import { usePreferences } from "../renderer-services-context";
 import { useHostClient } from "../host-client-context";
 import { useHostCapabilities } from "../use-host-capabilities";
+import { usePlatform } from "../platform-context";
 import { useAppPageStore } from "../app-page-context";
 import { PanelIcon, type PanelIconComponent } from "../components/PanelIcon";
 import { PiSettingsPage } from "../components/PiSettingsPage";
@@ -17,6 +18,7 @@ import { CORE_PAGE_DESCRIPTIONS, CORE_PAGE_TITLES, CORE_SETTINGS_PAGES, extensio
 import { SettingsLevelsProvider } from "./settings-layout";
 import { SettingsPageActionSlot } from "./page-action";
 import { SettingsPageHead, type SettingsCrumb } from "./page-head";
+import { scopeMachines, scopeProjects } from "./settings-scope";
 import { extensionCatalog, needsAttention } from "./extension-catalog";
 import { AboutPage } from "./AboutPage";
 import { ConnectionsPage } from "./ConnectionsPage";
@@ -72,6 +74,8 @@ function NavValue({ use }: { use(): string | undefined }) {
   return value ? <small className="settings-nav-value">{value}</small> : null;
 }
 
+const noSubscription = () => () => undefined;
+
 /** The groups the user opened, kept while the window lives; one they folded follows the page on screen again next time. */
 let navFolds: Partial<Record<SettingsNavGroup, true | undefined>> = {};
 
@@ -88,6 +92,7 @@ export function SettingsScreen({
   snapshot,
   registry,
   projects = [],
+  threads = [],
   onSetPage,
   onSetModel,
   onSetThinking,
@@ -102,6 +107,8 @@ export function SettingsScreen({
   snapshot?: HostSnapshot;
   registry: ExtensionRegistry;
   projects?: readonly UiProject[];
+  /** The window's threads: those of other machines tell which projects are not this machine's. */
+  threads?: readonly UiSession[];
   onSetPage(page: string): void;
   onSetModel(provider: string, id: string): void;
   onSetThinking(level: string): void;
@@ -126,6 +133,10 @@ export function SettingsScreen({
   const [levels] = useState(() => new ConfigLayersStore(client, () => void preferences.syncFromHost()));
   const project = currentProject(snapshot, projects);
   useEffect(() => { levels.setProject(project); }, [levels, project?.workspaceId, project?.label]);
+  // Another machine's refusal or silence is said once: its values would otherwise just snap back.
+  const levelsError = useSyncExternalStore(levels.subscribe, () => (levels.getSnapshot().machine ? levels.getSnapshot().error : undefined));
+  // oxlint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (levelsError) onNotify(levelsError); }, [levelsError]);
   // A push that changed a file, or the palette's theme, moves the levels too.
   useEffect(() => {
     void levels.refresh();
@@ -162,9 +173,10 @@ export function SettingsScreen({
     : extensionId ? extension?.name ?? "Extension"
       : CORE_PAGE_TITLES[page as keyof typeof CORE_PAGE_TITLES] ?? contributed?.label ?? "Settings";
   const parent = parentSettingsPage(page);
-  // Pages that write settings a project may override.
-  const pageScope = page === "general" || page === "models" || onProviders ? "both" : contributed?.scope ?? "host";
-  const showScope = pageScope !== "host";
+  // Other machines' own settings: General only, where every row is a setting or says it is not one.
+  const environments = usePlatform().environments;
+  const environmentList = useSyncExternalStore(environments?.subscribe ?? noSubscription, () => environments?.getSnapshot());
+  const machines = page === "general" && !environments?.shownElsewhere ? scopeMachines(environmentList?.environments) : [];
   const pageDescription = onProviders ? CORE_PAGE_DESCRIPTIONS.providers
     : extensionId ? undefined
       : CORE_PAGE_DESCRIPTIONS[page as keyof typeof CORE_PAGE_DESCRIPTIONS] ?? contributed?.description;
@@ -176,8 +188,8 @@ export function SettingsScreen({
     { label: "Settings", open: () => onSetPage("general") },
     { label: parentLabel!, open: () => onSetPage(parent) },
   ] : [];
-  // A page without project rows edits this machine; leaving one puts the scope back.
-  useEffect(() => { if (!showScope) levels.edit("host"); }, [levels, showScope]);
+  // What a page is applied to is chosen per visit: leaving it puts the scope back on this machine.
+  useEffect(() => { levels.edit("host"); }, [levels, page]);
 
   const [ownShowingPage, setOwnShowingPage] = useState(!stacked);
   const showingPage = view && stacked ? view === "page" : ownShowingPage;
@@ -449,7 +461,7 @@ export function SettingsScreen({
                 title={stacked || ownTitle ? undefined : page === "about" ? "Tau" : pageLabel}
                 description={page === "about" || page === "general" ? undefined : pageDescription}
                 crumbs={stacked ? [] : crumbs}
-                scope={showScope ? { projects, current: project } : undefined}
+                scope={{ projects: scopeProjects(projects, threads, project), current: project, machines }}
                 actionSlot={setActionSlot}
               />
               {readOnly ? <p className="settings-read-only" role="note">This device is paired Read only: the host keeps its settings as they are. Theme and layout stay on this device.</p> : null}

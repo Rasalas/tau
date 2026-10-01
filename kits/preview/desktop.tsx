@@ -69,7 +69,6 @@ export const previewExtension: DesktopExtension = {
       keywords: ["browser", "viewport", "zoom", "appearance", "dark mode", "links", "recording", "floating", "picture in picture"],
       rows: PREVIEW_SETTINGS_ROWS,
       // Most rows take a project override; without the scope crumb Settings would edit this machine only.
-      scope: "both",
       profiles: ["desktop"],
       Component: PreviewSettingsPage,
     });

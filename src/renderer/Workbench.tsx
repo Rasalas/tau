@@ -635,6 +635,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           snapshot={snapshot}
           registry={registry}
           projects={projects}
+          threads={threadStore.getSnapshot().threads}
           onSetPage={setSettingsPage}
           onSetModel={(provider, id) => void setModel(provider, id)}
           onSetThinking={(level) => void setThinking(level)}
