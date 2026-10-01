@@ -862,6 +862,33 @@ On v0.7.25 (`eb7aa24a`) the kits' desktop halves measured 3,097,289 bytes, 2,711
 - **Dependencies' names.** CodeMirror and Lezer ship readable ESM and made up most of Files Kit (1,009,933 → 836,263 bytes). Each module under `node_modules` goes through a rename-only esbuild transform with an inline map, which the bundler chains, so `desktop.js.map` still points at the original file, line and name. A file that links a map of its own (xterm) is left as it is, so that map still reaches xterm's TypeScript sources; xterm ships minified anyway. The prebuild took as long as before (3.1–5.0 s either way under a load of 20 to 60).
 - **Not worth it / not found.** The kits share almost no code: per esbuild's metafile, the only source bundled by two kits is a 254-byte file of Remote Work Kit and 50 bytes of Workspace Kit. No kit bundles its own React, icons or virtualizer (all shared), none inlines an asset, and no `process.env.NODE_ENV` branch remains. Destructuring the shared bindings (`var {a, b} = m`) instead of one `pick` per name would save about 20 KB more but needs a second build per kit to learn which names survive tree shaking. Full renaming of the kits' own code would save about 485 KB more; it stays out so a kit's names read without the map.
 
+### Web script headroom, 0.7.32 (K169)
+
+On v0.7.32 (`0e777d26`) the browser client's total JavaScript was 509,758 bytes of gzip, 242 under its 510,000 budget, and the desktop build's 497,097, 2,903 under 500,000. Ticket K169 (2026-10-01) won back 7,037 and 6,171 bytes without raising a budget or removing a feature. Only `vite/renderer-build.ts` changed. Numbers from `reports/build-web-report.json` and `reports/build-report.json` (Node 22; gzip sizes differ by a few hundred bytes on Node 26's zlib):
+
+| budget line | before | after | budget |
+| --- | ---: | ---: | ---: |
+| browser total JavaScript gzip | 509,758 | 502,721 | 510,000 |
+| browser initial JavaScript | 800,724 (244,890 gzip) | 799,960 (244,342 gzip) | 820,000 (255,000) |
+| browser lazy JavaScript | 785,929 (264,868 gzip), 51 files | 785,228 (258,379 gzip), 32 files | |
+| desktop total JavaScript gzip | 497,097 | 490,926 | 500,000 |
+| desktop initial JavaScript | 785,193 (238,675 gzip) | 785,260 (238,553 gzip) | 800,000 (275,000) |
+| desktop lazy JavaScript | 769,096 (258,422 gzip), 47 files | 768,566 (252,373 gzip), 30 files | |
+| kits' desktop halves | 2,922,915 | unchanged | 3,100,000 |
+
+- **Chunk overhead.** Concatenated, the 51 lazy files gzip 18 KB smaller than apart: each file repeats its import list, export list and compression tables. Most small lazy modules without a stylesheet (menus, prompts, the submission controller, settings search and navigation, thread rows, the config-layer store, `ThreadCostPopover`, `FileSource`, ...) and the helpers only they reached joined `COMMON_MODULES`; their chunks were all preloaded when idle anyway. A module moved this way exposes its private helpers as new small chunks, so the list holds those too. Cost per merged chunk: 150 to 450 bytes of gzip.
+- **Browser pairing code.** `web/connect/{offer,socket,storage}.ts` and `shared/managed-connections.ts` were three chunks and a fourth for the shared module; they are one `browser-connect` chunk (−450 bytes).
+- **Checks.** The build still fails on `CIRCULAR_CHUNK`. A script comparing the stylesheet list of every dynamic import between base and change found no difference (the merged modules bring none; `COMMON_MODULES` is tested for that). None of the merged modules runs code when imported.
+
+`npm run build:budget` size lines pass; its build-time lines fail here on both base and change at a load average of 17 to 24 (reference speed 20.7 s against 20 s for the browser client on the base). In an isolated instance on the fake model a `write` turn ran, the command palette and the Settings pages opened, and the log showed no chunk error.
+
+Tried and left out:
+
+- terser's compress pass run twice for the browser client: −474 bytes for 2 s more build time; with `pure_getters: true` −978, but that drops `void node.offsetWidth` reflow reads.
+- terser as the only minifier (no esbuild first): no smaller.
+- Re-packing the icon set (69 KB of gzip, path data already minimal), a smaller QR encoder (`uqr`, 3.8 KB) and the Markdown stack: no saving without removing behavior.
+- Merging `ComposerChipLayer` (its private hooks would join `common`, which every dialog loads): about 300 bytes.
+
 ### Deferred extension binding
 
 `session.bindExtensions()` emits `session_start` to every configured extension
