@@ -14,7 +14,7 @@ export const DAY_MS = 24 * 60 * 60 * 1_000;
 export const DEFAULT_SETTINGS: RailSettings = { onMerged: true, onClosed: false };
 export const EMPTY_STATE: RailState = { threads: {}, settings: DEFAULT_SETTINGS };
 
-const SETTLED_BY: readonly SettledBy[] = ["user", "inactive", "pr-merged", "pr-closed"];
+const SETTLED_BY: readonly SettledBy[] = ["user", "inactive", "pr-merged", "pr-closed", "import"];
 const number = (value: unknown): number | undefined => typeof value === "number" && Number.isFinite(value) ? value : undefined;
 const text = (value: unknown): string | undefined => typeof value === "string" && value ? value : undefined;
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};

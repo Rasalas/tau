@@ -31,6 +31,7 @@ import {
 import { followMachineState, machineThreadOwner, MACHINE_META_EVENT, MACHINE_STATE_TOPIC, MACHINE_TRASH_EVENT } from "./machine-state.js";
 import {
   META_EVENT,
+  ONBOARDING_EXTENSION_ID,
   REVIEW_EXTENSION_ID,
   THREAD_RAIL_EXTENSION_ID,
   TRASH_EVENT,
@@ -246,6 +247,17 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         commit({ ...state, imported: true });
         return publicState();
       });
+      // Imported threads have no state of their own: they start on the shelf, found by search, not to be clicked away.
+      context.registerCommand("settle-imported", async (input) => {
+        await readOwnership();
+        const now = clock();
+        const patches: Record<string, ThreadMetaPatch> = {};
+        for (const id of idList(record(input).threadIds)) {
+          if (!owner(id) && !state.threads[id]) patches[id] = settlePatch(now, "import");
+        }
+        change(patches);
+        return { settled: Object.keys(patches).length };
+      }, { callers: [ONBOARDING_EXTENSION_ID] });
       context.registerCommand("sweep", async () => {
         await sweep();
         return publicState();

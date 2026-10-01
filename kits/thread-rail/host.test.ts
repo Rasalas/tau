@@ -223,6 +223,34 @@ describe("Thread Rail host", () => {
     expect((await invoke("import", { pinned: ["p"] })).threads.p).toBeUndefined();
   });
 
+  it("settles imported threads for Onboarding Kit, leaving threads that already have meta alone", async () => {
+    const { invoke, registry } = await harness();
+    await invoke("patch", { patches: { pinned: { pinned: true, pinOrder: 0 } } });
+    let handOver: ((input: unknown) => Promise<unknown>) | undefined;
+    await registry.activate({
+      id: "tau.onboarding",
+      name: "Onboarding",
+      activate(context: HostExtensionContext) { handOver = (input) => context.invokeHostExtension(THREAD_RAIL_EXTENSION_ID, "settle-imported", input); },
+    });
+    expect(await handOver!({ threadIds: ["new", "pinned", ""] })).toEqual({ settled: 1 });
+    const { threads } = await invoke("state");
+    expect(threads.new).toEqual({ settledAt: NOW, settledBy: "import" });
+    expect(threads.pinned).toEqual({ pinned: true, pinOrder: 0 });
+    // Handing the same ids over again changes nothing.
+    expect(await handOver!({ threadIds: ["new"] })).toEqual({ settled: 0 });
+  });
+
+  it("refuses settle-imported to any other kit", async () => {
+    const { registry } = await harness();
+    let call: (() => Promise<unknown>) | undefined;
+    await registry.activate({
+      id: "tau.other",
+      name: "Other",
+      activate(context: HostExtensionContext) { call = () => context.invokeHostExtension(THREAD_RAIL_EXTENSION_ID, "settle-imported", { threadIds: ["x"] }); },
+    });
+    await expect(call!()).rejects.toThrow();
+  });
+
   it("forgets a deleted thread", async () => {
     const { invoke, lifecycles } = await harness();
     await invoke("patch", { patches: { gone: { pinned: true } } });
