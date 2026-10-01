@@ -49,5 +49,6 @@ export function numberWindowTurns(all: readonly UiMessage[], start: number, end:
   const first = window.findIndex(startsTurn);
   if (first < 0) return window;
   const before = all.slice(0, start + first).filter(startsTurn).length;
-  return window.map((message, index) => index === first ? { ...message, turnNumber: before + 1 } : message);
+  window[first] = { ...window[first]!, turnNumber: before + 1 };
+  return window;
 }
