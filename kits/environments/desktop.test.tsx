@@ -406,6 +406,11 @@ describe("Run on", () => {
     expect(source.openOnDraft?.()).toBe(false);
   });
 
+  it("asks nothing when there is only one machine", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop], secureStorage: true });
+    expect(createRunOnSource(environments, undefined, undefined, () => "ask").openOnDraft?.()).toBe(false);
+  });
+
   it("brings a new draft home once when This machine is the persisted default", () => {
     const { environments } = fakeEnvironments({ shown: "studio", environments: [laptop, studio], secureStorage: true });
     const Control = createRunOnControl(environments, undefined, undefined, () => "this");

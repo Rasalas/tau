@@ -155,7 +155,8 @@ export function createRunOnSource(environments: PlatformEnvironments, host?: Hos
   // Settings' Run on: This machine brings a new draft home once, as it opens.
   let homed = false;
   const source: DraftMachineSource = {
-    openOnDraft: () => runOnDefault() === "ask",
+    // With one machine there is nothing to ask.
+    openOnDraft: () => runOnDefault() === "ask" && (environments.getSnapshot()?.environments.length ?? 0) > 1,
     useMachine(props) {
       const state = useRunOn(props);
       const draft = state?.isDraft;
