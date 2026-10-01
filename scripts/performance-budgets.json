@@ -7,6 +7,14 @@
   "totalJavascriptGzipBytes": 500000,
   "kitDesktopJavascriptBytes": 3100000,
   "buildTimeMs": 30000,
+  "buildTimeReference": {
+    "referenceMs": 360,
+    "minSpeedFactor": 0.5,
+    "historyEpoch": 1,
+    "historyRuns": 20,
+    "historyMinRuns": 5,
+    "historyMargin": 0.2
+  },
   "firstPaintMs": 1500,
   "externalNetworkRequests": 0,
   "overlayCompositionMs": 4,

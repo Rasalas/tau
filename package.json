@@ -24,7 +24,7 @@
     "build:report": "node scripts/build-report.mjs",
     "build:web": "node scripts/build-web.mjs",
     "build:browser-connect": "node scripts/build-browser-connect.mjs",
-    "build:budget": "npm run build && node scripts/build-report.mjs --check && npm run build:web -- --check",
+    "build:budget": "npm run build -- --reference && node scripts/build-report.mjs --check && npm run build:web -- --check",
     "start": "npm run build && electron .",
     "start:existing": "electron .",
     "start:safe": "TAU_NO_EXTENSIONS=1 npm start",
