@@ -12,7 +12,7 @@ describe("Signals desktop extension", () => {
     const { registry } = createKitHarness();
     registry.activate(observatoryExtension);
 
-    expect(registry.presentTool(toolRun("bash", { command: "npm test" }))).toMatchObject({ glyph: "$", title: "bash", tone: "shell", detail: "npm test" });
+    expect(registry.presentTool(toolRun("bash", { command: "npm test" }))).toMatchObject({ title: "bash", tone: "shell", detail: "npm test" });
     expect(registry.presentTool(toolRun("powershell", {}))).toMatchObject({ tone: "shell", detail: "shell command" });
     // A tool no renderer claims keeps core's own presentation.
     expect(registry.presentTool(toolRun("read", { path: "a.ts" })).tone).not.toBe("shell");

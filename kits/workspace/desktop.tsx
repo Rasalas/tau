@@ -37,6 +37,7 @@ import { createStoragePage, STORAGE_SETTINGS_ROWS } from "./storage-page.js";
 import { OPEN_REQUEST_EVENT, OPEN_REQUEST_WAITING_COMMAND, STORAGE_CHANGED_EVENT, TAKE_OPEN_REQUEST_COMMAND, type WorktreeStorageHostCommands } from "./storage-protocol.js";
 import { OpenRequests } from "./open-requests.js";
 import { SOURCE_CONTROL_SETTINGS_ROWS, SourceControlPage } from "./source-control-page.js";
+import { presentRead, presentWrite, READ_TOOLS, WRITE_TOOLS } from "./tool-cards.js";
 
 /** No need to poll every 30 s; a tick, a focus and a project switch are enough here. */
 const AUTO_PULL_INTERVAL_MS = 5 * 60_000;
@@ -331,30 +332,8 @@ export const workspaceExtension: DesktopExtension = {
     context.registerKeybinding({ keys: "mod+o", commandId: "workspace.open-in-editor" });
     context.registerKeybinding({ keys: "mod+alt+j", commandId: "workspace.open-terminal" });
     context.registerKeybinding({ keys: "mod+shift+s", commandId: "workspace.settle" });
-    context.registerToolRenderer(
-      "workspace.read-renderer",
-      (tool) => tool.name === "read" || tool.name === "grep" || tool.name === "find" || tool.name === "ls",
-      (tool) => ({
-        glyph: "→",
-        title: tool.name,
-        tone: "read",
-        detail: String(tool.args.path ?? tool.args.pattern ?? tool.args.query ?? "workspace"),
-        ...(tool.name === "read" && typeof tool.args.path === "string" ? { file: tool.args.path } : {}),
-      }),
-      { profiles: ["desktop", "web", "compact"] },
-    );
-    context.registerToolRenderer(
-      "workspace.write-renderer",
-      (tool) => tool.name === "edit" || tool.name === "write",
-      (tool) => ({
-        glyph: "±",
-        title: tool.name,
-        tone: "write",
-        detail: String(tool.args.path ?? "file mutation"),
-        ...(typeof tool.args.path === "string" ? { file: tool.args.path } : {}),
-      }),
-      { profiles: ["desktop", "web", "compact"] },
-    );
+    context.registerToolRenderer("workspace.read-renderer", (tool) => READ_TOOLS.has(tool.name), presentRead, { profiles: ["desktop", "web", "compact"] });
+    context.registerToolRenderer("workspace.write-renderer", (tool) => WRITE_TOOLS.has(tool.name), presentWrite, { profiles: ["desktop", "web", "compact"] });
 
     let lastAppActions: import("tau").WorkbenchActions | undefined;
     const openPromptInEditor = async (app?: import("tau").WorkbenchActions) => {
