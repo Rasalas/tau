@@ -100,6 +100,17 @@ function piThread(threadId: string, title?: string) {
 }
 
 describe("ThreadIndex", () => {
+  it("keeps the home identities of proxy workspaces distinct at the same path", () => {
+    const { index } = makeIndex();
+    const first = shell({ id: "rex~one", path: "machine:rex~one", backendKind: "machine", projectPath: "/home/dev/repo", workspaceId: "ws1_rex", projectDisplayPath: "~/repo" });
+    const second = { ...first, id: "mini~one", path: "machine:mini~one", workspaceId: "ws1_mini" };
+    seed(index, [first, second]);
+    const snapshot = index.snapshot();
+    expect(snapshot.sessions.map((session) => session.workspaceId)).toEqual(["ws1_rex", "ws1_mini"]);
+    expect(snapshot.projects.filter((project) => project.path === "/home/dev/repo").map((project) => project.workspaceId)).toEqual(["ws1_rex", "ws1_mini"]);
+    expect(snapshot.sessions.map((session) => session.projectDisplayPath)).toEqual(["~/repo", "~/repo"]);
+  });
+
   it("draws a shell for a live thread and derives its title from the first message", async () => {
     const { index, updates } = makeIndex();
     await index.refreshShell(piThread("session"), true);

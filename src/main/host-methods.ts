@@ -21,6 +21,7 @@ import { createConnectionsMethods, type HostConnectionsService } from "./host-co
 import { createConnectMethods, type HostConnect } from "./host-connect.js";
 import { createHostServiceMethods, type HostServiceManager } from "./host-service.js";
 import { createMachineMethods, type HostMachines } from "./host-machines.js";
+import { MachineKitRoute } from "./machine-kit-route.js";
 import { createMachinePairingMethods, localWindowPort } from "./host-machine-pairing.js";
 import type { ClientCalls } from "./client-calls.js";
 import { createResourceMethods, type HostResourceSampler } from "./host-resources.js";
@@ -175,6 +176,7 @@ export interface HostMethodDeps {
   service?(): HostServiceManager | undefined;
   /** Other machines this host's agents reach (ADR 0027); absent for a host in the window's process. */
   machines?(): HostMachines | undefined;
+  machineRoutes?: MachineKitRoute;
   /** The machine's load, for `host-resources`; absent for a host in the window's process. */
   resources?(): HostResourceSampler | undefined;
   /** Files other machines send here; absent for a host in the window's process. */
@@ -207,11 +209,17 @@ function decodeIndex(channel: string, field: string, value: unknown): number {
 export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
   const { platform } = deps;
   const host = () => deps.requireHost();
+  const routes = deps.machineRoutes ?? new MachineKitRoute({ machines: () => deps.machines?.(), active: () => deps.host()?.activeThreadIdentity() });
   const invokeExtension = async (params: readonly unknown[], context: HostMethodContext): Promise<unknown> => {
     const extensionId = decodeExtensionId("host-extension", params[0]);
     const command = decodeCommandName("host-extension", params[1]);
     const instance = await host();
-    return instance.invokeHostExtension(extensionId, command, params[2], context.principal);
+    const route = extensionId === "tau.workspace" && command === "pick-folder" ? undefined : routes.routeOf(extensionId, params[2]);
+    if (route) {
+      await instance.authorizeHostExtension(extensionId, command, params[2], context.principal);
+      return routes.call(route, extensionId, command, () => instance.invokeHostExtension("tau.terminal", "list", undefined, context.principal));
+    }
+    return routes.localResult(extensionId, command, await instance.invokeHostExtension(extensionId, command, params[2], context.principal));
   };
   // A client names a workspace by its id; one that still speaks paths sends a path.
   const workspace = async (method: string, name: string, value: unknown): Promise<string> =>

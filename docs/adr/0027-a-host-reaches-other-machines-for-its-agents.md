@@ -84,6 +84,19 @@ Wave H added two members on the same permission: `upload(machine, source)`
 sends a file there in pieces, which a kit there takes once with
 `services.blobs.take`, and `self` names this host (id, name, Tau version).
 
+ADR 0030 uses this connection for threads represented by the machine backend.
+Workspace, Files, Terminal and Review calls follow the indexed home machine,
+carrying its original workspace identity. Core checks the source client’s
+command authority and audit before forwarding through the agents connection.
+Backend records may supply an optional workspace reference (API 1.44); opening
+a proxy does not add its remote directory to local project history.
+
+Topic subscriptions relay Workspace and Terminal changes to each subscribing
+client. Terminal ownership survives navigation, and session tables retain
+shells from each machine. These client-specific relays preserve sequence order
+but stay outside the connection-wide replay log; reconnect reads recover
+terminal sessions and scrollback.
+
 ## Alternatives
 
 - **Reuse the window's key.** The host would have to read the window's

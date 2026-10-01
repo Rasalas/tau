@@ -9,6 +9,18 @@ const shell = (id: string, title = id) => ({
 afterEach(() => vi.useRealTimers());
 
 describe("ThreadStore selective navigation subscriptions", () => {
+  it("publishes a proxy workspace identity revision even when its host path is unchanged", () => {
+    const store = new ThreadStore();
+    const proxy = { ...shell("rex~one"), backendKind: "machine", workspaceId: "ws1_before", projectDisplayPath: "/home/dev/repo" };
+    store.applyThreadIndex({ projects: [], sessions: [proxy] });
+    const changed = vi.fn();
+    store.subscribeToThread(proxy.id, changed);
+    const next = { ...proxy, workspaceId: "ws1_original", projectDisplayPath: "~/repo" };
+    store.applyThreadIndex({ projects: [], sessions: [next] });
+    expect(store.getThread(proxy.id)).toBe(next);
+    expect(changed).toHaveBeenCalledOnce();
+  });
+
   it("refreshes a proxy's machine marks without invalidating unrelated rows", () => {
     const store = new ThreadStore();
     const proxy = { ...shell("rex~one"), backendKind: "machine", machine: { id: "rex", name: "rex", backendKind: "pi" } };

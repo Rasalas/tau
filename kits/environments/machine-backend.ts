@@ -57,6 +57,7 @@ function record(machine: { id: string; name: string }, session: UiSession): Host
   return {
     threadId: machineThreadId(machine.id, session.id), cwd: session.projectPath, title: session.title,
     updatedAt: session.modifiedAt, messages: [], messageCount: session.messageCount,
+    ...(session.workspaceId ? { workspace: { workspaceId: session.workspaceId, displayPath: session.projectDisplayPath ?? session.projectPath } } : {}),
     ...(session.model && session.modelProvider ? { model: { provider: session.modelProvider, id: session.model } } : {}),
     ...(session.usage ? { usage: machineUsageTallies(session.usage) } : {}),
     machine: { id: machine.id, name: machine.name, ...(session.backendKind ? { backendKind: session.backendKind } : {}), ...(session.modelProvider ? { modelProvider: session.modelProvider } : {}) },

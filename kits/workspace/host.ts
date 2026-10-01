@@ -20,7 +20,7 @@ import * as workspaceGit from "./workspace-git.js";
 import { GitCoordinator } from "./git-coordinator.js";
 import { readBoundedFileContent, statFile, writeTextFile } from "./file-content.js";
 import { defaultEditorProbe, editorCommand, FILE_MANAGER_ID, findInstalledEditors, launchEditor } from "./editors.js";
-import { AUTO_PULL_OPTION, CHECKPOINT_EVENT, CLONE_PROGRESS_EVENT, HEAD_CHANGED_EVENT, isWorktreeSubmodules, PROJECT_SCRIPTS_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, type ProjectDefaults, type UiDirectoryListing } from "./protocol.js";
+import { AUTO_PULL_OPTION, CHECKPOINT_EVENT, CLONE_PROGRESS_EVENT, HEAD_CHANGED_EVENT, isWorktreeSubmodules, PROJECT_SCRIPTS_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, WORKSPACE_HEAD_TOPIC, WORKSPACE_CLONE_TOPIC, WORKSPACE_CHECKPOINT_TOPIC, type ProjectDefaults, type UiDirectoryListing } from "./protocol.js";
 import { createBranchRequests } from "./branch-request.js";
 import { readReviewRequestContext } from "./review-request-context.js";
 import { createWorkspaceKitLifecycle } from "./host-lifecycle.js";
@@ -183,7 +183,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       const heads = new HeadWatch({
         changed: (root) => {
           for (const folder of headFolders.get(root) ?? [root]) git.invalidate(folder, ["branch", "status", "workspace"]);
-          context.emit(HEAD_CHANGED_EVENT, { root });
+          context.emit(HEAD_CHANGED_EVENT, { root }, { topic: WORKSPACE_HEAD_TOPIC });
         },
       });
       // The worktrees Tau made, Settings → Storage and the cleanup sweep.
@@ -206,8 +206,8 @@ export function createWorkspaceHostExtension(): HostExtension {
         git.invalidate(project);
         return git.getChanges(project);
       };
-      const stageThen = async (path: string, mutate: (project: string, path: string) => Promise<void>) => {
-        const project = cwd();
+      const stageThen = async (input: unknown, path: string, mutate: (project: string, path: string) => Promise<void>) => {
+        const project = await shownRoot(input);
         await workspaceGit.assertWorkspacePath(project, path);
         await mutate(project, path);
         return refreshedChanges(project);
@@ -272,7 +272,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         onSubprocess: () => services.noteSubprocess(),
         emit: (snapshot) => {
           if (snapshot.phase !== "running") services.log(`git.clone.${snapshot.phase}`, snapshot.error ?? snapshot.destination);
-          context.emit(CLONE_PROGRESS_EVENT, snapshot);
+          context.emit(CLONE_PROGRESS_EVENT, snapshot, { topic: WORKSPACE_CLONE_TOPIC });
         },
       });
       context.registerCommand("clone-start", async (input) => {
@@ -318,11 +318,11 @@ export function createWorkspaceHostExtension(): HostExtension {
         await workspaceGit.assertWorkspacePath(project, path);
         return workspaceGit.getFileDiff(project, path, record(input).options as DiffLoadOptions | undefined);
       }, { access: "read", callers: [REVIEW_KIT_ID] });
-      context.registerCommand("stage-file", (input) => stageThen(relativePath(input), workspaceGit.stageFile));
-      context.registerCommand("unstage-file", (input) => stageThen(relativePath(input), workspaceGit.unstageFile));
-      context.registerCommand("revert-file", (input) => stageThen(relativePath(input), workspaceGit.revertFile));
-      context.registerCommand("stage-all", async () => {
-        const project = cwd();
+      context.registerCommand("stage-file", (input) => stageThen(input, relativePath(input), workspaceGit.stageFile));
+      context.registerCommand("unstage-file", (input) => stageThen(input, relativePath(input), workspaceGit.unstageFile));
+      context.registerCommand("revert-file", (input) => stageThen(input, relativePath(input), workspaceGit.revertFile));
+      context.registerCommand("stage-all", async (input) => {
+        const project = await shownRoot(input);
         await workspaceGit.stageAll(project);
         return refreshedChanges(project);
       });
@@ -369,8 +369,8 @@ export function createWorkspaceHostExtension(): HostExtension {
           throw error;
         }
       }, { callers: [REVIEW_KIT_ID], audit: { label: "committed changes" } });
-      context.registerCommand("pull", async () => {
-        const project = cwd();
+      context.registerCommand("pull", async (input) => {
+        const project = await shownRoot(input);
         try {
           const result = await workspaceGit.pull(project);
           git.invalidate(project);
@@ -381,8 +381,8 @@ export function createWorkspaceHostExtension(): HostExtension {
           throw error;
         }
       }, { audit: { label: "pulled" } });
-      context.registerCommand("push", async () => {
-        const project = cwd();
+      context.registerCommand("push", async (input) => {
+        const project = await shownRoot(input);
         try {
           const result = await workspaceGit.push(project);
           git.invalidate(project);
@@ -395,7 +395,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       }, { callers: [REVIEW_KIT_ID], audit: { label: "pushed" } });
       // Review Kit publishes a repository that has no remote; the remote itself is Git's and set here.
       context.registerCommand("add-remote", async (input) => {
-        const project = cwd();
+        const project = await shownRoot(input);
         try {
           const added = await workspaceGit.addFirstRemote(project, optionalString(input, "name") ?? "origin", requiredString(input, "url"));
           services.log("git.remote.added", requiredString(input, "url"));
@@ -624,24 +624,25 @@ export function createWorkspaceHostExtension(): HostExtension {
         return readProjectDefaults(project);
       }, { access: "read" });
       context.registerCommand("create-branch", async (input) => {
-        const project = cwd();
+        const project = await shownRoot(input);
         const branch = requiredString(input, "branch");
         try {
           await workspaceGit.createBranch(project, branch);
           services.log("git.branch.created", branch);
-          return services.openWorkspace(project);
+          return optionalString(input, "workspace") ? { version: 1 as const, updates: [] } : services.openWorkspace(project);
         } finally {
           git.invalidate(project, ["branch", "status", "workspace"]);
         }
       });
       context.registerCommand("switch-ref", async (input) => {
-        const project = cwd();
+        const project = await shownRoot(input);
         const ref = requiredString(input, "ref");
         try {
           const target = await workspaceGit.resolveRefTarget(project, ref, (path) => git.getWorkspaceInfo(path));
+          if (optionalString(input, "workspace") && resolve(target) !== resolve(project)) throw new HostCommandError("That branch is checked out in another workspace. Open its worktree instead.");
           services.log("git.ref.switch", `${ref} → ${target}`);
           git.invalidate(project, ["branch", "status", "workspace"]);
-          return services.openWorkspace(target);
+          return optionalString(input, "workspace") ? { version: 1 as const, updates: [] } : services.openWorkspace(target);
         } catch (error) {
           git.invalidate(project, ["branch", "status", "workspace"]);
           throw error;
@@ -649,7 +650,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       });
       const checkoutKeys = new WorkspaceCheckpointLeaseManager();
       const checkoutTurns = createCheckoutTurns(services, (path) => checkoutKeys.canonicalKey(path));
-      context.registerCommand("checkout-turns", (input) => checkoutTurns.running(cwd(), optionalString(input, "sessionId")), { access: "read" });
+      context.registerCommand("checkout-turns", async (input) => checkoutTurns.running(await shownRoot(input), optionalString(input, "sessionId")), { access: "read" });
       // Turn checkpoints: capture per runtime, restore, recovery and ref upkeep
       // all live in the kit; core only offers the lifecycle hooks.
       // The rail's `+N −N` per thread outlives the checkpoint announcement in the kit's own state folder.
@@ -667,7 +668,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       const checkpoints = createWorkspaceKitLifecycle(services, {
         emit: (event) => {
           if (event.type === "turn-checkpoint") void turnStats.record(event.sessionId, turnStatOf(event.checkpoint));
-          context.emit(CHECKPOINT_EVENT, event);
+          context.emit(CHECKPOINT_EVENT, event, { topic: WORKSPACE_CHECKPOINT_TOPIC });
         },
         git,
         branch: (project) => labels.get(project),

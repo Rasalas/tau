@@ -17,6 +17,7 @@ import { HostJobRunner, NO_JOB_CONTEXT } from "./host-jobs.js";
 import { HostPushLog } from "./host-push-log.js";
 import { HostPushCoalescer } from "./host-push-coalescer.js";
 import { createHostMethods, type HostMethodTable } from "./host-methods.js";
+import { MachineKitRoute } from "./machine-kit-route.js";
 import { HostTokenFile, hostTokenPath } from "./host-token.js";
 import { HostAccess } from "./host-access.js";
 import { promptPairingsOnTerminal } from "./host-pairing-terminal.js";
@@ -116,6 +117,7 @@ const pushes = new HostPushCoalescer((event) => {
   return push.seq;
 });
 const jobs = new HostJobRunner((event) => broadcast(event));
+let machineRoutes: MachineKitRoute | undefined;
 /** The other direction: what a host extension asks one client's process to do. */
 const clientCalls = new ClientCalls((connection, call) => socket?.sendCall(connection, call) ?? false);
 let socket: SocketHostTransport | undefined;
@@ -130,6 +132,8 @@ function broadcast(event: HostPushEvent): void {
 }
 
 function publish(event: HostEvent): void {
+  event = machineRoutes?.localEvent(event) ?? event;
+  if (event.type === "host-update" && event.update.type === "project") machineRoutes?.refresh();
   if (event.type === "event-log") hostLog.info(event.label, event.detail);
   keepAwake.observe(event);
   resources.observe(event);
@@ -382,7 +386,9 @@ async function main(): Promise<void> {
     publish: (status) => publish({ type: "update-status", status }),
     log: hostLog,
   });
+  machineRoutes = new MachineKitRoute({ machines: () => machines, active: () => started.current()?.activeThreadIdentity() });
   const methods = createHostMethods({
+    machineRoutes,
     updates: () => updates,
     clientCalls,
     connections: () => connectionsService(),
@@ -482,6 +488,8 @@ async function main(): Promise<void> {
     beforeReply: () => pushes.flush(),
     onSnapshotClient: () => pushes.resendWholeOutputs(),
     onThreadsSubscribed: (sessionIds) => pushes.resendWholeOutputs(sessionIds),
+    onTopicsSubscribed: (connection, topics, emit) => machineRoutes?.subscribe(connection, topics, emit),
+    onClientDetached: (connection) => machineRoutes?.detach(connection),
     hostVersion,
     capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay],
     host: { id: hostId, name: machineName, endpoints: () => networkEndpoints },

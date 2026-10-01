@@ -8,6 +8,17 @@ const options = { hostVersion: "1.2.3", capabilities: ["jobs"] };
 const delta = (sessionId: string, text: string) => ({ type: "assistant-delta" as const, sessionId, id: "a", delta: text });
 
 describe("host push log", () => {
+  it("sequences client-only relays without replaying them or marking their eviction as a gap", () => {
+    const log = new HostPushLog(1);
+    log.record(event("private first"), { replay: false });
+    log.record(event("private second"), { replay: false });
+    expect(log.since(0)).toEqual({ resync: false, missed: [] });
+    expect(log.record(event("shared")).seq).toBe(3);
+    expect(log.since(0)).toEqual({ resync: false, missed: [{ seq: 3, event: event("shared") }] });
+    log.record(event("next"));
+    expect(log.since(0).resync).toBe(true);
+  });
+
   it("numbers pushes from one", () => {
     const log = new HostPushLog();
     expect(log.nextSeq).toBe(1);

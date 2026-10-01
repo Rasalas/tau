@@ -102,7 +102,7 @@ export class HostPublication {
     return {
       ...this.deps.projection.hostSnapshot(view.active(), models, view.cwd(), view.extensionCount()),
       ...(this.completionModels ? { completionModels: this.completionModels } : {}),
-      ...this.deps.workspaces.ref(view.cwd()),
+      ...this.projectMetadata(view.cwd()),
       runtimeBackends: this.runtimeBackends(),
       defaultBackendKind: this.deps.defaultBackendKind,
     };
@@ -151,6 +151,11 @@ export class HostPublication {
 
   /** Identity and display of one workspace, as every published shape carries it. */
   projectMetadata(cwd: string, label?: string): ProjectMetadata {
+    const active = this.deps.view.active();
+    if (active?.backend.kind === "machine" && active.cwd === cwd) {
+      const shell = this.deps.index.byId(active.threadId);
+      return { cwd, ...(shell?.workspaceId ? { workspaceId: shell.workspaceId } : {}), displayPath: shell?.projectDisplayPath ?? cwd, ...(label === undefined ? {} : { label }) };
+    }
     return { cwd, ...this.deps.workspaces.ref(cwd), ...(label === undefined ? {} : { label }) };
   }
 

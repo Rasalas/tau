@@ -968,6 +968,37 @@ the window's `environments-update` and the command line's `machines-update`
 [host-updates.md](host-updates.md#protocol) lists them with their params and
 results, and what an older host or client does with them.
 
+### Kit calls for a machine thread
+
+The `host-extension` handler routes Workspace, Files, Terminal and Review calls
+through the indexed home machine. An explicit `workspace` or `workspaceId`
+selects the machine whose index published it; an unnamed call follows the
+active machine backend and carries that remote session's workspace identity.
+Other kits remain local, as does Workspace's native folder picker. Before a
+forwarded call uses the host's machine credential, the source host checks the
+original client's command authority and records its write audit.
+
+A machine backend record may publish an optional `workspace: WorkspaceRef`
+(API 1.44.0). Proxy index rows and active project metadata preserve this home
+identity rather than minting an identity for the proxy cwd on the relaying host.
+The cwd remains a host coordinate; two machines can publish different workspace
+identities for the same path. Activating a proxy does not learn that path as a
+local project.
+
+Workspace publishes head, clone and checkpoint events under its dedicated
+topics. Terminal output uses `output/<shellId>`, and its session list and exits
+use `sessions`. A client's topic subscription attaches a matching remote watch;
+its events return to that client with the original extension, event name and
+topic. Remote thread ids are wrapped in the proxy namespace. Detaching or
+replacing the subscription stops its remote watches. Shell ownership survives
+navigation; session tables merge by machine so remote updates retain local
+shells. Named-workspace Git mutations and terminal opens leave the home host's
+active thread unchanged.
+
+These client-only relays use global push sequence numbers and per-client `prev`
+links, but are omitted from replay to prevent another connection receiving them.
+Terminal reconnects fetch session state and scrollback through the kit's commands.
+
 ### Files between hosts
 
 `services.machines.upload` sends a file over the same connection, and the

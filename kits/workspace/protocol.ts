@@ -175,6 +175,11 @@ export type WorkspaceMode = "current" | "worktree";
 /** Published for every checkpoint the host records or whose capture status changes. */
 export const CHECKPOINT_EVENT = "checkpoint";
 
+/** Live Workspace events, followed locally and on a thread's home machine. */
+export const WORKSPACE_HEAD_TOPIC = "head";
+export const WORKSPACE_CLONE_TOPIC = "clone";
+export const WORKSPACE_CHECKPOINT_TOPIC = "checkpoints";
+
 export interface WorkspaceCheckpointList {
   checkpoints: UiTurnCheckpoint[];
   /** Whether completed checkpoints can restore this thread; false while Pi owns it. */
@@ -249,20 +254,20 @@ export interface WorkspaceHostCommands {
   "file-tree": { input: { relPath?: string; workspace?: string } | undefined; output: FileNode[] };
   "changes": { input: { query?: WorkspaceChangesQuery; workspace?: string } | undefined; output: UiWorkspaceChanges };
   "file-diff": { input: { relPath: string; options?: DiffLoadOptions; workspace?: string }; output: UiFileDiff };
-  "stage-file": { input: { relPath: string }; output: UiWorkspaceChanges };
-  "unstage-file": { input: { relPath: string }; output: UiWorkspaceChanges };
-  "stage-all": { input: undefined; output: UiWorkspaceChanges };
-  "revert-file": { input: { relPath: string }; output: UiWorkspaceChanges };
+  "stage-file": { input: { relPath: string; workspace?: string }; output: UiWorkspaceChanges };
+  "unstage-file": { input: { relPath: string; workspace?: string }; output: UiWorkspaceChanges };
+  "stage-all": { input: { workspace?: string } | undefined; output: UiWorkspaceChanges };
+  "revert-file": { input: { relPath: string; workspace?: string }; output: UiWorkspaceChanges };
   "read-file": { input: { relPath: string; workspace?: string }; output: UiFileContent };
   "file-stat": { input: { relPath: string; workspace?: string }; output: UiFileStat };
   /** `expectedMtimeMs` is when the caller last saw the file; `null` expects none, absent writes regardless. */
   "write-file": { input: { relPath: string; text: string; expectedMtimeMs?: number | null; workspace?: string }; output: UiFileWriteResult };
   "commit": { input: { message: string; push: boolean; workspace?: string }; output: CommitResult };
-  "pull": { input: undefined; output: PullResult };
+  "pull": { input: { workspace?: string } | undefined; output: PullResult };
   /** Pushes the branch; one without an upstream is published to the primary remote. Review Kit may call it. */
-  "push": { input: undefined; output: PushResult };
+  "push": { input: { workspace?: string } | undefined; output: PushResult };
   /** The first remote of a repository Review Kit just published; refused when it has one (callers: `tau.review`). */
-  "add-remote": { input: { name?: string; url: string }; output: { hasCommits: boolean } };
+  "add-remote": { input: { name?: string; url: string; workspace?: string }; output: { hasCommits: boolean } };
   /** A new branch holding the parent's tree with these files put in; the checkout is not touched (callers: `tau.servers`). */
   "commit-files-to-branch": { input: CommitFilesInput & { workspace?: string }; output: CommitFilesResult };
   /** A normal merge commit of a branch into the checkout's own; a conflict is backed out (callers: `tau.servers`). */
@@ -293,13 +298,13 @@ export interface WorkspaceHostCommands {
   "auto-pull": { input: { workspace?: string } | undefined; output: AutoPullOutcome[] };
   /** Defaults a project checks in under `.tau/project.json`, plus this client's own. */
   "project-defaults": { input: { workspace?: string } | undefined; output: ProjectDefaults };
-  "switch-ref": { input: { ref: string }; output: HostActionResult };
+  "switch-ref": { input: { ref: string; workspace?: string }; output: HostActionResult };
   /** What the thread header's "N files changed" counts for this thread. */
   "thread-changes": { input: { sessionId?: string; workspace?: string }; output: ThreadChangesCount };
   /** Threads with a turn running in the shown checkout; a branch switch there changes their files. */
-  "checkout-turns": { input: { sessionId?: string }; output: CheckoutTurn[] };
+  "checkout-turns": { input: { sessionId?: string; workspace?: string }; output: CheckoutTurn[] };
   /** A new branch at the checkout's HEAD, switched to in place. */
-  "create-branch": { input: { branch: string }; output: HostActionResult };
+  "create-branch": { input: { branch: string; workspace?: string }; output: HostActionResult };
   "list-editors": { input: undefined; output: UiEditor[] };
   /** `file-manager` reveals the file in Finder, Explorer or Files; a line reaches editors that take one. */
   "open-in-editor": { input: { editorId: string; relPath?: string; workspace?: string } & EditorPosition; output: void };
@@ -335,16 +340,16 @@ export interface WorkspaceHostClient {
   getFileTree(relPath?: string, workspace?: string): Promise<FileNode[]>;
   getChanges(query?: WorkspaceChangesQuery, workspace?: string): Promise<UiWorkspaceChanges>;
   getFileDiff(relPath: string, options?: DiffLoadOptions, workspace?: string): Promise<UiFileDiff>;
-  stageFile(relPath: string): Promise<UiWorkspaceChanges>;
-  unstageFile(relPath: string): Promise<UiWorkspaceChanges>;
-  stageAll(): Promise<UiWorkspaceChanges>;
-  revertFile(relPath: string): Promise<UiWorkspaceChanges>;
+  stageFile(relPath: string, workspace?: string): Promise<UiWorkspaceChanges>;
+  unstageFile(relPath: string, workspace?: string): Promise<UiWorkspaceChanges>;
+  stageAll(workspace?: string): Promise<UiWorkspaceChanges>;
+  revertFile(relPath: string, workspace?: string): Promise<UiWorkspaceChanges>;
   readFile(relPath: string, workspace?: string): Promise<UiFileContent>;
   statFile(relPath: string): Promise<UiFileStat>;
   writeFile(relPath: string, text: string, expectedMtimeMs?: number | null): Promise<UiFileWriteResult>;
   commit(message: string, push: boolean): Promise<CommitResult>;
-  pull(): Promise<PullResult>;
-  push(): Promise<PushResult>;
+  pull(workspace?: string): Promise<PullResult>;
+  push(workspace?: string): Promise<PushResult>;
   getWorkspaceInfo(workspace?: string): Promise<WorkspaceInfo>;
   getWorktreeStatuses(workspace?: string): Promise<UiWorktreeStatus[]>;
   getWorktreeBase(workspace?: string, options?: { baseRef?: string; startFromOrigin?: boolean }): Promise<UiWorktreeBase>;
@@ -355,10 +360,10 @@ export interface WorkspaceHostClient {
   getProjectDefaults(workspace?: string): Promise<ProjectDefaults>;
   getDefaultBranch(workspace?: string): Promise<string>;
   autoPull(workspace?: string): Promise<AutoPullOutcome[]>;
-  switchRef(ref: string): Promise<HostActionResult>;
-  checkoutTurns(sessionId?: string): Promise<CheckoutTurn[]>;
+  switchRef(ref: string, workspace?: string): Promise<HostActionResult>;
+  checkoutTurns(sessionId?: string, workspace?: string): Promise<CheckoutTurn[]>;
   threadChanges(sessionId?: string, workspace?: string): Promise<ThreadChangesCount>;
-  createBranch(branch: string): Promise<HostActionResult>;
+  createBranch(branch: string, workspace?: string): Promise<HostActionResult>;
   listEditors(): Promise<UiEditor[]>;
   openInEditor(editorId: string, relPath?: string, workspace?: string, position?: EditorPosition): Promise<void>;
   listTerminals(): Promise<UiTerminal[]>;
@@ -387,16 +392,16 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     getFileTree: (relPath, workspace) => call("file-tree", relPath === undefined && workspace === undefined ? undefined : { ...(relPath === undefined ? {} : { relPath }), ...(workspace ? { workspace } : {}) }),
     getChanges: (query, workspace) => call("changes", query === undefined && workspace === undefined ? undefined : { ...(query === undefined ? {} : { query }), ...(workspace ? { workspace } : {}) }),
     getFileDiff: (relPath, options, workspace) => call("file-diff", workspace ? { relPath, options, workspace } : { relPath, options }),
-    stageFile: (relPath) => call("stage-file", { relPath }),
-    unstageFile: (relPath) => call("unstage-file", { relPath }),
-    stageAll: () => call("stage-all", undefined),
-    revertFile: (relPath) => call("revert-file", { relPath }),
+    stageFile: (relPath, workspace) => call("stage-file", workspace ? { relPath, workspace } : { relPath }),
+    unstageFile: (relPath, workspace) => call("unstage-file", workspace ? { relPath, workspace } : { relPath }),
+    stageAll: (workspace) => call("stage-all", workspace ? { workspace } : undefined),
+    revertFile: (relPath, workspace) => call("revert-file", workspace ? { relPath, workspace } : { relPath }),
     readFile: (relPath, workspace) => call("read-file", workspace ? { relPath, workspace } : { relPath }),
     statFile: (relPath) => call("file-stat", { relPath }),
     writeFile: (relPath, text, expectedMtimeMs) => call("write-file", expectedMtimeMs === undefined ? { relPath, text } : { relPath, text, expectedMtimeMs }),
     commit: (message, push) => call("commit", { message, push }),
-    pull: () => call("pull", undefined),
-    push: () => call("push", undefined),
+    pull: (workspace) => call("pull", workspace ? { workspace } : undefined),
+    push: (workspace) => call("push", workspace ? { workspace } : undefined),
     getWorkspaceInfo: (workspace) => call("workspace-info", workspace === undefined ? undefined : { workspace }),
     getWorktreeStatuses: (workspace) => call("worktree-statuses", workspace === undefined ? undefined : { workspace }),
     getWorktreeBase: (workspace, options) => call("worktree-base", { workspace, ...options }),
@@ -407,10 +412,10 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     getProjectDefaults: (workspace) => call("project-defaults", { workspace }),
     getDefaultBranch: (workspace) => call("default-branch", workspace === undefined ? undefined : { workspace }),
     autoPull: (workspace) => call("auto-pull", workspace === undefined ? undefined : { workspace }),
-    switchRef: (ref) => call("switch-ref", { ref }),
-    checkoutTurns: (sessionId) => call("checkout-turns", { sessionId }),
+    switchRef: (ref, workspace) => call("switch-ref", workspace ? { ref, workspace } : { ref }),
+    checkoutTurns: (sessionId, workspace) => call("checkout-turns", { sessionId, ...(workspace ? { workspace } : {}) }),
     threadChanges: (sessionId, workspace) => call("thread-changes", { sessionId, workspace }),
-    createBranch: (branch) => call("create-branch", { branch }),
+    createBranch: (branch, workspace) => call("create-branch", workspace ? { branch, workspace } : { branch }),
     listEditors: () => call("list-editors", undefined),
     openInEditor: (editorId, relPath, workspace, position) => call("open-in-editor", { editorId, relPath, workspace, ...position }),
     listTerminals: () => call("list-terminals", undefined),
@@ -734,7 +739,7 @@ export interface WorkspaceStoreApi {
   registerReviewView(): () => void;
   stageFile(path: string): Promise<void>;
   unstageFile(path: string): Promise<void>;
-  stageAll(): Promise<void>;
+  stageAll(workspace?: string): Promise<void>;
   /** Discards one file's changes; the caller asked the user first. */
   revertFile(path: string): Promise<void>;
   /** A mark drawn on every thread row of the rail. */

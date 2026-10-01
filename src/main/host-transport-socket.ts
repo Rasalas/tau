@@ -13,6 +13,7 @@ import {
   type HostClientCall,
   type HostIdentity,
   type HostPush,
+  type HostPushEvent,
   type HostServerFrame,
 } from "../shared/host-transport.js";
 import { ACCESS_CLOSE_REASON, type DeviceAccess, type PairingEndpoint } from "../shared/connections.js";
@@ -108,6 +109,9 @@ export interface SocketHostTransportOptions {
   onSnapshotClient?(): void;
   /** A connection's subscription gained these threads; what it never saw must travel whole again. */
   onThreadsSubscribed?(sessionIds: readonly string[]): void;
+  /** Relays machine kit topics to this connection alone. */
+  onTopicsSubscribed?(connection: string, topics: readonly string[], emit: (event: HostPushEvent) => void): void;
+  onClientDetached?(connection: string): void;
   /** Page origins accepted besides the listener's own and Electron's local `file://` (`hostAllowedOrigins`); a function is asked per socket. */
   allowedOrigins?: readonly string[] | (() => readonly string[]);
   /** Defaults to `SOCKET_HELLO_TIMEOUT_MS`. */
@@ -190,6 +194,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     const session = authenticated.get(socket);
     authenticated.delete(socket);
     if (session) {
+      options.onClientDetached?.(session.connection);
       sockets.delete(session.connection);
       access.detach(session.connection);
       options.calls?.detach(session.connection);
@@ -256,6 +261,15 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     send(socket, response);
   };
 
+  const followTopics = (socket: WebSocket, session: Session, topics: readonly string[]): void => {
+    options.onTopicsSubscribed?.(session.connection, topics, (event) => {
+      if (authenticated.get(socket) !== session || socket.readyState !== socket.OPEN) return;
+      const push = options.pushLog.record(event, { replay: false });
+      send(socket, { type: "push", push: { ...push, ...(session.lastSent === push.seq - 1 ? {} : { prev: session.lastSent }) } });
+      session.lastSent = push.seq;
+    });
+  };
+
   /**
    * Answered at once, without flushing waiting pushes first: every push before
    * the response went out under the old subscription, every push after it
@@ -265,6 +279,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     if (value === null || value === undefined) {
       delete session.filter;
       send(socket, { type: "response", response: { id, result: true } });
+      followTopics(socket, session, []);
       return;
     }
     const subscription = decodeHostSubscription(value);
@@ -277,6 +292,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     session.filter = filter;
     if (added.length > 0) options.onThreadsSubscribed?.(added);
     send(socket, { type: "response", response: { id, result: true } });
+    followTopics(socket, session, subscription.topics);
   };
 
   /** Sockets that answered the last WebSocket ping, or sent anything since. */
@@ -387,9 +403,12 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         const identity = options.host ? helloIdentity(options.host) : undefined;
         const readOnly = readOnlySession(session);
         const reply = helloReply(options.pushLog, frame.hello, { hostVersion: options.hostVersion, capabilities, ...(identity ? { host: identity } : {}) }, filter, readOnly);
+        // Legacy unfiltered clients advance only through replayed events, not over client-only relays.
+        if (!filter && frame.hello.lastSeq !== undefined && !reply.resync) session.lastSent = reply.missed.at(-1)?.seq ?? frame.hello.lastSeq;
         // Said here so a client that manages nothing never asks for the list it would be refused.
         const owner = isHostOwner(session.principal);
         send(socket, { type: "hello-reply", id: frame.id, reply: { ...reply, ...(readOnly ? { access: "read-only" as const } : {}), owner } });
+        followTopics(socket, session, frame.hello.subscription?.topics ?? []);
         if (!frame.hello.auxiliary && (frame.hello.lastSeq === undefined || reply.resync)) options.onSnapshotClient?.();
         if (options.clients && !frame.hello.auxiliary) {
           clientIds.set(socket, options.clients.attached({

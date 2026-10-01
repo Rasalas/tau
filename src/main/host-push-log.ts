@@ -22,6 +22,7 @@ export class HostPushLog {
   private buffer: Array<HostPush | undefined> = [];
   private sizes: number[] = [];
   private scopes: HostPushScope[] = [];
+  private replayable: boolean[] = [];
   /** The newest evicted push per scope (`""` for pushes to everyone). */
   private readonly evicted = new Map<string, number>();
   /** Entries before this index are evicted (and cleared); the arrays are compacted in bulk. */
@@ -36,17 +37,19 @@ export class HostPushLog {
     return this.seq + 1;
   }
 
-  record(event: HostPushEvent): HostPush {
+  /** Client-only relays keep sequence ordering but never replay to another connection. */
+  record(event: HostPushEvent, options: { replay?: boolean } = {}): HostPush {
     this.seq += 1;
     const push: HostPush = { seq: this.seq, event };
     const size = Buffer.byteLength(JSON.stringify(push));
     this.buffer.push(push);
     this.sizes.push(size);
     this.scopes.push(hostPushScope(event));
+    this.replayable.push(options.replay !== false);
     this.bytes += size;
     while (this.bytes > this.capacityBytes && this.head < this.buffer.length - 1) {
       this.bytes -= this.sizes[this.head]!;
-      this.forget(this.scopes[this.head], this.buffer[this.head]!.seq);
+      if (this.replayable[this.head]) this.forget(this.scopes[this.head], this.buffer[this.head]!.seq);
       this.buffer[this.head] = undefined;
       this.head += 1;
     }
@@ -54,6 +57,7 @@ export class HostPushLog {
       this.buffer = this.buffer.slice(this.head);
       this.sizes = this.sizes.slice(this.head);
       this.scopes = this.scopes.slice(this.head);
+      this.replayable = this.replayable.slice(this.head);
       this.head = 0;
     }
     return push;
@@ -82,16 +86,14 @@ export class HostPushLog {
     // Sequences are contiguous, so the first missed push sits at a known index.
     const from = this.head + Math.max(0, lastSeq - oldest + 1);
     const missed = this.buffer.slice(from) as HostPush[];
-    if (!filter && !readOnly) return { resync: false, missed };
     const scopes = this.scopes.slice(from);
-    return { resync: false, missed: missed.filter((push, index) => !(readOnly && scopes[index] === "writers") && (filter?.admits(push.event, scopes[index]) ?? true)) };
+    return { resync: false, missed: missed.filter((push, index) => this.replayable[from + index] && !(readOnly && scopes[index] === "writers") && (filter?.admits(push.event, scopes[index]) ?? true)) };
   }
 
   /** Whether a push after `lastSeq` that this client would have been sent was evicted. */
   private lostAny(lastSeq: number, filter: HostPushFilter | undefined): boolean {
-    if (!filter) return true;
     for (const [scope, seq] of this.evicted) {
-      if (seq > lastSeq && filter.mayAdmit(scope === "" ? undefined : scope as HostPushScope)) return true;
+      if (seq > lastSeq && (!filter || filter.mayAdmit(scope === "" ? undefined : scope as HostPushScope))) return true;
     }
     return false;
   }

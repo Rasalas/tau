@@ -67,6 +67,7 @@ async function fixture() {
   vi.stubEnv("TAU_PACKAGES_HOME", join(root, "packages"));
   const missingCwd = join(root, "nonexistent", "x");
   const record: HostBackendThreadRecord = {
+    workspace: { workspaceId: "ws1_rex_original", displayPath: "/home/dev/repo" },
     threadId: "0123456789abcdef0123456789abcdef~t1", cwd: missingCwd, title: "Rex thread", updatedAt: 1,
     messages: [{ role: "user", text: "hello" }, { role: "assistant", text: "ready" }],
   };
@@ -123,7 +124,7 @@ describe("machine backend host prerequisites", () => {
       type: "thread-detail", detail: expect.objectContaining({ sessionId: record.threadId, backendKind: "machine" }),
     }));
     expect(result.updates).toContainEqual(expect.objectContaining({
-      type: "project", sessionId: record.threadId, project: expect.objectContaining({ cwd: missingCwd }),
+      type: "project", sessionId: record.threadId, project: expect.objectContaining({ cwd: missingCwd, workspaceId: record.workspace!.workspaceId, displayPath: record.workspace!.displayPath }),
     }));
     expect(opened).toEqual([{ threadId: record.threadId, cwd: missingCwd, resume: true }]);
     expect((await host.snapshot()).messages.map((message) => message.text)).toEqual(["hello", "ready"]);
@@ -143,7 +144,10 @@ describe("machine backend host prerequisites", () => {
     const bootstrap = await second.host.bootstrap();
     expect(bootstrap.threadIndex.sessions).toContainEqual(expect.objectContaining({
       id: record.threadId, path, backendKind: "machine", projectPath: missingCwd, title: record.title,
+      workspaceId: record.workspace!.workspaceId, projectDisplayPath: record.workspace!.displayPath,
     }));
+    expect(bootstrap.threadIndex.projects).toContainEqual(expect.objectContaining({ workspaceId: record.workspace!.workspaceId, displayPath: record.workspace!.displayPath }));
+    expect(bootstrap.threadIndex.projects.filter((project) => project.path === missingCwd)).toHaveLength(1);
     expect(second.opened).toEqual([]);
     const result = await second.host.switchSession(path);
     expect(second.opened).toEqual([{ threadId: record.threadId, cwd: missingCwd, resume: true }]);

@@ -621,6 +621,9 @@ export class PiHost {
     return this.hostExtensions.invoke(extensionId, command, input, principal);
   }
 
+  authorizeHostExtension(extensionId: string, command: string, input: unknown, principal: HostInvocationPrincipal): Promise<void> { return this.hostExtensions.authorizeInvocation(extensionId, command, input, principal); }
+  activeThreadIdentity(): { sessionId: string; backendKind: string } | undefined { const thread = this.active; return thread ? { sessionId: thread.threadId, backendKind: thread.backend.kind } : undefined; }
+
   /** Extension commands that may run long, so a client runs them as host jobs. */
   longHostExtensionCommands(): string[] {
     return this.hostExtensions.longCommands();
@@ -637,10 +640,8 @@ export class PiHost {
     return kind === "pi" ? this.piAdapter : this.requireBackend(kind).adapter;
   }
 
-  // ---------------------------------------------------------------------------
   // Active thread accessors. Most of the host reads "the runtime": it is the one
   // the workbench shows, or nothing while Pi's own TUI owns the visible thread.
-  // ---------------------------------------------------------------------------
 
   private get active(): ThreadRuntime | undefined {
     return this.attached.session.isAttached ? this.attachedThread : this.threads.active?.runtime;
@@ -818,7 +819,6 @@ export class PiHost {
 
   threadTitle(sessionId: string): string | undefined { return this.index.byId(sessionId)?.title; }
   threadPath(sessionId: string): string | undefined { return this.index.byId(sessionId)?.path; }
-
   bootstrap(): Promise<HostBootstrap> { return this.publication.bootstrap(); }
 
   /** Focused active detail endpoint; it never includes catalogs or project metadata. */

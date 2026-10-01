@@ -13,6 +13,9 @@ import {
 import {
   CLONE_PROGRESS_EVENT,
   HEAD_CHANGED_EVENT,
+  WORKSPACE_HEAD_TOPIC,
+  WORKSPACE_CLONE_TOPIC,
+  WORKSPACE_CHECKPOINT_TOPIC,
   createWorkspaceHostClient,
   WORKSPACE_CHANGES_PANEL,
   WORKSPACE_FILES_PANEL,
@@ -73,6 +76,7 @@ export const workspaceExtension: DesktopExtension = {
   activate(context) {
     const host = createWorkspaceHostClient((command, input) => context.host.invoke(command, input));
     const store = new WorkspaceStore(context.preferences, host);
+    const stopTopics = [WORKSPACE_HEAD_TOPIC, WORKSPACE_CLONE_TOPIC, WORKSPACE_CHECKPOINT_TOPIC].map((topic) => context.host.watch?.(topic));
     const bind = <P extends object>(Component: Parameters<typeof withWorkspaceStore<P>>[1]) => withWorkspaceStore(store, Component);
     context.provideService(WORKSPACE_STORE_SERVICE, store);
     // The branch on screen, for any package: a public contract, unlike the store.
@@ -407,6 +411,7 @@ export const workspaceExtension: DesktopExtension = {
     });
     context.registerKeybinding({ keys: "mod+e", commandId: "workspace.open-prompt-editor" });
     return () => {
+      stopTopics.forEach((stop) => stop?.());
       unpublishIcons();
       window.clearInterval(autoPullTimer);
       window.removeEventListener("focus", autoPull);

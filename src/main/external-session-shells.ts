@@ -33,6 +33,7 @@ export async function loadExternalSessionShells(options: {
         projectPath: record.cwd,
         projectName: options.projectName(record.cwd),
         projectLabel: options.projectLabel(record.cwd),
+        ...(record.workspace ? { workspaceId: record.workspace.workspaceId, projectDisplayPath: record.workspace.displayPath } : {}),
         messageCount: record.messageCount ?? record.messages.length,
         ...(record.machine ? { machine: { ...record.machine } } : {}),
         backendKind: provider.kind,

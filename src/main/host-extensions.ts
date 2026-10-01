@@ -82,6 +82,8 @@ export interface HostBackendThreadRecord {
   messageCount?: number;
   /** The home machine of a proxy thread and its runtime marks. New in API 1.42.0. */
   machine?: UiSession["machine"];
+  /** The workspace identity supplied by the backend's home host. New in API 1.44.0. */
+  workspace?: WorkspaceRef;
   /** The model it last ran on, for its row before it opens; else the row shows `modelProvider` (API 1.24.0). */
   model?: Pick<UiModel, "provider" | "id">;
   /**
@@ -1682,22 +1684,31 @@ export class HostExtensionRegistry {
     ]);
   }
 
+  async authorizeInvocation(extensionId: string, command: string, input: unknown, principal: HostInvocationPrincipal): Promise<void> {
+    const record = await this.requireCommand(extensionId, command);
+    this.authorize(record, extensionId, command, principal, input);
+  }
+
+  private async requireCommand(extensionId: string, command: string): Promise<ActiveHostExtension> {
+    const record = this.active.get(extensionId) ?? await this.restartCrashed(extensionId);
+    if (!record) {
+      const known = this.known.get(extensionId);
+      const failure = this.failures.get(extensionId);
+      if (known) throw new Error(`Host extension ${known.name} is not active${failure ? `: ${failure}` : ""}.`);
+      throw new Error(`Host extension ${extensionId} is not installed.`);
+    }
+    if (!record.commands.has(command)) throw new Error(`Host extension ${record.extension.name} has no command "${command}".`);
+    return record;
+  }
+
   async invoke(
     extensionId: string,
     command: string,
     input?: unknown,
     principal: HostInvocationPrincipal = HOST_CORE_PRINCIPAL,
   ): Promise<unknown> {
-    const record = this.active.get(extensionId) ?? await this.restartCrashed(extensionId);
-    if (!record) {
-      const known = this.known.get(extensionId);
-      const failure = this.failures.get(extensionId);
-      throw new Error(known
-        ? `Host extension ${known.name} is not active${failure ? `: ${failure}` : ""}.`
-        : `Host extension ${extensionId} is not installed.`);
-    }
-    const handler = record.commands.get(command);
-    if (!handler) throw new Error(`Host extension ${record.extension.name} has no command "${command}".`);
+    const record = await this.requireCommand(extensionId, command);
+    const handler = record.commands.get(command)!;
     this.authorize(record, extensionId, command, principal, input);
 
     const timeoutMs = this.options.commandTimeoutMs ?? 30_000;

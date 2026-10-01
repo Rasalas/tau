@@ -83,6 +83,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-service.js",   "./host-service-units.js",   "./display-window.js",   "./display-number.js",   "./keep-awake.js",
   // Other machines this host's agents reach, with keys the owner's window handed over (ADR 0027).
   "./host-machines.js",
+  // Routes the selected kit calls and topics to the indexed home machine (ADR 0030).
+  "./machine-kit-route.js",
   "./host-machine-pairing.js",
   // Host connectivity, pairing and signed bootstrap belong to core (CORE.md, ADRs 0025/0027).
   // These carry host protocol bytes and machine identity; no kit owns their lifetime.
