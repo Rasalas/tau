@@ -166,6 +166,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       },
       openThreadTree,
       duplicateThread,
+      forkFrom: options.threadCommands.forkMessage,
       focusComposer: (seed) => {
         if (seed !== undefined) options.setComposerSeed(seed);
         const composer = options.composerRef.current;

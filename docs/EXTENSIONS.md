@@ -442,7 +442,14 @@ A call no renderer claims shows the value of its most telling argument
 (`command`, `file_path`, `path`, `pattern`, `query`, `url`, …), so a runtime
 whose tools have names of their own should still register a renderer for its
 glyphs and tones. A failed call (`status: "error"`) shows why under its line:
-the exit status and the last line printed, or the first line of `output`.
+the exit status and the last line printed, or the first line of `output`. A
+failed command shows its output open instead, dark as a terminal, with "exit 1 ·
+2.3s" at the row's end (design 1f).
+`glyph` may be an icon (API 1.39.0). `note` (API 1.39.0) is drawn at the row's
+end before its state, `body` open under the row in place of the output:
+Workspace Kit draws an edit's "+4 −2" and its diff with them, for Pi's `edit`
+and `write` and the Agent SDK's `Edit`, `MultiEdit` and `Write`. Consecutive
+settled reads share one row ("Read a.ts, b.ts · 2 files") that opens to each.
 
 `registerToolCard({ id, match, Component })` is the other half: a whole batch
 of consecutive calls of your tools drawn as one card, instead of a row per
@@ -892,7 +899,13 @@ tab that shows a thread of another machine (`openThread(id, { machine })`); its
 props carry `lookIn: { machine, machineName, sessionId, connected }`, and what
 it shows comes from that machine through `context.environments.readExtension`.
 Preview Kit puts that machine's page there, small and view only. An older core
-never draws the placement.
+never draws the placement. `turn-divider` (API 1.39.0) sits in the line above
+each turn after the first ("Turn 3 · Regression tests", design 2d); its props
+carry `turn: { number, messages, last }` — the turn's prompt and everything that
+answered it, `last` while it may still run. Workspace Kit puts Fork here (a
+question first, then `actions.forkFrom(message)` through the turn's last saved
+message) and Restore files (the turn's checkpoint, when it verified) there,
+shown on hover and, on touch, on a tap.
 `thread-list-head` (API 1.30.0) tops a phone's or a tablet's thread list,
 under its header and over the rows, and stays put while they scroll: a strip
 about the list as a whole. Machines Kit says there which paired machine is out

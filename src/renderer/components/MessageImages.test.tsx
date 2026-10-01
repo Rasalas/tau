@@ -25,9 +25,8 @@ describe("message images", () => {
 
   it("does not render an empty bubble for a persisted image-only message", () => {
     const onCopy = vi.fn();
-    const onFork = vi.fn();
     const message = { id: "image-only", role: "user" as const, text: "", sourceEntryId: "entry-image-only", images: [{ mimeType: "image/png", data: "iVBORw==" }], timestamp: 0 };
-    const view = render(<Message message={message} onCopy={onCopy} onFork={onFork} />);
+    const view = render(<Message message={message} onCopy={onCopy} />);
 
     expect(screen.getByRole("img", { name: "Attached image" })).toBeTruthy();
     expect(view.container.querySelector("article.message.user")).toBeTruthy();
@@ -35,9 +34,7 @@ describe("message images", () => {
     expect(screen.queryByText("Image attached")).toBeNull();
     expect(screen.getByLabelText(/^Sent /u)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));
-    fireEvent.click(screen.getByRole("button", { name: "Fork" }));
     expect(onCopy).toHaveBeenCalledWith(message);
-    expect(onFork).toHaveBeenCalledWith(message);
   });
 
   it("does not render an empty bubble for a local-path-only message", async () => {

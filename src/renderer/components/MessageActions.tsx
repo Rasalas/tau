@@ -1,6 +1,6 @@
 import { lazy, Suspense, useContext, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Copy, GitFork, Pencil } from "lucide-react";
+import { Copy, Pencil } from "lucide-react";
 import type { UiMessage } from "../../shared/contracts";
 import { WorkbenchShellContext } from "../workbench-context";
 import { errorMessage } from "../../workbench/error-message";
@@ -19,14 +19,13 @@ function selectionInside(element: Element | null): string | undefined {
 }
 
 /** The desktop toolbar and mobile long-press sheet share the message's actions. */
-export function MessageActions({ message, onCopy, onFork, onEdit }: { message?: UiMessage; onCopy(): void; onFork?: () => void; onEdit?: () => void }) {
+export function MessageActions({ message, onCopy, onEdit }: { message?: UiMessage; onCopy(): void; onEdit?: () => void }) {
   const toolbar = useRef<HTMLDivElement>(null);
   const menu = useMessageMenu(toolbar);
   const shell = useContext(WorkbenchShellContext);
   const actions: (SheetAction & { hint?: string })[] = [
     { id: "copy", label: "Copy", hint: "Copy message", Icon: Copy, run: onCopy },
     ...(onEdit ? [{ id: "edit", label: "Edit from here", hint: "Rewind to before this message and edit it in the composer", Icon: Pencil, run: onEdit }] : []),
-    ...(onFork ? [{ id: "fork", label: "Fork", hint: "Fork through this message", Icon: GitFork, run: onFork }] : []),
   ];
   if (message && shell?.actions) {
     const workbench = shell.actions;

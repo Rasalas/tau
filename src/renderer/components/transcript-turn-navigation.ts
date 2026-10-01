@@ -1,5 +1,5 @@
 import type { UiMessage } from "../../shared/contracts";
-import { visibleUserMessageText } from "./MessageText";
+import { startsTurn, visibleUserMessageText } from "./MessageText";
 
 /** Keep short transcripts quiet; a turn index becomes useful at eight turns. */
 export const MIN_TRANSCRIPT_TURN_NAVIGATION_TURNS = 8 as const;
@@ -63,7 +63,7 @@ export function buildTranscriptTurnNavigation(
   const entries: TranscriptTurnNavigationEntry[] = [];
   for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
     const message = messages[messageIndex]!;
-    if (message.role !== "user") continue;
+    if (!startsTurn(message)) continue;
     turnNumber += 1;
     entries.push({
       messageId: message.id,

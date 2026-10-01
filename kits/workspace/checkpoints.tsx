@@ -23,6 +23,7 @@ import {
 } from "./protocol.js";
 import { RestoreCheckpointDialog } from "./RestoreCheckpointDialog.js";
 import { hasTurnChanges, TurnChangesPill } from "./turn-changes.js";
+import { createTurnActions } from "./turn-actions.js";
 import type { WorkspaceStore } from "./store.js";
 
 const LazyReview = lazy(() => loadReviewMode().then((ReviewMode) => ({ default: ReviewMode })));
@@ -60,7 +61,11 @@ interface CheckpointState {
 export class CheckpointStore {
   private state: CheckpointState = { persisted: [], restoreSupported: false, supportStale: false, verifyGeneration: 0, live: new Map(), restorable: new Set(), restoreBusy: false };
   private listeners = new Set<() => void>();
+  /** Opens the restore dialog for a checkpoint; set while the controller is mounted. */
+  onRestore?: (checkpoint: UiTurnCheckpoint) => void;
   getSnapshot = () => this.state;
+  /** Every checkpoint of the thread, persisted and announced, oldest first. */
+  all(): UiTurnCheckpoint[] { return mergeCheckpoints(this.state.persisted, this.state.live); }
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   update(patch: Partial<CheckpointState>): void {
     this.state = { ...this.state, ...patch };
@@ -189,6 +194,11 @@ function createController(store: CheckpointStore, workspaceStore: WorkspaceStore
         store.update({ restoreBusy: false });
       }
     }, [actions, checkpoints, restoreSupported, sessionId, state.restorable, streaming]);
+
+    useEffect(() => {
+      store.onRestore = (checkpoint) => void requestRestore(checkpoint);
+      return () => { store.onRestore = undefined; };
+    }, [requestRestore]);
 
     const confirmRestore = useCallback(async (files: boolean) => {
       const request = store.getSnapshot().restore;
@@ -322,6 +332,8 @@ export function registerCheckpoints(plugin: DesktopExtensionContext, workspaceSt
     } else if (event?.type === "turn-checkpoint-error") store.update({ notice: event.message });
   });
   plugin.registerRegion({ id: "workspace.checkpoints", placement: "composer-controls", order: 70, profiles: ["desktop", "compact"], Component: createController(store, workspaceStore, rows) });
+  plugin.registerRegion({ id: "workspace.turn-actions", placement: "turn-divider", profiles: ["desktop"], Component: createTurnActions(store, workspaceStore, false) });
+  plugin.registerRegion({ id: "workspace.turn-actions-touch", placement: "turn-divider", profiles: ["compact"], Component: createTurnActions(store, workspaceStore, true) });
   plugin.registerOverlay({ id: CHECKPOINT_REVIEW_OVERLAY, profiles: ["desktop", "compact"], Component: createReviewOverlay(store, workspaceStore) });
 }
 
