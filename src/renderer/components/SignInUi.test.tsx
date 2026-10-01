@@ -65,6 +65,8 @@ describe("SignInSetup", () => {
     await waitFor(() => expect(copyText).toHaveBeenCalledWith("https://auth.example/consent?x=1"));
 
     push({ target: "work", report: { methods: METHODS, account: { signedIn: true, label: "a@example.com", detail: "ChatGPT Pro", canSignOut: true }, flow: { ...flow, phase: "succeeded" } } });
+    expect(screen.queryByText("a@example.com")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show email address" }));
     expect(screen.getByText("a@example.com")).toBeTruthy();
     expect(screen.queryByRole("group", { name: "Sign in to Codex" })).toBeNull();
   });
@@ -131,7 +133,10 @@ describe("SignInSetup", () => {
     answer({ "sign-out": () => ({ methods: METHODS, account: { signedIn: false }, note: "Signed out of Codex." }) });
     render(<SignInSetup host={host} {...common} onNotify={onNotify} />);
     fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
-    const dialog = screen.getByRole("dialog", { name: "Sign out of Codex (a@example.com)?" });
+    const dialog = screen.getByRole("dialog", { name: "Sign out of Codex?" });
+    expect(dialog.innerHTML).not.toContain("a@example.com");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Show email address" }));
+    expect(within(dialog).getByText("a@example.com")).toBeTruthy();
     expect(dialog.textContent).toMatch(/stop working until you sign in again; their history stays/u);
     fireEvent.click(within(dialog).getByRole("button", { name: "Sign out" }));
     await waitFor(() => expect(onNotify).toHaveBeenCalledWith("Signed out of Codex."));

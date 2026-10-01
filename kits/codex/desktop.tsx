@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import {
   DEFAULT_INSTANCE_ID,
+  PrivateAccountText,
   SettingRow,
   SettingsState,
   isRuntimeInstanceOf,
@@ -217,7 +218,7 @@ export function CodexProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_
       ) : null}
       {status?.chatgptPlan ? (
         <SettingRow id={`${rows.account}-usage`} title={status.chatgptPlan.signedIn ? "Using ChatGPT plan" : "ChatGPT account"}
-          description={`${status.chatgptPlan.label}. Each instance keeps one account. Add an instance to use another account.`}
+          description={<><PrivateAccountText text={status.chatgptPlan.label} />. Each instance keeps one account. Add an instance to use another account.</>}
           control={<button type="button" className="settings-button" onClick={() => actions ? actions.openExternal(status.chatgptPlan!.usageUrl) : void window.open(status.chatgptPlan!.usageUrl, "_blank", "noopener")}>Manage usage</button>} />
       ) : null}
       {status?.codexHome ? (
@@ -297,7 +298,7 @@ export function createChatGPTPlanBanner(host: HostExtensionClient) {
     }, [kind]);
     useEffect(() => { if (snapshot?.isStreaming) setLimited(false); }, [snapshot?.isStreaming]);
     if (!plan?.signedIn) return null;
-    return <div className="runtime-version-banner"><div className="runtime-version-banner-body"><strong>Using ChatGPT plan · {plan.label}</strong>{limited ? <p>ChatGPT plan usage is unavailable. Review your app limits and credits in ChatGPT.</p> : null}<div className="runtime-version-banner-actions"><button type="button" onClick={() => actions.openExternal(plan.usageUrl)}>Manage usage</button></div></div></div>;
+    return <div className="runtime-version-banner"><div className="runtime-version-banner-body"><strong>Using ChatGPT plan · <PrivateAccountText text={plan.label} /></strong>{limited ? <p>ChatGPT plan usage is unavailable. Review your app limits and credits in ChatGPT.</p> : null}<div className="runtime-version-banner-actions"><button type="button" onClick={() => actions.openExternal(plan.usageUrl)}>Manage usage</button></div></div></div>;
   };
 }
 

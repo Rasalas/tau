@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode } from "react";
 import { ArrowRight, Bot, Braces, Check, ChevronRight, Copy, FolderPlus, GitMerge, GitPullRequest, Orbit, Sparkles, SquareTerminal } from "lucide-react";
-import { MiddleTruncate, loadSignInUi, useThreadStore, useWorkbenchShell, type OverlayProps, type WorkbenchActions } from "tau";
+import { MiddleTruncate, PrivateAccountText, loadSignInUi, useThreadStore, useWorkbenchShell, type OverlayProps, type WorkbenchActions } from "tau";
 import { backendKit, defaultProjects, defaultSessions, groupProjects, type AgentStatus, type FlowState, type ProjectGroup, type WelcomeFlow } from "./flow.js";
 import { TauMark } from "./mark.js";
 import { WELCOME_OVERLAY, type ImportableSession, type ProjectCandidate, type ToolReport } from "./protocol.js";
@@ -192,7 +192,7 @@ function AgentCard({ row, actions, flow, aside, recheck }: { row: AgentRow; acti
     <div className="onboarding-card-wrap">
       <div className="onboarding-card" data-state={row.state}>
         <Glyph size={18} />
-        <span className="onboarding-card-text"><strong>{row.label}</strong><small>{row.summary}</small></span>
+        <span className="onboarding-card-text"><strong>{row.label}</strong><small><PrivateAccountText text={row.summary} /></small></span>
         {row.state === "ready"
           ? <span className="onboarding-ready"><Check size={13} /> Ready</span>
           : row.state === "checking"
@@ -479,4 +479,3 @@ export function createWelcomeWizard(flow: WelcomeFlow, runner?: () => TerminalRu
     );
   };
 }
-
