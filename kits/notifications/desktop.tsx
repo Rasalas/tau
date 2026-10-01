@@ -276,54 +276,48 @@ function createSettingsPage(context: DesktopExtensionContext) {
   };
 }
 
-/** The news a switch each silences (design 2n); the words are the phone Settings' summary. */
-const EVENTS: ReadonlyArray<{ kind: AttentionReason; title: string; hint?: string; word: string }> = [
-  { kind: "question", title: "A thread asks a question", hint: "the most useful one", word: "questions" },
-  { kind: "approval", title: "A permission is needed", word: "permissions" },
-  { kind: "completed", title: "A thread is done", word: "done" },
-  { kind: "failed", title: "A thread failed", word: "failures" },
+/** The news a switch each silences (design 2n); the words sum them up on a phone's Settings list. */
+const EVENTS: ReadonlyArray<[AttentionReason, string, string]> = [
+  ["question", "A thread asks a question", "Questions"],
+  ["approval", "A permission is needed", "permissions"],
+  ["completed", "A thread is done", "done"],
+  ["failed", "A thread failed", "failures"],
 ];
 
-/** "Questions, done" beside Notifications on a phone's Settings list. */
 function eventsSummary(preferences: PreferencesStore): string {
-  const on = EVENTS.filter((event) => preferences.optionValue(ID, eventOption(event.kind), true)).map((event) => event.word);
-  const text = on.length === EVENTS.length ? "all" : on.join(", ") || "off";
-  return text.charAt(0).toUpperCase() + text.slice(1);
+  const on = EVENTS.filter(([kind]) => preferences.optionValue(ID, eventOption(kind), true)).map(([, , word]) => word);
+  return on.length === EVENTS.length ? "All" : on.join(", ") || "Off";
 }
 
-function useOption(preferences: PreferencesStore, id: string, fallback: boolean) {
-  return useSetting<boolean>(`options.${ID}.${id}`, { defaultValue: fallback, read: readBoolean, offline: (value) => preferences.setOption(ID, id, value) });
-}
-
-function useClock(preferences: PreferencesStore, id: string, fallback: string) {
-  return useSetting<string>(`values.${ID}.${id}`, { defaultValue: fallback, read: (raw) => (typeof raw === "string" && /^\d\d:\d\d$/u.test(raw) ? raw : undefined), offline: (value) => preferences.setValue(ID, id, value) });
+function useKitSetting<T>(preferences: PreferencesStore, kind: "options" | "values", id: string, fallback: T) {
+  return useSetting<T>(`${kind}.${ID}.${id}`, {
+    defaultValue: fallback,
+    read: (raw) => (typeof raw === typeof fallback ? raw as T : undefined),
+    offline: (value) => (kind === "options" ? preferences.setOption(ID, id, value as boolean) : preferences.setValue(ID, id, value as string)),
+  });
 }
 
 /** Which news reaches you at all, on any client and as a push, and when none does (design 2n, 2i). */
 function NotifyWhen({ preferences }: { preferences: PreferencesStore }) {
   const settings = [
-    useOption(preferences, eventOption("question"), true),
-    useOption(preferences, eventOption("approval"), true),
-    useOption(preferences, eventOption("completed"), true),
-    useOption(preferences, eventOption("failed"), true),
+    useKitSetting(preferences, "options", eventOption("question"), true),
+    useKitSetting(preferences, "options", eventOption("approval"), true),
+    useKitSetting(preferences, "options", eventOption("completed"), true),
+    useKitSetting(preferences, "options", eventOption("failed"), true),
   ];
-  const events = EVENTS.map((event, index) => ({ ...event, setting: settings[index]! }));
-  const quiet = useOption(preferences, QUIET.on, false);
-  const from = useClock(preferences, QUIET.from, QUIET.start);
-  const to = useClock(preferences, QUIET.to, QUIET.end);
+  const quiet = useKitSetting(preferences, "options", QUIET.on, false);
+  const from = useKitSetting<string>(preferences, "values", QUIET.from, QUIET.start);
+  const to = useKitSetting<string>(preferences, "values", QUIET.to, QUIET.end);
+  const time = (setting: typeof from, label: string) => <input type="time" aria-label={label} value={setting.value} onChange={(event) => { if (event.target.value) setting.set(event.target.value); }} />;
   return <>
     <SettingsSection title="Notify me when">
-      {events.map((event) => <SettingRow key={event.kind} id={`setting-notifications-${event.kind}`} title={event.title} description={event.hint} setting={event.setting}
-        control={<Switch label={event.title} checked={event.setting.value} onChange={event.setting.set} />} />)}
+      {EVENTS.map(([kind, title], index) => <SettingRow key={kind} id={`setting-notifications-${kind}`} title={title} description={index ? undefined : "the most useful one"} setting={settings[index]}
+        control={<Switch label={title} checked={settings[index]!.value} onChange={settings[index]!.set} />} />)}
     </SettingsSection>
     <SettingsSection title="Quiet hours">
       <SettingRow id="setting-notifications-quiet" title="Quiet hours" description={`${from.value} – ${to.value}, on the host's clock`} setting={quiet}
         control={<Switch label="Quiet hours" checked={quiet.value} onChange={quiet.set} />}>
-        {quiet.value ? <div className="notifications-quiet">
-          <input type="time" aria-label="Quiet from" value={from.value} onChange={(event) => { if (event.target.value) from.set(event.target.value); }} />
-          <span aria-hidden="true">–</span>
-          <input type="time" aria-label="Quiet until" value={to.value} onChange={(event) => { if (event.target.value) to.set(event.target.value); }} />
-        </div> : null}
+        {quiet.value ? <div className="notifications-quiet">{time(from, "Quiet from")}–{time(to, "Quiet until")}</div> : null}
       </SettingRow>
     </SettingsSection>
   </>;
@@ -335,8 +329,6 @@ export const NOTIFICATION_ROWS = [
   { id: "setting-notifications-sound", label: "Sound", keywords: ["chime", "ping", "play", "audio"] },
   { id: "setting-notifications-toasts", label: "Show a toast instead", keywords: ["toast", "in-window", "banner"] },
   { id: "setting-notifications-when-focused", label: "Also for the thread on screen", keywords: ["focused", "on screen", "current thread"] },
-  { id: "setting-notifications-question", label: "Notify me when", keywords: ["question", "permission", "done", "failed", "events"] },
-  { id: "setting-notifications-quiet", label: "Quiet hours", keywords: ["night", "do not disturb", "mute"] },
 ];
 
 const notifications: DesktopExtension = {

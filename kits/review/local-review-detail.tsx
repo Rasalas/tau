@@ -25,7 +25,7 @@ import { LayoutToggle, ReviewDetailFrame, useBackKeys, type FrameTab } from "./r
 import type { DetailNote, DetailParts, DetailState } from "./review-detail-store.js";
 import { ReviewDiffStack, type StackFile } from "./review-diff-stack.js";
 import { baseName, lineTarget, lineText, noteMessage } from "./review-lines.js";
-import { ALREADY, plural, rebaseBlocker } from "./review-words.js";
+import { ALREADY, askBlocker, plural, rebaseBlocker } from "./review-words.js";
 
 /** What the page lets the detail do to a review; the list's rows share it. */
 export interface LocalActions {
@@ -42,9 +42,6 @@ type Tab = "changes" | "turns" | "checks";
 
 const RUN_STATUS = { succeeded: "passed", failed: "failed", running: "pending", stopped: "cancelled" } as const;
 const RUN_WORDS = { succeeded: "Passed", failed: "Failed", running: "Running", stopped: "Stopped" } as const;
-
-const askBlocker = (review: LocalReview, mayAsk: boolean) => !mayAsk ? READ_ONLY_REASON
-  : !review.threadId && !review.remote ? "No thread works on this branch any more." : undefined;
 
 function ModelMark({ review, bare }: { review: LocalReview; bare?: boolean }) {
   const catalog = useModelName(reviewRuntime(review), review.model, review.modelProvider);

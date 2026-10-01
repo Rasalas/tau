@@ -47,7 +47,7 @@ import type { PullRequestsPageParts } from "./pull-requests-page.js";
 import type { ReviewsFilter } from "./reviews-filter.js";
 import type { RowRequests } from "./requests.js";
 import { ReviewDetailSidebar } from "./review-detail-sidebar.js";
-import { ALREADY, plural, rebaseBlocker } from "./review-words.js";
+import { ALREADY, askBlocker, plural, rebaseBlocker } from "./review-words.js";
 import type { DetailParts } from "./review-detail-store.js";
 
 const PullRequestsPage = lazy(() => import("./pull-requests-page.js").then((module) => ({ default: module.PullRequestsPage })));
@@ -137,8 +137,6 @@ function Into({ review }: { review: LocalReview }) {
   return <span className="rv-into" data-off={off ? "" : undefined} {...(off ? tooltipProps(`Not ${off}: Merge lands on the branch the project's checkout has out.`) : {})}> → {review.target}</span>;
 }
 
-/** A thread here to write to, or its link to one on another machine. */
-const askable = (review: LocalReview) => Boolean(review.threadId || review.remote);
 const cost = (review: LocalReview) => review.costUsd === undefined ? "—" : formatCost(review.costUsd) ?? "$0.00";
 
 /** What a row says in its last column when it has no button: the open ask, or where it was merged. */
@@ -373,7 +371,7 @@ function ReviewDetail({ review, parts, act, actions }: { review: LocalReview; pa
     return () => { live = false; };
   }, [parts.store, review.key, review.tip]); // eslint-disable-line react-hooks/exhaustive-deps
   const blocked = !act.mayMerge ? READ_ONLY_REASON : mergeBlocker(review);
-  const asked = !act.mayAsk ? READ_ONLY_REASON : askable(review) ? undefined : "No thread to send it to.";
+  const asked = askBlocker(review, act.mayAsk);
   const thread = review.threadId ? threads?.getThread(review.threadId) : undefined;
   const write = (next: NoteDraft | undefined) => { setDraft(next); setNote(""); };
   // Held notes go as one turn with what their lines show; a note on the whole review goes as it is.
@@ -383,7 +381,7 @@ function ReviewDetail({ review, parts, act, actions }: { review: LocalReview; pa
       await parts.store.ask(review, "note", plain ?? noteMessage(list), list.map(({ id, path, line, side, body }) => ({ id, note: id, path, line, side, body })));
       for (const entry of list) notes.remove(noteKey, entry.id);
       write(undefined);
-      actions.toast?.({ type: "success", title: list.length > 1 ? `${list.length} notes sent to the thread as one turn` : "Note sent to the thread", description: review.title });
+      actions.toast?.({ type: "success", title: "Sent to the thread", description: review.title });
     } catch (error) {
       actions.toast?.({ type: "error", title: "The note was not sent", description: errorMessage(error) });
     } finally {
@@ -453,7 +451,7 @@ function ReviewDetail({ review, parts, act, actions }: { review: LocalReview; pa
           {held.map((entry) => (
             <p key={entry.id}>
               <code>{baseName(entry.path)}:{entry.line}</code><span>{entry.body}</span>
-              <button type="button" aria-label={`Remove the note on ${baseName(entry.path)}:${entry.line}`} onClick={() => notes.remove(noteKey, entry.id)}><X size={14} /></button>
+              <button type="button" aria-label="Remove note" onClick={() => notes.remove(noteKey, entry.id)}><X size={14} /></button>
             </p>
           ))}
         </section>

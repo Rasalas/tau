@@ -51,16 +51,17 @@ export function createListHead(environments: PlatformEnvironments, Arrival: (pro
         setNow(Date.now());
       });
     };
-    const pairAgain = (machine: UiEnvironment) => {
+    // Shows that machine; one that refused this device asks to pair again there.
+    const show = (machine: UiEnvironment) => {
       void environments.open(machine.id).catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error)));
     };
     return <>
       <Arrival actions={actions} />
       {elsewhere ? <div className="machine-elsewhere" role="status">
         <strong>Showing what the phone last saw</strong>
-        <span>The threads read as they were until {shown!.name} is back. Or start on another machine.</span>
+        <span>You can read the threads. Or start on another machine.</span>
         <div>
-          <button type="button" onClick={() => { void environments.open(elsewhere.id).catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error))); }}><MachineIcon environment={elsewhere} size={15} />Use {elsewhere.name}</button>
+          <button type="button" onClick={() => show(elsewhere)}><MachineIcon environment={elsewhere} size={15} />Use {elsewhere.name}</button>
           <button type="button" onClick={() => setDismissed(true)}>OK</button>
         </div>
       </div> : null}
@@ -69,7 +70,7 @@ export function createListHead(environments: PlatformEnvironments, Arrival: (pro
           <TriangleAlert size={16} aria-hidden />
           <span>{notReachable(machine, now)}</span>
           {machine.status === "refused"
-            ? <button type="button" onClick={() => pairAgain(machine)}>Pair again</button>
+            ? <button type="button" onClick={() => show(machine)}>Pair again</button>
             : <button type="button" disabled={retrying.has(machine.id)} aria-label={`Retry ${machine.name}`} onClick={() => retry(machine)}>{retrying.has(machine.id) ? "Trying…" : "Retry"}</button>}
         </p>
       ))}

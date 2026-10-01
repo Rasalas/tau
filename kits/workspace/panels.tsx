@@ -269,6 +269,10 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
     onClick={() => searcher.pickFile(inSheet || onStage ? setReading : undefined)}
   ><Search size={touch ? 18 : 14} /></button> : null;
 
+  const viewToggle = <div className="files-explorer-view" role="group" aria-label="Show">
+    {(["changed", "all"] as const).map((entry) => <button key={entry} type="button" className={view === entry ? "active" : ""} aria-pressed={view === entry} onClick={() => setView(entry)}>{entry === "all" ? "All" : "Changed"}</button>)}
+  </div>;
+
   if (onStage) {
     const project = cwd?.split(/[\\/]/u).filter(Boolean).at(-1);
     const readingStatus = reading ? changes.files.find((file) => file.path === reading)?.status : undefined;
@@ -277,10 +281,7 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
         <header className="files-explorer-head">
           <span className="files-explorer-scope" title={cwd}>{project}{workspace?.branch ? <> · <b>{workspace.branch}</b></> : null}</span>
           <div className="files-explorer-tools">
-            <div className="files-explorer-view" role="group" aria-label="Show">
-              <button type="button" className={view === "changed" ? "active" : ""} aria-pressed={view === "changed"} onClick={() => setView("changed")}>Changed</button>
-              <button type="button" className={view === "all" ? "active" : ""} aria-pressed={view === "all"} onClick={() => setView("all")}>All</button>
-            </div>
+            {viewToggle}
             {goToFile}
           </div>
         </header>
@@ -320,10 +321,7 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
       {/* The sheet's own header names it already. */}
       {inSheet ? <>
         <span className="files-sheet-scope">{[workspace?.branch, changes.files.length ? `${changes.files.length} changed` : ""].filter(Boolean).join(" · ")}</span>
-        <div className="files-explorer-view" role="group" aria-label="Show">
-          <button type="button" className={view === "changed" ? "active" : ""} aria-pressed={view === "changed"} onClick={() => setView("changed")}>Changed</button>
-          <button type="button" className={view === "all" ? "active" : ""} aria-pressed={view === "all"} onClick={() => setView("all")}>All</button>
-        </div>
+        {viewToggle}
       </> : <h2>Files</h2>}
       <span className="spacer" />
       {goToFile}

@@ -8,7 +8,7 @@ import { agentThreadsSource, createMachineCardRow, createMachineThreads, createS
 import { createListHead, hereOf } from "./list-head.js";
 import { createRunOnControl } from "./run-on.js";
 import { createMachinesPage } from "./settings.js";
-import { createPhoneMachinesPage, onlineCount } from "./phone-machines.js";
+import { createPhoneMachinesPage } from "./phone-machines.js";
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -89,12 +89,12 @@ export const environmentsExtension: DesktopExtension = {
     context.registerSettingsPage({
       id: MACHINES_SETTINGS_PAGE,
       label: "Machines",
-      description: "The machines this phone paired with. Tap one to show its threads.",
       group: "general",
       Icon: Network,
       order: -1,
       profiles: ["compact"],
-      useSummary: () => useSyncExternalStore(environments.subscribe, () => onlineCount(environments)),
+      // "2 online" beside it in the list.
+      useSummary: () => useSyncExternalStore(environments.subscribe, () => `${environments.getSnapshot()?.environments.filter((machine) => machine.status === "connected").length ?? 0} online`),
       Component: createPhoneMachinesPage(environments),
     });
     context.registerCommand({
