@@ -78,6 +78,20 @@ export function createEnvironmentsHostExtension(): HostExtension {
         refreshTimer.unref?.();
       }) : undefined;
       context.registerCommand("agents", () => view(machines), { access: "read" });
+      context.registerCommand("start-there", async (input) => {
+        const machine = machineOf(input, "start-there");
+        if (!machines) throw new Error("This host keeps no machines for its agents.");
+        const raw = (input ?? {}) as Record<string, unknown>;
+        if (typeof raw.workspaceId !== "string" || !raw.workspaceId) throw new Error("start-there: name a workspace.");
+        if (typeof raw.prompt !== "string") throw new Error("start-there: provide a prompt.");
+        return machines.request(machine, "start-thread", [{
+          cwd: raw.workspaceId, prompt: raw.prompt,
+          ...(typeof raw.backend === "string" ? { backend: raw.backend } : {}),
+          ...(raw.model ? { model: raw.model } : {}),
+          ...(typeof raw.thinkingLevel === "string" ? { thinkingLevel: raw.thinkingLevel } : {}),
+          ...(typeof raw.mode === "string" ? { mode: raw.mode } : {}),
+        }]);
+      }, { audit: { label: "started a thread on another machine" } });
       context.registerCommand("whoami", (_input, call): MachineIdentity => ({ device: call.device ?? null, owner: call.owner }), { access: "read" });
       context.registerCommand("probe", async (input): Promise<MachineProbe> => {
         const machine = machineOf(input, "probe");

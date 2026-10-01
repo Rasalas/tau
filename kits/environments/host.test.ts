@@ -19,6 +19,17 @@ function fakeMachines(list: HostMachine[]) {
 }
 
 describe("Machines Kit on the host", () => {
+  it("starts off screen in the named remote workspace with the draft's settings", async () => {
+    const { machines } = fakeMachines([]);
+    machines.request = vi.fn(async () => ({ sessionId: "t9", path: "/remote/t9" }));
+    const registry = await activateHostKit(createEnvironmentsHostExtension(), { machines });
+    const input = { machine: "rex", workspaceId: "ws-rex", prompt: "Fix it", backend: "codex", model: { provider: "openai", id: "gpt" }, thinkingLevel: "high", mode: "plan" };
+    expect(await registry.invoke(ENVIRONMENTS_EXTENSION_ID, "start-there", input)).toEqual({ sessionId: "t9", path: "/remote/t9" });
+    expect(machines.request).toHaveBeenCalledExactlyOnceWith("rex", "start-thread", [{ cwd: "ws-rex", prompt: "Fix it", backend: "codex", model: input.model, thinkingLevel: "high", mode: "plan" }]);
+    await expect(registry.invoke(ENVIRONMENTS_EXTENSION_ID, "start-there", { machine: "rex", prompt: "x" })).rejects.toThrow("name a workspace");
+    await expect(registry.invoke(ENVIRONMENTS_EXTENSION_ID, "start-there", input, { kind: "workbench-client", connection: "c1", pairedClient: "d1", readOnly: true })).rejects.toThrow(/Read.only|read.only/u);
+    expect(machines.request).toHaveBeenCalledOnce();
+  });
   it("reports the machines this host's agents reach, and again when they change", async () => {
     const list: HostMachine[] = [{ id: "rex-id", name: "rex", status: "connected", roundTripMs: 3, address: "wss://rex/" }];
     const { machines, changed } = fakeMachines(list);

@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { errorMessage, type HostExtensionClient, type NewThreadClaimEvent, type PlatformEnvironments, type PromptHookContribution, type UiEnvironment, type UiEnvironments, type WorkbenchActions } from "tau";
+import { errorMessage, type HostExtensionClient, type NewThreadClaimEvent, type PlatformEnvironments, type PromptHookContribution, type ThreadStore, type UiEnvironment, type UiEnvironments, type WorkbenchActions } from "tau";
 
 /** Remote Work Kit (`kits/remote-work/protocol.ts`), named here: a kit never imports another. */
 export const REMOTE_WORK_EXTENSION_ID = "tau.remote-work";
@@ -94,20 +94,35 @@ export function useProjectMatches(identities: ProjectIdentities, list: UiEnviron
   return (machine: UiEnvironment) => identities.match(machine, projectPath);
 }
 
-/** A draft whose thread starts on a machine without its project: Tau takes the project there when it is sent. */
+/** A draft's chosen home machine and its checkout, if the project is already there. */
 export interface BringChoice {
   machine: string;
   machineName: string;
   projectPath: string;
+  workspaceId?: string;
 }
 
 export function createBringChoice() {
   const listeners = new Set<() => void>();
   let choice: BringChoice | undefined;
+  let threads: ThreadStore | undefined;
   return {
     get: () => choice,
     set(next: BringChoice | undefined) { choice = next; listeners.forEach((listener) => listener()); },
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    bindThreads(store: ThreadStore) { threads = store; },
+    waitForThread(id: string): Promise<boolean> {
+      if (threads?.getThread(id)) return Promise.resolve(true);
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => { stop?.(); resolve(false); }, 5000);
+        const stop = threads?.subscribeToIds(() => {
+          if (!threads?.getThread(id)) return;
+          clearTimeout(timer);
+          stop?.();
+          resolve(true);
+        });
+      });
+    },
   };
 }
 
@@ -123,14 +138,15 @@ interface ThreadLink {
 }
 
 /**
- * Sends a new thread's first prompt to the machine it was set to run on when
- * that machine has no checkout of its project: Remote Work Kit takes the
+ * Sends a draft's first prompt to its chosen home machine without moving the
+ * window. An existing checkout starts through the off-screen host method and
+ * opens as a proxy thread. Without a checkout, Remote Work Kit takes the
  * project's state there (commits, uncommitted and untracked work) into a
  * worktree and starts the thread in it (`thread-start`, as handoff does). The
  * window stays here; the thread joins the list from that machine, and a
  * notice says when it runs there or why it could not.
  */
-export function createBringProjectHook(choice: BringChoiceStore, remoteWork: HostExtensionClient, environments: PlatformEnvironments): PromptHookContribution {
+export function createBringProjectHook(choice: BringChoiceStore, remoteWork: HostExtensionClient, environments: PlatformEnvironments, host?: HostExtensionClient): PromptHookContribution {
   const follow = (link: ThreadLink, projectName: string, actions: WorkbenchActions) => {
     let done = false;
     const stop = remoteWork.onEvent(THREAD_LINK_EVENT, (payload) => {
@@ -157,11 +173,27 @@ export function createBringProjectHook(choice: BringChoiceStore, remoteWork: Hos
     });
   };
   return {
-    id: "environments.bring-project",
+    id: "environments.run-on-machine",
     async claimNewThread(event: NewThreadClaimEvent, actions: WorkbenchActions) {
       const chosen = choice.get();
       if (!chosen || chosen.projectPath !== event.projectPath) return false;
-      if (event.attachments > 0) throw new Error(`Attachments cannot go along to ${chosen.machineName} yet; send them once the thread runs there, or start it here.`);
+      if (event.attachments > 0) throw new Error(`Attachments cannot go along to ${chosen.machineName} yet; start it here to send attachments.`);
+      if (chosen.workspaceId) {
+        if (!host) throw new Error("This host cannot start threads on another machine.");
+        event.preparing(`Starting on ${chosen.machineName}…`);
+        const answer = await host.invoke("start-there", {
+          machine: chosen.machine, workspaceId: chosen.workspaceId, prompt: event.prompt, backend: event.runtime,
+          ...(event.model ? { model: event.model } : {}),
+          ...(event.thinkingLevel ? { thinkingLevel: event.thinkingLevel } : {}),
+          ...(event.mode ? { mode: event.mode } : {}),
+        }) as { sessionId: string; path: string };
+        choice.set(undefined);
+        const id = `${chosen.machine}~${answer.sessionId}`;
+        // Core's externalThreadPath in src/main/pi-host-support.ts uses this virtual path.
+        if (await choice.waitForThread(id)) await actions.switchSession(`tau-thread:machine:${id}`);
+        else actions.toast?.({ type: "info", title: `Started on ${chosen.machineName}; it shows in the list in a moment.` });
+        return true;
+      }
       const projectName = folderName(event.projectPath);
       event.preparing(`Taking ${projectName} to ${chosen.machineName}…`);
       let link: ThreadLink;

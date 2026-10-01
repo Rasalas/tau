@@ -76,16 +76,17 @@ describe("Machines Kit on a phone", () => {
     expect(registry.getRegions("draft-actions").map((region) => region.id)).toEqual(["environments.arrival"]);
   });
 
-  it("offers every paired host in Run on's sheet, the one out of reach with its reason, and moves the draft to the one picked", () => {
+  it("offers every paired host in Run on's sheet, the one out of reach with its reason, and moves the draft to the one picked", async () => {
     const { runOn, environments } = phone({ shown: "mac", environments: [mac, rex, box], secureStorage: true });
     const { Section } = runOn();
     const store = new ThreadStore();
     const setComposerDraft = vi.fn();
     render(<ThreadStoreContext.Provider value={store}><Section touch actions={fakeActions({ activeThread: () => ({ draftPending: true, cwd: "/Users/me/shop" }) as never, composerDraft: () => "Fix checkout", setComposerDraft })} /></ThreadStoreContext.Provider>);
+    await screen.findByRole("button", { name: /^rex.*online · 1 running · moves this window there/u });
     const rows = within(screen.getByRole("group", { name: "Machines" })).getAllByRole("button") as HTMLButtonElement[];
     expect(rows.map((row) => [row.textContent, row.getAttribute("aria-pressed"), row.disabled, row.dataset.touch])).toEqual([
-      ["maconline · idle", "true", false, "true"],
-      ["rexonline · 1 running", "false", false, "true"],
+      ["maconline · idle · moves this window there", "true", false, "true"],
+      ["rexonline · 1 running · moves this window there", "false", false, "true"],
       [expect.stringMatching(/^boxOffline · last seen/u), "false", true, "true"],
     ]);
     // Opening the sheet asks the machine out of reach again.

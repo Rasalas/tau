@@ -1,8 +1,8 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { errorMessage, getClientStorage, type HostExtensionClient, type NewThreadClaimEvent, type PlatformEnvironments, type PromptHookContribution, type UiEnvironment, type UiEnvironments, type WorkbenchActions } from "tau";
-import type { ProjectIdentities, ProjectMatch } from "./bring-project.js";
+import type { BringChoiceStore, ProjectIdentities, ProjectMatch } from "./bring-project.js";
 import { shownMachine } from "./machines.js";
-import { CHOOSE_MACHINE_COMMAND, type ChooseMachineAnswer, type ChooseMachineInput } from "./protocol.js";
+import { CHOOSE_MACHINE_COMMAND, type AgentMachines, type ChooseMachineAnswer, type ChooseMachineInput } from "./protocol.js";
 
 /** "Run on: Automatic" stays chosen for the next drafts of this window, until a machine is picked. */
 export const RUN_ON_KEY = "tau.environments.run-on";
@@ -98,7 +98,7 @@ export function useAutoPreview(host: HostExtensionClient | undefined, input: Cho
  * here unclaimed, or claimed and carried to the other machine, which sends it
  * there. A thread that started stays where it runs.
  */
-export function createAutoRunOnHook(environments: PlatformEnvironments, host: HostExtensionClient, identities?: ProjectIdentities): PromptHookContribution {
+export function createAutoRunOnHook(environments: PlatformEnvironments, host: HostExtensionClient, identities?: ProjectIdentities, runOn?: { choice: BringChoiceStore; hook: PromptHookContribution }): PromptHookContribution {
   return {
     id: "environments.auto-run-on",
     async claimNewThread(event: NewThreadClaimEvent, actions: WorkbenchActions) {
@@ -120,6 +120,15 @@ export function createAutoRunOnHook(environments: PlatformEnvironments, host: Ho
       }
       if (!answer.machine || !targets.has(answer.machine)) return false;
       const workspaceId = targets.get(answer.machine);
+      if (runOn && workspaceId) {
+        const agents = await host.invoke("agents").catch(() => undefined) as AgentMachines | undefined;
+        const agent = agents?.machines?.find((machine) => machine.id === answer.machine);
+        if (agent?.status === "connected" && !agent.readOnly) {
+          const machine = list.environments.find((entry) => entry.id === answer.machine)!;
+          runOn.choice.set({ machine: machine.id, machineName: machine.name, projectPath: event.projectPath, workspaceId });
+          return runOn.hook.claimNewThread?.(event, actions);
+        }
+      }
       try {
         // The page reloads there before this answers; the prompt goes with it and is sent on arrival.
         await environments.open(answer.machine, {
