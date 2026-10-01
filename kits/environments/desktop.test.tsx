@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { useState, type ReactElement } from "react";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { tooltipProps, type DiscoveredHost, type EnvironmentPairResult, type HostExtensionClient, type HostReadiness, type HostResources, type PlatformEnvironments, type UiDiscoveredHosts, type UiEnvironment, type UiEnvironments, type WorkbenchActions } from "tau";
 import { createKitHarness, createMemoryStorage, HostClientProvider, RendererServicesProvider, setClientStorage, ThreadStore, ThreadStoreContext } from "../../src/renderer/test-support/kit-harness.js";
@@ -12,6 +12,7 @@ import { createRunOnSource, runOnDetail, type RunOnBringing } from "./run-on.js"
 import { createBringChoice, createBringProjectHook, createProjectIdentities, matchProject } from "./bring-project.js";
 import { createMachinesPage } from "./settings.js";
 import { machineKitClient } from "./machine-kit.js";
+import { MachineSetup, setupRows, stateText } from "./setup.js";
 import { REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE, type DraftMachineProps } from "./protocol.js";
 
 afterEach(cleanup);
@@ -112,6 +113,81 @@ describe("a kit on another machine", () => {
     const unsupported = machineKitClient(environments, "studio", "tau.codex");
     expect(() => unsupported.invoke("sign-in-state")).toThrow("This window cannot reach kits of other machines.");
     expect(() => unsupported.onEvent("sign-in", vi.fn())()).not.toThrow();
+  });
+});
+
+describe("Set up a machine", () => {
+  const readiness = (runtimes: HostReadiness["runtimes"]): HostReadiness => ({ checkedAt: 0, runtimes, git: { mergeTree: true }, disk: { path: "/work" }, display: { kind: "none" } });
+  function setup(connected = true) {
+    const { environments: base } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const invokeExtension = vi.fn(async (_machine: string, _kit: string, command: string) => command === "tools" ? { tools: [{ id: "claude-code", install: "curl install-claude" }] } : command === "sign-in-state" ? { methods: [{ id: "chatgpt", label: "Sign in with ChatGPT", kind: "browser" }], account: { signedIn: false } } : undefined);
+    const environments = { ...base, invokeExtension, onExtensionEvent: vi.fn(() => () => undefined), setAgents: vi.fn(async () => ({ state: "on" as const })) };
+    const invoke = vi.fn(async (command: string, input?: unknown) => command === "agents" ? { available: true, machines: connected ? [{ id: "studio", name: "studio", status: "connected" }] : [] } : (input as { machine?: string })?.machine === "laptop" ? readiness([{ kind: "codex", label: "Codex", state: "ready", account: "me@example.com" }]) : readiness([{ kind: "codex", label: "Codex", state: "sign-in-required" }, { kind: "claude-code", label: "Claude Code", state: "not-installed" }]));
+    const host: HostExtensionClient = { invoke, onEvent: vi.fn(() => () => undefined) };
+    return { environments, host, invokeExtension };
+  }
+
+  it("merges kinds in here's order, then kinds found only there", () => {
+    const here = readiness([{ kind: "pi", label: "Pi", state: "ready" }, { kind: "codex", label: "Codex", state: "ready" }]);
+    const there = readiness([{ kind: "codex", label: "Codex there", state: "sign-in-required" }, { kind: "claude-code", label: "Claude Code", state: "not-installed" }]);
+    const rows = setupRows(here, there);
+    expect(rows.map((entry) => entry.kind)).toEqual(["pi", "codex", "claude-code"]);
+    expect(rows[1]).toMatchObject({ label: "Codex", here: here.runtimes[1], there: there.runtimes[0] });
+  });
+
+  it("names every readiness state", () => {
+    expect(stateText(undefined)).toBe("unavailable");
+    expect(stateText({ kind: "codex", label: "Codex", state: "ready", account: "me" })).toBe("ready (me)");
+    expect(stateText({ kind: "pi", label: "Pi", state: "ready" })).toBe("ready");
+    expect(stateText({ kind: "codex", label: "Codex", state: "sign-in-required" })).toBe("not signed in");
+    expect(stateText({ kind: "codex", label: "Codex", state: "not-installed" })).toBe("not installed");
+    expect(stateText({ kind: "codex", label: "Codex", state: "unavailable", note: "offline" })).toBe("offline");
+    expect(stateText({ kind: "codex", label: "Codex", state: "checking" })).toBe("checking…");
+  });
+
+  it("reads both machines and opens sign-in on the other machine", async () => {
+    const { environments, host, invokeExtension } = setup();
+    render(<MachineSetup environments={environments} host={host} machine={studio} onDone={vi.fn()} />);
+    const table = await screen.findByRole("table", { name: "Agents here and on studio" });
+    expect(await within(table).findByText("not signed in")).toBeTruthy();
+    expect(await within(table).findByText("ready (me@example.com)")).toBeTruthy();
+    expect(await within(table).findByText("curl install-claude")).toBeTruthy();
+    fireEvent.click(within(table).getByRole("button", { name: "Sign in on studio" }));
+    expect(await screen.findByText("Sign in with ChatGPT")).toBeTruthy();
+    expect(invokeExtension).toHaveBeenCalledWith("studio", "tau.codex", "sign-in-state", undefined);
+    expect(environments.onExtensionEvent).toHaveBeenCalledWith("studio", "tau.codex", expect.any(Function));
+  });
+
+  it("offers the agents switch before it can read readiness", async () => {
+    const { environments, host } = setup(false);
+    render(<MachineSetup environments={environments} host={host} machine={studio} onDone={vi.fn()} />);
+    expect(await screen.findByText("Let this computer's agents work on studio first; the setup reads the machine over their connection.")).toBeTruthy();
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.getByRole("switch", { name: "This computer's agents may work on studio" })).toBeTruthy();
+    await waitFor(() => expect(host.invoke).toHaveBeenCalledWith("agents"));
+    expect(host.invoke).not.toHaveBeenCalledWith("readiness", expect.anything());
+  });
+
+  it("marks onboarding complete on Done, also if the command fails", async () => {
+    const { environments, host, invokeExtension } = setup();
+    const onDone = vi.fn();
+    render(<MachineSetup environments={environments} host={host} machine={studio} onDone={onDone} />);
+    invokeExtension.mockRejectedValueOnce(new Error("older Tau"));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(onDone).toHaveBeenCalledOnce());
+    expect(invokeExtension).toHaveBeenCalledWith("studio", "tau.onboarding", "complete", undefined);
+  });
+
+  it("opens setup after adding a machine", async () => {
+    const { environments, host } = setup();
+    const Page = createMachinesPage(environments, host);
+    render(withSettings(<Page />));
+    fireEvent.change(screen.getByRole("textbox", { name: "Pairing link or address" }), { target: { value: "link" } });
+    const add = screen.getByRole("button", { name: "Add machine" });
+    await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(add);
+    expect(await screen.findByRole("region", { name: "Set up studio" })).toBeTruthy();
+    expect(await screen.findByText("not signed in")).toBeTruthy();
   });
 });
 
