@@ -84,6 +84,28 @@ describe("a thread's worktree branch", () => {
     expect(branches[0]).toMatchObject({ branch: "tau/dirty", uncommitted: 1, ahead: 0 });
   });
 
+  it("counts new files and uncommitted edits in the files it carries, beside the committed ones", async () => {
+    const repo = await repository();
+    const dir = repo.worktree("tau/pending");
+    const fresh = async () => {
+      await mkdir(join(dir, "fresh"));
+      await writeFile(join(dir, "fresh", "one.txt"), "x\ny\n");
+      await writeFile(join(dir, "fresh", "two.txt"), "z\n");
+    };
+    await fresh();
+    // Only new files: a branch with no commit still carries them.
+    expect(await readThreadBranch(dir)).toMatchObject({ ahead: 0, files: 2, added: 3, removed: 0, uncommitted: 2 });
+
+    await rm(join(dir, "fresh"), { recursive: true });
+    await repo.commit(dir, "b.txt", "bee\nbee\n");
+    await fresh();
+    await writeFile(join(dir, "a.txt"), "one\nTWO\nthree\n");
+    const branch = await readThreadBranch(dir);
+    expect(branch).toMatchObject({ ahead: 1, files: 4, added: 6, removed: 1, uncommitted: 3 });
+    expect(branch?.paths.map(({ path, uncommitted }) => [path, uncommitted ?? false]).sort())
+      .toEqual([["a.txt", true], ["b.txt", false], ["fresh/one.txt", true], ["fresh/two.txt", true]]);
+  });
+
   it("says why nothing can be checked while the main checkout is detached", async () => {
     const repo = await repository();
     const dir = repo.worktree("tau/x");

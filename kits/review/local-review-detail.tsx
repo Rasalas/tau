@@ -167,8 +167,12 @@ export function LocalReviewDetail({ review, parts, detail, act, actions, back, f
   }, [review.paths, review.conflicts]);
   const runs: ReviewRun[] = parts.store.latestRuns(review.path ?? "");
 
-  const readDiff = useCallback((path: string): Promise<UiFileDiff> => parts.host.invoke("file-diff", { workspace: review.workspace, relPath: path, options: { scope: "branch", baseRef: review.target } }) as Promise<UiFileDiff>,
-    [parts.host, review.workspace, review.target]);
+  // A file only the worktree holds has no commit to read against the target.
+  const readDiff = useCallback((path: string): Promise<UiFileDiff> => parts.host.invoke("file-diff", {
+    workspace: review.workspace,
+    relPath: path,
+    options: review.paths.find((entry) => entry.path === path)?.uncommitted ? {} : { scope: "branch", baseRef: review.target },
+  }) as Promise<UiFileDiff>, [parts.host, review.workspace, review.target, review.paths]);
 
   const sendNotes = useCallback(async (list: readonly PendingReviewComment[]) => {
     if (list.length === 0) return;

@@ -21,7 +21,9 @@ export interface ThreadBranch {
   files: number;
   added: number;
   removed: number;
-  paths: Array<{ path: string; added: number; removed: number }>;
+  /** A file only the worktree holds, not committed yet, is marked. */
+  paths: Array<{ path: string; added: number; removed: number; uncommitted?: true }>;
+  /** Files not committed yet; they count in `files` and `paths` as well. */
   uncommitted: number;
   committedAt?: number;
   merged: boolean;
