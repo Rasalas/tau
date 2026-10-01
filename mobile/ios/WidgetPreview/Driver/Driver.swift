@@ -1,8 +1,9 @@
 import XCTest
 
-// Drives SpringBoard: adds the widgets through the widget gallery, captures each data state
-// in light and dark, then each Live Activity state on the lock screen and in the Dynamic
-// Island. Each `xcodebuild test` reinstalls the app, which ends its activities, so a state is
+// Drives SpringBoard: adds the widgets through the widget gallery, then captures each Live
+// Activity state on the lock screen and in the Dynamic Island. SpringBoard here stays in the
+// light style: dark and the data states come from the Harness gallery (`-gallery`).
+// Each `xcodebuild test` reinstalls the app, which ends its activities, so a state is
 // created and captured within one test. Simulator language English.
 final class Driver: XCTestCase {
     let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
@@ -45,21 +46,9 @@ final class Driver: XCTestCase {
         springboard.buttons.matching(NSPredicate(format: "label CONTAINS 'Add Widget'")).firstMatch.tap(); sleep(3)
     }
     /// Leaves the home screen's edit mode; the home button keeps what was added.
-    func done() {
+    func done(_ name: String = "home-done") {
         XCUIDevice.shared.press(.home); sleep(3)
-        shot("home-done")
-    }
-
-    /// Every data state of what is on the home screen, light then dark.
-    func states(_ names: [String], prefix: String) {
-        for appearance in [XCUIDevice.Appearance.light, .dark] {
-            XCUIDevice.shared.appearance = appearance; sleep(2)
-            for name in names {
-                launch(["-scenario", name]); home(6)
-                shot("\(prefix)-\(name)-\(appearance == .light ? "light" : "dark")")
-            }
-        }
-        XCUIDevice.shared.appearance = .light
+        shot(name)
     }
 
     func testHomeWidgets() {
@@ -72,23 +61,15 @@ final class Driver: XCTestCase {
         addWidget(page: 0)   // Plan limits small
         shot("home-added")
         done()
-        states(["normal", "spent", "stale", "empty", "quiet"], prefix: "home")
     }
 
-    /// The large size, on a home screen of its own: run after testHomeWidgets on a fresh simulator, or alone.
+    /// The large size on a home screen of its own.
     func testLargeWidget() {
         XCUIDevice.shared.appearance = .light
         launch(["-scenario", "normal"]); home()
         point(0.5, 0.6).press(forDuration: 1.5); sleep(2)
         addWidget(page: 2)
-        done()
-        states(["normal", "spent", "stale"], prefix: "large")
-        // Off again, so testHomeWidgets has the page to itself.
-        launch(["-scenario", "normal"]); home()
-        point(0.5, 0.25).press(forDuration: 1.5); sleep(2)
-        springboard.buttons.matching(NSPredicate(format: "label CONTAINS 'Remove Widget'")).firstMatch.tap(); sleep(2)
-        springboard.buttons.matching(NSPredicate(format: "label == 'Remove'")).firstMatch.tap(); sleep(3)
-        shot("large-removed")
+        done("large-done")
     }
 
     /// The lock screen's own widgets (choice B): Threads inline above the clock, Plan limits and Threads below it.
@@ -149,6 +130,7 @@ final class Driver: XCTestCase {
         shot(name + "-island-expanded"); blank(); sleep(2)
     }
     func capture(_ name: String, island withIsland: Bool = true) {
+        sleep(6) // a new activity glows while it appears
         XCUIDevice.shared.appearance = .light; sleep(3)
         home(2)
         if withIsland { island(name + "-light") }
@@ -157,6 +139,10 @@ final class Driver: XCTestCase {
         point(0.5, 0.995).press(forDuration: 0.1, thenDragTo: point(0.5, 0.2)); sleep(2)
         if withIsland { island(name + "-dark") }
         XCUIDevice.shared.appearance = .light
+    }
+
+    func testLiveFailed() {
+        launch(["-scenario", "normal", "-end", "-activity", "failed"]); capture("la-failed", island: false)
     }
 
     func testLiveActivities() {

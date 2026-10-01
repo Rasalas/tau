@@ -10,7 +10,7 @@ import WidgetKit
     var body: some Scene {
         WindowGroup {
             if let page {
-                Gallery(page: page).statusBarHidden()
+                Gallery(page: page).statusBarHidden().preferredColorScheme(argument("-scheme") == "dark" ? .dark : .light)
             } else {
                 Text(log).accessibilityIdentifier("log").padding()
                     .task { log = await run(ProcessInfo.processInfo.arguments) }
@@ -77,11 +77,14 @@ enum Sample {
         case "done":
             var done = flaky; done.state = "done"; done.startedAt = ms(-(14 * minute + 32) - minute); done.endedAt = ms(-minute)
             return ("Mac mini", [done])
-        case "failed": return ("Mac mini", [migrate])
+        case "failed":
+            var failed = migrate; failed.endedAt = ms(-minute)
+            return ("Mac mini", [failed])
         case "bundle": return ("Mac mini", [pagination, flaky, rate])
         case "bundle-done":
             var done = flaky; done.state = "done"; done.endedAt = ms(-minute)
-            return ("Mac mini", [migrate, done])
+            var failed = migrate; failed.endedAt = ms(-minute)
+            return ("Mac mini", [failed, done])
         default: return ("Mac mini", [flaky])
         }
     }
@@ -159,6 +162,7 @@ struct Caption: View {
 }
 
 struct Gallery: View {
+    @Environment(\.colorScheme) var scheme
     var page: String
     func plan(_ state: String) -> PlanState { PlanState(accounts: WidgetModel.merge(Sample.usage(state)), now: now) }
     func threads(_ state: String) -> ThreadsState {
@@ -210,7 +214,7 @@ struct Gallery: View {
             WidgetFrame(width: 364, height: 170) { ThreadsMedium(state: threads("quiet")).padding(.horizontal, 15).padding(.top, 13).padding(.bottom, 8) }
             WidgetFrame(width: 364, height: 170) { ThreadsMedium(state: threads("stale")).padding(.horizontal, 15).padding(.top, 13).padding(.bottom, 8) }
         case "lock":
-            LockScreen(plan: plan("normal"), threads: threads("normal"))
+            LockScreen(plan: plan("normal"), threads: threads("normal"), dark: scheme == .dark)
         case "live":
             Caption(text: "Live Activity · one thread: running · question · done")
             card(display("running"), stale: false)
@@ -280,6 +284,7 @@ struct Gallery: View {
 struct LockScreen: View {
     var plan: PlanState
     var threads: ThreadsState
+    var dark: Bool
     var body: some View {
         VStack(spacing: 4) {
             ThreadsInline(state: threads).font(.system(size: 17, weight: .semibold)).labelStyle(InlineLabel())
@@ -298,7 +303,7 @@ struct LockScreen: View {
         .foregroundStyle(.white)
         .padding(.top, 50).padding(.bottom, 30)
         .frame(width: 402)
-        .background(LockWallpaper())
+        .background(LockWallpaper(dark: dark))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .environment(\.colorScheme, .dark)
     }
@@ -310,11 +315,9 @@ struct LockScreen: View {
 
 /// The mocks' lock-screen wallpapers.
 struct LockWallpaper: View {
-    @Environment(\.colorScheme) var scheme
-    var light: Bool
-    init() { light = UITraitCollection.current.userInterfaceStyle != .dark }
+    var dark: Bool
     var body: some View {
-        LinearGradient(colors: light ? [Color(hex: 0xe4c7a4), Color(hex: 0xc08f67), Color(hex: 0x8d5f42)] : [Color(hex: 0x31395e), Color(hex: 0x1b1f38), Color(hex: 0x0b0d17)], startPoint: .top, endPoint: .bottom)
+        LinearGradient(colors: !dark ? [Color(hex: 0xe4c7a4), Color(hex: 0xc08f67), Color(hex: 0x8d5f42)] : [Color(hex: 0x31395e), Color(hex: 0x1b1f38), Color(hex: 0x0b0d17)], startPoint: .top, endPoint: .bottom)
     }
 }
 

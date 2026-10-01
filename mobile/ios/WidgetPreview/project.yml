@@ -2,7 +2,7 @@
 # It compiles the shipping widget and plugin sources unchanged; nothing here is part of a release.
 #   xcodegen generate --spec project.yml   (https://github.com/yonaskolb/XcodeGen)
 # Gallery (every widget, size and state at its real size, light or dark):
-#   xcrun simctl ui <udid> appearance dark; xcrun simctl launch <udid> de.tbuck.tau -gallery usage
+#   xcrun simctl launch <udid> de.tbuck.tau -gallery usage -scheme dark   (-scheme light is the default)
 #   pages: usage, states, threads, lock, live, live2, island, island2; then `xcrun simctl io <udid> screenshot`.
 # SpringBoard (the real widgets, lock screen and Dynamic Island), with your own fresh simulator:
 #   SHOTS=/tmp/widget-shots TEST_RUNNER_SHOTS=$SHOTS xcodebuild -project TauWidgetPreview.xcodeproj -scheme Driver \
