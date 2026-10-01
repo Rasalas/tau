@@ -12,9 +12,13 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
-        <receiver android:name=".UsageWidget" android:exported="false" android:label="Tau usage">
+        <receiver android:name=".UsageWidget" android:exported="false" android:label="@string/tau_widget_plan_limits">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
-            <meta-data android:name="android.appwidget.provider" android:resource="@xml/tau_usage_widget_info" />
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/tau_plan_limits_info" />
+        </receiver>
+        <receiver android:name=".widgets.ThreadsReceiver" android:exported="false" android:label="@string/tau_widget_threads">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/tau_threads_info" />
         </receiver>
     </application>
 </manifest>

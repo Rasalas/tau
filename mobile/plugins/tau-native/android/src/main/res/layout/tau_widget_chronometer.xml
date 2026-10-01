@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A thread's live elapsed time; Glance has no chronometer of its own. -->
+<Chronometer xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tau_widget_chronometer"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:fontFeatureSettings="tnum"
+    android:maxLines="1"
+    android:textSize="12sp" />

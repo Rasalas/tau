@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only: hosts the widgets with sample data for screenshots (K163). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity android:name=".WidgetGalleryActivity" android:exported="true" android:theme="@style/AppTheme.NoActionBar" />
+    </application>
+</manifest>

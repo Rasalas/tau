@@ -10,10 +10,15 @@ buildscript {
     }
     dependencies {
         classpath 'com.android.tools.build:gradle:8.13.0'
+        // Kotlin only for the Glance widgets; the rest of the plugin stays Java.
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.10'
+        classpath 'org.jetbrains.kotlin:compose-compiler-gradle-plugin:2.2.10'
     }
 }
 
 apply plugin: 'com.android.library'
+apply plugin: 'org.jetbrains.kotlin.android'
+apply plugin: 'org.jetbrains.kotlin.plugin.compose'
 
 android {
     namespace = "de.tbuck.tau.plugin"
@@ -28,6 +33,18 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_21
         targetCompatibility JavaVersion.VERSION_21
+    }
+    buildFeatures {
+        compose = true
+    }
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
     }
 }
 
@@ -46,4 +63,10 @@ dependencies {
     implementation "com.google.firebase:firebase-messaging:$firebaseMessagingVersion"
     // Google's code scanner: its own camera UI, no camera permission for the app.
     implementation 'com.google.android.gms:play-services-code-scanner:16.1.0'
+    // Home-screen widgets (K163); Glance brings WorkManager along.
+    implementation 'androidx.glance:glance-appwidget:1.2.0'
+    implementation 'androidx.work:work-runtime:2.11.2'
+    testImplementation 'junit:junit:4.13.2'
+    // Android's org.json is a stub in JVM tests.
+    testImplementation 'org.json:json:20260814'
 }
