@@ -1,7 +1,11 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { CircleCheck, CircleDashed, CircleX, X } from "lucide-react";
 import { MiddleTruncate, getClientStorage, tooltipProps, type DesktopExtensionContext, type RegionProps } from "tau";
-import { REVIEW_HOST_EXTENSION_ID, providerInfo } from "./protocol.js";
+import { REVIEW_HOST_EXTENSION_ID, providerInfo, type PullRequestCheck } from "./protocol.js";
+import { checksPipelines } from "./pipeline.js";
+import { PipelineMini, usePipelineFacts } from "./pipeline-view.js";
+import type { PullRequestClient } from "./pull-request-client.js";
+import { checksRollup, checksSummary } from "./pull-request-logic.js";
 import { RequestStateIcon } from "./request-state-icon.js";
 import { openPullRequest } from "./pull-request-open.js";
 import { STRIP_OPTION, StripDismissals, stripRequests, type StripRequest, type StripState } from "./pull-request-strip-logic.js";
@@ -14,7 +18,12 @@ export interface StripParts {
   links: ThreadLinkRows;
   preferences: DesktopExtensionContext["preferences"];
   dismissals?: StripDismissals;
+  /** Reads the checks for the mini pipeline; without it the chip shows the row's counts. */
+  client?: PullRequestClient;
 }
+
+/** As often as the open request's view asks while checks run. */
+const LIVE_MS = 20_000;
 
 const STATE_WORDS: Record<StripState, string> = { open: "Open", draft: "Draft", merged: "Merged", closed: "Closed" };
 const shared = { dismissals: undefined as StripDismissals | undefined };
@@ -25,6 +34,48 @@ function ChecksIcon({ tone }: { tone: "passed" | "failed" | "pending" }) {
   if (tone === "passed") return <CircleCheck {...props} />;
   if (tone === "failed") return <CircleX {...props} />;
   return <CircleDashed {...props} />;
+}
+
+/** Reads a finished pipeline is shown from, so switching threads asks nothing new. */
+const FINISHED_MS = 5 * 60_000;
+const seen = new Map<string, { at: number; checks: PullRequestCheck[] }>();
+
+/** The request's checks: read once, then while the last answer still had some running and the window is visible. */
+function useLiveChecks(client: PullRequestClient | undefined, url: string, pending: boolean): PullRequestCheck[] | undefined {
+  const [read, setRead] = useState<{ url: string; checks: PullRequestCheck[] }>();
+  useEffect(() => {
+    if (!client) return;
+    const known = seen.get(url);
+    if (known) setRead({ url, checks: known.checks });
+    if (known && !pending && checksRollup(known.checks) !== "pending" && Date.now() - known.at < FINISHED_MS) return;
+    let live = true;
+    let timer = 0;
+    const ask = () => {
+      client.checks(url).then((checks) => {
+        seen.set(url, { at: Date.now(), checks });
+        if (!live) return;
+        setRead({ url, checks });
+        if (checksRollup(checks) !== "pending") window.clearInterval(timer);
+      }, () => undefined);
+    };
+    ask();
+    timer = window.setInterval(() => { if (document.visibilityState === "visible") ask(); }, LIVE_MS);
+    return () => { live = false; window.clearInterval(timer); };
+  }, [client, url, pending]);
+  return read?.url === url ? read.checks : undefined;
+}
+
+const TONES = { failing: "failed", pending: "pending", passing: "passed" } as const;
+
+function StripChecks({ request, client, open }: { request: StripRequest; client: PullRequestClient | undefined; open(): void }) {
+  const counted = checksTone(request.checks);
+  const live = useLiveChecks(client, request.url, counted === "pending");
+  const facts = usePipelineFacts(client, request.url, live ?? []);
+  const rollup = live ? checksRollup(live) : undefined;
+  const tone = rollup ? TONES[rollup] : counted;
+  if (live?.length) return <span className="review-pr-strip-checks"><PipelineMini pipelines={checksPipelines(live, facts)} size={16} nested onOpen={open} /></span>;
+  if (!tone) return null;
+  return <span className={`review-pr-strip-checks ${tone}`} {...tooltipProps(`Checks: ${live ? checksSummary(live) : checksLabel(request.checks)}`)}><ChecksIcon tone={tone} /></span>;
 }
 
 const otherLine = (request: StripRequest) => [`#${request.number}`, request.title ?? request.repo, "·", STATE_WORDS[request.state].toLowerCase()].filter(Boolean).join(" ");
@@ -66,10 +117,10 @@ export default function PullRequestStrip({ snapshot, actions, parts }: RegionPro
     others.length > 0 ? `${others.length} more linked` : "",
     primary.title ?? "",
   ].filter(Boolean).join(", ");
+  const open = (focus?: "checks") => openPullRequest(actions, { url: primary.url, number: primary.number, provider: primary.service }, cwd, focus);
   return (
     <div className={`review-pr-strip state-${primary.state}`}>
-      <button type="button" className="review-pr-strip-open" aria-label={label}
-        onClick={() => openPullRequest(actions, { url: primary.url, number: primary.number, provider: primary.service }, cwd)}>
+      <button type="button" className="review-pr-strip-open" aria-label={label} onClick={() => open()}>
         <RequestStateIcon state={primary.state} size={14} className="review-pr-strip-glyph" />
         <span className="review-pr-strip-number" {...tooltipProps(primary.title)}>#{primary.number}</span>
         <span className="review-pr-strip-service" {...tooltipProps(where ? `${info.name} · ${where}` : info.name)}><ServiceIcon service={primary.service} /></span>
@@ -77,7 +128,7 @@ export default function PullRequestStrip({ snapshot, actions, parts }: RegionPro
         {primary.headRef ? <MiddleTruncate className="review-pr-strip-branch" value={primary.headRef} {...tooltipProps(primary.headRef, { variant: "code" })} /> : null}
         <span className="review-pr-strip-fill" />
         {others.length > 0 ? <span className="review-pr-strip-more" {...tooltipProps(others.map(otherLine).join("\n"), { variant: "lines" })}>+{others.length}</span> : null}
-        {tone ? <span className={`review-pr-strip-checks ${tone}`} {...tooltipProps(`Checks: ${checks}`)}><ChecksIcon tone={tone} /></span> : null}
+        {primary.state === "open" ? <StripChecks request={primary} client={parts.client} open={() => open("checks")} /> : null}
       </button>
       <button type="button" className="review-pr-strip-hide" aria-label={`Hide ${info.short} #${primary.number} for this thread`} {...tooltipProps("Hide for this thread")}
         onClick={() => dismissals.hide(threadId, primary)}>

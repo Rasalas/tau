@@ -38,7 +38,7 @@ import { JumpToLatestButton, JumpToLatestStore } from "./components/JumpToLatest
 import { TaskPill } from "./components/TaskProgress";
 import { useConversationActivities } from "./conversation-activities";
 import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
-import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
+import type { ExtensionRegistry, TranscriptTurn, WorkbenchActions } from "./extension-system";
 import { MountedPanel, PanelMaximizeButton, PanelSlot, usePanelHosts } from "./components/PanelHosts";
 import { StartDetails, ThreadDetails, ThreadHeader } from "./components/ThreadHeader";
 import { ProjectIcon } from "./components/ProjectIcon";
@@ -130,6 +130,8 @@ export interface WorkbenchControlHandle {
   focusStage(): void;
   /** Hides or shows the sidebar; on a compact client, the thread sheet. */
   toggleSidebar(): void;
+  /** Collapses the conversation to its spine beside a shown stage, or opens it again. */
+  toggleSpine(): void;
   /** On a compact layout a panel is a sheet: true when this opened or closed one, false where the dock does it. */
   openSheet(id: string): boolean;
   closeSheet(id: string): boolean;
@@ -233,12 +235,12 @@ export interface WorkbenchThread {
   runStartedAt?: number;
   activeDraftKey?: string;
   copyMessage(message: UiMessage): Promise<void>;
-  forkMessage(message: UiMessage): Promise<void>;
+  forkMessage(message: UiMessage, turn?: TranscriptTurn): Promise<void>;
   /** Rewinds the conversation to before a prompt and puts the prompt back into the composer. */
   editMessage(message: UiMessage): Promise<void>;
   titleCommands: ReturnType<ExtensionRegistry["getCommandsFor"]>;
   openThreadTree(mode?: ThreadTreeMode): void;
-  duplicateThread(): Promise<boolean>;
+  duplicateThread(options?: { ask?: boolean }): Promise<boolean>;
   settleActiveThread(): void;
   renameThread(title: string): Promise<boolean>;
   copyThreadValue(kind: "chat" | "path" | "thread-id"): Promise<void>;
@@ -391,6 +393,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         return !open;
       });
     },
+    toggleSpine: () => setSpine((on) => !on),
     openSheet: (id) => {
       if (!compactRef.current.sheets.includes(id)) return false;
       setPanelSheet(id);
@@ -1013,7 +1016,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
   // Stable across renders: a new callback or status element per tool flush
   // would re-render every visible message and restart the tail follow.
   const onCopyMessage = useCallback((message: UiMessage) => void copyMessage(message), [copyMessage]);
-  const onForkMessage = useCallback((message: UiMessage) => void forkMessage(message), [forkMessage]);
+  const onForkMessage = useCallback((message: UiMessage, turn?: TranscriptTurn) => void forkMessage(message, turn), [forkMessage]);
   const onEditMessage = useCallback((message: UiMessage) => void editMessage(message), [editMessage]);
   const { readOnly } = useHostCapabilities();
   const { queue, steerQueued, returnQueued, reorderQueue } = composer;
@@ -1141,8 +1144,9 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     onSetModel={(provider, id) => void setModel(provider, id)}
     onSetThinking={(level) => void setThinking(level)}
     runtimeChoice={runtimeChoice}
-    onNewThreadOnRuntime={actions ? (kind, model) => {
+    onNewThreadOnRuntime={actions ? (kind, model, via) => {
       composer.carryModel?.(kind, model);
+      if (via) { via(kind); return; }
       preferences.setNewThreadRuntime(kind);
       // The new thread stays in this thread's project.
       const workspace = snapshot?.workspaceId ?? snapshot?.cwd;

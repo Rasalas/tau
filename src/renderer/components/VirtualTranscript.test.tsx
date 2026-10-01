@@ -905,7 +905,7 @@ describe("virtual transcript", () => {
       view.unmount();
     });
 
-    it("triggers fork on focused message with f", async () => {
+    it("triggers fork on focused message with f, with the turn it belongs to", async () => {
       const messages: UiMessage[] = [
         { id: "u1", role: "user", text: "Turn 1", timestamp: 1 },
       ];
@@ -915,7 +915,7 @@ describe("virtual transcript", () => {
 
       fireEvent.keyDown(transcript, { key: "j" });
       fireEvent.keyDown(transcript, { key: "f" });
-      expect(onFork).toHaveBeenCalledWith(messages[0]);
+      expect(onFork).toHaveBeenCalledWith(messages[0], { number: 1, messages, last: true });
       view.unmount();
     });
 

@@ -87,7 +87,7 @@ describe("ExtensionPrompt", () => {
     expect(screen.getByRole("button", { name: /Add an index/u }).querySelector("small")?.textContent).toBe("one migration");
   });
 
-  it("draws a yes-or-no question as a permission: what it wants in the head, Deny and Allow, and Enter never allows (K83)", () => {
+  it("draws a yes-or-no question as a permission: what it wants in the head, Deny and Allow, and only ⌘↵ allows (K83)", () => {
     const onAnswer = vi.fn();
     let action: PromptSubmitAction | undefined;
     const prompt: ExtensionUiPrompt = { id: "p1", sessionId: "s1", kind: "confirm", title: "Wants to edit", message: "src/lib/cursor-helper.ts" };
@@ -105,8 +105,9 @@ describe("ExtensionPrompt", () => {
     expect(onAnswer).toHaveBeenLastCalledWith(true);
     fireEvent.click(screen.getByRole("button", { name: "Deny" }));
     expect(onAnswer).toHaveBeenLastCalledWith(false);
-    expect(action).toBeUndefined();
-    expect(card.querySelector("kbd")).toBeNull();
+    // Plain Enter never allows: the composer runs this action on ⌘↵ only.
+    expect(action).toMatchObject({ label: "Allow", disabled: false, mod: true });
+    expect(card.querySelector("kbd")?.textContent).toMatch(/^(⌘⏎|Ctrl ⏎)$/u);
   });
 
   it("draws a runtime's Allow / Allow for this session / Deny as the same permission card, naming a sub-agent", () => {

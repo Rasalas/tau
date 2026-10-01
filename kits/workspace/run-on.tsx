@@ -174,6 +174,8 @@ function RunOnPill({ source, touch, snapshot, actions }: DraftMachineProps & { s
   const branch = useBranchLabel();
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  // Settings' Run on: Ask opens the choice as a draft starts.
+  useEffect(() => { if (state.draftPending && source.openOnDraft?.()) setOpen(true); }, [source, state.draftPending]);
   if (!machine && !state.draftPending) return null;
   const close = () => setOpen(false);
   const body = <>

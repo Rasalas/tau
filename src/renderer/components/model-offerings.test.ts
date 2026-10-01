@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { UiModel } from "../../shared/contracts";
 import {
-  formatPrice, formatTokens, modelFamily, offeringKey, orderedPositions, passesFilters, searchOfferings, searchScore, sortOfferings,
+  contextChoices, formatPrice, formatTokens, modelFamily, offeringKey, orderedPositions, passesFilters, searchOfferings, searchScore, sortOfferings,
   type Offering,
 } from "./model-offerings";
+import { carriedLevel } from "../thinking-levels";
+import { entryFacts, modelEntries, modelMaker } from "./model-entries";
 
 let position = 0;
 function offering(runtime: string, model: UiModel, extra: Partial<Offering> = {}): Offering {
@@ -83,5 +85,41 @@ describe("offerings", () => {
     expect(formatPrice({ input: 3, output: 15 })).toBe("$3/$15");
     expect(formatTokens(400_000)).toBe("400k");
     expect(formatTokens(1_050_000)).toBe("1.05M");
+  });
+});
+
+describe("models across runtimes (K142)", () => {
+  it("names a model's maker by its id, and keeps the provider for a set only a runtime or gateway names", () => {
+    expect(modelMaker({ provider: "openai-codex", id: "gpt-6-sol" })).toBe("openai");
+    expect(modelMaker({ provider: "openrouter", id: "anthropic/claude-sonnet-4.5" })).toBe("anthropic");
+    expect(modelMaker({ provider: "opencode-go", id: "kimi-k3" })).toBe("moonshot");
+    expect(modelMaker({ provider: "opencode", id: "big-pickle" })).toBe("opencode");
+  });
+
+  it("lists a model once with one way per runtime and provider, a dated or [1m] twin behind its plain id", () => {
+    const plain = offering("claude-code", { provider: "anthropic", id: "claude-opus-5-5", name: "Claude Opus 5.5", contextWindow: 200_000 });
+    const wide = offering("claude-code", { provider: "anthropic", id: "claude-opus-5-5[1m]", name: "Claude Opus 5.5 (1M)", contextWindow: 1_000_000 });
+    const pi = offering("pi", { provider: "anthropic", id: "claude-opus-5-5", name: "Claude Opus 5.5 (latest)", billing: "subscription", contextWindow: 1_000_000 });
+    const [entry] = modelEntries([wide, plain, pi]);
+    expect(entry!.name).toBe("Claude Opus 5.5");
+    expect(entry!.ways.map((way) => way.key)).toEqual([plain.key, pi.key]);
+    // The model in use stands for its way.
+    expect(modelEntries([wide, plain, pi], wide.key)[0]!.ways[0]!.key).toBe(wide.key);
+    expect(entryFacts(entry!.ways)).toBe("200k–1M");
+    expect(entryFacts([lunaPi, lunaCodex])).toBe("272k–400k · API $0.2/$1.2");
+  });
+
+  it("offers a context window only where the same model has more than one", () => {
+    const base = { provider: "anthropic", id: "claude-opus-5-5", name: "Opus" };
+    const wide = { provider: "anthropic", id: "claude-opus-5-5[1m]", name: "Opus 1M" };
+    expect(contextChoices([base, wide], base).map((choice) => [choice.model.id, choice.tokens])).toEqual([["claude-opus-5-5", 0], ["claude-opus-5-5[1m]", 1_000_000]]);
+    expect(contextChoices([base], base)).toEqual([]);
+  });
+
+  it("carries a thinking level over, or the next lower one the new model has", () => {
+    expect(carriedLevel("xhigh", ["low", "medium", "high"])).toBe("high");
+    expect(carriedLevel("high", ["off", "high", "max"])).toBe("high");
+    expect(carriedLevel("low", ["high", "max"])).toBe("high");
+    expect(carriedLevel("max", [])).toBe("max");
   });
 });

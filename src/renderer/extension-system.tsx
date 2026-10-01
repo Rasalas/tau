@@ -77,16 +77,21 @@ export interface WorkbenchActions {
   openWorkbenchSource(): Promise<boolean>;
   /** Pi's /tree and /fork: the session tree of the active thread, to move in or fork from. */
   openThreadTree(mode?: "navigate" | "fork"): void;
-  /** Pi's /clone: a new thread continuing from the active thread's current point. */
-  duplicateThread(): Promise<boolean>;
-  /** Forks the thread on screen through `message`: a new thread with the conversation up to it (API 1.39.0). */
-  forkFrom?(message: UiMessage): Promise<void>;
+  /** Pi's /clone: a new thread continuing from the active thread's current point; a fork prompt asks first unless `ask` is false. */
+  duplicateThread(options?: { ask?: boolean }): Promise<boolean>;
+  /**
+   * Forks the thread on screen through `message`: a new thread with the conversation up to it (API 1.39.0).
+   * With `workspace`, the fork runs in that project; false when nothing was forked.
+   */
+  forkFrom?(message: Pick<UiMessage, "sourceEntryId">, options?: { workspace?: string }): Promise<boolean>;
   focusComposer(seed?: string): void;
   focusTranscript(): void;
   focusStage(): void;
   toggleDock(): void;
   /** Hides or shows the sidebar (the thread sheet on a compact client). */
   toggleSidebar?(): void;
+  /** Collapses the conversation to its spine beside the stage, or opens it again (design 1b). */
+  toggleSpine?(): void;
   notify(message: string): void;
   /**
    * A toast on the window's stack: a type icon, a title and a line, actions,
@@ -629,6 +634,30 @@ export interface ComposerGateContribution extends ProfileScoped {
   Component: ComponentType<ComposerGateProps>;
 }
 
+/** Fast for the composer's thread, as one kit knows it. */
+export interface ComposerSpeedState {
+  fast: boolean;
+  /** False where the thread's model or runtime offers no faster tier; `reason` says why. */
+  available: boolean;
+  reason?: string;
+  /** What Fast does or costs, under its name. */
+  detail?: string;
+}
+
+/**
+ * A runtime's faster tier, drawn by core in the thinking chip (⚡) and its
+ * menu (K142). `read` answers from what the kit holds and must return the same
+ * object until it changes; it says `undefined` for a thread it has nothing to
+ * do with, and calls `subscribe`'s listener once it knows more.
+ */
+export interface ComposerSpeedContribution extends ProfileScoped {
+  id: string;
+  order?: number;
+  read(snapshot: HostSnapshot | undefined): ComposerSpeedState | undefined;
+  subscribe(listener: () => void): () => void;
+  set(fast: boolean, snapshot: HostSnapshot | undefined): void | Promise<void>;
+}
+
 /** A mark on a model's row in the model picker. */
 export interface ModelBadgeContribution extends ProfileScoped {
   id: string;
@@ -895,9 +924,17 @@ export interface SettingsPageContribution extends ProfileScoped {
 /**
  * Core's own Settings pages a package may add a section to (API 1.13.0):
  * Connections; the list of extensions, above it; each extension's own page,
- * after its settings (both API 1.18.0); and Runtimes, below its table (API 1.27.0).
+ * after its settings (both API 1.18.0); Runtimes, below its table (API 1.27.0);
+ * and General, as rows of one of its cards.
  */
-export type SettingsSectionPage = "connections" | "extensions" | "extension" | "runtimes";
+export type SettingsSectionPage = "connections" | "extensions" | "extension" | "runtimes" | "general";
+
+/**
+ * The cards a section's rows join (design 2i, 2h): General's appearance,
+ * notify, new-threads and threads, Connections' this-machine. Such a section
+ * draws `SettingRow`s only; the card draws the frame and the heading.
+ */
+export type SettingsCardId = "appearance" | "notify" | "new-threads" | "threads" | "this-machine";
 
 export interface SettingsSectionProps {
   onNotify(message: string): void;
@@ -916,6 +953,8 @@ export interface SettingsSectionProps {
 export interface SettingsSectionContribution extends ProfileScoped {
   id: string;
   page: SettingsSectionPage;
+  /** The card on the page its rows join, in `order` among the card's rows. */
+  card?: SettingsCardId;
   order?: number;
   /** The rows the Settings search finds in the section, as on a page (API 1.18.0). */
   rows?: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] }>;
@@ -1305,6 +1344,18 @@ export interface ThreadMenuContribution {
   run(session: UiSession, itemId: string, actions: WorkbenchActions): void;
 }
 
+/** A fork the user started: through `entryId` (its turn when one), or the whole thread without one (Duplicate). */
+export interface ForkRequest {
+  entryId?: string;
+  turn?: TranscriptTurn;
+}
+
+/** Asks before every fork the user starts (the `f` key, the thread tree, Duplicate); the last one wins. */
+export interface ForkPromptContribution {
+  id: string;
+  ask(request: ForkRequest): void;
+}
+
 /** Which project a document belongs to; absent, the source reads the project it follows. */
 export interface DocumentOrigin {
   /** The workspace's id where the host mints one, its path otherwise (API 1.26.0). */
@@ -1461,6 +1512,8 @@ export interface DesktopExtensionContext {
   registerComposerGate(gate: ComposerGateContribution): () => void;
   /** Marks models in the model picker, with a line explaining the mark. */
   registerModelBadge(badge: ModelBadgeContribution): () => void;
+  /** A faster tier for threads of this kit's runtime, shown in the composer's thinking chip and menu. */
+  registerComposerSpeed(speed: ComposerSpeedContribution): () => void;
   /** Rows this extension shows in the transcript; `order` sorts rows sharing an anchor. */
   registerTranscriptRows(id: string, order?: number, options?: ProfileScoped): TranscriptRowsHandle;
   /** Replaces the transcript's waiting label for a thread while the label is set; `undefined` clears it. */
@@ -1511,6 +1564,7 @@ export interface DesktopExtensionContext {
   registerModelSelection(selection: ModelSelectionContribution): () => void;
   /** The menu of a thread, on its title and its row; the last one wins (API 1.37.0). */
   registerThreadMenu(menu: ThreadMenuContribution): () => void;
+  registerForkPrompt(prompt: ForkPromptContribution): () => void;
   registerMessageAction(action: MessageActionContribution): () => void;
   /** Draws a tagged block of an assistant reply itself. New in API 1.11.0. */
   registerMessageBlock(block: MessageBlockContribution): () => void;
@@ -1649,6 +1703,7 @@ export class ExtensionRegistry {
   private composerInlines = new Map<string, Owned<ComposerInlineContribution>>();
   private composerGates = new Map<string, Owned<ComposerGateContribution>>();
   private modelBadges = new Map<string, Owned<ModelBadgeContribution>>();
+  private composerSpeeds = new Map<string, Owned<ComposerSpeedContribution>>();
   private regions = new Map<string, Owned<RegionContribution>>();
   private statusItems = new Map<string, Owned<StatusItemContribution>>();
   private overlays = new Map<string, Owned<OverlayContribution>>();
@@ -1676,6 +1731,7 @@ export class ExtensionRegistry {
   private promptHooks = new Map<string, Owned<PromptHookContribution>>();
   private modelSelections = new Map<string, Owned<ModelSelectionContribution>>();
   private threadMenus = new Map<string, Owned<ThreadMenuContribution>>();
+  private forkPrompts = new Map<string, Owned<ForkPromptContribution>>();
   private messageActions = new Map<string, Owned<MessageActionContribution>>();
   private messageBlocks = new Map<string, Owned<MessageBlockContribution>>();
   private promptRenderers = new Map<string, Owned<PromptRendererContribution>>();
@@ -1942,6 +1998,11 @@ export class ExtensionRegistry {
         note("model badges");
         return this.register(this.modelBadges, badge.id, { ...badge, ...owner }, disposers);
       },
+      registerComposerSpeed: (speed) => {
+        if (!this.scopeToProfile(owner, "composer speed", speed.id, undefined, speed)) return noContribution;
+        note("composer speed");
+        return this.register(this.composerSpeeds, speed.id, { ...speed, ...owner }, disposers);
+      },
       provideService: (id, value) => {
         const held = this.extensionServices.get(id);
         if (held) throw new Error(`Extension service ${id} is already provided by ${held.extensionId}`);
@@ -2039,6 +2100,7 @@ export class ExtensionRegistry {
         note("thread menu");
         return this.register(this.threadMenus, menu.id, { ...menu, ...owner }, disposers);
       },
+      registerForkPrompt: (prompt) => this.register(this.forkPrompts, prompt.id, { ...prompt, ...owner }, disposers),
       registerMessageAction: (action) => {
         if (!this.scopeToProfile(owner, "message action", action.id, action.label, action)) return noContribution;
         note("message actions");
@@ -2288,6 +2350,10 @@ export class ExtensionRegistry {
 
   getModelBadges(): Array<Owned<ModelBadgeContribution>> {
     return this.sorted("model-badges", this.modelBadges);
+  }
+
+  getComposerSpeeds(): Array<Owned<ComposerSpeedContribution>> {
+    return this.sorted("composer-speeds", this.composerSpeeds);
   }
 
   getSidebarContributions(): Array<Owned<SidebarContribution>> {
@@ -2594,6 +2660,10 @@ export class ExtensionRegistry {
 
   getThreadMenu(): Owned<ThreadMenuContribution> | undefined {
     return [...this.threadMenus.values()].at(-1);
+  }
+
+  getForkPrompt(): Owned<ForkPromptContribution> | undefined {
+    return [...this.forkPrompts.values()].at(-1);
   }
 
   streamingDelivery(): "followUp" | "steer" | undefined {

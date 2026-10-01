@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
 import type { ToastStore } from "../workbench/toast-store";
+import type { AppUpdate } from "./app-update";
 import { noticeHeadline } from "./components/notice-text";
 import { isMachineUpdateNotice } from "../shared/machine-compatibility";
 
@@ -21,25 +22,34 @@ export function showNoticesAsToasts(view: ThreadViewStore, toasts: ToastStore, o
   });
 }
 
-/** Core's own toasts: the notices, and the restart a downloaded update waits for; closed, the sidebar's foot still offers it. */
-export function useWorkbenchToasts({ view, toasts, updateReady, onRestart, openMachines }: {
+/**
+ * Core's own toasts: the notices, and the restart a downloaded update waits for;
+ * closed, the sidebar's foot still offers it. After Restart it follows the
+ * install until Tau quits (K161).
+ */
+export function useWorkbenchToasts({ view, toasts, update, openMachines }: {
   view: ThreadViewStore;
   toasts: ToastStore;
-  updateReady?: string;
-  onRestart(): void;
-  openMachines(): void;
+  update?: AppUpdate | undefined;
+  openMachines?: () => void;
 }): void {
-  const handlers = useRef({ onRestart, openMachines });
-  handlers.current = { onRestart, openMachines };
-  useEffect(() => showNoticesAsToasts(view, toasts, () => handlers.current.openMachines()), [toasts, view]);
+  const machines = useRef(openMachines);
+  machines.current = openMachines;
+  const hasMachines = !!openMachines;
+  useEffect(() => showNoticesAsToasts(view, toasts, hasMachines ? () => machines.current?.() : undefined), [toasts, view, hasMachines]);
+  const install = useRef(update?.install);
+  install.current = update?.install;
+  const { version, phase, progress } = update ?? {};
   useEffect(() => {
-    if (!updateReady) return;
+    if (!version) return;
     toasts.show({
       id: "tau.update",
-      title: `Tau ${updateReady} downloaded`,
-      description: "Restart to install it.",
+      ...(phase ? { type: "loading" } : {}),
+      title: phase === "installing" ? `Installing Tau ${version}` : phase === "downloading" ? `Downloading Tau ${version}…` : phase ? `Preparing Tau ${version}…` : `Tau ${version} downloaded`,
+      description: phase === "installing" ? "Tau reopens by itself when it is done. This can take a few minutes."
+        : phase ? `${progress === undefined ? "" : `${progress}% · `}Tau restarts once it is ready.` : "Restart to install it.",
       timeoutMs: 0,
-      actions: [{ label: "Restart", run: () => handlers.current.onRestart() }],
+      actions: phase ? [] : [{ label: "Restart", keepOpen: true, run: () => install.current?.() }],
     });
-  }, [toasts, updateReady]);
+  }, [toasts, version, phase, progress]);
 }

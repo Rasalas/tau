@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ClientStorage, HostSnapshot, PreferencesStore, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { reviewExtension } from "./desktop.js";
-import type { ReviewRequest, ThreadPullRequestLink } from "./protocol.js";
+import type { PullRequestCheck, ReviewRequest, ThreadPullRequestLink } from "./protocol.js";
+import type { PullRequestClient } from "./pull-request-client.js";
 import PullRequestStrip from "./pull-request-strip.js";
 import { STRIP_OPTION, StripDismissals, stripRequests } from "./pull-request-strip-logic.js";
 import { RowRequests } from "./requests.js";
@@ -39,12 +40,12 @@ const link = (number: number, extra: Partial<ThreadPullRequestLink> = {}): Threa
   source: "agent", linkedAt: number, title: `Change ${number}`, state: "open", ...extra,
 });
 
-function setup({ branch, links = [], draftPending = false, empty = false }: { branch?: ReviewRequest; links?: ThreadPullRequestLink[]; draftPending?: boolean; empty?: boolean } = {}) {
+function setup({ branch, links = [], draftPending = false, empty = false, live }: { branch?: ReviewRequest; links?: ThreadPullRequestLink[]; draftPending?: boolean; empty?: boolean; live?: PullRequestClient } = {}) {
   let changed: ((threadId: string) => void) | undefined;
   let current = links;
   const client = { links: vi.fn(async () => current), onLinksChanged: (listener: (threadId: string) => void) => { changed = listener; return () => undefined; } };
   const load = vi.fn(async () => branch);
-  const parts = { rows: new RowRequests(load), links: new ThreadLinkRows(client), preferences: preferences(), dismissals: new StripDismissals(memoryStorage) };
+  const parts = { rows: new RowRequests(load), links: new ThreadLinkRows(client), preferences: preferences(), dismissals: new StripDismissals(memoryStorage), ...(live ? { client: live } : {}) };
   const actions = { activeThread: () => ({ sessionId: "t1", cwd: "/work", draftPending }), openStageTab: vi.fn(() => "tab") } as unknown as WorkbenchActions;
   const snapshot = { sessionId: "t1", cwd: "/work", projectLabel: "fix/refresh-apps-without-socket", isStreaming: false, messages: empty ? [] : [{ id: "m1" }] } as unknown as HostSnapshot;
   const view = render(<PullRequestStrip snapshot={snapshot} actions={actions} parts={parts} />);
@@ -162,5 +163,65 @@ describe("the pull-request strip", () => {
     const region = registry.getRegions("composer-above").find((entry) => entry.id === "review.pull-request-strip")!;
     expect(region.order).toBe(80);
     registry.deactivate(reviewExtension.id);
+  });
+});
+
+describe("the checks on the chip", () => {
+  const RUN = "https://github.com/acme/lakebed/actions/runs/77/job/";
+  const running: PullRequestCheck[] = [
+    { name: "lint", status: "passed", workflow: "CI", url: `${RUN}1` },
+    { name: "test", status: "pending", workflow: "CI", url: `${RUN}2`, startedAt: new Date(Date.now() - 60_000).toISOString() },
+    { name: "e2e", status: "pending", workflow: "CI", url: `${RUN}3`, queued: true },
+  ];
+
+  // Each test its own request: finished reads are kept per request for a while.
+  const request = (number: number, checks: ReviewRequest["checks"]): ReviewRequest => ({ ...BRANCH, number, url: `https://github.com/acme/lakebed/pull/${number}`, checks });
+  const FILE = [{ id: "lint", needs: [] }, { id: "test", needs: ["lint"] }, { id: "e2e", needs: ["test"] }];
+
+  it("draws a circle per stage while checks run, fills the running one, and opens the request at its checks", async () => {
+    const checks = vi.fn(async () => running);
+    const pipeline = vi.fn(async () => ({ 77: { jobs: FILE, expected: { test: 120_000 } } }));
+    const branch = request(301, { passed: 1, failed: 0, pending: 2, total: 3 });
+    const { actions } = setup({ branch, live: { checks, pipeline } as unknown as PullRequestClient });
+    const mini = await screen.findByRole("img", { name: "Checks: CI passed, running, queued" });
+    expect(pipeline).toHaveBeenCalledWith(branch.url, ["77"]);
+    // The running stage: about half of its usual two minutes.
+    const wedge = mini.querySelector(".plm-stage[data-state=running] .pl-wedge")!;
+    const [filled, turn] = wedge.getAttribute("stroke-dasharray")!.split(" ").map(Number);
+    expect(filled! / turn!).toBeGreaterThan(0.49);
+    expect(filled! / turn!).toBeLessThan(0.6);
+    fireEvent.click(mini);
+    expect(actions.openStageTab).toHaveBeenCalledWith("review.pull-request", expect.objectContaining({ url: branch.url, focus: "checks" }), { key: branch.url });
+    expect(checks).toHaveBeenCalledTimes(1);
+  });
+
+  it("lists a stage's jobs with their times on hover", async () => {
+    const branch = request(302, { passed: 1, failed: 0, pending: 2, total: 3 });
+    setup({ branch, live: { checks: vi.fn(async () => running), pipeline: vi.fn(async () => ({ 77: { jobs: FILE, expected: {} } })) } as unknown as PullRequestClient });
+    const mini = await screen.findByRole("img", { name: "Checks: CI passed, running, queued" });
+    fireEvent.pointerEnter(mini.querySelector(".plm-stage[data-state=running]")!);
+    const card = await screen.findByRole("tooltip");
+    expect(card.textContent).toMatch(/^CIStage 2 of 3test1m \d+s, no usual time yet$/u);
+    fireEvent.pointerLeave(mini);
+    await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
+  });
+
+  it("reads finished checks once, and not again when the chip comes back soon", async () => {
+    const passed = running.map((check) => ({ ...check, status: "passed" as const, queued: false }));
+    const checks = vi.fn(async () => passed);
+    const branch = request(303, { passed: 3, failed: 0, pending: 0, total: 3 });
+    const live = { checks, pipeline: vi.fn(async () => ({})) } as unknown as PullRequestClient;
+    setup({ branch, live });
+    await screen.findByRole("img", { name: "Checks: CI passed" });
+    cleanup();
+    setup({ branch, live });
+    await screen.findByRole("img", { name: "Checks: CI passed" });
+    expect(checks).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the finished state the live read found, before the row learns it", async () => {
+    const checks = vi.fn(async () => running.map((check) => ({ ...check, status: check.name === "e2e" ? "failed" as const : "passed" as const, queued: false })));
+    setup({ branch: request(304, { passed: 1, failed: 0, pending: 2, total: 3 }), live: { checks, pipeline: vi.fn(async () => ({})) } as unknown as PullRequestClient });
+    expect(await screen.findByRole("img", { name: "Checks: CI failed" })).toBeTruthy();
   });
 });

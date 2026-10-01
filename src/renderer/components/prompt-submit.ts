@@ -3,13 +3,15 @@ import { createContext, useContext, useEffect, useRef } from "react";
 export interface PromptSubmitAction {
   label: string;
   disabled: boolean;
+  /** Only ⌘↵ runs it, never a plain Enter: a permission's Allow. */
+  mod?: boolean;
   submit(): void;
 }
 
 export const PromptSubmitContext = createContext<(action: PromptSubmitAction | undefined) => void>(() => {});
 
 /** Lets a prompt renderer put its commit action in the composer's action row. */
-export function usePromptSubmit(label: string | undefined, disabled: boolean, submit: (() => void) | undefined): void {
+export function usePromptSubmit(label: string | undefined, disabled: boolean, submit: (() => void) | undefined, mod = false): void {
   const register = useContext(PromptSubmitContext);
   const submitRef = useRef(submit);
   submitRef.current = submit;
@@ -19,7 +21,7 @@ export function usePromptSubmit(label: string | undefined, disabled: boolean, su
       register(undefined);
       return;
     }
-    register({ label, disabled, submit: () => submitRef.current?.() });
+    register({ label, disabled, ...(mod ? { mod } : {}), submit: () => submitRef.current?.() });
     return () => register(undefined);
-  }, [available, disabled, label, register]);
+  }, [available, disabled, label, mod, register]);
 }

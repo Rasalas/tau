@@ -2,7 +2,7 @@
 import "./packaged-app.js";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
-import { build } from "esbuild";
+import { build, transform, type Plugin } from "esbuild";
 import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import type { DesktopExtensionBundle, DesktopExtensionLoadResult } from "../shared/contracts.js";
 import { MANIFEST_FILE, isThemeManifest, manifestIncompatibility, parseExtensionManifest, type ExtensionManifest } from "./extension-packages.js";
@@ -128,6 +128,19 @@ function isIdentifier(name: string): boolean {
   return /^[A-Za-z_$][\w$]*$/u.test(name) && name !== "default";
 }
 
+/** The helper every shim imports; only shims resolve it, so it cannot meet a real module. */
+const SHARED_RUNTIME = "runtime";
+
+/** Written once per bundle rather than once per shared module. */
+const SHARED_RUNTIME_SOURCE = [
+  "export function shared(specifier) {",
+  "  const m = globalThis.__tauShared?.[specifier];",
+  "  if (!m) throw new Error(`Shared module ${specifier} is not available in this workbench`);",
+  "  return m;",
+  "}",
+  `/* @__NO_SIDE_EFFECTS__ */ export function defaultOf(m) { return m && typeof m === "object" && "default" in m ? m.default : m; }`,
+].join("\n");
+
 /**
  * Bare imports of the workbench's own libraries resolve to the copies the
  * renderer already runs, published on `globalThis.__tauShared`. Bundling a
@@ -136,9 +149,9 @@ function isIdentifier(name: string): boolean {
  */
 function sharedModuleSource(specifier: string, exportNames: readonly string[]): string {
   const lines = [
-    `const m = globalThis.__tauShared?.[${JSON.stringify(specifier)}];`,
-    `if (!m) throw new Error(${JSON.stringify(`Shared module ${specifier} is not available in this workbench`)});`,
-    `export default (m && typeof m === "object" && "default" in m ? m.default : m);`,
+    `import { shared, defaultOf } from ${JSON.stringify(SHARED_RUNTIME)};`,
+    `const m = shared(${JSON.stringify(specifier)});`,
+    "export default /* @__PURE__ */ defaultOf(m);",
     // A binding esbuild cannot prove pure is a binding it must keep, and a
     // property read is never provably pure. Routing every name through an
     // annotated picker lets it drop the ones the package never imports —
@@ -175,6 +188,23 @@ function sharedExportNamesFor(specifier: string, reported: readonly string[] | u
   return names;
 }
 
+/**
+ * Shortens the local names in a bundled dependency's own modules; an
+ * extension's names stay. A file that links its own map (xterm) is left alone
+ * so the map still reaches its sources.
+ */
+const vendorNames: Plugin = {
+  name: "tau-vendor-names",
+  setup(api) {
+    api.onLoad({ filter: /[\\/]node_modules[\\/].*\.m?js$/ }, async (args) => {
+      const code = await readFile(args.path, "utf8");
+      if (/\/\/# sourceMappingURL=/u.test(code)) return undefined;
+      const renamed = await transform(code, { loader: "js", minifyIdentifiers: true, sourcemap: "inline", sourcefile: args.path });
+      return { contents: renamed.code, loader: "js" };
+    });
+  },
+};
+
 /** Compiles one extension entry to a self-contained ES module. */
 export async function bundleDesktopExtension(entry: string, options: BundleOptions): Promise<string> {
   const shared = new Set(Object.keys(options.sharedExports));
@@ -186,7 +216,7 @@ export async function bundleDesktopExtension(entry: string, options: BundleOptio
     platform: "browser",
     target: "es2022",
     jsx: "automatic",
-    // Every window start moves and parses these bytes. Keep identifiers readable; maps retain the author's sources.
+    // Every window start moves and parses these bytes. The extension's own names stay, so its traces read without the map.
     minifyWhitespace: true,
     minifySyntax: true,
     sourcemap: "inline",
@@ -194,15 +224,16 @@ export async function bundleDesktopExtension(entry: string, options: BundleOptio
     define: {
       "window.tau": "undefined",
     },
-    plugins: [{
+    plugins: [vendorNames, {
       name: "tau-shared-modules",
       setup(api) {
         api.onResolve({ filter: /.*/ }, (args) => {
+          if (args.namespace === "tau-shared" && args.path === SHARED_RUNTIME) return { path: SHARED_RUNTIME, namespace: "tau-shared" };
           if (!shared.has(args.path)) return undefined;
           return { path: args.path, namespace: "tau-shared" };
         });
         api.onLoad({ filter: /.*/, namespace: "tau-shared" }, async (args) => ({
-          contents: sharedModuleSource(args.path, await sharedExportNamesFor(args.path, options.sharedExports[args.path])),
+          contents: args.path === SHARED_RUNTIME ? SHARED_RUNTIME_SOURCE : sharedModuleSource(args.path, await sharedExportNamesFor(args.path, options.sharedExports[args.path])),
           loader: "js",
         }));
       },

@@ -45,5 +45,7 @@ for (const pkg of metadata.packages.sort((a, b) => a.name.localeCompare(b.name))
 await writeFile(join(root, "pkg/THIRD-PARTY-LICENSES.txt"), `${licenses.join("\n").replaceAll("\r\n", "\n").replace(/[ \t]+$/gmu, "").trimEnd()}\n`);
 const files = ["Cargo.toml", "Cargo.lock", ".cargo/config.toml", "src/lib.rs", "pkg/tau_browser_connect.js", "pkg/tau_browser_connect_bg.wasm", "pkg/THIRD-PARTY-LICENSES.txt"];
 const hashes = {};
-for (const file of files) hashes[file] = createHash("sha256").update(await readFile(join(root, file))).digest("hex");
+// Text hashes over LF endings, as vite/browser-connect.ts checks them, so a CRLF checkout matches.
+const hashOf = (file, content) => createHash("sha256").update(file.endsWith(".wasm") ? content : Buffer.from(content.toString("utf8").replaceAll("\r\n", "\n"), "utf8")).digest("hex");
+for (const file of files) hashes[file] = hashOf(file, await readFile(join(root, file)));
 await writeFile(join(root, "pkg/manifest.json"), `${JSON.stringify({ wasmBindgen: version, hashes }, null, 2)}\n`);

@@ -1,0 +1,21 @@
+.private-email {
+  display: inline;
+  appearance: none;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.private-email[data-revealed="false"] > span {
+  filter: blur(4px);
+  user-select: none;
+}
+
+.private-email:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}

@@ -1,16 +1,14 @@
 /*
- * The model picker: a popover at its chip with no scrim, in three columns —
- * runtimes as marks, the runtime's models (pinned first), the thinking level —
- * over "Recent". A phone and a narrow window stack the columns; on a compact
- * phone layout it is a bottom sheet; tablets keep the popover. Loaded with the picker's
- * chunk when it first opens; the chip keeps its rules in styles.css.
+ * The model picker (K142 B): a popover at its chip with no scrim — makers as
+ * marks on the rail, one row per model, "Runs with" pinned under the list. A
+ * narrow window puts the rail above the list; on a phone it is a bottom sheet,
+ * tablets keep the popover. Loaded with the picker's chunk; the chip keeps its rules in styles.css.
  */
 .model-picker.popover {
-  width: 600px; max-width: calc(100vw - 16px); height: 440px; max-height: calc(100vh - 16px);
+  width: 580px; max-width: calc(100vw - 16px); height: 470px; max-height: calc(100vh - 16px);
   display: flex; flex-direction: column; padding: 0; overflow: hidden;
   border-radius: 12px; background: var(--overlay); color: var(--ink);
 }
-.model-picker.popover.with-thinking { width: 680px; }
 .model-picker-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
 /* The search: a filled field over all three columns, as the design draws it. */
@@ -50,7 +48,7 @@
 
 .model-picker-body { flex: 1; min-height: 0; display: flex; gap: 4px; padding: 4px 8px 0; }
 
-/* Column 1: Favourites, then every runtime as its mark, with a dot for a state other than ready. */
+/* The rail: Favourites, Recent, each maker as its mark, then the runtimes that list nothing yet, with their state's dot. */
 .model-rail {
   width: 40px; flex: none; overflow: auto; scrollbar-width: none;
   display: flex; flex-direction: column; gap: 2px; padding-top: 26px;
@@ -69,6 +67,7 @@
 .model-rail button.blocked.active > :not(.runtime-dot) { opacity: .7; }
 .model-rail .rail-icon { margin-left: 0; flex: none; }
 .model-rail .rail-glyph { flex: none; color: var(--acid-text); }
+.model-rail .rail-glyph.recent { color: var(--muted); }
 /* A second instance of one program: its initials on the program's mark. */
 .rail-instance {
   position: absolute; left: 3px; bottom: 3px; min-width: 11px; height: 11px; padding: 0 2px;
@@ -87,31 +86,20 @@
 @keyframes model-dot-pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .runtime-dot-loading { animation: none; } }
 
-/* Column 2: the models, under the runtime's name; a runtime with several providers adds their marks. */
+/* The list, under the maker's name. */
 .model-column { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .model-column-head {
   flex: none; height: 26px; display: flex; align-items: center; gap: 8px; padding: 0 10px;
   font-size: calc(var(--text-xs) + .5px); color: var(--muted); white-space: nowrap;
 }
-.model-column-title { flex: none; }
-.model-column-head > small { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--faint); font-size: var(--text-xs); }
-.model-provider-filter { margin-left: auto; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
-.model-provider-filter > button {
-  flex: none; width: 26px; height: 22px; display: grid; place-items: center; padding: 0;
-  border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer;
-}
-.model-provider-filter > button:hover { background: var(--hover-strong); }
-.model-provider-filter > button.active { background: var(--raised); }
-.model-provider-filter .provider-column-icon { margin-left: 0; flex: none; transform: scale(.85); }
-.provider-all-glyph { color: var(--muted); }
-.model-provider-filter > button.active .provider-all-glyph { color: var(--ink); }
-
 .model-list { flex: 1; min-width: 0; overflow: auto; padding: 0 0 4px; }
 .model-row {
-  display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 4px 0 10px;
+  display: flex; align-items: center; gap: 8px; height: 44px; margin-bottom: 2px; padding: 0 4px 0 10px;
   border-radius: 8px; cursor: pointer; color: var(--ink-2);
 }
-.model-row.grouped { height: 30px; padding-left: 20px; }
+.model-fold { height: 30px; }
+.model-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.model-facts { font-size: var(--text-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .model-row.selected { background: var(--hover-strong); }
 .model-row.current { background: var(--raised); }
 .model-row.current.selected { background: var(--raised-hover); }
@@ -127,8 +115,9 @@
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .model-row.current .model-line > strong { color: var(--ink); font-weight: 600; }
-.model-marks { flex: none; display: inline-flex; align-items: center; min-width: 18px; }
-.model-marks .sub-icon { margin-left: 0; }
+/* The runtimes that run it, quiet; names in the tooltip. */
+.model-runtimes { flex: none; display: inline-flex; align-items: center; gap: 4px; opacity: .75; }
+.model-runtimes .sub-icon { margin-left: 0; }
 .model-line > em {
   flex: none; font: 9.5px var(--mono); font-style: normal; color: var(--acid-text);
   border: 1px solid var(--acid-line); border-radius: 4px; padding: 1px 5px;
@@ -163,37 +152,6 @@
 .model-fold .model-line { gap: 6px; }
 .model-fold .model-line > small { color: var(--faint); font: 10.5px var(--mono); }
 .model-chevron { flex: none; display: grid; place-items: center; color: var(--faint); padding: 0 6px; }
-.model-group {
-  height: 24px; display: flex; align-items: flex-end; gap: 8px; padding: 0 10px 3px;
-  font: 600 var(--text-sm) var(--sans); color: var(--ink-2);
-}
-.model-group > small { font: 10px var(--mono); color: var(--faint); font-weight: 400; }
-/* What the model under the cursor reads and costs: the columns the list no longer has. */
-.model-detail {
-  flex: none; height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 10px;
-  border-top: 1px solid var(--line-soft); overflow: hidden; white-space: nowrap;
-  font-size: var(--text-xs); color: var(--faint);
-}
-.model-detail > span + span:not(.model-detail-end)::before { content: "·"; margin-right: 6px; color: var(--fainter); }
-.model-id { font: 10.5px var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; flex: 0 0 auto; max-width: 45%; }
-.model-detail > span { flex: none; }
-.model-detail-end { margin-left: auto; color: var(--muted); }
-
-/* Column 3: the thinking level of the model in use. */
-.model-thinking { width: 150px; flex: none; display: flex; flex-direction: column; min-height: 0; }
-.model-levels { display: flex; flex-direction: column; gap: 2px; overflow: auto; scrollbar-width: none; }
-.model-levels > button {
-  position: relative; display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 8px 0 10px;
-  border: 0; border-radius: 8px; background: transparent; color: var(--ink-2);
-  font: var(--text-md) var(--sans); text-align: left; cursor: pointer;
-}
-.model-levels > button:hover { background: var(--hover-strong); color: var(--ink); }
-.model-levels > button:focus-visible { outline: 1px solid var(--focus); outline-offset: -1px; }
-.model-levels > button.active { background: var(--raised); color: var(--ink); font-weight: 600; }
-.model-levels > button > small { color: var(--faint); font-size: var(--text-xs); font-weight: 400; }
-.model-level-check { margin-left: auto; color: var(--acid-text); flex: none; }
-.model-thinking-note { margin: 0; padding: 6px 10px; color: var(--faint); font-size: var(--text-sm); line-height: 1.5; }
-
 /* A runtime whose models are not on hand: why, and what to do. */
 .model-runtime-pane {
   flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
@@ -221,27 +179,40 @@
 }
 .model-note-action:hover { background: var(--hover-strong); color: var(--ink); }
 
-/* Bottom: the last few choices, one click each, and where pinning lives. */
-.model-recent {
-  flex: none; min-height: 44px; display: flex; align-items: center; gap: 8px; padding: 6px 10px 6px 14px;
-  border-top: 1px solid var(--line);
+/* "Runs with": every way to run the highlighted model, a runtime and how it is paid (B, with E's states). */
+.model-ways-bar { flex: none; padding: 8px 10px 9px 14px; border-top: 1px solid var(--line-inset); }
+.model-ways-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.model-ways-label { flex: none; font-size: var(--text-xs); color: var(--muted); }
+.model-ways { min-width: 0; display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--well); overflow-x: auto; scrollbar-width: none; }
+.model-way {
+  flex: none; height: 26px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--ink-3); font: var(--text-sm) var(--sans); white-space: nowrap; cursor: pointer;
 }
-.model-recent .spacer { flex: 1; }
-.model-recent-label { flex: none; font-size: calc(var(--text-xs) + .5px); color: var(--muted); }
-.model-recent-list { display: flex; gap: 6px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-.model-recent-chip {
-  flex: none; height: 30px; max-width: 170px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px 0 6px;
-  border: 0; border-radius: 8px; background: var(--inset); color: var(--ink-2); font: var(--text-sm) var(--sans); cursor: pointer;
+.model-way:hover:not(:disabled) { color: var(--ink); background: var(--hover); }
+.model-way:focus-visible { outline: 1px solid var(--focus); outline-offset: -1px; }
+.model-way.on { background: var(--float); color: var(--ink); font-weight: 600; box-shadow: var(--elevation-0), inset 0 1px 0 var(--edge-highlight); }
+.model-way.cannot { color: var(--fainter); }
+.model-way.cannot:disabled { cursor: default; }
+.model-way.cannot .way-icon { opacity: .5; filter: grayscale(1); }
+.model-way .way-icon { margin-left: 0; }
+.way-star { color: var(--acid-text); }
+.model-ways-row > .model-keys { margin-left: auto; flex: none; font: 10.5px var(--mono); color: var(--faint); }
+.model-ways-note {
+  display: flex; align-items: flex-start; gap: 6px; margin: 6px 0 0 calc(var(--text-xs) * 5.2);
+  min-height: 1.5em; font-size: var(--text-xs); line-height: 1.5; color: var(--muted);
 }
-.model-recent-chip:hover { background: var(--hover-strong); color: var(--ink); }
-.model-recent-chip > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.model-footer-link {
-  flex: none; display: inline-flex; align-items: center; gap: 4px; border: 0; padding: 0;
-  background: transparent; color: var(--muted); font: calc(var(--text-xs) + .5px) var(--sans); cursor: pointer;
+.model-ways-note > b { font-weight: 600; }
+.model-ways-note b { color: var(--acid-text); font-weight: 600; }
+.model-ways-glyph { flex: none; margin-top: 2px; color: var(--acid-text); }
+/* The phone sheet's last row: the thinking chip's words, a tap away from its own sheet. */
+.model-thinking-row {
+  flex: none; display: flex; align-items: center; min-height: var(--touch-target); margin: 0 6px; padding: 0 10px;
+  border: 0; border-top: 1px solid var(--line-inset); background: transparent; color: var(--ink-2); font: var(--text-lg) var(--sans); text-align: left;
 }
-.model-footer-link:hover { color: var(--ink-2); text-decoration: underline; }
+.model-thinking-row > span { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.model-sheet-done { margin-left: auto; min-height: var(--touch-target); padding: 0 14px; border: 0; background: transparent; color: var(--acid-text); font: 600 var(--text-lg) var(--sans); }
 
-/* Stacked (a phone, a narrow window): runtimes in a row above the models, thinking in a row below. */
+/* Stacked (a phone, a narrow window): the rail as a row of marks above the models (design 1w). */
 .model-picker-content.stacked .model-picker-body { flex-direction: column; gap: 0; padding: 0; }
 .model-picker-content.stacked .model-rail {
   width: auto; flex-direction: row; padding: 4px 8px; gap: 4px; overflow-x: auto; overflow-y: hidden;
@@ -250,18 +221,6 @@
 .model-picker-content.stacked .model-rail-slot { display: flex; align-items: center; }
 .model-picker-content.stacked .model-rail-slot > hr { width: 1px; height: 22px; border: 0; border-left: 1px solid var(--line); margin: 0 4px 0 2px; }
 .model-picker-content.stacked .model-column { padding: 0 8px; min-height: 0; }
-.model-picker-content.stacked .model-thinking {
-  width: auto; flex-direction: row; align-items: center; gap: 8px; padding: 4px 8px 4px 14px;
-  border-top: 1px solid var(--line);
-}
-.model-picker-content.stacked .model-thinking > .model-column-head { padding: 0; flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; height: auto; max-width: 96px; }
-.model-picker-content.stacked .model-thinking > .model-column-head > small { max-width: 96px; }
-.model-picker-content.stacked .model-levels { flex-direction: row; overflow-x: auto; }
-.model-picker-content.stacked .model-levels > button { flex: none; padding: 0 12px; }
-.model-picker-content.stacked .model-levels > button > small,
-.model-picker-content.stacked .model-level-check { display: none; }
-.model-picker-content.stacked .model-thinking-note { padding: 6px 0; }
-
 /* A phone or an iPad: every control a finger's size (44 px), no hover to uncover the star, and hiding is left to a pointer. */
 body[data-profile="compact"] .model-search { height: var(--touch-target); margin: 8px 10px 4px; padding-right: 0; }
 body[data-profile="compact"] .model-search > input { font-size: max(16px, var(--text-input)); height: var(--touch-target); }
@@ -272,19 +231,22 @@ body[data-profile="compact"] .model-rail { width: 48px; padding-top: 30px; }
 body[data-profile="compact"] .model-rail button { width: 44px; height: 44px; }
 body[data-profile="compact"] .model-picker-content.stacked .model-rail { width: auto; padding: 2px 8px; }
 body[data-profile="compact"] .model-column-head { height: calc(30px * var(--text-scale)); font-size: var(--text-xs); }
-body[data-profile="compact"] .model-provider-filter > button { width: 44px; height: 30px; border-radius: 8px; }
 /* The virtual list's pitch is fixed (touchRowHeight): a row holds its name up to the largest text size. */
-body[data-profile="compact"] .model-row { height: 48px; padding-right: 0; }
+body[data-profile="compact"] .model-row { height: 56px; padding-right: 0; }
+body[data-profile="compact"] .model-fold { height: 42px; }
+body[data-profile="compact"] .model-way { height: 40px; padding-inline: 14px; font-size: var(--text-md); }
+body[data-profile="compact"] .model-ways-note { margin-left: 0; }
+body[data-profile="compact"] .model-ways-bar { padding-inline: 12px; }
 body[data-profile="compact"] .model-row .model-line { font-size: var(--text-lg); height: 1.25em; }
 body[data-profile="compact"] .model-row .model-line > strong { font-size: var(--text-lg); line-height: 1.25; }
 /* Meta never under 12px on a touch device (ADR 0029). */
-body[data-profile="compact"] :is(.model-id, .model-fold .model-line > small, .model-menu > button > small, .model-group > small) { font-size: var(--text-xs); }
-body[data-profile="compact"] .model-group { height: 28px; }
+body[data-profile="compact"] :is(.model-facts, .model-fold .model-line > small, .model-menu > button > small, .model-ways-note) { font-size: var(--text-xs); }
 body[data-profile="compact"] .model-row-action { width: 44px; height: 44px; }
 body[data-profile="compact"] .model-row-action:not(.model-star.on) { opacity: 1; color: var(--faint); }
 body[data-profile="compact"] .model-hide { display: none; }
-body[data-profile="compact"] .model-levels > button { height: var(--touch-target); font-size: var(--text-sm); border-radius: 10px; }
-body[data-profile="compact"] .model-recent-chip { height: var(--touch-target); font-size: var(--text-sm); border-radius: 10px; }
 body[data-profile="compact"] .model-footer-link { min-height: var(--touch-target); font-size: var(--text-sm); }
 body[data-profile="compact"] :is(.model-note-action, .model-runtime-pane-actions > button) { min-height: var(--touch-target); padding-inline: 14px; font-size: var(--text-sm); }
-body[data-profile="compact"] .model-detail { height: calc(30px * var(--text-scale)); font-size: var(--text-xs); }
+
+/* The phone sheet (design 1w): "Runs with" over the whole width, its label above the segments. */
+.model-picker-sheet .model-ways-row { flex-direction: column; align-items: stretch; gap: 6px; }
+.model-picker-sheet .model-way { flex: 1; justify-content: center; }

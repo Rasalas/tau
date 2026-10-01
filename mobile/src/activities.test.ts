@@ -1,35 +1,61 @@
 import { describe, expect, it, vi } from "vitest";
 import type { HostEvent } from "../../src/shared/contracts";
-import { followActivities, widgetAccounts, type ActivityPort } from "./activities";
+import { followActivities, type ActivityPort } from "./activities";
 import type { UsageLimitAccount } from "../../kits/usage/protocol";
 
 const NOW = 1_800_000;
 const account = (patch: Partial<UsageLimitAccount> = {}): UsageLimitAccount => ({ id: "private-id", runtime: "codex", label: "Codex", checkedAt: NOW, windows: [{ id: "session", kind: "session", label: "Session", usedPercent: 40 }], identity: { provider: "openai", key: "hashed-account" }, ...patch });
-describe("native account snapshots", () => {
-  it("pools one subscription using its freshest read, excludes signed out and stale accounts, and strips identifiers", () => {
-    const result = widgetAccounts([account(), account({ runtime: "pi", checkedAt: NOW + 10, windows: [{ id: "weekly", kind: "weekly", label: "Weekly", usedPercent: 55 }] }), account({ checkedAt: 0 }), account({ unavailable: { reason: "signed-out" } })], NOW + 10);
-    expect(result).toHaveLength(1);
-    expect(result[0]?.windows[0]?.usedPercent).toBe(55);
-    expect(JSON.stringify(result)).not.toContain("private-id");
-  });
-  it("does not pool accounts with no known identity", () => {
-    expect(widgetAccounts([account({ identity: undefined, id: "a" }), account({ identity: undefined, id: "b" })], NOW)).toHaveLength(2);
+const port = (): ActivityPort => ({ snapshot: vi.fn(async () => undefined), clear: vi.fn(async () => undefined) });
+
+describe("activity delivery lifecycle", () => {
+  it("keeps host routing and clears queued writes on revoke", async () => {
+    vi.useFakeTimers();
+    try {
+      let event!: (event: HostEvent) => void;
+      const off = vi.fn();
+      const native = port();
+      const follow = followActivities("host-a", { onHostEvent: (listener) => { event = listener; return off; }, bootstrap: vi.fn(async () => { throw Error("offline"); }), invokeHostExtension: vi.fn(async () => { throw Error("missing kit"); }) }, native, () => NOW);
+      event({ type: "agent-status", sessionId: "thread-1", running: true });
+      await vi.advanceTimersByTimeAsync(500);
+      expect(native.snapshot).toHaveBeenCalledWith(expect.objectContaining({ hostId: "host-a", threads: [expect.objectContaining({ id: "thread-1", state: "running" })] }));
+      event({ type: "agent-status", sessionId: "thread-2", running: true });
+      await follow.revoke();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(native.snapshot).toHaveBeenCalledTimes(1);
+      expect(native.clear).toHaveBeenCalledWith("host-a"); expect(off).toHaveBeenCalledOnce();
+    } finally { vi.useRealTimers(); }
   });
 });
-describe("activity delivery lifecycle", () => {
-  it("keeps host and thread routing, retains needs-input at turn completion and clears queued writes on revoke", async () => {
-    let event!: (event: HostEvent) => void;
-    const off = vi.fn();
-    const port: ActivityPort = { update: vi.fn(async () => undefined), usage: vi.fn(async () => undefined), clear: vi.fn(async () => undefined) };
-    const follow = followActivities("host-a", { onHostEvent: (listener) => { event = listener; return off; }, bootstrap: vi.fn(async () => { throw Error("offline"); }), invokeHostExtension: vi.fn(async () => { throw Error("missing kit"); }) }, port, () => NOW);
-    event({ type: "agent-status", sessionId: "thread-1", running: true });
-    await vi.waitFor(() => expect(port.update).toHaveBeenCalledWith(expect.objectContaining({ hostId: "host-a", threadId: "thread-1", state: "running" })));
-    event({ type: "error", sessionId: "thread-1", message: "Needs a login" });
-    event({ type: "agent-status", sessionId: "thread-1", running: false });
-    await vi.waitFor(() => expect(port.update).toHaveBeenLastCalledWith(expect.objectContaining({ state: "needs-input" })));
-    event({ type: "agent-status", sessionId: "thread-2", running: true });
-    await follow.revoke();
-    expect(port.update).not.toHaveBeenCalledWith(expect.objectContaining({ threadId: "thread-2" }));
-    expect(port.clear).toHaveBeenCalledWith("host-a"); expect(off).toHaveBeenCalledOnce();
+
+describe("widget snapshots", () => {
+  it("hands the phone one debounced snapshot per host with machine, accounts and threads", async () => {
+    vi.useFakeTimers();
+    try {
+      let event!: (event: HostEvent) => void;
+      let clock = NOW;
+      const native = port();
+      const limits = { checkedAt: NOW, accounts: [account({ plan: "ChatGPT Plus", windows: [{ id: "weekly", kind: "weekly", label: "Weekly", usedPercent: 91 }] })], sources: [] };
+      const follow = followActivities("host-a", {
+        onHostEvent: (listener) => { event = listener; return () => undefined; },
+        bootstrap: vi.fn(async () => ({ threadIndex: { projects: [], sessions: [{ id: "t1", title: "Fix flaky pairing test", projectName: "tau", path: "", modifiedAt: NOW, projectPath: "", messageCount: 2 }], runs: { t1: NOW - 600_000 } } }) as never),
+        invokeHostExtension: vi.fn(async (extension: string) => { if (extension === "tau.usage") return limits; throw Error("missing kit"); }),
+      }, native, () => clock, "Mac mini");
+      await vi.advanceTimersByTimeAsync(500);
+      expect(native.snapshot).toHaveBeenCalledOnce();
+      expect(native.snapshot).toHaveBeenLastCalledWith({
+        version: 3, hostId: "host-a", machine: "Mac mini", updatedAt: NOW,
+        accounts: [expect.objectContaining({ label: "Codex", plan: "ChatGPT Plus", tone: "openai", mark: "codex", windows: [expect.objectContaining({ short: "wk", level: "warn" })] })],
+        threads: [{ id: "t1", title: "Fix flaky pairing test", project: "tau", state: "running", startedAt: NOW - 600_000 }],
+      });
+      clock += 60_000;
+      event({ type: "extension-ui-prompt", sessionId: "t1", prompt: { id: "p", sessionId: "t1", kind: "confirm", title: "Allow edit?" } });
+      await vi.advanceTimersByTimeAsync(500);
+      expect(native.snapshot).toHaveBeenCalledTimes(2);
+      expect(native.snapshot).toHaveBeenLastCalledWith(expect.objectContaining({ threads: [expect.objectContaining({ id: "t1", state: "waiting", reason: "Allow edit?", askedAt: clock })] }));
+      // The two-minute beat writes again, so a Live Activity followed from the app never reads as stale.
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(native.snapshot.mock.calls.length).toBeGreaterThanOrEqual(3);
+      follow.stop();
+    } finally { vi.useRealTimers(); }
   });
 });

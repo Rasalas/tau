@@ -159,12 +159,18 @@ Use a test host and a signed test build. No real push is needed for local dictat
 - [ ] Start a fake agent turn. iOS Live Activity / Android ongoing card shows running;
       a question shows needs-input; completion shows completed. Tap opens the matching
       thread and host. Unsupported OS versions keep normal notifications.
+- [ ] Start two turns on one host. The iPhone shows one Live Activity listing both,
+      the Dynamic Island the question and running counts with the Tau mark uncut;
+      it ends a quarter hour after the second turn finished.
 - [ ] With fake APNs/FCM on loopback, capture a background activity update payload.
       The APNs topic ends in `.push-type.liveactivity`, its push type is `liveactivity`,
       and its update token is the activity's token, not the device's alert token.
-- [ ] Add the usage widget with two runtimes signed into one test account. Its quota
+- [ ] Add the Plan limits widget with two runtimes signed into one test account. Its quota
       appears once. Separate accounts remain separate. Sign out and refresh, then
       revoke/remove the host; its usage and activity disappear.
+- [ ] Add Plan limits and Threads on the home screen (each size) and on the lock screen.
+      Tinted and clear home-screen modes keep the bars readable. A tap on Plan limits
+      opens Usage, a Threads row its thread.
 
 ## Remote iOS Live Activity starts
 
@@ -190,7 +196,7 @@ simulator build do not complete this checklist.
       the host replaces the old registration and a ciphertext bound to the old
       update token fails to open. Do not record real tokens in logs or reports.
 - [ ] Open the phone during a remotely started turn. It keeps one activity for
-      that host/thread, including after reconnect and an app restart.
+      that host, including after reconnect and an app restart.
 - [ ] Turn Live Activities off in the phone's Hosts screen. Existing activities
       end and later turns do not start one. Repeat offline, reconnect/relaunch,
       and confirm the host removes start consent and update registrations.

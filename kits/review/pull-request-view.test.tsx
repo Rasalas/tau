@@ -8,6 +8,7 @@ import { PendingReviewStore } from "./pending-review.js";
 import type { ComposerContextChips, PullRequestDetail, PullRequestFiles, PullRequestStack } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import { parseGitHubDetail, parseGitHubThreads, parseRequestUrl, parseUnifiedDiff } from "./pull-request-json.js";
+import type { PullRequestTabParams } from "./pull-request-logic.js";
 import { PullRequestView } from "./pull-request-view.js";
 import { RowRequests } from "./requests.js";
 import { ThreadLinkRows } from "./thread-links-store.js";
@@ -34,6 +35,7 @@ function fakeClient(overrides: Partial<PullRequestClient> = {}): PullRequestClie
   return {
     view: vi.fn(async () => detail),
     checks: vi.fn(async () => detail.checks),
+    pipeline: vi.fn(async () => ({})),
     threads: vi.fn(async () => threads),
     files: vi.fn(async () => files),
     comment: vi.fn(async () => undefined),
@@ -100,13 +102,13 @@ const THREADS = [
   { id: "thread-2", path: "/sessions/two.jsonl", title: "Review the terminal", modifiedAt: 2, projectPath: "/other", projectName: "docs", messageCount: 2 },
 ];
 
-function renderView(client = fakeClient(), chips?: ComposerContextChips, readOnly = false) {
+function renderView(client = fakeClient(), chips?: ComposerContextChips, readOnly = false, params: PullRequestTabParams = PARAMS) {
   const rows = new RowRequests(async () => undefined);
   const workbench = actions();
   const tab = handle();
   const storage = memoryStorage();
   const shared = { links: new ThreadLinkRows(client), pending: new PendingReviewStore(() => storage, () => `held-${storage.keys().length}-${Math.random()}`), preferences: preferences() };
-  const view = <TestThreadStore threads={THREADS}><PullRequestView params={PARAMS} handle={tab} actions={workbench} client={client} chips={() => chips} rows={rows} shared={shared} /></TestThreadStore>;
+  const view = <TestThreadStore threads={THREADS}><PullRequestView params={params} handle={tab} actions={workbench} client={client} chips={() => chips} rows={rows} shared={shared} /></TestThreadStore>;
   render(readOnly ? <HostClientProvider client={createFakeHostClient({ isReadOnly: () => true })}>{view}</HostClientProvider> : view);
   return { client, rows, workbench, tab, shared };
 }
@@ -121,12 +123,29 @@ describe("the pull-request view", () => {
     expect(screen.getByText("enhancement")).toBeTruthy();
     expect(screen.getByLabelText("Checks summary").textContent).toContain("1 of 4 failing");
     // Failing checks open their section.
-    expect(within(screen.getByRole("list", { name: "Checks" })).getByText("smoke")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^smoke: Failed/u })).toBeTruthy();
     await waitFor(() => expect(screen.getByText("Comments (6)")).toBeTruthy());
     expect(screen.getByText("The offset counts the chunk's end.")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "kits/terminal/output.ts:10" })).toHaveLength(2);
     expect(tab.setTitle).toHaveBeenCalledWith("PR #7 Add the output helper");
     expect(rows.get("/project")).toMatchObject<Partial<UiReviewRequest>>({ number: 7, checks: { passed: 2, failed: 1, pending: 1, total: 4 } });
+  });
+
+  it("draws the checks in one row in the bar, which opens and shows them; so does a tab opened at its checks", async () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    const passing = parseGitHubDetail(REF, fixture("gh-pr-view-discussed.json"));
+    const ready = { ...passing, checks: passing.checks.map((check) => ({ ...check, status: "passed" as const })) };
+    renderView(fakeClient({ view: vi.fn(async () => ready), checks: vi.fn(async () => ready.checks) }));
+    const toggle = () => screen.getByRole("button", { name: "Checks" });
+    await waitFor(() => expect(toggle().getAttribute("aria-expanded")).toBe("false"));
+    const bar = document.querySelector(".pr-head-row")! as HTMLElement;
+    fireEvent.click(within(bar).getByRole("button", { name: /^Checks: /u }));
+    await waitFor(() => expect(toggle().getAttribute("aria-expanded")).toBe("true"));
+    expect(scroll).toHaveBeenCalled();
+    cleanup();
+    renderView(fakeClient({ view: vi.fn(async () => ready), checks: vi.fn(async () => ready.checks) }), undefined, false, { ...PARAMS, focus: "checks", at: 1 });
+    await waitFor(() => expect(toggle().getAttribute("aria-expanded")).toBe("true"));
   });
 
   it.each([

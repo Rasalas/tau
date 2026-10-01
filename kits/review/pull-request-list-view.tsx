@@ -37,6 +37,7 @@ import {
 import { hostName, relativeTime, shortNoun } from "./pull-request-logic.js";
 import { INVOLVEMENTS, listNarrowings, NarrowingChips, PullRequestFilterSheet, REVIEW_LABELS, SORT_LABELS, STATES, type FilterGroup } from "./pull-request-list-filters.js";
 import { useCompactProfile } from "./compact-profile.js";
+import { ChecksMini } from "./pipeline-view.js";
 import { RequestStateIcon, type RequestState } from "./request-state-icon.js";
 
 const PREFERENCES_KEY = "tau.review.pull-requests";
@@ -125,14 +126,21 @@ function ReviewGlyph({ decision }: { decision: PullRequestListEntry["reviewDecis
 }
 
 /** One request: the state and checks glyphs, then number, title and counts over author, labels and time. */
-const PullRequestRow = memo(function PullRequestRow({ entry, matchedElsewhere, showRepository, onOpen }: { entry: PullRequestListEntry; matchedElsewhere: boolean; showRepository: boolean; onOpen(entry: PullRequestListEntry): void }) {
+interface RowProps { entry: PullRequestListEntry; matchedElsewhere: boolean; showRepository: boolean; client: PullRequestClient; onOpen(entry: PullRequestListEntry, focus?: "checks"): void }
+
+/** The row's checks as a mini pipeline where the list read them one by one; a click on it opens the request at its checks. */
+function RowChecks({ entry, client, onOpen }: Pick<RowProps, "entry" | "client" | "onOpen">) {
+  return <ChecksMini client={client} url={entry.ref.url} checks={entry.checkRuns ?? []} byName nested size={16} onOpen={() => onOpen(entry, "checks")} />;
+}
+
+const PullRequestRow = memo(function PullRequestRow({ entry, matchedElsewhere, showRepository, client, onOpen }: RowProps) {
   const shown = entry.labels.slice(0, 3);
   return (
     <button className="pr-row" data-pr-row="" aria-label={`#${entry.ref.number} ${entry.title}`} onClick={() => onOpen(entry)}>
       <span className="pr-row-glyphs">
         <StateGlyph entry={entry} />
         {entry.mergeable === "conflicting" ? <span className="pr-row-conflict" title="Has conflicts with the base branch" aria-label="Has conflicts"><TriangleAlert size={10} aria-hidden="true" /></span> : null}
-        <ChecksGlyph checks={entry.checks} />
+        {entry.checkRuns ? null : <ChecksGlyph checks={entry.checks} />}
       </span>
       <span className="pr-row-lines">
         <span className="pr-row-line">
@@ -157,6 +165,7 @@ const PullRequestRow = memo(function PullRequestRow({ entry, matchedElsewhere, s
           ))}
           {entry.labels.length > shown.length ? <span className="pr-row-more">+{entry.labels.length - shown.length}</span> : null}
           <span className="spacer" />
+          {entry.checkRuns ? <RowChecks entry={entry} client={client} onOpen={onOpen} /> : null}
           <span className="pr-row-time">{relativeTime(entry.updatedAt)}</span>
         </span>
       </span>
@@ -171,7 +180,7 @@ const CHECKS_CELL = {
 } as const;
 
 /** The page's table form (1i): state, title over `branch → target`, changes, checks, author and age. */
-const PullRequestTableRow = memo(function PullRequestTableRow({ entry, matchedElsewhere, showRepository, onOpen }: { entry: PullRequestListEntry; matchedElsewhere: boolean; showRepository: boolean; onOpen(entry: PullRequestListEntry): void }) {
+const PullRequestTableRow = memo(function PullRequestTableRow({ entry, matchedElsewhere, showRepository, client, onOpen }: RowProps) {
   const shown = entry.labels.slice(0, 2);
   const state: RequestState = entry.state === "open" && entry.draft ? "draft" : entry.state;
   const checks = entry.checks ? CHECKS_CELL[entry.checks] : undefined;
@@ -204,7 +213,7 @@ const PullRequestTableRow = memo(function PullRequestTableRow({ entry, matchedEl
       </span>
       <span className="rv-changes pr-trow-changes">{entry.additions || entry.deletions ? <><span className="stat-add">+{entry.additions}</span><span className="stat-del">−{entry.deletions}</span></> : <span className="rv-checks none">—</span>}</span>
       <span className="pr-trow-checks">
-        {checks ? <span className={`rv-checks ${entry.checks === "passing" ? "passed" : entry.checks === "failing" ? "failed" : "running"}`}><checks.Icon size={12} aria-hidden="true" /> {checks.label}</span> : <span className="rv-checks none">no checks</span>}
+        {entry.checkRuns ? <RowChecks entry={entry} client={client} onOpen={onOpen} /> : checks ? <span className={`rv-checks ${entry.checks === "passing" ? "passed" : entry.checks === "failing" ? "failed" : "running"}`}><checks.Icon size={12} aria-hidden="true" /> {checks.label}</span> : <span className="rv-checks none">no checks</span>}
       </span>
       <span className="pr-trow-author" title={entry.author?.name ? `${entry.author.name} (@${entry.author.login})` : entry.author?.login}>{entry.author?.login ?? "ghost"}</span>
       <span className="rv-age">{relativeTime(entry.updatedAt).replace(/ ago$/u, "")}</span>
@@ -249,7 +258,7 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
   handle?: Pick<StageTabHandle, "setTitle">;
   actions: WorkbenchActions;
   client: PullRequestClient;
-  open(entry: PullRequestListEntry, workspace?: string): void;
+  open(entry: PullRequestListEntry, workspace?: string, focus?: "checks"): void;
   surface?: "tab" | "page";
 }) {
   const onPage = surface === "page";
@@ -338,7 +347,11 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
   const facets = useMemo(() => listFacets(entries), [entries]);
   const filterCount = [preferences.draft, preferences.review, preferences.checks, author, host].filter(Boolean).length + labels.length;
   const noun = list && !manyRepositories ? providerInfo(list.service).noun : "pull request";
-  const openRow = useCallback((entry: PullRequestListEntry) => open(entry, list?.workspaces.get(`${entry.ref.host}/${entry.ref.repo}`) ?? workspace), [list, open, workspace]);
+  const openRow = useCallback((entry: PullRequestListEntry, focus?: "checks") => {
+    const where = list?.workspaces.get(`${entry.ref.host}/${entry.ref.repo}`) ?? workspace;
+    if (focus) open(entry, where, focus);
+    else open(entry, where);
+  }, [list, open, workspace]);
   const projectName = (id: string | undefined) => projects.find((project) => projectId(project) === id)?.name;
   const sections: PullRequestSection[] = onPage && grouping === "project" && manyRepositories
     ? groupByRepository(arranged.groups, (repository) => projectName(list?.workspaces.get(repository)) ?? repository)
@@ -574,7 +587,7 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
               <section key={group.key} className="pr-list-group" aria-label={group.label || `${noun}s`}>
                 {group.label ? <h2>{group.label} <small>{group.entries.length}</small></h2> : null}
                 {group.entries.map((entry) => (
-                  <Row key={entry.ref.url} entry={entry} matchedElsewhere={Boolean(arranged.search) && scoreMatch(entry, arranged.search) <= 10} showRepository={manyRepositories} onOpen={openRow} />
+                  <Row key={entry.ref.url} entry={entry} matchedElsewhere={Boolean(arranged.search) && scoreMatch(entry, arranged.search) <= 10} showRepository={manyRepositories} client={client} onOpen={openRow} />
                 ))}
               </section>
             ))}

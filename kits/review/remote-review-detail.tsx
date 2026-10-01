@@ -10,7 +10,8 @@ import { hideWhitespace } from "./pull-request-diff.js";
 import { PullRequestHeaderActions, type HeaderMenuStep } from "./pull-request-header-actions.js";
 import { usePullRequestLines } from "./pull-request-lines.js";
 import { asReviewRequest, checksRollup, checksSummary, orderFiles, relativeTime, shortNoun, type PullRequestTabParams } from "./pull-request-logic.js";
-import { ChecksList, handOver, RollupIcon } from "./pull-request-parts.js";
+import { handOver, RollupIcon } from "./pull-request-parts.js";
+import { ChecksMini, ChecksPipeline } from "./pipeline-view.js";
 import { ReviewComposer } from "./pull-request-review.js";
 import { PullRequestStackControl } from "./pull-request-stack.js";
 import { PullRequestTimeline } from "./pull-request-timeline.js";
@@ -74,7 +75,7 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
   const ignoreWhitespace = shared.preferences.optionValue(REVIEW_HOST_EXTENSION_ID, WHITESPACE_OPTION_ID, false) === true;
   const thread = actions.activeThread();
   const threadId = thread?.sessionId;
-  const [tab, setTab] = useState<Tab>("changes");
+  const [tab, setTab] = useState<Tab>(params.focus ?? "changes");
   const [layout, setLayout] = useState<"unified" | "split">("unified");
   const [oldestFirst, setOldestFirst] = useState(false);
   const [composing, setComposing] = useState(false);
@@ -221,6 +222,7 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
       <ReviewDetailFrame<Tab>
         label={`${noun} #${detail.ref.number}`}
         title={detail.title}
+        beside={capabilities.checks ? <ChecksMini client={client} url={params.url} checks={checks} onOpen={() => setTab("checks")} /> : null}
         meta={meta}
         actions={buttons}
         summary={detail.body.trim() ? <div className="pr-comment-body"><Markdown html={githubHtml}>{detail.body}</Markdown></div> : <p className="rvd-muted">No description.</p>}
@@ -260,7 +262,7 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
         ) : shownTab === "timeline" ? (
           <PullRequestTimeline detail={detail} oldestFirst={oldestFirst} actions={actions} />
         ) : (
-          <div className="rvd-pad"><ChecksList checks={checks} actions={actions} /></div>
+          <div className="rvd-pad"><ChecksPipeline client={client} url={params.url} checks={checks} actions={actions} /></div>
         )}
       </ReviewDetailFrame>
       {picking ? <ThreadPicker url={detail.ref.url} linkedThreads={linkedThreads ?? []} client={client} rows={shared.links} onClose={() => setPicking(false)} notify={(message) => actions.notify(message)} /> : null}

@@ -25,6 +25,7 @@ function client(detail: PullRequestDetail, threads: PullRequestThread[], files?:
   return {
     view: vi.fn(async () => detail),
     checks: vi.fn(async () => detail.checks),
+    pipeline: vi.fn(async () => ({})),
     threads: vi.fn(async () => threads),
     files: vi.fn(async () => { if (!files) throw new Error("no diff"); return files; }),
     comment: vi.fn(async () => undefined),

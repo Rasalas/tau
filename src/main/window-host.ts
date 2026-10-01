@@ -147,8 +147,8 @@ export class WindowHost {
     await this.uplink?.hello();
   }
 
-  /** Ends the host, or leaves it running when the user asked for that. */
-  async stop(keepRunning: boolean): Promise<void> {
+  /** Ends the host, or leaves it running when the user asked for that; `promptly` also ends a service's host, for an update. */
+  async stop(keepRunning: boolean, promptly = false): Promise<void> {
     this.extensions.dispose();
     this.uplink?.close();
     this.uplink = undefined;
@@ -158,7 +158,7 @@ export class WindowHost {
       this.options.logger.info("host-process.left-running");
       return;
     }
-    await this.supervisor.stop();
+    await this.supervisor.stop(promptly);
   }
 
   /** Runs one call the host made into this process and reports back. */

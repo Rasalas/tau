@@ -72,6 +72,8 @@ export { Menu } from "./deferred-surfaces";
 export { Tooltip, tooltipProps, type TooltipOptions } from "./components/ui/Tooltip";
 // Paths and branches cut in the middle, not at the end (API 1.11.0).
 export { MiddleTruncate, splitMiddle } from "./components/ui/MiddleTruncate";
+// Account email privacy, with click-to-reveal (API 1.40.0).
+export { PrivateAccountText } from "./components/ui/PrivateAccountText";
 export { useContextMenu } from "./components/ui/ContextMenu";
 export { ConfirmDialog, Dialog, Popover, Sheet } from "./deferred-surfaces";
 export { Empty, Skeleton, Spinner } from "./components/ui/Feedback";
@@ -132,6 +134,8 @@ export type {
   ComposerGateContribution,
   ComposerGateProps,
   ModelBadgeContribution,
+  ComposerSpeedContribution,
+  ComposerSpeedState,
   ComposerChipDetailProps,
   ComposerChipIcon,
   ComposerInlineChip,
@@ -147,6 +151,8 @@ export type {
   TranscriptRowsHandle,
   LookInRegionContext,
   TranscriptTurn,
+  ForkRequest,
+  ForkPromptContribution,
   RegionPlacement,
   RegionProps,
   RegionContribution,
@@ -174,6 +180,7 @@ export type {
   PageSummary,
   PageSummaryProps,
   PageProps,
+  SettingsCardId,
   SettingsSectionContribution,
   SettingsSectionPage,
   SettingsSectionProps,

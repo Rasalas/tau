@@ -83,7 +83,7 @@ describe("Settings → Appearance", () => {
     for (const title of ["Mode", "Themes", "Density", "Contrast", "Timestamps", "Panel animations", "Interface font", "Prompt font", "Code font"]) {
       expect(screen.getByRole("heading", { level: 3, name: title })).toBeTruthy();
     }
-    expect(within(screen.getByRole("radiogroup", { name: "Density" })).getAllByRole("radio").map((button) => button.textContent)).toEqual(["Compact", "Normal", "Comfortable"]);
+    expect(within(screen.getByRole("radiogroup", { name: "Density" })).getAllByRole("radio").map((button) => button.textContent)).toEqual(["Airy", "Balanced", "Dense"]);
   });
 
   it("chooses the mode from three tiles and gives a theme one scheme from its card", async () => {

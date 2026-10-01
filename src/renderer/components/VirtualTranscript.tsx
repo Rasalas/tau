@@ -36,7 +36,7 @@ export interface VirtualTranscriptProps {
   /** Invalidates the user-message lookup when an existing record's metadata changes. */
   lookupRevision?: number;
   onCopyMessage?: (message: UiMessage) => void;
-  onForkMessage?: (message: UiMessage) => void;
+  onForkMessage?: (message: UiMessage, turn?: TranscriptTurn) => void;
   onEditMessage?: (message: UiMessage) => void;
   /** Offered on the last answer only, once it failed and the run is over. */
   onRetryMessage?: (message: UiMessage) => void;
@@ -467,7 +467,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
       event.preventDefault();
       if (focusedIndex !== undefined && focusedIndex >= 0 && focusedIndex < messages.length) {
         const msg = messages[focusedIndex];
-        if (msg) onForkMessage?.(msg);
+        if (msg) onForkMessage?.(msg, [...turns.values()].find((turn) => turn.messages.includes(msg)));
       }
       return;
     }
@@ -482,7 +482,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
       }
       return;
     }
-  }, [expandedMessageIds, focusedIndex, messages, onCopyMessage, onForkMessage, onFocusComposer, scrollRef, updateExpandedMessage, virtualizer]);
+  }, [expandedMessageIds, focusedIndex, messages, onCopyMessage, onForkMessage, onFocusComposer, scrollRef, turns, updateExpandedMessage, virtualizer]);
 
   const measuredRows = virtualizer.getVirtualItems();
   const rows = measuredRows.length > 0

@@ -1,19 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { pickerViews, runtimeStatus } from "./model-picker-rail";
+import { pickerRuntimes, pickerViews, runtimeStatus } from "./model-picker-rail";
+import { providerLabel } from "./ProviderIconStack";
 import type { RuntimeCatalogEntry } from "../../workbench/runtime-catalog-store";
 
 const backends = [{ kind: "pi", label: "Pi" }, { kind: "codex", label: "Codex" }, { kind: "claude-code", label: "Claude Code" }];
 const ready: RuntimeCatalogEntry = { status: "ready", catalog: { kind: "codex", models: [{ provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" }], thinkingLevels: {} } };
 
-describe("the picker's left column", () => {
-  it("lists Favourites, Recent once something was chosen, then every runtime in the host's order", () => {
-    const views = pickerViews({ catalogRuntime: "pi", backends, catalogs: new Map([["codex", ready]]), recent: true });
-    expect(views.map((entry) => entry.key)).toEqual(["favourites", "recent", "runtime:pi", "runtime:codex", "runtime:claude-code"]);
-    expect(pickerViews({ catalogRuntime: "pi", backends, catalogs: new Map(), recent: false }).map((entry) => entry.key)[1]).toBe("runtime:pi");
+describe("the picker's rail", () => {
+  it("lists Favourites, Recent, the makers in their order and then the runtimes that list no models", () => {
+    const runtimes = pickerRuntimes("pi", backends, new Map([["codex", ready]]));
+    const views = pickerViews(["opencode", "anthropic", "openai", "anthropic", "acme"], runtimes, providerLabel);
+    expect(views.map((entry) => entry.key)).toEqual(["favourites", "recent", "maker:openai", "maker:anthropic", "maker:acme", "maker:opencode", "runtime:claude-code"]);
   });
 
   it("adds the catalog's own runtime on a host that lists none", () => {
-    expect(pickerViews({ catalogRuntime: undefined, backends: undefined, catalogs: new Map(), recent: false }).map((entry) => entry.key)).toEqual(["favourites", "runtime:pi"]);
+    expect(pickerRuntimes(undefined, undefined, new Map()).map((entry) => [entry.backend.kind, entry.listed])).toEqual([["pi", true]]);
   });
 
   it("gives each runtime a status: ready, update, loading, sign-in, not installed", () => {

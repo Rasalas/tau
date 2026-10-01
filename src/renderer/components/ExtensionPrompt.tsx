@@ -3,6 +3,7 @@ import { useState, type ReactNode } from "react";
 import type { ExtensionUiPrompt } from "../../shared/contracts";
 import { choiceOptions, splitInputTitle, splitOption, splitPromptTitle } from "../../shared/extension-prompt-options";
 
+import { isMacPlatform } from "../keybindings";
 import { usePromptSubmit } from "./prompt-submit";
 
 // Its own module, so the composer and the `tau` module reach it without loading the dialogs.
@@ -58,8 +59,8 @@ export function OptionRow({
 export interface PromptFrameSubmit {
   label: string;
   disabled?: boolean;
-  /** Draws ⏎ beside the label: an empty composer's Enter does the same. */
-  enter?: boolean;
+  /** Draws ⏎ beside the label: an empty composer's Enter does the same; `"mod"` draws ⌘⏎ for its ⌘↵. */
+  enter?: boolean | "mod";
   onSubmit(): void;
 }
 
@@ -127,7 +128,7 @@ export function ExtensionPromptFrame({
           <button type="button" className="extension-prompt-send" disabled={submit.disabled} onClick={submit.onSubmit}>
             <Check size={11} aria-hidden="true" />
             {submit.label}
-            {submit.enter ? <kbd aria-hidden="true">⏎</kbd> : null}
+            {submit.enter ? <kbd aria-hidden="true">{submit.enter !== "mod" ? "⏎" : isMacPlatform() ? "⌘⏎" : "Ctrl ⏎"}</kbd> : null}
           </button>
         ) : null}
       </footer>
@@ -174,8 +175,8 @@ export function ExtensionPrompt({
   const waiting = hasChoices && chosen === undefined;
   // A confirm answers true, a runtime's approval its own word.
   const submit = () => onAnswer(approval ? !permission || "Allow" : chosen!);
-  // Enter in the empty composer answers a question; it never allows (K83), so an approval draws no ⏎.
-  usePromptSubmit(approval ? undefined : action, waiting, submit);
+  // Enter in the empty composer answers a question; only ⌘↵ allows, plain Enter never does (K83).
+  usePromptSubmit(action, waiting, submit, approval);
 
   const folded = prompt.kind === "select" ? splitPromptTitle(prompt.title) : { question: prompt.title, previews: [] };
   const input = prompt.kind === "input" ? splitInputTitle(prompt.title) : undefined;
@@ -205,7 +206,7 @@ export function ExtensionPrompt({
           {always ? <button type="button" onClick={() => onAnswer(always)}>Always for this thread</button> : null}
         </>
         : <button type="button" onClick={onCancel}>Skip</button>}
-      {...(action ? { submit: { label: action, enter: !approval, disabled: waiting, onSubmit: submit } } : {})}
+      {...(action ? { submit: { label: action, enter: approval ? "mod" : true, disabled: waiting, onSubmit: submit } } : {})}
     >
       {hasChoices ? (
         <div className="extension-prompt-options">

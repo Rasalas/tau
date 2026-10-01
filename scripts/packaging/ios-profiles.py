@@ -16,14 +16,19 @@ GROUP = "group.de.tbuck.tau"
 TARGETS = [("IOS_PROFILE", "App", "de.tbuck.tau"), ("IOS_WIDGET_PROFILE", "TauWidgets", "de.tbuck.tau.widgets")]
 
 
-def validate(profile, bundle):
+def widgets():
+    # Without the widgets (K164), the app is built without the App Group too.
+    return os.environ.get("TAU_IOS_WIDGETS") == "1"
+
+
+def validate(profile, bundle, group=True):
     entitlements = profile.get("Entitlements", {})
     prefix = profile.get("ApplicationIdentifierPrefix", [])
     if profile.get("TeamIdentifier") != [TEAM] or prefix != [TEAM]:
         raise ValueError(f"The profile for {bundle} must belong to team {TEAM}.")
     if entitlements.get("application-identifier") != f"{TEAM}.{bundle}":
         raise ValueError(f"The profile must name the explicit App ID {bundle}.")
-    if GROUP not in entitlements.get("com.apple.security.application-groups", []):
+    if group and GROUP not in entitlements.get("com.apple.security.application-groups", []):
         raise ValueError(f"The profile for {bundle} must allow App Group {GROUP}.")
     shared = f"{TEAM}.de.tbuck.tau.shared"
     keychains = entitlements.get("keychain-access-groups", [])
@@ -44,15 +49,18 @@ def validate(profile, bundle):
 
 def install(output):
     app = os.environ.get("IOS_PROFILE", "")
-    widget = os.environ.get("IOS_WIDGET_PROFILE", "")
+    widget = os.environ.get("IOS_WIDGET_PROFILE", "") if widgets() else ""
+    targets = TARGETS if widgets() else TARGETS[:1]
     if not app and not widget:
         return False
-    if not app or not widget:
+    if widgets() and (not app or not widget):
         raise ValueError("Manual iOS signing requires both IOS_PROFILE and IOS_WIDGET_PROFILE. Each target needs its own App Store profile.")
+    if not app:
+        raise ValueError("Manual iOS signing requires IOS_PROFILE.")
     destination = Path.home() / "Library/MobileDevice/Provisioning Profiles"
     checked = []
     with tempfile.TemporaryDirectory(prefix="tau-ios-profiles-") as staging:
-        for secret, target, bundle in TARGETS:
+        for secret, target, bundle in targets:
             try:
                 encoded = base64.b64decode(os.environ[secret], validate=True)
             except ValueError as error:
@@ -64,8 +72,8 @@ def install(output):
             if decoded.returncode:
                 raise ValueError(f"{secret} is not a readable signed provisioning profile.")
             profile = plistlib.loads(decoded.stdout)
-            checked.append((target, bundle, validate(profile, bundle), encoded))
-        # Validate both before publishing either one.
+            checked.append((target, bundle, validate(profile, bundle, widgets()), encoded))
+        # Validate every profile before publishing any.
         destination.mkdir(parents=True, exist_ok=True)
         for _, _, uuid, encoded in checked:
             path = destination / f"{uuid}.mobileprovision"
@@ -86,7 +94,7 @@ if __name__ == "__main__":
         if len(sys.argv) != 2:
             raise ValueError("usage: ios-profiles.py <signing output directory>")
         if install(Path(sys.argv[1])):
-            print("Installed validated App and TauWidgets distribution profiles.")
+            print("Installed validated App and TauWidgets distribution profiles." if widgets() else "Installed the validated App distribution profile; TauWidgets is left out.")
     except (ValueError, plistlib.InvalidFileException, OSError) as error:
         print(f"::error::{error}", file=sys.stderr)
         sys.exit(1)

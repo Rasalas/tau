@@ -33,9 +33,9 @@ Composer
 - the slot inside the input frame that extensions fill with typed context (`registerComposerInline`), and file attachments beside images for a runtime whose adapter declares them
 - **chips inside the text** (`ComposerChipLayer.tsx`, a chunk of its own loaded after the textarea is up, with `composer-chips.ts` and `useComposerChips.tsx`; `composer-chip-token.ts` is what the send path needs): the editor stays a textarea. A chip is a token in the draft (`U+2063`, two figure spaces for the icon, the label with no-break spaces, `U+2063`, so no line breaks inside it); while the text holds a chip, a mention or the selected skill, the textarea's glyphs turn transparent and a mirror behind it draws the same characters, one block per line, with the chips styled, so both wrap alike. Images and an inline contribution's `chips` become tokens at the caret; Backspace takes a chip whole, the caret steps over it, a click opens its popover (details, Remove, a kit's `Detail`), a chip whose token was deleted is dropped at the send, and a chip is sent as its label. Vim, Readline, history, `!` shell and the menus keep working on the text as before; during IME composition the textarea draws its own text
 - **folding while scrolling**: scrolling back through the transcript folds an idle one-line composer to its text line (`useComposerCollapse.ts`), a key, a press or the transcript's end opens it; this client's own choice (Settings → General, client storage `tau:composer-fold`)
-- the footer under the prompt, one slim row as in the workbench design (`ComposerFooterControls.tsx`, `composer-footer-layout.ts`, `ComposerMenu.tsx`): the model as a filled pill with its marks inside, the reasoning level as text (a click opens the model picker at its thinking column), the kits' row controls, one "…" menu, and the round send (K91). The menu holds "Attach files" (drag and paste take files too), "Compact context" with the share used, and every `placement: "menu"` control (access, mode, stash, service tier); the context dial comes back into the row from 75 % on. Send is always there, resting in a paler accent while there is nothing to send; while a turn runs it steers or queues (its tooltip names the chords: ↵, ⌘↵, ⌥↑, ⇧↵, $ skills, / commands, @ files), and a quiet stop (ring and square, red under the pointer) sits before it, apart from it; Esc and "Stop the run" in the palette stop too. Placeholders are short: "Ask anything, or hand it work…", "Steer, or queue a follow-up…" while a turn runs, "Answer in text…" for a question. As the composer narrows, the kits' chips drop their labels and then move into the menu; model and reasoning stay longest, so the model's name is cut only when nothing else is left. The menu's trigger answers to the `data-composer-shortcut` ids of what it holds. The thread's cost is in the thread's head, and there is no checkout row under the composer: a running thread's branch is a menu in its head (Workspace Kit), and a new thread chooses where it runs in "Run on" and "Branch" (K84)
+- the footer under the prompt, one slim row as in the workbench design (`ComposerFooterControls.tsx`, `composer-footer-layout.ts`, `ComposerMenu.tsx`): the model as a filled pill with its marks inside, the thinking chip "High · 1M ⚡" (level, context window where the model has more than one, ⚡ while Fast is on; ⌘⇧E opens its menu of the three, the phone a sheet of segmented rows; `ThinkingMenu.tsx`, K142), the kits' row controls, one "…" menu, and the round send (K91). A model choice that costs the thread its level (the next lower one is taken) or Fast says so above the composer with Undo. The menu holds "Attach files" (drag and paste take files too), "Compact context" with the share used, and every `placement: "menu"` control (access, mode, stash); Fast comes from kits through `registerComposerSpeed`; the context dial comes back into the row from 75 % on. Send is always there, resting in a paler accent while there is nothing to send; while a turn runs it steers or queues (its tooltip names the chords: ↵, ⌘↵, ⌥↑, ⇧↵, $ skills, / commands, @ files), and a quiet stop (ring and square, red under the pointer) sits before it, apart from it; Esc and "Stop the run" in the palette stop too. Placeholders are short: "Ask anything, or hand it work…", "Steer, or queue a follow-up…" while a turn runs, "Answer in text…" for a question. As the composer narrows, the kits' chips drop their labels and then move into the menu; model and reasoning stay longest, so the model's name is cut only when nothing else is left. The menu's trigger answers to the `data-composer-shortcut` ids of what it holds. The thread's cost is in the thread's head, and there is no checkout row under the composer: a running thread's branch is a menu in its head (Workspace Kit), and a new thread chooses where it runs in "Run on" and "Branch" (K84)
 - **a new thread is a chat** (design 1k, 1o): the empty conversation says "What should <project> do next?" with one sentence in the middle, the composer sits where a thread has it (at the bottom, on a phone too), and under the heading and its sentence a row of pills (`draft-actions`, K98): core's project (a click opens the project picker at the pill and moves the draft), Machines Kit's "Run on" and Workspace Kit's branch, each opening its popover (a sheet on a phone or tablet); the draft's footer holds the model, the level, "…" and send. "New thread" (⌘N, the rail's "+", the palette, a phone's button) asks for the project first, so a thread never starts in the wrong one: a popover-style picker (a bottom sheet on touch) with search, the project in context first and selected, then the most recently used, each with its icon and machine, and "Add project…" last; ↑↓ ↵ Esc. One project starts at once; none opens "Add project". The head reads "New thread" alone (K104): the pills already say project, machine and branch. Every project mark (pill, picker, rows, the phone's lists) draws the icon a kit published with `setProjectIcons` (Workspace Kit's Project settings) before the host's own
-- questions and approvals as one card on the composer (`ExtensionPrompt.tsx`, design 1c/1n): head with the kind, who asks and "pick one/any", the question, options with a radio or checkbox and a second line, "Or type an answer below" and the primary action in the card ("Answer ⏎", "Send 2 ⏎"); an approval heads "Wants to edit <path>" with Deny, "Always for this thread" where the runtime offers it, and "Allow" (Enter never allows, K83); the composer's placeholder is "Answer in text…". A sub-agent's question shows on its parent's composer, named after the agent, and the parent waits in the rail (`App.tsx`). While a turn waits on one, its live line says so with a spinner: "Waiting for permission to edit" (or to run a command) for an approval, "Waiting for your answer" for a question
+- questions and approvals as one card on the composer (`ExtensionPrompt.tsx`, design 1c/1n): head with the kind, who asks and "pick one/any", the question, options with a radio or checkbox and a second line, "Or type an answer below" and the primary action in the card ("Answer ⏎", "Send 2 ⏎"); an approval heads "Wants to edit <path>" with Deny, "Always for this thread" where the runtime offers it, and "Allow ⌘⏎" (⌘Enter in the empty composer allows, plain Enter never does, K83; Esc keeps stopping the run, it does not deny); the bar keeps the design's 8 px above a straight hairline, the composer no longer tucked under it; the composer's placeholder is "Answer in text…". A sub-agent's question shows on its parent's composer, named after the agent, and the parent waits in the rail (`App.tsx`). While a turn waits on one, its live line says so with a spinner: "Waiting for permission to edit" (or to run a command) for an approval, "Waiting for your answer" for a question
 - the slash, `$` and `@` menus: one list of 32 px rows, name and description on one line, the source as a quiet note
 - Pi commands: extension commands, `/skill:` and prompt templates, as Pi reports them
 - model, thinking level, context usage and compaction; what the thread has spent so far, and apart from it what a subscription covered with its API value (`UiThreadUsage.subscription`, priced by core with the user's `modelPrices`)
@@ -43,7 +43,7 @@ Composer
 Threads
 
 - the thread index across projects, and one live runtime per open thread
-- new, resume, fork, duplicate, rename, tree navigation, recovery of a broken thread
+- new, resume, fork, duplicate, rename, tree navigation, recovery of a broken thread; every fork the user starts goes through one prompt (`registerForkPrompt`, Workspace Kit's question with the fork's own branch and worktree), and a fork may run in another folder (`fork-thread` with a workspace)
 - **a new thread's draft is a row in the thread list**: `src/workbench/draft-threads.ts` lists the draft on screen from the moment it opens, and every draft left with text or images in it, newest first; `threadStore.getDrafts()` reads them and `DraftRow` draws one (the project line marked with a quiet "draft", the first line typed as its title, else "New thread"). Leaving an empty draft drops it; one with something in it stays until it is opened again (`openDraft`), discarded (`discardDraft`) or sent, and a new thread beside it starts a fresh draft. The first message turns it into the thread's own row in the same update. Kept drafts live in this client's storage (`tau.kept-drafts.v1`, text only; images stay in memory), so they are this device's and do not travel to another. The desktop rail, a tablet's list and a phone's list show them above the active threads; a phone's Back from an empty draft closes it
 - **deleting a thread is reversible for a while**: `sessions.remove` moves it
   into the host's trash (`src/main/thread-trash.ts`, `<userData>/thread-trash/`)
@@ -239,47 +239,49 @@ the bootstrap cache of one never show up for another.
 
 The model picker (`src/renderer/components/ModelPicker.tsx`) opens as a popover
 at the control that opened it (the composer's model chip, a settings field),
-without a scrim; on a phone or an iPad it is a bottom sheet
-with the same logic. Escape gives focus back to that control, and a choice made
-from the composer hands it to the prompt. It keys everything on what the
-catalog says, in three columns under one search field:
+without a scrim; on a phone it is a bottom sheet (design 1w) and on an iPad a
+popover with 44 px rows, with the same logic. Escape gives focus back to that
+control, and a choice made from the composer hands it to the prompt. It is
+model first (K142, concept B): one search field over
 
-- **Runtimes**, as marks only (`ProviderIconStack`; a second instance wears its
-  initials): Favourites, then every runtime the host offers, each instance of
-  one included, with a dot for a state other than ready
-  (`model-picker-rail.ts`). A tooltip names each and says its state and model
-  count. A runtime that cannot run a thread (not installed, sign-in needed,
-  unavailable) is dimmed, not hidden; choosing it says why and offers
-  "Install…" or "Sign in…", which opens its card under Settings → Providers.
-  For a new thread's draft one click on a runtime that can run it is the
-  choice: the draft moves there with what it last chose there.
-- **Models** of that runtime, one line each (`model-offerings.ts`): pinned
-  first (the favourites, the model in use and the one last chosen on that
-  runtime, which the cursor starts on), the rest behind "Show all N" once
-  something is pinned or the runtime lists more than eight; each runtime keeps
-  one fold for legacy generations. A runtime with several providers (Pi) shows
-  their marks as filters above the list. A row across runtimes (search,
-  Favourites, Recent) wears its route's mark, a runtime's own list only the
-  access mark, and only where it mixes providers. Context, how a model is paid
-  and its price per million tokens (a plan's shows what the same model costs
-  over its API; a price the user set in `modelPrices` replaces the catalog's)
-  are no columns: a quiet detail line under the list says them for the row
-  under the cursor.
-- **Thinking**: the levels of the model in use (or the one just chosen, from
-  the catalog, until the thread reports it), Pi's default marked. Choosing a
-  model keeps the picker open only while a level is still to choose; choosing
-  a level closes it. A runtime that sets thinking itself says so here.
+- **the rail**, marks only: Favourites, Recent, then who made the models
+  (OpenAI, Anthropic, Google, xAI, DeepSeek … by the model id,
+  `model-entries.ts`), then a model set only a gateway or a runtime names under
+  its provider's mark ("OpenCode", "OpenCode Go"), and last the runtimes that
+  list no models yet (not installed, sign-in needed, or listing once a thread
+  runs; `model-picker-rail.ts`), dimmed with a dot. Choosing one of those says
+  why and offers "Install…" or "Sign in…" (its card under Settings → Providers)
+  or, for a draft, starts the thread there on its default model.
+- **the models**, each once however many runtimes run it, with what it reads and
+  costs on a second line (a context range across its ways, the API price) and
+  the runtimes that run it as quiet marks at the end: pinned first (favourites,
+  the model in use, the ones used lately), the rest behind "Show all N" once
+  something is pinned or there are more than eight; one fold for legacy
+  generations.
+- **"Runs with"**, fixed under the list: each way to run the highlighted model,
+  a runtime's mark and how it is paid ("Plan", "API key", "Free", or a gateway's
+  name), and a line with the way's route, context and price. A runtime of the
+  model's maker that is not ready adds a grey "Install" or "Sign in". A thread
+  that exists keeps its runtime: where that cannot run the model it stands
+  first, greyed ("can't run it"), and another way continues in a new thread with
+  a summary when a kit offers it (Handoff Kit's "Continue in"), else a new
+  thread on that model. A row offers first the way in use, the thread's runtime,
+  a pinned way, the last one used, then a plan. The pointer has to rest on a row
+  for "Runs with" to follow it, so passing over rows on the way down does not.
 
-"Recent" (the client's own list) sits at the bottom, one click each, beside a
-link to pin models in Settings. The search runs across every runtime and groups a
-model's offerings under it. One menu in the search field holds the sorts
-(relevance; price, every plan before every API offering, each group by its API
-price; context; newest, by models.dev's `releasedAt`), the filters (billing,
-what a model can do), "Show hidden models" and adding a provider. Keys: ↑↓ move
-in a column, ← and → move between the columns (from the search field at its
-start and end), ↵ chooses, ⌥↵ pins, ⌘1–9 reach the first nine favourites of any
-runtime, ⌘⇧↑↓ step through the runtimes, and typing anywhere goes to the search.
-A row hides its model (with a pointer; a phone shows only the star). What a
+Thinking, context window and speed are the composer's thinking chip, not the
+picker's; the phone sheet ends with a "Thinking and speed" row that opens its
+sheet. One menu in the search field holds the sorts (relevance; price, every
+plan before every API offering, each group by its API price; context; newest,
+by models.dev's `releasedAt`), the filters (billing, what a model can do), "Show
+hidden models", adding a provider, "Pin models in Settings…" and "Refresh
+models". Keys: ↑↓ move in the list, Tab or → (at the end of the search text)
+go into "Runs with", where ←→ pick a way and ↵ takes model and way; ← (at its
+start) goes to the rail; ⌥↵ pins, ⌘1–9 reach the first nine favourites
+(a favourite is a model with its way), ⌘⇧↑↓ step through the rail, and typing
+anywhere goes to the search, which runs across every provider and runtime (a
+runtime's name narrows the ways to it).
+A row hides its model with every way to run it (with a pointer; a phone shows only the star). What a
 runtime hides and the order it lists its models in is `modelPreferences.<runtime>`
 in Tau's config, a record of the config levels that Settings → Providers →
 Models edits per runtime and project; favourites stay one list across runtimes

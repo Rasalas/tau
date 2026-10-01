@@ -70,7 +70,7 @@ describe("composer runtime choice", () => {
     const onSelect = vi.fn();
     const onSetModel = renderComposer({ kind: "claude-code", backends: piThread.runtimeBackends ?? [], onSelect }, piThread);
     fireEvent.click(screen.getByLabelText("Select runtime and model: Claude Code"));
-    fireEvent.click(await screen.findByRole("button", { name: "Pi, ready" }));
+    fireEvent.click(await screen.findByRole("button", { name: "OpenAI" }));
     fireEvent.click(screen.getByText("GPT-5.6 Luna"));
     expect(onSelect).toHaveBeenCalledWith("pi");
     expect(onSetModel).toHaveBeenCalledWith("openai-codex", "gpt-5.6-luna");
@@ -106,7 +106,7 @@ describe("composer runtime choice", () => {
     expect(chip.getAttribute("data-tooltip")).toMatch(/start with Acme Agent's default model/u);
     expect(screen.queryByText("Claude Opus 5")).toBeNull();
     // The visible thread's reasoning level is not this draft's either.
-    expect(screen.queryByLabelText(/^Reasoning/u)).toBeNull();
+    expect(screen.queryByLabelText(/^Thinking/u)).toBeNull();
   });
 
   it("offers runtime choices inside the model picker", async () => {

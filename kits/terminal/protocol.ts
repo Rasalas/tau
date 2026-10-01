@@ -121,6 +121,8 @@ export interface TerminalExitedEvent {
 export const TERMINAL_PANEL = "terminal";
 
 /** The kit setting that puts the terminal in the dock or in a drawer below the conversation. */
+/** `values.tau.terminal.shell`: the program a terminal starts; unset is the user's own (`$SHELL`). */
+export const TERMINAL_SHELL_SETTING = "shell";
 export const TERMINAL_PLACEMENT_SETTING = "placement";
 export type TerminalPlacement = "dock" | "drawer";
 

@@ -86,6 +86,10 @@ export const NEW_THREAD_WORKSPACE_KEY = "new-thread-workspace";
 export const BRANCH_NAMING_KEY = "branch-naming";
 /** Whether a new worktree starts from the freshly fetched remote; on by default. */
 export const START_FROM_ORIGIN_OPTION = "start-from-origin";
+/** `values.tau.workspace.worktree-directory`: where new worktrees go on this machine; unset is beside each project. */
+export const WORKTREE_DIRECTORY_KEY = "worktree-directory";
+/** Whether a file the agent reads or edits opens as a trace tab (design 1a). */
+export const TRACE_TABS_OPTION = "trace-tabs";
 /** How a new worktree fills its submodules; unset lets the checkout's project file decide. */
 export const WORKTREE_SUBMODULES_KEY = "worktree-submodules";
 /** Where new projects start: the folder browser and the clone's destination. */

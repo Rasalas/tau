@@ -20,7 +20,9 @@ import { mergeBlocker, reviewRuntime, type ConflictFile, type HunkPick, type Loc
 import type { LocalReviewsStore, ReviewRun } from "./local-reviews-store.js";
 import { REVIEW_HOST_EXTENSION_ID, type PendingReviewComment } from "./protocol.js";
 import { lineKeys, orderFiles, threadKey } from "./pull-request-logic.js";
-import { CheckIcon, ReplyBox } from "./pull-request-parts.js";
+import { ReplyBox } from "./pull-request-parts.js";
+import { runsPipeline } from "./pipeline.js";
+import { PipelineGraph, PipelineMini } from "./pipeline-view.js";
 import { LayoutToggle, ReviewDetailFrame, useBackKeys, type FrameTab } from "./review-detail-frame.js";
 import type { DetailNote, DetailParts, DetailState } from "./review-detail-store.js";
 import { ReviewDiffStack, type StackFile } from "./review-diff-stack.js";
@@ -40,8 +42,6 @@ export interface LocalActions {
 
 type Tab = "changes" | "turns" | "checks";
 
-const RUN_STATUS = { succeeded: "passed", failed: "failed", running: "pending", stopped: "cancelled" } as const;
-const RUN_WORDS = { succeeded: "Passed", failed: "Failed", running: "Running", stopped: "Stopped" } as const;
 
 function ModelMark({ review, bare }: { review: LocalReview; bare?: boolean }) {
   const catalog = useModelName(reviewRuntime(review), review.model, review.modelProvider);
@@ -110,16 +110,18 @@ interface Draft { path: string; line: number; side: "new" | "old"; code: string 
  * collected in the sidebar until they go to the thread, and a conflict (2e)
  * shows where and asks the thread to rebase.
  */
-export function LocalReviewDetail({ review, parts, detail, act, actions, back }: {
+export function LocalReviewDetail({ review, parts, detail, act, actions, back, focus }: {
   review: LocalReview;
   parts: { store: LocalReviewsStore; host: HostExtensionClient };
   detail: DetailParts;
   act: LocalActions;
   actions: WorkbenchActions;
   back(): void;
+  /** Opened at its checks. */
+  focus?: "checks" | undefined;
 }) {
   const [summary, setSummary] = useState<{ summary?: string; turns?: number; prompts?: string[] }>();
-  const [tab, setTab] = useState<Tab>("changes");
+  const [tab, setTab] = useState<Tab>(focus ?? "changes");
   const [layout, setLayout] = useState<"unified" | "split">("unified");
   const [noting, setNoting] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -417,6 +419,7 @@ export function LocalReviewDetail({ review, parts, detail, act, actions, back }:
     <ReviewDetailFrame<Tab>
       label={review.title}
       title={review.title}
+      beside={runs.length ? <PipelineMini pipelines={[runsPipeline(runs)]} onOpen={() => setTab("checks")} /> : null}
       meta={meta}
       actions={buttons}
       summary={picking ? <p>{plural(review.conflicts.length, "file")} changed on both sides. Pick a side per hunk, or hand it back — the thread rebases, re-runs the checks and comes back here. Merge unlocks when every hunk has a pick.</p>
@@ -457,7 +460,7 @@ export function LocalReviewDetail({ review, parts, detail, act, actions, back }:
       ) : tab === "turns" ? (
         <TurnsList prompts={summary?.prompts} loading={summary === undefined} />
       ) : (
-        <RunsList runs={runs} />
+        <div className="rvd-pad"><PipelineGraph pipelines={runs.length ? [runsPipeline(runs)] : []} actions={actions} empty="No checks ran in this worktree. Project Scripts' runs show here." /></div>
       )}
     </ReviewDetailFrame>
   );
@@ -478,20 +481,5 @@ function TurnsList({ prompts, loading }: { prompts: readonly string[] | undefine
     <ol className="rvd-turns" aria-label="Turns">
       {prompts.map((title, index) => <li key={index}><span>{index + 1}</span><span>{title}</span></li>)}
     </ol>
-  );
-}
-
-function RunsList({ runs }: { runs: readonly ReviewRun[] }) {
-  if (runs.length === 0) return <p className="rvd-empty">No checks ran in this worktree. Project Scripts' runs show here.</p>;
-  return (
-    <ul className="rvd-runs" aria-label="Checks">
-      {runs.map((run) => (
-        <li key={run.name}>
-          <CheckIcon status={RUN_STATUS[run.status]} />
-          <span>{run.name}</span>
-          <span className={`rvd-run-status ${RUN_STATUS[run.status]}`}>{RUN_WORDS[run.status]}</span>
-        </li>
-      ))}
-    </ul>
   );
 }

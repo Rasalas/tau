@@ -23,7 +23,7 @@ import {
 } from "./protocol.js";
 import { RestoreCheckpointDialog } from "./RestoreCheckpointDialog.js";
 import { hasTurnChanges, TurnChangesPill } from "./turn-changes.js";
-import { createTurnActions } from "./turn-actions.js";
+import { createForkAsker, createTurnActions, ForkAsks } from "./turn-actions.js";
 import type { WorkspaceStore } from "./store.js";
 
 const LazyReview = lazy(() => loadReviewMode().then((ReviewMode) => ({ default: ReviewMode })));
@@ -332,8 +332,12 @@ export function registerCheckpoints(plugin: DesktopExtensionContext, workspaceSt
     } else if (event?.type === "turn-checkpoint-error") store.update({ notice: event.message });
   });
   plugin.registerRegion({ id: "workspace.checkpoints", placement: "composer-controls", order: 70, profiles: ["desktop", "compact"], Component: createController(store, workspaceStore, rows) });
-  plugin.registerRegion({ id: "workspace.turn-actions", placement: "turn-divider", profiles: ["desktop"], Component: createTurnActions(store, workspaceStore, false) });
-  plugin.registerRegion({ id: "workspace.turn-actions-touch", placement: "turn-divider", profiles: ["compact"], Component: createTurnActions(store, workspaceStore, true) });
+  // One question for every fork: the turn's line, `f`, the thread tree, Duplicate.
+  const asks = new ForkAsks();
+  plugin.registerForkPrompt({ id: "workspace.fork", ask: (request) => asks.set(request) });
+  plugin.registerRegion({ id: "workspace.turn-actions", placement: "turn-divider", profiles: ["desktop", "compact"], Component: createTurnActions(asks, store) });
+  plugin.registerRegion({ id: "workspace.fork", placement: "composer-controls", order: 90, profiles: ["desktop"], Component: createForkAsker(asks, store, workspaceStore, false) });
+  plugin.registerRegion({ id: "workspace.fork-touch", placement: "composer-controls", order: 90, profiles: ["compact"], Component: createForkAsker(asks, store, workspaceStore, true) });
   plugin.registerOverlay({ id: CHECKPOINT_REVIEW_OVERLAY, profiles: ["desktop", "compact"], Component: createReviewOverlay(store, workspaceStore) });
 }
 

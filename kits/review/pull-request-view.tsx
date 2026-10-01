@@ -13,6 +13,7 @@ import { PullRequestStackControl } from "./pull-request-stack.js";
 import { asReviewRequest, checksRollup, checksSummary, hostName, relativeTime, shortNoun, timelineCounts, type PullRequestTabParams } from "./pull-request-logic.js";
 import { handOver, RollupIcon } from "./pull-request-parts.js";
 import { PullRequestSummary } from "./pull-request-summary.js";
+import { ChecksMini } from "./pipeline-view.js";
 import { ReviewComposer } from "./pull-request-review.js";
 import { PullRequestTimeline } from "./pull-request-timeline.js";
 import { usePullRequestWrites } from "./pull-request-writes.js";
@@ -163,6 +164,8 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
     return () => (read ??= client.candidates(params.url).catch((error: unknown) => { read = undefined; throw error; }));
   }, [client, params.url]);
   const [tab, setTab] = useState<Tab>("summary");
+  // When the checks were last asked for; the summary opens and scrolls to them.
+  const [checksAt, setChecksAt] = useState(0);
   const [visited, setVisited] = useState<ReadonlySet<Tab>>(() => new Set(["summary"]));
   const [oldestFirst, setOldestFirst] = useState(false);
   const [condensed, setCondensed] = useState(false);
@@ -193,6 +196,9 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
     setVisited((current) => current.has(next) ? current : new Set([...current, next]));
     setCondensed(false);
   };
+
+  const showChecks = () => { open("summary"); setChecksAt(Date.now()); };
+  useEffect(() => { if (params.focus === "checks") showChecks(); }, [params.focus, params.at]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const comment = useCallback(async (input: PullRequestCommentInput) => {
     await client.comment(params.url, input);
@@ -280,6 +286,8 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
             #{detail.ref.number}<ExternalLink size={10} aria-hidden="true" />
           </button>
           <RequestStateIcon state={state} />
+          {/* In the bar, so it stays when the header folds away on scroll. */}
+          {capabilities.checks ? <ChecksMini client={client} url={params.url} checks={checks} onOpen={showChecks} /> : null}
           {condensed ? <strong className="pr-head-title" title={detail.title}>{detail.title}</strong> : <span className="spacer" />}
           <PullRequestStackControl detail={detail} client={client} actions={actions} writes={writes} {...(params.workspace ? { workspace: params.workspace } : {})} onChanged={(next) => setData({ detail: next })} />
           <LinkedThreadsControl threadIds={linkedThreads} actions={actions} />
@@ -390,6 +398,8 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
               onReviewers={capabilities.reviewers && writes.reviewers ? async (change) => { setData({ detail: await client.reviewers(params.url, change) }); } : undefined}
               onLabels={capabilities.labels && writes.labels ? async (change) => { setData({ detail: await client.labels(params.url, change) }); } : undefined}
               showChecks={capabilities.checks}
+              focusChecks={checksAt}
+              client={client}
               candidates={candidates}
             />
           </div>

@@ -13,7 +13,7 @@ import { createBringChoice, createBringProjectHook, createProjectIdentities, mat
 import { createMachinesPage } from "./settings.js";
 import { machineKitClient } from "./machine-kit.js";
 import { MachineSetup, setupRows, stateText } from "./setup.js";
-import { REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE, type DraftMachineProps } from "./protocol.js";
+import { REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE, type DraftMachineProps, type RunOnDefault } from "./protocol.js";
 
 afterEach(cleanup);
 
@@ -65,8 +65,8 @@ function fakeActions(patch: Partial<WorkbenchActions> = {}): WorkbenchActions {
 }
 
 /** Workspace Kit's Run-on pill, cut down: the machine it names, and the rows it opens. */
-function createRunOnControl(environments: PlatformEnvironments, host?: HostExtensionClient, bringing?: RunOnBringing) {
-  const source = createRunOnSource(environments, host, bringing);
+function createRunOnControl(environments: PlatformEnvironments, host?: HostExtensionClient, bringing?: RunOnBringing, runOnDefault?: () => RunOnDefault | undefined) {
+  const source = createRunOnSource(environments, host, bringing, runOnDefault);
   function Pill(props: DraftMachineProps) {
     const chosen = source.useMachine(props);
     const [open, setOpen] = useState(false);
@@ -395,6 +395,27 @@ describe("the title bar", () => {
 });
 
 describe("Run on", () => {
+  it("asks for a machine only when the persisted default is Ask", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    let preference: RunOnDefault | undefined;
+    const source = createRunOnSource(environments, undefined, undefined, () => preference);
+    expect(source.openOnDraft?.()).toBe(false);
+    preference = "ask";
+    expect(source.openOnDraft?.()).toBe(true);
+    preference = "last";
+    expect(source.openOnDraft?.()).toBe(false);
+  });
+
+  it("brings a new draft home once when This machine is the persisted default", () => {
+    const { environments } = fakeEnvironments({ shown: "studio", environments: [laptop, studio], secureStorage: true });
+    const Control = createRunOnControl(environments, undefined, undefined, () => "this");
+    const actions = fakeActions({ activeThread: () => ({ draftPending: true }), composerDraft: () => "Keep this draft" });
+    const { rerender } = render(<Control actions={actions} />);
+    expect(environments.open).toHaveBeenCalledWith("laptop", { newThread: { draft: "Keep this draft" } });
+    rerender(<Control actions={actions} />);
+    expect(environments.open).toHaveBeenCalledTimes(1);
+  });
+
   it("moves a draft and its text to another machine, into its latest project", () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio, attic], secureStorage: true });
     const Control = createRunOnControl(environments);
@@ -460,7 +481,7 @@ describe("Run on: a machine without the project", () => {
 
   it("keeps the draft here and says the project goes along, then names that machine on the pill", async () => {
     const { environments, bringing, host } = bringingFor({ "ws-api": "key-api", "ws-tau": "key-other" });
-    const Control = createRunOnControl(environments, host, bringing);
+    const Control = createRunOnControl(environments, host, bringing, () => "ask");
     render(<Control actions={fakeActions({ activeThread: () => ({ draftPending: true, cwd: tauHere }), composerDraft: () => "Fix it" })} />);
     await act(async () => undefined);
     fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));

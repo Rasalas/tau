@@ -11,7 +11,7 @@ describe("a row of Settings → Runtimes", () => {
   it("calls Pi built in, the default for new threads, with the providers its catalog names once each", () => {
     const row = runtimeRow({ kind: "pi", label: "Pi" }, ready("anthropic", "openai", "anthropic", "google"), { ...options, isDefault: true, card: false });
     expect(row.status).toEqual([{ text: "Default for new threads", tone: "accent" }]);
-    expect(row.version).toEqual({ text: "Built in" });
+    expect(row.version).toEqual({ text: "Built in · agents, worktrees, per-tool approvals" });
     expect(row.providers).toEqual(["anthropic", "openai", "google"]);
     expect(row.actions).toEqual(["permissions", "config"]);
   });

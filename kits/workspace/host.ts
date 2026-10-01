@@ -26,7 +26,7 @@ import { readReviewRequestContext } from "./review-request-context.js";
 import { createWorkspaceKitLifecycle } from "./host-lifecycle.js";
 import { registerWorktreeStorage } from "./worktree-storage-host.js";
 import { registerAppOpen } from "./app-open.js";
-import { worktreeSetupCommand } from "./agent-worktrees.js";
+import { branchBaseConfigKey, captureStartingState, readBranchBase, worktreeSetupCommand } from "./agent-worktrees.js";
 import { createTurnStatsFile, turnStatOf } from "./turn-stats.js";
 import { initWorktreeSubmodules } from "./worktree-submodules.js";
 import { DefaultBranchPuller } from "./default-branch-pull.js";
@@ -511,13 +511,11 @@ export function createWorkspaceHostExtension(): HostExtension {
         });
         return { ...base, shortCommit: base.commit.slice(0, 7), ...await workspaceGit.readBaseChoices(project, base.ref) };
       }, { long: true });
-      context.registerCommand("create-worktree", async (input) => {
-        // A pending draft may sit on another project than the host's thread.
-        const project = await services.knownWorkspacePath(workspaceOf(input));
-        const branch = requiredString(input, "branch");
-        const baseRef = optionalString(input, "baseRef");
-        const startFromOrigin = record(input).startFromOrigin;
-        const requestedSubmodules = record(input).submodules;
+      /** A worktree on a new branch, set up as the project asks; `fill` runs on its files before the setup does. */
+      const addWorktree = async (project: string, branch: string, options: {
+        baseRef?: string; startFromOrigin?: unknown; submodules?: unknown; fill?(destination: string): Promise<void>;
+      }) => {
+        const { baseRef, startFromOrigin, submodules: requestedSubmodules } = options;
         const setupId = await beginSetup(project, branch);
         const step = (stage: string, extra: Record<string, unknown> = {}) => {
           if (setupId) void setupCall("worktree-setup-step", { setupId, stage, ...extra }).catch(() => undefined);
@@ -529,6 +527,7 @@ export function createWorkspaceHostExtension(): HostExtension {
             onStep: (stage) => step(stage),
           }, (path) => git.getWorkspaceInfo(path));
           const baseCommit = (await workspaceGit.runGitCommand(destination, ["rev-parse", "--verify", "HEAD"])).trim();
+          await options.fill?.(destination);
           services.rememberProjectName(destination, await services.projectName(project));
           git.invalidate(project, ["branch", "status", "workspace"]);
           services.log("git.worktree.added", destination);
@@ -543,12 +542,21 @@ export function createWorkspaceHostExtension(): HostExtension {
           }
           await runWorktreeSetup(project, destination, setupId);
           // The draft moves here before its thread exists, and asks about it at once.
-          return { ...services.admitWorkspace(destination), baseCommit };
+          return { ...services.admitWorkspace(destination), baseCommit, path: destination };
         } catch (error) {
           git.invalidate(project, ["branch", "status", "workspace"]);
           if (setupId) await setupCall("worktree-setup-failed", { setupId, error: error instanceof Error ? error.message : String(error) }).catch(() => undefined);
           throw error;
         }
+      };
+      context.registerCommand("create-worktree", async (input) => {
+        // A pending draft may sit on another project than the host's thread.
+        const project = await services.knownWorkspacePath(workspaceOf(input));
+        return addWorktree(project, requiredString(input, "branch"), {
+          ...(optionalString(input, "baseRef") ? { baseRef: optionalString(input, "baseRef") } : {}),
+          startFromOrigin: record(input).startFromOrigin,
+          submodules: record(input).submodules,
+        });
       }, { long: true, audit: { label: "created a worktree" } });
       context.registerCommand("worktree-removal-preview", async (input) => {
         const project = await services.knownWorkspacePath(workspaceOf(input));
@@ -712,6 +720,40 @@ export function createWorkspaceHostExtension(): HostExtension {
         const { sessionId, checkpointId } = checkpointRef(input);
         return checkpoints.rewind(sessionId, checkpointId);
       });
+      // A fork's own branch and worktree: the files of a verified checkpoint on the HEAD it ended at,
+      // the checkout as it is now (`now`), or else the source's HEAD.
+      context.registerCommand("fork-worktree", async (input) => {
+        const project = await services.knownWorkspacePath(workspaceOf(input));
+        const branch = requiredString(input, "branch").trim();
+        const run = (args: string[]) => workspaceGit.runGitCommand(project, args).then((out) => out.trim(), () => "");
+        if (await run(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])) throw new Error(`A branch named ${branch} already exists.`);
+        const sessionId = optionalString(input, "sessionId");
+        const checkpointId = optionalString(input, "checkpointId");
+        const from = sessionId && checkpointId ? await checkpoints.forkPoint(sessionId, checkpointId)
+          : record(input).now === true ? await captureStartingState(project) : undefined;
+        const head = from?.head || await run(["rev-parse", "--verify", "HEAD"]);
+        if (!head) throw new Error("This project has no commit yet, so a fork cannot have a branch of its own.");
+        // The fork merges where its source would: that branch's own base, else the branch itself.
+        const source = await run(["symbolic-ref", "--short", "-q", "HEAD"]);
+        const target = source ? await readBranchBase(project, source) ?? source : undefined;
+        const created = await addWorktree(project, branch, {
+          baseRef: head,
+          startFromOrigin: false,
+          fill: async (destination) => {
+            try {
+              if (target) await workspaceGit.runGitCommand(project, ["config", branchBaseConfigKey(branch), target]);
+              if (!from) return;
+              // The copied files stay uncommitted, as they were in the source.
+              await workspaceGit.runGitCommand(destination, ["read-tree", "--reset", "-u", from.tree]);
+              await workspaceGit.runGitCommand(destination, ["reset", "-q"]);
+            } catch (error) {
+              await workspaceGit.removeWorktree(project, destination, { branch }).catch(() => undefined);
+              throw error;
+            }
+          },
+        });
+        return { ...created, copied: Boolean(from) };
+      }, { long: true, audit: { label: "created a worktree for a fork" } });
       context.registerCommand("turn-file-diff", (input) => {
         const { sessionId, checkpointId } = checkpointRef(input);
         return checkpoints.turnFileDiff(sessionId, checkpointId, relativePath(input), record(input).options as DiffLoadOptions | undefined);

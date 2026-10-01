@@ -19,8 +19,8 @@ interface TauNativePlugin {
   activityRemoteDisable(options: { hostId: string }): Promise<void>;
   activityKey(options: { hostId: string; keyId: string; key: string }): Promise<void>;
   activityTokens(): Promise<{ tokens: import("./activities").ActivityToken[] }>;
-  activityUpdate(options: import("./activities").MobileActivity): Promise<void>;
-  activityUsage(options: { hostId: string; accounts: import("./activities").WidgetAccount[]; updatedAt: number; expiresAt: number }): Promise<void>;
+  /** One snapshot per host: iOS stores it in the App Group and follows it with the host's Live Activity; Android keeps it for its widgets and notification. */
+  widgetSnapshot(options: import("./widgets").WidgetSnapshot): Promise<void>;
   activityClear(options: { hostId: string }): Promise<void>;
   dictationLanguages(): ReturnType<import("../../src/renderer/dictation").DictationPort["languages"]>;
   dictationDownload(options: { language: string }): Promise<void>;
@@ -127,8 +127,7 @@ export const nativeDictation: import("../../src/renderer/dictation").DictationPo
 
 export const nativeActivities: import("./activities").ActivityPort = {
   tokens: async (listener) => { const handle = await TauNative.addListener("activityToken", listener); for (const token of (await TauNative.activityTokens()).tokens) listener(token); return () => { void handle.remove(); }; },
-  update: (activity) => TauNative.activityUpdate(activity),
-  usage: (snapshot) => TauNative.activityUsage(snapshot),
+  snapshot: (value) => TauNative.widgetSnapshot(value),
   clear: (hostId) => TauNative.activityClear({ hostId }),
 };
 

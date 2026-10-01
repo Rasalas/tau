@@ -89,7 +89,10 @@ composite widget. The ring shows for the keyboard only (`:focus-visible`).
 | `mod+shift+x` | `!terminalFocus` | `composer.workspace` | Where the thread runs | Workspace |
 | `mod+shift+g` | `!terminalFocus` | `composer.branch` | Branch picker | Workspace |
 | `mod+shift+t` | | `runtime.transcript-detail` | Cycle transcript detail | core |
-| `mod+shift+r` | | `runtime.rename-thread` | Rename thread | core |
+| `f2` | `!terminalFocus` | `runtime.rename-thread` | Rename thread | core |
+| `mod+alt+k` | | `runtime.compact` | Compact the thread's context | core |
+| `mod+\` | | `workbench.split-stage` | Split or join the stage | core |
+| `mod+shift+\` | | `workbench.toggle-spine` | Collapse the conversation to its spine, or open it | core |
 | `ctrl+p` | `composerFocus` | `runtime.cycle-model` | Next model (Pi's chord) | core |
 | `shift+tab` | | `runtime.cycle-thinking` | Next thinking level | core |
 | `ctrl+g` | | `runtime.open-prompt-editor` | Prompt in `$EDITOR` | core |
@@ -105,6 +108,7 @@ composite widget. The ring shows for the keyboard only (`:focus-visible`).
 | `mod+]` / `mod+[` | `terminalFocus && !stageFocus` | `terminal.focusNext` / `focusPrevious` | Next or previous pane | Terminal |
 | `mod+d` | `!terminalFocus` | `review.toggle` | Open or close the review | Review |
 | `mod+shift+d` | | `review.open` | Open the review | Review |
+| `mod+shift+r` | | `review.reviews.open` | Reviews | Review |
 | `mod+shift+j` | | `preview.toggle` | Preview panel | Preview |
 | `mod+shift+b` | | `preview.open` | Open the preview panel | Preview |
 | `mod+l` | `previewFocus` | `preview.focus-url` | Preview address | Preview |
@@ -119,6 +123,7 @@ composite widget. The ring shows for the keyboard only (`:focus-visible`).
 | `mod+shift+s` | | `thread.settle` | Settle or un-settle | Thread Rail |
 | `mod+z` | `!terminalFocus && !editableFocus` | `thread.undo` | Undo the last unpin, settle, snooze, archive or delete | Thread Rail |
 | `mod+o` | | `workspace.open-in-editor` | Open in the external editor | Workspace |
+| `mod+alt+e` | | `workspace.files` | Files on the stage | Workspace |
 | `mod+alt+p` | | `workspace.open-project` | Open a project | Workspace |
 | `mod+alt+j` | | `workspace.open-terminal` | Open in the external terminal | Workspace |
 | `mod+e` | | `workspace.open-prompt-editor` | Prompt in the external editor | Workspace |

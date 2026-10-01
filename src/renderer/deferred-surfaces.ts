@@ -22,6 +22,8 @@ const composerMenu = () => import("./components/ComposerMenu");
 export const ComposerMenuPopover = deferred(() => composerMenu().then((module) => module.ComposerMenuPopover));
 export const ComposerMenuSection = deferred(() => composerMenu().then((module) => module.ComposerMenuSection));
 export const ComposerMenuItem = deferred(() => composerMenu().then((module) => module.ComposerMenuItem));
+// The thinking chip's menu (K142), in the same chunk.
+export const ThinkingMenu = deferred(() => composerMenu().then((module) => module.ThinkingMenu));
 export const AttachmentLightbox = deferred(() => import("./components/AttachmentLightbox").then((module) => module.AttachmentLightbox));
 export const FileSource = deferred(() => import("./components/FileSource").then((module) => module.FileSource));
 export const ChangesTree = deferred(() => import("./components/ChangesTree").then((module) => module.ChangesTree));

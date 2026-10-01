@@ -1345,6 +1345,22 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 /* The reasoning level reads as text beside the model, as in the design. */
 .runtime-chip.composer-thinking-chip { color: var(--muted); }
 .runtime-chip.composer-thinking-chip:disabled { cursor: default; background: transparent; color: var(--faint); }
+.composer-thinking-words { display: inline-flex; align-items: center; gap: 6px; }
+.composer-thinking-words > .chev { color: var(--faint); }
+.composer-fast { flex: none; margin-left: -2px; color: var(--warn); }
+/* A choice cost the thread its level or Fast: one line above the composer, with Undo (K142, design D). */
+.composer-adjusted {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 8px 12px;
+  border: 1px solid var(--line-float); border-radius: 10px; background: var(--float); box-shadow: var(--elevation-1);
+  font-size: var(--text-sm); color: var(--ink-2);
+}
+.composer-adjusted > svg { flex: none; color: var(--acid-text); }
+.composer-adjusted > span { flex: 1; min-width: 0; }
+.composer-adjusted > button {
+  flex: none; display: inline-flex; align-items: center; gap: 4px; border: 0; padding: 4px 6px; border-radius: 6px;
+  background: transparent; color: var(--acid-text); font: 600 var(--text-sm) var(--sans); cursor: pointer;
+}
+.composer-adjusted > button:hover { background: var(--hover); }
 .composer-menu-trigger { padding: 4px 6px; color: var(--muted); }
 .popover.composer-overflow { padding: 4px; }
 .composer-menu { display: flex; flex-direction: column; gap: 2px; min-width: 220px; max-width: 300px; }
@@ -1569,7 +1585,9 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
   border: 1px solid transparent; border-bottom: 0;
   border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--field); font-size: var(--text-xs);
 }
-.extension-prompt.is-approval { padding: 10px 12px 8px; }
+.extension-prompt.is-approval { padding: 10px 12px 8px; line-height: 1.45; }
+/* Under a permission the composer does not tuck under the bar: a straight hairline, the bar's 8 px kept (design 1a). */
+.composer-surface:has(.is-approval) > .composer-frame.stacked { margin-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
 .extension-prompt > header { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 0 2px; }
 .extension-prompt.is-approval > header { gap: 8px; padding: 0; }
 /* A question is amber wherever it shows: the rail, the live line, the card on the composer. An approval is not a question. */
@@ -1631,6 +1649,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .extension-prompt > footer > button.extension-prompt-send:hover:not(:disabled) { background: var(--acid-strong); color: var(--acid-ink); }
 .extension-prompt > footer > button.extension-prompt-send:disabled { background: var(--raised); color: var(--faint); cursor: default; }
 .extension-prompt-send > kbd { font-family: var(--mono); font-weight: 400; opacity: .8; }
+@media (pointer: coarse) { .is-approval .extension-prompt-send > kbd { display: none; } }
 
 /* The composer becomes the answer field while a question is open. */
 .composer-frame.answering { border-top-color: var(--line); }

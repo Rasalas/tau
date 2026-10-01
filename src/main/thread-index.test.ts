@@ -170,7 +170,7 @@ describe("ThreadIndex", () => {
     const { index, updates } = makeIndex();
     seed(index, [shell({ id: "a", path: "/a.jsonl" })]);
     const update = index.publishTitle("a", "Renamed");
-    expect(update).toMatchObject({ type: "thread-shell", update: { sessionId: "a", shell: { title: "Renamed" } } });
+    expect(update).toMatchObject({ type: "thread-shell", update: { sessionId: "a", shell: { title: "Renamed", workspaceId: expect.stringMatching(/^ws1_/u), projectDisplayPath: "/repo" } } });
     expect(updates).toHaveLength(1);
     expect(() => index.publishTitle("missing", "Renamed")).toThrow("missing from the session index");
   });

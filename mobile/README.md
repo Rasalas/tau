@@ -92,7 +92,7 @@ is in `../docs/agents/testing-the-app.md` ("Remote access"); what needs a real p
 Anything offline beyond what the last visit to each host kept: a thread of a
 host out of reach opens only once the phone reaches it again.
 
-## Dictation, agent activity and usage widgets
+## Dictation, agent activity and widgets
 
 On a supported iPhone with iOS 26 or later, **Dictate** records up to five
 minutes and transcribes with Apple's on-device SpeechTranscriber. Choose a
@@ -104,25 +104,62 @@ recording. Sending remains a separate action. Cancel discards audio and late
 results. If the draft changes during recording, insertion appends to preserve
 those edits. Android and unsupported iPhones keep the system keyboard's dictation.
 
-While the phone is connected, thread events update iOS Live Activities and
-Android ongoing notifications with running, completed or needs-input states.
-A tap opens that thread on its paired host. Running cards become stale after
-eight hours; completed cards expire after fifteen minutes. Android requests
-Live Update promotion on compatible systems; permission and system policy decide
-whether the card is promoted. The phone does not run the agent and needs no
+While the phone is connected, thread events update the iPhone's Live Activity
+and Android ongoing notifications. An iPhone shows one Live Activity per host
+for all of its threads: a question first, then running threads with a live
+clock, then those that ended in the last fifteen minutes; with one thread it
+shows that thread in full. The Dynamic Island shows the Tau mark, the open
+questions and the running count. The activity starts with the first thread at
+work and ends a quarter hour after the last one finished. Without an update for
+twenty minutes it reads as stale (last values, faded, with their age). A tap
+opens the thread on its paired host. The phone does not run the agent and needs no
 foreground service to pretend that it does.
 
-The **Tau usage** home-screen widget reads bounded local snapshots. Accounts
-with the same known account identity pool once using the freshest reading.
-Unknown identities remain separate. Widgets receive quota labels, percentages,
-reset times and hashed grouping keys; no host tokens or provider credentials.
-Snapshots expire no later than fifteen minutes after their source reading.
-Open Tau to refresh. Removing a host or receiving a revoked-token response
-clears its cards and snapshots. Android widget redraws follow the system's
-widget schedule, so the last rendered text can remain until the next redraw.
+The app hands the phone one snapshot per host (`src/widgets.ts`, `WidgetSnapshot`
+version 3, debounced by half a second and rewritten every two minutes while the
+app follows the host): the host's name, its accounts and its threads. The
+accounts come with the sidebar's juicebar level and pace, the threads with
+sub-agents left out. On iOS it lands in the App Group (`widget.<host>`) and
+drives the host's Live Activity; on Android it lands in the widget store.
+`WidgetModel.swift` and `WidgetModel.kt` read the same fields.
+
+Two widgets, on both platforms. **Plan limits** (iPhone small, medium, large and
+lock screen rectangular and circular; Android 2 × 2, 4 × 2, 4 × 3) draws each
+plan's windows as the sidebar's juicebars, in the sidebar's order, with the lowest
+rest, resets and pace ("runs out Thu" in the large sizes). **Threads** (iPhone small,
+medium and lock screen inline, rectangular and circular; Android 2 × 2, 4 × 2,
+4 × 3) lists a question first, then running and finished threads with project and
+machine. A plan read on two hosts shows once, from the freshest reading. A
+reading older than fifteen minutes stays, faded, with its age. Widgets receive
+labels, percentages, reset times, thread titles and hashed grouping keys; no host
+tokens or provider credentials. A tap opens Usage (`tau://usage?host=`) or the
+thread. Removing a host or receiving a revoked-token response clears its
+snapshot. `ios/WidgetPreview` renders every iPhone widget, size and state in a
+simulator.
+
+On Android the widgets are Jetpack Glance widgets in `plugins/tau-native` on
+Material You surfaces. Running threads share one ongoing notification with a live
+chronometer; Android 16 QPR1 and later may promote it to a Live Update chip. Tau
+never asks for the notification permission for it. Pushed activities update the
+same snapshot in the background.
+
+Android only redraws what it has: new numbers come from the open app or a
+push. A reading older than fifteen minutes stays drawn, faded, with its time
+in the warn colour. WorkManager redraws when something turns stale or a
+finished thread leaves, and every 30 minutes while a widget is placed;
+periodic work runs at most every 15 minutes and Doze defers it, so ages read
+as clock times ("as of 14:02"), not "3 min ago". Running times are
+chronometers, which tick without a redraw. A debug build's
+`.WidgetGalleryActivity` hosts both widgets with sample data:
+`adb shell appwidget grantbind --package de.tbuck.tau`, then
+`adb shell am start -n de.tbuck.tau/.WidgetGalleryActivity --es kind limits|threads --es scene full|stale|spent|empty|quiet|one|ask|done`.
 
 Native projects include the WidgetKit extension and app-group entitlements.
-The app and extension both need the `group.de.tbuck.tau` App Group and
+Release builds include both since 0.7.31 (`TAU_IOS_WIDGETS=1` in the `ios`
+job); with `0`, `scripts/packaging/ios-widgets.mjs` strips them from the
+checkout and the app has no widget, no Live Activities and no App Group
+(docs/RELEASE.md, "iOS"). With the widgets,
+the app and extension both need the `group.de.tbuck.tau` App Group and
 `$(AppIdentifierPrefix)de.tbuck.tau.shared` Keychain group in their provisioning
 profiles. The shared Keychain holds the device-only content key used to open
 encrypted ActivityKit updates; snapshots contain no credentials. The native shell targets iOS 17 or later; dictation

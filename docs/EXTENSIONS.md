@@ -840,6 +840,17 @@ a model it answers `true` for wears `label` after its name (`tone: "warning"`
 draws it in the caution colours, `title` is its hover text). `note` is one line
 under the list, shown while any listed model wears the badge.
 
+`registerComposerSpeed({ id, order?, read, subscribe, set })` (API 1.41.0) gives a runtime's faster
+tier to the composer's thinking chip (K142): core draws ⚡ in the chip while it is
+on and a Speed section (Standard / Fast) in the chip's menu and the phone's
+Thinking sheet. `read(snapshot)` answers `{ fast, available, reason?, detail? }`
+for the thread, or `undefined` for a thread of another runtime; it answers from
+what the kit holds, returns the same object until something changes, and calls
+the `subscribe` listener once it knows more. `set(fast, snapshot)` switches it.
+Where no kit answers, the menu shows Fast greyed with "<runtime> offers no Fast
+tier". Service Tier Kit (Pi) and Codex Kit use it; neither puts Fast in the "…"
+menu any more.
+
 `registerRegion({ placement: "thread-title", … })` draws before the thread's
 title in the conversation header — a mark about the thread on screen, which
 reads the `snapshot` it is given. `title-bar` is the thread header's end,
@@ -903,8 +914,8 @@ never draws the placement. `turn-divider` (API 1.39.0) sits in the line above
 each turn after the first ("Turn 3 · Regression tests", design 2d); its props
 carry `turn: { number, messages, last }` — the turn's prompt and everything that
 answered it, `last` while it may still run. Workspace Kit puts Fork here (a
-question first, then `actions.forkFrom(message)` through the turn's last saved
-message) and Restore files (the turn's checkpoint, when it verified) there,
+question first, then `actions.forkFrom(message, { workspace })` through the turn's last saved
+message, in a worktree on a branch of the fork's own) and Restore files (the turn's checkpoint, when it verified) there,
 shown on hover and, on touch, on a tap.
 `thread-list-head` (API 1.30.0) tops a phone's or a tablet's thread list,
 under its header and over the rows, and stays put while they scroll: a strip
@@ -1513,6 +1524,7 @@ are Tau's own, not a component library; the reasons and the numbers are in
 | `tooltipProps(text, options?)`, `Tooltip` | A tooltip on any element: spread `tooltipProps("Settle thread", { shortcut: "⌘S", side: "bottom" })` on it, or wrap it in `<Tooltip content="…">`. Both only set `data-tooltip` (and `data-tooltip-side`, `-shortcut`, `-when`, `-variant`), which core's one `TooltipLayer` reads from the document, so a list of a thousand rows costs attributes, not components. It opens after the pointer rests for 600 ms, at once while another tooltip was open in the last 400 ms, at once on keyboard focus, and closes on Escape, a press, a scroll that moves its element or leaving. `when: "truncated"` shows it only while the element's own text is cut off (a thread title); `variant: "code"` sets it in the monospace face (a path); `variant: "lines"` keeps the text's line breaks, for a few lines of details (a rail row's hover card). A trigger whose `aria-label` differs from the text gets `aria-describedby` while it shows. Use it instead of `title=`, whose OS tooltip waits a second and cannot show a shortcut. The compact profile leaves the shortcut out, as it does any element of class `keyboard-hint`: put that class on a chord or key help a package draws itself (`esc`, `↑↓ navigate`). |
 | `actions.toast(options)` | A toast on the window's stack, bottom right beside the composer, and a handle with `update(patch)` and `dismiss()`. `ToastOptions`: `type` (`info`, `success`, `warning`, `error`, `loading`, `question` (API 1.37.0) for something that waits for the user's answer; the icon, and an `error` is an ARIA alert), `title` and `description` (one line, joined by a dot), `actions` (`{ label, run, keepOpen? }` buttons; a click runs and closes unless `keepOpen`), `copyText` (a copy button), `timeoutMs` (5,000 by default; 0 keeps it until dismissed; a `loading` toast waits until it is updated to another type), `id` (showing it again replaces the toast and starts its time again) and `onClose`. Three are visible, newest in front, the rest waiting with their clocks stopped; the time runs only while nobody hovers or focuses the stack and the window is visible, and F6 moves focus into it. `actions.notify(message)` is still the one-line way: every notice is a toast. Thread Rail's undo is a toast whose `timeoutMs` is 0 and whose own undo window dismisses it. |
 | `MiddleTruncate`, `splitMiddle` | `<MiddleTruncate value={branch} />` cuts in the middle, as Finder does, for values that mean something at both ends — branches, paths, shas: a head that ellipsizes and a tail that stays (a short last path segment, else `tail` characters, 10 by default). No measuring and inline styles only, so it costs what an end cut costs in a long list; both halves are real text, so copy and screen readers get the whole value. Other props go to the outer `span`. `splitMiddle(value, tail?)` answers the cut, or `undefined` when the value is too short to be worth one. The rail's branch line uses it. |
+| `PrivateAccountText` | `<PrivateAccountText text={accountLabel} />` preserves surrounding text and replaces each email address with a blurred random placeholder. Clicking or keyboard activation reveals the real address; activating again hides it. Hidden addresses never enter DOM text or attributes. A changed address starts hidden. Available in API 1.40.0. |
 | `Dialog` | A modal centred over core's scrim with `label` and `className`: Tab and Shift-Tab stay inside it, Escape and a click on the scrim call `onClose`, the first `autoFocus` field (else the first control) gets focus, and focus goes back when it closes. With `className` `confirm-dialog` it is the workbench's card: a `h2`, the text, and a `footer` (direct or in a `form`) drawn as a bar with plain buttons and `primary`/`danger` ones as pills. |
 | `ConfirmDialog` | A yes-or-no question on `Dialog`: `title`, `message`, `confirmLabel` (`destructive` draws it red; `icon` goes before its label, API 1.38.0), `cancelLabel`, and with `dontAskAgain` a box whose state `onConfirm(dontAskAgain)` hears; `onCancel` on Cancel, Escape or the scrim. The action has focus, so Enter answers it. Thread Rail's delete, archive and unpin questions and core's quit question use it (API 1.12.0). |
 | `Popover` | A card beside an element (`anchor`, a ref) or a point, `side` and `align` preferred and flipped or shifted to stay in the window; a press outside it or Escape closes it, and focus goes back. |
@@ -1540,7 +1552,10 @@ question under it, and an approval's `message` is its subject in mono (a path,
 a command). `hint` opens the foot ("Or type an answer below"), `footer` sits
 before the primary action, and `submit` (`{ label, disabled?, enter?,
 onSubmit }`) is that action, "✓ Send 2 ⏎" with `enter` when an empty
-composer's Enter does the same (register it with `usePromptSubmit` too).
+composer's Enter does the same (register it with `usePromptSubmit` too);
+`enter: "mod"` draws ⌘⏎ for an action only ⌘Enter may run, registered with
+`usePromptSubmit(label, disabled, submit, true)`: plain Enter and the
+composer's send button then leave it alone.
 `PromptRendererProps.asker` is who asks as the composer knows it — the
 thread's model — for `from`; `PromptRendererProps.agent` (API
 1.38.0) names a sub-agent ("GET /orders agent") when a child thread's question
@@ -1550,7 +1565,7 @@ shows on its parent's composer, and wins over `asker` and a topic. An approval
 `"checkbox"`, a round one for `"radio"`, and `detail` as the second line; it
 no longer draws `index`. Core's own dialogs use the same frame: a `confirm`,
 and a runtime's `select` of Allow / Allow for this session / Deny, is an
-approval with Deny, "Always for this thread" where offered, and "Allow" (Enter never allows, K83); a
+approval with Deny, "Always for this thread" where offered, and "Allow ⌘⏎" (⌘Enter in the empty composer allows, plain Enter never does, K83); a
 `select` is a question whose pick fills its radio and "Answer ⏎" sends.
 
 `actions.shareFile(path)` (new in API 1.10.0) answers with a URL the page
@@ -2116,6 +2131,20 @@ Rail, the shipped caller, hands the same organizer menu to the rail's
 right-click. `menu` answers `undefined` to leave the title its own; `rename`
 on the title edits it in place. The last one registered wins.
 
+`registerForkPrompt({ id, ask })` (API 1.41.0) takes every fork the user starts elsewhere
+(`f` on a message, the thread tree's fork, Duplicate) as `ask({ entryId?, turn? })`:
+through `entryId`, with its `turn` when the transcript knows it (`f` forks through
+the end of the focused message's turn), and without `entryId` a copy of the whole
+thread. The prompt asks and then calls `actions.forkFrom({ sourceEntryId }, { workspace })`,
+which forks at once and resolves false when nothing was forked; with `workspace`
+the fork runs in that project. Workspace Kit is the shipped prompt (design 2d):
+its question names the fork's branch (`<branch>-2`, the next free number,
+editable) and makes the worktree with Workspace Kit's `fork-worktree` — from the
+turn's verified checkpoint (its files, uncommitted, on the HEAD the turn ended
+at), the checkout as it is for Duplicate, or the branch's HEAD alone, which the
+question says. Without a prompt core forks at once; `actions.duplicateThread({ ask: false })`
+copies at once too (Handoff's continuation on another runtime, which goes on with the same work). The last one registered wins.
+
 `registerModelSelection({ id, selected, subscribe, toggle, reset })` lets a new
 thread's model picker hold more than one model. Shift-click (or Shift+↵) on a
 row calls `toggle(model, current, runtime, currentRuntime)` instead of choosing — `current` is the model
@@ -2146,16 +2175,17 @@ it) and its images with `composerImages()` and `setComposerImages(images)`, the
 them; Composer Context's are reached through its chip service.
 
 The composer's footer is one slim row (API 1.27.0, the workbench design):
-the model chip with its marks, the reasoning level as text, the controls a
+the model chip with its marks, the thinking chip ("High · 1M ⚡": level,
+context window, Fast; K142), the controls a
 package places in the row (`placement: "toolbar"`, the default), one "…"
 menu, and the round send at the end (API 1.28.0: attach and the context dial
 are entries of the "…" menu; the dial comes back into the row once three
 quarters of the context are used). A control
 that is a setting rather than something to see all the time — Access Kit's
-level, Plan Kit's Build/Plan, Service Tier, Prompt Tools' stash — takes
+level, Plan Kit's Build/Plan, Prompt Tools' stash — takes
 `placement: "menu"`: its `Component` is drawn inside that menu only while it
-is open, and builds its entries from `ComposerMenuSection` (`heading`, the
-entries as children) and `ComposerMenuItem` (`icon`, `label`, `detail` as a
+is open, and builds its entries from `ComposerMenuSection` (`heading`, an
+optional `aside` at its end, the entries as children) and `ComposerMenuItem` (`icon`, `label`, `detail` as a
 second line, `selected` for one choice of a section, `disabled` with
 `disabledReason`, `trailing`, `keepOpen`, `onSelect`); a pick closes the menu
 unless `keepOpen`. `shortcuts` lists the `data-composer-shortcut` ids a
@@ -3213,6 +3243,15 @@ again after the section changed something it shows (a new endpoint in the
 address list). It is profile-scoped like a panel. `rows` (new in API 1.19.0)
 are the section's rows the Settings search finds, as on a page: `{ id, label,
 keywords? }`, each the `id` of a `SettingRow` in the section.
+
+A section can also join one of the cards core draws (design 2i, 2h): with
+`page: "general"` and `card` set to `"appearance"`, `"notify"`,
+`"new-threads"` or `"threads"`, or with `page: "connections"` and
+`card: "this-machine"`, its component draws `SettingRow`s only, and the card
+puts them among its own rows in `order` under its heading. A card no row
+lands in is left out. A `general` section without `card` follows the cards.
+Workspace, Machines, Thread Rail, Resume Compaction, Notifications and
+Appearance fill General's cards; Workspace and Terminal fill This machine.
 
 ### Other machines, for this machine's agents: `services.machines` (new in API 1.15.0)
 

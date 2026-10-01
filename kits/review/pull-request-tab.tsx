@@ -67,7 +67,7 @@ export function registerPullRequestTab(
             handle={handle}
             actions={actions}
             client={client}
-            open={(entry, workspace) => openPullRequest(actions, { url: entry.ref.url, number: entry.ref.number, provider: entry.ref.service }, workspace)}
+            open={(entry, workspace, focus) => openPullRequest(actions, { url: entry.ref.url, number: entry.ref.number, provider: entry.ref.service }, workspace, focus)}
           />
         </Suspense>
       ),
@@ -106,6 +106,8 @@ export function registerPullRequestTab(
       access: "read",
       run: (actions) => actions.openPage?.(REVIEWS_PAGE),
     }),
+    // The design's chord (2g); Rename moved to F2 for it.
+    plugin.registerKeybinding({ keys: "mod+shift+r", commandId: "review.reviews.open" }),
     plugin.registerCommand({
       id: "review.pull-request.open",
       label: "Open the thread's pull request",

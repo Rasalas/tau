@@ -260,6 +260,13 @@ sealed payload. A data message updates the card rather than creating another
 alert. Android 16-compatible systems may promote an ongoing card as a Live
 Update; system permissions and policy still decide.
 
+An iPhone gets one Live Activity per host for all of its top-level threads
+(thread id `tau.threads`, K163); Android keeps a card per thread. The host's
+content lists up to four rows (a question first, running threads, then those
+that ended within fifteen minutes), each with id, title, state, start, end and
+the question or failure, kept under 1.7 KB inside the sealed payload. The first
+thread at work starts the activity; the last one to end ends it.
+
 Each iOS Live Activity has its own APNs update token. The phone registers that
 token with the relay using `purpose: "activity"`, installs its content key in
 the shared app/widget Keychain, and gives the host an opaque handle. Activity
@@ -311,8 +318,8 @@ update token through the relay and an authenticated pinned host socket. It also
 observes token rotation and terminal activity states. An update token arriving
 after a turn finished gets the final state immediately. Reconnect/launch retries
 current tokens after a temporary network failure. The host sends at most three
-remote start attempts per phone per hour, deduplicates each active thread and persists its state and start history across
-restarts. A new turn in a completed thread can start another activity. APNs acceptance does not prove
+remote start attempts per phone per hour, keeps one active activity per phone and persists its state and start history across
+restarts. A run after all threads ended starts another activity. APNs acceptance does not prove
 that the system displayed an activity.
 
 Turning the switch off first records a native disable marker, ends this host's
@@ -331,6 +338,9 @@ requires replacing rotated tokens. iOS controls delivery and may throttle starts
 or updates; this implementation makes no fixed delivery-rate guarantee. iOS 26
 uses the same push-to-start flow, without requiring scheduled activities or broadcast channels.
 
+Release builds carry the widget extension and the App Group since 0.7.31. One
+built with `TAU_IOS_WIDGETS=0` ([RELEASE.md](RELEASE.md#ios)) reports Live
+Activities as unavailable and never registers activity tokens.
 Before real delivery, both signed targets need the app group `group.de.tbuck.tau`
 and shared Keychain group `$(AppIdentifierPrefix)de.tbuck.tau.shared`. The main app
 also needs APNs and `NSSupportsLiveActivities`; the widget needs a separate profile

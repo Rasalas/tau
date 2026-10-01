@@ -1,0 +1,3 @@
+*.xcodeproj
+Harness/Info.plist
+Harness/Harness.entitlements

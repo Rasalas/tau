@@ -25,6 +25,8 @@ export interface ThreadTreePorts {
   composerDraft?(): string;
   composerRef: RefObject<HTMLTextAreaElement | null>;
   notify?(message: string): void;
+  /** True when a kit's prompt took the fork; it asks for the branch itself. */
+  requestFork?(request: { entryId: string }): boolean;
 }
 
 /**
@@ -67,6 +69,7 @@ export function useThreadTree(ports: ThreadTreePorts) {
   }, [applyActionResult, client, composerRef, seedComposer, sessionId]);
 
   const forkFromTree = useCallback(async (entryId: string) => {
+    if (portsRef.current.requestFork?.({ entryId })) { setThreadTreeModal(undefined); return; }
     setThreadTreeModal((current) => current && { ...current, busy: true, error: undefined });
     try {
       applyActionResult(await client!.forkThread(entryId, sessionId()));

@@ -748,8 +748,8 @@ export type GlobalHostEvent =
   | { type: "runtime-catalog"; catalog: UiRuntimeCatalog; sessionId?: undefined }
   /** What a Pi extension titled the window with (`ctx.ui.setTitle`); each client applies it to its own. */
   | { type: "window-title"; title: string; sessionId?: undefined }
-  /** A new Tau finished downloading and installs on the next restart. */
-  | { type: "app-update"; version: string; sessionId?: undefined }
+  /** A new Tau finished downloading and installs on the next restart; `phase` follows a Restart until the quit. */
+  | { type: "app-update"; version: string; phase?: AppUpdatePhase; progress?: number; sessionId?: undefined }
   /** The host's machine: which Tau it runs and how its update stands (K103). */
   | { type: "update-status"; status: import("./host-updates.js").HostUpdateStatus; sessionId?: undefined }
   /** The window's own process to its page: the app menu, the quit shortcut, a quit waiting for an answer. */
@@ -807,6 +807,9 @@ export type ThreadHostEvent =
   | { type: "event-log"; label: string; detail?: string; timestamp: number; sessionId: string };
 
 export type HostEvent = GlobalHostEvent | ThreadHostEvent;
+
+/** After Restart: a check for a newer release (and Squirrel.Mac taking a download), its download, the quit. */
+export type AppUpdatePhase = "preparing" | "downloading" | "installing";
 
 /** The single result shape used by host, scoped composer store, and renderer. */
 export type SubmissionResult =

@@ -22,6 +22,7 @@ import type {
   StackAction,
 } from "./protocol.js";
 import type { CliCall } from "./pull-request-cli.js";
+import type { PipelineFacts } from "./pipeline.js";
 
 /*
  * The source-control provider interface: everything Review Kit asks a host
@@ -113,6 +114,8 @@ export interface SourceControlProvider {
   detail(ref: PullRequestRef, fresh: boolean): Promise<PullRequestDetail>;
   /** Never cached: checks move on their own. */
   checks(ref: PullRequestRef): Promise<PullRequestCheck[]>;
+  /** The workflow files and usual job durations of the checks' runs, by run id; `names` (run id → workflow) reads the files on the default branch instead. */
+  pipeline?(ref: PullRequestRef, runIds: readonly string[], names?: Record<string, string>): Promise<PipelineFacts>;
   threads(ref: PullRequestRef, fresh: boolean): Promise<PullRequestThread[]>;
   changes?(ref: PullRequestRef, fresh: boolean): Promise<ChangedFileEntry[]>;
   /** Viewed marks kept on the host; without it the kit keeps them itself. */

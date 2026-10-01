@@ -6,6 +6,7 @@ import { parseRemote } from "./pull-request-hosting.js";
 import { parseGitHubChecks, parseGitHubDetail, parseGitHubFiles, parseGitHubThreads, isDiffTooLarge, parseUnifiedDiff } from "./pull-request-json.js";
 import { parseGitHubList } from "./pull-request-list-json.js";
 import { createGitHubStacks } from "./github-stacks.js";
+import { createGitHubPipelines } from "./github-pipeline.js";
 import { GITHUB_BRANCH_FIELDS, parseGitHubBranchRequest } from "./branch-request-json.js";
 import { authArgs, createArgs, createdUrl, draftArgs, editArgs, mergeArgs, SERVICES } from "./request-cli.js";
 
@@ -153,6 +154,7 @@ export function createGitHubProvider(tools: ProviderTools): SourceControlProvide
     },
 
     detail: async (ref) => parseGitHubDetail(ref, await cli(ref, pullRequestCalls.view(ref)[0]!, `Reading ${noun(ref)}`)),
+    pipeline: createGitHubPipelines(tools),
     checks: async (ref) => parseGitHubChecks(record(JSON.parse(await cli(ref, pullRequestCalls.checks(ref), `Reading the checks of ${noun(ref)}`))).statusCheckRollup),
     threads: async (ref, fresh) => (await threads(ref, fresh)).threads,
     changes: async (ref): Promise<ChangedFileEntry[]> => {

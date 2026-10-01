@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { HostEvent, UiMessage } from "../shared/contracts";
+import type { AppUpdatePhase, HostEvent, UiMessage } from "../shared/contracts";
 import type { UiEditor, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import { mockSnapshot, mockThreadIndex, reconcileOptimisticMessages, transcriptNavigationScope, transcriptNavigationScopeKey } from "../workbench/app-state";
 import { WorkbenchSession } from "../workbench/workbench-session";
@@ -208,8 +208,8 @@ export default function App() {
   const newThreadDeliveryPending = Boolean(pendingNewThread);
   // The release the host downloaded; the toast and the sidebar's foot offer the restart.
   const [appUpdate] = useState(() => services.appUpdate ?? new AppUpdateStore());
-  const updateReady = useSyncExternalStore(appUpdate.subscribe, appUpdate.getSnapshot)?.version;
-  const setUpdateReady = useCallback((version: string) => appUpdate.set({ version, install: () => { void client?.installUpdate(); } }), [appUpdate, client]);
+  const update = useSyncExternalStore(appUpdate.subscribe, appUpdate.getSnapshot);
+  const setUpdateReady = useCallback((version: string, phase?: AppUpdatePhase, progress?: number) => appUpdate.set({ version, phase, progress, install: () => { void client?.installUpdate(); } }), [appUpdate, client]);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const composerAttachmentRef = useRef<ComposerAttachmentHandle>(null);
   const composerControlRef = useRef<ComposerControlHandle>(null);
@@ -219,6 +219,7 @@ export default function App() {
   const focusStage = useCallback(() => workbenchControlRef.current?.focusStage(), []);
   const showThread = useCallback((options?: ShowThreadOptions) => workbenchControlRef.current?.showThread(options), []);
   const toggleSidebar = useCallback(() => workbenchControlRef.current?.toggleSidebar(), []);
+  const toggleSpine = useCallback(() => workbenchControlRef.current?.toggleSpine(), []);
   const threadView = useCallback(() => workbenchControlRef.current?.threadView(), []);
   const inheritSelection = useCallback(() => {
     const draft = newThreadController.current();
@@ -363,6 +364,7 @@ export default function App() {
     composerDraft: () => actionsRef.current?.composerDraft() ?? "",
     notify: (message) => setNotice(message),
     composerRef,
+    requestFork: threadCommands.requestFork,
   });
 
   useEffect(() => {
@@ -452,10 +454,8 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [snapshot?.sessionId]);
 
-
   useWorkbenchToasts({
-    view: viewStore, toasts: workbenchSession.toasts, updateReady,
-    onRestart: () => { void client?.installUpdate(); },
+    view: viewStore, toasts: workbenchSession.toasts, update,
     openMachines: () => setSettingsPage("environments.machines"),
   });
 
@@ -538,7 +538,7 @@ export default function App() {
     applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay,
     openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, setComposerMode, submitPrompt: submitText, preferences,
     steerQueuedMessage, beforeAbort: returnQueued,
-    openModelPicker, openInstructions, focusStage, showThread, toggleSidebar, attachFiles, selectDraftRuntime, newThreadController, pages, threadView,
+    openModelPicker, openInstructions, focusStage, showThread, toggleSidebar, toggleSpine, attachFiles, selectDraftRuntime, newThreadController, pages, threadView,
     executeCommand: (id) => {
       if (!actionsRef.current) throw new Error("Actions are not ready yet.");
       return registry.executeCommand(id, actionsRef.current);
@@ -661,7 +661,7 @@ export default function App() {
     transcriptHistory, transcriptRef, loadTranscriptPage: threadCommands.loadTranscriptPage, applyTranscriptPage, transcriptScopeKey,
     transcriptScope, transcriptTurnStart, visibleTranscriptTurnStart, lastMessageId: conversation.lastMessageId,
     recoverThread: threadCommands.recoverThread, copyToolOutput: threadCommands.copyToolOutput, loadToolOutput: threadCommands.loadToolOutput,
-    runStartedAt, activeDraftKey, copyMessage, forkMessage: threadCommands.forkMessage, editMessage: editFromMessage,
+    runStartedAt, activeDraftKey, copyMessage, forkMessage: threadCommands.forkFromMessage, editMessage: editFromMessage,
     titleCommands, openThreadTree, duplicateThread, settleActiveThread, renameThread: threadCommands.renameThread, copyThreadValue: threadCommands.copyThreadValue,
     threadTreeModal, closeThreadTree, navigateThreadTree, forkFromTree,
   }), [
