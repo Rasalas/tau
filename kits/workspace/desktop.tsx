@@ -109,7 +109,7 @@ export const workspaceExtension: DesktopExtension = {
     });
     const FilesPanelWithSearch = (props: PanelProps) => <FilesPanel {...props} search={search} />;
     context.registerPanel({
-      id: WORKSPACE_FILES_PANEL, label: "Files", Icon: Folder, order: 10, maximizable: true, stageButton: true, profiles: ["desktop", "compact"],
+      id: WORKSPACE_FILES_PANEL, label: "Files", Icon: Folder, order: 10, maximizable: true, stageButton: true, threadActions: true, profiles: ["desktop", "compact"],
       Component: bind(FilesPanelWithSearch),
     });
     // The Changes panel reads the same Git state as the rest of the kit, so it

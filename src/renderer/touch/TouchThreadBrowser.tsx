@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { Check, ChevronLeft, Ellipsis, Folder, MonitorSmartphone, Plus, Search, Settings, X } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, Ellipsis, Folder, MonitorSmartphone, Plus, Search, Settings, X } from "lucide-react";
 import type { UiProject } from "../../shared/contracts";
 import { rootLast } from "../../workbench/new-thread-project";
 import { threadListGroups, type ThreadSupervisionRow } from "../../workbench/thread-supervision";
@@ -50,18 +50,24 @@ export function TouchThreadBrowser({ variant, nav, onNewThread, onOpenSettings, 
   // What kits put over the list: another machine's state, the plans' juicebars.
   const head = <Region registry={list.registry} placement="thread-list-head" actions={list.actions} />;
   const filter = onProjectChange ? <ProjectFilter projects={projects} project={list.project} onChange={onProjectChange} /> : null;
-  const header = <header className="touch-browser-header">
-    <strong>Threads</strong>
-    {screen ? <Region registry={list.registry} placement="thread-list-title" actions={list.actions} /> : null}
-    <span className="spacer" />
-    <button ref={searchButton} type="button" className="touch-icon-button" aria-label="Search threads" aria-expanded={popover === "search"} {...tooltipProps("Search threads", { side: "bottom" })} onClick={() => setPopover(popover === "search" ? undefined : "search")}><Search size={19} /></button>
+  const toggleSearch = () => setPopover(popover === "search" ? undefined : "search");
+  const more = <button ref={menuButton} type="button" className="touch-icon-button" aria-label="More" aria-haspopup="menu" aria-expanded={popover === "menu"} {...tooltipProps("More", { side: "bottom" })} onClick={() => setPopover(popover === "menu" ? undefined : "menu")}><Ellipsis size={20} /></button>;
+  // A phone's list opens on the search field (design 1m); More stays only for the shell's own actions.
+  const header = screen ? <header className="touch-browser-header search-head">
+    <button ref={searchButton} type="button" className="touch-search-open" aria-expanded={popover === "search"} onClick={toggleSearch}><Search size={16} aria-hidden />Search threads</button>
     {filter}
-    <button ref={menuButton} type="button" className="touch-icon-button" aria-label="More" aria-haspopup="menu" aria-expanded={popover === "menu"} {...tooltipProps("More", { side: "bottom" })} onClick={() => setPopover(popover === "menu" ? undefined : "menu")}><Ellipsis size={20} /></button>
-    {screen || readOnly ? null : <button type="button" className="touch-icon-button" aria-label="New thread" {...tooltipProps("New thread", { side: "bottom" })} onClick={onNewThread}><Plus size={20} /></button>}
+    {shell?.actions?.length ? more : null}
+  </header> : <header className="touch-browser-header">
+    <strong>Threads</strong>
+    <span className="spacer" />
+    <button ref={searchButton} type="button" className="touch-icon-button" aria-label="Search threads" aria-expanded={popover === "search"} {...tooltipProps("Search threads", { side: "bottom" })} onClick={toggleSearch}><Search size={19} /></button>
+    {filter}
+    {more}
+    {readOnly ? null : <button type="button" className="touch-icon-button" aria-label="New thread" {...tooltipProps("New thread", { side: "bottom" })} onClick={onNewThread}><Plus size={20} /></button>}
   </header>;
 
   const popovers = <>
-    {popover === "search" ? <Popover anchor={searchButton} side="bottom" align="end" label="Search threads" className="touch-popover touch-search" onClose={() => setPopover(undefined)}>
+    {popover === "search" ? <Popover anchor={searchButton} side="bottom" align={screen ? "start" : "end"} label="Search threads" className="touch-popover touch-search" onClose={() => setPopover(undefined)}>
       <ThreadSearch registry={list.registry} onOpen={(row, entry) => { setPopover(undefined); if (entry) entry.open(list.actions); else list.onOpen(row); }} />
     </Popover> : null}
     {popover === "menu" ? <Popover anchor={menuButton} side="bottom" align="end" label="More" className="touch-popover touch-menu" onClose={() => setPopover(undefined)}>
@@ -79,6 +85,7 @@ export function TouchThreadBrowser({ variant, nav, onNewThread, onOpenSettings, 
   if (screen) return <section ref={surface} className={`touch-browser screen home${nav ? " with-nav" : ""}`} aria-label="Threads">
     {header}
     <div className="touch-browser-body">
+      <Region registry={list.registry} placement="thread-list-title" actions={list.actions} />
       {head}
       <TouchThreadList {...list} />
       {/* The floating button is the empty list's next step too. */}
@@ -156,6 +163,7 @@ function ProjectFilter({ projects, project, onChange }: {
       {project
         ? <ProjectIcon project={project} className="touch-project-tile" />
         : <Folder size={19} aria-hidden="true" />}
+      <ChevronDown size={14} aria-hidden="true" />
     </button>
     {open ? <ActionSheet
       title="Show threads of"

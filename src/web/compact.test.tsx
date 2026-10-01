@@ -93,7 +93,8 @@ async function openChat(title = "Rename the store"): Promise<void> {
   await screen.findByRole("button", { name: "Back to threads" });
 }
 
-const rowNamed = (title: string) => screen.getByRole("button", { name: `Open thread ${title}` }).closest("li") as HTMLElement;
+// The list's row, not the copy of it that heads its action sheet.
+const rowNamed = (title: string) => screen.getAllByRole("button", { name: `Open thread ${title}` }).map((button) => button.closest("li")).find(Boolean) as HTMLElement;
 
 const running = (sessionId: string): HostEvent => ({ type: "agent-status", sessionId, running: true });
 
@@ -255,7 +256,8 @@ describe("the web client at 400 px", () => {
     fireEvent.contextMenu(rowNamed("Ship the web client").querySelector(".swipe-row")!);
     const sheet = await screen.findByRole("dialog", { name: "Ship the web client" });
     const labels = within(sheet).getAllByRole("button").map((button) => button.getAttribute("aria-label") ?? button.textContent);
-    expect(labels).toEqual(["Close", "Settle", "Pin", "Mark as unread", "Archive thread"]);
+    // The thread's own row heads the sheet (design 1x) and opens it.
+    expect(labels).toEqual(["Close", "Open thread Ship the web client", "Settle", "Pin", "Mark as unread", "Archive thread"]);
     // The row leaves the cost out, as the desktop rail does; a phone has no hover card, so the sheet says it.
     expect(sheet.querySelector(".action-sheet-summary")?.textContent).toBe("Cost $0.42");
     expect(rowNamed("Ship the web client").textContent).not.toContain("$0.42");
@@ -482,6 +484,57 @@ describe("a phone with no thread open", () => {
   });
 });
 
+describe("a phone's thread list as design 1m, 1x and 2p draw it", () => {
+  it("heads the list with the search field and the project pill, and puts a branchless row's marks on its title line", async () => {
+    renderHome([probe]);
+    const home = await screen.findByRole("region", { name: "Threads" });
+    const search = within(home).getByRole("button", { name: "Search threads" });
+    expect(search.closest(".search-head")).toBeTruthy();
+    expect(within(home).queryByRole("heading", { name: "Threads" })).toBeNull();
+    const row = rowNamed("Ship the web client");
+    expect(row.querySelector(".touch-title-line .thread-meta-end")).toBeTruthy();
+    expect(row.querySelector(".thread-meta-line")).toBeNull();
+  });
+
+  it("opens the thread and then a panel that offers itself from a row's sheet", async () => {
+    const offered: DesktopExtension = {
+      id: "test.offered",
+      name: "Offered probe",
+      activate(plugin) {
+        plugin.registerPanel({ id: "probe-work", label: "Work", Icon: Bot, profiles: ["compact"], threadActions: true, Component: () => <p>work panel body</p> });
+      },
+    };
+    renderHome([offered]);
+    await screen.findByRole("list", { name: "Threads" });
+    fireEvent.contextMenu(rowNamed("Ship the web client").querySelector(".swipe-row")!);
+    const sheet = await screen.findByRole("dialog", { name: "Ship the web client" });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Work" }));
+    expect(await screen.findByText("work panel body")).toBeTruthy();
+  });
+
+  it("says which host it cannot reach over the threads it last saw, with Retry (2p)", async () => {
+    const client = createFakeHostClient({ bootstrap: bootstrapWith(THREADS, { home: true, projects: PROJECTS }) });
+    let state: "connected" | "reconnecting" = "connected";
+    const listeners = new Set<() => void>();
+    const reconnect = vi.fn();
+    Object.assign(client, {
+      getConnectionState: () => state,
+      onConnectionState: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+      getHostName: () => "MacBook Pro",
+      reconnectNow: reconnect,
+    });
+    const storage = createMemoryStorage();
+    setHostClient(client);
+    setClientStorage(storage);
+    render(<WebWorkbench client={client} storage={storage} services={createRendererServices([])} environment={webClientEnvironment("compact")} />);
+    await screen.findByRole("list", { name: "Threads" });
+    act(() => { state = "reconnecting"; for (const listener of [...listeners]) listener(); });
+    const notice = (await screen.findByText("MacBook Pro not reachable · last seen just now")).closest("p")!;
+    fireEvent.click(within(notice).getByRole("button", { name: "Retry" }));
+    expect(reconnect).toHaveBeenCalled();
+  });
+});
+
 describe("a new thread's draft in the phone's list", () => {
   const composer = () => screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
   async function startDraft(): Promise<HTMLElement> {
@@ -579,10 +632,10 @@ describe("a page's summary on a phone and a tablet", () => {
     expect(within(list).queryByRole("button", { name: "Title bars" })).toBeNull();
   });
 
-  it("stays beside a phone's list title", async () => {
+  it("tops a phone's list, under its search field", async () => {
     renderCompactClient({}, [summaryProbe]);
     const home = await screen.findByRole("region", { name: "Threads" });
-    expect((await within(home).findByRole("button", { name: "Title bars" })).closest(".touch-browser-header")).toBeTruthy();
+    expect((await within(home).findByRole("button", { name: "Title bars" })).closest(".touch-browser-body")).toBeTruthy();
     expect(within(home).queryByRole("button", { name: "Plan bars" })).toBeNull();
   });
 });

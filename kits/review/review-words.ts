@@ -11,6 +11,10 @@ export const ALREADY: Record<NonNullable<LocalReview["mergedBy"]>, string> = {
   request: "its pull request was merged on the host.",
 };
 
+/** Why the thread cannot be sent a note. */
+export const askBlocker = (review: LocalReview, mayAsk: boolean) => !mayAsk ? READ_ONLY_REASON
+  : !review.threadId && !review.remote ? "No thread works on this branch any more." : undefined;
+
 /** Why the thread cannot be asked to rebase: one on another machine does not see this checkout's branch. */
 export const rebaseBlocker = (review: LocalReview, mayAsk: boolean) => !mayAsk ? READ_ONLY_REASON
   : review.remote ? `The thread runs on ${review.remote.machine}, where ${review.target} is not this checkout's; merge it by hand or send a note.`

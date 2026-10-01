@@ -939,6 +939,33 @@ body[data-profile="compact"] .pr-verdict { min-height: var(--touch-target); padd
 }
 .rv-page.compact .rv-detail-actions > button, .rv-page.compact .rv-note button { min-height: var(--touch-target); font-size: var(--text-md); }
 .rv-page.compact .rv-detail-actions > .rv-open-thread { margin-left: 0; }
+/* 1q: Request changes and Merge share the foot; 2o: a note's composer takes their place. */
+.rv-page.compact .rv-bar { display: grid; grid-template-columns: 1fr 1fr; }
+.rv-page.compact .rv-bar > button { justify-content: center; }
+.rv-page.compact .rv-tabs > button { padding: 0 10px; }
+.rv-page.compact .rv-open-thread { align-self: flex-start; min-height: var(--touch-target); padding: 0; border: 0; background: transparent; color: var(--ink-2); font: 600 var(--text-sm) var(--sans); cursor: pointer; }
+.rv-held { display: flex; flex-direction: column; gap: 6px; }
+.rv-held > header { display: flex; align-items: center; justify-content: space-between; color: var(--muted); font: var(--text-xs) var(--sans); }
+.rv-held > header > .text-button { min-height: var(--touch-target); color: var(--brand-ink, var(--acid-text)); font: 600 var(--text-sm) var(--sans); }
+.rv-held > p { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; margin: 0; padding: 10px 4px 10px 12px; border-radius: 10px; background: var(--field); font: var(--text-md)/1.35 var(--sans); color: var(--ink); }
+.rv-held > p > code { grid-column: 1; color: var(--muted); font: var(--text-xs) var(--mono); }
+.rv-held > p > span { grid-column: 1; }
+.rv-held > p > button { grid-column: 2; grid-row: 1 / span 2; align-self: center; width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; }
+.rv-compose {
+  position: sticky; bottom: 0; display: flex; flex-direction: column; gap: 6px; margin-bottom: env(safe-area-inset-bottom, 0px);
+  padding: 10px 12px; border-radius: 14px; background: var(--raised); box-shadow: var(--shadow-strong);
+}
+.rv-compose-where { display: flex; align-items: center; gap: 6px; color: var(--warn); font: var(--text-xs) var(--mono); }
+.rv-compose-where > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-compose-where > button { width: 36px; height: 32px; display: grid; place-items: center; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.rv-compose > textarea { width: 100%; min-height: 48px; padding: 0; border: 0; background: transparent; color: var(--ink); font: max(16px, var(--text-input))/1.4 var(--sans); resize: none; outline: none; }
+.rv-compose > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rv-compose .text-button { min-height: var(--touch-target); color: var(--ink-2); font: 500 var(--text-md) var(--sans); }
+.rv-compose > div > .primary {
+  margin-left: auto; min-height: var(--touch-target); display: inline-flex; align-items: center; gap: 6px; padding: 0 16px;
+  border: 0; border-radius: var(--radius-pill); background: var(--brand); color: var(--brand-on); font: 600 var(--text-md) var(--sans); cursor: pointer;
+}
+.rv-compose > div > .primary:disabled { opacity: .5; cursor: default; }
 
 /* The review view (1e, 2e): one detail for a local review and a pull request, and the sidebar that goes with it. */
 .rvd { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--stage); color: var(--ink-2); font: var(--text-sm)/1.5 var(--sans); }
@@ -1093,3 +1120,12 @@ body[data-profile="compact"] .pr-verdict { min-height: var(--touch-target); padd
 .rvd-side-note-text { color: var(--ink); font: var(--text-sm)/1.4 var(--sans); white-space: pre-wrap; overflow-wrap: anywhere; }
 .rvd-send { display: flex; justify-content: center; align-items: center; gap: 5px; margin-top: var(--space-3); padding: 7px var(--space-6); border: 0; border-radius: var(--radius-pill); background: var(--brand); color: var(--brand-on); font: 600 var(--text-sm) var(--sans); cursor: pointer; }
 .rvd-send:disabled { opacity: .5; cursor: not-allowed; }
+/* 2o: a line of a review's diff is the tap that starts a note on it; the line being noted wears the amber bar. */
+.rv-page.compact .rv-diff .diff-annotate { display: block; inset: 0; width: 100%; min-width: 0; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; opacity: 0; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.rv-page.compact .rv-diff .diff-row.selected { box-shadow: inset 3px 0 var(--warn); }
+/* The detail scrolls inside the page, so its foot stays on screen. */
+.rv-page.compact > .rv-main, .rv-page.compact .rv-scroll { min-height: 0; }
+.rv-page.compact .rv-diff .diff-row.selected .diff-gutter { box-shadow: inset 3px 0 var(--warn); background: var(--warn-chip); color: var(--ink); }
+/* The foot reaches the screen's edge itself: no room under it for the diff to show through. */
+.rv-page.compact .rv-scroll:has(> .rv-detail) { padding-bottom: 0; }
+.rv-page.compact .rv-compose { margin-bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }

@@ -80,3 +80,26 @@ export function decodeDelivery(value: unknown): Delivery | undefined {
   const seen = (value as { seen?: unknown }).seen === true;
   return items.length ? { clientKey, items, ...(seen ? { seen } : {}) } : undefined;
 }
+
+/** Options `tau.notifications.event-<kind>`: a switch per kind of news, on unless turned off. */
+export const eventOption = (kind: AttentionReason) => `event-${kind}`;
+/** Option `tau.notifications.quiet` turns quiet hours on; values `quiet-from` and `quiet-to` are "HH:MM" on the host's clock. */
+export const QUIET = { on: "quiet", from: "quiet-from", to: "quiet-to", start: "23:00", end: "07:00" } as const;
+
+export interface KitSettings { options: Record<string, boolean | undefined>; values: Record<string, string | undefined> }
+
+const clock = (text: string | undefined, fallback: string) => (text && /^\d\d:\d\d$/u.test(text) ? text : fallback);
+export const quietFrom = (values: KitSettings["values"]) => clock(values[QUIET.from], QUIET.start);
+export const quietTo = (values: KitSettings["values"]) => clock(values[QUIET.to], QUIET.end);
+
+/** Whether news of this kind stays silent now: its switch is off, or it is quiet hours on the host's clock. */
+export function silenced(kind: AttentionReason, settings: KitSettings | undefined, at: Date): boolean {
+  if (!settings) return false;
+  if (settings.options[eventOption(kind)] === false) return true;
+  if (settings.options[QUIET.on] !== true) return false;
+  const minutes = (text: string) => Number(text.slice(0, 2)) * 60 + Number(text.slice(3));
+  const now = at.getHours() * 60 + at.getMinutes();
+  const from = minutes(quietFrom(settings.values));
+  const to = minutes(quietTo(settings.values));
+  return from <= to ? now >= from && now < to : now >= from || now < to;
+}

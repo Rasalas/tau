@@ -53,7 +53,7 @@ function setup(options: { answer?: LocalReviewsAnswer; params?: Record<string, u
     if (command === "local-review-merge") return { branch: "feat/pairing-flake", state: "merged", files: [], detail: "Merged.", into: "main", root: "/repo/shop-api" };
     if (command === "local-review-remove") return { branch: "feat/picked" };
     if (command === "local-review-summary") return { summary: "The watcher subscribes on construction now.", turns: 4 };
-    if (command === "file-diff") return { path: (input as { relPath: string }).relPath, hunks: [], additions: 6, deletions: 3 };
+    if (command === "file-diff") return { path: (input as { relPath: string }).relPath, added: 1, removed: 0, hunks: [{ header: "@@ -1,1 +1,2 @@", lines: [{ kind: "context", oldLine: 1, newLine: 1, text: "const a = 1;" }, { kind: "added", newLine: 2, text: "const watcher = useMemo(() => new Watcher(), []);" }] }] };
     return undefined;
   });
   const host = { invoke, onEvent: () => () => undefined } as unknown as HostExtensionClient;
@@ -193,19 +193,37 @@ describe("the Reviews page", () => {
     expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ review: reviewKey("/repo/shop-api", "feat/webhook-retries") }), expect.anything());
   });
 
-  it("shows one review on a phone (1q): the summary, its files with a diff on a click, and a note back to the thread", async () => {
+  it("shows one review on a phone (1q): the summary, the first file's diff open, and Request changes at the foot", async () => {
     const key = reviewKey("/repo/shop-api", "feat/pairing-flake");
     const { invoke, switchSession } = setup({ compact: true, params: { tab: "ready", review: key } });
     expect(await screen.findByText("The watcher subscribes on construction now.")).toBeTruthy();
     expect(screen.getByText("4 turns")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /PairingRequestWatcher\.tsx/u }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("file-diff", { workspace: "ws-pairing-flake", relPath: "src/PairingRequestWatcher.tsx", options: { scope: "branch", baseRef: "main" } }));
-    fireEvent.click(screen.getByRole("button", { name: /^Note$/u }));
+    expect(screen.getByRole("button", { name: /PairingRequestWatcher\.tsx/u }).getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: /Request changes/u }));
     fireEvent.change(screen.getByRole("textbox", { name: "Note to the thread" }), { target: { value: "Keep the old name" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send to thread" }));
+    fireEvent.click(screen.getByRole("button", { name: /Send now/u }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("local-review-ask", expect.objectContaining({ kind: "note", text: "Keep the old name", threadId: "t1" })));
     fireEvent.click(screen.getByRole("button", { name: "Open thread" }));
     expect(switchSession).toHaveBeenCalledWith("/sessions/t1.jsonl");
+  });
+
+  it("keeps notes on a phone's diff lines for later and sends them as one turn (2o)", async () => {
+    const key = reviewKey("/repo/shop-api", "feat/pairing-flake");
+    const { invoke, notes } = setup({ compact: true, params: { tab: "ready", review: key } });
+    fireEvent.click(await screen.findByRole("button", { name: "Note on line 2" }));
+    expect(screen.getByText("PairingRequestWatcher.tsx:2")).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: "Note to the thread" }), { target: { value: "Use a ref" } });
+    fireEvent.click(screen.getByRole("button", { name: "Keep for later" }));
+    const held = await screen.findByRole("region", { name: "Review notes" });
+    expect(held.textContent).toContain("Use a ref");
+    expect(notes.comments(`local:${key}`)).toHaveLength(1);
+    fireEvent.click(within(held).getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("local-review-ask", expect.objectContaining({
+      kind: "note",
+      notes: [expect.objectContaining({ path: "src/PairingRequestWatcher.tsx", line: 2, side: "new", body: "Use a ref" })],
+    })));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Review notes" })).toBeNull());
   });
 
   it("keeps Merge off with the reason for a branch with uncommitted work", async () => {

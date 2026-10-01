@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
-import { Check, ChevronDown, GitBranch, Mail, MailOpen, Pin, PinOff, RotateCcw, Square, SquarePen, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { Check, ChevronDown, GitBranch, Mail, MailOpen, MessageCircleQuestion, Pin, PinOff, RotateCcw, Square, SquarePen, Trash2, TriangleAlert } from "lucide-react";
 import { errorMessage } from "../../workbench/error-message";
 import {
   THREAD_LIST_PAGE,
@@ -23,7 +23,7 @@ import { threadCostLabel } from "../cost-format";
 import { DEFAULT_RUNTIME, threadOnPlan } from "../runtime-marks";
 import { useClientStorage } from "../client-storage-context";
 import { useHostClient } from "../host-client-context";
-import { commandRefusal, useHostCapabilities } from "../use-host-capabilities";
+import { commandRefusal, useHostCapabilities, useHostName } from "../use-host-capabilities";
 import { usePreferences } from "../renderer-services-context";
 import { useThreadStore } from "../workbench-context";
 import { ActionSheet, type SheetAction } from "./ActionSheet";
@@ -113,7 +113,11 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
     if (trayCommand?.Icon && !row.settled) tray.push({ id: trayCommand.id, label: shortLabel(trayCommand.label), Icon: trayCommand.Icon, tone: "secondary", run: () => runCommand(trayCommand.id, row.id) });
     return tray;
   };
+  // The thread's own work first (design 1x): its question, then the panels that offer themselves, each opened over it.
+  const panels = registry.getPanels().filter((panel) => panel.threadActions);
   const sheetActions = (row: ThreadSupervisionRow): SheetAction[] => [
+    ...(row.status === "waiting" ? [{ id: "answer", label: "Answer the question", Icon: MessageCircleQuestion, run: () => onOpen(row) }] : []),
+    ...panels.map((panel): SheetAction => ({ id: `panel:${panel.id}`, label: panel.label, Icon: panel.Icon, run: () => { void actions.switchSession(row.path).then((opened) => { if (opened) actions.openPanel(panel.id); }); } })),
     ...(row.status === "running" ? [{ id: "stop", label: "Stop the run", Icon: Square, disabledReason: refused({}), run: () => onStop(row) }] : []),
     { ...settleAction(row), label: row.settled ? "Un-settle" : "Settle", disabledReason: refused({}) },
     { id: "pin", label: row.pinned ? "Unpin" : "Pin", Icon: row.pinned ? PinOff : Pin, disabledReason: refused({}), run: () => preferences.togglePinned(row.id) },
@@ -131,7 +135,10 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
   ];
 
   const link = useConnectionState();
-  const connection = link.state === "connected" ? null : <ConnectionNotice state={link.state} refusal={link.refusal} empty={groups.length === 0} />;
+  const hostName = useHostName();
+  const connection = link.state === "connected" ? null
+    : link.state === "reconnecting" && groups.length > 0 ? <Unreachable name={hostName} retry={link.retry} />
+      : <ConnectionNotice state={link.state} refusal={link.refusal} empty={groups.length === 0} />;
   if (groups.length === 0 && drafts.length === 0) {
     return <>
       {connection}
@@ -184,13 +191,19 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
         </div> : null}
       </div>
     </div>
-    {sheetFor ? <ActionSheet title={sheetFor.title} summary={sheetCost(sheetFor, showCosts)} actions={sheetActions(sheetFor)} onClose={() => setSheetFor(undefined)} /> : null}
+    {sheetFor ? <ActionSheet
+      title={sheetFor.title}
+      head={<div className="touch-thread-row action-sheet-head"><div className="thread-row"><ThreadCard row={sheetFor} onOpen={() => { setSheetFor(undefined); onOpen(sheetFor); }} /></div></div>}
+      summary={sheetCost(sheetFor, showCosts)}
+      actions={sheetActions(sheetFor)}
+      onClose={() => setSheetFor(undefined)}
+    /> : null}
     {draftSheet ? <ActionSheet title={draftTitle(draftSheet)} actions={draftSheetActions(draftSheet)} onClose={() => setDraftSheet(undefined)} /> : null}
   </>;
 }
 
 const CONNECTION_TEXT: Record<"reconnecting" | "resyncing" | "refused", { title: string; detail: string }> = {
-  reconnecting: { title: "Not connected", detail: "The list shows what the host last sent. Tau reconnects on its own." },
+  reconnecting: { title: "Connecting to the host…", detail: "Threads appear once it answers." },
   resyncing: { title: "Updating", detail: "Refetching the threads from the host…" },
   refused: { title: "The host refused this device", detail: "Pair it again from the host's Settings → Connections." },
 };
@@ -199,12 +212,28 @@ function useConnectionState() {
   const client = useHostClient();
   const subscribe = useCallback((listener: () => void) => client?.onConnectionState(listener) ?? (() => undefined), [client]);
   const state = useSyncExternalStore(subscribe, () => client?.getConnectionState() ?? "connected");
-  return { state, refusal: state === "refused" ? client?.getConnectionRefusal() : undefined };
+  return { state, refusal: state === "refused" ? client?.getConnectionRefusal() : undefined, retry: () => client?.reconnectNow() };
+}
+
+/** "MacBook Pro not reachable · last seen 12 min ago · Retry" over what the list last showed (design 2p). */
+function Unreachable({ name, retry }: { name: string | undefined; retry(): void }) {
+  const [since] = useState(Date.now);
+  const [now, setNow] = useState(since);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  const minutes = Math.floor((now - since) / 60_000);
+  return <p className="touch-thread-notice unreachable" role="status">
+    <TriangleAlert size={16} aria-hidden />
+    <span>{name ?? "The host"} not reachable · last seen {minutes < 1 ? "just now" : `${minutes} min ago`}</span>
+    <button type="button" onClick={retry}>Retry</button>
+  </p>;
 }
 
 /** A list that may be stale says so; one that never loaded says it is waiting for the host. */
 function ConnectionNotice({ state, refusal, empty }: { state: keyof typeof CONNECTION_TEXT; refusal?: string | undefined; empty: boolean }) {
-  const text = empty && state !== "refused" ? { title: "Connecting to the host…", detail: "Threads appear once it answers." } : CONNECTION_TEXT[state];
+  const text = CONNECTION_TEXT[empty && state !== "refused" ? "reconnecting" : state];
   return <p className={`touch-thread-notice ${state}`} role={state === "refused" ? "alert" : "status"}>
     <strong>{text.title}</strong>
     <span>{refusal || text.detail}</span>
@@ -317,6 +346,12 @@ function ThreadCard({ row, machine, unavailable, busy, onOpen }: {
     </button>;
   }
   const branch = row.projectLabel && !DEFAULT_BRANCHES.has(row.projectLabel) ? row.projectLabel : undefined;
+  const marks = <span className="thread-meta-end">
+    <ProviderIconStack modelProvider={row.modelProvider} runtimeProvider={row.backendKind ?? DEFAULT_RUNTIME} plan={threadOnPlan(row.usage)} className="touch-thread-provider" hint={{ side: "left" }} />
+  </span>;
+  const title = <span className="thread-title">{row.title}</span>;
+  // Without a branch or a pin the marks ride on the title's line: no empty third line.
+  const bare = !branch && !row.pinned;
   return <button type="button" className="thread-main touch-thread-open" {...label} onClick={onOpen}>
     <span className="thread-project-line">
       {mark}
@@ -324,14 +359,12 @@ function ThreadCard({ row, machine, unavailable, busy, onOpen }: {
       {machine ? <span className="touch-thread-machine">{machine.icon}<span>{machine.name}</span></span> : null}
       <RowTime row={row} />
     </span>
-    <span className="thread-title">{row.title}</span>
+    {bare ? <span className="touch-title-line">{title}{marks}</span> : title}
     {/* Right to left, as the rail's card: the branch yields first, the runtime mark last. */}
-    <span className="thread-meta-line">
-      <span className="thread-meta-end">
-        <ProviderIconStack modelProvider={row.modelProvider} runtimeProvider={row.backendKind ?? DEFAULT_RUNTIME} plan={threadOnPlan(row.usage)} className="touch-thread-provider" hint={{ side: "left" }} />
-      </span>
+    {bare ? null : <span className="thread-meta-line">
+      {marks}
       {row.pinned ? <span className="thread-meta-marks"><Pin size={12} className="touch-thread-pin" aria-label="Pinned" /></span> : null}
       {branch ? <span className="thread-branch"><GitBranch size={12} aria-hidden="true" /><MiddleTruncate value={branch} /></span> : null}
-    </span>
+    </span>}
   </button>;
 }

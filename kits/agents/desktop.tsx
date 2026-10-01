@@ -67,7 +67,7 @@ export const agentsExtension: DesktopExtension = {
     const offWorkspace = context.events.on("workspace-changed", () => loadDefinitions(definitionsStore.refresh()));
     const canLookIn = () => Boolean(context.environments?.watchThread);
     context.registerPanel({
-      id: "agents", label: "Agents", Icon: Bot, order: 40, width: "wide", maximizable: true, profiles: ["desktop", "web", "compact"],
+      id: "agents", label: "Agents", Icon: Bot, order: 40, width: "wide", maximizable: true, threadActions: true, profiles: ["desktop", "web", "compact"],
       // "Agents 6": the thread on screen's agents that still run or ask, as in the workbench design.
       useBadge: function useAgentCount() {
         const threadId = useWorkbenchShell().snapshot?.sessionId;

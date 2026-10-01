@@ -321,6 +321,24 @@ describe("the page head", () => {
   });
 });
 
+describe("Settings on a phone (design 1s)", () => {
+  it("lists the sections as cards with their values, leaves the keys out, and says where keys live", async () => {
+    const registry = new ExtensionRegistry(undefined, { preferences: new PreferencesStore(), profile: "compact" });
+    await registry.activate({ id: "test.machines", name: "Machines", activate(context) {
+      context.registerSettingsPage({ id: "test.machines", label: "Machines", group: "general", order: -1, profiles: ["compact"], useSummary: () => "2 online", Component: () => null });
+    } });
+    const phoneSnapshot = { ...snapshot, runtimeBackends: [{ kind: "pi", label: "Pi" }] } as unknown as HostSnapshot;
+    render(<HostClientProvider client={undefined}><TestProviders>
+      <SettingsScreen page="general" stacked view="sections" snapshot={phoneSnapshot} registry={registry} nav={<nav aria-label="Main" />} onSetPage={vi.fn()} onSetModel={vi.fn()} onSetThinking={vi.fn()} onClose={vi.fn()} onNotify={vi.fn()} />
+    </TestProviders></HostClientProvider>);
+    const sections = screen.getByRole("navigation", { name: "Settings sections" });
+    expect(within(sections).getByRole("button", { name: /^Machines/u }).querySelector(".settings-nav-value")?.textContent).toBe("2 online");
+    expect(within(sections).getByRole("button", { name: /^Runtimes/u }).textContent).toContain("Pi default");
+    expect(within(sections).queryByRole("button", { name: /^Keybindings/u })).toBeNull();
+    expect(within(sections).getByText(/Keys and sign-ins live on your machines/u)).toBeTruthy();
+  });
+});
+
 const inspection = (overrides: Partial<ExtensionInspection>): ExtensionInspection => ({ versions: { tau: "0.7.6", pi: "1", api: "1.17.0" }, directories: [], packages: [], errors: [], skipped: [], ...overrides });
 
 describe("Settings → Extensions", () => {

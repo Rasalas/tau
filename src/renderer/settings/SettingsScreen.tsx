@@ -29,6 +29,7 @@ import { KeybindingsPage } from "./KeybindingsPage";
 import { ProvidersPage, providerCardId } from "./ProvidersPage";
 import { RuntimesPage } from "./RuntimesPage";
 import { inRuntimeOrder } from "../runtime-order";
+import { effectiveNewThreadRuntime } from "../new-thread-runtime";
 import "./settings.css";
 
 function projectName(path?: string): string {
@@ -62,6 +63,13 @@ interface NavItem {
   group: SettingsNavGroup | undefined;
   order: number | undefined;
   Icon: PanelIconComponent | undefined;
+  useSummary?: (() => string | undefined) | undefined;
+}
+
+/** A page's value beside its row on a phone (design 1s): "2 online", "Pi default". */
+function NavValue({ use }: { use(): string | undefined }) {
+  const value = use();
+  return value ? <small className="settings-nav-value">{value}</small> : null;
 }
 
 /** The groups the user opened, kept while the window lives; one they folded follows the page on screen again next time. */
@@ -289,11 +297,13 @@ export function SettingsScreen({
     };
   }, [onClose]);
 
+  const runtimeLabel = snapshot?.runtimeBackends?.find((backend) => backend.kind === effectiveNewThreadRuntime(preferences.getSnapshot().newThreadRuntime, snapshot))?.label;
   const navItems: NavItem[] = [
     ...CORE_SETTINGS_PAGES
-      .filter((entry) => entry.id !== "providers" || providers.length > 0)
-      .map((entry) => ({ id: entry.id, label: entry.label, group: entry.group, order: entry.order, Icon: CORE_ICONS[entry.id] })),
-    ...pages.map((entry) => ({ id: entry.id, label: entry.label, group: entry.group, order: entry.order, Icon: entry.Icon })),
+      // A phone has no keys to bind (design 1s).
+      .filter((entry) => (entry.id !== "providers" || providers.length > 0) && !(nav && entry.id === "keybindings"))
+      .map((entry) => ({ id: entry.id, label: entry.label, group: entry.group, order: entry.order, Icon: CORE_ICONS[entry.id], ...(entry.id === "runtimes" && runtimeLabel ? { useSummary: () => `${runtimeLabel} default` } : {}) })),
+    ...pages.map((entry) => ({ id: entry.id, label: entry.label, group: entry.group, order: entry.order, Icon: entry.Icon, useSummary: entry.useSummary })),
   ];
   const attention = catalog.filter(needsAttention).length;
   const iconOf = (id: string): PanelIconComponent | undefined => CORE_ICONS[id] ?? (extensionOfPage(id) ? Blocks : pages.find((entry) => entry.id === id)?.Icon);
@@ -313,6 +323,8 @@ export function SettingsScreen({
     >
       <PanelIcon Icon={item.Icon} size={15} /><span>{item.label}</span>
       {item.id === "extensions" && attention > 0 ? <small className="settings-nav-count" aria-label={`${attention} need attention`}>{attention}</small> : null}
+      {stacked && item.useSummary ? <NavValue use={item.useSummary} /> : null}
+      {stacked ? <ChevronRight size={14} className="settings-nav-chevron" aria-hidden /> : null}
     </button>
   );
   const versions = client?.getVersions();
@@ -410,8 +422,9 @@ export function SettingsScreen({
           </div>
           <div className="settings-nav-footer">
             <button type="button" className={`settings-about-link ${page === "about" ? "active" : ""}`} aria-current={page === "about" ? "page" : undefined} onClick={() => openPage("about")}>
-              <Info size={15} /><span>About Tau</span>{version ? <small>{version}</small> : null}
+              <Info size={15} /><span>About Tau</span>{version ? <small>{version}</small> : null}{stacked ? <ChevronRight size={14} className="settings-nav-chevron" aria-hidden /> : null}
             </button>
+            {nav ? <p className="settings-nav-note">Keys and sign-ins live on your machines; the phone only connects to them.</p> : null}
             <button type="button" className="settings-back" onClick={onBackToThread}>
               <ChevronLeft size={15} /><span>Back to thread</span>
             </button>
