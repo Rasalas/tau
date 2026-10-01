@@ -374,3 +374,7 @@ body[data-profile="compact"] .usage-show-in-sidebar > button { min-height: var(-
   padding: 0 7px; border: 0; border-radius: 10px; background: transparent; cursor: pointer;
 }
 .usage-juicestrip:active { background: var(--hover-strong); }
+/* This month's cost beside the bars (design 1a). */
+.usage-month-cost { padding: 4px 8px 4px 4px; border: 0; border-radius: 6px; background: none; color: var(--muted); font: var(--text-xs) var(--mono); cursor: pointer; white-space: nowrap; }
+.usage-month-cost:hover { color: var(--ink-2); }
+.sidebar-footer button.usage-month-cost { width: auto; }
