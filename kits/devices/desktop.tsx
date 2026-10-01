@@ -168,7 +168,7 @@ export function DevicePanel({ active, actions, invoke, floating }: PanelProps & 
         <div className="devices-field-actions"><Button aria-label="Fold device" disabled={disabled || fold.posture === "closed"} onClick={() => { void perform("fold", { enabled: true }); }}>Fold</Button><Button aria-label="Unfold device" disabled={disabled || fold.posture === "opened"} onClick={() => { void perform("fold", { enabled: false }); }}>Unfold</Button></div>
       </div>}
       {foldError && <p className="devices-notice" role="status">Cannot read device posture. <HelpTip text={foldError} /></p>}
-      <div className="devices-view">
+      <div className="devices-view" data-pose={pose || undefined}>
         {active && availability.available && selected && device.booted && live && captureReady && !videoFallback && <div style={{ display: pose || !videoSource ? "none" : "contents" }}><Suspense fallback={null}><VideoDeviceScreen target={selected} invoke={invoke} name={device.name} onCanvas={receiveCanvas} onFallback={fallbackVideo} onPointerDown={touchStart} onPointerUp={touchEnd} onPointerCancel={() => { pointer.current = undefined; }} /></Suspense></div>}
         {(frame || videoSource) && pose ? <Suspense fallback={<p>Loading 3D view…</p>}><DevicePoseView key={key(targetOf(device))} image={frame ?? ""} source={videoSource?.canvas} device={device} fold={fold} captureReady={captureReady} onInteract={() => setPose(false)} /></Suspense> : frame && !videoSource ? <img src={frame} alt={`${device.name} screen`} draggable={false} onPointerDown={touchStart} onPointerUp={touchEnd} onPointerCancel={() => { pointer.current = undefined; }} /> : !videoSource ? <p>{device.booted ? "Waiting for the screen…" : "Device is off"}</p> : null}
       </div>
