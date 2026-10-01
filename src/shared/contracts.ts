@@ -440,6 +440,14 @@ export interface UiSession {
   origin?: UiThreadOrigin;
 }
 
+/** Runtime marks to display for a thread, including its home machine's runtime. New in API 1.43.0. */
+export function displayRuntime(session: Pick<UiSession, "machine" | "backendKind" | "modelProvider">) {
+  return {
+    backendKind: session.machine?.backendKind ?? session.backendKind,
+    modelProvider: session.machine?.modelProvider ?? session.modelProvider,
+  };
+}
+
 /** Where a thread taken over from another machine came from (`sessions.import`). */
 export interface UiThreadOrigin {
   /** The id of the host it ran on. */

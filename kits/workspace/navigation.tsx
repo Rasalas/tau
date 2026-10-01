@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArchiveRestore, ArrowLeft, Check, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, GitBranch, MessageSquare, Plus, Search, Settings, SlidersHorizontal, SquarePen, Trash2 } from "lucide-react";
+import { ArchiveRestore, ArrowLeft, Check, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, GitBranch, MessageSquare, Plus, Search, Server, Settings, SlidersHorizontal, SquarePen, Trash2 } from "lucide-react";
 import {
   DraftRow,
   errorMessage,
@@ -697,6 +697,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   return (
     <ThreadRow
       session={session}
+      machine={session.machine ? { name: session.machine.name, icon: <Server size={13} aria-hidden="true" /> } : undefined}
       accessory={diff || marks.length > 0 ? <>{diff}{marks}</> : undefined}
       projectIcon={icon}
       active={active}

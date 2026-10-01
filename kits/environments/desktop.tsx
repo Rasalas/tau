@@ -126,14 +126,22 @@ export const environmentsExtension: DesktopExtension = {
     const bringing = { identities: createProjectIdentities(environments, remoteWork), choice: createBringChoice() };
     context.registerPromptHook(createAutoRunOnHook(environments, context.host, bringing.identities));
     context.registerPromptHook(createBringProjectHook(bringing.choice, remoteWork, environments));
-    const RailSection = createRailSection(environments);
-    const threads = createMachineThreads(environments);
+    const ArrivalRail = createRailSection(environments);
+    const threads = createMachineThreads(environments, context.host);
+    function RailSection(props: { actions: WorkbenchActions }) {
+      threads.useOwnThreads();
+      return <ArrivalRail {...props} />;
+    }
     const MachineCardRow = createMachineCardRow(environments);
     const runOnSource = createRunOnSource(environments, context.host, bringing);
     // A phone or tablet lists them in its own thread list, and says there which machine is out of reach (API 1.30.0).
     context.registerThreadListSource?.({ id: "environments.threads", subscribe: threads.subscribe, threads: threads.threads, here: hereOf(environments) });
     // The arrival follows from the list or from a draft the phone reopened, whichever mounts first.
-    const PhoneArrival = createRailSection(environments, wait, { outlivesMount: true });
+    const ArrivalPhone = createRailSection(environments, wait, { outlivesMount: true });
+    function PhoneArrival(props: { actions: WorkbenchActions }) {
+      threads.useOwnThreads();
+      return <ArrivalPhone {...props} />;
+    }
     context.registerRegion({ id: "environments.list-head", placement: "thread-list-head", order: 0, profiles: ["compact"], Component: createListHead(environments, PhoneArrival) });
     context.registerRegion({ id: "environments.arrival", placement: "draft-actions", order: 99, profiles: ["compact"], Component: PhoneArrival });
     context.useService<WorkspaceRailSlice>(WORKSPACE_STORE_SERVICE, (store) => {

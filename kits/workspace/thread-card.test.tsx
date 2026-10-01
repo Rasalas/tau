@@ -159,6 +159,12 @@ function drawCard(props: Partial<Parameters<typeof ThreadCard>[0]> = {}) {
 const rowTexts = () => [...document.querySelectorAll(".thread-card-rows > .thread-card-row")].map((row) => row.textContent);
 
 describe("what a thread's card says", () => {
+  it("names a proxy's home runtime and model provider on the hover card", async () => {
+    drawCard({ session: { ...SESSION, backendKind: "machine", modelProvider: "anthropic", machine: { id: "rex", name: "rex", backendKind: "codex", modelProvider: "openai" } } });
+    expect(await screen.findByLabelText(/^Codex.*OpenAI/)).toBeTruthy();
+    expect(await screen.findByText(/· Codex.*OpenAI/)).toBeTruthy();
+  });
+
   it("draws the whole title, then a line per fact the thread has", () => {
     drawCard({ agents: { total: 3, working: 1 }, stat: { added: 12, removed: 3, files: 2, at: 1 } });
     expect(screen.getByText(SESSION.title).tagName).toBe("STRONG");

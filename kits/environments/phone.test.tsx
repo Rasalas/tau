@@ -50,7 +50,7 @@ function fakeActions(patch: Partial<WorkbenchActions> = {}): WorkbenchActions {
 
 function phone(list: UiEnvironments) {
   const fake = fakeEnvironments(list);
-  const { registry } = createKitHarness(undefined, "compact", { environments: fake.environments });
+  const { registry } = createKitHarness(async (_extensionId, command) => command === "agents" ? { available: false, machines: [] } : undefined, "compact", { environments: fake.environments });
   // Workspace Kit's store, as far as "Run on" goes: it keeps the machines' source for its pill.
   let runOn: DraftMachineSource | undefined;
   registry.activate({ id: "workspace-stub", name: "Workspace", activate: (context) => {
@@ -99,8 +99,8 @@ describe("Machines Kit on a phone", () => {
   it("says over the list which host it cannot reach, with Retry, or Pair again for one that refused it", async () => {
     const { registry, environments } = phone({ shown: "mac", environments: [mac, rex, box, attic], secureStorage: true });
     const Head = registry.getRegions("thread-list-head").find((region) => region.id === "environments.list-head")!.Component;
-    render(<Head actions={fakeActions()} />);
-    const notices = screen.getAllByRole("status");
+    render(<ThreadStoreContext.Provider value={new ThreadStore()}><Head actions={fakeActions()} /></ThreadStoreContext.Provider>);
+    const notices = await screen.findAllByRole("status");
     expect(notices.map((notice) => notice.textContent)).toEqual([
       expect.stringMatching(/^attic no longer accepts this devicePair again$/u),
       expect.stringMatching(/^box not reachable · last seen (.+ago|on .+)Retry$/u),
@@ -113,11 +113,11 @@ describe("Machines Kit on a phone", () => {
     expect(environments.takeArrival).toHaveBeenCalledTimes(1);
   });
 
-  it("offers a machine that answers when the one on screen is gone, once (2p)", () => {
+  it("offers a machine that answers when the one on screen is gone, once (2p)", async () => {
     const { registry, environments } = phone({ shown: "box", environments: [box, rex], secureStorage: true });
     const Head = registry.getRegions("thread-list-head").find((region) => region.id === "environments.list-head")!.Component;
-    render(<Head actions={fakeActions()} />);
-    const card = screen.getByText("Showing what the phone last saw").closest("div")!;
+    render(<ThreadStoreContext.Provider value={new ThreadStore()}><Head actions={fakeActions()} /></ThreadStoreContext.Provider>);
+    const card = (await screen.findByText("Showing what the phone last saw")).closest("div")!;
     fireEvent.click(within(card).getByRole("button", { name: "Use rex" }));
     expect(environments.open).toHaveBeenCalledWith("rex");
     fireEvent.click(within(card).getByRole("button", { name: "OK" }));

@@ -106,7 +106,7 @@ export { createMemoryStorage, getClientStorage, setClientStorage } from "../../w
 export { createNewThreadDraft, writeNewThreadDraft } from "../../workbench/draft-store";
 export { threadStageKey } from "../../workbench/storage-keys";
 export { stageOwner } from "../../workbench/thread-stages";
-export { createNewThreadRequestId } from "../../shared/contracts";
+export { createNewThreadRequestId, displayRuntime } from "../../shared/contracts";
 export { HostClientProvider, setHostClient } from "../host-client-context";
 export { HOST_CAPABILITY } from "../../shared/host-transport";
 export { CLIENT_PROFILES, type ClientProfile } from "../../workbench/client-profile";

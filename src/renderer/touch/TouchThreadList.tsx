@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { Check, ChevronDown, GitBranch, Mail, MailOpen, MessageCircleQuestion, Pin, PinOff, RotateCcw, Square, SquarePen, Trash2, TriangleAlert } from "lucide-react";
+import { Check, ChevronDown, GitBranch, Mail, MailOpen, MessageCircleQuestion, Pin, PinOff, RotateCcw, Server, Square, SquarePen, Trash2, TriangleAlert } from "lucide-react";
 import { errorMessage } from "../../workbench/error-message";
 import {
   THREAD_LIST_PAGE,
@@ -328,6 +328,7 @@ function ThreadCard({ row, machine, unavailable, busy, onOpen }: {
 }) {
   const store = useThreadStore();
   const projects = useSyncExternalStore(store.subscribeToProjects, store.getProjects);
+  if (row.machine) machine = { name: row.machine.name, icon: <Server size={13} aria-hidden="true" /> };
   const place = { path: row.projectPath ?? row.projectName, workspaceId: row.workspaceId };
   const project = projects.find((candidate) => inProject({ projectPath: place.path, workspaceId: place.workspaceId }, candidate));
   const mark = <ProjectIcon project={{ ...place, ...project, name: row.projectName }} hue={place.path} />;

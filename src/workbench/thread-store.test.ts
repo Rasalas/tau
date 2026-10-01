@@ -9,6 +9,23 @@ const shell = (id: string, title = id) => ({
 afterEach(() => vi.useRealTimers());
 
 describe("ThreadStore selective navigation subscriptions", () => {
+  it("refreshes a proxy's machine marks without invalidating unrelated rows", () => {
+    const store = new ThreadStore();
+    const proxy = { ...shell("rex~one"), backendKind: "machine", machine: { id: "rex", name: "rex", backendKind: "pi" } };
+    store.applyThreadIndex({ projects: [], sessions: [proxy, shell("two")] });
+    const changed = vi.fn();
+    const unrelated = vi.fn();
+    store.subscribeToThread(proxy.id, changed);
+    store.subscribeToThread("two", unrelated);
+    const renamed = { ...proxy, machine: { ...proxy.machine, name: "Rex", backendKind: "codex", modelProvider: "openai" } };
+    store.applyThreadIndex({ projects: [], sessions: [renamed, shell("two")] });
+    expect(store.getThread(proxy.id)).toBe(renamed);
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(unrelated).not.toHaveBeenCalled();
+    store.applyThreadIndex({ projects: [], sessions: [{ ...renamed, machine: { ...renamed.machine } }, shell("two")] });
+    expect(changed).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps ids and unchanged shell references stable", () => {
     const store = new ThreadStore();
     const first = [shell("one"), shell("two")];

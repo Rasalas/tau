@@ -1,5 +1,5 @@
 import type { ComponentType, ReactElement, ReactNode } from "react";
-import type { HostSnapshot, WorkbenchActions } from "tau";
+import type { HostSnapshot, UiSession, WorkbenchActions } from "tau";
 import type { MachineRailThread } from "./rail.js";
 
 export const ENVIRONMENTS_EXTENSION_ID = "tau.environments";
@@ -35,6 +35,8 @@ export interface DraftMachineSource {
 
 /** The part of Workspace Kit's `ThreadCardSectionProps` the machine's line reads. */
 export interface MachineCardRowProps {
+  /** The row's index entry, as Workspace Kit supplies it. New in API 1.43.0. */
+  session?: UiSession;
   external: boolean;
   Row: ComponentType<{ icon: ReactNode; children: ReactNode }>;
 }
