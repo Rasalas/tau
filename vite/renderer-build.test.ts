@@ -76,6 +76,19 @@ describe("rendererBuild.output.manualChunks", () => {
   });
 });
 
+describe("rendererBuild.output.manualChunks, browser client", () => {
+  const chunk = (id: string) => rendererBuild.output.manualChunks(id, meta({ "/repo/src/web/main.tsx": { isEntry: true } }));
+
+  it("groups the pairing code the browser client loads on a first connect", () => {
+    for (const file of ["web/connect/offer.ts", "web/connect/socket.ts", "web/connect/storage.ts", "shared/managed-connections.ts"]) expect(chunk(`/repo/src/${file}`), file).toBe("browser-connect");
+    expect(chunk("/repo/src/web/main.tsx")).toBeUndefined();
+  });
+
+  it("keeps lazy surfaces that bring no stylesheet in the common chunk", () => {
+    for (const file of ["renderer/components/Menu.tsx", "renderer/submission-controller.ts", "renderer/settings/settings-search.ts"]) expect(chunk(`/repo/src/${file}`), file).toBe("common");
+  });
+});
+
 describe("COMMON_MODULES", () => {
   it("names modules that exist and bring no stylesheet", () => {
     for (const path of COMMON_MODULES) expect(readFileSync(new URL(`../src/${path}`, import.meta.url), "utf8"), path).not.toMatch(/\.css["']/u);
