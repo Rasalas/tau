@@ -25,8 +25,10 @@
 .devices-view-toolbar { padding-block: 12px; }
 .devices-stream-status { flex: 1; min-width: 72px; color: var(--muted); font-size: var(--text-xs); }
 .devices-live { display: flex; align-items: center; gap: 8px; font-size: var(--text-xs); color: var(--ink-2); }
-.devices-view { display: grid; place-items: center; min-height: 260px; flex: 1; overflow: auto; background: var(--well); }
-.devices-view > img, .devices-view > div > canvas { display: block; max-width: calc(100% - 32px); max-height: 54vh; object-fit: contain; touch-action: none; user-select: none; margin: 16px; }
+.devices-view { display: flex; align-items: center; justify-content: center; min-height: 300px; flex: 1; overflow: auto; background: var(--well); }
+.devices-view > img, .devices-view > div > canvas { display: block; max-width: calc(100% - 32px); max-height: calc(100dvh - 320px); object-fit: contain; touch-action: none; user-select: none; margin: 16px; }
+.devices-posture { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 16px 10px; flex: none; color: var(--muted); font-size: var(--text-xs); flex-wrap: wrap; }
+.devices-posture .devices-field-actions { gap: 4px; }
 .devices-view > p { color: var(--muted); }
 .devices-notice, .devices-error { margin: 8px 16px; font-size: var(--text-sm); line-height: 1.5; }
 .devices-notice { color: var(--muted); }
@@ -46,9 +48,9 @@
 .devices-field-actions .tau-field-shell { min-width: 80px; }
 .devices-host + .devices-host { border-top: 1px solid var(--line-soft); }
 .devices-settings-footer { display: flex; justify-content: flex-end; }
-.devices-pose { padding: 16px 20px 12px; width: 100%; min-width: 0; color: var(--ink); display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.devices-pose { padding: 12px 20px; width: 100%; min-width: 0; height: 100%; min-height: 300px; color: var(--ink); display: flex; flex-direction: column; gap: 8px; }
 .devices-pose-probe { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-.devices-pose-scene { display: grid; place-items: center; perspective: 900px; height: clamp(160px, calc(100dvh - 500px), 440px); min-width: 0; overflow: hidden; touch-action: none; cursor: grab; user-select: none; }
+.devices-pose-scene { display: grid; place-items: center; perspective: 900px; flex: 1; min-height: 180px; min-width: 0; overflow: hidden; touch-action: none; cursor: grab; user-select: none; }
 .devices-pose-scene:active { cursor: grabbing; }
 .devices-pose-adjustments { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 20px; max-width: 660px; width: 100%; margin-inline: auto; }
 .devices-pose-adjustment { display: grid; gap: 7px; color: var(--muted); font-size: var(--text-xs); }
@@ -58,8 +60,21 @@
 .devices-pose-hinge-control > label { color: var(--muted); font-size: var(--text-xs); }
 .devices-pose-hinge-control .tau-slider { flex: 1; min-width: 140px; }
 .devices-pose-caption { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: var(--text-xs); }
+.devices-pose-caption > span { flex: 1; }
 .devices-pose-caption .tau-button { margin-left: auto; }
 .devices-pose-note { margin: 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.5; }
+.devices-pose-caption, .devices-pose-note, .devices-pose-options, .devices-pose-preview-note { flex: none; }
+.devices-pose-preview-note { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; color: var(--ink-2); font-size: var(--text-xs); }
+.devices-pose-options { border-top: 1px solid var(--line-soft); }
+.devices-pose-options summary { display: flex; align-items: center; gap: 8px; padding-block: 10px; list-style: none; color: var(--muted); cursor: pointer; font-size: var(--text-xs); }
+.devices-pose-options summary::-webkit-details-marker { display: none; }
+.devices-pose-options summary > svg:last-child { margin-left: auto; }
+.devices-pose-options[open] summary > svg:last-child { transform: rotate(90deg); }
+.devices-pose-options summary:hover { color: var(--ink); }
+.devices-pose-options summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--radius-sm); }
+.devices-pose-options-body { display: flex; flex-direction: column; gap: 12px; padding: 4px 0 8px; }
+.devices-pose-options-footer { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.devices-pose-options-footer .tau-select { margin-right: auto; }
 /* Defaults are local to the view; measured geometry overrides them inline. */
 .devices-pose-body {
   --device-radius: 18px;
@@ -84,10 +99,10 @@
 .devices-pose-body[data-layout="flip"] [data-panel="0"] .devices-pose-front .devices-pose-display { bottom: -1px; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .devices-pose-body[data-layout="flip"] [data-panel="1"] .devices-pose-front .devices-pose-display { top: -1px; border-top-left-radius: 0; border-top-right-radius: 0; }
 .devices-pose-edge { position: absolute; background: linear-gradient(90deg, var(--raised-strong), var(--raised-hover), var(--raised-strong)); }
-.devices-pose-edge-left, .devices-pose-edge-right { top: 0; height: 100%; width: var(--device-depth); transform-origin: left; }
+.devices-pose-edge-left, .devices-pose-edge-right { top: var(--device-radius); height: calc(100% - 2 * var(--device-radius)); width: var(--device-depth); transform-origin: left; }
 .devices-pose-edge-left { left: 0; transform: rotateY(90deg); }
 .devices-pose-edge-right { left: 100%; transform: rotateY(90deg); }
-.devices-pose-edge-top, .devices-pose-edge-bottom { left: 0; width: 100%; height: var(--device-depth); transform-origin: top; transform: rotateX(-90deg); }
+.devices-pose-edge-top, .devices-pose-edge-bottom { left: var(--device-radius); width: calc(100% - 2 * var(--device-radius)); height: var(--device-depth); transform-origin: top; transform: rotateX(-90deg); }
 .devices-pose-edge-top { top: 0; }
 .devices-pose-edge-bottom { top: 100%; }
 .devices-pose-hinge { position: absolute; left: calc(50% - var(--device-half-depth)); top: 0; width: var(--device-depth); height: 100%; transform: translateZ(calc(-1 * var(--device-half-depth))); border-radius: var(--device-depth); background: var(--raised-hover); }

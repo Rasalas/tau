@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { RotateCcw } from "lucide-react";
+import { ChevronRight, RotateCcw, Settings2, Smartphone } from "lucide-react";
 import { Button, HelpTip, Select, Slider } from "tau";
 import type { Device, FoldState } from "./protocol.js";
 import { articulated, bodyProfile, captureRegion, captureSurface, nativeAngle, panelGeometry, type BodyLayout, type PanelGeometry, type ScreenSize } from "./pose-model.js";
@@ -32,7 +32,7 @@ function Panel({ panel, image, front, cover, index, source }: { panel: PanelGeom
   </div>;
 }
 /** Presentation owns no native actions. Its preview hinge never changes the emulator. */
-export default function DevicePoseView({ image, device, fold, source, captureReady = true }: { image: string; device: Device; fold?: FoldState; source?: HTMLCanvasElement; captureReady?: boolean }) {
+export default function DevicePoseView({ image, device, fold, source, captureReady = true, onInteract }: { image: string; device: Device; fold?: FoldState; source?: HTMLCanvasElement; captureReady?: boolean; onInteract?: () => void }) {
   const profile = bodyProfile(device, fold);
   const [layoutChoice, setLayoutChoice] = useState<BodyLayout>();
   const layout = layoutChoice ?? profile.layout;
@@ -62,7 +62,7 @@ export default function DevicePoseView({ image, device, fold, source, captureRea
   const aspect = dimensions ? dimensions.width / dimensions.height : 1;
   // Initial closed captures have no interior dimensions. A generic body is explicit in the caption.
   const bodyAspect = articulated(layout) && !inner.current && fold?.posture === "closed" ? (layout === "flip" ? .5 : 1) : aspect;
-  const height = Math.min(350, Math.max(120, viewport.height - 24), Math.max(120, viewport.width - 90) / bodyAspect);
+  const height = Math.min(700, Math.max(40, viewport.height - 48), Math.max(40, viewport.width - 80) / bodyAspect);
   const width = height * bodyAspect;
   const depth = Math.max(6, Math.min(12, height * .026));
   const front = surface === "front" && angle > 5;
@@ -86,20 +86,28 @@ export default function DevicePoseView({ image, device, fold, source, captureRea
         {articulated(layout) && <span className={`devices-pose-hinge${layout === "flip" ? " devices-pose-hinge-horizontal" : ""}`} />}
       </div> : <span>Loading screen dimensions…</span>}
     </div>
-    <div className="devices-pose-adjustments">
-      <label className="devices-pose-adjustment"><span>Turn</span><Slider label="3D turn" min={-180} max={180} value={((yaw + 180) % 360 + 360) % 360 - 180} unit="°" onPreview={setYaw} onCommit={setYaw} /></label>
-      <label className="devices-pose-adjustment"><span>Tilt</span><Slider label="3D tilt" min={-85} max={85} value={pitch} unit="°" onPreview={setPitch} onCommit={setPitch} /></label>
-      <label className="devices-pose-adjustment"><span>Zoom</span><Slider label="3D zoom" min={.5} max={1.8} step={.05} value={zoom} format={(value) => `${Math.round(value * 100)}%`} onPreview={setZoom} onCommit={setZoom} /></label>
-    </div>
-    {articulated(layout) && <div className="devices-pose-hinge-control"><label>Preview hinge</label><Slider label="3D preview hinge" min={0} max={layout === "dual" ? 360 : 180} value={angle} unit="°" onPreview={setPreview} onCommit={setPreview} />{preview !== undefined && <Button variant="ghost" onClick={() => setPreview(undefined)}>Follow device posture</Button>}</div>}
     <div className="devices-pose-caption">
       <span>Drag to rotate · Scroll to zoom</span>
       <HelpTip text={`${layoutChoice ? "User-selected generic layout" : profile.label}. Generic frame and back, not a measured hardware model. Switch to the flat screen for touch input.`} />
-      {fold?.supported && !profile.identified && <Select label="3D fold layout" value={layout} options={[{ value: "book", label: "Book" }, { value: "flip", label: "Clamshell" }, { value: "dual", label: "Dual screen" }]} onChange={(value) => { setLayoutChoice(value as BodyLayout); inner.current = undefined; }} />}
-      <Button variant="ghost" icon={<RotateCcw size={13} />} aria-label="Reset view" onClick={reset}>Reset view</Button>
+      {onInteract && <Button variant="ghost" icon={<Smartphone size={13} />} onClick={onInteract}>Control screen</Button>}
     </div>
-    {preview !== undefined && <p className="devices-pose-note">Preview hinge changes this view only.</p>}
-    {!captureReady && <p className="devices-pose-note" role="status">Updating the screen after the posture change…</p>}
-    {articulated(layout) && <p className="devices-pose-note">{surface === "unmapped" ? "Open the device to match its screen to the 3D view." : surface === "cover" ? "Showing the cover screen." : actualAngle !== undefined ? `Device hinge ${Math.round(actualAngle)}° · Interior screen` : "Interior screen · Device hinge unavailable"}</p>}
+    {preview !== undefined && <div className="devices-pose-preview-note" role="status"><span>Preview hinge changes this view only.</span><Button variant="ghost" onClick={() => setPreview(undefined)}>Follow device posture</Button></div>}
+    {!captureReady && <p className="devices-pose-note" role="status">Updating the device screen…</p>}
+    {articulated(layout) && captureReady && <p className="devices-pose-note">{surface === "unmapped" ? "Open the device to match its screen to the 3D view." : surface === "cover" ? "Cover screen" : "Interior screen"}</p>}
+    <details className="devices-pose-options">
+      <summary><Settings2 size={13} />View controls<ChevronRight size={13} /></summary>
+      <div className="devices-pose-options-body">
+        <div className="devices-pose-adjustments">
+          <label className="devices-pose-adjustment"><span>Turn</span><Slider label="3D turn" min={-180} max={180} value={((yaw + 180) % 360 + 360) % 360 - 180} unit="°" onPreview={setYaw} onCommit={setYaw} /></label>
+          <label className="devices-pose-adjustment"><span>Tilt</span><Slider label="3D tilt" min={-85} max={85} value={pitch} unit="°" onPreview={setPitch} onCommit={setPitch} /></label>
+          <label className="devices-pose-adjustment"><span>Zoom</span><Slider label="3D zoom" min={.5} max={1.8} step={.05} value={zoom} format={(value) => `${Math.round(value * 100)}%`} onPreview={setZoom} onCommit={setZoom} /></label>
+        </div>
+        {articulated(layout) && <><div className="devices-pose-hinge-control"><label>Preview hinge</label><Slider label="3D preview hinge" min={0} max={layout === "dual" ? 360 : 180} value={angle} unit="°" onPreview={setPreview} onCommit={setPreview} /></div><p className="devices-pose-note">Changes the preview only. Use Fold or Unfold to change the device.</p></>}
+        <div className="devices-pose-options-footer">
+          {fold?.supported && !profile.identified && <Select label="3D fold layout" value={layout} options={[{ value: "book", label: "Book" }, { value: "flip", label: "Clamshell" }, { value: "dual", label: "Dual screen" }]} onChange={(value) => { setLayoutChoice(value as BodyLayout); inner.current = undefined; }} />}
+          <Button variant="ghost" icon={<RotateCcw size={13} />} aria-label="Reset view" onClick={reset}>Reset view</Button>
+        </div>
+      </div>
+    </details>
   </div>;
 }
