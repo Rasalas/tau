@@ -25,6 +25,32 @@ export const COMMON_MODULES = [
   "renderer/settings/page-action.tsx",
   "renderer/settings/provider-card-state.ts",
   "renderer/settings/connections-format.ts",
+  "renderer/components/ThreadCostPopover.tsx",
+  "renderer/cost-sections.ts",
+  "renderer/components/FileSource.tsx",
+  "renderer/components/QueuedMessages.tsx",
+  "renderer/components/TranscriptSearch.tsx",
+  "renderer/pairing/PairingRequestWatcher.tsx",
+  "renderer/components/ExtensionPrompt.tsx",
+  "renderer/settings/palette-menus.tsx",
+  "renderer/settings/runtime-control-runs.ts",
+  "renderer/components/composer-vim-normal.ts",
+  "renderer/components/AddModelProviderModal.tsx",
+  "renderer/components/SystemPromptModal.tsx",
+  "renderer/components/Menu.tsx",
+  "renderer/components/ProjectSources.tsx",
+  "renderer/submission-controller.ts",
+  "renderer/submission-queue.ts",
+  "workbench/config-layers-store.ts",
+  "shared/config-layers.ts",
+  "renderer/submission-optimistic.ts",
+  "renderer/components/DraftRow.tsx",
+  "renderer/settings/setting-state.tsx",
+  "renderer/settings/settings-search.ts",
+  "renderer/settings/settings-nav.ts",
+  "renderer/components/ThreadRow.tsx",
+  "renderer/components/ui/MiddleTruncate.tsx",
+  "renderer/components/ui/menu-navigation.ts",
 ];
 const COMMON = new Set(COMMON_MODULES.map((path) => `/src/${path}`));
 
@@ -85,6 +111,8 @@ export const rendererBuild = {
         if (icon) return entry.icons && !entry.icons.has(icon) ? "common" : undefined;
         return entry.modules.has(id) ? undefined : "common";
       }
+      // The browser client's pairing code: no stylesheet, loaded together on a first connect.
+      if (/\/src\/web\/connect\/(?:offer|socket|storage)\.ts$|\/src\/shared\/managed-connections\.ts$/u.test(id)) return "browser-connect";
       // These surfaces are loaded together on compact clients. One lazy chunk
       // avoids repeated imports and keeps message sheets out of the entry.
       return /\/renderer\/touch\/(?!Sheet\.tsx$).*\.tsx$/u.test(id) ? "touch-surfaces" : undefined;
