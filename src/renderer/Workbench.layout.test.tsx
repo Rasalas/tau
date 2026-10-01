@@ -331,6 +331,23 @@ describe("workbench layout", () => {
       expect(screen.queryByRole("complementary", { name: "Thread" })).toBeNull();
     });
 
+    it("keeps the spine across a restart, and drops it with the stage", async () => {
+      setWindowWidth(1440);
+      const storage = createMemoryStorage();
+      const first = renderApp(undefined, { extensions: [rail, files], storage });
+      await openFile();
+      fireEvent.click(screen.getByRole("button", { name: "Collapse conversation" }));
+      await screen.findByRole("complementary", { name: "Thread" });
+      expect(storage.get("tau:spine")).toBe("true");
+      first.unmount();
+      // A restart: the stage opens later than the first paint, and the choice is still the user's.
+      const second = renderApp(undefined, { extensions: [rail, files], storage });
+      await openFile();
+      expect(second.container.querySelector(".workbench-center")?.className).toContain("spine");
+      fireEvent.click(await screen.findByRole("button", { name: "Open conversation" }));
+      await waitFor(() => expect(storage.get("tau:spine")).toBe("false"));
+    });
+
     it("maximizes the stage over the whole centre, with no strip for the chat, and its toggle brings the chat back", async () => {
       setWindowWidth(1728);
       const view = renderApp(undefined, { extensions: [rail, files] });

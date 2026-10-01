@@ -372,7 +372,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const [sidebarOpen, setSidebarOpen] = useState(() => clientStorage.get(STORAGE_KEYS.sidebarOpen) !== "false");
   const [systemPromptOpen, setSystemPromptOpen] = useState(false);
   // The conversation collapsed to its spine beside the stage (design 1b): a layout state, kept across threads.
-  const [spineWanted, setSpine] = useState(false);
+  const [spineWanted, setSpine] = useState(() => clientStorage.get(STORAGE_KEYS.spine) === "true");
+  useEffect(() => clientStorage.set(STORAGE_KEYS.spine, String(spineWanted)), [spineWanted]);
   const [jumpToLatest] = useState(() => new JumpToLatestStore());
   const openPage = useSyncExternalStore(pages.subscribe, pages.getSnapshot);
   // A phone shows a page as a screen of its own; elsewhere it takes the thread's place beside the sidebar.
@@ -455,7 +456,12 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const conversationFolded = stacked && (folded || !chatFocused);
   const stageExpanded = stageShown && !(stacked && !folded && chatFocused);
   const spine = spineWanted && stageExpanded && canSplit && !compact && !showStartScreen;
-  useEffect(() => { if (!stageShown) setSpine(false); }, [stageShown]);
+  // Closing the stage ends the spine; the first paint of a restart has none yet and keeps the stored choice.
+  const stageWasShown = useRef(false);
+  useEffect(() => {
+    if (!stageShown && stageWasShown.current) setSpine(false);
+    stageWasShown.current = stageShown;
+  }, [stageShown]);
   // Where the conversation is out of sight, its composer floats over the stage (design 1b).
   const floating = conversationFolded && stageExpanded && !compact && !showStartScreen;
   const sideOpen = stageShown && !stacked;

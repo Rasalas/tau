@@ -26,6 +26,7 @@ export const STORAGE_KEYS = {
   reviewSidebarWidth: "tau:review-sidebar-width",
   reviewSidebarOpen: "tau:review-sidebar-open",
   composerFold: "tau:composer-fold",
+  spine: "tau:spine",
 } as const;
 
 /**
