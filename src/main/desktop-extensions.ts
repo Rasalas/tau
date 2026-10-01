@@ -128,6 +128,19 @@ function isIdentifier(name: string): boolean {
   return /^[A-Za-z_$][\w$]*$/u.test(name) && name !== "default";
 }
 
+/** The helper every shim imports; only shims resolve it, so it cannot meet a real module. */
+const SHARED_RUNTIME = "runtime";
+
+/** Written once per bundle rather than once per shared module. */
+const SHARED_RUNTIME_SOURCE = [
+  "export function shared(specifier) {",
+  "  const m = globalThis.__tauShared?.[specifier];",
+  "  if (!m) throw new Error(`Shared module ${specifier} is not available in this workbench`);",
+  "  return m;",
+  "}",
+  `/* @__NO_SIDE_EFFECTS__ */ export function defaultOf(m) { return m && typeof m === "object" && "default" in m ? m.default : m; }`,
+].join("\n");
+
 /**
  * Bare imports of the workbench's own libraries resolve to the copies the
  * renderer already runs, published on `globalThis.__tauShared`. Bundling a
@@ -136,9 +149,9 @@ function isIdentifier(name: string): boolean {
  */
 function sharedModuleSource(specifier: string, exportNames: readonly string[]): string {
   const lines = [
-    `const m = globalThis.__tauShared?.[${JSON.stringify(specifier)}];`,
-    `if (!m) throw new Error(${JSON.stringify(`Shared module ${specifier} is not available in this workbench`)});`,
-    `export default (m && typeof m === "object" && "default" in m ? m.default : m);`,
+    `import { shared, defaultOf } from ${JSON.stringify(SHARED_RUNTIME)};`,
+    `const m = shared(${JSON.stringify(specifier)});`,
+    "export default /* @__PURE__ */ defaultOf(m);",
     // A binding esbuild cannot prove pure is a binding it must keep, and a
     // property read is never provably pure. Routing every name through an
     // annotated picker lets it drop the ones the package never imports —
@@ -197,11 +210,12 @@ export async function bundleDesktopExtension(entry: string, options: BundleOptio
       name: "tau-shared-modules",
       setup(api) {
         api.onResolve({ filter: /.*/ }, (args) => {
+          if (args.namespace === "tau-shared" && args.path === SHARED_RUNTIME) return { path: SHARED_RUNTIME, namespace: "tau-shared" };
           if (!shared.has(args.path)) return undefined;
           return { path: args.path, namespace: "tau-shared" };
         });
         api.onLoad({ filter: /.*/, namespace: "tau-shared" }, async (args) => ({
-          contents: sharedModuleSource(args.path, await sharedExportNamesFor(args.path, options.sharedExports[args.path])),
+          contents: args.path === SHARED_RUNTIME ? SHARED_RUNTIME_SOURCE : sharedModuleSource(args.path, await sharedExportNamesFor(args.path, options.sharedExports[args.path])),
           loader: "js",
         }));
       },

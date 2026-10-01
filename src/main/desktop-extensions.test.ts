@@ -37,12 +37,36 @@ describe("desktop extension bundling", () => {
     const code = await bundleDesktopExtension(join(dir, "hello.tsx"), {
       sharedExports: { react: ["useState"], "react/jsx-runtime": ["jsx", "jsxs", "Fragment"], tau: [] },
     });
-    expect(code).toContain('globalThis.__tauShared?.["react"]');
-    expect(code).toContain('globalThis.__tauShared?.["react/jsx-runtime"]');
+    expect(code).toContain("globalThis.__tauShared?.[specifier]");
+    expect(code).toContain('shared("react")');
+    expect(code).toContain('shared("react/jsx-runtime")');
+    // One copy of the lookup and its error, however many shared modules the bundle binds.
+    expect(code.match(/is not available in this workbench/gu)).toHaveLength(1);
     expect(code).not.toMatch(/from\s+["']react["']/u);
     expect(code).toMatch(/export\s*\{/u);
     // Minified whitespace: no indented lines.
     expect(code.split("\n").filter((line) => /^\s/u.test(line))).toEqual([]);
+  });
+
+  it("binds shared modules from the renderer at import, and names the one that is missing", async () => {
+    const dir = await scratch();
+    await writeFile(join(dir, "uses.ts"), `
+      import { useState } from "react";
+      export default { id: "x.uses", name: "Uses", activate() { return useState; } };
+    `);
+    const code = await bundleDesktopExtension(join(dir, "uses.ts"), { sharedExports: { react: ["useState"], tau: [] } });
+    const url = `data:text/javascript;base64,${Buffer.from(code).toString("base64")}`;
+    const shared = globalThis as { __tauShared?: Record<string, unknown> };
+    const useState = () => 1;
+    try {
+      shared.__tauShared = { react: { useState } };
+      const module = await import(/* @vite-ignore */ `${url}#ok`) as { default: { activate(): unknown } };
+      expect(module.default.activate()).toBe(useState);
+      shared.__tauShared = {};
+      await expect(import(/* @vite-ignore */ `${url}#missing`)).rejects.toThrow("Shared module react is not available in this workbench");
+    } finally {
+      delete shared.__tauShared;
+    }
   });
 
   it("ships only the shared bindings the extension imports, in the code and in the map", async () => {
