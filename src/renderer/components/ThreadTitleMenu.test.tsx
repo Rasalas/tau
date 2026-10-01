@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { openTitleRename, renameRefusal, titleRenameRefusal } from "../thread-rename";
+import { openTitleRename, titleRenameRefusal } from "../thread-rename";
 import { coreThreadMenu, ThreadTitleMenu, type ThreadTitleMenuModel } from "./ThreadTitleMenu";
 
 afterEach(cleanup);
@@ -53,8 +53,8 @@ describe("ThreadTitleMenu", () => {
 });
 
 describe("ThreadTitleMenu rename field", () => {
-  const mount = (onRename = vi.fn(async (_title: string) => true), renameReason?: string) => {
-    render(<ThreadTitleMenu title="Improve title menu" menu={() => ({ sections: [], run: vi.fn() })} onRename={onRename} renameRefusal={renameReason} />);
+  const mount = (onRename = vi.fn(async (_title: string) => true)) => {
+    render(<ThreadTitleMenu title="Improve title menu" menu={() => ({ sections: [], run: vi.fn() })} onRename={onRename} />);
     return onRename;
   };
   const field = () => screen.findByRole("textbox", { name: "Thread title" }) as Promise<HTMLInputElement>;
@@ -118,21 +118,11 @@ describe("ThreadTitleMenu rename field", () => {
     expect(screen.getByRole("textbox", { name: "Thread title" })).toBeTruthy();
   });
 
-  it("says why the command cannot run, and opens nothing", () => {
-    mount(undefined, "Not from here.");
-    expect(titleRenameRefusal()).toBe("Not from here.");
-    act(() => openTitleRename());
-    expect(screen.queryByRole("textbox")).toBeNull();
+  it("is unavailable with no title on screen", () => {
+    mount();
+    expect(titleRenameRefusal()).toBeUndefined();
     cleanup();
     expect(titleRenameRefusal()).toBe("Open a thread to rename it.");
-  });
-
-  it("refuses a thread of another machine and none else", () => {
-    expect(renameRefusal({ machine: { id: "m", name: "rex" } })).toMatch(/rex/u);
-    expect(renameRefusal({})).toBeUndefined();
-    expect(renameRefusal(undefined)).toBeUndefined();
-    const item = fallback({ renameRefusal: "Not from here." }).sections[1]!.items[0]!;
-    expect(item).toMatchObject({ id: "rename", disabled: true, description: "Not from here." });
   });
 });
 

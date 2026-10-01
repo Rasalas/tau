@@ -17,7 +17,6 @@ export function coreThreadMenu({
   pinned,
   settled,
   readOnly,
-  renameRefusal,
   commands,
   canCopyPath,
   run,
@@ -27,8 +26,6 @@ export function coreThreadMenu({
   pinned: boolean;
   settled: boolean;
   readOnly: boolean;
-  /** Why Rename is disabled, when the thread cannot be renamed from here. */
-  renameRefusal?: string | undefined;
   /** Extension commands offered on the thread-title surface. */
   commands: ReadonlyArray<{ id: string; label: string; destructive?: boolean; access?: "read" | "write"; unavailable?(): string | undefined }>;
   /** A path of a host that is not this machine is not worth copying. */
@@ -55,7 +52,7 @@ export function coreThreadMenu({
           { id: "settle", label: settled ? "Un-settle thread" : "Settle thread", ...locked },
         ],
       },
-      { items: [{ id: "rename", label: "Rename thread", ...(renameRefusal && !readOnly ? { disabled: true, description: renameRefusal } : locked) }, ...commands.filter((command) => !command.destructive).map(item), { id: "unread", label: "Mark unread" }] },
+      { items: [{ id: "rename", label: "Rename thread", ...locked }, ...commands.filter((command) => !command.destructive).map(item), { id: "unread", label: "Mark unread" }] },
       {
         items: [
           { id: "copy-chat", label: "Copy entire chat as Markdown" },
@@ -70,13 +67,11 @@ export function coreThreadMenu({
 }
 
 /** The thread's title, opening its menu; `rename` in any menu, and F2, edit the title in place. */
-export function ThreadTitleMenu({ title, menu, onRename, renameRefusal }: {
+export function ThreadTitleMenu({ title, menu, onRename }: {
   title: string;
   /** Read when the menu opens. */
   menu(): ThreadTitleMenuModel;
   onRename(title: string): Promise<boolean>;
-  /** Why the thread cannot be renamed from here; the Rename command is unavailable with it. */
-  renameRefusal?: string | undefined;
 }) {
   const [open, setOpen] = useState<ThreadTitleMenuModel>();
   const [renaming, setRenaming] = useState(false);
@@ -85,10 +80,8 @@ export function ThreadTitleMenu({ title, menu, onRename, renameRefusal }: {
   const inputRef = useRef<HTMLInputElement>(null);
   // Enter, Esc and blur each end an edit once; the blur a closing field may raise is not a second save.
   const ended = useRef(false);
-  const refusal = useRef(renameRefusal);
-  refusal.current = renameRefusal;
 
-  useEffect(() => registerTitleField({ open: () => { setOpen(undefined); setRenaming(true); }, refusal: () => refusal.current }), []);
+  useEffect(() => registerTitleField({ open: () => { setOpen(undefined); setRenaming(true); } }), []);
 
   useEffect(() => {
     if (!renaming) setDraft(title);

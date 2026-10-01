@@ -29,7 +29,6 @@ import { COMPACT_SIDEBAR_MIN_WIDTH, compactSidebarMaxWidth, compactSidebarWidth,
 import { useCompactForm } from "./use-layout-profile";
 import { useClientEnvironment } from "./client-environment";
 import { coreThreadMenu, ThreadTitleMenu } from "./components/ThreadTitleMenu";
-import { renameRefusal } from "./thread-rename";
 import type { ThreadTreeMode } from "./components/ThreadTreeModal";
 import { TitleBar } from "./components/TitleBar";
 import { ThreadRuntimeBanner } from "./components/ThreadRuntimeBanner";
@@ -676,7 +675,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           <ThreadTitleMenu
             title={conversationSnapshot?.sessionTitle || "Untitled thread"}
             onRename={renameThread}
-            renameRefusal={renameRefusal(threadStore.getSnapshot().threads.find((entry) => entry.id === snapshot?.sessionId))}
             menu={() => {
               const id = snapshot?.sessionId;
               const session = threadStore.getSnapshot().threads.find((entry) => entry.id === id);
@@ -687,7 +685,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                 pinned: Boolean(id && settings.pinnedThreadIds.includes(id)),
                 settled: Boolean(id && settings.settledThreadIds.includes(id)),
                 readOnly: hostCapabilities.readOnly,
-                renameRefusal: renameRefusal(session),
                 commands: titleCommands,
                 canCopyPath: hostCapabilities.localFiles,
                 run: (item) => {

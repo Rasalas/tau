@@ -265,4 +265,3 @@ export { THREAD_BRANCH_SERVICE, THREAD_PULL_REQUESTS_SERVICE } from "../shared/t
 export type { ThreadBranch, ThreadBranchService, ThreadPullRequest, ThreadPullRequestsService } from "../shared/thread-git";
 export type * from "../shared/contracts";
 export { displayRuntime } from "../shared/contracts";
-export { renameRefusal } from "./thread-rename";
