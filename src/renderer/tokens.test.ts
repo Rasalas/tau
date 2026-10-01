@@ -149,10 +149,10 @@ describe("the token contract", () => {
   it("gives every colour token a value in both schemes", async () => {
     const tokens = await readTokens();
     const single = [...tokens].filter(([, value]) => /^#|^hsl\(/u.test(value) && !value.startsWith("light-dark("));
-    // The mark on the stop button, a QR code and the dark picture viewer are the same in
+    // The mark on the stop button, a QR code, the terminal and the dark picture viewer are the same in
     // both schemes on purpose; anything else with one value is a token that was not themed.
     const media = ["--media", "--media-control", "--media-faint", "--media-hover", "--media-ink", "--media-muted", "--media-shade", "--media-well", "--scrim-deep"];
-    expect(single.map(([name]) => name).sort()).toEqual([...media, "--qr-ink", "--qr-paper", "--stop-ink"].sort());
+    expect(single.map(([name]) => name).sort()).toEqual([...media, "--qr-ink", "--qr-paper", "--stop-ink", "--term"].sort());
   });
 
   it("sets the side surface lighter than the document area in the dark scheme only", async () => {

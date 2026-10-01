@@ -54,6 +54,8 @@
   --scrim: light-dark(#1c1b19a3, #050608e0);         /* the dim behind a modal */
   --scrim-deep: #0e0e0df0;                           /* the dim behind a full-screen image: dark in either scheme */
   /* A picture viewer is dark whatever the theme, so pictures read true. */
+  /* The terminal: a step under the dark ground, so it is dark in the light scheme too (design 1b). */
+  --term: #0a0b0e;
   --media: #0e0e0d;                                  /* the ground of a full-window picture viewer */
   --media-ink: #f1efeb;                              /* text on it */
   --media-muted: #f1efeb8c;                          /* secondary text on it */
