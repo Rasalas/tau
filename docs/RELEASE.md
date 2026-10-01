@@ -708,16 +708,29 @@ key (cloud signing); the key needs a role in App Store Connect that may manage
 certificates, which Admin has. The key file lives in the runner's temp folder
 for the step and is deleted when it ends.
 
-When supplying `IOS_PROFILE` for manual signing, also supply
+The job sets `TAU_IOS_WIDGETS` to `0`: until the widgets are redesigned (K163)
+and the App Group is set up on the account (K164), the TestFlight build has no
+TauWidgets extension and no App Group. `scripts/packaging/ios-widgets.mjs`
+removes the App target's dependency on TauWidgets, its embed and the
+`com.apple.security.application-groups` entitlement from the checkout before
+the archive; the widget code stays in the repository. The app then neither
+writes widget snapshots nor starts Live Activities. `IOS_PROFILE` alone signs
+it: an App Store profile for `de.tbuck.tau` with production push and the
+shared `de.tbuck.tau.shared` keychain group (the team wildcard covers it);
+`IOS_WIDGET_PROFILE` is ignored.
+
+With `TAU_IOS_WIDGETS: "1"`, supply both `IOS_PROFILE` and
 `IOS_WIDGET_PROFILE`. They are separate App Store distribution profiles for
 `de.tbuck.tau` and `de.tbuck.tau.widgets`, both on team `V4MWQ28RZ2`, with
-App Group `group.de.tbuck.tau` and the shared `de.tbuck.tau.shared` keychain
-group. The app profile must allow production push notifications. The workflow
-checks both profiles before installing either, rejects expired or development
-profiles, selects the profile for each target through `profiles.xcconfig`, and
-includes both bundle identifiers when exporting. With neither profile set,
-automatic signing remains available. A dry run without the Apple key archives
-unsigned.
+App Group `group.de.tbuck.tau` and the shared keychain group.
+`node scripts/packaging/ios-store-profiles.mjs` registers the widget's App ID,
+turns on App Groups for both and creates the two profiles through the App
+Store Connect API; the group itself is assigned to the App IDs by hand in the
+developer portal, which the API cannot do. The workflow checks every profile
+before installing any, rejects expired or development profiles, selects the
+profile for each target through `profiles.xcconfig`, and names each bundle
+identifier when exporting. With no profile set, automatic signing remains
+available. A dry run without the Apple key archives unsigned.
 
 - **When it uploads:** for a `v*` tag or a `publish` dispatch. A dispatch on
   `main` archives signed and uploads nothing; a branch's dry run, which has no
@@ -882,8 +895,8 @@ configuration. The secrets live in the environment `release`:
 | `APPLE_API_ISSUER` | its issuer id |
 | `IOS_DIST_P12` | base64 of the Apple Distribution `.p12` the iOS job imports into a temporary keychain; without it Xcode would need Apple's cloud signing and an Admin key |
 | `IOS_DIST_P12_PASSWORD` | its password |
-| `IOS_PROFILE` | base64 App Store profile for `de.tbuck.tau`; manual signing needs the matching widget profile too |
-| `IOS_WIDGET_PROFILE` | base64 App Store profile for `de.tbuck.tau.widgets`, with the same App Group and shared keychain entitlement |
+| `IOS_PROFILE` | base64 App Store profile for `de.tbuck.tau`; with `TAU_IOS_WIDGETS` 1 it needs the App Group and the widget profile too |
+| `IOS_WIDGET_PROFILE` | base64 App Store profile for `de.tbuck.tau.widgets`, with the same App Group and shared keychain entitlement; read only with `TAU_IOS_WIDGETS` 1 |
 
 Only the macOS build reads them: it is the only build job in the environment,
 and the Package step passes them only when the matrix entry is macOS, since

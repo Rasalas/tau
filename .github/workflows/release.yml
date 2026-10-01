@@ -486,6 +486,9 @@ jobs:
     runs-on: macos-26
     environment: ${{ needs.gate.outputs.environment }}
     timeout-minutes: 45
+    env:
+      # 1 builds TauWidgets and the App Group; that needs the group on both App IDs and IOS_WIDGET_PROFILE (K163, K164).
+      TAU_IOS_WIDGETS: "0"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -512,6 +515,8 @@ jobs:
           npx vite build
           npx cap sync ios
           if grep -l tauAutomation dist/assets/*.js; then echo "::error::The release web layer contains the automation bridge."; exit 1; fi
+      - name: Leave out the widgets unless TAU_IOS_WIDGETS is 1
+        run: node scripts/packaging/ios-widgets.mjs mobile/ios/App
       # The runner has no signing certificate; Apple's cloud signing would need an Admin key.
       - name: Import the distribution certificate
         env:
@@ -535,7 +540,7 @@ jobs:
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
           security find-identity -v -p codesigning "$keychain" | grep -q "Apple Distribution" || { echo "::error::The imported certificate is not an Apple Distribution identity."; exit 1; }
           echo "IOS_SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
-      - name: Install profiles for the app and widget
+      - name: Install the App Store profiles
         env:
           IOS_PROFILE: ${{ secrets.IOS_PROFILE }}
           IOS_WIDGET_PROFILE: ${{ secrets.IOS_WIDGET_PROFILE }}

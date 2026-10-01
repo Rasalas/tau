@@ -19,15 +19,21 @@ public struct TauActivityAttributes: ActivityAttributes {
 /// App-group storage contains bounded display snapshots only. No credentials enter the extension.
 public enum MobileActivityStore {
     public static let group = "group.de.tbuck.tau"
+    /// Release builds leave the extension and the App Group out until K163 (TAU_IOS_WIDGETS).
+    public static let widgets = Bundle.main.builtInPlugInsURL.map { FileManager.default.fileExists(atPath: $0.appendingPathComponent("TauWidgets.appex").path) } ?? false
+    // Without the entitlement, a suite would silently write to the app's own container.
+    static var shared: UserDefaults? {
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) == nil ? nil : UserDefaults(suiteName: group)
+    }
     public static func usage(_ snapshot: [String: Any]) {
-        guard let host = snapshot["hostId"] as? String, let defaults = UserDefaults(suiteName: group),
+        guard let host = snapshot["hostId"] as? String, let defaults = shared,
               let data = try? JSONSerialization.data(withJSONObject: snapshot) else { return }
         defaults.set(data, forKey: "usage." + host)
         WidgetCenter.shared.reloadTimelines(ofKind: "TauUsage")
     }
     public static func clear(_ host: String) async {
         ActivityCipher.forget(host: host)
-        UserDefaults(suiteName: group)?.removeObject(forKey: "usage." + host)
+        shared?.removeObject(forKey: "usage." + host)
         WidgetCenter.shared.reloadTimelines(ofKind: "TauUsage")
         if #available(iOS 16.2, *) {
             for activity in Activity<TauActivityAttributes>.activities where activity.attributes.hostId == host { await activity.end(nil, dismissalPolicy: .immediate) }
@@ -37,7 +43,7 @@ public enum MobileActivityStore {
     public static func update(_ value: [String: Any], token: @escaping ([String: Any]) -> Void) async throws {
         guard let host = value["hostId"] as? String, let thread = value["threadId"] as? String,
               let state = value["state"] as? String, ["running", "completed", "needs-input"].contains(state),
-              let expires = value["expiresAt"] as? Double, expires > Date().timeIntervalSince1970 * 1000 else { return }
+              let expires = value["expiresAt"] as? Double, expires > Date().timeIntervalSince1970 * 1000, widgets else { return }
         let content = ActivityContent(state: TauActivityAttributes.ContentState(title: String((value["title"] as? String ?? "Agent work").prefix(100)), state: state, expiresAt: expires), staleDate: Date(timeIntervalSince1970: expires / 1000))
         if let current = Activity<TauActivityAttributes>.activities.first(where: { activity in
             if activity.attributes.hostId == host && activity.attributes.threadId == thread { return true }

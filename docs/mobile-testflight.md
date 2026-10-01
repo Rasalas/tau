@@ -41,6 +41,12 @@ is taken, pick your own (for example `com.<you>.tau`) and change it in two place
    your App ID; if it is missing, **+ Capability** → **Push Notifications**. Nothing else
    to add: the Keychain works without a capability, and the camera, local network and
    Bonjour texts are already in `Info.plist`.
+   The project also builds the TauWidgets extension (widget and Live Activities),
+   which needs the App Group `group.de.tbuck.tau` on both App IDs; automatic
+   signing registers it. To build as Tau's own TestFlight releases do, without the
+   extension and the App Group, run `node scripts/packaging/ios-widgets.mjs` from the
+   repository root first; it rewrites `App.xcodeproj` and `App.entitlements`, and
+   `git checkout mobile/ios/App` undoes it.
 5. Select the **App project** under PROJECT, then **Build Settings → Versioning**.
    Set **Marketing Version** (for example `0.1.0`) and **Current Project Version**
    (`1`) there. App and TauWidgets inherit both values, so one change updates
