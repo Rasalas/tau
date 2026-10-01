@@ -118,8 +118,28 @@ Unknown identities remain separate. Widgets receive quota labels, percentages,
 reset times and hashed grouping keys; no host tokens or provider credentials.
 Snapshots expire no later than fifteen minutes after their source reading.
 Open Tau to refresh. Removing a host or receiving a revoked-token response
-clears its cards and snapshots. Android widget redraws follow the system's
-widget schedule, so the last rendered text can remain until the next redraw.
+clears its cards and snapshots.
+
+On Android the app hands the widgets one snapshot per host instead
+(`src/widget-snapshot.ts`, debounced by a second): the host's name, its accounts
+and its threads. The **Plan limits** widget (2 × 2 juicebars and the lowest rest,
+4 × 2 a row per account, 4 × 3 a row per window with its reset) and the
+**Threads** widget (2 × 2 the most urgent thread, 4 × 2 and 4 × 3 a list) are Jetpack
+Glance widgets in `plugins/tau-native` on Material You surfaces. Running threads
+share one ongoing notification with a live chronometer; Android 16 QPR1 and
+later may promote it to a Live Update chip. Tau never asks for the notification
+permission for it. Pushed activities update the same snapshot in the background.
+
+Android only redraws what it has: new numbers come from the open app or a
+push. A reading older than fifteen minutes stays drawn, faded, with its time
+in the warn colour. WorkManager redraws when something turns stale or a
+finished thread leaves, and every 30 minutes while a widget is placed;
+periodic work runs at most every 15 minutes and Doze defers it, so ages read
+as clock times ("as of 14:02"), not "3 min ago". Running times are
+chronometers, which tick without a redraw. A debug build's
+`.WidgetGalleryActivity` hosts both widgets with sample data:
+`adb shell appwidget grantbind --package de.tbuck.tau`, then
+`adb shell am start -n de.tbuck.tau/.WidgetGalleryActivity --es kind limits|threads --es scene full|stale|spent|empty|quiet|one|ask|done`.
 
 Native projects include the WidgetKit extension and app-group entitlements.
 The app and extension both need the `group.de.tbuck.tau` App Group and

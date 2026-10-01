@@ -106,19 +106,18 @@ export function widgetAccounts(accounts: readonly UsageLimitAccount[], now: numb
   const current = accounts.filter((account) => !account.unavailable && account.windows.length > 0 && Number.isFinite(account.checkedAt)
     && account.checkedAt <= now + 60_000 && (keepStale || now - account.checkedAt < 15 * 60_000));
   return groupAccounts(current).map((group): WidgetAccount => {
+    const value: WidgetAccount = { label: group.label.slice(0, 100), tone: toneOfGroup(group), checkedAt: group.shown.checkedAt, windows: [] };
+    if (group.shown.identity) value.poolKey = `${group.shown.identity.provider}:${group.shown.identity.key}`;
+    if (group.shown.plan) value.plan = group.shown.plan.slice(0, 40);
     const mark = markOfGroup(group);
-    return {
-      ...(group.shown.identity ? { poolKey: `${group.shown.identity.provider}:${group.shown.identity.key}` } : {}),
-      label: group.label.slice(0, 100),
-      ...(group.shown.plan ? { plan: group.shown.plan.slice(0, 40) } : {}),
-      tone: toneOfGroup(group),
-      ...(mark ? { mark } : {}),
-      checkedAt: group.shown.checkedAt,
-      windows: shownWindows(group.shown.windows).filter((window) => Number.isFinite(window.usedPercent)).map((window) => ({
-        label: window.label.slice(0, 50), short: shortLabel(window), usedPercent: Math.max(0, Math.min(100, window.usedPercent)),
-        ...(Number.isFinite(window.resetsAt) ? { resetsAt: window.resetsAt } : {}),
-      })),
-    };
+    if (mark) value.mark = mark;
+    for (const window of shownWindows(group.shown.windows)) {
+      if (!Number.isFinite(window.usedPercent)) continue;
+      const shown: WidgetWindow = { label: window.label.slice(0, 50), short: shortLabel(window), usedPercent: Math.max(0, Math.min(100, window.usedPercent)) };
+      if (Number.isFinite(window.resetsAt)) shown.resetsAt = window.resetsAt;
+      value.windows.push(shown);
+    }
+    return value;
   }).sort((left, right) => TONE_ORDER.indexOf(left.tone) - TONE_ORDER.indexOf(right.tone) || left.label.localeCompare(right.label));
 }
 
@@ -130,5 +129,10 @@ export function widgetThreads(threads: Iterable<WidgetThread>, now: number): Wid
     .filter((thread) => thread.state === "question" || thread.state === "running" || now - thread.since <= FINISHED_MS)
     .sort((left, right) => RANK[left.state] - RANK[right.state] || (RANK[left.state] < 2 ? left.since - right.since : right.since - left.since))
     .slice(0, MAX_THREADS)
-    .map((thread) => ({ ...thread, title: thread.title.slice(0, 100), ...(thread.project ? { project: thread.project.slice(0, 60) } : {}), ...(thread.detail ? { detail: thread.detail.slice(0, 120) } : {}) }));
+    .map((thread) => {
+      const value: WidgetThread = { id: thread.id, title: thread.title.slice(0, 100), state: thread.state, since: thread.since, updatedAt: thread.updatedAt };
+      if (thread.project) value.project = thread.project.slice(0, 60);
+      if (thread.detail) value.detail = thread.detail.slice(0, 120);
+      return value;
+    });
 }
