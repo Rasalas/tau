@@ -780,11 +780,15 @@ body:not([data-profile="compact"]) .conversation-start .composer-zone { padding-
 .message-actions button {
   display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px;
   border: 0; border-radius: 5px; background: transparent; color: var(--faint);
-  font: 500 10px var(--sans); cursor: pointer;
+  font: 500 10px var(--sans); white-space: nowrap; cursor: pointer;
 }
 .message-actions button:hover { background: var(--raised); color: var(--ink-2); }
 .message-actions button:focus-visible { opacity: 1; outline: 1px solid var(--focus); outline-offset: 0; }
 
+/* The line between two turns (design 2d); kits add actions to it on hover. */
+.turn-divider { display: flex; align-items: center; gap: 8px; margin: 4px 0 14px; color: var(--muted); font: var(--text-xs) var(--sans); }
+.turn-divider::before, .turn-divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.turn-divider > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; outline: none; }
 .message.user {
   align-self: flex-end; max-width: 78%;
   display: flex; flex-direction: column; gap: 6px; align-items: flex-end;
@@ -1035,9 +1039,9 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 .tool-activity-summary > .tool-activity-status-icon.error { color: var(--removed); }
 .work-fold-summary > .tool-activity-status-icon { flex: none; display: inline-flex; color: var(--removed); }
 .tool-activity-summary > .tool-activity-status-icon.interrupted { color: var(--warn); }
-/* The design's tool box: filled, edgeless. */
+/* The design's tool card: filled, edgeless, a row per call. */
 .tool-activity-detail {
-  margin: 5px 0 0 26px; overflow: hidden;
+  margin: 4px 0; overflow: hidden;
   border: 1px solid transparent; border-radius: var(--radius-md); background: var(--code-bg);
   transform-origin: top; animation: tool-detail-in 180ms ease-out;
 }
@@ -1045,33 +1049,37 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
   from { opacity: 0; transform: translateY(-3px) scaleY(.97); }
   to { opacity: 1; transform: none; }
 }
-.tool-run { border-bottom: 1px solid var(--line-inset); animation: tool-run-in 180ms ease-out; }
+.work-live > .tool-activity-detail { margin-left: 26px; }
+.tool-run { animation: tool-run-in 180ms ease-out; }
+.tool-run .tool-run { padding-left: 16px; }
 @keyframes tool-run-in {
   from { opacity: 0; transform: translateY(3px); }
   to { opacity: 1; transform: none; }
 }
-.tool-run:last-child { border-bottom: 0; }
 .tool-run-line {
-  width: 100%; display: flex; align-items: center; gap: 10px;
-  padding: 9px 13px; border: 0; background: transparent; cursor: pointer; text-align: left;
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; border: 0; background: transparent; cursor: pointer; text-align: left;
 }
 .tool-run-line:hover { background: var(--hover); }
-.tool-run-glyph { width: 16px; flex: none; text-align: center; font: var(--text-sm) var(--mono); color: var(--muted); }
+.tool-run-glyph { width: 16px; flex: none; display: grid; place-items: center; font: var(--text-sm) var(--mono); color: var(--muted); }
 .tone-read .tool-run-glyph { color: var(--cyan); }
 .tone-write .tool-run-glyph { color: var(--working); }
 .tone-shell .tool-run-glyph { color: var(--ink-3); }
-.tool-run-name { font: var(--text-sm) var(--mono); color: var(--ink-2); flex: none; }
+.tool-run-name { font: var(--text-sm) var(--sans); color: var(--ink-3); flex: none; }
+/* A command card is the command itself. */
+.tone-shell .tool-run-name { display: none; }
+.tone-shell .tool-run-detail { color: var(--ink-2); }
 .tool-run-detail {
   flex: 1; min-width: 0; font: var(--text-sm) var(--mono); color: var(--muted-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .tool-run-stamp { font: 10px var(--mono); color: var(--faint); flex: none; font-variant-numeric: tabular-nums; }
 .tool-run-size { font: 10px var(--mono); color: var(--faint); flex: none; font-variant-numeric: tabular-nums; }
-.tool-run-state { font: var(--text-xs) var(--mono); color: var(--ready); flex: none; }
-.tool-run-state.error { color: var(--removed); }
+.tool-run-state { font: var(--text-xs) var(--mono); color: var(--muted-2); flex: none; }
+.tool-run-state.error { color: var(--fail-ink); font-weight: 600; }
 /* Why a call failed, under its line until the output itself is open. */
 .tool-run-reason {
-  margin: -5px 13px 0 39px; padding-bottom: 9px; font: var(--text-xs) var(--mono); color: var(--removed);
+  margin: -2px 12px 0 36px; padding-bottom: 6px; font: var(--text-xs) var(--mono); color: var(--removed);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .tool-run-state.waiting { color: var(--warn); }
@@ -1092,11 +1100,12 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 .tool-run.stoppable > .tool-run-line:hover ~ .tool-run-stop { opacity: 1; }
 .tool-run-state.running { color: var(--acid-text); }
 .tool-output {
-  margin: 0 13px 11px 39px; padding: 9px 11px; background: var(--code-bg);
+  margin: 0 12px 8px 36px; padding: 9px 11px; background: var(--code-bg);
   border-radius: 7px; font: calc(11.5px * var(--code-font-scale, 1))/1.35 var(--code-font-family, var(--mono)); color: var(--muted);
   max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word;
 }
 .tool-run.running .tool-output { max-height: 104px; }
+.tool-run.failed > .tool-output { margin: 0; padding: 10px 12px; border-radius: 0; max-height: 150px; line-height: 1.6; background: var(--term); color: var(--term-ink); }
 /* A deferred output always overflows the box, so its placeholder takes the box's full height. */
 .tool-output-pending { height: 260px; color: var(--faint); }
 .tool-output-truncated { display: block; border: 0; padding: 0; background: transparent; color: var(--acid-text); margin-bottom: 6px; cursor: pointer; font: inherit; text-align: left; }

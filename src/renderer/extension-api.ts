@@ -146,6 +146,7 @@ export type {
   TranscriptRow,
   TranscriptRowsHandle,
   LookInRegionContext,
+  TranscriptTurn,
   RegionPlacement,
   RegionProps,
   RegionContribution,

@@ -156,18 +156,32 @@ describe("tool run output", () => {
     expect(view.container.querySelector(".tool-output")?.textContent).toContain("found it");
   });
 
-  it("says why a call failed until its output is open", () => {
-    render(<ToolRun
-      tool={command({ args: { command: "ls missing" }, status: "error", output: "Exit code 1\nls: missing: No such file or directory" })}
+  it("shows a failed command's output with its exit status and time, and its reason once closed (design 1f)", () => {
+    const view = render(<ToolRun
+      tool={command({ args: { command: "ls missing" }, status: "error", output: "Exit code 1\nls: missing: No such file or directory", startedAt: 0, endedAt: 2_300 })}
       registry={registryWithBundledExtensions()}
     />);
     const reason = "Exit code 1: ls: missing: No such file or directory";
-    expect(screen.getByRole("img", { name: `Failed: ${reason}` }).getAttribute("title")).toBe(reason);
-    expect(screen.getByText(reason)).toBeTruthy();
+    expect(screen.getByRole("img", { name: `Failed: ${reason}` }).textContent).toBe("exit 1 · 2.3s");
+    expect(view.container.querySelector(".tool-run.failed > .tool-output")?.textContent).toContain("No such file or directory");
+    expect(screen.queryByText(reason)).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /ls missing/u }));
-    expect(screen.queryByText(reason)).toBeNull();
-    expect(screen.getByText(/No such file or directory/u)).toBeTruthy();
+    expect(view.container.querySelector(".tool-output")).toBeNull();
+    expect(screen.getByText(reason)).toBeTruthy();
+  });
+
+  it("draws what a kit puts at the row's end and under it instead of the output", () => {
+    const registry = new ExtensionRegistry();
+    registry.activate({ id: "acme.edits", name: "Edits", activate(context) {
+      context.registerToolRenderer("acme.edit", (tool) => tool.name === "edit", () => ({ glyph: "±", title: "Edit", tone: "write", detail: "a.ts", note: <b>+1 −1</b>, body: <pre>- a{"\n"}+ b</pre> }));
+    } });
+    const view = render(<ToolRun tool={{ id: "e", name: "edit", args: {}, status: "done", output: "Replaced 1 block.", startedAt: 0, endedAt: 400 }} registry={registry} />);
+    expect(screen.getByText("+1 −1")).toBeTruthy();
+    expect(view.container.querySelector("pre")?.textContent).toBe("- a\n+ b");
+    fireEvent.click(screen.getByRole("button", { name: /Edit/u }));
+    expect(screen.queryByText("Replaced 1 block.")).toBeNull();
+    expect(screen.getByText("0.4s")).toBeTruthy();
   });
 
   it("names the command of a call no renderer claimed, not its arguments", () => {

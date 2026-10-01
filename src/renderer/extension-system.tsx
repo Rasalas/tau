@@ -79,6 +79,8 @@ export interface WorkbenchActions {
   openThreadTree(mode?: "navigate" | "fork"): void;
   /** Pi's /clone: a new thread continuing from the active thread's current point. */
   duplicateThread(): Promise<boolean>;
+  /** Forks the thread on screen through `message`: a new thread with the conversation up to it (API 1.39.0). */
+  forkFrom?(message: UiMessage): Promise<void>;
   focusComposer(seed?: string): void;
   focusTranscript(): void;
   focusStage(): void;
@@ -315,9 +317,10 @@ export interface TranscriptRowsHandle {
  * project under a new thread's heading, each opening its own popover.
  * `thread-list-head` tops a phone's or tablet's thread list, under its header
  * (API 1.30.0). `thread-list-title` adds compact controls beside a phone's header title;
- * a tablet's sidebar has a foot for them (`PageContribution.Summary`).
+ * a tablet's sidebar has a foot for them (`PageContribution.Summary`). `turn-divider` sits in
+ * the line above each turn after the first; its props carry `turn` (API 1.39.0).
  */
-export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in" | "thread-list-head" | "thread-list-title";
+export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in" | "thread-list-head" | "thread-list-title" | "turn-divider";
 
 /** Where a thread of a list source runs: its mark and name on the row's project line. */
 export interface ThreadListPlace {
@@ -366,11 +369,23 @@ export interface LookInRegionContext {
   connected: boolean;
 }
 
+/** One turn of the thread on screen, for a `turn-divider` region (API 1.39.0). */
+export interface TranscriptTurn {
+  /** 1-based among the turns the transcript has loaded. */
+  number: number;
+  /** Its prompt, then everything that answered it. */
+  messages: readonly UiMessage[];
+  /** The newest turn, which may still run. */
+  last: boolean;
+}
+
 export interface RegionProps {
   snapshot?: HostSnapshot;
   actions: WorkbenchActions;
   /** Set only in the `look-in` placement. */
   lookIn?: LookInRegionContext;
+  /** Set only in the `turn-divider` placement. */
+  turn?: TranscriptTurn;
 }
 
 export interface RegionContribution extends ProfileScoped {
@@ -1303,10 +1318,15 @@ export interface DocumentSourceContribution extends ProfileScoped {
 }
 
 export interface ToolPresentation {
-  glyph: string;
+  /** A character or an icon (an icon since API 1.39.0). */
+  glyph: ReactNode;
   title: string;
   tone: "neutral" | "read" | "write" | "shell";
   detail: string;
+  /** Drawn at the row's end before its state, e.g. an edit's "+4 −2" (API 1.39.0). */
+  note?: ReactNode;
+  /** Drawn open under the row in place of the output, e.g. an edit's diff (API 1.39.0). */
+  body?: ReactNode;
   /** Structured tools can keep their machine payload out of the transcript. */
   output?: "default" | "hidden";
   /**
