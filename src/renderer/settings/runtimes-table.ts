@@ -73,7 +73,8 @@ export function runtimeRow(backend: UiRuntimeBackend, catalog: RuntimeCatalogEnt
   const words = STATE_WORDS[state];
   if (words) status.push(words);
   const tool = version?.tool;
-  const versionText = state === "built-in" ? "Built in"
+  // What Pi brings inside Tau, as the design words it (1j).
+  const versionText = state === "built-in" ? "Built in · agents, worktrees, per-tool approvals"
     : state === "missing" ? "Not found"
       : updateAvailable(version) ? `${version.installed} → ${version.latest}`
         : version?.installed ?? "";

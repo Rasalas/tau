@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { defaultShell } from "./shell.js";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import type { HostExtensionServices, HostThreadLifecycle } from "tau/host-extension";
 import { createTerminalHostExtension, loadNodePty, MAX_SESSIONS_PER_WORKSPACE, NO_PTY, TerminalSessions, type PtyFactory, type PtyProcess } from "./host.js";
@@ -166,6 +167,23 @@ describe("terminal host commands", () => {
       // A thread that is not open has no worktree to name; the workspace folder is where it goes.
       const closed = await client.open({ workspaceId: "workspace-one", sessionId: "thread-gone" });
       expect(closed.cwd).toBe("/project");
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("starts the shell Settings names, else the user's own", async () => {
+    const { spawn, processes } = fakePtys();
+    let values: Record<string, string> = { shell: "/bin/sh" };
+    const registry = await activateHostKit(createTerminalHostExtension(spawn), services({ settings: async () => ({ options: {}, values }) }));
+    const client = createTerminalHostClient((command, input) => registry.invoke(TERMINAL_HOST_EXTENSION_ID, command, input));
+    try {
+      expect((await client.open({})).shell).toBe("sh");
+      expect(processes[0]!.options.file).toBe("/bin/sh");
+      values = {};
+      await client.open({});
+      // The user's own, or /bin/sh where that one is not on this machine.
+      expect([defaultShell(), "/bin/sh"]).toContain(processes[1]!.options.file);
     } finally {
       await registry.dispose();
     }

@@ -279,8 +279,8 @@ function createSettingsPage(context: DesktopExtensionContext) {
 /** The news a switch each silences (design 2n); the words sum them up on a phone's Settings list. */
 const EVENTS: ReadonlyArray<[AttentionReason, string, string]> = [
   ["question", "A thread asks a question", "Questions"],
-  ["approval", "A permission is needed", "permissions"],
   ["completed", "A thread is done", "done"],
+  ["approval", "A permission is needed", "permissions"],
   ["failed", "A thread failed", "failures"],
 ];
 
@@ -297,23 +297,30 @@ function useKitSetting<T>(preferences: PreferencesStore, kind: "options" | "valu
   });
 }
 
-/** Which news reaches you at all, on any client and as a push, and when none does (design 2n, 2i). */
-function NotifyWhen({ preferences }: { preferences: PreferencesStore }) {
+/** A switch per kind of news, on any client and as a push (design 2n, 2i); on the page and General's card. */
+function NotifyRows({ preferences }: { preferences: PreferencesStore }) {
+  // In EVENTS' order.
   const settings = [
     useKitSetting(preferences, "options", eventOption("question"), true),
-    useKitSetting(preferences, "options", eventOption("approval"), true),
     useKitSetting(preferences, "options", eventOption("completed"), true),
+    useKitSetting(preferences, "options", eventOption("approval"), true),
     useKitSetting(preferences, "options", eventOption("failed"), true),
   ];
+  return <>
+    {EVENTS.map(([kind, title], index) => <SettingRow key={kind} id={`setting-notifications-${kind}`} title={title}
+      description={kind === "completed" ? "also on the phone" : undefined} setting={settings[index]}
+      control={<Switch label={title} checked={settings[index]!.value} onChange={settings[index]!.set} />} />)}
+  </>;
+}
+
+/** Which news reaches you at all, and when none does. */
+function NotifyWhen({ preferences }: { preferences: PreferencesStore }) {
   const quiet = useKitSetting(preferences, "options", QUIET.on, false);
   const from = useKitSetting<string>(preferences, "values", QUIET.from, QUIET.start);
   const to = useKitSetting<string>(preferences, "values", QUIET.to, QUIET.end);
   const time = (setting: typeof from, label: string) => <input type="time" aria-label={label} value={setting.value} onChange={(event) => { if (event.target.value) setting.set(event.target.value); }} />;
   return <>
-    <SettingsSection title="Notify me when">
-      {EVENTS.map(([kind, title], index) => <SettingRow key={kind} id={`setting-notifications-${kind}`} title={title} description={index ? undefined : "the most useful one"} setting={settings[index]}
-        control={<Switch label={title} checked={settings[index]!.value} onChange={settings[index]!.set} />} />)}
-    </SettingsSection>
+    <SettingsSection title="Notify me when"><NotifyRows preferences={preferences} /></SettingsSection>
     <SettingsSection title="Quiet hours">
       <SettingRow id="setting-notifications-quiet" title="Quiet hours" description={`${from.value} – ${to.value}, on the host's clock`} setting={quiet}
         control={<Switch label="Quiet hours" checked={quiet.value} onChange={quiet.set} />}>
@@ -343,6 +350,7 @@ const notifications: DesktopExtension = {
       profiles: ["desktop", "web"],
       Component: createSettingsPage(context),
     });
+    context.registerSettingsSection({ id: "notifications.events", page: "general", card: "notify", profiles: ["desktop"], Component: () => <NotifyRows preferences={context.preferences} /> });
     // A phone hears through pushes: which news, and when not; the window's sound and toasts are not its own (design 2n).
     const preferences = context.preferences;
     context.registerSettingsPage({ ...page,

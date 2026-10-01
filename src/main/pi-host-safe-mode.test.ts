@@ -39,7 +39,7 @@ describe("PiHost safe mode", () => {
     // The migrated kits are compiled from `kits/` and imported like packages.
     expect(summaries.filter((summary) => PACKAGED_KIT_IDS.includes(summary.id)).map((summary) => summary.id).sort()).toEqual(PACKAGED_KIT_IDS);
     expect(summaries.filter((summary) => !summary.active)).toEqual([]);
-    expect(internals.runtimeExtensionsFor(settings, session).map((entry) => entry.name).sort()).toEqual(["tau-access", "tau-agents", "tau-computer-use", "tau-computer-use-screen", "tau-devices", "tau-evidence", "tau-pi-limits", "tau-plan", "tau-preview", "tau-pull-requests", "tau-questionnaire", "tau-remote-work", "tau-servers-network", "tau-servers-tools", "tau-service-tier", "tau-takeover", "tau-turn-checkpoints"]);
+    expect(internals.runtimeExtensionsFor(settings, session).map((entry) => entry.name).sort()).toEqual(["tau-access", "tau-agents", "tau-compact-at", "tau-computer-use", "tau-computer-use-screen", "tau-devices", "tau-evidence", "tau-pi-limits", "tau-plan", "tau-preview", "tau-pull-requests", "tau-questionnaire", "tau-remote-work", "tau-servers-network", "tau-servers-tools", "tau-service-tier", "tau-takeover", "tau-turn-checkpoints"]);
   });
 
   // A runtime backend now arrives from a package rather than from a host

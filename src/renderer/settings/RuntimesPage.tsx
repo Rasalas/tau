@@ -108,11 +108,11 @@ export function RuntimesPage({ snapshot, cards, sections, onOpen, onNotify }: {
           </span>
         </SettingsPageAction>
       ) : null}
-      <div className="runtimes-table-frame" id={settingAnchor("Runtime for new threads")} tabIndex={-1}>
-        <table className="runtimes-table">
+      <div className="settings-table-frame" id={settingAnchor("Runtime for new threads")} tabIndex={-1}>
+        <table className="settings-table">
           <thead>
             <tr>
-              <td className="runtimes-mark-cell" />
+              <td className="settings-table-mark" />
               <th scope="col">Runtime</th>
               <th scope="col">Version</th>
               <th scope="col">Talks to</th>
@@ -122,8 +122,8 @@ export function RuntimesPage({ snapshot, cards, sections, onOpen, onNotify }: {
           <tbody>
             {rows.map((row) => (
               <tr key={row.kind} data-state={row.state} aria-label={row.label}>
-                <td className="runtimes-mark-cell"><ProviderIconStack runtimeProvider={row.kind} hint={false} className="runtimes-mark" /></td>
-                <td className="runtimes-name">
+                <td className="settings-table-mark"><ProviderIconStack runtimeProvider={row.kind} hint={false} className="runtimes-mark" /></td>
+                <td className="settings-table-name">
                   <span>{row.label}</span>
                   {row.status.length ? (
                     <small {...tooltipProps(row.note, { side: "top" })}>{row.status.map((part, index) => <span key={part.text} data-tone={part.tone}>{index ? " · " : ""}{part.text}</span>)}</small>
@@ -134,7 +134,7 @@ export function RuntimesPage({ snapshot, cards, sections, onOpen, onNotify }: {
                   {row.version.tool ? <code>{row.version.tool}</code> : null}
                 </td>
                 <td className="runtimes-talks"><TalksTo providers={row.providers} /></td>
-                <td className="runtimes-actions">
+                <td className="settings-table-actions">
                   {row.actions.map((action) => {
                     const Icon = ACTION_ICONS[action];
                     const primary = action === "update" || action === "install";
@@ -156,8 +156,9 @@ export function RuntimesPage({ snapshot, cards, sections, onOpen, onNotify }: {
           </tbody>
         </table>
       </div>
-      <RuntimeToolsSection onNotify={onNotify} />
       {sections.map(({ id, Component }) => <Component key={id} onNotify={onNotify} onChanged={() => undefined} />)}
+      {/* Not in the design; below what it shows (K150). */}
+      <RuntimeToolsSection onNotify={onNotify} />
     </div>
   );
 }

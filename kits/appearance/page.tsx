@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Upload, Wand2 } from "lucide-react";
 import { Button, NumberField, SegmentedControl, SettingRow, SettingsSection, Slider, TextField, useSetting, userThemes, type PreferencesStore, type SettingHandle, type SettingsPageProps, type UserTheme } from "tau";
-import { DENSITIES, DEFAULT_CODE_FONT_SIZE, DEFAULT_PROMPT_FONT_SIZE, FONT_SIZE_RANGE, PANEL_MOTION_RANGE, TIMESTAMP_FORMATS, cleanFontFamily, readContrast, readDensity, readPanelMotion, readSize, readTimestamps, type Density, type TimestampFormat } from "./apply.js";
+import { DEFAULT_CODE_FONT_SIZE, DEFAULT_PROMPT_FONT_SIZE, FONT_SIZE_RANGE, PANEL_MOTION_RANGE, TIMESTAMP_FORMATS, cleanFontFamily, readContrast, readDensity, readPanelMotion, readSize, readTimestamps, type Density, type TimestampFormat } from "./apply.js";
 import { draftFromWindow, type ThemeDraft, type ThemeEditorStore } from "./editor.js";
 import { ModeTiles, PanelMotionPreview, ThemeCard, baseColors, themeColors, withoutOwnStyles, type Mode, type PreviewColors, type ThemeCardModel } from "./previews.js";
 import { APPEARANCE_EXTENSION_ID as ID, SETTING_KEYS, type Appearance } from "./protocol.js";
@@ -10,7 +10,23 @@ import { TerminalFontRow, type TerminalFontLink } from "./terminal-font.js";
 import { TEXT_SIZE_LABELS, TEXT_SIZES, type TextSizeStore } from "./text-size.js";
 import { importVsCodeTheme } from "./vscode-import.js";
 
-const DENSITY_LABELS: Record<Density, string> = { compact: "Compact", normal: "Normal", comfortable: "Comfortable" };
+// The design's words and order (2i): most room first.
+const DENSITY_LABELS: Record<Density, string> = { comfortable: "Airy", normal: "Balanced", compact: "Dense" };
+const DENSITY_CHOICES = (Object.keys(DENSITY_LABELS) as Density[]).map((next) => ({ value: next, label: DENSITY_LABELS[next] }));
+
+/** Density, on this page and in General's Appearance card. */
+export function DensityRow({ description }: { description?: string }) {
+  const density = useSetting<Density>(value(SETTING_KEYS.density), { defaultValue: "normal", scope: "both", read: readDensity, format: (next) => DENSITY_LABELS[next] });
+  return (
+    <SettingRow
+      id="setting-appearance-density"
+      title="Density"
+      description={description}
+      setting={density}
+      control={<SegmentedControl label="Density" value={density.value} options={DENSITY_CHOICES} onChange={density.set} />}
+    />
+  );
+}
 const MODE_LABELS: Record<string, string> = { system: "System", light: "Light", dark: "Dark" };
 const TIMESTAMP_LABELS: Record<TimestampFormat, string> = { locale: "Locale", "12h": "12-hour", "24h": "24-hour" };
 const value = (key: string) => `values.${ID}.${key}`;
@@ -149,7 +165,6 @@ export function AppearancePage({ onNotify, preferences, editor, terminalFont, te
   const fileRef = useRef<HTMLInputElement>(null);
 
   const mode = useSetting<string>("theme", { defaultValue: "system", read: readString, format: (id) => MODE_LABELS[id] ?? themes.find((theme) => theme.id === id)?.name ?? id, offline: (next) => preferences.setTheme(next) });
-  const density = useSetting<Density>(value(SETTING_KEYS.density), { defaultValue: "normal", scope: "both", read: readDensity, format: (next) => DENSITY_LABELS[next] });
   const contrast = useSetting<number>(value(SETTING_KEYS.contrast), { defaultValue: 0, read: readContrast, write: String, format: (next) => `${next}%` });
   const interfaceFamily = useSetting<string>("fontFamily", { defaultValue: "", read: readString, format: (next) => next || "Figtree", offline: (next) => preferences.setFontFamily(next || undefined) });
   const interfaceSize = useSetting<number | undefined>("fontSize", { defaultValue: undefined, read: (raw) => (typeof raw === "number" ? raw : undefined), format: (next) => (next ? `${next}px` : "14px"), offline: (next) => preferences.setFontSize(next) });
@@ -187,13 +202,7 @@ export function AppearancePage({ onNotify, preferences, editor, terminalFont, te
       </SettingsSection>
 
       <SettingsSection title="Interface">
-        <SettingRow
-          id="setting-appearance-density"
-          title="Density"
-          description="How much room rows, lists and panels take. A project can have its own."
-          setting={density}
-          control={<SegmentedControl label="Density" value={density.value} options={DENSITIES.map((next) => ({ value: next, label: DENSITY_LABELS[next] }))} onChange={density.set} />}
-        />
+        <DensityRow description="How much room rows, lists and panels take. A project can have its own." />
         <SettingRow
           id="setting-appearance-contrast"
           title="Contrast"

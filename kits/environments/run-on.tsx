@@ -1,10 +1,10 @@
 import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { Check, Scale } from "lucide-react";
-import { useThreadStore, type HostExtensionClient, type PlatformEnvironments, type UiEnvironment } from "tau";
+import { SegmentedControl, SettingRow, useSetting, useThreadStore, type HostExtensionClient, type PlatformEnvironments, type UiEnvironment } from "tau";
 import { autoApplies, autoRunOn, chooseInput, threadTargets, useAutoPreview, useAutoRunOn } from "./auto.js";
 import { cannotStartReason, shownMachine, statusText } from "./machines.js";
 import { MachineIcon, useEnvironments } from "./rail.js";
-import type { DraftMachineProps, DraftMachineSource } from "./protocol.js";
+import { ENVIRONMENTS_EXTENSION_ID, RUN_ON_DEFAULT_KEY, type DraftMachineProps, type DraftMachineSource, type RunOnDefault } from "./protocol.js";
 
 const AUTO = "auto";
 
@@ -31,7 +31,7 @@ export function autoTooltip(preview: { answer?: { machine: string | null; reason
  * text with it and opens this window there; a started thread stays where it
  * runs. "Automatic" leaves the choice to the moment the prompt is sent.
  */
-export function createRunOnSource(environments: PlatformEnvironments, host?: HostExtensionClient) {
+export function createRunOnSource(environments: PlatformEnvironments, host?: HostExtensionClient, runOnDefault: () => RunOnDefault | undefined = () => undefined) {
   // The draft is on its way to another machine; the pill and the rows wait.
   const moving = {
     value: false,
@@ -83,9 +83,20 @@ export function createRunOnSource(environments: PlatformEnvironments, host?: Hos
         actions.notify(error instanceof Error ? error.message : String(error));
       });
   };
+  // Settings' Run on: This machine brings a new draft home once, as it opens.
+  let homed = false;
   const source: DraftMachineSource = {
+    openOnDraft: () => runOnDefault() === "ask",
     useMachine(props) {
       const state = useRunOn(props);
+      const draft = state?.isDraft;
+      useEffect(() => {
+        if (!draft) { homed = false; return; }
+        const home = state?.list.environments.find((machine) => machine.local);
+        if (!homed && home && runOnDefault() === "this" && !state!.current.local) move(state!, home.id);
+        homed = true;
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
+      }, [draft]);
       if (!state) return undefined;
       return {
         name: state.automatic ? "Automatic" : state.current.name,
@@ -136,4 +147,13 @@ export function createRunOnSource(environments: PlatformEnvironments, host?: Hos
     },
   };
   return source;
+}
+
+const RUN_ON_CHOICES: ReadonlyArray<{ value: RunOnDefault; label: string }> = [{ value: "this", label: "This machine" }, { value: "last", label: "Last used" }, { value: "ask", label: "Ask" }];
+
+/** General's New threads card (design 2i): the machine a new thread starts on. */
+export function RunOnDefaultRow() {
+  const runOn = useSetting<RunOnDefault>(`values.${ENVIRONMENTS_EXTENSION_ID}.${RUN_ON_DEFAULT_KEY}`, { defaultValue: "last", read: (raw) => raw as RunOnDefault | undefined });
+  return <SettingRow title="Run on" setting={runOn}
+    control={<SegmentedControl label="Run on" value={runOn.value} options={RUN_ON_CHOICES} onChange={runOn.set} />} />;
 }

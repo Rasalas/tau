@@ -122,7 +122,8 @@ export function resolveWorktreeParent(mainRoot: string, configured?: string): st
 /**
  * Reads the configured worktree directory for a repository.
  * Checks `.tau/project.json` in the workspace/mainRoot, then `TAU_WORKTREES_DIR` env var,
- * and finally global `~/.tau/project.json` or `~/.tau/config.json`.
+ * and finally global `~/.tau/project.json` or Tau's config (`TAU_CONFIG_FILE`, else `~/.tau/config.json`),
+ * where Settings writes `values["tau.workspace.worktree-directory"]`.
  */
 export async function readWorktreeConfig(mainRoot: string, cwd?: string): Promise<string | undefined> {
   const candidates = [
@@ -151,13 +152,18 @@ export async function readWorktreeConfig(mainRoot: string, cwd?: string): Promis
 
   const globalCandidates = [
     join(tauHomeDir(), "project.json"),
-    join(tauHomeDir(), "config.json"),
+    process.env.TAU_CONFIG_FILE || join(tauHomeDir(), "config.json"),
   ];
   for (const candidate of globalCandidates) {
     try {
       const raw = JSON.parse(await readFile(candidate, "utf8")) as Record<string, unknown>;
       if (typeof raw.worktreeDirectory === "string" && raw.worktreeDirectory.trim()) {
         return raw.worktreeDirectory.trim();
+      }
+      // Settings → Connections → This machine writes Tau's config here.
+      const values = raw.values as Record<string, unknown> | undefined;
+      if (typeof values?.["tau.workspace.worktree-directory"] === "string" && (values["tau.workspace.worktree-directory"] as string).trim()) {
+        return (values["tau.workspace.worktree-directory"] as string).trim();
       }
       const options = raw.options as Record<string, unknown> | undefined;
       if (typeof options?.["worktree-directory"] === "string" && (options["worktree-directory"] as string).trim()) {

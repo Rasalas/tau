@@ -19,6 +19,7 @@ import {
   type PreferencesStore,
   type RegionProps,
   type SettingsPageProps,
+  type SettingsSectionProps,
   type UiSession,
   type WorkbenchActions,
 } from "tau";
@@ -199,6 +200,22 @@ function createSettingsPage(store: RailStore, preferences: PreferencesStore, upd
           {(Object.keys(RAIL_CONFIRMATIONS) as RailQuestionAction[]).map((action) => <ConfirmationRow key={action} action={action} preferences={preferences} />)}
         </SettingsSection>
       </div>
+    );
+  };
+}
+
+/** General's Threads card (design 2i): the rules as one switch, worded as they stand; the Thread rail page has each. */
+function createSettleRow(store: RailStore, update: (settings: Partial<Record<keyof RailSettings, unknown>>) => Promise<void>) {
+  return function SettleAutomatically({ onNotify }: SettingsSectionProps) {
+    useSyncExternalStore(store.subscribe, store.getVersion);
+    const { settings } = store.getState();
+    const days = settings.inactiveDays;
+    const on = settings.onMerged || days !== undefined;
+    return (
+      <SettingRow id="setting-settle-automatically" title="Settle automatically" description={on ? `after a merge, or ${daysLabel(days ?? 7)} idle` : undefined}
+        control={<Switch label="Settle automatically" checked={on} onChange={(next) => {
+          update(next ? { onMerged: true, inactiveDays: days ?? 7 } : { onMerged: false, onClosed: false, inactiveDays: null }).catch((error: unknown) => onNotify(errorMessage(error)));
+        }} />} />
     );
   };
 }
@@ -451,6 +468,8 @@ export const threadRailExtension: DesktopExtension = {
         rows: THREAD_RAIL_ROWS,
         Component: createSettingsPage(store, context.preferences, async (settings) => { store.set(await context.host.invoke("settings", settings)); }),
       }),
+      context.registerSettingsSection({ id: "thread-rail.settle", page: "general", card: "threads", order: 10, profiles: ["desktop"],
+        Component: createSettleRow(store, async (settings) => { store.set(await context.host.invoke("settings", settings)); }) }),
       context.registerCommand({ id: "thread.pin", label: "Pin or unpin thread", group: "Thread", access: "write", run: (app) => withActive(app, organizer.togglePin) }),
       context.registerCommand({ id: "thread.settle", label: "Settle or un-settle thread", group: "Thread", access: "write", run: (app) => withActive(app, (threadId) => organizer.toggleSettledById(threadId, app)) }),
       context.registerCommand({

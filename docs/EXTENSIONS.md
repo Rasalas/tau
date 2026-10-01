@@ -3214,6 +3214,15 @@ address list). It is profile-scoped like a panel. `rows` (new in API 1.19.0)
 are the section's rows the Settings search finds, as on a page: `{ id, label,
 keywords? }`, each the `id` of a `SettingRow` in the section.
 
+A section can also join one of the cards core draws (design 2i, 2h): with
+`page: "general"` and `card` set to `"appearance"`, `"notify"`,
+`"new-threads"` or `"threads"`, or with `page: "connections"` and
+`card: "this-machine"`, its component draws `SettingRow`s only, and the card
+puts them among its own rows in `order` under its heading. A card no row
+lands in is left out. A `general` section without `card` follows the cards.
+Workspace, Machines, Thread Rail, Resume Compaction, Notifications and
+Appearance fill General's cards; Workspace and Terminal fill This machine.
+
 ### Other machines, for this machine's agents: `services.machines` (new in API 1.15.0)
 
 A host keeps a key of its own for each machine its owner let this machine's
