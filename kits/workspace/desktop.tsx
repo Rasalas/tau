@@ -336,6 +336,10 @@ export const workspaceExtension: DesktopExtension = {
       } });
       context.registerKeybinding({ keys, commandId: id, when: "!terminalFocus" });
     }
+    // The header's Commit as a command; no chord, since ⇧⌘C is T3 Code's and VS Code's (K159).
+    context.registerCommand({ id: "workspace.commit", label: "Commit…", group: "Thread", access: "write", run: () => store.openReview(undefined, false) });
+    // Not the design's ⌘E, which edits the prompt outside.
+    context.registerKeybinding({ keys: "mod+alt+e", commandId: "workspace.files" });
     context.registerKeybinding({ keys: "mod+alt+p", commandId: "workspace.open-project" });
     context.registerKeybinding({ keys: "mod+o", commandId: "workspace.open-in-editor" });
     context.registerKeybinding({ keys: "mod+alt+j", commandId: "workspace.open-terminal" });

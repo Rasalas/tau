@@ -218,6 +218,7 @@ export default function App() {
   const focusStage = useCallback(() => workbenchControlRef.current?.focusStage(), []);
   const showThread = useCallback((options?: ShowThreadOptions) => workbenchControlRef.current?.showThread(options), []);
   const toggleSidebar = useCallback(() => workbenchControlRef.current?.toggleSidebar(), []);
+  const toggleSpine = useCallback(() => workbenchControlRef.current?.toggleSpine(), []);
   const threadView = useCallback(() => workbenchControlRef.current?.threadView(), []);
   const inheritSelection = useCallback(() => {
     const draft = newThreadController.current();
@@ -533,7 +534,7 @@ export default function App() {
     applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay,
     openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, setComposerMode, submitPrompt: submitText, preferences,
     steerQueuedMessage, beforeAbort: returnQueued,
-    openModelPicker, openInstructions, focusStage, showThread, toggleSidebar, attachFiles, selectDraftRuntime, newThreadController, pages, threadView,
+    openModelPicker, openInstructions, focusStage, showThread, toggleSidebar, toggleSpine, attachFiles, selectDraftRuntime, newThreadController, pages, threadView,
     executeCommand: (id) => {
       if (!actionsRef.current) throw new Error("Actions are not ready yet.");
       return registry.executeCommand(id, actionsRef.current);

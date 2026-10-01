@@ -80,3 +80,27 @@ export function pressesKeys(binding: { keys: string }, keys: string, mac: boolea
   const chord = parseKeyChord(binding.keys);
   return Boolean(wanted && chord && platformChordId(chord, mac) === platformChordId(wanted, mac));
 }
+
+/** The cards of the Keybindings page (design 2g): the layer a chord works in. */
+export const KEYBINDING_CARDS = ["app", "conversation", "stage", "thread"] as const;
+export type KeybindingCard = (typeof KEYBINDING_CARDS)[number];
+
+/** The design's rows (2g) first, in its order; a command it does not name follows by its id and group. */
+const PLACES: Readonly<Record<KeybindingCard, readonly string[]>> = {
+  app: "runtime.command-palette runtime.new-session review.reviews.open thread.next thread.prev thread.jump".split(" "),
+  conversation: "runtime.abort thread.steerQueuedMessage workbench.toggle-spine".split(" "),
+  stage: "workspace.files terminal.toggle workspace.open-in-editor workbench.split-stage".split(" "),
+  thread: "runtime.fork-thread thread.settle workspace.commit runtime.compact".split(" "),
+};
+
+export function keybindingPlace(commandId: string, group = ""): { card: KeybindingCard; rank: number; named: boolean } {
+  for (const id of KEYBINDING_CARDS) {
+    const rank = PLACES[id].indexOf(commandId);
+    if (rank >= 0) return { card: id, rank, named: true };
+  }
+  const card: KeybindingCard = /^(composer|prompt-tools|runtime\.(model|cycle|transcript)|workbench\.focus-[ct])/u.test(commandId) || group === "Composer" ? "conversation"
+    : /^(terminal|preview|files|workbench|review|rightPanel)\./u.test(commandId) || group === "Terminal" ? "stage"
+      : commandId.startsWith("thread.") || group === "Thread" ? "thread"
+        : "app";
+  return { card, rank: PLACES[card].length, named: false };
+}

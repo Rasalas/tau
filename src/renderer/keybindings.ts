@@ -142,23 +142,16 @@ const KEY_LABELS: Record<string, string> = {
   " ": "Space",
 };
 
+/** A chord's keys one by one, as keycaps draw them: ⇧ ⌘ S on macOS, Ctrl Shift S elsewhere. */
+export function keyChordParts(chord: KeyChord, mac = isMacPlatform()): string[] {
+  const key = KEY_LABELS[chord.key] ?? (chord.key.length === 1 ? chord.key.toUpperCase() : chord.key[0]!.toUpperCase() + chord.key.slice(1));
+  const parts = mac
+    ? [chord.ctrl && "⌃", chord.alt && "⌥", chord.shift && "⇧", (chord.mod || chord.meta) && "⌘"]
+    : [(chord.mod || chord.ctrl) && "Ctrl", chord.meta && "Win", chord.alt && "Alt", chord.shift && "Shift"];
+  return [...parts.filter((part): part is string => Boolean(part)), key];
+}
+
 /** How the palette and settings show a chord: ⌘⇧S on macOS, Ctrl+Shift+S elsewhere. */
 export function formatKeyChord(chord: KeyChord, mac = isMacPlatform()): string {
-  const key = KEY_LABELS[chord.key] ?? (chord.key.length === 1 ? chord.key.toUpperCase() : chord.key[0]!.toUpperCase() + chord.key.slice(1));
-  if (mac) {
-    return [
-      chord.ctrl ? "⌃" : "",
-      chord.alt ? "⌥" : "",
-      chord.shift ? "⇧" : "",
-      chord.mod || chord.meta ? "⌘" : "",
-      key,
-    ].join("");
-  }
-  return [
-    chord.mod || chord.ctrl ? "Ctrl" : "",
-    chord.meta ? "Win" : "",
-    chord.alt ? "Alt" : "",
-    chord.shift ? "Shift" : "",
-    key,
-  ].filter(Boolean).join("+");
+  return keyChordParts(chord, mac).join(mac ? "" : "+");
 }

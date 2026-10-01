@@ -461,7 +461,7 @@ export function SettingsScreen({
                 ) : page === "runtimes" ? (
                   <RuntimesPage snapshot={snapshot} cards={providers} sections={registry.getSettingsSections("runtimes")} onOpen={openPage} onNotify={onNotify} />
                 ) : page === "keybindings" ? (
-                  <KeybindingsPage key={keybindingFilter.seq} registry={registry} initialFilter={keybindingFilter.filter} onNotify={onNotify} />
+                  <KeybindingsPage key={keybindingFilter.seq} registry={registry} initialFilter={keybindingFilter.filter} onNotify={onNotify} onOpen={openPage} />
                 ) : page === "pi" ? (
                   <PiSettingsPage snapshot={snapshot} onNotify={onNotify} />
                 ) : onProviders ? (

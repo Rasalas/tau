@@ -87,6 +87,8 @@ export interface WorkbenchActions {
   toggleDock(): void;
   /** Hides or shows the sidebar (the thread sheet on a compact client). */
   toggleSidebar?(): void;
+  /** Collapses the conversation to its spine beside the stage, or opens it again (design 1b). */
+  toggleSpine?(): void;
   notify(message: string): void;
   /**
    * A toast on the window's stack: a type icon, a title and a line, actions,
