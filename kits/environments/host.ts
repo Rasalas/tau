@@ -2,6 +2,7 @@ import type { HostExtension, HostMachineServices, HostReadiness, HostResources }
 import { readWeights } from "./choice.js";
 import { createMachineChooser } from "./chooser.js";
 import { createMachineBackendProvider } from "./machine-backend.js";
+import { machineMethodError } from "./compatibility.js";
 import {
   AGENTS_EVENT,
   AGENTS_KIT_ID,
@@ -84,13 +85,15 @@ export function createEnvironmentsHostExtension(): HostExtension {
         const raw = (input ?? {}) as Record<string, unknown>;
         if (typeof raw.workspaceId !== "string" || !raw.workspaceId) throw new Error("start-there: name a workspace.");
         if (typeof raw.prompt !== "string") throw new Error("start-there: provide a prompt.");
-        return machines.request(machine, "start-thread", [{
+        try { return await machines.request(machine, "start-thread", [{
           cwd: raw.workspaceId, prompt: raw.prompt,
           ...(typeof raw.backend === "string" ? { backend: raw.backend } : {}),
           ...(raw.model ? { model: raw.model } : {}),
           ...(typeof raw.thinkingLevel === "string" ? { thinkingLevel: raw.thinkingLevel } : {}),
           ...(typeof raw.mode === "string" ? { mode: raw.mode } : {}),
-        }]);
+        }]); } catch (error) {
+          throw machineMethodError(error, machines.list().find((entry) => entry.id === machine)?.name ?? machine, "start threads");
+        }
       }, { audit: { label: "started a thread on another machine" } });
       context.registerCommand("whoami", (_input, call): MachineIdentity => ({ device: call.device ?? null, owner: call.owner }), { access: "read" });
       context.registerCommand("probe", async (input): Promise<MachineProbe> => {

@@ -25,7 +25,7 @@ import type {
   UiSession,
 } from "../shared/contracts.js";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
-import type { HostPushEvent } from "../shared/host-transport.js";
+import { HOST_ERROR, type HostPushEvent } from "../shared/host-transport.js";
 import type { UiHostEndpoint, UiNetworkAccess } from "../shared/connections.js";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
@@ -1695,9 +1695,9 @@ export class HostExtensionRegistry {
       const known = this.known.get(extensionId);
       const failure = this.failures.get(extensionId);
       if (known) throw new Error(`Host extension ${known.name} is not active${failure ? `: ${failure}` : ""}.`);
-      throw new Error(`Host extension ${extensionId} is not installed.`);
+      throw Object.assign(new HostCommandError(`Host extension ${extensionId} is not installed.`), { code: HOST_ERROR.unknownExtension });
     }
-    if (!record.commands.has(command)) throw new Error(`Host extension ${record.extension.name} has no command "${command}".`);
+    if (!record.commands.has(command)) throw Object.assign(new HostCommandError(`Host extension ${record.extension.name} has no command "${command}".`), { code: HOST_ERROR.unknownCommand });
     return record;
   }
 

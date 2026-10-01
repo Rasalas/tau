@@ -2,9 +2,10 @@ import { useEffect, useRef } from "react";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
 import type { ToastStore } from "../workbench/toast-store";
 import { noticeHeadline } from "./components/notice-text";
+import { isMachineUpdateNotice } from "../shared/machine-compatibility";
 
 /** Every notice as a toast: the headline to read, the whole text to copy when it failed or was cut short. */
-export function showNoticesAsToasts(view: ThreadViewStore, toasts: ToastStore): () => void {
+export function showNoticesAsToasts(view: ThreadViewStore, toasts: ToastStore, openMachines?: () => void): () => void {
   return view.subscribeToNotice(() => {
     const notice = view.getNotice();
     if (!notice) return;
@@ -14,21 +15,23 @@ export function showNoticesAsToasts(view: ThreadViewStore, toasts: ToastStore): 
       id: `notice:${notice.message}`,
       type: notice.level,
       description: headline,
+      ...(openMachines && isMachineUpdateNotice(notice.message) ? { actions: [{ label: "Machines", run: openMachines }] } : {}),
       ...(notice.level !== "info" || headline !== notice.message.trim() ? { copyText: notice.message } : {}),
     });
   });
 }
 
 /** Core's own toasts: the notices, and the restart a downloaded update waits for; closed, the sidebar's foot still offers it. */
-export function useWorkbenchToasts({ view, toasts, updateReady, onRestart }: {
+export function useWorkbenchToasts({ view, toasts, updateReady, onRestart, openMachines }: {
   view: ThreadViewStore;
   toasts: ToastStore;
   updateReady?: string;
   onRestart(): void;
+  openMachines(): void;
 }): void {
-  useEffect(() => showNoticesAsToasts(view, toasts), [toasts, view]);
-  const handlers = useRef({ onRestart });
-  handlers.current = { onRestart };
+  const handlers = useRef({ onRestart, openMachines });
+  handlers.current = { onRestart, openMachines };
+  useEffect(() => showNoticesAsToasts(view, toasts, () => handlers.current.openMachines()), [toasts, view]);
   useEffect(() => {
     if (!updateReady) return;
     toasts.show({

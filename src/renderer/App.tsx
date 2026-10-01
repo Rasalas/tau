@@ -455,6 +455,7 @@ export default function App() {
   useWorkbenchToasts({
     view: viewStore, toasts: workbenchSession.toasts, updateReady,
     onRestart: () => { void client?.installUpdate(); },
+    openMachines: () => setSettingsPage("environments.machines"),
   });
 
   // Stage tab or drawer: where each panel shows, and the moves between them.

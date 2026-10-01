@@ -1,6 +1,7 @@
 import type { HostEvent } from "../shared/contracts.js";
 import type { HostPushEvent } from "../shared/host-transport.js";
 import type { HostMachines } from "./host-machines.js";
+import { machineKitError } from "../shared/machine-compatibility.js";
 
 // These kits own the workspace features named in ADR 0030.
 const ROUTED_KITS = new Set(["tau.workspace", "tau.files", "tau.terminal", "tau.review"]);
@@ -96,7 +97,9 @@ export class MachineKitRoute {
     const input = typeof item.sessionId === "string" && item.sessionId.startsWith(prefix)
       ? { ...item, sessionId: item.sessionId.slice(prefix.length) } : route.input;
     const revision = this.revision(route.machine);
-    const result = await machines.call(route.machine, extensionId, command, input);
+    let result: unknown;
+    try { result = await machines.call(route.machine, extensionId, command, input); }
+    catch (error) { throw machineKitError(error, machines.list().find((machine) => machine.id === route.machine)?.name ?? route.machine, extensionId, command); }
     if (extensionId === "tau.terminal") {
       const records = Array.isArray(result) ? result : [result];
       for (const record of records) {

@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { errorMessage, type HostExtensionClient, type NewThreadClaimEvent, type PlatformEnvironments, type PromptHookContribution, type ThreadStore, type UiEnvironment, type UiEnvironments, type WorkbenchActions } from "tau";
+import { machineMethodError } from "./compatibility.js";
 
 /** Remote Work Kit (`kits/remote-work/protocol.ts`), named here: a kit never imports another. */
 export const REMOTE_WORK_EXTENSION_ID = "tau.remote-work";
@@ -186,7 +187,7 @@ export function createBringProjectHook(choice: BringChoiceStore, remoteWork: Hos
           ...(event.model ? { model: event.model } : {}),
           ...(event.thinkingLevel ? { thinkingLevel: event.thinkingLevel } : {}),
           ...(event.mode ? { mode: event.mode } : {}),
-        }) as { sessionId: string; path: string };
+        }).catch((error: unknown) => { throw machineMethodError(error, chosen.machineName, "start threads"); }) as { sessionId: string; path: string };
         choice.set(undefined);
         const id = `${chosen.machine}~${answer.sessionId}`;
         // Core's externalThreadPath in src/main/pi-host-support.ts uses this virtual path.

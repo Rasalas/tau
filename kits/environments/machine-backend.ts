@@ -1,4 +1,5 @@
 import { clientMessageFingerprint, type AgentRuntimeAdapter, type HostBackendOpenContext, type HostBackendThreadRecord, type HostMachineServices, type HostPushEvent, type HostRuntimeBackendProvider, type HostTranscriptCursor, type PreparedPrompt, type ThreadBackendCapabilities, type ThreadBackendPromptInput, type ThreadBackendPromptResult, type ThreadBackendState, type ThreadCatalogView, type ThreadRuntimeBackend, type ThreadRuntimeEvent, type ThreadTitleSource, type TranscriptPage, type UiComposerCommand, type UiMessage, type UiModel, type UiSession, type UiThreadUsage, type UsageTally } from "tau/host-extension";
+import { machineMethodError } from "./compatibility.js";
 
 export function machineThreadId(machine: string, sessionId: string): string {
   return `${machine}~${sessionId}`;
@@ -197,7 +198,8 @@ export class MachineThreadBackend implements ThreadRuntimeBackend {
     this.syncRow();
     if (input.attachments?.length) throw new Error(`Attachments cannot go to ${this.name} yet.`);
     if (this.machines.list().find((entry) => entry.id === this.machine)?.status !== "connected") throw new Error(`${this.name} is not reachable right now.`);
-    await this.machines.request(this.machine, "send-to-thread", [this.providerSessionId, input.text, delivery(input)]);
+    try { await this.machines.request(this.machine, "send-to-thread", [this.providerSessionId, input.text, delivery(input)]); }
+    catch (error) { throw machineMethodError(error, this.name, "take messages from here"); }
     input.onAdmitted?.(true);
     return {};
   }

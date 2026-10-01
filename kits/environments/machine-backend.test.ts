@@ -170,6 +170,22 @@ describe("a followed machine thread", () => {
     expect(backend.state()).toEqual(before);
   });
 
+  it("asks to update an older host on send-to-thread, and keeps ordinary errors unchanged", async () => {
+    const f = fixture();
+    const backend = await f.open();
+    const missing = Object.assign(new Error('Unknown method "send-to-thread".'), { code: "unknown-method" });
+    f.services.request = vi.fn(async () => { throw missing; });
+    await expect(backend.prompt({ text: "x", delivery: "prompt" })).rejects.toMatchObject({
+      code: "unknown-method", message: "rex runs an older Tau that cannot take messages from here yet. Update rex in Settings → Machines.", cause: missing,
+    });
+    for (const code of ["failed", "unauthorized", "timeout", "unsupported"]) {
+      const error = Object.assign(new Error('Unknown method "send-to-thread".'), { code });
+      f.services.request = vi.fn(async () => { throw error; });
+      // oxlint-disable-next-line no-await-in-loop
+      await expect(backend.prompt({ text: "x", delivery: "prompt" })).rejects.toBe(error);
+    }
+  });
+
   it("forwards assistant deltas, updates state, and settles each remote turn once", async () => {
     const f = fixture();
     const backend = await f.open();
