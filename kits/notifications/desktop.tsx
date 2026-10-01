@@ -30,6 +30,8 @@ import {
   NOTIFICATIONS_EXTENSION_ID as ID,
   NOTIFY_EVENT,
   PRESENCE_REQUEST_EVENT,
+  QUIET,
+  eventOption,
   decodeAttentionItems,
   decodeDelivery,
   type AttentionItem,
@@ -252,6 +254,7 @@ function createSettingsPage(context: DesktopExtensionContext) {
             </>}
           />
         </SettingsSection>
+        <NotifyWhen preferences={preferences} />
         <SettingsSection title="While Tau is in front">
           <SettingRow
             id="setting-notifications-toasts"
@@ -273,12 +276,67 @@ function createSettingsPage(context: DesktopExtensionContext) {
   };
 }
 
+/** The news a switch each silences (design 2n); the words are the phone Settings' summary. */
+const EVENTS: ReadonlyArray<{ kind: AttentionReason; title: string; hint?: string; word: string }> = [
+  { kind: "question", title: "A thread asks a question", hint: "the most useful one", word: "questions" },
+  { kind: "approval", title: "A permission is needed", word: "permissions" },
+  { kind: "completed", title: "A thread is done", word: "done" },
+  { kind: "failed", title: "A thread failed", word: "failures" },
+];
+
+/** "Questions, done" beside Notifications on a phone's Settings list. */
+function eventsSummary(preferences: PreferencesStore): string {
+  const on = EVENTS.filter((event) => preferences.optionValue(ID, eventOption(event.kind), true)).map((event) => event.word);
+  const text = on.length === EVENTS.length ? "all" : on.join(", ") || "off";
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function useOption(preferences: PreferencesStore, id: string, fallback: boolean) {
+  return useSetting<boolean>(`options.${ID}.${id}`, { defaultValue: fallback, read: readBoolean, offline: (value) => preferences.setOption(ID, id, value) });
+}
+
+function useClock(preferences: PreferencesStore, id: string, fallback: string) {
+  return useSetting<string>(`values.${ID}.${id}`, { defaultValue: fallback, read: (raw) => (typeof raw === "string" && /^\d\d:\d\d$/u.test(raw) ? raw : undefined), offline: (value) => preferences.setValue(ID, id, value) });
+}
+
+/** Which news reaches you at all, on any client and as a push, and when none does (design 2n, 2i). */
+function NotifyWhen({ preferences }: { preferences: PreferencesStore }) {
+  const settings = [
+    useOption(preferences, eventOption("question"), true),
+    useOption(preferences, eventOption("approval"), true),
+    useOption(preferences, eventOption("completed"), true),
+    useOption(preferences, eventOption("failed"), true),
+  ];
+  const events = EVENTS.map((event, index) => ({ ...event, setting: settings[index]! }));
+  const quiet = useOption(preferences, QUIET.on, false);
+  const from = useClock(preferences, QUIET.from, QUIET.start);
+  const to = useClock(preferences, QUIET.to, QUIET.end);
+  return <>
+    <SettingsSection title="Notify me when">
+      {events.map((event) => <SettingRow key={event.kind} id={`setting-notifications-${event.kind}`} title={event.title} description={event.hint} setting={event.setting}
+        control={<Switch label={event.title} checked={event.setting.value} onChange={event.setting.set} />} />)}
+    </SettingsSection>
+    <SettingsSection title="Quiet hours">
+      <SettingRow id="setting-notifications-quiet" title="Quiet hours" description={`${from.value} – ${to.value}, on the host's clock`} setting={quiet}
+        control={<Switch label="Quiet hours" checked={quiet.value} onChange={quiet.set} />}>
+        {quiet.value ? <div className="notifications-quiet">
+          <input type="time" aria-label="Quiet from" value={from.value} onChange={(event) => { if (event.target.value) from.set(event.target.value); }} />
+          <span aria-hidden="true">–</span>
+          <input type="time" aria-label="Quiet until" value={to.value} onChange={(event) => { if (event.target.value) to.set(event.target.value); }} />
+        </div> : null}
+      </SettingRow>
+    </SettingsSection>
+  </>;
+}
+
 /** What the Settings search finds on the page; each id is a row's anchor. */
 export const NOTIFICATION_ROWS = [
   { id: "setting-notifications-mode", label: "Tell me with", keywords: ["notification", "sound", "alert", "off", "system notification"] },
   { id: "setting-notifications-sound", label: "Sound", keywords: ["chime", "ping", "play", "audio"] },
   { id: "setting-notifications-toasts", label: "Show a toast instead", keywords: ["toast", "in-window", "banner"] },
   { id: "setting-notifications-when-focused", label: "Also for the thread on screen", keywords: ["focused", "on screen", "current thread"] },
+  { id: "setting-notifications-question", label: "Notify me when", keywords: ["question", "permission", "done", "failed", "events"] },
+  { id: "setting-notifications-quiet", label: "Quiet hours", keywords: ["night", "do not disturb", "mute"] },
 ];
 
 const notifications: DesktopExtension = {
@@ -287,11 +345,18 @@ const notifications: DesktopExtension = {
   activate(context) {
     const coordinator = coordinate(context);
     context.registerRegion({ id: "notifications.toasts", placement: "composer-above", profiles: ["desktop", "web", "compact"], Component: createActionsRegion(coordinator) });
-    context.registerSettingsPage({ id: "notifications.settings", label: "Notifications",
+    const page = { id: "notifications.settings", label: "Notifications", Icon: Bell, group: "general", order: 45, rows: NOTIFICATION_ROWS } as const;
+    context.registerSettingsPage({ ...page,
       description: "How Tau tells you that a thread finished, failed or asks you something while you look elsewhere. The window you used last hears of it.",
-      Icon: Bell, group: "general", order: 45, profiles: ["desktop", "web", "compact"],
-      rows: NOTIFICATION_ROWS,
+      profiles: ["desktop", "web"],
       Component: createSettingsPage(context),
+    });
+    // A phone hears through pushes: which news, and when not; the window's sound and toasts are not its own (design 2n).
+    const preferences = context.preferences;
+    context.registerSettingsPage({ ...page,
+      profiles: ["compact"],
+      useSummary: () => useSyncExternalStore(preferences.subscribe, () => eventsSummary(preferences)),
+      Component: () => <div className="settings-page notifications-settings"><NotifyWhen preferences={preferences} /></div>,
     });
     return () => coordinator.dispose();
   },

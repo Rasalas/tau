@@ -7,7 +7,9 @@ import {
   NOTIFY_EVENT,
   PRESENCE_REQUEST_EVENT,
   promptReason,
+  silenced,
   type AttentionReason,
+  type Delivery,
   type PresenceInput,
   type PresenceReply,
 } from "./protocol.js";
@@ -46,12 +48,23 @@ export function createNotificationsHostExtension(options: NotificationsHostOptio
     isolation: "in-process",
     activate(context) {
       const { services } = context;
-      const book = new AttentionBook({ now: options.now ?? Date.now, debounceMs: options.debounceMs ?? DEFAULT_DEBOUNCE_MS });
+      const now = options.now ?? Date.now;
+      const book = new AttentionBook({ now, debounceMs: options.debounceMs ?? DEFAULT_DEBOUNCE_MS });
       /** Open questions per thread; the last one answered clears the thread's question news. */
       const asking = new Map<string, number>();
+      const values = async () => await services.settings?.().catch(() => undefined);
+      // The badge counts every piece of news; what the user silenced reaches no client.
+      const audible = async (delivery: Delivery | undefined): Promise<Delivery | undefined> => {
+        if (!delivery) return undefined;
+        const settings = await values();
+        const items = delivery.items.filter((item) => !silenced(item.reason, settings, new Date(now())));
+        return items.length ? { ...delivery, items } : undefined;
+      };
       const publish = (change: AttentionChange): void => {
         if (change.changed) context.emit(ATTENTION_EVENT, { items: book.list() });
-        if (change.delivery) context.emit(NOTIFY_EVENT, change.delivery);
+        // Without settings to read nothing is silenced, and the news goes out at once.
+        if (change.delivery && !services.settings) context.emit(NOTIFY_EVENT, change.delivery);
+        else void audible(change.delivery).then((delivery) => { if (delivery) context.emit(NOTIFY_EVENT, delivery); });
       };
       const raise = (threadId: string, reason: AttentionReason): void => {
         if (!threadId) return;
@@ -88,13 +101,18 @@ export function createNotificationsHostExtension(options: NotificationsHostOptio
           },
         }),
       ];
-      context.registerCommand("presence", (input): PresenceReply => {
+      context.registerCommand("presence", async (input): Promise<PresenceReply> => {
         const presence = decodePresence(input);
         const change = book.report(presence.clientKey, presence);
         if (change.changed) context.emit(ATTENTION_EVENT, { items: book.list() });
-        return { items: book.list(), ...(change.delivery ? { delivery: change.delivery } : {}) };
+        const delivery = await audible(change.delivery);
+        return { items: book.list(), ...(delivery ? { delivery } : {}) };
       }, { access: "read" });
-      context.registerCommand(ATTENDED_COMMAND, () => ({ attended: book.attended() }), { access: "read", callers: ["tau.push"] });
+      // Push asks before it sends: `muted` when the user silenced this kind of news, or it is quiet hours.
+      context.registerCommand(ATTENDED_COMMAND, async (input) => {
+        const kind = (input as { kind?: AttentionReason } | null)?.kind;
+        return { attended: book.attended(), muted: kind ? silenced(kind, await values(), new Date(now())) : false };
+      }, { access: "read", callers: ["tau.push"] });
       context.registerCommand("leave", (input) => {
         const clientKey = (input as { clientKey?: unknown } | null)?.clientKey;
         if (typeof clientKey === "string") book.leave(clientKey);

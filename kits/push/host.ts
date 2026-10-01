@@ -279,11 +279,14 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         return store.devices().filter((device) => (!ids || ids.has(device.id)) && deviceRoute(device) !== "unreachable");
       };
 
-      /** Someone at a focused client sees it there; without Notifications Kit nobody can say, so the phone hears. */
-      const attended = async (): Promise<boolean> => {
+      /**
+       * Someone at a focused client sees it there, or the user silenced this kind of news (Notifications Kit's
+       * switches and quiet hours); without Notifications Kit nobody can say, so the phone hears.
+       */
+      const attended = async (kind: PushKind): Promise<boolean> => {
         try {
-          const answer = await context.invokeHostExtension(NOTIFICATIONS_EXTENSION_ID, ATTENDED_COMMAND);
-          return (answer as { attended?: unknown } | undefined)?.attended === true;
+          const answer = await context.invokeHostExtension(NOTIFICATIONS_EXTENSION_ID, ATTENDED_COMMAND, { kind: kind === "turn" ? "completed" : kind }) as { attended?: unknown; muted?: unknown } | undefined;
+          return answer?.attended === true || answer?.muted === true;
         } catch {
           return false;
         }
@@ -296,7 +299,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         if (thread?.parentThreadId) return;
         const targets = reachable();
         if (targets.length === 0) return;
-        if (await attended()) return;
+        if (await attended(kind)) return;
         const last = lastPushed.get(threadId);
         if (last !== undefined && now() - last < debounceMs) return;
         lastPushed.set(threadId, now());
