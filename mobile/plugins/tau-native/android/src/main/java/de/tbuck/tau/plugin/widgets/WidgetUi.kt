@@ -90,19 +90,19 @@ internal object Ui {
 
     /** The τ badge, the widget's name and on the right its age: a clock in the warn colour once stale. */
     @Composable
-    fun Header(title: String, age: String?, stale: Boolean, trailing: (@Composable () -> Unit)? = null) {
+    fun Header(title: String, age: String?, stale: Boolean, tight: Boolean = false, trailing: (@Composable () -> Unit)? = null) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = GlanceModifier.fillMaxWidth()) {
-            Badge(20.dp)
-            Spacer(GlanceModifier.width(7.dp))
-            // The title yields, so the age is never cut.
-            Text(title, maxLines = 1, modifier = GlanceModifier.defaultWeight(), style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 13.sp, fontWeight = FontWeight.Medium))
+            // A stale 2 × 2 header tightens to keep "Plan limits" whole; the title yields before the age.
+            Badge(if (tight) 18.dp else 20.dp)
+            Spacer(GlanceModifier.width(if (tight) 5.dp else 7.dp))
+            Text(title, maxLines = 1, modifier = GlanceModifier.defaultWeight(), style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = if (tight) 12.sp else 13.sp, fontWeight = FontWeight.Medium))
             if (trailing != null) trailing()
             else if (age != null) {
                 if (stale) {
-                    Image(ImageProvider(R.drawable.tau_ic_clock), contentDescription = "Stale", modifier = GlanceModifier.size(12.dp), colorFilter = ColorFilter.tint(warn))
-                    Spacer(GlanceModifier.width(4.dp))
+                    Image(ImageProvider(R.drawable.tau_ic_clock), contentDescription = "Stale", modifier = GlanceModifier.size(if (tight) 11.dp else 12.dp), colorFilter = ColorFilter.tint(warn))
+                    Spacer(GlanceModifier.width(if (tight) 3.dp else 4.dp))
                 }
-                Text(age, maxLines = 1, style = TextStyle(color = if (stale) warn else GlanceTheme.colors.onSurfaceVariant, fontSize = 12.sp, fontWeight = if (stale) FontWeight.Medium else FontWeight.Normal))
+                Text(age, maxLines = 1, style = TextStyle(color = if (stale) warn else GlanceTheme.colors.onSurfaceVariant, fontSize = if (tight) 11.5f.sp else 12.sp, fontWeight = if (stale) FontWeight.Medium else FontWeight.Normal))
             }
         }
     }

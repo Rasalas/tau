@@ -135,7 +135,7 @@ private fun Where(item: ThreadItem, size: Float) {
 private fun List(board: ThreadBoard, rows: Int) {
     val context = LocalContext.current
     Column(GlanceModifier.fillMaxSize()) {
-        Ui.Header("Threads", null, board.stale) {
+        Ui.Header("Threads", null, board.stale, trailing = {
             if (board.stale) {
                 Image(ImageProvider(R.drawable.tau_ic_clock), contentDescription = "Stale", modifier = GlanceModifier.size(12.dp), colorFilter = ColorFilter.tint(Ui.warn))
                 Text(" ${Ui.time(context, board.asOf)}", maxLines = 1, style = TextStyle(color = Ui.warn, fontSize = 12.sp, fontWeight = FontWeight.Medium))
@@ -144,7 +144,7 @@ private fun List(board: ThreadBoard, rows: Int) {
                 if (board.done > 0 && board.failed > 0) Text(" · ", style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 12.sp))
                 if (board.failed > 0) Text("${board.failed} failed", maxLines = 1, style = TextStyle(color = Ui.failInk, fontSize = 12.sp, fontWeight = FontWeight.Medium))
             }
-        }
+        })
         Column(GlanceModifier.fillMaxWidth().padding(top = 2.dp)) { board.items.take(rows).forEachIndexed { index, item ->
             if (index > 0) Box(GlanceModifier.fillMaxWidth().height(1.dp).background(GlanceTheme.colors.surfaceVariant)) {}
             Row(GlanceModifier.fillMaxWidth().padding(vertical = 2.dp).clickable(Ui.open(context, item.hostId, item.thread.id)), verticalAlignment = Alignment.CenterVertically) {

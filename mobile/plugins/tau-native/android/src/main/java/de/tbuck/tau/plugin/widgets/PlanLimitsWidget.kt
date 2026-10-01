@@ -78,9 +78,11 @@ private fun barColour(window: LimitWindow, account: LimitAccount): ColorProvider
     Level.NONE -> Ui.tone(account.tone)
 }
 
+@Composable
 private fun valueColour(window: LimitWindow): ColorProvider? = when (window.level) {
     Level.WARN -> Ui.warn
     Level.FAIL -> Ui.failInk
+    Level.STALE -> GlanceTheme.colors.onSurfaceVariant
     else -> null
 }
 
@@ -88,7 +90,7 @@ private fun valueColour(window: LimitWindow): ColorProvider? = when (window.leve
 private fun Small(limits: PlanLimits, now: Long) {
     val context = LocalContext.current
     Column(GlanceModifier.fillMaxSize()) {
-        Ui.Header("Plan limits", Ui.time(context, limits.asOf), limits.stale)
+        Ui.Header("Plan limits", Ui.time(context, limits.asOf), limits.stale, tight = limits.stale)
         Box(GlanceModifier.fillMaxWidth().defaultWeight(), contentAlignment = Alignment.Center) { Juicebars(limits.accounts, barWidth = 9, barHeight = 36) }
         limits.lowest?.let { (account, window) -> Lowest(account, window, limits.stale, now, big = 28) }
     }
@@ -122,7 +124,7 @@ private fun Juicebars(accounts: List<LimitAccount>, barWidth: Int, barHeight: In
                                 if (fill > 0) Box(GlanceModifier.width(barWidth.dp).height(fill.dp).cornerRadius(if (fill > 6) 4.dp else 0.dp).background(barColour(window, account))) {}
                             }
                             if (numbers) {
-                                Text(if (window.level == Level.STALE) "–" else "${window.left}", style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 11.sp, fontWeight = FontWeight.Medium))
+                                Text("${window.left}", style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 11.sp, fontWeight = FontWeight.Medium))
                                 Text(window.short, style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 10.sp))
                             }
                         }
@@ -144,9 +146,9 @@ private fun Wide(limits: PlanLimits, now: Long) {
     val context = LocalContext.current
     Column(GlanceModifier.fillMaxSize()) {
         Ui.Header("Plan limits", if (limits.stale) Ui.time(context, limits.asOf) else "as of ${Ui.time(context, limits.asOf)}", limits.stale)
-        Column(GlanceModifier.fillMaxWidth().defaultWeight(), verticalAlignment = Alignment.CenterVertically) {
+        Column(GlanceModifier.fillMaxWidth().defaultWeight().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             limits.accounts.take(3).forEachIndexed { index, account ->
-                if (index > 0) Spacer(GlanceModifier.height(9.dp))
+                if (index > 0) Spacer(GlanceModifier.height(6.dp))
                 Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Ui.Mark(account, 16.dp)
                     Spacer(GlanceModifier.width(9.dp))
@@ -173,7 +175,7 @@ private fun Cell(account: LimitAccount, window: LimitWindow?, now: Long, modifie
         Row(GlanceModifier.fillMaxWidth()) {
             Text(listOfNotNull(window.short, WidgetModel.resetsIn(now, window.resetsAt)).joinToString(" · "), maxLines = 1, modifier = GlanceModifier.defaultWeight(),
                 style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 11.sp))
-            Text(if (window.level == Level.STALE) "–" else "${window.left}%", maxLines = 1,
+            Text("${window.left}%", maxLines = 1,
                 style = TextStyle(color = valueColour(window) ?: GlanceTheme.colors.onSurface, fontSize = 11.sp, fontWeight = FontWeight.Medium))
         }
         Spacer(GlanceModifier.height(3.dp))
@@ -211,7 +213,7 @@ private fun Large(limits: PlanLimits, now: Long) {
                     Row(GlanceModifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(window.label, maxLines = 1, modifier = GlanceModifier.width(58.dp), style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 11.5f.sp))
                         Bar(account, window, GlanceModifier.defaultWeight())
-                        Text(if (window.level == Level.STALE) "–" else "${window.left}%", maxLines = 1, modifier = GlanceModifier.width(44.dp),
+                        Text("${window.left}%", maxLines = 1, modifier = GlanceModifier.width(44.dp),
                             style = TextStyle(color = valueColour(window) ?: GlanceTheme.colors.onSurface, fontSize = 11.5f.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.End))
                         Text(WidgetModel.resetsIn(now, window.resetsAt) ?: "", maxLines = 1, modifier = GlanceModifier.width(52.dp).padding(start = 8.dp),
                             style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 11.sp))
