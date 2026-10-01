@@ -8,7 +8,7 @@ import { TestProviders, TestThreadStore } from "../../src/renderer/test-support/
 import { UsageSidebar } from "./controls.js";
 import { dayStarts, HISTORY_DAYS } from "./dashboard.js";
 import { createUsageView } from "./filters.js";
-import { createJuicebarChoices } from "./juicebars.js";
+import { createJuicebarChoices } from "./juicebar-choices.js";
 import { Juicebars } from "./juicebars-view.js";
 import { forgetLastState } from "./last-state.js";
 import { createLimitsFeed } from "./limits-feed.js";

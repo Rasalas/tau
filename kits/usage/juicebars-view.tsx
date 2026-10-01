@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties }
 import { createPortal } from "react-dom";
 import { ChartColumn } from "lucide-react";
 import { ProviderIconStack, tooltipProps, useThreadStore, type PageSummaryProps } from "tau";
-import { juicebarGroups, type Juicebar, type JuicebarChoices, type JuicebarGroup } from "./juicebars.js";
+import type { JuicebarChoices } from "./juicebar-choices.js";
+import { juicebarGroups, type Juicebar, type JuicebarGroup } from "./juicebars.js";
 import { providerMark, stateText } from "./limits.js";
 import type { LimitsFeed } from "./limits-feed.js";
 import { USAGE_PAGE } from "./protocol.js";
