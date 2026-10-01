@@ -138,3 +138,19 @@
   border: 1px solid var(--line); border-radius: 4px; font: 10px var(--mono); color: var(--muted);
 }
 .agent-row-machine.offline { color: var(--muted-2); border-style: dashed; }
+
+/* The spine the conversation collapses to (design 1b): state, what runs now, the turn's steps, the agents. */
+.agents-spine-now > code { font-family: var(--mono); }
+.agents-spine-now { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; background: var(--rail); }
+.agents-spine-now > small { font-size: var(--text-xs); color: var(--muted); }
+.agents-spine-now > code { font-size: 11.5px; line-height: 1.45; color: var(--ink); word-break: break-all; }
+.agents-spine-bar { height: 3px; border-radius: 2px; background: var(--track); overflow: hidden; }
+.agents-spine-bar > i { display: block; height: 100%; background: var(--acid); }
+.agents-spine-bar.busy > i { width: 30%; animation: agents-spine-busy 1.4s ease-in-out infinite; }
+@keyframes agents-spine-busy { from { translate: -100% 0; } to { translate: 340% 0; } }
+.agents-spine-steps { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.agents-spine-steps > li { display: flex; align-items: center; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.agents-spine-steps > li > svg { flex: none; color: var(--ready); }
+.agents-spine-steps > li.running { color: var(--ink); }
+.agents-spine-agents { margin: 0; }
+.agents-spine-agents > b { font-weight: 400; color: var(--warn); }

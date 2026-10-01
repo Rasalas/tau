@@ -117,6 +117,7 @@ export type { ComposerAttachmentHandle } from "./useComposerAttachments";
 
 export function Composer({
   snapshot,
+  floating,
   scopeStore,
   value,
   seed,
@@ -158,6 +159,8 @@ export function Composer({
   seed?: string;
   draftStorageKey?: string;
   queue: readonly UiQueuedMessage[];
+  /** Over a stage the conversation left: one line to steer from (design 1b). */
+  floating?: boolean | undefined;
   contextUsage?: UiContextUsage;
   contextBreakdown: ContextBreakdown;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -1047,7 +1050,7 @@ export function Composer({
               : isVimEnabled && vim.vimMode === "normal"
                 ? "Vim NORMAL mode — press 'i' to insert, ↵ to send"
                 // Short, as in the design; the chords are in the send button's tooltip.
-                : streaming ? "Steer, or queue a follow-up…" : "Ask anything, or hand it work…"
+                : floating ? "Say something to the thread…" : streaming ? "Steer, or queue a follow-up…" : "Ask anything, or hand it work…"
           }
         />
         <Suspense fallback={null}>

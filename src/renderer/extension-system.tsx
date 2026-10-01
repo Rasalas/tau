@@ -317,8 +317,9 @@ export interface TranscriptRowsHandle {
  * `thread-list-head` tops a phone's or tablet's thread list, under its header
  * (API 1.30.0). `thread-list-title` adds compact controls beside a phone's header title;
  * a tablet's sidebar has a foot for them (`PageContribution.Summary`).
+ * `spine` fills the narrow column the conversation collapses to (design 1b), under the title.
  */
-export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in" | "thread-list-head" | "thread-list-title";
+export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in" | "thread-list-head" | "thread-list-title" | "spine";
 
 /** Where a thread of a list source runs: its mark and name on the row's project line. */
 export interface ThreadListPlace {

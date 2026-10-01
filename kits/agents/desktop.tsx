@@ -5,6 +5,7 @@ import { AGENTS_HOST_EXTENSION_ID, AGENTS_STATE_EVENT, REMOTE_AGENT_THREADS_SERV
 import { AgentsPanel } from "./panel.js";
 import { AGENTS_SETTINGS_PAGE, createAgentsSettingsPage } from "./settings.js";
 import { SpawnCard } from "./spawn-card.js";
+import { AgentsSpine } from "./spine.js";
 import { agentsHost, agentsStore, definitionsStore, lineageOf, remoteAgentThreads, siblingsSource } from "./store.js";
 
 /** The way back from an agent's thread to the thread that started it. */
@@ -77,6 +78,7 @@ export const agentsExtension: DesktopExtension = {
       Component: function Agents(props: PanelProps) { return <AgentsPanel {...props} canLookIn={canLookIn} />; },
     });
     context.registerRegion({ id: "agents.parent-link", placement: "transcript-header", order: 20, profiles: ["desktop", "web", "compact"], Component: SpawnedBy });
+    context.registerRegion({ id: "agents.spine", placement: "spine", profiles: ["desktop", "web"], Component: AgentsSpine });
     // A spawn is not a tool call to skim past: the card is the way into the
     // threads it started, so it never folds with the rest of the turn.
     context.registerToolCard({
