@@ -278,14 +278,16 @@ body[data-keyboard] .touch-panel-sheet { padding-bottom: 0; }
 .touch-panel-sheet .panel-host, .touch-panel-sheet .panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
 /* The model picker is a sheet from the bottom edge, above the keyboard, not a popover at its chip. */
-body[data-profile="compact"] .model-picker-sheet.popover {
+body[data-profile="compact"] :is(.model-picker-sheet, .thinking-sheet).popover {
   position: fixed !important; left: 0 !important; right: 0; top: auto !important;
   bottom: var(--tau-keyboard-inset, 0px) !important;
   width: 100% !important; max-width: none; max-height: none;
   height: min(calc(var(--tau-viewport-height, 100dvh) - 24px), 620px);
   border-radius: 16px 16px 0 0; padding: 0 0 env(safe-area-inset-bottom, 0px);
 }
-body[data-keyboard] .model-picker-sheet.popover { padding-bottom: 0; }
+body[data-keyboard] :is(.model-picker-sheet, .thinking-sheet).popover { padding-bottom: 0; }
+body[data-profile="compact"] .thinking-sheet.popover { height: auto; max-height: calc(var(--tau-viewport-height, 100dvh) - 24px); display: flex; flex-direction: column; }
+.thinking-sheet .touch-sheet-header { padding: 8px 4px 0 14px; }
 .model-picker .touch-sheet-header { padding: 8px 4px 0 14px; border-bottom: 1px solid var(--line); }
 
 /* A question's buttons are touch targets too. */

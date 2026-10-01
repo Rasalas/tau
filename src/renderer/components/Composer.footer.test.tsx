@@ -83,14 +83,14 @@ describe("the composer's slim footer", () => {
     expect(labels.slice(0, 4)).toEqual(["Machine", "Project", "|", "GPT-5.6 Luna"]);
   });
 
-  it("draws the model with its marks, the reasoning level as text, and a round send", () => {
+  it("draws the model with its marks, the thinking level as text, and a round send", () => {
     renderFooter();
     const model = screen.getByLabelText("Select model: GPT-5.6 Luna");
     expect(model.textContent).toContain("GPT-5.6 Luna");
     expect(model.querySelector(".provider-icon-stack, svg, img")).toBeTruthy();
-    const reasoning = screen.getByLabelText("Reasoning: Medium");
+    const reasoning = screen.getByLabelText("Thinking: Medium");
     expect(reasoning.textContent).toBe("Medium");
-    expect(reasoning.querySelector("svg")).toBeNull();
+    expect(reasoning.querySelectorAll("svg")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Send" }).classList.contains("send-button")).toBe(true);
     // The thread's cost is in its head now, not under the prompt.
     expect(screen.queryByLabelText(/^Thread cost/u)).toBeNull();
@@ -112,20 +112,22 @@ describe("the composer's slim footer", () => {
     expect(screen.queryByRole("dialog", { name: "More composer controls" })).toBeNull();
   });
 
-  it("opens the picker at its thinking column from the reasoning level", async () => {
+  it("opens its own menu from the thinking chip (K142): levels, then speed", async () => {
     renderFooter();
-    fireEvent.click(screen.getByLabelText("Reasoning: Medium"));
-    const levels = await screen.findByRole("radiogroup", { name: /^Thinking for/u });
-    expect(within(levels).getByRole("radio", { name: /High/u })).toBeTruthy();
-    await waitFor(() => expect(levels.contains(document.activeElement)).toBe(true));
-    expect(screen.getByLabelText("Reasoning: Medium").getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(screen.getByLabelText("Thinking: Medium"));
+    const menu = await screen.findByRole("dialog", { name: "Thinking, context window and speed" });
+    const levels = within(menu).getByRole("group", { name: "Thinking" });
+    expect(within(levels).getAllByRole("radio").map((radio) => radio.textContent)).toEqual(["Off", "Low", "MediumDefault", "High"]);
+    expect(within(menu).getByRole("group", { name: "Speed" }).textContent).toMatch(/FastPi offers no Fast tier/u);
+    expect(screen.getByLabelText("Thinking: Medium").getAttribute("aria-expanded")).toBe("true");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Select model" })).toBeNull());
   });
 
   it("draws the design's row: model, reasoning, the menu, the context meter and send; attach waits in the menu", () => {
     renderFooter();
     const row = screen.getByLabelText("Select model: GPT-5.6 Luna").closest(".composer-toolbar") as HTMLElement;
     const labels = [...row.querySelectorAll("button")].map((button) => button.getAttribute("aria-label") ?? button.textContent);
-    expect(labels).toEqual(["Machine", "Select model: GPT-5.6 Luna", "Reasoning: Medium", "Kit chip", "More composer controls", "Context 20 percent used", "Send"]);
+    expect(labels).toEqual(["Machine", "Select model: GPT-5.6 Luna", "Thinking: Medium", "Kit chip", "More composer controls", "Context 20 percent used", "Send"]);
     // The meter says its share, as design 1a writes "19%".
     expect(screen.getByLabelText("Context 20 percent used").textContent).toBe("20%");
     fireEvent.click(screen.getByLabelText("More composer controls"));
@@ -170,6 +172,6 @@ describe("the composer's slim footer", () => {
         </WorkbenchShellContext.Provider>
       </TestProviders>,
     );
-    expect(screen.queryByLabelText(/^Reasoning/u)).toBeNull();
+    expect(screen.queryByLabelText(/^Thinking/u)).toBeNull();
   });
 });

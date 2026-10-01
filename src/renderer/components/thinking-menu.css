@@ -1,0 +1,30 @@
+/* The thinking chip's menu (K142): levels, context window, speed; on a phone a sheet of segmented rows. */
+.thinking-menu .composer-menu { min-width: 250px; }
+.composer-menu-section > .menu-heading { display: flex; gap: 8px; }
+.composer-menu-section > .menu-heading > span { margin-left: auto; text-transform: none; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thinking-default { flex: none; padding: 2px 5px; border-radius: 4px; background: var(--chip); color: var(--ink-3); font: 500 10px var(--sans); }
+.thinking-zap { color: var(--warn); }
+.composer-menu-item:disabled .thinking-zap { color: inherit; }
+.thinking-note { margin: 0; padding: 2px 10px 6px; font-size: var(--text-xs); color: var(--muted); }
+.thinking-menu-foot {
+  display: flex; align-items: center; gap: 12px; margin: 4px -4px -4px; padding: 7px 12px;
+  border-top: 1px solid var(--line-inset); font-size: var(--text-xs); color: var(--muted);
+}
+.thinking-menu-foot > span:last-child { margin-left: auto; }
+.thinking-menu-foot kbd { margin-right: 6px; padding: 1px 5px; border: 1px solid var(--line-control); border-radius: 5px; font: 500 10.5px var(--sans); color: var(--muted); }
+
+/* The phone's sheet: each section a row of segments in a well, 44 px; the check and second lines give way to the note under Speed. */
+body[data-profile="compact"] .thinking-sheet .composer-menu { min-width: 0; max-width: none; padding: 0 16px 16px; gap: 10px; }
+.thinking-sheet .composer-menu-section { display: flex; flex-wrap: wrap; margin: 0; padding: 0; border: 0; }
+.thinking-sheet .composer-menu-section > .menu-heading { flex: 0 0 100%; justify-content: flex-start; padding: 4px 0 6px; font: var(--text-sm) var(--sans); text-transform: none; letter-spacing: 0; color: var(--muted); }
+body[data-profile="compact"] .thinking-sheet .composer-menu-item {
+  flex: 1 1 0; width: auto; min-width: 0; justify-content: center; gap: 6px; padding-inline: 2px; border-radius: 0; background: var(--well); color: var(--ink-3); font-size: var(--text-md);
+}
+body[data-profile="compact"] .thinking-sheet .composer-menu-item:nth-child(2) { border-radius: 10px 0 0 10px; }
+body[data-profile="compact"] .thinking-sheet .composer-menu-item:last-child { border-radius: 0 10px 10px 0; }
+body[data-profile="compact"] .thinking-sheet .composer-menu-item[aria-checked="true"] { background: var(--float); color: var(--ink); font-weight: 600; box-shadow: inset 0 0 0 2px var(--well), var(--elevation-0); border-radius: 10px; }
+.thinking-sheet :is(.composer-menu-check, .composer-menu-label > small) { display: none; }
+.thinking-sheet .composer-menu-label { flex: none; }
+.thinking-sheet .composer-menu-icon { width: auto; }
+.thinking-sheet .thinking-note { padding: 0; }
+.thinking-sheet .composer-menu-section > .menu-heading > span { margin-left: 0; }

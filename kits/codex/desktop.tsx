@@ -4,6 +4,8 @@ import {
   ComposerMenuItem,
   ComposerMenuSection,
   type ComposerControlProps,
+  type ComposerSpeedContribution,
+  type ComposerSpeedState,
   DEFAULT_INSTANCE_ID,
   PrivateAccountText,
   SettingRow,
@@ -368,6 +370,54 @@ export function createChatGPTPlanBanner(host: HostExtensionClient) {
   };
 }
 
+/** The tier the thinking chip calls Fast: Codex's `fast`, else the first that says it is faster. */
+export const fastTier = (settings: CodexThreadSettings | undefined) => settings?.serviceTier.choices.find((tier) => tier.id === "fast")
+  ?? settings?.serviceTier.choices.find((tier) => /fast|priority/iu.test(tier.name));
+
+/** Fast for Codex threads, drawn by core in the thinking chip (K142); a draft has none until its thread runs. */
+export function createCodexSpeed(host: HostExtensionClient): ComposerSpeedContribution {
+  let asked: string | undefined;
+  let threadId: string | undefined;
+  let held: ComposerSpeedState | undefined;
+  let stopEvents: (() => void) | undefined;
+  const listeners = new Set<() => void>();
+  const publish = (settings: CodexThreadSettings | undefined) => {
+    const tier = fastTier(settings);
+    held = tier
+      ? { fast: settings!.serviceTier.selected === tier.id, available: true, ...(tier.description ? { detail: tier.description } : {}) }
+      : { fast: false, available: false, reason: settings ? "This account and model offer no Fast tier on Codex" : "Codex sets Fast once the thread runs" };
+    for (const listener of listeners) listener();
+  };
+  const read = () => {
+    const asking = threadId;
+    if (!asking) { publish(undefined); return; }
+    void host.invoke("thread-settings", { threadId: asking }).then((value) => { if (asking === threadId) publish(value as CodexThreadSettings); }, () => { if (asking === threadId) publish(undefined); });
+  };
+  return {
+    id: "codex.speed",
+    profiles: ["desktop", "web", "compact"],
+    read(snapshot) {
+      if (!isRuntimeInstanceOf(snapshot?.backendKind, CODEX_BACKEND_KIND)) return undefined;
+      const key = `${snapshot?.sessionId}|${snapshot?.model?.id}`;
+      if (key !== asked) { asked = key; threadId = snapshot?.sessionId; read(); }
+      return held;
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      stopEvents ??= host.onEvent("thread-settings", read);
+      return () => {
+        listeners.delete(listener);
+        if (listeners.size === 0) { stopEvents?.(); stopEvents = undefined; }
+      };
+    },
+    async set(fast, snapshot) {
+      const id = snapshot?.sessionId;
+      const tier = fastTier(await host.invoke("thread-settings", { threadId: id }) as CodexThreadSettings);
+      publish(await host.invoke("set-thread-tier", { threadId: id, tier: fast && tier ? tier.id : null }) as CodexThreadSettings);
+    },
+  };
+}
+
 export function createThreadSettingsControl(host: HostExtensionClient) {
   return function CodexThreadSettingsControl({ snapshot, actions }: ComposerControlProps) {
     const [state, setState] = useState<CodexThreadSettings>();
@@ -404,14 +454,17 @@ export function createThreadSettingsControl(host: HostExtensionClient) {
       finally { if (currentThread.current === threadId) setBusy(false); }
     };
     const disabled = busy || Boolean(snapshot?.isStreaming);
+    // Fast is the thinking chip's; the menu keeps any other tier.
+    const fast = fastTier(state);
+    const tiers = state?.serviceTier.choices.filter((tier) => tier !== fast && tier.id !== "default") ?? [];
     return <>
       <ComposerMenuSection heading="Codex account">
         {state?.accounts.map((account) => <ComposerMenuItem key={account.id} icon={<UserRound size={13} />} label={account.label} selected={account.id === state.account} disabled={disabled || Boolean(account.reason)} disabledReason={account.reason ?? "Wait for Codex to finish"} onSelect={() => void change("switch-thread-account", { account: account.id })} />)}
         {error ? <div role="alert">{error}</div> : null}
       </ComposerMenuSection>
-      {state?.serviceTier.choices.length ? <ComposerMenuSection heading="Codex service tier">
+      {state && tiers.length ? <ComposerMenuSection heading="Codex service tier">
         <ComposerMenuItem icon={<Gauge size={13} />} label="Provider default" detail={state.serviceTier.choices.find((tier) => tier.id === state.serviceTier.defaultTier)?.name} selected={state.serviceTier.selected === null} disabled={disabled} disabledReason="Wait for Codex to finish" onSelect={() => void change("set-thread-tier", { tier: null })} />
-        {state.serviceTier.choices.map((tier) => <ComposerMenuItem key={tier.id} icon={<Gauge size={13} />} label={tier.name} detail={tier.description} selected={state.serviceTier.selected === tier.id} disabled={disabled} disabledReason="Wait for Codex to finish" onSelect={() => void change("set-thread-tier", { tier: tier.id })} />)}
+        {tiers.map((tier) => <ComposerMenuItem key={tier.id} icon={<Gauge size={13} />} label={tier.name} detail={tier.description} selected={state.serviceTier.selected === tier.id} disabled={disabled} disabledReason="Wait for Codex to finish" onSelect={() => void change("set-thread-tier", { tier: tier.id })} />)}
       </ComposerMenuSection> : null}
     </>;
   };
@@ -487,6 +540,7 @@ export const codexExtension: DesktopExtension = {
   name: "Codex",
   activate(plugin) {
     plugin.registerComposerControl({ id: "codex.thread-settings", placement: "menu", order: 21, profiles: ["desktop", "web", "compact"], Component: createThreadSettingsControl(plugin.host) });
+    plugin.registerComposerSpeed(createCodexSpeed(plugin.host));
     const instances = new CodexInstances();
     const terminal = () => plugin.hostExtension(TERMINAL_HOST_EXTENSION_ID);
     const cards = new Map<string, { label: string; dispose: () => void }>();

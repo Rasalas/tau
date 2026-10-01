@@ -1345,6 +1345,22 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 /* The reasoning level reads as text beside the model, as in the design. */
 .runtime-chip.composer-thinking-chip { color: var(--muted); }
 .runtime-chip.composer-thinking-chip:disabled { cursor: default; background: transparent; color: var(--faint); }
+.composer-thinking-words { display: inline-flex; align-items: center; gap: 6px; }
+.composer-thinking-words > .chev { color: var(--faint); }
+.composer-fast { flex: none; margin-left: -2px; color: var(--warn); }
+/* A choice cost the thread its level or Fast: one line above the composer, with Undo (K142, design D). */
+.composer-adjusted {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 8px 12px;
+  border: 1px solid var(--line-float); border-radius: 10px; background: var(--float); box-shadow: var(--elevation-1);
+  font-size: var(--text-sm); color: var(--ink-2);
+}
+.composer-adjusted > svg { flex: none; color: var(--acid-text); }
+.composer-adjusted > span { flex: 1; min-width: 0; }
+.composer-adjusted > button {
+  flex: none; display: inline-flex; align-items: center; gap: 4px; border: 0; padding: 4px 6px; border-radius: 6px;
+  background: transparent; color: var(--acid-text); font: 600 var(--text-sm) var(--sans); cursor: pointer;
+}
+.composer-adjusted > button:hover { background: var(--hover); }
 .composer-menu-trigger { padding: 4px 6px; color: var(--muted); }
 .popover.composer-overflow { padding: 4px; }
 .composer-menu { display: flex; flex-direction: column; gap: 2px; min-width: 220px; max-width: 300px; }

@@ -1,112 +1,103 @@
 import { Check, Eye, EyeOff, Star } from "lucide-react";
 import type { ThreadBackendKind, UiModel } from "../../shared/contracts";
 import type { ModelBadgeContribution } from "../extension-system";
-import { modelOnPlan } from "../runtime-marks";
 import { billingBadge, formatPrice, formatTokens, type Offering } from "./model-offerings";
+import { entryFacts, type ModelEntry } from "./model-entries";
 import { ProviderIconStack } from "./ProviderIconStack";
 
 /** What every row of one list shares: marks, the model in use, the chosen set and the row actions. */
 export interface RowCell {
   badges: readonly ModelBadgeContribution[];
-  inUse(key: string): boolean;
+  inUse(entry: ModelEntry): boolean;
   /** "added" or "×2" for a model in a new thread's set. */
-  chosen(key: string): string | undefined;
+  chosen(way: Offering): string | undefined;
   /** ⌘n reaches it. */
   jump(key: string): number | undefined;
-  onFavourite(offering: Offering): void;
-  onHide(offering: Offering): void;
+  onFavourite(way: Offering): void;
+  onHide(entry: ModelEntry): void;
   /** Search lists legacy models flat, tagged. */
   showLegacy: boolean;
-  /** The list mixes model providers, so a row carries its provider's mark. */
-  showProvider: boolean;
 }
 
 export function wears(badge: ModelBadgeContribution, model: UiModel, runtime: ThreadBackendKind): boolean {
   try { return badge.applies(model, runtime); } catch (error) { console.error(`Model badge ${badge.id} failed`, error); return false; }
 }
 
-const HINT = { side: "top" } as const;
-
-/** A route to a model across runtimes: the access mark with the runtime's behind it, or the runtime's own mark at home. */
-export function OfferingMarks({ offering }: { offering: Offering }) {
-  const { runtime, runtimeLabel, model } = offering;
+/** The runtimes a model runs on, as their marks; the names are in the tooltip. */
+export function RuntimeMarks({ ways }: { ways: readonly Offering[] }) {
+  const runtimes = [...new Map(ways.map((way) => [way.runtime, way.runtimeLabel] as const))];
   return (
-    <span className="model-marks">
-      <ProviderIconStack modelProvider={model.provider} runtimeProvider={runtime} plan={modelOnPlan(model)} modelName={model.name} runtimeName={runtimeLabel} className="sub-icon" hint={HINT} />
+    <span className="model-runtimes">
+      {runtimes.map(([runtime, label]) => <ProviderIconStack key={runtime} runtimeProvider={runtime} runtimeName={label} className="sub-icon" hint={{ side: "top" }} />)}
     </span>
   );
 }
 
-/** In one runtime's list, which the rail names: the access mark without the runtime's, still named. */
-function ListMarks({ offering }: { offering: Offering }) {
-  const { runtime, runtimeLabel, model } = offering;
-  return (
-    <span className="model-marks">
-      <ProviderIconStack modelProvider={model.provider} runtimeProvider={runtime} plan={modelOnPlan(model)} runtimeMark={false} modelName={model.name} runtimeName={runtimeLabel} className="sub-icon" hint={HINT} />
-    </span>
-  );
-}
-
-/** One offering, on one line: a model as one runtime reaches it. Context and price are the picker's detail line. */
-export function OfferingRow({ id, offering, grouped, cross, selected, cells, onPoint, onChoose }: {
+/** One model, once, with the way chosen for it (`way`): its name, what it reads and costs, the runtimes that run it. */
+export function EntryRow({ id, entry, way, selected, cells, onPoint, onLeave, onChoose }: {
   id: string;
-  offering: Offering;
-  /** Under its model's heading in search: the marks stand in for the name, which is the heading's. */
-  grouped: boolean;
-  /** From a list across runtimes: the runtime's mark leads. */
-  cross: boolean;
+  entry: ModelEntry;
+  way: Offering;
   selected: boolean;
   cells: RowCell;
   onPoint(): void;
+  onLeave(): void;
   onChoose(add: boolean): void;
 }) {
-  const { model, runtime } = offering;
+  const { model, runtime } = way;
   const access = billingBadge(model);
-  const current = cells.inUse(offering.key);
-  const chosen = cells.chosen(offering.key);
-  const jump = cells.jump(offering.key);
+  const current = cells.inUse(entry);
+  const chosen = cells.chosen(way);
+  const jump = cells.jump(way.key);
+  const hidden = entry.ways.every((item) => item.hidden);
+  const legacy = entry.ways.every((item) => item.legacy);
+  const facts = entryFacts(entry.ways);
   return (
     <div
       id={id}
       role="option"
       aria-selected={selected}
-      aria-label={`${model.name}, ${offering.runtimeLabel}${access ? `, ${access.label}` : ""}${current ? ", in use" : ""}`}
-      data-provider={model.provider}
-      className={`model-row${grouped ? " grouped" : ""}${selected ? " selected" : ""}${current ? " current" : ""}${offering.hidden ? " hidden-model" : ""}`}
-      onMouseMove={onPoint}
+      aria-label={`${entry.name}, ${way.runtimeLabel}${access ? `, ${access.label}` : ""}${current ? ", in use" : ""}`}
+      data-provider={entry.maker}
+      className={`model-row${selected ? " selected" : ""}${current ? " current" : ""}${hidden ? " hidden-model" : ""}`}
+      onMouseEnter={onPoint}
+      onMouseLeave={onLeave}
       onClick={(event) => onChoose(event.shiftKey)}
     >
-      {grouped || cross ? <OfferingMarks offering={offering} /> : cells.showProvider ? <ListMarks offering={offering} /> : null}
-      <span className="model-line">
-        {grouped ? null : <strong>{model.name}</strong>}
-        {offering.isNew ? <span className="model-badge model-badge-new">NEW</span> : null}
-        {cells.showLegacy && offering.legacy ? <span className="model-badge">legacy</span> : null}
-        {offering.hidden ? <span className="model-badge">hidden</span> : null}
-        {chosen ? <em className="model-chosen">{chosen}</em> : null}
-        {cells.badges.filter((badge) => wears(badge, model, runtime)).map((badge) => (
-          <span key={badge.id} className={`model-badge${badge.tone === "warning" ? " model-badge-warning" : ""}`} title={badge.title}>{badge.label}</span>
-        ))}
+      <span className="model-text">
+        <span className="model-line">
+          <strong>{entry.name}</strong>
+          {entry.ways.some((item) => item.isNew) ? <span className="model-badge model-badge-new">NEW</span> : null}
+          {cells.showLegacy && legacy ? <span className="model-badge">legacy</span> : null}
+          {hidden ? <span className="model-badge">hidden</span> : null}
+          {chosen ? <em className="model-chosen">{chosen}</em> : null}
+          {cells.badges.filter((badge) => wears(badge, model, runtime)).map((badge) => (
+            <span key={badge.id} className={`model-badge${badge.tone === "warning" ? " model-badge-warning" : ""}`} title={badge.title}>{badge.label}</span>
+          ))}
+        </span>
+        {facts ? <small className="model-facts">{facts}</small> : null}
       </span>
+      <RuntimeMarks ways={entry.ways} />
       {jump ? <kbd className="model-kbd keyboard-hint">⌘{jump}</kbd> : null}
       <span className="model-row-actions">
         <button
           className="model-row-action model-hide"
           tabIndex={-1}
-          aria-label={offering.hidden ? `Show ${model.name} in the picker` : `Hide ${model.name} from the picker`}
-          title={offering.hidden ? "Show in the picker" : "Hide from the picker"}
-          onClick={(event) => { event.stopPropagation(); cells.onHide(offering); }}
+          aria-label={hidden ? `Show ${entry.name} in the picker` : `Hide ${entry.name} from the picker`}
+          title={hidden ? "Show in the picker" : "Hide from the picker"}
+          onClick={(event) => { event.stopPropagation(); cells.onHide(entry); }}
         >
-          {offering.hidden ? <Eye size={13} /> : <EyeOff size={13} />}
+          {hidden ? <Eye size={13} /> : <EyeOff size={13} />}
         </button>
         <button
-          className={`model-row-action model-star ${offering.favourite ? "on" : ""}`}
+          className={`model-row-action model-star ${way.favourite ? "on" : ""}`}
           tabIndex={-1}
-          aria-label={offering.favourite ? `Unpin ${model.name}` : `Pin ${model.name}`}
-          title={offering.favourite ? "Pinned: listed first and in Favourites" : "Pin: list it first and in Favourites"}
-          aria-pressed={offering.favourite}
-          onClick={(event) => { event.stopPropagation(); cells.onFavourite(offering); }}
+          aria-label={way.favourite ? `Unpin ${entry.name} on ${way.runtimeLabel}` : `Pin ${entry.name} on ${way.runtimeLabel}`}
+          title={way.favourite ? "Pinned with this way to run it" : "Pin it with this way to run it"}
+          aria-pressed={way.favourite}
+          onClick={(event) => { event.stopPropagation(); cells.onFavourite(way); }}
         >
-          <Star size={13} fill={offering.favourite ? "currentColor" : "none"} />
+          <Star size={13} fill={way.favourite ? "currentColor" : "none"} />
         </button>
       </span>
       <span className="model-check" aria-hidden>{current ? <Check size={14} /> : null}</span>
@@ -115,7 +106,7 @@ export function OfferingRow({ id, offering, grouped, cross, selected, cells, onP
 }
 
 /**
- * What a model reads and costs, for the picker's detail line:
+ * What a model reads and costs, for the line under "Runs with":
  * its context, how it is paid, and its price per million tokens (over the API
  * for a plan, which includes it).
  */

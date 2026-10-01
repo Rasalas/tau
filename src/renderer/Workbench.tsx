@@ -1141,8 +1141,9 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     onSetModel={(provider, id) => void setModel(provider, id)}
     onSetThinking={(level) => void setThinking(level)}
     runtimeChoice={runtimeChoice}
-    onNewThreadOnRuntime={actions ? (kind, model) => {
+    onNewThreadOnRuntime={actions ? (kind, model, via) => {
       composer.carryModel?.(kind, model);
+      if (via) { via(kind); return; }
       preferences.setNewThreadRuntime(kind);
       // The new thread stays in this thread's project.
       const workspace = snapshot?.workspaceId ?? snapshot?.cwd;

@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostSnapshot, UiModel } from "../../shared/contracts";
+import type { HostSnapshot, UiModel, UiRuntimeCatalog } from "../../shared/contracts";
 import { Composer } from "./Composer";
 import { ComposerScopeStore } from "../../workbench/composer-scope-store";
 import { TestProviders } from "../test-support/test-providers";
@@ -21,13 +21,16 @@ const snapshot: HostSnapshot = {
   messages: [], isStreaming: false, activeTools: [], allTools: [], extensionCount: 0,
 };
 
-function renderComposer(options: { runtimeChoice?: ComposerRuntimeChoice; onNewThreadOnRuntime?: (kind: string) => void; snapshot?: HostSnapshot } = {}) {
+function renderComposer(options: { runtimeChoice?: ComposerRuntimeChoice; onNewThreadOnRuntime?: (kind: string, model?: UiModel, via?: (kind: string) => void) => void; snapshot?: HostSnapshot } = {}) {
   const onSetModel = vi.fn();
   const onSetThinking = vi.fn();
   const textareaRef = createRef<HTMLTextAreaElement>();
   // The host's cache holds Codex's catalog; no Codex thread has ever run.
   const client = createFakeHostClient({
-    runtimeCatalogs: async () => [{ kind: "codex", models: [{ provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna", billing: "subscription" }], thinkingLevels: {}, checkedAt: 1 }],
+    runtimeCatalogs: async (): Promise<UiRuntimeCatalog[]> => [
+      { kind: "codex", models: [{ provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna", billing: "subscription" }, { provider: "openai", id: "gpt-5.5", name: "GPT-5.5", billing: "subscription" }], thinkingLevels: {}, checkedAt: 1 },
+      { kind: "pi", models: [luna, sol], thinkingLevels: { "openai-codex/gpt-5.6-sol": ["low", "medium"] }, checkedAt: 1 },
+    ],
   });
   render(<TestProviders><HostClientProvider client={client}>
     <Composer
@@ -83,16 +86,19 @@ describe("model picker at the model chip", () => {
     await waitFor(() => expect(document.activeElement).toBe(textareaRef.current));
   });
 
-  it("keeps the picker open for the thinking level, sets it in one click and hands focus to the prompt", async () => {
-    const { chip, onSetModel, onSetThinking, textareaRef } = renderComposer({ snapshot: { ...snapshot, thinkingLevels: ["low", "medium", "high"] } });
+  it("carries the level to the next model, or the next lower one it has, and says so with Undo (K142)", async () => {
+    const { chip, onSetModel, onSetThinking } = renderComposer({ snapshot: { ...snapshot, thinkingLevel: "high", thinkingLevels: ["low", "medium", "high"] } });
     await openPicker(chip);
-    fireEvent.click(screen.getByRole("option", { name: /^GPT-5.6 Luna, Pi/u }));
-    expect(onSetModel).toHaveBeenCalledWith("openai-codex", "gpt-5.6-luna");
-    expect(screen.getByRole("dialog", { name: "Select model" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("radio", { name: "High" }));
-    expect(onSetThinking).toHaveBeenCalledWith("high");
-    expect(screen.queryByRole("dialog", { name: "Select model" })).toBeNull();
-    await waitFor(() => expect(document.activeElement).toBe(textareaRef.current));
+    await screen.findByRole("radio", { name: "Codex, Plan" });
+    fireEvent.click(screen.getByRole("option", { name: /^GPT-5.6 Sol, Pi/u }));
+    expect(onSetModel).toHaveBeenCalledWith("openai-codex", "gpt-5.6-sol");
+    expect(onSetThinking).toHaveBeenCalledWith("medium");
+    const notice = screen.getByRole("status");
+    expect(notice.textContent).toBe("Thinking is Medium now: GPT-5.6 Sol has no High.Undo");
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(onSetModel).toHaveBeenLastCalledWith("openai-codex", "gpt-5.6-luna");
+    expect(onSetThinking).toHaveBeenLastCalledWith("high");
+    expect(screen.queryByText(/Thinking is Medium now/u)).toBeNull();
   });
 
   it("gives focus back to its chip on Escape", async () => {
@@ -119,21 +125,21 @@ describe("model picker at the model chip", () => {
     const onSelect = vi.fn();
     const { chip, onSetModel } = renderComposer({ runtimeChoice: { kind: "pi", backends: snapshot.runtimeBackends!, onSelect } });
     await openPicker(chip);
-    fireEvent.click(await screen.findByRole("button", { name: "Codex, ready" }));
-    fireEvent.click(screen.getByText("GPT-5.6 Luna", { selector: ".model-row:not(.current) strong" }));
+    fireEvent.click(await screen.findByRole("radio", { name: "Codex, Plan" }));
     expect(onSelect).toHaveBeenCalledWith("codex");
     expect(onSetModel).toHaveBeenCalledWith("openai", "gpt-5.6-luna");
   });
 
-  it("offers a thread that exists a new thread for another runtime's model", async () => {
+  it("offers a thread that exists a new thread for a model only another runtime runs", async () => {
     const onNewThreadOnRuntime = vi.fn();
     const { chip, onSetModel } = renderComposer({ onNewThreadOnRuntime });
-    await openPicker(chip);
-    fireEvent.click(await screen.findByRole("button", { name: "Codex, ready" }));
-    expect(screen.getByText("Choosing one starts a new thread on Codex; this one stays on Pi.")).toBeTruthy();
-    fireEvent.click(screen.getByText("GPT-5.6 Luna", { selector: ".model-row:not(.current) strong" }));
+    const { input } = await openPicker(chip);
+    fireEvent.change(input, { target: { value: "5.5" } });
+    expect(await screen.findByRole("button", { name: "Pi, can't run it" })).toHaveProperty("disabled", true);
+    expect(document.querySelector(".model-ways-note")?.textContent).toBe("This thread runs with Pi. ↵ starts a new thread with Codex.");
+    fireEvent.click(screen.getByRole("radio", { name: "Codex, Plan" }));
     // The new thread starts on the model chosen for it.
-    expect(onNewThreadOnRuntime).toHaveBeenCalledWith("codex", expect.objectContaining({ provider: "openai", id: "gpt-5.6-luna" }));
+    expect(onNewThreadOnRuntime).toHaveBeenCalledWith("codex", expect.objectContaining({ provider: "openai", id: "gpt-5.5" }), undefined);
     expect(onSetModel).not.toHaveBeenCalled();
   });
 

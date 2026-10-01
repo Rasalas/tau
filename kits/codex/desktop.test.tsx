@@ -298,16 +298,41 @@ it("renders dynamic Ultrafast tiers and compatible accounts, then displays a swi
   const invoke = vi.fn(async (command: string) => { if (command === "switch-thread-account") throw new Error("Account cannot resume this session"); return state; });
   const Control = createThreadSettingsControl(host(invoke));
   render(<Control snapshot={{ sessionId: "thread", backendKind: "codex", isStreaming: false } as HostSnapshot} />);
-  const fast = await screen.findByRole("radio", { name: /^Ultrafast/u });
-  fireEvent.click(fast);
-  await waitFor(() => expect(invoke).toHaveBeenCalledWith("set-thread-tier", { threadId: "thread", tier: "ultrafast" }));
+  // Ultrafast is the thinking chip's Fast (K142); the menu keeps the other tiers.
+  const future = await screen.findByRole("radio", { name: /^Future tier/u });
+  expect(screen.queryByRole("radio", { name: /^Ultrafast/u })).toBeNull();
+  fireEvent.click(future);
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith("set-thread-tier", { threadId: "thread", tier: "future" }));
   const other = screen.getByRole("radio", { name: /Other/u });
   expect(other.hasAttribute("disabled")).toBe(true);
   const work = screen.getByRole("radio", { name: /Work/u });
   await waitFor(() => expect(work.hasAttribute("disabled")).toBe(false));
   fireEvent.click(work);
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Account cannot resume this session");
-  expect(screen.getByText("Future tier")).toBeTruthy();
+});
+
+it("gives the thinking chip Codex's fast tier, and none to a draft", async () => {
+  const { createCodexSpeed } = await import("./desktop.js");
+  let selected: string | null = null;
+  const settings = () => ({ account: "default", accounts: [], serviceTier: { selected, defaultTier: null, choices: [{ id: "default", name: "Standard" }, { id: "fast", name: "Fast", description: "1.5x speed" }] } });
+  const invoke = vi.fn(async (command: string, input?: unknown) => {
+    if (command === "set-thread-tier") selected = (input as { tier?: string | null } | undefined)?.tier ?? null;
+    return settings();
+  });
+  const speed = createCodexSpeed(host(invoke));
+  const changed = vi.fn();
+  speed.subscribe(changed);
+  const snapshot = { sessionId: "thread", backendKind: "codex", model: { id: "gpt-6-sol" } } as HostSnapshot;
+  expect(speed.read({ ...snapshot, backendKind: "pi" } as HostSnapshot)).toBeUndefined();
+  speed.read(snapshot);
+  await waitFor(() => expect(speed.read(snapshot)).toEqual({ fast: false, available: true, detail: "1.5x speed" }));
+  await speed.set(true, snapshot);
+  expect(invoke).toHaveBeenCalledWith("set-thread-tier", { threadId: "thread", tier: "fast" });
+  expect(speed.read(snapshot)).toMatchObject({ fast: true });
+  invoke.mockRejectedValueOnce(new Error("no such thread"));
+  const draft = { ...snapshot, sessionId: "draft" } as HostSnapshot;
+  speed.read(draft);
+  await waitFor(() => expect(speed.read(draft)).toEqual({ fast: false, available: false, reason: "Codex sets Fast once the thread runs" }));
 });
 
 it("keeps a managed thread's account banner and limit notices with its executing account after a switch", async () => {

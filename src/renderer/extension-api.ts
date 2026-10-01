@@ -134,6 +134,8 @@ export type {
   ComposerGateContribution,
   ComposerGateProps,
   ModelBadgeContribution,
+  ComposerSpeedContribution,
+  ComposerSpeedState,
   ComposerChipDetailProps,
   ComposerChipIcon,
   ComposerInlineChip,

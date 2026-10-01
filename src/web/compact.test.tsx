@@ -199,7 +199,7 @@ describe("the web client at 400 px", () => {
     expect(answer?.args).toEqual(["q7", { confirmed: true }]);
   });
 
-  it("keeps the model and its reasoning level in the phone's footer, the rest behind its menu", async () => {
+  it("keeps the model and its thinking level in the phone's footer, the rest behind its menu", async () => {
     const base = bootstrapWith(THREADS);
     const luna = { provider: "openai-codex", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" };
     renderCompactClient({ bootstrap: async () => {
@@ -209,7 +209,7 @@ describe("the web client at 400 px", () => {
     await openChat();
     const footer = document.querySelector<HTMLElement>(".composer-toolbar")!;
     expect(within(footer).getByLabelText("Select model: GPT-5.6 Luna").textContent).toContain("GPT-5.6 Luna");
-    expect(within(footer).getByLabelText("Reasoning: Medium").textContent).toBe("Medium");
+    expect(within(footer).getByLabelText("Thinking: Medium").textContent).toBe("Medium");
     expect(within(footer).queryByText(/\$/u)).toBeNull();
   });
 

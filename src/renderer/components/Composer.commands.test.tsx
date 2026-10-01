@@ -283,7 +283,7 @@ describe("Composer command menu", () => {
       });
 
     expect(screen.getByRole("button", { name: "Model selection unavailable" })).toHaveProperty("disabled", true);
-    expect(screen.getByRole("button", { name: "Reasoning controls unavailable" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Thinking controls unavailable" })).toHaveProperty("disabled", true);
   });
 
   it("navigates prompt history with ArrowUp and ArrowDown", async () => {
