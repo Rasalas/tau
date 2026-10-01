@@ -30,6 +30,8 @@ export interface PreferencesState {
   modelPrices: Readonly<Record<string, UiModelPrice>>;
   /** The models last chosen in a picker, newest first, keyed like favourites; this client's own. */
   recentModels: readonly string[];
+  /** Per recent model, the thinking level last set on it. */
+  recentLevels: Readonly<Record<string, string>>;
   /** The runtime backend a new thread is created on; unset means the host's default. */
   newThreadRuntime?: string;
   /** Keyed `extensionId.optionId`. */
@@ -65,6 +67,7 @@ const DEFAULTS: PreferencesState = {
   modelPreferences: {},
   modelPrices: {},
   recentModels: [],
+  recentLevels: {},
   extensionOptions: {},
   extensionValues: {},
   disabledExtensions: [],
@@ -133,6 +136,7 @@ function load(): PreferencesState {
       // The host checked them; the picker's own chunk reads each entry it uses.
       modelPrices: typeof raw.modelPrices === "object" && raw.modelPrices ? raw.modelPrices as Record<string, UiModelPrice> : {},
       recentModels: stringList(raw.recentModels).slice(0, RECENT_MODELS),
+      recentLevels: Object.fromEntries(Object.entries(raw.recentLevels ?? {}).filter(([, level]) => typeof level === "string")),
       newThreadRuntime: typeof raw.newThreadRuntime === "string" ? raw.newThreadRuntime : undefined,
       extensionOptions: options,
       extensionValues: values,
@@ -394,7 +398,12 @@ export class PreferencesStore {
   /** A model a picker handed on; it leads the picker's "Recent" list. */
   noteModelUsed(key: string): void {
     const recent = [key, ...this.state.recentModels.filter((entry) => entry !== key)].slice(0, RECENT_MODELS);
-    this.update({ recentModels: recent }, false);
+    this.update({ recentModels: recent, recentLevels: Object.fromEntries(Object.entries(this.state.recentLevels).filter(([entry]) => recent.includes(entry))) }, false);
+  }
+
+  /** The level just set on a recent model; a model not in "Recent" keeps none. */
+  noteModelLevel(key: string, level: string): void {
+    if (this.state.recentModels.includes(key)) this.update({ recentLevels: { ...this.state.recentLevels, [key]: level } }, false);
   }
 
   isSettled(threadId: string): boolean {
