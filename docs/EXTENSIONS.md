@@ -2062,6 +2062,12 @@ own home unless `TAU_IMPORT_ROOTS` names fixture homes — directories laid out
 as `<root>/<backend kind>/…`, like the CLI's own — and then reads nothing else;
 tests and dev instances use it so they never scan the user's history.
 
+Onboarding hands the new thread ids on to Thread Rail's `settle-imported({ threadIds })`
+(granted to `tau.onboarding`), so an imported thread starts on the settled shelf, found by
+search and not counted as unread. A source that knows a session is open can name it in
+`active: threadIds` next to `imported`; those stay active. Without Thread Rail the threads
+stay active. A thread that already has meta is left alone.
+
 Search Kit asks the backend kits for what their threads said, so the palette
 finds a thread nobody has open by its text and not only by its title. A
 backend that keeps its transcripts in its own store registers

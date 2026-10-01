@@ -14,6 +14,8 @@ export interface ThreadTitlesSlice {
 }
 /** Review Kit's host entry; its `pr-status` names Thread Rail as a caller. */
 export const REVIEW_EXTENSION_ID = "tau.review";
+/** Onboarding Kit, which hands over the threads it imported (`settle-imported`). */
+export const ONBOARDING_EXTENSION_ID = "tau.onboarding";
 /**
  * Threads started together from one prompt, for the kits that show them
  * (Agents Kit's panel): `siblingsOf(threadId)` answers the whole group,
@@ -26,7 +28,7 @@ export interface ThreadSiblingsService {
   subscribe(listener: () => void): () => void;
 }
 
-export type SettledBy = "user" | "inactive" | "pr-merged" | "pr-closed";
+export type SettledBy = "user" | "inactive" | "pr-merged" | "pr-closed" | "import";
 
 /** What the kit keeps about one thread; the thread itself is core's. */
 export interface ThreadMeta {
