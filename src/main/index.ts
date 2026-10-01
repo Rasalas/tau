@@ -1,4 +1,4 @@
-import { app, BaseWindow, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, net, Notification, safeStorage, session, shell } from "electron";
+import { app, autoUpdater as nativeUpdater, BaseWindow, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, net, Notification, safeStorage, session, shell } from "electron";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -48,7 +48,7 @@ import { menuIconImage } from "./menu-icons.js";
 import type { MenuPoint, NativeMenuEntry } from "../shared/context-menu.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import electronUpdater from "electron-updater";
-import { createAppUpdates, linuxInstall, linuxUpdates, readUpdateFeed, type AppUpdates } from "./app-updates.js";
+import { createAppUpdates, linuxInstall, linuxUpdates, nextStaging, readUpdateFeed, type AppUpdates } from "./app-updates.js";
 import { offerPackageInstall } from "./appimage-install.js";
 import { appMenuTemplate, nextZoomLevel } from "./app-menu.js";
 import { createAppShell } from "./app-shell.js";
@@ -233,6 +233,8 @@ let workbenchLoading = false;
 let quitAfterWindowClosed = false;
 let projectHistory: ProjectHistory;
 let updates: AppUpdates | undefined;
+/** Set when the quit installs an update: the host stops too, at once, so ShipIt can start (K161). */
+let updateQuit = false;
 let shutdownStarted = false;
 let shutdownComplete = false;
 /** One build at a time; a second request joins the running one. */
@@ -883,6 +885,14 @@ if (primaryInstance) app.whenReady().then(async () => {
       publish({ type: "app-update", version });
       void releaseNotes?.downloaded(version, info.releaseNotes);
     },
+    onInstallStep: (step) => {
+      publish({ type: "app-update", ...step });
+      // A failed install comes back without a phase.
+      updateQuit = step.phase === "installing";
+      // Outlives the quit: ShipIt replaces the app silently, for minutes on a busy Mac.
+      if (updateQuit && Notification.isSupported()) new Notification({ title: `Installing Tau ${step.version}`, body: "Tau reopens by itself when it is done. This can take a few minutes." }).show();
+    },
+    ...(process.platform === "darwin" ? { whenStaged: () => nextStaging(nativeUpdater) } : {}),
     currentVersion: app.getVersion(),
     ...(feed ? { feed } : {}),
     // This machine's config file: the updater belongs to the machine, not to a remote host.
@@ -959,9 +969,9 @@ if (primaryInstance) app.on("before-quit", (event) => {
   if (shutdownStarted) return;
   shutdownStarted = true;
   void (async () => {
-    const hostStays = Boolean(windowHost) && (quitAfterWindowClosed || windowHost?.servedByService === true || await keepHostRunning());
-    // Threads stop with the host; the page asks first when any are working.
-    if (!hostStays && !await appShell.confirmQuit()) {
+    const hostStays = !updateQuit && Boolean(windowHost) && (quitAfterWindowClosed || windowHost?.servedByService === true || await keepHostRunning());
+    // Threads stop with the host; the page asks first when any are working. Restart for an update was the answer.
+    if (!hostStays && !updateQuit && !await appShell.confirmQuit()) {
       shutdownStarted = false;
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setOpacity(1);
       return;
@@ -970,7 +980,8 @@ if (primaryInstance) app.on("before-quit", (event) => {
       environments?.close();
       await shownHost?.stop(true);
       if (host) await host.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
-      if (windowHost) await windowHost.stop(hostStays);
+      // An old host would run on from a bundle ShipIt moves away; the next start runs the new one.
+      if (windowHost) await windowHost.stop(hostStays, updateQuit);
     } catch (error: unknown) {
       hostLog.error("host.shutdown.failed", error);
     }

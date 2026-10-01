@@ -82,7 +82,9 @@ describe("applyHostEvent", () => {
 
     applyHostEvent({ type: "app-update", version: "0.2.0" }, targets);
 
-    expect(targets.setUpdateReady).toHaveBeenCalledWith("0.2.0");
+    expect(targets.setUpdateReady).toHaveBeenCalledWith("0.2.0", undefined, undefined);
+    applyHostEvent({ type: "app-update", version: "0.2.1", phase: "downloading", progress: 12 }, targets);
+    expect(targets.setUpdateReady).toHaveBeenLastCalledWith("0.2.1", "downloading", 12);
     expect(view.getState().events).toEqual([]);
   });
 
