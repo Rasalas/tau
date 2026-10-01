@@ -172,6 +172,19 @@ export const PROJECT_SCRIPTS_HOST_EXTENSION_ID = "tau.project-scripts";
 /** Per-thread workspace choice, made before the first turn and locked after it. */
 export type WorkspaceMode = "current" | "worktree";
 
+export interface ForkWorktreeRequest {
+  branch: string;
+  sessionId?: string;
+  checkpointId?: string;
+  now?: boolean;
+}
+
+export interface ForkWorktree extends WorkspaceRef {
+  path: string;
+  /** The checkpoint's or checkout's files came along; false when the fork starts from HEAD only. */
+  copied: boolean;
+}
+
 /** Published for every checkpoint the host records or whose capture status changes. */
 export const CHECKPOINT_EVENT = "checkpoint";
 
@@ -314,6 +327,8 @@ export interface WorkspaceHostCommands {
   "restore": { input: { sessionId: string; checkpointId: string }; output: HostActionResult };
   /** Conversation only: a new branch at the checkpoint, files untouched. Its own command, so an older host refuses rather than restores. */
   "rewind": { input: { sessionId: string; checkpointId: string }; output: HostActionResult };
+  /** A fork's branch and worktree, from a verified checkpoint, the checkout now (`now`), or HEAD; `copied` says which files came. */
+  "fork-worktree": { input: ForkWorktreeRequest & { workspace?: string }; output: ForkWorktree };
   /** Immutable diff captured for one completed turn; never the live workspace. */
   "turn-file-diff": { input: { sessionId: string; checkpointId: string; relPath: string; options?: DiffLoadOptions }; output: UiFileDiff };
   "turn-files": { input: { sessionId: string; checkpointId: string; cursor?: string; limit?: number }; output: UiWorkspaceChangesPage };
@@ -368,6 +383,7 @@ export interface WorkspaceHostClient {
   getRestorePreview(sessionId: string, checkpointId: string): Promise<UiWorkspaceChanges>;
   restoreCheckpoint(sessionId: string, checkpointId: string): Promise<HostActionResult>;
   rewindCheckpoint(sessionId: string, checkpointId: string): Promise<HostActionResult>;
+  forkWorktree(request: ForkWorktreeRequest, workspace?: string): Promise<ForkWorktree>;
   getTurnFileDiff(sessionId: string, checkpointId: string, relPath: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
   getTurnFiles(sessionId: string, checkpointId: string, cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
   getTurnStats(): Promise<Record<string, TurnStat>>;
@@ -420,6 +436,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     getRestorePreview: (sessionId, checkpointId) => call("restore-preview", { sessionId, checkpointId }),
     restoreCheckpoint: (sessionId, checkpointId) => call("restore", { sessionId, checkpointId }),
     rewindCheckpoint: (sessionId, checkpointId) => call("rewind", { sessionId, checkpointId }),
+    forkWorktree: (request, workspace) => call("fork-worktree", { ...request, workspace }),
     getTurnFileDiff: (sessionId, checkpointId, relPath, options) => call("turn-file-diff", { sessionId, checkpointId, relPath, options }),
     getTurnFiles: (sessionId, checkpointId, cursor, limit) => call("turn-files", { sessionId, checkpointId, cursor, limit }),
     getTurnStats: () => call("turn-stats", undefined),

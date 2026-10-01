@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -219,6 +219,39 @@ describe("Workspace Kit host extension", () => {
       expect(created.workspaceId).toBe(`admitted_${created.displayPath}`);
       expect(created.baseCommit).toBe(execFileSync("git", ["-C", cwd, "rev-parse", "HEAD"], { encoding: "utf8" }).trim());
       expect(created.displayPath.startsWith(worktrees)).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("gives a fork a branch and worktree of its own, with the checkout's files as they are now or HEAD's alone", async () => {
+    const cwd = await workspace();
+    const worktrees = await workspace();
+    const git = (dir: string, ...args: string[]) => execFileSync("git", ["-C", dir, "-c", "user.name=Tau", "-c", "user.email=tau@example.invalid", ...args], { encoding: "utf8" }).trim();
+    git(cwd, "init", "-q", "-b", "main");
+    await writeFile(join(cwd, "README.md"), "# fixture\n");
+    git(cwd, "add", "README.md");
+    git(cwd, "commit", "-qm", "fixture");
+    git(cwd, "switch", "-qc", "feat/frost");
+    git(cwd, "config", "branch.feat/frost.tau-base", "main");
+    await writeFile(join(cwd, "README.md"), "# changed\n");
+    await writeFile(join(cwd, "frost.txt"), "one\n");
+    vi.stubEnv("TAU_WORKTREES_DIR", worktrees);
+    try {
+      const kit = await client(cwd);
+      const copy = await kit.forkWorktree({ branch: "feat/frost-2", now: true });
+      expect(copy.copied).toBe(true);
+      expect(git(copy.path, "branch", "--show-current")).toBe("feat/frost-2");
+      expect(await readFile(join(copy.path, "frost.txt"), "utf8")).toBe("one\n");
+      // Uncommitted there as here, and merging where the source merges.
+      expect(git(copy.path, "status", "--porcelain")).toBe("M README.md\n?? frost.txt");
+      expect(git(cwd, "config", "branch.feat/frost-2.tau-base")).toBe("main");
+      expect(git(cwd, "status", "--porcelain")).toBe("M README.md\n?? frost.txt");
+
+      const bare = await kit.forkWorktree({ branch: "feat/frost-3" });
+      expect(bare.copied).toBe(false);
+      expect(git(bare.path, "status", "--porcelain")).toBe("");
+      await expect(kit.forkWorktree({ branch: "feat/frost-2" })).rejects.toThrow(/already exists/u);
     } finally {
       vi.unstubAllEnvs();
     }

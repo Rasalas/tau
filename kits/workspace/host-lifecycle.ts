@@ -69,6 +69,8 @@ export interface WorkspaceKitLifecycle {
   pinnedEntries(thread: HostThread): string[];
   checkpoints(sessionId: string): Promise<WorkspaceCheckpointList>;
   canRestore(sessionId: string, checkpointId: string): Promise<boolean>;
+  /** A verified checkpoint's files (a tree) and HEAD at its end, for a fork's worktree. */
+  forkPoint(sessionId: string, checkpointId: string): Promise<{ cwd: string; tree: string; head?: string }>;
   restorePreview(sessionId: string, checkpointId: string): Promise<UiWorkspaceChanges>;
   restore(sessionId: string, checkpointId: string): Promise<HostActionResult>;
   /** Back to a checkpoint in the conversation only; the files stay as they are. */
@@ -941,6 +943,13 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
         try { await verifiedRestoreCheckpoint(sessionId, checkpointId); return true; } catch { return false; }
       });
     },
+    forkPoint: (sessionId, checkpointId) => services.sessions.exclusive(async () => {
+      const { source, checkpoint } = await verifiedRestoreCheckpoint(sessionId, checkpointId);
+      const { afterTreeId } = await workspaceGit.validateWorkspaceSnapshotRefs(
+        source.cwd, checkpoint.beforeSnapshotId, checkpoint.afterSnapshotId, { sessionId: source.sessionId, turnId: checkpoint.turnId },
+      );
+      return { cwd: source.cwd, tree: afterTreeId, ...(checkpoint.head?.after ? { head: checkpoint.head.after } : {}) };
+    }),
     restorePreview: async (sessionId, checkpointId) => {
       if (services.attachedRuntime()) throw new Error("Restore is unavailable while Pi owns this thread.");
       return services.sessions.exclusive(async () => {
