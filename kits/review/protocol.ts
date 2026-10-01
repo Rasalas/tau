@@ -340,6 +340,10 @@ export interface PullRequestCheck {
   workflow?: string;
   description?: string;
   url?: string;
+  startedAt?: string;
+  completedAt?: string;
+  /** Pending and not started yet. */
+  queued?: boolean;
 }
 
 export interface PullRequestComment {

@@ -21,6 +21,7 @@ import type { ChangedFileEntry, SourceControlProvider } from "./provider.js";
 import type { SourceControl } from "./provider-registry.js";
 import { diffFingerprint } from "./pull-request-json.js";
 import { LocalViewedStore } from "./pull-request-viewed.js";
+import type { PipelineFacts } from "./pipeline.js";
 
 const record = (input: unknown): Record<string, unknown> => input && typeof input === "object" ? input as Record<string, unknown> : {};
 const text = (value: unknown): string | undefined => typeof value === "string" ? value : undefined;
@@ -111,6 +112,11 @@ export function registerPullRequestCommands(context: HostExtensionContext, sourc
     // Checks move on their own, so they are never served from the cache.
     return provider.info.capabilities.checks ? provider.checks(ref) : [];
   }, { access: "read" });
+
+  context.registerCommand("pr-pipeline", async (input): Promise<PipelineFacts> => {
+    const { ref, provider } = target(input);
+    return provider.pipeline ? provider.pipeline(ref, names(record(input).runs)) : {};
+  }, { access: "read", long: true });
 
   context.registerCommand("pr-comments", (input) => {
     const { ref, provider } = target(input);

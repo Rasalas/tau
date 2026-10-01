@@ -118,7 +118,14 @@ export function parseGitHubChecks(rollup: unknown): PullRequestCheck[] {
     const workflow = text(entry.workflowName);
     const url = text(entry.detailsUrl) ?? text(entry.targetUrl);
     const description = text(entry.description);
-    const check: PullRequestCheck = { name, status: githubCheckStatus(entry), ...(workflow ? { workflow } : {}), ...(url ? { url } : {}), ...(description ? { description } : {}) };
+    const status = githubCheckStatus(entry);
+    const startedAt = text(entry.startedAt);
+    const completedAt = text(entry.completedAt);
+    const queued = status === "pending" && /^(QUEUED|WAITING|PENDING|REQUESTED)$/u.test(text(entry.status) ?? "");
+    const check: PullRequestCheck = {
+      name, status, ...(workflow ? { workflow } : {}), ...(url ? { url } : {}), ...(description ? { description } : {}),
+      ...(startedAt ? { startedAt } : {}), ...(completedAt ? { completedAt } : {}), ...(queued ? { queued } : {}),
+    };
     const key = `${workflow ?? ""}\0${name}`;
     const at = text(entry.startedAt) ?? text(entry.completedAt) ?? "";
     const current = newest.get(key);
