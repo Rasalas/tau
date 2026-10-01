@@ -299,8 +299,9 @@ export class ThreadCommands {
     if (!this.requestFork({ ...(entryId ? { entryId } : {}), ...(turn ? { turn } : {}) })) await this.forkMessage(message);
   };
 
-  duplicateThread = async (): Promise<boolean> => {
-    if (this.requestFork({})) return true;
+  /** `ask: false` copies at once: a continuation elsewhere (Handoff) is the same work, not a second attempt. */
+  duplicateThread = async (options: { ask?: boolean } = {}): Promise<boolean> => {
+    if (options.ask !== false && this.requestFork({})) return true;
     if (!this.requireWrite("Duplicate thread")) return false;
     try {
       this.notify("Duplicating thread…");

@@ -93,7 +93,7 @@ describe("forking from a turn (design 2d)", () => {
     render(view(turn));
     fireEvent.click(screen.getByRole("button", { name: /Fork here/u }));
     const dialog = await screen.findByRole("dialog", { name: "Fork from turn 3?" });
-    await waitFor(() => expect(dialog.textContent).toContain("Turn 3 has no checkpoint, so the worktree starts from fix/pairing-flake's current commit"));
+    await waitFor(() => expect(dialog.textContent).toContain("Turn 3 has no checkpoint, so the worktree starts from fix/pairing-flake's last commit"));
     fireEvent.click(screen.getByRole("button", { name: "Fork" }));
     await waitFor(() => expect(forkFrom).toHaveBeenCalled());
     expect(host.forkWorktree).toHaveBeenCalledWith({ branch: "fix/pairing-flake-2" }, "ws-source");

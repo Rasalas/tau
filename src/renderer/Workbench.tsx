@@ -238,7 +238,7 @@ export interface WorkbenchThread {
   editMessage(message: UiMessage): Promise<void>;
   titleCommands: ReturnType<ExtensionRegistry["getCommandsFor"]>;
   openThreadTree(mode?: ThreadTreeMode): void;
-  duplicateThread(): Promise<boolean>;
+  duplicateThread(options?: { ask?: boolean }): Promise<boolean>;
   settleActiveThread(): void;
   renameThread(title: string): Promise<boolean>;
   copyThreadValue(kind: "chat" | "path" | "thread-id"): Promise<void>;

@@ -77,8 +77,8 @@ export interface WorkbenchActions {
   openWorkbenchSource(): Promise<boolean>;
   /** Pi's /tree and /fork: the session tree of the active thread, to move in or fork from. */
   openThreadTree(mode?: "navigate" | "fork"): void;
-  /** Pi's /clone: a new thread continuing from the active thread's current point. */
-  duplicateThread(): Promise<boolean>;
+  /** Pi's /clone: a new thread continuing from the active thread's current point; a fork prompt asks first unless `ask` is false. */
+  duplicateThread(options?: { ask?: boolean }): Promise<boolean>;
   /**
    * Forks the thread on screen through `message`: a new thread with the conversation up to it (API 1.39.0).
    * With `workspace`, the fork runs in that project; false when nothing was forked.

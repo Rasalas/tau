@@ -89,6 +89,10 @@ describe("forking", () => {
     expect(ask).toHaveBeenLastCalledWith({});
     expect(forkThread).not.toHaveBeenCalled();
     expect(duplicateThread).not.toHaveBeenCalled();
+    // Handoff's continuation copies at once.
+    await thread.duplicateThread({ ask: false });
+    expect(duplicateThread).toHaveBeenCalledTimes(1);
+    expect(ask).toHaveBeenCalledTimes(2);
   });
 
   it("forks at once without such a kit, and into the workspace the kit made", async () => {

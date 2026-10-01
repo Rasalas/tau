@@ -241,7 +241,7 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
           const created = await host.invoke("create-transfer", { threadId: thread.sessionId, target }) as CreateTransferResult;
           if (created.native) {
             // The runtime forks its own history; the host names the fork when it is written.
-            if (!await actions.duplicateThread()) cancel(created.transferId);
+            if (!await actions.duplicateThread({ ask: false })) cancel(created.transferId);
             return;
           }
           preferences.setNewThreadRuntime(target);
