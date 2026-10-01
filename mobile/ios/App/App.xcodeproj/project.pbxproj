@@ -20,6 +20,12 @@
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 		961FE54EE1AED02AAFB6608C /* ActivityCipher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CA776543F5630733115FEA2 /* ActivityCipher.swift */; };
 		9EC7EBF9E121B769BAA7ED05 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B70AEB40658173B56A380937 /* Foundation.framework */; };
+		E8BA0B77FB0DC91CEF2066B9 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70F3E6702309E22D8608C837 /* Theme.swift */; };
+		BA25DC86A593A51012FD1E0B /* PlanLimitsWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE3799B631060010643C0103 /* PlanLimitsWidget.swift */; };
+		2CE6952AC54B83700E761835 /* ThreadsWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D6BBB08B89663F63DCDE2B2 /* ThreadsWidget.swift */; };
+		10889AEE377E2D723ABED488 /* LiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B13A4F0761B2411CD66D15 /* LiveActivity.swift */; };
+		A0F6FA5C9D4D7BC62EF013CC /* WidgetModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E9E4D930B63D35B2C8F7128 /* WidgetModel.swift */; };
+		0B9B6BD089C7ED7B687DA0BA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9CA21839AD49B0E42197E73F /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -64,6 +70,12 @@
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		B70AEB40658173B56A380937 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		70F3E6702309E22D8608C837 /* Theme.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		BE3799B631060010643C0103 /* PlanLimitsWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PlanLimitsWidget.swift; sourceTree = "<group>"; };
+		9D6BBB08B89663F63DCDE2B2 /* ThreadsWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ThreadsWidget.swift; sourceTree = "<group>"; };
+		C7B13A4F0761B2411CD66D15 /* LiveActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveActivity.swift; sourceTree = "<group>"; };
+		7E9E4D930B63D35B2C8F7128 /* WidgetModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetModel.swift; sourceTree = "<group>"; };
+		9CA21839AD49B0E42197E73F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -135,6 +147,11 @@
 			isa = PBXGroup;
 			children = (
 				395FFCB9413A7221B9EA8EAF /* TauWidgets.swift */,
+				70F3E6702309E22D8608C837 /* Theme.swift */,
+				BE3799B631060010643C0103 /* PlanLimitsWidget.swift */,
+				9D6BBB08B89663F63DCDE2B2 /* ThreadsWidget.swift */,
+				C7B13A4F0761B2411CD66D15 /* LiveActivity.swift */,
+				9CA21839AD49B0E42197E73F /* Assets.xcassets */,
 				5A679CC0F7131DED9B436260 /* Info.plist */,
 				07E8EA151C5FA2E71C6CB2BE /* TauWidgets.entitlements */,
 			);
@@ -154,6 +171,7 @@
 			isa = PBXGroup;
 			children = (
 				7CA776543F5630733115FEA2 /* ActivityCipher.swift */,
+				7E9E4D930B63D35B2C8F7128 /* WidgetModel.swift */,
 			);
 			name = "Shared activity crypto";
 			path = "../../plugins/tau-native/ios/Sources/TauNativePlugin";
@@ -257,6 +275,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0B9B6BD089C7ED7B687DA0BA /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -269,6 +288,11 @@
 			files = (
 				5E0E599C777106D7B5F3265E /* TauWidgets.swift in Sources */,
 				961FE54EE1AED02AAFB6608C /* ActivityCipher.swift in Sources */,
+				E8BA0B77FB0DC91CEF2066B9 /* Theme.swift in Sources */,
+				BA25DC86A593A51012FD1E0B /* PlanLimitsWidget.swift in Sources */,
+				2CE6952AC54B83700E761835 /* ThreadsWidget.swift in Sources */,
+				10889AEE377E2D723ABED488 /* LiveActivity.swift in Sources */,
+				A0F6FA5C9D4D7BC62EF013CC /* WidgetModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
