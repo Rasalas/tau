@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostConnectionState } from "../workbench/host-connection";
 import type { HostLink } from "../workbench/host-link";
@@ -7,6 +7,9 @@ import { HostClientProvider } from "./host-client-context";
 import { HostConnectionStatus, HostLinkIndicator, describeHostLink, hostUpdatedTo } from "./host-connection-status";
 import { ClientEnvironmentProvider, electronClientEnvironment } from "./client-environment";
 import { createFakeHostClient } from "./test-support/fake-host-client";
+import { RendererServicesProvider } from "./renderer-services-context";
+import { createRendererServices } from "./renderer-services";
+import type { HostUpdateStatus } from "../shared/host-updates";
 
 afterEach(cleanup);
 
@@ -67,27 +70,45 @@ describe("host connection status", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 
-  it("shows a version mismatch between the window's process and the host until dismissed", () => {
+  it("offers to update the host when the host runs the older Tau", async () => {
     const listeners = new Set<() => void>();
     let versions: { host?: string; window?: string } = { window: "0.4.1" };
+    const status: HostUpdateStatus = { version: "0.4.0", latest: "0.4.1", phase: "idle", channel: "stable", automatic: true, installer: "host", devicesMayInstall: true };
+    const hostUpdate = vi.fn(async (action: "status" | "check" | "install") => (action === "install" ? { ...status, phase: "installing" as const } : status));
     const client = createFakeHostClient({
       getVersions: () => versions,
       onVersions: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
+      hostUpdate,
+      isOwner: () => true,
     });
     render(<HostClientProvider client={client}><HostConnectionStatus /></HostClientProvider>);
     expect(screen.queryByRole("status")).toBeNull();
 
     versions = { window: "0.4.1", host: "0.4.0" };
     act(() => { for (const listener of listeners) listener(); });
-    const notice = screen.getByRole("status");
-    expect(notice.textContent).toContain("This window runs Tau 0.4.1, its host runs 0.4.0.");
+    expect(screen.getByRole("status").textContent).toContain("This window runs Tau 0.4.1, its host runs 0.4.0.");
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
 
-    act(() => { screen.getByRole("button", { name: "Dismiss" }).click(); });
-    expect(screen.queryByRole("status")).toBeNull();
+    const update = await screen.findByRole("button", { name: "Update host" });
+    act(() => { update.click(); });
+    await waitFor(() => expect(hostUpdate).toHaveBeenCalledWith("install"));
+    expect(await screen.findByRole("button", { name: "Installing…" })).toHaveProperty("disabled", true);
+  });
 
-    versions = { window: "0.4.1", host: "0.3.0" };
-    act(() => { for (const listener of listeners) listener(); });
-    expect(screen.getByRole("status").textContent).toContain("its host runs 0.3.0");
+  it("offers to update the window when the window runs the older Tau", async () => {
+    const windowAction = vi.fn(async () => undefined);
+    const client = createFakeHostClient({ getVersions: () => ({ window: "0.4.0", host: "0.4.1" }), windowAction });
+    const services = createRendererServices();
+    render(<RendererServicesProvider services={services}><HostClientProvider client={client}><HostConnectionStatus /></HostClientProvider></RendererServicesProvider>);
+    expect(screen.getByRole("status").textContent).toContain("This window runs Tau 0.4.0, its host runs 0.4.1.");
+
+    act(() => { screen.getByRole("button", { name: "Check for updates" }).click(); });
+    expect(windowAction).toHaveBeenCalledWith({ kind: "check-for-updates" });
+
+    const install = vi.fn();
+    act(() => { services.appUpdate!.set({ version: "0.4.1", install }); });
+    act(() => { screen.getByRole("button", { name: "Restart to update to 0.4.1" }).click(); });
+    expect(install).toHaveBeenCalled();
   });
 
   it("offers a reload in a page the host served once the host runs another version", () => {
