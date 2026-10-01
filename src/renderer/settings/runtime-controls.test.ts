@@ -145,6 +145,7 @@ describe("runtime controls slash commands", () => {
     await registry.findSlashCommand("/name")!.command.run("my thread", actions);
     expect(renameThread).toHaveBeenCalledWith("my thread");
     expect(notify).toHaveBeenCalledWith("Thread renamed to “my thread”.");
+    expect(registry.getCommand("runtime.rename-thread")?.unavailable?.()).toBe("Open a thread to rename it.");
 
     await registry.findSlashCommand("/hotkeys")!.command.run("", actions);
     expect(openSettings).toHaveBeenCalledWith("keybindings");

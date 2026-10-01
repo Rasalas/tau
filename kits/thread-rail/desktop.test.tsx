@@ -121,6 +121,14 @@ describe("Thread Rail on the desktop", () => {
     expect(calls("patch")).toEqual([{ patches: { a: { pinned: true, pinOrder: 0 } } }]);
   });
 
+  it("disables Rename on a thread of another machine, with the reason", async () => {
+    const { organizer } = setup();
+    await flush();
+    const rename = (session: UiSession) => organizer().menu(session).flatMap((section) => section.items).find((item) => item.id === "rename");
+    expect(rename(thread("a"))?.disabled).toBeUndefined();
+    expect(rename({ ...thread("a"), machine: { id: "m", name: "rex" } })).toMatchObject({ disabled: true, description: expect.stringContaining("rex") });
+  });
+
   it("disables what a Read-only device may not change, says why, and sends nothing", async () => {
     const { organizer, calls, actions } = setup();
     await flush();

@@ -2131,6 +2131,13 @@ Rail, the shipped caller, hands the same organizer menu to the rail's
 right-click. `menu` answers `undefined` to leave the title its own; `rename`
 on the title edits it in place. The last one registered wins.
 
+The Rename command (`runtime.rename-thread`, F2) opens the same in-place field on
+the title; it is unavailable, with the reason, where no title is on screen or
+`renameRefusal(session)` (exported from `tau`) answers one: a thread of another
+machine until its home machine renames it. A menu offering Rename disables the
+item with that reason. Enter and blur save, Esc and an empty or unchanged title
+cancel.
+
 `registerForkPrompt({ id, ask })` (API 1.41.0) takes every fork the user starts elsewhere
 (`f` on a message, the thread tree's fork, Duplicate) as `ask({ entryId?, turn? })`:
 through `entryId`, with its `turn` when the transcript knows it (`f` forks through

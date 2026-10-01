@@ -1,6 +1,6 @@
 import { AlarmClock, AlarmClockOff, Archive, ArchiveRestore, ArrowDown, ArrowRightLeft, ArrowUp, ArrowUpDown, Check, Copy, CopyPlus, CornerUpLeft, Folder, Funnel, FunnelX, GitBranch, GitFork, Hash, ListTree, MessageSquareDot, MessageSquareText, Pencil, Pin, PinOff, ScrollText, Settings, Sparkles, SquareArrowOutUpRight, SquarePen, Trash2, type LucideIcon } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { ConfirmDialog, Dialog, errorMessage, hostIsReadOnly, READ_ONLY_REASON, useThreadStore, useWorkbenchShell, type MenuItem, type MenuSection, type ThreadMenuLookup, type ToastHandle, type UiSession, type WorkbenchActions } from "tau";
+import { ConfirmDialog, Dialog, errorMessage, hostIsReadOnly, READ_ONLY_REASON, renameRefusal, useThreadStore, useWorkbenchShell, type MenuItem, type MenuSection, type ThreadMenuLookup, type ToastHandle, type UiSession, type WorkbenchActions } from "tau";
 import {
   UNARCHIVE_PATCH,
   WAKE_PATCH,
@@ -360,6 +360,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       const section = sectionOf(current, now());
       const settled = section === "settled";
       const snoozed = section === "snoozed";
+      const renameWhy = renameRefusal(session);
       const workspace = port.workspace?.();
       const branch = session.projectLabel;
       const filtered = workspace?.getSnapshot().railProjectFilter === session.projectName;
@@ -409,7 +410,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
         },
         {
           items: [
-            { id: "rename", label: "Rename thread", ...glyph(Pencil), ...chord(lookup, "runtime.rename-thread") },
+            { id: "rename", label: "Rename thread", ...glyph(Pencil), ...chord(lookup, "runtime.rename-thread"), ...(renameWhy ? { disabled: true, description: renameWhy } : {}) },
             ...(port.titles?.() ? [{ id: "regenerate-title", label: "Regenerate title", ...glyph(Sparkles), ...chord(lookup, "thread-titles.regenerate") }] : []),
             { id: "mark-unread", label: "Mark unread", ...glyph(MessageSquareDot), ...chord(lookup, "thread.mark-unread") },
             ...(workspace?.setRailProjectFilter ? [{ id: "filter-project", label: filtered ? "Show all projects" : `Filter by ${session.projectName}`, ...glyph(filtered ? FunnelX : Funnel) }] : []),
