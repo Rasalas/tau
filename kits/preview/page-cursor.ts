@@ -261,3 +261,48 @@ export function previewInputOverlayEnd(): boolean {
   delete scope.tauInputOverlay;
   return Boolean(session);
 }
+
+/**
+ * While the user holds the page: a pill at the bottom says no picture is taken
+ * while a password field has focus. `false` removes it.
+ */
+export function previewSecretNote(on: boolean): boolean {
+  const scope = globalThis as unknown as { tauSecretNote?: () => void };
+  scope.tauSecretNote?.();
+  delete scope.tauSecretNote;
+  if (!on) return false;
+  const doc = document;
+  const host = doc.createElement("div");
+  host.setAttribute("data-tau-overlay", "secret-note");
+  host.setAttribute("aria-hidden", "true");
+  Object.assign(host.style, { position: "fixed", left: "50%", bottom: "24px", transform: "translateX(-50%)", zIndex: "2147483646", pointerEvents: "none", display: "none" });
+  const note = doc.createElement("div");
+  Object.assign(note.style, {
+    display: "flex", alignItems: "center", gap: "6px", padding: "6px 12px", borderRadius: "8px", whiteSpace: "nowrap",
+    background: "rgba(20, 20, 20, 0.82)", color: "#ffffff", font: "500 12px/1.3 ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif",
+  });
+  const svgNs = "http://www.w3.org/2000/svg";
+  const icon = doc.createElementNS(svgNs, "svg");
+  for (const [name, value] of [["width", "12"], ["height", "12"], ["viewBox", "0 0 24 24"], ["fill", "none"], ["stroke", "currentColor"], ["stroke-width", "2"]]) icon.setAttribute(name!, value!);
+  const path = doc.createElementNS(svgNs, "path");
+  path.setAttribute("d", "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm4 4a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm12 8-3.1-3.1a2 2 0 0 0-2.8 0L6 21");
+  icon.append(path);
+  note.append(icon, doc.createTextNode("Not captured while this field has focus"));
+  host.attachShadow({ mode: "closed" }).append(note);
+  doc.documentElement.append(host);
+  const place = () => {
+    let element: Element | null = doc.activeElement;
+    while (element?.shadowRoot?.activeElement) element = element.shadowRoot.activeElement;
+    host.style.display = element?.getAttribute("type")?.toLowerCase() === "password" ? "block" : "none";
+  };
+  const later = () => { setTimeout(place, 0); };
+  doc.addEventListener("focusin", place, true);
+  doc.addEventListener("focusout", later, true);
+  place();
+  scope.tauSecretNote = () => {
+    doc.removeEventListener("focusin", place, true);
+    doc.removeEventListener("focusout", later, true);
+    host.remove();
+  };
+  return true;
+}

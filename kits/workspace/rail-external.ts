@@ -1,5 +1,5 @@
 import { useCallback, useRef, useSyncExternalStore } from "react";
-import type { UiSession } from "tau";
+import type { PaletteItem, UiSession } from "tau";
 import type { RailExternalThread, RailThreadSource } from "./protocol.js";
 import type { RailThreadSort } from "./rail-order.js";
 
@@ -39,4 +39,21 @@ export function mergeByTime(local: readonly UiSession[], outside: readonly UiSes
     merged.push(session);
   }
   return merged.concat(pending.slice(next));
+}
+
+/** Other machines' threads whose project, title or machine holds every word of `query`, for the palette. */
+export function outsideThreadItems(sources: readonly RailThreadSource[], query: string): PaletteItem[] {
+  const words = query.toLowerCase().split(/\s+/u).filter(Boolean);
+  if (!words.length) return [];
+  return sources.flatMap((source) => source.threads())
+    .filter(({ session, machine, unavailable }) => !unavailable && words.every((word) => `${session.projectName} ${session.title} ${machine.name}`.toLowerCase().includes(word)))
+    .slice(0, 8)
+    .map((thread) => ({
+      id: thread.key,
+      label: thread.session.title || "Untitled thread",
+      detail: `${thread.session.projectName} · on ${thread.machine.name}`,
+      icon: thread.machine.icon,
+      access: "read",
+      run: (actions) => thread.open(actions),
+    }));
 }

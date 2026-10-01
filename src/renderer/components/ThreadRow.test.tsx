@@ -288,3 +288,16 @@ describe("ThreadRow hover actions and label", () => {
     expect(hidden.container.querySelector(".thread-branch")).toBeNull();
   });
 });
+
+describe("ThreadRow error states (2c)", () => {
+  it.each([
+    ["failed", "Failed", "lucide-triangle-alert"],
+    ["limited", "Rate limited", "lucide-triangle-alert"],
+    ["offline", "Paused · offline", "lucide-monitor"],
+  ] as const)("draws %s as its label with its icon", (activity, label, icon) => {
+    const { container } = render(<ThreadRow activity={activity} activityLabel={label} active={false} age="now" session={session} onSelect={() => undefined} />);
+    const badge = container.querySelector(`.thread-status-age.status-${activity}`);
+    expect(badge?.textContent).toBe(label);
+    expect(badge?.querySelector(`svg.${icon}`)).not.toBeNull();
+  });
+});

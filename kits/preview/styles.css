@@ -189,22 +189,12 @@
 }
 
 /* Cookie import: the browser import dialog, with a list of sites to choose from. */
-.cookie-import-dialog {
-  width: 520px; max-width: calc(100vw - 48px); max-height: calc(100vh - 80px); display: flex; flex-direction: column; gap: 12px; padding: 18px;
-  border: 1px solid var(--line-float); border-radius: var(--radius-lg); background: var(--overlay); box-shadow: var(--elevation-3);
-  color: var(--ink); animation: fade-up .14s ease;
-}
-.cookie-import-dialog h2 { margin: 0; font: 600 16px var(--sans); }
-.cookie-import-dialog header p { margin: 6px 0 0; color: var(--muted); font: calc(var(--text-sm) + .5px)/1.45 var(--sans); }
+.cookie-import-dialog { width: 520px; max-height: calc(100vh - 80px); gap: 12px; }
 .cookie-import-route { display: flex; align-items: flex-end; gap: 10px; color: var(--faint); }
 .cookie-import-route label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .cookie-import-route label > span { color: var(--muted-2); font: 500 10.5px var(--sans); letter-spacing: .04em; text-transform: uppercase; }
 .cookie-import-route svg { flex: none; margin-bottom: 7px; }
-.cookie-import-dialog select {
-  height: 28px; min-width: 0; padding: 0 6px; border: 1px solid var(--line-field); border-radius: var(--radius-sm);
-  background: var(--field); color: var(--ink); font: calc(var(--text-sm) + .5px) var(--sans);
-}
-.cookie-import-dialog select:focus { outline: none; border-color: var(--line-focus); }
+.cookie-import-dialog select { height: 30px; min-width: 0; padding: 0 6px; font: var(--text-sm) var(--sans); }
 .cookie-import-sites { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--sunken); }
 .cookie-import-filter { flex: none; display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-bottom: 1px solid var(--line); color: var(--faint); }
 .cookie-import-filter input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font: var(--text-sm) var(--mono); outline: none; }
@@ -221,11 +211,7 @@
 .cookie-import-note code { font: var(--text-xs) var(--mono); }
 .cookie-import-problem { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; padding: 10px; color: var(--danger); font: var(--text-sm)/1.45 var(--sans); }
 .cookie-import-problem span { flex: 1 1 100%; }
-.cookie-import-dialog footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .cookie-import-count { flex: 1; color: var(--muted-2); font: calc(var(--text-xs) + .5px) var(--sans); }
-.cookie-import-dialog footer > button { padding: 7px 14px; border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: transparent; color: var(--ink-2); font: 500 calc(var(--text-sm) + .5px) var(--sans); cursor: pointer; }
-.cookie-import-dialog footer > button.primary { border-color: transparent; background: var(--acid); color: var(--acid-ink); }
-.cookie-import-dialog footer > button:disabled { opacity: .45; cursor: default; }
 
 /*
  * The Preview on a device that is not the host's window: frames of the host's
@@ -324,3 +310,13 @@ body[data-keyboard] .preview-remote.compact .preview-remote-keys { padding-botto
 .preview-look-in-stage { width: fit-content; min-width: 160px; max-width: min(100%, 360px); min-height: 48px; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--sunken); }
 .preview-look-in-stage > img { display: block; width: auto; height: auto; max-width: 100%; max-height: 240px; user-select: none; }
 .preview-look-in-note { display: inline-flex; align-items: center; gap: 6px; padding: 12px; color: var(--muted); font: var(--text-sm) var(--sans); }
+
+/* The user holds the page (a takeover): an amber frame, kept clear of the view, and who has control. */
+.preview-panel.held, .preview-remote.held { box-shadow: inset 0 0 0 2px var(--warn-line); }
+.preview-panel.held .preview-surface { margin: 0 2px 2px; }
+.preview-held { flex: none; display: inline-flex; align-items: center; gap: 5px; margin-left: 4px; color: var(--warn); font: 600 var(--text-xs) var(--sans); white-space: nowrap; }
+.touch-panel-sheet:has(.preview-remote.held) > .touch-sheet-header, .preview-remote.held.compact :is(.preview-remote-bar > .preview-remote-icon, .preview-views, .preview-remote-driver) { display: none; }
+.preview-remote.held.compact .preview-remote-status { border-bottom: 0; }
+.preview-remote.held.compact .preview-remote-status-text { visibility: hidden; }
+.preview-remote.held.compact { box-shadow: none; }
+.preview-remote.held .preview-remote-bar { padding: 8px 12px; border-bottom: 0; }

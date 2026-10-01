@@ -37,7 +37,7 @@ function openSealed(sealed: string, relay: PushRelayRegistration): Record<string
 
 const relayFor = (platform: string, token: string): PushRelayRegistration => ({ handle: fakeRelayHandle(platform, token), keyId: randomBytes(16).toString("base64url"), key: randomBytes(32).toString("base64url") });
 
-async function harness(options: { content?: "title" | "excerpt"; attended?: boolean; notifications?: boolean; relayAnswer?: (request: FakeRequest) => { status: number; body?: unknown }; keysFile?: unknown } = {}) {
+async function harness(options: { content?: "title" | "excerpt"; attended?: boolean; muted?: string; notifications?: boolean; relayAnswer?: (request: FakeRequest) => { status: number; body?: unknown }; keysFile?: unknown } = {}) {
   const stateDir = await mkdtemp(join(tmpdir(), "tau-push-"));
   cleanups.push(() => rm(stateDir, { recursive: true, force: true }));
   if (options.keysFile) {
@@ -75,7 +75,7 @@ async function harness(options: { content?: "title" | "excerpt"; attended?: bool
     await registry.activate({
       id: "tau.notifications",
       name: "Notifications",
-      activate: (context) => { context.registerCommand("attended", () => ({ attended: options.attended === true }), { callers: [ID] }); },
+      activate: (context) => { context.registerCommand("attended", (input) => ({ attended: options.attended === true, muted: (input as { kind?: string } | undefined)?.kind === options.muted }), { callers: [ID] }); },
     });
   }
   const invoke = (command: string, input?: unknown, principal: Parameters<typeof registry.invoke>[3] = OWNER) => registry.invoke(ID, command, input, principal);
@@ -201,6 +201,17 @@ describe("the push host half", () => {
     await settle();
     expect(quiet.apple.requests).toHaveLength(0);
     expect(apple.requests).toHaveLength(2);
+  });
+
+  it("sends nothing the user silenced in Notifications, and asks by the kind of news", async () => {
+    const { observers, setUp, settle, apple, tick } = await harness({ muted: "completed" });
+    await setUp();
+    await observers[0]!.ended!("t1", "turn-1", "completed");
+    await settle();
+    tick(6_000);
+    await observers[0]!.ended!("t1", "turn-2", "failed");
+    await settle();
+    expect(apple.requests).toHaveLength(1);
   });
 
   it("pushes without Notifications Kit, since nobody can say anyone is looking", async () => {

@@ -90,7 +90,7 @@ export function RuntimeInstanceDialog({ program, homeVariable, homePlaceholder, 
 
   const title = adding ? `Add a ${program} instance` : isDefault ? `Edit ${program}` : `Edit ${instance.name ?? instance.id}`;
   return (
-    <Dialog className="runtime-instance-dialog" label={title} onClose={onClose}>
+    <Dialog className="confirm-dialog runtime-instance-dialog" label={title} onClose={onClose}>
       <header>
         <h2>{title}</h2>
         <p>{adding

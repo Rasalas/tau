@@ -442,7 +442,14 @@ A call no renderer claims shows the value of its most telling argument
 (`command`, `file_path`, `path`, `pattern`, `query`, `url`, …), so a runtime
 whose tools have names of their own should still register a renderer for its
 glyphs and tones. A failed call (`status: "error"`) shows why under its line:
-the exit status and the last line printed, or the first line of `output`.
+the exit status and the last line printed, or the first line of `output`. A
+failed command shows its output open instead, dark as a terminal, with "exit 1 ·
+2.3s" at the row's end (design 1f).
+`glyph` may be an icon (API 1.39.0). `note` (API 1.39.0) is drawn at the row's
+end before its state, `body` open under the row in place of the output:
+Workspace Kit draws an edit's "+4 −2" and its diff with them, for Pi's `edit`
+and `write` and the Agent SDK's `Edit`, `MultiEdit` and `Write`. Consecutive
+settled reads share one row ("Read a.ts, b.ts · 2 files") that opens to each.
 
 `registerToolCard({ id, match, Component })` is the other half: a whole batch
 of consecutive calls of your tools drawn as one card, instead of a row per
@@ -495,7 +502,9 @@ plugin.registerCommand({
 
 `actions.openStageTab(kind, params?, { preview?, key? })` opens one and answers
 with the tab's id; `actions.closeStageTab(id)` closes any tab and
-`actions.stageTabs()` lists what is on the stage. **`params` is plain JSON and
+`actions.stageTabs()` lists what is on the stage. `actions.splitStage?(id?)` (API 1.38.0) shows a
+tab beside the active one; without an id it splits off the active tab or joins the two
+panes again (a tab dragged onto the stage does the same). **`params` is plain JSON and
 is the whole of what the tab is:** two opens with the same params are the same
 tab, the params key the tab (`ext:<kind>:<key>` — pass `key` to name one
 yourself, or `singleton: true` for a kind with one tab whatever it is opened
@@ -846,19 +855,19 @@ core's plain branch label steps aside. Both are drawn bare in the sub-line,
 so draw each item as a `span.thread-detail` (core puts the "·" between
 them) and render nothing when there is nothing to say. Workspace Kit's
 branch there opens a menu over the thread's checkout (switch or create a
-branch, open, add or remove a worktree) and, for a new thread, its Branch
-section. A phone's bar draws neither; an older core draws neither. A new
-thread's draft has no sub-line since API 1.28.0 (K104): its pills in
-`draft-actions` already say project, machine and branch. A thread that exists
-but is still empty shows only `thread-details` and its branch there, since its
-branch has no pill.
+branch, open, add or remove a worktree). For a new thread's draft it says
+"project · machine · no worktree yet" (design 1k, K152; the checkout's branch in
+place of the last part when the draft runs in the checkout); a phone's bar
+draws `thread-branch` for the draft too, "project · machine" (design 1o). A
+thread that exists but is still empty shows only `thread-details` and its
+branch there.
 `draft-actions` (K98, for API 1.28.0) is the row of pills after a new
 thread's "What should <project> do next?" and its sentence: core's project
 pill leads it (a click opens the project picker at the pill and moves the
 draft; a second click on the pill closes it), then the kits' pills, each a `button.draft-pill` that opens its own
-popover, or a sheet on a phone or tablet. Machines Kit draws "Run on" there,
-Workspace Kit the branch with its Branch section. Render nothing for a thread
-that started; an older core draws no such row.
+popover, or a sheet on a phone or tablet. Machine and branch are no longer
+pills here since K152: they are one `lead` composer control (see below).
+Render nothing for a thread that started; an older core draws no such row.
 `stage-bar` (API 1.27.0) is the right end of the stage's tab strip, after the
 tools and before the maximize, for a control about the stage as a whole, such as
 Workspace Kit's "Open in". The other placements are
@@ -890,13 +899,23 @@ tab that shows a thread of another machine (`openThread(id, { machine })`); its
 props carry `lookIn: { machine, machineName, sessionId, connected }`, and what
 it shows comes from that machine through `context.environments.readExtension`.
 Preview Kit puts that machine's page there, small and view only. An older core
-never draws the placement.
+never draws the placement. `turn-divider` (API 1.39.0) sits in the line above
+each turn after the first ("Turn 3 · Regression tests", design 2d); its props
+carry `turn: { number, messages, last }` — the turn's prompt and everything that
+answered it, `last` while it may still run. Workspace Kit puts Fork here (a
+question first, then `actions.forkFrom(message)` through the turn's last saved
+message) and Restore files (the turn's checkpoint, when it verified) there,
+shown on hover and, on touch, on a tap.
 `thread-list-head` (API 1.30.0) tops a phone's or a tablet's thread list,
 under its header and over the rows, and stays put while they scroll: a strip
 about the list as a whole. Machines Kit says there which paired machine is out
 of reach (Retry) or refused the device (Pair again), and Usage Kit draws the
 plans' juicebars; register it with `profiles: ["compact"]` and render nothing
 when there is nothing to say. An older core never draws the placement.
+`spine` (API 1.39.0) fills the narrow column the conversation collapses to beside the stage
+(design 1b), under the thread's title and above its queue and "Open
+conversation": Agents Kit draws the thread's state and cost, what runs now, the
+turn's steps and its agents there. An older core never draws the placement.
 
 #### Threads of elsewhere in the compact list
 
@@ -935,25 +954,34 @@ plugin.registerPaletteSource({
 ```
 
 The palette asks every source again on each keystroke, and only for a
-non-empty query. `search` may answer at once or with a promise; `index` is the
-thread index this window holds (`projects`, `threads`, `activeThreadId`), and
-`signal` aborts as soon as the query changes or the palette closes. An answer
-that arrives after that is dropped, so a slow source never paints rows for a
-query the user already left; a source that talks to its host half should wait
-a moment on the signal before it asks. A row is `{ id, label, detail?, run }`:
-`detail` is shown after the label, the source's `label` beside it. A row takes
-`access` like a command (new in API 1.13.0): on a Read-only device a row
-without `"read"` is shown disabled, with "Read only" and the reason in its
-tooltip, which a tap shows on a touch screen; the cursor passes over it. A
+non-empty query — unless the source has a `scope` (`"threads"` or `"files"`, API 1.38.0):
+then it is also asked for an empty query, in All and in its own tab, and
+`context.scope` says which of the two it is (`"all"`, `"threads"`, `"files"`).
+The tabs (All, Threads, Files, > Commands) and the prefixes `#`, `/` and `>`
+narrow the palette; a source whose `scope` is the chosen one is the only kind
+asked. `search` may answer at once or with a promise; `index` is the thread
+index this window holds (`projects`, `threads`, `activeThreadId`, and `running`,
+the threads with a turn going), and `signal` aborts as soon as the query changes
+or the palette closes. An answer that arrives after that is dropped, so a slow
+source never paints rows for a query the user already left; a source that talks
+to its host half should wait a moment on the signal before it asks. A row is
+`{ id, label, detail?, icon?, run, stage? }`: `detail` is shown after the label,
+`icon` before it, and `stage` is what ⌘⏎ does instead of `run` (open it in the
+stage). A row takes `access` like a command (new in API 1.13.0): on a Read-only
+device a row without `"read"` is shown disabled, with "Read only" and the reason
+in its tooltip, which a tap shows on a touch screen; the cursor passes over it. A
 group of commands of which none declares `"read"` is left out there, as is a
 source none of whose rows does, so the list holds no section of dead rows.
 
-What the list shows, in order: commands whose label matches, then every
-source's rows in `order` (eight at most each), then core's own Settings rows —
-a page or a row of one found by the words Settings search uses — and last the
-commands that matched only by their group. An empty query lists the commands
-alone. Search Kit (`kits/search/`) is the shipped caller: threads by title and
-by what was said in them, and projects.
+What the list shows, in sections under a heading (design 2b): each source
+`label`'s rows in `order` (eight at most per source in All; sources with the
+same label share one section), then Commands — the commands whose label
+matches, core's own Settings rows (a page or a row of one found by the words
+Settings search uses, "Settings › page"), and last the commands that matched
+only by their group. An empty query lists the recent threads and then every
+command. Search Kit (`kits/search/`) is the shipped caller: threads by title and
+by what was said in them, the files of the thread on screen, and projects;
+Workspace Kit adds other machines' threads.
 
 #### Levels under a row (new in API 1.12.0)
 
@@ -1485,8 +1513,8 @@ are Tau's own, not a component library; the reasons and the numbers are in
 | `tooltipProps(text, options?)`, `Tooltip` | A tooltip on any element: spread `tooltipProps("Settle thread", { shortcut: "⌘S", side: "bottom" })` on it, or wrap it in `<Tooltip content="…">`. Both only set `data-tooltip` (and `data-tooltip-side`, `-shortcut`, `-when`, `-variant`), which core's one `TooltipLayer` reads from the document, so a list of a thousand rows costs attributes, not components. It opens after the pointer rests for 600 ms, at once while another tooltip was open in the last 400 ms, at once on keyboard focus, and closes on Escape, a press, a scroll that moves its element or leaving. `when: "truncated"` shows it only while the element's own text is cut off (a thread title); `variant: "code"` sets it in the monospace face (a path); `variant: "lines"` keeps the text's line breaks, for a few lines of details (a rail row's hover card). A trigger whose `aria-label` differs from the text gets `aria-describedby` while it shows. Use it instead of `title=`, whose OS tooltip waits a second and cannot show a shortcut. The compact profile leaves the shortcut out, as it does any element of class `keyboard-hint`: put that class on a chord or key help a package draws itself (`esc`, `↑↓ navigate`). |
 | `actions.toast(options)` | A toast on the window's stack, bottom right beside the composer, and a handle with `update(patch)` and `dismiss()`. `ToastOptions`: `type` (`info`, `success`, `warning`, `error`, `loading`, `question` (API 1.37.0) for something that waits for the user's answer; the icon, and an `error` is an ARIA alert), `title` and `description` (one line, joined by a dot), `actions` (`{ label, run, keepOpen? }` buttons; a click runs and closes unless `keepOpen`), `copyText` (a copy button), `timeoutMs` (5,000 by default; 0 keeps it until dismissed; a `loading` toast waits until it is updated to another type), `id` (showing it again replaces the toast and starts its time again) and `onClose`. Three are visible, newest in front, the rest waiting with their clocks stopped; the time runs only while nobody hovers or focuses the stack and the window is visible, and F6 moves focus into it. `actions.notify(message)` is still the one-line way: every notice is a toast. Thread Rail's undo is a toast whose `timeoutMs` is 0 and whose own undo window dismisses it. |
 | `MiddleTruncate`, `splitMiddle` | `<MiddleTruncate value={branch} />` cuts in the middle, as Finder does, for values that mean something at both ends — branches, paths, shas: a head that ellipsizes and a tail that stays (a short last path segment, else `tail` characters, 10 by default). No measuring and inline styles only, so it costs what an end cut costs in a long list; both halves are real text, so copy and screen readers get the whole value. Other props go to the outer `span`. `splitMiddle(value, tail?)` answers the cut, or `undefined` when the value is too short to be worth one. The rail's branch line uses it. |
-| `Dialog` | A modal centred over core's scrim with `label` and `className`: Tab and Shift-Tab stay inside it, Escape and a click on the scrim call `onClose`, the first `autoFocus` field (else the first control) gets focus, and focus goes back when it closes. |
-| `ConfirmDialog` | A yes-or-no question on `Dialog`: `title`, `message`, `confirmLabel` (`destructive` draws it red), `cancelLabel`, and with `dontAskAgain` a box whose state `onConfirm(dontAskAgain)` hears; `onCancel` on Cancel, Escape or the scrim. The action has focus, so Enter answers it. Thread Rail's delete, archive and unpin questions and core's quit question use it (API 1.12.0). |
+| `Dialog` | A modal centred over core's scrim with `label` and `className`: Tab and Shift-Tab stay inside it, Escape and a click on the scrim call `onClose`, the first `autoFocus` field (else the first control) gets focus, and focus goes back when it closes. With `className` `confirm-dialog` it is the workbench's card: a `h2`, the text, and a `footer` (direct or in a `form`) drawn as a bar with plain buttons and `primary`/`danger` ones as pills. |
+| `ConfirmDialog` | A yes-or-no question on `Dialog`: `title`, `message`, `confirmLabel` (`destructive` draws it red; `icon` goes before its label, API 1.38.0), `cancelLabel`, and with `dontAskAgain` a box whose state `onConfirm(dontAskAgain)` hears; `onCancel` on Cancel, Escape or the scrim. The action has focus, so Enter answers it. Thread Rail's delete, archive and unpin questions and core's quit question use it (API 1.12.0). |
 | `Popover` | A card beside an element (`anchor`, a ref) or a point, `side` and `align` preferred and flipped or shifted to stay in the window; a press outside it or Escape closes it, and focus goes back. |
 | `Sheet` | A modal sheet from the bottom edge for a compact client (phone, tablet), where a desktop would use a `Dialog` or a `Popover`: `title`, `className`, `onClose` and the content as children. It has a grip, the title and a 44 px close button on top; the content scrolls under them. The X, Escape, the scrim and a pull down close it; the pull starts anywhere but on a control, and inside the content only once it is scrolled to the top. Review Kit's filters for the Pull Requests page on a phone use it. |
 | `FileSource` | A text file as a file tab shows it (API 1.20.0): `content` (a `UiFileContent` of kind `text`, as a document source's `loadFile` answers), line numbers, highlighting while the file is under 200 KB and its language known, the note for a truncated file, and `line` marked and scrolled to (`reveal` counts requests for the same line). The Files panel reads a file with it in a phone's sheet. |
@@ -1514,10 +1542,16 @@ before the primary action, and `submit` (`{ label, disabled?, enter?,
 onSubmit }`) is that action, "✓ Send 2 ⏎" with `enter` when an empty
 composer's Enter does the same (register it with `usePromptSubmit` too).
 `PromptRendererProps.asker` is who asks as the composer knows it — the
-thread's model — for `from`. `OptionRow` draws a box to tick for `mode`
+thread's model — for `from`; `PromptRendererProps.agent` (API
+1.38.0) names a sub-agent ("GET /orders agent") when a child thread's question
+shows on its parent's composer, and wins over `asker` and a topic. An approval
+(design 1a/1c) heads with its `title` ("Wants to edit") and puts a one-line
+`message` beside it in mono. `OptionRow` draws a 14 px box to tick for `mode`
 `"checkbox"`, a round one for `"radio"`, and `detail` as the second line; it
-no longer draws `index`. Core's own dialogs use the same frame: a `confirm` is
-an approval with Approve and Decline, a `select` a question to pick one.
+no longer draws `index`. Core's own dialogs use the same frame: a `confirm`,
+and a runtime's `select` of Allow / Allow for this session / Deny, is an
+approval with Deny, "Always for this thread" where offered, and "Allow" (Enter never allows, K83); a
+`select` is a question whose pick fills its radio and "Answer ⏎" sends.
 
 `actions.shareFile(path)` (new in API 1.10.0) answers with a URL the page
 may load a workspace file from — `{ url, name, size, mimeType }`, the URL
@@ -1533,7 +1567,9 @@ page's CSP names `tau-ext:` for `img-src`, `media-src` and `frame-src`.
 
 `actions.openFile(path, options?)` puts a document in the stage — `{ line }`
 opens it as source scrolled to that line (1-based) and marks it, and asking for
-the same line again scrolls there again;
+the same line again scrolls there again; `{ trace: true }` (API 1.39.0) is a file the agent
+touched: one italic tab at the strip's end that never comes to the front and
+never opens a stage that holds nothing (Workspace Kit's trace tabs, design 1a);
 `actions.openStageTab(kind, params?, options?)` puts a tab of your own kind
 there (above); `actions.openThread(sessionId, options?)`
 puts a thread there instead — its transcript, read-only, with the title, status
@@ -1660,7 +1696,7 @@ It also exports the renderer's shared state and presentation:
 | `usePreferences` | the same store as `context.preferences`, for a component rendered in a slot. |
 | `useAppUpdate`, type `AppUpdate` | (new in API 1.28.0) the Tau release the host downloaded, `{ version, install() }`, or undefined. |
 | `useClientStorage`, `getClientStorage`, type `ClientStorage` | the renderer's key/value storage, in and out of the component tree. The phone app keeps each host's keys apart; a key under `device:` (API 1.30.0) is the device's own and shared across its hosts, as Usage Kit's choice of juicebars. |
-| `useHostCapabilities`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced; the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. `READ_ONLY_REASON` is core's wording for a disabled control. Core does it for the composer (a note instead of the field), setting rows (inert, with the reason), the palette and chords (for every command and row without `access: "read"`), the title menu (new thread, pin and settle included), the compact list (its Stop, swipe tray and new-thread button), Edit/Fork, the changes tree and the Models page's model, thinking and runtime; preferences stay on the device, and a copied chat goes to the device's own clipboard. |
+| `useHostCapabilities`, `useHostName`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced (`useHostName`, API 1.38.0: the name it gave, for "this page runs on …"); the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. `READ_ONLY_REASON` is core's wording for a disabled control. Core does it for the composer (a note instead of the field), setting rows (inert, with the reason), the palette and chords (for every command and row without `access: "read"`), the title menu (new thread, pin and settle included), the compact list (its Stop, swipe tray and new-thread button), Edit/Fork, the changes tree and the Models page's model, thinking and runtime; preferences stay on the device, and a copied chat goes to the device's own clipboard. |
 | `useCommandAllowed(extensionId, command)`, `hostCommandAllowed(extensionId, command, client?)` | (new in API 1.13.0) whether this device may run a kit's host command: always with Full access; on a Read-only device only a command registered `access: "read"`, and none until the host has said which those are (the hook re-renders then). One line disables a control: `disabled={!allowed}` with `READ_ONLY_REASON` as its tooltip. The function is for palette sources and other code outside a component. |
 | `useKeepClear` | keeps a floating element clear of the reserved regions of the window. |
 | `readCachedTurnActivity`, `changesSinceTurn`, `changesTouchedByTools` | what a turn touched, from the cache core writes. |
@@ -1697,7 +1733,11 @@ machine (a phone, a browser, a window on another computer) `jump` opens the
 Preview there instead, where the user drives the page or window by tapping and
 typing, and `remote()` (new in API 1.13.0) says so. `watch(target, maxWidth, onFrame)`
 (new in API 1.13.0) delivers a small live picture of the page or of a thread's
-driven window while the calling page is visible, until the returned stop. Preview Kit also publishes
+driven window while the calling page is visible, until the returned stop.
+`hold({ Bar?, Footer? })` marks the page as the user's while they take over:
+the panel draws an amber frame and "you have control", a phone's Preview sheet
+draws `Bar` above the page and `Footer` under it, and the page says a focused
+password field is not captured; the returned function releases it. Preview Kit also publishes
 `tau.preview/cookie-import` (new in API 1.12.0): `importSite({ site, profile? })`
 opens its cookie import dialog with that site filtered to and ticked and that
 Preview profile as the target, and answers the import's result, or `undefined`
@@ -1758,6 +1798,9 @@ panel, clean worktree or not, with the panel's `actions`, the commit message as
 the user left it and `committed()` to hand the box back to the proposal; and
 `registerThreadRowAccessory(Component)` draws a mark on every rail row, given
 the row's `session` (Terminal Kit marks a thread whose shells run a program this way).
+`setThreadRowStatuses?(owner, { [threadId]: { label, hint?, icon } })` gives rows a
+state of the kit's own, drawn like a question in place of Working (Takeover Kit's
+"Your turn"); `{}` withdraws them.
 `registerThreadCardSection?({ place, order?, Component })` (new in API 1.23.0) adds to
 the card a rail row opens: a pointer resting 180 ms on a row
 (a sweep over the rail opens nothing) or keyboard focus on it shows the whole title and a
@@ -1786,6 +1829,12 @@ by time without touching the rail's own order), `running`, `opening`, `machine`
 `unavailable` (why it cannot open now; the row is dimmed and says so), `open(actions)`
 and `lookIn?(actions)` (the row's hover button). Such a row cannot be settled, pinned,
 picked, dragged or given files. Machines Kit lists the other machines' threads this way.
+`registerThreadDropTargets?(targets)` lets a kit take a thread dragged in the rail
+(design 2f): while a row is dragged, a panel at the rail's foot headed `targets.heading`
+lists `targets.targets(session, actions)` (`id`, `label`, `detail`, `icon`, `disabled`
+dims a row that cannot take it), and letting go on one calls `drop(session, id, actions)`.
+One kit at a time, the last wins; Handoff Kit offers the machines this way ("Continue on").
+An older Workspace Kit lacks it, so call it as `registerThreadDropTargets?.(…)`.
 The shelves after the main list (snoozed, settled) share its scroll and
 follow right after the last active row, as the design draws them (since API 1.27.0; they
 sat at the rail's bottom before). Each is a quiet heading with its count ("Settled · 41")
@@ -1876,13 +1925,22 @@ its Branch section, `draftBranch` and `draftBase` in the store's state (set with
 `setDraftBranch({ name?, base? })`), wins over the naming kit and the default
 base; both are forgotten with the draft.
 
-A new thread's Branch section (its own worktree or the checkout, the `tau/…`
-branch named when the prompt is sent or typed, "from" its base) opens from
-Workspace Kit's branch pill in `draft-actions` (a sheet on a phone or tablet).
-Its "New worktree" row is the switch's label: a click or tap anywhere on the
-row switches. The `tau.workspace/branch-section`
-service that lent it to Machines Kit's "Run on" is gone (K98): "Run on" holds
-the machines only, as the design's two pills do.
+A new thread's machine and branch are one pill before the model (design 1k/1o,
+K152): Workspace Kit's `lead` composer control, "machine · branch", opening one
+popover above the composer (a sheet with Done on a phone or tablet). It holds
+"Run on" (the machines), then Branch: a field under `tau/` ("name it, or leave
+empty"; a name with its own `/` is taken whole), "If empty: Name from the
+prompt / Random" (the kit preference `branch-naming`, `prompt` or `random`;
+without a naming kit it is random), "Based on" (the default base with its fetch
+age, origin's other latest branches and a branch another thread's worktree
+holds; "Other branch…" searches the rest) and the "New worktree" switch, whose
+whole row is its label. `worktree-base` answers `fetchedAt` (FETCH_HEAD's time)
+and `others` for it. Machines Kit fills "Run on" through the store:
+`registerDraftMachine({ useMachine, Section })`, where `useMachine(props)` is a
+hook naming the machine (or `undefined` for a started thread) and `Section`
+draws the rows (`touch` for 44 px rows). Without it the pill names the host
+(`useHostName`) and lists it alone, so a phone shows "Run on" with one machine
+too.
 
 A host half reaches another kit's host half with `context.invokeHostExtension(id,
 command, input)`, and only for a command the target registered with
@@ -2107,9 +2165,8 @@ package chips first lose their labels and then move into the menu; the
 model and the reasoning level stay longest. A host older than 1.27.0 draws a `menu` control in the row.
 `placement: "lead"` (API 1.27.0) puts a control before the model chip, then a
 thin rule, then the model. A `lead` control never folds into the menu. An
-older core draws it in the row. No bundled kit uses it since K98: a new
-thread's project, machine and branch are pills in the `draft-actions` region
-instead, and the draft's footer holds the model, the level, "…" and send.
+older core draws it in the row. Workspace Kit's Run-on pill (a new thread's
+machine and branch, K152) is one; the project stays a pill in `draft-actions`.
 
 `tau/host-extension` re-exports every host seam type, every type of the host
 protocol (`src/shared/contracts.ts`: `UiMessage`, `UiComposerCommand`,
@@ -3359,9 +3416,9 @@ dropped, as opening it would. `open(id, target)` loads the app on that host
 `pair`, `discover` and `setPreferences` do nothing there (the phone pairs
 from its host list), and it has no `watchThread`, `transcriptPage` or
 `update`. `threads[].settled` says the phone settled the thread while it
-showed that host. On a phone Machines Kit draws "Run on" as a sheet in
-`draft-actions` (a machine out of reach says why and cannot be picked; the
-sheet asks it again when it opens), the other machines' threads in the thread
+showed that host. On a phone Machines Kit lists the paired machines in the
+Run-on sheet (a machine out of reach says why and cannot be picked; opening
+the sheet asks it again), the other machines' threads in the thread
 list (`registerThreadListSource`) and their state in `thread-list-head`.
 
 ### A machine's own Tau: `useMachineUpdates`, `useHostUpdate`
@@ -4188,7 +4245,16 @@ Two grounds carry the window: the document area (`--stage`, `--shell`) and the s
 | `--chip-hover` | a small label, hovered | `#d8d4cd` | `#2e3136` |
 | `--track` | an empty progress track | `#d8d4cd` | `#2e3136` |
 | `--scrim` | the dim behind a modal | `#1c1b19a3` | `#050608e0` |
-| `--scrim-deep` | the dim behind a full-screen image | `#1c1b19e0` | `#020204ed` |
+| `--scrim-deep` | the dim behind a full-screen image, dark in either scheme | `#0e0e0df0` | `#0e0e0df0` |
+| `--term` | the terminal's ground, a step under the dark one and so dark in either scheme | `#0a0b0e` | `#0a0b0e` |
+| `--media` | the ground of a full-window picture viewer (the lightbox, Evidence's viewer), dark in either scheme so pictures read true | `#0e0e0d` | `#0e0e0d` |
+| `--media-ink` | text on it | `#f1efeb` | `#f1efeb` |
+| `--media-muted` | secondary text on it | `#f1efeb8c` | `#f1efeb8c` |
+| `--media-faint` | times and small print on it | `#f1efeb73` | `#f1efeb73` |
+| `--media-control` | a round control beside a picture | `#ffffff1f` | `#ffffff1f` |
+| `--media-shade` | a round control on a picture | `#0000008c` | `#0000008c` |
+| `--media-hover` | a control on it, hovered | `#ffffff14` | `#ffffff14` |
+| `--media-well` | where a picture loads | `#2a2926` | `#2a2926` |
 | `--drop-card` | the card in a drag-and-drop overlay | `#fbfaf8ee` | `#191c21ee` |
 
 **Hairlines**

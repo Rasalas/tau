@@ -1,9 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArchiveRestore, ArrowLeft, Check, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, GitBranch, Plus, Search, Settings, SlidersHorizontal, SquarePen, Trash2, X } from "lucide-react";
+import { ArchiveRestore, ArrowLeft, Check, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, GitBranch, MessageSquare, Plus, Search, Settings, SlidersHorizontal, SquarePen, Trash2 } from "lucide-react";
 import {
   DraftRow,
-  draftTitle,
   errorMessage,
   ProjectIcon,
   Menu,
@@ -531,9 +530,9 @@ export function ProjectSwitcherPopover({
 }
 
 /**
- * The rail's project filter as an icon between the search and "+": a folder
- * for every project, the shown project's tile while one is. Its footer opens
- * a project and the project settings.
+ * The rail's project filter between the search and "+": a folder for every
+ * project, the shown project's tile and name while one is (design 1k). Its
+ * footer opens a project and the project settings.
  */
 function ProjectFilterButton({ actions }: { actions: WorkbenchActions }) {
   const threadStore = useThreadStore();
@@ -560,7 +559,9 @@ function ProjectFilterButton({ actions }: { actions: WorkbenchActions }) {
       {...tooltipProps(open ? undefined : label, { side: "bottom" })}
       onClick={() => setOpen((value) => !value)}
     >
-      {shown ? <ProjectIcon project={shown} className="project-filter-tile" /> : <Folder size={15} />}
+      {shown ? <ProjectIcon project={shown} className="project-filter-tile" /> : <Folder size={13} />}
+      {filter ? <span>{filter}</span> : null}
+      <ChevronDown size={10} />
     </button>
     <ProjectSwitcherPopover
       label="Filter by project"
@@ -651,6 +652,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   activity,
   activityLabel,
   activityHint,
+  activityIcon,
   compact,
   workingChildren,
   modelProvider,
@@ -666,6 +668,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   activity: ThreadActivity;
   activityLabel?: string;
   activityHint?: string;
+  activityIcon?: ReactNode;
   compact: boolean;
   workingChildren: number;
   modelProvider?: string;
@@ -701,6 +704,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
       activity={activity}
       activityLabel={activityLabel}
       activityHint={activityHint}
+      activityIcon={activityIcon}
       hoverCard
       compact={compact}
       workingChildren={workingChildren}
@@ -724,12 +728,10 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
  * moment it opens, and every one left with something in it. A draft whose
  * thread the host already lists is that thread's row now.
  */
-export function railDrafts(drafts: readonly DraftThread[], filter: { project?: string; query?: string; listed?: ReadonlySet<string> }): DraftThread[] {
-  const needle = filter.query?.trim().toLocaleLowerCase();
+export function railDrafts(drafts: readonly DraftThread[], filter: { project?: string; listed?: ReadonlySet<string> }): DraftThread[] {
   return drafts.filter((draft) =>
     !(draft.sessionId && filter.listed?.has(draft.sessionId)) &&
-    (!filter.project || draft.projectName === filter.project) &&
-    (!needle || `${draft.projectName} ${draftTitle(draft)}`.toLocaleLowerCase().includes(needle)));
+    (!filter.project || draft.projectName === filter.project));
 }
 
 const DraftRailRow = memo(function DraftRailRow({ draft, onOpen }: { draft: DraftThread; onOpen(draftId: string): void }) {
@@ -740,10 +742,10 @@ const DraftRailRow = memo(function DraftRailRow({ draft, onOpen }: { draft: Draf
 });
 
 /** Subscribes to the drafts on its own, so typing in a draft repaints these rows and nothing else. */
-const RailDrafts = memo(function RailDrafts({ actions, project, query, listed }: { actions: WorkbenchActions; project?: string; query: string; listed: ReadonlySet<string> }) {
+const RailDrafts = memo(function RailDrafts({ actions, project, listed }: { actions: WorkbenchActions; project?: string; listed: ReadonlySet<string> }) {
   const store = useThreadStore();
   const drafts = useSyncExternalStore(store.subscribeToDrafts, store.getDrafts);
-  const shown = useMemo(() => railDrafts(drafts, { ...(project ? { project } : {}), query, listed }), [drafts, listed, project, query]);
+  const shown = useMemo(() => railDrafts(drafts, { ...(project ? { project } : {}), listed }), [drafts, listed, project]);
   const openContextMenu = useContextMenu();
   if (!actions.openDraft || shown.length === 0) return null;
   // Discard is the draft's menu: the row keeps its quiet "draft" on hover, as a thread keeps its state.
@@ -779,8 +781,8 @@ const ExternalThreadRow = memo(function ExternalThreadRow({ thread, onOpen, onLo
 }) {
   const { session, machine, unavailable, opening, running } = thread;
   const age = sessionAge(session.modifiedAt);
-  const activity: ThreadActivity = opening ? "ready" : running ? "working" : "idle";
-  const label = opening ? "Opening…" : running ? "Working" : undefined;
+  const activity: ThreadActivity = opening ? "ready" : unavailable ? "offline" : running ? "working" : "idle";
+  const label = opening ? "Opening…" : unavailable ? (running ? "Paused · offline" : "Offline") : running ? "Working" : undefined;
   const lookIn = thread.lookIn && !unavailable && !opening
     ? <button type="button" aria-label={`Look in on ${session.title} here`} {...tooltipProps("Read it in a tab here; the window stays on this machine")} onClick={() => onLookIn(thread)}><Eye size={13} /></button>
     : undefined;
@@ -793,6 +795,7 @@ const ExternalThreadRow = memo(function ExternalThreadRow({ thread, onOpen, onLo
         age={age}
         activity={activity}
         {...(label ? { activityLabel: label } : {})}
+        {...(unavailable ? { activityHint: unavailable } : {})}
         hoverCard
         actions={lookIn}
         onSelect={() => { if (!unavailable && !opening) onOpen(thread); }}
@@ -806,6 +809,7 @@ interface RailCardFacts {
   activity: ThreadActivity;
   activityLabel?: string;
   activityHint?: string;
+  activityIcon?: ReactNode;
   agents: { total: number; working: number };
 }
 
@@ -830,6 +834,7 @@ function RailThreadCard({ id, facts, actions, onClose }: { id: string; facts: Ra
       activity={facts.activity}
       {...(facts.activityLabel ? { activityLabel: facts.activityLabel } : {})}
       {...(facts.activityHint ? { activityHint: facts.activityHint } : {})}
+      {...(facts.activityIcon ? { activityIcon: facts.activityIcon } : {})}
       age={sessionAge(session.modifiedAt)}
       {...(icon ? { projectIcon: icon } : {})}
       agents={facts.agents}
@@ -895,8 +900,11 @@ const rowIdOf = (target: EventTarget | null) => target instanceof Element ? targ
 
 type ActivitySets = Record<"running" | "waiting", ReadonlySet<string>>;
 
+/** A row's state as the rail draws it: another kit's may bring its own glyph. */
+type RailStatus = ThreadRowStatus & { icon?: ReactNode };
+
 /** A settled row shows its age; the label is only the hover card's. */
-const SETTLED_STATUS: ThreadRowStatus = { activity: "settled", label: "Settled" };
+const SETTLED_STATUS: RailStatus = { activity: "settled", label: "Settled" };
 
 export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: SidebarContributionProps) {
   const { snapshot, registry } = useWorkbenchShell();
@@ -907,16 +915,14 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const organizer = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadRailOrganizer);
   const railSections = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railSections);
   const railThreadSources = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railThreadSources);
+  const rowStatuses = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadRowStatuses);
+  const dropTargets = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadDropTargets);
   const externalThreads = useRailExternalThreads(railThreadSources);
   const organizerVersion = useSyncExternalStore(organizer?.subscribe ?? noSubscription, organizer?.getVersion ?? noVersion);
   const projectFilter = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railProjectFilter);
   const projectSettings = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().projectSettings);
   const projects = useSyncExternalStore(threadStore.subscribeToProjects, threadStore.getProjects);
-  const [threadQuery, setThreadQuery] = useState("");
-  const navigationSnapshot = useSyncExternalStore(
-    threadQuery ? threadStore.subscribe : threadStore.subscribeToIds,
-    threadStore.getSnapshot,
-  );
+  const navigationSnapshot = useSyncExternalStore(threadStore.subscribeToIds, threadStore.getSnapshot);
   const activityState = useSyncExternalStore(threadStore.subscribeToActivity, threadStore.getActivity);
   const threads = navigationSnapshot.threads;
   const preferences = usePreferences();
@@ -932,8 +938,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const openContextMenu = useContextMenu();
   // A Read-only device could never send a new thread's first message.
   const { readOnly: readOnlyDevice } = useHostCapabilities();
-  const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const paletteKeys = registry.keybindingLabel("runtime.command-palette");
 
   const option = (id: string, fallback: boolean) =>
     settings.extensionOptions[`${WORKSPACE_EXTENSION_ID}.${id}`] ?? fallback;
@@ -949,20 +955,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     return () => { if (workspace.projectsOf === threadStore.getProjects) workspace.projectsOf = undefined; };
   }, [threadStore, workspace]);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.key !== "/" ||
-        event.target instanceof HTMLInputElement ||
-        event.target instanceof HTMLTextAreaElement
-      ) return;
-      event.preventDefault();
-      searchRef.current?.focus();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-
   // Sets, so the filter's check is one lookup however many threads are running.
   const activity = useMemo<ActivitySets>(() => ({
     running: new Set(activityState.runningThreadIds),
@@ -970,16 +962,13 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   }), [activityState]);
   const liveKey = `${activityState.runningThreadIds.join()}|${activityState.waitingThreadIds.join()}`;
 
-  const needle = threadQuery.trim().toLocaleLowerCase();
   const matching = useMemo(() => sortThreads(
     visibleThreads(threads, lineage.parents, (id) => activity.running.has(id) || activity.waiting.has(id))
-      .filter((session) =>
-        (!projectFilter || session.projectName === projectFilter) &&
-        (!needle || `${session.projectName} ${session.title} ${session.projectLabel ?? ""}`.toLocaleLowerCase().includes(needle))),
+      .filter((session) => !projectFilter || session.projectName === projectFilter),
     order.threadSort,
   // `liveKey` stands for the two sets the filter reads.
   // oxlint-disable-next-line react-hooks/exhaustive-deps
-  ), [threads, lineage.parents, liveKey, projectFilter, needle, order.threadSort]);
+  ), [threads, lineage.parents, liveKey, projectFilter, order.threadSort]);
   const sections = useMemo(
     () => organizer
       ? organizer.sections(matching)
@@ -994,11 +983,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     for (const thread of externalThreads) {
       const { session } = thread;
       if (projectFilter && session.projectName !== projectFilter) continue;
-      if (needle && !`${session.projectName} ${session.title} ${session.projectLabel ?? ""}`.toLocaleLowerCase().includes(needle)) continue;
       byKey.set(thread.key, thread);
     }
     return byKey;
-  }, [externalThreads, needle, projectFilter]);
+  }, [externalThreads, projectFilter]);
   const mainIndex = Math.max(0, sections.findIndex((section) => !section.label));
   const ownMain = sections[mainIndex] ?? { id: "active", threads: [] };
   const main = useMemo(
@@ -1008,10 +996,21 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const listedIds = useMemo(() => new Set(matching.map((session) => session.id)), [matching]);
   // A draft on screen is the active row; the thread the host holds behind it is not.
   const draftOnScreen = useSyncExternalStore(threadStore.subscribeToDrafts, () => threadStore.getDrafts().some((draft) => draft.active));
-  const draftCount = useSyncExternalStore(threadStore.subscribeToDrafts, () => railDrafts(threadStore.getDrafts(), { ...(projectFilter ? { project: projectFilter } : {}), query: threadQuery }).length);
+  const draftCount = useSyncExternalStore(threadStore.subscribeToDrafts, () => railDrafts(threadStore.getDrafts(), projectFilter ? { project: projectFilter } : {}).length);
   const grouped = order.grouping !== "none";
   const visibleActive = grouped ? main.threads : main.threads.slice(0, threadLimit);
-  const { drag, onPointerDown } = useRailDrag(organizer, sections);
+  const inSections = (id: string) => sections.flatMap((section) => section.threads).find((session) => session.id === id);
+  const { drag, onPointerDown } = useRailDrag(organizer, sections, dropTargets && ((id, target) => {
+    const session = inSections(id);
+    if (session) dropTargets.drop(session, target, actions);
+  }));
+  // Read once per drag: what the machines say now.
+  const dragged = drag && inSections(drag.threadId);
+  const dragTargets = useMemo(
+    () => dragged && dropTargets ? dropTargets.targets(dragged, actions) : [],
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+    [dragged, dropTargets],
+  );
 
   const navigationRows = useMemo(() => navigationRowsFor(visibleActive, order, projects, openGroups), [openGroups, order, projects, visibleActive]);
   const rowVirtualizer = useVirtualizer({
@@ -1023,7 +1022,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   });
 
   // The same derivation as a tablet's and a phone's list, so every client names a state alike.
-  const activityFor = (sessionId: string): ThreadRowStatus => threadRowStatus(sessionId, activityState, threadStore.getThread(sessionId));
+  const activityFor = (sessionId: string): RailStatus => {
+    const mark = rowStatuses[sessionId];
+    return mark ? { activity: "waiting", ...mark } : threadRowStatus(sessionId, activityState, threadStore.getThread(sessionId));
+  };
 
   const toggleSettled = useCallback((session: UiSession) => {
     if (organizer) organizer.toggleSettled(session);
@@ -1044,12 +1046,13 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       activity: status.activity,
       ...(status.label ? { activityLabel: status.label } : {}),
       ...(status.hint ? { activityHint: status.hint } : {}),
+      ...(status.icon ? { activityIcon: status.icon } : {}),
       agents: agentCounts(key, threads, lineage.parents, lineage.workingChildren[key] ?? 0),
     };
     return <RailThreadCard id={key} facts={facts} actions={actions} onClose={close} />;
   };
 
-  const renderRow = (session: UiSession, status: ThreadActivity, label?: string, hint?: string, compact = false) => (
+  const renderRow = (session: UiSession, { activity: status, label, hint, icon }: RailStatus, compact = false) => (
     <ConnectedThreadRow
       key={session.id}
       id={session.id}
@@ -1057,6 +1060,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       activity={status}
       activityLabel={label}
       activityHint={hint}
+      activityIcon={icon}
       compact={(compact || compactRows) && status !== "settled"}
       workingChildren={lineage.workingChildren[session.id] ?? 0}
       modelProvider={!draftOnScreen && session.id === activityState.activeThreadId ? snapshot?.model?.provider : undefined}
@@ -1133,7 +1137,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           const status = section.settled ? SETTLED_STATUS : activityFor(session.id);
           return (
             <div key={session.id} className={rowClass(section.id, session.id, index === rows.length - 1)} {...rowData(section.id, session.id)}>
-              {renderRow(session, status.activity, status.label, status.hint, Boolean(section.shelf))}
+              {renderRow(session, status, Boolean(section.shelf))}
             </div>
           );
         })}
@@ -1147,7 +1151,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     );
   };
 
-  const findSession = (id: string) => sections.flatMap((section) => section.threads).find((session) => session.id === id);
+  const findSession = inSections;
   const clearSelection = () => setSelection((current) => current.ids.size ? { ids: new Set(), ...(current.anchor ? { anchor: current.anchor } : {}) } : current);
 
   const openMenu = (event: ReactMouseEvent) => {
@@ -1189,19 +1193,12 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     <aside className="session-rail">
       <div className="sidebar-controls">
         <div className="thread-search-row">
-          <label className="thread-search">
+          {/* Design 1a: the field is the palette's door, ⌘K from anywhere. */}
+          <button type="button" className="thread-search" onClick={() => actions.openCommandPalette()}>
             <Search size={13} />
-            <input
-              ref={searchRef}
-              value={threadQuery}
-              onChange={(event) => setThreadQuery(event.target.value)}
-              placeholder="Search threads"
-              aria-label="Search threads"
-            />
-            {threadQuery ? (
-              <button aria-label="Clear thread search" onClick={() => { setThreadQuery(""); searchRef.current?.focus(); }}><X size={13} /></button>
-            ) : <kbd className="keyboard-hint">/</kbd>}
-          </label>
+            <span>Search threads</span>
+            {paletteKeys ? <kbd className="keyboard-hint">{paletteKeys}</kbd> : null}
+          </button>
           <ProjectFilterButton actions={actions} />
           <button
             className="sidebar-action new-thread"
@@ -1281,7 +1278,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         <div ref={listRef} className="rail-active">
         <div className="rail-active-rows">
         {sections.slice(0, mainIndex).map(renderSection)}
-        <RailDrafts actions={actions} {...(projectFilter ? { project: projectFilter } : {})} query={threadQuery} listed={listedIds} />
+        <RailDrafts actions={actions} {...(projectFilter ? { project: projectFilter } : {})} listed={listedIds} />
         {main.label === undefined && drag && sections.length > 1 ? (
           <div className={`thread-group-label rail-main-label${drag.drop?.sectionId === main.id ? " drop-target" : ""}`} data-rail-heading={main.id}>Active<i /></div>
         ) : null}
@@ -1316,7 +1313,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
                   const external = outside.get(row.id);
                   if (external) return <ExternalThreadRow thread={external} onOpen={openExternal} onLookIn={lookInExternal} />;
                   const status = activityFor(row.session.id);
-                  return renderRow(row.session, status.activity, status.label, status.hint);
+                  return renderRow(row.session, status);
                 })()}
               </div>
             );
@@ -1331,7 +1328,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         ) : null}
 
         {matching.length === 0 && outside.size === 0 && draftCount === 0 ? (
-          <p className="sidebar-empty">{threadQuery ? "No threads found" : projectFilter ? `No threads in ${projectFilter}` : "No recent threads"}</p>
+          projectFilter
+            ? <p className="sidebar-empty">{`No threads in ${projectFilter}`}</p>
+            : <div className="sidebar-empty first"><i><MessageSquare size={16} aria-hidden /></i><p>No threads yet.<br />They’ll line up here.</p></div>
         ) : null}
 
         {(() => {
@@ -1343,7 +1342,28 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       </nav>
 
       {drag ? null : <ThreadCardLayer root={listRef} render={renderCard} />}
+      {drag && dragged ? (() => {
+        const status = activityFor(dragged.id);
+        // Over a machine the card rises above the pointer, so the row it would land on stays readable.
+        return <div className="rail-drag-card" aria-hidden style={{ left: drag.x - drag.grab.x, top: drag.y - (drag.target ? 90 : drag.grab.y), width: drag.grab.width }}>
+          {renderRow(dragged, status)}
+        </div>;
+      })() : null}
       {drag?.label ? <div className="rail-drag-label" style={{ left: drag.x + 14, top: drag.y + 10 }}>{drag.label}</div> : null}
+      {dragTargets.length && dropTargets ? <div className="rail-drop-panel" role="group" aria-label={dropTargets.heading}>
+        <div className="rail-drop-heading">{dropTargets.heading}</div>
+        {dragTargets.map((target) => (
+          <div
+            key={target.id}
+            className={`rail-drop-target${target.disabled ? " disabled" : ""}${drag?.target === target.id ? " over" : ""}`}
+            {...(target.disabled ? {} : { "data-rail-drop": target.id })}
+          >
+            {target.icon}
+            <div><b>{target.label}</b>{target.detail ? <small>{target.detail}</small> : null}</div>
+            {drag?.target === target.id ? <Check size={14} /> : null}
+          </div>
+        ))}
+      </div> : null}
       {organizer?.Layer ? <organizer.Layer actions={actions} /> : null}
       {projectSettings ? (
         <ProjectSettingsDialog

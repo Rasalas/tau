@@ -165,6 +165,7 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerCommand({ id: "workbench.close-stage-tab", label: "Close active stage tab", group: "Workbench", access: "read", run: (app) => app.closeActiveStageTab?.() });
     plugin.registerCommand({ id: "workbench.next-stage-tab", label: "Next stage tab", group: "Workbench", access: "read", run: (app) => app.cycleStageTab?.(1) });
     plugin.registerCommand({ id: "workbench.prev-stage-tab", label: "Previous stage tab", group: "Workbench", access: "read", run: (app) => app.cycleStageTab?.(-1) });
+    plugin.registerCommand({ id: "workbench.split-stage", label: "Split or join the stage", group: "Workbench", access: "read", run: (app) => app.splitStage?.() });
     plugin.registerCommand({
       id: "runtime.instructions",
       label: "Inspect active system prompt & instructions",

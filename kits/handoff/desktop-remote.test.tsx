@@ -76,6 +76,44 @@ function setup(answers: Record<string, unknown> = {}) {
 
 const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
 
+describe("dragging a thread onto a machine (design 2f)", () => {
+  it("offers the machines, this one dimmed, and continues the dragged thread on the one it is let go on", async () => {
+    const invoke = vi.fn(async (_extension: string, command: string, _input?: unknown) => {
+      if (command === "continue-targets") return [REX];
+      if (command === "state") return { links: [], remotes: [] };
+      if (command === "continue-on") return { link: "l1", machine: "rex-id", machineName: "rex", native: true };
+      return undefined;
+    });
+    const environments = {
+      getSnapshot: () => ({ environments: [
+        { id: "here", name: "MacBook Pro", local: true, status: "connected", threads: [] },
+        { id: "rex-id", name: "rex", local: false, status: "connected", threads: [{ id: "t", running: true }] },
+        { id: "office", name: "Office box", local: false, status: "offline", threads: [] },
+      ] }),
+      subscribe: () => () => undefined,
+    };
+    const { registry } = createKitHarness(invoke, undefined, { environments } as never);
+    let offered: { targets(thread: UiSession, actions: WorkbenchActions): readonly { id: string; detail?: string; disabled?: boolean }[]; drop(thread: UiSession, target: string, actions: WorkbenchActions): void } | undefined;
+    registry.activate({ id: "test.workspace", name: "Workspace", activate: (context) => { context.provideService("tau.workspace/store", { registerThreadDropTargets: (targets: typeof offered) => { offered = targets; return () => undefined; } }); } });
+    registry.activate(createHandoffExtension(new HandoffStore()));
+    await settle();
+
+    const other = { ...session("other", "Other thread", "/sessions/other.jsonl"), backendKind: "pi" as const };
+    const actions = actionsFor({ draft: "Only for the thread on screen." });
+    expect(offered!.targets(other, actions).map(({ id, detail, disabled }) => ({ id, detail, disabled }))).toEqual([
+      { id: "here", detail: "here already", disabled: true },
+      { id: "rex-id", detail: "online · 1 running · sends the worktree first", disabled: undefined },
+      { id: "office", detail: "offline", disabled: true },
+    ]);
+
+    offered!.drop(other, "rex-id", actions);
+    await settle();
+    // The host continues an open thread only: the dragged one is opened first.
+    expect(actions.switchSession).toHaveBeenCalledWith("/sessions/other.jsonl");
+    expect(invoke.mock.calls.filter(([, command]) => command === "continue-on").map(([, , input]) => input)).toEqual([{ threadId: "other", machine: "rex-id" }]);
+  });
+});
+
 describe("Continue on another machine", () => {
   it("lists the machine under the runtimes and sends the thread with the draft there, staying on this thread", async () => {
     const { draw, command, calls } = setup();

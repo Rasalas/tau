@@ -166,6 +166,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       },
       openThreadTree,
       duplicateThread,
+      forkFrom: options.threadCommands.forkMessage,
       focusComposer: (seed) => {
         if (seed !== undefined) options.setComposerSeed(seed);
         const composer = options.composerRef.current;
@@ -185,6 +186,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       applyHostResult,
       closeActiveStageTab: stageTabs.closeActive,
       cycleStageTab,
+      splitStage: stageTabs.split,
       openStageTab: stageTabs.open,
       closeStageTab: stageTabs.close,
       stageTabs: stageTabs.tabs,

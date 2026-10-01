@@ -10,26 +10,9 @@ import { Markdown } from "./Markdown";
 import { compactTimestamp, fullTimestamp } from "./message-timestamp";
 import { TurnErrorLine } from "./TurnError";
 import { CompactionDivider } from "./CompactionDivider";
+import { parseAsyncActivity, type AsyncActivity } from "./MessageText";
 import type { RetriedError } from "../../workbench/transcript-state";
-
-interface AsyncActivity {
-  label: string;
-  detail: string;
-  attention?: boolean;
-}
-
-export function parseAsyncActivity(text: string): AsyncActivity | undefined {
-  if (text.startsWith("Subagent needs attention:")) {
-    return { label: "Subagent needs attention", detail: text, attention: true };
-  }
-  if (!text.startsWith("Background task completed:")) return undefined;
-
-  const count = /completed with (\d+) child run\(s\)/i.exec(text)?.[1];
-  const label = count
-    ? `${count} subagent ${count === "1" ? "run" : "runs"} completed`
-    : "Background task completed";
-  return { label, detail: text };
-}
+import type { TranscriptTurn } from "../extension-system";
 
 /**
  * Thinking as one row before the answer: folded in a
@@ -78,19 +61,20 @@ export const Message = memo(function Message({
   streaming = false,
   detail = "focused",
   onCopy,
-  onFork,
   onEdit,
   onRetry,
   retried,
   onToggleExpanded,
   expanded,
+  turn,
 }: {
   message: UiMessage;
   streaming?: boolean;
   /** How much of the turn this transcript shows; `focused` folds thinking into one row. */
   detail?: TranscriptDetail;
   onCopy?: (message: UiMessage) => void;
-  onFork?: (message: UiMessage) => void;
+  /** The turn a prompt starts, for its divider. */
+  turn?: TranscriptTurn;
   /** Rewinds to before a prompt of the user's and puts it back into the composer. */
   onEdit?: (message: UiMessage) => void;
   /** Sends the prompt that led to this failed answer again. */
@@ -110,7 +94,7 @@ export const Message = memo(function Message({
   if (message.role === "notice") return <div className="notice-message">{message.text}</div>;
 
   if (message.role === "user") {
-    return <UserMessage message={message} onCopy={onCopy} onFork={onFork} onEdit={onEdit} onToggleExpanded={onToggleExpanded} expanded={expanded} />;
+    return <UserMessage message={message} onCopy={onCopy} onEdit={onEdit} onToggleExpanded={onToggleExpanded} expanded={expanded} turn={turn} />;
   }
 
   const thinking = message.thinking?.trim() ? message.thinking : undefined;
@@ -150,7 +134,6 @@ export const Message = memo(function Message({
       {onCopy && (message.text || !message.error) ? <MessageActions
         message={message}
         onCopy={() => onCopy(message)}
-        onFork={message.sourceEntryId && onFork ? () => onFork(message) : undefined}
       /> : null}
     </div>
   );

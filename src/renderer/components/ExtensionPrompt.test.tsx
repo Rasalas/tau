@@ -46,8 +46,9 @@ describe("ExtensionPrompt", () => {
     expect(button.querySelector(".extension-option-indicator.is-checkbox svg")).toBeTruthy();
   });
 
-  it("renders select prompt with radio options", () => {
+  it("fills a radio on a pick and answers with Answer, which Enter in the empty composer also does", () => {
     const onAnswer = vi.fn();
+    let action: PromptSubmitAction | undefined;
     const prompt: ExtensionUiPrompt = {
       id: "p1",
       sessionId: "s1",
@@ -55,14 +56,25 @@ describe("ExtensionPrompt", () => {
       title: "Choose runtime",
       options: ["1. Node.js", "2. Bun"],
     };
-    render(<ExtensionPrompt prompt={prompt} pending={0} onAnswer={onAnswer} onCancel={() => {}} />);
+    render(
+      <PromptSubmitContext.Provider value={(next) => { action = next; }}>
+        <ExtensionPrompt prompt={prompt} pending={0} onAnswer={onAnswer} onCancel={() => {}} />
+      </PromptSubmitContext.Provider>,
+    );
 
     const card = screen.getByRole("region", { name: "Question" });
     expect(card.querySelector("header")?.textContent).toBe("Questionpick one");
     expect(screen.getByText("Or type an answer below")).toBeTruthy();
+    const answer = screen.getByRole("button", { name: "Answer" }) as HTMLButtonElement;
+    expect(answer.disabled).toBe(true);
+    expect(action).toMatchObject({ label: "Answer", disabled: true });
     const first = screen.getByRole("button", { name: /Node\.js/u });
     expect(first.classList.contains("mode-radio")).toBe(true);
     fireEvent.click(first);
+    expect(onAnswer).not.toHaveBeenCalled();
+    expect(first.classList.contains("chosen")).toBe(true);
+    expect(action).toMatchObject({ disabled: false });
+    action?.submit();
     expect(onAnswer).toHaveBeenCalledWith("1. Node.js");
   });
 
@@ -75,17 +87,44 @@ describe("ExtensionPrompt", () => {
     expect(screen.getByRole("button", { name: /Add an index/u }).querySelector("small")?.textContent).toBe("one migration");
   });
 
-  it("draws a yes-or-no question as an approval with Approve and Decline", () => {
+  it("draws a yes-or-no question as a permission: what it wants in the head, Deny and Allow, and Enter never allows (K83)", () => {
     const onAnswer = vi.fn();
-    const prompt: ExtensionUiPrompt = { id: "p1", sessionId: "s1", kind: "confirm", title: "Approve write?", message: "src/lib/cursor-helper.ts" };
-    render(<ExtensionPrompt prompt={prompt} pending={0} asker="Fake 1" onAnswer={onAnswer} onCancel={() => {}} />);
-    const card = screen.getByRole("region", { name: "Approval from Fake 1" });
-    expect(card.querySelector("code")?.textContent).toBe("src/lib/cursor-helper.ts");
-    expect(card.querySelector(".extension-prompt-pick")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    let action: PromptSubmitAction | undefined;
+    const prompt: ExtensionUiPrompt = { id: "p1", sessionId: "s1", kind: "confirm", title: "Wants to edit", message: "src/lib/cursor-helper.ts" };
+    render(
+      <PromptSubmitContext.Provider value={(next) => { action = next; }}>
+        <ExtensionPrompt prompt={prompt} pending={0} asker="Fake 1" onAnswer={onAnswer} onCancel={() => {}} />
+      </PromptSubmitContext.Provider>,
+    );
+    // The model's name is noise on a permission; only a sub-agent is named.
+    const card = screen.getByRole("region", { name: "Wants to edit" });
+    expect(card.querySelector("header code")?.textContent).toBe("src/lib/cursor-helper.ts");
+    expect(card.querySelector(".extension-prompt-pick, .extension-prompt-title")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Always for this thread" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
     expect(onAnswer).toHaveBeenLastCalledWith(true);
-    fireEvent.click(screen.getByRole("button", { name: "Decline" }));
+    fireEvent.click(screen.getByRole("button", { name: "Deny" }));
     expect(onAnswer).toHaveBeenLastCalledWith(false);
+    expect(action).toBeUndefined();
+    expect(card.querySelector("kbd")).toBeNull();
+  });
+
+  it("draws a runtime's Allow / Allow for this session / Deny as the same permission card, naming a sub-agent", () => {
+    const onAnswer = vi.fn();
+    const prompt: ExtensionUiPrompt = {
+      id: "p1", sessionId: "child", kind: "select", title: "Codex wants to run a command", message: "npm test\nin /repo",
+      options: ["Allow", "Allow for this session", "Deny"],
+    };
+    render(<ExtensionPrompt prompt={prompt} pending={0} asker="GPT-5.6 Luna" agent="GET /orders agent" onAnswer={onAnswer} onCancel={() => {}} />);
+    const card = screen.getByRole("region", { name: "Codex wants to run a command from GET /orders agent" });
+    expect(card.querySelector(".extension-option")).toBeNull();
+    expect(card.querySelector("code")?.textContent).toBe("npm test\nin /repo");
+    fireEvent.click(screen.getByRole("button", { name: "Always for this thread" }));
+    expect(onAnswer).toHaveBeenLastCalledWith("Allow for this session");
+    fireEvent.click(screen.getByRole("button", { name: "Deny" }));
+    expect(onAnswer).toHaveBeenLastCalledWith("Deny");
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+    expect(onAnswer).toHaveBeenLastCalledWith("Allow");
   });
 
   it("registers and unregisters submit action via usePromptSubmit", () => {

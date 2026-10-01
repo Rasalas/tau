@@ -50,6 +50,12 @@ describe("the workbench design language", () => {
     expect(rule(WORKSPACE, ".session-rail")).not.toMatch(/border/u);
   });
 
+  it("draws every card dialog without an edge, its answers in a bar with pill actions (1v)", () => {
+    expect(rule(STYLES, ".confirm-dialog")).not.toMatch(/border:/u);
+    expect(rule(STYLES, ".confirm-dialog > footer, .confirm-dialog > form > footer")).toMatch(/margin: 4px -18px -18px/u);
+    expect(rule(STYLES, '.confirm-dialog footer :is(.primary, .danger, [data-variant="primary"], [data-variant="danger"])')).toMatch(/border-radius: 99px/u);
+  });
+
   it("keeps the tool steps' fold and only restyles the box they open into", () => {
     const detail = rule(STYLES, ".tool-activity-detail");
     expect(detail).toMatch(/background: var\(--code-bg\)/u);

@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import {
+  ArrowUp,
   ChevronRight,
   CircleCheck,
   CircleX,
@@ -12,6 +13,7 @@ import {
   Search,
   Trash2,
   TriangleAlert,
+  X,
 } from "lucide-react";
 import {
   DiffView,
@@ -29,19 +31,23 @@ import {
   useCommandAllowed,
   useModelName,
   useThreadStore,
+  type DiffLineSlot,
   type HostExtensionClient,
   type PageProps,
+  type UiDiffLine,
   type UiFileDiff,
   type WorkbenchActions,
 } from "tau";
 import { useCompactProfile } from "./compact-profile.js";
-import { mergeBlocker, mergedThisMonth, reviewRuntime, type LocalReview, type ReviewCounts, type ReviewState } from "./local-reviews.js";
+import { mergeBlocker, mergedThisMonth, reviewRuntime, type HunkPick, type LocalReview, type ReviewCounts, type ReviewState } from "./local-reviews.js";
 import { useLocalReviews, type LocalReviewsStore } from "./local-reviews-store.js";
-import { REVIEW_HOST_EXTENSION_ID } from "./protocol.js";
+import { REVIEW_HOST_EXTENSION_ID, type PendingReviewComment } from "./protocol.js";
+import { baseName, lineTarget, lineText, noteMessage } from "./review-lines.js";
 import type { PullRequestsPageParts } from "./pull-requests-page.js";
 import type { ReviewsFilter } from "./reviews-filter.js";
 import type { RowRequests } from "./requests.js";
 import { ReviewDetailSidebar } from "./review-detail-sidebar.js";
+import { ALREADY, askBlocker, plural, rebaseBlocker } from "./review-words.js";
 import type { DetailParts } from "./review-detail-store.js";
 
 const PullRequestsPage = lazy(() => import("./pull-requests-page.js").then((module) => ({ default: module.PullRequestsPage })));
@@ -89,7 +95,6 @@ export function shortAge(at: number, now = Date.now()): string {
   return days < 60 ? `${days}d` : new Date(at).toISOString().slice(0, 10);
 }
 
-const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "" : "s"}`;
 
 function ProjectTile({ project }: { project: LocalReview["project"] }) {
   return <ProjectIcon project={{ path: project.root, name: project.name, workspaceId: project.key, icon: project.icon }} className="rv-tile" />;
@@ -129,23 +134,8 @@ function Model({ review, name = true }: { review: LocalReview; name?: boolean })
 function Into({ review }: { review: LocalReview }) {
   if (!review.target) return null;
   const off = review.offDefault;
-  return <span className="rv-into" data-off={off ? "" : undefined} {...(off ? tooltipProps(`Not ${off}: Merge lands on the branch the project's checkout has out.`) : {})}> into {review.target}</span>;
+  return <span className="rv-into" data-off={off ? "" : undefined} {...(off ? tooltipProps(`Not ${off}: Merge lands on the branch the project's checkout has out.`) : {})}> → {review.target}</span>;
 }
-
-/** Why a branch counts as merged without a merge of its own commits. */
-const ALREADY: Record<NonNullable<LocalReview["mergedBy"]>, string> = {
-  patches: "every commit's change is there already, under other commits (a cherry-pick, a rebase or rewritten history).",
-  tree: "merging would change nothing (a squash merge).",
-  request: "its pull request was merged on the host.",
-};
-
-/** A thread here to write to, or its link to one on another machine. */
-const askable = (review: LocalReview) => Boolean(review.threadId || review.remote);
-/** Why the thread cannot be asked to rebase: one on another machine does not see this checkout's branch. */
-const rebaseBlocker = (review: LocalReview, mayAsk: boolean) => !mayAsk ? READ_ONLY_REASON
-  : review.remote ? `The thread runs on ${review.remote.machine}, where ${review.target} is not this checkout's; merge it by hand or send a note.`
-  : !review.threadId ? "No thread works on this branch any more."
-  : undefined;
 
 const cost = (review: LocalReview) => review.costUsd === undefined ? "—" : formatCost(review.costUsd) ?? "$0.00";
 
@@ -158,7 +148,7 @@ function Aside({ review }: { review: LocalReview }) {
 }
 
 interface RowActions {
-  merge(review: LocalReview): void;
+  merge(review: LocalReview, picks?: Record<string, HunkPick[]>): void;
   rebase(review: LocalReview): void;
   remove(review: LocalReview): void;
   busy: string | undefined;
@@ -338,7 +328,7 @@ function Section({ state, title, count, children }: { state: ReviewState; title?
   );
 }
 
-const INTRO = "Finished work of threads that ran in a worktree of their own, ready to merge into the project's checkout here; Remote pull requests are the ones on GitHub and other hosts.";
+const INTRO = "A thread that reports done lands here with its diff, its turns and the checks it ran. Merge it, send it back with a note, or commit without merging.";
 const EMPTY_TEXT: Record<ReviewState, { title: string; description: string }> = {
   ready: { title: "Nothing to review", description: "A thread that works in a worktree of its own lands here when it is done." },
   requested: { title: "No changes requested", description: "Nothing waits on a thread." },
@@ -354,17 +344,24 @@ const HEAD_TEXT: Record<ReviewState, string> = {
   merged: "Merging keeps the thread; its branch just stops appearing under Ready.",
 };
 
+/** A note on a diff line being written, or `{}` for a note on the whole review. */
+type NoteDraft = { path?: string; line?: number; side?: "new" | "old"; code?: string };
+
 /**
- * One review (1q): what the thread said it did, the files with their diffs,
- * and Merge, Ask thread to rebase and a note back to the thread.
+ * One review on a phone (1q, 2o): what the thread said it did, the files with
+ * the first one's diff open, notes on its lines kept for later or sent at
+ * once, and Request changes and Merge fixed at the bottom.
  */
-function ReviewDetail({ review, parts, act, actions, compact }: { review: LocalReview; parts: ReviewsPageParts; act: RowActions; actions: WorkbenchActions; compact: boolean }) {
+function ReviewDetail({ review, parts, act, actions }: { review: LocalReview; parts: ReviewsPageParts; act: RowActions; actions: WorkbenchActions }) {
   const [summary, setSummary] = useState<{ summary?: string; turns?: number }>();
-  const [open, setOpen] = useState<string>();
-  const [noting, setNoting] = useState(false);
+  const [open, setOpen] = useState<string | undefined>(() => review.paths[0]?.path);
+  const [draft, setDraft] = useState<NoteDraft>();
   const [note, setNote] = useState("");
   const [sending, setSending] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const noteKey = `local:${review.key}`;
+  const notes = parts.detail.notes;
+  const held = useSyncExternalStore(notes.subscribe, () => notes.comments(noteKey));
   let threads: ReturnType<typeof useThreadStore> | undefined;
   try { threads = useThreadStore(); } catch { threads = undefined; }
   useEffect(() => {
@@ -374,21 +371,35 @@ function ReviewDetail({ review, parts, act, actions, compact }: { review: LocalR
     return () => { live = false; };
   }, [parts.store, review.key, review.tip]); // eslint-disable-line react-hooks/exhaustive-deps
   const blocked = !act.mayMerge ? READ_ONLY_REASON : mergeBlocker(review);
+  const asked = askBlocker(review, act.mayAsk);
   const thread = review.threadId ? threads?.getThread(review.threadId) : undefined;
-  const sendNote = async () => {
-    if (!note.trim()) return;
+  const write = (next: NoteDraft | undefined) => { setDraft(next); setNote(""); };
+  // Held notes go as one turn with what their lines show; a note on the whole review goes as it is.
+  const send = async (list: readonly PendingReviewComment[], plain?: string) => {
     setSending(true);
     try {
-      await parts.store.ask(review, "note", note);
-      setNote("");
-      setNoting(false);
-      actions.toast?.({ type: "success", title: "Note sent to the thread", description: review.title });
+      await parts.store.ask(review, "note", plain ?? noteMessage(list), list.map(({ id, path, line, side, body }) => ({ id, note: id, path, line, side, body })));
+      for (const entry of list) notes.remove(noteKey, entry.id);
+      write(undefined);
+      actions.toast?.({ type: "success", title: "Sent to the thread", description: review.title });
     } catch (error) {
       actions.toast?.({ type: "error", title: "The note was not sent", description: errorMessage(error) });
     } finally {
       setSending(false);
     }
   };
+  const lineOf = (entry: { path?: string; line?: number; side?: string }, path: string, line: UiDiffLine) => {
+    const target = lineTarget(line);
+    return entry.path === path && entry.line === target?.line && entry.side === target?.side;
+  };
+  const slot = (path: string): DiffLineSlot | undefined => asked ? undefined : {
+    onAction: ({ line }) => { const target = lineTarget(line); if (target) write({ path, ...target, code: lineText(line) }); },
+    actionLabel: ({ line }) => `Note on line ${lineTarget(line)?.line ?? ""}`,
+    count: ({ line }) => held.filter((entry) => lineOf(entry, path, line)).length,
+    selected: ({ line }) => Boolean(draft && lineOf(draft, path, line)),
+  };
+  const body = note.trim();
+  const lineNote = draft?.path ? { id: crypto.randomUUID(), path: draft.path, line: draft.line!, side: draft.side!, body, ...(draft.code ? { code: draft.code } : {}) } : undefined;
   return (
     <article className="rv-detail" aria-label={review.title}>
       <p className="rv-detail-sub">
@@ -397,7 +408,6 @@ function ReviewDetail({ review, parts, act, actions, compact }: { review: LocalR
         <Changes review={review} files={false} />
         <span aria-hidden="true">·</span>
         <Model review={review} />
-        {review.costUsd !== undefined ? <><span aria-hidden="true">·</span><span className="rv-cost">{cost(review)}</span></> : null}
       </p>
       {summary === undefined ? <Skeleton className="rv-summary-skeleton" /> : summary.summary ? <div className="rv-summary"><Markdown>{summary.summary}</Markdown></div> : <p className="rv-summary muted">The thread left no summary.</p>}
       <p className="rv-meta">
@@ -421,38 +431,59 @@ function ReviewDetail({ review, parts, act, actions, compact }: { review: LocalR
       <ul className="rv-files-list" aria-label="Files">
         {review.paths.map((file) => (
           <li key={file.path} className={open === file.path ? "open" : undefined}>
-            <button type="button" aria-expanded={open === file.path} onClick={() => setOpen(open === file.path ? undefined : file.path)} disabled={!review.workspace}>
+            <button type="button" aria-expanded={open === file.path} title={file.path} onClick={() => setOpen(open === file.path ? undefined : file.path)} disabled={!review.workspace}>
               <FileKindIcon name={file.path} />
-              <span className="rv-file-path">{file.path}</span>
+              <span className="rv-file-path">{baseName(file.path)}</span>
               <span className="rv-changes">{file.added ? <span className="stat-add">+{file.added}</span> : null}{file.removed ? <span className="stat-del">−{file.removed}</span> : null}</span>
               <ChevronRight size={13} aria-hidden="true" className="rv-chevron" />
             </button>
-            {open === file.path && review.workspace ? <FileDiff host={parts.host} review={review} path={file.path} /> : null}
+            {open === file.path && review.workspace ? <FileDiff host={parts.host} review={review} path={file.path} lines={slot(file.path)} /> : null}
           </li>
         ))}
         {review.files > review.paths.length && review.paths.length > 0 ? <li className="rv-more">and {plural(review.files - review.paths.length, "more file")}</li> : null}
       </ul>
-      {noting ? (
-        <div className="rv-note">
-          <textarea autoFocus value={note} placeholder="What should the thread change?" aria-label="Note to the thread" onChange={(event) => setNote(event.target.value)} rows={compact ? 3 : 4} />
+      {held.length > 0 ? (
+        <section className="rv-held" aria-label="Review notes">
+          <header>
+            <span>Review notes · {held.length}</span>
+            <button type="button" className="text-button" disabled={sending || Boolean(asked)} onClick={() => { void send(held); }}>{held.length === 1 ? "Send" : held.length === 2 ? "Send both" : `Send all ${held.length}`}</button>
+          </header>
+          {held.map((entry) => (
+            <p key={entry.id}>
+              <code>{baseName(entry.path)}:{entry.line}</code><span>{entry.body}</span>
+              <button type="button" aria-label="Remove note" onClick={() => notes.remove(noteKey, entry.id)}><X size={14} /></button>
+            </p>
+          ))}
+        </section>
+      ) : null}
+      {thread ? <button type="button" className="rv-open-thread" onClick={() => { void actions.switchSession(thread.path); }}>Open thread</button> : null}
+      {draft ? (
+        <div className="rv-compose">
+          <span className="rv-compose-where">
+            <MessageSquare size={13} aria-hidden="true" />
+            <span>{draft.path ? `${baseName(draft.path)}:${draft.line}` : "Request changes"}</span>
+            <button type="button" aria-label="Cancel the note" onClick={() => write(undefined)}><X size={16} /></button>
+          </span>
+          <textarea autoFocus value={note} placeholder={draft.path ? "What should change on this line?" : "What should the thread change?"} aria-label="Note to the thread" onChange={(event) => setNote(event.target.value)} rows={2} />
           <div>
-            <button type="button" onClick={() => { setNoting(false); setNote(""); }}>Cancel</button>
-            <button type="button" className="primary" disabled={!note.trim() || sending} onClick={() => { void sendNote(); }}>{sending ? "Sending…" : "Send to thread"}</button>
+            {lineNote ? <button type="button" className="text-button" disabled={!body} onClick={() => { const { id: _id, ...kept } = lineNote; notes.add(noteKey, kept); write(undefined); }}>Keep for later</button> : null}
+            <button type="button" className="primary" disabled={!body || sending} onClick={() => { void send(lineNote ? [lineNote] : [], lineNote ? undefined : body); }}><ArrowUp size={14} aria-hidden="true" /> {sending ? "Sending…" : "Send now"}</button>
           </div>
         </div>
-      ) : null}
-      {review.state !== "merged" ? (
-        <div className="rv-detail-actions">
-          <button type="button" className="rv-merge" disabled={Boolean(blocked) || act.busy === review.key} {...tooltipProps(blocked ?? `Merge ${review.branch} into ${review.target} (a merge commit, after checking it merges cleanly)`)} onClick={() => act.merge(review)}>
-            <GitMerge size={14} aria-hidden="true" /> {act.busy === review.key ? "Merging…" : "Merge"}
+      ) : review.state !== "merged" ? (
+        <div className="rv-detail-actions rv-bar">
+          <button type="button" disabled={Boolean(asked)} {...tooltipProps(asked ?? "Send the thread a note on what to change")} onClick={() => write({})}>
+            <MessageSquare size={14} aria-hidden="true" /> Request changes
           </button>
-          <button type="button" disabled={Boolean(rebaseBlocker(review, act.mayAsk)) || act.busy === review.key} {...tooltipProps(rebaseBlocker(review, act.mayAsk) ?? `Asks the thread to rebase onto ${review.target}`)} onClick={() => act.rebase(review)}>
-            <RefreshCw size={14} aria-hidden="true" /> Ask thread to rebase
-          </button>
-          <button type="button" disabled={!act.mayAsk || !askable(review) || noting} {...tooltipProps(!act.mayAsk ? READ_ONLY_REASON : "Send the thread a note on what to change")} onClick={() => setNoting(true)}>
-            <MessageSquare size={14} aria-hidden="true" /> Note
-          </button>
-          {thread ? <button type="button" className="rv-open-thread" onClick={() => { void actions.switchSession(thread.path); }}>Open thread</button> : null}
+          {review.state === "conflicts" ? (
+            <button type="button" className="rv-merge" disabled={Boolean(rebaseBlocker(review, act.mayAsk)) || act.busy === review.key} {...tooltipProps(rebaseBlocker(review, act.mayAsk) ?? `Asks the thread to rebase onto ${review.target}`)} onClick={() => act.rebase(review)}>
+              <RefreshCw size={14} aria-hidden="true" /> Ask to rebase
+            </button>
+          ) : (
+            <button type="button" className="rv-merge" disabled={Boolean(blocked) || act.busy === review.key} {...tooltipProps(blocked ?? `Merge ${review.branch} into ${review.target} (a merge commit, after checking it merges cleanly)`)} onClick={() => act.merge(review)}>
+              <GitMerge size={14} aria-hidden="true" /> {act.busy === review.key ? "Merging…" : "Merge"}
+            </button>
+          )}
         </div>
       ) : removing ? (
         <div className="rv-detail-actions" role="group" aria-label="Remove">
@@ -460,21 +491,18 @@ function ReviewDetail({ review, parts, act, actions, compact }: { review: LocalR
           <button type="button" onClick={() => setRemoving(false)}>Cancel</button>
           <button type="button" className="danger" disabled={act.busy === review.key} onClick={() => act.remove(review)}>{act.busy === review.key ? "Removing…" : "Remove"}</button>
         </div>
-      ) : (
+      ) : review.workspace && !review.remote ? (
         <div className="rv-detail-actions">
-          {review.workspace && !review.remote ? (
-            <button type="button" disabled={!act.mayRemove} {...tooltipProps(act.mayRemove ? `Removes the worktree and deletes ${review.branch}; ${review.target} holds its work` : READ_ONLY_REASON)} onClick={() => setRemoving(true)}>
-              <Trash2 size={14} aria-hidden="true" /> Remove worktree and branch
-            </button>
-          ) : null}
-          {thread ? <button type="button" className="rv-open-thread" onClick={() => { void actions.switchSession(thread.path); }}>Open thread</button> : null}
+          <button type="button" disabled={!act.mayRemove} {...tooltipProps(act.mayRemove ? `Removes the worktree and deletes ${review.branch}; ${review.target} holds its work` : READ_ONLY_REASON)} onClick={() => setRemoving(true)}>
+            <Trash2 size={14} aria-hidden="true" /> Remove worktree and branch
+          </button>
         </div>
-      )}
+      ) : null}
     </article>
   );
 }
 
-function FileDiff({ host, review, path }: { host: HostExtensionClient; review: LocalReview; path: string }) {
+function FileDiff({ host, review, path, lines }: { host: HostExtensionClient; review: LocalReview; path: string; lines?: DiffLineSlot | undefined }) {
   const [diff, setDiff] = useState<UiFileDiff>();
   const [error, setError] = useState<string>();
   useEffect(() => {
@@ -485,7 +513,7 @@ function FileDiff({ host, review, path }: { host: HostExtensionClient; review: L
   }, [host, review.workspace, review.target, review.tip, path]);
   if (error) return <p className="rv-diff-error">{error}</p>;
   if (!diff) return <div className="rv-diff-loading"><Spinner size="sm" label={`Loading ${path}`} /></div>;
-  return <div className="rv-diff"><DiffView diff={diff} mode="unified" path={path} wrap /></div>;
+  return <div className="rv-diff"><DiffView diff={diff} mode="unified" path={path} wrap {...(lines ? { lines } : {})} /></div>;
 }
 
 /**
@@ -531,9 +559,9 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
     mayMerge,
     mayAsk,
     mayRemove,
-    merge: (review) => {
+    merge: (review, picks) => {
       setBusy(review.key);
-      void store.merge(review).then((outcome) => {
+      void store.merge(review, picks).then((outcome) => {
         if (outcome.state === "merged" || outcome.state === "already-merged") actions.toast?.({ type: "success", title: `Merged ${review.branch} into ${outcome.into}`, description: review.title });
         else actions.toast?.({ type: "warning", title: outcome.state === "conflict" ? "Not merged: conflicts" : "Not merged", description: outcome.detail });
       }, (error) => actions.toast?.({ type: "error", title: `${review.branch} was not merged`, description: errorMessage(error) })).finally(() => { setBusy(undefined); void store.refresh(); });
@@ -578,7 +606,7 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
   } else if (detailKey) {
     body = detail
       ? compact
-        ? <ReviewDetail review={detail} parts={parts} act={act} actions={actions} compact={compact} />
+        ? <ReviewDetail review={detail} parts={parts} act={act} actions={actions} />
         : (
           <Suspense fallback={<Skeleton className="rv-row-skeleton" />}>
             <LocalReviewDetail review={detail} parts={parts} detail={parts.detail} act={act} actions={actions} back={() => navigate({ tab, ...(project ? { project } : {}) }, { root: true, replace: true })} />

@@ -43,15 +43,27 @@ afterEach(() => {
 describe("a settled turn", () => {
   const tools = [read("1", "a.ts"), read("2", "b.ts"), run("3", "npm test")];
 
-  it("reads as one line and gives the work back where it sat", () => {
+  it("reads as one line and gives the calls back as one card, one fold level deep (design 1f)", () => {
     render(<WorkGroup id="turn" tools={tools} registry={registryWith()} detail="focused" />);
 
     expect(screen.getByRole("button", { name: /Worked for/u })).toBeTruthy();
-    expect(screen.queryByText("Read 2 files and ran 1 command")).toBeNull();
+    expect(screen.queryByRole("group", { name: "Read 2 files and ran 1 command" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Worked for/u }));
-    expect(screen.getByText("Read 2 files and ran 1 command")).toBeTruthy();
-    expect(screen.getByText("a.ts")).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Read 2 files and ran 1 command" })).toBeTruthy();
+    expect(screen.getByText("npm test")).toBeTruthy();
+  });
+
+  it("bundles files read one after another into one row that opens to each", () => {
+    render(<WorkGroup id="turn" tools={[read("1", "src/a.ts"), read("2", "src/b.ts"), run("3", "npm test"), read("4", "c.ts")]} registry={registryWith()} detail="detailed" />);
+    const bundle = screen.getByRole("button", { name: /a\.ts, b\.ts/u });
+    expect(bundle.textContent).toContain("2 files");
+    expect(screen.getByText("c.ts")).toBeTruthy();
+    expect(screen.queryByText("src/a.ts")).toBeNull();
+
+    fireEvent.click(bundle);
+    expect(screen.getByText("src/a.ts")).toBeTruthy();
+    expect(screen.getByText("src/b.ts")).toBeTruthy();
   });
 
   it("says it was stopped when the turn was interrupted", () => {
@@ -70,14 +82,14 @@ describe("a settled turn", () => {
     expect(screen.queryByText("npm run broken")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Worked for/u }));
     expect(screen.getByText("npm run broken")).toBeTruthy();
-    expect(screen.getByRole("img", { name: "Failed: Exit code 1: npm error Missing script: broken" })).toBeTruthy();
-    expect(screen.getByText("Exit code 1: npm error Missing script: broken")).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Failed: Exit code 1: npm error Missing script: broken" }).textContent).toBe("exit 1 · 1.0s");
+    expect(screen.getByText(/npm error Missing script: broken/u).closest(".tool-output")).toBeTruthy();
   });
 
-  it("opens every group and shows the calls at detailed", () => {
+  it("shows the calls without a fold at detailed", () => {
     render(<WorkGroup id="turn" tools={tools} registry={registryWith()} detail="detailed" />);
     expect(screen.queryByRole("button", { name: /Worked for/u })).toBeNull();
-    expect(screen.getByText("a.ts")).toBeTruthy();
+    expect(screen.getByText("npm test")).toBeTruthy();
   });
 });
 
@@ -138,7 +150,7 @@ describe("a running turn", () => {
     />);
 
     expect(screen.getByText("Reading b.ts")).toBeTruthy();
-    expect(screen.getByText("Ran 1 command")).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Ran 1 command" })).toBeTruthy();
     expect(screen.getByText("npm run broken")).toBeTruthy();
   });
 

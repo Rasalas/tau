@@ -102,6 +102,13 @@ describe("pruneStageState", () => {
     expect(decodeStageState({ tabs: [{ ...remote.tabs[0], machine: 7 }] }).tabs).toEqual([]);
   });
 
+  it("restores a split, and forgets one whose tab is gone or in front", () => {
+    const tabs = [{ id: "file:a", kind: "file", path: "a", view: "source", preview: false }, { id: "file:b", kind: "file", path: "b", view: "source", preview: false }];
+    expect(decodeStageState({ tabs, activeId: "file:a", splitId: "file:b" }).splitId).toBe("file:b");
+    expect(decodeStageState({ tabs, activeId: "file:a", splitId: "file:a" }).splitId).toBeUndefined();
+    expect(decodeStageState({ tabs, activeId: "file:a", splitId: "file:c" }).splitId).toBeUndefined();
+  });
+
   it("leaves threads alone until the index has arrived", () => {
     const pruned = pruneStageState(stage, { workspacePath: "/repo" });
     expect(pruned.tabs.map((tab) => tab.id)).toEqual(["file:/repo/a.ts", "thread:thread-live", "thread:thread-gone"]);

@@ -1,10 +1,13 @@
 import type { DesktopExtension, RegionProps } from "tau";
 import { SearchDialogs, SearchDialogsLayer, type SearchHost } from "./dialogs.js";
-import { projectItems, settle, threadContentItems, threadTitleItems } from "./palette-sources.js";
+import { fileItems, projectItems, settle, threadContentItems, threadTitleItems } from "./palette-sources.js";
 import { SEARCH_FILES_SERVICE, SEARCH_KIT_ID, WORKSPACE_STORE_SERVICE, type SearchFilesService, type WorkspaceStoreView } from "./protocol.js";
 
 /** Content search waits this long after a keystroke before it asks the host to read the threads. */
 export const THREAD_CONTENT_DELAY_MS = 150;
+const FILES_DELAY_MS = 40;
+
+const statusLetter = (status: string) => status === "added" || status === "untracked" ? "A" : status === "deleted" ? "D" : status === "renamed" ? "R" : "M";
 
 /**
  * Search Kit's desktop half: ⇧⌘F searches the project's files, ⌘P picks one,
@@ -31,11 +34,12 @@ export function createSearchExtension(options: { threadContentDelayMs?: number }
       context.registerRegion({ id: "search.dialogs", placement: "title-bar", profiles: ["desktop", "web", "compact"], Component: Layer });
       context.provideService<SearchFilesService>(SEARCH_FILES_SERVICE, { pickFile: (onPick) => dialogs.pickFile(onPick) });
 
-      context.registerPaletteSource({ id: "search.threads", label: "Threads", order: 10, search: threadTitleItems });
+      context.registerPaletteSource({ id: "search.threads", label: "Threads", order: 10, scope: "threads", search: threadTitleItems });
       context.registerPaletteSource({
         id: "search.thread-content",
-        label: "In threads",
+        label: "Threads",
         order: 20,
+        scope: "threads",
         search: async (query, search) => {
           if (query.trim().length < 3) return [];
           await settle(delay, search.signal);
@@ -47,18 +51,46 @@ export function createSearchExtension(options: { threadContentDelayMs?: number }
       });
       context.registerPaletteSource({ id: "search.projects", label: "Projects", order: 30, search: projectItems });
 
+      // The files of the thread on screen; the heading names its branch, so it registers again when that moves.
+      let status = new Map<string, string>();
+      let dropFiles: (() => void) | undefined;
+      const registerFiles = (branch?: string) => {
+        dropFiles?.();
+        dropFiles = context.registerPaletteSource({
+          id: "search.files",
+          label: branch ? `Files · in ${branch}` : "Files",
+          order: 15,
+          scope: "files",
+          search: async (query, search) => {
+            const cwd = search.actions.activeThread()?.cwd;
+            if (!cwd || (!query.trim() && search.scope !== "files")) return [];
+            await settle(query ? FILES_DELAY_MS : 0, search.signal);
+            if (search.signal.aborted) return [];
+            return fileItems((await host("files", { cwd, query: query.trim(), limit: 60 })).files, status);
+          },
+        });
+      };
+      registerFiles();
+
       // A Git status push means files may have come or gone: the picker reads the list again.
       context.useService<WorkspaceStoreView>(WORKSPACE_STORE_SERVICE, (store) => {
-        let changes = store.getSnapshot().changes;
-        return store.subscribe(() => {
+        let changes: ReturnType<WorkspaceStoreView["getSnapshot"]>["changes"];
+        const read = () => {
           const state = store.getSnapshot();
-          if (state.changes === changes) return;
+          if (state.changes === changes) return false;
+          const branch = changes?.branch;
           changes = state.changes;
-          void host("invalidate", state.cwd ? { cwd: state.cwd } : {}).catch(() => undefined);
+          status = new Map(changes?.files?.map((file) => [file.path, statusLetter(file.status)]));
+          if (changes?.branch !== branch) registerFiles(changes?.branch);
+          return true;
+        };
+        read();
+        return store.subscribe(() => {
+          if (read()) void host("invalidate", store.getSnapshot().cwd ? { cwd: store.getSnapshot().cwd } : {}).catch(() => undefined);
         });
       });
       context.events.on("workspace-changed", () => { void host("invalidate", {}).catch(() => undefined); });
-      return () => dialogs.close();
+      return () => { dialogs.close(); dropFiles?.(); };
     },
   };
 }

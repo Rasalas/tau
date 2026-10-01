@@ -543,10 +543,15 @@ export function createAgentsHostExtension(options: {
         return true;
       };
 
+      /** `sessions.start` waits for the first prompt's admission, so its turn is accepted before the thread id is known here. */
+      const acceptedEarly = new Set<string>();
+      let starting = 0;
+
       /** Builds one agent's thread. Its slot is already claimed. */
       const startAgent = async (agent: AgentThreadLink): Promise<void> => {
         if (agent.machine) return startRemote(agent);
         let workspace: AgentWorkspace | undefined;
+        starting += 1;
         try {
           // The worktree comes first: a thread that started in the parent's
           // checkout cannot be moved into one afterwards.
@@ -574,6 +579,7 @@ export function createAgentsHostExtension(options: {
           });
           prompts.delete(agent.id);
           changed(agent.id, book.noteStarted(agent.id, started.sessionId, Date.now()));
+          if (acceptedEarly.delete(started.sessionId)) changed(agent.id, book.noteAccepted(agent.id));
           remember(book.linkFor(agent.id)!);
           services.log("agents.started", `${started.sessionId.slice(0, 8)} · ${agent.title}`);
           const guard = setTimeout(() => {
@@ -594,6 +600,7 @@ export function createAgentsHostExtension(options: {
         } finally {
           wanted.delete(agent.id);
           definitions.delete(agent.id);
+          if (--starting === 0) acceptedEarly.clear();
         }
       };
 
@@ -628,6 +635,7 @@ export function createAgentsHostExtension(options: {
         } finally {
           wanted.delete(agent.id);
           definitions.delete(agent.id);
+          if (--starting === 0) acceptedEarly.clear();
         }
       };
 
@@ -1150,6 +1158,8 @@ export function createAgentsHostExtension(options: {
         // thread; the parent only learns that it is waiting on one.
         pi.on("ui_prompt_start", (event) => { changed(threadId, book.notePrompt(threadId, event.title ?? event.kind)); });
         pi.on("ui_prompt_end", () => { changed(threadId, book.notePrompt(threadId, undefined)); });
+        // The row names the tool at work now, not only the last one that ended (design 1c).
+        pi.on("tool_execution_start", (event) => { changed(threadId, book.noteTool(threadId, toolLine({ name: event.toolName, args: event.args }))); });
 
         // A thread started from a definition carries it in its own link entry;
         // `null` until that entry was read for this runtime.
@@ -1235,7 +1245,10 @@ export function createAgentsHostExtension(options: {
         }),
         services.mcp.registerTools(agentTools),
         services.registerTurnObserver({
-          accepted: (sessionId) => { changed(sessionId, book.noteAccepted(sessionId)); },
+          accepted: (sessionId) => {
+            if (book.has(sessionId)) changed(sessionId, book.noteAccepted(sessionId));
+            else if (starting > 0) acceptedEarly.add(sessionId);
+          },
           toolEnded: (sessionId, tool) => { changed(sessionId, book.noteTool(sessionId, toolLine(tool))); },
           ended: async (sessionId, _turnId, outcome) => {
             // A parent whose turn ended hears what finished meanwhile.

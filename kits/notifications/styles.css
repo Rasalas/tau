@@ -1,0 +1,6 @@
+/* Quiet hours' two times under their switch (design 2n). */
+.notifications-quiet { display: flex; align-items: center; gap: 8px; padding: 0 0 12px; color: var(--muted); }
+.notifications-quiet > input {
+  min-height: var(--touch-target, 32px); padding: 0 10px; border: 1px solid var(--line-control); border-radius: 8px;
+  background: var(--field); color: var(--ink); font: var(--text-md) var(--mono);
+}

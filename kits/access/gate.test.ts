@@ -24,7 +24,7 @@ describe("access gate", () => {
     const ask = gate("ask", confirm);
     await expect(ask("edit", { path: "src/ok.ts" })).resolves.toBeUndefined();
     await expect(ask("bash", { command: "rm -rf build" })).resolves.toMatchObject({ block: true, reason: "Blocked by Tau: bash was not approved." });
-    expect(confirm).toHaveBeenCalledWith("Approve bash?", "rm -rf build", { signal: undefined });
+    expect(confirm).toHaveBeenCalledWith("Wants to run", "rm -rf build", { signal: undefined });
   });
 });
 

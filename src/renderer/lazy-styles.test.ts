@@ -17,6 +17,7 @@ const LAZY = [
   { sheet: "./components/stage-panels.css", module: "./components/Stage.tsx", owns: [".stage-strip", ".stage-tabs", ".stage-tab", ".stage-strip-actions"] },
   { sheet: "./components/thread-tree.css", module: "./components/ThreadTreeModal.tsx", owns: [".thread-tree", ".thread-tree-list", ".thread-tree-label", ".project-modal-help"] },
   { sheet: "./components/reload-curtain.css", module: "./components/ReloadCurtain.tsx", owns: [".reload-mark", ".reload-orbit", ".reload-pulse", ".reload-constant"] },
+  { sheet: "./components/attachment-lightbox.css", module: "./components/AttachmentLightbox.tsx", owns: [".attachment-lightbox", ".lightbox-stage", ".lightbox-thumb"] },
   { sheet: "./renderer-benchmark.css", module: "./RendererBenchmark.tsx", owns: [".renderer-benchmark", ".benchmark-list-row"] },
 ];
 

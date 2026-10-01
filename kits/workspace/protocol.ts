@@ -6,6 +6,7 @@ import type {
   DiffLoadOptions,
   FileNode,
   HostActionResult,
+  HostSnapshot,
   MenuSection,
   ThreadMenuLookup,
   UiEditor,
@@ -52,6 +53,30 @@ export interface EditorPosition {
   column?: number;
 }
 
+export type BranchNaming = "prompt" | "random";
+
+/** The machine a new thread starts on, as its Run-on pill and heading name it. */
+export interface DraftMachine {
+  name: string;
+  icon: ReactNode;
+  tooltip?: string;
+  /** The draft is on its way to another machine. */
+  moving?: boolean;
+}
+
+export interface DraftMachineProps {
+  snapshot?: HostSnapshot;
+  actions?: WorkbenchActions;
+}
+
+/** Machines Kit's half of a new thread's "Run on": the chosen machine, and the list to choose from. */
+export interface DraftMachineSource {
+  /** A hook; undefined where no machine can be chosen (a started thread). */
+  useMachine(props: DraftMachineProps): DraftMachine | undefined;
+  /** The rows under "Run on"; `touch` draws them 44 px high. */
+  Section: ComponentType<DraftMachineProps & { touch: boolean }>;
+}
+
 /** Where a new worktree starts, as the picker shows it. */
 export interface UiWorktreeBase {
   ref: string;
@@ -61,6 +86,10 @@ export interface UiWorktreeBase {
   fromOrigin: boolean;
   /** Why the base is not the one that was asked for. */
   note?: string;
+  /** When the remote was last fetched (FETCH_HEAD), for "fetched 2m ago". */
+  fetchedAt?: number;
+  /** A few other remote branches, latest first, for "Based on". */
+  others?: string[];
 }
 
 /** What removing a worktree would lose. */
@@ -228,7 +257,7 @@ export interface WorkspaceHostCommands {
   "file-stat": { input: { relPath: string; workspace?: string }; output: UiFileStat };
   /** `expectedMtimeMs` is when the caller last saw the file; `null` expects none, absent writes regardless. */
   "write-file": { input: { relPath: string; text: string; expectedMtimeMs?: number | null; workspace?: string }; output: UiFileWriteResult };
-  "commit": { input: { message: string; push: boolean }; output: CommitResult };
+  "commit": { input: { message: string; push: boolean; workspace?: string }; output: CommitResult };
   "pull": { input: undefined; output: PullResult };
   /** Pushes the branch; one without an upstream is published to the primary remote. Review Kit may call it. */
   "push": { input: undefined; output: PushResult };
@@ -442,10 +471,16 @@ export interface WorkspaceKitState {
   preparingWorktree: boolean;
   /** The draft offers its own worktree because another thread's turn runs in its folder (K125). */
   worktreeSuggested?: boolean;
+  /** How a draft's worktree branch is named when the field stays empty; unset is from the prompt. */
+  branchNaming?: BranchNaming;
+  /** Machines Kit's half of a new thread's "Run on". */
+  draftMachine?: DraftMachineSource;
   /** Sections other kits add to the Changes panel. */
   changesSections: ReadonlyArray<ComponentType<ChangesSectionProps>>;
   /** Marks other kits add to rail rows. */
   threadRowAccessories: ReadonlyArray<ComponentType<ThreadRowAccessoryProps>>;
+  /** Other kits' states for some threads, by thread id, drawn in place of the row's own. */
+  threadRowStatuses: Readonly<Record<string, ThreadRowStatusMark>>;
   /** Rows and sections other kits add to a rail row's hover card. */
   threadCardSections: readonly ThreadCardSection[];
   /** Another kit's say over the rail's sections, menus and drops. */
@@ -454,6 +489,8 @@ export interface WorkspaceKitState {
   railSections: ReadonlyArray<ComponentType<{ actions: WorkbenchActions }>>;
   /** Threads other kits list among this machine's own: other machines' threads. */
   railThreadSources: readonly RailThreadSource[];
+  /** Where a thread dragged in the rail can go besides the list: other machines. */
+  threadDropTargets?: ThreadDropTargets;
   /** Each project's main line as the host read it, by workspace id or path. */
   defaultBranches: Readonly<Record<string, string>>;
   /** The rail shows only this repository's threads (the row menu's "Filter by"). */
@@ -518,6 +555,13 @@ export interface ThreadRowAccessoryProps {
   session: UiSession;
 }
 
+/** A state another kit gives a thread's row, drawn like a question: a takeover's "Your turn". */
+export interface ThreadRowStatusMark {
+  label: string;
+  hint?: string;
+  icon: ReactNode;
+}
+
 /**
  * What another kit adds to a rail row's hover card (API 1.23.0). A `row` is
  * drawn among the card's own icon rows, which sit at `order` project 10,
@@ -569,6 +613,26 @@ export interface ThreadRailDrop {
   sectionId: string;
   /** Absent means the end of the section. */
   beforeThreadId?: string;
+}
+
+/** A place a thread dragged in the rail can be let go of, drawn in a panel at the rail's foot (design 2f). */
+export interface ThreadDropTarget {
+  id: string;
+  label: string;
+  /** Under the label: its state, or why the thread cannot go there. */
+  detail?: string;
+  icon?: ReactNode;
+  /** Dimmed; letting go there does nothing. */
+  disabled?: boolean;
+}
+
+/** Another kit's drop targets for a dragged thread; one at a time, the last wins. */
+export interface ThreadDropTargets {
+  /** The panel's heading, e.g. "Drop to move the thread". */
+  heading: string;
+  /** Read when a drag starts; an empty list draws no panel. */
+  targets(thread: UiSession, actions: WorkbenchActions): readonly ThreadDropTarget[];
+  drop(thread: UiSession, targetId: string, actions: WorkbenchActions): void;
 }
 
 /** An icon button shown on hover or keyboard focus that opens a row action menu. */
@@ -670,6 +734,8 @@ export interface WorkspaceStoreApi {
   revertFile(path: string): Promise<void>;
   /** A mark drawn on every thread row of the rail. */
   registerThreadRowAccessory(accessory: ComponentType<ThreadRowAccessoryProps>): () => void;
+  /** `owner`'s states for rows, by thread id, in place of Working or Question; `{}` withdraws them. */
+  setThreadRowStatuses?(owner: string, statuses: Readonly<Record<string, ThreadRowStatusMark>>): void;
   /** A row or section on every rail row's hover card: a terminal count, the thread's pull requests (API 1.23.0). */
   registerThreadCardSection?(section: ThreadCardSection): () => void;
   /** Sections, row menus and drops of the rail. */
@@ -678,6 +744,10 @@ export interface WorkspaceStoreApi {
   registerRailSection?(section: ComponentType<{ actions: WorkbenchActions }>): () => void;
   /** Threads listed among the rail's own, each with its machine's mark: other machines' threads. */
   registerRailThreads?(source: RailThreadSource): () => void;
+  /** The machines a new thread's "Run on" lists above its branch (design 1k/1o). */
+  registerDraftMachine?(source: DraftMachineSource): () => void;
+  /** Places beside the list a dragged thread can go: other machines (design 2f). */
+  registerThreadDropTargets?(targets: ThreadDropTargets): () => void;
   /** Shows only the threads of one repository, by its project name; `undefined` shows all again (API 1.11.0). */
   setRailProjectFilter(projectName: string | undefined): void;
   /** Opens the settings of the project a thread runs in: its icon, name and path (API 1.11.0). */

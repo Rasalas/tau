@@ -79,6 +79,8 @@ export interface WorkbenchActions {
   openThreadTree(mode?: "navigate" | "fork"): void;
   /** Pi's /clone: a new thread continuing from the active thread's current point. */
   duplicateThread(): Promise<boolean>;
+  /** Forks the thread on screen through `message`: a new thread with the conversation up to it (API 1.39.0). */
+  forkFrom?(message: UiMessage): Promise<void>;
   focusComposer(seed?: string): void;
   focusTranscript(): void;
   focusStage(): void;
@@ -115,7 +117,8 @@ export interface WorkbenchActions {
    */
   threadListOrder?(): readonly string[] | undefined;
   /** Opens a document in the stage, as source or as its working-tree diff; `line` scrolls the source to it and marks it. */
-  openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff"; line?: number }): void;
+  /** `trace`: the agent opened it; it joins the stage's end without coming to the front (design 1a). */
+  openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff"; line?: number; trace?: boolean }): void;
   /**
    * Opens a thread in the stage as a read-only tab, leaving the active thread
    * alone. `machine` (a host id, or a machine's unique name) reads a thread of
@@ -163,6 +166,8 @@ export interface WorkbenchActions {
   closeActiveStageTab?(): void;
   /** Moves forward or backward through stage tabs. */
   cycleStageTab?(direction: 1 | -1): void;
+  /** Shows a stage tab beside the active one; without an id, splits off the active tab or joins the panes again. */
+  splitStage?(tabId?: string): void;
   /** Puts text on the user's clipboard. */
   copyText(text: string): Promise<void>;
   /** Opens a URL outside the workbench, in whatever the client calls a browser. */
@@ -313,9 +318,11 @@ export interface TranscriptRowsHandle {
  * project under a new thread's heading, each opening its own popover.
  * `thread-list-head` tops a phone's or tablet's thread list, under its header
  * (API 1.30.0). `thread-list-title` adds compact controls beside a phone's header title;
- * a tablet's sidebar has a foot for them (`PageContribution.Summary`).
+ * a tablet's sidebar has a foot for them (`PageContribution.Summary`). `turn-divider` sits in
+ * the line above each turn after the first; its props carry `turn` (API 1.39.0).
+ * `spine` fills the narrow column the conversation collapses to (design 1b), under the title.
  */
-export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in" | "thread-list-head" | "thread-list-title";
+export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in" | "thread-list-head" | "thread-list-title" | "turn-divider" | "spine";
 
 /** Where a thread of a list source runs: its mark and name on the row's project line. */
 export interface ThreadListPlace {
@@ -364,11 +371,23 @@ export interface LookInRegionContext {
   connected: boolean;
 }
 
+/** One turn of the thread on screen, for a `turn-divider` region (API 1.39.0). */
+export interface TranscriptTurn {
+  /** 1-based among the turns the transcript has loaded. */
+  number: number;
+  /** Its prompt, then everything that answered it. */
+  messages: readonly UiMessage[];
+  /** The newest turn, which may still run. */
+  last: boolean;
+}
+
 export interface RegionProps {
   snapshot?: HostSnapshot;
   actions: WorkbenchActions;
   /** Set only in the `look-in` placement. */
   lookIn?: LookInRegionContext;
+  /** Set only in the `turn-divider` placement. */
+  turn?: TranscriptTurn;
 }
 
 export interface RegionContribution extends ProfileScoped {
@@ -678,6 +697,8 @@ export interface PanelContribution extends ProfileScoped {
   stageButton?: boolean;
   /** A hook for a count beside the panel's tab title, say running agents; nothing for `undefined` or 0 (API 1.27.0). */
   useBadge?(): number | undefined;
+  /** Offered in a phone's actions sheet of a thread row, which opens the thread and then this panel (design 1x, API 1.39.0). */
+  threadActions?: boolean;
   /** Unseen background activity. `visible` lets the tool mark its activity as read. */
   useActivity?(visible: boolean): boolean;
   Component: ComponentType<PanelProps>;
@@ -866,6 +887,8 @@ export interface SettingsPageContribution extends ProfileScoped {
    * built with `useSetting` follows it; "host", the default, edits this machine.
    */
   scope?: SettingScope;
+  /** A hook for the value a phone's Settings list shows beside the page's name: "2 online" (design 1s, API 1.39.0). */
+  useSummary?(): string | undefined;
   Component: ComponentType<SettingsPageProps>;
 }
 
@@ -916,6 +939,8 @@ export interface PaletteItem {
   submenu?: PaletteMenu;
   /** What the row does; a row with a `submenu` needs none. */
   run?(actions: WorkbenchActions): void | Promise<void>;
+  /** What ⌘⏎ does instead: the row opened in the stage. */
+  stage?(actions: WorkbenchActions): void;
   /** As on a command: without `"read"`, a Read-only device shows the row disabled with the reason (API 1.13.0). */
   access?: "read" | "write";
 }
@@ -945,21 +970,26 @@ export interface PaletteMenu {
 /** What the palette hands a source with every query. */
 export interface PaletteSearchContext {
   actions: WorkbenchActions;
-  /** The thread index as this window holds it. */
-  index: { projects: readonly UiProject[]; threads: readonly UiSession[]; activeThreadId?: string };
+  /** The thread index as this window holds it; `running` are the threads with a turn going. */
+  index: { projects: readonly UiProject[]; threads: readonly UiSession[]; activeThreadId?: string; running?: readonly string[] };
+  /** The tab or prefix the palette is narrowed to; "all" when none is. */
+  scope?: "all" | "threads" | "files";
   /** Aborted when the query changes or the palette closes; a late answer is dropped either way. */
   signal: AbortSignal;
 }
 
 /**
  * Rows the palette asks for as the user types, beside the commands: threads,
- * projects, anything a query finds. Asked only for a non-empty query.
+ * projects, anything a query finds. Asked only for a non-empty query, unless
+ * it has a `scope`: then also for an empty one, in All and in its own tab.
  */
 export interface PaletteSourceContribution {
   id: string;
-  /** What the rows are, shown beside each: "Threads", "Projects". */
+  /** The section heading its rows stand under; sources with one label share a section. */
   label: string;
   order?: number;
+  /** The tab (and prefix: `#` threads, `/` files) that narrows the palette to this source. */
+  scope?: "threads" | "files";
   search(query: string, context: PaletteSearchContext): readonly PaletteItem[] | Promise<readonly PaletteItem[]>;
 }
 
@@ -1128,6 +1158,8 @@ export interface PromptRendererProps {
   pending: number;
   /** Who asks, for the card's head (`ExtensionPromptFrame`'s `from`): the thread's agent, by its model. */
   asker?: string;
+  /** The sub-agent that asks ("GET /orders agent") when the question is a child thread's, shown on its parent's composer. */
+  agent?: string | undefined;
   onAnswer(value: string | boolean, typed?: boolean): void;
   onCancel(): void;
 }
@@ -1292,10 +1324,15 @@ export interface DocumentSourceContribution extends ProfileScoped {
 }
 
 export interface ToolPresentation {
-  glyph: string;
+  /** A character or an icon (an icon since API 1.39.0). */
+  glyph: ReactNode;
   title: string;
   tone: "neutral" | "read" | "write" | "shell";
   detail: string;
+  /** Drawn at the row's end before its state, e.g. an edit's "+4 −2" (API 1.39.0). */
+  note?: ReactNode;
+  /** Drawn open under the row in place of the output, e.g. an edit's diff (API 1.39.0). */
+  body?: ReactNode;
   /** Structured tools can keep their machine payload out of the transcript. */
   output?: "default" | "hidden";
   /**

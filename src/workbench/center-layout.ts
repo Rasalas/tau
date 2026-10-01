@@ -7,11 +7,11 @@
  */
 
 /**
- * The chat's column beside the stage: the design's 380 px until its divider is dragged, and never
+ * The chat's column beside the stage: the design's 470 px (1a) until its divider is dragged, and never
  * under 360 px, where the thread header, the composer's footer and a question card still fit on one
  * line each. A tablet's chat has the same bounds.
  */
-export const CHAT_DEFAULT_WIDTH = 380;
+export const CHAT_DEFAULT_WIDTH = 470;
 export const CHAT_MIN_WIDTH = 360;
 /** The stage's column: a file's header and a few dozen columns of code. */
 export const STAGE_MIN_WIDTH = 360;

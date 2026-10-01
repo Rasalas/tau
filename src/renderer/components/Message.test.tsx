@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Message } from "./Message";
 import { visibleUserMessageText } from "./MessageText";
 import { TestProviders } from "../test-support/test-providers";
+import { ExtensionRegistry, type WorkbenchActions } from "../extension-system";
+import { WorkbenchShellContext } from "../workbench-context";
 
 afterEach(cleanup);
 
@@ -62,25 +64,47 @@ describe("Long user messages", () => {
 
 
 describe("Message actions", () => {
-  it("copies and forks a persisted message", () => {
+  it("copies a message and leaves forking to the turn's divider (design 2d)", () => {
     const onCopy = vi.fn();
-    const onFork = vi.fn();
     const message = { id: "message", sourceEntryId: "entry", role: "assistant" as const, text: "Answer", timestamp: 0 };
-    render(<Message message={message} onCopy={onCopy} onFork={onFork} />);
+    render(<Message message={message} onCopy={onCopy} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));
-    fireEvent.click(screen.getByRole("button", { name: "Fork" }));
     expect(onCopy).toHaveBeenCalledWith(message);
-    expect(onFork).toHaveBeenCalledWith(message);
+    expect(screen.queryByRole("button", { name: "Fork" })).toBeNull();
+  });
+});
+
+describe("Turn dividers", () => {
+  const prompt = { id: "p2", sourceEntryId: "e2", role: "user" as const, text: "Move the subscription into the constructor and keep the effect only for cleanup", timestamp: 0 };
+
+  it("names the turn above its prompt from the second turn on", () => {
+    const view = render(<Message message={prompt} turn={{ number: 2, messages: [prompt], last: true }} />);
+    expect(view.container.querySelector(".turn-divider")?.textContent).toBe("Turn 2 · Move the subscription into the…");
+    view.rerender(<Message message={prompt} turn={{ number: 1, messages: [prompt], last: true }} />);
+    expect(view.container.querySelector(".turn-divider")).toBeNull();
   });
 
-  it("does not offer a fork for an optimistic message", () => {
-    render(<Message
-      message={{ id: "local", role: "user", text: "Pending", timestamp: 0 }}
-      onCopy={() => {}}
-      onFork={() => {}}
-    />);
-    expect(screen.queryByRole("button", { name: "Fork" })).toBeNull();
+  it("lends kits the turn in the divider's region", () => {
+    const registry = new ExtensionRegistry();
+    registry.activate({ id: "acme.turns", name: "Turns", activate(context) {
+      context.registerRegion({ id: "acme.turn", placement: "turn-divider", Component: ({ turn }) => <button type="button">Fork turn {turn?.number} of {turn?.messages.length}</button> });
+    } });
+    const actions = new Proxy({}, { get: () => () => undefined }) as WorkbenchActions;
+    render(<WorkbenchShellContext.Provider value={{ registry, actions }}>
+      <Message message={prompt} turn={{ number: 3, messages: [prompt, { id: "a", role: "assistant", text: "done", timestamp: 1 }], last: false }} />
+    </WorkbenchShellContext.Provider>);
+    expect(screen.getByRole("button", { name: "Fork turn 3 of 2" })).toBeTruthy();
+  });
+});
+
+describe("Notes sent in the user's name", () => {
+  it("draws Tau's note that a sub-agent finished as a quiet line, not a bubble (design 1n)", () => {
+    const text = "[Tau] A thread you started has finished.\n\n— \"Envelope\" (threadId 01a0): completed\nok\n\nContinue with this, or read more with tau_get_thread_status.";
+    const view = render(<Message message={{ id: "wake", role: "user", text, timestamp: 0 }} onCopy={() => {}} />);
+    expect(view.container.querySelector(".message.user")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "A thread you started has finished" }));
+    expect(view.container.querySelector(".activity-disclosure pre")?.textContent).toBe(text);
   });
 });
 

@@ -95,7 +95,12 @@ export function toolArgumentSummary(args: Readonly<Record<string, unknown>>): st
   return Object.keys(args).join(" · ") || "no arguments";
 }
 
-const EXIT_STATUS = /\bexit(?:ed with)? code -?\d+/iu;
+const EXIT_STATUS = /\bexit(?:ed with)? code (-?\d+)/iu;
+
+/** The exit status a shell's output names, if any. */
+export function exitCode(output: string | undefined): string | undefined {
+  return EXIT_STATUS.exec(output ?? "")?.[1];
+}
 const FAILURE_REASON_CHARS = 240;
 
 /**

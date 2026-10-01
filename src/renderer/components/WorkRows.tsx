@@ -1,9 +1,10 @@
-import { ChevronRight, CircleAlert, CircleStop, Clock, Hammer } from "lucide-react";
+import { ChevronRight, CircleAlert, Clock, Hammer } from "lucide-react";
 import { memo, useEffect, useMemo, useRef } from "react";
 import type { UiToolOutputPreview, UiToolRun, UiTurnActivityEntry } from "../../shared/contracts";
 import {
   deriveWorkRows,
   formatLiveClock,
+  toolActionClass,
   waitingActivityLabel,
   type TranscriptDetail,
   type WorkRow,
@@ -48,44 +49,54 @@ export interface WorkRowActions {
   onLoadOutput?(tool: UiToolRun): Promise<UiToolOutputPreview | undefined>;
 }
 
-function ToolRunList({ tools, context }: { tools: readonly UiToolRun[]; context: WorkRowActions }) {
-  return <div className="tool-activity-detail">
-    {tools.map((tool) => (
-      <ToolRun
-        key={tool.id}
-        tool={tool}
-        registry={context.registry}
-        detail={context.detail}
-        waiting={tool.status === "running" && Boolean(context.waiting)}
-        stalled={tool.status === "running" && Boolean(context.stalled)}
-        onStop={context.stalled ? context.onRecover : context.onStop}
-        onCopyOutput={context.onCopyOutput}
-        onLoadOutput={context.onLoadOutput}
-      />
-    ))}
+function toolRun(tool: UiToolRun, context: WorkRowActions) {
+  return <ToolRun
+    key={tool.id}
+    tool={tool}
+    registry={context.registry}
+    detail={context.detail}
+    waiting={tool.status === "running" && Boolean(context.waiting)}
+    stalled={tool.status === "running" && Boolean(context.stalled)}
+    onStop={context.stalled ? context.onRecover : context.onStop}
+    onCopyOutput={context.onCopyOutput}
+    onLoadOutput={context.onLoadOutput}
+  />;
+}
+
+const settledRead = (tool: UiToolRun) => tool.status === "done" && toolActionClass(tool.name) === "read";
+
+/** Files read one after another, as one row: "Read a.ts, b.ts · 2 files" (design 1f). */
+function ReadBundle({ tools, context }: { tools: readonly UiToolRun[]; context: WorkRowActions }) {
+  const [open, setOpen] = useDisclosure(context.disclosures, `read:${tools[0].id}`, false, context.turn);
+  const views = tools.map((tool) => context.registry.presentTool(tool));
+  const paths = views.map((view) => view.file ?? view.detail);
+  return <div className={`tool-run tone-${views[0].tone}`}>
+    <button type="button" className="tool-run-line" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <span className="tool-run-glyph">{views[0].glyph}</span>
+      <span className="tool-run-name">{views[0].title}</span>
+      <span className="tool-run-detail" title={paths.join("\n")}>{paths.map((path) => path.split("/").pop()).join(", ")}</span>
+      <span className="tool-run-state">{tools.length} files</span>
+    </button>
+    {open ? tools.map((tool) => toolRun(tool, context)) : null}
   </div>;
 }
 
-/** A settled run of tools as one sentence, opened by the reader when they want it. */
+/** Calls as the rows of one card; consecutive reads share a row. */
+function ToolRunList({ tools, context, label }: { tools: readonly UiToolRun[]; context: WorkRowActions; label?: string }) {
+  const rows = [];
+  for (let at = 0; at < tools.length;) {
+    let end = at;
+    while (end < tools.length && settledRead(tools[end])) end += 1;
+    if (end - at > 1) rows.push(<ReadBundle key={tools[at].id} tools={tools.slice(at, end)} context={context} />);
+    else { end = at + 1; rows.push(toolRun(tools[at], context)); }
+    at = end;
+  }
+  return <div className="tool-activity-detail" role="group" aria-label={label}>{rows}</div>;
+}
+
+/** A settled run of tools as one card, a row per call: one fold level, not three (design 1f). */
 function GroupRow({ row, context }: { row: Extract<WorkRow, { kind: "group" }>; context: WorkRowActions }) {
-  const [open, setOpen] = useDisclosure(context.disclosures, row.id, row.open, context.turn);
-  return <section className={`tool-activity${open ? " expanded" : ""}${row.failed ? " failed" : ""}`}>
-    <button type="button" className="tool-activity-summary" aria-expanded={open} onClick={() => setOpen(!open)}>
-      <Hammer size={16} strokeWidth={1.7} />
-      <span>{row.summary}</span>
-      {row.note === "error" ? (
-        <span className="tool-activity-status-icon error" role="img" aria-label="Activity failed" title="Activity failed">
-          <CircleAlert size={14} strokeWidth={1.8} aria-hidden="true" />
-        </span>
-      ) : row.note === "interrupted" ? (
-        <span className="tool-activity-status-icon interrupted" role="img" aria-label="Activity interrupted" title="Activity interrupted">
-          <CircleStop size={14} strokeWidth={1.8} aria-hidden="true" />
-        </span>
-      ) : null}
-      <ChevronRight className="activity-chevron" size={14} />
-    </button>
-    {open ? <ToolRunList tools={row.tools} context={context} /> : null}
-  </section>;
+  return <ToolRunList tools={row.tools} context={context} label={row.summary} />;
 }
 
 /** "Worked for 2m 14s": the whole turn, one muted line, expanding in place. */

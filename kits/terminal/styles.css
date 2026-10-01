@@ -167,3 +167,6 @@
 .terminal-touch-key.armed { border-color: var(--acid-line); background: var(--acid-bg); color: var(--acid-text); }
 .terminal-touch-key.interrupt { color: var(--danger); }
 .terminal-touch-key:disabled { color: var(--faint); cursor: default; }
+
+/* A step darker than the theme, dark in the light one too (design 1b): the tokens inside resolve as dark. */
+.terminal-surface { color-scheme: dark; --sunken: var(--term); }

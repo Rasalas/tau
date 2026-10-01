@@ -1,3 +1,5 @@
+import type { WorkbenchActions } from "tau";
+
 /**
  * Evidence Kit's contract between its halves, and what other kits may call.
  * Core knows none of it: it routes the commands by extension id and lists the
@@ -169,3 +171,11 @@ export const PREVIEW_EXTENSION_ID = "tau.preview";
 export type PreviewEvidenceFrame =
   | { data: string; width: number; height: number; url: string; title: string; visible: boolean }
   | { skipped: "closed" | "secret" | "empty" | "unavailable" };
+
+/** Review Kit's `tau.review/attach-evidence`, copied the same way: puts pictures into the local pull request's description draft and opens it. */
+export const REVIEW_ATTACH_SERVICE = "tau.review/attach-evidence";
+
+export interface ReviewAttachService {
+  /** `false` when no project is open to review. */
+  attach(media: ReadonlyArray<{ threadId: string; source: string; id: string; caption: string }>, actions: Pick<WorkbenchActions, "openStageTab">): boolean;
+}

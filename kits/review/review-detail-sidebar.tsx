@@ -1,19 +1,19 @@
 import { useSyncExternalStore } from "react";
 import { ArrowUp, ChevronLeft, TriangleAlert, X } from "lucide-react";
-import { FileKindIcon, tooltipProps } from "tau";
+import { tooltipProps } from "tau";
 import type { DetailFile, ReviewDetailStore } from "./review-detail-store.js";
-
-const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "" : "s"}`;
+import { plural } from "./review-words.js";
 
 function FileRow({ file, active, jump }: { file: DetailFile; active: boolean; jump(path: string): void }) {
   return (
     <li>
       <button type="button" className={active ? "active" : undefined} aria-current={active ? "true" : undefined} {...tooltipProps(file.path, { side: "right" })} onClick={() => jump(file.path)}>
-        {file.conflict ? <TriangleAlert size={12} className="rvd-warn" aria-hidden="true" /> : <FileKindIcon name={file.path} />}
-        <span className="rvd-side-path">{file.path}</span>
+        {file.conflict ? <TriangleAlert size={12} className="rvd-warn" aria-hidden="true" /> : null}
+        <span className="rvd-side-path">{file.path.split("/").slice(-2).join("/")}</span>
         <span className="rvd-side-count">
-          {file.added ? <span className="stat-add">+{file.added}</span> : null}
-          {file.removed ? <span className="stat-del">−{file.removed}</span> : null}
+          {file.hunks ? plural(file.hunks, "hunk") : null}
+          {file.added && !file.hunks ? <span className="stat-add">+{file.added}</span> : null}
+          {file.removed && !file.hunks ? <span className="stat-del">−{file.removed}</span> : null}
         </span>
       </button>
     </li>

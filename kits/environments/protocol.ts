@@ -1,5 +1,5 @@
 import type { ComponentType, ReactNode } from "react";
-import type { WorkbenchActions } from "tau";
+import type { HostSnapshot, WorkbenchActions } from "tau";
 import type { MachineRailThread } from "./rail.js";
 
 export const ENVIRONMENTS_EXTENSION_ID = "tau.environments";
@@ -14,6 +14,18 @@ export interface WorkspaceRailSlice {
   registerRailThreads?(source: { subscribe(listener: () => void): () => void; threads(): readonly MachineRailThread[] }): () => void;
   /** Absent before API 1.23.0; the row's hover card then names no machine for this machine's threads. */
   registerThreadCardSection?(section: { place: "row"; order?: number; Component: ComponentType<MachineCardRowProps> }): () => void;
+  /** A new thread's Run-on pill: its machine and the machines to pick from. */
+  registerDraftMachine?(source: DraftMachineSource): () => void;
+}
+
+/** Workspace Kit's `DraftMachineSource` (`kits/workspace/protocol.ts`). */
+export interface DraftMachineProps {
+  snapshot?: HostSnapshot;
+  actions?: WorkbenchActions;
+}
+export interface DraftMachineSource {
+  useMachine(props: DraftMachineProps): { name: string; icon: ReactNode; tooltip?: string; moving?: boolean } | undefined;
+  Section: ComponentType<DraftMachineProps & { touch: boolean }>;
 }
 
 /** The part of Workspace Kit's `ThreadCardSectionProps` the machine's line reads. */

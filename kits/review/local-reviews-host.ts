@@ -9,6 +9,8 @@ import {
   reviewKey,
   type LocalReviewsAnswer,
   type MergedReview,
+  type NoteThread,
+  type SentNote,
   type RemoteReview,
   type ReviewAsk,
   type ThreadBranch,
@@ -42,6 +44,9 @@ const REMOTE_BUSY = new Set(["sending", "starting", "running", "waiting", "offli
 const MAX_MERGED = 500;
 const SUMMARY_CHARS = 1200;
 const PROMPT_CHARS = 80;
+const MAX_SENT = 100;
+/** A turn starts a moment after its note is recorded; its message may carry a slightly earlier clock. */
+const SENT_SLACK_MS = 1000;
 
 const record = (input: unknown): Record<string, unknown> => input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
 const text = (value: unknown): string | undefined => typeof value === "string" && value.trim() ? value : undefined;
@@ -55,6 +60,7 @@ const required = (input: unknown, key: string): string => {
 interface Book {
   asks: Record<string, ReviewAsk>;
   merged: MergedReview[];
+  sent: Record<string, SentNote[]>;
 }
 
 /** Asks and merges, in the kit's own state folder, written whole through a temporary file. */
@@ -73,9 +79,10 @@ export class LocalReviewBook {
         return (fields.kind === "rebase" || fields.kind === "note") && typeof fields.tip === "string" && typeof fields.text === "string";
       })) as Record<string, ReviewAsk>;
       const merged = (Array.isArray(raw.merged) ? raw.merged : []).filter((entry): entry is MergedReview => typeof record(entry).key === "string" && typeof record(entry).at === "number");
-      this.book = { asks, merged };
+      const sent = Object.fromEntries(Object.entries(record(raw.sent)).map(([key, list]) => [key, (Array.isArray(list) ? list : []).filter((note): note is SentNote => typeof record(note).id === "string" && typeof record(note).body === "string" && typeof record(note).at === "number")]));
+      this.book = { asks, merged, sent };
     } catch {
-      this.book = { asks: {}, merged: [] };
+      this.book = { asks: {}, merged: [], sent: {} };
     }
     return this.book;
   }
@@ -118,6 +125,34 @@ export function summaryFromEntries(entries: readonly unknown[]): Summary {
   }
   return { ...(summary ? { summary: clip(summary) } : {}), turns: prompts.length, prompts };
 }
+
+interface Said { role: string; text: string; at: number }
+
+/** The thread's answer to the turn that began at `at`: its last words before the next prompt. */
+export function answerAfter(messages: readonly Said[], at: number): string | undefined {
+  const start = messages.findIndex((message) => message.role === "user" && message.at >= at - SENT_SLACK_MS);
+  if (start < 0) return undefined;
+  let answer: string | undefined;
+  for (const message of messages.slice(start + 1)) {
+    if (message.role === "user") break;
+    if (message.role === "assistant" && message.text.trim()) answer = message.text.trim();
+  }
+  return answer ? clip(answer) : undefined;
+}
+
+/** Notes and replies grouped by the line they began on, each turn with the thread's answer. */
+export function noteThreads(sent: readonly SentNote[], messages: readonly Said[]): NoteThread[] {
+  const threads = new Map<string, NoteThread>();
+  for (const note of sent) {
+    const thread = threads.get(note.note) ?? { id: note.note, path: note.path, line: note.line, side: note.side, said: [] };
+    const answer = answerAfter(messages, note.at);
+    thread.said.push({ body: note.body, at: note.at, ...(answer ? { answer } : {}) });
+    threads.set(note.note, thread);
+  }
+  return [...threads.values()];
+}
+
+const entryTime = (entry: Record<string, unknown>, message: Record<string, unknown>) => number(message.timestamp) ?? (Date.parse(text(entry.timestamp) ?? "") || 0);
 
 function summaryFromMessages(messages: readonly UiMessage[]): Summary {
   const prompts = messages.filter((message) => message.role === "user").map((message) => promptTitle(message.text));
@@ -224,11 +259,12 @@ export function registerLocalReviewCommands(
     const link = text(fields.link);
     const outcome = link
       ? await mergeRemote(link, fields)
-      : await workspace("merge-thread-branch", { workspace: required(input, "workspace"), ...(text(fields.tip) ? { tip: text(fields.tip) } : {}) }) as ThreadBranchMerge;
+      : await workspace("merge-thread-branch", { workspace: required(input, "workspace"), ...(text(fields.tip) ? { tip: text(fields.tip) } : {}), ...(fields.picks ? { picks: fields.picks } : {}) }) as ThreadBranchMerge;
     if (outcome.state !== "merged" && outcome.state !== "already-merged") return outcome;
     const key = link ? remoteReviewKey(link) : reviewKey(outcome.root, outcome.branch);
     await book.change((next) => {
       delete next.asks[key];
+      delete next.sent[key];
       next.merged = next.merged.filter((entry) => entry.key !== key);
       next.merged.push({
         key,
@@ -278,6 +314,8 @@ export function registerLocalReviewCommands(
     const note = kind === "note" ? required(input, "text") : "";
     const conflicts = (Array.isArray(fields.conflicts) ? fields.conflicts : []).filter((path): path is string => typeof path === "string");
     const message = kind === "rebase" ? rebaseRequest({ branch, target, conflicts }) : noteRequest({ branch }, note);
+    // Before the send: the turn's first message comes after this.
+    const sentAt = Date.now();
     if (link) {
       await remoteWork("thread-send", { link, text: message, delivery: "prompt" });
     } else {
@@ -286,8 +324,17 @@ export function registerLocalReviewCommands(
       await send(threadId!, message, { delivery: "prompt" });
     }
     const key = link ? remoteReviewKey(link) : reviewKey(required(input, "root"), branch);
+    const lines = (Array.isArray(fields.notes) ? fields.notes : []).map(record).filter((entry) => typeof entry.id === "string" && typeof entry.path === "string" && typeof entry.line === "number");
     await book.change((next) => {
-      next.asks[key] = { kind, text: kind === "note" ? note.trim() : message, at: Date.now(), tip: required(input, "tip"), ...(threadId ? { threadId } : {}) };
+      // A note from diff lines reads as its words, not the code sent along.
+      const said = lines.length ? lines.map((entry) => text(entry.body) ?? "").join(" · ") : note.trim();
+      next.asks[key] = { kind, text: kind === "note" ? said : message, at: Date.now(), tip: required(input, "tip"), ...(threadId ? { threadId } : {}) };
+      if (lines.length) {
+        next.sent[key] = [...next.sent[key] ?? [], ...lines.map((entry): SentNote => ({
+          id: String(entry.id), note: text(entry.note) ?? String(entry.id), path: String(entry.path), line: Number(entry.line),
+          side: entry.side === "old" ? "old" : "new", body: text(entry.body) ?? "", at: sentAt,
+        }))].slice(-MAX_SENT);
+      }
     });
     services.log("reviews.asked", `${kind} ${branch}`);
     changed();
@@ -299,6 +346,37 @@ export function registerLocalReviewCommands(
     await book.change((next) => { delete next.asks[key]; });
     changed();
   });
+
+  /** A thread's messages with their times: the open thread's transcript, else its session file. */
+  const threadMessages = async (threadId: string): Promise<Said[]> => {
+    const open = services.thread(threadId);
+    if (open) return (await open.transcript().catch(() => [])).map((message) => ({ role: message.role, text: message.text, at: message.timestamp }));
+    const session = (await services.sessions.list().catch(() => [])).find((entry) => entry.sessionId === threadId);
+    if (!session) return [];
+    try {
+      return services.sessions.open(session.path).entries().map(record).filter((entry) => entry.type === "message").map((entry) => {
+        const message = record(entry.message);
+        return { role: String(message.role), text: contentText(message.content), at: entryTime(entry, message) };
+      });
+    } catch {
+      return [];
+    }
+  };
+
+  context.registerCommand("local-review-notes", async (input): Promise<NoteThread[]> => {
+    const sent = (await book.read()).sent[reviewKey(required(input, "root"), required(input, "branch"))] ?? [];
+    const threadId = text(record(input).threadId);
+    return sent.length ? noteThreads(sent, threadId ? await threadMessages(threadId) : []) : [];
+  }, { access: "read", long: true });
+
+  // "Commit only": the review's worktree gets a commit of its own; nothing is merged.
+  context.registerCommand("local-review-commit", async (input) => {
+    const result = await workspace("commit", { workspace: required(input, "workspace"), message: required(input, "message"), push: false });
+    changed();
+    return result;
+  }, { long: true, audit: { label: "committed a thread's worktree from Reviews" } });
+
+  context.registerCommand("local-review-conflicts", (input) => workspace("thread-branch-conflicts", { workspace: required(input, "workspace") }), { access: "read", long: true });
 
   context.registerCommand("local-review-summary", async (input): Promise<{ summary?: string; turns?: number; prompts?: string[] }> => {
     const fields = record(input);

@@ -172,17 +172,17 @@ describe("the Settings screen", () => {
 
   it("writes the update track to this machine, and hides it for a host elsewhere", async () => {
     const { files, client } = hostWithFiles();
-    const { page } = renderScreen({ client });
-    const track = await within(page).findByRole("radiogroup", { name: "Update track" });
-    fireEvent.click(within(track).getByRole("radio", { name: "Nightly" }));
+    const { page } = renderScreen({ client, page: "about" });
+    const track = await within(page).findByRole("switch", { name: "Pre-release builds" });
+    fireEvent.click(track);
     await waitFor(() => expect(files.host).toEqual({ updates: { channel: "nightly" } }));
-    expect(within(track).getByRole("radio", { name: "Nightly" }).getAttribute("aria-checked")).toBe("true");
+    expect(track.getAttribute("aria-checked")).toBe("true");
     cleanup();
 
     const remote = createFakeHostClient({ hasCapability: () => false });
-    const { page: remotePage } = renderScreen({ client: remote as ReturnType<typeof hostWithFiles>["client"] });
+    const { page: remotePage } = renderScreen({ client: remote as ReturnType<typeof hostWithFiles>["client"], page: "about" });
     await act(async () => undefined);
-    expect(within(remotePage).queryByRole("radiogroup", { name: "Update track" })).toBeNull();
+    expect(within(remotePage).queryByRole("switch", { name: "Pre-release builds" })).toBeNull();
   });
 
   it("turns the thread defaults inert with the reason on a device paired Read only", async () => {
@@ -318,6 +318,24 @@ describe("the page head", () => {
     const head = document.querySelector<HTMLElement>(".settings-page-head")!;
     expect(within(head).queryByRole("heading")).toBeNull();
     expect(within(head).getByText(CORE_PAGE_DESCRIPTIONS.extensions)).toBeTruthy();
+  });
+});
+
+describe("Settings on a phone (design 1s)", () => {
+  it("lists the sections as cards with their values, leaves the keys out, and says where keys live", async () => {
+    const registry = new ExtensionRegistry(undefined, { preferences: new PreferencesStore(), profile: "compact" });
+    await registry.activate({ id: "test.machines", name: "Machines", activate(context) {
+      context.registerSettingsPage({ id: "test.machines", label: "Machines", group: "general", order: -1, profiles: ["compact"], useSummary: () => "2 online", Component: () => null });
+    } });
+    const phoneSnapshot = { ...snapshot, runtimeBackends: [{ kind: "pi", label: "Pi" }] } as unknown as HostSnapshot;
+    render(<HostClientProvider client={undefined}><TestProviders>
+      <SettingsScreen page="general" stacked view="sections" snapshot={phoneSnapshot} registry={registry} nav={<nav aria-label="Main" />} onSetPage={vi.fn()} onSetModel={vi.fn()} onSetThinking={vi.fn()} onClose={vi.fn()} onNotify={vi.fn()} />
+    </TestProviders></HostClientProvider>);
+    const sections = screen.getByRole("navigation", { name: "Settings sections" });
+    expect(within(sections).getByRole("button", { name: /^Machines/u }).querySelector(".settings-nav-value")?.textContent).toBe("2 online");
+    expect(within(sections).getByRole("button", { name: /^Runtimes/u }).textContent).toContain("Pi default");
+    expect(within(sections).queryByRole("button", { name: /^Keybindings/u })).toBeNull();
+    expect(within(sections).getByText(/Keys and sign-ins live on your machines/u)).toBeTruthy();
   });
 });
 

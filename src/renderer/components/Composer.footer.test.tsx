@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostSnapshot } from "../../shared/contracts";
+import type { HostSnapshot, UiQueuedMessage } from "../../shared/contracts";
 import { ComposerScopeStore } from "../../workbench/composer-scope-store";
 import { createKitHarness } from "../test-support/kit-harness";
 import { TestProviders } from "../test-support/test-providers";
@@ -29,7 +29,7 @@ const snapshot: HostSnapshot = {
 
 afterEach(cleanup);
 
-function renderFooter(onSelectAccess = vi.fn(), lead?: React.ReactNode, contextPercent = 20) {
+function renderFooter(onSelectAccess = vi.fn(), lead?: React.ReactNode, contextPercent = 20, queue: readonly UiQueuedMessage[] = []) {
   const { registry } = createKitHarness();
   registry.activate({
     id: "test.footer",
@@ -56,7 +56,7 @@ function renderFooter(onSelectAccess = vi.fn(), lead?: React.ReactNode, contextP
         <Composer
           scopeStore={new ComposerScopeStore()}
           snapshot={snapshot}
-          queue={[]}
+          queue={queue}
           contextUsage={{ tokens: contextPercent * 1_000, contextWindow: 100_000, percent: contextPercent }}
           contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
           textareaRef={createRef<HTMLTextAreaElement>()}
@@ -121,20 +121,22 @@ describe("the composer's slim footer", () => {
     expect(screen.getByLabelText("Reasoning: Medium").getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("draws the design's row: model, reasoning, the menu and send; attach and the context wait in the menu", () => {
+  it("draws the design's row: model, reasoning, the menu, the context meter and send; attach waits in the menu", () => {
     renderFooter();
     const row = screen.getByLabelText("Select model: GPT-5.6 Luna").closest(".composer-toolbar") as HTMLElement;
     const labels = [...row.querySelectorAll("button")].map((button) => button.getAttribute("aria-label") ?? button.textContent);
-    expect(labels).toEqual(["Machine", "Select model: GPT-5.6 Luna", "Reasoning: Medium", "Kit chip", "More composer controls", "Send"]);
+    expect(labels).toEqual(["Machine", "Select model: GPT-5.6 Luna", "Reasoning: Medium", "Kit chip", "More composer controls", "Context 20 percent used", "Send"]);
+    // The meter says its share, as design 1a writes "19%".
+    expect(screen.getByLabelText("Context 20 percent used").textContent).toBe("20%");
     fireEvent.click(screen.getByLabelText("More composer controls"));
     const menu = screen.getByRole("dialog", { name: "More composer controls" });
     expect(within(menu).getByRole("button", { name: /Attach files/u })).toBeTruthy();
-    expect(within(menu).getByRole("button", { name: /Compact context/u }).textContent).toContain("20% of the context used");
   });
 
-  it("brings the context dial into the row once the context runs short", () => {
-    renderFooter(vi.fn(), undefined, 80);
-    expect(screen.getByLabelText("Context 80 percent used")).toBeTruthy();
+  it("says how many follow-ups wait, at the row's end before send", () => {
+    renderFooter(vi.fn(), undefined, 20, [{ id: "q1", text: "and then the tests", attachments: 0 }]);
+    const row = screen.getByLabelText("Select model: GPT-5.6 Luna").closest(".composer-chips") as HTMLElement;
+    expect(row.querySelector(".composer-queued")?.textContent).toBe("1 queued");
   });
 
   it("keeps send in view with nothing to send, resting until there is a draft", () => {

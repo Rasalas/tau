@@ -44,7 +44,7 @@ import { pickCrop, readAnnotationResult, readPickedElement } from "./picks.js";
 import { probeHttp, scanPorts } from "./ports.js";
 import { PreviewProfileStore, profilePartition } from "./profiles.js";
 import { pageCall, type PreviewActionResult } from "./page-script.js";
-import { POINTER_PATH, previewAgentCursor, previewInputOverlay, previewInputOverlayEnd, type PageCursorMark } from "./page-cursor.js";
+import { POINTER_PATH, previewAgentCursor, previewInputOverlay, previewInputOverlayEnd, previewSecretNote, type PageCursorMark } from "./page-cursor.js";
 import { CURSOR_ACTIVE_MS, LABEL_VISIBLE_MS, cursorMark } from "./agent-cursor-marks.js";
 import type { ScreenAction } from "./screen-protocol.js";
 import { PreviewHistory } from "./history.js";
@@ -315,6 +315,9 @@ class PreviewController implements PreviewToolController {
   private recordingNotice: string | undefined;
 
   private shownUrl = "";
+  /** The user holds the page; the page the note was put on, empty to put it on again. */
+  private held = false;
+  private heldUrl = "";
 
   private rememberedTitle = "";
 
@@ -548,6 +551,11 @@ class PreviewController implements PreviewToolController {
     if (state.url && !state.loading && state.title !== this.rememberedTitle) {
       this.rememberedTitle = state.title;
       this.history.visit(state.url, state.title);
+    }
+    if (this.held && state.loading) this.heldUrl = "";
+    if (this.held && state.url && !state.loading && this.heldUrl !== state.url) {
+      this.heldUrl = state.url;
+      void this.view?.evaluate(pageCall(previewSecretNote, true), true).catch(() => undefined);
     }
     const recording = this.recording;
     if (recording && state.url && !state.loading && recording.overlayUrl !== state.url) {
@@ -807,6 +815,13 @@ class PreviewController implements PreviewToolController {
       this.mode = undefined;
       this.publish();
     }
+  }
+
+  async hold(input: unknown): Promise<void> {
+    this.held = (input as { on?: unknown } | undefined)?.on === true;
+    this.heldUrl = "";
+    if (this.held) this.publish();
+    else await this.view?.evaluate(pageCall(previewSecretNote, false), true).catch(() => undefined);
   }
 
   private async showInputOverlay(surface: PreviewSurface): Promise<void> {
@@ -1111,6 +1126,7 @@ export function createPreviewHostExtension(
       context.registerCommand("import-sites", (input) => cookies.sites(input));
       context.registerCommand("import-cookies", (input) => cookies.import(input));
       context.registerCommand("import-open-access", () => cookies.openAccess());
+      context.registerCommand("hold", (input) => controller.hold(input));
       context.registerCommand("cookie-import-settled", (input) => { cookies.settle(input); });
       context.registerCommand("evidence-frame", (input) => {
         const width = field(input, "maxWidth");

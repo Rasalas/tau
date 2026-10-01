@@ -48,7 +48,6 @@ const CORE_PAGES: ReadonlyArray<{ page: CoreSettingsPage; label: string; keyword
       ["Reload files when they change", ["watch", "hot reload", "extensions", "packages", "themes", "config"]],
       ["Quit shortcut", ["quit", "cmd q", "hold", "press twice", "confirm", "confirmation"]],
       ["Ask before quitting while threads work", ["quit", "confirm", "confirmation", "running", "ask"]],
-      ["Update track", ["update", "updates", "nightly", "stable", "channel", "prerelease", "beta"]],
     ],
   },
   {
@@ -130,10 +129,12 @@ const CORE_PAGES: ReadonlyArray<{ page: CoreSettingsPage; label: string; keyword
   {
     page: "about",
     label: "About",
-    keywords: ["version", "licenses", "licences", "open source", "third party", "notices", "release notes", "updates"],
+    keywords: ["version", "licenses", "licences", "open source", "third party", "notices", "release notes", "updates", "diagnostics"],
     rows: [
-      ["Version", ["version", "build", "host version", "about tau"]],
-      ["Check for updates", ["update", "updates", "new release", "upgrade"]],
+      ["Version", ["version", "build", "host version", "about tau", "diagnostics"]],
+      ["Check for updates", ["update", "updates", "new release", "upgrade", "update now"]],
+      ["Automatic updates", ["update", "updates", "automatic", "auto update"]],
+      ["Pre-release builds", ["update track", "nightly", "stable", "channel", "prerelease", "beta"]],
       ["Open-source licenses", ["licenses", "licences", "third party", "notices", "credits"]],
     ],
   },

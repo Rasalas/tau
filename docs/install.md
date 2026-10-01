@@ -67,7 +67,7 @@ the same for every machine the window keeps, with **Update**. While a Tau
 window runs on a machine, that window installs as before: it downloads on its
 own and installs when you choose Restart or quit; Update now from elsewhere asks
 it to. "Check for updates…" in the application menu asks on demand, and
-Settings → General → Update track switches between stable releases and the
+Settings → About → Pre-release builds switches between stable releases and the
 nightly build of `main`.
 
 - **Linux `.deb`:** the package brings a small update helper and a polkit rule,

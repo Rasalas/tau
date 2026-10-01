@@ -13,8 +13,12 @@ export interface RailDragState {
   threadId: string;
   drop?: ThreadRailDrop;
   label?: string;
+  /** Another kit's drop target under the pointer: a machine (design 2f). */
+  target?: string;
   x: number;
   y: number;
+  /** Where the row was taken, and how wide it is, for the lifted card. */
+  grab: { x: number; y: number; width: number };
 }
 
 /** A pointer that travels less than this is a click, not a drag. */
@@ -53,38 +57,49 @@ function targetAt(x: number, y: number): RailPointerTarget | undefined {
 
 /**
  * Pointer-driven reordering for the rail. It works out where a thread would
- * land and asks the organizer what that means; the organizer decides.
+ * land and asks the organizer what that means; the organizer decides. A
+ * `[data-rail-drop]` under the pointer is another kit's target instead, and
+ * letting go there hands the thread to `onTarget`.
  */
-export function useRailDrag(organizer: ThreadRailOrganizer | undefined, sections: readonly ThreadRailSection[]) {
+export function useRailDrag(
+  organizer: ThreadRailOrganizer | undefined,
+  sections: readonly ThreadRailSection[],
+  onTarget?: (threadId: string, target: string) => void,
+) {
   const [drag, setDrag] = useState<RailDragState>();
-  const pressed = useRef<{ threadId: string; x: number; y: number } | undefined>(undefined);
+  const pressed = useRef<{ threadId: string; x: number; y: number; grab: RailDragState["grab"] } | undefined>(undefined);
   const dragging = useRef<RailDragState | undefined>(undefined);
   const suppressClickUntil = useRef(0);
-  const latest = useRef({ organizer, sections });
-  latest.current = { organizer, sections };
+  const latest = useRef({ organizer, sections, onTarget });
+  latest.current = { organizer, sections, onTarget };
+  const enabled = Boolean(organizer || onTarget);
 
   const onPointerDown = useCallback((event: ReactPointerEvent<HTMLElement>) => {
-    if (!organizer || event.button !== 0) return;
+    if (!enabled || event.button !== 0) return;
     const target = event.target as Element;
     if (target.closest(".thread-row-actions")) return;
     const row = target.closest<HTMLElement>("[data-rail-thread]");
     const threadId = row?.dataset.railThread;
-    if (threadId) pressed.current = { threadId, x: event.clientX, y: event.clientY };
-  }, [organizer]);
+    if (!row || !threadId) return;
+    const rect = row.getBoundingClientRect();
+    pressed.current = { threadId, x: event.clientX, y: event.clientY, grab: { x: event.clientX - rect.left, y: event.clientY - rect.top, width: rect.width } };
+  }, [enabled]);
 
   useEffect(() => {
-    if (!organizer) return;
+    if (!enabled) return;
     const set = (next: RailDragState | undefined) => { dragging.current = next; setDrag(next); };
     const move = (event: PointerEvent) => {
       const start = pressed.current;
       if (!start) return;
       if (!dragging.current && Math.hypot(event.clientX - start.x, event.clientY - start.y) < DRAG_THRESHOLD) return;
       const { organizer: current, sections: drawn } = latest.current;
-      if (!current) return;
+      const at = { threadId: start.threadId, x: event.clientX, y: event.clientY, grab: start.grab };
+      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-rail-drop]")?.dataset.railDrop;
+      if (target || !current) { set({ ...at, ...(target ? { target } : {}) }); return; }
       const over = targetAt(event.clientX, event.clientY);
       const drop = over ? railDropAt(drawn, over, start.threadId) : dragging.current?.drop;
       const label = drop ? current.dropLabel(start.threadId, drop) : undefined;
-      set({ threadId: start.threadId, x: event.clientX, y: event.clientY, ...(drop && label ? { drop, label } : {}) });
+      set({ ...at, ...(drop && label ? { drop, label } : {}) });
     };
     const up = () => {
       const state = dragging.current;
@@ -92,7 +107,8 @@ export function useRailDrag(organizer: ThreadRailOrganizer | undefined, sections
       if (!state) return;
       set(undefined);
       suppressClickUntil.current = Date.now() + CLICK_GRACE_MS;
-      if (state.drop && state.label) latest.current.organizer?.drop(state.threadId, state.drop);
+      if (state.target) latest.current.onTarget?.(state.threadId, state.target);
+      else if (state.drop && state.label) latest.current.organizer?.drop(state.threadId, state.drop);
     };
     const key = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || !dragging.current) return;
@@ -119,7 +135,7 @@ export function useRailDrag(organizer: ThreadRailOrganizer | undefined, sections
       window.removeEventListener("keydown", key, true);
       window.removeEventListener("click", click, true);
     };
-  }, [organizer]);
+  }, [enabled]);
 
   return { drag, onPointerDown };
 }

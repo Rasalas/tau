@@ -64,16 +64,18 @@ export function ReviewDetailFrame<Id extends string>({ title, label, meta, actio
       </header>
       {summary ? <div className="rvd-summary">{summary}</div> : null}
       {notices}
-      <div className="rvd-tabs">
-        <div role="tablist" aria-label="Review sections">
-          {tabs.map((entry) => (
-            <button key={entry.id} type="button" role="tab" aria-selected={tab === entry.id} className={tab === entry.id ? "active" : undefined} onClick={() => onTab(entry.id)}>
-              {entry.label}{entry.aside ? <span className="rvd-tab-aside">{entry.aside}</span> : null}
-            </button>
-          ))}
+      {tabs.length ? (
+        <div className="rvd-tabs">
+          <div role="tablist" aria-label="Review sections">
+            {tabs.map((entry) => (
+              <button key={entry.id} type="button" role="tab" aria-selected={tab === entry.id} className={tab === entry.id ? "active" : undefined} onClick={() => onTab(entry.id)}>
+                {entry.label}{entry.aside ? <span className="rvd-tab-aside">{entry.aside}</span> : null}
+              </button>
+            ))}
+          </div>
+          {toolbar ? <div className="rvd-toolbar">{toolbar}</div> : null}
         </div>
-        {toolbar ? <div className="rvd-toolbar">{toolbar}</div> : null}
-      </div>
+      ) : null}
       <div className="rvd-body" ref={scrollRef}>{children}</div>
     </article>
   );

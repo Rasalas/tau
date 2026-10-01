@@ -72,7 +72,7 @@ const FileBody = memo(function FileBody({ path, diff, read, version, layout, wra
  * only when it comes within a screen or two of the viewport, and a long one
  * scrolls inside its card so the diff view can keep to the rows in view.
  */
-export function ReviewDiffStack({ files, layout, wrap, diffs, read, version, lines, extra, onOpenInEditor, jump, onActive, unavailable, scroll }: {
+export function ReviewDiffStack({ files, layout, wrap, diffs, read, version, lines, extra, body, onOpenInEditor, jump, onActive, unavailable, scroll }: {
   files: readonly StackFile[];
   layout: "unified" | "split";
   wrap: boolean;
@@ -84,6 +84,8 @@ export function ReviewDiffStack({ files, layout, wrap, diffs, read, version, lin
   lines?: (path: string) => DiffLineSlot | undefined;
   /** Beside "Open in editor" in a file's header. */
   extra?: (file: StackFile) => ReactNode;
+  /** A file drawn otherwise than as its diff (a conflict's hunks to pick). */
+  body?: (file: StackFile) => ReactNode;
   onOpenInEditor?: (path: string) => void;
   /** A click on a file in the sidebar: another `at` scrolls to `path` again. */
   jump?: { path: string; at: number } | undefined;
@@ -157,9 +159,9 @@ export function ReviewDiffStack({ files, layout, wrap, diffs, read, version, lin
                 </button>
               ) : null}
             </header>
-            {closed ? null : drawn
+            {closed ? null : body?.(file) ?? (drawn
               ? <FileBody path={file.path} diff={diffs?.get(file.path)} read={read} version={version} layout={layout} wrap={wrap} lines={lines?.(file.path)} unavailable={unavailable} />
-              : <div className="rvd-loading" style={{ height: guess(file) }} aria-hidden="true" />}
+              : <div className="rvd-loading" style={{ height: guess(file) }} aria-hidden="true" />)}
           </section>
         );
       })}

@@ -14,6 +14,8 @@ export interface DetailFile {
   added: number;
   removed: number;
   conflict?: boolean;
+  /** A conflicting file's hunks to pick. */
+  hunks?: number;
 }
 
 /** A note collected on a diff line, kept until it is sent. */

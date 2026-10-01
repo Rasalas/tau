@@ -5,16 +5,12 @@
  * left to Tau's own controls, the warn and fail colours to states.
  */
 .usage-page { display: flex; flex-direction: column; gap: 36px; transition: opacity var(--panel-motion, 0ms) var(--ease); }
-.usage-page.refreshing .usage-kpis, .usage-page.refreshing .usage-history, .usage-page.refreshing .usage-ranks { opacity: .55; }
+.usage-page.refreshing :is(.usage-overview, .usage-ranks) { opacity: .55; }
 .usage-page .spacer { flex: 1; }
 .usage-page {
   --usage-tone: var(--provider-other);
 }
 .usage-page .provider-icon-stack { margin-left: 0; }
-/* One slot for a single mark or a pair, so the names line up. */
-/* The fanned-out stack's width for every row, a single mark centred in it, so the marks line up in their column. */
-.usage-rank-label > .provider-icon-stack { width: 33px; margin-left: 0; }
-.usage-rank-label > .provider-icon-stack.single { justify-content: center; }
 .usage-note { margin: 0; color: var(--muted); font-size: calc(var(--text-xs) + .5px); line-height: 1.5; }
 .usage-note[data-level="error"] { color: var(--warn); }
 
@@ -27,17 +23,49 @@
 .usage-icon-button:hover:not(:disabled) { background: var(--hover-strong); color: var(--ink); }
 .usage-icon-button:disabled { opacity: .5; cursor: default; }
 
-/* Three periods side by side, each a label, two figures and what they used. */
-.usage-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; }
-.usage-kpi { min-width: 0; }
-.usage-kpi > h3 { margin: 0 0 10px; color: var(--muted); font: 500 var(--text-xs) var(--sans); }
-.usage-kpi-figures { display: flex; gap: 28px; flex-wrap: wrap; }
-.usage-kpi-figures > p { margin: 0; display: flex; flex-direction: column; gap: 2px; }
-.usage-kpi-figures b { color: var(--ink); font: 600 calc(var(--text-display) + 2px)/1.1 var(--sans); letter-spacing: -.01em; }
-.usage-kpi-figures .plan b { color: var(--ink-2); font-weight: 500; }
-.usage-kpi-figures p[data-empty] b { color: var(--faint); font-weight: 500; }
-.usage-kpi-figures small { color: var(--muted-2); font-size: calc(var(--text-xs) - .5px); }
-.usage-kpi-detail { margin: 10px 0 0; color: var(--muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+/*
+ * Design 1h: four figures, the days, then providers beside projects, each on
+ * a surface card (the design's surface is Tau's --inset).
+ */
+.usage-overview { display: flex; flex-direction: column; gap: 12px; }
+.usage-card { min-width: 0; margin: 0; border-radius: 10px; background: var(--inset); }
+.usage-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.usage-stat { padding: 14px 16px; }
+.usage-stat > h3 { margin: 0; color: var(--muted); font: 400 calc(var(--text-xs) - 1px) var(--sans); }
+.usage-stat-value { width: max-content; margin: 4px 0 0; color: var(--ink); font: 600 calc(var(--text-display) + 2px)/1.1 var(--sans); letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.usage-stat-detail { margin: 4px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: calc(var(--text-xs) - .5px); }
+
+/* The period, as the design's quiet segment: the chosen one on a raised chip. */
+.usage-period { display: flex; gap: 2px; }
+.usage-period > button { display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--ink-3); font: var(--text-xs) var(--sans); cursor: pointer; white-space: nowrap; }
+.usage-period > button > span { padding: 3px 10px; border-radius: 6px; }
+.usage-period > button:hover { color: var(--ink); }
+.usage-period > button[aria-checked="true"] { color: var(--ink); font-weight: 600; }
+.usage-period > button[aria-checked="true"] > span { background: var(--inset); }
+.usage-period .short { display: none; }
+.usage-read:not([data-active]) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* By provider and By project: name, threads, figure; a provider's bar after its name. */
+.usage-tables { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: stretch; }
+.usage-table { display: flex; flex-direction: column; gap: 2px; padding: 12px 16px; font-size: calc(var(--text-sm) - .5px); }
+.usage-table-head, .usage-table li { display: grid; grid-template-columns: minmax(0, 1fr) 56px 72px; gap: 10px; align-items: center; }
+.usage-table-head { padding: 2px 0 6px; color: var(--muted); font-size: calc(var(--text-xs) - 1px); }
+.usage-table-head > span + span, .usage-table-threads, .usage-table-value { text-align: right; }
+.usage-table > ol { margin: 0; padding: 0; list-style: none; }
+.usage-table li { padding: 5px 0; }
+.usage-table-name { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--ink); }
+.usage-table-name > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usage-table-name > .provider-icon-stack { flex: none; margin: 0; }
+.usage-project-icon { flex: none; }
+.usage-table-bar { flex: none; width: 120px; height: 4px; overflow: hidden; border-radius: 2px; background: var(--track); }
+.usage-table-bar > i { display: block; height: 100%; background: var(--acid); }
+.usage-table-threads, .usage-table-value { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.usage-table-threads { color: var(--ink-3); }
+.usage-table-value { color: var(--ink); }
+.usage-costliest { margin: auto 0 0; padding-top: 8px; color: var(--muted); font-size: calc(var(--text-xs) - .5px); }
+.usage-costliest .usage-link { color: var(--acid-text); font-size: inherit; text-decoration: none; }
+.usage-costliest .usage-link:hover { text-decoration: underline; }
+.usage-costliest .usage-table-value { display: inline; color: inherit; font: inherit; }
 
 .usage-section { display: flex; flex-direction: column; gap: 14px; }
 .usage-section h2 { margin: 0; color: var(--ink); font: 600 var(--text-sm) var(--sans); }
@@ -139,8 +167,8 @@ body[data-profile="compact"] .usage-show-in-sidebar > button { min-height: var(-
 .usage-readings-point { fill: var(--usage-tone); }
 .usage-readings-axis { display: flex; justify-content: space-between; margin-top: 4px; color: var(--faint); font-size: calc(var(--text-xs) - 1.5px); }
 
-/* The days: the calendar beside the chart. */
-.usage-days { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 32px; align-items: start; }
+/* The days as a calendar: the rhythm of the last 90. */
+.usage-section > .usage-calendar { align-self: flex-start; }
 .usage-calendar {
   --usage-cell: 12px;
   margin: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -162,56 +190,36 @@ body[data-profile="compact"] .usage-show-in-sidebar > button { min-height: var(-
 .usage-calendar-key > i:last-child { margin-right: 3px; }
 .usage-runtimes > button { display: grid; place-items: center; min-width: 34px; }
 
-/* The days: columns on a baseline, three hairlines, dates under some. */
-.usage-history { margin: 0; display: flex; flex-direction: column; gap: 10px; }
-.usage-chart { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; height: 200px; padding-bottom: 22px; }
-.usage-chart-ticks { display: flex; flex-direction: column; justify-content: space-between; margin: -6px 0; color: var(--faint); font-size: calc(var(--text-xs) - 1.5px); font-variant-numeric: tabular-nums; text-align: right; }
-.usage-chart-plot { position: relative; min-width: 0; }
-.usage-chart-grid { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; pointer-events: none; }
-.usage-chart-grid > i { height: 1px; background: var(--line-soft); }
-.usage-chart-bars { position: absolute; inset: 0; margin: 0; padding: 0; list-style: none; display: flex; align-items: stretch; gap: 2px; }
-.usage-chart-day { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column-reverse; align-items: center; gap: 2px; outline: none; cursor: default; border-radius: 3px; }
+/* Design 1h's "Per day": columns on a baseline, API spend in the accent over plans in grey. */
+.usage-history { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px 10px; }
+.usage-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; color: var(--muted); font-size: var(--text-xs); }
+.usage-legend > b { color: var(--ink); font-weight: 600; }
+.usage-legend > span { display: inline-flex; align-items: center; gap: 5px; }
+.usage-legend i { width: 8px; height: 8px; border-radius: 2px; }
+:is(.usage-legend i, .usage-bar)[data-part="api"] { background: var(--acid); }
+:is(.usage-legend i, .usage-bar)[data-part="plan"] { background: light-dark(var(--fainter), var(--faint)); }
+.usage-chart-bars { display: flex; align-items: stretch; gap: 2px; height: 104px; margin: 0 0 18px; padding: 0; list-style: none; }
+.usage-chart-day { position: relative; flex: 1; min-width: 0; display: flex; outline: none; cursor: default; border-radius: 3px; }
 .usage-chart-day:hover, .usage-chart-day:focus-visible { background: var(--hover); }
 .usage-chart-day:focus-visible { box-shadow: 0 0 0 1px var(--line-focus); }
 .usage-chart-stack { display: flex; flex-direction: column-reverse; align-items: center; width: 100%; height: 100%; }
-.usage-bar { flex: none; width: min(100%, 24px); min-height: 2px; background: var(--usage-tone); }
-.usage-bar:last-child { border-radius: 4px 4px 0 0; }
-.usage-bar.plan { background: color-mix(in srgb, var(--usage-tone) 42%, var(--shell)); }
-.usage-chart-date { position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); color: var(--faint); font-size: calc(var(--text-xs) - 1.5px); white-space: nowrap; }
-.usage-chart-day:last-child .usage-chart-date { left: auto; right: 0; transform: none; }
-.usage-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; color: var(--muted); font-size: calc(var(--text-xs) - .5px); }
-.usage-legend > span { display: inline-flex; align-items: center; gap: 6px; }
-.usage-legend i { width: 10px; height: 10px; border-radius: 2px; background: var(--usage-tone); }
-.usage-legend-other { color: var(--muted); }
-.usage-legend i.plan { background: color-mix(in srgb, var(--ink-3) 42%, var(--shell)); }
+.usage-bar { flex: none; width: min(78%, 22px); min-height: 2px; border-radius: 2px; }
+.usage-bar + .usage-bar { border-radius: 2px 2px 0 0; }
+.usage-chart-stack > .usage-bar:first-child:not(:last-child) { border-radius: 0 0 2px 2px; }
+.usage-chart-date { position: absolute; top: calc(100% + 4px); left: 0; color: var(--muted); font-size: calc(var(--text-xs) - 1.5px); white-space: nowrap; }
 .usage-table-view > summary { width: max-content; color: var(--muted); font-size: calc(var(--text-xs) - .5px); cursor: pointer; }
 .usage-table-view > summary:hover { color: var(--ink-2); }
 .usage-day-table { margin-top: 8px; }
 .usage-number { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-/* Rankings: name, a bar against the first, the figures. */
-.usage-ranks { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 28px 36px; margin-top: 12px; }
-.usage-rank { min-width: 0; }
-.usage-rank > h3 { margin: 0 0 8px; color: var(--muted); font: 500 var(--text-xs) var(--sans); }
-.usage-rank > ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.usage-rank li { display: grid; grid-template-columns: minmax(0, 1fr) 72px auto; align-items: center; gap: 12px; min-height: 40px; }
-.usage-rank-label { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 6px; margin-left: -6px; border: 0; border-radius: var(--radius-sm); background: transparent; color: inherit; font: inherit; text-align: left; }
-button.usage-rank-label { cursor: pointer; }
-button.usage-rank-label:hover { background: var(--hover); }
-.usage-rank-name { display: flex; flex-direction: column; min-width: 0; }
-.usage-rank-name > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-size: calc(var(--text-sm) + .5px); font-weight: 500; }
-.usage-rank-name > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: calc(var(--text-xs) - 1px); }
-.usage-rank-name > small.usage-origin { display: flex; align-items: center; gap: 4px; }
-.usage-rank-name > small.usage-origin > svg { flex: none; }
-.usage-rank-bar { display: flex; gap: 2px; height: 6px; }
-.usage-rank-bar > i { height: 100%; min-width: 2px; background: var(--usage-tone); }
-.usage-rank-bar > i:first-child { border-radius: 3px 0 0 3px; }
-.usage-rank-bar > i:last-child { border-radius: 0 3px 3px 0; }
-.usage-rank-bar > i:only-child { border-radius: 3px; }
-.usage-rank-bar > i.plan { background: color-mix(in srgb, var(--usage-tone) 42%, var(--shell)); }
-.usage-rank-value { display: flex; flex-direction: column; align-items: flex-end; min-width: 64px; font-size: calc(var(--text-sm) + .5px); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.usage-rank-value b { color: var(--ink); font-weight: 600; }
-.usage-rank-value em { color: var(--muted); font-style: normal; }
+/* Tau's own rankings under the limits: models and threads, as the design's tables. */
+.usage-ranks { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-top: 4px; }
+.usage-table[data-counts="false"] :is(.usage-table-head, li) { grid-template-columns: minmax(0, 1fr) 72px; }
+/* A pair of marks takes the fanned stack's width, so names line up. */
+.usage-ranks .usage-table-name > .provider-icon-stack { width: 33px; }
+.usage-ranks .usage-table-name > .provider-icon-stack.single { justify-content: center; }
+.usage-table-name > button { flex: 1; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.usage-table-name > button:hover { color: var(--acid-text); }
 
 .usage-footer { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; padding-top: 4px; color: var(--muted-2); font-size: calc(var(--text-xs) - .5px); }
 .usage-link { border: 0; background: transparent; padding: 0; color: var(--ink-3); font-size: var(--text-xs); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
@@ -246,13 +254,22 @@ button.usage-rank-label:hover { background: var(--hover); }
 @container (max-width: 640px) {
   .usage-price-add { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .usage-price-add > :first-child, .usage-price-add > button { grid-column: 1 / -1; }
-  .usage-kpis { grid-template-columns: minmax(0, 1fr); gap: 18px; }
-  .usage-kpi > h3 { margin-bottom: 6px; }
-  .usage-kpi-figures b { font-size: calc(var(--text-title) + 4px); }
-  .usage-kpi-detail { margin-top: 6px; }
+  /* The head: the period and Filters on their own row under the bar's title, the description full width below. */
+  .settings-content[data-page="usage"] > .settings-page-head { grid-template-columns: minmax(0, 1fr); }
+  .settings-content[data-page="usage"] > .settings-page-head > .settings-page-action { order: -1; justify-content: flex-end; }
+  .usage-period > button > .long, .usage-period > button[data-range="all"], .usage-read { display: none; }
+  .usage-period > button > .short { display: block; padding-inline: 9px; }
+  .usage-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .usage-tables { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .usage-stat:nth-child(n + 3) { display: none; }
+  .usage-stat { padding: 12px 14px; }
+  .usage-stat-value { margin-top: 3px; font-size: calc(var(--text-display) - 2px); }
+  .usage-history, .usage-table { padding-inline: 14px; }
+  .usage-table-head, .usage-table li { grid-template-columns: minmax(0, 1fr) 64px; gap: 8px; }
+  .usage-table-head > :nth-child(2), .usage-table-threads { display: none; }
+  .usage-table-bar { width: 80px; }
   .usage-accounts { grid-template-columns: minmax(0, 1fr); }
   .usage-account { padding: 16px; }
-  .usage-days { grid-template-columns: minmax(0, 1fr); gap: 24px; }
   .usage-calendar {
     --usage-cell: 17px;
   }
@@ -261,10 +278,11 @@ button.usage-rank-label:hover { background: var(--hover); }
 /* Touch: every control a finger reaches is 44 px tall. */
 @media (pointer: coarse) {
   .usage-icon-button { width: 44px; height: 44px; }
+  .usage-period > button { min-width: 44px; min-height: 44px; }
   .usage-segmented > button { min-height: 44px; min-width: 44px; }
   .usage-link { min-height: 44px; }
   .usage-table-view > summary, .usage-readings > summary { box-sizing: border-box; min-height: 44px; padding-block: 12px; }
-  button.usage-rank-label { min-height: 44px; }
+  .usage-table-name > button { min-height: 44px; }
 }
 
 /*
@@ -341,10 +359,14 @@ button.usage-rank-label:hover { background: var(--hover); }
 .usage-jumps > a { color: var(--muted-2); font-size: var(--text-xs); text-decoration: none; }
 .usage-jumps > a:hover { color: var(--ink-2); text-decoration: underline; text-underline-offset: 2px; }
 
-/* Without a sidebar the month and the filters top the page. */
-.usage-topbar { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px 24px; }
-.usage-topbar > .usage-month { padding: 0; }
-.usage-topbar-filters { display: flex; flex-wrap: wrap; gap: 8px 10px; }
+/* Without a sidebar: the month, the filters and the read in a sheet (design 1r). */
+.usage-sheet .touch-sheet-content { display: flex; flex-direction: column; gap: 18px; padding: 2px 4px 8px; }
+.usage-sheet .usage-month { padding: 0; }
+.usage-sheet-group { display: flex; flex-direction: column; gap: 8px; }
+.usage-sheet-group > h3 { margin: 0; color: var(--muted); font: 600 var(--text-sm) var(--sans); }
+.usage-sheet-group > .segmented { align-self: flex-start; max-width: 100%; overflow-x: auto; }
+.usage-sheet-read { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; color: var(--muted); font-size: var(--text-xs); }
+.usage-sheet-read > .mini-button { display: inline-flex; flex: none; align-items: center; gap: 6px; min-height: var(--touch-target); white-space: nowrap; }
 
 /* Mobile uses the desktop's bars beside the thread-list title. */
 .usage-juicestrip {
@@ -352,3 +374,7 @@ button.usage-rank-label:hover { background: var(--hover); }
   padding: 0 7px; border: 0; border-radius: 10px; background: transparent; cursor: pointer;
 }
 .usage-juicestrip:active { background: var(--hover-strong); }
+/* This month's cost beside the bars (design 1a). */
+.usage-month-cost { padding: 4px 8px 4px 4px; border: 0; border-radius: 6px; background: none; color: var(--muted); font: var(--text-xs) var(--mono); cursor: pointer; white-space: nowrap; }
+.usage-month-cost:hover { color: var(--ink-2); }
+.sidebar-footer button.usage-month-cost { width: auto; }
