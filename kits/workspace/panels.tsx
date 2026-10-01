@@ -213,6 +213,7 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
   const inSheet = placement === "sheet";
   const onStage = placement === "stage";
   const [reading, setReading] = useState<string>();
+  const [preview, setPreview] = useState<string>();
   const [view, setViewState] = useState<"changed" | "all">(() => changes.files.length > 0 ? "changed" : "all");
   // Until a view is picked, the changes the host reports after the tab opened bring Changed to the front.
   const picked = useRef(false);
@@ -228,11 +229,12 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
     setFileView("diff");
     if (filesFocus.path) setReading(filesFocus.path);
   }, [filesFocus?.token]);
-  const refreshFiles = () => workspaceStore.refreshFiles();
+  // The changes too: Changed / All read both.
+  const refreshFiles = () => Promise.all([workspaceStore.refreshFiles(), workspaceStore.refreshChanges()]);
   const loadFiles = (path: string) => workspaceStore.loadFiles(path);
   const readFile = useCallback((path: string) => workspaceStore.host.readFile(path, workspaceStore.workspace()), [workspaceStore]);
   const readDiff = useCallback((path: string) => workspaceStore.host.getFileDiff(path, undefined, workspaceStore.workspace()), [workspaceStore]);
-  useEffect(() => { if (active) void workspaceStore.refreshFiles(); }, [active, cwd, workspaceStore]);
+  useEffect(() => { if (active) void refreshFiles(); }, [active, cwd, workspaceStore]); // eslint-disable-line react-hooks/exhaustive-deps
   // Another project's paths name other files; the first render keeps what a focus request picked.
   const shownCwd = useRef(cwd);
   useEffect(() => {
@@ -308,17 +310,34 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
     </section>;
   }
 
+  // A phone's sheet: Changed / All, and the shownChange change's diff under the list (design 2l).
+  const changed = inSheet && view === "changed";
+  const shownChange = changed ? changes.files.find((file) => file.path === (preview ?? changes.files[0]?.path)) : undefined;
   // The tree stays mounted under the file, so back finds its folders as they were.
   return <section className="panel-body files-panel">
     {inSheet && reading ? <FileReader path={reading} load={readFile} onBack={() => setReading(undefined)} /> : null}
     <header className="panel-header" hidden={Boolean(inSheet && reading)}>
       {/* The sheet's own header names it already. */}
-      {inSheet ? null : <h2>Files</h2>}
+      {inSheet ? <>
+        <span className="files-sheet-scope">{[workspace?.branch, changes.files.length ? `${changes.files.length} changed` : ""].filter(Boolean).join(" · ")}</span>
+        <div className="files-explorer-view" role="group" aria-label="Show">
+          <button type="button" className={view === "changed" ? "active" : ""} aria-pressed={view === "changed"} onClick={() => setView("changed")}>Changed</button>
+          <button type="button" className={view === "all" ? "active" : ""} aria-pressed={view === "all"} onClick={() => setView("all")}>All</button>
+        </div>
+      </> : <h2>Files</h2>}
       <span className="spacer" />
       {goToFile}
       <button type="button" className="icon-button files-panel-search" aria-label="Refresh files" {...tooltipProps("Refresh files", { side: "bottom" })} onClick={() => void refreshFiles()}><RotateCw size={touch ? 18 : 14} /></button>
     </header>
-    <div className="files-panel-tree" hidden={Boolean(inSheet && reading)}>{tree}</div>
+    <div className="files-panel-tree" hidden={Boolean(inSheet && reading)}>
+      {changed ? <ChangedTree files={changes.files} current={shownChange?.path} onOpen={setPreview} onPin={setReading} /> : tree}
+    </div>
+    {shownChange && !reading ? <div className="files-sheet-preview">
+      <button type="button" className="files-sheet-preview-head" aria-label={`Read ${shownChange.path}`} onClick={() => setReading(shownChange.path)}>
+        <span>{shownChange.name}</span><span className="stat-add">+{shownChange.added}</span><span className="stat-del">−{shownChange.removed}</span>
+      </button>
+      <FileDiffPane path={shownChange.path} load={readDiff} />
+    </div> : null}
   </section>;
 }
 

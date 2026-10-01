@@ -733,3 +733,20 @@ button.thread-card-row:hover, button.thread-card-row:focus-visible { color: var(
 .fresh-start-keys kbd { min-width: 18px; padding: 1px 6px; border-radius: 5px; background: var(--rail); box-shadow: 0 1px 0 var(--line-strong); color: var(--ink); font: 11px var(--mono); text-align: center; }
 .fresh-start-providers { gap: 8px; margin: 8px 0 0; }
 .fresh-start-providers button { padding: 0; border: 0; background: none; color: var(--acid-text); font: inherit; cursor: pointer; }
+
+/* A phone's Files sheet (design 2l): branch and count beside Changed / All, the picked change's diff under the list. */
+.files-sheet-scope { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: var(--text-sm) var(--sans); }
+.files-panel > .panel-header .files-sheet-scope + .files-explorer-view { margin-left: auto; }
+.files-panel > .panel-header:has(.files-sheet-scope) > .spacer { display: none; }
+.files-changed-list .file-row.active { background: var(--hover-strong); }
+.files-changed-list .file-row > em { margin-left: auto; font-style: normal; }
+.files-sheet-preview {
+  flex: none; max-height: 42%; display: flex; flex-direction: column; margin: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+  border-radius: 12px; overflow: hidden; background: var(--field);
+}
+.files-sheet-preview-head {
+  flex: none; display: flex; align-items: center; gap: 8px; min-height: var(--touch-target, 44px); padding: 0 14px;
+  border: 0; background: transparent; color: var(--muted); font: var(--text-sm) var(--mono); text-align: left; cursor: pointer;
+}
+.files-sheet-preview-head > span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.files-sheet-preview > .files-diff { overflow: auto; }
