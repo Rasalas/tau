@@ -1,0 +1,66 @@
+# Debug-only preview of the TauWidgets extension and its Live Activity in the iOS Simulator.
+# It compiles the shipping widget and plugin sources unchanged; nothing here is part of a release.
+#   xcodegen generate --spec project.yml   (https://github.com/yonaskolb/XcodeGen)
+#   SHOTS=/tmp/widget-shots; mkdir -p $SHOTS
+#   TEST_RUNNER_SHOTS=$SHOTS xcodebuild -project TauWidgetPreview.xcodeproj -scheme Driver \
+#     -destination "id=<your own simulator>" test -only-testing:Driver/Driver/testHomeWidgets
+# Then testLiveActivities. Use a fresh simulator: the driver edits its home screen.
+# Dark home screen: `xcrun simctl ui <udid> appearance dark`, then `xcrun simctl io <udid> screenshot`.
+name: TauWidgetPreview
+options:
+  deploymentTarget: { iOS: "17.0" }
+settings:
+  base:
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+    SWIFT_VERSION: "5.0"
+targets:
+  Harness:
+    type: application
+    platform: iOS
+    sources:
+      - Harness
+      - path: ../../plugins/tau-native/ios/Sources/TauNativePlugin/MobileActivity.swift
+      - path: ../../plugins/tau-native/ios/Sources/TauNativePlugin/ActivityCipher.swift
+    info:
+      path: Harness/Info.plist
+      properties:
+        CFBundleDisplayName: Tau
+        UILaunchScreen: {}
+        NSSupportsLiveActivities: true
+    entitlements:
+      path: Harness/Harness.entitlements
+      properties:
+        com.apple.security.application-groups: [group.de.tbuck.tau]
+        # Activity.request(pushType: .token) fails without it, also in the simulator.
+        aps-environment: development
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: de.tbuck.tau
+        PRODUCT_NAME: Tau
+    dependencies:
+      - target: TauWidgets
+  TauWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ../App/TauWidgets/TauWidgets.swift
+      - path: ../../plugins/tau-native/ios/Sources/TauNativePlugin/ActivityCipher.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: de.tbuck.tau.widgets
+        INFOPLIST_FILE: ../App/TauWidgets/Info.plist
+        CODE_SIGN_ENTITLEMENTS: ../App/TauWidgets/TauWidgets.entitlements
+        MARKETING_VERSION: "0.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+  Driver:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [Driver]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: de.tbuck.tau.widgetdriver
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: Harness
