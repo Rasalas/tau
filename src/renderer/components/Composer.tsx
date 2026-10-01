@@ -1,6 +1,6 @@
 import { useClientEnvironment } from "../client-environment";
 import { lazy, Suspense, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import { ArrowUp, ChevronDown, Lock, Paperclip, Shrink, Sparkles, Terminal } from "lucide-react";
+import { ArrowUp, ChevronDown, Lock, Paperclip, Shrink, Sparkles, Terminal, Undo2, Zap } from "lucide-react";
 import type {
   ExtensionUiPrompt,
   HostSnapshot,
@@ -15,13 +15,15 @@ import type {
 } from "../../shared/contracts";
 import { WorkbenchShellContext } from "../workbench-context";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
-import { AttachmentLightbox, ComposerMenuItem, ExtensionPrompt } from "../deferred-surfaces";
+import { AttachmentLightbox, ComposerMenuItem, ExtensionPrompt, ThinkingMenu } from "../deferred-surfaces";
 import { tooltipProps } from "./ui/Tooltip";
-import { modelKey } from "./model-offerings";
+import { contextChoices, formatTokens, modelFamily, modelKey } from "./model-offerings";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { DEFAULT_RUNTIME, modelOnPlan } from "../runtime-marks";
 import { usePreferences } from "../renderer-services-context";
-import { useRuntimeCatalogs } from "../use-runtime-catalog";
+import { useRuntimeCatalog, useRuntimeCatalogs } from "../use-runtime-catalog";
+import { catalogLevels } from "../../workbench/runtime-catalog-store";
+import { useComposerSpeed } from "./composer-speed";
 import { PromptSubmitContext, type PromptSubmitAction } from "./prompt-submit";
 import { usePromptArrival } from "./use-prompt-arrival";
 import { LazyFeatureBoundary } from "./LazyFeature";
@@ -62,8 +64,7 @@ import { ComposerFooterControls, type FooterBlock } from "./ComposerFooterContro
 import { composerEnter, sendHint, sendShortcutFor } from "./composer-send-keys";
 import { onScreenKeyboardShown, primaryPointerIsTouch } from "../touch-input";
 import { takePasteAsText } from "../paste-as-text";
-import { THINKING_LABELS } from "../thinking-levels";
-import type { ThinkingChoice } from "./ModelPicker";
+import { THINKING_LABELS, carriedLevel } from "../thinking-levels";
 import type { ComposerGateContext, ComposerGateContribution, ComposerInlineContext, ComposerTriggerItem, ModelSelectionContribution } from "../extension-system";
 
 export {
@@ -108,7 +109,7 @@ const MAX_COMPOSER_HEIGHT = 220;
 
 /** How a level reads in the footer, where it stands without the menu's heading. */
 function thinkingLabel(level: string): string {
-  return level === "off" ? "Reasoning off" : THINKING_LABELS[level] ?? level;
+  return level === "off" ? "Thinking off" : THINKING_LABELS[level] ?? level;
 }
 
 export type SubmitResult = SubmissionResult;
@@ -176,8 +177,8 @@ export function Composer({
   onSetThinking(level: string): void;
   /** Offered while the composer targets a thread that does not exist yet. */
   runtimeChoice?: ComposerRuntimeChoice;
-  /** Starts a new thread on another runtime, which an existing thread cannot change to; on `model` when one was chosen. */
-  onNewThreadOnRuntime?(kind: ThreadBackendKind, model?: UiModel): void;
+  /** Starts a new thread on another runtime, which an existing thread cannot change to; on `model` when one was chosen. `via` carries the thread over ("Continue in…"). */
+  onNewThreadOnRuntime?(kind: ThreadBackendKind, model?: UiModel, via?: (kind: ThreadBackendKind) => void): void;
   prompt?: ExtensionUiPrompt;
   promptsPending?: number;
   /** `typed` is set when the answer came from the text field rather than a choice. */
@@ -445,10 +446,14 @@ export function Composer({
       textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
     });
   };
-  // "thinking": opened from the reasoning level, with the focus on the picker's thinking column.
-  const [modelPickerOpen, setModelPickerOpen] = useState<boolean | "thinking">(false);
-  const runtimeCatalogs = useRuntimeCatalogs(modelPickerOpen !== false);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [thinkingOpen, setThinkingOpen] = useState(false);
+  const runtimeCatalogs = useRuntimeCatalogs(modelPickerOpen);
   const modelChipRef = useRef<HTMLButtonElement>(null);
+  const thinkingChipRef = useRef<HTMLButtonElement>(null);
+  // A choice that cost the thread its level or Fast says so above the composer, with Undo (K142, from D).
+  const [adjusted, setAdjusted] = useState<{ parts: readonly string[]; undo(): void }>();
+  const fastWatch = useRef<{ key: string; until: number; undo(): void }>(undefined);
   const frameRef = useRef<HTMLDivElement>(null);
   const modelChosenRef = useRef(false);
   const preferences = usePreferences();
@@ -496,9 +501,10 @@ export function Composer({
   };
   const chooseModel = (model: UiModel, from?: ThreadBackendKind) => {
     const runtime = from ?? snapshot?.backendKind;
-    // A thread keeps its runtime; another runtime's model means a thread of its own.
+    // A thread keeps its runtime; another runtime's model means a thread of its own, carried over where a kit can.
     if (from && from !== snapshot?.backendKind && !runtimeChoice) {
-      onNewThreadOnRuntime?.(from, model);
+      const carry = runtimeActions[0];
+      onNewThreadOnRuntime?.(from, model, carry ? (kind) => carry.run(kind) : undefined);
       return;
     }
     let passed = false;
@@ -506,7 +512,27 @@ export function Composer({
       { action: "model", model, ...(runtime ? { runtime } : {}), ...(newThread ? { newThread: true } : {}), ...(snapshot ? { snapshot } : {}) },
       () => {
         passed = true;
+        const before = { model: snapshot?.model, level: snapshot?.thinkingLevel, runtime: runtimeChoice?.kind ?? snapshot?.backendKind };
+        const wasFast = speed.state?.fast === true && speed.state.available;
         applyModel(model, runtime);
+        // The level carries over, or the next lower one the model has.
+        const cached = runtimeCatalogs.get(runtime ?? DEFAULT_RUNTIME);
+        const levels = catalogLevels(cached?.status === "ready" ? cached.catalog : undefined, model);
+        const parts: string[] = [];
+        // Only a level that was chosen: a model without levels reports "off".
+        if (before.level && levels.length > 0 && thinkingSelectionAvailable) {
+          const next = carriedLevel(before.level, levels);
+          onSetThinking(next);
+          if (next !== before.level) parts.push(`Thinking is ${thinkingLabel(next)} now: ${model.name} has no ${thinkingLabel(before.level)}.`);
+        }
+        const undo = () => {
+          setAdjusted(undefined);
+          fastWatch.current = undefined;
+          if (before.model) applyModel(before.model, before.runtime);
+          if (before.level) onSetThinking(before.level);
+        };
+        setAdjusted(parts.length ? { parts, undo } : undefined);
+        fastWatch.current = wasFast ? { key: modelKey(model), until: Date.now() + 5000, undo } : undefined;
         // The popover hands focus back to its chip; with a model chosen, the prompt is next once it closes.
         modelChosenRef.current = true;
       },
@@ -606,12 +632,29 @@ export function Composer({
   const thinkingSelectionAvailable = !runtimeOwnsModel && !draftOnOtherRuntime && (snapshot?.thinkingLevels.length ?? 0) > 1;
   const composerControls = registry?.getComposerControls() ?? [];
   const runtimeLabel = runtimeChoice?.backends.find((backend) => backend.kind === runtimeChoice.kind)?.label ?? runtimeChoice?.kind ?? "";
-  // The picker's third column: the reasoning of the model in use, where this thread can set it.
-  const pickerThinking: ThinkingChoice = runtimeOwnsModel || draftOnOtherRuntime ? { levels: [] } : {
-    levels: snapshot?.thinkingLevels ?? [],
-    level: snapshot?.thinkingLevel,
-    onSelect: (level) => { onSetThinking(level); modelChosenRef.current = true; },
-  };
+  const speed = useComposerSpeed(registry?.getComposerSpeeds?.(), draftOnOtherRuntime ? undefined : snapshot);
+  // The context windows of the model in use: its `[1m]` twin and the like, with the catalog's sizes once asked.
+  const inUse = modelSelectionAvailable ? snapshot?.model : undefined;
+  const twins = inUse ? snapshot!.models.filter((model) => model.provider === inUse.provider && modelFamily(model) === modelFamily(inUse)) : [];
+  const twinEntry = useRuntimeCatalog(twins.length > 1 ? snapshot?.backendKind ?? DEFAULT_RUNTIME : undefined);
+  const twinCatalog = twinEntry?.status === "ready" ? twinEntry.catalog : undefined;
+  const contexts = contextChoices(twins.map((model) => Object.assign({}, twinCatalog?.models.find((listed) => listed.provider === model.provider && listed.id === model.id), model)), inUse);
+  const contextLabel = (tokens: number) => tokens ? formatTokens(tokens) : "Standard";
+  const contextNow = contexts.find((choice) => choice.model.id === inUse?.id);
+  useEffect(() => {
+    const watch = fastWatch.current;
+    const state = speed.state;
+    if (!watch || !state || !snapshot?.model || modelKey(snapshot.model) !== watch.key) return;
+    if (Date.now() > watch.until) { fastWatch.current = undefined; return; }
+    if (state.fast && state.available) return;
+    fastWatch.current = undefined;
+    setAdjusted((shown) => ({ parts: [...shown?.parts ?? [], `Fast is off: ${state.reason ?? `${snapshot.model?.name} has no Fast tier`}.`], undo: watch.undo }));
+  }, [snapshot?.model, speed.state]);
+  useEffect(() => {
+    if (!adjusted) return undefined;
+    const timer = setTimeout(() => setAdjusted(undefined), 12_000);
+    return () => clearTimeout(timer);
+  }, [adjusted]);
   const { preview, setPreviewId, clearPreviewForScope, addFiles } = useComposerAttachments({
     scopeStore,
     scope: attachmentScope,
@@ -774,8 +817,14 @@ export function Composer({
   });
 
   const attachAvailable = supportsImageInput || inlineTakesFiles;
-  // A model without reasoning levels shows none; a runtime that picks its own still says which.
+  // A model without thinking levels shows none; a runtime that picks its own still says which.
   const thinkingLevel = thinkingSelectionAvailable || (runtimeOwnsModel && !draftOnOtherRuntime) ? snapshot?.thinkingLevel : undefined;
+  const fastOn = speed.state?.fast === true && speed.state.available;
+  const thinkingChoosable = thinkingSelectionAvailable || contexts.length > 1 || speed.state?.available === true;
+  // "High · 1M ⚡" (T3): the level, the context window where there is a choice, Fast while it is on.
+  const thinkingWords = [thinkingLevel ? thinkingLabel(thinkingLevel) : undefined, contextNow ? contextLabel(contextNow.tokens) : undefined].filter(Boolean).join(" · ")
+    || (speed.state?.available ? (fastOn ? "Fast" : "Standard") : "");
+  const thinkingSummary = <>{thinkingWords}{fastOn ? <Zap size={12} fill="currentColor" className="composer-fast" aria-label="Fast" /> : null}</>;
   const menuControls = composerControls.filter((control) => control.placement === "menu");
   const leadControls = composerControls.filter((control) => control.placement === "lead");
   const menuShortcuts = menuControls.flatMap((control) => control.shortcuts ?? []);
@@ -783,20 +832,22 @@ export function Composer({
   // Kits' chips fold into the menu first; attach lives there (and in drag and paste).
   const contextPercent = contextUsage ? Math.round(Math.min(100, Math.max(0, contextUsage.percent))) : 0;
   const footerBlocks: FooterBlock[] = [
-    ...(thinkingLevel ? [{ id: "reasoning", rank: 3, node: (
+    ...(thinkingWords ? [{ id: "reasoning", rank: 3, node: (
       <button
+        ref={thinkingChipRef}
         className="runtime-chip composer-thinking-chip"
         data-composer-shortcut="composer.effort"
-        disabled={!thinkingSelectionAvailable}
-        {...tooltipProps(thinkingSelectionAvailable
-          ? "Reasoning"
-          : runtimeOwnsModel ? "This runtime controls reasoning itself." : "Reasoning controls are unavailable.", { shortcut: thinkingSelectionAvailable ? registry?.keybindingLabel?.("runtime.cycle-thinking") : undefined })}
-        aria-label={thinkingSelectionAvailable ? `Reasoning: ${thinkingLabel(thinkingLevel)}` : "Reasoning controls unavailable"}
-        aria-expanded={modelPickerOpen === "thinking"}
+        disabled={!thinkingChoosable}
+        {...tooltipProps(thinkingChoosable
+          ? "Thinking, context window and speed"
+          : runtimeOwnsModel ? "This runtime sets thinking itself." : "Thinking controls are unavailable.", { shortcut: thinkingChoosable ? registry?.keybindingLabel?.("composer.effort") : undefined })}
+        aria-label={thinkingChoosable ? `Thinking: ${thinkingWords}${fastOn ? ", Fast" : ""}` : "Thinking controls unavailable"}
+        aria-expanded={thinkingOpen}
         aria-haspopup="dialog"
-        onClick={() => { if (thinkingSelectionAvailable) setModelPickerOpen((open) => open === "thinking" ? false : "thinking"); }}
+        onClick={() => { if (thinkingChoosable) { setModelPickerOpen(false); setThinkingOpen((open) => !open); } }}
       >
-        {thinkingLabel(thinkingLevel)}
+        {/* No icon of its own in the row, so a narrow footer never folds the level away. */}
+        <span className="composer-thinking-words">{thinkingSummary}{thinkingChoosable ? <ChevronDown size={12} className="chev" /> : null}</span>
       </button>
     ) }] : []),
     ...composerControls.filter((control) => control.placement === undefined || control.placement === "toolbar").map((control) => ({ id: control.id, node: (
@@ -881,6 +932,12 @@ export function Composer({
         );
       })() : null}
       {notice}
+      {adjusted ? (
+        <div className="composer-adjusted" role="status">
+          <span>{adjusted.parts.join(" ")}</span>
+          <button type="button" onClick={adjusted.undo}><Undo2 size={13} aria-hidden />Undo</button>
+        </div>
+      ) : null}
       <div
         ref={frameRef}
         className={`composer-frame ${prompt ? "stacked" : ""} ${answerable ? "answering" : ""}`}
@@ -1206,12 +1263,27 @@ export function Composer({
             runtimeActions={runtimeActions}
             badges={registry?.getModelBadges?.()}
             multiSelect={gatedModelSet}
-            thinking={pickerThinking}
-            {...(modelPickerOpen === "thinking" ? { focus: "thinking" as const } : {})}
+            {...(thinkingChoosable ? { thinkingSummary, onOpenThinking: () => { setModelPickerOpen(false); setThinkingOpen(true); } } : {})}
             anchor={modelChipRef}
             placeAgainst={frameRef}
           />
         </Suspense>
+      ) : null}
+      {thinkingOpen && thinkingChoosable ? (
+        <ThinkingMenu
+          anchor={thinkingChipRef.current ? thinkingChipRef : modelChipRef}
+          sheet={document.body.dataset.profile === "compact" && window.innerWidth < 700}
+          snapshot={snapshot}
+          levels={thinkingSelectionAvailable ? snapshot?.thinkingLevels ?? [] : []}
+          ownsThinking={runtimeOwnsModel}
+          onLevel={onSetThinking}
+          contexts={contexts}
+          onContext={(twin) => { if (twin.id !== inUse?.id) chooseModel(twin); }}
+          speed={speed.state}
+          onSpeed={speed.set}
+          keys={{ open: registry?.keybindingLabel?.("composer.effort"), cycle: registry?.keybindingLabel?.("runtime.cycle-thinking") }}
+          onClose={() => setThinkingOpen(false)}
+        />
       ) : null}
       {openGate ? (
         <div className="palette-backdrop composer-gate" onMouseDown={cancelGate} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); cancelGate(); } }}>

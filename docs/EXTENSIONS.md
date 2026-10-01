@@ -840,6 +840,17 @@ a model it answers `true` for wears `label` after its name (`tone: "warning"`
 draws it in the caution colours, `title` is its hover text). `note` is one line
 under the list, shown while any listed model wears the badge.
 
+`registerComposerSpeed({ id, order?, read, subscribe, set })` gives a runtime's faster
+tier to the composer's thinking chip (K142): core draws ⚡ in the chip while it is
+on and a Speed section (Standard / Fast) in the chip's menu and the phone's
+Thinking sheet. `read(snapshot)` answers `{ fast, available, reason?, detail? }`
+for the thread, or `undefined` for a thread of another runtime; it answers from
+what the kit holds, returns the same object until something changes, and calls
+the `subscribe` listener once it knows more. `set(fast, snapshot)` switches it.
+Where no kit answers, the menu shows Fast greyed with "<runtime> offers no Fast
+tier". Service Tier Kit (Pi) and Codex Kit use it; neither puts Fast in the "…"
+menu any more.
+
 `registerRegion({ placement: "thread-title", … })` draws before the thread's
 title in the conversation header — a mark about the thread on screen, which
 reads the `snapshot` it is given. `title-bar` is the thread header's end,
@@ -2146,16 +2157,17 @@ it) and its images with `composerImages()` and `setComposerImages(images)`, the
 them; Composer Context's are reached through its chip service.
 
 The composer's footer is one slim row (API 1.27.0, the workbench design):
-the model chip with its marks, the reasoning level as text, the controls a
+the model chip with its marks, the thinking chip ("High · 1M ⚡": level,
+context window, Fast; K142), the controls a
 package places in the row (`placement: "toolbar"`, the default), one "…"
 menu, and the round send at the end (API 1.28.0: attach and the context dial
 are entries of the "…" menu; the dial comes back into the row once three
 quarters of the context are used). A control
 that is a setting rather than something to see all the time — Access Kit's
-level, Plan Kit's Build/Plan, Service Tier, Prompt Tools' stash — takes
+level, Plan Kit's Build/Plan, Prompt Tools' stash — takes
 `placement: "menu"`: its `Component` is drawn inside that menu only while it
-is open, and builds its entries from `ComposerMenuSection` (`heading`, the
-entries as children) and `ComposerMenuItem` (`icon`, `label`, `detail` as a
+is open, and builds its entries from `ComposerMenuSection` (`heading`, an
+optional `aside` at its end, the entries as children) and `ComposerMenuItem` (`icon`, `label`, `detail` as a
 second line, `selected` for one choice of a section, `disabled` with
 `disabledReason`, `trailing`, `keepOpen`, `onSelect`); a pick closes the menu
 unless `keepOpen`. `shortcuts` lists the `data-composer-shortcut` ids a

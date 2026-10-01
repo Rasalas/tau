@@ -690,7 +690,7 @@ describe("App render isolation", () => {
     const storage = createMemoryStorage();
     writeNewThreadDraft(storage, { kind: "draft", draftId: "luna-draft", projectPath: "/project", projectName: "project", model: { provider: luna.provider, id: luna.id, name: luna.name } });
     renderApp(client, { storage });
-    expect(await screen.findByRole("button", { name: "Reasoning: Medium" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Thinking: Medium" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Select model: GPT-5\.6 Luna/u })).toBeTruthy();
   });
 

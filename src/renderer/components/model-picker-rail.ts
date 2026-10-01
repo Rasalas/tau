@@ -2,6 +2,7 @@ import type { ThreadBackendKind, UiRuntimeBackend } from "../../shared/contracts
 import type { RuntimeCatalogEntry } from "../../workbench/runtime-catalog-store";
 import { DEFAULT_RUNTIME } from "../runtime-marks";
 import { runtimeUpdate } from "../runtime-update";
+import { MAKER_ORDER } from "./model-entries";
 
 export const FAVOURITES_VIEW = "favourites";
 export const RECENT_VIEW = "recent";
@@ -19,15 +20,22 @@ export const RUNTIME_STATUS_LABELS: Record<RuntimeStatus, string> = {
   unlisted: "models listed once a thread runs",
 };
 
-/** One entry of the picker's left column. */
+/** A runtime with its state as far as the picker knows it. */
+export interface RuntimeEntry { backend: UiRuntimeBackend; status: RuntimeStatus; listed: boolean }
+
+/**
+ * One entry of the picker's rail: Favourites, Recent, every maker of a listed
+ * model, then the runtimes that list none (not installed, signed out, or
+ * listing once a thread runs on them).
+ */
 export type ViewEntry =
   | { kind: "favourites"; key: string }
   | { kind: "recent"; key: string }
-  | { kind: "runtime"; key: string; backend: UiRuntimeBackend; status: RuntimeStatus; listed: boolean };
+  | { kind: "maker"; key: string; maker: string }
+  | ({ kind: "runtime"; key: string } & RuntimeEntry);
 
-export function runtimeView(kind: ThreadBackendKind): string {
-  return `runtime:${kind}`;
-}
+export const makerView = (maker: string): string => `maker:${maker}`;
+export const runtimeView = (kind: ThreadBackendKind): string => `runtime:${kind}`;
 
 /**
  * A runtime's state as far as the picker knows it: whether its models are on
@@ -45,22 +53,21 @@ export function runtimeStatus(backend: UiRuntimeBackend, entry: RuntimeCatalogEn
   return { status: "unlisted", listed };
 }
 
-export interface ViewInput {
-  /** The runtime the models on hand belong to. */
-  catalogRuntime: ThreadBackendKind | undefined;
-  /** Every runtime the host offers; absent on a host that offers only Pi. */
-  backends: readonly UiRuntimeBackend[] | undefined;
-  catalogs: ReadonlyMap<ThreadBackendKind, RuntimeCatalogEntry>;
-  recent: boolean;
-}
-
-/** Favourites, Recent when something was chosen before, then every runtime in the host's order. */
-export function pickerViews({ catalogRuntime = DEFAULT_RUNTIME, backends, catalogs, recent }: ViewInput): ViewEntry[] {
+/** Every runtime the host offers, in its order; the one on hand first when the host names none. */
+export function pickerRuntimes(catalogRuntime: ThreadBackendKind = DEFAULT_RUNTIME, backends: readonly UiRuntimeBackend[] | undefined, catalogs: ReadonlyMap<ThreadBackendKind, RuntimeCatalogEntry>): RuntimeEntry[] {
   const offered = backends?.length ? [...backends] : [];
   if (!offered.some((backend) => backend.kind === catalogRuntime)) offered.unshift({ kind: catalogRuntime, label: catalogRuntime === DEFAULT_RUNTIME ? "Pi" : catalogRuntime });
+  return offered.map((backend) => Object.assign({ backend }, runtimeStatus(backend, catalogs.get(backend.kind), backend.kind === catalogRuntime)));
+}
+
+/** The rail: known makers in their order, the other sets by name, then the runtimes that list nothing. */
+export function pickerViews(makers: Iterable<string>, runtimes: readonly RuntimeEntry[], label: (maker: string) => string): ViewEntry[] {
+  const rank = (maker: string) => { const at = MAKER_ORDER.indexOf(maker); return at < 0 ? MAKER_ORDER.length : at; };
+  const sorted = [...new Set(makers)].sort((a, b) => rank(a) - rank(b) || label(a).localeCompare(label(b)));
   return [
     { kind: "favourites", key: FAVOURITES_VIEW },
-    ...(recent ? [{ kind: "recent", key: RECENT_VIEW } as const] : []),
-    ...offered.map((backend): ViewEntry => ({ kind: "runtime", key: runtimeView(backend.kind), backend, ...runtimeStatus(backend, catalogs.get(backend.kind), backend.kind === catalogRuntime) })),
+    { kind: "recent", key: RECENT_VIEW },
+    ...sorted.map((maker): ViewEntry => ({ kind: "maker", key: makerView(maker), maker })),
+    ...runtimes.filter((entry) => !entry.listed).map((entry): ViewEntry => Object.assign({ kind: "runtime" as const, key: runtimeView(entry.backend.kind) }, entry)),
   ];
 }

@@ -154,7 +154,7 @@ export function offeringComparator(sort: OfferingSort): (a: Offering, b: Offerin
   }
 }
 
-function billingOf(model: UiModel): BillingFilter | undefined {
+export function billingOf(model: UiModel): BillingFilter | undefined {
   const billing = model.billing ?? (model.login === "subscription" ? "subscription" : undefined);
   if (billing === "subscription") return "subscription";
   if (billing === "api-key") return "api";
@@ -251,4 +251,17 @@ export function billingBadge(model: UiModel): { label: string; title: string } |
     case "local": return { label: "Local", title: "Runs on this machine" };
     default: return undefined;
   }
+}
+
+/** The same model on the same provider with another context window: the thinking menu's choices, smallest first. */
+export function contextChoices(models: readonly UiModel[], current: UiModel | undefined): Array<{ model: UiModel; tokens: number }> {
+  if (!current) return [];
+  const family = modelFamily(current);
+  const byWindow = new Map<number, UiModel>();
+  for (const model of models) {
+    if (model.provider !== current.provider || modelFamily(model) !== family) continue;
+    const tokens = model.contextWindow ?? (/\[1m\]$/iu.test(model.id) ? 1_000_000 : 0);
+    if (!byWindow.has(tokens) || model.id === current.id) byWindow.set(tokens, model);
+  }
+  return byWindow.size > 1 ? [...byWindow].sort(([a], [b]) => a - b).map(([tokens, model]) => ({ model, tokens })) : [];
 }
