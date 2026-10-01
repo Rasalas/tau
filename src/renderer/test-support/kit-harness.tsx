@@ -81,6 +81,7 @@ export async function expectKitActivatesCleanly(
   if (leftovers.length > 0) throw new Error(`${extension.id} left ${leftovers.length} contributions behind`);
   if (registry.getDocumentSource()) throw new Error(`${extension.id} left its document source registered`);
   if (registry.getModelSelection()) throw new Error(`${extension.id} left its model selection registered`);
+  if (registry.getForkPrompt()) throw new Error(`${extension.id} left its fork prompt registered`);
   if (registry.getServiceIds().length > 0) throw new Error(`${extension.id} left ${registry.getServiceIds().join(", ")} published`);
 }
 

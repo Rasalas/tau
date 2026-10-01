@@ -43,7 +43,7 @@ Composer
 Threads
 
 - the thread index across projects, and one live runtime per open thread
-- new, resume, fork, duplicate, rename, tree navigation, recovery of a broken thread
+- new, resume, fork, duplicate, rename, tree navigation, recovery of a broken thread; every fork the user starts goes through one prompt (`registerForkPrompt`, Workspace Kit's question with the fork's own branch and worktree), and a fork may run in another folder (`fork-thread` with a workspace)
 - **a new thread's draft is a row in the thread list**: `src/workbench/draft-threads.ts` lists the draft on screen from the moment it opens, and every draft left with text or images in it, newest first; `threadStore.getDrafts()` reads them and `DraftRow` draws one (the project line marked with a quiet "draft", the first line typed as its title, else "New thread"). Leaving an empty draft drops it; one with something in it stays until it is opened again (`openDraft`), discarded (`discardDraft`) or sent, and a new thread beside it starts a fresh draft. The first message turns it into the thread's own row in the same update. Kept drafts live in this client's storage (`tau.kept-drafts.v1`, text only; images stay in memory), so they are this device's and do not travel to another. The desktop rail, a tablet's list and a phone's list show them above the active threads; a phone's Back from an empty draft closes it
 - **deleting a thread is reversible for a while**: `sessions.remove` moves it
   into the host's trash (`src/main/thread-trash.ts`, `<userData>/thread-trash/`)

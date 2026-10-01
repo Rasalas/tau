@@ -17,9 +17,20 @@ import type { ThreadStore } from "./thread-store";
 import type { ThreadViewStore } from "./thread-view-store";
 import { clearCachedTurnActivity } from "./turn-activity";
 
+/**
+ * A fork the user started: through `entryId`, with its turn when the transcript
+ * knows it; without `entryId`, a copy of the whole thread (Duplicate).
+ */
+export interface ForkRequest {
+  entryId?: string;
+  turn?: { number: number; messages: readonly UiMessage[]; last: boolean };
+}
+
 /** What a command needs of the contribution registry. */
 export interface ThreadCommandRegistryPort {
   notifyPromptAnswered(prompt: ExtensionUiPrompt, answer: ExtensionUiAnswer): void;
+  /** The kit that asks before a fork (Workspace Kit: the fork's branch and worktree). */
+  getForkPrompt?(): { ask(request: ForkRequest): void } | undefined;
 }
 
 /** What a command needs of the user's preferences. */
@@ -260,18 +271,36 @@ export class ThreadCommands {
     return this.client.toolOutput(sessionId, tool.id);
   };
 
-  forkMessage = async (message: UiMessage): Promise<void> => {
+  /** Forks without asking; `workspace` is where the fork runs. False when nothing was forked. */
+  forkMessage = async (message: Pick<UiMessage, "sourceEntryId">, options: { workspace?: string } = {}): Promise<boolean> => {
     const sessionId = this.sessionId();
-    if (!message.sourceEntryId || !sessionId || !this.requireWrite("Fork thread")) return;
+    if (!message.sourceEntryId || !sessionId || !this.requireWrite("Fork thread")) return false;
     try {
       this.notify("Forking thread…");
-      this.ports.applyActionResult(await this.client!.forkThread(message.sourceEntryId, sessionId));
+      this.ports.applyActionResult(await this.client!.forkThread(message.sourceEntryId, sessionId, options.workspace));
+      return true;
     } catch (error) {
       this.notify(errorMessage(error));
+      return false;
     }
   };
 
+  /** Every fork the user starts comes here; a registered prompt asks first. False when none is registered. */
+  requestFork = (request: ForkRequest): boolean => {
+    const prompt = this.ports.registry.getForkPrompt?.();
+    if (!prompt) return false;
+    if (this.requireWrite("Fork thread")) prompt.ask(request);
+    return true;
+  };
+
+  /** `f` on a message: the end of its turn, as the turn's divider forks. */
+  forkFromMessage = async (message: UiMessage, turn?: ForkRequest["turn"]): Promise<void> => {
+    const entryId = [...turn?.messages ?? []].reverse().find((entry) => entry.sourceEntryId)?.sourceEntryId ?? message.sourceEntryId;
+    if (!this.requestFork({ ...(entryId ? { entryId } : {}), ...(turn ? { turn } : {}) })) await this.forkMessage(message);
+  };
+
   duplicateThread = async (): Promise<boolean> => {
+    if (this.requestFork({})) return true;
     if (!this.requireWrite("Duplicate thread")) return false;
     try {
       this.notify("Duplicating thread…");
