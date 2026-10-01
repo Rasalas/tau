@@ -20,6 +20,12 @@
 .machine-add-field { display: flex; flex-direction: column; gap: 6px; font: 500 var(--text-sm) var(--sans); color: var(--ink-2); }
 .machine-add-field > span { color: var(--ink); }
 .machine-add-actions { display: flex; justify-content: flex-end; }
+.machine-setup { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--line-strong); border-radius: var(--radius-md); }
+.machine-setup-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.machine-setup-agents { width: 100%; text-align: left; border-collapse: collapse; }
+.machine-setup-agents th, .machine-setup-agents td { padding: var(--space-2); vertical-align: top; }
+.machine-setup-agents code { overflow-wrap: anywhere; }
+.machine-setup > small { color: var(--muted); }
 /* The agents' switch sits in the form's own padding. */
 .machine-add > .settings-row { padding: var(--space-2) 0; }
 .machine-add-result { margin: 0; font-size: var(--text-sm); line-height: 1.45; }

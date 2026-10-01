@@ -69,7 +69,11 @@ export const reviewExtension: DesktopExtension = {
   id: REVIEW_HOST_EXTENSION_ID,
   name: "Review Kit",
   activate(plugin) {
-    const workspace = workspaceChangesReader(plugin.host);
+    let workspaceStore: WorkspaceStoreApi | undefined;
+    const workspace = workspaceChangesReader(plugin.host, () => {
+      const state = workspaceStore?.getSnapshot();
+      return state?.workspaceId ?? state?.cwd;
+    });
     const requests = requestClient(plugin.host);
     const rows = new RowRequests((path) => requests.request(path));
     const comments = new ReviewCommentStore(getClientStorage);
@@ -79,7 +83,6 @@ export const reviewExtension: DesktopExtension = {
     plugin.provideService(THREAD_PULL_REQUESTS_SERVICE, threadPullRequestsService(links));
     const shared = { links, pending: new PendingReviewStore(getClientStorage), preferences: plugin.preferences, dialogs: new LinkDialogs() };
     let chips: ComposerContextChips | undefined;
-    let workspaceStore: WorkspaceStoreApi | undefined;
     // The rest of the kit's settings are its Review page; the model picker stays here.
     plugin.registerOptions(COMMIT_MESSAGE_OPTIONS.filter((entry) => entry.kind === "model"));
     plugin.registerSettingsPage({

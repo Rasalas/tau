@@ -216,7 +216,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
 
   /** Follows the workbench: called whenever the thread, its project, or the draft state changes. */
   follow(next: { cwd?: string; workspaceId?: string; sessionId?: string; draftPending: boolean }): void {
-    const projectChanged = next.cwd !== this.state.cwd;
+    const projectChanged = next.cwd !== this.state.cwd || next.workspaceId !== this.state.workspaceId;
     const threadChanged = next.sessionId !== this.sessionId;
     const draftChanged = projectChanged || threadChanged || next.draftPending !== this.state.draftPending;
     if (this.draftFellBack && !next.draftPending && next.sessionId) {
@@ -423,7 +423,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     const cwd = this.state.cwd;
     this.update({ workspaceBusy: true });
     try {
-      const next = this.state.draftPending && cwd ? await this.host.getWorkspaceInfo(this.workspace()) : await this.host.getWorkspaceInfo();
+      const next = await this.host.getWorkspaceInfo(this.workspace());
       if (request === this.workspaceRequest && cwd === this.state.cwd) {
         this.update({ workspace: next });
         this.suggestWorktree();
@@ -523,10 +523,10 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     catch (error) { this.notify(errorMessage(error)); }
   }
 
-  stageFile(path: string): Promise<void> { return this.mutate("Staging changes", () => this.host.stageFile(path)); }
-  unstageFile(path: string): Promise<void> { return this.mutate("Unstaging changes", () => this.host.unstageFile(path)); }
-  stageAll(): Promise<void> { return this.mutate("Staging changes", () => this.host.stageAll()); }
-  revertFile(path: string): Promise<void> { return this.mutate("Reverting changes", () => this.host.revertFile(path)); }
+  stageFile(path: string): Promise<void> { return this.mutate("Staging changes", () => this.host.stageFile(path, this.workspace())); }
+  unstageFile(path: string): Promise<void> { return this.mutate("Unstaging changes", () => this.host.unstageFile(path, this.workspace())); }
+  stageAll(): Promise<void> { return this.mutate("Staging changes", () => this.host.stageAll(this.workspace())); }
+  revertFile(path: string): Promise<void> { return this.mutate("Reverting changes", () => this.host.revertFile(path, this.workspace())); }
 
   async commit(message: string, push: boolean): Promise<boolean> {
     if (!this.allowed("Committing") || !this.requireHost("Committing")) return false;
@@ -549,7 +549,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     if (!this.allowed("Pulling") || !this.requireHost("Pulling")) return;
     this.update({ committing: true });
     try {
-      const result = await this.host.pull();
+      const result = await this.host.pull(this.workspace());
       this.notify(result.detail);
       await Promise.all([this.refreshChanges(), this.refreshWorkspace()]);
     } catch (error) {
@@ -563,7 +563,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     if (!this.allowed("Pushing") || !this.requireHost("Pushing")) return;
     this.update({ committing: true });
     try {
-      const result = await this.host.push();
+      const result = await this.host.push(this.workspace());
       this.notify(result.detail);
       await Promise.all([this.refreshChanges(), this.refreshWorkspace()]);
     } catch (error) {
@@ -837,8 +837,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     return this.commitMessageSuggester({ changes, diffs, actions: this.actions });
   }
 
-  switchRef(ref: string): Promise<boolean> { return this.workspaceAction(() => this.host.switchRef(ref)); }
-  createBranch(branch: string): Promise<boolean> { return this.workspaceAction(() => this.host.createBranch(branch)); }
+  switchRef(ref: string): Promise<boolean> { return this.workspaceAction(() => this.host.switchRef(ref, this.workspace())); }
+  createBranch(branch: string): Promise<boolean> { return this.workspaceAction(() => this.host.createBranch(branch, this.workspace())); }
   /** A worktree whose folder vanished is recreated rather than refused. */
   async openWorktree(path: string): Promise<boolean> {
     if (path === this.state.cwd) return true;

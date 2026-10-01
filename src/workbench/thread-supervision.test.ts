@@ -13,6 +13,15 @@ const idle: ThreadActivitySnapshot = {
 };
 
 describe("thread supervision", () => {
+  it("displays a proxy's home runtime and machine without changing its selection address", () => {
+    const machine = { id: "rex", name: "rex", backendKind: "codex", modelProvider: "openai" };
+    const proxy = { ...thread("rex~t1", 1), backendKind: "machine", modelProvider: "anthropic", machine };
+    expect(threadSupervisionRows([proxy], idle)[0]).toMatchObject({
+      id: "rex~t1", path: proxy.path, backendKind: "codex", modelProvider: "openai", machine,
+    });
+    expect(threadListGroups([proxy], idle)[0].rows[0]).toMatchObject({ backendKind: "codex", modelProvider: "openai", machine });
+  });
+
   it("puts what needs an answer first, then what is running, then the rest by recency", () => {
     const activity: ThreadActivitySnapshot = {
       ...idle,

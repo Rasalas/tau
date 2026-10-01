@@ -2,8 +2,9 @@ import { useEffect, useSyncExternalStore } from "react";
 import { Network } from "lucide-react";
 import { getClientStorage, type DesktopExtension, type EnvironmentTarget, type PlatformEnvironments, type WorkbenchActions } from "tau";
 import { createAutoRunOnHook } from "./auto.js";
+import { createBringChoice, createBringProjectHook, createProjectIdentities, REMOTE_WORK_EXTENSION_ID } from "./bring-project.js";
 import { followArrival, readPendingArrival } from "./machines.js";
-import { ENVIRONMENTS_EXTENSION_ID, MACHINES_SETTINGS_PAGE, REMOTE_AGENT_THREADS_SERVICE, RUN_ON_DEFAULT_KEY, WORKSPACE_STORE_SERVICE, type RemoteAgentThreadsService, type RunOnDefault, type WorkspaceRailSlice } from "./protocol.js";
+import { ENVIRONMENTS_EXTENSION_ID, MACHINES_SETTINGS_PAGE, MACHINE_IMPORT_SERVICE, REMOTE_AGENT_THREADS_SERVICE, RUN_ON_DEFAULT_KEY, WORKSPACE_STORE_SERVICE, type MachineImportProps, type MachineImportService, type RemoteAgentThreadsService, type RunOnDefault, type WorkspaceRailSlice } from "./protocol.js";
 import { agentThreadsSource, createMachineCardRow, createMachineThreads, createShownMachine } from "./rail.js";
 import { createListHead, hereOf } from "./list-head.js";
 import { createRunOnSource, RunOnDefaultRow } from "./run-on.js";
@@ -74,6 +75,21 @@ export const environmentsExtension: DesktopExtension = {
     // A client without a window process (a browser, a phone) has no machines.
     const environments = context.environments;
     if (!environments) return;
+    let machineImport: MachineImportService | undefined;
+    const listeners = new Set<() => void>();
+    context.useService<MachineImportService>(MACHINE_IMPORT_SERVICE, (service) => {
+      machineImport = service;
+      for (const listener of listeners) listener();
+      return () => {
+        machineImport = undefined;
+        for (const listener of listeners) listener();
+      };
+    });
+    const subscribeImport = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
+    function ImportConversations(props: MachineImportProps) {
+      const service = useSyncExternalStore(subscribeImport, () => machineImport);
+      return service ? <service.Component {...props} /> : null;
+    }
     context.registerSettingsPage({
       id: MACHINES_SETTINGS_PAGE,
       label: "Machines",
@@ -83,7 +99,7 @@ export const environmentsExtension: DesktopExtension = {
       order: 45,
       profiles: ["desktop"],
       keywords: ["environments", "computers", "remote", "hosts", "add machine", "pair"],
-      Component: createMachinesPage(environments, context.host),
+      Component: createMachinesPage(environments, context.host, ImportConversations),
     });
     // A phone lists the machines it paired with and shows another from there (design 1t).
     context.registerSettingsPage({
@@ -105,16 +121,29 @@ export const environmentsExtension: DesktopExtension = {
       run: (actions) => actions.openSettings(MACHINES_SETTINGS_PAGE),
     });
     context.registerRegion({ id: "environments.shown", placement: "title-bar", order: 0, profiles: ["desktop"], Component: createShownMachine(environments) });
-    context.registerPromptHook(createAutoRunOnHook(environments, context.host));
-    const RailSection = createRailSection(environments);
-    const threads = createMachineThreads(environments);
+    // A machine without the draft's project gets it from Remote Work Kit when the prompt is sent.
+    const remoteWork = context.hostExtension(REMOTE_WORK_EXTENSION_ID);
+    const bringing = { identities: createProjectIdentities(environments, remoteWork), choice: createBringChoice() };
+    const runOnHook = createBringProjectHook(bringing.choice, remoteWork, environments, context.host);
+    context.registerPromptHook(createAutoRunOnHook(environments, context.host, bringing.identities, { choice: bringing.choice, hook: runOnHook }));
+    context.registerPromptHook(runOnHook);
+    const ArrivalRail = createRailSection(environments);
+    const threads = createMachineThreads(environments, context.host);
+    function RailSection(props: { actions: WorkbenchActions }) {
+      threads.useOwnThreads();
+      return <ArrivalRail {...props} />;
+    }
     const MachineCardRow = createMachineCardRow(environments);
-    const runOnSource = createRunOnSource(environments, context.host, () => context.preferences.value(ENVIRONMENTS_EXTENSION_ID, RUN_ON_DEFAULT_KEY) as RunOnDefault);
+    const runOnSource = createRunOnSource(environments, context.host, bringing, () => context.preferences.value(ENVIRONMENTS_EXTENSION_ID, RUN_ON_DEFAULT_KEY) as RunOnDefault);
     context.registerSettingsSection({ id: "environments.run-on", page: "general", card: "new-threads", order: 10, profiles: ["desktop"], Component: RunOnDefaultRow });
     // A phone or tablet lists them in its own thread list, and says there which machine is out of reach (API 1.30.0).
     context.registerThreadListSource?.({ id: "environments.threads", subscribe: threads.subscribe, threads: threads.threads, here: hereOf(environments) });
     // The arrival follows from the list or from a draft the phone reopened, whichever mounts first.
-    const PhoneArrival = createRailSection(environments, wait, { outlivesMount: true });
+    const ArrivalPhone = createRailSection(environments, wait, { outlivesMount: true });
+    function PhoneArrival(props: { actions: WorkbenchActions }) {
+      threads.useOwnThreads();
+      return <ArrivalPhone {...props} />;
+    }
     context.registerRegion({ id: "environments.list-head", placement: "thread-list-head", order: 0, profiles: ["compact"], Component: createListHead(environments, PhoneArrival) });
     context.registerRegion({ id: "environments.arrival", placement: "draft-actions", order: 99, profiles: ["compact"], Component: PhoneArrival });
     context.useService<WorkspaceRailSlice>(WORKSPACE_STORE_SERVICE, (store) => {

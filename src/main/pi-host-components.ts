@@ -464,7 +464,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     ...(options.machines ? { machines: options.machines } : {}),
     ...(options.blobs ? { blobs: options.blobs } : {}),
     exclusive: (work) => lifecycle.run("extension.exclusive", work),
-    refreshThreadIndex: () => index.refresh("none").catch(() => index.snapshot()),
+    refreshThreadIndex: (refreshOptions) => index.refresh(refreshOptions?.publish ? "changed-index" : "none").catch(() => index.snapshot()),
     // Before the first scan the start publishes both anyway.
     runtimeBackendsChanged: () => {
       catalogs.sourcesChanged();

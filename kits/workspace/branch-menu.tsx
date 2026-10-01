@@ -81,16 +81,16 @@ function CheckoutMenu({ sessionId, onDone }: { sessionId?: string; onDone(): voi
   useEffect(() => {
     let current = true;
     void store.loadWorktreeBase();
-    store.host.getWorktreeStatuses(state.cwd).then((next) => { if (current) setStatuses(next); }, () => { if (current) setStatuses([]); });
+    store.host.getWorktreeStatuses(store.workspace()).then((next) => { if (current) setStatuses(next); }, () => { if (current) setStatuses([]); });
     return () => { current = false; };
-  }, [state.cwd, store]);
+  }, [state.cwd, state.workspaceId, store]);
   if (!info?.isRepo) return <p className="branch-note">Not a Git repository.</p>;
   const done = (changed: Promise<boolean>) => void changed.then((ok) => { if (ok) onDone(); });
   const byPath = new Map(statuses?.map((status) => [status.path, status]));
   const base = state.worktreeBase?.ref ?? info.branch ?? "HEAD";
   // A switch rewrites the files under a running turn; ask first. A ref checked out elsewhere only opens that worktree.
   const switchTo = async (ref: string) => {
-    const turns = info.refs.some((entry) => entry.name === ref && entry.worktreePath) ? [] : await store.host.checkoutTurns(sessionId).catch(() => []);
+    const turns = info.refs.some((entry) => entry.name === ref && entry.worktreePath) ? [] : await store.host.checkoutTurns(sessionId, store.workspace()).catch(() => []);
     if (turns.length > 0) setBusy({ ref, who: turns.length === 1 ? `${turns[0]!.title} is` : `${turns.length} threads are` });
     else done(store.switchRef(ref));
   };

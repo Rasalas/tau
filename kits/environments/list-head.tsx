@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import { TriangleAlert } from "lucide-react";
 import type { PlatformEnvironments, UiEnvironment, WorkbenchActions } from "tau";
 import { otherMachines, shortAge, shownMachine } from "./machines.js";
@@ -29,7 +29,7 @@ const AGE_REFRESH_MS = 30_000;
  * reach, with Retry, or Pair again for one that refused it; that machine's
  * rows below stay, greyed. Also opens what the page was sent here for.
  */
-export function createListHead(environments: PlatformEnvironments, Arrival: (props: { actions: WorkbenchActions }) => null) {
+export function createListHead(environments: PlatformEnvironments, Arrival: ComponentType<{ actions: WorkbenchActions }>) {
   return function MachinesListHead({ actions }: { actions: WorkbenchActions }) {
     const list = useEnvironments(environments);
     const [now, setNow] = useState(() => Date.now());

@@ -9,7 +9,11 @@ const LUCIDE_ICON = /\/lucide-react\/dist\/esm\/icons\/([\w-]+)\.mjs$/u;
  */
 export const COMMON_MODULES = [
   "shared/runtime-version.ts",
+  "shared/host-updates.ts",
+  "workbench/host-update-store.ts",
   "renderer/runtime-models.ts",
+  "renderer/machine-updates.ts",
+  "renderer/runtime-update-toasts.ts",
   "renderer/file-mention-expander.ts",
   "renderer/pairing/pairing-format.ts",
   "renderer/touch/sheet-drag.ts",

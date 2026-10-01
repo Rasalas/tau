@@ -264,3 +264,4 @@ export type * from "../shared/workspace-kit-types";
 export { THREAD_BRANCH_SERVICE, THREAD_PULL_REQUESTS_SERVICE } from "../shared/thread-git";
 export type { ThreadBranch, ThreadBranchService, ThreadPullRequest, ThreadPullRequestsService } from "../shared/thread-git";
 export type * from "../shared/contracts";
+export { displayRuntime } from "../shared/contracts";

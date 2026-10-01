@@ -19,6 +19,17 @@ const REPO = { root: "/project", isRepo: true, isDirty: false, branch: "main", w
 afterEach(() => { setHostClient(undefined); vi.restoreAllMocks(); });
 
 describe("Workspace Kit worktree creation", () => {
+  it("rereads a different home workspace even when the displayed host path is identical", async () => {
+    const getWorkspaceInfo = vi.fn(async () => REPO);
+    const getChanges = vi.fn(async () => ({ isRepo: true, files: [] }));
+    const workspaceStore = storeOver({ getWorkspaceInfo, getChanges });
+    workspaceStore.follow({ cwd: "/home/dev/repo", workspaceId: "ws1_rex", sessionId: "rex~one", draftPending: false });
+    await vi.waitFor(() => expect(getWorkspaceInfo).toHaveBeenCalledWith("ws1_rex"));
+    workspaceStore.follow({ cwd: "/home/dev/repo", workspaceId: "ws1_other", sessionId: "other~one", draftPending: false });
+    await vi.waitFor(() => expect(getWorkspaceInfo).toHaveBeenLastCalledWith("ws1_other"));
+    expect(getChanges).toHaveBeenLastCalledWith(undefined, "ws1_other");
+  });
+
   it("names the draft's project, then opens the worktree with the composer text", async () => {
     const createWorktree = vi.fn(async () => ({ workspaceId: "ws1_worktree", displayPath: "/draft-project-worktrees/fix-queue" }));
     const workspaceStore = storeOver({ createWorktree });

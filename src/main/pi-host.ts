@@ -473,7 +473,7 @@ export class PiHost {
    * prompted like any other, but never competes for the screen, so the user
    * keeps the thread they are reading.
    */
-  private async startThread(options: HostThreadStartOptions): Promise<HostStartedThread> {
+  async startThread(options: HostThreadStartOptions): Promise<HostStartedThread> {
     this.workbenchReload.assertAvailable();
     const attachments = decodeUiPromptAttachments("sessions.start", "attachments", options.attachments) ?? [];
     const skillDraft = decodeUiSkillDraft("sessions.start", "skillDraft", options.skillDraft);
@@ -621,6 +621,9 @@ export class PiHost {
     return this.hostExtensions.invoke(extensionId, command, input, principal);
   }
 
+  authorizeHostExtension(extensionId: string, command: string, input: unknown, principal: HostInvocationPrincipal): Promise<void> { return this.hostExtensions.authorizeInvocation(extensionId, command, input, principal); }
+  activeThreadIdentity(): { sessionId: string; backendKind: string } | undefined { const thread = this.active; return thread ? { sessionId: thread.threadId, backendKind: thread.backend.kind } : undefined; }
+
   /** Extension commands that may run long, so a client runs them as host jobs. */
   longHostExtensionCommands(): string[] {
     return this.hostExtensions.longCommands();
@@ -637,10 +640,8 @@ export class PiHost {
     return kind === "pi" ? this.piAdapter : this.requireBackend(kind).adapter;
   }
 
-  // ---------------------------------------------------------------------------
   // Active thread accessors. Most of the host reads "the runtime": it is the one
   // the workbench shows, or nothing while Pi's own TUI owns the visible thread.
-  // ---------------------------------------------------------------------------
 
   private get active(): ThreadRuntime | undefined {
     return this.attached.session.isAttached ? this.attachedThread : this.threads.active?.runtime;
@@ -817,7 +818,7 @@ export class PiHost {
   }
 
   threadTitle(sessionId: string): string | undefined { return this.index.byId(sessionId)?.title; }
-
+  threadPath(sessionId: string): string | undefined { return this.index.byId(sessionId)?.path; }
   bootstrap(): Promise<HostBootstrap> { return this.publication.bootstrap(); }
 
   /** Focused active detail endpoint; it never includes catalogs or project metadata. */
@@ -1143,7 +1144,7 @@ export class PiHost {
     return thread;
   }
 
-  private async sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string): Promise<void> {
+  async sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string): Promise<void> {
     const thread = await this.reopenThread(sessionId);
     if (delivery === "queue") this.queue.add(thread.threadId, { text, attachments: [], ...(from ? { fromThreadId: from } : {}) });
     else await (delivery === "steer" ? this.steer(text, [], thread.threadId) : this.prompt(text, [], thread.threadId));
@@ -2057,7 +2058,6 @@ export class PiHost {
   private emitUpdate(update: HostUpdate): void {
     this.emit({ type: "host-update", update });
   }
-
   private emitForThread(thread: ThreadRuntime | undefined, event: ThreadHostEvent): void {
     if (thread?.deferHostEvent(event)) return;
     this.emit(event);

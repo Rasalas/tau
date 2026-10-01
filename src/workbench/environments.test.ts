@@ -8,6 +8,32 @@ import { lookInMachine } from "./look-in";
 const list = (shown: string): UiEnvironments => ({ shown, environments: [], secureStorage: true });
 
 describe("the machines a page reads", () => {
+  it("shares one kit event registration and removes it with the last listener", () => {
+    const followEnvironmentExtension = vi.fn(async () => undefined);
+    const client = createFakeHostClient({ followEnvironmentExtension });
+    const environments = createPlatformEnvironments(client);
+    const first = vi.fn();
+    const second = vi.fn();
+    const offFirst = environments.onExtensionEvent!("host-rex", "tau.codex", first);
+    const offSecond = environments.onExtensionEvent!("host-rex", "tau.codex", second);
+    expect(followEnvironmentExtension).toHaveBeenCalledTimes(1);
+    expect(followEnvironmentExtension).toHaveBeenCalledWith("host-rex", "tau.codex", true);
+    const event = { type: "environment-extension-event" as const, machine: "host-rex", extensionId: "tau.codex", name: "sign-in", payload: { phase: "waiting" } };
+    client.emit({ ...event, machine: "other" });
+    client.emit({ ...event, extensionId: "tau.onboarding" });
+    expect(first).not.toHaveBeenCalled();
+    client.emit(event);
+    expect(first).toHaveBeenCalledWith("sign-in", event.payload);
+    expect(second).toHaveBeenCalledWith("sign-in", event.payload);
+    offFirst();
+    expect(followEnvironmentExtension).toHaveBeenCalledTimes(1);
+    offSecond();
+    offSecond();
+    expect(followEnvironmentExtension).toHaveBeenCalledTimes(2);
+    expect(followEnvironmentExtension).toHaveBeenLastCalledWith("host-rex", "tau.codex", false);
+    client.emit(event);
+    expect(second).toHaveBeenCalledOnce();
+  });
   it("asks the window once, then follows its events", async () => {
     const listEnvironments = vi.fn(async () => list("laptop"));
     const client = createFakeHostClient({ listEnvironments });

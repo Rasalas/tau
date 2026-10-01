@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ComponentType, type FormEvent } from "react";
 import {
   Badge,
   Button,
@@ -22,94 +22,15 @@ import {
   type UiEnvironments,
 } from "tau";
 import { MachineHealth } from "./health.js";
-import { formatDigits, statusText } from "./machines.js";
-import { AGENTS_EVENT, type AgentMachine, type AgentMachines } from "./protocol.js";
+import { statusText } from "./machines.js";
+import { AgentsSwitch, PairingStatus, useAgentMachines } from "./agents.js";
+import { MachineSetup } from "./setup.js";
+import type { AgentMachines, MachineImportProps } from "./protocol.js";
 import { MachineDot, MachineIcon, useEnvironments } from "./rail.js";
 import { MachineWeights } from "./weights.js";
 import { MachineUpdateLine } from "./update.js";
 
-/** The machines this computer's host holds the agents' key for, as its Machines host half reports them. */
-function useAgentMachines(host: HostExtensionClient | undefined): AgentMachines | undefined {
-  const [agents, setAgents] = useState<AgentMachines>();
-  useEffect(() => {
-    if (!host) return undefined;
-    let live = true;
-    const stop = host.onEvent(AGENTS_EVENT, (payload) => { if (live) setAgents(payload as AgentMachines); });
-    host.invoke("agents").then((value) => { if (live) setAgents(value as AgentMachines); }, () => undefined);
-    return () => { live = false; stop(); };
-  }, [host]);
-  return agents;
-}
-
-function agentsText(agent: AgentMachine | undefined, name: string): string {
-  if (!agent) return `This computer's agents may not work on ${name}.`;
-  const reach = agent.status === "connected" ? `connected${agent.roundTripMs !== undefined ? ` · ${agent.roundTripMs} ms` : ""}`
-    : agent.status === "refused" ? `refused: ${agent.detail ?? "their key was revoked there"}`
-    : agent.status === "offline" ? `offline${agent.detail ? `: ${agent.detail}` : ""}` : "connecting…";
-  return `This computer's agents may work here${agent.readOnly ? " (Read only)" : ""} · ${reach}`;
-}
-
-/** The digits to compare while the other owner decides, with the way out. */
-function PairingStatus({ pairing, environments }: { pairing: UiEnvironmentPairing; environments: PlatformEnvironments }) {
-  return (
-    <div className="machine-pairing" role="status" aria-live="polite">
-      {pairing.state === "waiting" && pairing.verification ? (
-        <>
-          <strong>Allow this computer on the other machine</strong>
-          <p>Its window asks now. Allow it only if it shows the same code:</p>
-          <code className="machine-pairing-code">{formatDigits(pairing.verification)}</code>
-        </>
-      ) : (
-        <p>Connecting to {pairing.address}…</p>
-      )}
-      <Button variant="ghost" onClick={() => void environments.cancelPairing()}>Cancel</Button>
-    </div>
-  );
-}
-
-/**
- * The switch that lets this computer's agents work on a machine (ADR 0027).
- * On asks that machine's owner once more, for the agents alone; off forgets
- * their key here.
- */
-function AgentsSwitch({ machine, agent, environments, pairing }: {
-  machine: UiEnvironment;
-  agent: AgentMachine | undefined;
-  environments: PlatformEnvironments & Required<Pick<PlatformEnvironments, "setAgents">>;
-  pairing: UiEnvironmentPairing | undefined;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string>();
-  const on = agent !== undefined;
-  const toggle = () => {
-    setBusy(true);
-    setProblem(undefined);
-    environments.setAgents(machine.id, !on).then((result) => {
-      if (result.state === "failed") setProblem(result.message);
-      else if (result.state === "denied") setProblem(`${machine.name}'s owner declined.`);
-      else if (result.state === "expired") setProblem(`Nobody answered on ${machine.name} in time.`);
-    }, (error: unknown) => setProblem(errorMessage(error))).finally(() => setBusy(false));
-  };
-  return (
-    <div className="machine-agents">
-      <div className="machine-agents-line">
-        <span {...tooltipProps(!on && machine.readOnly ? `${machine.name} paired this computer Read only.` : undefined)}>
-          <Switch
-            label={`This computer's agents may work on ${machine.name}`}
-            checked={on}
-            disabled={busy || (!on && (machine.status !== "connected" || machine.readOnly === true))}
-            onChange={toggle}
-          />
-        </span>
-        <small title={agent?.detail}>{agentsText(agent, machine.name)}</small>
-      </div>
-      {busy && pairing ? <PairingStatus pairing={pairing} environments={environments} /> : null}
-      {problem ? <p className="machine-add-result problem" role="status">{problem}</p> : null}
-    </div>
-  );
-}
-
-function MachineRow({ machine, shown, environments, now, onRemove, agents, pairing, host, behind }: {
+function MachineRow({ machine, shown, environments, now, onRemove, agents, pairing, host, behind, ImportConversations }: {
   machine: UiEnvironment;
   shown: boolean;
   /** It runs an older Tau than it could (K103). */
@@ -122,8 +43,10 @@ function MachineRow({ machine, shown, environments, now, onRemove, agents, pairi
   pairing?: UiEnvironmentPairing;
   /** This computer's host, which asks a machine its agents reach how it is doing. */
   host?: HostExtensionClient;
+  ImportConversations?: ComponentType<MachineImportProps>;
 }) {
   const [editing, setEditing] = useState(false);
+  const [settingUp, setSettingUp] = useState(false);
   const [name, setName] = useState(machine.name);
   const agent = agents?.machines.find((entry) => entry.id === machine.id);
   // This computer answers its own host; another one only over its agents' connection.
@@ -164,12 +87,14 @@ function MachineRow({ machine, shown, environments, now, onRemove, agents, pairi
         ) : null}
         {health ? <MachineHealth host={host} machine={machine.id} name={machine.name} /> : null}
         <MachineUpdateLine machine={machine} environments={environments} behind={behind} />
+        {settingUp && host ? <MachineSetup environments={environments} host={host} machine={machine} ImportConversations={ImportConversations} onDone={() => setSettingUp(false)} /> : null}
       </div>
       {machine.local ? null : (
         <>
           {machine.status === "offline" || machine.status === "refused" ? (
             <Button onClick={() => void environments.retry(machine.id)}>Try again</Button>
           ) : null}
+          {host && environments.invokeExtension && !environments.shownElsewhere && machine.status === "connected" ? <Button onClick={() => setSettingUp(!settingUp)}>Set up</Button> : null}
           <Button onClick={() => { setName(machine.name); setEditing(true); }}>Rename</Button>
           <Button variant="danger" onClick={onRemove}>Remove</Button>
         </>
@@ -249,7 +174,7 @@ function NearbyMachines({ environments, list, busy, onAdd }: {
 
 const NO_SECURE_STORAGE = "This computer offers Tau no encrypted storage (keychain or secret service), so it cannot keep another machine's key.";
 
-function AddMachine({ environments, secureStorage, offerAgents }: { environments: PlatformEnvironments; secureStorage: boolean; offerAgents: boolean }) {
+function AddMachine({ environments, secureStorage, offerAgents, host, ImportConversations }: { environments: PlatformEnvironments; secureStorage: boolean; offerAgents: boolean; host?: HostExtensionClient; ImportConversations?: ComponentType<MachineImportProps> }) {
   const field = useRef<HTMLInputElement>(null);
   const [text, setText] = useState("");
   const [method, setMethod] = useState<"link" | "ssh" | "wsl">("link");
@@ -262,13 +187,16 @@ function AddMachine({ environments, secureStorage, offerAgents }: { environments
   }, [method, environments]);
   const [withAgents, setWithAgents] = useState(true);
   const [state, setState] = useState<AddState>({ kind: "idle" });
+  const [setupMachine, setSetupMachine] = useState<UiEnvironment>();
   const list = useEnvironments(environments);
   const pairing = list?.pairing;
   const run = (input: EnvironmentPairInput) => {
     if (state.kind === "busy") return;
     setState({ kind: "busy" });
+    setSetupMachine(undefined);
     void environments.pair(offerAgents ? { ...input, agents: withAgents } : input).then((result) => {
       if (result.state === "added" && input.text) setText("");
+      if (result.state === "added" && !result.environment.local && environments.invokeExtension && !environments.shownElsewhere) setSetupMachine(result.environment);
       setState(pairOutcome(result));
     }, (error: unknown) => setState({ kind: "done", tone: "problem", message: errorMessage(error) }));
   };
@@ -285,8 +213,8 @@ function AddMachine({ environments, secureStorage, offerAgents }: { environments
   const waiting = state.kind === "busy";
   const busy = waiting || !secureStorage;
   return (
-    <form className="machine-add" onSubmit={submit}>
-      {list ? <NearbyMachines environments={environments} list={list} busy={busy} onAdd={(host) => run({ nearby: host.hostId })} /> : null}
+    <><form className="machine-add" onSubmit={submit}>
+      {list ? <NearbyMachines environments={environments} list={list} busy={busy} onAdd={(found) => run({ nearby: found.hostId })} /> : null}
       <label className="machine-add-field">
         <span>Connection method</span>
         <select aria-label="Connection method" value={method} disabled={busy} onChange={(event) => { setMethod(event.target.value as typeof method); setText(""); }}>
@@ -331,6 +259,8 @@ function AddMachine({ environments, secureStorage, offerAgents }: { environments
         </span>
       </div>
     </form>
+      {setupMachine && host ? <MachineSetup environments={environments} host={host} machine={setupMachine} ImportConversations={ImportConversations} onDone={() => setSetupMachine(undefined)} /> : null}
+    </>
   );
 }
 
@@ -338,12 +268,27 @@ function AddMachine({ environments, secureStorage, offerAgents }: { environments
  * Settings → Machines: the computers this window shows threads of, and adding
  * one. Adding one asks that machine's owner, who compares a code (ADR 0024).
  */
-export function createMachinesPage(environments: PlatformEnvironments, host?: HostExtensionClient) {
+export function createMachinesPage(environments: PlatformEnvironments, host?: HostExtensionClient, ImportConversations?: ComponentType<MachineImportProps>) {
   return function MachinesPage() {
     const list = useEnvironments(environments);
     // Agents are this computer's host's: only while the page shows this computer, and on a host that keeps machines.
     const agentMachines = useAgentMachines(environments.shownElsewhere ? undefined : host);
     const agents = agentMachines?.available ? agentMachines : undefined;
+    const checkedOnboarding = useRef(new Set<string>());
+    useEffect(() => {
+      if (environments.shownElsewhere || !host || !environments.readExtension || !environments.invokeExtension) return;
+      for (const machine of list?.environments ?? []) {
+        if (machine.local || machine.status !== "connected" || (!machine.threadCount && machine.threads.length === 0) || checkedOnboarding.current.has(machine.id)) continue;
+        checkedOnboarding.current.add(machine.id);
+        // Machines paired before setup existed already have work; only their unfinished wizard needs closing.
+        void environments.readExtension(machine.id, "tau.onboarding", "state").then((state) => {
+          const onboarding = state as { completed?: boolean; firstStart?: boolean } | undefined;
+          if (onboarding?.completed === false && onboarding.firstStart === false) {
+            return environments.invokeExtension!(machine.id, "tau.onboarding", "complete");
+          }
+        }).catch(() => undefined);
+      }
+    }, [list, host]);
     const [now, setNow] = useState(() => Date.now());
     const [removing, setRemoving] = useState<UiEnvironment>();
     useEffect(() => {
@@ -372,10 +317,11 @@ export function createMachinesPage(environments: PlatformEnvironments, host?: Ho
               behind={machineBehind(machine, reference)}
               environments={environments}
               now={now}
+              ImportConversations={ImportConversations}
               onRemove={() => setRemoving(machine)}
               {...(agents ? { agents } : {})}
               {...(list.pairing ? { pairing: list.pairing } : {})}
-              {...(agents && host ? { host } : {})}
+              {...(!environments.shownElsewhere && host ? { host } : {})}
             />
           ))}
         </SettingsSection>
@@ -389,7 +335,7 @@ export function createMachinesPage(environments: PlatformEnvironments, host?: Ho
           {list.secureStorage ? null : (
             <p className="settings-group-note machine-warning">{NO_SECURE_STORAGE}</p>
           )}
-          <AddMachine environments={environments} secureStorage={list.secureStorage} offerAgents={agents !== undefined && environments.setAgents !== undefined} />
+          <AddMachine environments={environments} secureStorage={list.secureStorage} offerAgents={agents !== undefined && environments.setAgents !== undefined} ImportConversations={ImportConversations} {...(!environments.shownElsewhere && host ? { host } : {})} />
         </SettingsSection>
         <SettingsSection title="At start">
           <SettingRow

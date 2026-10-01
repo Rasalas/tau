@@ -1,4 +1,4 @@
-import type { UiProject, UiSession, UiThreadUsage } from "../shared/contracts";
+import { displayRuntime, type UiProject, type UiSession, type UiThreadUsage } from "../shared/contracts";
 import { EMPTY_SNAPSHOT, type ThreadActivitySnapshot } from "./thread-store";
 import type { DraftThread } from "./draft-threads";
 import { threadRowStatus, type ThreadRowStatus } from "./thread-row-status";
@@ -34,6 +34,8 @@ export interface ThreadSupervisionRow {
   settled: boolean;
   backendKind?: string;
   modelProvider?: string;
+  /** Home machine mark for an own-index proxy. */
+  machine?: UiSession["machine"];
 }
 
 const RANK: Record<ThreadSupervisionStatus, number> = { waiting: 0, running: 1, failed: 2, done: 3 };
@@ -54,12 +56,14 @@ export interface ThreadOrganization {
 function rowFor(thread: UiSession, activity: ThreadActivitySnapshot, organization: ThreadOrganization): ThreadSupervisionRow {
   const status = threadSupervisionStatus(thread.id, activity);
   const startedAt = activity.runningStartedAt[thread.id];
+  const display = displayRuntime(thread);
   return {
     id: thread.id,
     path: thread.path,
     title: thread.title || "Untitled thread",
     projectName: thread.projectName,
     projectPath: thread.projectPath,
+    ...(thread.machine ? { machine: thread.machine } : {}),
     ...(thread.workspaceId ? { workspaceId: thread.workspaceId } : {}),
     ...(thread.projectLabel ? { projectLabel: thread.projectLabel } : {}),
     ...(thread.usage ? { usage: thread.usage } : {}),
@@ -71,8 +75,8 @@ function rowFor(thread: UiSession, activity: ThreadActivitySnapshot, organizatio
     pinned: organization.pinned?.includes(thread.id) ?? false,
     // A thread that needs the user again is not settled, whatever the list says.
     settled: status === "done" && (organization.settled?.includes(thread.id) ?? false),
-    ...(thread.backendKind ? { backendKind: thread.backendKind } : {}),
-    ...(thread.modelProvider ? { modelProvider: thread.modelProvider } : {}),
+    ...(display.backendKind ? { backendKind: display.backendKind } : {}),
+    ...(display.modelProvider ? { modelProvider: display.modelProvider } : {}),
   };
 }
 
@@ -211,4 +215,3 @@ export function threadAge(modifiedAt: number, now: number): string {
   if (hours < 24) return `${hours}h`;
   return `${Math.floor(hours / 24)}d`;
 }
-

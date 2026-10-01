@@ -3,9 +3,10 @@ import type { ThreadViewStore } from "../workbench/thread-view-store";
 import type { ToastStore } from "../workbench/toast-store";
 import type { AppUpdate } from "./app-update";
 import { noticeHeadline } from "./components/notice-text";
+import { isMachineUpdateNotice } from "../shared/machine-compatibility";
 
 /** Every notice as a toast: the headline to read, the whole text to copy when it failed or was cut short. */
-export function showNoticesAsToasts(view: ThreadViewStore, toasts: ToastStore): () => void {
+export function showNoticesAsToasts(view: ThreadViewStore, toasts: ToastStore, openMachines?: () => void): () => void {
   return view.subscribeToNotice(() => {
     const notice = view.getNotice();
     if (!notice) return;
@@ -15,6 +16,7 @@ export function showNoticesAsToasts(view: ThreadViewStore, toasts: ToastStore): 
       id: `notice:${notice.message}`,
       type: notice.level,
       description: headline,
+      ...(openMachines && isMachineUpdateNotice(notice.message) ? { actions: [{ label: "Machines", run: openMachines }] } : {}),
       ...(notice.level !== "info" || headline !== notice.message.trim() ? { copyText: notice.message } : {}),
     });
   });
@@ -25,12 +27,16 @@ export function showNoticesAsToasts(view: ThreadViewStore, toasts: ToastStore): 
  * closed, the sidebar's foot still offers it. After Restart it follows the
  * install until Tau quits (K161).
  */
-export function useWorkbenchToasts({ view, toasts, update }: {
+export function useWorkbenchToasts({ view, toasts, update, openMachines }: {
   view: ThreadViewStore;
   toasts: ToastStore;
   update?: AppUpdate | undefined;
+  openMachines?: () => void;
 }): void {
-  useEffect(() => showNoticesAsToasts(view, toasts), [toasts, view]);
+  const machines = useRef(openMachines);
+  machines.current = openMachines;
+  const hasMachines = !!openMachines;
+  useEffect(() => showNoticesAsToasts(view, toasts, hasMachines ? () => machines.current?.() : undefined), [toasts, view, hasMachines]);
   const install = useRef(update?.install);
   install.current = update?.install;
   const { version, phase, progress } = update ?? {};

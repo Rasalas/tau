@@ -40,7 +40,10 @@ export { knownSkillNames, parseSkillEnvelope, type ParsedSkillEnvelope } from ".
 export type { ExtensionIsolation, ExtensionPermission } from "../shared/extension-permissions.js";
 export type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 export { isWorkspaceRelativePath, type WorkspaceRef } from "../shared/workspace-identity.js";
-export type { HostActionResult } from "../shared/host-protocol.js";
+export type { HostActionResult, TranscriptPage } from "../shared/host-protocol.js";
+// A machine backend follows pushes and pages its home host. New in API 1.42.0.
+export type { HostPushEvent } from "../shared/host-transport.js";
+export type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 
 /**
  * The workspace vocabulary: changed files, diffs, worktrees and editors. Core

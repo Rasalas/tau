@@ -174,13 +174,13 @@ export class ThreadIndex {
    * share it, so the recovery timer can never run a second sweep into the
    * lifecycle hooks while one is still in flight.
    */
-  async refresh(publish: "none" | "index" | "changes"): Promise<ThreadIndexSnapshot> {
+  async refresh(publish: "none" | "index" | "changes" | "changed-index"): Promise<ThreadIndexSnapshot> {
     if (!this.scan) {
       this.scan = this.scanSessions().finally(() => { this.scan = undefined; });
       this.scan.then(() => this.firstScan.resolve(), (error: unknown) => this.firstScan.reject(error));
     }
     const { previous, next } = await this.scan;
-    if (publish === "index") this.port.emit({ type: "thread-index", threadIndex: this.snapshot() });
+    if (publish === "index" || publish === "changed-index" && sessionIndexUpdates(previous, next).length > 0) this.port.emit({ type: "thread-index", threadIndex: this.snapshot() });
     else if (publish === "changes") for (const update of sessionIndexUpdates(previous, next)) this.port.emitUpdate(update);
     return this.snapshot();
   }
@@ -322,6 +322,7 @@ export class ThreadIndex {
       ...(usage ? { usage } : {}),
       ...(this.parentOf(thread.threadId) ? { parentThreadId: this.parentOf(thread.threadId)! } : {}),
     }, existing, touch);
+    if (existing?.workspaceId) { shell.workspaceId = existing.workspaceId; shell.projectDisplayPath = existing.projectDisplayPath; }
     this.sessions = [shell, ...this.sessions.filter((item) => item.id !== shell.id)];
     this.publishShellSoon(shell);
   }
@@ -469,7 +470,9 @@ export class ThreadIndex {
 
   /** A thread shell names its project the way every other published shape does. */
   private withIdentity(session: UiSession): UiSession {
-    const { workspaceId, displayPath } = this.port.workspaces.ref(session.projectPath);
+    const { workspaceId, displayPath } = session.backendKind === "machine"
+      ? { workspaceId: session.workspaceId, displayPath: session.projectDisplayPath ?? session.projectPath }
+      : this.port.workspaces.ref(session.projectPath);
     return {
       ...session,
       workspaceId,
@@ -520,6 +523,7 @@ export class ThreadIndex {
     const projects = this.port.projectHistory.list();
     const knownPaths = new Set(projects.map((project) => project.path));
     for (const thread of this.sessions) {
+      if (thread.backendKind === "machine") continue;
       if (knownPaths.has(thread.projectPath) || this.port.projectHistory.isHidden(thread.projectPath)) continue;
       projects.push({
         path: thread.projectPath,
@@ -530,7 +534,13 @@ export class ThreadIndex {
     }
     projects.sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
     return {
-      projects: projects.filter((project) => this.port.projects.isRoot(project.path)).map((project) => ({ ...project, ...this.port.workspaces.ref(project.path) })),
+      projects: [
+        ...projects.filter((project) => this.port.projects.isRoot(project.path)).map((project) => ({ ...project, ...this.port.workspaces.ref(project.path) })),
+        ...[...new Map(this.sessions.filter((session) => session.backendKind === "machine" && session.workspaceId).map((session) => [session.workspaceId, {
+          path: session.projectPath, name: session.projectName, lastOpenedAt: session.modifiedAt,
+          workspaceId: session.workspaceId, displayPath: session.projectDisplayPath ?? session.projectPath,
+        }])).values()],
+      ],
       sessions: this.sessions.map((session) => this.withIdentity(session)),
     };
   }

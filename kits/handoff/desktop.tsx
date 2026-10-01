@@ -53,6 +53,8 @@ function isNative(source: string | undefined, target: string): boolean {
 
 const MACHINE_ITEM = "machine:";
 const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
+/** Machines Kit's agents catalog (`kits/environments/host.ts`); kits do not import one another. */
+const MACHINES_EXTENSION_ID = "tau.environments";
 
 /**
  * Why a thread on `backend` cannot continue on `target` now, or undefined.
@@ -151,16 +153,24 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
       const cancel = (transferId: string) => { void host.invoke("cancel-transfer", { transferId }).catch(() => undefined); };
       const remoteWork = context.hostExtension(REMOTE_WORK_EXTENSION_ID);
       const environments = context.environments;
+      const agentsCatalog = context.hostExtension(MACHINES_EXTENSION_ID);
       const refreshTargets = () => { void host.invoke("continue-targets", { refresh: true }).then((targets) => store.setTargets(targets), () => undefined); };
 
-      /** Shows the machine in this window, at the thread when its list names it; the window's own choice (ADR 0025). */
+      /** Connected agents open the thread here; the desktop keeps the legacy machine navigation otherwise. */
       const openThere = async (remote: Pick<RemoteContinuation, "link" | "machine" | "machineName">, actions: WorkbenchActions): Promise<void> => {
-        if (!environments) {
-          actions.notify(`Open ${remote.machineName} from the desktop app; this client keeps no list of machines.`);
-          return;
-        }
         try {
           const thread = store.getSnapshot().remoteLinks[remote.link]?.thread;
+          const catalog = await agentsCatalog.invoke("agents").catch(() => undefined) as { machines?: Array<{ id: string; status: string }> } | undefined;
+          if (catalog?.machines?.some((entry) => entry.id === remote.machine && entry.status === "connected")) {
+            if (!thread) { actions.notify("The thread has not started yet."); return; }
+            // Core's externalThreadPath in src/main/pi-host-support.ts defines this virtual path.
+            await actions.switchSession(`tau-thread:machine:${remote.machine}~${thread}`);
+            return;
+          }
+          if (!environments) {
+            actions.notify(`Open ${remote.machineName} from the desktop app; this client keeps no list of machines.`);
+            return;
+          }
           const listed = thread ? environments.getSnapshot()?.environments.find((entry) => entry.id === remote.machine)?.threads.find((entry) => entry.id === thread) : undefined;
           // A thread past the list's newest is found by its id there (API 1.15.0).
           await environments.open(remote.machine, listed ? { thread: { path: listed.path } } : thread ? { threadId: thread } : undefined);
@@ -426,7 +436,7 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
                 >Look in</button>
               ) : null}
               {environments ? (
-                <button type="button" {...tooltipProps(`Show ${remote.machineName} in this window, at the thread, to answer or steer it there`)} onClick={() => void openThere(remote, actions)}>Open on {remote.machineName}</button>
+                <button type="button" {...tooltipProps(`Open this thread to answer or steer it on ${remote.machineName}`)} onClick={() => void openThere(remote, actions)}>Open on {remote.machineName}</button>
               ) : null}
               <button
                 type="button"

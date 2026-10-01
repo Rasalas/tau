@@ -32,6 +32,8 @@ export const HOST_METHOD_AUDIT: Readonly<Record<string, { label: string; thread?
   "resume-limited": { label: "resumed a thread after a limit", thread: 0 },
   "abort": { label: "stopped a run", thread: 0 },
   "new-session": { label: "started a thread" },
+  "start-thread": { label: "started a thread" },
+  "send-to-thread": { label: "sent a message to a thread", thread: 0 },
   "fork-thread": { label: "forked a thread", thread: 1 },
   "navigate-thread-tree": { label: "moved within a thread's tree", thread: 2 },
   "duplicate-thread": { label: "duplicated a thread", thread: 0 },
@@ -76,6 +78,7 @@ export const HOST_METHOD_AUDIT: Readonly<Record<string, { label: string; thread?
   "environments-set-agents": { label: "changed where this machine's agents may work" },
   "environments-extension-invoke": { label: "ran a command on another machine" },
   "environments-update": { label: "updated a machine's Tau" },
+  "environments-set-person-preferences": { label: "changed how the workbench looks", automatic: true, quiet: true },
   "cancel-job": { label: "cancelled a job" },
   // One entry per file, not per 8 MB piece.
   "blob-put": { label: "sent part of a file", automatic: true, quiet: true },

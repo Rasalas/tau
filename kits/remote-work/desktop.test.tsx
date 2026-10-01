@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PlatformEnvironments, SettingsPageProps } from "tau";
+import type { PlatformEnvironments, SettingsPageProps, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import remoteWork, { REMOTE_WORK_SETTINGS_PAGE } from "./desktop.js";
@@ -48,7 +48,7 @@ function setup(answer: (command: string, input?: unknown) => unknown, cwd: strin
   render(<TestProviders preferences={preferences}><page.Component {...props} /></TestProviders>);
   const push = (transfer: RepoTransfer) => act(() => registry.dispatchExtensionEvent({ type: "extension-event", extensionId: ID, name: TRANSFER_EVENT, payload: transfer }));
   const pushLink = (link: RemoteThreadLink) => act(() => registry.dispatchExtensionEvent({ type: "extension-event", extensionId: ID, name: THREAD_LINK_EVENT, payload: link }));
-  return { invoke, props, push, pushLink, page };
+  return { invoke, props, push, pushLink, page, registry, preferences };
 }
 
 describe("Settings → Remote work", () => {
@@ -196,5 +196,31 @@ describe("Settings → Remote work", () => {
   it("says what to do without an open project", () => {
     setup(() => undefined, null);
     expect(screen.getByText("No project open")).toBeTruthy();
+  });
+});
+
+
+describe("opening Remote Work through connected agents", () => {
+  it("opens a proxy thread from Settings without moving the window or leaving its button busy", async () => {
+    const link: RemoteThreadLink = {
+      id: "link1", machine: "box2-id", machineName: "box2", cwd: "/work/app", root: "/work/app", title: "Colours",
+      thread: "saved~thread", status: "running", createdAt: 1, updatedAt: 1,
+    };
+    const open = vi.fn(async () => undefined);
+    const switchSession = vi.fn(async () => true);
+    const actions = { switchSession } as unknown as WorkbenchActions;
+    const { registry, preferences, invoke } = setup((command) => {
+      if (command === "agents") return { machines: [{ id: "box2-id", status: "connected" }] };
+      if (command === "ignored-files") return { ...VIEW, candidates: [], selected: [] };
+      if (command === "threads") return [link];
+      return command === "transfers" ? [] : undefined;
+    }, "/work/app", { environments: { open } as unknown as PlatformEnvironments });
+    const region = registry.getRegions("composer-above").find((entry) => entry.id === "remote-work.questions")!;
+    render(<TestProviders preferences={preferences}><region.Component actions={actions} /></TestProviders>);
+    fireEvent.click(await screen.findByRole("button", { name: "Open on box2" }));
+    await vi.waitFor(() => expect(switchSession).toHaveBeenCalledWith("tau-thread:machine:box2-id~saved~thread"));
+    expect(invoke).toHaveBeenCalledWith("tau.environments", "agents", undefined);
+    expect(open).not.toHaveBeenCalled();
+    expect(await screen.findByRole("button", { name: "Open on box2" })).toBeTruthy();
   });
 });

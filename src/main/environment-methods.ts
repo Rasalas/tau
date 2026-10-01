@@ -16,6 +16,7 @@ import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import { decodeHostTranscriptCursor } from "./ipc-input.js";
 import type { HostMethodTable } from "./host-methods.js";
 import type { HostUpdateAction, HostUpdateStatus } from "../shared/host-updates.js";
+import { personPreferences, type PersonPreferences } from "../shared/person-preferences.js";
 
 /** What the window's process answers about its machines (ADR 0025); `WindowEnvironments` is the one implementation. */
 export interface EnvironmentsService {
@@ -33,9 +34,11 @@ export interface EnvironmentsService {
   setAgents(id: string, on: boolean): Promise<EnvironmentAgentsResult>;
   watchThread(machine: string, sessionId: string, on: boolean): UiEnvironmentThreadView | undefined;
   transcriptPage(machine: string, sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage>;
-  invokeExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown>;
+  invokeExtension(machine: string, extensionId: string, command: string, input?: unknown, options?: { timeoutMs?: number }): Promise<unknown>;
+  followExtension(machine: string, extensionId: string, on: boolean): void;
   readExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown>;
   updateMachine(machine: string, action: HostUpdateAction): Promise<HostUpdateStatus>;
+  personPreferences?(patch?: PersonPreferences): Promise<PersonPreferences>;
 }
 
 function text(method: string, name: string, value: unknown, max = 4_096): string {
@@ -55,6 +58,11 @@ export function createEnvironmentMethods(service: () => EnvironmentsService | un
     const current = service();
     if (current) return current;
     throw Object.assign(new Error("Only a desktop window keeps a list of machines."), { code: HOST_ERROR.unsupported });
+  };
+  const ownMachine = (): EnvironmentsService & Required<Pick<EnvironmentsService, "personPreferences">> => {
+    const current = require();
+    if (current.personPreferences) return current as EnvironmentsService & Required<Pick<EnvironmentsService, "personPreferences">>;
+    throw Object.assign(new Error("This window keeps no preferences of its own machine."), { code: HOST_ERROR.unsupported });
   };
   return {
     "environments-list": async () => require().snapshot(),
@@ -103,6 +111,13 @@ export function createEnvironmentMethods(service: () => EnvironmentsService | un
       }
       return require().updateMachine(text("environments-update", "machine", params[0], 200), typeof automatic === "boolean" ? { automatic } : action as "status" | "check" | "install");
     },
+    "environments-person-preferences": async () => ownMachine().personPreferences(),
+    "environments-set-person-preferences": async (params) => {
+      if (params[0] === null || typeof params[0] !== "object" || Array.isArray(params[0])) {
+        throw Object.assign(new Error("environments-set-person-preferences: patch must be an object."), { code: HOST_ERROR.invalidRequest });
+      }
+      return ownMachine().personPreferences(personPreferences(params[0]));
+    },
     "environments-watch-thread": async (params) => {
       if (typeof params[2] !== "boolean") {
         throw Object.assign(new Error("environments-watch-thread: on must be a boolean."), { code: HOST_ERROR.invalidRequest });
@@ -118,12 +133,30 @@ export function createEnvironmentMethods(service: () => EnvironmentsService | un
       text("environments-transcript-page", "sessionId", params[1], 512),
       decodeHostTranscriptCursor("environments-transcript-page", "cursor", params[2]),
     ),
-    "environments-extension-invoke": async (params) => require().invokeExtension(
-      text("environments-extension-invoke", "machine", params[0], 200),
-      text("environments-extension-invoke", "extensionId", params[1], 200),
-      text("environments-extension-invoke", "command", params[2], 200),
-      params[3],
-    ),
+    "environments-extension-follow": async (params) => {
+      if (typeof params[2] !== "boolean") {
+        throw Object.assign(new Error("environments-extension-follow: on must be a boolean."), { code: HOST_ERROR.invalidRequest });
+      }
+      require().followExtension(
+        text("environments-extension-follow", "machine", params[0], 200),
+        text("environments-extension-follow", "extensionId", params[1], 200),
+        params[2],
+      );
+    },
+    "environments-extension-invoke": async (params) => {
+      const options = params[4];
+      if (options !== undefined && (options === null || typeof options !== "object" || Array.isArray(options)
+        || ("timeoutMs" in options && (typeof options.timeoutMs !== "number" || !Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)))) {
+        throw Object.assign(new Error("environments-extension-invoke: options must contain a positive timeoutMs."), { code: HOST_ERROR.invalidRequest });
+      }
+      return require().invokeExtension(
+        text("environments-extension-invoke", "machine", params[0], 200),
+        text("environments-extension-invoke", "extensionId", params[1], 200),
+        text("environments-extension-invoke", "command", params[2], 200),
+        params[3],
+        options as { timeoutMs?: number } | undefined,
+      );
+    },
     "environments-extension-read": async (params) => require().readExtension(
       text("environments-extension-read", "machine", params[0], 200),
       text("environments-extension-read", "extensionId", params[1], 200),

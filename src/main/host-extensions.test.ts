@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { HOST_ERROR, hostErrorInfo } from "../shared/host-transport.js";
 import type { GlobalHostEvent } from "../shared/contracts.js";
 import { HostCommandError } from "./host-extension-errors.js";
 import { HostExtensionRegistry, runtimeBackendMarks, type HostExtension, type HostExtensionContext, type HostExtensionServices } from "./host-extensions.js";
@@ -88,9 +89,15 @@ describe("HostExtensionRegistry", () => {
     const { registry: r } = registry();
     await r.activate({ id: "demo.kit", name: "Demo Kit", activate: (ctx) => { ctx.registerCommand("echo", () => 1); } });
     await expect(r.invoke("other.kit", "echo")).rejects.toThrow("Host extension other.kit is not installed.");
+    await expect(r.invoke("other.kit", "echo")).rejects.toMatchObject({ code: HOST_ERROR.unknownExtension });
     await expect(r.invoke("demo.kit", "missing")).rejects.toThrow('Host extension Demo Kit has no command "missing".');
+    await expect(r.invoke("demo.kit", "missing")).rejects.toMatchObject({ code: HOST_ERROR.unknownCommand });
+    await expect(r.authorizeInvocation("other.kit", "echo", undefined, WORKBENCH_CLIENT_PRINCIPAL)).rejects.toMatchObject({ code: HOST_ERROR.unknownExtension });
+    await expect(r.authorizeInvocation("demo.kit", "missing", undefined, WORKBENCH_CLIENT_PRINCIPAL)).rejects.toMatchObject({ code: HOST_ERROR.unknownCommand });
     await r.deactivate("demo.kit");
     await expect(r.invoke("demo.kit", "echo")).rejects.toThrow("Host extension Demo Kit is not active.");
+    const inactive = await r.invoke("demo.kit", "echo").catch((error: unknown) => error);
+    expect(hostErrorInfo(inactive).code).toBe(HOST_ERROR.failed);
   });
 
   it("publishes extension events only while the extension is active", async () => {

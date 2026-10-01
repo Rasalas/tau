@@ -13,6 +13,8 @@ export const TERMINAL_HOST_EXTENSION_ID = "tau.terminal";
 export const TERMINAL_DATA_EVENT = "data";
 export const TERMINAL_EXITED_EVENT = "exited";
 export const TERMINAL_LIST_EVENT = "sessions";
+/** Session and exit changes follow the kit's home-machine topic relay. */
+export const TERMINAL_SESSIONS_TOPIC = "sessions";
 
 /**
  * The topic a session's output is emitted under: only clients drawing that
@@ -51,7 +53,7 @@ export interface TerminalHostCommands {
    * Starts a shell in the workspace (the host's own when unnamed) and answers with the session.
    * `from` names a shell whose current directory the new one starts in, when it reported one.
    */
-  "open": { input: { workspaceId?: string; sessionId?: string; label?: string; from?: string }; output: UiTerminalSession };
+  "open": { input: { workspace?: string; workspaceId?: string; sessionId?: string; label?: string; from?: string }; output: UiTerminalSession };
   /** A new shell in an ended session's place; answers with the replacement. */
   "restart": { input: { id: string }; output: UiTerminalSession };
   /** Writes what the user typed; travels as plain text over the host's own channel. */
@@ -225,7 +227,7 @@ export interface WorkspaceStoreMirror {
   /** A line on a rail row's hover card (Workspace Kit, API 1.23.0); absent from an older Workspace Kit. */
   registerThreadCardSection?(section: { place: "row"; order?: number; Component: (props: ThreadCardRowSlotProps) => unknown }): () => void;
   /** The project the store follows; `openInEditor` paths are relative to it. */
-  getSnapshot?(): { cwd?: string };
+  getSnapshot?(): { cwd?: string; workspaceId?: string };
   subscribe?(listener: () => void): () => void;
   activeEditor?(): { id: string; name: string } | undefined;
   openInEditor?(relPath?: string): Promise<void>;

@@ -1,7 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { getClientStorage, HostUnavailableError, useWorkbench, type HostExtensionClient, type PreferencesStore, type WorkbenchActions } from "tau";
 import {
-  createTerminalHostClient, TERMINAL_HOST_EXTENSION_ID, TERMINAL_LIST_EVENT, TERMINAL_DATA_EVENT, terminalOutputTopic,
+  createTerminalHostClient, TERMINAL_HOST_EXTENSION_ID, TERMINAL_LIST_EVENT, TERMINAL_SESSIONS_TOPIC, TERMINAL_DATA_EVENT, terminalOutputTopic,
   type TerminalFontDefaults, type TerminalFontService, type TerminalFontServiceState, type UiTerminalSession, type WorkspaceStoreMirror,
 } from "./protocol.js";
 import { TerminalActivity } from "./activity.js";
@@ -13,6 +13,24 @@ import {
 } from "./font.js";
 
 let connection: HostExtensionClient | undefined;
+let readSessions: (() => Promise<void>) | undefined;
+const reconnectListeners = new Set<() => void>();
+
+/** A mounted view replays bytes missed while the source host's socket was down. */
+export function onTerminalReconnect(listener: () => void): () => void {
+  reconnectListeners.add(listener);
+  return () => { reconnectListeners.delete(listener); };
+}
+
+export function terminalHostReconnected(): void {
+  void refreshTerminalSessions();
+  for (const listener of reconnectListeners) listener();
+}
+
+/** A different thread or project may bring a different home machine's shells. */
+export function refreshTerminalSessions(): Promise<void> {
+  return readSessions?.() ?? Promise.resolve();
+}
 
 export const terminalKit = createTerminalHostClient((command, input) => connection
   ? connection.invoke(command, input)
@@ -184,18 +202,29 @@ export function connectTerminalHost(host: HostExtensionClient): () => void {
       terminalStore.setSessions(payload);
     }
   });
+  const stopSessions = host.watch?.(TERMINAL_SESSIONS_TOPIC);
   // The list the host already holds, for a client that reconnected; a push
   // that arrived first is newer and wins.
-  void terminalKit.list().then((list) => {
-    if (!disposed && revision === 0 && isTerminalSessionList(list)) terminalStore.setSessions(list);
-  }).catch(() => undefined);
+  const refresh = async () => {
+    const requested = ++revision;
+    try {
+      const list = await host.invoke("list");
+      if (!disposed && revision === requested && isTerminalSessionList(list)) terminalStore.setSessions(list);
+    } catch {
+      // A disconnected home keeps the last known shells until it reconnects.
+    }
+  };
+  readSessions = refresh;
+  void refresh();
   return () => {
     disposed = true;
     stop();
     stopActivity();
+    stopSessions?.();
     terminalActivity.reset();
     if (connection === host) {
       connection = undefined;
+      readSessions = undefined;
       terminalStore.forgetSessions();
     }
   };

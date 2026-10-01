@@ -326,3 +326,12 @@ supplies the selected OAuth token through the child environment and resumes
 a saved thread after restarting the process. Sharing local rollouts for
 stateless Responses turns is Tau's implementation choice; successfully
 resuming locally does not prove the target account's inference entitlement.
+
+## Amendment, 2026-10-01: a backend may run on another machine
+
+Machines Kit supplies the `machine` backend for proxy threads whose runtime
+is on their home machine, as ADR 0030 describes. A provider may set
+`hidden: true` to list and resume threads while staying out of new-thread
+runtime pickers. Its records may report `messageCount` without loading a
+transcript and carry `machine` for the index's runtime and machine marks.
+These optional fields are extension API 1.42.0.

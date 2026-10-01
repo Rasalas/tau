@@ -71,10 +71,13 @@ function threadEqual(left: UiSession, right: UiSession): boolean {
     left.title === right.title &&
     left.modifiedAt === right.modifiedAt &&
     left.projectPath === right.projectPath &&
+    left.workspaceId === right.workspaceId &&
+    left.projectDisplayPath === right.projectDisplayPath &&
     left.projectName === right.projectName &&
     left.projectLabel === right.projectLabel &&
     left.messageCount === right.messageCount &&
     left.backendKind === right.backendKind &&
+    same(left.machine, right.machine) &&
     left.interrupted === right.interrupted &&
     left.turnError === right.turnError &&
     left.runtimeError === right.runtimeError &&

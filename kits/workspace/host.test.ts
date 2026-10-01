@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionServices } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
-import { createWorkspaceHostClient } from "./protocol.js";
+import { WORKSPACE_HEAD_TOPIC, createWorkspaceHostClient } from "./protocol.js";
 import { createWorkspaceHostExtension } from "./host.js";
 
 const directories: string[] = [];
@@ -68,6 +68,38 @@ async function client(cwd: string, overrides: Partial<HostExtensionServices> = {
 }
 
 describe("Workspace Kit host extension", () => {
+  it("stages and changes branches in a named workspace while leaving the active workspace alone", async () => {
+    const cwd = await workspace();
+    const target = await workspace();
+    const git = (root: string, ...args: string[]) => execFileSync("git", ["-C", root, "-c", "user.name=Tau", "-c", "user.email=tau@example.invalid", ...args], { encoding: "utf8" });
+    for (const root of [cwd, target]) {
+      git(root, "init", "-q", "-b", "main");
+      await writeFile(join(root, "a.txt"), "initial");
+      git(root, "add", "a.txt");
+      git(root, "commit", "-q", "-m", "first");
+      await writeFile(join(root, "a.txt"), "changed");
+    }
+    const openWorkspace = vi.fn(async () => ({ version: 1 as const, updates: [] }));
+    const host = await client(cwd, { knownWorkspacePath: async (id) => { expect(id).toBe("ws1_other"); return target; }, openWorkspace });
+    await host.stageFile("a.txt", "ws1_other");
+    expect(git(target, "diff", "--cached", "--name-only").trim()).toBe("a.txt");
+    expect(git(cwd, "diff", "--cached", "--name-only").trim()).toBe("");
+    await host.unstageFile("a.txt", "ws1_other");
+    expect(git(target, "diff", "--cached", "--name-only").trim()).toBe("");
+    await host.stageAll("ws1_other");
+    expect(git(target, "diff", "--cached", "--name-only").trim()).toBe("a.txt");
+    await host.unstageFile("a.txt", "ws1_other");
+    await host.revertFile("a.txt", "ws1_other");
+    expect(git(target, "diff", "--name-only").trim()).toBe("");
+    await expect(host.createBranch("feature", "ws1_other")).resolves.toEqual({ version: 1, updates: [] });
+    expect(git(target, "branch", "--show-current").trim()).toBe("feature");
+    await expect(host.switchRef("main", "ws1_other")).resolves.toEqual({ version: 1, updates: [] });
+    expect(git(target, "branch", "--show-current").trim()).toBe("main");
+    expect(git(cwd, "branch", "--show-current").trim()).toBe("main");
+    expect(openWorkspace).not.toHaveBeenCalled();
+  });
+
+
   it("tells clients when HEAD moves outside Tau, and answers the new branch at once", async () => {
     const cwd = await workspace();
     const git = (...args: string[]) => execFileSync("git", ["-C", cwd, "-c", "user.name=Tau", "-c", "user.email=tau@example.invalid", ...args], { stdio: "ignore" });
@@ -84,7 +116,7 @@ describe("Workspace Kit host extension", () => {
 
     git("checkout", "-q", "feature");
     await vi.waitFor(() => expect(events.some((event) => event.name === "head-changed")).toBe(true), { timeout: 5_000 });
-    expect(events.find((event) => event.name === "head-changed")?.payload).toEqual({ root: before.root });
+    expect(events.find((event) => event.name === "head-changed")).toMatchObject({ topic: WORKSPACE_HEAD_TOPIC, payload: { root: before.root } });
     // The 30 s cache would otherwise still answer "main".
     expect((await host.getWorkspaceInfo()).branch).toBe("feature");
     await registry.deactivate("tau.workspace");

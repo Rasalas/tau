@@ -9,6 +9,7 @@ import {
   TERMINAL_EXITED_EVENT,
   TERMINAL_HOST_EXTENSION_ID,
   TERMINAL_LIST_EVENT,
+  TERMINAL_SESSIONS_TOPIC,
   TERMINAL_SHELL_SETTING,
   type TerminalDataEvent,
   type TerminalExitedEvent,
@@ -304,13 +305,13 @@ export class TerminalSessions {
     session.pty = undefined;
     session.record = { ...session.record, exitCode };
     const event: TerminalExitedEvent = { id, exitCode };
-    this.emit(TERMINAL_EXITED_EVENT, event);
+    this.emit(TERMINAL_EXITED_EVENT, event, { topic: TERMINAL_SESSIONS_TOPIC });
     this.emitSessions();
   }
 
   private emitSessions(): void {
     if (this.disposed) return;
-    this.emit(TERMINAL_LIST_EVENT, this.list());
+    this.emit(TERMINAL_LIST_EVENT, this.list(), { topic: TERMINAL_SESSIONS_TOPIC });
   }
 }
 
@@ -422,14 +423,15 @@ export function createTerminalHostExtension(
 
       const open = async (input: Record<string, unknown>): Promise<UiTerminalSession> => {
         resolved = await ptyFactory();
-        const workspaceId = typeof input.workspaceId === "string" && input.workspaceId ? input.workspaceId : undefined;
+        const namedWorkspace = input.workspaceId ?? input.workspace;
+        const workspaceId = typeof namedWorkspace === "string" && namedWorkspace ? namedWorkspace : undefined;
         const sessionId = typeof input.sessionId === "string" && input.sessionId ? input.sessionId : undefined;
-        // A terminal belongs to the workspace the host has open now: that is
-        // the root `afterWorkspaceClose` later names when the host leaves it.
-        const root = context.services.cwd();
+        // Explicit workspace calls leave the host's active thread alone.
+        // The shell belongs to the requested root, which lifecycle cleanup names.
+        const root = workspaceId ? await context.services.knownWorkspacePath(workspaceId) : context.services.cwd();
         // The workspace id the client sent is an identity the host published;
         // resolve it to the folder the shell may start in, and refuse anything else.
-        const start = workspaceId ? await context.services.knownWorkspacePath(workspaceId) : root;
+        const start = root;
         // A thread the Workspace Kit started in its own worktree names its
         // checkout in `cwd`; that, not the project root, is where its terminal
         // belongs. A thread that is not open falls back to the workspace folder.

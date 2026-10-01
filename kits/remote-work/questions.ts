@@ -5,6 +5,8 @@ export interface QuestionNoticePorts {
   actions(): WorkbenchActions | undefined;
   attention(): PlatformAttention | undefined;
   environments(): PlatformEnvironments | undefined;
+  /** Machines Kit's agents connection decides whether this host can open a proxy. */
+  connectedAgents?(machine: string): Promise<boolean>;
   /** Whether someone looks at this window now; a system notification is only for when nobody does. */
   focused(): boolean;
 }
@@ -17,8 +19,9 @@ export function linkQuestion(link: RemoteThreadLink): string | undefined {
 /**
  * Tells this window when a thread it runs on another machine starts to wait
  * on a question there: a toast with "Open on <machine>" and "Look in", and a
- * system notification when the window is not in front, whose click moves the
- * window there. Answering is that machine's; the toast goes once it moves on.
+ * system notification when the window is not in front. Connected agents open
+ * the thread here; the desktop otherwise follows the machine. The toast goes
+ * once the thread moves on.
  * Only links seen changing count, so a page that loads while one waits (or
  * comes back from answering it) says nothing.
  */
@@ -49,11 +52,19 @@ export class QuestionNotices {
     this.announce(link, question);
   }
 
-  /** Moves the window to the thread's machine with the thread open, where its question can be answered. */
-  openThere(link: RemoteThreadLink): Promise<void> {
+  /** Opens a connected agents thread here, with window navigation as the legacy fallback. */
+  async openThere(link: RemoteThreadLink): Promise<void> {
+    if (!link.thread) throw new Error("The thread has not started yet.");
+    if (this.ports.connectedAgents && await this.ports.connectedAgents(link.machine)) {
+      const actions = this.ports.actions();
+      if (!actions) throw new Error("This client cannot open the thread yet.");
+      // Core's externalThreadPath in src/main/pi-host-support.ts defines this virtual path.
+      await actions.switchSession(`tau-thread:machine:${link.machine}~${link.thread}`);
+      return;
+    }
     const environments = this.ports.environments();
-    if (!environments || !link.thread) return Promise.reject(new Error("This client cannot show another machine."));
-    return environments.open(link.machine, { threadId: link.thread });
+    if (!environments) throw new Error("This client cannot show another machine.");
+    await environments.open(link.machine, { threadId: link.thread });
   }
 
   dispose(): void {

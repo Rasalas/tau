@@ -3,7 +3,7 @@ import type { DesktopExtension, WorkbenchActions } from "tau";
 import { TerminalPanel } from "./panel.js";
 import { CompactTerminalPanel } from "./compact.js";
 import { restoreTerminalTab, TerminalStageTab, terminalTabParams } from "./stage-tab.js";
-import { connectTerminalFont, connectTerminalHost, createTerminalFontService, terminalKit, terminalServices, terminalStore, useTerminalActivity } from "./store.js";
+import { connectTerminalFont, connectTerminalHost, createTerminalFontService, refreshTerminalSessions, terminalHostReconnected, terminalKit, terminalServices, terminalStore, useTerminalActivity } from "./store.js";
 import { ShellRow, TERMINAL_SETTINGS_ROWS, TerminalSettingsPage } from "./settings.js";
 import { paneIds } from "./layout.js";
 import { closeTerminals, focusNextPane, keyboardShell, naturalSplit, onStage, openTerminal, runInTerminal, targetShell, toggleTerminal } from "./controller.js";
@@ -82,7 +82,11 @@ export const terminalExtension: DesktopExtension = {
     const stopFont = connectTerminalFont(plugin.preferences);
     // The panel groups terminals by the thread on screen; the event is the
     // only push a kit gets about a switch, so the store follows it here.
-    plugin.events.on("active-thread-changed", (event) => terminalStore.setActiveSession(event.sessionId));
+    plugin.events.on("active-thread-changed", (event) => {
+      terminalStore.setActiveSession(event.sessionId);
+      void refreshTerminalSessions();
+    });
+    plugin.events.on("host-connection", ({ state }) => { if (state === "connected") terminalHostReconnected(); });
     const services = [
       plugin.useService<ComposerContextChips>(COMPOSER_CONTEXT_CHIPS_SERVICE, (chips) => {
         terminalServices.chips = chips;
@@ -94,10 +98,22 @@ export const terminalExtension: DesktopExtension = {
       }),
       plugin.useService<WorkspaceStoreMirror>(WORKSPACE_STORE_SERVICE, (workspace) => {
         terminalServices.workspace = workspace;
+        const shownWorkspace = () => {
+          const snapshot = workspace.getSnapshot?.();
+          return snapshot?.workspaceId ?? snapshot?.cwd;
+        };
+        let shown = shownWorkspace();
+        const stopWorkspace = workspace.subscribe?.(() => {
+          const next = shownWorkspace();
+          if (next === shown) return;
+          shown = next;
+          void refreshTerminalSessions();
+        });
         const unmark = workspace.registerThreadRowAccessory(TerminalRowStatus);
         // After the model.
         const unlist = workspace.registerThreadCardSection?.({ place: "row", order: 45, Component: TerminalCardRow });
         return () => {
+          stopWorkspace?.();
           unmark();
           unlist?.();
           if (terminalServices.workspace === workspace) delete terminalServices.workspace;

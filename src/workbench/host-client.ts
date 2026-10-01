@@ -49,6 +49,7 @@ import type { EnvironmentAgentsResult, EnvironmentOpenTarget, EnvironmentPairInp
 import type { HostLink } from "./host-link";
 import type { HostConnection, HostConnectionState } from "./host-connection";
 import { ReadCommands, readOnlyMayCall, readOnlyRefusal, type HostHalf } from "./read-only-guard";
+import type { PersonPreferences } from "../shared/person-preferences";
 
 /**
  * Transport-neutral view of the desktop host. Every method is one call of the
@@ -288,10 +289,13 @@ export interface HostClient {
   /** A page of another machine's thread, over the window's own connection to it. */
   loadEnvironmentTranscript(machine: string, sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage>;
   /** A kit command of another machine that only reads, over the window's own connection to it (API 1.15.0). */
-  invokeEnvironmentExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown>;
+  invokeEnvironmentExtension(machine: string, extensionId: string, command: string, input?: unknown, options?: { timeoutMs?: number }): Promise<unknown>;
+  followEnvironmentExtension?(machine: string, extensionId: string, on: boolean): Promise<void>;
   readEnvironmentExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown>;
   /** Another machine's own Tau over the window's connection there: how it stands, a check, or an install (K103). */
   updateEnvironment?(machine: string, action: HostUpdateAction): Promise<HostUpdateStatus>;
+  /** The person's preferences as the window's own machine keeps them; with a patch, written there. */
+  personPreferences?(patch?: PersonPreferences): Promise<PersonPreferences>;
 
   /** The host machine's own Tau (K103); a host without an updater refuses with `unsupported`. */
   hostUpdate?(action: "status" | "check" | "install"): Promise<HostUpdateStatus>;
@@ -304,7 +308,7 @@ export interface HostClient {
  * a window whose host runs in another process still copies to its own
  * clipboard and rebuilds its own workbench (ADR 0021).
  */
-const WINDOW_EVENT_TYPES = new Set<string>(["app-update", "window-shell", "environments", "environment-thread"]);
+const WINDOW_EVENT_TYPES = new Set<string>(["app-update", "window-shell", "environments", "environment-thread", "environment-extension-event"]);
 
 export function createHostClient(connection: HostConnection, local?: HostConnection): HostClient {
   const route = (method: string) => (local && isClientSideMethod(method) ? local : connection);
@@ -490,9 +494,11 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     setEnvironmentAgents: (id, on) => call<EnvironmentAgentsResult>("environments-set-agents", [id, on]),
     watchEnvironmentThread: async (machine, sessionId, on) => (await call<UiEnvironmentThreadView | null>("environments-watch-thread", [machine, sessionId, on])) ?? undefined,
     loadEnvironmentTranscript: (machine, sessionId, cursor) => call<TranscriptPage>("environments-transcript-page", cursor ? [machine, sessionId, cursor] : [machine, sessionId]),
-    invokeEnvironmentExtension: (machine, extensionId, command, input) => call<unknown>("environments-extension-invoke", input === undefined ? [machine, extensionId, command] : [machine, extensionId, command, input]),
+    invokeEnvironmentExtension: (machine, extensionId, command, input, options) => call<unknown>("environments-extension-invoke", options ? [machine, extensionId, command, input, options] : input === undefined ? [machine, extensionId, command] : [machine, extensionId, command, input]),
+    followEnvironmentExtension: (machine, extensionId, on) => call<void>("environments-extension-follow", [machine, extensionId, on]),
     readEnvironmentExtension: (machine, extensionId, command, input) => call<unknown>("environments-extension-read", input === undefined ? [machine, extensionId, command] : [machine, extensionId, command, input]),
     updateEnvironment: (machine, action) => call<HostUpdateStatus>("environments-update", [machine, action]),
+    personPreferences: (patch) => patch ? call<PersonPreferences>("environments-set-person-preferences", [patch]) : call<PersonPreferences>("environments-person-preferences", []),
 
     // Literal names: the protocol contract test reads them from this file.
     hostUpdate: (action) => action === "install" ? call<HostUpdateStatus>("update-install") : action === "check" ? call<HostUpdateStatus>("update-check") : call<HostUpdateStatus>("update-status"),

@@ -411,6 +411,8 @@ export interface UiSession {
   messageCount: number;
   /** Lifecycle owner; older index entries default to Pi. */
   backendKind?: ThreadBackendKind;
+  /** The home machine of a proxy thread and its runtime marks. New in API 1.42.0. */
+  machine?: { id: string; name: string; backendKind?: string; modelProvider?: string };
   /** Provider of the thread's selected model, when the host has observed it. */
   modelProvider?: string;
   /** Id of that model, where the runtime or its session file names it (API 1.23.0). */
@@ -436,6 +438,14 @@ export interface UiSession {
   parentThreadId?: string;
   /** The machine and thread an imported session came from, as its file records it. */
   origin?: UiThreadOrigin;
+}
+
+/** Runtime marks to display for a thread, including its home machine's runtime. New in API 1.43.0. */
+export function displayRuntime(session: Pick<UiSession, "machine" | "backendKind" | "modelProvider">) {
+  return {
+    backendKind: session.machine?.backendKind ?? session.backendKind,
+    modelProvider: session.machine?.modelProvider ?? session.modelProvider,
+  };
 }
 
 /** Where a thread taken over from another machine came from (`sessions.import`). */
@@ -748,6 +758,8 @@ export type GlobalHostEvent =
   | { type: "environments"; environments: import("./environments.js").UiEnvironments; sessionId?: undefined }
   /** The window's own process to its page: a thread of another machine a tab looks in on changed there (API 1.15.0). */
   | { type: "environment-thread"; view: import("./environments.js").UiEnvironmentThreadView; sessionId?: undefined }
+  /** An event of a kit the page follows on another machine. New in API 1.40.0. */
+  | { type: "environment-extension-event"; machine: string; extensionId: string; name: string; payload: unknown; sessionId?: undefined }
   | { type: "event-log"; label: string; detail?: string; timestamp: number; sessionId?: undefined };
 
 /** Events emitted by a runtime always carry the owning session explicitly. */

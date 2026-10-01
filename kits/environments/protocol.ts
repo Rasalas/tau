@@ -1,9 +1,14 @@
-import type { ComponentType, ReactNode } from "react";
-import type { HostSnapshot, WorkbenchActions } from "tau";
+import type { ComponentType, ReactElement, ReactNode } from "react";
+import type { HostSnapshot, UiSession, WorkbenchActions } from "tau";
 import type { MachineRailThread } from "./rail.js";
 
 export const ENVIRONMENTS_EXTENSION_ID = "tau.environments";
 export const MACHINES_SETTINGS_PAGE = "environments.machines";
+
+/** Onboarding Kit's desktop service (`kits/onboarding/protocol.ts`); its UI imports on the named machine. */
+export const MACHINE_IMPORT_SERVICE = "tau.onboarding/machine-import";
+export interface MachineImportProps { machine: string; name: string }
+export interface MachineImportService { Component: (props: MachineImportProps) => ReactElement }
 
 /** Workspace Kit's desktop service (`kits/workspace/protocol.ts`); the rail draws what is registered here. */
 export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
@@ -35,6 +40,8 @@ export type RunOnDefault = "this" | "last" | "ask";
 
 /** The part of Workspace Kit's `ThreadCardSectionProps` the machine's line reads. */
 export interface MachineCardRowProps {
+  /** The row's index entry, as Workspace Kit supplies it. New in API 1.43.0. */
+  session?: UiSession;
   external: boolean;
   Row: ComponentType<{ icon: ReactNode; children: ReactNode }>;
 }

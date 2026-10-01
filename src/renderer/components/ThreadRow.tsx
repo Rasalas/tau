@@ -1,6 +1,6 @@
 import { memo, useEffect, useState, type ReactNode } from "react";
 import { ArchiveRestore, Check, CircleHelp, GitBranch, Monitor, PlugZap, TriangleAlert } from "lucide-react";
-import type { UiSession } from "../../shared/contracts";
+import { displayRuntime, type UiSession } from "../../shared/contracts";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { DEFAULT_RUNTIME, threadOnPlan } from "../runtime-marks";
 import { MiddleTruncate } from "./ui/MiddleTruncate";
@@ -112,6 +112,7 @@ export const ThreadRow = memo(function ThreadRow({
   onSelect,
   onToggleSettled,
 }: ThreadRowProps) {
+  const display = displayRuntime(session);
   const settled = activity === "settled";
   const projectMark = <ProjectIcon project={{ path: session.projectPath, name: session.projectName, workspaceId: session.workspaceId }} icon={projectIcon} />;
   const label = activityLabel ?? (
@@ -170,7 +171,7 @@ export const ThreadRow = memo(function ThreadRow({
         <span className="thread-meta-line">
           <span className="thread-meta-end">
             {machine ? <MachineMark machine={machine} /> : null}
-            <ProviderIconStack modelProvider={modelProvider ?? session.modelProvider} runtimeProvider={session.backendKind ?? DEFAULT_RUNTIME} plan={threadOnPlan(session.usage)} />
+            <ProviderIconStack modelProvider={modelProvider ?? display.modelProvider} runtimeProvider={display.backendKind ?? DEFAULT_RUNTIME} plan={threadOnPlan(session.usage)} />
           </span>
           {accessory ? <span className="thread-meta-marks">{accessory}</span> : null}
           {showLabel && session.projectLabel ? <span className="thread-branch"><GitBranch size={11} aria-hidden="true" /><MiddleTruncate value={session.projectLabel} /></span> : null}

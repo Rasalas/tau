@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostSnapshot, UiSession, WorkbenchActions } from "tau";
+import type { HostSnapshot, PlatformEnvironments, UiSession, WorkbenchActions } from "tau";
 import { createKitHarness, ThreadStore, ThreadStoreContext } from "../../src/renderer/test-support/kit-harness.js";
 import { createHandoffExtension } from "./desktop.js";
 import { HANDOFF_EXTENSION_ID, type LineageState } from "./protocol.js";
@@ -35,7 +35,7 @@ function actionsFor(sessionId = "parent", overrides: Partial<Record<keyof Workbe
   } as unknown as WorkbenchActions;
 }
 
-function setup(answers: Record<string, unknown> = {}) {
+function setup(answers: Record<string, unknown> = {}, platform?: Parameters<typeof createKitHarness>[2]) {
   const invoke = vi.fn(async (_extension: string, command: string, _input?: unknown) => {
     if (command in answers) return answers[command];
     if (command === "state") return { links: [] };
@@ -47,7 +47,7 @@ function setup(answers: Record<string, unknown> = {}) {
     return undefined;
   });
   const store = new HandoffStore();
-  const { registry, preferences } = createKitHarness(invoke);
+  const { registry, preferences } = createKitHarness(invoke, undefined, platform);
   registry.activate(createHandoffExtension(store));
   const threads = new ThreadStore();
   threads.applyThreadIndex({ projects: [], sessions: [session("parent", "Parser work", "/sessions/parent.jsonl"), session("fork", "Fork", "tau-thread:codex:fork")] });
@@ -248,5 +248,33 @@ describe("context cards", () => {
     expect(screen.queryByText("Fast parser.")).toBeNull();
     fireEvent.click(head);
     expect(screen.getByText("Fast parser.")).toBeTruthy();
+  });
+});
+
+
+describe("opening a handoff thread on another machine", () => {
+  it.each(["connected", "offline"])("uses the %s agents connection to choose proxy navigation or the legacy window", async (status) => {
+    const open = vi.fn(async () => undefined);
+    const environments = { open, watchThread: vi.fn(), getSnapshot: () => ({ environments: [] }) } as unknown as PlatformEnvironments;
+    const lineage: LineageState = { links: [], remotes: [{ threadId: "parent", link: "remote-link", machine: "rex", machineName: "rex", strategy: "portable", createdAt: 1 }] };
+    const { registry, invoke } = setup({
+      state: lineage,
+      agents: { machines: [{ id: "rex", status }] },
+      thread: { id: "remote-link", machine: "rex", machineName: "rex", thread: "saved~thread", status: "waiting" },
+    }, { environments });
+    const actions = actionsFor();
+    const region = registry.getRegions("composer-above").find((entry) => entry.id === "handoff.remote")!;
+    render(<region.Component snapshot={snapshot("parent")} actions={actions} />);
+    await screen.findByRole("button", { name: "Look in" });
+    fireEvent.click(screen.getByRole("button", { name: "Open on rex" }));
+    if (status === "connected") {
+      await vi.waitFor(() => expect(actions.switchSession).toHaveBeenCalledWith("tau-thread:machine:rex~saved~thread"));
+      expect(open).not.toHaveBeenCalled();
+    } else {
+      await vi.waitFor(() => expect(open).toHaveBeenCalledWith("rex", { threadId: "saved~thread" }));
+      expect(actions.switchSession).not.toHaveBeenCalled();
+    }
+    expect(invoke).toHaveBeenCalledWith("tau.environments", "agents", undefined);
+    registry.deactivate(HANDOFF_EXTENSION_ID);
   });
 });

@@ -1571,7 +1571,7 @@ describe("Workspace Kit in the workbench", () => {
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Branch" })).getByRole("button", { name: /^feat\/worktree-label/u }));
 
     expect(await screen.findByRole("button", { name: "Branch feat/worktree-label" })).toBeTruthy();
-    expect(getWorkspaceInfo).toHaveBeenLastCalledWith();
+    expect(getWorkspaceInfo).toHaveBeenLastCalledWith("/project-worktrees/feat-worktree-label");
   });
 
   it("moves the checkout row into the header's branch menu once the conversation has begun", async () => {
@@ -1613,9 +1613,9 @@ describe("Workspace Kit in the workbench", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Branch main" }));
     let menu = await screen.findByRole("dialog", { name: "Branch" });
     fireEvent.click(within(menu).getByRole("button", { name: "feat/paging" }));
-    await waitFor(() => expect(switchRef).toHaveBeenCalledWith("feat/paging"));
+    await waitFor(() => expect(switchRef).toHaveBeenCalledWith("feat/paging", "/project"));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Branch" })).toBeNull());
-    expect(checkoutTurns).toHaveBeenCalledWith("session");
+    expect(checkoutTurns).toHaveBeenCalledWith("session", "/project");
 
     // A turn is running in this checkout: the switch waits for a yes.
     running = [{ sessionId: "other", title: "Fix the header" }];
@@ -1634,7 +1634,7 @@ describe("Workspace Kit in the workbench", () => {
     menu = await screen.findByRole("dialog", { name: "Branch" });
     fireEvent.click(within(menu).getByRole("button", { name: "feat/paging" }));
     fireEvent.click(await within(menu).findByRole("button", { name: "Switch anyway" }));
-    await waitFor(() => expect(switchRef).toHaveBeenCalledWith("feat/paging"));
+    await waitFor(() => expect(switchRef).toHaveBeenCalledWith("feat/paging", "/project"));
     running = [];
 
     fireEvent.click(screen.getByRole("button", { name: "Branch main" }));
@@ -1643,7 +1643,7 @@ describe("Workspace Kit in the workbench", () => {
     const search = within(menu).getByRole("textbox", { name: /Switch branch or type a new name/u });
     fireEvent.change(search, { target: { value: "fix/header" } });
     fireEvent.keyDown(search, { key: "Enter" });
-    await waitFor(() => expect(createBranch).toHaveBeenCalledWith("fix/header"));
+    await waitFor(() => expect(createBranch).toHaveBeenCalledWith("fix/header", "/project"));
     // The project stays the same, so the kit rereads the checkout itself.
     expect(await screen.findByRole("button", { name: "Branch fix/header" })).toBeTruthy();
   });

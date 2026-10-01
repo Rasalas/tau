@@ -2,7 +2,12 @@
 
 ## Status
 
-Accepted, 2026-09-24. Amends [ADR 0021](0021-host-runs-in-its-own-process.md),
+Accepted, 2026-09-24. Partly superseded by
+[ADR 0030](0030-the-workbench-controls-every-machine.md) (2026-10-01): a
+workbench keeps threads of connected agents machines in one list and stays on
+its own host. This ADR's catalog, pairing, address selection and window
+navigation remain for machines this computer's agents may not reach, and for
+explicit `tau machines open` commands. Amends [ADR 0021](0021-host-runs-in-its-own-process.md),
 where a window is the client of exactly one host for its whole life. Builds on
 [ADR 0024](0024-pairing-allowed-on-the-host.md) for pairing.
 

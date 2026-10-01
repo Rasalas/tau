@@ -21,6 +21,7 @@ import { createConnectionsMethods, type HostConnectionsService } from "./host-co
 import { createConnectMethods, type HostConnect } from "./host-connect.js";
 import { createHostServiceMethods, type HostServiceManager } from "./host-service.js";
 import { createMachineMethods, type HostMachines } from "./host-machines.js";
+import { MachineKitRoute } from "./machine-kit-route.js";
 import { createMachinePairingMethods, localWindowPort } from "./host-machine-pairing.js";
 import type { ClientCalls } from "./client-calls.js";
 import { createResourceMethods, type HostResourceSampler } from "./host-resources.js";
@@ -49,6 +50,8 @@ import {
   decodeString,
   decodeStringOrClientTurnIdentity,
   decodeText,
+  decodeThreadDelivery,
+  decodeThreadStartOptions,
   decodeUiPromptAttachments,
   decodeUiSkillDraft,
   decodeWorkbenchReloadMode,
@@ -173,6 +176,7 @@ export interface HostMethodDeps {
   service?(): HostServiceManager | undefined;
   /** Other machines this host's agents reach (ADR 0027); absent for a host in the window's process. */
   machines?(): HostMachines | undefined;
+  machineRoutes?: MachineKitRoute;
   /** The machine's load, for `host-resources`; absent for a host in the window's process. */
   resources?(): HostResourceSampler | undefined;
   /** Files other machines send here; absent for a host in the window's process. */
@@ -205,11 +209,17 @@ function decodeIndex(channel: string, field: string, value: unknown): number {
 export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
   const { platform } = deps;
   const host = () => deps.requireHost();
+  const routes = deps.machineRoutes ?? new MachineKitRoute({ machines: () => deps.machines?.(), active: () => deps.host()?.activeThreadIdentity() });
   const invokeExtension = async (params: readonly unknown[], context: HostMethodContext): Promise<unknown> => {
     const extensionId = decodeExtensionId("host-extension", params[0]);
     const command = decodeCommandName("host-extension", params[1]);
     const instance = await host();
-    return instance.invokeHostExtension(extensionId, command, params[2], context.principal);
+    const route = extensionId === "tau.workspace" && command === "pick-folder" ? undefined : routes.routeOf(extensionId, params[2]);
+    if (route) {
+      await instance.authorizeHostExtension(extensionId, command, params[2], context.principal);
+      return routes.call(route, extensionId, command, () => instance.invokeHostExtension("tau.terminal", "list", undefined, context.principal));
+    }
+    return routes.localResult(extensionId, command, await instance.invokeHostExtension(extensionId, command, params[2], context.principal));
   };
   // A client names a workspace by its id; one that still speaks paths sends a path.
   const workspace = async (method: string, name: string, value: unknown): Promise<string> =>
@@ -297,6 +307,21 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       decodePreparedPrompt("new-session", "prepared", params[4]),
       decodeNewThreadConfiguration("new-session", "configuration", params[5]),
     ),
+    "start-thread": async (params) => {
+      const options = decodeThreadStartOptions("start-thread", params[0]);
+      const instance = await host();
+      const started = await instance.startThread({ ...options, cwd: await workspace("start-thread", "options.cwd", options.cwd) });
+      const path = instance.threadPath(started.sessionId);
+      if (!path) throw new Error("The started thread is missing from the host's index.");
+      return { ...started, path };
+    },
+    "send-to-thread": async (params) => {
+      const sessionId = decodeString("send-to-thread", "sessionId", params[0]);
+      const text = decodeString("send-to-thread", "text", params[1]);
+      const delivery = decodeThreadDelivery("send-to-thread", params[2]);
+      await (await host()).sendToThread(sessionId, text, delivery);
+      return null;
+    },
     "prepared-thread-capability": async (params) =>
       (await host()).getPreparedThreadCapability(await optionalWorkspace("prepared-thread-capability", "cwd", params[0])),
     "fork-thread": async (params) => (await host()).forkThread(

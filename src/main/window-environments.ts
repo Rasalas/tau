@@ -21,6 +21,7 @@ import type {
 } from "../shared/environments.js";
 import type { HostExtensionSummary } from "../shared/contracts.js";
 import type { TranscriptPage } from "../shared/host-protocol.js";
+import type { HostPushEvent } from "../shared/host-transport.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import { agentsDeviceName, environmentProjects, environmentThreads, orderEndpoints, refreshEndpoints, sameEndpoints, socketUrl } from "../shared/environments.js";
 import type { PairingEndpoint } from "../shared/connections.js";
@@ -39,6 +40,7 @@ import {
   type PresentedIdentity,
 } from "./host-tls-trust.js";
 import { fingerprintsMatch } from "./host-tls.js";
+import { personPreferences, type PersonPreferences } from "../shared/person-preferences.js";
 
 /** Where the page reaches a machine: what a `WindowHost` attaches to and the page's `?host=`. */
 export interface EnvironmentConnection {
@@ -66,6 +68,8 @@ export interface WindowEnvironmentsOptions {
   publish(environments: UiEnvironments): void;
   /** A thread a tab looks in on changed there; the page hears it as the `environment-thread` window event. */
   publishThread?(view: UiEnvironmentThreadView): void;
+  /** A kit the page follows emitted an event on another machine. */
+  publishExtensionEvent?(event: { machine: string; extensionId: string; name: string; payload: unknown }): void;
   /**
    * Point the page at another machine, or back at this one (`undefined`).
    * The window's process attaches its uplink and loads the page again.
@@ -131,6 +135,7 @@ export class WindowEnvironments {
   private readonly lookIns: EnvironmentThreadWatches;
   /** Per machine, the kit commands registered to only read; asked again after a reconnect. */
   private readonly readCommands = new Map<string, { at: number; commands: Promise<ReadonlySet<string>> }>();
+  private readonly extensionInterest = new Map<string, Map<string, number>>();
 
   constructor(private readonly options: WindowEnvironmentsOptions) {
     this.shownId = options.local.id;
@@ -574,9 +579,33 @@ export class WindowEnvironments {
    */
   /** Forwards an explicit write over the window's authenticated connection.
    * Both the origin method and the destination command enforce write access. */
-  async invokeExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown> {
+  async invokeExtension(machine: string, extensionId: string, command: string, input?: unknown, options?: { timeoutMs?: number }): Promise<unknown> {
     const { watched } = this.reachable(machine);
-    return watched.monitor.call("host-extension", [extensionId, command, input]);
+    return watched.monitor.call("host-extension", [extensionId, command, input], Math.min(options?.timeoutMs ?? 30_000, 600_000));
+  }
+
+  followExtension(machine: string, extensionId: string, on: boolean): void {
+    const id = this.resolveMachine(machine);
+    if (!id) throw new Error("Tau does not know that machine.");
+    const interests = this.extensionInterest.get(id) ?? new Map<string, number>();
+    const count = Math.max(0, (interests.get(extensionId) ?? 0) + (on ? 1 : -1));
+    if (count > 0) interests.set(extensionId, count);
+    else interests.delete(extensionId);
+    if (interests.size > 0) this.extensionInterest.set(id, interests);
+    else this.extensionInterest.delete(id);
+  }
+
+  /**
+   * The person's preferences as the window's own machine keeps them, over the
+   * window's connection there; with a patch, written there first. A page that
+   * shows another machine reads them here, so it looks as this one does.
+   */
+  async personPreferences(patch?: PersonPreferences): Promise<PersonPreferences> {
+    const { watched } = this.reachable(this.options.local.id);
+    const config = patch
+      ? await watched.monitor.call<unknown>("update-config", [personPreferences(patch), "global"])
+      : await watched.monitor.call<unknown>("get-config", []);
+    return personPreferences(config);
   }
 
   async readExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown> {
@@ -691,6 +720,7 @@ export class WindowEnvironments {
     this.lookIns.close();
     for (const watched of this.watched.values()) watched.monitor.close();
     this.watched.clear();
+    this.extensionInterest.clear();
     for (const route of this.routes.values()) route.close(); this.routes.clear();
     if (this.publishTimer) clearTimeout(this.publishTimer);
   }
@@ -748,7 +778,14 @@ export class WindowEnvironments {
       ...options,
       logger: this.options.logger,
       threads: () => this.lookIns.threads(id),
-      onPush: (event) => { if (this.watched.get(id) === entry) this.lookIns.onPush(id, event); },
+      onPush: (event) => {
+        if (this.watched.get(id) !== entry) return;
+        this.lookIns.onPush(id, event);
+        const push = event as HostPushEvent;
+        if (push.type === "extension-event" && this.extensionInterest.get(id)?.has(push.extensionId)) {
+          this.options.publishExtensionEvent?.({ machine: id, extensionId: push.extensionId, name: push.name, payload: push.payload });
+        }
+      },
       onChange: (state) => {
         if (this.watched.get(id) !== entry) return;
         const reached = state.status === "connected" && entry.state.status !== "connected";

@@ -6,7 +6,7 @@ import { defaultShell } from "./shell.js";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import type { HostExtensionServices, HostThreadLifecycle } from "tau/host-extension";
 import { createTerminalHostExtension, loadNodePty, MAX_SESSIONS_PER_WORKSPACE, NO_PTY, TerminalSessions, type PtyFactory, type PtyProcess } from "./host.js";
-import { createTerminalHostClient, TERMINAL_HOST_EXTENSION_ID, TERMINAL_DATA_EVENT, TERMINAL_EXITED_EVENT, TERMINAL_LIST_EVENT } from "./protocol.js";
+import { createTerminalHostClient, TERMINAL_HOST_EXTENSION_ID, TERMINAL_DATA_EVENT, TERMINAL_EXITED_EVENT, TERMINAL_LIST_EVENT, TERMINAL_SESSIONS_TOPIC } from "./protocol.js";
 
 interface FakePty {
   pty: PtyProcess;
@@ -78,7 +78,7 @@ describe("terminal host commands", () => {
       await Promise.resolve();
       // Only the clients drawing this shell watch its topic.
       expect(events).toContainEqual(expect.objectContaining({ name: TERMINAL_DATA_EVENT, payload: { id: session.id, data: "hi\r\n", offset: 4 }, topic: `output/${session.id}` }));
-      expect(events.filter((event) => event.name !== TERMINAL_DATA_EVENT).every((event) => event.topic === undefined)).toBe(true);
+      expect(events.filter((event) => event.name !== TERMINAL_DATA_EVENT).every((event) => event.topic === TERMINAL_SESSIONS_TOPIC)).toBe(true);
       expect(await client.replay({ id: session.id })).toEqual({ data: "hi\r\n", offset: 4 });
 
       // Scrollback keeps the last 5,000 lines; the offset keeps counting so a client never redraws.
@@ -95,7 +95,7 @@ describe("terminal host commands", () => {
 
       // Exit keeps the entry, marked, so the user can read how it ended.
       processes[0].exit(3);
-      expect(events).toContainEqual(expect.objectContaining({ name: TERMINAL_EXITED_EVENT, payload: { id: session.id, exitCode: 3 } }));
+      expect(events).toContainEqual(expect.objectContaining({ name: TERMINAL_EXITED_EVENT, payload: { id: session.id, exitCode: 3 }, topic: TERMINAL_SESSIONS_TOPIC }));
       expect(await client.list()).toEqual([expect.objectContaining({ id: session.id, exitCode: 3 })]);
       await expect(client.input({ id: session.id, data: "x" })).rejects.toThrow(/has ended/);
 
@@ -399,5 +399,40 @@ describe("loadNodePty", () => {
   it("names the missing module instead of the resolver's error", async () => {
     await expect(loadNodePty(async () => { throw new Error("ENOENT"); })).rejects.toThrow(NO_PTY);
     await expect(loadNodePty(async () => ({}))).rejects.toThrow(NO_PTY);
+  });
+});
+
+
+describe("terminal home workspace", () => {
+  it("opens in an explicitly named workspace while another thread stays active, and keeps splits and restarts there", async () => {
+    const { spawn, processes } = fakePtys();
+    let hook: HostThreadLifecycle | undefined;
+    const registry = await activateHostKit(createTerminalHostExtension(spawn), services({
+      cwd: () => "/active-project",
+      knownWorkspacePath: async (id) => {
+        if (id === "rex-workspace") return "/rex/project";
+        throw new Error(`Unknown workspace ${id}`);
+      },
+      registerThreadLifecycle: (lifecycle) => { hook = lifecycle; return () => { hook = undefined; }; },
+    }));
+    const client = createTerminalHostClient((command, input) => registry.invoke(TERMINAL_HOST_EXTENSION_ID, command, input));
+    try {
+      const first = await client.open({ workspace: "rex-workspace", sessionId: "remote-thread" });
+      expect(first).toMatchObject({ workspaceId: "rex-workspace", sessionId: "remote-thread", cwd: "/rex/project" });
+      expect(processes[0].options.cwd).toBe("/rex/project");
+      const split = await client.open({ workspaceId: "rex-workspace", sessionId: "remote-thread", from: first.id });
+      expect(split).toMatchObject({ workspaceId: "rex-workspace", cwd: "/rex/project" });
+      await hook?.afterWorkspaceClose?.("/active-project", "switch");
+      expect(processes.map((process) => process.kill.mock.calls.length)).toEqual([0, 0]);
+      processes[0].exit(1);
+      const restarted = await client.restart({ id: first.id });
+      expect(restarted).toMatchObject({ workspaceId: "rex-workspace", sessionId: "remote-thread", cwd: "/rex/project" });
+      expect(processes[2].options.cwd).toBe("/rex/project");
+      await hook?.afterWorkspaceClose?.("/rex/project", "switch");
+      expect(processes.map((process) => process.kill.mock.calls.length)).toEqual([0, 1, 1]);
+      expect(await client.list()).toEqual([]);
+    } finally {
+      await registry.dispose();
+    }
   });
 });
