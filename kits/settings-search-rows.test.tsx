@@ -3,7 +3,7 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { createKitHarness } from "../src/renderer/test-support/kit-harness.js";
 import { TestProviders } from "../src/renderer/test-support/test-providers.js";
-import type { DesktopExtension } from "../src/renderer/extension-system.js";
+import type { DesktopExtension } from "tau";
 import { resumeCompactionExtension } from "./resume-compaction/desktop.js";
 import { terminalExtension } from "./terminal/desktop.js";
 import { workspaceExtension } from "./workspace/desktop.js";

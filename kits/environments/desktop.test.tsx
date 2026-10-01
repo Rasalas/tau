@@ -410,10 +410,10 @@ describe("Run on", () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
     const { registry } = createKitHarness(undefined, undefined, { environments });
     registry.activate(environmentsExtension);
-    const rows = registry.getSettingsSections("general").flatMap((section) => section.rows ?? []);
-    expect(rows.map((row) => row.label)).toContain("Run on");
+    const named = registry.getSettingsSections("general").flatMap((section) => section.rows ?? []);
+    expect(named.map((entry) => entry.label)).toContain("Run on");
     render(withSettings(<RunOnDefaultRow />));
-    for (const row of rows) expect(document.getElementById(row.id), row.id).toBeTruthy();
+    for (const entry of named) expect(document.getElementById(entry.id), entry.id).toBeTruthy();
   });
 
   it("asks nothing when there is only one machine", () => {
