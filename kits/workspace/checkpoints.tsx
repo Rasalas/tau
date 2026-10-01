@@ -108,7 +108,7 @@ function mergeCheckpoints(persisted: readonly UiTurnCheckpoint[] | undefined, li
  * also turns the thread's other checkpoints into transcript rows, verifies
  * which ones restore safely, and hosts the restore dialog.
  */
-function createController(store: CheckpointStore, workspaceStore: WorkspaceStore, rows: ReturnType<DesktopExtensionContext["registerTranscriptRows"]>) {
+function createController(store: CheckpointStore, workspaceStore: WorkspaceStore, rows: ReturnType<DesktopExtensionContext["registerTranscriptRows"]>, bar: boolean) {
   return function CheckpointController({ snapshot, actions }: RegionProps) {
     const { snapshot: workbenchSnapshot, tools: workbenchTools } = useWorkbench();
     const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
@@ -253,7 +253,7 @@ function createController(store: CheckpointStore, workspaceStore: WorkspaceStore
     void snapshot;
     return (
       <>
-        {sessionId && (live || latest) ? <div className="turn-changes-bar">
+        {bar && sessionId && (live || latest) ? <div className="turn-changes-bar">
           {latest
             ? <TurnChangesPill key={latest.id} {...pillProps(latest)} />
             : <TurnChangesPill key="live" live changes={liveChanges} onOpenDiff={(path) => workspaceStore.openReview(path)} />}
@@ -331,7 +331,9 @@ export function registerCheckpoints(plugin: DesktopExtensionContext, workspaceSt
       }
     } else if (event?.type === "turn-checkpoint-error") store.update({ notice: event.message });
   });
-  plugin.registerRegion({ id: "workspace.checkpoints", placement: "composer-controls", order: 70, profiles: ["desktop", "compact"], Component: createController(store, workspaceStore, rows) });
+  plugin.registerRegion({ id: "workspace.checkpoints", placement: "composer-controls", order: 70, profiles: ["desktop"], Component: createController(store, workspaceStore, rows, true) });
+  // The phone's pill over the composer is Review Kit's; this one only keeps the rows, the checks and the restore dialog.
+  plugin.registerRegion({ id: "workspace.checkpoints-touch", placement: "composer-controls", order: 70, profiles: ["compact"], Component: createController(store, workspaceStore, rows, false) });
   // One question for every fork: the turn's line, `f`, the thread tree, Duplicate.
   const asks = new ForkAsks();
   plugin.registerForkPrompt({ id: "workspace.fork", ask: (request) => asks.set(request) });
