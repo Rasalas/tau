@@ -90,6 +90,32 @@ describe("desktop extension bundling", () => {
     expect(code.length).toBeLessThan(20_000);
   });
 
+  it("shortens a dependency's local names but keeps the extension's, and maps both back", async () => {
+    const dir = await scratch();
+    const vendor = join(dir, "node_modules", "dep");
+    await mkdir(vendor, { recursive: true });
+    await writeFile(join(vendor, "package.json"), JSON.stringify({ name: "dep", type: "module", main: "index.js" }));
+    await writeFile(join(vendor, "index.js"), "function vendorLocalHelper(input) {\n  const vendorLocalValue = input * 2;\n  return vendorLocalValue;\n}\nexport function double(value) { return vendorLocalHelper(value); }\n");
+    await mkdir(join(dir, "node_modules", "linked"), { recursive: true });
+    await writeFile(join(dir, "node_modules", "linked", "package.json"), JSON.stringify({ name: "linked", type: "module", main: "index.js" }));
+    await writeFile(join(dir, "node_modules", "linked", "index.js"), "export function triple(linkedLocalValue) { return linkedLocalValue * 3; }\n//# sourceMappingURL=index.js.map\n");
+    await writeFile(join(dir, "uses-dep.ts"), `
+      import { double } from "dep";
+      import { triple } from "linked";
+      function extensionOwnHelper(n: number) { return double(n) + triple(n); }
+      export default { id: "x.dep", name: "Dep", activate() { return extensionOwnHelper(1); } };
+    `);
+    const code = await bundleDesktopExtension(join(dir, "uses-dep.ts"), { sharedExports: {} });
+    expect(code).not.toContain("vendorLocalHelper");
+    expect(code).not.toContain("vendorLocalValue");
+    expect(code).toContain("extensionOwnHelper");
+    // A file that links its own map keeps its names, so that map still fits.
+    expect(code).toContain("linkedLocalValue");
+    const map = JSON.parse(Buffer.from(/base64,([A-Za-z0-9+/=]+)/u.exec(code)![1], "base64").toString("utf8")) as { sources: string[]; names: string[] };
+    expect(map.sources.some((source) => source.endsWith("node_modules/dep/index.js"))).toBe(true);
+    expect(map.names).toContain("vendorLocalHelper");
+  });
+
   it("loads the user folder always and the project folder only when Pi trusts the project", async () => {
     const home = await scratch();
     const project = await scratch();
