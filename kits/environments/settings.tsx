@@ -274,6 +274,21 @@ export function createMachinesPage(environments: PlatformEnvironments, host?: Ho
     // Agents are this computer's host's: only while the page shows this computer, and on a host that keeps machines.
     const agentMachines = useAgentMachines(environments.shownElsewhere ? undefined : host);
     const agents = agentMachines?.available ? agentMachines : undefined;
+    const checkedOnboarding = useRef(new Set<string>());
+    useEffect(() => {
+      if (environments.shownElsewhere || !host || !environments.readExtension || !environments.invokeExtension) return;
+      for (const machine of list?.environments ?? []) {
+        if (machine.local || machine.status !== "connected" || (!machine.threadCount && machine.threads.length === 0) || checkedOnboarding.current.has(machine.id)) continue;
+        checkedOnboarding.current.add(machine.id);
+        // Machines paired before setup existed already have work; only their unfinished wizard needs closing.
+        void environments.readExtension(machine.id, "tau.onboarding", "state").then((state) => {
+          const onboarding = state as { completed?: boolean; firstStart?: boolean } | undefined;
+          if (onboarding?.completed === false && onboarding.firstStart === false) {
+            return environments.invokeExtension!(machine.id, "tau.onboarding", "complete");
+          }
+        }).catch(() => undefined);
+      }
+    }, [list, host]);
     const [now, setNow] = useState(() => Date.now());
     const [removing, setRemoving] = useState<UiEnvironment>();
     useEffect(() => {

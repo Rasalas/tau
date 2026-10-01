@@ -1034,3 +1034,39 @@ describe("Settings → Machines → Automatic", () => {
     expect(updateConfig).toHaveBeenCalledTimes(1);
   });
 });
+
+
+describe("setup for machines paired before the setup panel", () => {
+  function bench(state: unknown, failed = false) {
+    const initial: UiEnvironments = { environments: [laptop, studio, attic], shown: laptop.id, secureStorage: true };
+    const { environments: base, set } = fakeEnvironments(initial);
+    const readExtension = vi.fn(async () => { if (failed) throw new Error("offline"); return state; });
+    const invokeExtension = vi.fn(async () => undefined);
+    const environments = { ...base, readExtension, invokeExtension };
+    const host = { invoke: vi.fn(async () => ({ available: false, machines: [] })), onEvent: () => () => undefined } as unknown as HostExtensionClient;
+    const Page = createMachinesPage(environments, host);
+    render(withSettings(<Page />));
+    return { readExtension, invokeExtension, set, initial };
+  }
+
+  it("completes an unfinished wizard once for a connected machine with threads", async () => {
+    const { readExtension, invokeExtension, set, initial } = bench({ completed: false, firstStart: false });
+    await waitFor(() => expect(invokeExtension).toHaveBeenCalledWith(studio.id, "tau.onboarding", "complete"));
+    expect(readExtension).toHaveBeenCalledWith(studio.id, "tau.onboarding", "state");
+    set({ ...initial, environments: [...initial.environments] });
+    await waitFor(() => expect(readExtension).toHaveBeenCalledTimes(1));
+    expect(invokeExtension).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves completed onboarding alone", async () => {
+    const { readExtension, invokeExtension } = bench({ completed: true, firstStart: false });
+    await waitFor(() => expect(readExtension).toHaveBeenCalledTimes(1));
+    expect(invokeExtension).not.toHaveBeenCalled();
+  });
+
+  it("silently leaves onboarding alone when the state cannot be read", async () => {
+    const { readExtension, invokeExtension } = bench(undefined, true);
+    await waitFor(() => expect(readExtension).toHaveBeenCalledTimes(1));
+    expect(invokeExtension).not.toHaveBeenCalled();
+  });
+});
