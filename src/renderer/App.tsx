@@ -467,9 +467,9 @@ export default function App() {
   revealDocuments.current = panelLayout.documentOpened;
   const openPanel = panelLayout.openPanel;
   // One tab per file, however a link, the tree or a kit names it.
-  const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView; line?: number }) => {
+  const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView; line?: number; trace?: boolean }) => {
     setStage((current) => openFileTab(current, projectFilePath(path, workspaceCwd), options));
-    revealDocuments.current();
+    if (!options?.trace) revealDocuments.current();
   }, [workspaceCwd]);
   const openThread = useCallback((sessionId: string, options?: { pin?: boolean; machine?: string }) => {
     const machine = lookInMachine(options?.machine, platform.environments);

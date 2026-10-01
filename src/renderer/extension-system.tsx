@@ -115,7 +115,8 @@ export interface WorkbenchActions {
    */
   threadListOrder?(): readonly string[] | undefined;
   /** Opens a document in the stage, as source or as its working-tree diff; `line` scrolls the source to it and marks it. */
-  openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff"; line?: number }): void;
+  /** `trace`: the agent opened it; it joins the stage's end without coming to the front (design 1a). */
+  openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff"; line?: number; trace?: boolean }): void;
   /**
    * Opens a thread in the stage as a read-only tab, leaving the active thread
    * alone. `machine` (a host id, or a machine's unique name) reads a thread of

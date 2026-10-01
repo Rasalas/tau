@@ -17,6 +17,7 @@ interface TabChrome {
   id: string;
   active: boolean;
   preview: boolean;
+  trace?: boolean | undefined;
   activate(): void;
   close(): void;
   pin(): void;
@@ -36,7 +37,7 @@ function StageTabButton({ chrome, title, label, icon, marker }: {
     aria-selected={chrome.active}
     data-tab-id={chrome.id}
     {...tooltipProps(title, { side: "bottom" })}
-    className={`stage-tab ${chrome.active ? "active" : ""} ${chrome.preview ? "preview" : ""}`}
+    className={`stage-tab ${chrome.active ? "active" : ""} ${chrome.preview ? "preview" : ""}${chrome.trace ? " trace" : ""}`}
     onClick={chrome.activate}
     onDoubleClick={chrome.pin}
     onContextMenu={(event) => { event.preventDefault(); chrome.openMenu(event, label); }}
@@ -162,6 +163,7 @@ export function StageTabs({
           id: tab.id,
           active: tab.id === activeId || tab.id === splitId,
           preview: tab.preview,
+          trace: tab.kind === "file" && tab.trace,
           activate: () => onActivate(tab.id),
           close: () => onClose(tab.id),
           pin: () => onPin(tab.id),
@@ -196,7 +198,7 @@ export function StageTabs({
         return <StageTabButton
           key={tab.id}
           chrome={chrome}
-          title={tab.path}
+          title={tab.trace ? `${tab.path} · opened by the agent` : tab.path}
           label={tab.view === "diff" && changed ? `${label} (diff)` : label}
           icon={icon}
           marker={changed ? <em className="stage-tab-changed" {...tooltipProps("Changed")} aria-label="Changed">M</em> : null}
