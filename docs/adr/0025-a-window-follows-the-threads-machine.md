@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted, 2026-09-24. Amends [ADR 0021](0021-host-runs-in-its-own-process.md),
+Accepted, 2026-09-24. Partly superseded by
+[ADR 0030](0030-the-workbench-controls-every-machine.md) (2026-10-01): a
+workbench no longer shows one machine and moves by reloading. Amends [ADR 0021](0021-host-runs-in-its-own-process.md),
 where a window is the client of exactly one host for its whole life. Builds on
 [ADR 0024](0024-pairing-allowed-on-the-host.md) for pairing.
 

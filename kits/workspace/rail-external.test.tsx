@@ -96,6 +96,16 @@ describe("other machines' threads in the rail", () => {
     expect(within(rail).getByText("Remote r2").closest(".rail-external")?.classList.contains("unavailable")).toBe(true);
   });
 
+  it("put a thread settled on its machine on the settled shelf, and settle one there", async () => {
+    const toggleSettled = vi.fn();
+    const { rail } = await renderRail([remote("r1", 25, { toggleSettled }), remote("r2", 24, { settled: true, toggleSettled: vi.fn() })], [session("a", 30)]);
+    expect(titles(rail)).toEqual(["Thread a", "Remote r1"]);
+    const shelf = rail.querySelector(".settled-shelf") as HTMLElement;
+    expect(within(shelf).getByText("Remote r2")).toBeTruthy();
+    fireEvent.click(within(rail).getByRole("button", { name: "Settle Remote r1" }));
+    expect(toggleSettled).toHaveBeenCalledTimes(1);
+  });
+
   it("offers a look-in where the source has one", async () => {
     const lookIn = vi.fn();
     const { rail } = await renderRail([remote("r1", 25, { lookIn })], [session("a", 30)]);

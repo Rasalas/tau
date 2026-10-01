@@ -7,6 +7,32 @@ import type { MachineCardRowProps, RemoteAgentThreadsService } from "./protocol.
 const noSubscription = () => () => undefined;
 /** Offline machines' reasons say how long ago they were seen; the rail reads them again this often. */
 const REASON_REFRESH_MS = 30_000;
+/** Thread Rail Kit keeps each machine's pins and settled shelf on that machine (`kits/thread-rail`); a kit never imports another. */
+const THREAD_RAIL_EXTENSION_ID = "tau.thread-rail";
+const NOTHING_SETTLED: ReadonlySet<string> = new Set();
+
+/** The threads Thread Rail's `state` says are settled. */
+export function settledIn(state: unknown): ReadonlySet<string> {
+  const threads = state && typeof state === "object" ? (state as { threads?: unknown }).threads : undefined;
+  if (!threads || typeof threads !== "object") return NOTHING_SETTLED;
+  const settled = new Set<string>();
+  for (const [id, meta] of Object.entries(threads as Record<string, unknown>)) {
+    if (meta && typeof meta === "object" && typeof (meta as { settledAt?: unknown }).settledAt === "number") settled.add(id);
+  }
+  return settled;
+}
+
+/** Thread Rail's patch that settles a thread, or takes it back (`settlePatch`, `unsettlePatch` in `kits/thread-rail/meta.ts`). */
+function settledPatch(settle: boolean, now: number): Record<string, unknown> {
+  return settle
+    ? { settledAt: now, settledBy: "user", pinned: null, pinOrder: null, order: null, snoozedUntil: null, keptAt: null }
+    : { settledAt: null, settledBy: null, order: null, keptAt: now };
+}
+
+/** What a machine's thread list was when its settled shelf was read; a new list reads it again. */
+function listSignature(machine: UiEnvironment): string {
+  return machine.threads.map((thread) => `${thread.id}@${thread.modifiedAt}`).join(",");
+}
 
 /** Agents Kit's threads on other machines while that kit is on; the rail leaves them out. */
 export const agentThreadsSource = (() => {
@@ -51,10 +77,12 @@ export interface MachineRailThread {
   opening?: boolean;
   machine: { name: string; icon: ReactNode };
   unavailable?: string;
-  /** Settled on this client (the phone's list puts it on the shelf); the desktop rail ignores it. */
+  /** Settled on its machine, or on this client where it keeps that per machine (the phone app). */
   settled?: boolean;
   open(actions: WorkbenchActions): void;
   lookIn?(actions: WorkbenchActions): void;
+  /** Settles it on its machine, or takes it back from the shelf there. */
+  toggleSettled?(actions: WorkbenchActions): void;
 }
 
 /** The index entry the rail sorts, groups and searches; path and id stay that machine's. */
@@ -89,6 +117,43 @@ export function createMachineThreads(environments: PlatformEnvironments) {
   let stops: Array<() => void> = [];
   let timer: ReturnType<typeof setInterval> | undefined;
   let builtFrom: { list: unknown; agents: number } | undefined;
+  // Each machine's settled shelf, read from its Thread Rail Kit, and the list it was read for.
+  const shelves = new Map<string, { signature: string; settled: ReadonlySet<string> }>();
+  const reading = new Set<string>();
+
+  const readShelf = (machine: UiEnvironment) => {
+    const read = environments.readExtension;
+    if (!read || machine.status !== "connected" || reading.has(machine.id)) return;
+    const signature = listSignature(machine);
+    if (shelves.get(machine.id)?.signature === signature) return;
+    reading.add(machine.id);
+    void read(machine.id, THREAD_RAIL_EXTENSION_ID, "state").then(
+      (state) => { shelves.set(machine.id, { signature, settled: settledIn(state) }); },
+      // No Thread Rail Kit there, or an older one: nothing is settled there as far as this rail knows.
+      () => { shelves.set(machine.id, { signature, settled: shelves.get(machine.id)?.settled ?? NOTHING_SETTLED }); },
+    ).finally(() => {
+      reading.delete(machine.id);
+      changed();
+    });
+  };
+
+  const toggleSettled = (machine: UiEnvironment, threadId: string, settle: boolean, actions: WorkbenchActions) => {
+    const invoke = environments.invokeExtension;
+    if (!invoke) return;
+    const before = shelves.get(machine.id);
+    const settled = new Set(before?.settled ?? NOTHING_SETTLED);
+    if (settle) settled.add(threadId); else settled.delete(threadId);
+    // Shown at once; the machine's answer is its whole shelf again.
+    shelves.set(machine.id, { signature: before?.signature ?? "", settled });
+    changed();
+    void invoke(machine.id, THREAD_RAIL_EXTENSION_ID, "patch", { patches: { [threadId]: settledPatch(settle, Date.now()) } }).then(
+      (state) => { shelves.set(machine.id, { signature: listSignature(machine), settled: settledIn(state) }); },
+      (error: unknown) => {
+        if (before) shelves.set(machine.id, before); else shelves.delete(machine.id);
+        actions.notify(error instanceof Error ? error.message : String(error));
+      },
+    ).finally(changed);
+  };
 
   const rebuild = () => {
     const list = environments.getSnapshot();
@@ -99,15 +164,20 @@ export function createMachineThreads(environments: PlatformEnvironments) {
       const reason = unavailableReason(machine, now);
       // Threads this computer's sub-agents run there show in the Agents panel, not here.
       const agents = agentThreadsSource.threadsOn(machine.id);
+      readShelf(machine);
+      const shelf = shelves.get(machine.id)?.settled ?? NOTHING_SETTLED;
+      const settles = Boolean(environments.invokeExtension && shelves.has(machine.id) && !machine.readOnly);
       for (const thread of machine.threads) {
         if (agents?.has(thread.id)) continue;
         const session = railSession(machine, thread);
+        const settled = Boolean(thread.settled) || shelf.has(thread.id);
         next.push({
           key: session.id,
           session,
           ...(thread.running ? { running: true } : {}),
           ...(thread.waiting ? { waiting: true } : {}),
-          ...(thread.settled ? { settled: true } : {}),
+          ...(settled ? { settled: true } : {}),
+          ...(settles ? { toggleSettled: (actions: WorkbenchActions) => toggleSettled(machine, thread.id, !settled, actions) } : {}),
           ...(opening === session.id ? { opening: true } : {}),
           machine: { name: machine.name, icon: <MachineIcon environment={machine} size={13} /> },
           ...(reason ? { unavailable: reason } : {}),

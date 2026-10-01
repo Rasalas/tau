@@ -49,6 +49,7 @@ import type { EnvironmentAgentsResult, EnvironmentOpenTarget, EnvironmentPairInp
 import type { HostLink } from "./host-link";
 import type { HostConnection, HostConnectionState } from "./host-connection";
 import { ReadCommands, readOnlyMayCall, readOnlyRefusal, type HostHalf } from "./read-only-guard";
+import type { PersonPreferences } from "../shared/person-preferences";
 
 /**
  * Transport-neutral view of the desktop host. Every method is one call of the
@@ -291,6 +292,8 @@ export interface HostClient {
   readEnvironmentExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown>;
   /** Another machine's own Tau over the window's connection there: how it stands, a check, or an install (K103). */
   updateEnvironment?(machine: string, action: HostUpdateAction): Promise<HostUpdateStatus>;
+  /** The person's preferences as the window's own machine keeps them; with a patch, written there. */
+  personPreferences?(patch?: PersonPreferences): Promise<PersonPreferences>;
 
   /** The host machine's own Tau (K103); a host without an updater refuses with `unsupported`. */
   hostUpdate?(action: "status" | "check" | "install"): Promise<HostUpdateStatus>;
@@ -492,6 +495,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     invokeEnvironmentExtension: (machine, extensionId, command, input) => call<unknown>("environments-extension-invoke", input === undefined ? [machine, extensionId, command] : [machine, extensionId, command, input]),
     readEnvironmentExtension: (machine, extensionId, command, input) => call<unknown>("environments-extension-read", input === undefined ? [machine, extensionId, command] : [machine, extensionId, command, input]),
     updateEnvironment: (machine, action) => call<HostUpdateStatus>("environments-update", [machine, action]),
+    personPreferences: (patch) => patch ? call<PersonPreferences>("environments-set-person-preferences", [patch]) : call<PersonPreferences>("environments-person-preferences", []),
 
     // Literal names: the protocol contract test reads them from this file.
     hostUpdate: (action) => action === "install" ? call<HostUpdateStatus>("update-install") : action === "check" ? call<HostUpdateStatus>("update-check") : call<HostUpdateStatus>("update-status"),

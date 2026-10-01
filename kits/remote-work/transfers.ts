@@ -459,6 +459,11 @@ export class RepoTransfers {
     return { paths: Array.isArray(entry?.paths) ? entry.paths.filter((path) => typeof path === "string" && safeRelativePath(path)) : [] };
   }
 
+  /** The identity key of the checkout at `cwd` (`readRepoIdentity`), or undefined where it has none: no Git, or no commit yet. */
+  async identityKey(cwd: string): Promise<string | undefined> {
+    return readRepoIdentity(cwd, this.git).then((identity) => identity.key, () => undefined);
+  }
+
   /** What Tau offers to send along for the checkout at `cwd`, and what the user ticked for its project. */
   async ignoredFiles(cwd: string): Promise<IgnoredFilesView> {
     const identity = await readRepoIdentity(cwd, this.git);

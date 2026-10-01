@@ -772,16 +772,17 @@ const RailDrafts = memo(function RailDrafts({ actions, project, listed }: { acti
 
 /**
  * Another machine's thread among this machine's: the same card, with that
- * machine's mark before the provider marks. It opens there; it cannot be settled here.
+ * machine's mark before the provider marks. It opens there, and is settled there.
  */
-const ExternalThreadRow = memo(function ExternalThreadRow({ thread, onOpen, onLookIn }: {
+const ExternalThreadRow = memo(function ExternalThreadRow({ thread, onOpen, onLookIn, onToggleSettled }: {
   thread: RailExternalThread;
   onOpen(thread: RailExternalThread): void;
   onLookIn(thread: RailExternalThread): void;
+  onToggleSettled?(thread: RailExternalThread): void;
 }) {
-  const { session, machine, unavailable, opening, running } = thread;
+  const { session, machine, unavailable, opening, running, settled } = thread;
   const age = sessionAge(session.modifiedAt);
-  const activity: ThreadActivity = opening ? "ready" : unavailable ? "offline" : running ? "working" : "idle";
+  const activity: ThreadActivity = opening ? "ready" : unavailable ? "offline" : running ? "working" : settled ? "settled" : "idle";
   const label = opening ? "Opening…" : unavailable ? (running ? "Paused · offline" : "Offline") : running ? "Working" : undefined;
   const lookIn = thread.lookIn && !unavailable && !opening
     ? <button type="button" aria-label={`Look in on ${session.title} here`} {...tooltipProps("Read it in a tab here; the window stays on this machine")} onClick={() => onLookIn(thread)}><Eye size={13} /></button>
@@ -798,6 +799,7 @@ const ExternalThreadRow = memo(function ExternalThreadRow({ thread, onOpen, onLo
         {...(unavailable ? { activityHint: unavailable } : {})}
         hoverCard
         actions={lookIn}
+        {...(onToggleSettled && thread.toggleSettled && !unavailable && !opening ? { onToggleSettled: () => onToggleSettled(thread) } : {})}
         onSelect={() => { if (!unavailable && !opening) onOpen(thread); }}
       />
     </div>
@@ -989,9 +991,21 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   }, [externalThreads, projectFilter]);
   const mainIndex = Math.max(0, sections.findIndex((section) => !section.label));
   const ownMain = sections[mainIndex] ?? { id: "active", threads: [] };
+  // A thread settled on its machine goes on the settled shelf, where there is one.
+  const shelfIndex = sections.findIndex((section) => section.settled && section.shelf);
+  const [outsideActive, outsideSettled] = useMemo(() => {
+    const active: UiSession[] = [];
+    const settled: UiSession[] = [];
+    for (const thread of outside.values()) (thread.settled && shelfIndex >= 0 ? settled : active).push(thread.session);
+    return [active, settled];
+  }, [outside, shelfIndex]);
   const main = useMemo(
-    () => outside.size === 0 ? ownMain : { ...ownMain, threads: mergeByTime(ownMain.threads, [...outside.values()].map((thread) => thread.session), order.threadSort) },
-    [order.threadSort, outside, ownMain],
+    () => outsideActive.length === 0 ? ownMain : { ...ownMain, threads: mergeByTime(ownMain.threads, outsideActive, order.threadSort) },
+    [order.threadSort, outsideActive, ownMain],
+  );
+  const shownSections = useMemo(
+    () => outsideSettled.length === 0 ? sections : sections.map((section, index) => index === shelfIndex ? { ...section, threads: mergeByTime(section.threads, outsideSettled, order.threadSort) } : section),
+    [order.threadSort, outsideSettled, sections, shelfIndex],
   );
   const listedIds = useMemo(() => new Set(matching.map((session) => session.id)), [matching]);
   // A draft on screen is the active row; the thread the host holds behind it is not.
@@ -1035,6 +1049,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
 
   const openExternal = useCallback((thread: RailExternalThread) => thread.open(actions), [actions]);
   const lookInExternal = useCallback((thread: RailExternalThread) => thread.lookIn?.(actions), [actions]);
+  const settleExternal = useMemo(
+    () => readOnlyDevice ? undefined : (thread: RailExternalThread) => thread.toggleSettled?.(actions),
+    [actions, readOnlyDevice],
+  );
 
   const renderCard = ({ key, section }: ThreadCardTarget, close: () => void): ReactNode => {
     const external = outside.get(key);
@@ -1082,9 +1100,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
 
   /** Every row on screen, top to bottom: what the arrow keys walk and a shift-click spans. */
   const orderIds = [
-    ...sections.slice(0, mainIndex).flatMap(shelfRows).map((session) => session.id),
+    ...shownSections.slice(0, mainIndex).flatMap(shelfRows).map((session) => session.id),
     ...navigationRows.flatMap((row) => row.kind === "thread" ? [row.id] : []),
-    ...sections.slice(mainIndex + 1).flatMap(shelfRows).map((session) => session.id),
+    ...shownSections.slice(mainIndex + 1).flatMap(shelfRows).map((session) => session.id),
   ];
   const cursorId = orderIds.length ? orderIds[navigationIndex % orderIds.length] : undefined;
   // Another machine's rows are walked by the arrow keys but never picked.
@@ -1134,6 +1152,14 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           </button>
         ) : <div className={`thread-group-label${target}`} data-rail-heading={section.id}>{heading}<i /></div>}
         {rows.map((session, index) => {
+          const external = outside.get(session.id);
+          if (external) {
+            return (
+              <div key={session.id} className={rowClass(section.id, session.id, index === rows.length - 1)} {...externalData(session.id)}>
+                <ExternalThreadRow thread={external} onOpen={openExternal} onLookIn={lookInExternal} {...(settleExternal ? { onToggleSettled: settleExternal } : {})} />
+              </div>
+            );
+          }
           const status = section.settled ? SETTLED_STATUS : activityFor(session.id);
           return (
             <div key={session.id} className={rowClass(section.id, session.id, index === rows.length - 1)} {...rowData(section.id, session.id)}>
@@ -1277,7 +1303,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         {/* One scroll; the shelves follow the active threads right after the last one, as in the design. */}
         <div ref={listRef} className="rail-active">
         <div className="rail-active-rows">
-        {sections.slice(0, mainIndex).map(renderSection)}
+        {shownSections.slice(0, mainIndex).map(renderSection)}
         <RailDrafts actions={actions} {...(projectFilter ? { project: projectFilter } : {})} listed={listedIds} />
         {main.label === undefined && drag && sections.length > 1 ? (
           <div className={`thread-group-label rail-main-label${drag.drop?.sectionId === main.id ? " drop-target" : ""}`} data-rail-heading={main.id}>Active<i /></div>
@@ -1311,7 +1337,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
                   <ShowMoreThreadRow remaining={row.remaining} all onClick={() => setOpenGroups((current) => new Set([...current, row.key]))} />
                 ) : (() => {
                   const external = outside.get(row.id);
-                  if (external) return <ExternalThreadRow thread={external} onOpen={openExternal} onLookIn={lookInExternal} />;
+                  if (external) return <ExternalThreadRow thread={external} onOpen={openExternal} onLookIn={lookInExternal} {...(settleExternal ? { onToggleSettled: settleExternal } : {})} />;
                   const status = activityFor(row.session.id);
                   return renderRow(row.session, status);
                 })()}
@@ -1334,7 +1360,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         ) : null}
 
         {(() => {
-          const shelves = sections.slice(mainIndex + 1).map(renderSection).filter(Boolean);
+          const shelves = shownSections.slice(mainIndex + 1).map(renderSection).filter(Boolean);
           return shelves.length ? <div className="rail-shelves">{shelves}</div> : null;
         })()}
         </div>

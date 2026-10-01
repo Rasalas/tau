@@ -8,7 +8,8 @@ import { autoRunOn, createAutoRunOnHook, RUN_ON_KEY } from "./auto.js";
 import { ARRIVAL_KEY, createRailSection, environmentsExtension } from "./desktop.js";
 import { followArrival, otherMachines, readPendingArrival, statusText, unavailableReason } from "./machines.js";
 import { agentThreadsSource, createMachineCardRow, createMachineThreads, createShownMachine } from "./rail.js";
-import { createRunOnSource, runOnDetail } from "./run-on.js";
+import { createRunOnSource, runOnDetail, type RunOnBringing } from "./run-on.js";
+import { createBringChoice, createBringProjectHook, createProjectIdentities, matchProject } from "./bring-project.js";
 import { createMachinesPage } from "./settings.js";
 import { REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE, type DraftMachineProps } from "./protocol.js";
 
@@ -62,8 +63,8 @@ function fakeActions(patch: Partial<WorkbenchActions> = {}): WorkbenchActions {
 }
 
 /** Workspace Kit's Run-on pill, cut down: the machine it names, and the rows it opens. */
-function createRunOnControl(environments: PlatformEnvironments, host?: HostExtensionClient) {
-  const source = createRunOnSource(environments, host);
+function createRunOnControl(environments: PlatformEnvironments, host?: HostExtensionClient, bringing?: RunOnBringing) {
+  const source = createRunOnSource(environments, host, bringing);
   function Pill(props: DraftMachineProps) {
     const chosen = source.useMachine(props);
     const [open, setOpen] = useState(false);
@@ -147,6 +148,55 @@ describe("the other machines' threads in the rail", () => {
     expect(environments.open).toHaveBeenCalledWith("studio", { thread: { path: "/s/1" } });
     expect(source.threads().find((thread) => thread.key === "machine:studio:s1")?.opening).toBe(true);
     expect(listener).toHaveBeenCalled();
+    stop();
+  });
+
+  it("reads which threads are settled on their machine, and settles them there", async () => {
+    const { environments: base } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const readExtension = vi.fn(async () => ({ threads: { s2: { settledAt: 1, settledBy: "inactive" } }, settings: {} }));
+    const invokeExtension = vi.fn(async () => ({ threads: { s1: { settledAt: 2, settledBy: "user" }, s2: { settledAt: 1 } }, settings: {} }));
+    const environments = { ...base, readExtension, invokeExtension };
+    const source = createMachineThreads(environments);
+    const stop = source.subscribe(() => undefined);
+    await act(async () => undefined);
+    expect(readExtension).toHaveBeenCalledWith("studio", "tau.thread-rail", "state");
+    const settled = () => source.threads().filter((thread) => thread.settled).map((thread) => thread.key);
+    expect(settled()).toEqual(["machine:studio:s2"]);
+    source.threads().find((thread) => thread.key === "machine:studio:s1")!.toggleSettled!(fakeActions());
+    // Shown at once, before the machine answers.
+    expect(settled()).toEqual(["machine:studio:s1", "machine:studio:s2"]);
+    await act(async () => undefined);
+    expect(invokeExtension).toHaveBeenCalledWith("studio", "tau.thread-rail", "patch", { patches: { s1: expect.objectContaining({ settledBy: "user", settledAt: expect.any(Number) }) } });
+    // The same list is not read again.
+    expect(readExtension).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it("takes a settle back when the machine refuses it, and says why", async () => {
+    const { environments: base } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const environments = {
+      ...base,
+      readExtension: vi.fn(async () => ({ threads: {}, settings: {} })),
+      invokeExtension: vi.fn(async () => { throw new Error("studio lets this device read only."); }),
+    };
+    const source = createMachineThreads(environments);
+    const stop = source.subscribe(() => undefined);
+    await act(async () => undefined);
+    const notify = vi.fn();
+    source.threads()[0]!.toggleSettled!(fakeActions({ notify }));
+    await act(async () => undefined);
+    expect(source.threads().some((thread) => thread.settled)).toBe(false);
+    expect(notify).toHaveBeenCalledWith("studio lets this device read only.");
+    stop();
+  });
+
+  it("offers no settling on a machine that lets this device read only", async () => {
+    const { environments: base } = fakeEnvironments({ shown: "laptop", environments: [laptop, { ...studio, readOnly: true }], secureStorage: true });
+    const environments = { ...base, readExtension: vi.fn(async () => ({ threads: {} })), invokeExtension: vi.fn() };
+    const source = createMachineThreads(environments);
+    const stop = source.subscribe(() => undefined);
+    await act(async () => undefined);
+    expect(source.threads().every((thread) => !thread.toggleSettled)).toBe(true);
     stop();
   });
 
@@ -273,6 +323,107 @@ describe("Run on", () => {
     const Started = createRunOnControl(two.environments);
     rerender(<Started actions={fakeActions({ activeThread: () => ({ draftPending: false, sessionId: "s" }) })} snapshot={{ messages: [{ id: "m" }], isStreaming: false } as never} />);
     expect(container.innerHTML).toBe("");
+  });
+});
+
+describe("Run on: a machine without the project", () => {
+  const tauHere = "/work/tau";
+  const rex = machine("rex", { projects: [{ name: "api", lastOpenedAt: 1, workspaceId: "ws-api" }, { name: "tau-checkout", lastOpenedAt: 2, workspaceId: "ws-tau" }] });
+
+  it("finds the project there by its repository, not by its folder's name", () => {
+    const keys = { "ws-api": "key-api", "ws-tau": "key-tau" };
+    expect(matchProject(rex, tauHere, "key-tau", keys)).toEqual({ found: true, workspaceId: "ws-tau" });
+    // The same folder name with another repository is not this project.
+    expect(matchProject(machine("rex", { projects: [{ name: "tau", lastOpenedAt: 1, workspaceId: "ws-x" }] }), tauHere, "key-tau", { "ws-x": "key-other" })).toEqual({ found: false });
+    // Where a side cannot say, the folder's name decides, as before.
+    expect(matchProject(machine("rex", { projects: [{ name: "tau", lastOpenedAt: 1, workspaceId: "ws-x" }] }), tauHere, null, undefined)).toEqual({ found: true, workspaceId: "ws-x" });
+  });
+
+  function bringingFor(keysThere: Record<string, string | null>, keyHere: string | null = "key-tau") {
+    const { environments: base } = fakeEnvironments({ shown: "laptop", environments: [laptop, rex], secureStorage: true });
+    const readExtension = vi.fn(async () => keysThere);
+    const environments = { ...base, readExtension };
+    const remoteWork = { invoke: vi.fn(async () => ({ [tauHere]: keyHere })), onEvent: vi.fn(() => () => undefined) } as unknown as HostExtensionClient;
+    const bringing = { identities: createProjectIdentities(environments, remoteWork), choice: createBringChoice() };
+    return { environments, bringing, remoteWork, readExtension };
+  }
+
+  it("keeps the draft here and says the project goes along, then names that machine on the pill", async () => {
+    const { environments, bringing } = bringingFor({ "ws-api": "key-api", "ws-tau": "key-other" });
+    const Control = createRunOnControl(environments, undefined, bringing);
+    render(<Control actions={fakeActions({ activeThread: () => ({ draftPending: true, cwd: tauHere }), composerDraft: () => "Fix it" })} />);
+    await act(async () => undefined);
+    fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
+    expect(row(/rex/u).textContent).toContain("Tau takes tau along");
+    fireEvent.click(row(/rex/u));
+    expect(environments.open).not.toHaveBeenCalled();
+    expect(bringing.choice.get()).toEqual({ machine: "rex", machineName: "rex", projectPath: tauHere });
+    expect(screen.getByRole("button", { name: "Run on rex" })).toBeTruthy();
+    // Back to this computer forgets it.
+    fireEvent.click(screen.getByRole("button", { name: "Run on rex" }));
+    fireEvent.click(row(/laptop/u));
+    expect(bringing.choice.get()).toBeUndefined();
+  });
+
+  it("moves into that machine's checkout of the same repository, whatever its folder is called", async () => {
+    const { environments, bringing } = bringingFor({ "ws-api": "key-api", "ws-tau": "key-tau" });
+    const Control = createRunOnControl(environments, undefined, bringing);
+    render(<Control actions={fakeActions({ activeThread: () => ({ draftPending: true, cwd: tauHere }), composerDraft: () => "Fix it" })} />);
+    await act(async () => undefined);
+    fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
+    expect(row(/rex/u).textContent).not.toContain("along");
+    fireEvent.click(row(/rex/u));
+    expect(environments.open).toHaveBeenCalledWith("rex", { newThread: { draft: "Fix it", workspaceId: "ws-tau" } });
+  });
+
+  it("does not offer to take a project that is no repository with a commit", async () => {
+    const { environments, bringing } = bringingFor({ "ws-api": "key-api" }, null);
+    const Control = createRunOnControl(environments, undefined, bringing);
+    render(<Control actions={fakeActions({ activeThread: () => ({ draftPending: true, cwd: tauHere }), composerDraft: () => "Fix it" })} />);
+    await act(async () => undefined);
+    fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
+    expect(row(/rex/u).textContent).not.toContain("along");
+  });
+
+  it("starts the thread there with the project when the prompt is sent, and says when it runs or why not", async () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, rex], secureStorage: true });
+    let emit!: (payload: unknown) => void;
+    const remoteWork = {
+      invoke: vi.fn(async () => ({ id: "l1", machine: "rex", machineName: "rex", status: "sending" })),
+      onEvent: vi.fn((_name: string, listener: (payload: unknown) => void) => { emit = listener; return () => undefined; }),
+    } as unknown as HostExtensionClient;
+    const choice = createBringChoice();
+    const hook = createBringProjectHook(choice, remoteWork, { ...environments, watchThread: vi.fn() });
+    const toast = vi.fn();
+    const actions = fakeActions({ toast });
+    const event = { prompt: "Fix it", projectPath: tauHere, preparing: vi.fn(), alternate: false, runtime: "codex", attachments: 0, model: { provider: "openai", id: "gpt" } };
+    // Nothing chosen: the thread starts here as ever.
+    await expect(hook.claimNewThread!(event, actions)).resolves.toBe(false);
+    choice.set({ machine: "rex", machineName: "rex", projectPath: tauHere });
+    await expect(hook.claimNewThread!({ ...event, attachments: 1 }, actions)).rejects.toThrow(/Attachments cannot go along to rex/u);
+    await expect(hook.claimNewThread!(event, actions)).resolves.toBe(true);
+    expect(remoteWork.invoke).toHaveBeenCalledWith("thread-start", { machine: "rex", cwd: tauHere, prompt: "Fix it", backend: "codex", model: { provider: "openai", id: "gpt" } });
+    expect(event.preparing).toHaveBeenCalledWith("Taking tau to rex…");
+    expect(choice.get()).toBeUndefined();
+    emit({ id: "l1", machine: "rex", machineName: "rex", status: "starting" });
+    expect(toast).not.toHaveBeenCalled();
+    emit({ id: "l1", machine: "rex", machineName: "rex", status: "running", thread: "t9" });
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ type: "success", title: "Runs on rex" }));
+  });
+
+  it("says why when the thread never starts there", async () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, rex], secureStorage: true });
+    let emit!: (payload: unknown) => void;
+    const remoteWork = {
+      invoke: vi.fn(async () => ({ id: "l2", machine: "rex", machineName: "rex", status: "sending" })),
+      onEvent: vi.fn((_name: string, listener: (payload: unknown) => void) => { emit = listener; return () => undefined; }),
+    } as unknown as HostExtensionClient;
+    const choice = createBringChoice();
+    choice.set({ machine: "rex", machineName: "rex", projectPath: tauHere });
+    const toast = vi.fn();
+    await createBringProjectHook(choice, remoteWork, environments).claimNewThread!({ prompt: "x", projectPath: tauHere, preparing: vi.fn(), alternate: false, runtime: "pi", attachments: 0 }, fakeActions({ toast }));
+    emit({ id: "l2", machine: "rex", machineName: "rex", status: "failed", error: "rex has no git." });
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ type: "error", description: "rex has no git." }));
   });
 });
 

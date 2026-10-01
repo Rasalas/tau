@@ -39,6 +39,7 @@ import {
   type PresentedIdentity,
 } from "./host-tls-trust.js";
 import { fingerprintsMatch } from "./host-tls.js";
+import { personPreferences, type PersonPreferences } from "../shared/person-preferences.js";
 
 /** Where the page reaches a machine: what a `WindowHost` attaches to and the page's `?host=`. */
 export interface EnvironmentConnection {
@@ -577,6 +578,19 @@ export class WindowEnvironments {
   async invokeExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown> {
     const { watched } = this.reachable(machine);
     return watched.monitor.call("host-extension", [extensionId, command, input]);
+  }
+
+  /**
+   * The person's preferences as the window's own machine keeps them, over the
+   * window's connection there; with a patch, written there first. A page that
+   * shows another machine reads them here, so it looks as this one does.
+   */
+  async personPreferences(patch?: PersonPreferences): Promise<PersonPreferences> {
+    const { watched } = this.reachable(this.options.local.id);
+    const config = patch
+      ? await watched.monitor.call<unknown>("update-config", [personPreferences(patch), "global"])
+      : await watched.monitor.call<unknown>("get-config", []);
+    return personPreferences(config);
   }
 
   async readExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown> {

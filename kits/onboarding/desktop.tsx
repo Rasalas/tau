@@ -11,8 +11,10 @@ const TERMINAL_RUN_SERVICE = "tau.terminal/run";
 /**
  * Once per window it reopens a wizard a reload interrupted, or asks whether
  * this is a first start — no thread yet and setup never finished — and opens
- * the wizard if so. While the wizard stands aside for a terminal it is the
- * way back.
+ * the wizard if so. Only the window's own machine has a first start: another
+ * machine the page shows is set up from Settings → Machines, or on purpose
+ * with /welcome. While the wizard stands aside for a terminal it is the way
+ * back.
  */
 function createFirstStart(context: DesktopExtensionContext, flow: WelcomeFlow) {
   let asked = false;
@@ -28,6 +30,7 @@ function createFirstStart(context: DesktopExtensionContext, flow: WelcomeFlow) {
       // Setup changes the host; a Read-only device follows threads and sets up nothing.
       if (hostIsReadOnly()) return;
       if (flow.interrupted()) { actions.openOverlay(WELCOME_OVERLAY); return; }
+      if (context.environments?.shownElsewhere) return;
       void context.host.invoke("state").then((state) => {
         if ((state as WelcomeState).firstStart && !threads) actions.openOverlay(WELCOME_OVERLAY);
       }, () => undefined);

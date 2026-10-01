@@ -525,7 +525,8 @@ export interface ChangesSectionProps {
 /**
  * A thread another kit lists in the rail among this machine's own, another
  * machine's say. The rail sorts, groups and searches it by `session` like its
- * own threads; it cannot be settled, pinned or dragged here.
+ * own threads. It is settled where it runs, when that kit can (`settled`,
+ * `toggleSettled`); it cannot be pinned or dragged here.
  */
 export interface RailExternalThread {
   /** Unique in the rail, and never the id of a thread of this host. */
@@ -542,6 +543,10 @@ export interface RailExternalThread {
   open(actions: WorkbenchActions): void;
   /** Reads it here without leaving this machine: the row's hover button. */
   lookIn?(actions: WorkbenchActions): void;
+  /** Settled where it runs: the rail puts it on its settled shelf. */
+  settled?: boolean;
+  /** Settles it where it runs, or takes it back from the shelf there. */
+  toggleSettled?(actions: WorkbenchActions): void;
 }
 
 /** A kit's threads for the rail; `threads()` keeps its identity until `subscribe`'s listener runs. */

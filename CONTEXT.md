@@ -14,6 +14,13 @@ The owner of one thread's runtime for that thread's whole life (ADR 0005). Core 
 
 The account whose credentials and model access a thread uses for its next turn. A compatible account change preserves the thread, its session and its runtime backend owner.
 
+## Home machine
+
+The machine a thread runs on: its agent, workspace, files, shells and git are
+there (ADR 0030). It is chosen in the draft and never changes; a thread that
+continues on another machine is a new thread there. The device in front of the
+person only shows and steers the thread.
+
 ## Workbench
 
 The interactive client in which a person manages projects, threads, agent activity, and extension-provided workflows. Tau is the workbench.

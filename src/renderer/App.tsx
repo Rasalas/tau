@@ -398,7 +398,9 @@ export default function App() {
     let stopFollowing = () => {};
     let stopPrompts = () => {};
     if (client) {
-      preferences.bindHost(client, activeWorkspaceId);
+      // A page showing another machine looks as the window's own machine does.
+      const personPreferences = getPlatform()?.environments?.shownElsewhere ? client.personPreferences?.bind(client) : undefined;
+      preferences.bindHost(client, activeWorkspaceId, personPreferences ? { get: () => personPreferences(), set: (patch) => personPreferences(patch) } : undefined);
       unsubscribe = client.onHostEvent(handleHostEvent);
       // A question raised while nobody was listening would otherwise stall the
       // host forever, including during bootstrap itself.

@@ -233,3 +233,67 @@ describe("host configuration sync", () => {
   });
 });
 
+
+describe("a page showing another machine", () => {
+  /** The shown machine's global config, with `update-config` and `clear-config` as the host applies them. */
+  function shownMachine(initial: Record<string, unknown>) {
+    let config: Record<string, unknown> = { ...initial };
+    const cleared: string[][] = [];
+    const client = {
+      getConfig: async () => ({ ...config }),
+      updateConfig: async (patch: Record<string, unknown>) => { config = { ...config, ...patch }; return { ...config }; },
+      clearConfig: async (keys: string[]) => { cleared.push(keys); config = Object.fromEntries(Object.entries(config).filter(([key]) => !keys.includes(key))); return { host: config }; },
+    } as unknown as import("../workbench/host-client").HostClient;
+    return { client, config: () => config, cleared };
+  }
+
+  function ownMachine(initial: Record<string, unknown>) {
+    const sent: unknown[] = [];
+    return { sent, source: { get: async () => ({ ...initial }), set: async (patch: Record<string, unknown>) => { sent.push(patch); return patch; } } };
+  }
+
+  it("looks as the own machine does: the shown machine takes its values, and drops what the own machine leaves at the default", async () => {
+    const rex = shownMachine({ theme: "light", transcriptDetail: "focused", hostBackground: true });
+    const mac = ownMachine({ transcriptDetail: "everything" });
+    const store = new PreferencesStore();
+    store.bindHost(rex.client, undefined, mac.source);
+    await store.syncFromHost();
+    expect(store.getSnapshot().transcriptDetail).toBe("everything");
+    expect(store.getSnapshot().theme).toBe("system");
+    // The machine's own settings stay that machine's.
+    expect(rex.config()).toEqual({ transcriptDetail: "everything", hostBackground: true });
+    expect(mac.sent).toEqual([]);
+  });
+
+  it("sends a change of the look made here back to the own machine, and nothing else", async () => {
+    const rex = shownMachine({});
+    const mac = ownMachine({ transcriptDetail: "everything" });
+    const store = new PreferencesStore();
+    store.bindHost(rex.client, undefined, mac.source);
+    await store.syncFromHost();
+    store.setTranscriptDetail("detailed");
+    store.setHostBackground(true);
+    expect(mac.sent).toEqual([{ transcriptDetail: "detailed" }]);
+  });
+
+  it("sends back what this page's settings wrote to the shown machine", async () => {
+    const rex = shownMachine({});
+    const mac = ownMachine({ showCosts: true });
+    const store = new PreferencesStore();
+    store.bindHost(rex.client, undefined, mac.source);
+    await store.syncFromHost();
+    // Settings write a level directly, then ask the store to read the host again.
+    await rex.client.updateConfig({ showCosts: false });
+    await store.syncFromHost();
+    expect(mac.sent).toEqual([{ showCosts: false }]);
+  });
+
+  it("leaves the shown machine alone on the own machine's page", async () => {
+    const own = shownMachine({ theme: "light" });
+    const store = new PreferencesStore();
+    store.bindHost(own.client);
+    await store.syncFromHost();
+    expect(own.cleared).toEqual([]);
+    expect(own.config()).toEqual({ theme: "light" });
+  });
+});

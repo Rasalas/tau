@@ -535,6 +535,24 @@ describe("reading a kit of another machine (API 1.15.0)", () => {
   });
 });
 
+describe("the person's look, kept by this machine", () => {
+  it("reads and writes only the look on this machine's own host", async () => {
+    const { environments, monitors } = await setup();
+    const own = monitors.get("ws://127.0.0.1:5000")!;
+    own.set({ status: "connected", running: new Set() });
+    own.answers["get-config"] = () => ({ theme: "dark", transcriptDetail: "everything", hostBackground: true, temperature: 0.2 });
+    own.answers["update-config"] = (params) => ({ ...(params[0] as object), hostBackground: true });
+    await expect(environments.personPreferences()).resolves.toEqual({ theme: "dark", transcriptDetail: "everything" });
+    await expect(environments.personPreferences({ transcriptDetail: "detailed", hostBackground: false } as never)).resolves.toEqual({ transcriptDetail: "detailed" });
+    expect(own.calls.at(-1)).toEqual({ method: "update-config", params: [{ transcriptDetail: "detailed" }, "global"] });
+  });
+
+  it("says so while this machine's host is out of reach", async () => {
+    const { environments } = await setup();
+    await expect(environments.personPreferences()).rejects.toThrow(/not reachable/u);
+  });
+});
+
 describe("core's window half for `tau machines`", () => {
   it("lists the saved machines without keys or threads, pairs with a link under a name of its own, and forgets one", async () => {
     const agents = { add: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) };

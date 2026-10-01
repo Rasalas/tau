@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import { Network } from "lucide-react";
 import { getClientStorage, type DesktopExtension, type EnvironmentTarget, type PlatformEnvironments, type WorkbenchActions } from "tau";
 import { createAutoRunOnHook } from "./auto.js";
+import { createBringChoice, createBringProjectHook, createProjectIdentities, REMOTE_WORK_EXTENSION_ID } from "./bring-project.js";
 import { followArrival, readPendingArrival } from "./machines.js";
 import { ENVIRONMENTS_EXTENSION_ID, MACHINES_SETTINGS_PAGE, REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE, type RemoteAgentThreadsService, type WorkspaceRailSlice } from "./protocol.js";
 import { agentThreadsSource, createMachineCardRow, createMachineThreads, createShownMachine } from "./rail.js";
@@ -105,11 +106,15 @@ export const environmentsExtension: DesktopExtension = {
       run: (actions) => actions.openSettings(MACHINES_SETTINGS_PAGE),
     });
     context.registerRegion({ id: "environments.shown", placement: "title-bar", order: 0, profiles: ["desktop"], Component: createShownMachine(environments) });
-    context.registerPromptHook(createAutoRunOnHook(environments, context.host));
+    // A machine without the draft's project gets it from Remote Work Kit when the prompt is sent.
+    const remoteWork = context.hostExtension(REMOTE_WORK_EXTENSION_ID);
+    const bringing = { identities: createProjectIdentities(environments, remoteWork), choice: createBringChoice() };
+    context.registerPromptHook(createAutoRunOnHook(environments, context.host, bringing.identities));
+    context.registerPromptHook(createBringProjectHook(bringing.choice, remoteWork, environments));
     const RailSection = createRailSection(environments);
     const threads = createMachineThreads(environments);
     const MachineCardRow = createMachineCardRow(environments);
-    const runOnSource = createRunOnSource(environments, context.host);
+    const runOnSource = createRunOnSource(environments, context.host, bringing);
     // A phone or tablet lists them in its own thread list, and says there which machine is out of reach (API 1.30.0).
     context.registerThreadListSource?.({ id: "environments.threads", subscribe: threads.subscribe, threads: threads.threads, here: hereOf(environments) });
     // The arrival follows from the list or from a draft the phone reopened, whichever mounts first.

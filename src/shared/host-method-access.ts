@@ -148,6 +148,9 @@ export const HOST_METHOD_ACCESS = {
   "environments-watch-thread": "read",
   "environments-extension-read": "read",
   "environments-extension-invoke": "write",
+  // This window's own machine's look, read and written with its own key.
+  "environments-person-preferences": "read",
+  "environments-set-person-preferences": "write",
   // Only the connection a call went to may answer it; the answer changes nothing else.
   "client-call-result": "read",
   // The job's own method is checked when it starts.
