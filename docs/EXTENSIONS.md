@@ -2127,7 +2127,8 @@ its question names the fork's branch (`<branch>-2`, the next free number,
 editable) and makes the worktree with Workspace Kit's `fork-worktree` — from the
 turn's verified checkpoint (its files, uncommitted, on the HEAD the turn ended
 at), the checkout as it is for Duplicate, or the branch's HEAD alone, which the
-question says. Without a prompt core forks at once. The last one registered wins.
+question says. Without a prompt core forks at once; `actions.duplicateThread({ ask: false })`
+copies at once too (Handoff's continuation on another runtime, which goes on with the same work). The last one registered wins.
 
 `registerModelSelection({ id, selected, subscribe, toggle, reset })` lets a new
 thread's model picker hold more than one model. Shift-click (or Shift+↵) on a
