@@ -33,6 +33,13 @@ for bundle in ['de.tbuck.tau', 'de.tbuck.tau.widgets']:
         try: module.validate(bad, bundle)
         except ValueError: pass
         else: raise AssertionError(change + ' was accepted')
+# Without the widgets, the existing app profile has no App Group and still signs the app.
+plain = profile('de.tbuck.tau')
+del plain['Entitlements']['com.apple.security.application-groups']
+assert module.validate(plain, 'de.tbuck.tau', False) == '12345678-1234-1234-1234-123456789012'
+try: module.validate(plain, 'de.tbuck.tau')
+except ValueError: pass
+else: raise AssertionError('a profile without the App Group was accepted for the widgets build')
 `;
 it("rejects profiles that cannot sign the app and widget with the shared entitlements", () => {
   const result = spawnSync("python3", ["-B", "-c", source], { encoding: "utf8" });

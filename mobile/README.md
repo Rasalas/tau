@@ -122,7 +122,11 @@ clears its cards and snapshots. Android widget redraws follow the system's
 widget schedule, so the last rendered text can remain until the next redraw.
 
 Native projects include the WidgetKit extension and app-group entitlements.
-The app and extension both need the `group.de.tbuck.tau` App Group and
+Release builds leave both out until the widgets are redesigned (K163):
+the `ios` job sets `TAU_IOS_WIDGETS=0` and `scripts/packaging/ios-widgets.mjs`
+strips them from the checkout, so the TestFlight app has no widget, no Live
+Activities and no App Group (docs/RELEASE.md, "iOS"). With the widgets,
+the app and extension both need the `group.de.tbuck.tau` App Group and
 `$(AppIdentifierPrefix)de.tbuck.tau.shared` Keychain group in their provisioning
 profiles. The shared Keychain holds the device-only content key used to open
 encrypted ActivityKit updates; snapshots contain no credentials. The native shell targets iOS 17 or later; dictation
