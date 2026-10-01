@@ -1,6 +1,6 @@
 import { Suspense, createContext, lazy, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ArrowRight, Check, ChevronRight, Copy, Download, FolderPlus, GitMerge, GitPullRequest, LogIn, RefreshCw, Settings, SquareTerminal } from "lucide-react";
-import { MiddleTruncate, ProviderIconStack, loadSignInUi, useThreadStore, useWorkbenchShell, type OverlayProps, type WorkbenchActions } from "tau";
+import { MiddleTruncate, PrivateAccountText, ProviderIconStack, loadSignInUi, useThreadStore, useWorkbenchShell, type OverlayProps, type WorkbenchActions } from "tau";
 import { backendKit, defaultProjects, defaultSessions, groupProjects, type AgentStatus, type FlowState, type ProjectGroup, type WelcomeFlow } from "./flow.js";
 import { TauMark } from "./mark.js";
 import { WELCOME_OVERLAY, type ImportableSession, type ProjectCandidate, type ToolReport } from "./protocol.js";
@@ -205,7 +205,7 @@ function AgentCard({ row, actions, flow, aside, recheck }: { row: AgentRow; acti
     <div className="onboarding-card-wrap">
       <div className="onboarding-card" data-state={row.state}>
         <Mark id={row.id} />
-        <span className="onboarding-card-text"><strong>{row.label}</strong><small>{row.summary}</small></span>
+        <span className="onboarding-card-text"><strong>{row.label}</strong><small><PrivateAccountText text={row.summary} /></small></span>
         {row.state === "ready"
           ? <span className="onboarding-ready" role="img" aria-label="Ready" data-tooltip="Ready"><Check size={14} /></span>
           : row.state === "checking"

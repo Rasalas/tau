@@ -40,6 +40,8 @@ describe("Claude Code desktop extension", () => {
     render(<ClaudeCodeProviderCard onNotify={vi.fn()} host={host(invoke)} />);
     await waitFor(() => expect(document.getElementById("setting-agent-sdk-program")?.textContent).toMatch(/^CLI.*2\.1\.4 · \/usr\/local\/bin\//u));
     expect(await screen.findByText("Claude Max")).toBeTruthy();
+    expect(screen.queryByText("me@example.com")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show email address" }));
     expect(screen.getByText("me@example.com")).toBeTruthy();
     expect(screen.getByText("2 models available, sonnet by default, effort medium. Pick one per thread in the composer.")).toBeTruthy();
 

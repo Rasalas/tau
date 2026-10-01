@@ -15,6 +15,7 @@ import { Button, TextField } from "../settings/controls";
 import { SettingRow } from "../settings/settings-layout";
 import { ProviderCardBadgeReport, useProviderCardBadge, type ProviderCardBadge } from "../settings/provider-card-state";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
+import { PrivateAccountText } from "./ui/PrivateAccountText";
 import "./sign-in.css";
 
 /**
@@ -255,7 +256,6 @@ export function SignInSetup({ host, target, program, heading = "Account", runInT
   const methods = (report?.methods ?? []).filter((method) => !account?.signedIn || method.availableWhenSignedIn);
   const ended = flow && !active ? flow : undefined;
   useProviderCardBadge("account", showAccount && cardBadge ? accountBadge(report, active) : undefined);
-  const who = account?.label && account.label !== program ? ` (${account.label})` : "";
 
   const messages: ReactNode[] = [];
   if (ended?.message && ended.phase !== "succeeded") {
@@ -274,7 +274,7 @@ export function SignInSetup({ host, target, program, heading = "Account", runInT
           description={!report
             ? error ? `Could not ask ${program} who is signed in: ${error}` : "Checking…"
             : account?.signedIn
-              ? <><strong className="sign-in-who">{account.label ?? "Signed in"}</strong>{account.detail ? <> · <span>{account.detail}</span></> : null}</>
+              ? <><strong className="sign-in-who"><PrivateAccountText text={account.label ?? "Signed in"} /></strong>{account.detail ? <> · <span><PrivateAccountText text={account.detail} /></span></> : null}</>
               : "Not signed in"}
           status={messages.length ? <>{messages}</> : undefined}
           control={!report && error ? <Button onClick={() => void load()}>Ask again</Button>
@@ -285,8 +285,8 @@ export function SignInSetup({ host, target, program, heading = "Account", runInT
       ) : messages.length ? <div className="sign-in-messages">{messages}</div> : null}
       {confirming ? (
         <ConfirmDialog
-          title={`Sign out of ${program}${who}?`}
-          message={`Threads on ${program} stop working until you sign in again; their history stays.`}
+          title={`Sign out of ${program}?`}
+          message={<>{account?.label && account.label !== program ? <>Account: <PrivateAccountText text={account.label} />. </> : null}Threads on {program} stop working until you sign in again; their history stays.</>}
           confirmLabel="Sign out"
           destructive
           onCancel={() => setConfirming(false)}
