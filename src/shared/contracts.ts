@@ -67,6 +67,8 @@ export interface UiMessage {
   /** Stable renderer-to-runtime correlation id for this user turn. */
   clientTurnId?: string;
   clientMessageId?: string;
+  /** On the first prompt of a window that leaves older turns out: its 1-based turn number in the whole thread. */
+  turnNumber?: number;
   role: UiRole;
   text: string;
   /** Present only when the host recognized a known skill invocation. */

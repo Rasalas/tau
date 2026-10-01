@@ -91,6 +91,14 @@ describe("transcript turn navigation data", () => {
     ]);
   });
 
+  it("keeps counting from the number the host gave the first loaded prompt", () => {
+    const entries = buildTranscriptTurnNavigation([
+      { id: "user-9", role: "user", text: "Ninth", timestamp: 1, turnNumber: 9 },
+      { id: "user-10", role: "user", text: "Tenth", timestamp: 2 },
+    ]);
+    expect(entries.map((entry) => entry.turnNumber)).toEqual([9, 10]);
+  });
+
   it("truncates at a readable word boundary while keeping Unicode characters intact", () => {
     const preview = truncatePromptPreview("Choose the correct 🧭 direction before continuing the long task", 28);
     expect(preview).toBe("Choose the correct 🧭…");
