@@ -80,7 +80,7 @@ export function NewThreadRows() {
   const mode = useSetting<string>(value(NEW_THREAD_WORKSPACE_KEY), { defaultValue: "current", read: readString });
   const main = state.defaultBranches[state.workspaceId ?? state.cwd ?? ""] ?? "main";
   return <>
-    <SettingRow title="Branch name" description="when you leave it empty"
+    <SettingRow id="setting-branch-name" title="Branch name" description="when you leave it empty"
       control={<SegmentedControl label="Branch name" value={store.branchNaming()} options={[{ value: "prompt", label: "From prompt" }, { value: "random", label: "Random" }]} onChange={(next) => store.setBranchNaming(next)} />} />
     <SettingRow title="Base" setting={origin}
       control={<SegmentedControl label="Base" value={String(origin.value)} options={[{ value: "true", label: `origin/${main}` }, { value: "false", label: main }]} onChange={(next) => origin.set(next === "true")} />} />
@@ -92,7 +92,7 @@ export function NewThreadRows() {
 /** General's Threads card: a tab for each file the agent reads or edits (design 1a). */
 export function TraceTabsRow() {
   const trace = useSetting<boolean>(option(TRACE_TABS_OPTION), { defaultValue: true, read: readBoolean });
-  return <SettingRow title="Trace tabs" description="open files the agent touches" setting={trace}
+  return <SettingRow id="setting-trace-tabs" title="Trace tabs" description="open files the agent touches" setting={trace}
     control={<Switch label="Trace tabs" checked={trace.value} onChange={trace.set} />} />;
 }
 
@@ -102,9 +102,9 @@ export function ThisMachineRows() {
   useEffect(() => { void store.loadEditors(); }, [store]);
   const folder = useSetting<string>(value(WORKTREE_DIRECTORY_KEY), { defaultValue: "", read: readString });
   return <>
-    <SettingRow title="Editor" description="“Open in editor” launches"
+    <SettingRow id="setting-editor" title="Editor" description="“Open in editor” launches"
       control={<Select label="Editor" value={store.activeEditor()?.id} options={state.editors.map((entry) => ({ value: entry.id, label: entry.name }))} onChange={(id) => store.chooseEditor(id)} />} />
-    <SettingRow title="Git" description="worktrees under" setting={folder}
+    <SettingRow id="setting-worktrees-under" title="Git" description="worktrees under" setting={folder}
       control={<PathField label="Worktrees under" placeholder="Beside each project" setting={folder} />} />
   </>;
 }

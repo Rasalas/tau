@@ -234,6 +234,6 @@ const RUN_ON_CHOICES: ReadonlyArray<{ value: RunOnDefault; label: string }> = [{
 /** General's New threads card (design 2i): the machine a new thread starts on. */
 export function RunOnDefaultRow() {
   const runOn = useSetting<RunOnDefault>(`values.${ENVIRONMENTS_EXTENSION_ID}.${RUN_ON_DEFAULT_KEY}`, { defaultValue: "last", read: (raw) => raw as RunOnDefault | undefined });
-  return <SettingRow title="Run on" setting={runOn}
+  return <SettingRow id="setting-run-on" title="Run on" setting={runOn}
     control={<SegmentedControl label="Run on" value={runOn.value} options={RUN_ON_CHOICES} onChange={runOn.set} />} />;
 }

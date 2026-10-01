@@ -47,7 +47,7 @@ export function TerminalSettingsPage({ preferences, onOpenSettings }: SettingsPa
 export function ShellRow() {
     const shell = useSetting<string>(`values.${TERMINAL_HOST_EXTENSION_ID}.shell`, { defaultValue: "", read: (raw) => (typeof raw === "string" ? raw : undefined) });
     return (
-      <SettingRow title="Shell" description="terminals start" setting={shell}
+      <SettingRow id="setting-shell" title="Shell" description="terminals start" setting={shell}
         control={<TextField label="Shell" mono placeholder="Login shell" value={shell.value} onCommit={(draft) => {
           const next = draft.trim();
           if (next === shell.value) return;

@@ -158,7 +158,8 @@ export const terminalExtension: DesktopExtension = {
       Component: (props) => <TerminalSettingsPage {...props} preferences={plugin.preferences} />,
     });
     const disposers = [
-      plugin.registerSettingsSection({ id: "terminal.shell", page: "connections", card: "this-machine", order: 30, profiles: ["desktop"], Component: ShellRow }),
+      plugin.registerSettingsSection({ id: "terminal.shell", page: "connections", card: "this-machine", order: 30, profiles: ["desktop"], Component: ShellRow,
+        rows: [{ id: "setting-shell", label: "Shell", keywords: ["terminal", "zsh", "bash", "login shell"] }] }),
       plugin.registerCommand({ id: "terminal.open", label: "Open terminal panel", group: "Terminal", access: "read", run: (app) => app.openPanel(TERMINAL_PANEL) }),
       // The terminal opens in the app; the external one is Workspace Kit's command (mod+alt+j).
       ...["terminal", "term"].map((name) => plugin.registerSlashCommand({

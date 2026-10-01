@@ -8,7 +8,7 @@ import { autoRunOn, createAutoRunOnHook, RUN_ON_KEY } from "./auto.js";
 import { ARRIVAL_KEY, createRailSection, environmentsExtension } from "./desktop.js";
 import { followArrival, otherMachines, readPendingArrival, statusText, unavailableReason } from "./machines.js";
 import { agentThreadsSource, createMachineCardRow, createMachineThreads, createShownMachine } from "./rail.js";
-import { createRunOnSource, runOnDetail, type RunOnBringing } from "./run-on.js";
+import { createRunOnSource, runOnDetail, RunOnDefaultRow, type RunOnBringing } from "./run-on.js";
 import { createBringChoice, createBringProjectHook, createProjectIdentities, matchProject } from "./bring-project.js";
 import { createMachinesPage } from "./settings.js";
 import { machineKitClient } from "./machine-kit.js";
@@ -404,6 +404,16 @@ describe("Run on", () => {
     expect(source.openOnDraft?.()).toBe(true);
     preference = "last";
     expect(source.openOnDraft?.()).toBe(false);
+  });
+
+  it("names its Settings row for the search, and the row carries that anchor", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const { registry } = createKitHarness(undefined, undefined, { environments });
+    registry.activate(environmentsExtension);
+    const rows = registry.getSettingsSections("general").flatMap((section) => section.rows ?? []);
+    expect(rows.map((row) => row.label)).toContain("Run on");
+    render(withSettings(<RunOnDefaultRow />));
+    for (const row of rows) expect(document.getElementById(row.id), row.id).toBeTruthy();
   });
 
   it("asks nothing when there is only one machine", () => {
