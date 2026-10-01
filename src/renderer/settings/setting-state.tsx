@@ -1,6 +1,7 @@
-import { createContext, useContext, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
-import { resolveSetting, settingWritable, type ConfigLayerName, type SettingLayerValue, type SettingScope } from "../../shared/config-layers";
-import { ConfigLayersStore, type ConfigLayersSnapshot, type SettingsProject } from "../../workbench/config-layers-store";
+import { createContext, useContext, useEffect, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { resolveSetting, settingPath, settingWritable, type ConfigLayerName, type SettingLayerValue, type SettingScope } from "../../shared/config-layers";
+import { PERSON_PREFERENCE_KEYS } from "../../shared/person-preferences";
+import { ConfigLayersStore, type ConfigLayersSnapshot, type SettingsMachine, type SettingsProject } from "../../workbench/config-layers-store";
 import { useHostClient } from "../host-client-context";
 import { useHostCapabilities } from "../use-host-capabilities";
 import { usePreferences } from "../renderer-services-context";
@@ -22,6 +23,29 @@ export function useSettingsLevels(): { store: ConfigLayersStore; snapshot: Confi
   const store = provided ?? own!;
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   return { store, snapshot };
+}
+
+/** The levels with nothing to subscribe to, for a row drawn where no Settings screen provides any. */
+const NO_LEVELS = { subscribe: () => () => undefined, getSnapshot: (): ConfigLayersSnapshot | undefined => undefined };
+
+/** The snapshot of the Settings screen the row is in, or undefined outside one. */
+export function useProvidedLevels(): ConfigLayersSnapshot | undefined {
+  const provided = useContext(SettingsLevelsContext) ?? NO_LEVELS;
+  return useSyncExternalStore(provided.subscribe, provided.getSnapshot);
+}
+
+const PERSON_KEYS = new Set<string>(PERSON_PREFERENCE_KEYS);
+
+const WHOLE_MACHINE = "Applies to the whole machine.";
+
+/**
+ * Why a change cannot be written at the level being edited, when that is the
+ * setting's scope and not the device's pairing; undefined where it can.
+ */
+export function levelLock(key: string, scope: SettingScope, level: Pick<ConfigLayersSnapshot, "editing" | "machine">): string | undefined {
+  if (level.machine) return PERSON_KEYS.has(settingPath(key)[0]) ? "Personal: applies on every machine." : level.machine.blocked;
+  if (settingWritable(scope, level.editing)) return undefined;
+  return level.editing === "project" ? WHOLE_MACHINE : "Applies to each project: choose one in Applies to.";
 }
 
 export interface SettingOptions<T> {
@@ -49,7 +73,11 @@ export interface SettingHandle<T> {
   projectOverride?: T;
   editing: "host" | "project";
   project?: SettingsProject;
+  /** The other machine whose machine level is edited, instead of this one's. */
+  machine?: SettingsMachine;
   writable: boolean;
+  /** Why the level being edited cannot hold this setting, in a few words. */
+  lock?: string;
   /** Why it is not writable when that is the device's pairing, not the level (API 1.13.0). */
   readOnly?: boolean;
   loaded: boolean;
@@ -75,6 +103,10 @@ export function useSetting<T>(key: string, options: SettingOptions<T>): SettingH
   const { store, snapshot } = useSettingsLevels();
   const { readOnly } = useHostCapabilities();
   const scope = options.scope ?? "host";
+  const projectScoped = scope !== "host";
+  // A project is only worth offering where a row on screen can hold one.
+  useLayoutEffect(() => (projectScoped ? store.declareProjectSetting() : undefined), [store, projectScoped]);
+  const lock = levelLock(key, scope, snapshot);
   const resolved = resolveSetting(snapshot.layers, key, options.defaultValue, snapshot.editing, options.read);
   const format = (value: unknown) => (value == null ? "Not set" : (options.format ?? defaultFormat)(value as T));
   return {
@@ -86,7 +118,9 @@ export function useSetting<T>(key: string, options: SettingOptions<T>): SettingH
     ...(resolved.projectOverride !== undefined ? { projectOverride: resolved.projectOverride } : {}),
     editing: snapshot.editing,
     ...(snapshot.project ? { project: snapshot.project } : {}),
-    writable: !readOnly && settingWritable(scope, snapshot.editing),
+    ...(snapshot.machine ? { machine: snapshot.machine } : {}),
+    writable: !readOnly && lock === undefined,
+    ...(lock ? { lock } : {}),
     ...(readOnly ? { readOnly } : {}),
     loaded: snapshot.loaded,
     set: (value) => {

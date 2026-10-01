@@ -295,9 +295,9 @@ export interface HostClient {
   /** Another machine's own Tau over the window's connection there: how it stands, a check, or an install (K103). */
   updateEnvironment?(machine: string, action: HostUpdateAction): Promise<HostUpdateStatus>;
   /** Another machine's settings at its machine level, over the window's connection there (K170). */
-  getEnvironmentConfig?(machine: string): Promise<ConfigLayers>;
-  updateEnvironmentConfig?(machine: string, patch: Partial<TauConfig>): Promise<unknown>;
-  clearEnvironmentConfig?(machine: string, keys: readonly string[]): Promise<unknown>;
+  getEnvironmentConfig(machine: string): Promise<ConfigLayers>;
+  updateEnvironmentConfig(machine: string, patch: Partial<TauConfig>): Promise<unknown>;
+  clearEnvironmentConfig(machine: string, keys: readonly string[]): Promise<unknown>;
   /** The person's preferences as the window's own machine keeps them; with a patch, written there. */
   personPreferences?(patch?: PersonPreferences): Promise<PersonPreferences>;
 

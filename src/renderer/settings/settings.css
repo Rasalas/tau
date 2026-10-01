@@ -182,6 +182,8 @@
 .settings-row-text > p { margin: 0; max-width: 576px; font-size: calc(var(--text-sm) + .5px); line-height: 1.45; color: var(--muted); }
 .settings-row-text code, .settings-group-note code { font: calc(var(--text-xs) + .5px) var(--mono); }
 .settings-row-status { font-size: var(--text-sm); color: var(--muted); }
+/* Why the level being edited cannot hold a row; the row stays in sight. */
+.settings-row-text > p.settings-row-lock { margin-top: 2px; color: var(--faint); }
 .settings-row-status p { margin: 2px 0 0; }
 .settings-row-control { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-4); min-width: 0; }
 .settings-row-control[data-inert] { opacity: .5; cursor: not-allowed; }

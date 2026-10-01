@@ -1378,7 +1378,7 @@ A page is built from the same pieces core builds its own with, all on `tau`:
 |---|---|
 | `SettingsSection({ title, id?, headerAction?, plain?, children })` | A muted heading over one card of rows. `plain` drops the card, for content that draws its own (a table). |
 | `SettingsPageAction({ children })` | The page's own action, drawn at the right of its head (new in API 1.26.0); an app page's head too (API 1.27.0). |
-| `SettingRow({ id?, title, description?, help?, status?, control?, setting?, disabledReason?, children? })` | One setting: what it is on the left, its control on the right. `id` is the anchor a search result scrolls to. `help` (new in API 1.18.0) is the text a description should not carry, behind an info glyph beside the title. `disabledReason` (new in API 1.13.0) turns the control of a row without a `setting` inert, with the reason as its tooltip — `READ_ONLY_REASON` on a Read-only device. |
+| `SettingRow({ id?, title, description?, help?, status?, control?, setting?, disabledReason?, wholeMachine?, children? })` | One setting: what it is on the left, its control on the right. `id` is the anchor a search result scrolls to. `help` (new in API 1.18.0) is the text a description should not carry, behind an info glyph beside the title. `disabledReason` (new in API 1.13.0) turns the control of a row without a `setting` inert, with the reason as its tooltip — `READ_ONLY_REASON` on a Read-only device. `wholeMachine` turns a row without a `setting` inert, with its reason, while a project or another machine is edited. |
 | `useSetting(key, options)` | One key of Tau's config read across the levels, as a `SettingHandle`. |
 | `userThemes()` | The user themes (`UserTheme`) the last preferences sync registered — the files in the themes folders. Read-only; the preferences store emits when they change. |
 
@@ -1444,10 +1444,27 @@ appears while the edited level holds the key, and the control turns inert (with
 the reason as its title) where the edited level cannot hold a key of that
 `scope`.
 
-Which level is edited is the page's: a page whose `scope` is `"project"` or
-`"both"` gets the scope menu in its head, under the description ("Applies to
-This machine" or a project from the project list), and a page without one always edits this
-machine. Pi's own keys (the startup model, compaction, retry, delivery modes,
+Each setting says where it may be written, and the page follows its rows.
+"Applies to" in a page's head offers a project only while a row built with
+`scope: "project"` or `"both"` is on screen, so a page whose rows all hold for
+the machine offers none. Choose a project and the other rows stay in sight but
+inert, saying "Applies to the whole machine."; a row without a `setting` that
+holds for the whole machine (a device's own choice) says the same with
+`<SettingRow wholeMachine>`. Give `scope: "both"` only to a setting something
+reads per project: the renderer reads config for the workspace on screen, a host
+half reads it with `services.settings(cwd)`. A setting a host half reads once
+for the machine stays `"host"`. General's "Applies to" also lists the other
+machines this window reaches (K170): choosing one reads and writes that
+machine's own settings over the window's connection there (`environments-config`,
+`environments-update-config`, `environments-clear-config`), needs Full access
+there, and shows a machine that is not reachable or paired Read only with the
+reason. The person's own preferences (`theme`, `transcriptDetail`, `showCosts`,
+`fontFamily`, `fontSize`, `vimMode`, `keybindings`) already follow the person
+to every machine, so they are inert there ("Personal: applies on every
+machine."), and a project override is only offered for this machine, since a
+project is addressed by a workspace id of the machine it is on. The handle's
+`lock` is the reason a level cannot hold the setting; `machine` is the machine
+being edited. The page registration's `scope` is no longer read. Pi's own keys (the startup model, compaction, retry, delivery modes,
 tools, shell, trust) are Pi's: they have Pi's global and project files, the Pi
 page writes them there, and they take no part in these levels. The host methods
 underneath are `get-config-layers` (both files without Pi's keys) and

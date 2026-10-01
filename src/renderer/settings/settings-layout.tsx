@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Check, Layers, Undo2 } from "lucide-react";
 import type { ConfigLayerName } from "../../shared/config-layers";
-import type { SettingHandle } from "./setting-state";
+import { levelLock as lockOf, useProvidedLevels, type SettingHandle } from "./setting-state";
 import { tooltipProps } from "../components/ui/Tooltip";
 import { HelpTip } from "./controls";
 
@@ -115,9 +115,7 @@ export function SettingsCard({ title, id, wide = false, children }: { title: str
 
 function notWritableReason(setting: SettingHandle<unknown>): string {
   if (setting.readOnly) return "This device is paired Read only: it can see settings, not change them.";
-  return setting.editing === "project"
-    ? "A setting of this machine. Switch the scope to This machine to change it."
-    : "A setting of each project. Choose a project in the scope menu to change it.";
+  return setting.lock ?? "This setting cannot be changed here.";
 }
 
 /**
@@ -126,7 +124,7 @@ function notWritableReason(setting: SettingHandle<unknown>): string {
  * level being edited holds, and turns its control inert where that level
  * cannot hold the key.
  */
-export function SettingRow({ id, title, description, help, status, control, setting, disabledReason, children }: {
+export function SettingRow({ id, title, description, help, status, control, setting, disabledReason, wholeMachine, children }: {
   /** The row's anchor: a search result scrolls here. */
   id?: string;
   title: ReactNode;
@@ -138,10 +136,16 @@ export function SettingRow({ id, title, description, help, status, control, sett
   setting?: SettingHandle<never> | SettingHandle<unknown>;
   /** Why the control is off, for a row without a `setting`: it turns inert with this as its tooltip, which a tap shows on touch (API 1.13.0). */
   disabledReason?: string | undefined;
+  /** A row without levels: it holds for the whole machine, so it turns inert while a project or another machine is edited. */
+  wholeMachine?: boolean;
   children?: ReactNode;
 }) {
   const handle = setting as SettingHandle<unknown> | undefined;
-  const inert = Boolean(disabledReason) || (handle !== undefined && !handle.writable);
+  const levels = useProvidedLevels();
+  const levelLock = handle ? (handle.readOnly ? undefined : handle.lock)
+    : wholeMachine && levels ? (levels.machine ? "Applies to this machine only." : lockOf("", "host", levels)) : undefined;
+  const reason = disabledReason ?? levelLock;
+  const inert = Boolean(reason) || (handle !== undefined && !handle.writable);
   const resettable = handle !== undefined && handle.writable && handle.origin === handle.editing;
   return (
     <div className="settings-row" id={id} tabIndex={id ? -1 : undefined} data-origin={handle?.origin}>
@@ -162,11 +166,12 @@ export function SettingRow({ id, title, description, help, status, control, sett
             ) : null}
           </div>
           {description ? <p>{description}</p> : null}
+          {levelLock ? <p className="settings-row-lock">{levelLock}</p> : null}
           {status ? <div className="settings-row-status">{status}</div> : null}
         </div>
         {control ? (
           // The reason sits on a wrapper: an inert element shows no tooltip of its own.
-          <div className="settings-row-control" data-inert={inert ? "" : undefined} {...tooltipProps(disabledReason ?? (inert ? notWritableReason(handle!) : undefined))}>
+          <div className="settings-row-control" data-inert={inert ? "" : undefined} {...tooltipProps(reason ?? (inert ? notWritableReason(handle!) : undefined))}>
             {inert ? <div className="settings-row-control-inert" inert>{control}</div> : control}
           </div>
         ) : null}
