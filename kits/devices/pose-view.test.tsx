@@ -41,6 +41,7 @@ it("keeps a rotated native interior visible and rotates its hinge and capture re
   expect(container.querySelector("[data-surface]")?.getAttribute("data-surface")).toBe("front");
   expect([...container.querySelectorAll("[data-crop]")].map((element) => element.getAttribute("data-crop"))).toEqual(["0,0,1,0.5", "0,0.5,1,0.5"]);
   expect(container.querySelector(".devices-pose-hinge-horizontal")).toBeTruthy();
+  fireEvent.click(screen.getByText("View controls"));
   fireEvent.change(screen.getByRole("slider", { name: "3D preview hinge" }), { target: { value: "90" } });
   expect([...container.querySelectorAll<HTMLElement>("[data-panel]")].map((element) => element.style.transform)).toEqual(["rotateX(-45deg)", "rotateX(45deg)"]);
   expect(container.querySelector<HTMLElement>(".devices-pose-body")?.style.transform).toContain("rotateY(-24deg)");
@@ -135,6 +136,7 @@ it("orbits with pointer capture, zooms with the wheel and resets the view", () =
   expect(container.querySelector<HTMLElement>(".devices-pose-body")?.style.transform).toContain("rotateY(36deg)");
   fireEvent.wheel(scene, { deltaY: -200 });
   expect(container.querySelector<HTMLElement>(".devices-pose-body")?.style.transform).toContain("scale(1.2)");
+  fireEvent.click(screen.getByText("View controls"));
   fireEvent.click(screen.getByRole("button", { name: "Reset view" }));
   expect(container.querySelector<HTMLElement>(".devices-pose-body")?.style.transform).toContain("rotateY(-24deg)");
 });

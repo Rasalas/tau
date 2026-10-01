@@ -159,7 +159,7 @@ export function DevicePanel({ active, actions, invoke, floating }: PanelProps & 
       <div className="devices-view-toolbar">
         <SegmentedControl label="Device view" value={pose ? "3d" : "flat"} options={[{ value: "flat", label: "Flat screen", icon: <Smartphone size={13} />, labelled: true }, { value: "3d", label: "3D view", icon: <Box size={13} />, labelled: true }]} disabled={!frame && !videoSource} onChange={(value) => setPose(value === "3d")} />
         <span className="devices-stream-status" title={videoFallback || undefined}>{!device.booted ? "Device off" : !live ? "Paused" : videoSource ? "Live video" : frame ? "Screen captures" : "Connecting…"}</span>
-        <label className="devices-live"><span>Live screen</span><Switch role="checkbox" label="Live screen" checked={live} onChange={setLive} /></label>
+        <label className="devices-live" title="Live screen"><span>Live</span><Switch role="checkbox" label="Live screen" checked={live} onChange={setLive} /></label>
         {floating && <Button variant="ghost" icon={<Maximize2 size={14} />} aria-label="Float over chat" title="Float over chat" disabled={!device.booted} onClick={() => { floating.set({ ...targetOf(device), name: device.name }); setLive(false); }} />}
         <Button variant="ghost" icon={<Power size={14} />} aria-label={device.booted ? "Shut down" : "Boot"} title={device.booted ? "Shut down" : "Boot"} disabled={disabled} onClick={() => { void perform(device.booted ? "shutdown" : "boot"); }} />
       </div>

@@ -69,6 +69,8 @@ it("shows a lazy articulated 3D inspection and floats the selected live device o
   fireEvent.click(await screen.findByRole("button", { name: /Test iPhone · ios/ }));
   await screen.findByRole("img", { name: "Test iPhone screen" });
   fireEvent.click(screen.getByRole("radio", { name: "3D view" }));
+  await screen.findByRole("img", { name: "Test iPhone 3D inspection" });
+  fireEvent.click(screen.getByText("View controls"));
   expect(await screen.findByRole("slider", { name: "3D turn" })).toBeTruthy();
   fireEvent.change(screen.getByRole("slider", { name: "3D turn" }), { target: { value: "40" } });
   const scene = screen.getByRole("img", { name: "Test iPhone 3D inspection" });
@@ -76,6 +78,9 @@ it("shows a lazy articulated 3D inspection and floats the selected live device o
   Object.defineProperties(probe, { naturalWidth: { value: 1000 }, naturalHeight: { value: 2000 } });
   fireEvent.load(probe);
   expect(scene.querySelector<HTMLElement>(".devices-pose-body")?.style.transform).toContain("rotateY(40deg)");
+  fireEvent.click(screen.getByRole("button", { name: "Control screen" }));
+  await screen.findByRole("img", { name: "Test iPhone screen" });
+  expect(screen.getByRole("radio", { name: "Flat screen" }).getAttribute("aria-checked")).toBe("true");
   fireEvent.click(screen.getByRole("button", { name: "Float over chat" }));
   expect(await screen.findByRole("img", { name: "Test iPhone floating screen" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Open controls" }));
@@ -95,11 +100,11 @@ it("uses native fold support and refreshes the capture after a confirmed posture
   }) as Invoke & ReturnType<typeof vi.fn>;
   render(<DevicePanel active extensionName="Devices" actions={{ openSettings: vi.fn() } as unknown as WorkbenchActions} invoke={invoke} />);
   fireEvent.click(await screen.findByRole("button", { name: /Pixel Fold · android/ }));
-  await screen.findByText("Device posture: opened · 180°");
+  await screen.findByText("Device posture: Opened · 180°");
   fireEvent.click(screen.getByRole("checkbox", { name: "Live screen" }));
   await waitFor(() => expect(screen.getByRole("img", { name: "Pixel Fold screen" }).getAttribute("src")).toContain("opened"));
-  fireEvent.click(screen.getByRole("button", { name: "Closed" }));
-  await screen.findByText("Device posture: closed · 0°");
+  fireEvent.click(screen.getByRole("button", { name: "Fold device" }));
+  await screen.findByText("Device posture: Closed · 0°");
   await waitFor(() => expect(screen.getByRole("img", { name: "Pixel Fold screen" }).getAttribute("src")).toContain("closed"));
   expect(invoke).toHaveBeenCalledWith("action", { hostId: "local", deviceId: "fold", action: "fold", enabled: true });
 });
@@ -116,8 +121,8 @@ it("hides native fold controls for an emulator whose hinge sensor reports unsupp
   render(<DevicePanel active extensionName="Devices" actions={{ openSettings: vi.fn() } as unknown as WorkbenchActions} invoke={invoke} />);
   fireEvent.click(await screen.findByRole("button", { name: /Foldable custom · android/ }));
   await screen.findByRole("img", { name: "Foldable custom screen" });
-  expect(screen.queryByRole("button", { name: "Closed" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Opened" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Fold device" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Unfold device" })).toBeNull();
 });
 
 it.each(["home", "rotate", "tap", "text"])("refreshes the result of %s once while Live screen stays paused", async (action) => {
