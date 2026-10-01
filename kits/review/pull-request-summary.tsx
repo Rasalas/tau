@@ -3,7 +3,9 @@ import { ChevronDown, ChevronRight, Pencil, X } from "lucide-react";
 import { errorMessage, Markdown, type WorkbenchActions } from "tau";
 import type { PullRequestCheck, PullRequestComment, PullRequestDetail, PullRequestReviewer, PullRequestThread, ReviewCommentChip } from "./protocol.js";
 import { checksRollup, checksSummary, commentChip, relativeTime } from "./pull-request-logic.js";
-import { ChecksList, CommentCard, MarkdownEditor, RollupIcon } from "./pull-request-parts.js";
+import { CommentCard, MarkdownEditor, RollupIcon } from "./pull-request-parts.js";
+import { ChecksPipeline } from "./pipeline-view.js";
+import type { PullRequestClient } from "./pull-request-client.js";
 import { ChipPicker } from "./pull-request-review.js";
 import { githubHtml } from "./github-html.js";
 
@@ -57,7 +59,7 @@ function Group({ label, children }: { label: string; children: ReactNode }) {
  * description, the checks, then every comment — active ones windowed, bots
  * and finished conversations folded away.
  */
-export function PullRequestSummary({ detail, checks, threads, threadsError, actions, onSend, onSaveBody, onRetry, onOpenPath, canEdit, onEdit, onReviewers, onLabels, showChecks = true, candidates }: {
+export function PullRequestSummary({ detail, checks, threads, threadsError, actions, onSend, onSaveBody, onRetry, onOpenPath, canEdit, onEdit, onReviewers, onLabels, showChecks = true, candidates, client }: {
   detail: PullRequestDetail;
   checks: readonly PullRequestCheck[];
   threads: readonly PullRequestThread[];
@@ -75,6 +77,8 @@ export function PullRequestSummary({ detail, checks, threads, threadsError, acti
   /** False where the provider reports no checks. */
   showChecks?: boolean;
   candidates(): Promise<{ labels: Array<{ name: string }>; reviewers: string[] }>;
+  /** Reads the checks' workflow files and usual durations. */
+  client?: PullRequestClient;
 }) {
   const [editingBody, setEditingBody] = useState(false);
   const [chipError, setChipError] = useState<string>();
@@ -148,7 +152,7 @@ export function PullRequestSummary({ detail, checks, threads, threadsError, acti
 
       {showChecks ? (
         <Section title="Checks" defaultOpen={rollup === "failing"} aside={<span className="pr-section-note">{rollup ? <RollupIcon rollup={rollup} /> : null}{checksSummary(checks)}</span>}>
-          <ChecksList checks={checks} actions={actions} />
+          <ChecksPipeline client={client} url={detail.ref.url} checks={checks} actions={actions} />
         </Section>
       ) : null}
 

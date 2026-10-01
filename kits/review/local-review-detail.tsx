@@ -20,7 +20,9 @@ import { mergeBlocker, reviewRuntime, type ConflictFile, type HunkPick, type Loc
 import type { LocalReviewsStore, ReviewRun } from "./local-reviews-store.js";
 import { REVIEW_HOST_EXTENSION_ID, type PendingReviewComment } from "./protocol.js";
 import { lineKeys, orderFiles, threadKey } from "./pull-request-logic.js";
-import { CheckIcon, ReplyBox } from "./pull-request-parts.js";
+import { ReplyBox } from "./pull-request-parts.js";
+import { runsPipeline } from "./pipeline.js";
+import { PipelineGraph } from "./pipeline-view.js";
 import { LayoutToggle, ReviewDetailFrame, useBackKeys, type FrameTab } from "./review-detail-frame.js";
 import type { DetailNote, DetailParts, DetailState } from "./review-detail-store.js";
 import { ReviewDiffStack, type StackFile } from "./review-diff-stack.js";
@@ -40,8 +42,6 @@ export interface LocalActions {
 
 type Tab = "changes" | "turns" | "checks";
 
-const RUN_STATUS = { succeeded: "passed", failed: "failed", running: "pending", stopped: "cancelled" } as const;
-const RUN_WORDS = { succeeded: "Passed", failed: "Failed", running: "Running", stopped: "Stopped" } as const;
 
 function ModelMark({ review, bare }: { review: LocalReview; bare?: boolean }) {
   const catalog = useModelName(reviewRuntime(review), review.model, review.modelProvider);
@@ -457,7 +457,7 @@ export function LocalReviewDetail({ review, parts, detail, act, actions, back }:
       ) : tab === "turns" ? (
         <TurnsList prompts={summary?.prompts} loading={summary === undefined} />
       ) : (
-        <RunsList runs={runs} />
+        <div className="rvd-pad"><PipelineGraph pipelines={runs.length ? [runsPipeline(runs)] : []} actions={actions} empty="No checks ran in this worktree. Project Scripts' runs show here." /></div>
       )}
     </ReviewDetailFrame>
   );
@@ -478,20 +478,5 @@ function TurnsList({ prompts, loading }: { prompts: readonly string[] | undefine
     <ol className="rvd-turns" aria-label="Turns">
       {prompts.map((title, index) => <li key={index}><span>{index + 1}</span><span>{title}</span></li>)}
     </ol>
-  );
-}
-
-function RunsList({ runs }: { runs: readonly ReviewRun[] }) {
-  if (runs.length === 0) return <p className="rvd-empty">No checks ran in this worktree. Project Scripts' runs show here.</p>;
-  return (
-    <ul className="rvd-runs" aria-label="Checks">
-      {runs.map((run) => (
-        <li key={run.name}>
-          <CheckIcon status={RUN_STATUS[run.status]} />
-          <span>{run.name}</span>
-          <span className={`rvd-run-status ${RUN_STATUS[run.status]}`}>{RUN_WORDS[run.status]}</span>
-        </li>
-      ))}
-    </ul>
   );
 }

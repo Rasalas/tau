@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ClientStorage, HostSnapshot, PreferencesStore, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { reviewExtension } from "./desktop.js";
-import type { ReviewRequest, ThreadPullRequestLink } from "./protocol.js";
+import type { PullRequestCheck, ReviewRequest, ThreadPullRequestLink } from "./protocol.js";
+import type { PullRequestClient } from "./pull-request-client.js";
 import PullRequestStrip from "./pull-request-strip.js";
 import { STRIP_OPTION, StripDismissals, stripRequests } from "./pull-request-strip-logic.js";
 import { RowRequests } from "./requests.js";
@@ -39,12 +40,12 @@ const link = (number: number, extra: Partial<ThreadPullRequestLink> = {}): Threa
   source: "agent", linkedAt: number, title: `Change ${number}`, state: "open", ...extra,
 });
 
-function setup({ branch, links = [], draftPending = false, empty = false }: { branch?: ReviewRequest; links?: ThreadPullRequestLink[]; draftPending?: boolean; empty?: boolean } = {}) {
+function setup({ branch, links = [], draftPending = false, empty = false, live }: { branch?: ReviewRequest; links?: ThreadPullRequestLink[]; draftPending?: boolean; empty?: boolean; live?: PullRequestClient } = {}) {
   let changed: ((threadId: string) => void) | undefined;
   let current = links;
   const client = { links: vi.fn(async () => current), onLinksChanged: (listener: (threadId: string) => void) => { changed = listener; return () => undefined; } };
   const load = vi.fn(async () => branch);
-  const parts = { rows: new RowRequests(load), links: new ThreadLinkRows(client), preferences: preferences(), dismissals: new StripDismissals(memoryStorage) };
+  const parts = { rows: new RowRequests(load), links: new ThreadLinkRows(client), preferences: preferences(), dismissals: new StripDismissals(memoryStorage), ...(live ? { client: live } : {}) };
   const actions = { activeThread: () => ({ sessionId: "t1", cwd: "/work", draftPending }), openStageTab: vi.fn(() => "tab") } as unknown as WorkbenchActions;
   const snapshot = { sessionId: "t1", cwd: "/work", projectLabel: "fix/refresh-apps-without-socket", isStreaming: false, messages: empty ? [] : [{ id: "m1" }] } as unknown as HostSnapshot;
   const view = render(<PullRequestStrip snapshot={snapshot} actions={actions} parts={parts} />);
@@ -162,5 +163,47 @@ describe("the pull-request strip", () => {
     const region = registry.getRegions("composer-above").find((entry) => entry.id === "review.pull-request-strip")!;
     expect(region.order).toBe(80);
     registry.deactivate(reviewExtension.id);
+  });
+});
+
+describe("the checks on the chip", () => {
+  const RUN = "https://github.com/acme/lakebed/actions/runs/77/job/";
+  const running: PullRequestCheck[] = [
+    { name: "lint", status: "passed", workflow: "CI", url: `${RUN}1` },
+    { name: "test", status: "pending", workflow: "CI", url: `${RUN}2`, startedAt: new Date(Date.now() - 60_000).toISOString() },
+    { name: "e2e", status: "pending", workflow: "CI", url: `${RUN}3`, queued: true },
+  ];
+
+  it("fills one ring with the jobs' progress while checks run, and reads them only then", async () => {
+    const checks = vi.fn(async () => running);
+    const pipeline = vi.fn(async () => ({ 77: { expected: { test: 120_000 } } }));
+    setup({ branch: { ...BRANCH, checks: { passed: 1, failed: 0, pending: 2, total: 3 } }, live: { checks, pipeline } as unknown as PullRequestClient });
+    const chip = await waitFor(() => { const found = document.querySelector(".pl-chip"); expect(found).not.toBeNull(); return found!; });
+    expect(chip.textContent).toBe("1/3");
+    expect(chip.getAttribute("data-tooltip")).toBe("Checks: 1 of 3 done");
+    await waitFor(() => expect(pipeline).toHaveBeenCalledWith(BRANCH.url, ["77"]));
+    // lint whole, test about half of its usual two minutes, e2e nothing.
+    await waitFor(() => {
+      const dash = Number(document.querySelector(".pl-chip .pl-fill")!.getAttribute("stroke-dasharray")!.split(" ")[0]);
+      const turn = 2 * Math.PI * (7 - 1.25);
+      expect(dash / turn).toBeGreaterThan(0.49);
+      expect(dash / turn).toBeLessThan(0.52);
+    });
+    expect(checks).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the icon and asks nothing while no check runs", async () => {
+    const checks = vi.fn(async () => running);
+    setup({ branch: BRANCH, live: { checks, pipeline: vi.fn() } as unknown as PullRequestClient });
+    await waitFor(() => expect(document.querySelector(".review-pr-strip-checks.passed")).not.toBeNull());
+    expect(document.querySelector(".pl-chip")).toBeNull();
+    expect(checks).not.toHaveBeenCalled();
+  });
+
+  it("shows the finished state the live read found, before the row learns it", async () => {
+    const checks = vi.fn(async () => running.map((check) => ({ ...check, status: check.name === "e2e" ? "failed" as const : "passed" as const, queued: false })));
+    setup({ branch: { ...BRANCH, checks: { passed: 1, failed: 0, pending: 2, total: 3 } }, live: { checks, pipeline: vi.fn(async () => ({})) } as unknown as PullRequestClient });
+    const failed = await waitFor(() => { const found = document.querySelector(".review-pr-strip-checks.failed"); expect(found).not.toBeNull(); return found!; });
+    expect(failed.getAttribute("data-tooltip")).toBe("Checks: 1 of 3 failing");
   });
 });

@@ -1,7 +1,11 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { CircleCheck, CircleDashed, CircleX, X } from "lucide-react";
 import { MiddleTruncate, getClientStorage, tooltipProps, type DesktopExtensionContext, type RegionProps } from "tau";
-import { REVIEW_HOST_EXTENSION_ID, providerInfo } from "./protocol.js";
+import { REVIEW_HOST_EXTENSION_ID, providerInfo, type PullRequestCheck } from "./protocol.js";
+import { checksPipelines } from "./pipeline.js";
+import { PipelineRing, usePipelineFacts } from "./pipeline-view.js";
+import type { PullRequestClient } from "./pull-request-client.js";
+import { checksRollup, checksSummary } from "./pull-request-logic.js";
 import { RequestStateIcon } from "./request-state-icon.js";
 import { openPullRequest } from "./pull-request-open.js";
 import { STRIP_OPTION, StripDismissals, stripRequests, type StripRequest, type StripState } from "./pull-request-strip-logic.js";
@@ -14,7 +18,12 @@ export interface StripParts {
   links: ThreadLinkRows;
   preferences: DesktopExtensionContext["preferences"];
   dismissals?: StripDismissals;
+  /** Reads the checks while they run, for the ring; without it the chip shows the row's counts. */
+  client?: PullRequestClient;
 }
+
+/** As often as the open request's view asks while checks run. */
+const LIVE_MS = 20_000;
 
 const STATE_WORDS: Record<StripState, string> = { open: "Open", draft: "Draft", merged: "Merged", closed: "Closed" };
 const shared = { dismissals: undefined as StripDismissals | undefined };
@@ -25,6 +34,41 @@ function ChecksIcon({ tone }: { tone: "passed" | "failed" | "pending" }) {
   if (tone === "passed") return <CircleCheck {...props} />;
   if (tone === "failed") return <CircleX {...props} />;
   return <CircleDashed {...props} />;
+}
+
+/** The request's checks, read while the last answer still had some running and the window is visible. */
+function useLiveChecks(client: PullRequestClient | undefined, url: string, pending: boolean): PullRequestCheck[] | undefined {
+  const [read, setRead] = useState<{ url: string; checks: PullRequestCheck[] }>();
+  useEffect(() => {
+    if (!client || !pending) return;
+    let live = true;
+    let timer = 0;
+    const ask = () => {
+      if (document.visibilityState !== "visible") return;
+      client.checks(url).then((checks) => {
+        if (!live) return;
+        setRead({ url, checks });
+        if (checksRollup(checks) !== "pending") window.clearInterval(timer);
+      }, () => undefined);
+    };
+    ask();
+    timer = window.setInterval(ask, LIVE_MS);
+    return () => { live = false; window.clearInterval(timer); };
+  }, [client, url, pending]);
+  return read?.url === url ? read.checks : undefined;
+}
+
+const TONES = { failing: "failed", pending: "pending", passing: "passed" } as const;
+
+function StripChecks({ request, client }: { request: StripRequest; client: PullRequestClient | undefined }) {
+  const counted = checksTone(request.checks);
+  const live = useLiveChecks(client, request.url, counted === "pending");
+  const facts = usePipelineFacts(client, request.url, live ?? []);
+  const rollup = live ? checksRollup(live) : undefined;
+  const tone = rollup ? TONES[rollup] : counted;
+  if (!tone) return null;
+  if (tone === "pending" && live) return <span className="review-pr-strip-checks pending"><PipelineRing pipelines={checksPipelines(live, facts)} /></span>;
+  return <span className={`review-pr-strip-checks ${tone}`} {...tooltipProps(`Checks: ${live ? checksSummary(live) : checksLabel(request.checks)}`)}><ChecksIcon tone={tone} /></span>;
 }
 
 const otherLine = (request: StripRequest) => [`#${request.number}`, request.title ?? request.repo, "·", STATE_WORDS[request.state].toLowerCase()].filter(Boolean).join(" ");
@@ -77,7 +121,7 @@ export default function PullRequestStrip({ snapshot, actions, parts }: RegionPro
         {primary.headRef ? <MiddleTruncate className="review-pr-strip-branch" value={primary.headRef} {...tooltipProps(primary.headRef, { variant: "code" })} /> : null}
         <span className="review-pr-strip-fill" />
         {others.length > 0 ? <span className="review-pr-strip-more" {...tooltipProps(others.map(otherLine).join("\n"), { variant: "lines" })}>+{others.length}</span> : null}
-        {tone ? <span className={`review-pr-strip-checks ${tone}`} {...tooltipProps(`Checks: ${checks}`)}><ChecksIcon tone={tone} /></span> : null}
+        {primary.state === "open" ? <StripChecks request={primary} client={parts.client} /> : null}
       </button>
       <button type="button" className="review-pr-strip-hide" aria-label={`Hide ${info.short} #${primary.number} for this thread`} {...tooltipProps("Hide for this thread")}
         onClick={() => dismissals.hide(threadId, primary)}>
