@@ -67,6 +67,32 @@ function host() {
 }
 
 describe("Onboarding in the workbench", () => {
+  it("conceals account emails until clicked, and lets each address be hidden again", async () => {
+    const { invokeHostExtension: fallback } = host();
+    const email = "private.person@example.net";
+    const base = createFakeHostClient();
+    const bootstrap = async () => {
+      const snapshot = await base.bootstrap();
+      return { ...snapshot, catalog: { ...snapshot.catalog, runtimeBackends: [
+        { kind: "claude-code", label: "Claude Code" }, { kind: "codex", label: "Codex" },
+      ] } };
+    };
+    const invokeHostExtension = vi.fn(async (id: string, command: string, input?: unknown) => {
+      if (id === "tau.claude-code" && command === "probe") return { version: "2.1.0", account: email };
+      if (id === "tau.codex" && command === "status") return { path: "/bin/codex", version: "0.154.0", signedIn: true, account: email };
+      return fallback(id, command, input);
+    });
+    const { container } = renderApp(createFakeHostClient({ bootstrap, invokeHostExtension }), { extensions: [onboarding] });
+    await waitFor(() => expect(invokeHostExtension).toHaveBeenCalledWith("tau.claude-code", "probe", undefined));
+    await waitFor(() => expect(screen.queryAllByRole("button", { name: "Show email address" })).toHaveLength(2));
+    expect(container.innerHTML).not.toContain(email);
+    fireEvent.click(screen.getAllByRole("button", { name: "Show email address" })[0]!);
+    expect(screen.getAllByText(email)).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Show email address" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Hide email address" }));
+    expect(container.innerHTML).not.toContain(email);
+  });
+
   it("stays shut on a device paired Read only: setting up changes the host", async () => {
     const { calls, invokeHostExtension } = host();
     renderApp(createFakeHostClient({ invokeHostExtension, isReadOnly: () => true }), { extensions: [onboarding] });

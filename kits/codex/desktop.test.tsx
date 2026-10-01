@@ -34,6 +34,8 @@ describe("Codex desktop extension", () => {
     expect(screen.getByText("Codex 0.155.1 is out; 0.154.0 is installed.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Update in a terminal" })).toBeTruthy();
     expect(await screen.findByText("ChatGPT Pro")).toBeTruthy();
+    expect(screen.queryByText("me@example.com")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show email address" }));
     expect(screen.getByText("me@example.com")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
     expect(screen.getByText("/Users/me/.codex")).toBeTruthy();
@@ -217,6 +219,9 @@ describe("ChatGPT plan UI", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Continue with ChatGPT" })).toBeTruthy());
     fireEvent.click(await screen.findByRole("button", { name: "Manage usage" }));
     expect(open).toHaveBeenCalledWith("https://chatgpt.com/settings/usage", "_blank", "noopener");
+    expect(screen.queryByText("fixture@example.test")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show email address" }));
+    expect(screen.getByText("fixture@example.test")).toBeTruthy();
     open.mockRestore();
   });
 
@@ -275,7 +280,8 @@ describe("ChatGPT plan UI", () => {
     const Banner = createChatGPTPlanBanner(client);
     const actions = { openExternal: vi.fn() } as unknown as WorkbenchActions;
     render(<Banner snapshot={{ backendKind: "codex@work" } as HostSnapshot} actions={actions} />);
-    await screen.findByText("Using ChatGPT plan · fixture@example.test");
+    fireEvent.click(await screen.findByRole("button", { name: "Show email address" }));
+    expect(screen.getByText("fixture@example.test")).toBeTruthy();
     expect(client.invoke).toHaveBeenCalledWith("chatgpt-plan-account", { instance: "work" });
     listeners.get("chatgpt-plan-limit")!({ instance: "work" });
     await screen.findByText(/Review your app limits and credits/u);
@@ -310,10 +316,15 @@ it("keeps a managed thread's account banner and limit notices with its executing
   const client = { invoke: vi.fn(async () => ({ instance: account, signedIn: true, label: `${account}@example.test`, usageUrl: "https://chatgpt.com/settings/usage" })), onEvent: (name: string, listener: (value: unknown) => void) => { listeners.set(name, listener); return () => listeners.delete(name); } };
   const Banner = createChatGPTPlanBanner(client);
   render(<Banner snapshot={{ sessionId: "thread", backendKind: "codex" } as HostSnapshot} actions={{ openExternal: vi.fn() } as unknown as WorkbenchActions} />);
-  await screen.findByText("Using ChatGPT plan · default@example.test");
+  fireEvent.click(await screen.findByRole("button", { name: "Show email address" }));
+  expect(screen.getByText("default@example.test")).toBeTruthy();
   account = "work";
   listeners.get("thread-settings")!({ threadId: "thread" });
-  await screen.findByText("Using ChatGPT plan · work@example.test");
+  const reveal = await screen.findByRole("button", { name: "Show email address" });
+  expect(screen.queryByText("default@example.test")).toBeNull();
+  expect(screen.queryByText("work@example.test")).toBeNull();
+  fireEvent.click(reveal);
+  expect(screen.getByText("work@example.test")).toBeTruthy();
   expect(client.invoke).toHaveBeenLastCalledWith("chatgpt-plan-account", { instance: "default", threadId: "thread" });
   listeners.get("chatgpt-plan-limit")!({ instance: "work" });
   await screen.findByText(/Review your app limits and credits/u);
