@@ -1365,7 +1365,7 @@ export class PiHost {
     });
   }
 
-  async forkThread(entryId: string, expectedSessionId?: string): Promise<HostActionResult> {
+  async forkThread(entryId: string, expectedSessionId?: string, cwd?: string): Promise<HostActionResult> {
     return this.lifecycle.runActivation("fork-thread", async (activation) => {
       const activationEpoch = activation.epoch;
       if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
@@ -1376,6 +1376,7 @@ export class PiHost {
       const fork = requireCapability(thread.backend, "fork");
       // A runtime that forks itself reports the result through its own events.
       if (fork.runtimeOwned) {
+        if (cwd && cwd !== thread.cwd) throw new Error("A fork into another folder needs Tau to own this thread's runtime.");
         await fork.requestFork?.(entryId);
         return this.isCurrentActivation(activationEpoch) ? this.publication.actionResult([]) : this.staleActivationResult();
       }
@@ -1390,7 +1391,10 @@ export class PiHost {
       // createBranchedSession turns this manager into the fork. A branch without
       // an assistant message has no file until its first response, so the fork
       // must keep this manager instead of reopening its path.
-      const forkedManager = SessionManager.open(sourceFile);
+      // Another folder (the fork's own worktree) gets its sessions directory as a new thread there would.
+      const forkedManager = cwd && cwd !== thread.cwd
+        ? SessionManager.open(sourceFile, SessionManager.create(cwd, this.sessionsDirOverride).getSessionDir(), cwd)
+        : SessionManager.open(sourceFile);
       if (!forkedManager.createBranchedSession(entryId)) throw new Error("Failed to create the forked thread.");
       // Extensions carry what they keep beside the source into the fork.
       await this.threadLifecycle.afterFork(this.hostThreadFor(thread), this.seam.sessionFile(forkedManager));

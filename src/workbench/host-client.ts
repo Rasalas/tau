@@ -61,7 +61,8 @@ export interface HostClient {
   bootstrap(): Promise<HostBootstrap>;
   newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, clientMessageIdOrRequestId?: string | ClientTurnIdentity, prepared?: PreparedPrompt, configuration?: NewThreadConfiguration): Promise<NewThreadResult>;
   getPreparedThreadCapability(cwd?: string): Promise<PreparedThreadCapability>;
-  forkThread(entryId: string, expectedSessionId?: string): Promise<HostActionResult>;
+  /** With `workspace`, the fork runs there (a worktree made for it) instead of the source's folder. */
+  forkThread(entryId: string, expectedSessionId?: string, workspace?: string): Promise<HostActionResult>;
   threadTree(sessionId?: string): Promise<UiThreadTree>;
   navigateThreadTree(entryId: string, options?: { summarize?: boolean }, expectedSessionId?: string): Promise<ThreadTreeNavigationResult>;
   duplicateThread(expectedSessionId?: string): Promise<HostActionResult>;
@@ -329,7 +330,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     newSession: (initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared, configuration) =>
       call<NewThreadResult>("new-session", [initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared, configuration]),
     getPreparedThreadCapability: (cwd) => call<PreparedThreadCapability>("prepared-thread-capability", [cwd]),
-    forkThread: (entryId, expectedSessionId) => call<HostActionResult>("fork-thread", [entryId, expectedSessionId]),
+    forkThread: (entryId, expectedSessionId, workspace) => call<HostActionResult>("fork-thread", workspace ? [entryId, expectedSessionId, workspace] : [entryId, expectedSessionId]),
     threadTree: (sessionId) => call<UiThreadTree>("thread-tree", [sessionId]),
     navigateThreadTree: (entryId, options, expectedSessionId) =>
       call<ThreadTreeNavigationResult>("navigate-thread-tree", [entryId, options, expectedSessionId]),
