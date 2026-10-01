@@ -53,3 +53,11 @@ it("sends ciphertext as ActivityKit content-state with its own token/topic and n
   await apnsSender({ send })("activity-token", { sealed: SEALED, activity });
   expect(send).toHaveBeenCalledWith({ token: "activity-token", topic: `${APNS_TOPIC}.push-type.liveactivity`, pushType: "liveactivity", expiration: activity.expiresAt, payload: { aps: { timestamp: activity.timestamp, event: "end", "content-state": { sealed: SEALED }, "stale-date": activity.expiresAt, "dismissal-date": activity.expiresAt } } }, "production");
 });
+
+it("constructs push-to-start with only opaque attributes and a generic alert", async () => {
+  const send = vi.fn(async () => ({ ok: true as const }));
+  const sender = apnsSender({ send });
+  await sender("ab".repeat(32), { sealed: "2.key.cipher", activity: { event: "start", inputPushToken: true, timestamp: 1700000000, expiresAt: 1700000900, activityId: "a".repeat(22), bootstrap: "2.key.cipher" } });
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ topic: "de.tbuck.tau.push-type.liveactivity", pushType: "liveactivity", expiration: 1700000060,
+    payload: { aps: { timestamp: 1700000000, event: "start", "content-state": { sealed: "2.key.cipher" }, "stale-date": 1700000900, "attributes-type": "TauActivityAttributes", attributes: { activityId: "a".repeat(22), bootstrap: "2.key.cipher" }, alert: { title: "Tau", body: "Agent work started" }, "input-push-token": 1 } } }), "production");
+});

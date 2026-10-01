@@ -6,6 +6,7 @@ const devices = [
   { id: "ios-phone", platform: "ios", name: "iPhone test", version: "18.0", booted: true },
   { id: "android-phone", platform: "android", name: "Pixel test", version: "35", booted: true },
 ];
+let posture = "opened";
 const server = createServer(async (request, response) => {
   const path = new URL(request.url, "http://127.0.0.1").pathname;
   const json = (value) => { response.setHeader("Content-Type", "application/json"); response.end(JSON.stringify(value)); };
@@ -19,7 +20,10 @@ const server = createServer(async (request, response) => {
     device.booted = path.endsWith("/boot"); return json({ ok: true });
   }
   if (path.endsWith("/grid/api/start")) return json({ ok: true });
-  if (path.endsWith("/api/fold")) return json({ ok: body.posture === "closed" || body.posture === "opened", fold: { posture: body.posture } });
+  if (path.endsWith("/api/fold")) {
+    if (request.method === "POST") posture = body.posture;
+    return json({ ok: posture === "closed" || posture === "opened", fold: { supported: true, posture, hingeAngle: posture === "closed" ? 0 : 180 } });
+  }
   response.statusCode = 404; json({ ok: false, error: "unknown fixture route" });
 });
 server.listen(port, "127.0.0.1");

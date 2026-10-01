@@ -26,7 +26,7 @@ export interface RelayResponse {
   body: string;
 }
 
-export interface RelayActivity { event: "update" | "end"; timestamp: number; expiresAt: number }
+export interface RelayActivity { event: "start" | "update" | "end"; timestamp: number; expiresAt: number; activityId?: string; bootstrap?: string; inputPushToken?: boolean }
 export interface OutboundMessage {
   activity?: RelayActivity;
   sealed: string;
@@ -119,8 +119,8 @@ export function createRelay(options: RelayOptions): (request: RelayRequest) => P
     const wait = registers.take(`register:${address ?? "unknown"}`);
     if (wait > 0) return limited(wait, CORS_HEADERS);
     if (!validToken(body.platform, body.token)) return reply(400, { error: "bad-request", detail: "register takes { platform: ios | android, token }." }, CORS_HEADERS);
-    if (body.purpose !== undefined && (body.purpose !== "activity" || body.platform !== "ios")) return reply(400, { error: "bad-request" }, CORS_HEADERS);
-    const purpose = body.purpose === "activity" ? "activity" as const : undefined;
+    if (body.purpose !== undefined && ((body.purpose !== "activity" && body.purpose !== "activity-start") || body.platform !== "ios")) return reply(400, { error: "bad-request" }, CORS_HEADERS);
+    const purpose = body.purpose as "activity" | "activity-start" | undefined;
     return reply(200, { handle: sealHandle(options.keyring, { platform: body.platform as RelayPlatform, token: body.token as string, ...(purpose ? { purpose } : {}) }, now()), ...(purpose ? { purpose } : {}) }, CORS_HEADERS);
   };
 
@@ -133,12 +133,13 @@ export function createRelay(options: RelayOptions): (request: RelayRequest) => P
     if (wait > 0) return limited(wait);
     const registration = openHandle(options.keyring, handle);
     if (!registration) return reply(410, { error: "gone", reason: "unknown-handle" });
-    if (now() - registration.issuedAt > HANDLE_MAX_AGE_MS) return reply(410, { error: "gone", reason: "expired-handle" });
+    if (registration.issuedAt > now() + 60_000 || now() - registration.issuedAt > (registration.purpose === "activity-start" ? 30 * 24 * 60 * 60_000 : HANDLE_MAX_AGE_MS)) return reply(410, { error: "gone", reason: "expired-handle" });
     const activity = body.activity as Partial<RelayActivity> | undefined;
-    if (registration.purpose === "activity") {
+    if (registration.purpose) {
       const at = Math.floor(now() / 1000);
-      if (!activity || (activity.event !== "update" && activity.event !== "end") || !Number.isSafeInteger(activity.timestamp) || !Number.isSafeInteger(activity.expiresAt)
-          || activity.timestamp! < at - 300 || activity.timestamp! > at + 60 || activity.expiresAt! < at || activity.expiresAt! > at + 8 * 60 * 60) return reply(400, { error: "bad-activity" });
+      if (!activity || (registration.purpose === "activity-start" ? activity.event !== "start" : activity.event !== "update" && activity.event !== "end") || !Number.isSafeInteger(activity.timestamp) || !Number.isSafeInteger(activity.expiresAt)
+          || activity.timestamp! < at - 300 || activity.timestamp! > at + 60 || activity.expiresAt! < at || activity.expiresAt! <= activity.timestamp! || activity.expiresAt! > at + 8 * 60 * 60) return reply(400, { error: "bad-activity" });
+      if (activity.event === "start" && (typeof activity.activityId !== "string" || !/^[A-Za-z0-9_-]{22}$/u.test(activity.activityId) || typeof activity.bootstrap !== "string" || !/^2\.[A-Za-z0-9_-]{16,64}\.[A-Za-z0-9_-]{40,}$/u.test(activity.bootstrap) || activity.bootstrap !== payload || payload.length > 1700 || (activity.inputPushToken !== undefined && typeof activity.inputPushToken !== "boolean"))) return reply(400, { error: "bad-activity" });
     } else if (activity !== undefined) return reply(400, { error: "wrong-purpose" });
     const tokenWait = tokenSends.take(`token:${registration.token}`);
     if (tokenWait > 0) return limited(tokenWait);

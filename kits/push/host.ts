@@ -1,3 +1,4 @@
+import { ActivityStarts, readActivityStart } from "./activity-start.js";
 import { ActivityTokens, readActivityRegistration, type ActivityUpdate } from "./mobile-activity.js";
 import { createHash } from "node:crypto";
 import { HostCommandError, type HostCommandCall, type HostExtension, type HostExtensionContext } from "tau/host-extension";
@@ -123,6 +124,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
       if (relayOverride && !safeEndpoint(relayOverride)) services.log("push.relay-url", "TAU_PUSH_RELAY_URL is neither https nor loopback; using Tau's relay.");
       const relayUrl = (relayOverride && safeEndpoint(relayOverride) ? relayOverride : PUSH_RELAY_URL).replace(/\/+$/u, "");
       const store = await PushStore.open(services.stateDir, { warn: (message) => services.log("push.store", message) });
+      const activityStarts = await ActivityStarts.open(services.stateDir, { warn: (message) => services.log("push.activity", message) });
       const activityTokens = await ActivityTokens.open(services.stateDir, { warn: (message) => services.log("push.activity", message) });
       let apns: ApnsClient | undefined;
       let fcm: FcmClient | undefined;
@@ -317,6 +319,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
       };
 
       const activityTimes = new Map<string, number>();
+      const activityStates = new Map<string, ActivityUpdate["state"]>();
       const activityWork = new Map<string, Promise<void>>();
       const updateActivity = async (threadId: string, state: ActivityUpdate["state"]) => {
         const targets = reachable();
@@ -324,6 +327,8 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         const title = (services.thread(threadId)?.sessionName() ?? "Agent work").slice(0, 100);
         const at = Math.max(now(), (activityTimes.get(threadId) ?? 0) + 1000);
         activityTimes.set(threadId, at);
+        await activityStarts.note(threadId, state);
+        if (state === "running" && !services.thread(threadId)?.parentThreadId) await activityStarts.start(threadId, title, now(), pairedIds, (id) => activityTokens.has(id, threadId), (request) => sendThroughRelay(relayUrl, request, options.fetch));
         await activityTokens.update(threadId, state, title, at, pairedIds,
           (id) => store.devices().find((device) => device.id === id)?.environment,
           (request, environment) => apns ? apns.send(request, environment) : Promise.resolve({ ok: false, gone: false, status: 0, reason: "No APNs key." }),
@@ -334,6 +339,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         })));
       };
       const activityLater = (threadId: string, state: ActivityUpdate["state"]) => {
+        activityStates.set(threadId, state);
         const work = (activityWork.get(threadId) ?? Promise.resolve()).then(() => updateActivity(threadId, state)).catch((error: unknown) => services.log("push.activity", errorText(error)));
         activityWork.set(threadId, work);
         void work.then(() => { if (activityWork.get(threadId) === work) activityWork.delete(threadId); });
@@ -345,12 +351,43 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         if (saved?.platform === "android") await store.update(saved.id, { activities: true });
         return { enabled: saved?.platform === "android" };
       });
+      context.registerCommand("activity-start-register", async (input, call) => {
+        if (!call?.device) throw new HostCommandError("Only a paired phone can enable remote Live Activities.");
+        const registration = readActivityStart(input, call.device, now());
+        const saved = store.devices().find((device) => device.id === call.device);
+        if (!saved || saved.platform !== "ios" || saved.host !== registration.hostId || saved.topic !== registration.topic) throw new HostCommandError("The remote activity must belong to this registered phone.");
+        await activityStarts.register(registration);
+        return { registered: true };
+      });
+      context.registerCommand("activity-finish", async (input, call) => {
+        if (!call?.device) throw new HostCommandError("Only a paired phone can finish its activity.");
+        const id = (input as { activityId?: unknown } | undefined)?.activityId;
+        if (typeof id !== "string" || !/^[A-Za-z0-9_-]{22}$/u.test(id)) throw new HostCommandError("An activity id is required.");
+        await activityTokens.finish(call.device, id); return { finished: true };
+      });
+      context.registerCommand("activity-disable", async (_input, call) => {
+        if (!call?.device) throw new HostCommandError("Only a paired phone can disable its remote activities.");
+        await activityStarts.remove(call.device);
+        await activityTokens.remove(call.device);
+        return { enabled: false };
+      });
       context.registerCommand("activity-register", async (input, call) => {
         if (!call?.device) throw new HostCommandError("Only a paired device can register its activity token.");
         const registration = readActivityRegistration(input, call.device, now());
         const saved = store.devices().find((device) => device.id === call.device);
         if (!saved || saved.platform !== "ios" || saved.host !== registration.hostId || saved.topic !== registration.topic) throw new HostCommandError("The activity must belong to this device's registered host and app.");
+        if (registration.activityId && !activityStarts.owns(registration, now())) throw new HostCommandError("This activity was not started for this phone and key.");
+        if (registration.activityId) registration.expiresAt = Math.min(registration.expiresAt, activityStarts.expiry(registration));
         await activityTokens.register(registration);
+        const state = registration.activityId ? activityStarts.state(registration) : activityStates.get(registration.threadId);
+        if (state && registration.activityId) {
+          const at = Math.max(now(), (activityTimes.get(registration.threadId) ?? 0) + 1000);
+          const work = activityTokens.update(registration.threadId, state, services.thread(registration.threadId)?.sessionName() ?? "Agent work", at,
+            new Set((paired() ?? []).map((device) => device.id)), () => undefined,
+            () => Promise.resolve({ ok: false, gone: false, status: 0, reason: "Encrypted activity required." }),
+            (request) => sendThroughRelay(relayUrl, request, options.fetch), registration.activityId);
+          options.track?.(work); await work;
+        } else if (state) activityLater(registration.threadId, state);
         return { registered: true, ready: Boolean(registration.relay || apns) };
       });
 
@@ -368,7 +405,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         services.clients.observe({
           devicesChanged: () => {
             // Started before handing it over: `track?.(prune())` would skip the prune without a tracker.
-            const work = Promise.all([prune(), activityTokens.retain(new Set((paired() ?? []).map((device) => device.id)), now())]).catch((error: unknown) => services.log("push.store", errorText(error)));
+            const work = Promise.all([prune(), activityTokens.retain(new Set((paired() ?? []).map((device) => device.id)), now()), activityStarts.retain(new Set((paired() ?? []).map((device) => device.id)), now())]).catch((error: unknown) => services.log("push.store", errorText(error)));
             options.track?.(work);
           },
         }),
@@ -405,6 +442,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
       context.registerCommand("unregister", async (_input, call) => {
         if (!call?.device) return false;
         const device = call.device;
+        await activityStarts.remove(device); await activityTokens.remove(device);
         const gone = await store.retain((entry) => entry.id !== device);
         if (gone) publish();
         return gone;
@@ -450,6 +488,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         ownerOnly(call);
         const id = (input as { id?: unknown } | undefined)?.id;
         if (typeof id !== "string") throw new HostCommandError("remove-device takes { id }.");
+        await activityStarts.remove(id); await activityTokens.remove(id);
         await store.retain((device) => device.id !== id);
         publish();
         return status();

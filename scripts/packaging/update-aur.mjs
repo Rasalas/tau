@@ -98,7 +98,7 @@ package() {
   done
 
   install -d "\${pkgdir}/usr/share/applications"
-  cat > "\${pkgdir}/usr/share/applications/tau.desktop" <<EOF
+  cat > "\${pkgdir}/usr/share/applications/de.tbuck.tau.desktop" <<EOF
 [Desktop Entry]
 Name=Tau
 Comment=${PKGDESC}
@@ -108,6 +108,7 @@ Terminal=false
 Type=Application
 Icon=tau
 Categories=Development;
+StartupWMClass=de.tbuck.tau
 EOF
 
   install -Dm644 "\${srcdir}/LICENSE-\${_version}" "\${pkgdir}/usr/share/licenses/\${pkgname}/LICENSE"
@@ -139,4 +140,3 @@ export function renderSrcinfo(assets, license) {
   ];
   return `${lines[0]}\n${lines.slice(1).map((line) => `\t${line}`).join("\n")}\n\npkgname = ${PKGNAME}\n`;
 }
-

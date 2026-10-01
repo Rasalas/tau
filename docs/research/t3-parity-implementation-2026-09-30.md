@@ -55,7 +55,7 @@ bleiben in Kits. Der vorhandene Push-Relay-Zweig wurde wiederverwendet.
   schwebendes Fenster, ausgeschaltete Agent-Freigabe und Connect-Einstellungen
   wurden ebenfalls geprüft. Die Instanzen sind beendet.
 
-## Verbleibende Unterschiede und Voraussetzungen
+## Folge-MR und verbleibende Voraussetzungen
 
 Connect enthält zunächst einen selbst betriebenen Dienst. Für externen Betrieb
 braucht er einen veröffentlichten HTTPS-Endpunkt und signierte portable Releases.
@@ -68,26 +68,57 @@ geschlossen ohne Merge. Sie wird nicht in den Folge-MR übernommen. Es wurden
 keine Cloud-Ressourcen angelegt. Der bestehende Push-Deploy-Befehl aktiviert
 keinen Connect-Dienst. Tailscale, SSH und direkte Verbindungen bleiben die
 zunächst vorgesehenen Wege für Fernzugriff.
-Browser-Connect ist in dieser ersten Umsetzung noch nicht unterstützt; die Plattform stellt
-die benötigte zweite TLS-Verbindung mit Host-Pin nicht direkt bereit.
+Browser-Connect nutzt einen separat und erst bei Bedarf geladenen
+Rustls-WASM-Adapter für die zweite TLS-Verbindung mit Host-Pin. Die
+[Adapter-Prüfung](browser-connect-tls-2026-09-30.md) dokumentiert Bibliotheken,
+Sicherheitsgrenzen und echte TLS-/Pairing-/Reconnect-Tests. Ein öffentlicher
+Relay und Tests auf allen Browser-Engines bleiben Betreiber- und Release-QA.
 
-Die 3D-Geräteansicht zeigt einen Screenshot in Perspektive. Sie bildet keine
-mehrteilige Foldable-Geometrie ab und streamt kein H.264-Video. Die native
-Orientierungs- und Fold-Steuerung ist implementiert. Gerätewerkzeuge werden
-privat in getesteten Versionen installiert; eine Versionsprüfung meldet neuere
-Pakete, ohne sie automatisch als kompatibel zu übernehmen.
 
-Wayland nutzt den Systemdialog. Eine automatische Auswahl des Vordergrundfensters
-für einzelne Compositoren ist noch nicht implementiert. Windows, WSL und Linux
-wurden über Plattform-Fixtures geprüft, nicht auf realen Systemen.
+Der Folge-MR ergänzt die Perspektivansicht um zwei getrennte, scharnierbare
+Foldable-Panels mit soliden Rückseiten. Die native Fold-Steuerung bleibt getrennt
+von der Vorschau. Bestätigte Innen- und Cover-Aufnahmen werden passend aufgeteilt;
+fehlende Cover-Geometrie wird nicht erfunden. H.264-Video läuft über WebCodecs,
+mit ausdrücklichem PNG-Fallback bei fehlendem Decoder oder Stream. Die
+Gerätewerkzeuge bleiben privat in getesteten Versionen installiert.
+
+Wayland erhält Vordergrundfenster-Capture für GNOME, KDE, Hyprland und Niri.
+Zusätzliche Helfer werden nur nach ausdrücklicher Installation verwendet; der
+Portal-Systemdialog bleibt als Fallback verfügbar. Windows, WSL und Linux wurden
+über Plattform-Fixtures und Linux-Transporttests geprüft. Reale Compositoren
+bleiben Teil der Geräteprüfung.
 
 Reale mobile Diktier-, Push- und Hintergrundabläufe brauchen die
-[Geräteprüfung](../mobile-device-checklist.md). Live Activities starten im
-Vordergrund; Push-to-start ist nicht enthalten. Der aktualisierte Push-Relay
-und passende App-Group-/Keychain-Signierungsprofile müssen veröffentlicht
-werden. Es wurden keine echten Geräte gestartet, Konten gewechselt,
-Reset-Credits verbraucht oder Dienste veröffentlicht.
+[Geräteprüfung](../mobile-device-checklist.md). Der Folge-MR ergänzt verschlüsselte
+iOS-Push-to-start-Nachrichten nach Opt-in. App und Widget benötigen getrennte
+App-Store-Profile mit passenden App-Group- und Keychain-Rechten. Das zusätzliche
+Release-Secret `IOS_WIDGET_PROFILE` fehlt derzeit. Unsigned Simulator-Builds
+belegen die Kompilierung; physische APNs- und Hintergrundabläufe brauchen ein
+signiertes Gerät. Der vorhandene Firebase-Push-Workflow wurde nach dem Merge
+von MR #3 erfolgreich ausgeführt. Es wurden keine neuen Connect-Cloud-Ressourcen
+angelegt, echten Geräte gestartet, Konten gewechselt oder Reset-Credits verbraucht.
 
-Die Desktop-Größenreserve beträgt 4.104 gzip-Bytes. Zusammengehörige Module
+Der abschließende Folge-Build misst 496.393 gzip-Bytes Desktop-JavaScript
+bei unverändertem Limit von 500.000 Bytes. Der Desktop-Build dauert 15.467 ms;
+auch das Web-Budget ist bestanden. Die Größenreserve beträgt 3.607 Bytes. Zusammengehörige Module
 für Syntaxhervorhebung und Dialoge teilen nachgeladene Chunks, ohne zusätzliche
 statische Imports im Einstieg. Die Größenlimits bleiben unverändert.
+
+## Prüfung des Folge-MR
+
+[MR #6](https://github.com/Rasalas/tau/pull/6) basiert auf dem gemergten
+[MR #3](https://github.com/Rasalas/tau/pull/3). Gesamt-Typecheck und Lint sind
+bestanden. 125 gezielte Geräte-/Push-/Release-Tests, 123 mobile Tests und
+135 Browser-/Snapshot-/Packaging-Tests sind bestanden. Weitere Regressionstests
+prüfen Geometrievariablen, Video-Abbruch und die gemeinsame Minifizierung.
+Der Browser-Test verbindet den tatsächlichen WASM-Adapter mit dem realen
+Host-Protokoll über einen CA-geprüften Relay, einschließlich Pairing,
+Pin-Ablehnung, gespeichertem Token, Wiederverbindung und Routenbereinigung.
+
+Der vollständige iOS-Simulator-Build einschließlich Widget sowie Androids
+Java-Kompilierung sind ohne Release-Signierung bestanden. Die isolierte
+Tau-Instanz verwendet ausschließlich eigene Daten und Geräte-Fixtures. Zwei
+3D-Panels mit Vorder- und Rückseiten, das Vorschau-Scharnier, die native
+Fold-Umschaltung mit bestätigter Cover-Aufnahme und der PNG-Fallback wurden
+in der App geprüft. Physische Geräte und reale Linux-Compositoren bleiben
+Teil der dokumentierten Release-Prüfung.

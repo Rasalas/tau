@@ -30,6 +30,7 @@ describe("the release workflow", () => {
     expect(JOBS.build).toContain("runner: ubuntu-24.04-arm");
     expect(JOBS.build).toContain("platform: --linux --arm64 --dir");
     expect(JOBS.build).toContain("node scripts/packaging/portable-host.mjs");
+    expect(JOBS.build).toContain('node scripts/packaging/portable-host-smoke.mjs "$archive" "$version"');
     expect(JOBS.build).toContain("release/*.tar.gz");
     expect(JOBS.sign).toContain("release-signing.mjs sign feed/latest*.yml");
   });
@@ -103,6 +104,14 @@ describe("the release workflow", () => {
     expect(JOBS.ios).toContain("<key>destination</key><string>upload</string>");
     expect(JOBS.ios).toContain("<key>teamID</key><string>V4MWQ28RZ2</string>");
     expect(condition("ios")).toContain("needs.gate.outputs.nightly != 'true'");
+  });
+
+  it("selects separate validated manual profiles for the app and widget", () => {
+    expect(JOBS.ios).toContain("IOS_WIDGET_PROFILE: ${{ secrets.IOS_WIDGET_PROFILE }}");
+    expect(JOBS.ios).toContain('python3 scripts/packaging/ios-profiles.py "$RUNNER_TEMP/tau-profiles"');
+    expect(JOBS.ios).toContain('signing=(-xcconfig "$RUNNER_TEMP/tau-profiles/profiles.xcconfig")');
+    expect(JOBS.ios).toContain('plutil -replace provisioningProfiles -json "$(cat "$RUNNER_TEMP/tau-profiles/profiles.json")"');
+    expect(JOBS.ios).not.toContain('PROVISIONING_PROFILE_SPECIFIER="$IOS_PROFILE_NAME"');
   });
 
   it("fails a release whose Firebase project lacks the app, and only warns in a dry run", () => {

@@ -1,6 +1,9 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { packageBuilds } from "./package-builds.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { bundleDesktopExtension, desktopExtensionLabel, listDesktopExtensionEntries, loadDesktopExtensions, isGeneratedOrVendored } from "./desktop-extensions.js";
@@ -37,7 +40,7 @@ describe("desktop extension bundling", () => {
     const code = await bundleDesktopExtension(join(dir, "hello.tsx"), {
       sharedExports: { react: ["useState"], "react/jsx-runtime": ["jsx", "jsxs", "Fragment"], tau: [] },
     });
-    expect(code).toContain('globalThis.__tauShared?.["react"]');
+    expect(code).toMatch(/globalThis\.__tauShared\?\.(?:react\b|\["react"\])/u);
     expect(code).toContain('globalThis.__tauShared?.["react/jsx-runtime"]');
     expect(code).not.toMatch(/from\s+["']react["']/u);
     expect(code).toMatch(/export\s*\{/u);
@@ -64,6 +67,33 @@ describe("desktop extension bundling", () => {
     expect(map.sourcesContent[map.sources.indexOf("tau-shared:icons")]).toBeNull();
     expect(map.sourcesContent[map.sources.findIndex((source) => source.endsWith("one-icon.tsx"))]).toContain("registerStatusItem");
     expect(code.length).toBeLessThan(20_000);
+  });
+
+  it("keeps exported function names, shared calls, and original sources when simplifying syntax", async () => {
+    const dir = await scratch();
+    const source = `
+      import { describe } from "fixture";
+      export function extensionDisplayName(value?: string) {
+        if (value === undefined) return describe("default");
+        return describe(value);
+      }
+      export function extensionFailure() { throw new Error("extension failed"); }
+    `;
+    await writeFile(join(dir, "names.ts"), source);
+    const code = await bundleDesktopExtension(join(dir, "names.ts"), { sharedExports: { fixture: ["describe"] } });
+    const map = JSON.parse(Buffer.from(/base64,([A-Za-z0-9+/=]+)/u.exec(code)![1], "base64").toString("utf8")) as { sources: string[]; sourcesContent: (string | null)[] };
+    expect(map.sourcesContent[map.sources.findIndex((file) => file.endsWith("names.ts"))]).toBe(source);
+    const output = join(dir, "names.mjs");
+    await writeFile(output, code);
+    // Evaluate the shipped module with Node's loader, without Vite transforming it again.
+    const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "-e", `
+      globalThis.__tauShared = { fixture: { describe: (value) => "Extension " + value } };
+      const module = await import(${JSON.stringify(pathToFileURL(output).href)});
+      let stack;
+      try { module.extensionFailure(); } catch (error) { stack = error.stack; }
+      console.log(JSON.stringify({ name: module.extensionDisplayName.name, defaultValue: module.extensionDisplayName(), customValue: module.extensionDisplayName("custom"), failureName: module.extensionFailure.name, stack }));
+    `]);
+    expect(JSON.parse(stdout)).toEqual({ name: "extensionDisplayName", defaultValue: "Extension default", customValue: "Extension custom", failureName: "extensionFailure", stack: expect.stringContaining("extensionFailure") });
   });
 
   it("loads the user folder always and the project folder only when Pi trusts the project", async () => {

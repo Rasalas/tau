@@ -11,6 +11,9 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "TauNativePlugin"
     public let jsName = "TauNative"
     public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "activityRemoteStatus", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "activityRemoteConfigure", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "activityRemoteDisable", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "activityKey", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "activityTokens", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "activityUpdate", returnType: CAPPluginReturnPromise),
@@ -86,6 +89,20 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    @objc func activityRemoteStatus(_ call: CAPPluginCall) {
+        guard let host = call.getString("hostId") else { call.reject("hostId is required"); return }
+        Task { @MainActor in call.resolve(ActivityRemote.status(host)) }
+    }
+    @objc func activityRemoteConfigure(_ call: CAPPluginCall) {
+        Task { @MainActor in
+            do { try await ActivityRemote.configure(call.options as? [String: Any] ?? [:]); call.resolve() }
+            catch { call.reject("Remote Live Activities could not be enabled.", "activity-unavailable") }
+        }
+    }
+    @objc func activityRemoteDisable(_ call: CAPPluginCall) {
+        guard let host = call.getString("hostId") else { call.reject("hostId is required"); return }
+        Task { @MainActor in do { try await ActivityRemote.disable(host); call.resolve() } catch { call.reject("Remote Live Activities could not be disabled.") } }
+    }
     @objc func activityKey(_ call: CAPPluginCall) {
         guard let host = call.getString("hostId"), let keyId = call.getString("keyId"), let key = call.getString("key") else { call.reject("A host and an activity key are required."); return }
         do { try ActivityCipher.install(host: host, keyId: keyId, key: key); call.resolve() } catch { call.reject("The shared activity keychain could not save this key.", "activity-keychain") }
@@ -93,8 +110,8 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func activityTokens(_ call: CAPPluginCall) {
         if #available(iOS 16.2, *) {
             let tokens = Activity<TauActivityAttributes>.activities.compactMap { activity -> [String: Any]? in
-                guard let token = activity.pushToken else { return nil }
-                return ["hostId": activity.attributes.hostId, "threadId": activity.attributes.threadId, "token": token.map { String(format: "%02x", $0) }.joined(), "topic": Bundle.main.bundleIdentifier ?? "de.tbuck.tau"]
+                guard let host = activity.attributes.hostId, let thread = activity.attributes.threadId, let token = activity.pushToken else { return nil }
+                return ["hostId": host, "threadId": thread, "token": token.map { String(format: "%02x", $0) }.joined(), "topic": Bundle.main.bundleIdentifier ?? "de.tbuck.tau"]
             }
             call.resolve(["tokens": tokens])
         } else { call.resolve(["tokens": []]) }
@@ -108,7 +125,7 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func activityUsage(_ call: CAPPluginCall) { MobileActivityStore.usage(call.options as? [String: Any] ?? [:]); call.resolve() }
     @objc func activityClear(_ call: CAPPluginCall) {
         guard let host = call.getString("hostId") else { call.reject("hostId is required"); return }
-        Task { await MobileActivityStore.clear(host); call.resolve() }
+        Task { @MainActor in try? await ActivityRemote.disable(host); await MobileActivityStore.clear(host); call.resolve() }
     }
 
     // MARK: Secure store

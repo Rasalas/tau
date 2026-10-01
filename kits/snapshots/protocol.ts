@@ -108,10 +108,17 @@ export type Permission = "granted" | "denied" | "not-determined" | "restricted" 
 /** What the client desktop lets Tau do, without asking the system for access. */
 export interface SnapShotAccess {
   supported: boolean;
-  /** Wayland selection asks the person on every capture and has no inferred app identity. */
+  /** Wayland uses native foreground capture when ready, otherwise a manual source picker. */
   captureMode?: "foreground" | "picker";
   screen: Permission;
   accessibility: Permission;
+  wayland?: WaylandCaptureState;
+}
+
+export interface WaylandCaptureState {
+  backend?: "gnome" | "kde" | "hyprland" | "niri";
+  status: "ready" | "not-installed" | "update-required" | "error" | "unavailable";
+  message: string;
 }
 
 export type PermissionKind = "screen" | "accessibility";
@@ -139,7 +146,8 @@ export function armFromSettings(settings: { values: Readonly<Record<string, stri
 
 export interface SnapShotsHostCommands {
   /** Captures `target`, or the window in front when none is named. */
-  "capture": { input: { target?: SnapShotTarget; accessibility?: boolean }; output: SnapShotMeta };
+  "capture": { input: { target?: SnapShotTarget; accessibility?: boolean; picker?: boolean }; output: SnapShotMeta };
+  "wayland-helper": { input: { action: "install" | "remove" }; output: SnapShotAccess };
   "pending": { input: undefined; output: SnapShotMeta[] };
   /** Marks a capture as taken by a composer; `null` when another client was first or it is gone. */
   "claim": { input: { id: string }; output: SnapShotMeta | null };
@@ -163,7 +171,8 @@ export interface SnapShotsWindowCommands {
   "request-access": { input: { kind: PermissionKind }; output: SnapShotAccess };
   "open-settings": { input: { kind: PermissionKind }; output: void };
   "shortcut": { input: ArmInput; output: ShortcutState };
-  "capture": { input: { target?: SnapShotTarget; accessibility: boolean }; output: SnapShotCapture };
+  "capture": { input: { target?: SnapShotTarget; accessibility: boolean; picker?: boolean }; output: SnapShotCapture };
+  "wayland-helper": { input: { action: "install" | "remove" }; output: SnapShotAccess };
 }
 
 /** The window half's own call into the host when the shortcut fired: `{ capture }` or `{ error }`. */

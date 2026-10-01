@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { DEFAULT_SETTINGS, TOOLS, type ActionInput, type Device, type DeviceHost, type DeviceSettings, type HubState, type Target } from "./protocol.js";
+import { DEFAULT_SETTINGS, TOOLS, type ActionInput, type Device, type DeviceHost, type DeviceSettings, type HubState, type FoldState, type Target } from "./protocol.js";
 import { quote, run, stop, type Run } from "./process.js";
 import { Toolchain } from "./toolchain.js";
 
@@ -48,6 +48,15 @@ export function validateSettings(value: unknown): DeviceSettings {
   });
   if (!ids.has("local")) throw new Error("Keep the local device host.");
   return { agentControl: input.agentControl, hosts, node: string(input.node, "Node executable", 1024), npm: string(input.npm, "npm executable", 1024) };
+}
+export function parseFoldState(payload: unknown): FoldState {
+  const fold = (payload as { ok?: unknown; fold?: FoldState } | null)?.fold;
+  if ((payload as { ok?: unknown } | null)?.ok !== true || !fold || typeof fold.supported !== "boolean" ||
+    ![null, "closed", "half_opened", "opened", "flipped", "tent"].includes(fold.posture) ||
+    (fold.hingeAngle !== null && (typeof fold.hingeAngle !== "number" || !Number.isFinite(fold.hingeAngle) || fold.hingeAngle < 0 || fold.hingeAngle > 360))) {
+    throw new Error("Device hub returned an invalid fold state.");
+  }
+  return { supported: fold.supported, posture: fold.posture, hingeAngle: fold.hingeAngle };
 }
 interface RunningHub { origin: string; child: ChildProcess; devices: Device[] }
 export class DeviceManager {
@@ -179,6 +188,18 @@ export class DeviceManager {
     if (device.physical) throw new Error("Devices supports simulators and emulators only.");
     return { device, hub, host: this.host(hostId) };
   }
+  /** Used only by the kit's authenticated stream adapter; never sent to a client. */
+  async streamTarget(input: Target): Promise<{ origin: string; platform: "ios" | "android"; deviceId: string }> {
+    const { device, hub } = await this.target(input);
+    if (!device.booted) throw new Error("Boot the device to view its screen.");
+    if (device.platform === "ios") await this.json(hub, "/vendor/serve-sim/grid/api/start", { udid: device.id });
+    return { origin: hub.origin, platform: device.platform, deviceId: device.id };
+  }
+  async foldState(input: Target): Promise<FoldState> {
+    const { device, hub } = await this.target(input);
+    if (device.platform !== "android" || !device.booted) return { supported: false, posture: null, hingeAngle: null };
+    return parseFoldState(await this.json(hub, `/vendor/serve-emu/api/fold?device=${encodeURIComponent(device.id)}`));
+  }
   async frame(input: Target): Promise<{ dataUrl: string; capturedAt: number }> {
     const { device, hub } = await this.target(input);
     if (!device.booted) throw new Error("Boot the device to view its screen.");
@@ -251,7 +272,7 @@ export class DeviceManager {
         const helper = `${root}/node_modules/expo-device-hub/vendor/serve-sim/dist/simax/serve-sim-ax-settings`;
         return simctl("spawn", [helper, "set", options[setting], input.enabled ? "on" : "off"]);
       }
-      case "fold": if (typeof input.enabled !== "boolean") throw new Error("Choose a fold posture."); if (ios) throw new Error("Fold controls require an Android foldable emulator."); return this.json(hub, `/vendor/serve-emu/api/fold?device=${encodeURIComponent(device.id)}`, { posture: input.enabled ? "closed" : "opened" });
+      case "fold": if (typeof input.enabled !== "boolean") throw new Error("Choose a fold posture."); if (ios) throw new Error("Fold controls require an Android foldable emulator."); return parseFoldState(await this.json(hub, `/vendor/serve-emu/api/fold?device=${encodeURIComponent(device.id)}`, { posture: input.enabled ? "closed" : "opened" }));
       default: return this.agentAction(host, device, input, signal);
     }
   }

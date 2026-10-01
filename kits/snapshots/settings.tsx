@@ -91,10 +91,17 @@ export function createSnapShotsSettingsPage(context: DesktopExtensionContext, ho
     const [state, setState] = useState<ShortcutState>({});
     const [capturing, setCapturing] = useState(false);
     const [captureError, setCaptureError] = useState<string>();
+    const [helperBusy, setHelperBusy] = useState(false);
+    const [helperError, setHelperError] = useState<string>();
     const chooseWindow = () => {
       setCapturing(true);
       setCaptureError(undefined);
-      void host("capture", { accessibility: false }).then(() => setCaptureError("Capture saved for your draft.")).catch((error: unknown) => setCaptureError(error instanceof Error ? error.message : String(error))).finally(() => setCapturing(false));
+      void host("capture", { accessibility: false, picker: true }).then(() => setCaptureError("Capture saved for your draft.")).catch((error: unknown) => setCaptureError(error instanceof Error ? error.message : String(error))).finally(() => setCapturing(false));
+    };
+    const setupHelper = (action: "install" | "remove") => {
+      setHelperBusy(true);
+      setHelperError(undefined);
+      void host("wayland-helper", { action }).then(setAccess).catch((error: unknown) => setHelperError(error instanceof Error ? error.message : String(error))).finally(() => setHelperBusy(false));
     };
 
     const refresh = useCallback((next?: SnapShotAccess) => {
@@ -117,7 +124,7 @@ export function createSnapShotsSettingsPage(context: DesktopExtensionContext, ho
     }, [accessibility.value]);
 
     const conflict = shortcutConflict(shortcut.value);
-    const shortcutStatus = !enabled.value ? undefined : state.error ?? (state.registered ? `Registered: ${formatAccelerator(state.registered, isMac())}` : undefined);
+    const shortcutStatus = !enabled.value ? undefined : state.error ?? (state.registered ? `${access?.wayland ? "Requested from desktop" : "Registered"}: ${formatAccelerator(state.registered, isMac())}` : undefined);
 
     if (access && !access.supported) {
       return (
@@ -130,10 +137,16 @@ export function createSnapShotsSettingsPage(context: DesktopExtensionContext, ho
     return (
       <div className="settings-page snapshots-settings">
         <h3>SnapShots</h3>
-        {access?.captureMode === "picker" ? <SettingsSection title="Wayland source picker">
-          <SettingRow title="Manual capture" description="Choose one window or display in your desktop's picker. Only the source you approve is captured. The shortcut opens the same picker when supported. Picker captures omit accessibility text." status={captureError}
+        {access?.wayland || access?.captureMode === "picker" ? <SettingsSection title="Wayland window capture">
+          {access.wayland ? <SettingRow title="Focused window" description={access.wayland.message} status={helperError}
+            control={access.wayland.backend && access.wayland.backend !== "niri" ? <>
+              <Button disabled={helperBusy} onClick={() => setupHelper("install")}>{access.wayland.status === "ready" ? "Reinstall helper" : access.wayland.status === "update-required" ? "Update helper" : "Install helper"}</Button>
+              <Button disabled={helperBusy || access.wayland.status === "not-installed"} onClick={() => setupHelper("remove")}>Remove helper</Button>
+            </> : null} /> : null}
+          {access.wayland?.backend && access.wayland.backend !== "niri" ? <SettingRow title="Helper access" description="Installing allows Tau to capture the focused window when you press its shortcut. GNOME installs and enables a Shell extension. KDE registers a dedicated executable for window capture. Hyprland may ask for screen-sharing permission on the first capture. Remove the helper here to revoke this integration. GNOME may need a new login after installation." /> : null}
+          <SettingRow title="Manual capture" description="Choose one window or display in your desktop's picker. Only the source you approve is captured. The shortcut uses this picker when focused window capture is unavailable. Picker captures omit accessibility text." status={captureError}
             control={<Button disabled={capturing || access.screen === "unavailable"} onClick={chooseWindow}>{capturing ? "Waiting for selection…" : "Choose a window or display"}</Button>} />
-          <SettingRow title="Desktop setup" description="GNOME, KDE Plasma, Hyprland and Niri need PipeWire, xdg-desktop-portal and the portal backend for that desktop. Install these through your distribution if the chooser is unavailable. Tau does not install compositor helpers or change your shortcut configuration." />
+          <SettingRow title="Desktop setup" description="The manual picker needs PipeWire, xdg-desktop-portal and the portal backend for your desktop. GNOME helpers also need Python 3 with PyGObject. Tau leaves compositor settings and shortcut configuration to you." />
         </SettingsSection> : null}
         <SettingsSection title="Shortcut">
           <SettingRow id="setting-snapshots-enabled" title="Capture with a global shortcut" description={access?.captureMode === "picker" ? "Opens the desktop source picker if your compositor permits this global shortcut. Off until you turn it on." : "Works while Tau runs, whichever app is in front. Off until you turn it on."} setting={enabled}
@@ -145,7 +158,7 @@ export function createSnapShotsSettingsPage(context: DesktopExtensionContext, ho
             control={<Switch label="Include what the window says" checked={accessibility.value} onChange={accessibility.set} />} />
         </SettingsSection>
         <SettingsSection title="System access">
-          <SettingRow id="setting-snapshots-screen" title="Screen Recording" description={access?.captureMode === "picker" ? "Your desktop asks which window or display to capture each time. Nothing is captured until you approve a source." : "To capture the picture of one window. Tau never records a whole screen."}
+          <SettingRow id="setting-snapshots-screen" title="Screen Recording" description={access?.captureMode === "picker" ? "Your desktop asks which window or display to capture each time. Nothing is captured until you approve a source." : "The shortcut captures one window. The Wayland manual picker can also capture a display you select."}
             help="macOS may need a restart after granting access. Wayland asks you to select a window or display for each capture. Windows blocks capture of protected windows."
             control={access ? access.captureMode === "picker" ? <Badge tone="neutral" dot>{access.screen === "unavailable" ? "Session bus unavailable" : "Asked for each capture"}</Badge> : <PermissionControl kind="screen" state={access.screen} host={host} refresh={refresh} /> : null} />
           <SettingRow id="setting-snapshots-accessibility-permission" title="Accessibility" description="To know which window is in front and to read its text and controls. Tau only reads; it never clicks or types into other apps."

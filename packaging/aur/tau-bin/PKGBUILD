@@ -54,7 +54,7 @@ package() {
   done
 
   install -d "${pkgdir}/usr/share/applications"
-  cat > "${pkgdir}/usr/share/applications/tau.desktop" <<EOF
+  cat > "${pkgdir}/usr/share/applications/de.tbuck.tau.desktop" <<EOF
 [Desktop Entry]
 Name=Tau
 Comment=Desktop workbench for the Pi coding agent
@@ -64,6 +64,7 @@ Terminal=false
 Type=Application
 Icon=tau
 Categories=Development;
+StartupWMClass=de.tbuck.tau
 EOF
 
   install -Dm644 "${srcdir}/LICENSE-${_version}" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"

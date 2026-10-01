@@ -2,6 +2,8 @@ import "../../src/renderer/tokens.css";
 import "../../src/renderer/styles.css";
 import "../../src/renderer/profile-compact.css";
 import "./ui/shell.css";
+import { Capacitor } from "@capacitor/core";
+import { remoteActivities } from "./activity-start";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "@capacitor/app";
@@ -15,7 +17,7 @@ import { NativeComposerDictation } from "../../src/renderer/components/ComposerD
 import { PUSH_RELAY_URL } from "../../kits/push/protocol";
 import { Shell, type AppContext } from "./Shell";
 import { HostBook } from "./hosts";
-import { installActivityKey, nativeActivities, nativeDictation, browseHosts, createSocketBridge, deviceInfo, scanQrCode, secureStore, textScalePort, type DeviceInfo } from "./native";
+import { nativeRemoteActivities, installActivityKey, nativeActivities, nativeDictation, browseHosts, createSocketBridge, deviceInfo, scanQrCode, secureStore, textScalePort, type DeviceInfo } from "./native";
 import { androidFontScale } from "./text-scale";
 import { linkRoute, readRoute } from "./routes";
 import { createPushRegistrar, createRelayPort, sealedTapRoute, setPushRegistrar, tapRoute } from "./push";
@@ -34,15 +36,20 @@ async function boot(): Promise<void> {
   const push = nativePushPort(device.platform);
   const pushKeys = new PushKeys(secureStore);
   const book = new HostBook(secureStore);
+  const activityKeys = new PushKeys({ get: (key) => secureStore.get("activity:" + key), set: (key, value) => secureStore.set("activity:" + key, value), remove: (key) => secureStore.remove("activity:" + key) });
+  const isNative = Capacitor.isNativePlatform();
+  const remoteControl = isNative && device.platform === "ios" ? remoteActivities(book, activityKeys, nativeRemoteActivities, device.virtual) : undefined;
+  const activityPort = { ...nativeActivities, clear: async (hostId: string) => { await remoteControl?.revoke(hostId); await nativeActivities.clear(hostId); } };
   const pushRoutes = new Map<string, "direct" | "relay">();
   setPushRegistrar(createPushRegistrar(push, { relay: createRelayPort(), keys: pushKeys, onRoute: (id, route) => pushRoutes.set(id, route) }));
   const context: AppContext = {
-    activities: device.platform === "ios" ? relayActivities(nativeActivities, { url: PUSH_RELAY_URL, keys: pushKeys, installKey: installActivityKey, authorized: async (id) => Boolean(await book.token(id)), direct: (id) => pushRoutes.get(id) === "direct" }) : nativeActivities,
+    ...(remoteControl ? { remoteActivities: remoteControl } : {}),
+    activities: !isNative ? undefined : device.platform === "ios" ? relayActivities(activityPort, { url: PUSH_RELAY_URL, keys: pushKeys, installKey: installActivityKey, authorized: async (id) => Boolean(await book.token(id)), direct: (id) => pushRoutes.get(id) === "direct" }) : nativeActivities,
     storage: createLocalStorageAdapter(),
     book,
     bridge,
     device,
-    environment: { ...webClientEnvironment("compact"), ...(device.platform === "ios" ? { dictation: { port: nativeDictation, Control: NativeComposerDictation } } : {}) },
+    environment: { ...webClientEnvironment("compact"), ...(isNative && device.platform === "ios" ? { dictation: { port: nativeDictation, Control: NativeComposerDictation } } : {}) },
     wakes: nativeWakeSource(App, Network),
     scan: scanQrCode,
     browse: (listener) => browseHosts(TAU_BONJOUR_TYPE, listener),

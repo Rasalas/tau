@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID, timingSafeEqual, createHash } from "node:crypto";
 import { readFile, mkdir, writeFile, rename } from "node:fs/promises";
 import { dirname } from "node:path";
+import { Transform } from "node:stream";
 import { WebSocketServer, createWebSocketStream, WebSocket } from "ws";
 
 const secret = () => randomBytes(32).toString("base64url");
@@ -9,7 +10,7 @@ const matches = (value, hash) => typeof value === "string" && typeof hash === "s
 const bearer = (request) => /^Bearer ([A-Za-z0-9_-]{43})$/u.exec(request.headers.authorization ?? "")?.[1];
 
 /** A relay sees ciphertext only. Host authentication and pairing happen inside the tunneled TLS session. */
-export async function createConnectRelay(server, { adminToken, store, maxRoutes = 100, maxConnections = 100, pendingMs = 10_000 } = {}) {
+export async function createConnectRelay(server, { adminToken, store, maxRoutes = 100, maxConnections = 100, pendingMs = 10_000, authMs = 5_000, maxPendingAuth = 25 } = {}) {
   if (!/^[A-Za-z0-9_-]{43}$/u.test(adminToken ?? "")) throw new Error("TAU_CONNECT_ADMIN_TOKEN must contain 32 random bytes in base64url form.");
   let routes = {};
   if (store) {
@@ -22,6 +23,7 @@ export async function createConnectRelay(server, { adminToken, store, maxRoutes 
   const controls = new Map();
   const pending = new Map();
   const active = new Map();
+  const authenticating = new Set();
   let writing = Promise.resolve();
   const persist = () => {
     const bytes = JSON.stringify(routes);
@@ -64,15 +66,38 @@ export async function createConnectRelay(server, { adminToken, store, maxRoutes 
   };
   server.on("request", onRequest);
   const onUpgrade = (request, socket, head) => {
-    const match = /^\/v1\/(host|client|data)\/([a-f0-9-]{36})(?:\/([a-f0-9-]{36}))?$/u.exec(request.url ?? "");
+    const match = /^\/v1\/(host|client|data|browser)\/([a-f0-9-]{36})(?:\/([a-f0-9-]{36}))?$/u.exec(request.url ?? "");
     const role = match?.[1]; const route = match?.[2]; const id = match?.[3];
     const record = routes[route];
-    if (!record || !matches(bearer(request), record[role === "client" ? "client" : "host"])) { socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n"); return; }
-    if (role === "client" && (!controls.has(route) || pending.size + active.size >= maxConnections)) { socket.end("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n"); return; }
+    const browser = role === "browser";
+    if (browser && (id || request.headers["sec-websocket-protocol"] !== "tau-connect-v1" || authenticating.size >= maxPendingAuth)) { socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n"); return; }
+    if (!record || (!browser && !matches(bearer(request), record[role === "client" ? "client" : "host"]))) { socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n"); return; }
+    if ((role === "client" || browser) && (!controls.has(route) || pending.size + active.size >= maxConnections)) { socket.end("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n"); return; }
     if (role === "data" && (!id || pending.get(id)?.route !== route)) { socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"); return; }
     if (role !== "data" && id) { socket.destroy(); return; }
     ws.handleUpgrade(request, socket, head, (peer) => {
+      if (!browser) { attach(peer, role, route, id); return; }
+      authenticating.add(peer);
+      const finish = () => { clearTimeout(timer); authenticating.delete(peer); };
+      const timer = setTimeout(() => { finish(); peer.close(4401, "Relay authentication timed out"); }, authMs);
       peer.on("error", () => peer.terminate());
+      peer.once("close", finish);
+      peer.once("message", (data, binary) => {
+        finish();
+        let auth;
+        try { if (!binary && data.length <= 1024) auth = JSON.parse(data.toString()); } catch { /* invalid authentication */ }
+        if (auth?.type !== "authenticate" || !/^[A-Za-z0-9_-]{43}$/u.test(auth.token ?? "") || !matches(auth.token, routes[route]?.client)) {
+          peer.close(4401, "Relay authentication refused"); return;
+        }
+        if (!controls.has(route) || pending.size + active.size >= maxConnections) { peer.close(1013, "Host unavailable"); return; }
+        peer.send(JSON.stringify({ type: "authenticated" }));
+        attach(peer, "client", route);
+      });
+    });
+  };
+  const attach = (peer, role, route, id) => {
+      peer.on("error", () => peer.terminate());
+      peer.on("message", (_data, binary) => { if (role !== "host" && !binary) { peer.invalid = true; peer.close(1008, "TLS records must be binary"); } });
       peer.alive = true;
       peer.on("pong", () => { peer.alive = true; });
       if (role === "host") {
@@ -99,11 +124,22 @@ export async function createConnectRelay(server, { adminToken, store, maxRoutes 
         const stream = createWebSocketStream(peer, { highWaterMark: 65_536 });
         stream.on("error", () => peer.terminate());
         active.set(id, { route, host: peer, client: entry.client });
-        const stop = () => { active.delete(id); stream.destroy(); entry.stream.destroy(); peer.terminate(); entry.client.terminate(); };
+        // Closing a socket alone does not stop createWebSocketStream's message
+        // listener from consuming that same frame. Guard both stream directions.
+        const gate = (source) => new Transform({
+          highWaterMark: 65_536,
+          transform(bytes, _encoding, callback) {
+            if (source.invalid) callback(new Error("Relay TLS stream received a text frame."));
+            else callback(null, bytes);
+          },
+        });
+        const clientGate = gate(entry.client); const hostGate = gate(peer);
+        const stop = () => { active.delete(id); clientGate.destroy(); hostGate.destroy(); stream.destroy(); entry.stream.destroy(); peer.terminate(); entry.client.terminate(); };
+        clientGate.on("error", stop); hostGate.on("error", stop);
         peer.on("close", stop); entry.client.on("close", stop);
-        entry.stream.pipe(stream).pipe(entry.stream);
+        entry.stream.pipe(clientGate).pipe(stream);
+        stream.pipe(hostGate).pipe(entry.stream);
       }
-    });
   };
   server.on("upgrade", onUpgrade);
   const heartbeat = setInterval(() => {
@@ -115,6 +151,6 @@ export async function createConnectRelay(server, { adminToken, store, maxRoutes 
   heartbeat.unref();
   return {
     close() { clearInterval(heartbeat); server.off("request", onRequest); server.off("upgrade", onUpgrade); for (const peer of ws.clients) peer.terminate(); ws.close(); },
-    stats() { return { routes: Object.keys(routes).length, hosts: controls.size, pending: pending.size, active: active.size }; },
+    stats() { return { authenticating: authenticating.size, routes: Object.keys(routes).length, hosts: controls.size, pending: pending.size, active: active.size }; },
   };
 }

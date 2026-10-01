@@ -1,4 +1,6 @@
 node_modules/
+.tau-native/
+kits/snapshots/native/*/target/
 dist/
 dist-electron/
 dist-web/

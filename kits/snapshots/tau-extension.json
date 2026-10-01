@@ -6,7 +6,7 @@
   "engines": {
     "api": "^1.19.0"
   },
-  "permissions": [],
+  "permissions": ["process"],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",
   "window": "./window.ts",

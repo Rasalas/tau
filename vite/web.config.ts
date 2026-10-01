@@ -7,6 +7,7 @@ import { packIconSet } from "./icon-set";
 import { mangleForGzip } from "./mangle";
 import { rendererBuild } from "./renderer-build";
 import { thirdPartyLicenses } from "./third-party-licenses";
+import { browserConnectAssets } from "./browser-connect";
 
 const path = (relative: string) => fileURLToPath(new URL(relative, import.meta.url));
 
@@ -16,7 +17,7 @@ const path = (relative: string) => fileURLToPath(new URL(relative, import.meta.u
  * platform and the HTML around it differ, so this config differs only there.
  */
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), stripIconKeys(), packIconSet(), dedupeLegalComments(), mangleForGzip(), thirdPartyLicenses()],
+  plugins: [react(), stripIconKeys(), packIconSet(), dedupeLegalComments(), mangleForGzip(), thirdPartyLicenses(), browserConnectAssets()],
   root: path("../src/web"),
   base: "/",
   // Favicon, touch icon and manifest, copied to the root as they are.

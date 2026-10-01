@@ -5,6 +5,8 @@ export const TOOLS = {
 } as const;
 export type Platform = "ios" | "android";
 export interface Device { id: string; hostId: string; platform: Platform; name: string; version: string; booted: boolean; physical?: boolean }
+/** Native emulator status, never inferred from a name or a requested action. */
+export interface FoldState { supported: boolean; posture: "closed" | "half_opened" | "opened" | "flipped" | "tent" | null; hingeAngle: number | null }
 export interface DeviceHost { id: string; name: string; ssh?: string; remoteDirectory?: string }
 export interface DeviceSettings { agentControl: boolean; hosts: DeviceHost[]; node: string; npm: string }
 export const DEFAULT_SETTINGS: DeviceSettings = { agentControl: false, hosts: [{ id: "local", name: "This machine" }], node: "node", npm: "npm" };

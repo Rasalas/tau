@@ -272,5 +272,69 @@ Host, thread, title and work state open in the widget on the device.
 This is a source-level protocol addition. It needs the matching relay revision
 and signed app/widget provisioning profiles before real background delivery.
 No deployment, store rollout or real push send is part of the automated tests.
-Activities start while Tau is in front; this path updates existing activities
-in the background and does not implement Apple's remote push-to-start feature.
+Foreground starts use this update path. Opt-in remote starts use the separate
+flow below.
+
+### Starting iOS Live Activities remotely
+
+On iOS 17.2 or later, the phone's Hosts screen has a **Live Activities** switch
+for each paired host. It starts off disabled. Enabling it lets that host start a
+Live Activity for a new turn while the phone app is closed. Safari and the web
+workbench do not offer this switch. Android keeps its existing ongoing cards.
+
+Remote starts always use the encrypted Tau relay, including when a host uses its
+own key for ordinary alerts. The phone keeps a separate activity key per host;
+disabling activities does not disable alerts. It registers ActivityKit's rotating
+push-to-start token as `purpose: "activity-start"` and gives the host the sealed
+handle, the activity key and affirmative consent over its pinned connection.
+The host stores consent for 30 days. Reconnecting an enabled phone renews it.
+
+Start handles use version 3 with an authenticated `activity-start` purpose.
+They cannot send alerts or updates; update handles cannot start an activity.
+The relay rejects expired handles, invalid timestamps, unsafe startup attributes
+and oversized payloads. APNs receives the `liveactivity` topic and push type,
+a generic "Agent work started" alert, an opaque random activity id, and encrypted
+bootstrap/content state. Host ids, thread ids and titles stay encrypted. The
+start push expires at APNs after 60 seconds; its activity can live for eight hours.
+
+Activity ciphertext version 2 authenticates
+`tau-activity:2:<keyId>:<start|update>:<activityId>:<tokenHash>` as AES-GCM associated
+data. `tokenHash` is empty for a start and SHA-256 of the activity's current APNs
+token bytes for an update. Only the app holds paired credentials. Its extension
+can read the dedicated content key and token binding from the shared Keychain,
+validate the decrypted identity, state and expiry, and construct the thread link.
+The existing version 1 activity update reader remains available for older starts.
+
+The app starts its native ActivityKit observers at launch before Capacitor. When
+iOS wakes it for a remote start, it observes the new activity and registers its
+update token through the relay and an authenticated pinned host socket. It also
+observes token rotation and terminal activity states. An update token arriving
+after a turn finished gets the final state immediately. Reconnect/launch retries
+current tokens after a temporary network failure. The host sends at most three
+remote start attempts per phone per hour, deduplicates each active thread and persists its state and start history across
+restarts. A new turn in a completed thread can start another activity. APNs acceptance does not prove
+that the system displayed an activity.
+
+Turning the switch off first records a native disable marker, ends this host's
+activities and deletes its shared content key. The phone tells the host to remove
+start consent and update registrations; if it is offline, that cleanup retries
+on next launch. Removing a host and host-side device removal also clear activity
+registrations. A native connection refused with 4401 deletes the paired credential
+and ends the host's activities. A start already queued at APNs cannot be recalled,
+but the deleted key prevents its private content from opening and the native
+observer ends it on wake.
+
+Apple's [ActivityKit push guide](https://developer.apple.com/documentation/activitykit/starting-and-updating-live-activities-with-activitykit-push-notifications)
+describes background wake, per-activity token registration and system push budgets.
+Its [push-to-start token documentation](https://developer.apple.com/documentation/activitykit/activity/pushtostarttoken)
+requires replacing rotated tokens. iOS controls delivery and may throttle starts
+or updates; this implementation makes no fixed delivery-rate guarantee. iOS 26
+uses the same push-to-start flow, without requiring scheduled activities or broadcast channels.
+
+Before real delivery, both signed targets need the app group `group.de.tbuck.tau`
+and shared Keychain group `$(AppIdentifierPrefix)de.tbuck.tau.shared`. The main app
+also needs APNs and `NSSupportsLiveActivities`; the widget needs a separate profile
+for `de.tbuck.tau.widgets`. A main-app-only `IOS_PROFILE` does not establish widget
+or shared-group authorization. The unsigned simulator compile and fake-provider
+tests cannot verify those entitlements or real delivery. Use the physical-device
+steps in [mobile-device-checklist.md](mobile-device-checklist.md).

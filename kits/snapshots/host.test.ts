@@ -40,6 +40,16 @@ async function activate(window: (command: string, input?: unknown) => unknown = 
 }
 
 describe("SnapShots host half", () => {
+  it("keeps manual picker capture explicit and validates helper setup actions", async () => {
+    const access = { supported: true, screen: "granted", accessibility: "unavailable", captureMode: "foreground" };
+    const { invoke, calls } = await activate((command) => command === "capture" ? capture : access);
+    await invoke("capture", { accessibility: false, picker: true });
+    expect(calls[0]).toEqual({ command: "capture", input: { accessibility: false, picker: true } });
+    expect(await invoke("wayland-helper", { action: "install" })).toEqual(access);
+    expect(calls.at(-1)).toEqual({ command: "wayland-helper", input: { action: "install" } });
+    await expect(invoke("wayland-helper", { action: "run-script" })).rejects.toThrow(/install or remove/u);
+    expect(calls).toHaveLength(2);
+  });
   it("captures through the window half, keeps the capture and tells the clients", async () => {
     const { invoke, events, calls } = await activate((command) => command === "capture" ? capture : undefined);
     const meta = await invoke("capture", { target: { windowId: 35210, pid: 59103 } }) as SnapShotMeta;

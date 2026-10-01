@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Monitor, Plus, QrCode, Trash2, Wifi, X } from "lucide-react";
+import { Switch } from "../../../src/renderer/settings/controls";
 import { useFocusReturn, useFocusTrap } from "../../../src/renderer/components/ui/focus";
 import type { DiscoveredHost } from "../discovery";
 import { sortHosts, type SavedHost } from "../hosts";
@@ -17,6 +18,7 @@ export interface HostRowInfo {
   signedOut: boolean;
   /** Seen on this network right now. */
   nearby: boolean;
+  remoteActivity?: import("../activity-start").RemoteActivityStatus;
 }
 
 const MINUTE = 60_000;
@@ -54,12 +56,13 @@ export function hostMeta(row: HostRowInfo, now: number): string {
  * The start screen: hosts this phone paired with, hosts on this network it
  * could ask, and Add host as the floating button at the bottom right.
  */
-export function HostsScreen({ rows, nearby, notice, onOpen, onRemove, onAdd, onDemo, onScan, onAsk, now = Date.now() }: {
+export function HostsScreen({ rows, nearby, notice, onOpen, onRemove, onRemoteActivity, onAdd, onDemo, onScan, onAsk, now = Date.now() }: {
   rows: HostRowInfo[];
   nearby: NearbyState;
   notice?: string;
   onOpen(host: SavedHost): void;
   onRemove(host: SavedHost): void;
+  onRemoteActivity?(host: SavedHost, enabled: boolean): void;
   onAdd(): void;
   onDemo?(): void;
   onScan(): void;
@@ -75,15 +78,19 @@ export function HostsScreen({ rows, nearby, notice, onOpen, onRemove, onAdd, onD
     <div className="shell-scroll">
       {notice ? <p className="shell-notice" role="alert">{notice}</p> : null}
       {sorted.length > 0 ? <ul className="shell-list" aria-label="Paired hosts">
-        {sorted.map((row) => <li key={row.host.id} className="shell-row" data-signed-out={row.signedOut ? "" : undefined}>
-          <button type="button" className="shell-row-main" aria-label={`Open ${row.host.name}`} onClick={() => onOpen(row.host)}>
+        {sorted.map((row) => <li key={row.host.id} className="shell-row shell-paired-host" data-signed-out={row.signedOut ? "" : undefined}>
+          <div className="shell-host-main-row"><button type="button" className="shell-row-main" aria-label={`Open ${row.host.name}`} onClick={() => onOpen(row.host)}>
             <span className="shell-row-icon" aria-hidden="true">{row.nearby ? <Wifi size={20} /> : <Monitor size={20} />}</span>
             <span className="shell-row-text">
               <strong>{row.host.name}</strong>
               <small>{hostMeta(row, now)}</small>
             </span>
           </button>
-          <button type="button" className="shell-icon-button" aria-label={`Remove ${row.host.name}`} title="Remove" onClick={() => setRemoving(row.host)}><Trash2 size={19} /></button>
+          <button type="button" className="shell-icon-button" aria-label={`Remove ${row.host.name}`} title="Remove" onClick={() => setRemoving(row.host)}><Trash2 size={19} /></button></div>
+          {(row.remoteActivity?.available || row.remoteActivity?.enabled) && !row.signedOut && onRemoteActivity ? <div className="shell-activity-setting">
+            <span><strong>Live Activities</strong><small>Updates on your Lock Screen</small></span>
+            <Switch role="checkbox" label={`Remote Live Activities for ${row.host.name}`} checked={row.remoteActivity.enabled} onChange={(enabled) => onRemoteActivity(row.host, enabled)} />
+          </div> : null}
         </li>)}
       </ul> : <div className="shell-empty">
         <strong>No hosts yet</strong>
@@ -91,6 +98,7 @@ export function HostsScreen({ rows, nearby, notice, onOpen, onRemove, onAdd, onD
         <button type="button" onClick={onScan}><QrCode size={18} />Scan a pairing code</button>
       </div>}
 
+      {onRemoteActivity && sorted.some((row) => row.remoteActivity?.available || row.remoteActivity?.enabled) ? <p className="shell-hint">Live Activities can start while Tau is closed. Turning them off ends current activities too.</p> : null}
       <section className="shell-section" aria-labelledby="nearby-title">
         <h2 id="nearby-title">On this network</h2>
         <NearbyList state={nearby} hosts={unknownNearby} onAsk={onAsk} />

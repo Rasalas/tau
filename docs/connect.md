@@ -1,11 +1,19 @@
 # Tau Connect
 
+Cloud hosting is deliberately deferred because keeping a host connected incurs
+ongoing charges. Preparation is retained in [closed MR #4](https://github.com/Rasalas/tau/pull/4)
+on `feat/cloud-connect`, outside the current product changes. No new cloud
+resources were created. Neither `npm run relay:deploy` nor the existing Push
+relay workflow activates Connect hosting. Use Tailscale, SSH or a direct
+connection until a separate relay is needed.
+
 Tau Connect sends the host protocol through an outbound relay connection. The
 host needs no inbound firewall rule, VPN, public IP address, or router change.
-Desktop, iOS and Android clients support this transport. The browser cannot
-open and pin a second TLS connection inside a WebSocket using its platform
-APIs. Tau does not ship a maintained browser TLS transport, so Connect links
-remain unsupported in the browser. Use a native app for these links.
+Desktop, iOS, Android and browser clients support this transport. The browser
+loads a separate WebAssembly adapter built with rustls and tungstenite, and
+checks the host's key before sending pairing data or its paired-client token.
+The adapter loads only when a browser uses Connect. Electron and the native
+phone transport keep their existing TLS implementations.
 
 The relay is a separate service from the notification push relay. It has no
 access to projects, threads, model credentials, host tokens, or pairing answers.
@@ -64,6 +72,22 @@ host methods. Each approved device still has its own host token and access
 preset, and may be revoked in Connections. The desktop encrypts its saved
 transport credential in the system keychain together with its machine record.
 
+In a browser, open Tau's web client from an HTTPS origin, then paste the Connect
+link into the sign-in form's "Host token or Tau Connect link" field. The same
+form works in the compact browser client. Compare its six digits with the host
+before approving it. A browser requires an HTTPS page, WebAssembly, WebCrypto
+and IndexedDB. A storage or TLS initialization failure is shown before access
+is saved. A saved Connect session reconnects after a reload. The compact
+client's More menu and the desktop browser's command palette offer "Forget Tau
+Connect" to close the connection and delete its saved credentials.
+
+Browser credentials are encrypted with AES-GCM in IndexedDB, using an
+origin-bound, non-exportable WebCrypto key. They never enter localStorage or a
+URL query. This protects a copied credential record, but scripts allowed to
+run on that origin can use the key. Serve the client from a trusted origin.
+The browser store provides no system keychain or protection from a compromised
+client page.
+
 The command line reaches the same owner methods:
 
 ```sh
@@ -116,7 +140,17 @@ authenticated `/v1/client/<id>` connection, the service sends the host an
 `/v1/data/<route id>/<connection UUID>` with its host token. The relay pipes
 binary messages in both directions with stream backpressure. Those messages
 contain TLS records; the host's TLS listener retains the existing Tau protocol.
-Credentials appear only in Authorization headers, never in URL query strings.
+Native credentials appear only in Authorization headers, never in URL query strings.
+
+Browser clients instead open `/v1/browser/<route id>` with the `tau-connect-v1`
+subprotocol. Inside the browser's CA-verified WSS connection, their first text
+frame is `{type:"authenticate", token:<client route token>}`. The relay answers
+`{type:"authenticated"}` after checking the route's credential hash, then
+opens the host data route. Authentication has a five-second deadline, a 1 KiB
+message limit and a separate 25-socket concurrency bound. All subsequent data
+is binary TLS records. Host control and native client connections still use
+Bearer headers. The browser's paired-client token and pairing frames travel
+only in the pinned inner TLS connection.
 
 The service caps routes and simultaneous connections, limits binary message
 size to 64 KiB, drops unanswered control heartbeats, and expires pending
@@ -134,13 +168,21 @@ multi-instance operation. Do not run multiple instances against the same store.
 
 The [WebSocket standard](https://websockets.spec.whatwg.org/#the-websocket-interface)
 exposes a URL and optional subprotocols, with no caller-supplied Authorization
-header, certificate callback or access to raw TCP. The current relay needs a
-Bearer header and the inner host needs a strict key pin.
+header, certificate callback or access to raw TCP. Browser clients use the
+authenticated first-frame relay handshake above; the inner host still needs
+a strict key pin.
 
-[libcurl.js](https://github.com/ading2210/libcurl.js) offers browser TLS 1.3 and
-custom byte transports through WebAssembly. Its documented TLS socket options
-cover verbosity and proxy selection, without a host SPKI pin option. Adapting
-its transport would also need a reviewed way for a browser to authenticate the
-outer relay socket. It is a possible future integration, not a drop-in client
-for this protocol. Tau ships no browser TLS adapter and does not substitute a
-custom cryptographic implementation or relax the host pin to enable one.
+Tau's [browser adapter](../browser-connect/src/lib.rs) uses rustls TLS 1.3 and
+its ring provider. x509-parser extracts the certificate's SPKI. SHA-256 must
+match the link's exact pin. A legacy certificate pin is accepted only when no
+key pin exists. CA trust never replaces the inner pin. Rustls validates the
+handshake signature with the pinned key, and tungstenite validates the inner
+WebSocket upgrade and frames. There is no certificate bypass option.
+
+The source, Cargo.lock, generated WASM, JavaScript bindings and upstream
+license texts are checked in together. The web build checks their manifest.
+`npm run build:browser-connect` rebuilds them with a Rust toolchain containing
+the `wasm32-unknown-unknown` target and `llvm-tools`, plus the wasm-bindgen CLI
+version named in Cargo.lock. `TAU_CONNECT_WASM_BINDGEN` can name a privately
+installed CLI. The [adapter research](research/browser-connect-tls-2026-09-30.md)
+records the library assessment and verification scope.

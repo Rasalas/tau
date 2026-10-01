@@ -8,7 +8,7 @@
     <!-- The browser client of a listening host. `blob:` is how an extension
          bundle the host sent as source becomes a module here; the desktop
          window has the host's own `tau-ext:` scheme for that instead. -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' ws: wss:" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' ws: wss:" />
     <!-- The token contract, linked as in src/renderer/index.html so the first paint is themed. -->
     <link rel="stylesheet" href="../renderer/tokens.css" />
     <!-- From src/web/public (scripts/icons/generate.mjs). -->
