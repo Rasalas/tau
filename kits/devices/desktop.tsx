@@ -27,11 +27,14 @@ export function DevicePanel({ active, actions, invoke, floating }: PanelProps & 
   const receiveCanvas = useCallback((canvas: HTMLCanvasElement | undefined) => setVideoSource(canvas ? { canvas } : undefined), []);
   const fallbackVideo = useCallback((reason: string) => setVideoFallback(reason), []);
   const [captureReady, setCaptureReady] = useState(true);
+  // Completing a capture must not restart the effect and take a second paused frame.
+  const captureReadyRef = useRef(captureReady);
+  captureReadyRef.current = captureReady;
   const [captureEpoch, setCaptureEpoch] = useState(0);
   const [fold, setFold] = useState<FoldState>();
   const [foldError, setFoldError] = useState("");
   const captureRevision = useRef(0);
-  const folding = useRef(false);
+  const actionPending = useRef(false);
   const [pose, setPose] = useState(false);
   const [live, setLive] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -41,7 +44,7 @@ export function DevicePanel({ active, actions, invoke, floating }: PanelProps & 
   const [latitude, setLatitude] = useState("0");
   const [longitude, setLongitude] = useState("0");
   const [permission, setPermission] = useState("camera");
-  const pointer = useRef<{ x: number; y: number } | undefined>(undefined);
+  const pointer = useRef<{ x: number; y: number; width: number; height: number; pointerId: number; target: string; revision: number; surface: HTMLImageElement | HTMLCanvasElement } | undefined>(undefined);
   const device = devices.find((entry) => selected && entry.id === selected.deviceId && entry.hostId === selected.hostId);
   useEffect(() => { let cancelled = false; invoke<HubState>("state").then((value) => { if (!cancelled) { setState(value); setDevices(value.devices); } }).catch((reason) => { if (!cancelled) setError(message(reason)); }); return () => { cancelled = true; }; }, [invoke]);
   const refresh = async () => {
@@ -50,10 +53,13 @@ export function DevicePanel({ active, actions, invoke, floating }: PanelProps & 
     catch (reason) { setError(message(reason)); } finally { setBusy(false); }
   };
   const perform = async (action: ActionInput["action"], rest: Partial<ActionInput> = {}) => {
-    if (!selected || busy) return;
+    if (!selected || busy || actionPending.current || !availability.available) return;
+    actionPending.current = true;
+    captureRevision.current++;
+    pointer.current = undefined;
     setBusy(true); setError("");
     try {
-      if (action === "fold") { folding.current = true; captureRevision.current++; setCaptureReady(false); }
+      if (action === "fold" || action === "rotate") setCaptureReady(false);
       const result = await invoke<{ id?: string; serial?: string } & Partial<FoldState>>("action", { ...selected, action, ...rest });
       if (action === "fold" && selectedRef.current && key(selectedRef.current) === key(selected) && typeof result.supported === "boolean") setFold(result as FoldState);
       if (action === "boot" || action === "shutdown") {
@@ -67,32 +73,35 @@ export function DevicePanel({ active, actions, invoke, floating }: PanelProps & 
           setSelected(next);
         }
       }
-    } catch (reason) { setError(message(reason)); } finally { if (action === "fold") { folding.current = false; captureRevision.current++; setCaptureEpoch((value) => value + 1); } setBusy(false); }
+    } catch (reason) { setError(message(reason)); } finally { actionPending.current = false; captureRevision.current++; setCaptureEpoch((value) => value + 1); setBusy(false); }
   };
-  useEffect(() => { setFrame(undefined); setFold(undefined); setFoldError(""); setCaptureReady(true); setVideoFallback(""); }, [selected, device?.booted]);
+  useEffect(() => { captureRevision.current++; pointer.current = undefined; setFrame(undefined); setFold(undefined); setFoldError(""); setCaptureReady(true); setVideoFallback(""); }, [selected, device?.booted]);
+  useEffect(() => { pointer.current = undefined; }, [active, availability.available]);
   useEffect(() => {
     if (!active || !availability.available || !selected || !device?.booted) return;
     let cancelled = false, timer: ReturnType<typeof setTimeout> | undefined;
     const capture = async () => {
+      if (actionPending.current) return;
       if (document.hidden) { if (!cancelled && live) timer = setTimeout(() => { void capture(); }, 650); return; }
       const revision = captureRevision.current;
       try {
         let status: FoldState | undefined;
         if (device.platform === "android") {
-          try { status = await invoke<FoldState>("fold-state", selected); if (!cancelled) setFoldError(""); }
-          catch (reason) { if (!cancelled) setFoldError(message(reason)); }
+          try { status = await invoke<FoldState>("fold-state", selected); if (!cancelled && revision === captureRevision.current) setFoldError(""); }
+          catch (reason) { if (!cancelled && revision === captureRevision.current) setFoldError(message(reason)); }
         }
-        if (!videoSource || !captureReady || !live) {
+        if (cancelled || revision !== captureRevision.current || actionPending.current) return;
+        if (!videoSource || !captureReadyRef.current || !live) {
           const next = await invoke<{ dataUrl: string }>("frame", selected);
-          if (!cancelled && revision === captureRevision.current && !folding.current) { setFrame(next.dataUrl); setCaptureReady(true); if (status) setFold(status); }
-        } else if (!cancelled && status && !folding.current) setFold(status);
+          if (!cancelled && revision === captureRevision.current && !actionPending.current) { setFrame(next.dataUrl); setCaptureReady(true); if (status) setFold(status); }
+        } else if (!cancelled && status && !actionPending.current) setFold(status);
       }
-      catch (reason) { if (!cancelled) setError(message(reason)); }
+      catch (reason) { if (!cancelled && revision === captureRevision.current) setError(message(reason)); }
       if (!cancelled && live) timer = setTimeout(() => { void capture(); }, 650);
     };
     void capture();
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [active, availability.available, selected, device?.booted, live, invoke, captureEpoch, videoSource, captureReady]);
+  }, [active, availability.available, selected, device?.booted, live, invoke, captureEpoch, videoSource]);
   const open = (next: Device) => {
     const target = targetOf(next);
     setTabs((previous) => previous.some((entry) => key(entry) === key(target)) ? previous : [...previous, target]);
@@ -103,13 +112,24 @@ export function DevicePanel({ active, actions, invoke, floating }: PanelProps & 
     const surface = event.currentTarget;
     const width = surface instanceof HTMLImageElement ? surface.naturalWidth : surface.width;
     const height = surface instanceof HTMLImageElement ? surface.naturalHeight : surface.height;
-    return { x: Math.round((event.clientX - bounds.left) * width / bounds.width), y: Math.round((event.clientY - bounds.top) * height / bounds.height) };
+    if (width <= 0 || height <= 0 || bounds.width <= 0 || bounds.height <= 0) return;
+    return { x: Math.round((event.clientX - bounds.left) * width / bounds.width), y: Math.round((event.clientY - bounds.top) * height / bounds.height), width, height };
   };
-  const touchStart = (event: React.PointerEvent<HTMLImageElement | HTMLCanvasElement>) => { if (busy || !captureReady) return; pointer.current = point(event); event.currentTarget.setPointerCapture(event.pointerId); };
+  const touchStart = (event: React.PointerEvent<HTMLImageElement | HTMLCanvasElement>) => {
+    if (busy || actionPending.current || !captureReady || !active || !availability.available || !selected || !device?.booted) return;
+    const start = point(event); if (!start) return;
+    pointer.current = { ...start, pointerId: event.pointerId, target: key(selected), revision: captureRevision.current, surface: event.currentTarget };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
   const touchEnd = (event: React.PointerEvent<HTMLImageElement | HTMLCanvasElement>) => {
-    const start = pointer.current; pointer.current = undefined; if (!start) return;
-    const end = point(event), distance = Math.hypot(end.x - start.x, end.y - start.y);
-    void perform(distance < 12 ? "tap" : "swipe", distance < 12 ? start : { ...start, endX: end.x, endY: end.y });
+    const start = pointer.current;
+    if (!start || start.pointerId !== event.pointerId) return;
+    pointer.current = undefined;
+    if (busy || actionPending.current || !captureReady || !active || !availability.available || !selected || !device?.booted || start.target !== key(selected) || start.revision !== captureRevision.current || start.surface !== event.currentTarget) return;
+    const end = point(event); if (!end || start.width !== end.width || start.height !== end.height) return;
+    const distance = Math.hypot(end.x - start.x, end.y - start.y);
+    const coordinates = { x: start.x, y: start.y };
+    void perform(distance < 12 ? "tap" : "swipe", distance < 12 ? coordinates : { ...coordinates, endX: end.x, endY: end.y });
   };
   const disabled = busy || !availability.available;
   const hostDevices = devices.filter((entry) => entry.hostId === hostId);

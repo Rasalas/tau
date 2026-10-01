@@ -1,13 +1,21 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { WorkbenchActions } from "tau";
 import { FloatingDevice, FloatingDeviceView } from "./floating.js";
 import { DevicePanel, DeviceSettingsPage, type Invoke } from "./desktop.js";
 import { DEFAULT_SETTINGS, type Device, type HubState } from "./protocol.js";
+import { installPointerEvents } from "../../src/renderer/test-support/pointer-events.js";
+installPointerEvents();
 afterEach(cleanup);
 const phone: Device = { hostId: "local", id: "test-phone", name: "Test iPhone", platform: "ios", version: "18", booted: true };
 const state: HubState = { settings: structuredClone(DEFAULT_SETTINGS), tools: [], devices: [phone] };
+const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAX+XDSwAAAABJRU5ErkJggg==";
+function touchSurface(image: HTMLImageElement) {
+  Object.defineProperties(image, { naturalWidth: { value: 400, configurable: true }, naturalHeight: { value: 800, configurable: true } });
+  image.getBoundingClientRect = () => new DOMRect(0, 0, 200, 400);
+  image.setPointerCapture = vi.fn();
+}
 function host() {
   const invoke = vi.fn(async <T,>(command: string, input?: unknown): Promise<T> => {
     if (command === "state") return structuredClone(state) as T;
@@ -110,4 +118,118 @@ it("hides native fold controls for an emulator whose hinge sensor reports unsupp
   await screen.findByRole("img", { name: "Foldable custom screen" });
   expect(screen.queryByRole("button", { name: "Closed" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Opened" })).toBeNull();
+});
+
+it.each(["home", "rotate", "tap", "text"])("refreshes the result of %s once while Live screen stays paused", async (action) => {
+  let result = "before";
+  const invoke = host();
+  invoke.mockImplementation(async <T,>(command: string): Promise<T> => {
+    if (command === "state") return structuredClone(state) as T;
+    if (command === "frame") return { dataUrl: `${png}#${result}` } as T;
+    if (command === "action") result = action;
+    return {} as T;
+  });
+  render(<DevicePanel active extensionName="Devices" actions={{ openSettings: vi.fn() } as unknown as WorkbenchActions} invoke={invoke} />);
+  fireEvent.click(await screen.findByRole("button", { name: /Test iPhone · ios/ }));
+  await waitFor(() => expect(screen.getByRole("img", { name: "Test iPhone screen" }).getAttribute("src")).toBe(`${png}#before`));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Live screen" }));
+  await act(async () => {});
+  const framesBefore = invoke.mock.calls.filter(([command]) => command === "frame").length;
+  if (action === "home") fireEvent.click(screen.getByRole("button", { name: "Home" }));
+  if (action === "rotate") fireEvent.change(screen.getByRole("combobox", { name: "Orientation" }), { target: { value: "landscape-left" } });
+  if (action === "text") {
+    fireEvent.change(screen.getByRole("textbox", { name: "Device text" }), { target: { value: "Hello" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send text" }));
+  }
+  if (action === "tap") {
+    const image = screen.getByRole("img", { name: "Test iPhone screen" }) as HTMLImageElement;
+    touchSurface(image);
+    fireEvent.pointerDown(image, { clientX: 50, clientY: 100, pointerId: 1 });
+    fireEvent.pointerUp(image, { clientX: 50, clientY: 100, pointerId: 1 });
+  }
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith("action", expect.objectContaining({ action })));
+  await waitFor(() => expect(screen.getByRole("img", { name: "Test iPhone screen" }).getAttribute("src")).toBe(`${png}#${action}`), { timeout: 1_000 });
+  expect(invoke.mock.calls.filter(([command]) => command === "frame")).toHaveLength(framesBefore + 1);
+  expect(screen.getByRole("checkbox", { name: "Live screen" }).getAttribute("aria-checked")).toBe("false");
+  if (action === "home") {
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 750)); });
+    expect(invoke.mock.calls.filter(([command]) => command === "frame")).toHaveLength(framesBefore + 1);
+  }
+});
+
+it("does not send a gesture started on another device", async () => {
+  const other: Device = { ...phone, id: "other-phone", name: "Other iPhone" };
+  const invoke = host();
+  invoke.mockImplementation(async <T,>(command: string, input?: unknown): Promise<T> => {
+    if (command === "state") return { ...state, devices: [phone, other] } as T;
+    if (command === "frame") return { dataUrl: `${png}#${(input as { deviceId: string }).deviceId}` } as T;
+    return {} as T;
+  });
+  render(<DevicePanel active extensionName="Devices" actions={{ openSettings: vi.fn() } as unknown as WorkbenchActions} invoke={invoke} />);
+  fireEvent.click(await screen.findByRole("button", { name: /Test iPhone · ios/ }));
+  const first = await screen.findByRole("img", { name: "Test iPhone screen" }) as HTMLImageElement;
+  touchSurface(first);
+  fireEvent.pointerDown(first, { clientX: 50, clientY: 100, pointerId: 1 });
+  fireEvent.change(screen.getByRole("combobox", { name: "Open a device" }), { target: { value: "other-phone" } });
+  await waitFor(() => expect(screen.getByRole("img", { name: "Other iPhone screen" }).getAttribute("src")).toBe(`${png}#other-phone`));
+  const second = screen.getByRole("img", { name: "Other iPhone screen" }) as HTMLImageElement;
+  touchSurface(second);
+  fireEvent.pointerUp(second, { clientX: 100, clientY: 100, pointerId: 1 });
+  expect(invoke.mock.calls.filter(([command]) => command === "action")).toHaveLength(0);
+});
+
+it("does not send gesture coordinates after the capture dimensions change", async () => {
+  const invoke = host();
+  render(<DevicePanel active extensionName="Devices" actions={{ openSettings: vi.fn() } as unknown as WorkbenchActions} invoke={invoke} />);
+  fireEvent.click(await screen.findByRole("button", { name: /Test iPhone · ios/ }));
+  const image = await screen.findByRole("img", { name: "Test iPhone screen" }) as HTMLImageElement;
+  touchSurface(image);
+  fireEvent.pointerDown(image, { clientX: 50, clientY: 100, pointerId: 1 });
+  Object.defineProperties(image, { naturalWidth: { value: 800, configurable: true }, naturalHeight: { value: 400, configurable: true } });
+  fireEvent.pointerUp(image, { clientX: 50, clientY: 100, pointerId: 1 });
+  expect(invoke.mock.calls.filter(([command]) => command === "action")).toHaveLength(0);
+});
+
+it("rejects a capture from before rotation and waits for its fresh result before accepting input", async () => {
+  let settleOld!: (value: { dataUrl: string }) => void;
+  let settleNew!: (value: { dataUrl: string }) => void;
+  let settleRotation!: () => void;
+  let frameCount = 0;
+  const invoke = host();
+  invoke.mockImplementation(async <T,>(command: string): Promise<T> => {
+    if (command === "state") return structuredClone(state) as T;
+    if (command === "frame") {
+      frameCount++;
+      if (frameCount === 1) return { dataUrl: `${png}#before` } as T;
+      return await new Promise<{ dataUrl: string }>((resolve) => { if (frameCount === 2) settleOld = resolve; else settleNew = resolve; }) as T;
+    }
+    if (command === "action") return await new Promise<void>((resolve) => { settleRotation = resolve; }) as T;
+    return {} as T;
+  });
+  render(<DevicePanel active extensionName="Devices" actions={{ openSettings: vi.fn() } as unknown as WorkbenchActions} invoke={invoke} />);
+  fireEvent.click(await screen.findByRole("button", { name: /Test iPhone · ios/ }));
+  await waitFor(() => expect(screen.getByRole("img", { name: "Test iPhone screen" }).getAttribute("src")).toBe(`${png}#before`));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Live screen" }));
+  await waitFor(() => expect(frameCount).toBe(2));
+  const image = screen.getByRole("img", { name: "Test iPhone screen" }) as HTMLImageElement;
+  touchSurface(image);
+  fireEvent.pointerDown(image, { clientX: 50, clientY: 100, pointerId: 1 });
+  fireEvent.change(screen.getByRole("combobox", { name: "Orientation" }), { target: { value: "landscape-left" } });
+  await act(async () => { settleOld({ dataUrl: `${png}#stale` }); });
+  expect(image.getAttribute("src")).toBe(`${png}#before`);
+  await act(async () => { settleRotation(); });
+  await waitFor(() => expect(frameCount).toBe(3));
+  // The gesture begun before rotation must be discarded, even after the action finishes.
+  fireEvent.pointerUp(image, { clientX: 50, clientY: 100, pointerId: 1 });
+  fireEvent.pointerDown(image, { clientX: 50, clientY: 100, pointerId: 2 });
+  fireEvent.pointerUp(image, { clientX: 50, clientY: 100, pointerId: 2 });
+  expect(invoke.mock.calls.filter(([command]) => command === "action")).toHaveLength(1);
+  await act(async () => { settleNew({ dataUrl: `${png}#rotated` }); });
+  await waitFor(() => expect(image.getAttribute("src")).toBe(`${png}#rotated`));
+  fireEvent.pointerDown(image, { clientX: 50, clientY: 100, pointerId: 3 });
+  fireEvent.pointerUp(image, { clientX: 50, clientY: 100, pointerId: 3 });
+  expect(invoke).toHaveBeenCalledWith("action", { hostId: "local", deviceId: "test-phone", action: "tap", x: 100, y: 200 });
+  await act(async () => { settleRotation(); });
+  await waitFor(() => expect(frameCount).toBe(4));
+  await act(async () => { settleNew({ dataUrl: `${png}#tapped` }); });
 });
