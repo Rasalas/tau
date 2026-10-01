@@ -55,8 +55,8 @@ describe("ProjectFactsCache", () => {
     await settle();
     expect(asked).toBe(2);
     expect(names).toHaveLength(1);
+    // A provider that arrives after the host listed its threads names them without another read.
     facts.add({ name: async () => "Plain" });
-    facts.name("/work/plain");
     await settle();
     expect(names.at(-1)).toEqual({ cwd: "/work/plain", name: "Plain" });
   });

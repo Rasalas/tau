@@ -35,10 +35,13 @@ export class ProjectFactsCache {
 
   constructor(private readonly port: ProjectFactsCachePort) {}
 
-  /** Registers a provider; the returned function removes it again. */
+  /** Registers a provider; the returned function removes it again. Paths nobody named so far are asked again. */
   add(facts: HostProjectFacts): () => void {
+    const remove = this.providers.add(facts);
+    const asked = [...this.unnamed];
     this.unnamed.clear();
-    return this.providers.add(facts);
+    for (const cwd of asked) this.refreshName(cwd);
+    return remove;
   }
 
   /** The folder name until a provider answers; an unknown path is read in the background and published when it differs. */
