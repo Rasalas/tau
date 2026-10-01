@@ -1,6 +1,7 @@
 import { authorityName, type PairingEndpoint, type UiHostEndpointKind } from "../shared/connections.js";
+import type { ThreadIndexSnapshot } from "../shared/contracts.js";
 import { orderEndpoints, refreshEndpoints, sameEndpoints, socketUrl } from "../shared/environments.js";
-import { HOST_ERROR } from "../shared/host-transport.js";
+import { HOST_ERROR, type HostPushEvent } from "../shared/host-transport.js";
 import { EnvironmentCatalog, endpointTrust, type SavedEnvironment } from "./environment-catalog.js";
 import { EnvironmentMonitor, type EnvironmentMonitorOptions, type MonitorState } from "./environment-monitor.js";
 import {
@@ -22,6 +23,7 @@ import { ConnectClientBridge } from "./connect-tunnel.js";
 import { freeLocalPort } from "./managed-ssh.js";
 import { decodeManagedRoute, type ConnectRoute } from "../shared/managed-connections.js";
 import { decodeString } from "./ipc-input.js";
+import { hostPushScope } from "./host-push-scope.js";
 
 /** A machine this host's agents may reach: what a window saves for itself, with the agents' own token. */
 export type HostMachineEntry = SavedEnvironment;
@@ -64,6 +66,9 @@ const failure = (message: string, code: string = HOST_ERROR.failed): Error => Ob
 export class HostMachines {
   private readonly watched = new Map<string, Watched>();
   private readonly listeners = new Set<(machines: readonly HostMachine[]) => void>();
+  private readonly followers = new Map<string, Map<string, Set<(push: HostPushEvent) => void>>>();
+  private readonly indexListeners = new Set<(machine: string) => void>();
+  private readonly indexTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly bridges = new Map<string, { close(): void }>();
   private closed = false;
 
@@ -92,6 +97,38 @@ export class HostMachines {
   subscribe(listener: (machines: readonly HostMachine[]) => void): () => void {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
+  }
+
+  index(machine: string): ThreadIndexSnapshot | undefined {
+    return this.find(machine).state.index;
+  }
+
+  running(machine: string): ReadonlySet<string> {
+    return this.find(machine).state.running;
+  }
+
+  subscribeIndex(listener: (machine: string) => void): () => void {
+    this.indexListeners.add(listener);
+    return () => { this.indexListeners.delete(listener); };
+  }
+
+  followThread(machine: string, sessionId: string, listener: (push: HostPushEvent) => void): () => void {
+    const watched = this.find(machine);
+    const id = watched.entry.id;
+    const threads = this.followers.get(id) ?? new Map<string, Set<(push: HostPushEvent) => void>>();
+    const listeners = threads.get(sessionId) ?? new Set<(push: HostPushEvent) => void>();
+    const fresh = !threads.has(sessionId);
+    listeners.add(listener);
+    threads.set(sessionId, listeners);
+    this.followers.set(id, threads);
+    if (fresh) watched.monitor.resubscribe();
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size > 0 || this.followers.get(id)?.get(sessionId) !== listeners) return;
+      threads.delete(sessionId);
+      if (threads.size === 0) this.followers.delete(id);
+      this.watched.get(id)?.monitor.resubscribe();
+    };
   }
 
   /** Saves a machine's key and connects; a machine saved before is replaced, its watchers kept. */
@@ -132,6 +169,7 @@ export class HostMachines {
   async remove(id: string): Promise<boolean> {
     const removed = await this.catalog.remove(id);
     this.unwatch(id);
+    this.followers.delete(id);
     if (removed) {
       this.options.logger.info("machines.removed", { id });
       this.changed();
@@ -200,6 +238,10 @@ export class HostMachines {
       request: (machine, method, params, options) => this.request(machine, method, params, options),
       watch: (machine, topic, listener, options) => this.watch(machine, options?.extension ?? extensionId, topic, listener),
       upload: (machine, source, options) => this.upload(machine, source, options),
+      index: (machine) => this.index(machine),
+      subscribeIndex: (listener) => this.subscribeIndex(listener),
+      running: (machine) => this.running(machine),
+      followThread: (machine, sessionId, listener) => this.followThread(machine, sessionId, listener),
     };
   }
 
@@ -212,6 +254,8 @@ export class HostMachines {
     this.closed = true;
     for (const id of [...this.watched.keys()]) this.unwatch(id);
     this.listeners.clear();
+    this.followers.clear();
+    this.indexListeners.clear();
   }
 
   private find(machine: string): Watched {
@@ -242,15 +286,21 @@ export class HostMachines {
       urls: () => orderEndpoints(current().endpoints, current().lastUrl).map((endpoint) => socketUrl(endpoint.url)),
       token: entry.token,
       trust: (url) => endpointTrust(current(), url),
-      bootstrap: false,
+      bootstrap: true,
       unauthorizedDetail: "its owner revoked this computer's agents there, or their access expired. Turn them on again in Settings → Machines.",
       topics: () => [...watched.topics.keys()],
+      threads: () => [...this.followers.get(entry.id)?.keys() ?? []],
       logger: this.options.logger,
-      onPush: (event) => deliver(watched, event),
+      onPush: (event) => {
+        if (this.watched.get(entry.id) !== watched) return;
+        deliver(watched, event);
+        this.deliverThread(entry.id, event);
+      },
       onChange: (state) => {
         if (this.watched.get(entry.id) !== watched) return;
         const before = watched.state;
         watched.state = state;
+        if (before.index !== state.index || before.running !== state.running) this.indexChanged(entry.id);
         if (before.status !== state.status || before.detail !== state.detail) {
           this.options.logger.info("machines.status", { id: entry.id, status: state.status, ...(state.detail ? { detail: state.detail } : {}) });
         }
@@ -282,12 +332,39 @@ export class HostMachines {
   }
 
   private unwatch(id: string): void {
+    clearTimeout(this.indexTimers.get(id));
+    this.indexTimers.delete(id);
     this.bridges.get(id)?.close();
     this.bridges.delete(id);
     const watched = this.watched.get(id);
     if (!watched) return;
     this.watched.delete(id);
     watched.monitor.close();
+  }
+
+  private deliverThread(machine: string, event: unknown): void {
+    if (!event || typeof event !== "object") return;
+    const push = event as HostPushEvent;
+    const scope = hostPushScope(push);
+    const sessionId = scope?.startsWith("thread:") ? scope.slice("thread:".length)
+      : push.type === "extension-ui-prompt" || push.type === "extension-ui-resolved" || push.type === "agent-status" ? push.sessionId
+      : push.type === "host-update" && push.update.type === "run" ? push.update.sessionId : undefined;
+    if (sessionId === undefined) return;
+    for (const listener of [...this.followers.get(machine)?.get(sessionId) ?? []]) {
+      try { listener(push); } catch (error: unknown) { this.options.logger.warn("machines.thread-listener-failed", error); }
+    }
+  }
+
+  private indexChanged(machine: string): void {
+    if (this.indexTimers.has(machine)) return;
+    const timer = setTimeout(() => {
+      this.indexTimers.delete(machine);
+      for (const listener of [...this.indexListeners]) {
+        try { listener(machine); } catch (error: unknown) { this.options.logger.warn("machines.index-listener-failed", error); }
+      }
+    }, 250);
+    timer.unref?.();
+    this.indexTimers.set(machine, timer);
   }
 
   private changed(): void {

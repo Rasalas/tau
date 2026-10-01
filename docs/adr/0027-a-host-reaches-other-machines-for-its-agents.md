@@ -67,6 +67,16 @@ the add form.
   topic. The kit is the caller's own counterpart unless `extension` names
   another one.
 
+The connection also follows threads without selecting them on the other host:
+
+- `index(machine)` reads that machine's last pushed thread index.
+- `subscribeIndex(listener)` hears index and running-thread changes, at most
+  once per 250 ms per machine.
+- `running(machine)` reads the IDs of threads running there.
+- `followThread(machine, sessionId, listener)` follows that thread's original
+  pushes, run status and questions until its last listener leaves, including
+  across reconnects.
+
 A machine is named by its host id, or by its name when that is unique. An
 offline or refused machine rejects with the reason.
 

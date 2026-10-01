@@ -13,6 +13,7 @@ import type {
   UiRuntimeBackend,
   UiRuntimeCatalog,
   ThreadBackendKind,
+  ThreadIndexSnapshot,
   UiComposerCommand,
   UiMessage,
   UiModel,
@@ -23,6 +24,7 @@ import type {
   UiToolRun,
 } from "../shared/contracts.js";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
+import type { HostPushEvent } from "../shared/host-transport.js";
 import type { UiHostEndpoint, UiNetworkAccess } from "../shared/connections.js";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
@@ -607,6 +609,18 @@ export interface HostMachineServices {
    * the other host disagrees with, or `signal`. New in API 1.15.0.
    */
   upload(machine: string, source: HostBlobSource, options?: HostBlobUploadOptions): Promise<HostUploadedBlob>;
+  /** That machine's last thread index; undefined before its first read. New in API 1.41.0. */
+  index?(machine: string): ThreadIndexSnapshot | undefined;
+  /** Hears changes of a machine's index and running threads; read `index()` in the listener. New in API 1.41.0. */
+  subscribeIndex?(listener: (machine: string) => void): () => void;
+  /** The ids running there, from `agent-status` pushes. New in API 1.41.0. */
+  running?(machine: string): ReadonlySet<string>;
+  /**
+   * Follows a thread's pushes as they arrived, including host-wide run state,
+   * questions and their resolutions that name this session. Subscribes while any
+   * listener remains, including after reconnect. New in API 1.41.0.
+   */
+  followThread?(machine: string, sessionId: string, listener: (push: HostPushEvent) => void): () => void;
 }
 
 /** Bytes to send: a buffer, or any stream of them (a `fs.createReadStream` without an encoding). */
