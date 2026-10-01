@@ -1386,15 +1386,12 @@ export class PiHost {
         throw new Error("This thread has not been saved yet. Wait for the first assistant response before forking it.");
       }
       const startedAt = performance.now();
-      // The fork is a new session file, so it gets a runtime of its own; the
-      // source thread keeps running untouched.
+      // The fork is a new session file, so it gets a runtime of its own; the source thread keeps running untouched.
       // createBranchedSession turns this manager into the fork. A branch without
       // an assistant message has no file until its first response, so the fork
-      // must keep this manager instead of reopening its path.
-      // Another folder (the fork's own worktree) gets its sessions directory as a new thread there would.
-      const forkedManager = cwd && cwd !== thread.cwd
-        ? SessionManager.open(sourceFile, SessionManager.create(cwd, this.sessionsDirOverride).getSessionDir(), cwd)
-        : SessionManager.open(sourceFile);
+      // must keep this manager instead of reopening its path. In another folder (its own worktree) it gets the sessions directory a new thread there would.
+      const elsewhere = cwd && cwd !== thread.cwd ? [SessionManager.create(cwd, this.sessionsDirOverride).getSessionDir(), cwd] as const : [];
+      const forkedManager = SessionManager.open(sourceFile, ...elsewhere);
       if (!forkedManager.createBranchedSession(entryId)) throw new Error("Failed to create the forked thread.");
       // Extensions carry what they keep beside the source into the fork.
       await this.threadLifecycle.afterFork(this.hostThreadFor(thread), this.seam.sessionFile(forkedManager));

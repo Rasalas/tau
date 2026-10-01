@@ -336,8 +336,8 @@ export function registerCheckpoints(plugin: DesktopExtensionContext, workspaceSt
   const asks = new ForkAsks();
   plugin.registerForkPrompt({ id: "workspace.fork", ask: (request) => asks.set(request) });
   plugin.registerRegion({ id: "workspace.turn-actions", placement: "turn-divider", profiles: ["desktop", "compact"], Component: createTurnActions(asks, store) });
-  plugin.registerRegion({ id: "workspace.fork", placement: "composer-controls", profiles: ["desktop"], Component: createForkAsker(asks, store, workspaceStore, false) });
-  plugin.registerRegion({ id: "workspace.fork-touch", placement: "composer-controls", profiles: ["compact"], Component: createForkAsker(asks, store, workspaceStore, true) });
+  plugin.registerRegion({ id: "workspace.fork", placement: "composer-controls", order: 90, profiles: ["desktop"], Component: createForkAsker(asks, store, workspaceStore, false) });
+  plugin.registerRegion({ id: "workspace.fork-touch", placement: "composer-controls", order: 90, profiles: ["compact"], Component: createForkAsker(asks, store, workspaceStore, true) });
   plugin.registerOverlay({ id: CHECKPOINT_REVIEW_OVERLAY, profiles: ["desktop", "compact"], Component: createReviewOverlay(store, workspaceStore) });
 }
 
