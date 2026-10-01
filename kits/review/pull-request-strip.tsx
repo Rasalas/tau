@@ -36,7 +36,7 @@ function ChecksIcon({ tone }: { tone: "passed" | "failed" | "pending" }) {
   return <CircleDashed {...props} />;
 }
 
-/** The request's checks, read while the last answer still had some running and the window is visible. */
+/** The request's checks: read once, then while the last answer still had some running and the window is visible. */
 function useLiveChecks(client: PullRequestClient | undefined, url: string, pending: boolean): PullRequestCheck[] | undefined {
   const [read, setRead] = useState<{ url: string; checks: PullRequestCheck[] }>();
   useEffect(() => {
@@ -44,7 +44,6 @@ function useLiveChecks(client: PullRequestClient | undefined, url: string, pendi
     let live = true;
     let timer = 0;
     const ask = () => {
-      if (document.visibilityState !== "visible") return;
       client.checks(url).then((checks) => {
         if (!live) return;
         setRead({ url, checks });
@@ -52,7 +51,7 @@ function useLiveChecks(client: PullRequestClient | undefined, url: string, pendi
       }, () => undefined);
     };
     ask();
-    timer = window.setInterval(ask, LIVE_MS);
+    timer = window.setInterval(() => { if (document.visibilityState === "visible") ask(); }, LIVE_MS);
     return () => { live = false; window.clearInterval(timer); };
   }, [client, url, pending]);
   return read?.url === url ? read.checks : undefined;

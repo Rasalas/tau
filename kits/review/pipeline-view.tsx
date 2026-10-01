@@ -43,7 +43,7 @@ export function JobCircle({ job, now, size = 22 }: { job: Pick<PipelineJob, "sta
   const turn = 2 * Math.PI * wedge;
   return (
     <span className={`pl-circle ${job.state}${progress === undefined ? " spin" : ""}`} style={{ width: size, height: size }}>
-      <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} aria-hidden="true">
+      <svg className="pl-svg" viewBox={`0 0 ${size} ${size}`} width={size} height={size} aria-hidden="true">
         <circle className="pl-ring" cx={middle} cy={middle} r={ring} />
         {job.state === "running" ? (
           progress === undefined
