@@ -9,16 +9,16 @@ import { ProviderIconStack } from "./ProviderIconStack";
 import { ThreadCost } from "./ThreadCost";
 import { tooltipProps } from "./ui/Tooltip";
 import { Region, RegionOr } from "./Regions";
-import { startsTurn } from "./MessageText";
+import { lastTurnNumber } from "../../shared/message-turns";
 import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
 
 const turnCounts = new WeakMap<TranscriptState, number>();
 
-/** Prompts the transcript holds; counted once per transcript state, so a streamed delta costs a lookup. */
+/** The number of the last prompt the transcript holds; counted once per transcript state, so a streamed delta costs a lookup. */
 function countTurns(transcript: TranscriptState): number {
   let count = turnCounts.get(transcript);
   if (count === undefined) {
-    count = transcript.messages.filter(startsTurn).length;
+    count = lastTurnNumber(transcript.messages);
     turnCounts.set(transcript, count);
   }
   return count;

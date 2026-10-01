@@ -55,8 +55,9 @@ describe("checkpoint rows", () => {
 
     await waitFor(() => expect(host.checkpoints).toHaveBeenCalled());
     expect(registry.getTranscriptRows("s1").map((row) => row.id)).toEqual(["checkpoints:t1"]);
-    // The partial capture is the latest turn: it sits over the composer, never restorable.
-    expect(screen.getByRole("button", { name: /^Turn changes: 0\+ files/u })).toBeTruthy();
+    // The partial capture is the latest turn: it sits over the composer, never restorable. On a phone
+    // Review Kit draws that pill, so this kit adds no second one.
+    expect(screen.queryAllByRole("button", { name: /^Turn changes: 0\+ files/u })).toHaveLength(profile === "desktop" ? 1 : 0);
     // Only turns with a pill are asked about; the hidden turn is still counted as a later turn by a rewind.
     await waitFor(() => expect(host.canRestoreCheckpoint.mock.calls.map(([, id]) => id)).toEqual(["t1"]));
     await waitFor(() => {

@@ -1,4 +1,5 @@
 import type { UiMessage } from "./contracts.js";
+import { numberWindowTurns } from "./message-turns.js";
 import type { HostTranscriptCursor } from "./transcript-cursor.js";
 import type { ThreadTranscriptPage, TranscriptPageBundle } from "./transcript-contract.js";
 
@@ -131,7 +132,7 @@ export class TranscriptPager<TCursor extends string = HostTranscriptCursor> {
     // up to the cursor. This avoids splitting a visible conversation turn while
     // retaining notices and other records adjacent to that turn.
     return {
-      messages: this.messages.slice(bounds.start, bounds.end),
+      messages: numberWindowTurns(this.messages, bounds.start, bounds.end),
       transcriptWindow: "bounded",
       ...(bounds.olderCursor ? { olderCursor: bounds.olderCursor } : {}),
       hasMore: bounds.hasMore,

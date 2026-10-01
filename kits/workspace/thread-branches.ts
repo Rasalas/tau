@@ -9,7 +9,7 @@ import {
   type BranchMergeOutcome,
   type BranchMergePreview,
 } from "./agent-worktrees.js";
-import { readDefaultBranch } from "./workspace-git.js";
+import { countUntrackedLines, readDefaultBranch } from "./workspace-git.js";
 import { readConflictFiles, resolveTree, type ConflictFile, type HunkPick } from "./merge-picks.js";
 
 /**
@@ -34,8 +34,8 @@ export interface ThreadBranch {
   added: number;
   removed: number;
   /** Changed files with their counts, the first `THREAD_BRANCH_PATHS`. */
-  paths: Array<{ path: string; added: number; removed: number }>;
-  /** Files in the worktree not committed yet; Merge takes commits only. */
+  paths: Array<{ path: string; added: number; removed: number; uncommitted?: true }>;
+  /** Files in the worktree not committed yet, counted in `files`, `added`, `removed` and `paths`; Merge takes commits only. */
   uncommitted: number;
   /** When the tip was committed, in ms. */
   committedAt?: number;
@@ -84,6 +84,37 @@ const totals = (paths: ThreadBranch["paths"]) => ({
   removed: paths.reduce((sum, entry) => sum + entry.removed, 0),
   paths: paths.slice(0, THREAD_BRANCH_PATHS),
 });
+
+const PENDING_STATS = 500;
+
+/**
+ * The worktree's own files not committed yet: tracked changes against HEAD
+ * and untracked files, with lines. Past `PENDING_STATS` files only count.
+ */
+async function readPending(top: string, runGit: AgentGitRunner): Promise<{ total: number; paths: ThreadBranch["paths"] }> {
+  const [tracked, others] = await Promise.all([
+    runGit(top, ["diff", "--numstat", "--no-renames", "HEAD"]).catch(() => ""),
+    runGit(top, ["ls-files", "--others", "--exclude-standard"]).catch(() => ""),
+  ]);
+  const paths: ThreadBranch["paths"] = parseNumstat(tracked).map((entry) => ({ ...entry, uncommitted: true as const }));
+  const seen = new Set(paths.map((entry) => entry.path));
+  const untracked = others.split("\n").map((line) => line.trim()).filter((line) => line && !seen.has(line));
+  const counted = await Promise.all(untracked.slice(0, PENDING_STATS).map(async (path) => ({ path, added: await countUntrackedLines(top, path), removed: 0, uncommitted: true as const })));
+  return { total: paths.length + untracked.length, paths: [...paths, ...counted] };
+}
+
+/** The branch's committed changes plus the worktree's uncommitted ones; a file in both keeps its committed counts. */
+function withPending(committed: ThreadBranch["paths"], pending: ThreadBranch["paths"], total: number) {
+  const known = new Set(committed.map((entry) => entry.path));
+  const extra = pending.filter((entry) => !known.has(entry.path));
+  const all = [...committed, ...extra];
+  return {
+    files: committed.length + (total - pending.length) + extra.length,
+    added: all.reduce((sum, entry) => sum + entry.added, 0),
+    removed: all.reduce((sum, entry) => sum + entry.removed, 0),
+    paths: all.slice(0, THREAD_BRANCH_PATHS),
+  };
+}
 
 const real = (path: string) => realpath(path).catch(() => resolve(path));
 
@@ -144,7 +175,8 @@ export async function readThreadBranch(path: string, runGit: AgentGitRunner = ru
   const branch = own.branch;
   const root = main.path;
   const tip = (await runGit(root, ["rev-parse", "--verify", `refs/heads/${branch}^{commit}`])).trim();
-  const uncommitted = (await runGit(top, ["status", "--porcelain"]).catch(() => "")).split("\n").filter((line) => line.trim()).length;
+  const pending = await readPending(top, runGit);
+  const uncommitted = pending.total;
   const committedAt = Number((await runGit(root, ["log", "-1", "--format=%ct", tip]).catch(() => "")).trim()) * 1000 || undefined;
   const base = { path: resolve(path), root, branch, tip, uncommitted, ...(committedAt ? { committedAt } : {}) };
   const empty = { ahead: 0, behind: 0, files: 0, added: 0, removed: 0, paths: [], merged: false, conflicts: [] };
@@ -160,7 +192,7 @@ export async function readThreadBranch(path: string, runGit: AgentGitRunner = ru
   if (ahead === 0) {
     // Nothing the target lacks: either merged, with what it carried from where it started, or a branch that never did anything.
     const start = await ownStart(root, branch, tip, runGit);
-    if (!start) return { ...base, ...into, ...empty, behind };
+    if (!start) return { ...base, ...into, ...empty, behind, ...withPending([], pending.paths, pending.total) };
     const paths = parseNumstat(await runGit(root, ["diff", "--numstat", "--no-renames", start, tip]).catch(() => ""));
     return { ...base, ...into, ...empty, behind, merged: true, ...totals(paths) };
   }
@@ -168,13 +200,14 @@ export async function readThreadBranch(path: string, runGit: AgentGitRunner = ru
   const paths = parseNumstat(await runGit(root, ["diff", "--numstat", "--no-renames", forkPoint, tip]));
   const preview = await previewBranchMerge(root, tip, runGit);
   const mergedBy = preview.merged ? undefined : await alreadyIn(root, head, tip, preview, runGit);
+  const merged = preview.merged || Boolean(mergedBy);
   return {
     ...base,
     ...into,
     ahead,
     behind,
-    ...totals(paths),
-    merged: preview.merged || Boolean(mergedBy),
+    ...(merged ? totals(paths) : withPending(paths, pending.paths, pending.total)),
+    merged,
     conflicts: mergedBy ? [] : preview.conflicts,
     ...(mergedBy ? { mergedBy } : {}),
   };

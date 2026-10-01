@@ -15,7 +15,7 @@ import { useLeadingRowAnchor } from "./useLeadingRowAnchor";
 import { TranscriptRowSizes, transcriptRowKind } from "./transcript-row-sizes";
 import { LazyFeatureBoundary } from "./LazyFeature";
 import { composerReserve } from "./ComposerReserve";
-import { startsTurn } from "./MessageText";
+import { startsTurn, turnNumberOf } from "../../shared/message-turns";
 import type { TranscriptTurn } from "../extension-system";
 
 export interface VirtualTranscriptProps {
@@ -157,7 +157,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     for (const message of messages) {
       if (startsTurn(message)) {
         if (turn) turn.last = false;
-        turn = { number: (turn?.number ?? 0) + 1, messages: [], last: true };
+        turn = { number: turnNumberOf(turn?.number ?? 0, message), messages: [], last: true };
         byPrompt.set(message.id, turn);
       }
       turn?.messages.push(message);

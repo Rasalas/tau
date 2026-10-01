@@ -42,7 +42,7 @@ function makeIndex(options: {
   const updates: HostUpdate[] = [];
   const noop = () => undefined;
   const projects = new ProjectFactsCache({
-    onLabel: noop, onNesting: noop, recordBackground: noop, log: noop,
+    onLabel: noop, onName: noop, onNesting: noop, recordBackground: noop, log: noop,
     errorMessage: (error) => String(error),
   });
   const index = new ThreadIndex({
@@ -205,6 +205,22 @@ describe("ThreadIndex", () => {
     expect(index.byId("b")?.projectLabel).toBeUndefined();
     // The unchanged label publishes nothing a second time.
     index.publishLabel("/repo", "main");
+    await flush();
+    expect(updates).toHaveLength(1);
+  });
+
+  it("carries a project's name read after the shells were built into each of its shells", async () => {
+    const { index, updates } = makeIndex();
+    seed(index, [
+      shell({ id: "a", path: "/a.jsonl", projectPath: "/repo-2", projectName: "repo-2" }),
+      shell({ id: "b", path: "/b.jsonl", projectName: "other" }),
+    ]);
+    index.publishName("/repo-2", "repo");
+    await flush();
+    expect(index.byId("a")?.projectName).toBe("repo");
+    expect(index.byId("b")?.projectName).toBe("other");
+    expect(updates).toHaveLength(1);
+    index.publishName("/repo-2", "repo");
     await flush();
     expect(updates).toHaveLength(1);
   });

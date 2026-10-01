@@ -338,6 +338,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   /** What extensions know about projects: name, label, nesting, all cached. */
   const projects = new ProjectFactsCache({
     onLabel: (cwd, label) => publication.publishLabel(cwd, label),
+    onName: (cwd, name) => index.publishName(cwd, name),
     onNesting: () => index.publishSnapshotSoon(),
     recordBackground: (name, startedAt) => deps.recordBackground(name, startedAt),
     log: (label, detail) => deps.log(label, detail),

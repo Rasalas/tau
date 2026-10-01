@@ -420,6 +420,15 @@ export class ThreadIndex {
     return update;
   }
 
+  /** Carries a project's name, read after the shells were built, into every shell of that project. */
+  publishName(cwd: string, name: string): void {
+    if (!this.sessions.some((session) => session.projectPath === cwd && session.projectName !== name)) return;
+    this.sessions = this.sessions.map((session) => session.projectPath === cwd ? { ...session, projectName: name } : session);
+    for (const session of this.sessions) {
+      if (session.projectPath === cwd) this.publishShellSoon(session);
+    }
+  }
+
   /** Carries a project's new label into every shell that names that project. */
   publishLabel(cwd: string, label: string | undefined): void {
     const changed = this.sessions.filter((session) => session.projectPath === cwd && session.projectLabel !== label);
