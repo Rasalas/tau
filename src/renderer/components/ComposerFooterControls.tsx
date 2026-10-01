@@ -14,6 +14,8 @@ export interface FooterBlock {
   rank?: number;
   /** Always in the menu, never in the row. */
   menuOnly?: boolean;
+  /** Never folds: counted with the model chip, so the row shrinks the others for it. */
+  pinned?: boolean;
 }
 
 interface Measured extends FooterBlockWidths {
@@ -64,7 +66,7 @@ export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = 
   const hasMenu = Boolean(menu);
   // Fold order: the blocks kept longest first, so the fitter takes them from the end.
   const byFold = useMemo(() => blocks
-    .filter((block) => !block.menuOnly)
+    .filter((block) => !block.menuOnly && !block.pinned)
     .map((block, index) => ({ block, index }))
     .sort((a, b) => (b.block.rank ?? 0) - (a.block.rank ?? 0) || a.index - b.index)
     .map((entry) => entry.block), [blocks]);
@@ -86,7 +88,9 @@ export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = 
     for (const child of element.children) {
       const item = child as HTMLElement;
       const id = item.dataset.composerBlock;
-      if (id !== undefined) {
+      if (id !== undefined && item.dataset.composerPinned !== undefined) {
+        fixed.push(item.getBoundingClientRect().width);
+      } else if (id !== undefined) {
         const width = item.getBoundingClientRect().width;
         const previous = measured.current.get(id);
         // An icon-only block keeps the label width it had; its icon width is what it shows now.
@@ -138,7 +142,7 @@ export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = 
   if (open && !showTrigger) setOpen(false);
   const shortcuts = [...menuShortcuts, ...hiddenBlocks.flatMap((block) => measured.current.get(block.id)?.shortcuts ?? [])];
   const drawn = (block: FooterBlock) => (
-    <span key={block.id} className={`composer-block${block.end ? " end" : ""}`} data-composer-block={block.id} {...(iconOnly.has(block.id) ? { "data-icon-only": "" } : {})}>
+    <span key={block.id} className={`composer-block${block.end ? " end" : ""}`} data-composer-block={block.id} {...(block.pinned ? { "data-composer-pinned": "" } : {})} {...(iconOnly.has(block.id) ? { "data-icon-only": "" } : {})}>
       {block.node}
     </span>
   );

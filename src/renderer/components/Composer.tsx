@@ -834,7 +834,7 @@ export function Composer({
   // Kits' chips fold into the menu first; attach lives there (and in drag and paste).
   const contextPercent = contextUsage ? Math.round(Math.min(100, Math.max(0, contextUsage.percent))) : 0;
   const footerBlocks: FooterBlock[] = [
-    ...(thinkingWords ? [{ id: "reasoning", rank: 3, node: (
+    ...(thinkingWords ? [{ id: "reasoning", pinned: true, node: (
       <button
         ref={thinkingChipRef}
         className="runtime-chip composer-thinking-chip"
