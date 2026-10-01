@@ -1,5 +1,12 @@
-import { clientMessageFingerprint, type AgentRuntimeAdapter, type HostBackendOpenContext, type HostBackendThreadRecord, type HostMachineServices, type HostPushEvent, type HostRuntimeBackendProvider, type HostTranscriptCursor, type PreparedPrompt, type ThreadBackendCapabilities, type ThreadBackendPromptInput, type ThreadBackendPromptResult, type ThreadBackendState, type ThreadCatalogView, type ThreadRuntimeBackend, type ThreadRuntimeEvent, type ThreadTitleSource, type TranscriptPage, type UiComposerCommand, type UiMessage, type UiModel, type UiSession, type UiThreadUsage, type UsageTally } from "tau/host-extension";
-import { machineMethodError } from "./compatibility.js";
+import { clientMessageFingerprint, type AgentRuntimeAdapter, type HostBackendOpenContext, type HostBackendThreadRecord, type HostMachineServices, type HostPushEvent, type HostRuntimeBackendProvider, type HostTranscriptCursor, type PreparedPrompt, type ThreadBackendCapabilities, type ThreadBackendPromptInput, type ThreadBackendPromptResult, type ThreadBackendState, type ThreadCatalogView, type ThreadCatalogWriteCapability, type ThreadRuntimeBackend, type ThreadRuntimeEvent, type ThreadTitleSource, type TranscriptPage, type UiComposerCommand, type UiMessage, type UiModel, type UiPromptImageAttachment, type UiRuntimeCatalog, type UiSession, type UiThreadUsage, type UsageTally } from "tau/host-extension";
+import { machineCommandError, machineMethodError, type MachineOperation } from "./compatibility.js";
+import { ENVIRONMENTS_EXTENSION_ID, THREAD_MODEL_COMMAND, THREAD_RENAME_COMMAND, THREAD_SEND_COMMAND } from "./protocol.js";
+
+/** How long a machine's model list serves a picker before it is asked again. */
+const MODELS_FRESH_MS = 30_000;
+const MODELS_TIMEOUT_MS = 5_000;
+/** A message with images may be large; one piece goes in one frame. */
+const SEND_TIMEOUT_MS = 120_000;
 
 export function machineThreadId(machine: string, sessionId: string): string {
   return `${machine}~${sessionId}`;
@@ -71,7 +78,7 @@ function delivery(input: { delivery?: string; queued?: boolean }): "prompt" | "s
 
 function adapter(machines: HostMachineServices): AgentRuntimeAdapter {
   return {
-    id: "machine", capabilities: { skillInvocationDialect: "pi", ownsModelSelection: true, interactiveApprovals: true },
+    id: "machine", capabilities: { skillInvocationDialect: "pi", ownsModelSelection: false, interactiveApprovals: true },
     transport: {
       sendPrompt: async (input) => {
         const parsed = parseMachineThreadId(input.tauThreadId);
@@ -110,13 +117,15 @@ export function createMachineBackendProvider(machines: HostMachineServices): Hos
 export class MachineThreadBackend implements ThreadRuntimeBackend {
   readonly kind = "machine";
   readonly turnReporting = "streamed";
-  readonly capabilities: ThreadBackendCapabilities = {};
+  readonly capabilities: ThreadBackendCapabilities;
   readonly runtimeAdapter: AgentRuntimeAdapter;
   readonly providerSessionId: string;
   private readonly machine: string;
   private name: string;
   private title?: string;
   private model?: ThreadCatalogView["model"];
+  private known?: { at: number; models: UiModel[] };
+  private modelsPending?: Promise<UiModel[]>;
   private usage?: UiThreadUsage;
   private row?: UiSession;
   private streaming = false;
@@ -139,6 +148,7 @@ export class MachineThreadBackend implements ThreadRuntimeBackend {
     this.machine = parsed.machine;
     this.providerSessionId = parsed.sessionId;
     this.runtimeAdapter = runtimeAdapter;
+    this.capabilities = { catalogWrite: this.catalogWrite() };
     this.name = machines.list().find((entry) => entry.id === this.machine)?.name ?? this.machine;
     this.streaming = machines.running?.(this.machine)?.has(this.providerSessionId) ?? false;
     this.syncRow();
@@ -178,7 +188,29 @@ export class MachineThreadBackend implements ThreadRuntimeBackend {
 
   state(): ThreadBackendState {
     this.syncRow();
-    return { streaming: this.streaming, idle: !this.streaming, hasMessages: this.hasMessages, title: this.title, activeTools: [...this.activeTools], supportsImageInput: false, extensionCount: 0 };
+    return { streaming: this.streaming, idle: !this.streaming, hasMessages: this.hasMessages, title: this.title, activeTools: [...this.activeTools], supportsImageInput: this.takesImages(), extensionCount: 0 };
+  }
+
+  /** The home machine's catalog says whether this thread's model reads images; unknown counts as no. */
+  private takesImages(): boolean {
+    const model = this.model;
+    return model !== undefined && this.known?.models.some((entry) => entry.provider === model.provider && entry.id === model.id && entry.images === true) === true;
+  }
+
+  private async command<T>(command: string, input: unknown, operation: MachineOperation, timeoutMs?: number): Promise<T> {
+    if (this.machines.list().find((entry) => entry.id === this.machine)?.status !== "connected") throw new Error(`${this.name} is not reachable right now.`);
+    try { return await this.machines.call(this.machine, ENVIRONMENTS_EXTENSION_ID, command, input, timeoutMs ? { timeoutMs } : undefined) as T; }
+    catch (error) { throw machineCommandError(error, this.name, command, operation); }
+  }
+
+  private catalogWrite(): ThreadCatalogWriteCapability {
+    return {
+      setModel: async (provider, id) => {
+        await this.command(THREAD_MODEL_COMMAND, { sessionId: this.providerSessionId, provider, id }, "change models from here");
+        this.model = { provider, id, name: this.known?.models.find((entry) => entry.provider === provider && entry.id === id)?.name ?? id };
+      },
+      setThinkingLevel: async () => { throw new Error(`The thinking level of a thread on ${this.name} cannot be changed from here yet.`); },
+    };
   }
 
   catalogView(): ThreadCatalogView {
@@ -196,9 +228,12 @@ export class MachineThreadBackend implements ThreadRuntimeBackend {
 
   async prompt(input: ThreadBackendPromptInput): Promise<ThreadBackendPromptResult> {
     this.syncRow();
-    if (input.attachments?.length) throw new Error(`Attachments cannot go to ${this.name} yet.`);
+    const attachments = input.attachments ?? [];
+    const images = attachments.filter((attachment): attachment is UiPromptImageAttachment => attachment.kind === "image");
+    if (images.length !== attachments.length) throw new Error(`Files stay on this computer; ${this.name} takes images only. Embed the file in the message.`);
     if (this.machines.list().find((entry) => entry.id === this.machine)?.status !== "connected") throw new Error(`${this.name} is not reachable right now.`);
-    try { await this.machines.request(this.machine, "send-to-thread", [this.providerSessionId, input.text, delivery(input)]); }
+    if (images.length) await this.command(THREAD_SEND_COMMAND, { sessionId: this.providerSessionId, text: input.text, delivery: delivery(input), attachments: images }, "take images from here", SEND_TIMEOUT_MS);
+    else try { await this.machines.request(this.machine, "send-to-thread", [this.providerSessionId, input.text, delivery(input)]); }
     catch (error) { throw machineMethodError(error, this.name, "take messages from here"); }
     input.onAdmitted?.(true);
     return {};
@@ -316,7 +351,26 @@ export class MachineThreadBackend implements ThreadRuntimeBackend {
   }
 
   async persist(_messages: readonly UiMessage[]): Promise<void> {}
-  async setTitle(_title: string, _source: ThreadTitleSource): Promise<void> {}
-  async models(): Promise<UiModel[]> { return []; }
+  /** Only the user's own rename goes to the home machine, which names its threads itself. */
+  async setTitle(title: string, source: ThreadTitleSource): Promise<void> {
+    if (source !== "renamed") return;
+    await this.command(THREAD_RENAME_COMMAND, { sessionId: this.providerSessionId, title }, "rename threads from here");
+    this.title = title;
+  }
+
+  /** The models the home machine offers; a failed or slow answer keeps the last list. */
+  async models(): Promise<UiModel[]> {
+    if (this.known && Date.now() - this.known.at < MODELS_FRESH_MS) return this.known.models;
+    this.modelsPending ??= (async () => {
+      let models = this.known?.models ?? [];
+      try {
+        const catalog = await this.machines.request(this.machine, "runtime-catalog", [this.row?.backendKind ?? "pi"], { timeoutMs: MODELS_TIMEOUT_MS }) as UiRuntimeCatalog | undefined;
+        models = catalog?.models ?? [];
+      } catch { /* the picker keeps what it had */ }
+      this.known = { at: Date.now(), models };
+      return models;
+    })().finally(() => { this.modelsPending = undefined; });
+    return this.modelsPending;
+  }
   composerCommands(): UiComposerCommand[] { return []; }
 }

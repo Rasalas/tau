@@ -42,13 +42,15 @@ async function fixture() {
     id: "t1~saved", path: "/remote/session.jsonl", title: "Rex work", modifiedAt: 1,
     projectPath: join(root, "nonexistent", "x"), projectName: "x", messageCount: 2, backendKind: "codex", modelProvider: "openai", model: "gpt-test",
   };
+  const catalog = { kind: "codex", models: [{ provider: "openai", id: "gpt-test", name: "GPT Test", images: true }, { provider: "openai", id: "gpt-small", name: "GPT Small" }], thinkingLevels: {} };
   const request = vi.fn(async (_machine: string, method: string) => {
+    if (method === "runtime-catalog") return catalog;
     if (method !== "transcript-page") throw new Error(`Unexpected remote call ${method}`);
     return { sessionId: remote.id, messages: [{ id: "u", role: "user", text: "hello", timestamp: 1 }, { id: "a", role: "assistant", text: "ready", timestamp: 2 }], hasMore: false };
   });
   const machines: HostMachineServices = {
     self: { id: "here", name: "here", version: "1" }, list: () => [machine], subscribe: () => () => undefined,
-    call: vi.fn(), request, watch: () => () => undefined, upload: vi.fn(),
+    call: vi.fn(async () => undefined), request, watch: () => () => undefined, upload: vi.fn(),
     index: () => ({ projects: [], sessions: [remote] }), running: () => new Set(), subscribeIndex: () => () => undefined,
     followThread: vi.fn(() => () => undefined),
   };
@@ -94,7 +96,7 @@ describe("machine provider in the real host", () => {
     expect(switched.updates).toContainEqual(expect.objectContaining({ type: "thread-detail", detail: expect.objectContaining({ sessionId: f.proxyId, providerSessionId: f.remote.id, backendKind: "machine" }) }));
     expect((await first.host.snapshot()).messages.map((message) => message.text)).toEqual(["hello", "ready"]);
     expect(f.machines.followThread).toHaveBeenCalledWith(f.machine.id, f.remote.id, expect.any(Function));
-    expect([...new Set(f.request.mock.calls.map((call) => call[1]))]).toEqual(["transcript-page"]);
+    expect([...new Set(f.request.mock.calls.map((call) => call[1]))].sort()).toEqual(["runtime-catalog", "transcript-page"]);
     expect(existsSync(f.remote.projectPath)).toBe(false);
     expect(existsSync(join(f.remote.projectPath, ".."))).toBe(false);
     await first.dispose();
@@ -103,7 +105,29 @@ describe("machine provider in the real host", () => {
     expect((await second.host.bootstrap()).threadIndex.sessions).toContainEqual(expect.objectContaining({ id: f.proxyId, path, machine: expect.objectContaining({ name: "rex" }) }));
     await second.host.switchSession(path);
     expect((await second.host.snapshot()).messages.map((message) => message.text)).toEqual(["hello", "ready"]);
-    expect([...new Set(f.request.mock.calls.map((call) => call[1]))]).toEqual(["transcript-page"]);
+    expect([...new Set(f.request.mock.calls.map((call) => call[1]))].sort()).toEqual(["runtime-catalog", "transcript-page"]);
     expect(existsSync(f.remote.projectPath)).toBe(false);
+  });
+
+  it("renames, attaches an image and changes the model through the home machine", async () => {
+    const f = await fixture();
+    const { host } = await f.open();
+    await host.switchSession(externalThreadPath("machine", f.proxyId));
+    const bootstrap = await host.bootstrap();
+    expect(bootstrap.catalog.models.map((model) => model.id)).toEqual(["gpt-test", "gpt-small"]);
+    expect(bootstrap.catalog.supportsImageInput).toBe(true);
+    const home = (command: string, input: unknown) => [f.machine.id, "tau.environments", command, input, undefined];
+    await host.renameThread("Better name", f.proxyId);
+    expect(f.machines.call).toHaveBeenLastCalledWith(...home("thread-rename", { sessionId: f.remote.id, title: "Better name" }));
+    expect((await host.bootstrap()).threadIndex.sessions).toContainEqual(expect.objectContaining({ id: f.proxyId, title: "Better name" }));
+    await host.setModel("openai", "gpt-small");
+    expect(f.machines.call).toHaveBeenLastCalledWith(...home("thread-model", { sessionId: f.remote.id, provider: "openai", id: "gpt-small" }));
+    expect((await host.snapshot()).model).toMatchObject({ id: "gpt-small" });
+    await host.setModel("openai", "gpt-test");
+    const image = { kind: "image" as const, name: "x.png", mimeType: "image/png", data: "AA==", size: 1 };
+    await host.prompt("look", [image], f.proxyId);
+    expect(f.machines.call).toHaveBeenLastCalledWith(f.machine.id, "tau.environments", "thread-send", { sessionId: f.remote.id, text: "look", delivery: "prompt", attachments: [image] }, { timeoutMs: 120_000 });
+    await host.setModel("openai", "gpt-small");
+    await expect(host.prompt("again", [image], f.proxyId)).rejects.toThrow("The active model does not support image input.");
   });
 });

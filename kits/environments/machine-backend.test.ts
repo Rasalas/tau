@@ -122,6 +122,111 @@ describe("machine runtime event translation", () => {
   it("ignores unrelated pushes", () => expect(toRuntimeEvents({ type: "event-log", sessionId: "t1", timestamp: 1, label: "ignored" })).toEqual([]));
 });
 
+const image = { kind: "image", data: "AA==", size: 1, mimeType: "image/png", name: "x.png" } as const;
+
+describe("a machine thread's home takes its renames, images and model changes", () => {
+  it("sends images as content to the home machine's kit and never as a path", async () => {
+    const f = fixture();
+    const backend = await f.open();
+    await backend.prompt({ text: "look", delivery: "steer", attachments: [image] });
+    expect(f.services.call).toHaveBeenCalledWith(rex.id, "tau.environments", "thread-send", { sessionId: "t1", text: "look", delivery: "steer", attachments: [image] }, { timeoutMs: 120_000 });
+    expect(f.services.request).not.toHaveBeenCalledWith(rex.id, "send-to-thread", expect.anything());
+  });
+
+  it.each([
+    ["unknown-command", undefined],
+    ["unknown-extension", undefined],
+    ["failed", 'Host extension Machines has no command "thread-send".'],
+  ])("asks to update a machine without the command (%s)", async (code, text) => {
+    const f = fixture();
+    const backend = await f.open();
+    const error = Object.assign(new Error(text ?? "missing"), { code });
+    f.services.call = vi.fn(async () => { throw error; });
+    await expect(backend.prompt({ text: "x", delivery: "prompt", attachments: [image] })).rejects.toMatchObject({
+      message: "rex runs an older Tau that cannot take images from here yet. Update rex in Settings → Machines.", code, cause: error,
+    });
+  });
+
+  it("keeps other failures of the home machine unchanged", async () => {
+    const f = fixture();
+    const backend = await f.open();
+    const error = Object.assign(new Error("Read only"), { code: "forbidden" });
+    f.services.call = vi.fn(async () => { throw error; });
+    await expect(backend.prompt({ text: "x", delivery: "prompt", attachments: [image] })).rejects.toBe(error);
+    await expect(backend.setTitle("Name", "renamed")).rejects.toBe(error);
+  });
+
+  it("renames on the home machine and shows the title at once; other sources stay local", async () => {
+    const f = fixture();
+    const backend = await f.open();
+    await backend.setTitle("Generated", "generated");
+    await backend.setTitle("Derived", "derived");
+    expect(f.services.call).not.toHaveBeenCalled();
+    await backend.setTitle("Better name", "renamed");
+    expect(f.services.call).toHaveBeenCalledExactlyOnceWith(rex.id, "tau.environments", "thread-rename", { sessionId: "t1", title: "Better name" }, undefined);
+    expect(backend.state().title).toBe("Better name");
+  });
+
+  it("does not rename while the machine is unreachable", async () => {
+    const f = fixture();
+    const backend = await f.open();
+    f.setMachines([{ ...rex, status: "offline" }]);
+    await expect(backend.setTitle("Name", "renamed")).rejects.toThrow("rex is not reachable right now.");
+    expect(backend.state().title).toBe("Remote work");
+  });
+
+  it("lists the home machine's models for the thread's runtime and keeps them for a while", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const gpt = { provider: "openai", id: "gpt-test", name: "GPT Test", images: true };
+    const small = { provider: "openai", id: "gpt-small", name: "GPT Small" };
+    f.services.request = vi.fn(async (_machine, method) => method === "runtime-catalog" ? { kind: "codex", models: [gpt, small], thinkingLevels: {} } : page());
+    const backend = await f.open();
+    expect(backend.state().supportsImageInput).toBe(false);
+    expect(await backend.models()).toEqual([gpt, small]);
+    expect(f.services.request).toHaveBeenCalledWith(rex.id, "runtime-catalog", ["codex"], { timeoutMs: 5000 });
+    expect(backend.state().supportsImageInput).toBe(true);
+    await backend.models();
+    expect(vi.mocked(f.services.request).mock.calls.filter(([, method]) => method === "runtime-catalog")).toHaveLength(1);
+    vi.setSystemTime(Date.now() + 31_000);
+    await backend.models();
+    expect(vi.mocked(f.services.request).mock.calls.filter(([, method]) => method === "runtime-catalog")).toHaveLength(2);
+  });
+
+  it("serves the last model list when the machine does not answer", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const gpt = { provider: "openai", id: "gpt-test", name: "GPT Test" };
+    const backend = await f.open();
+    f.services.request = vi.fn(async () => ({ kind: "codex", models: [gpt], thinkingLevels: {} }));
+    expect(await backend.models()).toEqual([gpt]);
+    f.services.request = vi.fn(async () => { throw new Error("offline"); });
+    vi.setSystemTime(Date.now() + 31_000);
+    expect(await backend.models()).toEqual([gpt]);
+  });
+
+  it("changes the model on the home machine, not in a local session", async () => {
+    const f = fixture();
+    f.services.request = vi.fn(async (_machine, method) => method === "runtime-catalog" ? { kind: "codex", models: [{ provider: "openai", id: "gpt-small", name: "GPT Small", images: true }], thinkingLevels: {} } : page());
+    const backend = await f.open();
+    await backend.models();
+    await backend.capabilities.catalogWrite!.setModel("openai", "gpt-small");
+    expect(f.services.call).toHaveBeenCalledExactlyOnceWith(rex.id, "tau.environments", "thread-model", { sessionId: "t1", provider: "openai", id: "gpt-small" }, undefined);
+    expect(backend.catalogView().model).toEqual({ provider: "openai", id: "gpt-small", name: "GPT Small" });
+    expect(backend.state().supportsImageInput).toBe(true);
+    await expect(backend.capabilities.catalogWrite!.setThinkingLevel("high")).rejects.toThrow("cannot be changed from here yet");
+  });
+
+  it("keeps the model when the home machine refuses", async () => {
+    const f = fixture();
+    const backend = await f.open();
+    const error = Object.assign(new Error("Unknown"), { code: "unknown-command" });
+    f.services.call = vi.fn(async () => { throw error; });
+    await expect(backend.capabilities.catalogWrite!.setModel("openai", "gpt-small")).rejects.toThrow("rex runs an older Tau that cannot change models from here yet.");
+    expect(backend.catalogView().model).toEqual({ provider: "openai", id: "gpt-test", name: "gpt-test" });
+  });
+});
+
 describe("a followed machine thread", () => {
   it("starts from the newest transcript and pages backwards in order", async () => {
     const f = fixture();
@@ -133,7 +238,7 @@ describe("a followed machine thread", () => {
     expect(f.services.request).toHaveBeenCalledWith(rex.id, "transcript-page", ["t1", cursor]);
     expect(backend.state()).toMatchObject({ streaming: false, idle: true, title: "Remote work", hasMessages: true });
     expect(backend.catalogView().model).toEqual({ provider: "openai", id: "gpt-test", name: "gpt-test" });
-    expect(backend.capabilities).toEqual({});
+    expect(Object.keys(backend.capabilities)).toEqual(["catalogWrite"]);
     await backend.dispose();
     expect(f.stop).toHaveBeenCalledOnce();
   });
@@ -160,10 +265,11 @@ describe("a followed machine thread", () => {
     expect(await backend.preparePrompt("  hello\n")).toMatchObject({ tauThreadId: backend.threadId, providerSessionId: "t1", visibleText: "  hello\n", runtimeText: "  hello\n", backendKind: "machine" });
   });
 
-  it("refuses attachments and unreachable machines while preserving the last state", async () => {
+  it("refuses files, and unreachable machines, while preserving the last state", async () => {
     const f = fixture();
     const backend = await f.open();
-    await expect(backend.prompt({ text: "x", delivery: "prompt", attachments: [{ kind: "image", data: "AA==", size: 1, mimeType: "image/png", name: "x" }] })).rejects.toThrow("Attachments cannot go to rex yet.");
+    await expect(backend.prompt({ text: "x", delivery: "prompt", attachments: [{ kind: "file", path: "/Users/me/secret.txt", size: 1, mimeType: "text/plain", name: "secret.txt" }] })).rejects.toThrow("Files stay on this computer; rex takes images only.");
+    expect(f.services.call).not.toHaveBeenCalled();
     f.setMachines([{ ...rex, status: "offline" }]);
     const before = backend.state();
     await expect(backend.prompt({ text: "x", delivery: "prompt" })).rejects.toThrow("rex is not reachable right now.");
