@@ -36,8 +36,8 @@ export interface PullRequestCommentInput {
 export interface PullRequestClient {
   view(url: string, fresh?: boolean): Promise<PullRequestDetail>;
   checks(url: string): Promise<PullRequestCheck[]>;
-  /** The workflow files and usual durations of the checks' runs. */
-  pipeline(url: string, runs: readonly string[]): Promise<PipelineFacts>;
+  /** The workflow files and usual durations of the checks' runs; with `names` (run id → workflow), the files on the default branch. */
+  pipeline(url: string, runs: readonly string[], names?: Record<string, string>): Promise<PipelineFacts>;
   threads(url: string, fresh?: boolean): Promise<PullRequestThread[]>;
   files(url: string, fresh?: boolean): Promise<PullRequestFiles>;
   comment(url: string, input: PullRequestCommentInput): Promise<void>;
@@ -69,7 +69,7 @@ export function pullRequestClient(host: HostExtensionClient): PullRequestClient 
   return {
     view: (url, fresh) => host.invoke("pr-view", { url, ...read(fresh) }) as Promise<PullRequestDetail>,
     checks: (url) => host.invoke("pr-checks", { url }) as Promise<PullRequestCheck[]>,
-    pipeline: (url, runs) => host.invoke("pr-pipeline", { url, runs }) as Promise<PipelineFacts>,
+    pipeline: (url, runs, names) => host.invoke("pr-pipeline", { url, runs, ...(names ? { names } : {}) }) as Promise<PipelineFacts>,
     threads: (url, fresh) => host.invoke("pr-comments", { url, ...read(fresh) }) as Promise<PullRequestThread[]>,
     files: (url, fresh) => host.invoke("pr-files", { url, ...read(fresh) }) as Promise<PullRequestFiles>,
     comment: async (url, input) => { await host.invoke("pr-comment", { url, ...input }); },

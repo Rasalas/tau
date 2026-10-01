@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { ChevronDown, ChevronRight, Pencil, X } from "lucide-react";
 import { errorMessage, Markdown, type WorkbenchActions } from "tau";
 import type { PullRequestCheck, PullRequestComment, PullRequestDetail, PullRequestReviewer, PullRequestThread, ReviewCommentChip } from "./protocol.js";
@@ -25,10 +25,10 @@ interface Entry {
   thread?: PullRequestThread;
 }
 
-function Section({ title, aside, defaultOpen = true, children }: { title: string; aside?: ReactNode; defaultOpen?: boolean; children: ReactNode }) {
+function Section({ title, aside, defaultOpen = true, anchor, children }: { title: string; aside?: ReactNode; defaultOpen?: boolean; anchor?: RefObject<HTMLElement | null>; children: ReactNode }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <section className="pr-section">
+    <section className="pr-section" ref={anchor}>
       <header>
         <button className="pr-section-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -59,7 +59,7 @@ function Group({ label, children }: { label: string; children: ReactNode }) {
  * description, the checks, then every comment — active ones windowed, bots
  * and finished conversations folded away.
  */
-export function PullRequestSummary({ detail, checks, threads, threadsError, actions, onSend, onSaveBody, onRetry, onOpenPath, canEdit, onEdit, onReviewers, onLabels, showChecks = true, candidates, client }: {
+export function PullRequestSummary({ detail, checks, threads, threadsError, actions, onSend, onSaveBody, onRetry, onOpenPath, canEdit, onEdit, onReviewers, onLabels, showChecks = true, focusChecks = 0, candidates, client }: {
   detail: PullRequestDetail;
   checks: readonly PullRequestCheck[];
   threads: readonly PullRequestThread[];
@@ -76,6 +76,8 @@ export function PullRequestSummary({ detail, checks, threads, threadsError, acti
   onLabels?: ((change: { add?: string[]; remove?: string[] }) => Promise<void>) | undefined;
   /** False where the provider reports no checks. */
   showChecks?: boolean;
+  /** Set to a new time to open the checks and scroll to them. */
+  focusChecks?: number;
   candidates(): Promise<{ labels: Array<{ name: string }>; reviewers: string[] }>;
   /** Reads the checks' workflow files and usual durations. */
   client?: PullRequestClient;
@@ -86,6 +88,8 @@ export function PullRequestSummary({ detail, checks, threads, threadsError, acti
   const [newestFirst, setNewestFirst] = useState(true);
   const [shown, setShown] = useState(WINDOW);
   const rollup = checksRollup(checks);
+  const checksAnchor = useRef<HTMLElement>(null);
+  useEffect(() => { if (focusChecks) checksAnchor.current?.scrollIntoView({ block: "start" }); }, [focusChecks]);
 
   const { active, bots, finished } = useMemo(() => {
     const entries: Entry[] = [
@@ -151,7 +155,7 @@ export function PullRequestSummary({ detail, checks, threads, threadsError, acti
       </Section>
 
       {showChecks ? (
-        <Section title="Checks" defaultOpen={rollup === "failing"} aside={<span className="pr-section-note">{rollup ? <RollupIcon rollup={rollup} /> : null}{checksSummary(checks)}</span>}>
+        <Section key={focusChecks} anchor={checksAnchor} title="Checks" defaultOpen={Boolean(focusChecks) || rollup === "failing"} aside={<span className="pr-section-note">{rollup ? <RollupIcon rollup={rollup} /> : null}{checksSummary(checks)}</span>}>
           <ChecksPipeline client={client} url={detail.ref.url} checks={checks} actions={actions} />
         </Section>
       ) : null}

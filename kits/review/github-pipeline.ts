@@ -51,36 +51,49 @@ export function usualDurations(jobLists: readonly unknown[]): Record<string, num
  * usual duration of each job, the median of the last successful runs of the
  * same workflow on the default branch. Everything is cached; a run's file
  * never changes, the durations are read again after a few hours.
+ * With `names` (run id → workflow) the files come from the default branch: a list costs a few reads per repository.
  */
-export function createGitHubPipelines(tools: ProviderTools): (ref: PullRequestRef, runIds: readonly string[]) => Promise<PipelineFacts> {
+export function createGitHubPipelines(tools: ProviderTools): (ref: PullRequestRef, runIds: readonly string[], names?: Record<string, string>) => Promise<PipelineFacts> {
   const runs = memo<RunMeta>(tools.now);
   const files = memo<WorkflowJob[]>(tools.now);
   const branches = memo<string>(tools.now, HISTORY_TTL_MS);
   const history = memo<Record<string, number>>(tools.now, HISTORY_TTL_MS);
+  const workflows = memo<Json[]>(tools.now, HISTORY_TTL_MS);
+  const heads = memo<WorkflowJob[]>(tools.now, HISTORY_TTL_MS);
 
-  return async (ref, runIds) => {
+  return async (ref, runIds, names) => {
     const api = async (path: string, action: string, maxBuffer?: number): Promise<Json> =>
       record(JSON.parse(await tools.cli("github", { args: ["api", "--hostname", ref.host, `repos/${ref.repo}/${path}`] }, action, { host: ref.host, ...(maxBuffer ? { maxBuffer } : {}) })));
     const repo = `${ref.host}/${ref.repo}`;
     const branch = () => branches(repo, async () => text(record(JSON.parse(await tools.cli("github", { args: ["api", "--hostname", ref.host, `repos/${ref.repo}`] }, "Reading the repository", { host: ref.host }))).default_branch) ?? "main");
 
+    const file = (path: string, at: string, cache = files) => path && at ? cache(`${repo}@${at}:${path}`, async () => {
+      const raw = await api(`contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(at)}`, "Reading a workflow file");
+      return workflowJobs(Buffer.from(text(raw.content) ?? "", "base64").toString("utf8"));
+    }).catch(() => undefined) : undefined;
+    const usual = async (workflowId: string): Promise<Record<string, number>> => workflowId ? history(`${repo}:${workflowId}`, async () => {
+      const listed = await api(`actions/workflows/${workflowId}/runs?branch=${encodeURIComponent(await branch())}&status=success&exclude_pull_requests=true&per_page=${HISTORY_RUNS}`, "Reading earlier workflow runs");
+      const ids = rows(listed.workflow_runs).map((entry) => entry.id).filter((value) => typeof value === "number").slice(0, HISTORY_RUNS);
+      return usualDurations(await Promise.all(ids.map((past) => api(`actions/runs/${past}/jobs?per_page=100`, "Reading earlier jobs", JOBS_BUFFER))));
+    }).catch(() => ({})) : {};
+    const answer = async (jobs: Promise<WorkflowJob[] | undefined> | undefined, durations: Promise<Record<string, number>>): Promise<RunFacts> => {
+      const [declared, expected] = await Promise.all([jobs, durations]);
+      return { ...(declared?.length ? { jobs: declared } : {}), expected };
+    };
+
     const facts = async (id: string): Promise<RunFacts> => {
+      const name = names?.[id];
+      if (name) {
+        const all = await workflows(repo, async () => rows((await api("actions/workflows?per_page=100", "Reading the workflows")).workflows));
+        const found = all.find((entry) => entry.name === name);
+        if (!found) throw new Error(`No workflow named ${name}`);
+        return answer(file(text(found.path) ?? "", await branch(), heads), usual(String(found.id ?? "")));
+      }
       const run = await runs(`${repo}#${id}`, async () => {
         const raw = await api(`actions/runs/${id}`, "Reading a workflow run");
         return { workflowId: String(raw.workflow_id ?? ""), path: text(raw.path)?.split("@")[0] ?? "", sha: text(raw.head_sha) ?? "" };
       });
-      const [jobs, expected] = await Promise.all([
-        run.path && run.sha ? files(`${repo}@${run.sha}:${run.path}`, async () => {
-          const raw = await api(`contents/${run.path.split("/").map(encodeURIComponent).join("/")}?ref=${run.sha}`, "Reading a workflow file");
-          return workflowJobs(Buffer.from(text(raw.content) ?? "", "base64").toString("utf8"));
-        }).catch(() => undefined) : undefined,
-        run.workflowId ? history(`${repo}:${run.workflowId}`, async () => {
-          const listed = await api(`actions/workflows/${run.workflowId}/runs?branch=${encodeURIComponent(await branch())}&status=success&exclude_pull_requests=true&per_page=${HISTORY_RUNS}`, "Reading earlier workflow runs");
-          const ids = rows(listed.workflow_runs).map((entry) => entry.id).filter((value) => typeof value === "number").slice(0, HISTORY_RUNS);
-          return usualDurations(await Promise.all(ids.map((past) => api(`actions/runs/${past}/jobs?per_page=100`, "Reading earlier jobs", JOBS_BUFFER))));
-        }).catch(() => ({})) : {},
-      ]);
-      return { ...(jobs?.length ? { jobs } : {}), expected };
+      return answer(file(run.path, run.sha), usual(run.workflowId));
     };
 
     const ids = [...new Set(runIds)].filter((id) => /^\d+$/u.test(id)).slice(0, MAX_RUNS);

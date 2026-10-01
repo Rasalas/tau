@@ -1,10 +1,11 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useState, type MouseEvent } from "react";
+import { createPortal } from "react-dom";
 import { Ban, Check, ChevronsRight, Clock, ExternalLink, Pause, X } from "lucide-react";
-import { tooltipProps, type WorkbenchActions } from "tau";
+import { Sheet, tooltipProps, type WorkbenchActions } from "tau";
 import { useCompactProfile } from "./compact-profile.js";
 import type { PullRequestCheck } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
-import { checksPipelines, isActive, jobProgress, jobTiming, pipelinesProgress, runIdOf, type JobState, type Pipeline, type PipelineFacts, type PipelineJob } from "./pipeline.js";
+import { checksPipelines, isActive, jobProgress, jobTiming, runIdOf, stageProgress, stageState, STATE_WORDS, type JobState, type Pipeline, type PipelineFacts, type PipelineJob } from "./pipeline.js";
 
 /** A clock that ticks only while something runs. */
 export function useNow(active: boolean): number {
@@ -18,24 +19,27 @@ export function useNow(active: boolean): number {
   return now;
 }
 
-/** The facts of the checks' workflow runs, asked again only when the set of runs changes; the host caches them. */
-export function usePipelineFacts(client: PullRequestClient | undefined, url: string, checks: readonly PullRequestCheck[]): PipelineFacts | undefined {
-  const key = [...new Set(checks.map((check) => runIdOf(check.url)).filter(Boolean))].sort().join(",");
+/** The facts of the checks' workflow runs, asked again only when the set of runs changes; the host caches them.
+ * `byName` reads the files on the default branch by workflow name, which a list's rows share. */
+export function usePipelineFacts(client: PullRequestClient | undefined, url: string, checks: readonly PullRequestCheck[], byName = false): PipelineFacts | undefined {
+  const key = JSON.stringify([...new Map(checks.flatMap((check) => { const id = runIdOf(check.url); return id ? [[id, check.workflow ?? ""] as const] : []; }))].sort());
   const [facts, setFacts] = useState<PipelineFacts>();
   useEffect(() => {
-    if (!key || !client) return;
+    const runs = JSON.parse(key) as Array<[string, string]>;
+    if (!runs.length || !client) return;
     let live = true;
-    Promise.resolve().then(() => client.pipeline(url, key.split(","))).then((found) => { if (live) setFacts(found ?? {}); }, () => undefined);
+    const ids = runs.map(([id]) => id);
+    Promise.resolve().then(() => byName ? client.pipeline(url, ids, Object.fromEntries(runs)) : client.pipeline(url, ids))
+      .then((found) => { if (live) setFacts(found ?? {}); }, () => undefined);
     return () => { live = false; };
-  }, [client, url, key]);
+  }, [client, url, key, byName]);
   return facts;
 }
 
 const ICONS: Partial<Record<JobState, typeof Check>> = { passed: Check, failed: X, cancelled: Ban, skipped: ChevronsRight, queued: Clock, waiting: Pause };
 
 /** A job's circle: its state as an icon; while it runs, a wedge that fills with the time it usually takes, or a spinning arc without one. */
-export function JobCircle({ job, now, size = 22 }: { job: Pick<PipelineJob, "state" | "startedAt" | "expectedMs">; now: number; size?: number }) {
-  const progress = jobProgress({ name: "", ...job }, now);
+export function JobCircle({ job, now, size = 22, progress = jobProgress({ name: "", ...job }, now) }: { job: Pick<PipelineJob, "state" | "startedAt" | "expectedMs">; now: number; size?: number; progress?: number | undefined }) {
   const Icon = ICONS[job.state];
   const middle = size / 2;
   const ring = middle - 1;
@@ -118,21 +122,75 @@ export function PipelineGraph({ pipelines, actions, empty = "No checks reported.
   );
 }
 
-/** The thread's PR chip: one ring that fills with every job's progress, and how many are done. */
-export function PipelineRing({ pipelines, size = 14 }: { pipelines: readonly Pipeline[]; size?: number }) {
-  const now = useNow(true);
-  const { fraction, done, total } = pipelinesProgress(pipelines, now);
-  const middle = size / 2;
-  const ring = middle - 1.25;
-  const turn = 2 * Math.PI * ring;
+/** Circles a mini pipeline draws at most; later workflows fold into "+N". */
+const MINI_MAX = 7;
+
+function StageJobs({ jobs, now }: { jobs: readonly PipelineJob[]; now: number }) {
   return (
-    <span className="pl-chip" {...tooltipProps(`Checks: ${done} of ${total} done`)}>
-      <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} aria-hidden="true">
-        <circle className="pl-ring" cx={middle} cy={middle} r={ring} />
-        <circle className="pl-fill" cx={middle} cy={middle} r={ring} strokeDasharray={`${turn * fraction} ${turn}`} transform={`rotate(-90 ${middle} ${middle})`} />
-      </svg>
-      <span>{done}/{total}</span>
-    </span>
+    <ul className="plm-jobs">
+      {/* The circle says the state; the line only the time. */}
+      {jobs.map((job) => <li key={job.name}><JobCircle job={job} now={now} size={16} /><span className="pl-name">{job.name}</span><span>{jobTiming(job, now).replace(/^[^·]*· /u, "")}</span></li>)}
+    </ul>
+  );
+}
+
+interface Hovered { pipeline: Pipeline; stage: number; at: DOMRect }
+
+/** A stage's jobs beside its circle, kept inside the window; it never takes the focus. */
+function StageCard({ shown: { pipeline, stage, at }, now }: { shown: Hovered; now: number }) {
+  const below = at.bottom + 260 < window.innerHeight;
+  const style = { left: Math.max(8, Math.min(at.left - 12, window.innerWidth - 388)), ...(below ? { top: at.bottom + 6 } : { top: "auto", bottom: window.innerHeight - at.top + 6 }) };
+  return createPortal(
+    <div className="popover plm-card" role="tooltip" style={style}>
+      <header><strong>{pipeline.name}</strong>{pipeline.stages.length > 1 ? <span>Stage {stage + 1} of {pipeline.stages.length}</span> : null}</header>
+      <StageJobs jobs={pipeline.stages[stage]!} now={now} />
+    </div>,
+    document.body,
+  );
+}
+
+/** Checks in one row as GitLab draws them on a merge request: a circle per stage, its jobs on hover, the pipeline on a click.
+ * On a phone the row is one 44 px target with a sheet; `nested` (inside a row's button) draws no button of its own. */
+export function PipelineMini({ pipelines, onOpen, nested = false, size = 18 }: { pipelines: readonly Pipeline[]; onOpen?: () => void; nested?: boolean; size?: number }) {
+  const phone = useCompactProfile();
+  const now = useNow(pipelines.some((pipeline) => pipeline.stages.some((stage) => stage.some(isActive))));
+  const [shown, setShown] = useState<Hovered>();
+  const [sheet, setSheet] = useState(false);
+  let room = MINI_MAX;
+  const kept = pipelines.filter((pipeline, index) => (room -= pipeline.stages.length) >= 0 || index === 0);
+  const rest = pipelines.slice(kept.length);
+  if (!pipelines.length) return null;
+  const label = `Checks: ${pipelines.map((pipeline) => `${pipeline.name} ${pipeline.stages.map((stage) => STATE_WORDS[stageState(stage)].toLowerCase()).join(", ")}`).join("; ")}`;
+  const circles = (
+    <>
+      {kept.map((pipeline) => (
+        <span key={pipeline.name} className="plm-run">
+          {pipeline.stages.map((stage, index) => (
+            <span key={index} className="plm-stage" data-state={stageState(stage)}
+              onPointerEnter={phone ? undefined : (event) => setShown({ pipeline, stage: index, at: event.currentTarget.getBoundingClientRect() })}>
+              <JobCircle job={{ state: stageState(stage) }} progress={stageProgress(stage, now)} now={now} size={size} />
+            </span>
+          ))}
+        </span>
+      ))}
+      {rest.length ? <span className="plm-more" {...tooltipProps(rest.map((pipeline) => pipeline.name).join("\n"), { variant: "lines" })}>+{rest.length}</span> : null}
+      {shown && !phone ? <StageCard shown={shown} now={now} /> : null}
+    </>
+  );
+  const leave = () => setShown(undefined);
+  const open = (event: MouseEvent) => { event.stopPropagation(); event.preventDefault(); leave(); onOpen?.(); };
+  return (
+    <>
+      {nested
+        ? <span className="plm" role="img" aria-label={label} onPointerLeave={leave} onClick={onOpen && !phone ? open : undefined}>{circles}</span>
+        : <button type="button" className={`plm${phone ? " phone" : ""}`} aria-label={label} onPointerLeave={leave} onClick={phone ? () => setSheet(true) : open}>{circles}</button>}
+      {sheet ? (
+        <Sheet title="Checks" className="plm-sheet" onClose={() => setSheet(false)}>
+          {pipelines.map((pipeline) => <section key={pipeline.name}><h3>{pipeline.name}</h3>{pipeline.stages.map((stage, index) => <StageJobs key={index} jobs={stage} now={now} />)}</section>)}
+          {onOpen ? <button type="button" className="plm-all" onClick={() => { setSheet(false); onOpen(); }}>Show the pipeline</button> : null}
+        </Sheet>
+      ) : null}
+    </>
   );
 }
 
@@ -140,4 +198,10 @@ export function PipelineRing({ pipelines, size = 14 }: { pipelines: readonly Pip
 export function ChecksPipeline({ client, url, checks, actions }: { client: PullRequestClient | undefined; url: string; checks: readonly PullRequestCheck[]; actions: WorkbenchActions }) {
   const facts = usePipelineFacts(client, url, checks);
   return <PipelineGraph pipelines={checksPipelines(checks, facts)} actions={actions} />;
+}
+
+/** A request's checks in one row; `byName` for a list's rows (see `usePipelineFacts`). */
+export function ChecksMini({ client, url, checks, byName = false, ...rest }: { client: PullRequestClient | undefined; url: string; checks: readonly PullRequestCheck[]; byName?: boolean; onOpen?: () => void; nested?: boolean; size?: number }) {
+  const facts = usePipelineFacts(client, url, checks, byName);
+  return <PipelineMini pipelines={checksPipelines(checks, facts)} {...rest} />;
 }

@@ -174,36 +174,54 @@ describe("the checks on the chip", () => {
     { name: "e2e", status: "pending", workflow: "CI", url: `${RUN}3`, queued: true },
   ];
 
-  it("fills one ring with the jobs' progress while checks run, and reads them only then", async () => {
+  // Each test its own request: finished reads are kept per request for a while.
+  const request = (number: number, checks: ReviewRequest["checks"]): ReviewRequest => ({ ...BRANCH, number, url: `https://github.com/acme/lakebed/pull/${number}`, checks });
+  const FILE = [{ id: "lint", needs: [] }, { id: "test", needs: ["lint"] }, { id: "e2e", needs: ["test"] }];
+
+  it("draws a circle per stage while checks run, fills the running one, and opens the request at its checks", async () => {
     const checks = vi.fn(async () => running);
-    const pipeline = vi.fn(async () => ({ 77: { expected: { test: 120_000 } } }));
-    setup({ branch: { ...BRANCH, checks: { passed: 1, failed: 0, pending: 2, total: 3 } }, live: { checks, pipeline } as unknown as PullRequestClient });
-    const chip = await waitFor(() => { const found = document.querySelector(".pl-chip"); expect(found).not.toBeNull(); return found!; });
-    expect(chip.textContent).toBe("1/3");
-    expect(chip.getAttribute("data-tooltip")).toBe("Checks: 1 of 3 done");
-    await waitFor(() => expect(pipeline).toHaveBeenCalledWith(BRANCH.url, ["77"]));
-    // lint whole, test about half of its usual two minutes, e2e nothing.
-    await waitFor(() => {
-      const dash = Number(document.querySelector(".pl-chip .pl-fill")!.getAttribute("stroke-dasharray")!.split(" ")[0]);
-      const turn = 2 * Math.PI * (7 - 1.25);
-      expect(dash / turn).toBeGreaterThan(0.49);
-      expect(dash / turn).toBeLessThan(0.52);
-    });
+    const pipeline = vi.fn(async () => ({ 77: { jobs: FILE, expected: { test: 120_000 } } }));
+    const branch = request(301, { passed: 1, failed: 0, pending: 2, total: 3 });
+    const { actions } = setup({ branch, live: { checks, pipeline } as unknown as PullRequestClient });
+    const mini = await screen.findByRole("img", { name: "Checks: CI passed, running, queued" });
+    expect(pipeline).toHaveBeenCalledWith(branch.url, ["77"]);
+    // The running stage: about half of its usual two minutes.
+    const wedge = mini.querySelector(".plm-stage[data-state=running] .pl-wedge")!;
+    const [filled, turn] = wedge.getAttribute("stroke-dasharray")!.split(" ").map(Number);
+    expect(filled! / turn!).toBeGreaterThan(0.49);
+    expect(filled! / turn!).toBeLessThan(0.6);
+    fireEvent.click(mini);
+    expect(actions.openStageTab).toHaveBeenCalledWith("review.pull-request", expect.objectContaining({ url: branch.url, focus: "checks" }), { key: branch.url });
     expect(checks).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the icon and asks nothing while no check runs", async () => {
-    const checks = vi.fn(async () => running);
-    setup({ branch: BRANCH, live: { checks, pipeline: vi.fn() } as unknown as PullRequestClient });
-    await waitFor(() => expect(document.querySelector(".review-pr-strip-checks.passed")).not.toBeNull());
-    expect(document.querySelector(".pl-chip")).toBeNull();
-    expect(checks).not.toHaveBeenCalled();
+  it("lists a stage's jobs with their times on hover", async () => {
+    const branch = request(302, { passed: 1, failed: 0, pending: 2, total: 3 });
+    setup({ branch, live: { checks: vi.fn(async () => running), pipeline: vi.fn(async () => ({ 77: { jobs: FILE, expected: {} } })) } as unknown as PullRequestClient });
+    const mini = await screen.findByRole("img", { name: "Checks: CI passed, running, queued" });
+    fireEvent.pointerEnter(mini.querySelector(".plm-stage[data-state=running]")!);
+    const card = await screen.findByRole("tooltip");
+    expect(card.textContent).toMatch(/^CIStage 2 of 3test1m \d+s, no usual time yet$/u);
+    fireEvent.pointerLeave(mini);
+    await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
+  });
+
+  it("reads finished checks once, and not again when the chip comes back soon", async () => {
+    const passed = running.map((check) => ({ ...check, status: "passed" as const, queued: false }));
+    const checks = vi.fn(async () => passed);
+    const branch = request(303, { passed: 3, failed: 0, pending: 0, total: 3 });
+    const live = { checks, pipeline: vi.fn(async () => ({})) } as unknown as PullRequestClient;
+    setup({ branch, live });
+    await screen.findByRole("img", { name: "Checks: CI passed" });
+    cleanup();
+    setup({ branch, live });
+    await screen.findByRole("img", { name: "Checks: CI passed" });
+    expect(checks).toHaveBeenCalledTimes(1);
   });
 
   it("shows the finished state the live read found, before the row learns it", async () => {
     const checks = vi.fn(async () => running.map((check) => ({ ...check, status: check.name === "e2e" ? "failed" as const : "passed" as const, queued: false })));
-    setup({ branch: { ...BRANCH, checks: { passed: 1, failed: 0, pending: 2, total: 3 } }, live: { checks, pipeline: vi.fn(async () => ({})) } as unknown as PullRequestClient });
-    const failed = await waitFor(() => { const found = document.querySelector(".review-pr-strip-checks.failed"); expect(found).not.toBeNull(); return found!; });
-    expect(failed.getAttribute("data-tooltip")).toBe("Checks: 1 of 3 failing");
+    setup({ branch: request(304, { passed: 1, failed: 0, pending: 2, total: 3 }), live: { checks, pipeline: vi.fn(async () => ({})) } as unknown as PullRequestClient });
+    expect(await screen.findByRole("img", { name: "Checks: CI failed" })).toBeTruthy();
   });
 });

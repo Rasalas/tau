@@ -203,12 +203,19 @@ export function jobProgress(job: PipelineJob, now: number): number | undefined {
 
 export const isActive = (job: PipelineJob) => job.state === "running" || job.state === "queued" || job.state === "waiting";
 
-/** Every job's progress summed: finished ones whole, running ones by their estimate, the rest nothing. */
-export function pipelinesProgress(pipelines: readonly Pipeline[], now: number): { fraction: number; done: number; total: number } {
-  const jobs = pipelines.flatMap((pipeline) => pipeline.stages.flat());
-  const done = jobs.filter((job) => DONE.has(job.state)).length;
-  const sum = jobs.reduce((total, job) => total + (jobProgress(job, now) ?? 0), 0);
-  return { fraction: jobs.length ? sum / jobs.length : 0, done, total: jobs.length };
+const STAGE_ORDER: JobState[] = ["failed", "running", "waiting", "queued", "cancelled"];
+
+/** A stage as one state, the worst news winning: failed, running, pending, cancelled; skipped only when every job was. */
+export function stageState(jobs: readonly PipelineJob[]): JobState {
+  return STAGE_ORDER.find((state) => jobs.some((job) => job.state === state))
+    ?? (jobs.every((job) => job.state === "skipped") ? "skipped" : "passed");
+}
+
+/** A stage's progress, its jobs' mean; undefined while nothing in it has an estimate to show. */
+export function stageProgress(jobs: readonly PipelineJob[], now: number): number | undefined {
+  const parts = jobs.map((job) => jobProgress(job, now));
+  const sum = parts.reduce<number>((total, part) => total + (part ?? 0), 0);
+  return parts.includes(undefined) && !sum ? undefined : sum / jobs.length;
 }
 
 /** `45s`, `3m 12s`, `1h 4m`. */

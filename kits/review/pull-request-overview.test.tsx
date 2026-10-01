@@ -55,6 +55,20 @@ describe("the Pull Requests page", () => {
     expect(document.querySelector(".pr-tcolumns")).toBeNull();
   });
 
+  it("draws a row's checks as a mini pipeline, asked by workflow name, that opens the request at its checks", async () => {
+    const entry = rows.find((row) => row.checkRuns?.length)!;
+    const pipeline = vi.fn(async () => ({}));
+    const open = vi.fn();
+    const listMany = vi.fn(async () => ({ lists: [{ service: "github" as const, host: "github.com", repo: "cli/cli", entries: [entry], truncated: false, limit: 100, workspaces: ["/cli"] }], failures: [] }));
+    render(<TestThreadStore threads={[]} projects={[]}><PullRequestListView surface="page" params={{ scope: "all" }} actions={actions()} client={{ listMany, pipeline } as unknown as PullRequestClient} open={open} /></TestThreadStore>);
+    const row = await screen.findByRole("button", { name: `#${entry.ref.number} ${entry.title}` });
+    const mini = within(row).getByRole("img", { name: /^Checks: /u });
+    await waitFor(() => expect(pipeline).toHaveBeenCalledWith(entry.ref.url, expect.any(Array), expect.any(Object)));
+    fireEvent.click(mini.querySelector(".plm-stage")!);
+    expect(open).toHaveBeenCalledWith(entry, "/cli", "checks");
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
   it("lists every project across hosts, each row with its repository and its host's own viewer", async () => {
     const gitlab = { ...rows[0]!, ref: { ...rows[0]!.ref, service: "gitlab" as const, host: "gitlab.com", repo: "acme/tools", number: 3, url: "https://gitlab.com/acme/tools/-/merge_requests/3" }, author: { login: "mona" }, stack: { number: 9, size: 3, position: 2 } };
     const client = {

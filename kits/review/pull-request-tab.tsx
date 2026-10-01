@@ -67,7 +67,7 @@ export function registerPullRequestTab(
             handle={handle}
             actions={actions}
             client={client}
-            open={(entry, workspace) => openPullRequest(actions, { url: entry.ref.url, number: entry.ref.number, provider: entry.ref.service }, workspace)}
+            open={(entry, workspace, focus) => openPullRequest(actions, { url: entry.ref.url, number: entry.ref.number, provider: entry.ref.service }, workspace, focus)}
           />
         </Suspense>
       ),

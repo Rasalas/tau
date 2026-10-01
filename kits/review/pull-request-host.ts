@@ -115,7 +115,8 @@ export function registerPullRequestCommands(context: HostExtensionContext, sourc
 
   context.registerCommand("pr-pipeline", async (input): Promise<PipelineFacts> => {
     const { ref, provider } = target(input);
-    return provider.pipeline ? provider.pipeline(ref, names(record(input).runs)) : {};
+    const workflows = Object.entries(record(record(input).names)).filter((entry): entry is [string, string] => typeof entry[1] === "string" && Boolean(entry[1]));
+    return provider.pipeline ? provider.pipeline(ref, names(record(input).runs), workflows.length ? Object.fromEntries(workflows) : undefined) : {};
   }, { access: "read", long: true });
 
   context.registerCommand("pr-comments", (input) => {

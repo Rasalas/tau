@@ -2,8 +2,8 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkbenchActions } from "tau";
-import { ChecksPipeline, PipelineGraph } from "./pipeline-view.js";
-import { workflowJobs } from "./pipeline.js";
+import { ChecksMini, ChecksPipeline, PipelineGraph, PipelineMini } from "./pipeline-view.js";
+import { workflowJobs, type Pipeline } from "./pipeline.js";
 import type { PullRequestCheck } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 
@@ -76,5 +76,60 @@ describe("the pipeline", () => {
   it("says when there is nothing", () => {
     render(<PipelineGraph actions={actions()} pipelines={[]} empty="No checks ran." />);
     expect(screen.getByText("No checks ran.")).toBeTruthy();
+  });
+});
+
+describe("the mini pipeline", () => {
+  const job = (name: string, state: Pipeline["stages"][number][number]["state"]) => ({ name, state });
+  const CI: Pipeline = { name: "CI", stages: [[job("lint", "passed"), job("types", "passed")], [job("test", "failed"), job("build", "running")], [job("deploy", "skipped")]] };
+
+  it("draws a circle per stage with the stage's worst state, workflows side by side, the rest as +N", () => {
+    const one = (name: string, state: Pipeline["stages"][number][number]["state"]): Pipeline => ({ name, stages: [[job(name, state)]] });
+    render(<PipelineMini pipelines={[CI, one("CodeQL", "queued"), { name: "Big", stages: [[job("a", "passed")], [job("b", "passed")], [job("c", "passed")], [job("d", "passed")]] }, one("Other checks", "passed")]} onOpen={vi.fn()} />);
+    const mini = screen.getByRole("button", { name: "Checks: CI passed, failed, skipped; CodeQL queued; Big passed, passed, passed, passed; Other checks passed" });
+    const runs = [...mini.querySelectorAll(".plm-run")].map((run) => [...run.querySelectorAll(".plm-stage")].map((stage) => stage.getAttribute("data-state")));
+    expect(runs).toEqual([["passed", "failed", "skipped"], ["queued"]]);
+    const more = mini.querySelector(".plm-more")!;
+    expect(more.textContent).toBe("+2");
+    expect(more.getAttribute("data-tooltip")).toBe("Big\nOther checks");
+  });
+
+  it("opens the full pipeline on a click, and inside a row's button draws none of its own", () => {
+    const open = vi.fn();
+    const row = vi.fn();
+    render(<button type="button" onClick={row}><PipelineMini pipelines={[CI]} nested onOpen={open} /></button>);
+    const mini = screen.getByRole("img", { name: /^Checks: CI/u });
+    expect(mini.querySelector("button")).toBeNull();
+    fireEvent.click(mini.querySelector(".plm-stage")!);
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(row).not.toHaveBeenCalled();
+  });
+
+  it("on a phone is one 44 px target that lists the jobs in a sheet, with the way to the full pipeline", async () => {
+    document.body.dataset.profile = "compact";
+    const open = vi.fn();
+    render(<PipelineMini pipelines={[CI]} onOpen={open} />);
+    const mini = screen.getByRole("button", { name: /^Checks: CI/u });
+    expect(mini.classList.contains("phone")).toBe(true);
+    fireEvent.pointerEnter(mini.querySelector(".plm-stage")!);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    fireEvent.click(mini);
+    const sheet = await screen.findByRole("dialog", { name: "Checks" });
+    expect([...sheet.querySelectorAll(".plm-jobs li .pl-name")].map((name) => name.textContent)).toEqual(["lint", "types", "test", "build", "deploy"]);
+    fireEvent.click(within(sheet).getByRole("button", { name: "Show the pipeline" }));
+    expect(open).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("asks a list row's stages by workflow name", async () => {
+    const pipeline = vi.fn(async () => ({ 42: { jobs: workflowJobs(FILE), expected: {} } }));
+    render(<ChecksMini client={{ pipeline } as unknown as PullRequestClient} url={REQUEST} checks={CHECKS} byName nested />);
+    await waitFor(() => expect(pipeline).toHaveBeenCalledWith(REQUEST, ["42"], { 42: "CI" }));
+    expect(await screen.findByRole("img", { name: "Checks: CI passed, running, queued" })).toBeTruthy();
+  });
+
+  it("draws nothing without checks", () => {
+    const { container } = render(<PipelineMini pipelines={[]} />);
+    expect(container.innerHTML).toBe("");
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { usualDurations } from "./github-pipeline.js";
-import { checksPipelines, formatDuration, jobFor, jobProgress, jobTiming, median, pipelinesProgress, runIdOf, runsPipeline, stageLevels, workflowJobs } from "./pipeline.js";
+import { checksPipelines, formatDuration, jobFor, jobProgress, jobTiming, median, runIdOf, runsPipeline, stageLevels, stageProgress, stageState, workflowJobs, type JobState } from "./pipeline.js";
 import type { PullRequestCheck } from "./protocol.js";
 
 const WORKFLOW = `
@@ -145,10 +145,21 @@ describe("progress", () => {
     expect(jobProgress({ name: "x", state: "failed" }, 2_000)).toBe(1);
   });
 
-  it("sums every job of every pipeline for the chip", () => {
-    const pipelines = [{ name: "CI", stages: [[{ name: "a", state: "passed" as const }, running], [{ name: "c", state: "queued" as const }, { ...running, name: "d", expectedMs: undefined }]] }];
-    expect(pipelinesProgress(pipelines, 3_000)).toEqual({ fraction: 1.5 / 4, done: 1, total: 4 });
-    expect(pipelinesProgress([], 0)).toEqual({ fraction: 0, done: 0, total: 0 });
+  it("folds a stage into its worst state, skipped only when every job was", () => {
+    const job = (state: JobState) => ({ name: state, state });
+    expect(stageState([job("passed"), job("failed"), job("running")])).toBe("failed");
+    expect(stageState([job("passed"), job("queued"), job("running")])).toBe("running");
+    expect(stageState([job("queued"), job("waiting")])).toBe("waiting");
+    expect(stageState([job("passed"), job("cancelled")])).toBe("cancelled");
+    expect(stageState([job("passed"), job("skipped")])).toBe("passed");
+    expect(stageState([job("skipped"), job("skipped")])).toBe("skipped");
+  });
+
+  it("fills a stage with its jobs' mean, and spins while nothing in it can be measured", () => {
+    expect(stageProgress([{ name: "a", state: "passed" }, running], 2_000)).toBe(0.625);
+    const unmeasured = { ...running, expectedMs: undefined };
+    expect(stageProgress([unmeasured, { name: "q", state: "queued" }], 2_000)).toBeUndefined();
+    expect(stageProgress([unmeasured, { name: "a", state: "passed" }], 2_000)).toBe(0.5);
   });
 
   it("says elapsed and expected in words", () => {

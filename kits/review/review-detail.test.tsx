@@ -246,6 +246,22 @@ describe("a local review's detail (1e)", () => {
     expect(within(checks).getAllByRole("button").map((item) => item.getAttribute("aria-label"))).toEqual(["Unit tests: Passed", "Lint: Failed"]);
   });
 
+  it("opens at its checks when asked, with the runs as a mini pipeline beside the title that shows them again", async () => {
+    const runs = [
+      { id: "r1", scriptId: "test", name: "Unit tests", directory: "/work/pairing-flake", status: "succeeded", startedAt: 1 },
+      { id: "r2", scriptId: "lint", name: "Lint", directory: "/work/pairing-flake", status: "failed", startedAt: 2 },
+    ];
+    setupLocal({ runs, params: { tab: "ready", review: FLAKE, focus: "checks" } });
+    const article = await screen.findByRole("article", { name: "Fix flaky pairing test" });
+    const checksTab = () => within(article).getByRole("tab", { name: /^Checks/u });
+    expect(checksTab().getAttribute("aria-selected")).toBe("true");
+    const mini = await within(article).findByRole("button", { name: "Checks: Project scripts failed" });
+    expect(mini.closest("h1")).toBeNull();
+    fireEvent.click(within(article).getByRole("tab", { name: /^Changes/u }));
+    fireEvent.click(mini);
+    await waitFor(() => expect(checksTab().getAttribute("aria-selected")).toBe("true"));
+  });
+
   it("picks a side per hunk in a conflict (2e), merges with the picks, and can still ask the thread to rebase", async () => {
     const key = reviewKey("/repo/shop-api", "fix/pagination");
     const answer: LocalReviewsAnswer = { branches: [branch("pagination", { conflicts: ["src/watcher.ts"], behind: 14 })], asks: {}, merged: [] };
@@ -355,7 +371,7 @@ function preferences(): PreferencesStore {
   return { subscribe: () => () => undefined, getSnapshot: () => snapshot, optionValue: (_extension: string, _id: string, fallback: unknown) => fallback, setOption: vi.fn() } as unknown as PreferencesStore;
 }
 
-function setupRemote(passing = true) {
+function setupRemote(passing = true, extra: Record<string, unknown> = {}) {
   const client = fakeClient(passing);
   const storage = memoryStorage();
   const sidebar = new ReviewDetailStore();
@@ -368,7 +384,7 @@ function setupRemote(passing = true) {
   };
   const navigate = vi.fn();
   const actions = { activeThread: () => ({ sessionId: "thread-1", cwd: "/project", draftPending: false }), notify: vi.fn(), openExternal: vi.fn(), focusComposer: vi.fn(), composerDraft: () => "", copyText: vi.fn(async () => undefined), toast: vi.fn() } as unknown as WorkbenchActions;
-  const props: PageProps = { actions, params: { tab: "remote", ...PARAMS }, navigate, close: vi.fn(), sidebar: true };
+  const props: PageProps = { actions, params: { tab: "remote", ...PARAMS, ...extra }, navigate, close: vi.fn(), sidebar: true };
   render(
     <TestProviders>
       <TestThreadStore threads={THREADS}>
@@ -461,6 +477,17 @@ describe("a pull request's detail (1e)", () => {
     expect(shared.pending.comments(PARAMS.url)).toHaveLength(1);
     fireEvent.click(within(sidebar()).getByRole("button", { name: "Submit review" }));
     expect(await screen.findByRole("dialog", { name: /^Review the/u })).toBeTruthy();
+  });
+
+  it("opens at its checks when asked, and the mini pipeline beside the title shows them again", async () => {
+    setupRemote(false, { focus: "checks" });
+    const article = await screen.findByRole("article", { name: "PR #7" });
+    const checksTab = () => within(article).getByRole("tab", { name: /^Checks/u });
+    expect(checksTab().getAttribute("aria-selected")).toBe("true");
+    expect(await within(article).findByRole("button", { name: /^smoke: Failed/u })).toBeTruthy();
+    fireEvent.click(within(article).getByRole("tab", { name: /^Timeline/u }));
+    fireEvent.click(await within(article).findByRole("button", { name: /^Checks: .*failed/u }));
+    await waitFor(() => expect(checksTab().getAttribute("aria-selected")).toBe("true"));
   });
 
   it("lists the timeline and the checks under their tabs", async () => {

@@ -2,12 +2,9 @@ import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, 
 import {
   ArrowUp,
   ChevronRight,
-  CircleCheck,
-  CircleX,
   GitMerge,
   GitPullRequest,
   GitPullRequestArrow,
-  LoaderCircle,
   MessageSquare,
   RefreshCw,
   Search,
@@ -40,9 +37,9 @@ import {
 } from "tau";
 import { useCompactProfile } from "./compact-profile.js";
 import { mergeBlocker, mergedThisMonth, reviewRuntime, type HunkPick, type LocalReview, type ReviewCounts, type ReviewState } from "./local-reviews.js";
-import { useLocalReviews, type LocalReviewsStore } from "./local-reviews-store.js";
+import { useLocalReviews, type LocalReviewsStore, type ReviewRun } from "./local-reviews-store.js";
 import { runsPipeline } from "./pipeline.js";
-import { PipelineGraph } from "./pipeline-view.js";
+import { PipelineGraph, PipelineMini } from "./pipeline-view.js";
 import { REVIEW_HOST_EXTENSION_ID, type PendingReviewComment } from "./protocol.js";
 import { baseName, lineTarget, lineText, noteMessage } from "./review-lines.js";
 import type { PullRequestsPageParts } from "./pull-requests-page.js";
@@ -112,13 +109,10 @@ function Changes({ review, files = true }: { review: LocalReview; files?: boolea
   );
 }
 
-function Checks({ review }: { review: LocalReview }) {
-  const checks = review.checks;
-  if (!checks) return <span className="rv-checks none">no checks</span>;
-  const names = checks.names.join(", ");
-  if (checks.running > 0) return <span className="rv-checks running" {...tooltipProps(names)}><LoaderCircle size={12} aria-hidden="true" /> {checks.running} running</span>;
-  if (checks.failed > 0) return <span className="rv-checks failed" {...tooltipProps(names)}><CircleX size={12} aria-hidden="true" /> {checks.failed} failed</span>;
-  return <span className="rv-checks passed" {...tooltipProps(names)}><CircleCheck size={12} aria-hidden="true" /> {checks.passed} passed</span>;
+/** The review's script runs as a mini pipeline; in a row (`nested`) a click on it opens the review at its checks. */
+function Checks({ runs, open, nested = true }: { runs: readonly ReviewRun[]; open?: () => void; nested?: boolean }) {
+  if (!runs.length) return <span className="rv-checks none">no checks</span>;
+  return <span className="rv-checks"><PipelineMini pipelines={[runsPipeline(runs)]} size={nested ? 16 : 18} nested={nested} {...(open ? { onOpen: open } : {})} /></span>;
 }
 
 function Model({ review, name = true }: { review: LocalReview; name?: boolean }) {
@@ -178,7 +172,7 @@ function RowAction({ review, act }: { review: LocalReview; act: RowActions }) {
   return <Aside review={review} />;
 }
 
-function ReviewRow({ review, open, act }: { review: LocalReview; open(review: LocalReview): void; act: RowActions }) {
+function ReviewRow({ review, runs, open, act }: { review: LocalReview; runs: readonly ReviewRun[]; open(review: LocalReview, focus?: "checks"): void; act: RowActions }) {
   return (
     <li className="rv-row" data-state={review.state} data-key={review.key}>
       <button type="button" className="rv-row-open" onClick={() => open(review)} aria-label={`${review.title}, ${review.branch}`}>
@@ -188,7 +182,7 @@ function ReviewRow({ review, open, act }: { review: LocalReview; open(review: Lo
           <span className="rv-branch">{review.remote ? `${review.remote.machine}: ` : ""}{review.branch}<Into review={review} /></span>
         </span>
         <Changes review={review} />
-        <Checks review={review} />
+        <Checks runs={runs} open={() => open(review, "checks")} />
         <span className="rv-cost-cell"><Model review={review} /><span className="rv-cost">{cost(review)}</span></span>
         <span className="rv-age">{shortAge(review.at)}</span>
       </button>
@@ -198,7 +192,7 @@ function ReviewRow({ review, open, act }: { review: LocalReview; open(review: Lo
 }
 
 /** A phone's row (1p): branch and age, the title, then changes, checks, cost and the model's mark. */
-function ReviewCard({ review, open }: { review: LocalReview; open(review: LocalReview): void }) {
+function ReviewCard({ review, runs, open }: { review: LocalReview; runs: readonly ReviewRun[]; open(review: LocalReview): void }) {
   return (
     <li className="rv-card" data-state={review.state} data-key={review.key}>
       <button type="button" onClick={() => open(review)}>
@@ -210,7 +204,7 @@ function ReviewCard({ review, open }: { review: LocalReview; open(review: LocalR
         <span className="rv-title">{review.title}</span>
         <span className="rv-card-line">
           <Changes review={review} files={false} />
-          {review.state === "merged" ? <Aside review={review} /> : review.ask ? <Aside review={review} /> : <Checks review={review} />}
+          {review.state === "merged" ? <Aside review={review} /> : review.ask ? <Aside review={review} /> : <Checks runs={runs} />}
           <span className="rv-cost">{cost(review)}</span>
           <Model review={review} name={false} />
         </span>
@@ -416,7 +410,7 @@ function ReviewDetail({ review, parts, act, actions }: { review: LocalReview; pa
       <p className="rv-meta">
         <strong>{plural(review.files, "file")}</strong>
         {summary?.turns ? <span>{plural(summary.turns, "turn")}</span> : null}
-        <Checks review={review} />
+        <Checks runs={runs} nested={false} />
         {review.uncommitted ? <span className="warn">{review.uncommitted} not committed</span> : null}
         {review.behind ? <span>{plural(review.behind, "commit")} behind {review.target}</span> : null}
       </p>
@@ -544,9 +538,9 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
   const scroller = useRef<HTMLDivElement>(null);
   // Where the list was when a review opened: back from it, the same row has the focus and the list its scroll.
   const left = useRef<{ key: string; top: number }>(undefined);
-  const openReview = (review: LocalReview) => {
+  const openReview = (review: LocalReview, focus?: "checks") => {
     left.current = { key: review.key, top: scroller.current?.scrollTop ?? 0 };
-    navigate({ tab, ...(project ? { project } : {}), review: review.key }, { label: review.title });
+    navigate({ tab, ...(project ? { project } : {}), review: review.key, ...(focus ? { focus } : {}) }, { label: review.title });
   };
   const listed = !detailKey && tab !== "remote" && Boolean(snapshot.answer);
   useLayoutEffect(() => {
@@ -613,7 +607,7 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
         ? <ReviewDetail review={detail} parts={parts} act={act} actions={actions} />
         : (
           <Suspense fallback={<Skeleton className="rv-row-skeleton" />}>
-            <LocalReviewDetail review={detail} parts={parts} detail={parts.detail} act={act} actions={actions} back={() => navigate({ tab, ...(project ? { project } : {}) }, { root: true, replace: true })} />
+            <LocalReviewDetail review={detail} parts={parts} detail={parts.detail} act={act} actions={actions} focus={params.focus === "checks" ? "checks" : undefined} back={() => navigate({ tab, ...(project ? { project } : {}) }, { root: true, replace: true })} />
           </Suspense>
         )
       : snapshot.answer ? <Empty title="This review is gone" description="Its branch was removed, or its thread started working again." /> : <Skeleton className="rv-row-skeleton" />;
@@ -624,8 +618,8 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
   } else {
     const of = (state: ReviewState) => shown.filter((review) => review.state === state);
     const row = (review: LocalReview) => compact
-      ? <ReviewCard key={review.key} review={review} open={openReview} />
-      : <ReviewRow key={review.key} review={review} open={openReview} act={act} />;
+      ? <ReviewCard key={review.key} review={review} runs={store.latestRuns(review.path ?? "")} open={openReview} />
+      : <ReviewRow key={review.key} review={review} runs={store.latestRuns(review.path ?? "")} open={openReview} act={act} />;
     // Ready is the queue: what can merge, then what waits on the thread, then what conflicts.
     const sections: Array<{ state: ReviewState; title?: string }> = tab === "ready"
       ? [{ state: "ready" }, { state: "requested", title: "Changes requested" }, { state: "conflicts", title: "Conflicts" }]

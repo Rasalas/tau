@@ -1,5 +1,5 @@
 import type { PullRequestChecksState, PullRequestLabel, PullRequestListEntry, PullRequestRef, PullRequestReviewDecision } from "./protocol.js";
-import { githubCheckStatus, parseRequestUrl } from "./pull-request-json.js";
+import { githubCheckStatus, parseGitHubChecks, parseRequestUrl } from "./pull-request-json.js";
 
 type Json = Record<string, unknown>;
 
@@ -60,6 +60,7 @@ export function parseGitHubList(output: string, viewer: string | undefined): Pul
     const mergeable = text(raw.mergeable)?.toUpperCase();
     const decision = DECISIONS[text(raw.reviewDecision)?.toUpperCase() ?? ""];
     const checks = rollupState(raw.statusCheckRollup);
+    const checkRuns = parseGitHubChecks(raw.statusCheckRollup);
     const requested = list(raw.reviewRequests).some((request) => text(request.login)?.toLowerCase() === me);
     return [{
       ref,
@@ -77,6 +78,7 @@ export function parseGitHubList(output: string, viewer: string | undefined): Pul
       labels: labels(raw.labels),
       ...(decision ? { reviewDecision: decision } : {}),
       ...(checks ? { checks } : {}),
+      ...(checkRuns.length ? { checkRuns } : {}),
       reviewRequested: Boolean(me) && requested,
     }];
   });
