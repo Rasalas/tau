@@ -19,7 +19,7 @@
 .thread-header .workspace-title-actions .chrome-button:hover:not(:disabled) { border-color: transparent; background: var(--hover); }
 .thread-header .workspace-title-actions .chrome-group .split-trigger { width: 20px; border-left-color: transparent; }
 /* Folded to icons, the row takes a 380 px chat's room (design 1l): square buttons, a tighter gap. */
-.thread-header .workspace-title-actions:has(.icon-only) { gap: 4px; }
+.thread-header .workspace-title-actions:has(.icon-only) { gap: 2px; }
 .thread-header .workspace-title-actions :is(.title-more, .split-main.icon-only) { width: 28px; padding: 0; justify-content: center; }
 /* The design's "3 files changed ›": a link in the accent's ink, not a button. */
 .workspace-changes-link {
@@ -272,6 +272,9 @@
   font: 600 9.5px/14px var(--sans); font-variant-numeric: tabular-nums; text-align: center;
   box-shadow: 0 0 0 2px var(--rail);
 }
+/* Reviews as its name and count (design 1a). */
+.sidebar-footer button.sidebar-page { width: auto; display: flex; gap: 7px; padding: 0 8px; font: var(--text-sm) var(--sans); white-space: nowrap; }
+.sidebar-footer button.sidebar-page > b { color: var(--acid-text); font-weight: 600; font-variant-numeric: tabular-nums; }
 /* On an app page the foot is Back alone, as it ends Settings' column. */
 .sidebar-footer button.sidebar-back {
   width: auto; height: 32px; flex: 1; justify-content: start; display: flex; align-items: center; gap: var(--space-4);
@@ -733,3 +736,4 @@ button.thread-card-row:hover, button.thread-card-row:focus-visible { color: var(
 .fresh-start-keys kbd { min-width: 18px; padding: 1px 6px; border-radius: 5px; background: var(--rail); box-shadow: 0 1px 0 var(--line-strong); color: var(--ink); font: 11px var(--mono); text-align: center; }
 .fresh-start-providers { gap: 8px; margin: 8px 0 0; }
 .fresh-start-providers button { padding: 0; border: 0; background: none; color: var(--acid-text); font: inherit; cursor: pointer; }
+.chrome-group .split-main:last-child { border-radius: 9px; }

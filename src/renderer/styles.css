@@ -117,12 +117,15 @@ button > svg { pointer-events: none; }
 /* The conversation's head, where the window-wide bar was: title, details, kits' actions, the stage's toggle. */
 .thread-header {
   grid-row: head / span 1; grid-column: 1 / -1; flex: none; order: 0;
-  display: flex; align-items: center; gap: var(--space-4); min-width: 0; min-height: 52px; padding: 12px 16px 8px;
+  display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 52px; padding: 12px 16px 8px;
   -webkit-app-region: drag;
 }
 .thread-header :is(button, input, form, .menu-anchor, .workbench-region) { -webkit-app-region: no-drag; }
-/* The title takes up to 45 %, its details one line that clips, as the design's do; the kits' region the rest, which Workspace Kit's row measures to fold its actions. */
-.thread-heading { flex: 0 1 auto; min-width: 140px; max-width: 45%; display: flex; flex-direction: column; gap: 1px; }
+/*
+ * Title and details come first (design 1a): the heading takes what it needs up to the room the folded actions
+ * still ask for; the kits' region gets the rest, which Workspace Kit's row measures to fold its actions.
+ */
+.thread-heading { flex: 0 1 auto; min-width: 140px; max-width: calc(100% - 160px); display: flex; flex-direction: column; gap: 1px; }
 .thread-heading-title { display: flex; align-items: center; min-width: 0; }
 .thread-header :is(.thread-title-trigger, .title-draft) { font: 600 var(--text-title)/1.2 var(--sans); letter-spacing: -.01em; }
 /* A draft's name is a placeholder until the thread names itself (design 1k). */

@@ -60,7 +60,7 @@ describe("sidebar footer pages", () => {
     expect((await screen.findByRole("button", { name: "Pull requests, 120" })).querySelector(".page-badge")?.textContent).toBe("99+");
   });
 
-  it("leads with a prominent page as an icon with its count, and ends with the pages' figures, a waiting update and Settings", async () => {
+  it("leads with a prominent page as its name and count, then Settings, and ends with the pages' figures and a waiting update", async () => {
     let figure: { text: string; short?: string; hint?: string } | undefined;
     const install = vi.fn();
     const pages: DesktopExtension = {
@@ -77,13 +77,13 @@ describe("sidebar footer pages", () => {
     const view = renderApp(undefined, { extensions: [workspaceExtension, pages], seed: (services) => services.appUpdate?.set({ version: "0.8.0", install }) });
     const footer = within(await waitFor(() => view.container.querySelector(".sidebar-footer") as HTMLElement));
     const reviews = await footer.findByRole("button", { name: "Reviews, 4" });
-    // An icon and its badge, no label.
-    expect(reviews.textContent).toBe("4");
-    expect(reviews.querySelector(".page-badge")?.textContent).toBe("4");
+    // "Reviews 4", as design 1a writes it.
+    expect(reviews.textContent).toBe("Reviews4");
+    expect(reviews.querySelector("b")?.textContent).toBe("4");
     // Without a figure yet, the page keeps its icon at the end.
-    expect(footer.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Reviews, 4", "Pull requests", "Usage", "Limits left", "Tau 0.8.0 is ready: restart to update", "Settings"]);
+    expect(footer.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Reviews, 4", "Pull requests", "Settings", "Usage", "Limits left", "Tau 0.8.0 is ready: restart to update"]);
     const end = view.container.querySelector(".sidebar-footer-end") as HTMLElement;
-    expect(within(end).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Usage", "Limits left", "Tau 0.8.0 is ready: restart to update", "Settings"]);
+    expect(within(end).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Usage", "Limits left", "Tau 0.8.0 is ready: restart to update"]);
     fireEvent.click(footer.getByRole("button", { name: "Tau 0.8.0 is ready: restart to update" }));
     expect(install).toHaveBeenCalledTimes(1);
 
