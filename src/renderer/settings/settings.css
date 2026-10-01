@@ -570,6 +570,22 @@
 .nearby-machines { margin: 0; padding: 0; list-style: none; max-height: 280px; overflow-y: auto; }
 .nearby-machines > .connection-row + .connection-row { border-top: 1px solid var(--line-card); }
 .nearby-machines > .connection-row > svg { flex: none; color: var(--muted); }
+/* The sections as cards of rows with their values (design 1s). */
+.settings-screen.stacked .settings-nav-group:not([data-folds]),
+.settings-screen.stacked .settings-nav-group[data-folds] > button,
+.settings-screen.stacked .settings-about-link { border-radius: 12px; background: var(--raised); }
+.settings-screen.stacked .settings-nav-group { gap: 0; overflow: hidden; }
+.settings-screen.stacked .settings-nav-group > button { border-radius: 0; padding-inline: var(--space-6) var(--space-5); }
+.settings-screen.stacked .settings-nav-group > button + button { box-shadow: 0 -1px 0 var(--line-soft); }
+.settings-screen.stacked .settings-nav-group[data-folds] > button:first-of-type { border-radius: 12px 12px 0 0; }
+.settings-screen.stacked .settings-nav-group[data-folds] > button:last-of-type { border-radius: 0 0 12px 12px; }
+.settings-screen.stacked .settings-nav-group[data-folds] > button:only-of-type { border-radius: 12px; }
+.settings-screen.stacked .settings-nav-list button > span { flex: 1; }
+.settings-nav-value { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: var(--text-sm) var(--sans); }
+.settings-nav-chevron { flex: none; color: var(--faint); }
+.settings-screen.stacked .settings-about-link { width: auto; margin: 0 var(--space-5); padding-inline: var(--space-6) var(--space-5); }
+.settings-screen.stacked .settings-about-link > small { font: var(--text-sm) var(--sans); color: var(--muted); }
+.settings-nav-note { margin: var(--space-5) var(--space-6) 0; color: var(--muted); font: var(--text-xs)/1.45 var(--sans); }
 /* A phone's bottom navigation under the sections keeps the home indicator's room itself. */
 .settings-screen.stacked .settings-nav:has(> .phone-nav) .settings-nav-footer { padding-bottom: var(--space-3); }
 
