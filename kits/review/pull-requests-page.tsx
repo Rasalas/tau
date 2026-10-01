@@ -51,11 +51,11 @@ export function PullRequestsPage({ params, navigate, actions, parts }: PageProps
             params={start}
             actions={actions}
             client={parts.client}
-            open={(entry, workspace) => {
+            open={(entry, workspace, focus) => {
               const row = document.activeElement;
               if (row instanceof HTMLElement && pane.current?.contains(row)) opened.current = row;
               navigate(
-                { url: entry.ref.url, number: entry.ref.number, service: entry.ref.service, ...(workspace ? { workspace } : {}) },
+                { url: entry.ref.url, number: entry.ref.number, service: entry.ref.service, ...(workspace ? { workspace } : {}), ...(focus ? { focus } : {}) },
                 { label: `#${entry.ref.number} ${entry.title}` },
               );
             }}

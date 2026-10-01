@@ -22,7 +22,7 @@ import { REVIEW_HOST_EXTENSION_ID, type PendingReviewComment } from "./protocol.
 import { lineKeys, orderFiles, threadKey } from "./pull-request-logic.js";
 import { ReplyBox } from "./pull-request-parts.js";
 import { runsPipeline } from "./pipeline.js";
-import { PipelineGraph } from "./pipeline-view.js";
+import { PipelineGraph, PipelineMini } from "./pipeline-view.js";
 import { LayoutToggle, ReviewDetailFrame, useBackKeys, type FrameTab } from "./review-detail-frame.js";
 import type { DetailNote, DetailParts, DetailState } from "./review-detail-store.js";
 import { ReviewDiffStack, type StackFile } from "./review-diff-stack.js";
@@ -110,16 +110,18 @@ interface Draft { path: string; line: number; side: "new" | "old"; code: string 
  * collected in the sidebar until they go to the thread, and a conflict (2e)
  * shows where and asks the thread to rebase.
  */
-export function LocalReviewDetail({ review, parts, detail, act, actions, back }: {
+export function LocalReviewDetail({ review, parts, detail, act, actions, back, focus }: {
   review: LocalReview;
   parts: { store: LocalReviewsStore; host: HostExtensionClient };
   detail: DetailParts;
   act: LocalActions;
   actions: WorkbenchActions;
   back(): void;
+  /** Opened at its checks. */
+  focus?: "checks" | undefined;
 }) {
   const [summary, setSummary] = useState<{ summary?: string; turns?: number; prompts?: string[] }>();
-  const [tab, setTab] = useState<Tab>("changes");
+  const [tab, setTab] = useState<Tab>(focus ?? "changes");
   const [layout, setLayout] = useState<"unified" | "split">("unified");
   const [noting, setNoting] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -417,6 +419,7 @@ export function LocalReviewDetail({ review, parts, detail, act, actions, back }:
     <ReviewDetailFrame<Tab>
       label={review.title}
       title={review.title}
+      beside={runs.length ? <PipelineMini pipelines={[runsPipeline(runs)]} onOpen={() => setTab("checks")} /> : null}
       meta={meta}
       actions={buttons}
       summary={picking ? <p>{plural(review.conflicts.length, "file")} changed on both sides. Pick a side per hunk, or hand it back — the thread rebases, re-runs the checks and comes back here. Merge unlocks when every hunk has a pick.</p>

@@ -46,7 +46,7 @@ const ANSWER: LocalReviewsAnswer = {
 };
 const THREADS = [thread("t1", "ws-pairing-flake", "Fix flaky pairing test"), thread("t2", "ws-webhook-retries", "Write ADR for webhook retries"), thread("t3", "ws-pagination", "Add pagination to all list endpoints")];
 
-function setup(options: { answer?: LocalReviewsAnswer; params?: Record<string, unknown>; compact?: boolean; sidebar?: boolean; client?: ReturnType<typeof createFakeHostClient> } = {}) {
+function setup(options: { answer?: LocalReviewsAnswer; params?: Record<string, unknown>; compact?: boolean; sidebar?: boolean; client?: ReturnType<typeof createFakeHostClient>; runs?: unknown[] } = {}) {
   if (options.compact) document.body.dataset.profile = "compact";
   const invoke = vi.fn(async (command: string, input?: unknown) => {
     if (command === "local-reviews") return options.answer ?? ANSWER;
@@ -57,7 +57,8 @@ function setup(options: { answer?: LocalReviewsAnswer; params?: Record<string, u
     return undefined;
   });
   const host = { invoke, onEvent: () => () => undefined } as unknown as HostExtensionClient;
-  const store = new LocalReviewsStore(host);
+  const scripts = { invoke: vi.fn(async () => options.runs ?? []), onEvent: () => () => undefined } as unknown as HostExtensionClient;
+  const store = new LocalReviewsStore(host, scripts);
   const sidebar = new ReviewDetailStore();
   const notes = new PendingReviewStore(() => undefined);
   const workspace = { invoke: vi.fn(async (command: string) => command === "list-editors" ? [{ id: "zed", name: "Zed" }] : undefined), onEvent: () => () => undefined } as unknown as HostExtensionClient;
@@ -110,6 +111,18 @@ describe("the Reviews page", () => {
     expect(ready.textContent).toContain("$0.84");
     expect(ready.textContent).toContain("4m");
     expect(screen.getByText(/^Merged · 1 this month, \$9\.30\./u)).toBeTruthy();
+  });
+
+  it("draws a review's script runs as a mini pipeline in the Checks column, which opens the review at its checks", async () => {
+    const runs = [
+      { id: "r1", scriptId: "test", name: "Unit tests", directory: "/work/pairing-flake", status: "running", startedAt: NOW - 1_000 },
+      { id: "r2", scriptId: "lint", name: "Lint", directory: "/work/pairing-flake", status: "succeeded", startedAt: NOW - 9_000, endedAt: NOW - 8_000 },
+    ];
+    const { navigate } = setup({ runs });
+    const mini = await screen.findByRole("img", { name: "Checks: Project scripts running" });
+    expect(mini.closest(".rv-row")!.textContent).toContain("Fix flaky pairing test");
+    fireEvent.click(mini);
+    expect(navigate).toHaveBeenCalledWith({ tab: "ready", review: reviewKey("/repo/shop-api", "feat/pairing-flake"), focus: "checks" }, { label: "Fix flaky pairing test" });
   });
 
   it("names a thread's model as the Pi catalog does when the thread carries no runtime", async () => {

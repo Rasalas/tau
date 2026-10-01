@@ -38,8 +38,10 @@ export function LayoutToggle({ layout, onChange }: { layout: "unified" | "split"
  * the title with its facts and actions, what the work was about, then tabs
  * over a body that scrolls. What each kind knows goes into the slots.
  */
-export function ReviewDetailFrame<Id extends string>({ title, label, meta, actions, summary, notices, tabs, tab, onTab, toolbar, scrollRef, children }: {
+export function ReviewDetailFrame<Id extends string>({ title, beside, label, meta, actions, summary, notices, tabs, tab, onTab, toolbar, scrollRef, children }: {
   title: ReactNode;
+  /** Drawn after the title, outside the heading: the checks. */
+  beside?: ReactNode;
   /** The article's accessible name. */
   label: string;
   meta: ReactNode;
@@ -57,7 +59,7 @@ export function ReviewDetailFrame<Id extends string>({ title, label, meta, actio
     <article className="rvd" aria-label={label}>
       <header className="rvd-head">
         <div className="rvd-titles">
-          <h1 className="rvd-title">{title}</h1>
+          <div className="rvd-title-line"><h1 className="rvd-title">{title}</h1>{beside}</div>
           <div className="rvd-meta">{meta}</div>
         </div>
         <div className="rvd-actions">{actions}</div>
