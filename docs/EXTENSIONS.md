@@ -840,7 +840,7 @@ a model it answers `true` for wears `label` after its name (`tone: "warning"`
 draws it in the caution colours, `title` is its hover text). `note` is one line
 under the list, shown while any listed model wears the badge.
 
-`registerComposerSpeed({ id, order?, read, subscribe, set })` gives a runtime's faster
+`registerComposerSpeed({ id, order?, read, subscribe, set })` (API 1.41.0) gives a runtime's faster
 tier to the composer's thinking chip (K142): core draws ⚡ in the chip while it is
 on and a Speed section (Standard / Fast) in the chip's menu and the phone's
 Thinking sheet. `read(snapshot)` answers `{ fast, available, reason?, detail? }`
@@ -2131,7 +2131,7 @@ Rail, the shipped caller, hands the same organizer menu to the rail's
 right-click. `menu` answers `undefined` to leave the title its own; `rename`
 on the title edits it in place. The last one registered wins.
 
-`registerForkPrompt({ id, ask })` takes every fork the user starts elsewhere
+`registerForkPrompt({ id, ask })` (API 1.41.0) takes every fork the user starts elsewhere
 (`f` on a message, the thread tree's fork, Duplicate) as `ask({ entryId?, turn? })`:
 through `entryId`, with its `turn` when the transcript knows it (`f` forks through
 the end of the focused message's turn), and without `entryId` a copy of the whole
