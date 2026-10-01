@@ -23,7 +23,7 @@ import UIKit
     public static func boot() {
         SecureStore.forgetAfterReinstall()
         guard !started else { return }; started = true
-        guard #available(iOS 17.2, *) else { return }
+        guard #available(iOS 17.2, *), MobileActivityStore.widgets else { return }
         Task {
             for await token in Activity<TauActivityAttributes>.pushToStartTokenUpdates {
                 for (host, route) in routes() where route["enabled"] as? Bool == true {
@@ -50,11 +50,11 @@ import UIKit
     }
     static func status(_ host: String) -> [String: Any] {
         let supported: Bool
-        if #available(iOS 17.2, *) { supported = ActivityAuthorizationInfo().areActivitiesEnabled } else { supported = false }
+        if #available(iOS 17.2, *) { supported = MobileActivityStore.widgets && ActivityAuthorizationInfo().areActivitiesEnabled } else { supported = false }
         return ["available": supported, "enabled": routes()[host]?["enabled"] as? Bool == true]
     }
     static func configure(_ value: [String: Any]) async throws {
-        guard #available(iOS 17.2, *), ActivityAuthorizationInfo().areActivitiesEnabled,
+        guard #available(iOS 17.2, *), MobileActivityStore.widgets, ActivityAuthorizationInfo().areActivitiesEnabled,
               let host = value["hostId"] as? String, let token = value["token"] as? String, token.hasPrefix("tauc."),
               let candidates = value["candidates"] as? [[String: Any]], !candidates.isEmpty,
               let keyId = value["keyId"] as? String, let key = value["key"] as? String else { throw Failure.unavailable }
