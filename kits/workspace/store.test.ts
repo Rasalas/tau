@@ -238,6 +238,26 @@ describe("Workspace Kit thread worktrees", () => {
   });
 });
 
+describe("Workspace Kit's default for a new draft", () => {
+  it("applies a changed global default to the next draft and to the open one, at once", () => {
+    const preferences = new PreferencesStore();
+    const workspaceStore = storeOver({}, preferences);
+    workspaceStore.bind({ holdComposer: () => () => undefined, openWorkspace: vi.fn(async () => true), notify: vi.fn() } as unknown as WorkbenchActions);
+    const stop = workspaceStore.followDefaultChanges();
+    workspaceStore.follow({ cwd: "/project", workspaceId: "ws1_project", sessionId: "first", draftPending: false });
+    preferences.setValue("tau.workspace", "new-thread-workspace", "worktree");
+    // A new draft in the same project: no project change to wait for.
+    workspaceStore.follow({ cwd: "/project", workspaceId: "ws1_project", draftPending: true });
+    expect(workspaceStore.workspaceMode()).toBe("worktree");
+    // The setting changed while the draft is open.
+    preferences.setValue("tau.workspace", "new-thread-workspace", "current");
+    expect(workspaceStore.workspaceMode()).toBe("current");
+    stop();
+    preferences.setValue("tau.workspace", "new-thread-workspace", "worktree");
+    expect(workspaceStore.workspaceMode()).toBe("current");
+  });
+});
+
 describe("Workspace Kit's worktree suggestion (K125)", () => {
   const actions = () => ({ holdComposer: () => () => undefined, openWorkspace: vi.fn(async () => true), notify: vi.fn() } as unknown as WorkbenchActions);
   const draftIn = async (overrides: WorkspaceHostStubOverrides = {}, preferences = new PreferencesStore()) => {

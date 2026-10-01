@@ -420,8 +420,10 @@ export const workspaceExtension: DesktopExtension = {
       },
     });
     context.registerKeybinding({ keys: "mod+e", commandId: "workspace.open-prompt-editor" });
+    const stopDefault = store.followDefaultChanges();
     return () => {
       stopTopics.forEach((stop) => stop?.());
+      stopDefault();
       unpublishIcons();
       window.clearInterval(autoPullTimer);
       window.removeEventListener("focus", autoPull);

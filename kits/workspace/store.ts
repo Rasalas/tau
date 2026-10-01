@@ -232,9 +232,9 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       ...(projectChanged ? { changes: NO_CHANGES, fileTree: [], workspace: undefined } : {}),
       ...(threadChanged ? { turnBaseline: next.sessionId ? readBaseline(next.sessionId) : undefined, turnSettled: false } : {}),
       ...(draftChanged ? { draftBranch: undefined, draftBase: undefined } : {}),
-      // The suggestion was this draft's; the next one starts from the project's own default.
-      ...(suggested ? { worktreeSuggested: false, workspaceMode: this.defaultWorkspaceMode() } : {}),
     });
+    // A new draft starts from the default as it is now; a suggestion was the old draft's.
+    if (draftChanged && (next.draftPending || suggested)) this.update({ worktreeSuggested: false, workspaceMode: this.defaultWorkspaceMode() });
     if (next.cwd && (projectChanged || threadChanged)) {
       void this.refreshChanges();
       void this.refreshWorkspace();
@@ -256,6 +256,15 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     const root = this.state.cwd;
     const own = root ? asMode(this.preferences.value(WORKSPACE_KIT_ID, projectWorkspaceModeKey(root))) : undefined;
     return own ?? this.defaults?.workspaceMode ?? asMode(this.preferences.value(WORKSPACE_KIT_ID, NEW_THREAD_WORKSPACE_KEY)) ?? "current";
+  }
+
+  /** A draft not yet decided follows the default when Settings changes it. */
+  followDefaultChanges(): () => void {
+    return this.preferences.subscribe(() => {
+      if (!this.state.draftPending || this.state.worktreeSuggested) return;
+      const mode = this.defaultWorkspaceMode();
+      if (mode !== this.state.workspaceMode) this.update({ workspaceMode: mode });
+    });
   }
 
   /** `.tau/project.json`, read once per project. */
