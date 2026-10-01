@@ -53,6 +53,12 @@ function showGate(notice?: string): void {
   </StrictMode>);
 }
 
+function showPairingWait(verification: string | undefined, onCancel: () => void): void {
+  root.render(<StrictMode>
+    <PairingWait {...(verification ? { verification } : {})} onCancel={onCancel} />
+  </StrictMode>);
+}
+
 /**
  * Asks the host to let this browser in, with the link's code or without one,
  * and waits while its owner compares the code on both screens (ADR 0024).
@@ -61,9 +67,7 @@ function pair(code?: string): void {
   currentPairing?.abort(); currentConnection?.close(); connectSession = undefined; const ownAttempt = ++attempt;
   const cancel = new AbortController();
   currentPairing = cancel;
-  const wait = (verification?: string) => root.render(<StrictMode>
-    <PairingWait {...(verification ? { verification } : {})} onCancel={() => cancel.abort()} />
-  </StrictMode>);
+  const wait = (verification?: string) => showPairingWait(verification, () => cancel.abort());
   wait();
   void pairWithHost({
     url: hostSocketUrl(window.location),
@@ -113,7 +117,7 @@ function connect(token: string, createSocket?: import("../workbench/host-connect
 async function pairConnect(link: string): Promise<void> {
   currentPairing?.abort(); currentConnection?.close(); const ownAttempt = ++attempt;
   const cancel = new AbortController(); currentPairing = cancel;
-  const wait = (verification?: string) => root.render(<StrictMode><PairingWait {...(verification ? { verification } : {})} onCancel={() => { cancel.abort(); if (ownAttempt === attempt) { attempt++; showGate(); } }} /></StrictMode>);
+  const wait = (verification?: string) => showPairingWait(verification, () => { cancel.abort(); if (ownAttempt === attempt) { attempt++; showGate(); } });
   wait();
   try {
     const [{ browserConnectOffer }, { BrowserConnectSocket }, { BrowserConnectStorage }] = await Promise.all([import("./connect/offer"), import("./connect/socket"), import("./connect/storage")]);

@@ -28,12 +28,12 @@ export class BrowserConnectSocket implements HostSocket, PairingSocket {
   private deadline?: ReturnType<typeof setTimeout>;
   private authenticated = false;
 
-  constructor(private readonly route: BrowserConnectRoute, private readonly onFailure?: (message: string) => void, factory: TunnelFactory = loadBrowserTls, private readonly createRelay = (url: string) => new WebSocket(url, "tau-connect-v1")) {
+  constructor(route: BrowserConnectRoute, private readonly onFailure?: (message: string) => void, factory: TunnelFactory = loadBrowserTls, createRelay = (url: string) => new WebSocket(url, "tau-connect-v1")) {
     this.deadline = setTimeout(() => this.fail("Tau Connect did not finish the relay and host handshake in time."), 15_000);
     void factory(route.url, new URL(route.url).hostname.replace(/^\[|\]$/gu, ""), route.pin, route.key).then((tunnel) => {
       if (this.readyState === 3) { tunnel.free(); return; }
       this.tunnel = tunnel;
-      const relay = this.createRelay(browserRelayUrl(route)); this.relay = relay; relay.binaryType = "arraybuffer";
+      const relay = createRelay(browserRelayUrl(route)); this.relay = relay; relay.binaryType = "arraybuffer";
       relay.onopen = () => relay.send(JSON.stringify({ type: "authenticate", token: route.token }));
       relay.onerror = () => this.fail("Tau Connect could not reach the relay over trusted HTTPS.", false);
       relay.onclose = (event) => {
