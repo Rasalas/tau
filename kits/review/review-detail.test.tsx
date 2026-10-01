@@ -242,8 +242,8 @@ describe("a local review's detail (1e)", () => {
     const turns = await within(article).findByRole("list", { name: "Turns" });
     expect(within(turns).getByText("Move the subscription")).toBeTruthy();
     fireEvent.click(within(article).getByRole("tab", { name: /^Checks/u }));
-    const checks = await within(article).findByRole("list", { name: "Checks" });
-    expect(within(checks).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Unit testsPassed", "LintFailed"]);
+    const checks = await within(article).findByRole("region", { name: "Project scripts" });
+    expect(within(checks).getAllByRole("button").map((item) => item.getAttribute("aria-label"))).toEqual(["Unit tests: Passed", "Lint: Failed"]);
   });
 
   it("picks a side per hunk in a conflict (2e), merges with the picks, and can still ask the thread to rebase", async () => {
@@ -469,6 +469,6 @@ describe("a pull request's detail (1e)", () => {
     fireEvent.click(within(article).getByRole("tab", { name: /^Timeline/u }));
     expect(await within(article).findByRole("list", { name: "PR #7 timeline" })).toBeTruthy();
     fireEvent.click(within(article).getByRole("tab", { name: /^Checks/u }));
-    expect(within(await within(article).findByRole("list", { name: "Checks" })).getByText("smoke")).toBeTruthy();
+    expect(await within(article).findByRole("button", { name: /^smoke: Failed/u })).toBeTruthy();
   });
 });

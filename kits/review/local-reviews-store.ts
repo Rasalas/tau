@@ -14,15 +14,16 @@ import {
   type ReviewCounts,
   type ThreadBranchMerge,
 } from "./local-reviews.js";
+import { HISTORY_RUNS, median } from "./pipeline.js";
 
 /** Project Scripts' run, mirrored: the part the Checks column reads. */
-interface ScriptRun { id: string; scriptId: string; name?: string; directory: string; trigger?: string; status: "running" | "succeeded" | "failed" | "stopped"; startedAt: number }
+interface ScriptRun { id: string; scriptId: string; name?: string; directory: string; trigger?: string; status: "running" | "succeeded" | "failed" | "stopped"; startedAt: number; endedAt?: number }
 
 // A worktree's setup run is no check of the work.
 const isRun = (value: unknown): value is ScriptRun => Boolean(value && typeof (value as ScriptRun).id === "string" && typeof (value as ScriptRun).directory === "string" && (value as ScriptRun).trigger !== "worktree-create");
 
 /** One script's last run in a review's worktree: a check. */
-export interface ReviewRun { name: string; status: ScriptRun["status"]; at: number }
+export interface ReviewRun { name: string; status: ScriptRun["status"]; at: number; endedAt?: number; expectedMs?: number }
 
 export interface LocalReviewsSnapshot {
   answer?: LocalReviewsAnswer;
@@ -126,8 +127,21 @@ export class LocalReviewsStore {
       const held = latest.get(run.scriptId);
       if (!held || held.startedAt <= run.startedAt) latest.set(run.scriptId, run);
     }
-    return [...latest.values()].map((run) => ({ name: run.name ?? run.scriptId, status: run.status, at: run.startedAt }));
+    return [...latest.values()].map((run) => {
+      const expectedMs = this.usual(run.scriptId);
+      return { name: run.name ?? run.scriptId, status: run.status, at: run.startedAt, ...(run.endedAt ? { endedAt: run.endedAt } : {}), ...(expectedMs ? { expectedMs } : {}) };
+    });
   };
+
+  /** How long a script's last successful runs took, the median, in any checkout. */
+  private usual(scriptId: string): number | undefined {
+    const took = this.snapshot.runs
+      .filter((run) => run.scriptId === scriptId && run.status === "succeeded" && run.endedAt)
+      .sort((a, b) => b.startedAt - a.startedAt)
+      .slice(0, HISTORY_RUNS)
+      .map((run) => run.endedAt! - run.startedAt);
+    return median(took);
+  }
 
   /** The last run of each script in a worktree, summed. */
   checks = (path: string): ReviewChecks | undefined => {

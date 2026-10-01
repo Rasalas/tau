@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, CircleCheck, CircleDashed, CircleDot, CircleX, ExternalLink, LoaderCircle, MessageSquare, Pencil, Send } from "lucide-react";
+import { ChevronDown, ChevronRight, CircleCheck, CircleDashed, CircleDot, CircleX, LoaderCircle, MessageSquare, Pencil, Send } from "lucide-react";
 import { errorMessage, Markdown, type WorkbenchActions } from "tau";
-import type { ComposerContextChips, PullRequestCheck, PullRequestCheckStatus, PullRequestChip, PullRequestComment, PullRequestThread, ReviewCommentChip } from "./protocol.js";
-import { CHECK_LABELS, relativeTime, ROLLUP_TITLES, type ChecksRollup } from "./pull-request-logic.js";
+import type { ComposerContextChips, PullRequestCheckStatus, PullRequestChip, PullRequestComment, PullRequestThread, ReviewCommentChip } from "./protocol.js";
+import { relativeTime, ROLLUP_TITLES, type ChecksRollup } from "./pull-request-logic.js";
 import { githubHtml } from "./github-html.js";
 
 export function CheckIcon({ status, size = 13 }: { status: PullRequestCheckStatus; size?: number }) {
@@ -20,25 +20,6 @@ export function CheckIcon({ status, size = 13 }: { status: PullRequestCheckStatu
 export function RollupIcon({ rollup }: { rollup: ChecksRollup }) {
   const status: PullRequestCheckStatus = rollup === "failing" ? "failed" : rollup === "pending" ? "pending" : "passed";
   return <span className="pr-rollup" title={ROLLUP_TITLES[rollup]}><CheckIcon status={status} /></span>;
-}
-
-export function ChecksList({ checks, actions }: { checks: readonly PullRequestCheck[]; actions: WorkbenchActions }) {
-  if (checks.length === 0) return <p className="pr-empty">No checks reported.</p>;
-  return (
-    <ul className="pr-checks" aria-label="Checks">
-      {checks.map((check) => (
-        <li key={check.name}>
-          <button className="pr-check" disabled={!check.url} title={check.description ?? check.name} onClick={() => check.url && actions.openExternal(check.url)}>
-            <CheckIcon status={check.status} />
-            <span className="pr-check-name">{check.name}</span>
-            {check.workflow && !check.name.startsWith(`${check.workflow} / `) ? <small>{check.workflow}</small> : null}
-            <span className={`pr-check-status ${check.status}`}>{CHECK_LABELS[check.status]}</span>
-            {check.url ? <ExternalLink size={11} aria-hidden="true" /> : null}
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
 }
 
 /** Puts a chip into the composer on screen, or its words when Composer Context is off. */

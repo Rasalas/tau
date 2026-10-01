@@ -390,6 +390,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
               onReviewers={capabilities.reviewers && writes.reviewers ? async (change) => { setData({ detail: await client.reviewers(params.url, change) }); } : undefined}
               onLabels={capabilities.labels && writes.labels ? async (change) => { setData({ detail: await client.labels(params.url, change) }); } : undefined}
               showChecks={capabilities.checks}
+              client={client}
               candidates={candidates}
             />
           </div>

@@ -41,6 +41,8 @@ import {
 import { useCompactProfile } from "./compact-profile.js";
 import { mergeBlocker, mergedThisMonth, reviewRuntime, type HunkPick, type LocalReview, type ReviewCounts, type ReviewState } from "./local-reviews.js";
 import { useLocalReviews, type LocalReviewsStore } from "./local-reviews-store.js";
+import { runsPipeline } from "./pipeline.js";
+import { PipelineGraph } from "./pipeline-view.js";
 import { REVIEW_HOST_EXTENSION_ID, type PendingReviewComment } from "./protocol.js";
 import { baseName, lineTarget, lineText, noteMessage } from "./review-lines.js";
 import type { PullRequestsPageParts } from "./pull-requests-page.js";
@@ -360,6 +362,7 @@ function ReviewDetail({ review, parts, act, actions }: { review: LocalReview; pa
   const [sending, setSending] = useState(false);
   const [removing, setRemoving] = useState(false);
   const noteKey = `local:${review.key}`;
+  const runs = parts.store.latestRuns(review.path ?? "");
   const notes = parts.detail.notes;
   const held = useSyncExternalStore(notes.subscribe, () => notes.comments(noteKey));
   let threads: ReturnType<typeof useThreadStore> | undefined;
@@ -417,6 +420,7 @@ function ReviewDetail({ review, parts, act, actions }: { review: LocalReview; pa
         {review.uncommitted ? <span className="warn">{review.uncommitted} not committed</span> : null}
         {review.behind ? <span>{plural(review.behind, "commit")} behind {review.target}</span> : null}
       </p>
+      {runs.length ? <PipelineGraph pipelines={[runsPipeline(runs)]} actions={actions} /> : null}
       {review.ask ? (
         <div className="rv-ask-open" role="status">
           {review.ask.kind === "note" ? <MessageSquare size={13} aria-hidden="true" /> : <RefreshCw size={13} aria-hidden="true" />}

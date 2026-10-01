@@ -3,7 +3,6 @@ import {
   providerInfo,
   REQUEST_SERVICES,
   type PullRequestCheck,
-  type PullRequestCheckStatus,
   type PullRequestComment,
   type PullRequestDetail,
   type PullRequestFile,
@@ -31,16 +30,6 @@ export function pullRequestTabParams(params: Record<string, unknown>): PullReque
 
 export const shortNoun = (service: PullRequestRef["service"]): "PR" | "MR" => providerInfo(service).short;
 export const hostName = (service: PullRequestRef["service"]): string => providerInfo(service).name;
-
-export const CHECK_LABELS: Record<PullRequestCheckStatus, string> = {
-  pending: "Running",
-  "action-required": "Awaiting action",
-  passed: "Passed",
-  failed: "Failed",
-  cancelled: "Cancelled",
-  skipped: "Skipped",
-  neutral: "Neutral",
-};
 
 export type ChecksRollup = "failing" | "pending" | "passing";
 

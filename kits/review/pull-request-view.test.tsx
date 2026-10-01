@@ -34,6 +34,7 @@ function fakeClient(overrides: Partial<PullRequestClient> = {}): PullRequestClie
   return {
     view: vi.fn(async () => detail),
     checks: vi.fn(async () => detail.checks),
+    pipeline: vi.fn(async () => ({})),
     threads: vi.fn(async () => threads),
     files: vi.fn(async () => files),
     comment: vi.fn(async () => undefined),
@@ -121,7 +122,7 @@ describe("the pull-request view", () => {
     expect(screen.getByText("enhancement")).toBeTruthy();
     expect(screen.getByLabelText("Checks summary").textContent).toContain("1 of 4 failing");
     // Failing checks open their section.
-    expect(within(screen.getByRole("list", { name: "Checks" })).getByText("smoke")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^smoke: Failed/u })).toBeTruthy();
     await waitFor(() => expect(screen.getByText("Comments (6)")).toBeTruthy());
     expect(screen.getByText("The offset counts the chunk's end.")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "kits/terminal/output.ts:10" })).toHaveLength(2);
