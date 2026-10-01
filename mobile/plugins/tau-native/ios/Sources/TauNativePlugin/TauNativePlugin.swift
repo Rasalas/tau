@@ -16,7 +16,7 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "activityRemoteDisable", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "activityKey", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "activityTokens", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "activityUpdate", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "activityThreads", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "activityUsage", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "activityClear", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "dictationLanguages", returnType: CAPPluginReturnPromise),
@@ -116,10 +116,11 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
             call.resolve(["tokens": tokens])
         } else { call.resolve(["tokens": []]) }
     }
-    @objc func activityUpdate(_ call: CAPPluginCall) {
+    @objc func activityThreads(_ call: CAPPluginCall) {
         Task { @MainActor [weak self] in
             guard #available(iOS 16.2, *) else { call.resolve(); return }
-            do { try await MobileActivityStore.update(call.options as? [String: Any] ?? [:]) { [weak self] event in self?.notifyListeners("activityToken", data: event, retainUntilConsumed: true) }; call.resolve() } catch { call.reject(error.localizedDescription) }
+            await MobileActivityStore.threads(call.options as? [String: Any] ?? [:]) { [weak self] event in self?.notifyListeners("activityToken", data: event, retainUntilConsumed: true) }
+            call.resolve()
         }
     }
     @objc func activityUsage(_ call: CAPPluginCall) { MobileActivityStore.usage(call.options as? [String: Any] ?? [:]); call.resolve() }
