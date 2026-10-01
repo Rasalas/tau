@@ -21,10 +21,10 @@ export interface PanelGeometry {
 }
 export const articulated = (layout: BodyLayout) => ["book", "flip", "dual"].includes(layout);
 /** Front faces pivot at z=0; solid bodies extend behind them, avoiding collision at closure. */
-export function panelGeometry(layout: BodyLayout, width: number, height: number, angle: number): PanelGeometry[] {
+export function panelGeometry(layout: BodyLayout, width: number, height: number, angle: number, rotated = false): PanelGeometry[] {
   if (!articulated(layout)) return [{ x: 0, y: 0, width, height, origin: "center", transform: "none", crop: { x: 0, y: 0, width: 1, height: 1 } }];
   const turn = (180 - Math.max(0, Math.min(layout === "dual" ? 360 : 180, angle))) / 2;
-  if (layout === "flip") return [
+  if ((layout === "flip") !== rotated) return [
     { x: 0, y: 0, width, height: height / 2, origin: "center bottom", transform: `rotateX(${-turn}deg)`, crop: { x: 0, y: 0, width: 1, height: .5 } },
     { x: 0, y: height / 2, width, height: height / 2, origin: "center top", transform: `rotateX(${turn}deg)`, crop: { x: 0, y: .5, width: 1, height: .5 } },
   ];
@@ -34,13 +34,20 @@ export function panelGeometry(layout: BodyLayout, width: number, height: number,
   ];
 }
 export interface ScreenSize { width: number; height: number }
+/** Discovery has no display rotation. A reciprocal aspect identifies a quarter-turn of the confirmed interior. */
+export function captureOrientation(size: ScreenSize, reference: ScreenSize): "same" | "rotated" | undefined {
+  const aspect = size.width / size.height, expected = reference.width / reference.height;
+  const same = Math.abs(aspect - expected), rotated = Math.abs(aspect - 1 / expected);
+  if (Math.min(same, rotated) >= .025) return undefined;
+  return same <= rotated ? "same" : "rotated";
+}
 export type CaptureSurface = "front" | "cover" | "unmapped";
 /** A native closed capture may be a cover screen. Never stretch it over two interior panels. */
 export function captureSurface(layout: BodyLayout, size: ScreenSize, inner: ScreenSize | undefined, fold?: FoldState): CaptureSurface {
   if (!articulated(layout)) return "front";
   if (!fold?.supported || fold.posture === null || fold.posture === "flipped" || fold.posture === "tent") return "unmapped";
-  if (fold.posture === "closed") return layout === "book" && inner && Math.abs(size.width / size.height - inner.width / inner.height) > .025 ? "cover" : "unmapped";
-  if (inner && Math.abs(size.width / size.height - inner.width / inner.height) > .025) return "unmapped";
+  if (fold.posture === "closed") return layout === "book" && inner && !captureOrientation(size, inner) ? "cover" : "unmapped";
+  if (inner && !captureOrientation(size, inner)) return "unmapped";
   return "front";
 }
 export function nativeAngle(fold?: FoldState): number | undefined {

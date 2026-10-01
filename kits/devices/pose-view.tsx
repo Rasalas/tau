@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { ChevronRight, RotateCcw, Settings2, Smartphone } from "lucide-react";
 import { Button, HelpTip, Select, Slider } from "tau";
 import type { Device, FoldState } from "./protocol.js";
-import { articulated, bodyProfile, captureRegion, captureSurface, nativeAngle, panelGeometry, type BodyLayout, type PanelGeometry, type ScreenSize } from "./pose-model.js";
+import { articulated, bodyProfile, captureOrientation, captureRegion, captureSurface, nativeAngle, panelGeometry, type BodyLayout, type PanelGeometry, type ScreenSize } from "./pose-model.js";
 
 type Vars = CSSProperties & Record<`--${string}`, string | number>;
 function Screen({ image, crop, cover = false, source }: { image: string; crop: PanelGeometry["crop"]; cover?: boolean; source?: HTMLCanvasElement }) {
@@ -38,7 +38,7 @@ export default function DevicePoseView({ image, device, fold, source, captureRea
   const layout = layoutChoice ?? profile.layout;
   const [decoded, setDecoded] = useState<{ image: string; size: ScreenSize }>();
   const size = source?.width && source.height ? { width: source.width, height: source.height } : decoded?.image === image ? decoded.size : undefined;
-  const inner = useRef<ScreenSize | undefined>(undefined);
+  const inner = useRef<{ reference: ScreenSize; size: ScreenSize } | undefined>(undefined);
   const scene = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState({ width: 400, height: 400 });
   const [yaw, setYaw] = useState(-24), [pitch, setPitch] = useState(12), [zoom, setZoom] = useState(1);
@@ -54,11 +54,13 @@ export default function DevicePoseView({ image, device, fold, source, captureRea
     return () => observer.disconnect();
   }, []);
   useEffect(() => { setPreview(undefined); }, [actualAngle]);
-  // Keep the last confirmed interior dimensions when the native display switches to the cover.
-  if (captureReady && size && (!articulated(layout) || fold?.posture === "opened" || fold?.posture === "half_opened") &&
-    (!inner.current || Math.abs(size.width / size.height - inner.current.width / inner.current.height) < .025)) inner.current = size;
-  const surface = captureReady && size ? captureSurface(layout, size, inner.current, fold) : "unmapped";
-  const dimensions = inner.current ?? size;
+  // Keep both the first interior orientation and the latest confirmed dimensions across cover captures.
+  if (captureReady && size && articulated(layout) && fold?.supported && (fold.posture === "opened" || fold.posture === "half_opened") &&
+    (!inner.current || captureOrientation(size, inner.current.reference))) inner.current = { reference: inner.current?.reference ?? size, size };
+  const surface = captureReady && size ? captureSurface(layout, size, inner.current?.reference, fold) : "unmapped";
+  const dimensions = articulated(layout) ? inner.current?.size ?? size : size;
+  const rotated = !!inner.current && captureOrientation(inner.current.size, inner.current.reference) === "rotated";
+  const horizontalHinge = (layout === "flip") !== rotated;
   const aspect = dimensions ? dimensions.width / dimensions.height : 1;
   // Initial closed captures have no interior dimensions. A generic body is explicit in the caption.
   const bodyAspect = articulated(layout) && !inner.current && fold?.posture === "closed" ? (layout === "flip" ? .5 : 1) : aspect;
@@ -67,7 +69,7 @@ export default function DevicePoseView({ image, device, fold, source, captureRea
   const depth = Math.max(6, Math.min(12, height * .026));
   const front = surface === "front" && angle > 5;
   const cover = surface === "cover" && angle < 90;
-  const panels = panelGeometry(layout, width, height, angle);
+  const panels = panelGeometry(layout, width, height, angle, rotated);
   const reset = () => { setYaw(-24); setPitch(12); setZoom(1); setPreview(undefined); };
   return <div className="devices-pose">
     {image && <img className="devices-pose-probe" src={image} alt="" onLoad={(event) => { const { naturalWidth, naturalHeight } = event.currentTarget; if (naturalWidth && naturalHeight) setDecoded({ image, size: { width: naturalWidth, height: naturalHeight } }); }} />}
@@ -81,9 +83,9 @@ export default function DevicePoseView({ image, device, fold, source, captureRea
       setYaw(start.yaw + (event.clientX - start.x) * .6);
       setPitch(Math.max(-85, Math.min(85, start.pitch - (event.clientY - start.y) * .6)));
     }} onPointerUp={() => { dragging.current = undefined; }} onPointerCancel={() => { dragging.current = undefined; }} onLostPointerCapture={() => { dragging.current = undefined; }} onWheel={(event) => { setZoom((value) => Math.max(.5, Math.min(1.8, value - event.deltaY * .001))); }}>
-      {size ? <div className="devices-pose-body" data-layout={layout} data-angle={angle} data-surface={surface} style={{ width, height, transform: `scale(${zoom}) rotateX(${pitch}deg) rotateY(${yaw - (articulated(layout) ? (180 - Math.min(180, angle)) / 2 : 0)}deg)`, "--device-depth": `${depth}px`, "--device-half-depth": `${depth / 2}px`, "--device-radius": `${layout === "tablet" ? 12 : 18}px` } as Vars}>
+      {size ? <div className="devices-pose-body" data-layout={layout} data-angle={angle} data-surface={surface} style={{ width, height, transform: `scale(${zoom}) rotateX(${pitch}deg) rotateY(${yaw - (articulated(layout) && !horizontalHinge ? (180 - Math.min(180, angle)) / 2 : 0)}deg)`, "--device-depth": `${depth}px`, "--device-half-depth": `${depth / 2}px`, "--device-radius": `${layout === "tablet" ? 12 : 18}px` } as Vars}>
         {panels.map((panel, index) => <Panel key={index} panel={panel} index={index} image={image} source={source} front={front} cover={cover && index === 1} />)}
-        {articulated(layout) && <span className={`devices-pose-hinge${layout === "flip" ? " devices-pose-hinge-horizontal" : ""}`} />}
+        {articulated(layout) && <span className={`devices-pose-hinge${horizontalHinge ? " devices-pose-hinge-horizontal" : ""}`} />}
       </div> : <span>Loading screen dimensions…</span>}
     </div>
     <div className="devices-pose-caption">

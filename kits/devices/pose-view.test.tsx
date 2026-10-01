@@ -16,6 +16,85 @@ function load(container: HTMLElement, width: number, height: number) {
   Object.defineProperties(probe, { naturalWidth: { configurable: true, value: width }, naturalHeight: { configurable: true, value: height } });
   fireEvent.load(probe);
 }
+function bodyAspect(container: HTMLElement) {
+  const body = container.querySelector<HTMLElement>(".devices-pose-body")!;
+  return parseFloat(body.style.width) / parseFloat(body.style.height);
+}
+it("follows a phone capture through native quarter-turns", () => {
+  const phone = { ...device, name: "Pixel Phone" };
+  const { container, rerender } = render(<DevicePoseView image="portrait.png" device={phone} />);
+  load(container, 1000, 2000);
+  expect(bodyAspect(container)).toBeCloseTo(.5);
+  rerender(<DevicePoseView image="landscape.png" device={phone} />);
+  load(container, 2000, 1000);
+  expect(bodyAspect(container)).toBeCloseTo(2);
+  rerender(<DevicePoseView image="portrait-again.png" device={phone} />);
+  load(container, 1000, 2000);
+  expect(bodyAspect(container)).toBeCloseTo(.5);
+});
+it("keeps a rotated native interior visible and rotates its hinge and capture regions", () => {
+  const { container, rerender } = render(<DevicePoseView image="portrait.png" device={device} fold={open} />);
+  load(container, 1800, 2200);
+  rerender(<DevicePoseView image="landscape.png" device={device} fold={open} />);
+  load(container, 2200, 1800);
+  expect(bodyAspect(container)).toBeCloseTo(2200 / 1800);
+  expect(container.querySelector("[data-surface]")?.getAttribute("data-surface")).toBe("front");
+  expect([...container.querySelectorAll("[data-crop]")].map((element) => element.getAttribute("data-crop"))).toEqual(["0,0,1,0.5", "0,0.5,1,0.5"]);
+  expect(container.querySelector(".devices-pose-hinge-horizontal")).toBeTruthy();
+  fireEvent.change(screen.getByRole("slider", { name: "3D preview hinge" }), { target: { value: "90" } });
+  expect([...container.querySelectorAll<HTMLElement>("[data-panel]")].map((element) => element.style.transform)).toEqual(["rotateX(-45deg)", "rotateX(45deg)"]);
+  expect(container.querySelector<HTMLElement>(".devices-pose-body")?.style.transform).toContain("rotateY(-24deg)");
+  rerender(<DevicePoseView image="cover.png" device={device} fold={{ ...open, posture: "closed", hingeAngle: 0 }} />);
+  load(container, 1000, 2200);
+  expect(bodyAspect(container)).toBeCloseTo(2200 / 1800);
+  expect(container.querySelector("[data-surface]")?.getAttribute("data-surface")).toBe("cover");
+  rerender(<DevicePoseView image="portrait-again.png" device={device} fold={open} />);
+  load(container, 1800, 2200);
+  expect(bodyAspect(container)).toBeCloseTo(1800 / 2200);
+  expect([...container.querySelectorAll("[data-crop]")].map((element) => element.getAttribute("data-crop"))).toEqual(["0,0,0.5,1", "0.5,0,0.5,1"]);
+});
+it("rejects a cover-sized capture while the native posture reports opened", () => {
+  const { container, rerender } = render(<DevicePoseView image="interior.png" device={device} fold={open} />);
+  load(container, 1800, 2200);
+  rerender(<DevicePoseView image="wrong-capture.png" device={device} fold={open} />);
+  load(container, 1000, 2200);
+  expect(container.querySelector("[data-surface]")?.getAttribute("data-surface")).toBe("unmapped");
+  expect(bodyAspect(container)).toBeCloseTo(1800 / 2200);
+  expect(container.querySelectorAll("[data-crop]")).toHaveLength(0);
+});
+it("uses current decoded canvas dimensions after rotation and keeps odd pixel crops disjoint", () => {
+  const drawImage = vi.fn();
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage } as unknown as CanvasRenderingContext2D);
+  const source = document.createElement("canvas"); source.width = 1801; source.height = 2201;
+  const { container, rerender } = render(<DevicePoseView image="" source={source} device={device} fold={open} />);
+  source.width = 2201; source.height = 1801;
+  drawImage.mockClear();
+  rerender(<DevicePoseView image="" source={source} device={device} fold={open} />);
+  expect(bodyAspect(container)).toBeCloseTo(2201 / 1801);
+  expect(container.querySelector("[data-surface]")?.getAttribute("data-surface")).toBe("front");
+  expect(drawImage).toHaveBeenCalledWith(source, 0, 0, 2201, 900, 0, 0, 2201, 900);
+  expect(drawImage).toHaveBeenCalledWith(source, 0, 900, 2201, 901, 0, 0, 2201, 901);
+});
+it("follows a non-folding decoded canvas through native rotation", () => {
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
+  const source = document.createElement("canvas"); source.width = 1000; source.height = 2000;
+  const phone = { ...device, name: "Pixel Phone" };
+  const { container, rerender } = render(<DevicePoseView image="" source={source} device={phone} />);
+  expect(bodyAspect(container)).toBeCloseTo(.5);
+  source.width = 2000; source.height = 1000;
+  rerender(<DevicePoseView image="" source={source} device={phone} />);
+  expect(bodyAspect(container)).toBeCloseTo(2);
+  expect(container.querySelector("[data-crop]")?.getAttribute("data-crop")).toBe("0,0,1,1");
+});
+it("does not learn an interior orientation from a capture awaiting native posture confirmation", () => {
+  const { container, rerender } = render(<DevicePoseView image="pending.png" device={device} fold={open} captureReady={false} />);
+  load(container, 1000, 2200);
+  expect(container.querySelector("[data-surface]")?.getAttribute("data-surface")).toBe("unmapped");
+  rerender(<DevicePoseView image="interior.png" device={device} fold={open} />);
+  load(container, 1800, 2200);
+  expect(bodyAspect(container)).toBeCloseTo(1800 / 2200);
+  expect(container.querySelector("[data-surface]")?.getAttribute("data-surface")).toBe("front");
+});
 it("renders disjoint native capture regions, a solid back for each panel, and a preview-only hinge", () => {
   const { container } = render(<DevicePoseView image="open.png" device={device} fold={open} />);
   load(container, 1800, 2200);
