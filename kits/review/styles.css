@@ -163,8 +163,19 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 .pr-check-icon.failed, .pr-check-icon.cancelled { color: var(--fail); }
 .pr-check-icon.pending, .pr-check-icon.action-required { color: var(--warn); }
 .pr-check-icon.skipped, .pr-check-icon.neutral { color: var(--faint); }
-.pl { --pl-row: 26px; --pl-gap: 6px; --pl-inset: 2px; display: flex; flex-direction: column; gap: var(--space-6); }
-.pl.phone { --pl-row: 44px; --pl-gap: 0px; --pl-inset: 8px; }
+.pl {
+  --pl-row: 26px;
+  --pl-gap: 6px;
+  --pl-inset: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+.pl.phone {
+  --pl-row: 44px;
+  --pl-gap: 0px;
+  --pl-inset: 8px;
+}
 .pl-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; color: var(--muted); font: var(--text-sm) var(--sans); }
 .pl-head strong { color: var(--ink-2); font-weight: 600; }
 .pl-graph { display: flex; align-items: flex-start; overflow-x: auto; padding: 1px 0; }
