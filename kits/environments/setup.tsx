@@ -1,8 +1,9 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, type ComponentType } from "react";
 import { Button, errorMessage, loadSignInUi, useWorkbenchShell, type HostExtensionClient, type HostReadiness, type PlatformEnvironments, type RuntimeReadiness, type UiEnvironment, type WorkbenchActions } from "tau";
 import { AgentsSwitch, useAgentMachines } from "./agents.js";
 import { machineKitClient } from "./machine-kit.js";
 import { useEnvironments } from "./rail.js";
+import type { MachineImportProps } from "./protocol.js";
 
 const SignIn = lazy(() => loadSignInUi().then((module) => ({ default: module.SignInSetup })));
 /** Onboarding Kit's tools report (`kits/onboarding/protocol.ts`); kits name contracts without importing each other. */
@@ -113,7 +114,7 @@ function SetupAgents({ environments, host, machine, local }: { environments: Pla
   </>;
 }
 
-export function MachineSetup({ environments, host, machine, onDone }: { environments: PlatformEnvironments; host: HostExtensionClient; machine: UiEnvironment; onDone(): void }) {
+export function MachineSetup({ environments, host, machine, onDone, ImportConversations }: { environments: PlatformEnvironments; host: HostExtensionClient; machine: UiEnvironment; onDone(): void; ImportConversations?: ComponentType<MachineImportProps> }) {
   const list = useEnvironments(environments);
   const agents = useAgentMachines(host);
   const agent = agents?.machines.find((entry) => entry.id === machine.id);
@@ -128,5 +129,6 @@ export function MachineSetup({ environments, host, machine, onDone }: { environm
       <p>Let this computer's agents work on {machine.name} first; the setup reads the machine over their connection.</p>
       {environments.setAgents ? <AgentsSwitch machine={machine} agent={agent} environments={environments as PlatformEnvironments & Required<Pick<PlatformEnvironments, "setAgents">>} pairing={list?.pairing} /> : null}
     </>}
+    {ImportConversations ? <ImportConversations key={machine.id} machine={machine.id} name={machine.name} /> : null}
   </section>;
 }

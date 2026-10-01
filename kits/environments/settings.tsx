@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ComponentType, type FormEvent } from "react";
 import {
   Badge,
   Button,
@@ -25,12 +25,12 @@ import { MachineHealth } from "./health.js";
 import { statusText } from "./machines.js";
 import { AgentsSwitch, PairingStatus, useAgentMachines } from "./agents.js";
 import { MachineSetup } from "./setup.js";
-import type { AgentMachines } from "./protocol.js";
+import type { AgentMachines, MachineImportProps } from "./protocol.js";
 import { MachineDot, MachineIcon, useEnvironments } from "./rail.js";
 import { MachineWeights } from "./weights.js";
 import { MachineUpdateLine } from "./update.js";
 
-function MachineRow({ machine, shown, environments, now, onRemove, agents, pairing, host, behind }: {
+function MachineRow({ machine, shown, environments, now, onRemove, agents, pairing, host, behind, ImportConversations }: {
   machine: UiEnvironment;
   shown: boolean;
   /** It runs an older Tau than it could (K103). */
@@ -43,6 +43,7 @@ function MachineRow({ machine, shown, environments, now, onRemove, agents, pairi
   pairing?: UiEnvironmentPairing;
   /** This computer's host, which asks a machine its agents reach how it is doing. */
   host?: HostExtensionClient;
+  ImportConversations?: ComponentType<MachineImportProps>;
 }) {
   const [editing, setEditing] = useState(false);
   const [settingUp, setSettingUp] = useState(false);
@@ -86,7 +87,7 @@ function MachineRow({ machine, shown, environments, now, onRemove, agents, pairi
         ) : null}
         {health ? <MachineHealth host={host} machine={machine.id} name={machine.name} /> : null}
         <MachineUpdateLine machine={machine} environments={environments} behind={behind} />
-        {settingUp && host ? <MachineSetup environments={environments} host={host} machine={machine} onDone={() => setSettingUp(false)} /> : null}
+        {settingUp && host ? <MachineSetup environments={environments} host={host} machine={machine} ImportConversations={ImportConversations} onDone={() => setSettingUp(false)} /> : null}
       </div>
       {machine.local ? null : (
         <>
@@ -173,7 +174,7 @@ function NearbyMachines({ environments, list, busy, onAdd }: {
 
 const NO_SECURE_STORAGE = "This computer offers Tau no encrypted storage (keychain or secret service), so it cannot keep another machine's key.";
 
-function AddMachine({ environments, secureStorage, offerAgents, host }: { environments: PlatformEnvironments; secureStorage: boolean; offerAgents: boolean; host?: HostExtensionClient }) {
+function AddMachine({ environments, secureStorage, offerAgents, host, ImportConversations }: { environments: PlatformEnvironments; secureStorage: boolean; offerAgents: boolean; host?: HostExtensionClient; ImportConversations?: ComponentType<MachineImportProps> }) {
   const field = useRef<HTMLInputElement>(null);
   const [text, setText] = useState("");
   const [method, setMethod] = useState<"link" | "ssh" | "wsl">("link");
@@ -258,7 +259,7 @@ function AddMachine({ environments, secureStorage, offerAgents, host }: { enviro
         </span>
       </div>
     </form>
-      {setupMachine && host ? <MachineSetup environments={environments} host={host} machine={setupMachine} onDone={() => setSetupMachine(undefined)} /> : null}
+      {setupMachine && host ? <MachineSetup environments={environments} host={host} machine={setupMachine} ImportConversations={ImportConversations} onDone={() => setSetupMachine(undefined)} /> : null}
     </>
   );
 }
@@ -267,7 +268,7 @@ function AddMachine({ environments, secureStorage, offerAgents, host }: { enviro
  * Settings → Machines: the computers this window shows threads of, and adding
  * one. Adding one asks that machine's owner, who compares a code (ADR 0024).
  */
-export function createMachinesPage(environments: PlatformEnvironments, host?: HostExtensionClient) {
+export function createMachinesPage(environments: PlatformEnvironments, host?: HostExtensionClient, ImportConversations?: ComponentType<MachineImportProps>) {
   return function MachinesPage() {
     const list = useEnvironments(environments);
     // Agents are this computer's host's: only while the page shows this computer, and on a host that keeps machines.
@@ -301,6 +302,7 @@ export function createMachinesPage(environments: PlatformEnvironments, host?: Ho
               behind={machineBehind(machine, reference)}
               environments={environments}
               now={now}
+              ImportConversations={ImportConversations}
               onRemove={() => setRemoving(machine)}
               {...(agents ? { agents } : {})}
               {...(list.pairing ? { pairing: list.pairing } : {})}
@@ -318,7 +320,7 @@ export function createMachinesPage(environments: PlatformEnvironments, host?: Ho
           {list.secureStorage ? null : (
             <p className="settings-group-note machine-warning">{NO_SECURE_STORAGE}</p>
           )}
-          <AddMachine environments={environments} secureStorage={list.secureStorage} offerAgents={agents !== undefined && environments.setAgents !== undefined} {...(!environments.shownElsewhere && host ? { host } : {})} />
+          <AddMachine environments={environments} secureStorage={list.secureStorage} offerAgents={agents !== undefined && environments.setAgents !== undefined} ImportConversations={ImportConversations} {...(!environments.shownElsewhere && host ? { host } : {})} />
         </SettingsSection>
         <SettingsSection title="At start">
           <SettingRow

@@ -81,7 +81,8 @@ offers.
 
 **Setting a machine up is part of adding it.** After pairing, the add flow
 compares agents here and there, runs sign-in on the new machine with its URL or
-code shown here, offers to copy API keys one by one, and offers to import that
+code shown here, accepts API keys in that machine’s sign-in without exporting
+stored keys, and offers to import that
 machine's earlier conversations. Onboarding never opens by itself for a machine
 the window only shows.
 

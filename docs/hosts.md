@@ -191,6 +191,7 @@ HTTPS relay deployment; Tau does not borrow T3's cloud service.
 The easier way to work on another machine is to add it to the window you already use. On the other machine, open Settings → Connections, turn on network access and create a pairing link. On this one, open Settings → Machines and paste the link, type the other machine's address (`studio.local:7788`), or click **Find Machines** to list the ones that announce themselves on this network (the other machine needs Local network and Announce on) and **Add** one. The other machine's window asks whether to let this computer in and shows six digits; allow it if this window shows the same six. Tau keeps that machine's key encrypted in the system keychain and never saves it anywhere it cannot.
 
 After pairing, **Set up <machine>** compares the agents here and there and lets you sign in on that machine with its link or code shown here, or copy its install command. Open it again with **Set up** on the machine's row; API keys are entered in that machine's sign-in and never copied from this computer.
+Its collapsed **Earlier conversations on <machine>** section lists that machine's saved conversations by project; choose which to import there, or select those from the last 30 days.
 
 **From a terminal, over SSH.** If you can already `ssh rex`, one command pairs the two machines with no link to copy and no digits to compare:
 

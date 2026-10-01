@@ -1,9 +1,14 @@
-import type { ComponentType, ReactNode } from "react";
+import type { ComponentType, ReactElement, ReactNode } from "react";
 import type { HostSnapshot, WorkbenchActions } from "tau";
 import type { MachineRailThread } from "./rail.js";
 
 export const ENVIRONMENTS_EXTENSION_ID = "tau.environments";
 export const MACHINES_SETTINGS_PAGE = "environments.machines";
+
+/** Onboarding Kit's desktop service (`kits/onboarding/protocol.ts`); its UI imports on the named machine. */
+export const MACHINE_IMPORT_SERVICE = "tau.onboarding/machine-import";
+export interface MachineImportProps { machine: string; name: string }
+export interface MachineImportService { Component: (props: MachineImportProps) => ReactElement }
 
 /** Workspace Kit's desktop service (`kits/workspace/protocol.ts`); the rail draws what is registered here. */
 export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";

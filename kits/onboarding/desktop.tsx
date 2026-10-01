@@ -2,8 +2,9 @@ import { useEffect, useSyncExternalStore } from "react";
 import { SquareTerminal } from "lucide-react";
 import { getClientStorage, hostIsReadOnly, READ_ONLY_REASON, type DesktopExtension, type DesktopExtensionContext, type RegionProps } from "tau";
 import { WelcomeFlow } from "./flow.js";
-import { ONBOARDING_EXTENSION_ID as ID, WELCOME_OVERLAY, type WelcomeState } from "./protocol.js";
+import { MACHINE_IMPORT_SERVICE, ONBOARDING_EXTENSION_ID as ID, WELCOME_OVERLAY, type MachineImportProps, type MachineImportService, type WelcomeState } from "./protocol.js";
 import { createWelcomeWizard, type TerminalRunner } from "./wizard.js";
+import { MachineImport } from "./machine-import.js";
 
 /** Terminal Kit's run service (`kits/terminal/protocol.ts`), named here: a kit never imports another. */
 const TERMINAL_RUN_SERVICE = "tau.terminal/run";
@@ -47,6 +48,10 @@ const onboarding: DesktopExtension = {
   id: ID,
   name: "Onboarding",
   activate(context) {
+    const environments = context.environments;
+    if (environments?.invokeExtension) context.provideService<MachineImportService>(MACHINE_IMPORT_SERVICE, {
+      Component: (props: MachineImportProps) => <MachineImport {...props} environments={environments} />,
+    });
     const flow = new WelcomeFlow(context.host, (id) => context.hostExtension(id), getClientStorage);
     const open = (actions: { openOverlay(id: string): void; notify(message: string): void }) => {
       if (hostIsReadOnly()) { actions.notify(READ_ONLY_REASON); return; }

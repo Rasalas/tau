@@ -4,7 +4,7 @@ import { getClientStorage, type DesktopExtension, type EnvironmentTarget, type P
 import { createAutoRunOnHook } from "./auto.js";
 import { createBringChoice, createBringProjectHook, createProjectIdentities, REMOTE_WORK_EXTENSION_ID } from "./bring-project.js";
 import { followArrival, readPendingArrival } from "./machines.js";
-import { ENVIRONMENTS_EXTENSION_ID, MACHINES_SETTINGS_PAGE, REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE, type RemoteAgentThreadsService, type WorkspaceRailSlice } from "./protocol.js";
+import { ENVIRONMENTS_EXTENSION_ID, MACHINES_SETTINGS_PAGE, MACHINE_IMPORT_SERVICE, REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE, type MachineImportProps, type MachineImportService, type RemoteAgentThreadsService, type WorkspaceRailSlice } from "./protocol.js";
 import { agentThreadsSource, createMachineCardRow, createMachineThreads, createShownMachine } from "./rail.js";
 import { createListHead, hereOf } from "./list-head.js";
 import { createRunOnSource } from "./run-on.js";
@@ -75,6 +75,21 @@ export const environmentsExtension: DesktopExtension = {
     // A client without a window process (a browser, a phone) has no machines.
     const environments = context.environments;
     if (!environments) return;
+    let machineImport: MachineImportService | undefined;
+    const listeners = new Set<() => void>();
+    context.useService<MachineImportService>(MACHINE_IMPORT_SERVICE, (service) => {
+      machineImport = service;
+      for (const listener of listeners) listener();
+      return () => {
+        machineImport = undefined;
+        for (const listener of listeners) listener();
+      };
+    });
+    const subscribeImport = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
+    function ImportConversations(props: MachineImportProps) {
+      const service = useSyncExternalStore(subscribeImport, () => machineImport);
+      return service ? <service.Component {...props} /> : null;
+    }
     context.registerSettingsPage({
       id: MACHINES_SETTINGS_PAGE,
       label: "Machines",
@@ -84,7 +99,7 @@ export const environmentsExtension: DesktopExtension = {
       order: 45,
       profiles: ["desktop"],
       keywords: ["environments", "computers", "remote", "hosts", "add machine", "pair"],
-      Component: createMachinesPage(environments, context.host),
+      Component: createMachinesPage(environments, context.host, ImportConversations),
     });
     // A phone lists the machines it paired with and shows another from there (design 1t).
     context.registerSettingsPage({
