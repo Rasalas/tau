@@ -629,6 +629,30 @@ export interface ComposerGateContribution extends ProfileScoped {
   Component: ComponentType<ComposerGateProps>;
 }
 
+/** Fast for the composer's thread, as one kit knows it. */
+export interface ComposerSpeedState {
+  fast: boolean;
+  /** False where the thread's model or runtime offers no faster tier; `reason` says why. */
+  available: boolean;
+  reason?: string;
+  /** What Fast does or costs, under its name. */
+  detail?: string;
+}
+
+/**
+ * A runtime's faster tier, drawn by core in the thinking chip (⚡) and its
+ * menu (K142). `read` answers from what the kit holds and must return the same
+ * object until it changes; it says `undefined` for a thread it has nothing to
+ * do with, and calls `subscribe`'s listener once it knows more.
+ */
+export interface ComposerSpeedContribution extends ProfileScoped {
+  id: string;
+  order?: number;
+  read(snapshot: HostSnapshot | undefined): ComposerSpeedState | undefined;
+  subscribe(listener: () => void): () => void;
+  set(fast: boolean, snapshot: HostSnapshot | undefined): void | Promise<void>;
+}
+
 /** A mark on a model's row in the model picker. */
 export interface ModelBadgeContribution extends ProfileScoped {
   id: string;
@@ -1461,6 +1485,8 @@ export interface DesktopExtensionContext {
   registerComposerGate(gate: ComposerGateContribution): () => void;
   /** Marks models in the model picker, with a line explaining the mark. */
   registerModelBadge(badge: ModelBadgeContribution): () => void;
+  /** A faster tier for threads of this kit's runtime, shown in the composer's thinking chip and menu. */
+  registerComposerSpeed(speed: ComposerSpeedContribution): () => void;
   /** Rows this extension shows in the transcript; `order` sorts rows sharing an anchor. */
   registerTranscriptRows(id: string, order?: number, options?: ProfileScoped): TranscriptRowsHandle;
   /** Replaces the transcript's waiting label for a thread while the label is set; `undefined` clears it. */
@@ -1649,6 +1675,7 @@ export class ExtensionRegistry {
   private composerInlines = new Map<string, Owned<ComposerInlineContribution>>();
   private composerGates = new Map<string, Owned<ComposerGateContribution>>();
   private modelBadges = new Map<string, Owned<ModelBadgeContribution>>();
+  private composerSpeeds = new Map<string, Owned<ComposerSpeedContribution>>();
   private regions = new Map<string, Owned<RegionContribution>>();
   private statusItems = new Map<string, Owned<StatusItemContribution>>();
   private overlays = new Map<string, Owned<OverlayContribution>>();
@@ -1941,6 +1968,11 @@ export class ExtensionRegistry {
         if (!this.scopeToProfile(owner, "model badge", badge.id, badge.label, badge)) return noContribution;
         note("model badges");
         return this.register(this.modelBadges, badge.id, { ...badge, ...owner }, disposers);
+      },
+      registerComposerSpeed: (speed) => {
+        if (!this.scopeToProfile(owner, "composer speed", speed.id, undefined, speed)) return noContribution;
+        note("composer speed");
+        return this.register(this.composerSpeeds, speed.id, { ...speed, ...owner }, disposers);
       },
       provideService: (id, value) => {
         const held = this.extensionServices.get(id);
@@ -2288,6 +2320,10 @@ export class ExtensionRegistry {
 
   getModelBadges(): Array<Owned<ModelBadgeContribution>> {
     return this.sorted("model-badges", this.modelBadges);
+  }
+
+  getComposerSpeeds(): Array<Owned<ComposerSpeedContribution>> {
+    return this.sorted("composer-speeds", this.composerSpeeds);
   }
 
   getSidebarContributions(): Array<Owned<SidebarContribution>> {
