@@ -494,6 +494,8 @@ export interface PullRequestListEntry {
   labels: PullRequestLabel[];
   reviewDecision?: PullRequestReviewDecision;
   checks?: PullRequestChecksState;
+  /** The checks one by one, where the list read them (GitHub). */
+  checkRuns?: PullRequestCheck[];
   /** The signed-in account is among the requested reviewers. */
   reviewRequested: boolean;
   /** Its layer in a stack, where the host keeps stacks. */

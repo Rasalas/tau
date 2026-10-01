@@ -10,6 +10,8 @@ const job = (name: string, seconds: number) => ({ name, conclusion: "success", s
 function tools(now = { at: 0 }) {
   const answers: Record<string, unknown> = {
     "repos/acme/demo": { default_branch: "trunk" },
+    "repos/acme/demo/actions/workflows?per_page=100": { workflows: [{ id: 9, name: "CI", path: ".github/workflows/ci.yml" }] },
+    "repos/acme/demo/contents/.github/workflows/ci.yml?ref=trunk": { content: Buffer.from(FILE).toString("base64"), encoding: "base64" },
     "repos/acme/demo/actions/runs/42": { workflow_id: 9, path: ".github/workflows/ci.yml", head_sha: "abc" },
     "repos/acme/demo/contents/.github/workflows/ci.yml?ref=abc": { content: Buffer.from(FILE).toString("base64"), encoding: "base64" },
     "repos/acme/demo/actions/workflows/9/runs?branch=trunk&status=success&exclude_pull_requests=true&per_page=5": { workflow_runs: [{ id: 1 }, { id: 2 }, { id: 3 }] },
@@ -54,5 +56,19 @@ describe("GitHub pipeline facts", () => {
   it("leaves out a run it cannot read and keeps the rest", async () => {
     const read = createGitHubPipelines(tools());
     expect(Object.keys(await read(REF, ["42", "999"]))).toEqual(["42"]);
+  });
+
+  it("reads a list's rows by workflow name: the file on the default branch, once for every request of the repository", async () => {
+    const fake = tools();
+    const read = createGitHubPipelines(fake);
+    const facts = await read(REF, ["42", "43", "44"], { 42: "CI", 43: "CI", 44: "Gone" });
+    expect(Object.keys(facts)).toEqual(["42", "43"]);
+    expect(facts[43]).toEqual({ jobs: [{ id: "lint", needs: [] }, { id: "test", needs: ["lint"] }], expected: { lint: 50_000, test: 250_000 } });
+    const before = fake.cli.mock.calls.length;
+    await read({ ...REF, number: 8, url: "https://github.com/acme/demo/pull/8" }, ["50"], { 50: "CI" });
+    expect(fake.cli.mock.calls.length).toBe(before);
+    const paths = fake.cli.mock.calls.map(([, call]) => call.args.at(-1));
+    expect(paths).not.toContain("repos/acme/demo/actions/runs/42");
+    expect(paths.filter((path) => path === "repos/acme/demo/actions/workflows?per_page=100")).toHaveLength(1);
   });
 });
