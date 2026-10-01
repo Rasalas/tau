@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { openTitleRename, renameRefusal, titleRenameRefusal } from "../thread-rename";
 import { coreThreadMenu, ThreadTitleMenu, type ThreadTitleMenuModel } from "./ThreadTitleMenu";
 
 afterEach(cleanup);
@@ -48,6 +49,90 @@ describe("ThreadTitleMenu", () => {
 
     await waitFor(() => expect(onRename).toHaveBeenCalledWith("A precise manual title"));
     expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe("ThreadTitleMenu rename field", () => {
+  const mount = (onRename = vi.fn(async (_title: string) => true), renameReason?: string) => {
+    render(<ThreadTitleMenu title="Improve title menu" menu={() => ({ sections: [], run: vi.fn() })} onRename={onRename} renameRefusal={renameReason} />);
+    return onRename;
+  };
+  const field = () => screen.findByRole("textbox", { name: "Thread title" }) as Promise<HTMLInputElement>;
+
+  it("opens on the Rename command with the whole title selected, and Enter saves the trimmed title", async () => {
+    const onRename = mount();
+    expect(titleRenameRefusal()).toBeUndefined();
+    act(() => openTitleRename());
+    const input = await field();
+    await waitFor(() => expect(document.activeElement).toBe(input));
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, "Improve title menu".length]);
+    fireEvent.change(input, { target: { value: "  Sharper title  " } });
+    fireEvent.submit(input.closest("form")!);
+    await waitFor(() => expect(onRename).toHaveBeenCalledWith("Sharper title"));
+    await waitFor(() => expect(screen.queryByRole("textbox")).toBeNull());
+    expect(onRename).toHaveBeenCalledOnce();
+  });
+
+  it("saves on blur once", async () => {
+    const onRename = mount();
+    act(() => openTitleRename());
+    const input = await field();
+    fireEvent.change(input, { target: { value: "Saved by blur" } });
+    fireEvent.blur(input);
+    fireEvent.blur(input);
+    await waitFor(() => expect(onRename).toHaveBeenCalledWith("Saved by blur"));
+    expect(onRename).toHaveBeenCalledOnce();
+  });
+
+  it("calls nothing on Esc, an empty title or an unchanged one", async () => {
+    const onRename = mount();
+    act(() => openTitleRename());
+    let input = await field();
+    fireEvent.change(input, { target: { value: "Typed then dropped" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    fireEvent.blur(input);
+    await waitFor(() => expect(screen.queryByRole("textbox")).toBeNull());
+    expect(screen.getByRole("button", { name: "Improve title menu" })).toBeTruthy();
+
+    act(() => openTitleRename());
+    input = await field();
+    fireEvent.change(input, { target: { value: "   " } });
+    fireEvent.submit(input.closest("form")!);
+    await waitFor(() => expect(screen.queryByRole("textbox")).toBeNull());
+
+    act(() => openTitleRename());
+    input = await field();
+    fireEvent.blur(input);
+    await waitFor(() => expect(screen.queryByRole("textbox")).toBeNull());
+    expect(onRename).not.toHaveBeenCalled();
+  });
+
+  it("stays open when the save fails", async () => {
+    const onRename = mount(vi.fn(async () => false));
+    act(() => openTitleRename());
+    const input = await field();
+    fireEvent.change(input, { target: { value: "Refused" } });
+    fireEvent.submit(input.closest("form")!);
+    await waitFor(() => expect(onRename).toHaveBeenCalledWith("Refused"));
+    await waitFor(() => expect(input.readOnly).toBe(false));
+    expect(screen.getByRole("textbox", { name: "Thread title" })).toBeTruthy();
+  });
+
+  it("says why the command cannot run, and opens nothing", () => {
+    mount(undefined, "Not from here.");
+    expect(titleRenameRefusal()).toBe("Not from here.");
+    act(() => openTitleRename());
+    expect(screen.queryByRole("textbox")).toBeNull();
+    cleanup();
+    expect(titleRenameRefusal()).toBe("Open a thread to rename it.");
+  });
+
+  it("refuses a thread of another machine and none else", () => {
+    expect(renameRefusal({ machine: { id: "m", name: "rex" } })).toMatch(/rex/u);
+    expect(renameRefusal({})).toBeUndefined();
+    expect(renameRefusal(undefined)).toBeUndefined();
+    const item = fallback({ renameRefusal: "Not from here." }).sections[1]!.items[0]!;
+    expect(item).toMatchObject({ id: "rename", disabled: true, description: "Not from here." });
   });
 });
 

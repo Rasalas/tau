@@ -3,6 +3,7 @@ import { ChevronDown } from "lucide-react";
 import type { MenuSection } from "./Menu";
 import { Menu } from "../deferred-surfaces";
 import { commandRefusal, READ_ONLY_REASON } from "../use-host-capabilities";
+import { registerTitleField } from "../thread-rename";
 
 /** A menu as the title opens it: what it shows and what a pick does. */
 export interface ThreadTitleMenuModel {
@@ -16,6 +17,7 @@ export function coreThreadMenu({
   pinned,
   settled,
   readOnly,
+  renameRefusal,
   commands,
   canCopyPath,
   run,
@@ -25,6 +27,8 @@ export function coreThreadMenu({
   pinned: boolean;
   settled: boolean;
   readOnly: boolean;
+  /** Why Rename is disabled, when the thread cannot be renamed from here. */
+  renameRefusal?: string | undefined;
   /** Extension commands offered on the thread-title surface. */
   commands: ReadonlyArray<{ id: string; label: string; destructive?: boolean; access?: "read" | "write"; unavailable?(): string | undefined }>;
   /** A path of a host that is not this machine is not worth copying. */
@@ -51,7 +55,7 @@ export function coreThreadMenu({
           { id: "settle", label: settled ? "Un-settle thread" : "Settle thread", ...locked },
         ],
       },
-      { items: [{ id: "rename", label: "Rename thread", ...locked }, ...commands.filter((command) => !command.destructive).map(item), { id: "unread", label: "Mark unread" }] },
+      { items: [{ id: "rename", label: "Rename thread", ...(renameRefusal && !readOnly ? { disabled: true, description: renameRefusal } : locked) }, ...commands.filter((command) => !command.destructive).map(item), { id: "unread", label: "Mark unread" }] },
       {
         items: [
           { id: "copy-chat", label: "Copy entire chat as Markdown" },
@@ -65,18 +69,26 @@ export function coreThreadMenu({
   };
 }
 
-/** The thread's title, opening its menu; `rename` in any menu edits the title in place. */
-export function ThreadTitleMenu({ title, menu, onRename }: {
+/** The thread's title, opening its menu; `rename` in any menu, and F2, edit the title in place. */
+export function ThreadTitleMenu({ title, menu, onRename, renameRefusal }: {
   title: string;
   /** Read when the menu opens. */
   menu(): ThreadTitleMenuModel;
   onRename(title: string): Promise<boolean>;
+  /** Why the thread cannot be renamed from here; the Rename command is unavailable with it. */
+  renameRefusal?: string | undefined;
 }) {
   const [open, setOpen] = useState<ThreadTitleMenuModel>();
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(title);
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Enter, Esc and blur each end an edit once; the blur a closing field may raise is not a second save.
+  const ended = useRef(false);
+  const refusal = useRef(renameRefusal);
+  refusal.current = renameRefusal;
+
+  useEffect(() => registerTitleField({ open: () => { setOpen(undefined); setRenaming(true); }, refusal: () => refusal.current }), []);
 
   useEffect(() => {
     if (!renaming) setDraft(title);
@@ -84,37 +96,46 @@ export function ThreadTitleMenu({ title, menu, onRename }: {
 
   useEffect(() => {
     if (!renaming) return;
+    ended.current = false;
     inputRef.current?.focus();
     inputRef.current?.select();
   }, [renaming]);
 
+  const finish = (save: boolean) => {
+    if (ended.current) return;
+    const next = draft.trim();
+    if (!save || !next || next === title) {
+      ended.current = true;
+      setDraft(title);
+      setRenaming(false);
+      return;
+    }
+    ended.current = true;
+    setSaving(true);
+    void onRename(next).then((saved) => {
+      setSaving(false);
+      if (saved) { setRenaming(false); return; }
+      ended.current = false;
+      inputRef.current?.focus();
+    });
+  };
+
   if (renaming) {
     return (
-      <form
-        className="thread-title-rename"
-        onSubmit={(event) => {
-          event.preventDefault();
-          const next = draft.trim();
-          if (!next || saving) return;
-          setSaving(true);
-          void onRename(next).then((saved) => {
-            setSaving(false);
-            if (saved) setRenaming(false);
-          });
-        }}
-      >
+      <form className="thread-title-rename" onSubmit={(event) => { event.preventDefault(); finish(true); }}>
         <input
           ref={inputRef}
           aria-label="Thread title"
           maxLength={120}
+          enterKeyHint="done"
           value={draft}
-          disabled={saving}
+          readOnly={saving}
           onChange={(event) => setDraft(event.target.value)}
+          onBlur={() => finish(true)}
           onKeyDown={(event) => {
             if (event.key !== "Escape") return;
             event.preventDefault();
-            setDraft(title);
-            setRenaming(false);
+            finish(false);
           }}
         />
       </form>

@@ -5,6 +5,7 @@ import type { PreferencesStore } from "../preferences";
 import { THEME_PREFERENCES, nextTheme, getUserTheme, type ThemePreference } from "../theme";
 import type { PaletteItem, PaletteMenu } from "../extension-system";
 import { loadRuntimeControlRuns } from "../deferred-surfaces";
+import { openTitleRename, titleRenameRefusal } from "../thread-rename";
 
 /** The levels' rows load with their own chunk the first time one opens. */
 const menus = () => import("./palette-menus");
@@ -186,7 +187,8 @@ export const runtimeControls: DesktopExtension = {
       label: "Rename thread",
       group: "Thread",
       access: "write",
-      run: later("runtime.rename-thread"),
+      unavailable: titleRenameRefusal,
+      run: openTitleRename,
     });
     plugin.registerCommand({ id: "runtime.cycle-model", label: "Cycle model forward", group: "Runtime", access: "write", run: async (app) => { await app.cycleModel?.(1); } });
     plugin.registerCommand({ id: "runtime.cycle-model-backward", label: "Cycle model backward", group: "Runtime", access: "write", run: async (app) => { await app.cycleModel?.(-1); } });

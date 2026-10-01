@@ -119,6 +119,9 @@ body[data-profile="compact"] .context-dial::before {
 }
 body[data-profile="compact"] .context-dial > i { position: relative; }
 body[data-profile="compact"] .thread-title-trigger { min-height: var(--touch-target); }
+/* 16 px keeps iOS from zooming into the field. */
+body[data-profile="compact"] .thread-title-rename { width: 100%; min-width: 0; max-width: none; }
+body[data-profile="compact"] .thread-title-rename input { min-height: var(--touch-target); font-size: 16px; }
 /* The row over the composer: 36 px to see, 44 px to tap, and the tap areas never meet. */
 /* The row keeps 8 px clear of the docked composer. */
 body[data-profile="compact"] .region-composer-controls { --controls-gap: 10px; margin-bottom: 0; padding-bottom: 8px; }
