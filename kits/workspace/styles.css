@@ -834,6 +834,7 @@ body[data-profile="compact"] .turn-actions > button { min-height: 44px; padding:
 .fork-sheet footer button { display: inline-flex; align-items: center; gap: 5px; min-height: 44px; padding: 0 16px; border: 0; border-radius: 99px; background: none; color: var(--ink-3); font: var(--text-md) var(--sans); }
 .fork-sheet footer .primary { background: var(--acid); color: var(--acid-ink); font-weight: 600; }
 .fork-sheet .fork-dialog-branch { background: var(--shell); }
+.fork-sheet .fork-dialog-branch > input { min-height: 44px; }
 .chrome-group .split-main:last-child { border-radius: 9px; }
 
 /* A phone's Files sheet (design 2l): branch and count beside Changed / All, the picked change's diff under the list. */
