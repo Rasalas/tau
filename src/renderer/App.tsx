@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { HostEvent, UiMessage } from "../shared/contracts";
+import type { AppUpdatePhase, HostEvent, UiMessage } from "../shared/contracts";
 import type { UiEditor, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import { mockSnapshot, mockThreadIndex, reconcileOptimisticMessages, transcriptNavigationScope, transcriptNavigationScopeKey } from "../workbench/app-state";
 import { WorkbenchSession } from "../workbench/workbench-session";
@@ -207,8 +207,8 @@ export default function App() {
   const newThreadDeliveryPending = Boolean(pendingNewThread);
   // The release the host downloaded; the toast and the sidebar's foot offer the restart.
   const [appUpdate] = useState(() => services.appUpdate ?? new AppUpdateStore());
-  const updateReady = useSyncExternalStore(appUpdate.subscribe, appUpdate.getSnapshot)?.version;
-  const setUpdateReady = useCallback((version: string) => appUpdate.set({ version, install: () => { void client?.installUpdate(); } }), [appUpdate, client]);
+  const update = useSyncExternalStore(appUpdate.subscribe, appUpdate.getSnapshot);
+  const setUpdateReady = useCallback((version: string, phase?: AppUpdatePhase, progress?: number) => appUpdate.set({ version, phase, progress, install: () => { void client?.installUpdate(); } }), [appUpdate, client]);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const composerAttachmentRef = useRef<ComposerAttachmentHandle>(null);
   const composerControlRef = useRef<ComposerControlHandle>(null);
@@ -451,8 +451,7 @@ export default function App() {
 
 
   useWorkbenchToasts({
-    view: viewStore, toasts: workbenchSession.toasts, updateReady,
-    onRestart: () => { void client?.installUpdate(); },
+    view: viewStore, toasts: workbenchSession.toasts, update,
   });
 
   // Stage tab or drawer: where each panel shows, and the moves between them.

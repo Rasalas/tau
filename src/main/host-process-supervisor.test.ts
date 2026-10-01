@@ -456,6 +456,22 @@ describe("a host a service runs", () => {
     expect((await readHostDescriptor(userData))?.pid).toBe(running.pid);
   }, 30_000);
 
+  it("is asked to stop for an update, never signalled, so its manager leaves it stopped (K161)", async () => {
+    const userData = workingDirectory();
+    const service = fakeService(userData, { version: "1.0.0" });
+    await service.control.start();
+    await waitFor(async () => (await readHostDescriptor(userData))?.service === "launchd", "the service host");
+
+    const instance = supervisor(userData, { service: service.control });
+    const running = await instance.start();
+    const exit = new Promise<NodeJS.Signals | null>((resolve) => service.child!.once("exit", (_code, signal) => resolve(signal)));
+    await instance.stop(true);
+
+    expect(processAlive(running.pid)).toBe(false);
+    expect(await exit).toBeNull();
+    expect(service.calls).toEqual(["start"]);
+  }, 30_000);
+
   it("is started when it is installed and not running, instead of a host of the window's own", async () => {
     const userData = workingDirectory();
     const service = fakeService(userData, { version: "1.0.0" });
