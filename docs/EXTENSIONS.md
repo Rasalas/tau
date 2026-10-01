@@ -839,7 +839,7 @@ models in the picker. `applies(model, runtime)` runs for every listed row, and
 a model it answers `true` for wears `label` after its name (`tone: "warning"`
 draws it in the caution colours, `title` is its hover text). `note` is one line
 under the list, shown while any listed model wears the badge. A badge may also
-bring `WayLine`, a component the picker draws after the facts under "Runs with"
+bring `WayLine` (API 1.46.0), a component the picker draws after the facts under "Runs with"
 for the way highlighted there, whether or not the model wears the badge (a badge
 with `applies: () => false` is only that line): Usage Kit adds what the plan
 behind the way has left. It gets `{ model, runtime }`, draws nothing when it has
