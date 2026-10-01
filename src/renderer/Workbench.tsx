@@ -457,10 +457,10 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const stageExpanded = stageShown && !(stacked && !folded && chatFocused);
   const spine = spineWanted && stageExpanded && canSplit && !compact && !showStartScreen;
   // Closing the stage ends the spine; the first paint of a restart has none yet and keeps the stored choice.
-  const stageWasShown = useRef(false);
+  const stageSeen = useRef(false);
   useEffect(() => {
-    if (!stageShown && stageWasShown.current) setSpine(false);
-    stageWasShown.current = stageShown;
+    if (stageShown) stageSeen.current = true;
+    else if (stageSeen.current) setSpine(false);
   }, [stageShown]);
   // Where the conversation is out of sight, its composer floats over the stage (design 1b).
   const floating = conversationFolded && stageExpanded && !compact && !showStartScreen;

@@ -136,7 +136,7 @@ function load(): PreferencesState {
       // The host checked them; the picker's own chunk reads each entry it uses.
       modelPrices: typeof raw.modelPrices === "object" && raw.modelPrices ? raw.modelPrices as Record<string, UiModelPrice> : {},
       recentModels: stringList(raw.recentModels).slice(0, RECENT_MODELS),
-      recentLevels: Object.fromEntries(Object.entries(raw.recentLevels ?? {}).filter(([, level]) => typeof level === "string")),
+      recentLevels: typeof raw.recentLevels === "object" && raw.recentLevels ? raw.recentLevels as Record<string, string> : {},
       newThreadRuntime: typeof raw.newThreadRuntime === "string" ? raw.newThreadRuntime : undefined,
       extensionOptions: options,
       extensionValues: values,

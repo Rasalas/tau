@@ -592,7 +592,7 @@ export function ModelPicker({
       return chosen.includes(selected) ? selectedLabel(chosen, selected) : chosen.includes(legacy) ? selectedLabel(chosen, legacy) : undefined;
     },
     jump: (key) => jumps.get(key),
-    level: (way) => { const level = recentLevel(way); return level && (THINKING_LABELS[level] ?? level); },
+    level: (way) => THINKING_LABELS[recentLevel(way) ?? ""],
     onFavourite: (way) => preferences.toggleFavouriteModel(way.key),
     onHide: (entry) => {
       const hide = !entry.ways.every((way) => way.hidden);
