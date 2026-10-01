@@ -76,7 +76,9 @@ export interface PlatformEnvironments {
   /** The newest page of that thread's transcript, or the one before `cursor`; again at every new `revision`. New in API 1.15.0. */
   transcriptPage?(machine: string, sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage>;
   /** Explicit kit action on another host. The origin and destination enforce write access. */
-  invokeExtension?(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown>;
+  invokeExtension?(machine: string, extensionId: string, command: string, input?: unknown, options?: { timeoutMs?: number }): Promise<unknown>;
+  /** Events of a kit on another machine, while a listener is registered. New in API 1.40.0. */
+  onExtensionEvent?(machine: string, extensionId: string, listener: (name: string, payload: unknown) => void): () => void;
   /**
    * Runs a kit's host command on a machine without showing it, over the
    * window's own connection there: only a command that kit registered
@@ -151,6 +153,7 @@ export function createPlatformEnvironments(client: HostClient, options: { shownE
   let requested = false;
   const listeners = new Set<() => void>();
   const watchThread = createLookIns(client);
+  const extensionListeners = new Map<string, { listeners: Set<(name: string, payload: unknown) => void>; off(): void }>();
   const set = (next: UiEnvironments) => {
     snapshot = next;
     for (const listener of listeners) listener();
@@ -195,7 +198,29 @@ export function createPlatformEnvironments(client: HostClient, options: { shownE
     setAgents: (id, on) => client.setEnvironmentAgents(id, on),
     watchThread,
     transcriptPage: (machine, sessionId, cursor) => client.loadEnvironmentTranscript(machine, sessionId, cursor),
-    invokeExtension: (machine, extensionId, command, input) => client.invokeEnvironmentExtension(machine, extensionId, command, input),
+    invokeExtension: (machine, extensionId, command, input, invokeOptions) => client.invokeEnvironmentExtension(machine, extensionId, command, input, invokeOptions),
+    onExtensionEvent: (machine, extensionId, listener) => {
+      const key = `${machine}\n${extensionId}`;
+      let entry = extensionListeners.get(key);
+      if (!entry) {
+        const kitListeners = new Set<(name: string, payload: unknown) => void>();
+        const off = client.onHostEvent((event) => {
+          if (event.type !== "environment-extension-event" || event.machine !== machine || event.extensionId !== extensionId) return;
+          for (const current of [...kitListeners]) current(event.name, event.payload);
+        });
+        entry = { listeners: kitListeners, off };
+        extensionListeners.set(key, entry);
+        void client.followEnvironmentExtension?.(machine, extensionId, true).catch(() => undefined);
+      }
+      entry.listeners.add(listener);
+      const current = entry;
+      return () => {
+        if (!current.listeners.delete(listener) || current.listeners.size > 0) return;
+        current.off();
+        extensionListeners.delete(key);
+        void client.followEnvironmentExtension?.(machine, extensionId, false).catch(() => undefined);
+      };
+    },
     readExtension: (machine, extensionId, command, input) => client.readEnvironmentExtension(machine, extensionId, command, input),
     ...(client.updateEnvironment ? { update: (id: string, action: "check" | "install" | { automatic: boolean }) => client.updateEnvironment!(id, action) } : {}),
   };

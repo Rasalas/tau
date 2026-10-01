@@ -11,6 +11,7 @@ import { agentThreadsSource, createMachineCardRow, createMachineThreads, createS
 import { createRunOnSource, runOnDetail, type RunOnBringing } from "./run-on.js";
 import { createBringChoice, createBringProjectHook, createProjectIdentities, matchProject } from "./bring-project.js";
 import { createMachinesPage } from "./settings.js";
+import { machineKitClient } from "./machine-kit.js";
 import { REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE, type DraftMachineProps } from "./protocol.js";
 
 afterEach(cleanup);
@@ -81,6 +82,38 @@ function createRunOnControl(environments: PlatformEnvironments, host?: HostExten
 
 const row = (name: RegExp) => within(screen.getByRole("group", { name: "Machines" })).getByRole("button", { name });
 const queryRow = (name: RegExp) => screen.queryByRole("group", { name: "Machines" }) && within(screen.getByRole("group", { name: "Machines" })).queryByRole("button", { name });
+
+describe("a kit on another machine", () => {
+  it("routes commands there and hears only the requested event name", async () => {
+    const { environments: base } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const invokeExtension = vi.fn(async () => "answer");
+    const off = vi.fn();
+    let receive: (name: string, payload: unknown) => void = () => undefined;
+    const onExtensionEvent = vi.fn((_machine: string, _extension: string, listener: typeof receive) => { receive = listener; return off; });
+    const host = machineKitClient({ ...base, invokeExtension, onExtensionEvent }, "studio", "tau.codex");
+    await expect(host.invoke("sign-in-state", { instance: "default" })).resolves.toBe("answer");
+    expect(invokeExtension).toHaveBeenCalledWith("studio", "tau.codex", "sign-in-state", { instance: "default" });
+    const listener = vi.fn();
+    const stop = host.onEvent("sign-in", listener);
+    receive("import-progress", { done: 1 });
+    expect(listener).not.toHaveBeenCalled();
+    receive("sign-in", { phase: "waiting" });
+    expect(listener).toHaveBeenCalledWith({ phase: "waiting" });
+    stop();
+    expect(off).toHaveBeenCalledOnce();
+    expect(host.watch).toBeUndefined();
+  });
+
+  it("passes import timeouts and handles a platform without remote kit support", async () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop], secureStorage: true });
+    const invokeExtension = vi.fn(async () => undefined);
+    await machineKitClient({ ...environments, invokeExtension }, "studio", "tau.onboarding", { timeoutMs: 120_000 }).invoke("import");
+    expect(invokeExtension).toHaveBeenCalledWith("studio", "tau.onboarding", "import", undefined, { timeoutMs: 120_000 });
+    const unsupported = machineKitClient(environments, "studio", "tau.codex");
+    expect(() => unsupported.invoke("sign-in-state")).toThrow("This window cannot reach kits of other machines.");
+    expect(() => unsupported.onEvent("sign-in", vi.fn())()).not.toThrow();
+  });
+});
 
 describe("Machines Kit", () => {
   it("draws nothing in a client that has no window process", () => {

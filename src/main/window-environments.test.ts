@@ -42,7 +42,7 @@ async function setup(pairResult?: PairEnvironmentResult, extra: Partial<WindowEn
   const monitors = new Map<string, {
     options: EnvironmentMonitorOptions;
     set(state: Partial<MonitorState>): void;
-    calls: Array<{ method: string; params: readonly unknown[] }>;
+    calls: Array<{ method: string; params: readonly unknown[]; timeoutMs?: number }>;
     answers: Record<string, (params: readonly unknown[]) => unknown>;
     resubscribed: number;
   }>();
@@ -62,7 +62,7 @@ async function setup(pairResult?: PairEnvironmentResult, extra: Partial<WindowEn
       const entry = {
         options,
         set: (patch: Partial<MonitorState>) => { state = { ...state, ...patch }; options.onChange(state); },
-        calls: [] as Array<{ method: string; params: readonly unknown[] }>,
+        calls: [] as Array<{ method: string; params: readonly unknown[]; timeoutMs?: number }>,
         answers: {} as Record<string, (params: readonly unknown[]) => unknown>,
         resubscribed: 0,
       };
@@ -71,8 +71,8 @@ async function setup(pairResult?: PairEnvironmentResult, extra: Partial<WindowEn
         close: vi.fn(),
         retryNow: vi.fn(),
         resubscribe: () => { entry.resubscribed += 1; },
-        call: async (method: string, params: readonly unknown[] = []) => {
-          entry.calls.push({ method, params });
+        call: async (method: string, params: readonly unknown[] = [], timeoutMs?: number) => {
+          entry.calls.push({ method, params, ...(timeoutMs !== undefined ? { timeoutMs } : {}) });
           if (entry.answers[method]) return entry.answers[method](params);
           return { sessionId: params[0], messages: [{ id: "m1", role: "assistant", text: "hello from there" }], hasMore: false };
         },
@@ -465,8 +465,8 @@ describe("looking in on another machine's thread", () => {
 });
 
 describe("reading a kit of another machine (API 1.15.0)", () => {
-  async function connectedStudio() {
-    const context = await setup();
+  async function connectedStudio(extra: Partial<WindowEnvironmentsOptions> = {}) {
+    const context = await setup(undefined, extra);
     await context.environments.pair({ text: "link" });
     const monitor = context.monitors.get("wss://192.168.1.4:7788/")!;
     monitor.set({ status: "connected", running: new Set() });
@@ -475,6 +475,38 @@ describe("reading a kit of another machine (API 1.15.0)", () => {
     monitor.answers["host-extension"] = (params) => ({ answered: params });
     return { ...context, monitor, setReadCommands: (next: string[]) => { readCommands = next; } };
   }
+
+  it("forwards only the machine and kit followed, until the last registration leaves", async () => {
+    const publishExtensionEvent = vi.fn();
+    const { environments, monitor, monitors } = await connectedStudio({ publishExtensionEvent });
+    const event = { type: "extension-event", extensionId: "tau.codex", name: "sign-in", payload: { state: "waiting" } };
+    monitor.options.onPush!(event);
+    expect(publishExtensionEvent).not.toHaveBeenCalled();
+    environments.followExtension("studio", "tau.codex", true);
+    environments.followExtension("host-studio", "tau.codex", true);
+    monitor.options.onPush!({ ...event, extensionId: "tau.onboarding" });
+    monitors.get("ws://127.0.0.1:5000")!.options.onPush!(event);
+    expect(publishExtensionEvent).not.toHaveBeenCalled();
+    monitor.options.onPush!(event);
+    expect(publishExtensionEvent).toHaveBeenLastCalledWith({ machine: "host-studio", extensionId: "tau.codex", name: "sign-in", payload: event.payload });
+    environments.followExtension("studio", "tau.codex", false);
+    monitor.options.onPush!(event);
+    expect(publishExtensionEvent).toHaveBeenCalledTimes(2);
+    environments.followExtension("studio", "tau.codex", false);
+    monitor.options.onPush!(event);
+    expect(publishExtensionEvent).toHaveBeenCalledTimes(2);
+    expect(() => environments.followExtension("unknown", "tau.codex", true)).toThrow("Tau does not know that machine.");
+  });
+
+  it("extends a long command's timeout up to ten minutes", async () => {
+    const { environments, monitor } = await connectedStudio();
+    await environments.invokeExtension("studio", "tau.onboarding", "import", {}, { timeoutMs: 120_000 });
+    expect(monitor.calls.at(-1)?.timeoutMs).toBe(120_000);
+    await environments.invokeExtension("studio", "tau.onboarding", "import", {}, { timeoutMs: 10 ** 9 });
+    expect(monitor.calls.at(-1)?.timeoutMs).toBe(600_000);
+    await environments.invokeExtension("studio", "tau.codex", "sign-in-state");
+    expect(monitor.calls.at(-1)?.timeoutMs).toBe(30_000);
+  });
 
   it("forwards an explicit account write to the owning machine", async () => {
     const { environments, monitor } = await connectedStudio();
@@ -519,7 +551,7 @@ describe("reading a kit of another machine (API 1.15.0)", () => {
     await expect(environments.updateMachine("studio", "install")).resolves.toMatchObject({ phase: "waiting", runningTurns: 1 });
     await expect(environments.updateMachine("studio", { automatic: false })).resolves.toMatchObject({ automatic: false });
     expect(monitor.calls.filter((call) => call.method.startsWith("update-"))).toEqual([
-      { method: "update-install", params: [] },
+      { method: "update-install", params: [], timeoutMs: 600_000 },
       { method: "update-settings", params: [{ automatic: false }] },
     ]);
     // A host too old to answer with a status says so.

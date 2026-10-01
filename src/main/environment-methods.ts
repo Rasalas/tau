@@ -34,7 +34,8 @@ export interface EnvironmentsService {
   setAgents(id: string, on: boolean): Promise<EnvironmentAgentsResult>;
   watchThread(machine: string, sessionId: string, on: boolean): UiEnvironmentThreadView | undefined;
   transcriptPage(machine: string, sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage>;
-  invokeExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown>;
+  invokeExtension(machine: string, extensionId: string, command: string, input?: unknown, options?: { timeoutMs?: number }): Promise<unknown>;
+  followExtension(machine: string, extensionId: string, on: boolean): void;
   readExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown>;
   updateMachine(machine: string, action: HostUpdateAction): Promise<HostUpdateStatus>;
   personPreferences?(patch?: PersonPreferences): Promise<PersonPreferences>;
@@ -132,12 +133,30 @@ export function createEnvironmentMethods(service: () => EnvironmentsService | un
       text("environments-transcript-page", "sessionId", params[1], 512),
       decodeHostTranscriptCursor("environments-transcript-page", "cursor", params[2]),
     ),
-    "environments-extension-invoke": async (params) => require().invokeExtension(
-      text("environments-extension-invoke", "machine", params[0], 200),
-      text("environments-extension-invoke", "extensionId", params[1], 200),
-      text("environments-extension-invoke", "command", params[2], 200),
-      params[3],
-    ),
+    "environments-extension-follow": async (params) => {
+      if (typeof params[2] !== "boolean") {
+        throw Object.assign(new Error("environments-extension-follow: on must be a boolean."), { code: HOST_ERROR.invalidRequest });
+      }
+      require().followExtension(
+        text("environments-extension-follow", "machine", params[0], 200),
+        text("environments-extension-follow", "extensionId", params[1], 200),
+        params[2],
+      );
+    },
+    "environments-extension-invoke": async (params) => {
+      const options = params[4];
+      if (options !== undefined && (options === null || typeof options !== "object" || Array.isArray(options)
+        || ("timeoutMs" in options && (typeof options.timeoutMs !== "number" || !Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)))) {
+        throw Object.assign(new Error("environments-extension-invoke: options must contain a positive timeoutMs."), { code: HOST_ERROR.invalidRequest });
+      }
+      return require().invokeExtension(
+        text("environments-extension-invoke", "machine", params[0], 200),
+        text("environments-extension-invoke", "extensionId", params[1], 200),
+        text("environments-extension-invoke", "command", params[2], 200),
+        params[3],
+        options as { timeoutMs?: number } | undefined,
+      );
+    },
     "environments-extension-read": async (params) => require().readExtension(
       text("environments-extension-read", "machine", params[0], 200),
       text("environments-extension-read", "extensionId", params[1], 200),

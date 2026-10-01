@@ -56,6 +56,7 @@ export const CLIENT_SIDE_METHODS = [
   "environments-watch-thread",
   "environments-extension-read",
   "environments-extension-invoke",
+  "environments-extension-follow",
   "environments-person-preferences",
   "environments-set-person-preferences",
 ] as const;

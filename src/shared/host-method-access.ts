@@ -148,6 +148,7 @@ export const HOST_METHOD_ACCESS = {
   "environments-watch-thread": "read",
   "environments-extension-read": "read",
   "environments-extension-invoke": "write",
+  "environments-extension-follow": "read",
   // This window's own machine's look, read and written with its own key.
   "environments-person-preferences": "read",
   "environments-set-person-preferences": "write",
