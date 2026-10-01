@@ -155,10 +155,10 @@ chronometers, which tick without a redraw. A debug build's
 `adb shell am start -n de.tbuck.tau/.WidgetGalleryActivity --es kind limits|threads --es scene full|stale|spent|empty|quiet|one|ask|done`.
 
 Native projects include the WidgetKit extension and app-group entitlements.
-Release builds leave both out until the widgets are redesigned (K163):
-the `ios` job sets `TAU_IOS_WIDGETS=0` and `scripts/packaging/ios-widgets.mjs`
-strips them from the checkout, so the TestFlight app has no widget, no Live
-Activities and no App Group (docs/RELEASE.md, "iOS"). With the widgets,
+Release builds include both since 0.7.31 (`TAU_IOS_WIDGETS=1` in the `ios`
+job); with `0`, `scripts/packaging/ios-widgets.mjs` strips them from the
+checkout and the app has no widget, no Live Activities and no App Group
+(docs/RELEASE.md, "iOS"). With the widgets,
 the app and extension both need the `group.de.tbuck.tau` App Group and
 `$(AppIdentifierPrefix)de.tbuck.tau.shared` Keychain group in their provisioning
 profiles. The shared Keychain holds the device-only content key used to open

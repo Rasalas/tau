@@ -338,8 +338,8 @@ requires replacing rotated tokens. iOS controls delivery and may throttle starts
 or updates; this implementation makes no fixed delivery-rate guarantee. iOS 26
 uses the same push-to-start flow, without requiring scheduled activities or broadcast channels.
 
-Release builds leave the widget extension and the App Group out for now
-(`TAU_IOS_WIDGETS=0`, [RELEASE.md](RELEASE.md#ios)); such an app reports Live
+Release builds carry the widget extension and the App Group since 0.7.31. One
+built with `TAU_IOS_WIDGETS=0` ([RELEASE.md](RELEASE.md#ios)) reports Live
 Activities as unavailable and never registers activity tokens.
 Before real delivery, both signed targets need the app group `group.de.tbuck.tau`
 and shared Keychain group `$(AppIdentifierPrefix)de.tbuck.tau.shared`. The main app

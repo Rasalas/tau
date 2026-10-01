@@ -114,8 +114,8 @@ describe("the release workflow", () => {
     expect(JOBS.ios).not.toContain('PROVISIONING_PROFILE_SPECIFIER="$IOS_PROFILE_NAME"');
   });
 
-  it("leaves the widgets out of the iOS build until TAU_IOS_WIDGETS is 1", () => {
-    expect(JOBS.ios).toMatch(/^ {4}env:\n(?: {6}#[^\n]*\n)* {6}TAU_IOS_WIDGETS: "0"$/mu);
+  it("builds the widgets into the iOS app, and strips them only when TAU_IOS_WIDGETS is 0", () => {
+    expect(JOBS.ios).toMatch(/^ {4}env:\n(?: {6}#[^\n]*\n)* {6}TAU_IOS_WIDGETS: "1"$/mu);
     const strip = JOBS.ios.indexOf("node scripts/packaging/ios-widgets.mjs mobile/ios/App");
     expect(strip).toBeGreaterThan(JOBS.ios.indexOf("npx cap sync ios"));
     expect(strip).toBeLessThan(JOBS.ios.indexOf("xcodebuild archive"));

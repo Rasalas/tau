@@ -487,8 +487,8 @@ jobs:
     environment: ${{ needs.gate.outputs.environment }}
     timeout-minutes: 45
     env:
-      # 1 builds TauWidgets and the App Group; that needs the group on both App IDs and IOS_WIDGET_PROFILE (K163, K164).
-      TAU_IOS_WIDGETS: "0"
+      # 0 leaves TauWidgets and the App Group out; 1 needs IOS_WIDGET_PROFILE too (K163, K164).
+      TAU_IOS_WIDGETS: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:

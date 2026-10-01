@@ -708,9 +708,9 @@ key (cloud signing); the key needs a role in App Store Connect that may manage
 certificates, which Admin has. The key file lives in the runner's temp folder
 for the step and is deleted when it ends.
 
-The job sets `TAU_IOS_WIDGETS` to `0`: until the widgets are redesigned (K163)
-and the App Group is set up on the account (K164), the TestFlight build has no
-TauWidgets extension and no App Group. `scripts/packaging/ios-widgets.mjs`
+The job sets `TAU_IOS_WIDGETS` to `1` (since 0.7.31): the TestFlight build
+carries the TauWidgets extension and the App Group. Set it to `0` to ship
+without them, as up to 0.7.30: `scripts/packaging/ios-widgets.mjs` then
 removes the App target's dependency on TauWidgets, its embed and the
 `com.apple.security.application-groups` entitlement from the checkout before
 the archive; the widget code stays in the repository. The app then neither
