@@ -43,10 +43,10 @@ struct ProviderMark: View {
     var size: CGFloat = 14
     var body: some View {
         Group {
-            if let mark, ["mark-codex", "mark-gemini", "mark-antigravity"].contains(mark) {
-                Image(mark).resizable()
+            if let mark, ["codex", "gemini", "antigravity"].contains(mark) {
+                Image("mark-" + mark).resizable()
             } else if let mark {
-                Image(mark).resizable().renderingMode(.template).foregroundStyle(mark == "mark-claude-code" || mark == "mark-anthropic" ? Tau.tone("anthropic") : Tau.ink2)
+                Image("mark-" + mark).resizable().renderingMode(.template).foregroundStyle(mark == "claude-code" || mark == "anthropic" ? Tau.tone("anthropic") : Tau.ink2)
             } else {
                 RoundedRectangle(cornerRadius: size / 4).fill(Tau.tone(tone).opacity(0.25))
             }
@@ -262,11 +262,12 @@ enum SharedSnapshots {
             return try? JSONDecoder().decode(T.self, from: data)
         }
     }
-    static var usage: [UsageSnapshot] { read("usage.") }
-    static var threads: [ThreadsSnapshot] { read("threads.") }
+    static var snapshots: [WidgetSnapshot] { read("widget.") }
+    static var usage: [UsageSnapshot] { snapshots.compactMap(\.usage) }
+    static var threads: [ThreadsSnapshot] { snapshots.map(\.threadsSnapshot) }
     static func machine(_ host: String?) -> String? {
-        guard let host, let data = defaults?.data(forKey: "threads." + host) else { return nil }
-        return (try? JSONDecoder().decode(ThreadsSnapshot.self, from: data))?.machine
+        guard let host, let data = defaults?.data(forKey: "widget." + host) else { return nil }
+        return (try? JSONDecoder().decode(WidgetSnapshot.self, from: data))?.machine
     }
 }
 

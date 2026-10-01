@@ -38,12 +38,12 @@ enum Sample {
     static func usage(_ state: String) -> [UsageSnapshot] {
         if state == "empty" { return [] }
         let age: TimeInterval = state == "stale" ? -2 * hour : -3 * minute
-        let codex = UsageAccount(poolKey: "openai:k1", label: "Codex", plan: "ChatGPT Plus", tone: "openai", mark: "mark-codex", checkedAt: ms(age), windows: [
+        let codex = UsageAccount(poolKey: "openai:k1", label: "Codex", plan: "ChatGPT Plus", tone: "openai", mark: "codex", checkedAt: ms(age), windows: [
             window("5-hour", "5h", used: 34, resets: 2 * hour), window("Weekly", "wk", used: 91, resets: 2 * day + hour, level: "warn", pace: "runs-out", paceAt: day + 3 * hour)])
-        var claude = UsageAccount(poolKey: "anthropic:k2", label: "Claude Code", plan: "Max", tone: "anthropic", mark: "mark-claude-code", checkedAt: ms(age + 60), windows: [
+        var claude = UsageAccount(poolKey: "anthropic:k2", label: "Claude Code", plan: "Max", tone: "anthropic", mark: "claude-code", checkedAt: ms(age + 60), windows: [
             window("5-hour", "5h", used: 12, resets: hour), window("Weekly", "wk", used: 47, resets: 5 * day)])
         if state == "spent" { claude.windows[0] = window("5-hour", "5h", used: 100, resets: hour, level: "fail", pace: "spent") }
-        let opencode = UsageAccount(label: "OpenCode Go", tone: "other", mark: "mark-opencode", checkedAt: ms(age), windows: [window("Monthly", "mo", used: 22, resets: 31 * day)])
+        let opencode = UsageAccount(label: "OpenCode Go", tone: "other", mark: "opencode", checkedAt: ms(age), windows: [window("Monthly", "mo", used: 22, resets: 31 * day)])
         var older = claude; older.checkedAt = ms(age - 10 * minute)
         return [UsageSnapshot(hostId: "mac-mini", machine: "Mac mini", updatedAt: ms(age), accounts: [codex, claude, opencode]),
                 UsageSnapshot(hostId: "macbook", machine: "MacBook", updatedAt: ms(age), accounts: [older])]
@@ -68,6 +68,18 @@ enum Sample {
                     ThreadsSnapshot(hostId: "mac-mini", machine: "Mac mini", updatedAt: at, threads: [flaky, rate, migrate]),
                     ThreadsSnapshot(hostId: "hetzner-1", machine: "hetzner-1", updatedAt: at, threads: [audit])]
         }
+    }
+
+    /// The two samples as the app writes them: one snapshot per host.
+    static func snapshots(_ state: String) -> [WidgetSnapshot] {
+        var hosts: [String: WidgetSnapshot] = [:]
+        for usage in self.usage(state) { hosts[usage.hostId] = WidgetSnapshot(hostId: usage.hostId, machine: usage.machine, updatedAt: usage.updatedAt ?? ms(0), accounts: usage.accounts) }
+        for threads in self.threads(state) {
+            var snapshot = hosts[threads.hostId] ?? WidgetSnapshot(hostId: threads.hostId, machine: threads.machine, updatedAt: threads.updatedAt)
+            snapshot.threads = threads.threads
+            hosts[threads.hostId] = snapshot
+        }
+        return hosts.values.sorted { $0.hostId < $1.hostId }
     }
 
     /// One host's Live Activity rows for a named state.
@@ -96,11 +108,8 @@ func run(_ args: [String]) async -> String {
     var done: [String] = []
     let defaults = UserDefaults(suiteName: MobileActivityStore.group)
     if let scenario = argument("-scenario") {
-        for key in defaults?.dictionaryRepresentation().keys.map({ $0 }) ?? [] where key.hasPrefix("usage.") || key.hasPrefix("threads.") { defaults?.removeObject(forKey: key) }
-        for snapshot in Sample.usage(scenario) {
-            if let data = try? JSONEncoder().encode(snapshot), let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { MobileActivityStore.usage(object) }
-        }
-        for snapshot in Sample.threads(scenario) { defaults?.set(try? JSONEncoder().encode(snapshot), forKey: "threads." + snapshot.hostId) }
+        for key in defaults?.dictionaryRepresentation().keys.map({ $0 }) ?? [] where key.hasPrefix("widget.") { defaults?.removeObject(forKey: key) }
+        for snapshot in Sample.snapshots(scenario) { defaults?.set(try? JSONEncoder().encode(snapshot), forKey: "widget." + snapshot.hostId) }
         WidgetCenter.shared.reloadAllTimelines()
         done.append("scenario=\(scenario)")
     }
@@ -108,7 +117,7 @@ func run(_ args: [String]) async -> String {
         for activity in Activity<TauActivityAttributes>.activities { await activity.end(nil, dismissalPolicy: .immediate) }
         done.append("ended")
     }
-    // -activity <state>: the Mac mini's Live Activity, through MobileActivityStore.threads like the app.
+    // -activity <state>: the Mac mini's Live Activity, through MobileActivityStore.snapshot like the app.
     if let state = argument("-activity") {
         let sample = Sample.activity(state)
         if state == "done" || state == "failed" || state == "bundle-done" {
@@ -125,9 +134,9 @@ func run(_ args: [String]) async -> String {
 }
 
 func write(machine: String, rows: [WidgetThread]) async {
-    let snapshot = ThreadsSnapshot(hostId: "mac-mini", machine: machine, updatedAt: Date().timeIntervalSince1970 * 1000, threads: rows)
+    let snapshot = WidgetSnapshot(hostId: "mac-mini", machine: machine, updatedAt: Date().timeIntervalSince1970 * 1000, threads: rows)
     guard let data = try? JSONEncoder().encode(snapshot), let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
-    await MobileActivityStore.threads(object) { _ in }
+    await MobileActivityStore.snapshot(object) { _ in }
 }
 
 // MARK: Gallery

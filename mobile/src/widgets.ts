@@ -4,11 +4,11 @@ import type { LimitGroup } from "../../kits/usage/accounts";
 import { juicebarGroups, type Juicebar } from "../../kits/usage/juicebars";
 import type { UsageTone } from "../../kits/usage/tones";
 
-/** A reading older than this shows faded with its age (widgets and the Android card alike). */
-export const WIDGET_STALE_MS = 15 * 60_000;
 /** Finished threads stay in the Threads widget this long. */
 const ENDED_KEPT_MS = 24 * 60 * 60_000;
 const THREADS_KEPT = 8;
+/** Threads that finished before the app opened still show this long (the host only tells when they were last touched). */
+const SEEDED_KEPT_MS = 3 * 60 * 60_000;
 
 export interface WidgetWindow {
   label: string;
@@ -26,12 +26,11 @@ export interface WidgetAccount {
   label: string;
   plan?: string;
   tone: UsageTone;
-  /** Asset name of the provider mark in the widget extension. */
+  /** The provider's mark by id (`codex`, `claude-code`, `gemini`, ...); each platform maps it to its own asset. */
   mark?: string;
   checkedAt: number;
   windows: WidgetWindow[];
 }
-export interface UsageSnapshot { version: 2; hostId: string; machine: string; updatedAt: number; expiresAt: number; accounts: WidgetAccount[] }
 
 export type WidgetThreadState = "waiting" | "running" | "done" | "failed";
 export interface WidgetThread {
@@ -46,17 +45,36 @@ export interface WidgetThread {
   /** The question, or why the turn failed. */
   reason?: string;
 }
-export interface ThreadsSnapshot { version: 1; hostId: string; machine: string; updatedAt: number; threads: WidgetThread[] }
+/**
+ * What the app hands the phone for one host, the same on iOS (App Group, Live Activity) and Android
+ * (widgets, ongoing notification). Display fields only, never tokens or account ids. Read by
+ * `WidgetModel.swift` and `WidgetModel.kt`.
+ */
+export interface WidgetSnapshot {
+  version: 3;
+  hostId: string;
+  /** The host's name as the phone calls it ("Mac mini"). */
+  machine: string;
+  updatedAt: number;
+  /** Absent until the host answered once; the phone keeps the last accounts meanwhile. */
+  accounts?: WidgetAccount[];
+  threads: WidgetThread[];
+}
+export const WIDGET_SNAPSHOT_VERSION = 3;
+
+export function widgetSnapshot(hostId: string, machine: string, now: number, accounts: WidgetAccount[] | undefined, threads: WidgetThread[]): WidgetSnapshot {
+  return { version: WIDGET_SNAPSHOT_VERSION, hostId, machine: machine.slice(0, 60), updatedAt: now, ...(accounts ? { accounts } : {}), threads };
+}
 
 const MARKS: Readonly<Record<string, string>> = {
-  codex: "mark-codex", "openai-codex": "mark-codex", openai: "mark-openai", chatgpt: "mark-codex",
-  "claude-code": "mark-claude-code", anthropic: "mark-anthropic", claude: "mark-claude-code",
-  opencode: "mark-opencode", "opencode-go": "mark-opencode",
-  gemini: "mark-gemini", google: "mark-gemini", "google-gemini": "mark-gemini", antigravity: "mark-antigravity",
-  pi: "mark-pi", cursor: "mark-cursor", grok: "mark-grok", xai: "mark-grok",
+  codex: "codex", "openai-codex": "codex", openai: "openai", chatgpt: "codex",
+  "claude-code": "claude-code", anthropic: "anthropic", claude: "claude-code",
+  opencode: "opencode", "opencode-go": "opencode",
+  gemini: "gemini", google: "gemini", "google-gemini": "gemini", antigravity: "antigravity",
+  pi: "pi", cursor: "cursor", grok: "grok", xai: "grok",
 };
 /** A plan wears its product's mark, as the Usage page draws it: a ChatGPT plan Codex's, a Claude plan Claude Code's. */
-const PLAN_MARKS: Readonly<Record<string, string>> = { openai: "mark-codex", "openai-codex": "mark-codex", anthropic: "mark-claude-code", claude: "mark-claude-code" };
+const PLAN_MARKS: Readonly<Record<string, string>> = { openai: "codex", "openai-codex": "codex", anthropic: "claude-code", claude: "claude-code" };
 
 function markOf(group: LimitGroup): string | undefined {
   const key = (name: string) => name.split("@")[0]!.toLowerCase().replace(/[_.\s]/gu, "-");
@@ -113,13 +131,6 @@ export function widgetUsage(summary: UsageLimitsSummary, now: number): WidgetAcc
   }).filter((account) => account.windows.length > 0);
 }
 
-export function usageSnapshot(hostId: string, machine: string, summary: UsageLimitsSummary, now: number): UsageSnapshot {
-  const accounts = widgetUsage(summary, now);
-  // Android's card drops the snapshot at `expiresAt`; only fresh readings keep it.
-  const fresh = accounts.filter((account) => now - account.checkedAt < WIDGET_STALE_MS).map((account) => account.checkedAt + WIDGET_STALE_MS);
-  return { version: 2, hostId, machine: machine.slice(0, 60), updatedAt: now, expiresAt: fresh.length > 0 ? Math.min(now + WIDGET_STALE_MS, ...fresh) : now, accounts };
-}
-
 interface Tracked extends WidgetThread {
   /** A run is on, whatever its question. */
   active: boolean;
@@ -151,7 +162,16 @@ export class ThreadBoard {
   }
 
   index(index: Pick<ThreadIndexSnapshot, "sessions" | "runs">): void {
-    for (const session of index.sessions) this.titles.set(session.id, { title: session.title, ...(session.projectName ? { project: session.projectName } : {}), child: Boolean(session.parentThreadId) });
+    const at = this.now();
+    for (const session of index.sessions) {
+      this.titles.set(session.id, { title: session.title, ...(session.projectName ? { project: session.projectName } : {}), child: Boolean(session.parentThreadId) });
+      if (index.runs?.[session.id] === undefined && !this.rows.has(session.id) && session.messageCount > 0 && at - session.modifiedAt <= SEEDED_KEPT_MS) {
+        const row = this.row(session.id);
+        row.endedAt = session.modifiedAt;
+        if (session.turnError) { row.failed = true; row.reason = session.turnError.slice(0, 120); }
+        this.settle(row);
+      }
+    }
     for (const [id, startedAt] of Object.entries(index.runs ?? {})) {
       const row = this.row(id);
       row.active = true; row.startedAt = startedAt; delete row.endedAt; delete row.failed;

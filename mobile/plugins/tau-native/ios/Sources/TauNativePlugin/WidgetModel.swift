@@ -55,7 +55,8 @@ public struct UsageAccount: Codable, Hashable {
     public var windows: [UsageWindow]
 }
 
-public struct UsageSnapshot: Codable, Hashable {
+/// A host's accounts, as the Plan limits widget reads them.
+public struct UsageSnapshot: Hashable {
     public var hostId: String
     public var machine: String?
     public var updatedAt: Double?
@@ -81,11 +82,28 @@ public struct WidgetThread: Codable, Hashable, Identifiable {
     }
 }
 
-public struct ThreadsSnapshot: Codable, Hashable {
+/// A host's threads, as the Threads widget and the Live Activity read them.
+public struct ThreadsSnapshot: Hashable {
     public var hostId: String
     public var machine: String?
     public var updatedAt: Double
     public var threads: [WidgetThread]
+}
+
+/// What the app writes per host (`mobile/src/widgets.ts`, version 3), the same bytes Android reads.
+public struct WidgetSnapshot: Codable, Hashable {
+    public var version: Int?
+    public var hostId: String
+    public var machine: String?
+    public var updatedAt: Double
+    /// Absent until the host answered once; the last accounts stay meanwhile.
+    public var accounts: [UsageAccount]?
+    public var threads: [WidgetThread]
+    public init(hostId: String, machine: String? = nil, updatedAt: Double, accounts: [UsageAccount]? = nil, threads: [WidgetThread] = []) {
+        self.version = 3; self.hostId = hostId; self.machine = machine; self.updatedAt = updatedAt; self.accounts = accounts; self.threads = threads
+    }
+    public var usage: UsageSnapshot? { accounts.map { UsageSnapshot(hostId: hostId, machine: machine, updatedAt: updatedAt, accounts: $0) } }
+    public var threadsSnapshot: ThreadsSnapshot { ThreadsSnapshot(hostId: hostId, machine: machine, updatedAt: updatedAt, threads: threads) }
 }
 
 /// An account as the widget draws it: one plan once across hosts, its freshest reading.
@@ -104,6 +122,13 @@ public enum WidgetModel {
     public static let endedShown: TimeInterval = 15 * 60
     static let toneOrder = ["openai", "anthropic", "google", "pi", "other"]
     static let stateRank = ["waiting": 0, "running": 1, "done": 2, "failed": 2]
+
+    /// The snapshot to keep: a write without accounts keeps the previous ones.
+    public static func keeping(_ next: WidgetSnapshot, previous: WidgetSnapshot?) -> WidgetSnapshot {
+        var kept = next
+        if kept.accounts == nil { kept.accounts = previous?.accounts }
+        return kept
+    }
 
     /// Every host's accounts as one list: a pooled plan once (its freshest reading), in the sidebar's fixed order.
     public static func merge(_ snapshots: [UsageSnapshot]) -> [PlanAccount] {

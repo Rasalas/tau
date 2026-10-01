@@ -55,4 +55,20 @@ final class WidgetModelTests: XCTestCase {
         XCTAssertEqual(WidgetModel.activityRows(merged, now: now).map(\.id), ["ask", "early", "late", "fail"])
         XCTAssertEqual(WidgetModel.activityRows([merged[4]], now: now), [])
     }
+
+    func testReadsTheAppsSnapshotAndKeepsTheLastAccountsWhenNewOnesAreMissing() throws {
+        let json = """
+        {"version":3,"hostId":"mini","machine":"Mac mini","updatedAt":1,"accounts":[{"label":"Codex","tone":"openai","mark":"codex","checkedAt":2,
+        "windows":[{"label":"Weekly","short":"wk","usedPercent":91,"level":"warn","pace":"runs-out","paceAt":5}]}],
+        "threads":[{"id":"t","title":"Fix","state":"waiting","startedAt":3,"askedAt":4,"reason":"Allow edit?"}]}
+        """
+        let first = try JSONDecoder().decode(WidgetSnapshot.self, from: Data(json.utf8))
+        XCTAssertEqual(first.usage?.accounts[0].windows[0].level, "warn")
+        XCTAssertEqual(first.usage?.accounts[0].windows[0].pace, "runs-out")
+        XCTAssertEqual(first.threadsSnapshot.threads[0].reason, "Allow edit?")
+        let later = WidgetSnapshot(hostId: "mini", machine: "Mac mini", updatedAt: 9, threads: [])
+        XCTAssertNil(later.usage)
+        XCTAssertEqual(WidgetModel.keeping(later, previous: first).accounts?.count, 1)
+        XCTAssertEqual(WidgetModel.keeping(later, previous: first).updatedAt, 9)
+    }
 }

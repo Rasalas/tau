@@ -16,8 +16,7 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "activityRemoteDisable", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "activityKey", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "activityTokens", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "activityThreads", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "activityUsage", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "widgetSnapshot", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "activityClear", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "dictationLanguages", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "dictationDownload", returnType: CAPPluginReturnPromise),
@@ -116,14 +115,13 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
             call.resolve(["tokens": tokens])
         } else { call.resolve(["tokens": []]) }
     }
-    @objc func activityThreads(_ call: CAPPluginCall) {
+    @objc func widgetSnapshot(_ call: CAPPluginCall) {
         Task { @MainActor [weak self] in
             guard #available(iOS 16.2, *) else { call.resolve(); return }
-            await MobileActivityStore.threads(call.options as? [String: Any] ?? [:]) { [weak self] event in self?.notifyListeners("activityToken", data: event, retainUntilConsumed: true) }
+            await MobileActivityStore.snapshot(call.options as? [String: Any] ?? [:]) { [weak self] event in self?.notifyListeners("activityToken", data: event, retainUntilConsumed: true) }
             call.resolve()
         }
     }
-    @objc func activityUsage(_ call: CAPPluginCall) { MobileActivityStore.usage(call.options as? [String: Any] ?? [:]); call.resolve() }
     @objc func activityClear(_ call: CAPPluginCall) {
         guard let host = call.getString("hostId") else { call.reject("hostId is required"); return }
         Task { @MainActor in try? await ActivityRemote.disable(host); await MobileActivityStore.clear(host); call.resolve() }

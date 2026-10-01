@@ -15,27 +15,22 @@ public enum MobileActivityStore {
     static var shared: UserDefaults? {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) == nil ? nil : UserDefaults(suiteName: group)
     }
-    public static func usage(_ snapshot: [String: Any]) {
-        guard let host = snapshot["hostId"] as? String, let defaults = shared,
-              let data = try? JSONSerialization.data(withJSONObject: snapshot) else { return }
-        defaults.set(data, forKey: "usage." + host)
-        WidgetCenter.shared.reloadTimelines(ofKind: WidgetKind.planLimits)
-    }
-    /// The Threads widget's snapshot, and the host's Live Activity follows it.
+    /// The host's snapshot: the widgets read it from the App Group, and the host's Live Activity follows its threads.
     @available(iOS 16.2, *)
-    public static func threads(_ value: [String: Any], token: @escaping ([String: Any]) -> Void) async {
-        guard let host = value["hostId"] as? String, let data = try? JSONSerialization.data(withJSONObject: value),
-              let snapshot = try? JSONDecoder().decode(ThreadsSnapshot.self, from: data) else { return }
+    public static func snapshot(_ value: [String: Any], token: @escaping ([String: Any]) -> Void) async {
+        guard value["version"] as? Int == 3, let data = try? JSONSerialization.data(withJSONObject: value),
+              var snapshot = try? JSONDecoder().decode(WidgetSnapshot.self, from: data) else { return }
         if let defaults = shared {
-            defaults.set(data, forKey: "threads." + host)
-            WidgetCenter.shared.reloadTimelines(ofKind: WidgetKind.threads)
+            let key = "widget." + snapshot.hostId
+            snapshot = WidgetModel.keeping(snapshot, previous: defaults.data(forKey: key).flatMap { try? JSONDecoder().decode(WidgetSnapshot.self, from: $0) })
+            if let stored = try? JSONEncoder().encode(snapshot) { defaults.set(stored, forKey: key) }
+            WidgetCenter.shared.reloadAllTimelines()
         }
-        if widgets { await bundle(snapshot, token: token) }
+        if widgets { await bundle(snapshot.threadsSnapshot, token: token) }
     }
     public static func clear(_ host: String) async {
         ActivityCipher.forget(host: host)
-        shared?.removeObject(forKey: "usage." + host)
-        shared?.removeObject(forKey: "threads." + host)
+        shared?.removeObject(forKey: "widget." + host)
         WidgetCenter.shared.reloadAllTimelines()
         if #available(iOS 16.2, *) {
             for activity in Activity<TauActivityAttributes>.activities where activity.attributes.hostId == host { await activity.end(nil, dismissalPolicy: .immediate) }

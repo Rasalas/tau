@@ -25,8 +25,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class TauNativePlugin extends Plugin {
 
     @PluginMethod public void activityTokens(PluginCall call) { JSObject result = new JSObject(); result.put("tokens", new org.json.JSONArray()); call.resolve(result); }
-    @PluginMethod public void activityUpdate(PluginCall call) { AgentActivity.update(getContext(), call.getData()); call.resolve(); }
-    @PluginMethod public void activityUsage(PluginCall call) { UsageWidget.save(getContext(), call.getData()); call.resolve(); }
+    /** The app's snapshot of one host: accounts and threads, the same JSON iOS reads. */
+    @PluginMethod public void widgetSnapshot(PluginCall call) { de.tbuck.tau.plugin.widgets.WidgetStore.save(getContext(), call.getData()); call.resolve(); }
     @PluginMethod public void activityClear(PluginCall call) { AgentActivity.clear(getContext(), call.getString("hostId", "")); call.resolve(); }
 
     private final Map<String, PinnedSocket> sockets = new ConcurrentHashMap<>();

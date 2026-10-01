@@ -1,1 +1,0 @@
-<TextView xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/tau_usage_text" android:layout_width="match_parent" android:layout_height="match_parent" android:padding="16dp" android:background="#182226" android:textColor="#f2f5f3" android:textSize="14sp" android:maxLines="9" android:text="Tau usage&#10;Open Tau to refresh" />

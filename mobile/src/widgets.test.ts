@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { UsageLimitAccount, UsageLimitWindow, UsageLimitsSummary } from "../../kits/usage/protocol";
 import type { ExtensionUiPrompt } from "../../src/shared/contracts";
-import { ThreadBoard, usageSnapshot, widgetUsage } from "./widgets";
+import { ThreadBoard, widgetSnapshot, widgetUsage } from "./widgets";
 
 const NOW = new Date(2026, 9, 1, 14, 2).getTime();
 const MINUTE = 60_000;
@@ -19,7 +19,7 @@ describe("Plan limits snapshot", () => {
   it("keeps the sidebar's fixed account order and default windows, with marks, short labels and levels", () => {
     const accounts = widgetUsage(summary([opencode, claude, signedOut, codex]), NOW);
     expect(accounts.map((account) => [account.label, account.tone, account.mark])).toEqual([
-      ["Codex", "openai", "mark-codex"], ["Claude Code", "anthropic", "mark-claude-code"], ["OpenCode Go", "other", "mark-opencode"],
+      ["Codex", "openai", "codex"], ["Claude Code", "anthropic", "claude-code"], ["OpenCode Go", "other", "opencode"],
     ]);
     expect(accounts[0]!.windows.map((entry) => [entry.label, entry.short, entry.usedPercent, entry.level])).toEqual([["5-hour", "5h", 34, undefined], ["Weekly", "wk", 91, "warn"]]);
     // A model's window stays out; a spent window is the fail level and reads as spent.
@@ -29,27 +29,37 @@ describe("Plan limits snapshot", () => {
   });
 
   it("never carries account ids, and keeps an old reading for the widget to fade", () => {
-    const snapshot = usageSnapshot("host-a", "Mac mini", summary([codex, opencode]), NOW);
+    const accounts = widgetUsage(summary([codex, opencode]), NOW);
+    const snapshot = widgetSnapshot("host-a", "Mac mini", NOW, accounts, []);
     expect(JSON.stringify(snapshot)).not.toContain("secret");
-    expect(snapshot.accounts.map((account) => account.label)).toEqual(["Codex", "OpenCode Go"]);
-    // Android's card drops a snapshot at expiresAt: only the fresh reading decides it.
-    expect(snapshot.expiresAt).toBe(NOW - 3 * MINUTE + 15 * MINUTE);
-    expect(usageSnapshot("host-a", "Mac mini", summary([opencode]), NOW).expiresAt).toBe(NOW);
-    expect(snapshot).toMatchObject({ version: 2, hostId: "host-a", machine: "Mac mini", updatedAt: NOW });
+    expect(snapshot.accounts?.map((account) => account.label)).toEqual(["Codex", "OpenCode Go"]);
+    expect(snapshot).toMatchObject({ version: 3, hostId: "host-a", machine: "Mac mini", updatedAt: NOW, threads: [] });
+    // Until the host answered, the snapshot carries no accounts, so the phone keeps the last ones.
+    expect("accounts" in widgetSnapshot("host-a", "Mac mini", NOW, undefined, [])).toBe(false);
   });
 
   it("names a shared plan by its provider's plan mark and a Pi login by its provider", () => {
     const viaPi: UsageLimitAccount = { ...claude, id: "pi:anthropic", runtime: "pi", label: "Anthropic (Pi)", identity: { provider: "anthropic", key: "other" } };
-    expect(widgetUsage(summary([viaPi]), NOW)[0]?.mark).toBe("mark-claude-code");
+    expect(widgetUsage(summary([viaPi]), NOW)[0]?.mark).toBe("claude-code");
     const shared = widgetUsage(summary([codex, { ...codex, id: "pi:openai-codex", runtime: "pi", label: "ChatGPT (Pi)" }]), NOW);
     expect(shared).toHaveLength(1);
-    expect(shared[0]).toMatchObject({ label: "ChatGPT", mark: "mark-codex" });
+    expect(shared[0]).toMatchObject({ label: "ChatGPT", mark: "codex" });
   });
 });
 
 const prompt = (id: string, sessionId: string, title: string): ExtensionUiPrompt => ({ id, sessionId, kind: "confirm", title });
 
 describe("thread board", () => {
+  it("lists threads that finished shortly before the app opened, and the reason of one that failed", () => {
+    const board = new ThreadBoard(() => NOW);
+    const session = (id: string, patch: object) => ({ id, title: `Thread ${id}`, path: "", projectPath: "", projectName: "tau", messageCount: 2, modifiedAt: NOW - 20 * MINUTE, ...patch });
+    board.index({ sessions: [session("ok", {}), session("bad", { modifiedAt: NOW - 5 * MINUTE, turnError: "Rate limited" }), session("old", { modifiedAt: NOW - 5 * 60 * MINUTE }), session("empty", { messageCount: 0 })], runs: {} });
+    expect(board.threads()).toEqual([
+      { id: "bad", title: "Thread bad", project: "tau", state: "failed", endedAt: NOW - 5 * MINUTE, reason: "Rate limited" },
+      { id: "ok", title: "Thread ok", project: "tau", state: "done", endedAt: NOW - 20 * MINUTE },
+    ]);
+  });
+
   it("orders a question first, then running threads by start, then ended ones newest first", () => {
     let now = NOW;
     const board = new ThreadBoard(() => now);

@@ -19,10 +19,8 @@ interface TauNativePlugin {
   activityRemoteDisable(options: { hostId: string }): Promise<void>;
   activityKey(options: { hostId: string; keyId: string; key: string }): Promise<void>;
   activityTokens(): Promise<{ tokens: import("./activities").ActivityToken[] }>;
-  activityUpdate(options: import("./activities").MobileActivity): Promise<void>;
-  activityUsage(options: import("./widgets").UsageSnapshot): Promise<void>;
-  /** iOS: the Threads widget's snapshot and the host's one Live Activity. */
-  activityThreads(options: import("./widgets").ThreadsSnapshot): Promise<void>;
+  /** One snapshot per host: iOS stores it in the App Group and follows it with the host's Live Activity; Android keeps it for its widgets and notification. */
+  widgetSnapshot(options: import("./widgets").WidgetSnapshot): Promise<void>;
   activityClear(options: { hostId: string }): Promise<void>;
   dictationLanguages(): ReturnType<import("../../src/renderer/dictation").DictationPort["languages"]>;
   dictationDownload(options: { language: string }): Promise<void>;
@@ -127,16 +125,11 @@ export const nativeDictation: import("../../src/renderer/dictation").DictationPo
   cancel: () => TauNative.dictationCancel().catch(() => undefined),
 };
 
-/** Android draws a card per thread; iOS one Live Activity per host from the threads snapshot, which the widgets read too. */
-export function nativeActivities(platform: DeviceInfo["platform"]): import("./activities").ActivityPort {
-  const shared = { usage: (snapshot: import("./widgets").UsageSnapshot) => TauNative.activityUsage(snapshot), clear: (hostId: string) => TauNative.activityClear({ hostId }) };
-  if (platform === "android") return { ...shared, update: (activity) => TauNative.activityUpdate(activity) };
-  return {
-    ...shared,
-    tokens: async (listener) => { const handle = await TauNative.addListener("activityToken", listener); for (const token of (await TauNative.activityTokens()).tokens) listener(token); return () => { void handle.remove(); }; },
-    threads: (snapshot) => TauNative.activityThreads(snapshot),
-  };
-}
+export const nativeActivities: import("./activities").ActivityPort = {
+  tokens: async (listener) => { const handle = await TauNative.addListener("activityToken", listener); for (const token of (await TauNative.activityTokens()).tokens) listener(token); return () => { void handle.remove(); }; },
+  snapshot: (value) => TauNative.widgetSnapshot(value),
+  clear: (hostId) => TauNative.activityClear({ hostId }),
+};
 
 export function installActivityKey(options: { hostId: string; keyId: string; key: string }): Promise<void> { return TauNative.activityKey(options); }
 

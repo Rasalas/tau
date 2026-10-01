@@ -39,13 +39,12 @@ async function boot(): Promise<void> {
   const activityKeys = new PushKeys({ get: (key) => secureStore.get("activity:" + key), set: (key, value) => secureStore.set("activity:" + key, value), remove: (key) => secureStore.remove("activity:" + key) });
   const isNative = Capacitor.isNativePlatform();
   const remoteControl = isNative && device.platform === "ios" ? remoteActivities(book, activityKeys, nativeRemoteActivities, device.virtual) : undefined;
-  const platformActivities = nativeActivities(device.platform);
-  const activityPort = { ...platformActivities, clear: async (hostId: string) => { await remoteControl?.revoke(hostId); await platformActivities.clear(hostId); } };
+  const activityPort = { ...nativeActivities, clear: async (hostId: string) => { await remoteControl?.revoke(hostId); await nativeActivities.clear(hostId); } };
   const pushRoutes = new Map<string, "direct" | "relay">();
   setPushRegistrar(createPushRegistrar(push, { relay: createRelayPort(), keys: pushKeys, onRoute: (id, route) => pushRoutes.set(id, route) }));
   const context: AppContext = {
     ...(remoteControl ? { remoteActivities: remoteControl } : {}),
-    activities: !isNative ? undefined : device.platform === "ios" ? relayActivities(activityPort, { url: PUSH_RELAY_URL, keys: pushKeys, installKey: installActivityKey, authorized: async (id) => Boolean(await book.token(id)), direct: (id) => pushRoutes.get(id) === "direct" }) : platformActivities,
+    activities: !isNative ? undefined : device.platform === "ios" ? relayActivities(activityPort, { url: PUSH_RELAY_URL, keys: pushKeys, installKey: installActivityKey, authorized: async (id) => Boolean(await book.token(id)), direct: (id) => pushRoutes.get(id) === "direct" }) : nativeActivities,
     storage: createLocalStorageAdapter(),
     book,
     bridge,
