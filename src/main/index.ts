@@ -48,7 +48,7 @@ import { menuIconImage } from "./menu-icons.js";
 import type { MenuPoint, NativeMenuEntry } from "../shared/context-menu.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import electronUpdater from "electron-updater";
-import { createAppUpdates, linuxInstall, linuxUpdates, nextStaging, readUpdateFeed, type AppUpdates } from "./app-updates.js";
+import { createAppUpdates, installGuardPorts, installStillRunning, linuxInstall, linuxUpdates, nextStaging, readUpdateFeed, type AppUpdates } from "./app-updates.js";
 import { offerPackageInstall } from "./appimage-install.js";
 import { appMenuTemplate, nextZoomLevel } from "./app-menu.js";
 import { createAppShell } from "./app-shell.js";
@@ -90,6 +90,13 @@ let inProcessFolderLock: ProcessLock | undefined;
 
 // Identity (and so userData) must be set before anything reads app.getPath("userData").
 configureAppIdentity(app, process.env.TAU_USER_DATA);
+// A copy of Tau started while ShipIt installs makes it give up and reopen the old version.
+const installGuard = process.platform === "darwin" && app.isPackaged ? installGuardPorts(app.getPath("userData"), appIdentity().appId) : undefined;
+const installing = installGuard ? installStillRunning(installGuard, app.getVersion()) : undefined;
+if (installing) void app.whenReady().then(() => {
+  if (Notification.isSupported()) new Notification({ title: `Installing Tau ${installing.version}`, body: installing.reopens ? "Tau opens by itself when it is done." : "Open Tau again in a minute." }).show();
+  setTimeout(() => app.exit(0), 500);
+});
 const backgroundMode = backgroundModeRequested(process.env);
 if (backgroundMode) installBackgroundMode(app, BaseWindow.prototype);
 // Both must happen before the app is ready: a privileged scheme cannot be added later.
@@ -327,7 +334,7 @@ const quitShortcut = createQuitShortcut({
 /** Tracks repeated renderer crashes so a second one within the window gives up on reloading. */
 let lastRenderProcessGoneAt: number | undefined;
 
-const primaryInstance = installSingleInstance(app, () => mainWindow, () => {
+const primaryInstance = !installing && installSingleInstance(app, () => mainWindow, () => {
   if (BrowserWindow.getAllWindows().length === 0) void createWindow();
 });
 
@@ -986,6 +993,8 @@ if (primaryInstance) app.on("before-quit", (event) => {
     } catch (error: unknown) {
       hostLog.error("host.shutdown.failed", error);
     }
+    const staged = updates?.downloaded();
+    if (installGuard && staged) installGuard.write(staged, updateQuit);
     shutdownComplete = true;
     app.quit();
   })();

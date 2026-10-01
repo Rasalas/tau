@@ -1,6 +1,10 @@
+import { execFileSync } from "node:child_process";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { dialog } from "electron";
 import type { AppUpdatePhase } from "../shared/contracts.js";
 import { DEFAULT_UPDATE_CHANNEL, defaultUpdateChannel, isNightlyVersion, type UpdateChannel } from "../shared/app-version.js";
+import { compareVersions } from "../shared/runtime-version.js";
 import { NIGHTLY_TAG, UNPACKED_UPDATES, type LinuxInstall, type UpdateFeed, type UpdateLog } from "./release-feed.js";
 
 // Moved to release-feed.ts, which the host process can load without Electron.
@@ -376,4 +380,61 @@ export function linuxUpdates(updaters: LinuxUpdaters, install: LinuxInstall): Pi
   if (install === "appimage") return { updater: new updaters.AppImageUpdater() };
   if (install === "deb") return { updater: new updaters.DebUpdater(), installOnQuit: false };
   return { unsupported: UNPACKED_UPDATES };
+}
+
+/** After this, a start no longer waits on ShipIt: a stuck install must not lock Tau out. */
+export const INSTALL_GUARD_MS = 3 * 60_000;
+
+export interface InstallMarker {
+  version: string;
+  at: number;
+  /** A Restart, which ShipIt reopens; a plain quit installs without reopening. */
+  reopens: boolean;
+}
+
+export interface InstallGuardPorts {
+  read(): InstallMarker | undefined;
+  clear(): void;
+  shipItRunning(): boolean;
+  now(): number;
+}
+
+/**
+ * The version ShipIt is still installing, when this start would race it.
+ * Squirrel.Mac gives up on an install while a copy of the app runs and then
+ * reopens the old version, so a start in that window has to step aside.
+ */
+export function installStillRunning(ports: InstallGuardPorts, currentVersion: string): InstallMarker | undefined {
+  const marker = ports.read();
+  if (!marker) return undefined;
+  if (compareVersions(currentVersion, marker.version) >= 0 || ports.now() - marker.at > INSTALL_GUARD_MS || !ports.shipItRunning()) {
+    ports.clear();
+    return undefined;
+  }
+  return marker;
+}
+
+/** The marker in userData, and ShipIt as `ps` lists it (`…/ShipIt <bundle id>.ShipIt <state>`). */
+export function installGuardPorts(userData: string, bundleId: string): InstallGuardPorts & { write(version: string, reopens: boolean): void } {
+  const path = join(userData, "update-installing.json");
+  return {
+    read() {
+      try {
+        const value = JSON.parse(readFileSync(path, "utf8")) as Partial<InstallMarker>;
+        return typeof value.version === "string" && typeof value.at === "number" ? { version: value.version, at: value.at, reopens: value.reopens === true } : undefined;
+      } catch {
+        return undefined;
+      }
+    },
+    clear: () => rmSync(path, { force: true }),
+    write: (version, reopens) => writeFileSync(path, JSON.stringify({ version, at: Date.now(), reopens })),
+    shipItRunning() {
+      try {
+        return execFileSync("/bin/ps", ["-axo", "command"], { encoding: "utf8" }).split("\n").some((line) => line.includes(`/ShipIt ${bundleId}.ShipIt `));
+      } catch {
+        return false;
+      }
+    },
+    now: Date.now,
+  };
 }
