@@ -298,8 +298,8 @@ struct ExpandedTrailing: View {
         if let single = display.single {
             switch single.state {
             case "running":
-                Elapsed(since: Date(ms: single.startedAt ?? 0)).font(.system(size: 22, weight: .semibold, design: .monospaced)).foregroundStyle(Tau.Island.working)
-                    .multilineTextAlignment(.trailing).frame(width: 84, alignment: .trailing)
+                Elapsed(since: Date(ms: single.startedAt ?? 0)).font(.system(size: 20, weight: .semibold, design: .monospaced)).foregroundStyle(Tau.Island.working)
+                    .multilineTextAlignment(.trailing).frame(width: 66, alignment: .trailing)
             case "waiting": Image(systemName: "questionmark.circle").font(.system(size: 26, weight: .semibold)).foregroundStyle(Tau.Island.waiting)
             case "done":
                 Text(single.startedAt.flatMap { start in single.endedAt.map { duration(($0 - start) / 1000) } } ?? "")
@@ -393,11 +393,8 @@ struct TauLiveActivity: Widget {
         } dynamicIsland: { context in
             let display = ActivityDisplay(context.state, context.attributes)
             return DynamicIsland {
-                // The title sits beside the mark, below the camera when it needs the width.
-                DynamicIslandExpandedRegion(.leading) {
-                    HStack(spacing: 10) { TauPlate(size: 36); ExpandedTitle(display: display) }.padding(.leading, 4).padding(.top, 4)
-                        .dynamicIsland(verticalPlacement: .belowIfTooWide)
-                }
+                DynamicIslandExpandedRegion(.leading) { TauPlate(size: 36).padding(.leading, 4).padding(.top, 4) }
+                DynamicIslandExpandedRegion(.center) { ExpandedTitle(display: display).padding(.top, 4) }
                 DynamicIslandExpandedRegion(.trailing) { ExpandedTrailing(display: display).padding(.trailing, 4).padding(.top, 4) }
                 DynamicIslandExpandedRegion(.bottom) { ExpandedBottom(display: display, stale: context.isStale).padding(.horizontal, 4) }
             } compactLeading: {
