@@ -56,6 +56,12 @@ export function expandHome(path: string): string {
   return trimmed.startsWith("~/") ? join(homedir(), trimmed.slice(2)) : trimmed;
 }
 
+// Git reports resolved paths; a project opened through a symlink (macOS /var) is still the same folder.
+async function samePath(left: string, right: string): Promise<boolean> {
+  const real = (path: string) => realpath(path).catch(() => resolve(path));
+  return (await real(left)) === (await real(right));
+}
+
 export async function listDirectories(requested: string | undefined, identify: (path: string) => WorkspaceRef): Promise<UiDirectoryListing> {
   const candidate = requested?.trim() ? expandHome(requested) : homedir();
   if (!isAbsolute(candidate)) throw new Error("Choose an absolute folder path.");
@@ -647,7 +653,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         const ref = requiredString(input, "ref");
         try {
           const target = await workspaceGit.resolveRefTarget(project, ref, (path) => git.getWorkspaceInfo(path));
-          if (optionalString(input, "workspace") && resolve(target) !== resolve(project)) throw new HostCommandError("That branch is checked out in another workspace. Open its worktree instead.");
+          if (optionalString(input, "workspace") && !(await samePath(target, project))) throw new HostCommandError("That branch is checked out in another workspace. Open its worktree instead.");
           services.log("git.ref.switch", `${ref} → ${target}`);
           git.invalidate(project, ["branch", "status", "workspace"]);
           return optionalString(input, "workspace") ? { version: 1 as const, updates: [] } : services.openWorkspace(target);
