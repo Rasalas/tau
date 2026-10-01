@@ -105,8 +105,6 @@ interface OpenGate {
 }
 
 const MAX_COMPOSER_HEIGHT = 220;
-/** From this share of the context on, the dial leaves the menu for the row: compacting is worth a look then. */
-const CONTEXT_DIAL_PERCENT = 75;
 
 /** How a level reads in the footer, where it stands without the menu's heading. */
 function thinkingLabel(level: string): string {
@@ -778,8 +776,8 @@ export function Composer({
   const menuControls = composerControls.filter((control) => control.placement === "menu");
   const leadControls = composerControls.filter((control) => control.placement === "lead");
   const menuShortcuts = menuControls.flatMap((control) => control.shortcuts ?? []);
-  // The row is the design's: model, reasoning, the "…" menu, send. Kits' chips fold into the menu first;
-  // attach lives there (and in drag and paste), the context dial too until the context runs short.
+  // The row is the design's: model, reasoning, the "…" menu, the context meter, the queue, send.
+  // Kits' chips fold into the menu first; attach lives there (and in drag and paste).
   const contextPercent = contextUsage ? Math.round(Math.min(100, Math.max(0, contextUsage.percent))) : 0;
   const footerBlocks: FooterBlock[] = [
     ...(thinkingLevel ? [{ id: "reasoning", rank: 3, node: (
@@ -812,8 +810,7 @@ export function Composer({
     ...(contextUsage ? [{
       id: "context",
       end: true,
-      rank: 2,
-      menuOnly: contextPercent < CONTEXT_DIAL_PERCENT,
+      rank: 1,
       node: <ContextMeter usage={contextUsage} breakdown={contextBreakdown} onCompact={onCompactContext} />,
       menuNode: <ComposerMenuItem
         icon={<Shrink size={13} />}
@@ -822,6 +819,7 @@ export function Composer({
         onSelect={onCompactContext}
       />,
     }] : []),
+    ...(queue.length > 0 && !newThread ? [{ id: "queued", end: true, rank: 2, node: <span className="composer-queued">{queue.length} queued</span> }] : []),
     {
       id: "attach",
       menuOnly: true,
@@ -1149,8 +1147,9 @@ export function Composer({
             }}
           />
 
+          {/* Send is the row's one round button (design 1a); Stop is a quiet word before it, never in its place. */}
           {streaming ? (
-            <button className={`send-button stop${answerable ? " answering" : ""}`} {...tooltipProps("Stop the run", { shortcut: registry?.keybindingLabel?.("runtime.abort") })} aria-label="Stop the run" onClick={onAbort}><i /></button>
+            <button className={`send-button stop${answerable ? " answering" : ""}`} {...tooltipProps("Stop the run", { shortcut: registry?.keybindingLabel?.("runtime.abort") })} aria-label="Stop the run" onClick={onAbort}><i /><span>Stop</span></button>
           ) : null}
           {(() => {
             // One send button, always there: it answers, steers or queues, or sends; with nothing to send it rests.

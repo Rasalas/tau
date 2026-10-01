@@ -53,7 +53,7 @@ export function ContextMeter({
         onClick={() => setOpen((value) => !value)}
         aria-label={`Context ${Math.round(percent)} percent used`}
       >
-        <i />
+        <i />{Math.round(percent)}%
       </button>
       {open ? (
         <div className="context-popover" ref={popover}>

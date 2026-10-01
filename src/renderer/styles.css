@@ -1344,10 +1344,10 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 .send-button:not(:disabled, .stop):hover { background: var(--acid-strong); }
 /* Nothing to send: the accent at rest, still the send button. */
 .send-button:disabled { background: color-mix(in srgb, var(--acid) 42%, var(--field)); cursor: default; }
-/* Stop is quiet beside send, a ring and a square, red only under the pointer; send stays the primary. */
-.send-button.stop { margin-right: 4px; background: transparent; box-shadow: inset 0 0 0 1.5px var(--line-control); color: var(--muted); }
-.send-button.stop:hover { box-shadow: inset 0 0 0 1.5px var(--stop); color: var(--stop); }
-.send-button.stop > i { width: 9px; height: 9px; background: currentColor; border-radius: 2px; }
+/* Stop is a quiet word beside send, red only under the pointer; send is the row's one round button (design 1a). */
+.send-button.stop { width: auto; margin-right: 2px; padding: 0 8px; border-radius: 6px; background: transparent; color: var(--muted); font: 11px var(--sans); }
+.send-button.stop:hover { background: var(--hover); color: var(--stop); }
+.send-button.stop > i { display: none; }
 
 .worktree-list .menu-label > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -1356,11 +1356,12 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 /* --------------------------------------------------------- context dial */
 
 .context-dial {
-  width: 16px; height: 16px; flex: none; border: 0; padding: 0;
-  border-radius: 50%; display: grid; place-items: center; cursor: pointer;
-  background: conic-gradient(var(--muted) 0 var(--used), var(--line-control) var(--used) 100%);
+  height: 28px; flex: none; display: flex; align-items: center; gap: 5px; padding: 0 8px 0 4px;
+  border: 0; border-radius: 6px; background: none; color: var(--muted); font: 11px var(--sans); cursor: pointer;
 }
-.context-dial > i { width: 10px; height: 10px; border-radius: 50%; background: var(--field); }
+.context-dial:hover { color: var(--ink-2); }
+.context-dial > i { width: 36px; height: 3px; border-radius: 2px; background: linear-gradient(to right, var(--acid) var(--used), var(--track) 0); }
+.composer-queued { padding-right: 6px; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .context-popover {
   position: absolute; bottom: 28px; right: -52px; width: 252px; z-index: 30;
   display: flex; flex-direction: column; gap: 10px;
