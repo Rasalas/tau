@@ -912,7 +912,7 @@ about the list as a whole. Machines Kit says there which paired machine is out
 of reach (Retry) or refused the device (Pair again), and Usage Kit draws the
 plans' juicebars; register it with `profiles: ["compact"]` and render nothing
 when there is nothing to say. An older core never draws the placement.
-`spine` fills the narrow column the conversation collapses to beside the stage
+`spine` (API 1.39.0) fills the narrow column the conversation collapses to beside the stage
 (design 1b), under the thread's title and above its queue and "Open
 conversation": Agents Kit draws the thread's state and cost, what runs now, the
 turn's steps and its agents there. An older core never draws the placement.
@@ -1567,7 +1567,7 @@ page's CSP names `tau-ext:` for `img-src`, `media-src` and `frame-src`.
 
 `actions.openFile(path, options?)` puts a document in the stage — `{ line }`
 opens it as source scrolled to that line (1-based) and marks it, and asking for
-the same line again scrolls there again; `{ trace: true }` is a file the agent
+the same line again scrolls there again; `{ trace: true }` (API 1.39.0) is a file the agent
 touched: one italic tab at the strip's end that never comes to the front and
 never opens a stage that holds nothing (Workspace Kit's trace tabs, design 1a);
 `actions.openStageTab(kind, params?, options?)` puts a tab of your own kind

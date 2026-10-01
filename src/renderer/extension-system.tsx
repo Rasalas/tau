@@ -697,7 +697,7 @@ export interface PanelContribution extends ProfileScoped {
   stageButton?: boolean;
   /** A hook for a count beside the panel's tab title, say running agents; nothing for `undefined` or 0 (API 1.27.0). */
   useBadge?(): number | undefined;
-  /** Offered in a phone's actions sheet of a thread row, which opens the thread and then this panel (design 1x). */
+  /** Offered in a phone's actions sheet of a thread row, which opens the thread and then this panel (design 1x, API 1.39.0). */
   threadActions?: boolean;
   /** Unseen background activity. `visible` lets the tool mark its activity as read. */
   useActivity?(visible: boolean): boolean;
@@ -887,7 +887,7 @@ export interface SettingsPageContribution extends ProfileScoped {
    * built with `useSetting` follows it; "host", the default, edits this machine.
    */
   scope?: SettingScope;
-  /** A hook for the value a phone's Settings list shows beside the page's name: "2 online" (design 1s). */
+  /** A hook for the value a phone's Settings list shows beside the page's name: "2 online" (design 1s, API 1.39.0). */
   useSummary?(): string | undefined;
   Component: ComponentType<SettingsPageProps>;
 }
