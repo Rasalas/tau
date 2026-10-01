@@ -398,7 +398,7 @@ export class PreferencesStore {
   /** A model a picker handed on; it leads the picker's "Recent" list. */
   noteModelUsed(key: string): void {
     const recent = [key, ...this.state.recentModels.filter((entry) => entry !== key)].slice(0, RECENT_MODELS);
-    this.update({ recentModels: recent, recentLevels: Object.fromEntries(Object.entries(this.state.recentLevels).filter(([entry]) => recent.includes(entry))) }, false);
+    this.update({ recentModels: recent }, false);
   }
 
   /** The level just set on a recent model; a model not in "Recent" keeps none. */

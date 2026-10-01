@@ -9,6 +9,7 @@ import { MonthCost } from "./month-cost.js";
 import { createLimitsFeed } from "./limits-feed.js";
 import { UsagePage } from "./page.js";
 import { USAGE_EXTENSION_ID, USAGE_PAGE } from "./protocol.js";
+import { createWayLine } from "./way-line.js";
 
 /** Usage is a page of the app: the juicebars at the sidebar's foot (beside a phone's list title) and the palette open it. */
 export const usageExtension: DesktopExtension = {
@@ -45,6 +46,9 @@ export const usageExtension: DesktopExtension = {
       profiles: ["compact"],
       Component: (props) => <JuicebarStrip {...props} feed={feed} choices={choices} />,
     });
+
+    // What the plan has left, after the facts under "Runs with" in the model picker; never a mark on a row.
+    plugin.registerModelBadge({ id: "usage.plan-left", profiles: ["desktop", "web", "compact"], applies: () => false, label: "Plan", WayLine: createWayLine(feed, choices) });
 
     plugin.registerCommand({
       id: "usage.open",

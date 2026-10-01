@@ -179,6 +179,14 @@ describe("ModelPicker (K142 B: model first)", () => {
     expect(onSelect.mock.calls[0]).toHaveLength(1);
   });
 
+  it("adds a badge's line after the facts under Runs with, for the way highlighted", () => {
+    const badge = { id: "test.left", applies: () => false, label: "Plan", WayLine: ({ runtime }: { runtime: string }) => <> · 65% left on {runtime}</> };
+    render(<TestProviders><ModelPicker models={models} activeKey="anthropic/claude-opus-5" onSelect={vi.fn()} onClose={() => {}} anchor={{ current: null }} badges={[badge]} /></TestProviders>);
+    const note = document.querySelector(".model-ways-note")!;
+    expect(note.textContent).toMatch(/ · 65% left on pi$/u);
+    expect(screen.queryByText("Plan", { selector: ".model-badge" })).toBeNull();
+  });
+
   it("folds a maker's legacy models behind one row and badges the newest", () => {
     renderPicker();
     fireEvent.click(railButton("Anthropic"));

@@ -665,7 +665,10 @@ export function ModelPicker({
         {leaves ? <>
           <CornerDownRight size={13} className="model-ways-glyph" aria-hidden />
           <span>This thread runs with {threadRuntimeName}. <b>{compact ? "Choosing it" : "↵"} {carries ? "continues in a new thread" : "starts a new thread"}</b> with {leaves.runtimeLabel}{carries ? ", carrying a summary" : ""}.</span>
-        </> : [providerStackLabel(highlightedWay.model.provider, highlightedWay.runtime, { plan: modelOnPlan(highlightedWay.model) }), ...modelFacts(highlightedWay.model, highlightedWay.customPrice)].join(" · ")}
+        </> : <>
+          {[providerStackLabel(highlightedWay.model.provider, highlightedWay.runtime, { plan: modelOnPlan(highlightedWay.model) }), ...modelFacts(highlightedWay.model, highlightedWay.customPrice)].join(" · ")}
+          {badges.map(({ id, WayLine }) => WayLine ? <WayLine key={id} model={highlightedWay.model} runtime={highlightedWay.runtime} /> : null)}
+        </>}
       </p>
     </footer>
   ) : null;
