@@ -444,7 +444,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const drawnSidebar = split ? (touchSidebarShown ? compactSidebarWidth(windowWidth, sidebarWidthChosen ? sidebarWidth : undefined) : 0) : shownSidebar;
   const clearStageMaximized = useCallback(() => setStageMaximized(false), [setStageMaximized]);
   // A phone draws no stage (profile-compact.css): its panels are sheets.
-  const folded = maximized || (spineWanted && !compact);
+  const folded = maximized || (spineWanted && !compact && !showStartScreen);
   const { stageShown, tabs, canSplit } = useCenterLayout({
     windowWidth, sidebarWidth: drawnSidebar, stageOpen: stage.tabs.length > 0 && !phone, folded: stageFolded, maximized: folded,
     tabCount: stage.tabs.length, clearMaximized: clearStageMaximized,
