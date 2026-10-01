@@ -1,8 +1,12 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
+  HostMachineServices,
+  HostMachineEvent,
+  HostMachine,
+  HostTrashedThread,
   HostExtension,
   HostExtensionContext,
   HostExtensionServices,
@@ -11,6 +15,7 @@ import type {
   HostTurnObserver,
 } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
+import { MACHINE_STATE_TOPIC, MACHINE_META_EVENT, MACHINE_TRASH_EVENT } from "./machine-state.js";
 import { DAY_MS } from "./meta.js";
 import { createThreadRailHostExtension } from "./host.js";
 import { META_EVENT, REVIEW_EXTENSION_ID, THREAD_RAIL_EXTENSION_ID, TRASH_EVENT, type RailState } from "./protocol.js";
@@ -30,6 +35,7 @@ async function scratch(): Promise<string> {
 }
 
 interface Setup {
+  machines?: HostMachineServices;
   stateDir?: string;
   sessions?: HostSessionSummary[];
   modified?: Record<string, number>;
@@ -50,6 +56,7 @@ async function harness(setup: Setup = {}) {
   const restored = vi.fn(async (sessionId: string) => { trash.splice(trash.findIndex((entry) => entry.sessionId === sessionId), 1); });
   const services: Partial<HostExtensionServices> = {
     stateDir,
+    machines: setup.machines ?? machineServices().services,
     sessions: {
       list: async () => setup.sessions ?? [],
       start,
@@ -83,8 +90,41 @@ async function harness(setup: Setup = {}) {
     await registry.activate(review);
   }
   const invoke = (command: string, input?: unknown) => registry.invoke(THREAD_RAIL_EXTENSION_ID, command, input) as Promise<RailState>;
-  return { invoke, events, observers, lifecycles, start, stateDir, removed, restored };
+  return { invoke, events, observers, lifecycles, start, stateDir, removed, restored, registry };
 }
+
+function machineServices(initial: HostMachine[] = [], self = "here") {
+  let list = initial;
+  const listeners = new Set<(machines: readonly HostMachine[]) => void>();
+  const indexListeners = new Set<(machine: string) => void>();
+  const watched = new Map<string, (event: HostMachineEvent) => void>();
+  const stopped = vi.fn();
+  const call = vi.fn<HostMachineServices["call"]>(async (_machine, _extension, command) => command === "trash" ? [] : { threads: {}, settings: { onMerged: true, onClosed: true } });
+  const services: HostMachineServices = {
+    self: { id: self, name: self, version: "1" },
+    list: () => list,
+    subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    subscribeIndex: (listener) => { indexListeners.add(listener); return () => { indexListeners.delete(listener); }; },
+    call,
+    request: async () => undefined,
+    upload: async () => ({ id: "blob", size: 0, sha256: "" }),
+    watch: (machine, topic, listener) => {
+      expect(topic).toBe(MACHINE_STATE_TOPIC);
+      watched.set(machine, listener);
+      return () => { watched.delete(machine); stopped(machine); };
+    },
+  };
+  return {
+    services, call, watched, stopped, listeners, indexListeners,
+    update(next: HostMachine[]) { list = next; for (const listener of listeners) listener(next); },
+    index(machine: string) { for (const listener of indexListeners) listener(machine); },
+    emit(machine: string, name: string, payload: unknown) { watched.get(machine)?.({ name, payload }); },
+  };
+}
+
+const rex: HostMachine = { id: "rex", name: "Rex", status: "connected" };
+const proxy = (id: string): HostSessionSummary => ({ sessionId: id, path: `tau-thread:machine:${id}`, cwd: "/rex/project" });
+const remoteTrash = (sessionId: string): HostTrashedThread => ({ sessionId, cwd: "/rex/project", title: "Deleted", backendKind: "pi", deletedAt: NOW, purgeAt: NOW + DAY_MS });
 
 const session = (id: string, cwd: string): HostSessionSummary => ({ sessionId: id, path: `/sessions/${id}.jsonl`, cwd });
 
@@ -214,5 +254,222 @@ describe("Thread Rail host", () => {
     await expect(invoke("remove", {})).rejects.toThrow(/threadId/u);
     await lifecycles[0]!.threadDeleted?.("gone", "/project");
     expect((await invoke("state")).threads).toEqual({});
+  });
+});
+
+
+describe("Thread Rail machine ownership", () => {
+  it("keeps local metadata and trash when a peer projects the same composite id", async () => {
+    const machines = machineServices([rex]);
+    machines.call.mockImplementation(async (_machine, _extension, command) => command === "trash" ? [remoteTrash("local")] : { threads: { local: { settledAt: 1, pinned: true } } });
+    const sessions = [session("rex~local", "/local")];
+    const { invoke, events, lifecycles } = await harness({ machines: machines.services, sessions });
+    const patch = { settledAt: NOW, settledBy: "user" };
+    expect((await invoke("patch", { patches: { "rex~local": patch } })).threads).toEqual({ "rex~local": patch });
+    expect(machines.call.mock.calls.filter((call) => call[2] === "patch")).toEqual([]);
+    machines.emit("rex", MACHINE_META_EVENT, { threads: { local: { pinned: true } } });
+    expect((await invoke("state")).threads).toEqual({ "rex~local": patch });
+    expect(await invoke("trash")).toEqual([]);
+    await invoke("remove", { threadId: "rex~local" });
+    sessions.length = 0;
+    await lifecycles[0]!.sweep?.({ sessions: [], liveThreads: [], projectPaths: [], deleted: [] });
+    machines.emit("rex", MACHINE_META_EVENT, { threads: { local: { settledAt: 2 } } });
+    machines.emit("rex", MACHINE_TRASH_EVENT, [remoteTrash("local")]);
+    expect((await invoke("state")).threads).toEqual({ "rex~local": patch });
+    expect(await invoke("trash")).toEqual([{ sessionId: "rex~local" }]);
+    await vi.waitFor(() => expect(events.filter((event) => event.name === TRASH_EVENT).at(-1)?.payload).toEqual([{ sessionId: "rex~local" }]));
+  });
+
+  it("groups remote patches by machine, keeps the whole suffix and preserves indexed local ids", async () => {
+    const machines = machineServices([rex]);
+    const remote: RailState = { threads: {}, settings: { onMerged: true, onClosed: true } };
+    machines.call.mockImplementation(async (_machine, _extension, command, input) => {
+      if (command === "patch") Object.assign(remote.threads, (input as { patches: RailState["threads"] }).patches);
+      return command === "trash" ? [] : remote;
+    });
+    const { invoke, stateDir } = await harness({ machines: machines.services, sessions: [proxy("rex~t1"), proxy("rex~saved~thread"), session("rex~local", "/local")] });
+    const state = await invoke("patch", { patches: { "rex~t1": { settledAt: NOW, settledBy: "user" }, "rex~saved~thread": { pinned: true }, "rex~local": { pinned: true } } });
+    expect(machines.call).toHaveBeenCalledWith("rex", THREAD_RAIL_EXTENSION_ID, "patch", { patches: { t1: { settledAt: NOW, settledBy: "user" }, "saved~thread": { pinned: true } } });
+    expect(state.threads).toEqual({ "rex~t1": { settledAt: NOW, settledBy: "user" }, "rex~saved~thread": { pinned: true }, "rex~local": { pinned: true } });
+    await vi.waitFor(async () => expect(JSON.parse(await readFile(join(stateDir, THREAD_RAIL_EXTENSION_ID, "thread-meta.json"), "utf8")).threads).toEqual({ "rex~local": { pinned: true } }));
+  });
+
+  it("reads home-only state initially and after index changes, and forwards live meta without echo", async () => {
+    const machines = machineServices([rex]);
+    let meta = { t1: { settledAt: 1 } };
+    machines.call.mockImplementation(async (_machine, _extension, command) => command === "trash" ? [] : { threads: meta, settings: { inactiveDays: 99, onMerged: false, onClosed: false } });
+    const { invoke, events } = await harness({ machines: machines.services });
+    await vi.waitFor(async () => expect((await invoke("state")).threads).toEqual({ "rex~t1": { settledAt: 1 } }));
+    expect(machines.call).toHaveBeenCalledWith("rex", THREAD_RAIL_EXTENSION_ID, "state", { homeOnly: true });
+    expect((await invoke("state")).settings).toEqual({ onMerged: true, onClosed: false });
+    meta = { t1: { settledAt: 2 } };
+    machines.index("rex");
+    await vi.waitFor(async () => expect((await invoke("state")).threads["rex~t1"]).toEqual({ settledAt: 2 }));
+    events.length = 0;
+    machines.emit("rex", MACHINE_META_EVENT, { threads: { "saved~thread": { pinned: true } } });
+    expect((await invoke("state")).threads).toEqual({ "rex~saved~thread": { pinned: true } });
+    expect(events.filter((event) => event.name === META_EVENT)).toHaveLength(1);
+    expect(events.filter((event) => event.topic)).toEqual([]);
+    await invoke("patch", { patches: { local: { pinned: true } } });
+    expect(events.find((event) => event.name === MACHINE_META_EVENT)).toMatchObject({ topic: MACHINE_STATE_TOPIC, payload: { threads: { local: { pinned: true } } } });
+    expect((await invoke("state", { homeOnly: true })).threads).toEqual({ local: { pinned: true } });
+  });
+
+  it("does not sweep, wake, observe or publish legacy proxy metadata stored locally", async () => {
+    const stateDir = await scratch();
+    const folder = join(stateDir, THREAD_RAIL_EXTENSION_ID);
+    await mkdir(folder);
+    await writeFile(join(folder, "thread-meta.json"), JSON.stringify({ version: 1, threads: { "rex~t1": { snoozedUntil: NOW - 1, activityAt: NOW - 10 * DAY_MS }, local: { snoozedUntil: NOW - 1 } }, settings: { inactiveDays: 1, onMerged: true, onClosed: true } }));
+    const machines = machineServices([rex]);
+    const review = vi.fn(() => ({ request: { url: "https://example.test/merged", state: "merged" } }));
+    const { invoke, observers, events, lifecycles } = await harness({ stateDir, machines: machines.services, sessions: [proxy("rex~t1")], modified: { "tau-thread:machine:rex~t1": NOW - 10 * DAY_MS }, review });
+    observers[0]!.accepted?.("rex~t1", "turn", { deferBefore: false });
+    await observers[0]!.ended?.("rex~t1", "turn", "completed");
+    await lifecycles[0]!.threadDeleted?.("rex~t1", "/rex/project");
+    await invoke("sweep");
+    expect(review).not.toHaveBeenCalled();
+    expect((await invoke("state", { homeOnly: true })).threads).toEqual({});
+    expect(events.filter((event) => event.topic && event.name === MACHINE_META_EVENT).every((event) => Object.keys((event.payload as RailState).threads).length === 0)).toBe(true);
+    await vi.waitFor(async () => expect(JSON.parse(await readFile(join(folder, "thread-meta.json"), "utf8")).threads).toEqual({ "rex~t1": { snoozedUntil: NOW - 1, activityAt: NOW - 10 * DAY_MS } }));
+  });
+
+  it("forwards archive and trash actions, including a deleted remote id absent from the index", async () => {
+    const machines = machineServices([rex]);
+    const { invoke, removed, restored } = await harness({ machines: machines.services, sessions: [proxy("rex~saved~thread")] });
+    for (const command of ["archive", "remove", "restore", "purge"]) {
+      await invoke(command, { threadId: "rex~saved~thread" });
+      expect(machines.call).toHaveBeenCalledWith("rex", THREAD_RAIL_EXTENSION_ID, command, { threadId: "saved~thread" });
+    }
+    await invoke("restore", { threadId: "rex~deleted~thread" });
+    expect(machines.call).toHaveBeenCalledWith("rex", THREAD_RAIL_EXTENSION_ID, "restore", { threadId: "deleted~thread" });
+    await invoke("remove", { threadId: "unknown~local" });
+    expect(removed).toHaveBeenCalledWith("unknown~local");
+    expect(restored).not.toHaveBeenCalled();
+  });
+
+  it("keeps remote trash accessible for restore and purge, with live trash changes", async () => {
+    const machines = machineServices([rex]);
+    let trash = [remoteTrash("saved~thread")];
+    machines.call.mockImplementation(async (_machine, _extension, command) => {
+      if (command === "restore" || command === "purge") trash = [];
+      return command === "trash" ? trash : { threads: {} };
+    });
+    const { invoke, events } = await harness({ machines: machines.services });
+    await vi.waitFor(async () => expect(await invoke("trash")).toEqual([{ ...remoteTrash("saved~thread"), sessionId: "rex~saved~thread" }]));
+    expect(machines.call).toHaveBeenCalledWith("rex", THREAD_RAIL_EXTENSION_ID, "trash", { homeOnly: true });
+    await invoke("restore", { threadId: "rex~saved~thread" });
+    expect(await invoke("trash")).toEqual([]);
+    machines.emit("rex", MACHINE_TRASH_EVENT, [remoteTrash("other"), { ...remoteTrash("here~indirect"), backendKind: "machine" }]);
+    await vi.waitFor(() => expect(events.filter((event) => event.name === TRASH_EVENT).at(-1)?.payload).toEqual([{ ...remoteTrash("other"), sessionId: "rex~other" }]));
+    expect(events.filter((event) => event.topic)).toEqual([]);
+    await invoke("purge", { threadId: "rex~other" });
+    expect(await invoke("trash")).toEqual([]);
+  });
+
+  it("retains watches through reconnect, drops removed machines and disposes every subscription", async () => {
+    const machines = machineServices([rex]);
+    machines.call.mockImplementation(async (_machine, _extension, command) => command === "trash" ? [] : { threads: { t1: { pinned: true } } });
+    const { invoke, registry } = await harness({ machines: machines.services });
+    await vi.waitFor(async () => expect((await invoke("state")).threads["rex~t1"]).toEqual({ pinned: true }));
+    machines.update([{ ...rex, status: "offline" }]);
+    expect((await invoke("state")).threads).toEqual({});
+    expect(machines.watched.size).toBe(1);
+    machines.update([rex]);
+    await vi.waitFor(async () => expect((await invoke("state")).threads["rex~t1"]).toEqual({ pinned: true }));
+    machines.update([]);
+    expect(machines.stopped).toHaveBeenCalledWith("rex");
+    expect((await invoke("state")).threads).toEqual({});
+    machines.update([rex]);
+    await registry.dispose();
+    expect(machines.watched.size).toBe(0);
+    expect(machines.listeners.size).toBe(0);
+    expect(machines.indexListeners.size).toBe(0);
+  });
+
+  it("does not deadlock activation or mirror proxy metadata across reciprocal connections", async () => {
+    const left = machineServices([{ ...rex, status: "offline" }], "here");
+    const right = machineServices([{ id: "here", name: "Here", status: "offline" }], "rex");
+    const leftHost = await harness({ machines: left.services, sessions: [session("a", "/here"), proxy("rex~b")] });
+    const rightHost = await harness({ machines: right.services, sessions: [session("b", "/rex"), proxy("here~a")] });
+    left.call.mockImplementation(async (_machine, _extension, command, input) => rightHost.invoke(command, input));
+    right.call.mockImplementation(async (_machine, _extension, command, input) => leftHost.invoke(command, input));
+    await leftHost.invoke("patch", { patches: { a: { pinned: true } } });
+    await rightHost.invoke("patch", { patches: { b: { settledAt: NOW } } });
+    left.update([rex]);
+    right.update([{ id: "here", name: "Here", status: "connected" }]);
+    await vi.waitFor(async () => {
+      expect((await leftHost.invoke("state")).threads).toEqual({ a: { pinned: true }, "rex~b": { settledAt: NOW } });
+      expect((await rightHost.invoke("state")).threads).toEqual({ b: { settledAt: NOW }, "here~a": { pinned: true } });
+    });
+    left.index("rex");
+    right.index("here");
+    await vi.waitFor(async () => {
+      expect((await leftHost.invoke("state", { homeOnly: true })).threads).toEqual({ a: { pinned: true } });
+      expect((await rightHost.invoke("state", { homeOnly: true })).threads).toEqual({ b: { settledAt: NOW } });
+    });
+  });
+});
+
+
+describe("Thread Rail machine cache races", () => {
+  it("keeps a live meta push newer than a pending read while still accepting the trash read", async () => {
+    const machines = machineServices([rex]);
+    let answerState!: (state: unknown) => void;
+    let answerTrash!: (trash: unknown) => void;
+    machines.call.mockImplementation(async (_machine, _extension, command) => new Promise((resolve) => {
+      if (command === "state") answerState = resolve;
+      else answerTrash = resolve;
+    }));
+    const { invoke } = await harness({ machines: machines.services });
+    machines.emit("rex", MACHINE_META_EVENT, { threads: { t1: { pinned: true } } });
+    answerState({ threads: { t1: { pinned: false } } });
+    answerTrash([remoteTrash("gone")]);
+    await vi.waitFor(async () => {
+      expect((await invoke("state")).threads).toEqual({ "rex~t1": { pinned: true } });
+      expect(await invoke("trash")).toEqual([{ ...remoteTrash("gone"), sessionId: "rex~gone" }]);
+    });
+  });
+
+  it("preserves actual local ownership after a local separator id enters trash", async () => {
+    const machines = machineServices([rex]);
+    const sessions = [session("rex~local", "/local")];
+    const { invoke, removed, restored, lifecycles } = await harness({ machines: machines.services, sessions });
+    await invoke("patch", { patches: { "rex~local": { pinned: true } } });
+    await invoke("remove", { threadId: "rex~local" });
+    sessions.length = 0;
+    await lifecycles[0]!.sweep?.({ sessions: [], liveThreads: [], projectPaths: [], deleted: [] });
+    expect((await invoke("state", { homeOnly: true })).threads).toEqual({ "rex~local": { pinned: true } });
+    await invoke("restore", { threadId: "rex~local" });
+    expect(removed).toHaveBeenCalledWith("rex~local");
+    expect(restored).toHaveBeenCalledWith("rex~local");
+    expect(machines.call.mock.calls.filter((call) => call[2] === "restore")).toEqual([]);
+  });
+
+  it("propagates offline writes and the home's archive refusal without writing local proxy meta", async () => {
+    const machines = machineServices([{ ...rex, status: "offline" }]);
+    machines.call.mockRejectedValue(new Error("Rex is offline."));
+    const { invoke } = await harness({ machines: machines.services });
+    await expect(invoke("patch", { patches: { "rex~t1": { pinned: true } } })).rejects.toThrow("Rex is offline.");
+    await expect(invoke("remove", { threadId: "rex~t1" })).rejects.toThrow("Rex is offline.");
+    expect((await invoke("state", { homeOnly: true })).threads).toEqual({});
+    machines.update([rex]);
+    machines.call.mockImplementation(async (_machine, _extension, command) => {
+      if (command === "archive") throw new Error("Cannot archive a running thread.");
+      return command === "trash" ? [] : { threads: {} };
+    });
+    await expect(invoke("archive", { threadId: "rex~t1" })).rejects.toThrow("Cannot archive a running thread.");
+    expect((await invoke("state", { homeOnly: true })).threads).toEqual({});
+  });
+});
+
+
+describe("Thread Rail old preference import ownership", () => {
+  it("imports remote pins and settled ids on their home instead of persisting proxy metadata here", async () => {
+    const machines = machineServices([rex]);
+    const { invoke, stateDir } = await harness({ machines: machines.services, sessions: [proxy("rex~t1"), session("rex~local", "/local")] });
+    await invoke("import", { pinned: ["rex~t1", "rex~local"], settled: ["rex~t1"] });
+    expect(machines.call).toHaveBeenCalledWith("rex", THREAD_RAIL_EXTENSION_ID, "patch", { patches: { t1: expect.objectContaining({ pinned: null, settledAt: NOW, settledBy: "user" }) } });
+    await vi.waitFor(async () => expect(JSON.parse(await readFile(join(stateDir, THREAD_RAIL_EXTENSION_ID, "thread-meta.json"), "utf8"))).toMatchObject({ imported: true, threads: { "rex~local": { pinned: true } } }));
+    expect((await invoke("state", { homeOnly: true })).threads).toEqual({ "rex~local": { pinned: true, pinOrder: -1 } });
   });
 });
