@@ -92,7 +92,6 @@ export const reviewExtension: DesktopExtension = {
       group: "projects",
       Icon: GitCompare,
       order: 36,
-      scope: "both",
       keywords: ["commit message", "pull request", "merge request", "template", "instructions", "diff", "colours", "colors", "blue", "orange", "wrap", "split", "whitespace",
         "delete branch", "merge", "proactive panels", "composer", "strip",
         "git hosts", "github", "gitlab", "forgejo", "gitea", "codeberg", "bitbucket", "azure devops", "self-hosted", "tea", "az"],

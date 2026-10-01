@@ -173,7 +173,6 @@ const evidence: DesktopExtension = {
       description: "Pictures of the Preview and of the window an agent drives, to show what a turn did. Tau never pictures the whole screen, and pictures stay on this machine until you save or send them.",
       group: "projects",
       Icon: Images,
-      scope: "both",
       profiles: ["desktop"],
       keywords: ["screenshots", "pictures", "video", "recording", "privacy", "review"],
       rows: EVIDENCE_SETTINGS_ROWS,

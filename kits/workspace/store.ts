@@ -318,7 +318,9 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   }
 
   branchNaming(): BranchNaming {
-    return this.state.branchNaming ?? (this.preferences.value(WORKSPACE_KIT_ID, BRANCH_NAMING_KEY) === "random" ? "random" : "prompt");
+    // What applies here (a project may override it) wins over the popover's own last choice.
+    const stored = this.preferences.value(WORKSPACE_KIT_ID, BRANCH_NAMING_KEY);
+    return stored === "random" || stored === "prompt" ? stored : this.state.branchNaming ?? "prompt";
   }
 
   /** "If empty": a global choice, as Settings would keep it. */

@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { SegmentedControl, Select, SettingRow, SettingsSection, Switch, TextField, useSetting, type SettingHandle } from "tau";
-import { WORKSPACE_HOST_EXTENSION_ID as ID, type WorktreeSubmodules } from "./protocol.js";
-import { AUTO_PULL_OPTION, NEW_THREAD_WORKSPACE_KEY, PROJECT_BASE_DIRECTORY_KEY, START_FROM_ORIGIN_OPTION, TRACE_TABS_OPTION, WORKTREE_DIRECTORY_KEY, WORKTREE_SUBMODULES_KEY } from "./store.js";
+import { WORKSPACE_HOST_EXTENSION_ID as ID, type BranchNaming, type WorktreeSubmodules } from "./protocol.js";
+import { AUTO_PULL_OPTION, BRANCH_NAMING_KEY, NEW_THREAD_WORKSPACE_KEY, PROJECT_BASE_DIRECTORY_KEY, START_FROM_ORIGIN_OPTION, TRACE_TABS_OPTION, WORKTREE_DIRECTORY_KEY, WORKTREE_SUBMODULES_KEY } from "./store.js";
 import { useWorkspaceState } from "./branch-menu.js";
 
 const value = (key: string) => `values.${ID}.${key}`;
@@ -76,12 +76,15 @@ function PathField({ label, placeholder, setting }: { label: string; placeholder
  */
 export function NewThreadRows() {
   const { store, state } = useWorkspaceState();
+  const naming = useSetting<BranchNaming>(value(BRANCH_NAMING_KEY), {
+    defaultValue: "prompt", scope: "both", read: (raw) => (raw === "prompt" || raw === "random" ? raw : undefined), offline: (next) => store.setBranchNaming(next),
+  });
   const origin = useSetting<boolean>(option(START_FROM_ORIGIN_OPTION), { defaultValue: true, scope: "both", read: readBoolean });
-  const mode = useSetting<string>(value(NEW_THREAD_WORKSPACE_KEY), { defaultValue: "current", read: readString });
+  const mode = useSetting<string>(value(NEW_THREAD_WORKSPACE_KEY), { defaultValue: "current", scope: "both", read: readString });
   const main = state.defaultBranches[state.workspaceId ?? state.cwd ?? ""] ?? "main";
   return <>
-    <SettingRow title="Branch name" description="when you leave it empty"
-      control={<SegmentedControl label="Branch name" value={store.branchNaming()} options={[{ value: "prompt", label: "From prompt" }, { value: "random", label: "Random" }]} onChange={(next) => store.setBranchNaming(next)} />} />
+    <SettingRow title="Branch name" description="when you leave it empty" setting={naming}
+      control={<SegmentedControl label="Branch name" value={naming.value} options={[{ value: "prompt", label: "From prompt" }, { value: "random", label: "Random" }]} onChange={naming.set} />} />
     <SettingRow title="Base" setting={origin}
       control={<SegmentedControl label="Base" value={String(origin.value)} options={[{ value: "true", label: `origin/${main}` }, { value: "false", label: main }]} onChange={(next) => origin.set(next === "true")} />} />
     <SettingRow id="setting-new-thread-workspace" title="New threads" setting={mode}
@@ -91,7 +94,7 @@ export function NewThreadRows() {
 
 /** General's Threads card: a tab for each file the agent reads or edits (design 1a). */
 export function TraceTabsRow() {
-  const trace = useSetting<boolean>(option(TRACE_TABS_OPTION), { defaultValue: true, read: readBoolean });
+  const trace = useSetting<boolean>(option(TRACE_TABS_OPTION), { defaultValue: true, scope: "both", read: readBoolean });
   return <SettingRow title="Trace tabs" description="open files the agent touches" setting={trace}
     control={<Switch label="Trace tabs" checked={trace.value} onChange={trace.set} />} />;
 }
