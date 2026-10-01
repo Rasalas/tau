@@ -1540,7 +1540,10 @@ question under it, and an approval's `message` is its subject in mono (a path,
 a command). `hint` opens the foot ("Or type an answer below"), `footer` sits
 before the primary action, and `submit` (`{ label, disabled?, enter?,
 onSubmit }`) is that action, "✓ Send 2 ⏎" with `enter` when an empty
-composer's Enter does the same (register it with `usePromptSubmit` too).
+composer's Enter does the same (register it with `usePromptSubmit` too);
+`enter: "mod"` draws ⌘⏎ for an action only ⌘Enter may run, registered with
+`usePromptSubmit(label, disabled, submit, true)`: plain Enter and the
+composer's send button then leave it alone.
 `PromptRendererProps.asker` is who asks as the composer knows it — the
 thread's model — for `from`; `PromptRendererProps.agent` (API
 1.38.0) names a sub-agent ("GET /orders agent") when a child thread's question
@@ -1550,7 +1553,7 @@ shows on its parent's composer, and wins over `asker` and a topic. An approval
 `"checkbox"`, a round one for `"radio"`, and `detail` as the second line; it
 no longer draws `index`. Core's own dialogs use the same frame: a `confirm`,
 and a runtime's `select` of Allow / Allow for this session / Deny, is an
-approval with Deny, "Always for this thread" where offered, and "Allow" (Enter never allows, K83); a
+approval with Deny, "Always for this thread" where offered, and "Allow ⌘⏎" (⌘Enter in the empty composer allows, plain Enter never does, K83); a
 `select` is a question whose pick fills its radio and "Answer ⏎" sends.
 
 `actions.shareFile(path)` (new in API 1.10.0) answers with a URL the page

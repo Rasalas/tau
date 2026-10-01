@@ -242,6 +242,38 @@ describe("prompt controls in the composer", () => {
     await waitFor(() => expect(field.value).toBe("left here earlier\nbecause"));
   });
 
+  it("allows a permission on ⌘↵ in the empty composer, never on Enter or from the send button", () => {
+    const onAnswerPrompt = vi.fn();
+    render(
+      <TestProviders>
+        <Composer
+          scopeStore={new ComposerScopeStore()}
+          snapshot={snapshot}
+          prompt={{ id: "permission", sessionId: "session", kind: "confirm", title: "Wants to edit", message: "src/a.ts" }}
+          queue={[]}
+          contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
+          textareaRef={createRef<HTMLTextAreaElement>()}
+          onSubmit={vi.fn(async () => ({ accepted: true as const }))}
+          onAbort={() => {}}
+          onCancelQueued={() => {}}
+          onSteerQueued={() => {}}
+          onSetModel={() => {}}
+          onSetThinking={() => {}}
+          onAnswerPrompt={onAnswerPrompt}
+          onCompactContext={() => {}}
+        />
+      </TestProviders>,
+    );
+
+    const send = screen.getByRole("button", { name: "Send answer" }) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    const textarea = screen.getByPlaceholderText(/Answer in text/u);
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onAnswerPrompt).not.toHaveBeenCalled();
+    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
+    expect(onAnswerPrompt).toHaveBeenCalledWith(true, undefined);
+  });
+
   it("submits registered prompt actions from the composer button and on Enter", () => {
     const onSubmit = vi.fn();
     function CustomPrompt() {

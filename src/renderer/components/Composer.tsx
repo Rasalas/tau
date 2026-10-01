@@ -487,8 +487,10 @@ export function Composer({
       );
     },
   }, [modelSet, passGates, snapshot]);
-  const [promptSubmit, setPromptSubmit] = useState<PromptSubmitAction>();
-  const registerPromptSubmit = useCallback((action: PromptSubmitAction | undefined) => setPromptSubmit(action), []);
+  const [promptAction, setPromptAction] = useState<PromptSubmitAction>();
+  const registerPromptSubmit = useCallback((action: PromptSubmitAction | undefined) => setPromptAction(action), []);
+  // A ⌘↵-only action (a permission's Allow) stays out of Enter and the send button.
+  const promptSubmit = promptAction?.mod ? undefined : promptAction;
   // A model binds a draft to the runtime that offers it: the visible catalog's, or the one it came from.
   const applyModel = (model: UiModel, runtime = snapshot?.backendKind) => {
     if (runtimeChoice && runtime && runtimeChoice.kind !== runtime) runtimeChoice.onSelect(runtime);
@@ -1029,6 +1031,11 @@ export function Composer({
             }
             if (event.key === "Enter") {
               const now = event.metaKey || event.ctrlKey;
+              if (now && answerable && promptAction?.mod && !hasDraft) {
+                event.preventDefault();
+                if (!promptAction.disabled && !held) promptAction.submit();
+                return;
+              }
               // ⌘⇧↵ (`thread.steerQueuedMessage`) sends the oldest queued message and leaves the draft;
               // ⌘↵ on an empty field does the same.
               if (now && queue[0] && !answerable && (event.shiftKey || (!text.trim() && attachments.length === 0 && !inlineHasContent))) {
