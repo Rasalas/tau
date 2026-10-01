@@ -139,3 +139,7 @@
   .devices-pose-adjustments { grid-template-columns: 1fr; gap: 4px; }
   .devices-pose-adjustment { grid-template-columns: 40px minmax(0, 1fr); align-items: center; }
 }
+@container devices (max-width: 380px) {
+  .devices-header .tau-select { max-width: 120px; }
+  .devices-header, .devices-view-toolbar, .devices-live { gap: 4px; }
+}
