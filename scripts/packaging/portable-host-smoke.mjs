@@ -15,7 +15,11 @@ export async function smokePortableHost(archive, version) {
   let child, socket;
   let output = "";
   try {
-    execFileSync("tar", ["-xf", resolvePath(archive), "-C", app], { timeout: 60_000 });
+    // Windows' own tar reads zip; Git Bash puts GNU tar first, which cannot and reads "D:" as a host.
+    const tar = process.platform === "win32" ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
+    execFileSync(tar, ["-xf", resolvePath(archive), "-C", app], { timeout: 60_000 });
+    // An x64 Mac archive smoked on an arm64 runner goes through Rosetta, whose first translation is slow.
+    const slow = process.platform === "darwin" && /-x64\.[^/\\]+$/u.test(archive) && process.arch === "arm64" ? 8 : 1;
     const resources = process.platform === "darwin" ? join(app, "Tau.app", "Contents", "Resources") : join(app, "resources");
     const executable = process.platform === "darwin" ? join(app, "Tau.app", "Contents", "MacOS", "Tau") : join(app, process.platform === "win32" ? "Tau.exe" : "tau");
     const unpacked = join(resources, "app.asar.unpacked");
@@ -32,15 +36,15 @@ export async function smokePortableHost(archive, version) {
     };
     for (const name of ["TAU_HOST_PROXY_LISTEN", "TAU_HOST_TLS", "TAU_HOST_TLS_CERT", "TAU_HOST_TLS_KEY", "TAU_HOST_URL", "TAU_CONNECT_ENROLLMENT_TOKEN"]) delete environment[name];
     // The CLI and native PTY must run against the archive's dependency tree.
-    execFileSync(executable, [cli, "--help"], { env: environment, timeout: 15_000, stdio: "pipe" });
+    execFileSync(executable, [cli, "--help"], { env: environment, timeout: 15_000 * slow, stdio: "pipe" });
     const nativeProbe = `const pty=require(${JSON.stringify(join(unpacked, "node_modules", "node-pty"))});const p=pty.spawn(process.platform==='win32'?'cmd.exe':'sh',process.platform==='win32'?['/c','echo portable-native']:['-c','printf portable-native']);let seen='';const timer=setTimeout(()=>{p.kill();process.exit(1)},5000);p.onData(s=>seen+=s);p.onExit(e=>{clearTimeout(timer);process.exit(e.exitCode===0&&seen.includes('portable-native')?0:1)});`;
-    execFileSync(executable, ["-e", nativeProbe], { env: environment, timeout: 10_000, stdio: "pipe" });
+    execFileSync(executable, ["-e", nativeProbe], { env: environment, timeout: 10_000 * slow, stdio: "pipe" });
     child = spawn(executable, [entry], { cwd: workspace, env: environment, stdio: ["ignore", "pipe", "pipe"] });
     child.stdout.on("data", (chunk) => { output = (output + chunk.toString()).slice(-32_000); });
     child.stderr.on("data", (chunk) => { output = (output + chunk.toString()).slice(-32_000); });
     let spawnError;
     child.on("error", (error) => { spawnError = error; });
-    const deadline = Date.now() + 30_000;
+    const deadline = Date.now() + 30_000 * slow;
     while (!/tau-host listening on (ws:\/\/127\.0\.0\.1:\d+)/u.test(output)) {
       if (spawnError || child.exitCode !== null) throw new Error(spawnError?.message ?? `Portable host exited ${child.exitCode}.\n${output}`);
       if (Date.now() >= deadline) throw new Error(`Portable host did not start.\n${output}`);
