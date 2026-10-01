@@ -3,7 +3,7 @@ import type { DesktopExtension } from "tau";
 import { UsageSidebar } from "./controls.js";
 import { createUsageView } from "./filters.js";
 import { JuicebarStrip } from "./juicebar-strip.js";
-import { createJuicebarChoices } from "./juicebars.js";
+import { createJuicebarChoices } from "./juicebar-choices.js";
 import { Juicebars } from "./juicebars-view.js";
 import { MonthCost } from "./month-cost.js";
 import { createLimitsFeed } from "./limits-feed.js";

@@ -5,7 +5,7 @@ import { ActivityCalendar, ReadingHistory } from "./activity.js";
 import { jumpTo, PeriodSwitch, RUNTIME_LABELS, UsageFilterButton } from "./controls.js";
 import { dailyFigures, dayStarts, HISTORY_DAYS, ofRuntime, periodFrom, rankUsage, runtimesOf, type RankedUsage } from "./dashboard.js";
 import { createUsageView, type UsageView } from "./filters.js";
-import { createJuicebarChoices, type JuicebarChoices } from "./juicebars.js";
+import { createJuicebarChoices, type JuicebarChoices } from "./juicebar-choices.js";
 import type { LimitsFeed } from "./limits-feed.js";
 import { monthFigures } from "./month.js";
 import { UsageHistory } from "./history.js";

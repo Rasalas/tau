@@ -132,8 +132,8 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
     context.navigate(search);
   }, [context, storage]);
 
-  const openWorkbench = useCallback((host: SavedHost, token: string, threadId?: string, connect?: MobileConnect) => {
-    window.history.replaceState(null, "", `${window.location.pathname}${routeSearch({ view: "workbench", hostId: host.id, ...(threadId ? { threadId } : {}) })}`);
+  const openWorkbench = useCallback((host: SavedHost, token: string, threadId?: string, connect?: MobileConnect, page?: string) => {
+    window.history.replaceState(null, "", `${window.location.pathname}${routeSearch({ view: "workbench", hostId: host.id, ...(threadId ? { threadId } : {}), ...(page ? { page } : {}) })}`);
     const scoped = hostStorage(storage, host.id);
     setClientStorage(scoped);
     // Read at every reconnect: a migrated pin or a refreshed address list applies to the next socket.
@@ -173,7 +173,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       if (reply) {
         void Promise.resolve(pushRegistrar()?.register({ host, client })).catch(() => undefined).then(() => {
           void context.remoteActivities?.connect(current).catch(() => undefined);
-          if (context.activities) activityFollow.current = followActivities(host.id, client, context.activities);
+          if (context.activities) activityFollow.current = followActivities(host.id, client, context.activities, Date.now, host.name);
         });
       }
     }).catch(() => undefined);
@@ -241,10 +241,10 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
   }, [book, context.bridge, device, openWorkbench, refresh]);
 
   /** A saved host: straight in with its token, or ask its owner again when it has none. */
-  const openHost = useCallback(async (host: SavedHost, threadId?: string) => {
+  const openHost = useCallback(async (host: SavedHost, threadId?: string, page?: string) => {
     const token = await book.token(host.id);
     const connect = await book.connect(host.id);
-    if (token) openWorkbench(host, token, threadId, connect);
+    if (token) openWorkbench(host, token, threadId, connect, page);
     else startPairing({ hostId: host.id, name: host.name, ...targetPins(host), endpoints: host.endpoints, ...(connect ? { connect } : {}) }, "hosts");
   }, [book, openWorkbench, startPairing]);
 
@@ -269,7 +269,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       for (const entry of list) if (entry.signedOut) void context.activities?.clear(entry.host.id);
       if (initial.view === "workbench") {
         const saved = list.find((entry) => entry.host.id === initial.hostId);
-        if (saved) { await openHost(saved.host, initial.threadId); return; }
+        if (saved) { await openHost(saved.host, initial.threadId, initial.page); return; }
         setView({ name: "hosts", notice: "That link names a host this phone has not paired with." });
         return;
       }
@@ -295,7 +295,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       return;
     }
     if (route.view === "workbench" && current.name === "workbench" && current.host.id === route.hostId) {
-      if (!route.threadId) return;
+      if (!route.threadId && !route.page) return;
       window.history.pushState(null, "", `${window.location.pathname}${routeSearch(route)}`);
       window.dispatchEvent(new PopStateEvent("popstate"));
       return;

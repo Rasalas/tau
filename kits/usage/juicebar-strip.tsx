@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { type RegionProps } from "tau";
-import { juicebarGroups, type JuicebarChoices } from "./juicebars.js";
+import type { JuicebarChoices } from "./juicebar-choices.js";
+import { juicebarGroups } from "./juicebars.js";
 import { tone, titleOf, useRunEnded } from "./juicebars-view.js";
 import type { LimitsFeed } from "./limits-feed.js";
 import { USAGE_PAGE } from "./protocol.js";

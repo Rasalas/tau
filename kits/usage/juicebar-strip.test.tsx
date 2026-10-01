@@ -7,7 +7,7 @@ import { createKitHarness, createMemoryStorage, HostClientProvider, setClientSto
 import { TestProviders, TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
 import { usageExtension } from "./desktop.js";
 import { JuicebarStrip } from "./juicebar-strip.js";
-import { createJuicebarChoices } from "./juicebars.js";
+import { createJuicebarChoices } from "./juicebar-choices.js";
 import { createLimitsFeed } from "./limits-feed.js";
 import { forgetLastState } from "./last-state.js";
 import { UsagePage } from "./page.js";
