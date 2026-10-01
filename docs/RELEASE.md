@@ -262,13 +262,29 @@ through each). From there:
 
 1. An installed Tau asks that repository for a newer release a few seconds
    after it starts and then every hour, on the update track the config holds at
-   that moment, and downloads one in the background. It stops asking while a
-   downloaded version waits for a restart. A Tau running from a checkout never
+   that moment, and downloads one in the background. It keeps asking while a
+   downloaded version waits for a restart, and a newer release replaces the
+   one on disk. Tau starts each download itself (`autoDownload` is off):
+   electron-updater would otherwise fetch and hand the version already on disk
+   to Squirrel.Mac again at every check. A Tau running from a checkout never
    checks (`src/main/app-updates.ts`).
 2. When the download finishes the window's process publishes an `app-update`
    event and the workbench offers a toast: *Tau 0.2.0 downloaded, restart to
-   install*, with a Restart button that quits into the new version. A page that
-   loads later asks for it (`window-action` `status`).
+   install*, with a Restart button. It stays until the user acts; closed, the
+   sidebar's foot keeps the restart. A page that loads later asks for it
+   (`window-action` `status`). Restart (the toast, the sidebar's foot, Update
+   now on Settings → About) never installs a stale version (K161):
+   - it asks the feed first (15 s at most; a feed that does not answer leaves
+     the version on disk) and, when a newer release is out, downloads it while
+     the toast shows *Downloading Tau 0.2.1… 41 %*;
+   - it then shows *Installing Tau 0.2.1* in the window for about a second,
+     and a system notification that outlives the quit says Tau reopens by
+     itself and that this can take a few minutes;
+   - the quit stops the host as well, with less time than a normal quit, even
+     when the host would stay (Settings → Defaults) or a service runs it. A
+     service host is asked to stop and never signalled, so launchd or systemd
+     leave the unit stopped; the updated window starts it again from the new
+     app. A host left running would run on from a bundle ShipIt moves away.
 3. A user who ignores the toast gets the update the next time they quit Tau,
    except with the `.deb`, whose update waits for the Restart (below).
 4. "Check for Updates…" in the application menu (and Check now on Settings →
@@ -324,6 +340,22 @@ so an image prepared in a container gets it too. An upgrade keeps both in place
 instead of removing and re-adding them. A release published without them
 installs fine and then never updates, which is why the workflow uploads
 `release/latest*.yml` and fails when a matrix job produced no files.
+
+On macOS electron-updater downloads the zip, then serves it to Squirrel.Mac
+over a local proxy. Squirrel unzips it, verifies the signature and writes
+`~/Library/Caches/de.tbuck.tau.ShipIt/ShipItState.plist`, whose
+`updateBundleURL` names the bundle ShipIt installs. Each staged download
+rewrites that file, and ShipIt reads it again once the app has quit, so the
+newest one wins. Squirrel's staging takes a while for a large bundle, and
+electron-updater's own `quitAndInstall` does not wait for it after a second
+download. Tau counts a version as ready only after Electron's own `autoUpdater`
+reported it staged (`nextStaging`), and Restart waits for that.
+
+After the app quits, ShipIt verifies the new bundle's signature, moves the old
+bundle away and the new one into place, and relaunches it. Verification reads
+every file of the bundle, so its time grows with the bundle's size and file
+count; on a busy Mac 0.7.25 (791 MB, 33,000 files) took more than five
+minutes. Keep what ships small (below).
 
 Both macOS architectures build on one runner on purpose: each would otherwise
 write its own `latest-mac.yml` and the second job to finish would leave the
@@ -912,7 +944,14 @@ workflow file and pick any runner label. How the move went is in
 
 `files:` in `tooling/electron-builder.yml` starts from everything and names what to
 leave out: sources, scripts, docs, reports, tests, and the parts of Pi and of
-computer use that only another platform would use.
+computer use that only another platform would use. Source maps stay out too
+(about 6,900 files and 80 MB in 0.7.25), as do `dist-source` (the editable
+source ships once, as the `tau-source` resource) and the pruned
+`node_modules/typescript` (the editable source links
+`tau-source-vendor/typescript`). Each of these files would be one more for
+ShipIt to verify at every update. Measure a change with
+`CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder -c tooling/electron-builder.yml --mac --dir --publish never`
+and `du -sh release/mac-arm64/Tau.app`.
 
 **The kits ship as their own artifact.** `dist-kits/` is `@tau/kits`, every kit
 under `kits/` compiled by `scripts/build-kits.mjs`, with `dist-kits/manifest.json`
