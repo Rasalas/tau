@@ -1,5 +1,5 @@
 import { useSyncExternalStore, type ReactNode } from "react";
-import { GitBranch, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { GitBranch, PanelLeftClose, PanelRightClose, PanelRightOpen } from "lucide-react";
 import type { HostSnapshot } from "../../shared/contracts";
 import type { ThreadViewStore } from "../../workbench/thread-view-store";
 import type { TranscriptState } from "../../workbench/transcript-state";
@@ -80,7 +80,7 @@ export function ThreadDetails({ snapshot, view, slots, machine }: {
  * thread's title and details, what kits place at its end, and the stage's
  * toggle. It is the window's drag region over the conversation.
  */
-export function ThreadHeader({ lead, title, details, actions, tools, stage }: {
+export function ThreadHeader({ lead, title, details, actions, tools, stage, onSpine }: {
   /** Before the title: room for the traffic lights, a tablet's threads toggle. */
   lead?: ReactNode;
   title: ReactNode;
@@ -90,8 +90,11 @@ export function ThreadHeader({ lead, title, details, actions, tools, stage }: {
   /** The stage strip's tools, here while the stage is hidden (design 1k). */
   tools?: ReactNode;
   stage?: { shown: boolean; shortcut?: string; onToggle(): void };
+  /** Beside a shown stage the button collapses the conversation to its spine instead (design 1a). */
+  onSpine?(): void;
 }) {
-  const stageLabel = stage?.shown ? "Hide stage" : "Show stage";
+  const spine = stage?.shown ? onSpine : undefined;
+  const stageLabel = spine ? "Collapse conversation" : stage?.shown ? "Hide stage" : "Show stage";
   return <header className="thread-header">
     {lead}
     <div className="thread-heading">
@@ -105,9 +108,9 @@ export function ThreadHeader({ lead, title, details, actions, tools, stage }: {
       type="button"
       className="stage-tool"
       aria-label={stageLabel}
-      aria-pressed={stage.shown}
-      {...tooltipProps(stageLabel, { side: "bottom", shortcut: stage.shortcut })}
-      onClick={stage.onToggle}
-    >{stage.shown ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}</button> : null}
+      aria-pressed={spine ? undefined : stage.shown}
+      {...tooltipProps(stageLabel, { side: "bottom", shortcut: spine ? undefined : stage.shortcut })}
+      onClick={spine ?? stage.onToggle}
+    >{spine ? <PanelLeftClose size={14} /> : stage.shown ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}</button> : null}
   </header>;
 }

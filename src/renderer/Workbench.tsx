@@ -13,6 +13,8 @@ import type { UiQueuedMessage } from "../shared/contracts";
 import { LazyFeatureBoundary, LazyFeatureFallback, retryableLazy } from "./components/LazyFeature";
 import { ComposerHost, LiveStatus } from "./components/ComposerHost";
 import { ComposerReserve } from "./components/ComposerReserve";
+import { WorkingTimer } from "./components/WorkRows";
+import { threadCostLabel } from "./cost-format";
 import { retryPrompt } from "./components/TurnError";
 import { useThreadShell } from "./use-thread-shell";
 import { declareRuntimeMarks } from "./runtime-marks";
@@ -367,6 +369,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(() => clientStorage.get(STORAGE_KEYS.sidebarOpen) !== "false");
   const [systemPromptOpen, setSystemPromptOpen] = useState(false);
+  // The conversation collapsed to its spine beside the stage (design 1b): a layout state, kept across threads.
+  const [spineWanted, setSpine] = useState(false);
   const [jumpToLatest] = useState(() => new JumpToLatestStore());
   const openPage = useSyncExternalStore(pages.subscribe, pages.getSnapshot);
   // A phone shows a page as a screen of its own; elsewhere it takes the thread's place beside the sidebar.
@@ -436,16 +440,21 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const drawnSidebar = split ? (touchSidebarShown ? compactSidebarWidth(windowWidth, sidebarWidthChosen ? sidebarWidth : undefined) : 0) : shownSidebar;
   const clearStageMaximized = useCallback(() => setStageMaximized(false), [setStageMaximized]);
   // A phone draws no stage (profile-compact.css): its panels are sheets.
+  const folded = maximized || (spineWanted && !compact);
   const { stageShown, tabs, canSplit } = useCenterLayout({
-    windowWidth, sidebarWidth: drawnSidebar, stageOpen: stage.tabs.length > 0 && !phone, folded: stageFolded, maximized,
+    windowWidth, sidebarWidth: drawnSidebar, stageOpen: stage.tabs.length > 0 && !phone, folded: stageFolded, maximized: folded,
     tabCount: stage.tabs.length, clearMaximized: clearStageMaximized,
   });
   // Maximized, the stage takes the centre and the chat is out of sight; where only one fits, the one in front shows.
   const stacked = tabs;
   compactRef.current.stacked = stacked;
   compactRef.current.maximized = maximized;
-  const conversationFolded = stacked && (maximized || !chatFocused);
-  const stageExpanded = stageShown && !(stacked && !maximized && chatFocused);
+  const conversationFolded = stacked && (folded || !chatFocused);
+  const stageExpanded = stageShown && !(stacked && !folded && chatFocused);
+  const spine = spineWanted && stageExpanded && canSplit && !compact && !showStartScreen;
+  useEffect(() => { if (!stageShown) setSpine(false); }, [stageShown]);
+  // Where the conversation is out of sight, its composer floats over the stage (design 1b).
+  const floating = conversationFolded && stageExpanded && !compact && !showStartScreen;
   const sideOpen = stageShown && !stacked;
   const centerWidth = windowWidth - drawnSidebar;
   const chatWidth = shownChatWidth(chatWidthPreference, centerWidth);
@@ -498,6 +507,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     sideOpen ? "stage-open" : "",
     stageExpanded && stacked ? "stage-full" : "",
     conversationFolded ? "conversation-folded" : "",
+    spine ? "spine" : "",
+    floating ? "composer-floating" : "",
   ].filter(Boolean).join(" ");
   const shellClassName = [
     "app-shell",
@@ -538,6 +549,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     onNotify={actions.notify}
     actions={actions}
     threadStore={threadStore}
+    floating={floating}
   />;
 
   // The frame goes around the card too: bare, it would fall into the shell grid's next free cell.
@@ -699,6 +711,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     actions={conversationFolded ? null : <PanelSlot host={titleActionsHost} />}
     tools={stageExpanded ? undefined : stageTools}
     {...(!split && (firstTool || stage.tabs.length > 0) ? { stage: { shown: stageExpanded, shortcut: registry.keybindingLabel?.("workbench.toggle-dock"), onToggle: toggleStage } } : {})}
+    {...(canSplit && !compact ? { onSpine: () => setSpine(true) } : {})}
   />;
   return providers(<>
     {/* Settings covers the shell rather than unmounting it, so threads, terminals and scroll stay as they were. */}
@@ -750,6 +763,15 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       /> : null}
       <div className="workbench-main" inert={Boolean(openPage) && !pageScreen}>
       <div className={centerClassName} style={{ "--chat-width": `${chatWidth}px` } as CSSProperties}>
+        {spine ? <aside className="thread-spine" aria-label="Thread">
+          <h2>{conversationSnapshot?.sessionTitle || "Untitled thread"}</h2>
+          <p className="thread-spine-state">{conversationSnapshot?.isStreaming
+            ? <><span className="spinner small" aria-hidden /><span>Working {thread.runStartedAt ? <WorkingTimer startedAt={thread.runStartedAt} /> : null}</span></>
+            : "Idle"}{threadCostLabel(conversationSnapshot?.usage) ? ` · ${threadCostLabel(conversationSnapshot?.usage)}` : null}</p>
+          <Region registry={registry} placement="spine" snapshot={conversationSnapshot} actions={actions} />
+          {composer.queue.length > 0 ? <p>{composer.queue.length} queued</p> : null}
+          <button type="button" onClick={() => setSpine(false)}><MessageSquare size={13} />Open conversation</button>
+        </aside> : null}
         <main
           className={`conversation-column ${showStartScreen ? "conversation-start" : ""}`}
           data-keybinding-context="chat"
@@ -840,7 +862,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               workspace={stageWorkspace}
               changes={documentState.changes}
               editor={documentState.editor}
-              maximize={panelLayout && (canSplit || maximized) ? { maximized, onToggle: () => {
+              maximize={spine ? { maximized: true, label: "Show conversation", onToggle: () => setSpine(false) } : panelLayout && (canSplit || maximized) ? { maximized, onToggle: () => {
                 setChatFocused(false);
                 if (maximized) panelLayout.restore();
                 else panelLayout.maximizeStage();
@@ -1048,8 +1070,9 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
 }
 
 /** The context meter reads the running token estimate, so the composer subscribes too. */
-function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, draftRuntime, activeDraftKey, onNotify, actions, lead, threadStore }: {
+function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, draftRuntime, activeDraftKey, onNotify, actions, lead, threadStore, floating }: {
   view: ThreadViewStore;
+  floating?: boolean;
   threadStore: ThreadStore;
   lead?: React.ReactNode;
   composer: WorkbenchComposer;
@@ -1100,6 +1123,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
   const asking = threadStore.getSnapshot().threads.find((thread) => thread.id === prompts[0]?.sessionId && thread.parentThreadId);
   return <Composer
     snapshot={conversationSnapshot}
+    floating={floating}
     promptAgent={asking && `${asking.title} agent`}
     scopeStore={scopeStore}
     seed={seed}

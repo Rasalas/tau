@@ -25,6 +25,7 @@
 .stage-tab.active { background: var(--stage); color: var(--ink); font-weight: 600; }
 .stage-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .stage-tab.preview .stage-tab-label { font-style: italic; }
+.stage-tab.trace:not(.active) { color: var(--muted); }
 .stage-tab-icon { flex: none; display: grid; place-items: center; color: var(--muted); }
 .stage-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .stage-tab-changed { flex: none; color: var(--acid-text); font: 600 10px var(--sans); font-style: normal; }

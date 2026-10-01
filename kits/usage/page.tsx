@@ -28,11 +28,11 @@ function folderName(cwd: string): string {
  * What the host is asked for: the page's days after a first "day" at 0, which
  * gathers everything older. Answers come back with that one at day -1.
  */
-function request(starts: readonly number[]): number[] {
+export function request(starts: readonly number[]): number[] {
   return [0, ...starts];
 }
 
-function fromRequest(summary: UsageSummary): UsageSummary {
+export function fromRequest(summary: UsageSummary): UsageSummary {
   return summary.entries ? { ...summary, entries: summary.entries.map((entry) => ({ ...entry, day: entry.day - 1 })) } : summary;
 }
 

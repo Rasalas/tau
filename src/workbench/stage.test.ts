@@ -305,3 +305,23 @@ describe("stageFilePath", () => {
     expect(stageFilePath("/repo/a.ts", undefined)).toBe("/repo/a.ts");
   });
 });
+
+describe("trace tabs", () => {
+  it("adds the agent's file behind the tab in front, one at a time, and never to an empty stage", () => {
+    expect(openFileTab(EMPTY_STAGE, "/repo/a.ts", { trace: true })).toBe(EMPTY_STAGE);
+    const open = openFileTab(EMPTY_STAGE, "/repo/a.ts", { pin: true });
+    const traced = openFileTab(open, "/repo/b.ts", { trace: true });
+    expect(traced.activeId).toBe(open.activeId);
+    expect(traced.tabs.map((tab) => tab.kind === "file" && [tab.path, tab.trace ?? false])).toEqual([["/repo/a.ts", false], ["/repo/b.ts", true]]);
+    // The next one takes its place; a file already open stays as it is.
+    const next = openFileTab(traced, "/repo/c.ts", { trace: true });
+    expect(next.tabs.map((tab) => tab.kind === "file" && tab.path)).toEqual(["/repo/a.ts", "/repo/c.ts"]);
+    expect(openFileTab(next, "/repo/a.ts", { trace: true })).toBe(next);
+  });
+
+  it("stops being a trace once pinned", () => {
+    const traced = openFileTab(openFileTab(EMPTY_STAGE, "/repo/a.ts", { pin: true }), "/repo/b.ts", { trace: true });
+    const pinned = pinTab(traced, traced.tabs[1]!.id);
+    expect(pinned.tabs[1]).toMatchObject({ preview: false, trace: false });
+  });
+});

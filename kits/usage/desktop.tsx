@@ -5,6 +5,7 @@ import { createUsageView } from "./filters.js";
 import { JuicebarStrip } from "./juicebar-strip.js";
 import { createJuicebarChoices } from "./juicebars.js";
 import { Juicebars } from "./juicebars-view.js";
+import { MonthCost } from "./month-cost.js";
 import { createLimitsFeed } from "./limits-feed.js";
 import { UsagePage } from "./page.js";
 import { USAGE_EXTENSION_ID, USAGE_PAGE } from "./protocol.js";
@@ -29,7 +30,8 @@ export const usageExtension: DesktopExtension = {
       layout: "wide",
       keywords: ["cost", "tokens", "limits", "billing"],
       // What is left of each plan, as thin bars at the sidebar's foot; a click opens the limits.
-      Summary: (props) => <Juicebars {...props} feed={feed} choices={choices} />,
+      // Beside them this month's cost (design 1a).
+      Summary: (props) => <><Juicebars {...props} feed={feed} choices={choices} /><MonthCost {...props} host={plugin.host} machine={plugin.environments?.shownElsewhere} /></>,
       Component: (props) => <UsagePage {...props} host={plugin.host} environments={plugin.environments} view={view} feed={feed} choices={choices} />,
       // This month, the filters and the sections, in the thread list's place.
       Sidebar: () => <UsageSidebar view={view} />,

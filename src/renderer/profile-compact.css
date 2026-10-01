@@ -96,7 +96,10 @@ body[data-profile="compact"] .draft-pill { min-height: var(--touch-target); padd
 body[data-profile="compact"] :is(textarea, select, input:not([type="checkbox"], [type="radio"], [type="range"])) { font-size: max(16px, var(--text-input)); }
 /* 44 px to tap, 36 px to see; stop keeps its distance from send. */
 body[data-profile="compact"] .send-button { width: 44px; height: 44px; border: 4px solid transparent; background-clip: padding-box; }
-body[data-profile="compact"] .send-button.stop { margin-right: 8px; }
+/* A finger gets the ring and the square, not the desktop's word. */
+body[data-profile="compact"] .send-button.stop { margin-right: 8px; padding: 0; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line-control); }
+body[data-profile="compact"] .send-button.stop > span { display: none; }
+body[data-profile="compact"] .send-button.stop > i { display: block; width: 9px; height: 9px; background: currentColor; border-radius: 2px; }
 /* A phone keeps model and reasoning in view while it answers (design 1n); the card's Skip or Decline ends the wait, and stop comes back. */
 body[data-profile="compact"] .send-button.stop.answering { display: none; }
 /* The rest of the composer's footer and the thread title: 44 px to tap, drawn as small as before. */

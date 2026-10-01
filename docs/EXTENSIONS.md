@@ -912,6 +912,10 @@ about the list as a whole. Machines Kit says there which paired machine is out
 of reach (Retry) or refused the device (Pair again), and Usage Kit draws the
 plans' juicebars; register it with `profiles: ["compact"]` and render nothing
 when there is nothing to say. An older core never draws the placement.
+`spine` fills the narrow column the conversation collapses to beside the stage
+(design 1b), under the thread's title and above its queue and "Open
+conversation": Agents Kit draws the thread's state and cost, what runs now, the
+turn's steps and its agents there. An older core never draws the placement.
 
 #### Threads of elsewhere in the compact list
 
@@ -1563,7 +1567,9 @@ page's CSP names `tau-ext:` for `img-src`, `media-src` and `frame-src`.
 
 `actions.openFile(path, options?)` puts a document in the stage — `{ line }`
 opens it as source scrolled to that line (1-based) and marks it, and asking for
-the same line again scrolls there again;
+the same line again scrolls there again; `{ trace: true }` is a file the agent
+touched: one italic tab at the strip's end that never comes to the front and
+never opens a stage that holds nothing (Workspace Kit's trace tabs, design 1a);
 `actions.openStageTab(kind, params?, options?)` puts a tab of your own kind
 there (above); `actions.openThread(sessionId, options?)`
 puts a thread there instead — its transcript, read-only, with the title, status
@@ -4240,6 +4246,7 @@ Two grounds carry the window: the document area (`--stage`, `--shell`) and the s
 | `--track` | an empty progress track | `#d8d4cd` | `#2e3136` |
 | `--scrim` | the dim behind a modal | `#1c1b19a3` | `#050608e0` |
 | `--scrim-deep` | the dim behind a full-screen image, dark in either scheme | `#0e0e0df0` | `#0e0e0df0` |
+| `--term` | the terminal's ground, a step under the dark one and so dark in either scheme | `#0a0b0e` | `#0a0b0e` |
 | `--media` | the ground of a full-window picture viewer (the lightbox, Evidence's viewer), dark in either scheme so pictures read true | `#0e0e0d` | `#0e0e0d` |
 | `--media-ink` | text on it | `#f1efeb` | `#f1efeb` |
 | `--media-muted` | secondary text on it | `#f1efeb8c` | `#f1efeb8c` |

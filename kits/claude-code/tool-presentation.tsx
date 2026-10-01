@@ -31,5 +31,7 @@ export function presentAgentSdkTool(tool: UiToolRun): ToolPresentation {
     title: tool.name,
     tone: known?.tone ?? "neutral",
     detail: subjectOf(tool) ?? tool.name,
+    // A file tool names its file, so the row and trace tabs can open it.
+    ...(known?.subject === "file_path" ? { file: subjectOf(tool)! } : {}),
   };
 }

@@ -62,8 +62,8 @@
   --media-shade: #0000008c;                          /* a round control on a picture */
   --media-hover: #ffffff14;                          /* a control on it, hovered */
   --media-well: #2a2926;                             /* where a picture loads */
-  /* What a command printed is dark whatever the theme, as a terminal is. */
-  --term: light-dark(#1c1b19, #0a0c10);              /* a failed command's output */
+  /* The terminal and what a command printed: dark whatever the theme (design 1b, 1f). */
+  --term: light-dark(#1c1b19, #0a0c10);              /* a terminal, a failed command's output */
   --term-ink: #e9e6e0;                               /* its text */
   --drop-card: light-dark(#fbfaf8ee, #191c21ee);     /* the card in a drag-and-drop overlay */
 

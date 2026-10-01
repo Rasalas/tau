@@ -117,7 +117,8 @@ export interface WorkbenchActions {
    */
   threadListOrder?(): readonly string[] | undefined;
   /** Opens a document in the stage, as source or as its working-tree diff; `line` scrolls the source to it and marks it. */
-  openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff"; line?: number }): void;
+  /** `trace`: the agent opened it; it joins the stage's end without coming to the front (design 1a). */
+  openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff"; line?: number; trace?: boolean }): void;
   /**
    * Opens a thread in the stage as a read-only tab, leaving the active thread
    * alone. `machine` (a host id, or a machine's unique name) reads a thread of
@@ -319,8 +320,9 @@ export interface TranscriptRowsHandle {
  * (API 1.30.0). `thread-list-title` adds compact controls beside a phone's header title;
  * a tablet's sidebar has a foot for them (`PageContribution.Summary`). `turn-divider` sits in
  * the line above each turn after the first; its props carry `turn` (API 1.39.0).
+ * `spine` fills the narrow column the conversation collapses to (design 1b), under the title.
  */
-export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in" | "thread-list-head" | "thread-list-title" | "turn-divider";
+export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in" | "thread-list-head" | "thread-list-title" | "turn-divider" | "spine";
 
 /** Where a thread of a list source runs: its mark and name on the row's project line. */
 export interface ThreadListPlace {

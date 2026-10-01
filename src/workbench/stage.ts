@@ -21,6 +21,8 @@ export interface StageFileTab extends StageTabBase {
   /** The line to bring into view, 1-based; `reveal` counts the requests so the same line can be asked for again. */
   line?: number;
   reveal?: number;
+  /** Opened by the agent, not the user (design 1a): it waits behind the tab in front until pinned. */
+  trace?: boolean;
 }
 
 /** A thread read beside the conversation; the composer keeps addressing the active one. */
@@ -140,9 +142,16 @@ function reopen(state: StageState, existing: StageTab, next: StageTab): StageSta
   return { ...activateTab(state, existing.id), tabs: state.tabs.map((tab) => tab.id === existing.id ? next : tab) };
 }
 
-export function openFileTab(state: StageState, path: string, options: { view?: StageView; pin?: boolean; line?: number } = {}): StageState {
+export function openFileTab(state: StageState, path: string, options: { view?: StageView; pin?: boolean; line?: number; trace?: boolean } = {}): StageState {
   const id = fileTabId(path);
   const existing = state.tabs.find((tab) => tab.id === id);
+  if (options.trace) {
+    // One trace tab, after the others; never on an empty stage, never in front.
+    if (existing || state.tabs.length === 0) return state;
+    const tab: StageFileTab = { id, kind: "file", path, view: "source", preview: true, trace: true };
+    const at = state.tabs.findIndex((entry) => entry.kind === "file" && entry.trace && entry.id !== state.activeId && entry.id !== state.splitId);
+    return { ...state, tabs: at >= 0 ? state.tabs.map((entry, index) => index === at ? tab : entry) : [...state.tabs, tab] };
+  }
   const line = options.line !== undefined && Number.isSafeInteger(options.line) && options.line > 0 ? options.line : undefined;
   // A line is always shown as source: a diff has no line of the file to go to.
   const view = line ? "source" : options.view;
@@ -250,7 +259,7 @@ export function closeTab(state: StageState, id: string): StageState {
 }
 
 export function pinTab(state: StageState, id: string): StageState {
-  return { ...state, tabs: state.tabs.map((tab) => tab.id === id && tab.preview ? { ...tab, preview: false } : tab) };
+  return { ...state, tabs: state.tabs.map((tab) => tab.id === id && tab.preview ? { ...tab, preview: false, ...(tab.kind === "file" ? { trace: false } : {}) } : tab) };
 }
 
 /** The one preview slot moves to this tab; every other tab keeps its place, pinned. */

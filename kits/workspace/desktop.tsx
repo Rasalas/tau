@@ -34,6 +34,7 @@ import { withWorkspaceStore } from "./store-context.js";
 import { RAIL_ORDER_OPTIONS } from "./rail-order.js";
 import { publishProjectIcons } from "./project-icons.js";
 import { WorkspaceEditorButton, WorkspaceTitleActions } from "./title.js";
+import { TraceTabs } from "./trace-tabs.js";
 import { createStoragePage, STORAGE_SETTINGS_ROWS } from "./storage-page.js";
 import { OPEN_REQUEST_EVENT, OPEN_REQUEST_WAITING_COMMAND, STORAGE_CHANGED_EVENT, TAKE_OPEN_REQUEST_COMMAND, type WorktreeStorageHostCommands } from "./storage-protocol.js";
 import { OpenRequests } from "./open-requests.js";
@@ -122,6 +123,7 @@ export const workspaceExtension: DesktopExtension = {
     // A phone or tablet follows too: its Files panel and documents read the thread's project.
     context.registerRegion({ id: "workspace.follower", placement: "composer-above", order: 0, profiles: ["desktop", "compact"], Component: bind(WorkspaceFollower) });
     context.registerRegion({ id: "workspace.title-actions", placement: "title-bar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceTitleActions) });
+    context.registerRegion({ id: "workspace.trace-tabs", placement: "title-bar", profiles: ["desktop"], Component: TraceTabs });
     // The design's Editor button at the stage strip's right end.
     context.registerRegion({ id: "workspace.open-in", placement: "stage-bar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceEditorButton) });
     // The header's branch: a menu over the checkout; for a new thread "project · machine · no worktree yet".
