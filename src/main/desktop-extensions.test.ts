@@ -56,16 +56,17 @@ describe("desktop extension bundling", () => {
     `);
     const code = await bundleDesktopExtension(join(dir, "uses.ts"), { sharedExports: { react: ["useState"], tau: [] } });
     const url = `data:text/javascript;base64,${Buffer.from(code).toString("base64")}`;
-    const shared = globalThis as { __tauShared?: Record<string, unknown> };
+    const global = globalThis as Record<string, unknown>;
+    const key = "__tauShared";
     const useState = () => 1;
     try {
-      shared.__tauShared = { react: { useState } };
+      global[key] = { react: { useState } };
       const module = await import(/* @vite-ignore */ `${url}#ok`) as { default: { activate(): unknown } };
       expect(module.default.activate()).toBe(useState);
-      shared.__tauShared = {};
+      global[key] = {};
       await expect(import(/* @vite-ignore */ `${url}#missing`)).rejects.toThrow("Shared module react is not available in this workbench");
     } finally {
-      delete shared.__tauShared;
+      delete global[key];
     }
   });
 
