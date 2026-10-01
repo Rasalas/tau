@@ -21,6 +21,7 @@ interface TauNativePlugin {
   activityTokens(): Promise<{ tokens: import("./activities").ActivityToken[] }>;
   activityUpdate(options: import("./activities").MobileActivity): Promise<void>;
   activityUsage(options: { hostId: string; accounts: import("./activities").WidgetAccount[]; updatedAt: number; expiresAt: number }): Promise<void>;
+  widgetSnapshot(options: import("./widget-snapshot").WidgetSnapshot): Promise<void>;
   activityClear(options: { hostId: string }): Promise<void>;
   dictationLanguages(): ReturnType<import("../../src/renderer/dictation").DictationPort["languages"]>;
   dictationDownload(options: { language: string }): Promise<void>;
@@ -130,6 +131,7 @@ export const nativeActivities: import("./activities").ActivityPort = {
   update: (activity) => TauNative.activityUpdate(activity),
   usage: (snapshot) => TauNative.activityUsage(snapshot),
   clear: (hostId) => TauNative.activityClear({ hostId }),
+  snapshot: (value) => TauNative.widgetSnapshot(value),
 };
 
 export function installActivityKey(options: { hostId: string; keyId: string; key: string }): Promise<void> { return TauNative.activityKey(options); }

@@ -173,7 +173,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       if (reply) {
         void Promise.resolve(pushRegistrar()?.register({ host, client })).catch(() => undefined).then(() => {
           void context.remoteActivities?.connect(current).catch(() => undefined);
-          if (context.activities) activityFollow.current = followActivities(host.id, client, context.activities);
+          if (context.activities) activityFollow.current = followActivities(host.id, client, context.activities, { machine: host.name });
         });
       }
     }).catch(() => undefined);

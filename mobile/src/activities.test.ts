@@ -21,7 +21,7 @@ describe("activity delivery lifecycle", () => {
     let event!: (event: HostEvent) => void;
     const off = vi.fn();
     const port: ActivityPort = { update: vi.fn(async () => undefined), usage: vi.fn(async () => undefined), clear: vi.fn(async () => undefined) };
-    const follow = followActivities("host-a", { onHostEvent: (listener) => { event = listener; return off; }, bootstrap: vi.fn(async () => { throw Error("offline"); }), invokeHostExtension: vi.fn(async () => { throw Error("missing kit"); }) }, port, () => NOW);
+    const follow = followActivities("host-a", { onHostEvent: (listener) => { event = listener; return off; }, bootstrap: vi.fn(async () => { throw Error("offline"); }), invokeHostExtension: vi.fn(async () => { throw Error("missing kit"); }) }, port, { now: () => NOW });
     event({ type: "agent-status", sessionId: "thread-1", running: true });
     await vi.waitFor(() => expect(port.update).toHaveBeenCalledWith(expect.objectContaining({ hostId: "host-a", threadId: "thread-1", state: "running" })));
     event({ type: "error", sessionId: "thread-1", message: "Needs a login" });
@@ -31,5 +31,45 @@ describe("activity delivery lifecycle", () => {
     await follow.revoke();
     expect(port.update).not.toHaveBeenCalledWith(expect.objectContaining({ threadId: "thread-2" }));
     expect(port.clear).toHaveBeenCalledWith("host-a"); expect(off).toHaveBeenCalledOnce();
+  });
+});
+describe("widget snapshots", () => {
+  it("hands the widgets one debounced snapshot per host with its threads, machine and accounts", async () => {
+    vi.useFakeTimers();
+    try {
+      let event!: (event: HostEvent) => void;
+      let clock = NOW;
+      const snapshot = vi.fn(async () => undefined);
+      const port: ActivityPort = { update: vi.fn(async () => undefined), usage: vi.fn(async () => undefined), clear: vi.fn(async () => undefined), snapshot };
+      const limits = { accounts: [account({ plan: "ChatGPT Plus", windows: [{ id: "weekly", kind: "weekly", label: "Weekly", usedPercent: 91 }] })] };
+      const follow = followActivities("host-a", {
+        onHostEvent: (listener) => { event = listener; return () => undefined; },
+        bootstrap: vi.fn(async () => ({ threadIndex: { projects: [], sessions: [{ id: "t1", title: "Fix flaky pairing test", projectName: "tau", modifiedAt: NOW, messageCount: 2 }], runs: { t1: NOW - 600_000 } } }) as never),
+        invokeHostExtension: vi.fn(async (_id: string, command: string) => command === "limits" ? limits : undefined),
+      }, port, { now: () => clock, machine: "Mac mini" });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(snapshot).toHaveBeenCalledOnce();
+      expect(snapshot).toHaveBeenLastCalledWith(expect.objectContaining({
+        version: 2, hostId: "host-a", machine: "Mac mini",
+        accounts: [expect.objectContaining({ label: "Codex", plan: "ChatGPT Plus", tone: "openai", mark: "codex" })],
+        threads: [expect.objectContaining({ id: "t1", title: "Fix flaky pairing test", project: "tau", state: "running", since: NOW - 600_000 })],
+      }));
+      clock += 60_000;
+      event({ type: "extension-ui-prompt", sessionId: "t1", prompt: { id: "p", sessionId: "t1", kind: "confirm", title: "Edit src/routes/orders.ts?" } });
+      event({ type: "agent-status", sessionId: "t1", running: false });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(snapshot).toHaveBeenCalledTimes(2);
+      expect(snapshot).toHaveBeenLastCalledWith(expect.objectContaining({ threads: [expect.objectContaining({ state: "question", detail: "Edit src/routes/orders.ts?", since: clock })] }));
+      event({ type: "extension-ui-resolved", id: "p", sessionId: "t1" });
+      event({ type: "error", sessionId: "t1", message: "Rate limited" });
+      event({ type: "agent-status", sessionId: "t1", running: false });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(snapshot).toHaveBeenLastCalledWith(expect.objectContaining({ threads: [expect.objectContaining({ state: "failed" })] }));
+      event({ type: "agent-status", sessionId: "t2", running: true });
+      await follow.revoke();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(snapshot).toHaveBeenCalledTimes(3);
+      expect(port.clear).toHaveBeenCalledWith("host-a");
+    } finally { vi.useRealTimers(); }
   });
 });
