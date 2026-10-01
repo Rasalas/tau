@@ -914,8 +914,8 @@ never draws the placement. `turn-divider` (API 1.39.0) sits in the line above
 each turn after the first ("Turn 3 · Regression tests", design 2d); its props
 carry `turn: { number, messages, last }` — the turn's prompt and everything that
 answered it, `last` while it may still run. Workspace Kit puts Fork here (a
-question first, then `actions.forkFrom(message)` through the turn's last saved
-message) and Restore files (the turn's checkpoint, when it verified) there,
+question first, then `actions.forkFrom(message, { workspace })` through the turn's last saved
+message, in a worktree on a branch of the fork's own) and Restore files (the turn's checkpoint, when it verified) there,
 shown on hover and, on touch, on a tap.
 `thread-list-head` (API 1.30.0) tops a phone's or a tablet's thread list,
 under its header and over the rows, and stays put while they scroll: a strip
@@ -2130,6 +2130,20 @@ page's `Menu` and passes a pick to `run(session, itemId, actions)`, and Thread
 Rail, the shipped caller, hands the same organizer menu to the rail's
 right-click. `menu` answers `undefined` to leave the title its own; `rename`
 on the title edits it in place. The last one registered wins.
+
+`registerForkPrompt({ id, ask })` takes every fork the user starts elsewhere
+(`f` on a message, the thread tree's fork, Duplicate) as `ask({ entryId?, turn? })`:
+through `entryId`, with its `turn` when the transcript knows it (`f` forks through
+the end of the focused message's turn), and without `entryId` a copy of the whole
+thread. The prompt asks and then calls `actions.forkFrom({ sourceEntryId }, { workspace })`,
+which forks at once and resolves false when nothing was forked; with `workspace`
+the fork runs in that project. Workspace Kit is the shipped prompt (design 2d):
+its question names the fork's branch (`<branch>-2`, the next free number,
+editable) and makes the worktree with Workspace Kit's `fork-worktree` — from the
+turn's verified checkpoint (its files, uncommitted, on the HEAD the turn ended
+at), the checkout as it is for Duplicate, or the branch's HEAD alone, which the
+question says. Without a prompt core forks at once; `actions.duplicateThread({ ask: false })`
+copies at once too (Handoff's continuation on another runtime, which goes on with the same work). The last one registered wins.
 
 `registerModelSelection({ id, selected, subscribe, toggle, reset })` lets a new
 thread's model picker hold more than one model. Shift-click (or Shift+↵) on a

@@ -412,7 +412,8 @@ export class ThreadIndex {
     const update: HostUpdate = {
       version: HOST_PROTOCOL_VERSION,
       type: "thread-shell",
-      update: { sessionId, shell },
+      // Without its workspace id a renamed thread in a worktree would drop out of Reviews.
+      update: { sessionId, shell: this.withIdentity(shell) },
     };
     this.port.emitUpdate(update);
     return update;

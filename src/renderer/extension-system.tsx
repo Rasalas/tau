@@ -77,10 +77,13 @@ export interface WorkbenchActions {
   openWorkbenchSource(): Promise<boolean>;
   /** Pi's /tree and /fork: the session tree of the active thread, to move in or fork from. */
   openThreadTree(mode?: "navigate" | "fork"): void;
-  /** Pi's /clone: a new thread continuing from the active thread's current point. */
-  duplicateThread(): Promise<boolean>;
-  /** Forks the thread on screen through `message`: a new thread with the conversation up to it (API 1.39.0). */
-  forkFrom?(message: UiMessage): Promise<void>;
+  /** Pi's /clone: a new thread continuing from the active thread's current point; a fork prompt asks first unless `ask` is false. */
+  duplicateThread(options?: { ask?: boolean }): Promise<boolean>;
+  /**
+   * Forks the thread on screen through `message`: a new thread with the conversation up to it (API 1.39.0).
+   * With `workspace`, the fork runs in that project; false when nothing was forked.
+   */
+  forkFrom?(message: Pick<UiMessage, "sourceEntryId">, options?: { workspace?: string }): Promise<boolean>;
   focusComposer(seed?: string): void;
   focusTranscript(): void;
   focusStage(): void;
@@ -1329,6 +1332,18 @@ export interface ThreadMenuContribution {
   run(session: UiSession, itemId: string, actions: WorkbenchActions): void;
 }
 
+/** A fork the user started: through `entryId` (its turn when one), or the whole thread without one (Duplicate). */
+export interface ForkRequest {
+  entryId?: string;
+  turn?: TranscriptTurn;
+}
+
+/** Asks before every fork the user starts (the `f` key, the thread tree, Duplicate); the last one wins. */
+export interface ForkPromptContribution {
+  id: string;
+  ask(request: ForkRequest): void;
+}
+
 /** Which project a document belongs to; absent, the source reads the project it follows. */
 export interface DocumentOrigin {
   /** The workspace's id where the host mints one, its path otherwise (API 1.26.0). */
@@ -1537,6 +1552,7 @@ export interface DesktopExtensionContext {
   registerModelSelection(selection: ModelSelectionContribution): () => void;
   /** The menu of a thread, on its title and its row; the last one wins (API 1.37.0). */
   registerThreadMenu(menu: ThreadMenuContribution): () => void;
+  registerForkPrompt(prompt: ForkPromptContribution): () => void;
   registerMessageAction(action: MessageActionContribution): () => void;
   /** Draws a tagged block of an assistant reply itself. New in API 1.11.0. */
   registerMessageBlock(block: MessageBlockContribution): () => void;
@@ -1703,6 +1719,7 @@ export class ExtensionRegistry {
   private promptHooks = new Map<string, Owned<PromptHookContribution>>();
   private modelSelections = new Map<string, Owned<ModelSelectionContribution>>();
   private threadMenus = new Map<string, Owned<ThreadMenuContribution>>();
+  private forkPrompts = new Map<string, Owned<ForkPromptContribution>>();
   private messageActions = new Map<string, Owned<MessageActionContribution>>();
   private messageBlocks = new Map<string, Owned<MessageBlockContribution>>();
   private promptRenderers = new Map<string, Owned<PromptRendererContribution>>();
@@ -2071,6 +2088,7 @@ export class ExtensionRegistry {
         note("thread menu");
         return this.register(this.threadMenus, menu.id, { ...menu, ...owner }, disposers);
       },
+      registerForkPrompt: (prompt) => this.register(this.forkPrompts, prompt.id, { ...prompt, ...owner }, disposers),
       registerMessageAction: (action) => {
         if (!this.scopeToProfile(owner, "message action", action.id, action.label, action)) return noContribution;
         note("message actions");
@@ -2630,6 +2648,10 @@ export class ExtensionRegistry {
 
   getThreadMenu(): Owned<ThreadMenuContribution> | undefined {
     return [...this.threadMenus.values()].at(-1);
+  }
+
+  getForkPrompt(): Owned<ForkPromptContribution> | undefined {
+    return [...this.forkPrompts.values()].at(-1);
   }
 
   streamingDelivery(): "followUp" | "steer" | undefined {

@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptActivity } from "./transcript-activity";
 import type { TranscriptDetail } from "../../workbench/transcript-folding";
+import type { TranscriptTurn } from "../extension-system";
 import { TranscriptTurnNavigation } from "./TranscriptTurnNavigation";
 import { TranscriptSearch } from "../deferred-surfaces";
 import {
@@ -152,7 +153,7 @@ export interface TranscriptViewportProps {
   detail?: TranscriptDetail;
   liveStatus?: ReactNode;
   onCopyMessage?: (message: UiMessage) => void;
-  onForkMessage?: (message: UiMessage) => void;
+  onForkMessage?: (message: UiMessage, turn?: TranscriptTurn) => void;
   onEditMessage?: (message: UiMessage) => void;
   /** Sends the prompt of a failed last answer again. */
   onRetryMessage?: (message: UiMessage) => void;

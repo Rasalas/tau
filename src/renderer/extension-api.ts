@@ -151,6 +151,8 @@ export type {
   TranscriptRowsHandle,
   LookInRegionContext,
   TranscriptTurn,
+  ForkRequest,
+  ForkPromptContribution,
   RegionPlacement,
   RegionProps,
   RegionContribution,

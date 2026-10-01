@@ -38,7 +38,7 @@ import { JumpToLatestButton, JumpToLatestStore } from "./components/JumpToLatest
 import { TaskPill } from "./components/TaskProgress";
 import { useConversationActivities } from "./conversation-activities";
 import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
-import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
+import type { ExtensionRegistry, TranscriptTurn, WorkbenchActions } from "./extension-system";
 import { MountedPanel, PanelMaximizeButton, PanelSlot, usePanelHosts } from "./components/PanelHosts";
 import { StartDetails, ThreadDetails, ThreadHeader } from "./components/ThreadHeader";
 import { ProjectIcon } from "./components/ProjectIcon";
@@ -233,12 +233,12 @@ export interface WorkbenchThread {
   runStartedAt?: number;
   activeDraftKey?: string;
   copyMessage(message: UiMessage): Promise<void>;
-  forkMessage(message: UiMessage): Promise<void>;
+  forkMessage(message: UiMessage, turn?: TranscriptTurn): Promise<void>;
   /** Rewinds the conversation to before a prompt and puts the prompt back into the composer. */
   editMessage(message: UiMessage): Promise<void>;
   titleCommands: ReturnType<ExtensionRegistry["getCommandsFor"]>;
   openThreadTree(mode?: ThreadTreeMode): void;
-  duplicateThread(): Promise<boolean>;
+  duplicateThread(options?: { ask?: boolean }): Promise<boolean>;
   settleActiveThread(): void;
   renameThread(title: string): Promise<boolean>;
   copyThreadValue(kind: "chat" | "path" | "thread-id"): Promise<void>;
@@ -1013,7 +1013,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
   // Stable across renders: a new callback or status element per tool flush
   // would re-render every visible message and restart the tail follow.
   const onCopyMessage = useCallback((message: UiMessage) => void copyMessage(message), [copyMessage]);
-  const onForkMessage = useCallback((message: UiMessage) => void forkMessage(message), [forkMessage]);
+  const onForkMessage = useCallback((message: UiMessage, turn?: TranscriptTurn) => void forkMessage(message, turn), [forkMessage]);
   const onEditMessage = useCallback((message: UiMessage) => void editMessage(message), [editMessage]);
   const { readOnly } = useHostCapabilities();
   const { queue, steerQueued, returnQueued, reorderQueue } = composer;

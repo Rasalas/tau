@@ -302,6 +302,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "fork-thread": async (params) => (await host()).forkThread(
       decodeString("fork-thread", "entryId", params[0]),
       decodeOptionalString("fork-thread", "expectedSessionId", params[1]),
+      await optionalWorkspace("fork-thread", "cwd", params[2]),
     ),
     "thread-tree": async (params) => (await host()).threadTree(decodeOptionalString("thread-tree", "sessionId", params[0])),
     "navigate-thread-tree": async (params) => (await host()).navigateThreadTree(

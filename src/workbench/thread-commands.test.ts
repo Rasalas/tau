@@ -61,3 +61,47 @@ describe("copying the chat", () => {
     expect(setNotice).toHaveBeenCalledWith("Chat copied as Markdown.");
   });
 });
+
+describe("forking", () => {
+  function forking(prompt?: { ask: ReturnType<typeof vi.fn> }) {
+    const forkThread = vi.fn(async () => ({ version: 1, updates: [] }));
+    const duplicateThread = vi.fn(async () => ({ version: 1, updates: [] }));
+    const client = createFakeHostClient({ isReadOnly: () => false, forkThread, duplicateThread });
+    const thread = new ThreadCommands({
+      client: () => client,
+      view: { setNotice: vi.fn(), getSnapshot: () => ({ sessionId: "s1" }) },
+      threads: { getSnapshot: () => ({ activeThreadId: "s1" }) },
+      registry: { notifyPromptAnswered: vi.fn(), getForkPrompt: () => prompt },
+      applyActionResult: () => true,
+    } as unknown as ThreadCommandPorts);
+    return { thread, forkThread, duplicateThread };
+  }
+  const prompt = { id: "u1", sourceEntryId: "e-u1", role: "user" as const, text: "Go", timestamp: 1 };
+  const answer = { id: "a1", sourceEntryId: "e-a1", role: "assistant" as const, text: "Done", timestamp: 2 };
+  const turn = { number: 1, messages: [prompt, answer], last: false };
+
+  it("hands `f` and Duplicate to the kit that asks for the fork's branch, through the end of the message's turn", async () => {
+    const ask = vi.fn();
+    const { thread, forkThread, duplicateThread } = forking({ ask });
+    await thread.forkFromMessage(prompt, turn);
+    expect(ask).toHaveBeenCalledWith({ entryId: "e-a1", turn });
+    expect(await thread.duplicateThread()).toBe(true);
+    expect(ask).toHaveBeenLastCalledWith({});
+    expect(forkThread).not.toHaveBeenCalled();
+    expect(duplicateThread).not.toHaveBeenCalled();
+    // Handoff's continuation copies at once.
+    await thread.duplicateThread({ ask: false });
+    expect(duplicateThread).toHaveBeenCalledTimes(1);
+    expect(ask).toHaveBeenCalledTimes(2);
+  });
+
+  it("forks at once without such a kit, and into the workspace the kit made", async () => {
+    const { thread, forkThread, duplicateThread } = forking();
+    await thread.forkFromMessage(answer, turn);
+    expect(forkThread).toHaveBeenCalledWith("e-a1", "s1", undefined);
+    expect(await thread.forkMessage({ sourceEntryId: "e-a1" }, { workspace: "ws-fork" })).toBe(true);
+    expect(forkThread).toHaveBeenLastCalledWith("e-a1", "s1", "ws-fork");
+    await thread.duplicateThread();
+    expect(duplicateThread).toHaveBeenCalled();
+  });
+});

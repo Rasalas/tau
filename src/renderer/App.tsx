@@ -362,6 +362,7 @@ export default function App() {
     composerDraft: () => actionsRef.current?.composerDraft() ?? "",
     notify: (message) => setNotice(message),
     composerRef,
+    requestFork: threadCommands.requestFork,
   });
 
   useEffect(() => {
@@ -655,7 +656,7 @@ export default function App() {
     transcriptHistory, transcriptRef, loadTranscriptPage: threadCommands.loadTranscriptPage, applyTranscriptPage, transcriptScopeKey,
     transcriptScope, transcriptTurnStart, visibleTranscriptTurnStart, lastMessageId: conversation.lastMessageId,
     recoverThread: threadCommands.recoverThread, copyToolOutput: threadCommands.copyToolOutput, loadToolOutput: threadCommands.loadToolOutput,
-    runStartedAt, activeDraftKey, copyMessage, forkMessage: threadCommands.forkMessage, editMessage: editFromMessage,
+    runStartedAt, activeDraftKey, copyMessage, forkMessage: threadCommands.forkFromMessage, editMessage: editFromMessage,
     titleCommands, openThreadTree, duplicateThread, settleActiveThread, renameThread: threadCommands.renameThread, copyThreadValue: threadCommands.copyThreadValue,
     threadTreeModal, closeThreadTree, navigateThreadTree, forkFromTree,
   }), [
