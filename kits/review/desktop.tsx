@@ -113,6 +113,7 @@ export const reviewExtension: DesktopExtension = {
       order: 20,
       width: "wide",
       maximizable: true,
+      threadActions: true,
       profiles: ["compact"],
       Component: createCompactReviewPanel({
         reader: workspace,

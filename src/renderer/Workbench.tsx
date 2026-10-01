@@ -561,7 +561,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       <LazyTouchThreadBrowser variant="home" {...threadBrowserProps} nav={phoneNav.route.kind === "threads" ? bottomNav : undefined} />
     </Suspense> : null}
     {sheetPanel ? <Suspense fallback={null}>
-      <LazyPanelSheet label={sheetPanel.label} host={hostFor(sheetPanel.id)} onClose={() => setPanelSheet(undefined)} />
+      <LazyPanelSheet label={sheetPanel.label} detail={conversationSnapshot?.sessionTitle} host={hostFor(sheetPanel.id)} onClose={() => setPanelSheet(undefined)} />
     </Suspense> : null}
     {threadTreeModal ? <Suspense fallback={null}><LazyThreadTreeModal
       tree={threadTreeModal.tree} mode={threadTreeModal.mode} busy={threadTreeModal.busy} error={threadTreeModal.error}

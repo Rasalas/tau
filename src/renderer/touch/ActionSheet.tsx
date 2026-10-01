@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { PanelIconComponent } from "../components/PanelIcon";
 import { Sheet } from "./Sheet";
 
@@ -21,15 +22,18 @@ export interface SheetAction {
  * come last, apart from the rest. It closes with its X, Escape, the scrim or a
  * pull down on anything but a button.
  */
-export function ActionSheet({ title, summary, actions, onClose }: {
+export function ActionSheet({ title, head, summary, actions, onClose }: {
   title: string;
+  /** The subject drawn over the actions in place of the title (a thread's row, design 1x). */
+  head?: ReactNode;
   /** A line about the subject above the actions (a thread's cost). */
   summary?: string | undefined;
   actions: readonly SheetAction[];
   onClose(): void;
 }) {
   const ordered = [...actions.filter((action) => !action.destructive), ...actions.filter((action) => action.destructive)];
-  return <Sheet title={title} className="action-sheet" onClose={onClose}>
+  return <Sheet title={title} className={head ? "action-sheet has-head" : "action-sheet"} onClose={onClose}>
+    {head}
     {summary ? <p className="action-sheet-summary">{summary}</p> : null}
     <div className="action-sheet-list">
       {ordered.map((action) => <button
