@@ -32,6 +32,8 @@ export const HOST_METHOD_AUDIT: Readonly<Record<string, { label: string; thread?
   "resume-limited": { label: "resumed a thread after a limit", thread: 0 },
   "abort": { label: "stopped a run", thread: 0 },
   "new-session": { label: "started a thread" },
+  "start-thread": { label: "started a thread" },
+  "send-to-thread": { label: "sent a message to a thread", thread: 0 },
   "fork-thread": { label: "forked a thread", thread: 1 },
   "navigate-thread-tree": { label: "moved within a thread's tree", thread: 2 },
   "duplicate-thread": { label: "duplicated a thread", thread: 0 },

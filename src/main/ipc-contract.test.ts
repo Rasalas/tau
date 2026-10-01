@@ -27,12 +27,14 @@ const channels = (file: string) => new Set(read(file).match(/tau:[a-z-]+/gu) ?? 
  * come from another machine's host (`services.machines.upload`), and so do
  * `host-resources` and `readiness`. `tau machines` (bin/tau-machines.mjs)
  * sends `machines-overview`, `machines-pair`, `machines-forget` and
- * `machines-update`.
+ * `machines-update`. `start-thread` and `send-to-thread` let another host
+ * drive a thread off screen; the renderer has no wrappers for them (ADR 0030).
  */
 const CLIENT_SIDE = new Set([
   "hello", "start-job", "cancel-job", "job-methods", "client-call-result", "machines-list", "machines-add", "machines-remove",
   "blob-put", "blob-commit", "blob-abort", "host-resources", "readiness", "machines-overview", "machines-pair", "machines-forget",
   "machines-update",
+  "start-thread", "send-to-thread",
 ]);
 
 function tableMethods(): Set<string> {
@@ -73,10 +75,18 @@ describe("host protocol contract", () => {
     expect(missing).toEqual([]);
   });
 
-  it("every method in the table is reachable from the client", () => {
+  it("every method in the table is reachable from the renderer or another protocol client", () => {
     const client = clientMethods();
     const unreachable = [...methods].filter((method) => !client.has(method) && !CLIENT_SIDE.has(method)).sort();
     expect(unreachable).toEqual([]);
+  });
+
+  it("keeps off-screen thread control on the host-to-host protocol", () => {
+    const client = clientMethods();
+    for (const method of ["start-thread", "send-to-thread"]) {
+      expect(methods.has(method), method).toBe(true);
+      expect(client.has(method), method).toBe(false);
+    }
   });
 
   it("the client-side table implements exactly the client-side method names", () => {

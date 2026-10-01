@@ -49,6 +49,8 @@ import {
   decodeString,
   decodeStringOrClientTurnIdentity,
   decodeText,
+  decodeThreadDelivery,
+  decodeThreadStartOptions,
   decodeUiPromptAttachments,
   decodeUiSkillDraft,
   decodeWorkbenchReloadMode,
@@ -297,6 +299,21 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       decodePreparedPrompt("new-session", "prepared", params[4]),
       decodeNewThreadConfiguration("new-session", "configuration", params[5]),
     ),
+    "start-thread": async (params) => {
+      const options = decodeThreadStartOptions("start-thread", params[0]);
+      const instance = await host();
+      const started = await instance.startThread({ ...options, cwd: await workspace("start-thread", "options.cwd", options.cwd) });
+      const path = instance.threadPath(started.sessionId);
+      if (!path) throw new Error("The started thread is missing from the host's index.");
+      return { ...started, path };
+    },
+    "send-to-thread": async (params) => {
+      const sessionId = decodeString("send-to-thread", "sessionId", params[0]);
+      const text = decodeString("send-to-thread", "text", params[1]);
+      const delivery = decodeThreadDelivery("send-to-thread", params[2]);
+      await (await host()).sendToThread(sessionId, text, delivery);
+      return null;
+    },
     "prepared-thread-capability": async (params) =>
       (await host()).getPreparedThreadCapability(await optionalWorkspace("prepared-thread-capability", "cwd", params[0])),
     "fork-thread": async (params) => (await host()).forkThread(

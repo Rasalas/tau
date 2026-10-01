@@ -23,6 +23,8 @@ export const HOST_METHOD_ACCESS = {
   "resume-limited": "write",
   "abort": "write",
   "new-session": "write",
+  "start-thread": "write",
+  "send-to-thread": "write",
   "prepared-thread-capability": "read",
   "fork-thread": "write",
   "thread-tree": "read",
@@ -166,8 +168,9 @@ export function methodAccess(method: string): MethodAccess {
 
 /**
  * What a host may ask another machine's host on its threads' behalf
- * (`services.machines.request`, ADR 0027): reading a thread there, steering
- * or stopping its run, and how busy and how ready that machine is. A kit's own commands go through `call`; access
+ * (`services.machines.request`, ADR 0027): reading, starting or continuing a
+ * thread there, answering its questions, steering or stopping its run, and how
+ * busy and how ready that machine is. A kit's own commands go through `call`; access
  * management, jobs, subscriptions and a window's methods never go.
  */
 export const MACHINE_REQUEST_METHODS = [
@@ -177,6 +180,10 @@ export const MACHINE_REQUEST_METHODS = [
   "abort",
   "steer",
   "follow-up",
+  "start-thread",
+  "send-to-thread",
+  "answer-extension-ui",
+  "sync-extension-ui",
   "host-resources",
   "readiness",
 ] as const satisfies readonly (keyof typeof HOST_METHOD_ACCESS)[];

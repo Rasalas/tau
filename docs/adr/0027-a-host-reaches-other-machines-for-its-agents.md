@@ -51,7 +51,7 @@ there (ADR 0024). Settings → Machines has the switch per machine and one in
 the add form.
 
 **Kits reach the machines through `services.machines`.** The seam needs the
-`machines` permission. It has five members:
+`machines` permission. Its initial members are:
 
 - `list()` and `subscribe(listener)`: each machine's status, never a token.
 - `call(machine, extensionId, command, input)`: a kit command there, sent as
@@ -59,7 +59,8 @@ the add form.
   device (preset, `access: "read"`, audit).
 - `request(machine, method, params)`: only the core methods in
   `MACHINE_REQUEST_METHODS` (`src/shared/host-method-access.ts`), the thread
-  reads and `abort`, `steer`, `follow-up`. Any other name is refused before it
+  reads and `abort`, `steer`, `follow-up`, `start-thread`, `send-to-thread`,
+  `answer-extension-ui` and `sync-extension-ui`. Any other name is refused before it
   leaves. Access management, jobs, subscriptions and a window's methods are
   never sent.
 - `watch(machine, topic, listener)`: events that kit emits there under a

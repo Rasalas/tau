@@ -90,6 +90,18 @@ in that method's argument order. The host implements them in one table
 (`src/main/host-methods.ts`) which decodes every argument through `ipc-input.ts`;
 a transport only moves frames in and out of it.
 
+The core methods below start and continue a thread off screen. Both require
+`write` access and keep the host's active thread unchanged.
+
+| Method | Params | Result |
+|---|---|---|
+| `start-thread` | `[options]`, where `options` is `{ cwd, prompt, backend?, model?: { provider, id }, thinkingLevel?, mode?, title? }`. `cwd` is a host path or workspace id. | `{ sessionId, path, cwd, title? }`, with the new thread's index path. Resolves after the first prompt is admitted. |
+| `send-to-thread` | `[sessionId, text, delivery?]`. `delivery` is `"prompt"` by default, `"steer"` or `"queue"`. | `null`. A released thread is reopened off screen. |
+
+Neither method accepts attachments. `prompt` starts a turn or follows a running
+one; `steer` joins a running turn now; `queue` waits in the thread's visible
+queue until its turn ends.
+
 A connection opens with `hello { protocol, token?, lastSeq?, subscription? }`. The reply names
 the host version, its capabilities (`jobs`, `replay`, `local-files`, `heartbeat`, `subscriptions`), the pushes
 the client missed, and `resync: true` when it cannot be repaired from the
@@ -925,9 +937,10 @@ Kits reach the machines through `services.machines`: a kit command there goes
 as `host-extension`, and `request` sends only the methods in
 `MACHINE_REQUEST_METHODS` (`src/shared/host-method-access.ts`:
 `transcript-page`, `thread-tree`, `tool-output`, `abort`, `steer`,
-`follow-up`, `host-resources`, `readiness`); every other name is refused before
-it leaves. Named by the host's own id, a `read` method of that list is answered
-by the host itself.
+`follow-up`, `start-thread`, `send-to-thread`, `answer-extension-ui`,
+`sync-extension-ui`, `host-resources`, `readiness`); every other name is refused
+before it leaves. Named by the host's own id, a `read` method of that list is
+answered by the host itself. Writes to its own id are refused.
 
 ### How busy a machine is, and what it could run
 
