@@ -251,8 +251,8 @@ export class ServerAgentTools {
       {
         name: SERVER_TOOLS.status,
         label: "Server status",
-        description: "Lists this project's server targets: address, folder, what the agent may run there, files not uploaded yet and changes on the server since Tau last read it. Read only.",
-        promptSnippet: "server_status: the project's servers, what is not uploaded yet, what changed there",
+        description: "Review server targets, permitted operations, pending uploads and changes detected on the server. Read only.",
+        promptSnippet: "server_status: review server targets and pending changes",
         parameters: Type.Object({}),
         execute: async () => {
           const status = await this.options.status({ cwd });
@@ -279,7 +279,8 @@ export class ServerAgentTools {
       {
         name: SERVER_TOOLS.list,
         label: "List a server folder",
-        description: "Lists a folder on the server: the site's folder (path relative to it, empty for the folder itself) or ~/tmp. Read only.",
+        description: "Find files and folders on the server without changing them.",
+        promptSnippet: "server_list: find files and folders on the server",
         parameters: Type.Object({ path: Type.Optional(Type.String({ description: "Relative to the site's folder, or ~/tmp/…; empty for the site's folder." })), target: TARGET_PARAM }),
         execute: async (_id: string, params: unknown) => {
           const input = record(params);
@@ -295,7 +296,8 @@ export class ServerAgentTools {
       {
         name: SERVER_TOOLS.read,
         label: "Read a server file",
-        description: "Reads a file on the server, below the site's folder (path relative to it) or ~/tmp. Read only; .git is never read.",
+        description: "Inspect a server-side file without changing it. Excludes .git.",
+        promptSnippet: "server_read: inspect server-side file contents",
         parameters: Type.Object({ path: Type.String({ description: "Relative to the site's folder, or ~/tmp/…" }), target: TARGET_PARAM }),
         execute: async (_id: string, params: unknown) => {
           const input = record(params);
@@ -312,7 +314,8 @@ export class ServerAgentTools {
       {
         name: SERVER_TOOLS.diff,
         label: "Diff local and server",
-        description: "Compares local files with the same files on the server as they are now (paths relative to the site's folder); `-` lines are the server's, `+` lines the local ones. Read only.",
+        description: "Compare local files with the current server versions before an upload or when investigating drift. Read only; removals are server lines, additions are local lines.",
+        promptSnippet: "server_diff: compare local files with the current server versions",
         parameters: Type.Object({ paths: Type.Array(Type.String(), { description: `Up to ${DIFF_PATHS_CAP} paths relative to the site's folder.` }), target: TARGET_PARAM }),
         execute: async (_id: string, params: unknown) => {
           const input = record(params);
@@ -341,8 +344,8 @@ export class ServerAgentTools {
       {
         name: SERVER_TOOLS.exec,
         label: "Run on the server",
-        description: "Runs a shell command on the server, in the site's folder (cwd \"project\") or in ~/tmp (cwd \"tmp\"). Depending on the user's settings it asks the user first, runs, or is refused. Git on the server is read-only: writing Git subcommands are refused. Never use it to upload or change the site's files: propose an upload with server_propose_upload.",
-        promptSnippet: "server_exec: run a command on the project's server (asks the user unless they allowed it)",
+        description: "Run server-side diagnostics and checks, subject to the user's access settings. Never upload or change site files; server-side Git is read-only.",
+        promptSnippet: "server_exec: run permitted server-side diagnostics and checks",
         parameters: Type.Object({
           command: Type.String({ description: "The shell command, run by /bin/sh on the server." }),
           cwd: Type.Optional(Type.Union([Type.Literal("project"), Type.Literal("tmp")], { description: "\"project\" (default): the site's folder; \"tmp\": ~/tmp." })),
@@ -375,7 +378,8 @@ export class ServerAgentTools {
       {
         name: SERVER_TOOLS.putTmp,
         label: "Write to ~/tmp on the server",
-        description: "Writes one file below ~/tmp on the server, from `content` or from a local file of the project (`localPath`), e.g. a script to try there with server_exec. Never writes the site's folder. Asks the user first unless they allowed it.",
+        description: "Prepare a scratch file or diagnostic script in the server's ~/tmp. Never writes site files; asks for approval unless already allowed.",
+        promptSnippet: "server_put_tmp: prepare scratch files for server-side checks",
         parameters: Type.Object({
           path: Type.String({ description: "Relative to ~/tmp, e.g. probe.php." }),
           content: Type.Optional(Type.String({ description: "The file's text." })),
@@ -413,8 +417,8 @@ export class ServerAgentTools {
       {
         name: SERVER_TOOLS.proposeUpload,
         label: "Propose an upload",
-        description: "Proposes uploading local changes to the server. It uploads nothing: the user sees a card with the files, what the server holds now and an Upload button, and decides. Leave files out to propose every change the upload list chooses by default; files holding live credentials are left for the user to pick in the server view.",
-        promptSnippet: "server_propose_upload: show the user an upload card for local changes; only the user uploads",
+        description: "Present local changes for the user's upload approval. Uploads nothing itself; files holding live credentials remain for the user to select.",
+        promptSnippet: "server_propose_upload: propose local changes for upload; only the user uploads",
         parameters: Type.Object({
           files: Type.Optional(Type.Array(Type.String(), { description: "Paths relative to the site's folder; every pending change chosen by default when left out." })),
           note: Type.Optional(Type.String({ description: "One or two sentences for the user: what the change does and how you tested it." })),
