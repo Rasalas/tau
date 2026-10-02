@@ -731,7 +731,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         snapshot={snapshot}
         actions={actions}
         thread={threadTitle}
-        details={showStartScreen ? <StartDetails snapshot={conversationSnapshot} slots={detailSlots} /> : <ThreadDetails snapshot={conversationSnapshot} view={view} machine={hostName} />}
+        details={showStartScreen ? <StartDetails snapshot={conversationSnapshot} slots={detailSlots} /> : <StartDetails snapshot={conversationSnapshot} />}
         onBack={phoneNav.showList}
         foldSheets
         sheets={sheetPanels.map((panel) => ({

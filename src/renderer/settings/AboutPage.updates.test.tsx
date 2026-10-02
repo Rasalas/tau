@@ -33,8 +33,17 @@ function renderPage(options: { status?: HostUpdateStatus; owner?: boolean; readO
 }
 
 describe("Settings → About → updates (K103, design 2k)", () => {
+  it("names the remote machine and asks before updating it", async () => {
+    const { hostUpdate } = renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Update rex" }));
+    expect(hostUpdate).not.toHaveBeenCalledWith("install");
+    expect(await screen.findByRole("dialog", { name: "Update Tau on rex?" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Update machine" }));
+    await waitFor(() => expect(hostUpdate).toHaveBeenCalledWith("install"));
+  });
+
   it("shows the host machine's version and a newer release, and installs it on Update now", async () => {
-    const { hostUpdate, client } = renderPage();
+    const { hostUpdate, client } = renderPage({ owner: true });
     expect(await screen.findByText("Tau 0.7.14 is available.", { exact: false })).toBeTruthy();
     expect(screen.getByText("0.7.6")).toBeTruthy();
     expect(screen.getByText(/Stable · rex · Linux, x64/u)).toBeTruthy();
@@ -62,10 +71,10 @@ describe("Settings → About → updates (K103, design 2k)", () => {
     expect(await screen.findByRole("switch", { name: "Paired devices may update this machine" })).toBeTruthy();
     cleanup();
     renderPage({ readOnly: true });
-    expect(await screen.findByRole("button", { name: "Update now" })).toHaveProperty("disabled", true);
+    expect(await screen.findByRole("button", { name: "Update rex" })).toHaveProperty("disabled", true);
     cleanup();
     renderPage({ status: { ...STATUS, devicesMayInstall: false } });
-    expect(await screen.findByRole("button", { name: "Update now" })).toHaveProperty("disabled", true);
+    expect(await screen.findByRole("button", { name: "Update rex" })).toHaveProperty("disabled", true);
   });
 
   it("says why a copy cannot update itself, and offers no update controls", async () => {

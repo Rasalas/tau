@@ -4,7 +4,6 @@ import type { HostSnapshot } from "../../shared/contracts";
 import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import { PanelIcon, type PanelIconComponent } from "./PanelIcon";
 import { Region } from "./Regions";
-import { HostLinkIndicator } from "../host-connection-status";
 import { tooltipProps } from "./ui/Tooltip";
 import { Popover } from "../deferred-surfaces";
 
@@ -69,7 +68,7 @@ export function TitleBar({
   actions: WorkbenchActions;
   /** The thread's title menu, or the draft's name. */
   thread?: ReactNode;
-  /** Branch, model, turn and cost under the title. */
+  /** The branch under the title. */
   details?: ReactNode;
   /** The chat is a screen over the thread list, and this goes back to it. */
   onBack?(): void;
@@ -96,7 +95,6 @@ export function TitleBar({
         <div className="title-heading-name">{thread}</div>
         {details}
       </div>
-      <HostLinkIndicator />
 
       <Region registry={registry} placement="title-bar" snapshot={snapshot} actions={actions} />
 

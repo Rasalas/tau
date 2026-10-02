@@ -3,6 +3,8 @@ import { ChevronRight, Copy, Download, ExternalLink, FileText, RefreshCw, Search
 import { LICENSES_FILE, unpackLicenses, type ThirdPartyLicense } from "../../shared/third-party-licenses";
 import { defaultUpdateChannel, isUpdateChannel, type UpdateChannel } from "../../shared/app-version";
 import { describeHostUpdate, hostUpdatePending, type HostUpdateStatus } from "../../shared/host-updates";
+import { useClientEnvironment } from "../client-environment";
+import { ConfirmDialog } from "../deferred-surfaces";
 import { useHostClient } from "../host-client-context";
 import { useHostUpdate } from "../machine-updates";
 import { usePlatform } from "../platform-context";
@@ -51,6 +53,7 @@ function actionLabel(status: HostUpdateStatus): string {
  */
 export function AboutPage({ loader = loadLicenses }: { loader?: () => Promise<ThirdPartyLicense[]> }) {
   const client = useHostClient();
+  const { mobileApp } = useClientEnvironment();
   const platform = usePlatform();
   useSyncExternalStore(client?.onVersions ?? noSubscription, () => JSON.stringify(client?.getVersions() ?? {}));
   const versions = client?.getVersions() ?? {};
@@ -68,6 +71,7 @@ export function AboutPage({ loader = loadLicenses }: { loader?: () => Promise<Th
   const [open, setOpen] = useState<string>();
   const [problem, setProblem] = useState<string>();
   const [asking, setAsking] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -88,6 +92,7 @@ export function AboutPage({ loader = loadLicenses }: { loader?: () => Promise<Th
   const version = status?.version ?? versions.host ?? versions.window;
   const machine = client?.getHostName?.();
   const readOnly = client?.isReadOnly() === true;
+  const owner = client?.isOwner?.() === true;
   const unsupported = status?.phase === "unsupported";
   const pending = hostUpdatePending(status);
   const busy = asking || BUSY.has(status?.phase ?? "");
@@ -107,7 +112,7 @@ export function AboutPage({ loader = loadLicenses }: { loader?: () => Promise<Th
   };
   // A host too old for its own updater leaves the window's check.
   const oldHost = !status && unavailable !== undefined;
-  const windowCheck = oldHost && versions.window;
+  const windowCheck = !mobileApp && oldHost && versions.window;
   const line = status
     ? `${describeHostUpdate(status)}${unsupported || !status.checkedAt ? "" : ` Checked ${formatAgo(new Date(status.checkedAt).toISOString(), Date.now())}.`}`
     : windowCheck ? "An installed Tau checks every hour and after start." : undefined;
@@ -119,6 +124,15 @@ export function AboutPage({ loader = loadLicenses }: { loader?: () => Promise<Th
 
   return (
     <div className="settings-page about-page">
+      {mobileApp ? (
+        <SettingsSection title="This app">
+          <SettingRow
+            title={`Tau ${mobileApp.version}`}
+            description={`${mobileApp.platform === "ios" ? "Check the App Store or TestFlight, whichever you installed Tau from." : "Check Tau in Google Play using the account you installed it with."} A newer machine release does not mean a mobile update is available. Store approval and your testing access determine which version you can install.`}
+          />
+        </SettingsSection>
+      ) : null}
+      {!owner ? <h2>Machine updates{machine ? ` on ${machine}` : ""}</h2> : null}
       <div className="about-hero" id={settingAnchor("Version")}>
         <svg className="about-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" /><path d="M8.7 10h13.82M15 10v9.15c0 2.14 1.74 3.88 3.88 3.88 1.45 0 2.16-.4 3.15-1.09" /></svg>
         <div className="about-hero-text">
@@ -133,8 +147,11 @@ export function AboutPage({ loader = loadLicenses }: { loader?: () => Promise<Th
                   icon={pending ? <Download size={12} /> : <RefreshCw size={12} />}
                   busy={busy}
                   disabled={busy || cannotInstall !== undefined}
-                  onClick={() => run(() => (pending ? store!.install() : store!.check()))}
-                >{asking && !BUSY.has(status.phase) ? (pending ? "Starting…" : "Checking…") : actionLabel(status)}</Button>
+                  onClick={() => {
+                    if (pending && !owner) setConfirming(true);
+                    else run(() => (pending ? store!.install() : store!.check()));
+                  }}
+                >{asking && !BUSY.has(status.phase) ? (pending ? "Starting…" : "Checking…") : pending && !owner && !busy ? `Update ${machine ?? "machine"}` : actionLabel(status)}</Button>
               </span>
             ) : windowCheck ? (
               <Button variant="ghost" icon={<RefreshCw size={12} />} onClick={() => { void client?.windowAction({ kind: "check-for-updates" }).catch(() => undefined); }}>Check now</Button>
@@ -147,6 +164,16 @@ export function AboutPage({ loader = loadLicenses }: { loader?: () => Promise<Th
           </div>
         </div>
       </div>
+
+      {confirming && status ? (
+        <ConfirmDialog
+          title={`Update Tau on ${machine ?? "this machine"}?`}
+          message={`This updates the connected machine to Tau ${status.latest ?? "a newer version"}, not this app. Its host may restart and this app reconnects.`}
+          confirmLabel="Update machine"
+          onConfirm={() => { setConfirming(false); run(() => store!.install()); }}
+          onCancel={() => setConfirming(false)}
+        />
+      ) : null}
 
       {(status && !unsupported) || (here && oldHost) ? (
         <div className="settings-group">
