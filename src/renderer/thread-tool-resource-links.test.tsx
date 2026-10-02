@@ -1,21 +1,24 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, screen, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { UiToolRun } from "../../src/shared/contracts";
-import { ExtensionRegistry } from "../../src/renderer/extension-system";
-import { WorkbenchContext, ThreadStoreContext, type WorkbenchContextValue } from "../../src/renderer/workbench-context";
-import { WorkspaceResourceProvider, bindWorkspaceFileLoader } from "../../src/renderer/workspace-resource-context";
-import { ThreadDocument } from "../../src/renderer/components/ThreadDocument";
-import { RemoteThreadDocument } from "../../src/renderer/components/RemoteThreadDocument";
-import { ToolRun } from "../../src/renderer/components/ToolRun";
-import { TestProviders } from "../../src/renderer/test-support/test-providers";
-import { ThreadStore } from "../../src/workbench/thread-store";
-import { PlatformProvider } from "../../src/renderer/platform-context";
-import type { Platform } from "../../src/workbench/platform";
-import { presentRead } from "./tool-cards";
+import type { UiToolRun } from "../shared/contracts";
+import { ExtensionRegistry, type ToolPresentation } from "./extension-system";
+import { WorkbenchContext, ThreadStoreContext, type WorkbenchContextValue } from "./workbench-context";
+import { WorkspaceResourceProvider, bindWorkspaceFileLoader } from "./workspace-resource-context";
+import { ThreadDocument } from "./components/ThreadDocument";
+import { RemoteThreadDocument } from "./components/RemoteThreadDocument";
+import { ToolRun } from "./components/ToolRun";
+import { TestProviders } from "./test-support/test-providers";
+import { ThreadStore } from "../workbench/thread-store";
+import { PlatformProvider } from "./platform-context";
+import type { Platform } from "../workbench/platform";
+
+
+const toolModules = import.meta.glob<{ presentRead: (tool: UiToolRun) => ToolPresentation }>("../../kits/*/tool-cards.tsx");
+const { presentRead } = await toolModules["../../kits/workspace/tool-cards.tsx"]!();
 
 // Replace only virtual row placement. Providers, ToolRun and the registered source stay real.
-vi.mock("../../src/renderer/components/VirtualTranscript", () => ({ VirtualTranscript: () => {
+vi.mock("./components/VirtualTranscript", () => ({ VirtualTranscript: () => {
   return <ToolRun tool={fixture.tool} registry={fixture.registry} />;
 } }));
 const fixture = vi.hoisted(() => ({ tool: undefined as unknown as UiToolRun, registry: undefined as unknown as ExtensionRegistry }));
