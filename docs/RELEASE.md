@@ -567,7 +567,7 @@ For the release notes:
 
 ## Nightly builds
 
-`.github/workflows/release.yml` has a schedule (03:17 UTC). Its `gate` job
+`.github/workflows/release.yml` has a schedule (03:14 UTC). Its `gate` job
 decides whether anything runs:
 
 - only on `Rasalas/tau` (a fork's schedule stops there);
