@@ -81,6 +81,8 @@ import {
 } from "./workbench-context";
 import { displayPath } from "./path-display";
 import { usePhoneNavigation } from "./use-phone-navigation";
+import { WorkspaceResourceProvider } from "./workspace-resource-context";
+const LazyWorkspaceFileSheet = lazy(() => import("./touch/WorkspaceFileSheet").then((module) => ({ default: module.WorkspaceFileSheet })));
 import type { ShowThreadOptions } from "./use-thread-navigation";
 import { phoneTab } from "../workbench/phone-route";
 import { THREAD_DROP_FEEDBACK } from "../shared/thread-drop";
@@ -806,7 +808,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                 onRetry={(path) => void actions.switchSession(path)}
                 onOpenProviders={() => (phone ? phoneNav.openSettings("providers") : actions.openSettings("providers"))}
               /> : null}
-              <ConversationTranscript view={view} thread={thread} registry={registry} actions={actions} prompts={composer.prompts} abort={composer.abort} composer={composer} jumpToLatest={jumpToLatest} />
+              <WorkspaceResourceProvider sessionId={conversationSnapshot?.sessionId} workspace={conversationSnapshot?.workspaceId} displayPath={conversationSnapshot?.cwd}>
+                <ConversationTranscript view={view} thread={thread} registry={registry} actions={actions} prompts={composer.prompts} abort={composer.abort} composer={composer} jumpToLatest={jumpToLatest} />
+              </WorkspaceResourceProvider>
               {/* On the transcript's bottom edge, so a floating Jump to latest never covers the footer. */}
               <Region
                 registry={registry}
@@ -922,6 +926,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     </div>
     {overlays}
     {floats}
+    {phone && !stageFolded && frontTab?.kind === "file" ? <Suspense fallback={null}>
+      <LazyWorkspaceFileSheet key={JSON.stringify([pendingNewThread, snapshot?.sessionId, stageWorkspace, frontTab.id])} tab={frontTab} source={documentSource} onClose={() => { stageTabs.close(frontTab.id); setStageFolded(true); }} />
+    </Suspense> : null}
     {sheetPanel ? createPortal(<MountedPanel
       Component={sheetPanel.Component}
       active

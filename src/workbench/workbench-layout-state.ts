@@ -78,6 +78,12 @@ function decodeTab(value: unknown): StageTab | undefined {
   if (tab.kind === "file" && (typeof tab.path !== "string" || (tab.view !== "source" && tab.view !== "diff"))) return undefined;
   if (tab.kind === "thread" && (typeof tab.sessionId !== "string" || (tab.machine !== undefined && typeof tab.machine !== "string"))) return undefined;
   if (tab.kind === "panel" && (typeof tab.panelId !== "string" || !tab.panelId)) return undefined;
+  if (tab.kind === "file" && tab.resourceOrigin !== undefined && tab.resourceOrigin !== null) {
+    const origin = tab.resourceOrigin as Record<string, unknown>;
+    if (typeof origin !== "object" || ![origin.sessionId, origin.workspace, origin.sourceId].every((field) => typeof field === "string" && field.length > 0)) {
+      return { ...tab, resourceOrigin: null } as unknown as StageTab;
+    }
+  }
   return tab as unknown as StageTab;
 }
 

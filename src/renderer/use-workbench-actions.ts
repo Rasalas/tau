@@ -23,6 +23,8 @@ import { offeringKey } from "./components/model-offerings";
 import type { NewThreadController } from "../workbench/new-thread-controller";
 import type { AppPageStore } from "../workbench/app-page-store";
 import { withAppPages } from "./app-page-actions";
+import { actionableStageTab } from "./workspace-resource-navigation";
+import type { StageTab } from "../workbench/stage";
 
 export interface UseWorkbenchActionsOptions {
   client: HostClient | undefined;
@@ -135,6 +137,8 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       });
       options.openNewThreadPicker(context ? { preselect: context.workspaceId ?? context.path } : undefined);
     };
+    const commandTab = (tab: StageTab | undefined) => actionableStageTab(tab,
+      pendingNewThreadRef.current ? pendingNewThreadRef.current.workspaceId : snapshot?.workspaceId, stageTabs.documentSourceId?.());
     const actions: WorkbenchActions = {
       openPanel,
       ...(options.closePanel ? { closePanel: options.closePanel } : {}),
@@ -191,8 +195,8 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       splitStage: stageTabs.split,
       openStageTab: stageTabs.open,
       closeStageTab: stageTabs.close,
-      stageTabs: stageTabs.tabs,
-      activeStageTab: stageTabs.active,
+      stageTabs: () => stageTabs.tabs().filter((tab) => commandTab(tab)),
+      activeStageTab: () => commandTab(stageTabs.active()),
       copyText: async (text: string) => { await options.platform.clipboard.writeText(text); },
       openExternal: (url: string) => options.platform.openExternal(url),
       // Read when called: whether the host's files are this machine's settles after the first render.

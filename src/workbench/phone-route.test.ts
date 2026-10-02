@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { historySteps, routeFromState, routeFromUrl, routePath, stateWithRoute, urlWithRoute } from "./phone-history";
+import { historySteps, phoneReaderFromState, stateWithPhoneReader, routeFromState, routeFromUrl, routePath, stateWithRoute, urlWithRoute } from "./phone-history";
 import { PHONE_HOME, phoneTab, showsPhoneNav, type PhoneRoute } from "./phone-route";
 
 const chat = (thread?: string): PhoneRoute => (thread ? { kind: "chat", thread } : { kind: "chat" });
@@ -29,6 +29,11 @@ describe("a phone's routes", () => {
 });
 
 describe("history steps", () => {
+  it("consumes a reader's step only when it belongs to the route being left", () => {
+    expect(historySteps(chat("A"), chat("B"), chat("A"))).toEqual({ back: 1, replace: chat("B"), push: [] });
+    expect(historySteps(chat("A"), PHONE_HOME, chat("A"))).toEqual({ back: 2, push: [] });
+    expect(historySteps(chat("A"), chat("B"), chat("other"))).toEqual({ back: 0, replace: chat("B"), push: [] });
+  });
   it("adds an entry for a sub-page and goes back to leave it", () => {
     expect(historySteps(PHONE_HOME, chat("t1"))).toEqual({ back: 0, push: [chat("t1")] });
     expect(historySteps(chat("t1"), PHONE_HOME)).toEqual({ back: 1, push: [] });
@@ -54,6 +59,16 @@ describe("history steps", () => {
 });
 
 describe("the address and the entry", () => {
+  it("does not transfer modal ownership or mutate the old entry when replacing its route", () => {
+    const reader = { key: "reader-A", route: chat("A") };
+    const original = stateWithPhoneReader(stateWithRoute({ other: 1 }, chat("A")), reader);
+    expect(phoneReaderFromState(stateWithRoute(original, chat("A")))).toEqual(reader);
+    const switched = stateWithRoute(original, chat("B"));
+    expect(switched.other).toBe(1);
+    expect(routeFromState(switched)).toEqual(chat("B"));
+    expect(phoneReaderFromState(switched)).toBeUndefined();
+    expect(phoneReaderFromState(original)).toEqual(reader);
+  });
   const base = "https://host.test/app?host=h1#top";
 
   it("writes the route beside the address's own parameters", () => {

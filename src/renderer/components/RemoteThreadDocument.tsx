@@ -18,6 +18,7 @@ import { useEnvironmentThread, useEnvironmentTranscript } from "../use-environme
 import { tooltipProps } from "./ui/Tooltip";
 import { useStickToTail } from "./ThreadDocument";
 import { VirtualTranscript } from "./VirtualTranscript";
+import { WorkspaceResourceProvider } from "../workspace-resource-context";
 
 /** Why the window cannot move to the thread's machine now; undefined when it can. */
 export function openReason(view: UiEnvironmentThreadView | undefined, canOpen: boolean): string | undefined {
@@ -134,7 +135,9 @@ export function RemoteThreadDocument({ machine, sessionId, registry, actions }: 
     }).catch((error: unknown) => setProblem(errorMessage(error))).finally(() => setOpening(false));
   };
 
-  return <section className="stage-pane thread-document remote-thread-document" aria-label={`Thread ${title} on ${name}`}>
+  // Legacy look-in connections without an indexed home workspace cannot use the host's document source.
+  const resourceWorkspace = indexed?.backendKind === "machine" && indexed.machine?.id === machine ? indexed.workspaceId : undefined;
+  return <WorkspaceResourceProvider sessionId={`${machine}~${sessionId}`} workspace={resourceWorkspace} displayPath={resourceWorkspace ? indexed?.projectDisplayPath ?? indexed?.projectPath : undefined}><section className="stage-pane thread-document remote-thread-document" aria-label={`Thread ${title} on ${name}`}>
     <header className="stage-pane-header">
       <span className="stage-tab-icon"><Bot size={13} aria-hidden="true" /></span>
       <strong title={title}>{title}</strong>
@@ -187,5 +190,5 @@ export function RemoteThreadDocument({ machine, sessionId, registry, actions }: 
                 />
               </div>
             </div>}
-  </section>;
+  </section></WorkspaceResourceProvider>;
 }

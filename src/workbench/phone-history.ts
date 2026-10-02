@@ -45,16 +45,17 @@ export interface HistorySteps {
   push: PhoneRoute[];
 }
 
-export function historySteps(from: PhoneRoute, to: PhoneRoute): HistorySteps {
+export function historySteps(from: PhoneRoute, to: PhoneRoute, readerRoute?: PhoneRoute): HistorySteps {
   const before = routePath(from);
   const after = routePath(to);
   let shared = 0;
   while (shared < before.length && shared < after.length && sameRoute(before[shared]!, after[shared]!)) shared += 1;
   const pops = before.length - shared;
   const rest = after.slice(shared);
-  if (pops === 0) return { back: 0, push: rest };
-  if (rest.length === 0) return { back: pops, push: [] };
-  return { back: pops - 1, replace: rest[0]!, push: rest.slice(1) };
+  const modal = readerRoute && sameRoute(readerRoute, from) ? 1 : 0;
+  if (pops === 0) return { back: modal, push: rest };
+  if (rest.length === 0) return { back: pops + modal, push: [] };
+  return { back: pops - 1 + modal, replace: rest[0]!, push: rest.slice(1) };
 }
 
 // The address shows the route, so a reload, a link or a push lands there.
@@ -104,5 +105,69 @@ export function routeFromState(state: unknown): PhoneRoute | undefined {
 }
 
 export function stateWithRoute(state: unknown, route: PhoneRoute): Record<string, unknown> {
-  return { ...(state && typeof state === "object" ? state as Record<string, unknown> : {}), [STATE_KEY]: route };
+  const next: Record<string, unknown> = { ...(state && typeof state === "object" ? state as Record<string, unknown> : {}), [STATE_KEY]: route };
+  const reader = phoneReaderFromState(state);
+  if (reader && !sameRoute(reader.route, route)) delete next[READER_KEY];
+  return next;
+}
+
+const READER_KEY = "tau.workspace-file-reader";
+export interface PhoneReaderEntry { key: string; route: PhoneRoute }
+
+/** The modal belongs to a route, not just a component's surviving marker. */
+export function phoneReaderFromState(state: unknown): PhoneReaderEntry | undefined {
+  if (!state || typeof state !== "object") return undefined;
+  const candidate: unknown = (state as Record<string, unknown>)[READER_KEY];
+  // A reload may retain the earlier string marker. Claim it on its stamped route.
+  if (typeof candidate === "string") {
+    const route = routeFromState(state);
+    return route ? { key: candidate, route } : undefined;
+  }
+  if (!candidate || typeof candidate !== "object") return undefined;
+  const record = candidate as Record<string, unknown>;
+  const route = routeFromState({ [STATE_KEY]: record.route });
+  return typeof record.key === "string" && route ? { key: record.key, route } : undefined;
+}
+
+export function stateWithPhoneReader(state: unknown, reader: PhoneReaderEntry): Record<string, unknown> {
+  return { ...(state && typeof state === "object" ? state as Record<string, unknown> : {}), [READER_KEY]: reader };
+}
+
+// One browser history, owned by TouchLayer. Sheets register their lifetime;
+// they never navigate from a teardown callback themselves. Nothing here is SDK API.
+interface ReaderRegistration { key: string; hostingRoute?: PhoneRoute; close(): void }
+interface ReaderCoordinator { changed(): void; dismiss(key: string): boolean }
+let registration: ReaderRegistration | undefined;
+let coordinator: ReaderCoordinator | undefined;
+
+export function currentPhoneReader(): Readonly<ReaderRegistration> | undefined { return registration; }
+export function registerPhoneReader(key: string, close: () => void): () => void {
+  const hostingRoute = registration?.key === key ? registration.hostingRoute : undefined;
+  registration = { key, close, hostingRoute };
+  coordinator?.changed();
+  return () => {
+    if (registration?.key !== key) return;
+    registration = undefined;
+    coordinator?.changed();
+  };
+}
+/** Bind once after the route settles; a live reader cannot migrate to another route. */
+export function claimPhoneReaderRoute(key: string, route: PhoneRoute): boolean {
+  if (registration?.key !== key) return false;
+  registration.hostingRoute ??= route;
+  return sameRoute(registration.hostingRoute, route);
+}
+export function closePhoneReader(key: string): void {
+  if (registration?.key !== key) return;
+  const close = registration.close;
+  registration = undefined;
+  close();
+}
+export function coordinatePhoneReaderHistory(owner: ReaderCoordinator): () => void {
+  coordinator = owner;
+  owner.changed();
+  return () => { if (coordinator === owner) coordinator = undefined; };
+}
+export function dismissPhoneReader(key: string): void {
+  if (!coordinator?.dismiss(key)) closePhoneReader(key);
 }

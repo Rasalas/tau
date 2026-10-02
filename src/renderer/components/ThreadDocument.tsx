@@ -7,6 +7,7 @@ import { useThreadShell } from "../use-thread-shell";
 import { useThreadStore } from "../workbench-context";
 import { usePreferences } from "../renderer-services-context";
 import { VirtualTranscript } from "./VirtualTranscript";
+import { WorkspaceResourceProvider } from "../workspace-resource-context";
 
 /** How often a streaming thread's tab re-reads its transcript. An idle tab polls nothing. */
 export const THREAD_TAB_POLL_MS = 2_000;
@@ -80,7 +81,7 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver }: {
   const cost = session?.usage?.costUsd === undefined ? undefined : formatCost(session.usage.costUsd);
   const status = [streaming ? "working" : session ? "idle" : "gone", cost].filter(Boolean).join(" · ");
 
-  return <section className="stage-pane thread-document" aria-label={`Thread ${title}`}>
+  return <WorkspaceResourceProvider sessionId={sessionId} workspace={session?.workspaceId} displayPath={session?.projectDisplayPath ?? session?.projectPath}><section className="stage-pane thread-document" aria-label={`Thread ${title}`}>
     <header className="stage-pane-header">
       <span className="stage-tab-icon"><Bot size={13} aria-hidden="true" /></span>
       <strong title={title}>{title}</strong>
@@ -113,5 +114,5 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver }: {
                 />
               </div>
             </div>}
-  </section>;
+  </section></WorkspaceResourceProvider>;
 }

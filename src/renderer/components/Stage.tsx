@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useMemo, useState, type ComponentProps, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { Maximize2, Minimize2, PanelRight } from "lucide-react";
 import type { UiMessage } from "../../shared/contracts";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
@@ -6,6 +6,9 @@ import { activeTab, splitTab, type StageExtensionTab, type StageState, type Stag
 import type { DocumentOrigin, ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import type { StageTabController } from "../stage-tab-controller";
 import { FileViewer } from "./FileViewer";
+import { bindWorkspaceFileLoader } from "../workspace-resource-context";
+import { actionableStageTab } from "../workspace-resource-navigation";
+import { useHostClient } from "../host-client-context";
 import { STAGE_TAB_DRAG, StageTabs } from "./StageTabs";
 import { lookInMachine } from "../../workbench/look-in";
 import { usePlatform } from "../platform-context";
@@ -45,6 +48,19 @@ function ExtensionPane({ tab, registry, stageTabs, actions, from }: {
   return <section className="stage-pane" aria-label={tab.title}>
     {contribution.render(tab.params, stageTabs.handle(tab.id), actions, from)}
   </section>;
+}
+
+function OriginFileViewer({ registry, workspace, ...props }: ComponentProps<typeof FileViewer> & { registry?: ExtensionRegistry; workspace?: string }) {
+  const client = useHostClient();
+  const source = registry?.getDocumentSource();
+  const origin = props.tab.resourceOrigin;
+  const loadFile = useMemo(() => origin === undefined ? props.loadFile : bindWorkspaceFileLoader(source, origin), [client, source, origin, props.loadFile]);
+  const loadDiff = useMemo(() => origin === undefined ? props.loadDiff : async (path: string, options?: DiffLoadOptions) => {
+    if (!origin || source?.id !== origin.sourceId) throw new Error("This thread's workspace files are unavailable on this connection.");
+    return source.loadDiff(path, options, { workspace: origin.workspace });
+  }, [client, source, origin, props.loadDiff]);
+  const foreign = origin !== undefined && !actionableStageTab(props.tab, workspace, source?.id);
+  return <FileViewer {...props} loadFile={loadFile} loadDiff={loadDiff} {...(origin !== undefined ? { relativePath: props.tab.path } : {})} {...(foreign ? { changed: false, editor: undefined, commands: [] } : {})} />;
 }
 
 export function Stage({
@@ -152,7 +168,9 @@ export function Stage({
         onTakeOver={onTakeOverThread}
       />
     ) : (
-      <FileViewer
+      <OriginFileViewer
+        registry={registry}
+        workspace={workspace}
         key={tab.id}
         tab={tab}
         relativePath={relativeTo(cwd, tab.path)}
