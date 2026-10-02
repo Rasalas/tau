@@ -2,7 +2,7 @@
   "name": "tau-pi-desktop-prototype",
   "productName": "Tau",
   "desktopName": "de.tbuck.tau.desktop",
-  "version": "0.7.34",
+  "version": "0.7.35",
   "private": true,
   "type": "module",
   "description": "A desktop workbench for coding agents, built on Pi",
