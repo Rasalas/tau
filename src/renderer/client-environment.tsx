@@ -24,7 +24,8 @@ export interface ClientEnvironment {
   /** Native clients supply their control so other clients do not ship its UI. */
   dictation?: {
     port: DictationPort;
-    Control: ComponentType<{ port: DictationPort; text: string; inputRef: RefObject<HTMLTextAreaElement | null>; updateDraft(text: string): void }>;
+    Control: ComponentType<{ port: DictationPort; text: string; inputRef: RefObject<HTMLTextAreaElement | null>; updateDraft(text: string): void; onActiveChange?(active: boolean): void }>;
+    Settings?: ComponentType<{ port: DictationPort }>;
   };
 }
 

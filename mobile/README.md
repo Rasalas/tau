@@ -94,15 +94,19 @@ host out of reach opens only once the phone reaches it again.
 
 ## Dictation, agent activity and widgets
 
-On a supported iPhone with iOS 26 or later, **Dictate** records up to five
-minutes and transcribes with Apple's on-device SpeechTranscriber. Choose a
-language first. A missing model downloads from Apple; after that, recording
-and transcription work offline. Tau asks for microphone permission and
-never sends audio to a host or transcription server. Review or edit the
-transcript, then **Insert into draft** places it at the cursor captured before
-recording. Sending remains a separate action. Cancel discards audio and late
-results. If the draft changes during recording, insertion appends to preserve
-those edits. Android and unsupported iPhones keep the system keyboard's dictation.
+On a supported iPhone or iPad with iOS 26 or later, the microphone beside
+Send transcribes speech with Apple's on-device SpeechTranscriber. Settings →
+General → Dictation language follows the device language by default. A missing
+model downloads from Apple; after that, dictation works offline. Tau asks for
+microphone permission and never sends audio to a host or transcription server.
+The microphone level and provisional words appear below the composer. Finalized
+phrases enter the draft at the captured cursor while recording continues.
+Tap Stop to finish, then edit or send as usual. There is no transcript review
+step and nothing sends automatically. Cancel discards unfinished speech and
+late results, keeping text already inserted. If the draft changes during
+recording, new phrases append to preserve those edits. Recording stops after
+five minutes or when the app goes into the background. Android and unsupported
+devices keep the system keyboard's dictation.
 
 While the phone is connected, thread events update the iPhone's Live Activity
 and Android ongoing notifications. An iPhone shows one Live Activity per host

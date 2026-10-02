@@ -146,14 +146,21 @@ First set up your APNs key (and for Android your Firebase project) as in
 
 Use a test host and a signed test build. No real push is needed for local dictation.
 
-- [ ] On an iOS 26 supported iPhone, deny the microphone permission. Dictate reports
-      the denial and leaves the draft unchanged.
-- [ ] Choose an uninstalled language, download its model, then turn off networking.
-      Record, stop, review, and insert. Audio never reaches the host.
+- [ ] On an iOS 26 supported iPhone or iPad, deny microphone permission. Dictate
+      reports the denial and leaves the draft unchanged.
+- [ ] Without changing Settings, Dictate uses the device language, not Cantonese
+      or another first entry from the supported-language list.
+- [ ] In Settings → General, choose an uninstalled dictation language, download its
+      model, then turn off networking. Record, pause, and stop. Finalized phrases
+      appear in the draft without confirmation; provisional words and the real
+      microphone level appear below the composer. Audio never reaches the host.
 - [ ] Start in the middle of a draft or over a selection. Insertion uses that selection;
       no message sends until Send is tapped.
 - [ ] Cancel during model download, permission request, recording and transcription.
-      No late transcript or microphone recording survives cancellation.
+      No late transcript or microphone recording survives cancellation. Text
+      already inserted stays editable. Send stays disabled until dictation ends.
+- [ ] Background the app during recording, then return. The microphone is off,
+      unfinished words are discarded, and a new recording can start.
 - [ ] Record to the five-minute limit. Stop and insertion still work. Try an interruption,
       such as an incoming call, and confirm the recording reports an error or stops.
 - [ ] Start a fake agent turn. iOS Live Activity / Android ongoing card shows running;

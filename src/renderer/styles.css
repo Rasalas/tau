@@ -817,10 +817,6 @@ body:not([data-profile="compact"]) .conversation-start .composer-zone { padding-
 .message-actions button:hover { background: var(--raised); color: var(--ink-2); }
 .message-actions button:focus-visible { opacity: 1; outline: 1px solid var(--focus); outline-offset: 0; }
 
-/* The line between two turns (design 2d); kits add actions to it on hover. */
-.turn-divider { display: flex; align-items: center; gap: 8px; margin: 4px 0 14px; color: var(--muted); font: var(--text-xs) var(--sans); }
-.turn-divider::before, .turn-divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
-.turn-divider > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; outline: none; }
 .message.user {
   align-self: flex-end; max-width: 78%;
   display: flex; flex-direction: column; gap: 6px; align-items: flex-end;

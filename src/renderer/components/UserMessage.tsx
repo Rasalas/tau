@@ -11,7 +11,6 @@ import { copyableMessage, embeddedFileContexts, localImagePaths, visibleUserMess
 import { isLongMessage } from "./message-grapheme";
 import { compactTimestamp, fullTimestamp } from "./message-timestamp";
 import { Region } from "./Regions";
-import { truncatePromptPreview } from "./transcript-turn-navigation";
 import type { TranscriptTurn } from "../extension-system";
 
 interface UserMessageProps {
@@ -20,17 +19,14 @@ interface UserMessageProps {
   onEdit?: (message: UiMessage) => void;
   onToggleExpanded?: (messageId: string, expanded: boolean) => void;
   expanded?: boolean;
-  /** The turn this prompt starts; from the second on, a divider names it (design 2d). */
+  /** The turn this prompt starts; used by its contextual actions. */
   turn?: TranscriptTurn;
 }
 
-/** "Turn 3 · Regression tests" between two turns; kits add what can be done from there. */
-function TurnDivider({ turn }: { turn: TranscriptTurn }) {
+/** Keep the existing extension placement for Fork and Restore, without a numbered separator. */
+function TurnActions({ turn }: { turn: TranscriptTurn }) {
   const shell = useContext(WorkbenchShellContext);
-  return <div className="turn-divider">
-    <span tabIndex={-1}>Turn {turn.number} · {truncatePromptPreview(turn.messages[0]!.text, 40)}</span>
-    {shell?.actions ? <Region registry={shell.registry} placement="turn-divider" snapshot={shell.snapshot} actions={shell.actions} turn={turn} bare /> : null}
-  </div>;
+  return shell?.actions ? <Region registry={shell.registry} placement="turn-divider" snapshot={shell.snapshot} actions={shell.actions} turn={turn} bare /> : null;
 }
 
 function SkillChip({ name }: { name: string }) {
@@ -106,7 +102,7 @@ export function UserMessage({
   };
 
   return (
-    <>{turn && turn.number > 1 ? <TurnDivider turn={turn} /> : null}<div className="message-shell user">
+    <div className="message-shell user">
       {blocks.length > 0 ? <div className="message-user-blocks">{blocks}</div> : null}
       <PersistedMessageImages images={persistedImages} text={message.text} />
       {hasLocalImages ? <MessageImages text={message.text} /> : null}
@@ -151,6 +147,7 @@ export function UserMessage({
           </button>
         ) : null}
         <div className="message-user-meta">
+          {turn ? <TurnActions turn={turn} /> : null}
           <time
             dateTime={new Date(message.timestamp).toISOString()}
             title={fullTimestamp(message.timestamp)}
@@ -165,6 +162,6 @@ export function UserMessage({
           /> : null}
         </div>
       </article>
-    </div></>
+    </div>
   );
 }

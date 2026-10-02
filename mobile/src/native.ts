@@ -24,7 +24,7 @@ interface TauNativePlugin {
   activityClear(options: { hostId: string }): Promise<void>;
   dictationLanguages(): ReturnType<import("../../src/renderer/dictation").DictationPort["languages"]>;
   dictationDownload(options: { language: string }): Promise<void>;
-  dictationStart(options: { language: string }): Promise<void>;
+  dictationStart(options: { language: string; id: string }): Promise<void>;
   dictationFinish(): Promise<{ text: string }>;
   dictationCancel(): Promise<void>;
   secureGet(options: { key: string }): Promise<{ value?: string }>;
@@ -44,6 +44,7 @@ interface TauNativePlugin {
   addListener(event: "activityToken", listener: (event: import("./activities").ActivityToken) => void): Promise<PluginListenerHandle>;
   addListener(event: "socket", listener: (event: NativeSocketEvent) => void): Promise<PluginListenerHandle>;
   addListener(event: "discovery", listener: (event: { services: NativeService[]; error?: string }) => void): Promise<PluginListenerHandle>;
+  addListener(event: "dictation", listener: (event: import("../../src/renderer/dictation").DictationUpdate & { id: string }) => void): Promise<PluginListenerHandle>;
   addListener(event: "textScale", listener: (event: { scale: number }) => void): Promise<PluginListenerHandle>;
 }
 
@@ -117,12 +118,20 @@ export const textScalePort: TextScalePort = {
   },
 };
 
+let dictationId = "";
 export const nativeDictation: import("../../src/renderer/dictation").DictationPort = {
   languages: () => TauNative.dictationLanguages(),
   download: (language) => TauNative.dictationDownload({ language }),
-  start: (language) => TauNative.dictationStart({ language }),
+  start: (language) => {
+    dictationId = crypto.randomUUID();
+    return TauNative.dictationStart({ language, id: dictationId });
+  },
   finish: async () => (await TauNative.dictationFinish()).text,
-  cancel: () => TauNative.dictationCancel().catch(() => undefined),
+  cancel: () => { dictationId = ""; return TauNative.dictationCancel().catch(() => undefined); },
+  listen: async (listener) => {
+    const handle = await TauNative.addListener("dictation", (event) => { if (dictationId && event.id === dictationId) listener(event); });
+    return () => { void handle.remove(); };
+  },
 };
 
 export const nativeActivities: import("./activities").ActivityPort = {

@@ -12,6 +12,7 @@ import type { SettingsCardId, SettingsSectionProps } from "../extension-system";
 import { SegmentedControl, Select, Switch } from "./controls";
 import { SettingRow, SettingsCard, useSetting } from "./settings-layout";
 import { settingAnchor } from "./settings-search";
+import { useClientEnvironment } from "../client-environment";
 
 const SEND_SHORTCUTS: ReadonlyArray<{ value: SendShortcut; label: string }> = [
   { value: "enter", label: "Return" },
@@ -43,6 +44,8 @@ export function GeneralPage({ themeHere, sections = [], onNotify = () => undefin
   onNotify?(message: string): void;
 }) {
   const preferences = usePreferences();
+  const dictation = useClientEnvironment().dictation;
+  const DictationSettings = dictation?.Settings;
   const { sendShortcut } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const composerFolds = useSyncExternalStore(composerFold.subscribe, composerFold.get);
   const mod = isMacPlatform() ? "⌘" : "Ctrl+";
@@ -111,6 +114,7 @@ export function GeneralPage({ themeHere, sections = [], onNotify = () => undefin
       {card("new-threads", "New threads")}
       {card("threads", "Threads")}
       <SettingsCard title="Composer">
+        {dictation && DictationSettings ? <DictationSettings port={dictation.port} /> : null}
         <SettingRow
           id={settingAnchor("Transcript detail")}
           title="Transcript detail"

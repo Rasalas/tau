@@ -810,14 +810,14 @@ body[data-profile="compact"] .title-bar .draft-detail:not(:last-child)::after { 
 .tool-diff-stat { flex: none; font-weight: 600; }
 .tool-diff-stat > span { font-size: var(--text-xs); }
 
-/* Fork and Restore on the line above a turn, on hover (design 2d). */
+/* Fork and Restore beside the prompt metadata, on hover or focus. */
 .turn-actions { display: none; gap: 2px; }
-.turn-divider:is(:hover, :focus-within) .turn-actions, .turn-actions.open { display: inline-flex; }
+.message-shell.user:is(:hover, :focus-within) .turn-actions, .turn-actions.open { display: inline-flex; }
 .turn-actions > button { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; padding: 1px 7px; border: 0; border-radius: 5px; background: var(--code-bg); color: var(--ink); font: inherit; cursor: pointer; }
 .turn-actions > button:hover { background: var(--raised); }
-/* On touch a tap on the line shows them on a line of their own, so nothing moves under the finger. */
-body[data-profile="compact"] .turn-divider { flex-wrap: wrap; }
-body[data-profile="compact"] .turn-actions { order: 1; flex-basis: 100%; justify-content: center; gap: 8px; }
+/* Touch clients keep the actions visible, with full-height tap targets. */
+body[data-profile="compact"] .message-user-meta { flex-wrap: wrap; }
+body[data-profile="compact"] .turn-actions { display: inline-flex; gap: 8px; }
 body[data-profile="compact"] .turn-actions > button { min-height: 44px; padding: 0 12px; }
 .popover.fork-dialog { width: 300px; padding: 14px 16px 12px; border: 0; }
 .fork-dialog > h2 { font-size: 15px; }
