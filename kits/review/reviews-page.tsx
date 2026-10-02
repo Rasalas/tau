@@ -130,7 +130,7 @@ function Model({ review, name = true }: { review: LocalReview; name?: boolean })
 function Into({ review }: { review: LocalReview }) {
   if (!review.target) return null;
   const off = review.offDefault;
-  return <span className="rv-into" data-off={off ? "" : undefined} {...(off ? tooltipProps(`Not ${off}: Merge lands on the branch the project's checkout has out.`) : {})}> → {review.target}</span>;
+  return <span className="rv-into" data-off={off ? "" : undefined} {...(off ? tooltipProps(`This review targets ${review.target}; the project's default branch is ${off}.`) : {})}> → {review.target}</span>;
 }
 
 const cost = (review: LocalReview) => review.costUsd === undefined ? "—" : formatCost(review.costUsd) ?? "$0.00";
@@ -422,7 +422,9 @@ function ReviewDetail({ review, parts, act, actions }: { review: LocalReview; pa
           <button type="button" disabled={!act.mayAsk} onClick={() => { void parts.store.withdraw(review).catch((error) => actions.notify(errorMessage(error))); }}>Withdraw</button>
         </div>
       ) : null}
-      {review.mergedBy ? <p className="rv-already" role="status"><GitMerge size={13} aria-hidden="true" /> Already in {review.target}: {ALREADY[review.mergedBy]}</p> : null}
+      {review.request && review.state === "merged" ? <p className="rv-already" role="status"><GitMerge size={13} aria-hidden="true" /> Integrated into {review.target} through <a href={review.request.url} target="_blank" rel="noreferrer">PR #{review.request.number}</a>.</p>
+        : review.mergedBy ? <p className="rv-already" role="status"><GitMerge size={13} aria-hidden="true" /> Already in {review.target}: {ALREADY[review.mergedBy]}</p> : null}
+      {review.state !== "merged" && review.mergeBlocked ? <p className="rv-already" role="status">{review.mergeBlocked}</p> : null}
       {review.conflicts.length > 0 ? (
         <p className="rv-conflicts" role="status"><TriangleAlert size={13} aria-hidden="true" /> Conflicts with {review.target} in {review.conflicts.slice(0, 6).join(", ")}{review.conflicts.length > 6 ? " …" : ""}</p>
       ) : null}
@@ -483,13 +485,13 @@ function ReviewDetail({ review, parts, act, actions }: { review: LocalReview; pa
             </button>
           )}
         </div>
-      ) : removing ? (
+      ) : removing && review.path ? (
         <div className="rv-detail-actions" role="group" aria-label="Remove">
           <span>Remove the worktree and delete {review.branch}? The threads stay.</span>
           <button type="button" onClick={() => setRemoving(false)}>Cancel</button>
           <button type="button" className="danger" disabled={act.busy === review.key} onClick={() => act.remove(review)}>{act.busy === review.key ? "Removing…" : "Remove"}</button>
         </div>
-      ) : review.workspace && !review.remote ? (
+      ) : review.path && review.workspace && !review.remote ? (
         <div className="rv-detail-actions">
           <button type="button" disabled={!act.mayRemove} {...tooltipProps(act.mayRemove ? `Removes the worktree and deletes ${review.branch}; ${review.target} holds its work` : READ_ONLY_REASON)} onClick={() => setRemoving(true)}>
             <Trash2 size={14} aria-hidden="true" /> Remove worktree and branch

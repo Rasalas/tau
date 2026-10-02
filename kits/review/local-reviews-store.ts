@@ -190,7 +190,11 @@ export class LocalReviewsStore {
 
   /** A merged branch's worktree and the branch go; the host checks it is merged. */
   async remove(review: LocalReview): Promise<void> {
-    await this.host.invoke("local-review-remove", { workspace: review.workspace });
+    await this.host.invoke("local-review-remove", {
+      workspace: review.workspace, tip: review.tip, threadId: review.threadId,
+      title: review.title, project: review.project.name,
+      costUsd: review.costUsd, modelProvider: review.modelProvider, model: review.model,
+    });
   }
 
   async withdraw(review: LocalReview): Promise<void> {

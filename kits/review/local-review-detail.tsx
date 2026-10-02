@@ -151,14 +151,14 @@ export function LocalReviewDetail({ review, parts, detail, act, actions, back, f
     if (picking) parts.store.conflicts(review).then((answer) => { if (live) setConflicts(answer); }, (error) => { if (live) actions.notify(errorMessage(error)); });
     if (!review.remote) parts.store.notes(review).then((answer) => { if (live) setSent(Array.isArray(answer) ? answer : []); }, () => undefined);
     return () => { live = false; };
-  }, [parts.store, review.key, review.tip, picking]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [parts.store, review.key, review.tip, review.target, picking]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let live = true;
     setSummary(undefined);
     parts.store.summary(review).then((answer) => { if (live) setSummary(answer); }, () => { if (live) setSummary({}); });
     return () => { live = false; };
-  }, [parts.store, review.key, review.tip]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [parts.store, review.key, review.tip, review.target]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The conflicting files first, as 2e shows them.
   const files = useMemo<StackFile[]>(() => {
@@ -321,7 +321,7 @@ export function LocalReviewDetail({ review, parts, detail, act, actions, back, f
     { id: "checks", label: "Checks", ...(passed ? { aside: `· ${passed}` } : {}) },
   ];
 
-  const unpicked = conflicts?.files.every((file) => !file.unpickable && file.hunks.every((_, index) => picks[file.path]?.[index])) ? undefined : "Merge unlocks when every hunk has a pick.";
+  const unpicked = !act.mayMerge ? READ_ONLY_REASON : review.unavailable ?? review.mergeBlocked ?? (conflicts?.files.every((file) => !file.unpickable && file.hunks.every((_, index) => picks[file.path]?.[index])) ? undefined : "Merge unlocks when every hunk has a pick.");
   const mergePicks = () => {
     if (!conflicts || conflicts.tip !== review.tip) return;
     act.merge(review, Object.fromEntries(conflicts.files.map((file) => [file.path, picks[file.path] as HunkPick[]])));
@@ -344,7 +344,7 @@ export function LocalReviewDetail({ review, parts, detail, act, actions, back, f
   const meta = (
     <>
       <span className="rvd-mono">{review.remote ? `${review.remote.machine}: ` : ""}{review.branch}</span>
-      {review.target ? <><span aria-hidden="true">→</span><span className="rvd-mono" data-off={review.offDefault ? "" : undefined} {...(review.offDefault ? tooltipProps(`Not ${review.offDefault}: Merge lands on the branch the project's checkout has out.`) : {})}>{review.target}</span></> : null}
+      {review.target ? <><span aria-hidden="true">→</span><span className="rvd-mono" data-off={review.offDefault ? "" : undefined} {...(review.offDefault ? tooltipProps(`This review targets ${review.target}; the project's default branch is ${review.offDefault}.`) : {})}>{review.target}</span></> : null}
       {picking ? null : <>
       <span aria-hidden="true">·</span>
       <span>{plural(review.files, "file")}</span>
@@ -353,7 +353,7 @@ export function LocalReviewDetail({ review, parts, detail, act, actions, back, f
       {review.model ? <><span aria-hidden="true">·</span><ModelMark review={review} /></> : null}
       {review.costUsd !== undefined ? <><span aria-hidden="true">·</span><span className="rvd-mono">{formatCost(review.costUsd) ?? "$0.00"}</span></> : null}
       </>}
-      {review.behind > 0 ? <span className="rvd-behind"><TriangleAlert size={11} aria-hidden="true" />{review.target} moved {plural(review.behind, "commit")} since this branch started</span> : null}
+      {!merged && review.behind > 0 ? <span className="rvd-behind"><TriangleAlert size={11} aria-hidden="true" />{review.target} moved {plural(review.behind, "commit")} since this branch started</span> : null}
       {review.uncommitted ? <span className="rvd-behind"><TriangleAlert size={11} aria-hidden="true" />{review.uncommitted} not committed</span> : null}
     </>
   );
@@ -361,7 +361,7 @@ export function LocalReviewDetail({ review, parts, detail, act, actions, back, f
   const buttons = merged ? (
     <>
       {thread ? <button type="button" className="rvd-ghost" onClick={() => { void actions.switchSession(thread.path); }}>Open thread</button> : null}
-      {review.workspace && !review.remote ? (
+      {review.path && review.workspace && !review.remote ? (
         <button type="button" className="rvd-ghost" disabled={!act.mayRemove || removing} {...tooltipProps(act.mayRemove ? `Removes the worktree and deletes ${review.branch}; ${review.target} holds its work` : READ_ONLY_REASON)} onClick={() => setRemoving(true)}>
           <Trash2 size={12} aria-hidden="true" /> Remove worktree and branch
         </button>
@@ -402,13 +402,15 @@ export function LocalReviewDetail({ review, parts, detail, act, actions, back, f
           <button type="button" disabled={!act.mayAsk} onClick={() => { void parts.store.withdraw(review).catch((error) => actions.notify(errorMessage(error))); }}>Withdraw</button>
         </div>
       ) : null}
-      {review.mergedBy ? <p className="rv-already rvd-notice" role="status"><GitMerge size={13} aria-hidden="true" /> Already in {review.target}: {ALREADY[review.mergedBy]}</p> : null}
+      {review.request && merged ? <p className="rv-already rvd-notice" role="status"><GitMerge size={13} aria-hidden="true" /> Integrated into {review.target} through <a href={review.request.url} target="_blank" rel="noreferrer">PR #{review.request.number}</a>.</p>
+        : review.mergedBy ? <p className="rv-already rvd-notice" role="status"><GitMerge size={13} aria-hidden="true" /> Already in {review.target}: {ALREADY[review.mergedBy]}</p> : null}
+      {!merged && review.mergeBlocked ? <p className="rvd-notice" role="status">{review.mergeBlocked}</p> : null}
       {review.conflicts.length > 0 && !picking ? (
         <p className="rv-conflicts rvd-notice" role="status">
           <TriangleAlert size={13} aria-hidden="true" /> Conflicts with {review.target} in {plural(review.conflicts.length, "file")}. Ask the thread to rebase: it re-runs the checks and comes back here.
         </p>
       ) : null}
-      {removing ? (
+      {removing && review.path ? (
         <div className="rvd-notice rvd-confirm" role="group" aria-label="Remove">
           <span>Remove the worktree and delete {review.branch}? The threads stay.</span>
           <button type="button" onClick={() => setRemoving(false)}>Cancel</button>

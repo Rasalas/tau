@@ -105,6 +105,41 @@ function setupLocal(options: Options = {}) {
 }
 
 describe("a local review's detail (1e)", () => {
+  it("shows completed work under Merged with its request and cleanup, without integration actions", async () => {
+    const answer: LocalReviewsAnswer = { branches: [branch("pairing-flake", {
+      merged: true, mergedBy: "request", behind: 30, mergeBlocked: "Check out main before merging.",
+      request: { url: "https://github.com/acme/shop-api/pull/5", number: 5 },
+    })], asks: {}, merged: [] };
+    setupLocal({ answer, params: { tab: "merged", review: FLAKE } });
+    const article = await screen.findByRole("article", { name: "Fix flaky pairing test" });
+    expect((await within(article).findByRole("link", { name: "PR #5" })).getAttribute("href")).toBe("https://github.com/acme/shop-api/pull/5");
+    expect(within(article).getByRole("button", { name: "Remove worktree and branch" })).toBeTruthy();
+    expect(within(article).queryByRole("button", { name: /Merge into|Ask the thread to rebase/u })).toBeNull();
+    expect(article.textContent).not.toContain("moved 30 commits");
+    expect(article.textContent).not.toContain("Check out main");
+  });
+
+  it("blocks merging with all picks when the destination is not checked out", async () => {
+    const message = "Check out main in the project's main folder before merging. It currently has fix/privacy.";
+    const answer: LocalReviewsAnswer = { branches: [branch("pairing-flake", { conflicts: ["src/watcher.ts"], mergeBlocked: message })], asks: {}, merged: [] };
+    const conflicts = { tip: "pairing-flake-tip", files: [{ path: "src/watcher.ts", hunks: [{ main: ["b"], thread: ["a"], mainLine: 1, threadLine: 1 }] }] };
+    setupLocal({ answer, params: { tab: "conflicts", review: FLAKE }, conflicts });
+    const hunk = await screen.findByRole("group", { name: "Hunk 1 of 1" });
+    fireEvent.click(within(hunk).getByRole("button", { name: "Keep this thread" }));
+    await within(hunk).findByText("Kept this thread");
+    expect((screen.getByRole("button", { name: "Merge with my picks" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(message)).toBeTruthy();
+  });
+
+  it("keeps the thread accessible after cleanup and hides the removal action", async () => {
+    const answer: LocalReviewsAnswer = { branches: [], asks: {}, merged: [{
+      ...branch("pairing-flake"), target: "main", key: FLAKE, title: "Fix flaky pairing test", threadId: "t1", at: Date.now(),
+    }] };
+    setupLocal({ answer, params: { tab: "merged", review: FLAKE } });
+    const article = await screen.findByRole("article", { name: "Fix flaky pairing test" });
+    expect(within(article).getByRole("button", { name: "Open thread" })).toBeTruthy();
+    expect(within(article).queryByRole("button", { name: "Remove worktree and branch" })).toBeNull();
+  });
   it("names the review, what it changed and what it costs, with Merge into its target and Request changes", async () => {
     setupLocal();
     const article = await screen.findByRole("article", { name: "Fix flaky pairing test" });

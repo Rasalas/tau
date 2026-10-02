@@ -540,10 +540,21 @@ export interface ThreadPullRequestLink {
   state?: "open" | "closed" | "merged";
   draft?: boolean;
   headRef?: string;
+  /** The submitted head commit, retained after a squash merge. */
+  headSha?: string;
   baseRef?: string;
   /** The stack it is a layer of, where the host keeps stacks: its number and how many layers it has. */
   stack?: { number: number; size: number };
   refreshedAt?: number;
+}
+
+/** A thread's cached request for its branch, used to target and settle a local review. */
+export interface BranchReviewRequest {
+  target: string;
+  tip?: string;
+  merged: boolean;
+  url: string;
+  number: number;
 }
 
 /** Emitted with `{ threadId }` whenever a thread's links change. */

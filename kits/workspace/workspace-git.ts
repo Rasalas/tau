@@ -37,6 +37,8 @@ import type { TurnRestoreTransaction } from "./turn-checkpoint-types.js";
 import { normalizeDiffLoadOptions } from "./turn-checkpoint-diff.js";
 import {
   branchBaseConfigKey,
+  branchReviewTargetConfigKey,
+  branchTargetOfRef,
   readBranchBase,
   readWorktreeConfig,
   resolveWorktreeParent,
@@ -2830,6 +2832,9 @@ export async function createWorktree(
   options.onStep?.("checkout");
   await runGit(cwd, ["worktree", "add", "-b", name, destination, base.commit || base.ref]);
   await runGit(cwd, ["config", branchBaseConfigKey(name), base.ref]).catch(() => "");
+  // A remote-tracking ref names the same destination branch on its remote.
+  const target = await branchTargetOfRef(cwd, base.ref, runGit);
+  if (target) await runGit(cwd, ["config", branchReviewTargetConfigKey(name), target]);
   return destination;
 }
 

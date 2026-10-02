@@ -256,7 +256,7 @@ describe("the Reviews page", () => {
     expect(await screen.findByText(/^Already in main: every commit's change is there already/u)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Remove worktree and branch/u }));
     fireEvent.click(within(screen.getByRole("group", { name: "Remove" })).getByRole("button", { name: "Remove" }));
-    await waitFor(() => expect(detail.invoke).toHaveBeenCalledWith("local-review-remove", { workspace: "ws-pairing-flake" }));
+    await waitFor(() => expect(detail.invoke).toHaveBeenCalledWith("local-review-remove", expect.objectContaining({ workspace: "ws-pairing-flake", tip: picked.tip, threadId: "t1" })));
     await waitFor(() => expect(detail.toast).toHaveBeenCalledWith(expect.objectContaining({ type: "success", title: "Removed feat/picked and its worktree" })));
     expect(invoke).not.toHaveBeenCalledWith("local-review-remove", expect.anything());
     expect(toast).not.toHaveBeenCalled();
@@ -265,7 +265,7 @@ describe("the Reviews page", () => {
   it("marks a target that is not the default branch", async () => {
     setup({ answer: { branches: [branch("aside", { target: "feat/chatgpt-plan-sign-in", defaultBranch: "main", workspace: "ws-pairing-flake" })], asks: {}, merged: [] } });
     const into = await screen.findByText("→ feat/chatgpt-plan-sign-in");
-    expect(into.dataset.tooltip).toBe("Not main: Merge lands on the branch the project's checkout has out.");
+    expect(into.dataset.tooltip).toBe("This review targets feat/chatgpt-plan-sign-in; the project's default branch is main.");
   });
 
   it("says what lands here when nothing does", async () => {

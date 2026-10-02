@@ -71,7 +71,7 @@ A page of the app beside the sidebar, like Settings: Usage and Reviews. It takes
 
 ## Review
 
-A thread's finished work as a local merge request: the branch a thread worked on in a worktree of its own (or that came back from another machine), once no thread there works any more, against the branch its main checkout has out. It is ready, in conflict, waiting on changes the user asked the thread for, or merged; the Reviews page lists them across projects, and remote pull requests under Remote.
+A thread's finished work as a local merge request, with an intended target branch that stays the same when the project's checkout switches branches. It is ready, in conflict, waiting on requested changes, or merged; completed work stays merged, and further work on the thread's branch opens it again.
 
 ## Extension
 

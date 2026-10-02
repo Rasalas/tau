@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -15,7 +15,8 @@ afterEach(async () => {
 });
 
 async function workspace(): Promise<string> {
-  const path = await mkdtemp(join(tmpdir(), "tau-workspace-kit-"));
+  // Git reports canonical paths; on macOS /var is a symlink to /private/var.
+  const path = await realpath(await mkdtemp(join(tmpdir(), "tau-workspace-kit-")));
   directories.push(path);
   return path;
 }
