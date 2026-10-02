@@ -260,7 +260,7 @@
   display: flex; align-items: center; gap: var(--space-1);
 }
 .sidebar-footer button {
-  position: relative; width: 30px; height: 30px; display: grid; place-items: center;
+  position: relative; flex: none; width: 30px; height: 30px; display: grid; place-items: center;
   border: 0; border-radius: var(--radius-row);
   background: transparent; color: var(--ink-3); cursor: pointer;
 }
@@ -285,7 +285,7 @@
 .sidebar-footer-end { flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: var(--space-1); container-type: inline-size; }
 .sidebar-footer button.sidebar-update { color: var(--info-ink); }
 .sidebar-footer button.sidebar-summary {
-  width: auto; max-width: 100%; display: block; padding: 0 8px; overflow: hidden;
+  flex: 0 1 auto; width: auto; max-width: 100%; display: block; padding: 0 8px; overflow: hidden;
   color: var(--muted); font: var(--text-xs) var(--mono); white-space: nowrap; text-overflow: ellipsis;
 }
 .sidebar-footer button.sidebar-summary:hover { color: var(--ink); }

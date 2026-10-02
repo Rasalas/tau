@@ -31,7 +31,7 @@ interface ThreadRowProps {
   active: boolean;
   age: string;
   compact?: boolean;
-  /** Threads spawned from this one that are working right now. */
+  /** @deprecated Fold child activity into `activity`; the row no longer shows a separate count. */
   workingChildren?: number;
   projectIcon?: string;
   modelProvider?: string;
@@ -98,7 +98,6 @@ export const ThreadRow = memo(function ThreadRow({
   active,
   age,
   compact,
-  workingChildren = 0,
   projectIcon,
   modelProvider,
   session,
@@ -120,13 +119,6 @@ export const ThreadRow = memo(function ThreadRow({
   );
   const working = activity === "working" || activity === "tool";
   const showStatus = showsThreadStatus(activity);
-  const childCount = workingChildren > 0
-    ? (
-      <span className="thread-agent-count" aria-label={`${workingChildren} agent${workingChildren === 1 ? "" : "s"} running`}>
-        <i />{workingChildren} running
-      </span>
-    )
-    : null;
   const hover = details && !hoverCard ? tooltipProps(details, { side: "right", variant: "lines" }) : undefined;
   const titleTip = hover || hoverCard ? undefined : tooltipProps(session.title, { when: "truncated", side: "right" });
 
@@ -136,10 +128,11 @@ export const ThreadRow = memo(function ThreadRow({
         <button className="thread-main" onClick={() => onSelect(session.path)} {...hover}>
           {projectMark}
           <span className="thread-title" {...titleTip}>{session.title}</span>
-          {childCount}
           {accessory}
           {machine ? <MachineMark machine={machine} /> : null}
-          <time>{age}</time>
+          {showStatus
+            ? <ThreadStatus activity={activity} label={working ? "Working" : label} hint={activityHint} startedAt={startedAt ?? session.modifiedAt} />
+            : <time>{age}</time>}
         </button>
         {onToggleSettled || (!settled && actions) ? <span className="thread-row-actions">
           {settled ? null : actions}
@@ -175,7 +168,6 @@ export const ThreadRow = memo(function ThreadRow({
           </span>
           {accessory ? <span className="thread-meta-marks">{accessory}</span> : null}
           {showLabel && session.projectLabel ? <span className="thread-branch"><GitBranch size={11} aria-hidden="true" /><MiddleTruncate value={session.projectLabel} /></span> : null}
-          {childCount}
         </span>
       </button>
       {actions || onToggleSettled ? <span className="thread-row-actions">

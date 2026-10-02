@@ -31,6 +31,7 @@ import {
   type WorkbenchActions,
 } from "tau";
 import { repositoryFolderName, WORKSPACE_HOST_EXTENSION_ID, type RailExternalThread, type ThreadRailSection, type ThreadRailOrganizer, type ThreadRailRowAction, type UiDirectoryListing } from "./protocol.js";
+import { railActivity } from "./rail-activity.js";
 import { useRailDrag } from "./rail-drag.js";
 import { mergeByTime, useRailExternalThreads } from "./rail-external.js";
 import { ThreadCard, ThreadCardLayer, type ThreadCardTarget } from "./thread-card.js";
@@ -654,7 +655,6 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   activityHint,
   activityIcon,
   compact,
-  workingChildren,
   modelProvider,
   startedAt,
   onSelect,
@@ -670,7 +670,6 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   activityHint?: string;
   activityIcon?: ReactNode;
   compact: boolean;
-  workingChildren: number;
   modelProvider?: string;
   startedAt?: number;
   onSelect(path: string): Promise<boolean>;
@@ -708,7 +707,6 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
       activityIcon={activityIcon}
       hoverCard
       compact={compact}
-      workingChildren={workingChildren}
       modelProvider={modelProvider}
       startedAt={startedAt}
       onSelect={onSelect}
@@ -926,8 +924,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const projectSettings = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().projectSettings);
   const projects = useSyncExternalStore(threadStore.subscribeToProjects, threadStore.getProjects);
   const navigationSnapshot = useSyncExternalStore(threadStore.subscribeToIds, threadStore.getSnapshot);
-  const activityState = useSyncExternalStore(threadStore.subscribeToActivity, threadStore.getActivity);
+  const ownActivity = useSyncExternalStore(threadStore.subscribeToActivity, threadStore.getActivity);
   const threads = navigationSnapshot.threads;
+  const activityState = useMemo(() => railActivity(ownActivity, threads, lineage), [ownActivity, threads, lineage]);
   const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const [threadLimit, setThreadLimit] = useState(THREAD_PAGE_SIZE);
@@ -1081,7 +1080,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       activityHint={hint}
       activityIcon={icon}
       compact={(compact || compactRows) && status !== "settled"}
-      workingChildren={lineage.workingChildren[session.id] ?? 0}
       modelProvider={!draftOnScreen && session.id === activityState.activeThreadId ? snapshot?.model?.provider : undefined}
       startedAt={activityState.runningStartedAt[session.id]}
       onSelect={actions.switchSession}

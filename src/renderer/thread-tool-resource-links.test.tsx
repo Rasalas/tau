@@ -51,7 +51,7 @@ describe("absolute tool links in historical transcripts", () => {
     } } as unknown as Platform;
     render(<TestProviders><PlatformProvider platform={platform}><ThreadStoreContext.Provider value={store}><WorkbenchContext.Provider value={context}>
       <WorkspaceResourceProvider sessionId="active" workspace="opaque-active" displayPath="/active">
-        {kind === "local" ? <ThreadDocument sessionId="history" loadThread={async () => [{ id: "answer", role: "assistant", text: "answer", timestamp: 1 }]} onTakeOver={() => undefined} /> : <RemoteThreadDocument machine="peer" sessionId="history" />}
+        {kind === "local" ? <ThreadDocument sessionId="history" loadThread={async () => ({ sessionId: "history", hasMore: false, messages: [{ id: "answer", role: "assistant", text: "answer", timestamp: 1 }] })} onTakeOver={() => undefined} /> : <RemoteThreadDocument machine="peer" sessionId="history" />}
       </WorkspaceResourceProvider>
     </WorkbenchContext.Provider></ThreadStoreContext.Provider></PlatformProvider></TestProviders>);
     fireEvent.click(await screen.findByRole("button", { name: "Open /home-history/src/same.ts" }));

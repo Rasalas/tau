@@ -43,7 +43,8 @@ export function useComposerCollapse({ enabled, idle, zoneRef }: {
     const onWheel = (event: WheelEvent) => {
       if (event.ctrlKey || !(event.target instanceof Element)) return;
       const scroller = event.target.closest<HTMLElement>(".transcript");
-      if (!scroller) return;
+      const conversation = zoneRef.current?.closest(".conversation-column");
+      if (!scroller || !conversation || scroller.closest(".conversation-column") !== conversation) return;
       const delta = event.deltaY * (event.deltaMode === 1 ? LINE_PX : event.deltaMode === 2 ? scroller.clientHeight : 1);
       if (delta > 0 && scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2) {
         setCollapsed(false);
@@ -53,7 +54,7 @@ export function useComposerCollapse({ enabled, idle, zoneRef }: {
     };
     document.addEventListener("wheel", onWheel, { capture: true, passive: true });
     return () => document.removeEventListener("wheel", onWheel, true);
-  }, [enabled]);
+  }, [enabled, zoneRef]);
 
   useEffect(() => {
     const zone = zoneRef.current;

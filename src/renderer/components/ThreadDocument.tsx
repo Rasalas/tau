@@ -1,12 +1,19 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { Bot } from "lucide-react";
 import type { UiMessage } from "../../shared/contracts";
+import type { TranscriptPage } from "../../shared/host-protocol";
+import { answerTimestampAfter } from "../../workbench/transcript-folding";
+import type { ExtensionRegistry } from "../extension-system";
 import { formatCost } from "../cost-format";
 import { errorMessage } from "../../workbench/error-message";
 import { useThreadShell } from "../use-thread-shell";
 import { useThreadStore } from "../workbench-context";
 import { usePreferences } from "../renderer-services-context";
 import { VirtualTranscript } from "./VirtualTranscript";
+import { LiveStatus } from "./ComposerHost";
+import { WorkGroup } from "./WorkRows";
+import { WorkDisclosures } from "./work-disclosures";
+import type { TranscriptActivity } from "./transcript-activity";
 import { WorkspaceResourceProvider } from "../workspace-resource-context";
 
 /** How often a streaming thread's tab re-reads its transcript. An idle tab polls nothing. */
@@ -17,6 +24,7 @@ const STICK_TO_TAIL_PX = 120;
 
 interface LoadState {
   messages: UiMessage[];
+  activity: NonNullable<TranscriptPage["turnActivityHistory"]>;
   loaded: boolean;
   error?: string;
 }
@@ -38,16 +46,17 @@ export function useStickToTail(scrollRef: RefObject<HTMLDivElement | null>, mess
  * which is the reload signal; while it is streaming nothing is published until
  * the end, so the tab polls — and only then.
  */
-export function ThreadDocument({ sessionId, loadThread, onTakeOver }: {
+export function ThreadDocument({ sessionId, loadThread, onTakeOver, registry }: {
   sessionId: string;
-  loadThread(sessionId: string): Promise<UiMessage[]>;
+  loadThread(sessionId: string): Promise<TranscriptPage>;
   onTakeOver(sessionId: string): void;
+  registry?: ExtensionRegistry;
 }) {
   const store = useThreadStore();
   const session = useThreadShell(sessionId);
   const activity = useSyncExternalStore(store.subscribeToActivity, store.getActivity);
   const streaming = activity.runningThreadIds.includes(sessionId);
-  const [state, setState] = useState<LoadState>({ messages: [], loaded: false });
+  const [state, setState] = useState<LoadState>({ messages: [], activity: [], loaded: false });
   const [tick, setTick] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Two reload signals besides the poll: the index entry the host republishes
@@ -64,22 +73,47 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver }: {
   useEffect(() => {
     let cancelled = false;
     void loadThread(sessionId).then(
-      (messages) => { if (!cancelled) setState({ messages, loaded: true }); },
+      (page) => { if (!cancelled) setState({ messages: page.messages, activity: page.turnActivityHistory ?? [], loaded: true }); },
       (error: unknown) => { if (!cancelled) setState((current) => ({ ...current, loaded: true, error: errorMessage(error) })); },
     );
     return () => { cancelled = true; };
   // `revision` and `tick` are reload signals, not values this effect reads.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadThread, sessionId, revision, tick]);
+  }, [loadThread, sessionId, revision, tick, streaming]);
 
   useStickToTail(scrollRef, state.messages);
 
   const preferences = usePreferences();
   useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const detail = preferences.transcriptDetailFor(sessionId);
+  const disclosures = useMemo(() => new WorkDisclosures(), [sessionId]);
+  const waiting = activity.waitingThreadIds.includes(sessionId);
+  const activities = useMemo<TranscriptActivity[]>(() => !registry ? [] : state.activity
+    .filter((entry) => entry.tools.length > 0)
+    .map((entry) => ({
+      id: entry.id,
+      afterMessageId: entry.anchorMessageId,
+      fallbackToTail: entry.status === "running",
+      content: <WorkGroup
+        id={entry.id}
+        tools={entry.tools}
+        registry={registry}
+        detail={detail}
+        disclosures={disclosures}
+        status={entry.status}
+        streaming={entry.status === "running" ? streaming : undefined}
+        waiting={waiting}
+        answerAt={answerTimestampAfter(state.messages, entry.anchorMessageId)}
+      />,
+    })), [registry, state.activity, state.messages, detail, disclosures, streaming, waiting]);
+  const hasLiveTools = Boolean(registry && state.activity.some((entry) => entry.status === "running" && entry.tools.length > 0));
+  const liveStatus = useMemo(() => waiting
+    ? <LiveStatus label="Waiting for an answer" />
+    : streaming && !hasLiveTools ? <LiveStatus startedAt={activity.runningStartedAt[sessionId]} /> : undefined,
+  [waiting, streaming, hasLiveTools, activity.runningStartedAt, sessionId]);
   const title = session?.title || "Agent";
   const cost = session?.usage?.costUsd === undefined ? undefined : formatCost(session.usage.costUsd);
-  const status = [streaming ? "working" : session ? "idle" : "gone", cost].filter(Boolean).join(" · ");
+  const status = [waiting ? "waiting for an answer" : streaming ? "working" : session ? "idle" : "gone", cost].filter(Boolean).join(" · ");
 
   return <WorkspaceResourceProvider sessionId={sessionId} workspace={session?.workspaceId} displayPath={session?.projectDisplayPath ?? session?.projectPath}><section className="stage-pane thread-document" aria-label={`Thread ${title}`}>
     <header className="stage-pane-header">
@@ -101,7 +135,7 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver }: {
         ? <div className="stage-empty" role="status">{state.error}</div>
         : !state.loaded
           ? <div className="stage-empty" role="status">Loading the transcript…</div>
-          : state.messages.length === 0
+          : state.messages.length === 0 && !streaming && !waiting
             ? <div className="stage-empty" role="status">This thread has no messages yet.</div>
             : <div className="transcript" ref={scrollRef}>
               <div className="transcript-inner">
@@ -109,9 +143,11 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver }: {
                   messages={state.messages}
                   scrollRef={scrollRef}
                   isStreaming={streaming}
+                  activities={activities}
                   sessionKey={sessionId}
                   detail={detail}
                 />
+                {liveStatus}
               </div>
             </div>}
   </section></WorkspaceResourceProvider>;

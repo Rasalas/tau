@@ -124,7 +124,7 @@ describe("historical transcript resource origin", () => {
     store.applyThreadIndex({ projects: [], sessions: [{ ...thread("history", "ws-history"), workspaceId: knownOrigin ? "ws-history" : undefined }] });
     const { value, open } = context(source(async () => content("history")));
     render(<TestProviders><ThreadStoreContext.Provider value={store}><WorkbenchContext.Provider value={value}>
-      <WorkspaceResourceProvider sessionId="active" workspace="ws-active"><ThreadDocument sessionId="history" loadThread={async () => messages()} onTakeOver={() => undefined} /></WorkspaceResourceProvider>
+      <WorkspaceResourceProvider sessionId="active" workspace="ws-active"><ThreadDocument sessionId="history" loadThread={async () => ({ sessionId: "history", hasMore: false, messages: messages() })} onTakeOver={() => undefined} /></WorkspaceResourceProvider>
     </WorkbenchContext.Provider></ThreadStoreContext.Provider></TestProviders>);
     fireEvent.click(await screen.findByRole("button", { name: `Open ${path}` }));
     expect(open).toHaveBeenCalledWith(path, knownOrigin ? origin : null);

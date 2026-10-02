@@ -2,7 +2,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { UiMessage, UiSession } from "../../shared/contracts";
+import type { TranscriptPage } from "../../shared/host-protocol";
+import type { UiSession } from "../../shared/contracts";
 import type { UiFileContent, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
 import { activateTab, closeTab, EMPTY_STAGE, openExtensionTab, openFileTab, openThreadTab, otherTabIds, pinTab, setFileView, tabIdsToTheRight, unpinTab, type StageState } from "../../workbench/stage";
 import { ThreadStore } from "../../workbench/thread-store";
@@ -51,7 +52,7 @@ function Harness({ initial, changes = NO_CHANGES, tools, maximize, onClose, thre
   maximize?: { maximized: boolean; onToggle(): void };
   onClose?: (id: string) => void;
   threads?: ThreadStore;
-  loadThread?: (sessionId: string) => Promise<UiMessage[]>;
+  loadThread?: (sessionId: string) => Promise<TranscriptPage>;
   onTakeOverThread?: (sessionId: string) => void;
   actions?: WorkbenchActions;
   registry?: ExtensionRegistry;
@@ -84,7 +85,7 @@ function Harness({ initial, changes = NO_CHANGES, tools, maximize, onClose, thre
     onCloseToRight={(id) => setStage((current) => tabIdsToTheRight(current, id).reduce(closeTab, current))}
     onChangeView={(id, view) => setStage((current) => setFileView(current, id, view))}
     onOpenInEditor={() => undefined}
-    loadThread={loadThread ?? (async () => [])}
+    loadThread={loadThread ?? (async () => ({ sessionId: CHILD, messages: [], hasMore: false }))}
     onTakeOverThread={onTakeOverThread ?? (() => undefined)}
   /></ThreadStoreContext.Provider></TestProviders>;
 }
@@ -98,11 +99,11 @@ function agentSession(overrides: Partial<UiSession> = {}): UiSession {
   };
 }
 
-function reply(text: string): UiMessage[] {
-  return [
+function reply(text: string): TranscriptPage {
+  return { sessionId: CHILD, hasMore: false, messages: [
     { id: "m1", role: "user", text: "Reply with a sentence", timestamp: 1 },
     { id: "m2", role: "assistant", text, timestamp: 2 },
-  ];
+  ] };
 }
 
 function storeWith(session?: UiSession, running = false): ThreadStore {
@@ -214,6 +215,18 @@ describe("Stage", () => {
 });
 
 describe("a thread tab", () => {
+  it("keeps a working indicator at the transcript tail before any tool runs, and clears it on completion", async () => {
+    const store = storeWith(agentSession(), true);
+    let answer = "Starting";
+    render(<Harness initial={openThreadTab(EMPTY_STAGE, CHILD)} threads={store} loadThread={async () => reply(answer)} />);
+    await screen.findByText("Starting");
+    expect(await screen.findByText("Thinking", { exact: true })).toBeTruthy();
+    answer = "Finished";
+    act(() => store.setThreadRunning(CHILD, false));
+    await screen.findByText("Finished");
+    expect(screen.queryByText("Thinking", { exact: true })).toBeNull();
+  });
+
   it("names the tab from the index and renders the thread's transcript read-only", async () => {
     render(<Harness
       initial={openThreadTab(EMPTY_STAGE, CHILD)}
@@ -450,7 +463,7 @@ describe("a thread of another machine", () => {
       }),
       transcriptPage: vi.fn(async () => {
         reads.push(Date.now());
-        return { sessionId: SESSION, messages: reply(answer), hasMore: false };
+        return { sessionId: SESSION, messages: reply(answer).messages, hasMore: false };
       }),
     } as unknown as PlatformEnvironments;
     const platform = { environments } as unknown as Platform;

@@ -372,12 +372,14 @@ describe("the navigator with agent threads", () => {
     expect(await screen.findByText(/spawned by Parent thread/)).toBeTruthy();
   });
 
-  it("keeps agents out of the rail and badges the parent instead", async () => {
+  it("keeps agents out of the rail and marks the parent Working instead", async () => {
     const sessions = [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2), session("beta", "Beta reply", 1)];
     renderApp(appWith(state, sessions, "parent"), { extensions: [workspaceExtension, agentsExtension] });
     const rail = await screen.findByRole("navigation", { name: "Threads" });
 
-    await waitFor(() => expect(screen.getByLabelText("1 agent running")).toBeTruthy());
+    const parent = await screen.findByText("Parent thread");
+    await waitFor(() => expect(parent.closest(".thread-row")?.querySelector(".thread-status-age")?.textContent).toMatch(/^Working/));
+    expect(screen.queryByLabelText("1 agent running")).toBeNull();
     expect(within(rail).queryByText("Alpha reply")).toBeNull();
     expect(screen.queryByRole("button", { name: "Show agent threads" })).toBeNull();
 
