@@ -837,7 +837,8 @@ export interface PageContribution extends ProfileScoped {
   useBadge?(): number | undefined;
   /**
    * The sidebar's foot leads with the entry (API 1.27.0). Since API 1.28.0 it is
-   * an icon with the count as a badge, the label in the tooltip.
+   * an icon with a notification dot when the count is nonzero, the label and
+   * count in the tooltip.
    */
   prominent?: boolean;
   /**
