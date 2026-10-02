@@ -54,7 +54,7 @@ export async function smokePortableHost(archive, version) {
     const token = readFileSync(environment.TAU_HOST_TOKEN_FILE, "utf8").trim();
     socket = new WebSocket(url);
     await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("Portable host protocol timed out.")), 15_000);
+      const timer = setTimeout(() => reject(new Error("Portable host protocol timed out.")), 15_000 * slow);
       socket.onopen = () => socket.send(JSON.stringify({ type: "hello", id: "smoke", hello: { protocol: 1, token, auxiliary: true } }));
       socket.onerror = () => { clearTimeout(timer); reject(new Error("Portable host socket failed.")); };
       socket.onmessage = (event) => {
