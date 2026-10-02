@@ -153,6 +153,4 @@ body[data-profile="compact"] :is(.tau-icon-button, .tau-help-tip, .chrome-ghost.
 body[data-profile="compact"] .run-on-pill-icon { width: var(--touch-target); height: var(--touch-target); padding: 0; justify-content: center; flex: none; }
 body[data-profile="compact"] .run-on-pill-icon > svg { display: block; flex: none; }
 body[data-profile="compact"] :is(.menu button[role="menuitemcheckbox"], .menu button[role="menuitemradio"], .popover button[role="option"]) { min-height: var(--touch-target); }
-body[data-profile="compact"] :is(.tau-segmented, .settings-content .segmented) { height: calc(var(--touch-target) + 6px); }
-body[data-profile="compact"] :is(.tau-segmented, .settings-content .segmented) > button { min-width: var(--touch-target); min-height: var(--touch-target); }
 body[data-profile="compact"] .settings-screen.stacked :is(.settings-nav-list button, .settings-back, .settings-about-link, .about-license-toggle) { min-height: var(--touch-target); }
