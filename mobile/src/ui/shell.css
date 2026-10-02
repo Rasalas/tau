@@ -1,3 +1,5 @@
+:root { --touch-target: calc(48px * var(--text-scale)); }
+
 /* The app's own screens around the workbench: hosts, adding one, pairing. */
 
 html, body { margin: 0; background: var(--shell); }
@@ -18,7 +20,7 @@ html, body { margin: 0; background: var(--shell); }
   padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px));
 }
 .shell-icon-button {
-  width: 44px; height: 44px; flex: none; display: grid; place-items: center; padding: 0;
+  width: var(--touch-target); height: var(--touch-target); flex: none; display: grid; place-items: center; padding: 0;
   border: 0; border-radius: 12px; background: transparent; color: var(--ink-2); cursor: pointer;
 }
 .shell-icon-button > svg { display: block; }
@@ -66,7 +68,7 @@ html, body { margin: 0; background: var(--shell); }
 .shell-empty > strong { font: 600 var(--text-lg) var(--sans); color: var(--ink-2); }
 .shell-empty > p { margin: 0; }
 .shell-empty > button {
-  display: inline-flex; align-items: center; gap: 8px; margin-top: 12px; min-height: 44px; padding: 0 16px;
+  display: inline-flex; align-items: center; gap: 8px; margin-top: 12px; min-height: var(--touch-target); padding: 0 16px;
   border: 1px solid var(--line-control); border-radius: 10px; background: var(--raised); color: var(--ink);
   font: 550 var(--text-md) var(--sans); cursor: pointer;
 }

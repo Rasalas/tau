@@ -21,6 +21,8 @@ export interface ClientEnvironment {
   servedByHost?: boolean;
   /** What the app around the workbench adds, where there is one (the native app). */
   shell?: ClientShell;
+  /** Installed native app, independent of any connected host release. */
+  mobileApp?: { platform: "ios" | "android"; version: string };
   /** Native clients supply their control so other clients do not ship its UI. */
   dictation?: {
     port: DictationPort;

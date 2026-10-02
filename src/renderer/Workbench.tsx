@@ -717,7 +717,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     </>}
     title={threadTitle}
     details={!showStartScreen && !split ? <ThreadDetails snapshot={conversationSnapshot} view={view} slots={detailSlots} />
-      : <StartDetails snapshot={conversationSnapshot} slots={detailSlots} />}
+      : split ? <StartDetails snapshot={conversationSnapshot} /> : <StartDetails snapshot={conversationSnapshot} slots={detailSlots} />}
     actions={conversationFolded ? null : <PanelSlot host={titleActionsHost} />}
     tools={stageExpanded ? undefined : stageTools}
     {...(!split && (firstTool || stage.tabs.length > 0) ? { stage: { shown: stageExpanded, shortcut: registry.keybindingLabel?.("workbench.toggle-dock"), onToggle: toggleStage } } : {})}
@@ -731,7 +731,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         snapshot={snapshot}
         actions={actions}
         thread={threadTitle}
-        details={showStartScreen ? <StartDetails snapshot={conversationSnapshot} slots={detailSlots} /> : <ThreadDetails snapshot={conversationSnapshot} view={view} machine={hostName} />}
+        details={showStartScreen ? undefined : <StartDetails snapshot={conversationSnapshot} />}
         onBack={phoneNav.showList}
         foldSheets
         sheets={sheetPanels.map((panel) => ({
