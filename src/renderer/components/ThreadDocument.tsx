@@ -81,7 +81,7 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver }: {
   const cost = session?.usage?.costUsd === undefined ? undefined : formatCost(session.usage.costUsd);
   const status = [streaming ? "working" : session ? "idle" : "gone", cost].filter(Boolean).join(" · ");
 
-  return <WorkspaceResourceProvider sessionId={sessionId} workspace={session?.workspaceId}><section className="stage-pane thread-document" aria-label={`Thread ${title}`}>
+  return <WorkspaceResourceProvider sessionId={sessionId} workspace={session?.workspaceId} displayPath={session?.projectDisplayPath ?? session?.projectPath}><section className="stage-pane thread-document" aria-label={`Thread ${title}`}>
     <header className="stage-pane-header">
       <span className="stage-tab-icon"><Bot size={13} aria-hidden="true" /></span>
       <strong title={title}>{title}</strong>

@@ -137,7 +137,7 @@ export function RemoteThreadDocument({ machine, sessionId, registry, actions }: 
 
   // Legacy look-in connections without an indexed home workspace cannot use the host's document source.
   const resourceWorkspace = indexed?.backendKind === "machine" && indexed.machine?.id === machine ? indexed.workspaceId : undefined;
-  return <WorkspaceResourceProvider sessionId={`${machine}~${sessionId}`} workspace={resourceWorkspace}><section className="stage-pane thread-document remote-thread-document" aria-label={`Thread ${title} on ${name}`}>
+  return <WorkspaceResourceProvider sessionId={`${machine}~${sessionId}`} workspace={resourceWorkspace} displayPath={resourceWorkspace ? indexed?.projectDisplayPath ?? indexed?.projectPath : undefined}><section className="stage-pane thread-document remote-thread-document" aria-label={`Thread ${title} on ${name}`}>
     <header className="stage-pane-header">
       <span className="stage-tab-icon"><Bot size={13} aria-hidden="true" /></span>
       <strong title={title}>{title}</strong>

@@ -57,6 +57,9 @@ export class StageTabController {
 
   active = (): StageTab | undefined => activeTab(this.ports.stage());
 
+  /** The registered source a resource reader must still belong to before file commands act. */
+  documentSourceId = (): string | undefined => this.ports.registry.getDocumentSource()?.id;
+
   /** The handle a tab's content talks to core through; one per tab, kept while it lives. */
   handle = (id: string): StageTabHandle => {
     const held = this.handles.get(id);

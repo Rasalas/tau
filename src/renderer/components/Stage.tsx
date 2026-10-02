@@ -7,6 +7,7 @@ import type { DocumentOrigin, ExtensionRegistry, WorkbenchActions } from "../ext
 import type { StageTabController } from "../stage-tab-controller";
 import { FileViewer } from "./FileViewer";
 import { bindWorkspaceFileLoader } from "../workspace-resource-context";
+import { actionableStageTab } from "../workspace-resource-navigation";
 import { useHostClient } from "../host-client-context";
 import { STAGE_TAB_DRAG, StageTabs } from "./StageTabs";
 import { lookInMachine } from "../../workbench/look-in";
@@ -58,7 +59,7 @@ function OriginFileViewer({ registry, workspace, ...props }: ComponentProps<type
     if (!origin || source?.id !== origin.sourceId) throw new Error("This thread's workspace files are unavailable on this connection.");
     return source.loadDiff(path, options, { workspace: origin.workspace });
   }, [client, source, origin, props.loadDiff]);
-  const foreign = origin !== undefined && origin?.workspace !== workspace;
+  const foreign = origin !== undefined && !actionableStageTab(props.tab, workspace, source?.id);
   return <FileViewer {...props} loadFile={loadFile} loadDiff={loadDiff} {...(origin !== undefined ? { relativePath: props.tab.path } : {})} {...(foreign ? { changed: false, editor: undefined, commands: [] } : {})} />;
 }
 

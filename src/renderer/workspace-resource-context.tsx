@@ -31,6 +31,15 @@ export function resourceRelativePath(path: string): string {
   return relative;
 }
 
+/** Legacy tool links may name host paths, but only under this transcript's announced root. */
+export function transcriptFilePath(path: string, displayPath: string | undefined): string {
+  const posix = path.replace(/\\/gu, "/");
+  if (!posix.startsWith("/") && !/^[A-Za-z]:\//u.test(posix)) return resourceRelativePath(path);
+  const root = displayPath?.replace(/\\/gu, "/").replace(/\/+$/u, "");
+  if (!root || !posix.startsWith(`${root}/`)) throw new Error(RESOURCE_UNAVAILABLE);
+  return resourceRelativePath(posix.slice(root.length + 1));
+}
+
 /** Captures the registered source and explicit origin before any asynchronous read. */
 export function bindWorkspaceFileLoader(source: DocumentSourceContribution | undefined, origin: WorkspaceResourceOrigin | null | undefined): (path: string) => Promise<UiFileContent> {
   const workspace = origin?.workspace;
@@ -51,7 +60,7 @@ export function bindWorkspaceFileLoader(source: DocumentSourceContribution | und
 }
 
 /** Also adapts existing file chips, which still call WorkbenchContext.openFile. */
-export function WorkspaceResourceProvider({ sessionId, workspace, children }: { sessionId?: string; workspace?: string; children: ReactNode }) {
+export function WorkspaceResourceProvider({ sessionId, workspace, displayPath, children }: { sessionId?: string; workspace?: string; displayPath?: string; children: ReactNode }) {
   const workbench = useContext(WorkbenchContext);
   const client = useHostClient();
   const source = workbench?.registry.getDocumentSource();
@@ -79,6 +88,9 @@ export function WorkspaceResourceProvider({ sessionId, workspace, children }: { 
     resources.lease.active = true;
     return () => { resources.lease.active = false; };
   }, [resources]);
-  const context = useMemo(() => workbench ? { ...workbench, openFile: resources.value.openFile } : undefined, [resources, workbench]);
+  const context = useMemo(() => workbench ? { ...workbench, openFile: (path: string) => {
+    try { resources.value.openFile(transcriptFilePath(path, displayPath)); }
+    catch { if (resources.lease.active) workbench.openWorkspaceFile?.(path, null); }
+  } } : undefined, [resources, workbench, displayPath]);
   return <Context.Provider value={resources.value}><WorkbenchContext.Provider value={context}>{children}</WorkbenchContext.Provider></Context.Provider>;
 }

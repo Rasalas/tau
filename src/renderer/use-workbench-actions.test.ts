@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { useWorkbenchActions, type UseWorkbenchActionsOptions } from "./use-workbench-actions";
 import type { HostSnapshot, UiModel } from "../shared/contracts";
+import type { StageFileTab } from "../workbench/stage";
 
 function createMockOptions(overrides: Partial<UseWorkbenchActionsOptions> = {}): UseWorkbenchActionsOptions {
   const models: UiModel[] = [
@@ -59,6 +60,18 @@ function createMockOptions(overrides: Partial<UseWorkbenchActionsOptions> = {}):
 }
 
 describe("useWorkbenchActions", () => {
+  it.each([
+    { resourceOrigin: null },
+    { resourceOrigin: { sessionId: "a", workspace: "ws-other", sourceId: "source" } },
+    { resourceOrigin: { sessionId: "a", workspace: "ws-1", sourceId: "missing-source" } },
+    { resourceOrigin: { sessionId: "a", workspace: "ws-1", sourceId: "source" }, path: "../outside.md" },
+  ])("does not offer non-actionable resource readers to global file commands: %j", (fields) => {
+    const tab: StageFileTab = { id: "file", kind: "file", path: "src/same.ts", view: "source", preview: false, ...fields };
+    const options = createMockOptions({ stageTabs: { active: () => tab, tabs: () => [tab], documentSourceId: () => "source" } as any });
+    const actions = renderHook(() => useWorkbenchActions(options)).result.current;
+    expect(actions.activeStageTab?.()).toBeUndefined();
+    expect(actions.stageTabs()).toEqual([]);
+  });
   it("assembles actions and preserves reference stability when unstable setComposerModel is passed", () => {
     let setModelCount = 0;
     const baseOptions = createMockOptions();

@@ -6,7 +6,7 @@ import { EMPTY_STAGE, openFileTab, type WorkspaceResourceOrigin } from "../workb
 import { decodeStageState } from "../workbench/workbench-layout-state";
 import { ExtensionRegistry, type DocumentSourceContribution } from "./extension-system";
 import { WorkbenchContext, ThreadStoreContext, type WorkbenchContextValue } from "./workbench-context";
-import { WorkspaceResourceProvider, bindWorkspaceFileLoader, useWorkspaceResources, type WorkspaceResources } from "./workspace-resource-context";
+import { WorkspaceResourceProvider, bindWorkspaceFileLoader, transcriptFilePath, resourceRelativePath, useWorkspaceResources, type WorkspaceResources } from "./workspace-resource-context";
 import { HostClientProvider } from "./host-client-context";
 import { createFakeHostClient } from "./test-support/fake-host-client";
 import { ThreadStore } from "../workbench/thread-store";
@@ -36,6 +36,14 @@ let captured: WorkspaceResources | undefined;
 function Probe() { captured = useWorkspaceResources(); return <button onClick={() => captured?.openFile(path)}>Open resource</button>; }
 
 describe("transcript-bound workspace resource contract", () => {
+  it("normalizes only host paths contained in the transcript's announced root", () => {
+    expect(transcriptFilePath("/history/src/same.ts", "/history/")).toBe("src/same.ts");
+    expect(transcriptFilePath("C:\\history\\src\\same.ts", "C:\\history")).toBe("src/same.ts");
+    for (const [candidate, root] of [["/history-other/src/same.ts", "/history"], ["/active/src/same.ts", "/history"], ["/history/../secret.ts", "/history"], ["/history/src/same.ts", undefined]] as const) {
+      expect(() => transcriptFilePath(candidate, root)).toThrow();
+    }
+    expect(() => resourceRelativePath("/history/src/same.ts")).toThrow();
+  });
   it("binds same relative path to two distinct opaque workspaces and captures sources", async () => {
     const loadA = vi.fn(async (_path, from) => content(`file in ${from?.workspace}`));
     const firstSource = source(loadA);
