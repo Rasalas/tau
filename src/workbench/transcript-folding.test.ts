@@ -134,6 +134,16 @@ describe("durations", () => {
 });
 
 describe("live activity line", () => {
+  it("animates only the latest tools when a card separates earlier work", () => {
+    const rows = deriveWorkRows(input({ status: "running", streaming: true, cardIdFor: (entry) => entry.name === "request_takeover" ? "takeover" : undefined, tools: [
+      tool({ id: "before", name: "read", args: { path: "before.ts" } }),
+      tool({ id: "handover", name: "request_takeover" }),
+      tool({ id: "after", name: "read", args: { path: "after.ts" }, status: "running" }),
+    ] }));
+    expect(rows.filter((row) => row.kind === "live")).toHaveLength(1);
+    expect(rows.at(-1)).toMatchObject({ kind: "live", label: "Reading after.ts" });
+  });
+
   it("says the present tense", () => {
     const fact = classifyToolRun(tool({ id: "1", name: "read", args: { path: "src/app.ts" }, status: "running" }));
     expect(liveActivityLabel(fact)).toBe("Reading src/app.ts");

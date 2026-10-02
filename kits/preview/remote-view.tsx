@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import { AppWindow, ArrowLeft, ArrowRight, Bot, CornerDownLeft, Delete, Globe, Monitor, MonitorOff, RotateCw, Send, Smartphone } from "lucide-react";
 import { Empty, errorMessage, getClientStorage, READ_ONLY_REASON, tooltipProps, useCommandAllowed, useHostCapabilities, type WorkbenchActions } from "tau";
 import { PREVIEW_HOST_EXTENSION_ID, PREVIEW_INPUT_KEYS, type PreviewInput, type PreviewInputKey, type PreviewState, type PreviewViewer } from "./protocol.js";
-import type { ComputerUseScreenService, ScreenInput, ScreenInputKey } from "./screen-protocol.js";
+import type { ScreenInput, ScreenInputKey } from "./screen-protocol.js";
 import { SCREEN_INPUT_KEYS } from "./screen-protocol.js";
 import { activeThread, previewHold, previewView, screenService, useDrivenWindow, windowName, type PreviewView } from "./screen-store.js";
 import { isPreviewState, previewKit, previewStore, readPreviewState, usePreviewState } from "./store.js";
 import { hostMachineName } from "./machine.js";
 import { useLiveFrames, type LiveFrameAnswer, type LiveFrameSource } from "./live-frames.js";
+import { screenFrameSource } from "./screen-frames.js";
 import { describeViewer, screenTraits, viewerId } from "./viewer.js";
 
 /** The keys a touch keyboard lacks, left to right; the page and the window take the same set. */
@@ -133,18 +134,6 @@ function LayoutStatus({ state, id, viewer, allowed, onError }: { state: PreviewS
     onClick={layOut}
   ><Monitor size={12} aria-hidden="true" />Fit this screen</button>;
 }
-
-function screenSource(service: ComputerUseScreenService, threadId: string): LiveFrameSource {
-  if (service.viewFrame) return async (maxWidth, since) => await service.viewFrame!(threadId, maxWidth, since) ?? null;
-  // A Computer Use kit from before API 1.13.0: the driver's full-size screenshot, as it is.
-  return async (_maxWidth, since) => {
-    const frame = await service.frame(threadId);
-    if (!frame) return null;
-    const id = `d${String(frame.seq)}`;
-    return id === since ? { id, unchanged: true } : { id, data: frame.data, width: frame.width, height: frame.height, mimeType: frame.mimeType };
-  };
-}
-
 /**
  * The Preview on a device that is not the host's own window — a phone, a
  * browser, a window on another computer. The page (or the window an agent
@@ -199,7 +188,7 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
   const pageFrames = useMemo(() => browserSource(viewer), [viewer]);
   const source = useMemo<LiveFrameSource | undefined>(() => {
     if (view === "browser") return state.url && !noWindow ? pageFrames : undefined;
-    return screen && threadId ? screenSource(screen, threadId) : undefined;
+    return screen && threadId ? screenFrameSource(screen, threadId) : undefined;
   }, [noWindow, pageFrames, screen, state.url, threadId, view]);
   const frames = useLiveFrames(source, stage, { active });
   const driven = useDrivenWindow(view === "screen" ? screen : undefined, threadId);

@@ -114,7 +114,7 @@ export function EvidenceCard({ client, threadId, turn, running, paused, onOpen, 
     <section className="evidence-card" aria-label={`Pictures of this turn: ${countLabel(frames.length)}`} data-turn-id={turn.turnId}>
       <header className="evidence-card-head">
         <Image size={12} aria-hidden="true" />
-        <span className="evidence-card-title">{running ? "Capturing" : "Evidence"}</span>
+        <span className="evidence-card-title">Evidence</span>
         <span className="evidence-card-meta">· {turnSummary(turn)}</span>
         <span className="evidence-card-meta compact">· {turnSummary(turn, true)}</span>
         {paused ? <span className="evidence-card-paused">Paused: {paused}</span> : null}

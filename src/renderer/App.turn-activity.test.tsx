@@ -332,6 +332,62 @@ describe("last-turn activity", () => {
     ]);
   });
 
+  it("places new work after the reply to a steering message", async () => {
+    const originalBootstrap = client.bootstrap;
+    client.bootstrap = async () => {
+      const bootstrap = await originalBootstrap();
+      return {
+        ...bootstrap,
+        detail: {
+          ...bootstrap.detail,
+          isStreaming: true,
+          messages: [
+            { id: "request", role: "user" as const, text: "Start", timestamp: 1 },
+            { id: "partial", role: "assistant" as const, text: "First result", timestamp: 2 },
+            { id: "steering", role: "user" as const, text: "Please test it", timestamp: 3 },
+            { id: "reply", role: "assistant" as const, text: "I will test the simulator", timestamp: 4 },
+          ],
+          turnActivity: {
+            anchorMessageId: "request",
+            tools: [{ ...tool("simulator"), startedAt: 5, status: "running" as const, endedAt: undefined }],
+          },
+        },
+      };
+    };
+    const view = renderApp(client);
+    await screen.findByText("I will test the simulator");
+    await waitFor(() => expect(view.container.querySelector(".work-live")?.textContent).toContain("Reading simulator.ts"));
+    const rows = Array.from(view.container.querySelectorAll(".virtual-transcript-row")).map((row) => row.textContent);
+    expect(rows.at(-1)).toMatch(/I will test the simulator.*Reading simulator\.ts/u);
+  });
+
+  it("does not animate an old running history entry beside the current turn", async () => {
+    const originalBootstrap = client.bootstrap;
+    client.bootstrap = async () => {
+      const bootstrap = await originalBootstrap();
+      return {
+        ...bootstrap,
+        detail: {
+          ...bootstrap.detail,
+          isStreaming: true,
+          messages: [
+            { id: "old-user", role: "user" as const, text: "Old request", timestamp: 1 },
+            { id: "old-reply", role: "assistant" as const, text: "Old answer", timestamp: 3 },
+            { id: "new-user", role: "user" as const, text: "Continue now", timestamp: 4 },
+          ],
+          turnActivity: { anchorMessageId: "new-user", tools: [{ ...tool("current"), startedAt: 5, status: "running" as const, endedAt: undefined }] },
+          turnActivityHistory: [{ id: "old-turn", anchorMessageId: "old-user", status: "running" as const, tools: [tool("old")] }],
+        },
+      };
+    };
+    const view = renderApp(client);
+    await screen.findByText("Continue now");
+    await waitFor(() => expect([...view.container.querySelectorAll(".work-live")].some((row) => row.textContent?.includes("Reading current.ts"))).toBe(true));
+    const live = view.container.querySelectorAll(".work-live.running");
+    expect(live).toHaveLength(1);
+    expect(live[0]?.textContent).toContain("Reading current.ts");
+  });
+
   it("keeps completed tools between the user prompt and the final reply", async () => {
     const originalBootstrap = client.bootstrap;
     client.bootstrap = async () => {

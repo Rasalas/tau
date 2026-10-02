@@ -50,7 +50,6 @@ function harness(overrides: Partial<CaptureDeps> = {}) {
     },
     encode,
     cwdOf: () => "/project",
-    activeThread: () => "thread",
     changed: (threadId) => { changed.push(threadId); },
     now: () => clock,
     log: () => undefined,
@@ -73,7 +72,28 @@ function harness(overrides: Partial<CaptureDeps> = {}) {
 const tool = (name: string, args: Record<string, unknown> = {}) => ({ id: `call-${name}`, name, args });
 
 describe("EvidenceCapture", () => {
-  it("keeps the Preview's before and after of a turn that changed the page, with each action between", async () => {
+  it("never captures manual browsing during a turn, including after the agent used Preview", async () => {
+    const { capture, page, frames, tick } = harness();
+    await capture.prepare("thread", "t1");
+    await capture.settled();
+    page.name = "manual-login";
+    tick(15_000);
+    await capture.settled();
+    expect(await frames()).toEqual([]);
+
+    page.name = "agent-page";
+    capture.toolEnded("thread", tool("preview_click", { text: "Save" }), "/project");
+    await capture.settled();
+    expect((await frames())[0]!.frames).toEqual(["action:Clicked “Save”"]);
+
+    page.name = "manual-account-page";
+    tick(15_000);
+    await capture.ended("thread", "t1");
+    await capture.settled();
+    expect((await frames())[0]!.frames).toEqual(["action:Clicked “Save”"]);
+  });
+
+  it("keeps only agent actions, without pictures at turn boundaries", async () => {
     const { capture, page, frames, tick } = harness();
     capture.accepted("thread", "t1", { deferBefore: false });
     await capture.prepare("thread", "t1");
@@ -90,21 +110,20 @@ describe("EvidenceCapture", () => {
     await capture.ended("thread", "t1");
     await capture.settled();
 
-    expect(await frames()).toEqual([{ turnId: "t1", endedAt: 1_300, frames: ["turn-start:When the turn started", "action:Clicked “Save”", "turn-end:When the turn ended"] }]);
+    expect(await frames()).toEqual([{ turnId: "t1", endedAt: 1_300, frames: ["action:Clicked “Save”"] }]);
   });
 
   it("keeps nothing of a turn that left the page as it was", async () => {
     const { capture, frames, changed } = harness();
     await capture.prepare("thread", "t1");
-    capture.tick();
     await capture.ended("thread", "t1");
     await capture.settled();
     expect(await frames()).toEqual([]);
     expect(changed).toEqual([]);
   });
 
-  it("takes the page only for the thread that drives it or that the user watches, and only while the panel shows", async () => {
-    const watched = harness({ activeThread: () => "other" });
+  it("takes no pictures from merely watching or hiding the panel", async () => {
+    const watched = harness();
     await watched.capture.prepare("thread", "t1");
     await watched.capture.settled();
     watched.page.name = "page-b";
@@ -184,6 +203,8 @@ describe("EvidenceCapture", () => {
     capture.accepted("thread", "t2", { deferBefore: true });
     tick(10);
     page.name = "page-b";
+    capture.toolEnded("thread", tool("preview_click"), "/project");
+    await capture.settled();
     await capture.ended("thread", "t1");
     await capture.settled();
     tick(10);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
 import { AppWindow, ArrowUpToLine, Bot, Globe, PanelRight, X } from "lucide-react";
 import { errorMessage, READ_ONLY_REASON, tooltipProps, useClientStorage, useCommandAllowed, useThreadStore, type PreferencesStore, type RegionProps, type WorkbenchActions } from "tau";
 import { AgentCursorLayer } from "./agent-cursor.js";
@@ -8,6 +8,7 @@ import { previewView, screenService } from "./screen-store.js";
 import { PREVIEW_PANEL, drawsFrames, panelShown, previewKit, usePreviewState } from "./store.js";
 import { floatingEnabled } from "./settings.js";
 import { useLiveFrames, type LiveFrameAnswer, type LiveFrameSource } from "./live-frames.js";
+import { screenFrameSource } from "./screen-frames.js";
 import { loadDeviceMiniPrefs, saveDeviceMiniPrefs } from "./mini-prefs.js";
 
 /** How much a hover enlarges the player, before the room around it caps it. */
@@ -22,12 +23,6 @@ export interface MiniInsets {
   right: number;
   bottom: number;
   left: number;
-}
-
-interface Picture {
-  url: string;
-  width: number;
-  height: number;
 }
 
 /** Whether the floating preview has something to show and room to show it. */
@@ -94,10 +89,9 @@ function useInsets(anchor: React.RefObject<HTMLElement | null>): MiniInsets | un
 const pageFrames: LiveFrameSource = async (maxWidth, since) =>
   await previewKit["live-frame"]({ maxWidth, ...(since ? { since } : {}) }) as LiveFrameAnswer;
 
-/** The driven window's state and latest screenshot, from Computer Use's service. */
-function useScreenFrame(service: ComputerUseScreenService | undefined, threadId: string | undefined): { state?: ScreenState; picture?: Picture } {
+/** The driven window, including state published before this client connected. */
+function useScreenState(service: ComputerUseScreenService | undefined, threadId: string | undefined): ScreenState | undefined {
   const [state, setState] = useState<ScreenState | undefined>(() => service && threadId ? service.state(threadId) : undefined);
-  const [picture, setPicture] = useState<Picture | undefined>();
   useEffect(() => {
     setState(service && threadId ? service.state(threadId) : undefined);
     if (!service || !threadId) return undefined;
@@ -109,16 +103,7 @@ function useScreenFrame(service: ComputerUseScreenService | undefined, threadId:
       stop();
     };
   }, [service, threadId]);
-  const seq = state?.frame?.seq;
-  useEffect(() => {
-    if (!service || !threadId || seq === undefined) return undefined;
-    let live = true;
-    void service.frame(threadId, seq).then((frame) => {
-      if (live && frame) setPicture({ url: `data:${frame.mimeType};base64,${frame.data}`, width: frame.width, height: frame.height });
-    }).catch(() => undefined);
-    return () => { live = false; };
-  }, [seq, service, threadId]);
-  return { ...(state ? { state } : {}), ...(picture ? { picture } : {}) };
+  return state?.threadId === threadId ? state : undefined;
 }
 
 type Gesture = { kind: "move" | "resize"; pointerId: number; x: number; y: number; width: number };
@@ -131,7 +116,7 @@ type Gesture = { kind: "move" | "resize"; pointerId: number; x: number; y: numbe
  * it, and this device remembers both for itself (a phone and a laptop have
  * different room for it).
  */
-function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver; state: PreviewState; insets: MiniInsets; actions: WorkbenchActions }) {
+function MiniPlayer({ driver, state, screenState, insets, actions }: { driver: PreviewDriver; state: PreviewState; screenState?: ScreenState; insets: MiniInsets; actions: WorkbenchActions }) {
   const service = screenService.use();
   const screen = driver.source === "screen";
   const storage = useClientStorage();
@@ -149,10 +134,11 @@ function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver;
 
   const body = useRef<HTMLButtonElement>(null);
   // Sized to what the player draws, so the hover's larger picture asks for a larger frame.
-  const browserFrames = useLiveFrames(screen ? undefined : pageFrames, body, { active: true });
-  const browserPicture = browserFrames.picture;
-  const { state: screenState, picture: screenPicture } = useScreenFrame(screen ? service : undefined, screen ? driver.threadId : undefined);
-  const picture = screen ? screenPicture : browserPicture;
+  const source = useMemo(() => screen
+    ? service ? screenFrameSource(service, driver.threadId) : undefined
+    : pageFrames, [screen, service, driver.threadId, screenState?.window?.pid, screenState?.window?.windowId]);
+  const frames = useLiveFrames(source, body);
+  const picture = frames.picture;
 
   const threads = useThreadStore();
   const index = useSyncExternalStore(threads.subscribe, threads.getSnapshot);
@@ -226,8 +212,8 @@ function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver;
     style={style}
     aria-label="Floating preview"
     data-preview-mini={driver.source}
-    onPointerEnter={() => browserFrames.poke()}
-    onFocus={() => browserFrames.poke()}
+    onPointerEnter={() => frames.poke()}
+    onFocus={() => frames.poke()}
   >
     <header className="preview-mini-head" onPointerDown={begin("move")} onPointerMove={move} onPointerUp={end} onPointerCancel={end}>
       <span className="preview-mini-source" aria-label={sourceTitle} {...tooltipProps(sourceTitle, { side: "bottom" })}>
@@ -282,10 +268,12 @@ export function createMiniPlayerRegion(preferences: PreferencesStore) {
     const screen = screenService.use();
     const enabled = useSyncExternalStore(preferences.subscribe, useCallback(() => floatingEnabled(preferences), []));
     const driver = miniPlayerShown(state, { enabled, panelShown: shown, screen: Boolean(screen) });
+    const screenState = useScreenState(screen, driver?.source === "screen" ? driver.threadId : undefined);
+    const ready = driver && (driver.source === "browser" || screenState?.window);
     const insets = useInsets(anchor);
     return <>
       <span ref={anchor} className="preview-mini-anchor" aria-hidden="true" />
-      {driver && insets ? <MiniPlayer key={`${driver.threadId}:${driver.source}`} driver={driver} state={state} insets={insets} actions={actions} /> : null}
+      {ready && driver && insets ? <MiniPlayer screenState={screenState} key={`${driver.threadId}:${driver.source}`} driver={driver} state={state} insets={insets} actions={actions} /> : null}
     </>;
   };
 }

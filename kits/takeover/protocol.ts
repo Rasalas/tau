@@ -25,6 +25,7 @@ export type TakeoverTarget =
   | { kind: "preview"; url?: string }
   | { kind: "window" }
   | { kind: "browser"; url: string }
+  | { kind: "settings"; page: string }
   | { kind: "none" };
 
 export interface Takeover {

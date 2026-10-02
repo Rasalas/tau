@@ -50,8 +50,8 @@ export function EvidenceSettingsPage() {
         <SettingRow
           id="setting-evidence-preview"
           title="Pictures of the Preview"
-          description="The Preview's page while a turn runs. A project can have its own."
-          help="When the turn starts and ends, after each thing the agent does there, and every ten seconds when the page changed."
+          description="Pictures after the agent uses the Preview. A project can have its own."
+          help="Your own browsing and the live view do not save pictures. The agent can also explicitly attach a picture."
           setting={preview}
           control={<Switch label="Pictures of the Preview" checked={preview.value} onChange={preview.set} />}
         />

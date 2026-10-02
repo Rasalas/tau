@@ -244,7 +244,7 @@ export default {
     const invoke: Invoke = <T,>(command: string, input?: unknown) => context.host.invoke(command, input) as Promise<T>;
     context.registerPanel({ id: "devices", label: "Devices", Icon: Smartphone, order: 45, width: "wide", maximizable: true, profiles: ["desktop", "web", "compact"], Component: (props) => <DevicePanel {...props} invoke={invoke} floating={floating} /> });
     context.registerRegion({ id: "devices.floating", placement: "composer-above", order: 62, profiles: ["desktop", "web", "compact"], Component: (props) => <FloatingDeviceView {...props} store={floating} invoke={invoke} /> });
-    context.registerSettingsPage({ id: "devices.settings", label: "Devices", description: "View and control simulators and emulators on this computer or an SSH host, and choose whether agents can use them.", Icon: Smartphone, order: 45, profiles: ["desktop", "web", "compact"], Component: () => <DeviceSettingsPage invoke={invoke} /> });
+    context.registerSettingsPage({ id: "devices.settings", label: "Devices", description: "View and control simulators and emulators on this computer or an SSH host, and choose whether agents can use them.", keywords: ["Geräte", "Simulator", "Emulator", "iOS", "Android", "Agent-Gerätesteuerung", "Freigabe", "consent", "permissions"], Icon: Smartphone, order: 45, profiles: ["desktop", "web", "compact"], Component: () => <DeviceSettingsPage invoke={invoke} /> });
     context.registerCommand({ id: "devices.open", label: "Open devices", group: "Devices", access: "read", run: (actions) => actions.openPanel("devices") });
     return () => floating.set();
   },

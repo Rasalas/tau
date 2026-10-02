@@ -75,7 +75,7 @@ export function useConversationActivities(input: ConversationActivityInput) {
       // The answer tells a tool that belonged to the turn from work that
       // started after it, which is the one thing the fold treats differently.
       const answerAt = answerTimestampAfter(messages ?? [], entry.anchorMessageId);
-      return splitActivityTools(entry.tools.filter(isActivityTool), messages ?? [], entry.anchorMessageId).map((segment, index, segments) => ({
+      return splitActivityTools(entry.tools.filter(isActivityTool), messages ?? [], entry.anchorMessageId).map((segment, index) => ({
         id: index === 0 ? entry.id : `${entry.id}:${segment.tools[0].id}`,
         afterMessageId: segment.anchorMessageId,
         content: <WorkGroup
@@ -84,8 +84,8 @@ export function useConversationActivities(input: ConversationActivityInput) {
           registry={registry}
           detail={detail}
           disclosures={disclosures}
-          streaming={entry.status === "running" && (index === segments.length - 1 || segment.tools.some((tool) => tool.status === "running"))}
-          status={entry.status}
+          streaming={false}
+          status={entry.status === "running" ? "completed" : entry.status}
           {...(answerAt === undefined ? {} : { answerAt })}
           {...(actions ? { actions } : {})}
           onRecover={entry.status === "interrupted" ? () => void recoverThread() : undefined}
@@ -140,7 +140,7 @@ export function useConversationActivities(input: ConversationActivityInput) {
         detail={detail}
         disclosures={disclosures}
         status={conversationSnapshot?.isStreaming ? "running" : "completed"}
-        streaming={conversationSnapshot?.isStreaming && ((index === segments.length - 1 && !replied) || segment.tools.some((tool) => tool.status === "running"))}
+        streaming={conversationSnapshot?.isStreaming && index === segments.length - 1 && !replied}
         waiting={prompts.length > 0}
         {...(waitingFor ? { waitingFor } : {})}
         {...(actions ? { actions } : {})}
@@ -155,7 +155,7 @@ export function useConversationActivities(input: ConversationActivityInput) {
   return { thinking, liveStatusLabel, transcriptActivities };
 }
 
-/** Keep calls before later replies, splitting only at messages within this turn. */
+/** Keep calls in message order, including work after a steering prompt and its reply. */
 function splitActivityTools(tools: readonly UiToolRun[], messages: readonly UiMessage[], anchorMessageId?: string) {
   const anchorIndex = anchorMessageId === undefined ? -1 : messages.findIndex((message) => message.id === anchorMessageId || message.sourceEntryId === anchorMessageId);
   const following = anchorIndex < 0 ? [] : messages.slice(anchorIndex + 1);
@@ -164,8 +164,9 @@ function splitActivityTools(tools: readonly UiToolRun[], messages: readonly UiMe
     let anchor = anchorMessageId;
     for (const message of following) {
       if (message.role === "user") {
-        if (tool.status === "running") anchor = message.id;
-        break;
+        if (tool.status !== "running" && message.timestamp > tool.startedAt) break;
+        anchor = message.id;
+        continue;
       }
       if (message.text.trim() && message.timestamp <= tool.startedAt) anchor = message.id;
     }

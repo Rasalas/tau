@@ -20,7 +20,6 @@ import {
 import { EvidenceStore } from "./store.js";
 import { attachEvidenceTool } from "./tools.js";
 
-const TICK_MS = 2_500;
 const SETTINGS_FRESH_MS = 5_000;
 const SWEEP_FIRST_MS = 60_000;
 const SWEEP_EVERY_MS = 6 * 60 * 60_000;
@@ -86,7 +85,6 @@ export function createEvidenceHostExtension(): HostExtension {
         screenFrame: (threadId, seq) => context.invokeHostExtension(COMPUTER_USE_EXTENSION_ID, "screen-frame", { threadId, seq }) as Promise<ScreenFrame | null>,
         encode: (data) => callWindow("encode", { data, width: FRAME_WIDTH, thumbWidth: THUMB_WIDTH }) as Promise<EncodedFrame>,
         cwdOf: (threadId) => services.thread(threadId)?.cwd,
-        activeThread: () => services.thread()?.sessionId,
         changed,
         now: () => Date.now(),
         log,
@@ -109,8 +107,6 @@ export function createEvidenceHostExtension(): HostExtension {
         },
       }));
 
-      const ticker = setInterval(() => { if (capture.running()) capture.tick(); }, TICK_MS);
-      ticker.unref?.();
       const sweep = () => {
         void store.sweep(async (cwd) => (await settings(cwd)).retentionDays)
           .then((threads) => { for (const threadId of threads) changed(threadId); })
@@ -120,7 +116,7 @@ export function createEvidenceHostExtension(): HostExtension {
       firstSweep.unref?.();
       const sweeper = setInterval(sweep, SWEEP_EVERY_MS);
       sweeper.unref?.();
-      disposers.push(() => { clearInterval(ticker); clearTimeout(firstSweep); clearInterval(sweeper); });
+      disposers.push(() => { clearTimeout(firstSweep); clearInterval(sweeper); });
 
       const withdraw = services.turnAttachments?.provide({
         list: async (threadId) => (await store.list(threadId)).turns.flatMap((turn) => turn.frames.map((frame) => ({

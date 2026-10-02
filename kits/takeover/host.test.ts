@@ -64,6 +64,19 @@ async function activate(options: { timeoutMs?: number } = {}) {
 }
 
 describe("Takeover host extension", () => {
+  it("hands a settings target from the tool to the card and waits for consent", async () => {
+    const { pi, invoke, published } = await activate();
+    const { tool } = await pi("thread");
+    const answer = tool.execute("call", { reason: "Allow simulator control", target: "settings", settingsPage: "devices.settings" }, undefined, undefined, undefined);
+    const [takeover] = await published((list) => list.length === 1);
+    expect(takeover!.target).toEqual({ kind: "settings", page: "devices.settings" });
+    await invoke("done", { id: takeover!.id });
+    expect((await answer).isError).toBeUndefined();
+    const invalid = await tool.execute("call2", { reason: "Allow simulator control", target: "settings" }, undefined, undefined, undefined);
+    expect(invalid.isError).toBe(true);
+    expect(invalid.content[0]!.text).toContain("settingsPage");
+  });
+
   it("waits for the user, pauses evidence first, and answers the agent when the user is done", async () => {
     const { pi, invoke, published, evidence } = await activate();
     const { tool } = await pi("thread");

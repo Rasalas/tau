@@ -66,6 +66,7 @@ function setup(initial: Takeover[] = [], platform: Record<string, unknown> = {},
   const actions = {
     openPanel: vi.fn(),
     openExternal: vi.fn(),
+    openSettings: vi.fn(),
     notify: vi.fn(),
     closePanel: vi.fn(),
     toast: vi.fn(() => ({ update: () => undefined, dismiss: vi.fn() })),
@@ -193,6 +194,16 @@ describe("Takeover card", () => {
     expect(view.queryByRole("button", { name: "Bring my browser session over" })).toBeNull();
     fireEvent.click(view.getByRole("button", { name: "Open in my browser" }));
     expect(actions.openExternal).toHaveBeenCalledWith("https://example.test/device");
+  });
+
+  it("links a consent request directly to its settings page", async () => {
+    const { card, publish, actions, preview } = setup();
+    const view = card();
+    publish([takeover({ kind: "settings", page: "devices.settings" })]);
+    fireEvent.click(await view.findByRole("button", { name: "Open settings" }));
+    expect(actions.openSettings).toHaveBeenCalledWith("devices.settings");
+    expect(preview.jump).not.toHaveBeenCalled();
+    expect(view.queryByRole("button", { name: "Show window" })).toBeNull();
   });
 
   it("names a window by its title, not by the runtime it runs in", () => {
