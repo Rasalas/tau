@@ -35,6 +35,9 @@
 .chrome-group .split-trigger { width: 31px; justify-content: center; padding: 0; border-left-color: var(--edge-highlight); border-radius: 0 9px 9px 0; }
 .editor-icon { width: 16px; height: 16px; flex: none; }
 .menu-editor-icon { width: 16px; height: 16px; flex: none; }
+.menu [role="menuitem"] > svg.menu-editor-icon { color: var(--muted); }
+.workspace-editor-button > button:is(:hover, :focus-visible) > .editor-icon,
+.menu [role="menuitem"]:is(:hover, :focus-visible) > svg.menu-editor-icon { color: var(--editor-brand, currentColor); }
 .project-actions-control { -webkit-app-region: no-drag; }
 .project-action-editor { width: 320px; padding: 10px; gap: 10px; }
 .project-action-editor label { display: flex; flex-direction: column; gap: 5px; }
