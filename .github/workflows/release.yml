@@ -3,10 +3,10 @@ name: Release
 on:
   push:
     tags: ["v*.*.*"]
-  # The nightly: 03:17 UTC, published only when main moved since the last one,
+  # The nightly: 03:14 UTC, published only when main moved since the last one,
   # and only once the repository variable NIGHTLY is `true` (docs/RELEASE.md).
   schedule:
-    - cron: "17 3 * * *"
+    - cron: "14 3 * * *"
   workflow_dispatch:
     inputs:
       publish:

@@ -43,6 +43,7 @@ async function boot(): Promise<void> {
   const activityPort = { ...nativeActivities, clear: async (hostId: string) => { await remoteControl?.revoke(hostId); await nativeActivities.clear(hostId); } };
   const pushRoutes = new Map<string, "direct" | "relay">();
   setPushRegistrar(createPushRegistrar(push, { relay: createRelayPort(), keys: pushKeys, onRoute: (id, route) => pushRoutes.set(id, route) }));
+  const appInfo = await App.getInfo().catch(() => undefined);
   const context: AppContext = {
     ...(remoteControl ? { remoteActivities: remoteControl } : {}),
     activities: !isNative ? undefined : device.platform === "ios" ? relayActivities(activityPort, { url: PUSH_RELAY_URL, keys: pushKeys, installKey: installActivityKey, authorized: async (id) => Boolean(await book.token(id)), direct: (id) => pushRoutes.get(id) === "direct" }) : nativeActivities,
@@ -50,7 +51,7 @@ async function boot(): Promise<void> {
     book,
     bridge,
     device,
-    environment: { ...webClientEnvironment("compact"), ...(isNative && device.platform === "ios" ? { dictation: { port: nativeDictation, Control: NativeComposerDictation, Settings: DictationSettings } } : {}) },
+    environment: { ...webClientEnvironment("compact"), ...(appInfo ? { mobileApp: { platform: device.platform, version: appInfo.version } } : {}), ...(isNative && device.platform === "ios" ? { dictation: { port: nativeDictation, Control: NativeComposerDictation, Settings: DictationSettings } } : {}) },
     wakes: nativeWakeSource(App, Network),
     scan: scanQrCode,
     browse: (listener) => browseHosts(TAU_BONJOUR_TYPE, listener),

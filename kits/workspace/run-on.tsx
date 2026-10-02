@@ -191,7 +191,7 @@ function RunOnPill({ source, touch, snapshot, actions }: DraftMachineProps & { s
     <button
       ref={anchor}
       type="button"
-      className="runtime-chip run-on-pill"
+      className={`runtime-chip run-on-pill${touch ? " run-on-pill-icon" : ""}`}
       aria-haspopup="dialog"
       aria-expanded={open}
       aria-label={`Run on ${machine?.name ?? "this project"}${branch ? `, branch ${branch}` : ""}`}
@@ -200,9 +200,9 @@ function RunOnPill({ source, touch, snapshot, actions }: DraftMachineProps & { s
       onClick={() => setOpen((value) => !value)}
     >
       {machine?.icon ?? <GitBranch size={13} aria-hidden />}
-      {name ? <span>{name}</span> : null}
+      {name && !touch ? <span>{name}</span> : null}
       {branch && !touch ? <><i aria-hidden>·</i><code>{branch}</code></> : null}
-      <ChevronDown size={12} className="chev" />
+      {touch ? null : <ChevronDown size={12} className="chev" />}
     </button>
     {/* On the composer's top edge, at its left (design 1k); a new anchor each render places it again as rows arrive. */}
     {open ? touch

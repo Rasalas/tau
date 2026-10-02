@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ClientEnvironmentProvider, electronClientEnvironment } from "../client-environment";
 import { HostClientProvider } from "../host-client-context";
 import { createFakeHostClient } from "../test-support/fake-host-client";
 import { TestProviders } from "../test-support/test-providers";
@@ -27,6 +28,21 @@ function renderAbout(loader: () => Promise<ThirdPartyLicense[]>, versions: { hos
 }
 
 describe("Settings → About", () => {
+  it.each(["ios", "android"] as const)("separates the %s app version and update channel from the host release", async (platform) => {
+    const windowAction = vi.fn(async () => undefined);
+    const client = createFakeHostClient({ getVersions: () => ({ host: "0.9.0" }), windowAction });
+    const environment = { ...electronClientEnvironment(new URLSearchParams()), mobileApp: { platform, version: "0.7.17" } };
+    render(<TestProviders><ClientEnvironmentProvider environment={environment}><HostClientProvider client={client}><AboutPage loader={async () => []} /></HostClientProvider></ClientEnvironmentProvider></TestProviders>);
+    expect(screen.getByText("Tau 0.7.17")).toBeTruthy();
+    expect(screen.getByText("0.9.0")).toBeTruthy();
+    expect(screen.getByText(platform === "ios" ? /TestFlight/u : /Google Play/u)).toBeTruthy();
+    expect(screen.getByText(/does not mean a mobile update is available/u)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Check now" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Licenses" }));
+    await screen.findByText("No licenses listed");
+    expect(windowAction).not.toHaveBeenCalled();
+  });
+
   it("lists the licences, filters them and opens a notice", async () => {
     renderAbout(async () => LICENSES);
     expect(await screen.findByText("Open-source licenses (2)")).toBeTruthy();

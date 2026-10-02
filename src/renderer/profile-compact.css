@@ -25,13 +25,13 @@ body[data-profile="compact"] .app-shell:not(.touch-split) > .workbench-main { gr
 body[data-keyboard] .app-shell { --safe-bottom: 0px; }
 
 /* The tablet's desktop chrome at touch size: the head's glyphs, a divider a finger can take. */
-body[data-profile="compact"] .thread-header .stage-tool { width: 44px; height: 44px; }
+body[data-profile="compact"] .thread-header .stage-tool { width: var(--touch-target); height: var(--touch-target); }
 body[data-profile="compact"] .resize-handle[aria-orientation="vertical"] { width: 24px; }
 body[data-profile="compact"] .sidebar-resizer { margin-right: -12px; }
 body[data-profile="compact"] .sidebar-resizer::after { left: 11px; }
 body[data-profile="compact"] .chat-resizer { left: calc(var(--chat-width) - 12px); }
 body[data-profile="compact"] .resize-handle[aria-orientation="vertical"]::after { left: 11px; }
-body[data-profile="compact"] .panel-maximize { width: 44px; height: 44px; top: 4px; right: 4px; }
+body[data-profile="compact"] .panel-maximize { width: var(--touch-target); height: var(--touch-target); top: 4px; right: 4px; }
 /* Beside the stage the chat is a phone's width: the composer keeps a phone's margins. */
 body[data-profile="compact"] .workbench-center.stage-open .composer-zone { padding-inline: 12px; }
 body[data-profile="compact"] .workbench-center.stage-open .conversation-column { --composer-inset: max(12px, calc((100% - 780px) / 2)); }
@@ -48,26 +48,15 @@ body[data-profile="compact"] .keyboard-hint { display: none; }
 body[data-profile="compact"] .title-bar {
   background: var(--stage); box-shadow: inset 0 -1px var(--line);
   gap: 4px; height: auto; min-height: calc(52px + var(--safe-top));
-  /* Grows with the title and its two lines of details at a larger text size. */
+  /* Grows with the title and branch at a larger text size. */
   padding: var(--safe-top) max(6px, var(--safe-right)) 2px max(6px, var(--safe-left));
 }
 body[data-profile="compact"] .window-controls-inset { display: none; }
-body[data-profile="compact"] .title-bar .chrome-ghost.glyph { width: 44px; height: 44px; border-radius: 12px; }
+body[data-profile="compact"] .title-bar .chrome-ghost.glyph { width: var(--touch-target); height: var(--touch-target); border-radius: 12px; }
 body[data-profile="compact"] .title-bar .chrome-ghost.glyph > svg { width: 20px; height: 20px; }
-/* The phone's details under the title (design 1n): machine and branch, then the model's name, whole, on a line
-   of its own. A narrow bar leaves out turn and cost; the icons part the items, so no dot starts a line. */
-body[data-profile="compact"] .title-bar .thread-details { flex-wrap: wrap; gap: 0 10px; max-height: calc(2 * 1.25em); overflow: hidden; line-height: 1.25; white-space: nowrap; font-size: var(--text-xs); }
-body[data-profile="compact"] .title-bar .thread-detail { flex: 0 1 auto; }
-body[data-profile="compact"] .title-bar .thread-detail + .thread-detail::before { content: none; }
-/* The title keeps its 44 px to tap but lends 18 px of it to the details' second line. */
-body[data-profile="compact"] .title-bar .thread-title-trigger { margin-block: -9px; }
-@media (max-width: 600px) {
-  body[data-profile="compact"] .title-bar :is(.thread-detail-turn, .thread-detail-cost) { display: none; }
-  body[data-profile="compact"] .title-bar .thread-detail-machine { max-width: 38%; }
-  body[data-profile="compact"] .title-bar .thread-detail-branch { max-width: calc(62% - 10px); }
-  body[data-profile="compact"] .title-bar .thread-detail-model { flex-basis: 100%; }
-  body[data-profile="compact"] .title-bar .thread-detail-model > .provider-icon-stack { margin-left: 0; }
-}
+/* Only the branch belongs below the title; model and machine stay in their controls. */
+body[data-profile="compact"] .title-bar .thread-details { gap: 0; line-height: 1.25; font-size: var(--text-xs); }
+body[data-profile="compact"] .title-bar .thread-detail-branch { max-width: 100%; }
 
 /* On a phone the chat is the whole centre: no stage column, no split. */
 body[data-profile="compact"] .app-shell:not(.touch-split) .workbench-center { display: flex; flex-direction: column; }
@@ -92,27 +81,27 @@ body[data-profile="compact"] .conversation-empty > p { font-size: var(--text-sm)
 body[data-profile="compact"] .title-bar .title-draft { font: 600 var(--text-title) var(--sans); }
 body[data-profile="compact"] .draft-pill { min-height: var(--touch-target); padding: 0 14px; border-radius: 12px; }
 
-/* Touch sizes: a finger needs 44 px, and iOS zooms into any field under 16 px (--text-input keeps to it on a touch device). */
+/* Touch sizes: a finger needs 48 px, and iOS zooms into any field under 16 px (--text-input keeps to it on a touch device). */
 body[data-profile="compact"] :is(textarea, select, input:not([type="checkbox"], [type="radio"], [type="range"])) { font-size: max(16px, var(--text-input)); }
-/* 44 px to tap, 36 px to see; stop keeps its distance from send. */
-body[data-profile="compact"] .send-button { width: 44px; height: 44px; border: 4px solid transparent; background-clip: padding-box; }
+/* 48 px to tap, 36 px to see; stop keeps its distance from send. */
+body[data-profile="compact"] .send-button { width: var(--touch-target); height: var(--touch-target); border: 4px solid transparent; background-clip: padding-box; }
 /* A finger gets the ring and the square, not the desktop's word. */
 body[data-profile="compact"] .send-button.stop { margin-right: 8px; padding: 0; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line-control); }
 body[data-profile="compact"] .send-button.stop > span { display: none; }
 body[data-profile="compact"] .send-button.stop > i { display: block; width: 9px; height: 9px; background: currentColor; border-radius: 2px; }
 /* A phone keeps model and reasoning in view while it answers (design 1n); the card's Skip or Decline ends the wait, and stop comes back. */
 body[data-profile="compact"] .send-button.stop.answering { display: none; }
-/* The rest of the composer's footer and the thread title: 44 px to tap, drawn as small as before. */
+/* The rest of the composer's footer and the thread title: 48 px to tap, drawn as small as before. */
 body[data-profile="compact"] :is(.composer-toolbar, .composer-chips) { gap: 0; }
-body[data-profile="compact"] :is(.composer-toolbar, .composer-overflow-list) .runtime-chip, body[data-profile="compact"] .composer-menu-item { min-height: var(--touch-target); border-radius: 10px; }
+body[data-profile="compact"] :is(.composer-toolbar, .composer-overflow-list) .runtime-chip, body[data-profile="compact"] .composer-menu-item { min-width: var(--touch-target); min-height: var(--touch-target); border-radius: 10px; }
 body[data-profile="compact"] .composer-chips .runtime-chip { padding-inline: 10px; }
-/* The model's pill is drawn 32 px high inside its 44 px target. */
+/* The model's pill is drawn 36 px high inside its 48 px target. */
 body[data-profile="compact"] .composer-toolbar .runtime-chip.composer-model-chip { position: relative; z-index: 0; background: transparent; }
 body[data-profile="compact"] .composer-model-chip::before { content: ""; position: absolute; inset: 6px 0; z-index: -1; border-radius: 8px; background: var(--raised); }
-body[data-profile="compact"] :is(.composer-overflow-anchor, .composer-block[data-icon-only]) .runtime-chip { min-width: 44px; justify-content: center; }
+body[data-profile="compact"] :is(.composer-overflow-anchor, .composer-block[data-icon-only]) .runtime-chip { min-width: var(--touch-target); justify-content: center; }
 /* The phone's bar clips its details to one line; the cost's split would be cut off with them. */
 body[data-profile="compact"] .title-bar .thread-cost-popover { display: none; }
-body[data-profile="compact"] .context-dial { position: relative; width: 44px; height: 44px; border-radius: 10px; background: none; }
+body[data-profile="compact"] .context-dial { position: relative; width: var(--touch-target); height: var(--touch-target); border-radius: 10px; background: none; }
 body[data-profile="compact"] .context-dial::before {
   content: ""; position: absolute; inset: 14px; border-radius: 50%;
   background: conic-gradient(var(--muted) 0 var(--used), var(--line-control) var(--used) 100%);
@@ -122,15 +111,15 @@ body[data-profile="compact"] .thread-title-trigger { min-height: var(--touch-tar
 /* 16 px keeps iOS from zooming into the field. */
 body[data-profile="compact"] .thread-title-rename { width: 100%; min-width: 0; max-width: none; }
 body[data-profile="compact"] .thread-title-rename input { min-height: var(--touch-target); margin-top: 4px; font-size: 16px; }
-/* The row over the composer: 36 px to see, 44 px to tap, and the tap areas never meet. */
+/* The row over the composer: 36 px to see, 48 px to tap, and the tap areas never meet. */
 /* The row keeps 8 px clear of the docked composer. */
-body[data-profile="compact"] .region-composer-controls { --controls-gap: 10px; margin-bottom: 0; padding-bottom: 8px; }
-body[data-profile="compact"] { --control-pill-height: calc(36px * var(--text-scale)); }
+body[data-profile="compact"] .region-composer-controls { --controls-gap: max(10px, calc(var(--touch-target) - var(--control-pill-height) + 4px)); margin-bottom: 0; padding-bottom: 8px; }
+body[data-profile="compact"] { --touch-target: calc(48px * var(--text-scale)); --control-pill-height: calc(36px * var(--text-scale)); }
 body[data-profile="compact"] .control-pill::before { content: ""; position: absolute; inset: calc((var(--touch-target) - var(--control-pill-height)) / -2 - 1px); }
 body[data-profile="compact"] .menu button[role="menuitem"] { min-height: var(--touch-target); }
 body[data-profile="compact"] .message-thinking > summary { min-height: var(--touch-target); }
 body[data-profile="compact"] .extension-option { min-height: var(--touch-target); }
-/* The card's buttons stay the design's size and reach 44 px for a finger. */
+/* The card's buttons stay the design's size and reach 48 px for a finger. */
 body[data-profile="compact"] .extension-prompt > footer > button { position: relative; }
 body[data-profile="compact"] .extension-prompt > footer > button::before { content: ""; position: absolute; inset: calc((var(--touch-target) - 100%) / -2) 0; }
 body[data-profile="compact"] :is(button, a, [data-tooltip]) { -webkit-tap-highlight-color: transparent; }
@@ -156,3 +145,12 @@ body[data-profile="compact"] .message.user time { font-size: var(--text-xs); }
 body[data-profile="compact"] .touch-split .thread-heading { gap: 0; }
 body[data-profile="compact"] .touch-split .thread-header .thread-title-trigger { position: relative; min-height: 28px; }
 body[data-profile="compact"] .touch-split .thread-header .thread-title-trigger::before { content: ""; position: absolute; inset: -8px 0; }
+
+/* Shared small actions need a full target too, including those in lazy menus and settings. */
+body[data-profile="compact"] :is(.tau-icon-button, .tau-help-tip, .chrome-ghost.glyph, .stage-tool, .text-button, .composer-menu-item, .settings-sections-back, .setting-origin-trigger, .setting-reset) {
+  min-width: var(--touch-target); min-height: var(--touch-target); flex-shrink: 0;
+}
+body[data-profile="compact"] .run-on-pill-icon { width: var(--touch-target); height: var(--touch-target); padding: 0; justify-content: center; flex: none; }
+body[data-profile="compact"] .run-on-pill-icon > svg { display: block; flex: none; }
+body[data-profile="compact"] :is(.menu button[role="menuitemcheckbox"], .menu button[role="menuitemradio"], .popover button[role="option"]) { min-height: var(--touch-target); }
+body[data-profile="compact"] .settings-screen.stacked :is(.settings-nav-list button, .settings-back, .settings-about-link, .about-license-toggle) { min-height: var(--touch-target); }
