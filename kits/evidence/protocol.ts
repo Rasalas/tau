@@ -19,7 +19,7 @@ export const EVIDENCE_PAUSE_CALLERS: readonly string[] = ["tau.takeover"];
 /** Where a frame came from: the Preview's page, or the window the agent drives. */
 export type EvidenceSource = "preview" | "screen";
 
-/** What took it: the turn's start or end, an agent action, the clock, or the agent on purpose. */
+/** New captures follow agent actions or explicit attachments; older records also carry turn boundaries and clock ticks. */
 export type EvidenceTrigger = "turn-start" | "action" | "periodic" | "turn-end" | "agent";
 
 export interface EvidenceFrame {
@@ -76,8 +76,6 @@ export const THREAD_MEGABYTE_CHOICES = [10, 25, 50, 100, 200] as const;
 export const FRAMES_PER_TURN = 60;
 export const FRAME_WIDTH = 960;
 export const THUMB_WIDTH = 160;
-/** A running turn looks at the Preview this often; an unchanged page is dropped. */
-export const PERIODIC_MS = 10_000;
 
 export function readEvidenceSettings(settings: { options: Record<string, boolean>; values: Record<string, string> } | undefined): EvidenceSettings {
   const number = (key: string, choices: readonly number[], fallback: number): number => {

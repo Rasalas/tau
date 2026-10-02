@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { AppWindow, Check, Cookie, ExternalLink, Hand } from "lucide-react";
+import { AppWindow, Check, Cookie, ExternalLink, Hand, Settings } from "lucide-react";
 import { errorMessage, hostCommandAllowed, tooltipProps, useCommandAllowed, useHostName, type HostExtensionClient, type RegionProps, type ToolCardProps, type WorkbenchActions } from "tau";
 import { PREVIEW_EXTENSION_ID, PREVIEW_PANEL, TAKEOVER_EXTENSION_ID, TAKEOVER_TIMEOUT_MS, webUrl, type Takeover } from "./protocol.js";
 import { services, takeovers, workbench } from "./store.js";
@@ -42,6 +42,7 @@ export function jumpLabel(takeover: Takeover, remote = false, watchOnly = false)
     case "preview": return remote ? here : undefined;
     case "window": return remote ? here : "Show window";
     case "browser": return "Open in my browser";
+    case "settings": return "Open settings";
     default: return undefined;
   }
 }
@@ -78,6 +79,10 @@ async function enlargePreview(actions: WorkbenchActions, takeoverId: string): Pr
 export async function jumpTo(takeover: Takeover, actions: WorkbenchActions, hosts: TakeoverHosts): Promise<void> {
   const remote = services.preview.get()?.remote?.() ?? false;
   const { target } = takeover;
+  if (target.kind === "settings") {
+    actions.openSettings(target.page);
+    return;
+  }
   if (target.kind === "browser") {
     actions.openExternal(target.url);
     return;
@@ -225,7 +230,7 @@ function TakeoverCard({ takeover, actions, hosts }: { takeover: Takeover; action
   return (
     <section className="takeover-card" role="region" aria-label="Your turn">
       <header><Hand size={12} aria-hidden="true" />Your turn<span>{`waits up to ${String(TAKEOVER_TIMEOUT_MS / 60_000)} min`}</span></header>
-      <p><Reason text={takeover.reason} host={hostOf(target.kind === "window" || target.kind === "none" ? undefined : pageUrl ?? target.url)} /> The agent's preview and computer-use calls are held until you press Done.</p>
+      <p><Reason text={takeover.reason} host={hostOf(target.kind === "preview" || target.kind === "browser" ? pageUrl ?? target.url : undefined)} /> The agent's preview and computer-use calls are held until you press Done.</p>
       {showsFrame ? <TakeoverFrame takeover={takeover} onOpen={jump} watchOnly={!mayType} /> : null}
       {readOnly ? <p className="takeover-note">{READ_ONLY_REASON}.</p> : null}
       <div className="takeover-actions">
@@ -243,7 +248,7 @@ function TakeoverCard({ takeover, actions, hosts }: { takeover: Takeover; action
           <button type="button" className="takeover-link" onClick={jump} {...(where ? tooltipProps(where, target.kind === "browser" ? { variant: "code" } : {}) : {})}>
             {target.kind === "window"
               ? appIcon ? <img className="takeover-app-icon" src={appIcon} alt="" draggable={false} /> : <AppWindow size={11} aria-hidden="true" />
-              : target.kind === "browser" ? <ExternalLink size={11} aria-hidden="true" /> : null}
+              : target.kind === "browser" ? <ExternalLink size={11} aria-hidden="true" /> : target.kind === "settings" ? <Settings size={11} aria-hidden="true" /> : null}
             {label}
           </button>
         ) : null}

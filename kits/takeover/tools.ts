@@ -10,7 +10,8 @@ type SessionContext = { sessionManager?: { getSessionId?(): string } } | undefin
 
 export interface TakeoverRequest {
   reason: string;
-  target?: "preview" | "window" | "browser";
+  target?: "preview" | "window" | "browser" | "settings";
+  settingsPage?: string;
   url?: string;
 }
 
@@ -19,14 +20,21 @@ type Request = (request: TakeoverRequest, threadId: string | undefined, signal: 
 
 const parameters = Type.Object({
   reason: Type.String({ description: "What the user should do, in a few words, e.g. \"Sign in to the staging dashboard\" or \"Enter the 2FA code\"" }),
-  target: Type.Optional(Type.Union([Type.Literal("preview"), Type.Literal("window"), Type.Literal("browser")], {
-    description: "Where: \"preview\" is Tau's Preview page, \"window\" the app you drive with computer use, \"browser\" a page in the user's own browser (needs url). Left out, it is where you last worked.",
+  target: Type.Optional(Type.Union([Type.Literal("preview"), Type.Literal("window"), Type.Literal("browser"), Type.Literal("settings")], {
+    description: "Where: preview is Tau's Preview, window an app, browser an external page (needs url), settings a Tau settings page (needs settingsPage). For Tau permissions use settings, not window. Left out, it is where you last worked.",
   })),
+  settingsPage: Type.Optional(Type.String({ description: "Tau settings page ID for target settings, e.g. devices.settings for simulator and emulator consent. The card links directly to this page." })),
   url: Type.Optional(Type.String({ description: "The page to sign in on, when there is one" })),
 });
 
 /** Where a request goes: the agent's word, else where it last worked, else the page it named in the user's browser. */
 export function resolveTarget(request: TakeoverRequest, lastSurface: "preview" | "window" | undefined): TakeoverTarget | string {
+  if (request.target === "settings") {
+    const page = request.settingsPage?.trim();
+    return page && /^[a-zA-Z0-9._-]+$/u.test(page)
+      ? { kind: "settings", page }
+      : "target \"settings\" needs a settingsPage ID, e.g. devices.settings.";
+  }
   const url = webUrl(request.url);
   if (request.url && !url) return "url must be an http or https address.";
   const where = request.target ?? lastSurface ?? (url ? "browser" : undefined);

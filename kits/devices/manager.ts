@@ -94,7 +94,7 @@ export class DeviceManager {
   }
   async consent(): Promise<void> {
     await this.load;
-    if (!this.settings.agentControl) throw new Error("Agent device control is off. Enable it in Settings → Devices before asking an agent to use a device.");
+    if (!this.settings.agentControl) throw new Error('Agent device control is off. Ask the user to enable it with request_takeover: target="settings", settingsPage="devices.settings". They must turn on "Allow agents to control devices" and save.');
   }
   private host(id: string): DeviceHost {
     const host = this.settings.hosts.find((entry) => entry.id === id);

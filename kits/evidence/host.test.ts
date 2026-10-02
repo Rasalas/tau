@@ -71,34 +71,48 @@ async function activate() {
     return thread;
   }, { interval: 5 });
   const frames = (thread: EvidenceThread) => thread.turns.flatMap((turn) => turn.frames);
-  const settle = () => new Promise((resolve) => setImmediate(resolve));
-  return { page, observers, lifecycles, runtime, mcp, events, provider: () => provider, announced, invoke, settle, until, frames };
+  return { page, observers, lifecycles, runtime, mcp, events, provider: () => provider, announced, invoke, until, frames, dispose: () => kit.dispose() };
 }
 
 describe("Evidence host extension", () => {
+  it("does not sample manual browsing while a turn runs or when it ends", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+    const { page, observers, dispose } = await activate();
+    try {
+      await observers[0]!.prepare?.("thread", "t1");
+      page.name = "manual-login";
+      await vi.advanceTimersByTimeAsync(30_000);
+      await observers[0]!.ended?.("thread", "t1", "completed");
+      await vi.advanceTimersByTimeAsync(1);
+      expect(page.asked).toBe(0);
+    } finally {
+      await dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it("pictures a turn that changed the Preview, lists it, and offers it to other kits as turn attachments", async () => {
-    const { page, observers, invoke, settle, until, frames, provider, announced, events } = await activate();
+    const { page, observers, invoke, until, frames, provider, announced, events } = await activate();
     const [observer] = observers;
     observer!.accepted?.("thread", "t1", { deferBefore: false });
     await observer!.prepare?.("thread", "t1");
-    while (page.asked === 0) await settle();
+    expect(page.asked).toBe(0);
     page.name = "page-b";
     observer!.toolEnded?.("thread", { id: "c1", name: "preview_click", args: { text: "Save" }, status: "done", startedAt: 1 }, "/project");
-    await until((next) => frames(next).length === 2);
+    await until((next) => frames(next).length === 1);
     await observer!.ended?.("thread", "t1", "completed");
 
     const thread = await until((next) => next.turns[0]?.endedAt !== undefined);
     expect(thread.turns).toHaveLength(1);
-    expect(thread.turns[0]!.frames.map((frame) => frame.caption)).toEqual(["When the turn started", "Clicked “Save”"]);
+    expect(thread.turns[0]!.frames.map((frame) => frame.caption)).toEqual(["Clicked “Save”"]);
     const [first] = thread.turns[0]!.frames;
-    expect(await invoke("image", { threadId: "thread", id: first!.id, thumb: true })).toBe(`data:image/jpeg;base64,${Buffer.from("thumb:page-a").toString("base64")}`);
+    expect(await invoke("image", { threadId: "thread", id: first!.id, thumb: true })).toBe(`data:image/jpeg;base64,${Buffer.from("thumb:page-b").toString("base64")}`);
 
     const attachments = await provider()!.list("thread");
     expect(attachments.map((entry) => [entry.caption, entry.mediaType, entry.turnId])).toEqual([
-      ["When the turn started", "image/jpeg", "t1"],
       ["Clicked “Save”", "image/jpeg", "t1"],
     ]);
-    expect(await provider()!.read("thread", first!.id)).toEqual({ mediaType: "image/jpeg", data: Buffer.from("jpeg:page-a").toString("base64") });
+    expect(await provider()!.read("thread", first!.id)).toEqual({ mediaType: "image/jpeg", data: Buffer.from("jpeg:page-b").toString("base64") });
     expect(announced).toContain("thread");
     expect(events.some((event) => event.name === "changed")).toBe(true);
   });

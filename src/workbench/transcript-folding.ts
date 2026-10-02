@@ -360,12 +360,13 @@ export function deriveWorkRows(input: WorkGroupInput): WorkRow[] {
   const tools = distinctTools(input.tools);
   if (tools.length === 0) return [];
   const rows: WorkRow[] = [];
-  for (const segment of cardSegments(tools, input.cardIdFor)) {
+  const segments = cardSegments(tools, input.cardIdFor);
+  for (const [index, segment] of segments.entries()) {
     if (segment.cardId) {
       rows.push({ kind: "card", id: `${input.id}:card:${segment.tools[0].id}`, cardId: segment.cardId, tools: segment.tools });
       continue;
     }
-    rows.push(...workRowsFor(segment.tools, input, `${input.id}:${segment.tools[0].id}`));
+    rows.push(...workRowsFor(segment.tools, { ...input, streaming: input.streaming && index === segments.length - 1 }, `${input.id}:${segment.tools[0].id}`));
   }
   return rows;
 }

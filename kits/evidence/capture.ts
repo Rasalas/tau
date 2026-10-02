@@ -3,7 +3,6 @@ import type { EvidenceStore } from "./store.js";
 import { isDuplicate, isScreenTool, previewCaption, previewToolName, screenCaption, type Luma } from "./frames.js";
 import {
   FRAMES_PER_TURN,
-  PERIODIC_MS,
   type EncodedFrame,
   type EvidenceFrame,
   type EvidenceSettings,
@@ -25,8 +24,6 @@ export interface CaptureDeps {
   encode(data: string): Promise<EncodedFrame>;
   /** The project a thread runs in, when its runtime is open. */
   cwdOf(threadId: string): string | undefined;
-  /** The thread a client has on screen. */
-  activeThread(): string | undefined;
   changed(threadId: string): void;
   now(): number;
   log(label: string, detail?: string): void;
@@ -35,11 +32,6 @@ export interface CaptureDeps {
 interface TurnState {
   turnId: string;
   startedAt: number;
-  /** The agent drove the Preview in this turn, so its frames belong here whoever watches. */
-  previewUsed: boolean;
-  lastPreviewAt: number;
-  /** The page when the turn started, kept only once something in the turn differs from it. */
-  before?: Shot & { encoded: EncodedFrame; luma: Luma; at: number };
   /** The turn's last kept frame of each source, what the next one is compared with. */
   luma: Partial<Record<EvidenceSource, Luma>>;
 }
@@ -64,17 +56,10 @@ interface ThreadState {
 
 type Kept = { frame: EvidenceFrame } | { skipped: string };
 
-const TRIGGER_CAPTIONS: Partial<Record<EvidenceTrigger, string>> = {
-  "turn-start": "When the turn started",
-  "turn-end": "When the turn ended",
-  periodic: "While the agent worked",
-};
-
 /**
- * Takes frames for the turns of every thread: from the Preview at a turn's
- * edges, after each Preview call and every few seconds, and from the window
- * the agent drives whenever its driver took a new screenshot. Nothing is taken
- * outside a turn, from a paused thread, or while a secret has the keyboard.
+ * Keeps frames after the agent uses Preview or computer use, or explicitly
+ * attaches evidence. Watching a page, a clock tick and turn boundaries never
+ * take pictures. Paused threads and password fields remain excluded.
  */
 export class EvidenceCapture {
   private readonly threads = new Map<string, ThreadState>();
@@ -106,7 +91,7 @@ export class EvidenceCapture {
     const state = this.state(threadId);
     state.queue = state.queue.filter((entry) => entry.turnId !== turnId);
     // Every turn compares with its own frames, so it keeps a first one even when it looks like the last turn's end.
-    const turn: TurnState = { turnId, startedAt: this.deps.now(), previewUsed: false, lastPreviewAt: this.deps.now(), luma: {} };
+    const turn: TurnState = { turnId, startedAt: this.deps.now(), luma: {} };
     state.turn = turn;
     return turn;
   }
@@ -115,11 +100,9 @@ export class EvidenceCapture {
     this.state(threadId).queue.push({ turnId, joins: options.expectsInput === false && options.deferBefore });
   }
 
-  /** A turn starts: what the Preview shows now is its "before". */
+  /** A turn starts; opening or watching Preview does not take a picture. */
   prepare(threadId: string, turnId: string): Promise<void> {
-    const turn = this.begin(threadId, turnId);
-    // The runtime waits for this hook, so the frame is taken behind it.
-    void this.serial(threadId, () => this.previewFrame(threadId, turn, "turn-start"));
+    this.begin(threadId, turnId);
     return Promise.resolve();
   }
 
@@ -130,7 +113,7 @@ export class EvidenceCapture {
     if (state.turn?.turnId === turnId) state.turn = undefined;
   }
 
-  /** A turn settled: its "after", then the next queued prompt's turn begins. */
+  /** A turn settled: finish its evidence, then begin the next queued prompt. */
   ended(threadId: string, turnId: string): Promise<void> {
     const state = this.threads.get(threadId);
     if (!state) return Promise.resolve();
@@ -141,7 +124,6 @@ export class EvidenceCapture {
     const turn = state.turn;
     const endedAt = this.deps.now();
     void this.serial(threadId, async () => {
-      await this.previewFrame(threadId, turn, "turn-end");
       if (await this.deps.store.endTurn(threadId, turn.turnId, endedAt)) this.deps.changed(threadId);
     });
     state.turn = undefined;
@@ -164,21 +146,9 @@ export class EvidenceCapture {
     const turn = state.turn;
     if (!turn) return;
     if (previewToolName(tool.name)) {
-      turn.previewUsed = true;
       void this.serial(threadId, () => this.previewFrame(threadId, turn, "action", previewCaption(tool.name, tool.args)));
     } else if (isScreenTool(tool.name)) {
       void this.serial(threadId, () => this.screenFrame(threadId, turn, "action"));
-    }
-  }
-
-  /** The clock: a running turn's Preview, at most every `PERIODIC_MS`. */
-  tick(): void {
-    const now = this.deps.now();
-    for (const [threadId, state] of this.threads) {
-      const turn = state.turn;
-      if (!turn || now - turn.lastPreviewAt < PERIODIC_MS) continue;
-      turn.lastPreviewAt = now;
-      void this.serial(threadId, () => this.previewFrame(threadId, turn, "periodic"));
     }
   }
 
@@ -189,10 +159,6 @@ export class EvidenceCapture {
       await Promise.all(chains);
       if (chains.every((chain, index) => [...this.threads.values()][index]?.chain === chain)) return;
     }
-  }
-
-  running(): boolean {
-    return [...this.threads.values()].some((state) => state.turn);
   }
 
   pause(threadId: string, reason: string): void {
@@ -218,7 +184,7 @@ export class EvidenceCapture {
       const reason = this.pauses.get(threadId);
       if (reason) return `Not attached: evidence capture is paused for this thread (${reason}).`;
       // A prompt Tau does not bracket, as in a Pi terminal Tau is only attached to, gets a turn of its own.
-      const turn = state.turn ?? { turnId: `turn-${randomUUID()}`, startedAt: this.deps.now(), previewUsed: false, lastPreviewAt: 0, luma: {} };
+      const turn = state.turn ?? { turnId: `turn-${randomUUID()}`, startedAt: this.deps.now(), luma: {} };
       const settle = async () => { if (turn !== state.turn && await this.deps.store.endTurn(threadId, turn.turnId, this.deps.now())) this.deps.changed(threadId); };
       const outcomes: string[] = [];
       if (source !== "window") {
@@ -241,23 +207,18 @@ export class EvidenceCapture {
     });
   }
 
-  private async previewFrame(threadId: string, turn: TurnState, trigger: EvidenceTrigger, caption?: string): Promise<Kept> {
+  private async previewFrame(threadId: string, turn: TurnState, trigger: "action" | "agent", caption: string): Promise<Kept> {
     if (this.pauses.size > 0) return { skipped: "capture is paused" };
     const settings = await this.deps.settings(this.cwd(threadId));
     const agent = trigger === "agent";
     if (!agent && !settings.preview) return { skipped: "off for this project" };
-    // Unless the agent drives the Preview, its page belongs to the thread the user watches beside it.
-    const watched = this.deps.activeThread() === threadId;
-    if (!agent && !turn.previewUsed && !watched) return { skipped: "not this thread's page" };
-    turn.lastPreviewAt = this.deps.now();
     const answer = await this.deps.preview().catch(() => undefined);
     if (!answer) return { skipped: "Preview is not there" };
     if ("skipped" in answer) return { skipped: answer.skipped === "closed" ? "no page is open" : answer.skipped };
-    if (!agent && !turn.previewUsed && !answer.visible) return { skipped: "the panel is hidden" };
     return this.keep(threadId, turn, settings, {
       source: "preview",
       trigger,
-      caption: caption ?? TRIGGER_CAPTIONS[trigger] ?? answer.title,
+      caption,
       data: answer.data,
       extra: { url: answer.url, ...(answer.title ? { title: answer.title } : {}) },
     });
@@ -293,18 +254,8 @@ export class EvidenceCapture {
   private async keep(threadId: string, turn: TurnState, settings: EvidenceSettings, shot: Shot): Promise<Kept> {
     const encoded = await this.deps.encode(shot.data);
     const luma: Luma = { width: encoded.lumaWidth, height: encoded.lumaHeight, pixels: new Uint8Array(Buffer.from(encoded.luma, "base64")) };
-    if (shot.trigger === "turn-start") {
-      turn.before = { ...shot, encoded, luma, at: this.deps.now() };
-      return { skipped: "kept back until something changes" };
-    }
-    const before = turn.before?.source === shot.source ? turn.before : undefined;
-    if (isDuplicate(turn.luma[shot.source] ?? before?.luma, luma, shot.trigger)) return { skipped: "nothing changed" };
+    if (isDuplicate(turn.luma[shot.source], luma, shot.trigger)) return { skipped: "nothing changed" };
     const limits = { framesPerTurn: FRAMES_PER_TURN, threadBytes: settings.threadMegabytes * 1024 * 1024 };
-    if (before) {
-      turn.before = undefined;
-      // The agent's own frame of an unchanged page says the same as the start did.
-      if (!isDuplicate(before.luma, luma, "action")) await this.store(threadId, turn, before, before.encoded, before.at, limits);
-    }
     const frame = await this.store(threadId, turn, shot, encoded, this.deps.now(), limits);
     if (!frame) return { skipped: "the turn has no room left" };
     turn.luma[shot.source] = luma;
