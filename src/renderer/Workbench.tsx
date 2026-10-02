@@ -927,7 +927,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     {overlays}
     {floats}
     {phone && !stageFolded && frontTab?.kind === "file" ? <Suspense fallback={null}>
-      <LazyWorkspaceFileSheet key={frontTab.id} tab={frontTab} source={documentSource} onClose={() => { stageTabs.close(frontTab.id); setStageFolded(true); }} />
+      <LazyWorkspaceFileSheet key={JSON.stringify([pendingNewThread, snapshot?.sessionId, stageWorkspace, frontTab.id])} tab={frontTab} source={documentSource} onClose={() => { stageTabs.close(frontTab.id); setStageFolded(true); }} />
     </Suspense> : null}
     {sheetPanel ? createPortal(<MountedPanel
       Component={sheetPanel.Component}

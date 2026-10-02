@@ -135,20 +135,27 @@ export function stateWithPhoneReader(state: unknown, reader: PhoneReaderEntry): 
 
 // One browser history, owned by TouchLayer. Sheets register their lifetime;
 // they never navigate from a teardown callback themselves. Nothing here is SDK API.
-interface ReaderRegistration { key: string; close(): void }
+interface ReaderRegistration { key: string; hostingRoute?: PhoneRoute; close(): void }
 interface ReaderCoordinator { changed(): void; dismiss(key: string): boolean }
 let registration: ReaderRegistration | undefined;
 let coordinator: ReaderCoordinator | undefined;
 
 export function currentPhoneReader(): Readonly<ReaderRegistration> | undefined { return registration; }
 export function registerPhoneReader(key: string, close: () => void): () => void {
-  registration = { key, close };
+  const hostingRoute = registration?.key === key ? registration.hostingRoute : undefined;
+  registration = { key, close, hostingRoute };
   coordinator?.changed();
   return () => {
     if (registration?.key !== key) return;
     registration = undefined;
     coordinator?.changed();
   };
+}
+/** Bind once after the route settles; a live reader cannot migrate to another route. */
+export function claimPhoneReaderRoute(key: string, route: PhoneRoute): boolean {
+  if (registration?.key !== key) return false;
+  registration.hostingRoute ??= route;
+  return sameRoute(registration.hostingRoute, route);
 }
 export function closePhoneReader(key: string): void {
   if (registration?.key !== key) return;

@@ -9,8 +9,10 @@ export function useWorkspaceFileHistory(id: string, onClose: () => void): () => 
   const generation = useRef(0);
   useEffect(() => {
     const own = ++generation.current;
-    const unregister = registerPhoneReader(key, () => close.current());
+    let mounted = true;
+    const unregister = registerPhoneReader(key, () => { if (mounted) close.current(); });
     return () => {
+      mounted = false;
       // StrictMode remounts and replacements reclaim the reader before this runs.
       queueMicrotask(() => { if (generation.current === own) unregister(); });
     };

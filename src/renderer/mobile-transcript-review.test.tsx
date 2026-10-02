@@ -37,6 +37,7 @@ function Authority() { return <output data-testid="active-document">{useWorkbenc
 function fixture({ phone = false, foreign = false, absoluteTool = false, switchable = false, readerB = false }: { phone?: boolean; foreign?: boolean; absoluteTool?: boolean; switchable?: boolean; readerB?: boolean } = {}) {
   const initial = switchable ? "A" : "B";
   let actions: WorkbenchActions | undefined;
+  let openResource: ReturnType<typeof useWorkbench>["openWorkspaceFile"];
   const sessions = ["A", "B"].map((id) => ({ id, path: `/session-${id}`, title: `Active ${id}`, projectPath: `/repo-${id}`, workspaceId: `opaque-${id}`, projectName: id, modifiedAt: 1, messageCount: 2 }));
   const detail = (id: string) => ({ sessionId: id, messages: [{ id: "user", role: "user" as const, text: `Thread ${id} content`, timestamp: 1 }, { id: "answer", role: "assistant" as const, text: `\`${path}\``, timestamp: 3 }], isStreaming: false, activeTools: [], ...(absoluteTool ? { turnActivity: { anchorMessageId: "user", tools: [tool] } } : {}) });
   window.history.replaceState(null, "", `/?profile=${phone ? "compact" : "desktop"}`);
@@ -48,7 +49,7 @@ function fixture({ phone = false, foreign = false, absoluteTool = false, switcha
   const storage = createMemoryStorage();
   if (foreign || readerB) {
     const id = foreign ? "A" : "B";
-    const stage = openFileTab(EMPTY_STAGE, path, { resourceOrigin: { sessionId: id, workspace: `opaque-${id}`, sourceId: "documents" } });
+    const stage = openFileTab(EMPTY_STAGE, path, { localWorkspace: "opaque-B", resourceOrigin: { sessionId: id, workspace: `opaque-${id}`, sourceId: "documents" } });
     storage.set(threadStageKey("thread:B"), JSON.stringify({ ...stage, dock: { open: true } }));
   }
   const loads: Array<{ path: string; workspace?: string }> = [];
@@ -62,7 +63,7 @@ function fixture({ phone = false, foreign = false, absoluteTool = false, switcha
     });
     plugin.registerToolRenderer("read", (tool) => tool.name === "Read", presentRead, { profiles: ["desktop", "compact"] });
     plugin.registerRegion({ id: "actions", placement: "composer-below", profiles: ["desktop", "compact"], Component: (props) => { actions = props.actions; return null; } });
-    plugin.registerRegion({ id: "authority", placement: "transcript-header", profiles: ["desktop", "compact"], Component: Authority });
+    plugin.registerRegion({ id: "authority", placement: "transcript-header", profiles: ["desktop", "compact"], Component: () => { openResource = useWorkbench().openWorkspaceFile; return <Authority />; } });
   } };
   const tool: UiToolRun = { id: "read", name: "Read", args: { file_path: "/repo-B/src/same.ts" }, status: "done", startedAt: 1, endedAt: 2 };
   const client = createFakeHostClient({
@@ -85,10 +86,79 @@ function fixture({ phone = false, foreign = false, absoluteTool = false, switcha
       return { status: "written", size: 1, mtimeMs: 2 };
     } }),
   });
-  return { ...renderApp(client, { storage, extensions: [documents, filesExtension] }), fileCalls, loads, client, actions: () => actions! };
+  return { ...renderApp(client, { storage, extensions: [documents, filesExtension] }), fileCalls, loads, client, actions: () => actions!, openResource: (relative: string) => openResource!(relative, { sessionId: initial, workspace: `opaque-${initial}`, sourceId: "documents" }) };
 }
 
 describe("issue 12 independent review regressions", () => {
+  it("opening Settings dismisses the hosting chat's reader and preserves its draft", async () => {
+    const { actions, client } = fixture({ phone: true, switchable: true });
+    await screen.findByText("Thread A content");
+    await waitFor(() => expect(routeFromState(window.history.state)?.kind).toBe("threads"));
+    await runPaletteCommand("Toggle sidebar");
+    await waitFor(() => expect(routeFromState(window.history.state)).toEqual({ kind: "chat", thread: "A" }));
+    const composer = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: "Keep this unsent draft" } });
+    fireEvent.click(screen.getByRole("button", { name: `Open ${path}` }));
+    await screen.findByText(textA);
+    const pop = new Promise<void>((resolve) => window.addEventListener("popstate", () => resolve(), { once: true }));
+    act(() => actions().openSettings("general"));
+    await act(async () => { await pop; });
+    await waitFor(() => expect(routeFromState(window.history.state)?.kind).toBe("settings"));
+    expect((await screen.findAllByRole("heading", { name: "Settings" })).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("dialog", { name: "same.ts" })).toBeNull();
+    window.history.back();
+    await waitFor(() => expect(routeFromState(window.history.state)?.kind).toBe("threads"));
+    expect(screen.queryByRole("dialog", { name: "same.ts" })).toBeNull();
+    await runPaletteCommand("Toggle sidebar");
+    await waitFor(() => expect(routeFromState(window.history.state)).toEqual({ kind: "chat", thread: "A" }));
+    expect((screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement).value).toBe("Keep this unsent draft");
+    expect(client.calls.filter((call) => call.method === "switchSession")).toEqual([]);
+  });
+  it("a newly opened workspace reader may be hosted on Settings", async () => {
+    const { actions, client, openResource, loads } = fixture({ phone: true, switchable: true });
+    await screen.findByText("Thread A content");
+    await waitFor(() => expect(routeFromState(window.history.state)?.kind).toBe("threads"));
+    await runPaletteCommand("Toggle sidebar");
+    await waitFor(() => expect(routeFromState(window.history.state)).toEqual({ kind: "chat", thread: "A" }));
+    fireEvent.click(screen.getByRole("button", { name: `Open ${path}` }));
+    await screen.findByText(textA);
+    act(() => actions().openSettings("general"));
+    await waitFor(() => expect(routeFromState(window.history.state)?.kind).toBe("settings"));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "same.ts" })).toBeNull());
+    act(() => openResource("src/other.ts"));
+    await screen.findByRole("dialog", { name: "other.ts" });
+    await screen.findByText(textA);
+    expect(loads).toContainEqual({ path: "src/other.ts", workspace: "opaque-A" });
+    window.history.back();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "other.ts" })).toBeNull());
+    expect(routeFromState(window.history.state)?.kind).toBe("settings");
+    window.history.back();
+    await waitFor(() => expect(routeFromState(window.history.state)?.kind).toBe("threads"));
+    expect(client.calls.filter((call) => call.method === "switchSession")).toEqual([]);
+  });
+
+  it("Forward into a dismissed reader entry cannot obstruct Settings or reopen a thread", async () => {
+    const { actions, client } = fixture({ phone: true, switchable: true });
+    await screen.findByText("Thread A content");
+    await waitFor(() => expect(routeFromState(window.history.state)?.kind).toBe("threads"));
+    await runPaletteCommand("Toggle sidebar");
+    await waitFor(() => expect(routeFromState(window.history.state)).toEqual({ kind: "chat", thread: "A" }));
+    fireEvent.click(screen.getByRole("button", { name: `Open ${path}` }));
+    await screen.findByText(textA);
+    window.history.back();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "same.ts" })).toBeNull());
+    const pop = new Promise<void>((resolve) => window.addEventListener("popstate", () => resolve(), { once: true }));
+    await act(async () => { window.history.forward(); await pop; });
+    expect(routeFromState(window.history.state)).toEqual({ kind: "chat", thread: "A" });
+    expect(screen.queryByRole("dialog", { name: "same.ts" })).toBeNull();
+    act(() => actions().openSettings("general"));
+    await waitFor(() => expect(routeFromState(window.history.state)?.kind).toBe("settings"));
+    expect(screen.queryByRole("dialog", { name: "same.ts" })).toBeNull();
+    window.history.back();
+    await waitFor(() => expect(routeFromState(window.history.state)?.kind).toBe("threads"));
+    expect(client.calls.filter((call) => call.method === "switchSession")).toEqual([]);
+  });
+
   it("switching A's open reader to B consumes the modal step without reopening A", async () => {
     const { actions, client } = fixture({ phone: true, switchable: true });
     await screen.findByText("Thread A content");

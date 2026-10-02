@@ -3,7 +3,7 @@ import { useThreadStore } from "../workbench-context";
 import { useAppPageStore } from "../app-page-context";
 import { PHONE_HOME, type PhoneRoute } from "../../workbench/phone-route";
 import {
-  closePhoneReader, coordinatePhoneReaderHistory, currentPhoneReader, phoneReaderFromState, stateWithPhoneReader, historySteps, routeFromState, routeFromUrl, routeKey, routePath, sameRoute, stateWithRoute, urlWithRoute, type HistorySteps,
+  claimPhoneReaderRoute, closePhoneReader, coordinatePhoneReaderHistory, currentPhoneReader, phoneReaderFromState, stateWithPhoneReader, historySteps, routeFromState, routeFromUrl, routeKey, routePath, sameRoute, stateWithRoute, urlWithRoute, type HistorySteps,
 } from "../../workbench/phone-history";
 import { pageFromUrl, urlWithPage } from "./page-url";
 import { threadFromUrl, threadUrlStep, urlWithThread } from "./thread-url";
@@ -165,6 +165,7 @@ function usePhoneHistory(phone: PhoneRouting | undefined, openThread: (path: str
       const reader = phoneReaderFromState(window.history.state);
       const active = currentPhoneReader();
       if (active) {
+        if (!claimPhoneReaderRoute(active.key, route)) { closePhoneReader(active.key); return; }
         if (reader?.key === active.key && sameRoute(reader.route, route)) { readerShown = active.key; return; }
         const next = stateWithPhoneReader(window.history.state, { key: active.key, route });
         if (reader && sameRoute(reader.route, route)) window.history.replaceState(next, "");
