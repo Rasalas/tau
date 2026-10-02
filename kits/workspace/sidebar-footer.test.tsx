@@ -60,7 +60,7 @@ describe("sidebar footer pages", () => {
     expect((await screen.findByRole("button", { name: "Pull requests, 120" })).querySelector(".page-badge")?.textContent).toBe("99+");
   });
 
-  it("leads with a prominent page as its name and count, then Settings, and ends with the pages' figures and a waiting update", async () => {
+  it("leads with a prominent page and ends with figures, an update and Settings", async () => {
     let figure: { text: string; short?: string; hint?: string } | undefined;
     const install = vi.fn();
     const pages: DesktopExtension = {
@@ -81,9 +81,9 @@ describe("sidebar footer pages", () => {
     expect(reviews.textContent).toBe("Reviews4");
     expect(reviews.querySelector("b")?.textContent).toBe("4");
     // Without a figure yet, the page keeps its icon at the end.
-    expect(footer.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Reviews, 4", "Pull requests", "Settings", "Usage", "Limits left", "Tau 0.8.0 is ready: restart to update"]);
+    expect(footer.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Reviews, 4", "Pull requests", "Usage", "Limits left", "Tau 0.8.0 is ready: restart to update", "Settings"]);
     const end = view.container.querySelector(".sidebar-footer-end") as HTMLElement;
-    expect(within(end).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Usage", "Limits left", "Tau 0.8.0 is ready: restart to update"]);
+    expect(within(end).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Usage", "Limits left", "Tau 0.8.0 is ready: restart to update", "Settings"]);
     fireEvent.click(footer.getByRole("button", { name: "Tau 0.8.0 is ready: restart to update" }));
     expect(install).toHaveBeenCalledTimes(1);
 

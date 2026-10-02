@@ -58,9 +58,8 @@ function UpdateButton() {
 }
 
 /**
- * The sidebar's foot (design 1a): Reviews and its count, the other pages as icons,
- * the commands kits put here and Settings; at the end what pages sum up (Usage's
- * juicebars and this month's cost) and a waiting update.
+ * The sidebar's foot: Reviews and its count, the other pages and commands;
+ * at the right, the pages' summaries, a waiting update and Settings.
  * While a page shows, the foot is Back alone, as Settings' column ends.
  */
 export function SidebarFooter({ actions, readOnly }: { actions: WorkbenchActions; readOnly: boolean }) {
@@ -95,12 +94,12 @@ export function SidebarFooter({ actions, readOnly }: { actions: WorkbenchActions
           {command.Icon ? <command.Icon size={15} /> : command.label}
         </button>
       ))}
-      <button type="button" {...tooltipProps("Settings", { side: "top", shortcut: registry.keybindingLabel("runtime.settings") })} aria-label="Settings" onClick={() => actions.openSettings()}>
-        <SlidersHorizontal size={14} />
-      </button>
       <span className="sidebar-footer-end">
         {summaries.map((page) => <PageSummarySlot key={page.id} page={page} actions={actions} />)}
         <UpdateButton />
+        <button type="button" {...tooltipProps("Settings", { side: "top", shortcut: registry.keybindingLabel("runtime.settings") })} aria-label="Settings" onClick={() => actions.openSettings()}>
+          <SlidersHorizontal size={14} />
+        </button>
       </span>
     </div>
   );

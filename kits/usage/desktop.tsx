@@ -30,9 +30,8 @@ export const usageExtension: DesktopExtension = {
       order: 20,
       layout: "wide",
       keywords: ["cost", "tokens", "limits", "billing"],
-      // What is left of each plan, as thin bars at the sidebar's foot; a click opens the limits.
-      // Beside them this month's cost (design 1a).
-      Summary: (props) => <><Juicebars {...props} feed={feed} choices={choices} /><MonthCost {...props} host={plugin.host} machine={plugin.environments?.shownElsewhere} /></>,
+      // This month's cost, then the plans' bars, before Settings on desktop and tablet.
+      Summary: (props) => <><MonthCost {...props} host={plugin.host} machine={plugin.environments?.shownElsewhere} /><Juicebars {...props} feed={feed} choices={choices} /></>,
       Component: (props) => <UsagePage {...props} host={plugin.host} environments={plugin.environments} view={view} feed={feed} choices={choices} />,
       // This month, the filters and the sections, in the thread list's place.
       Sidebar: () => <UsageSidebar view={view} />,

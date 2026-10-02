@@ -616,7 +616,7 @@ const summaryProbe: DesktopExtension = {
   id: "test.summary",
   name: "Summary probe",
   activate(plugin) {
-    plugin.registerPage({ id: "probe.usage", label: "Usage", Icon: ChartColumn, profiles: ["desktop", "web", "compact"], Summary: () => <button type="button">Plan bars</button>, Component: () => <p>usage body</p> });
+    plugin.registerPage({ id: "probe.usage", label: "Usage", Icon: ChartColumn, profiles: ["desktop", "web", "compact"], Summary: () => <><button type="button">This month: $12.40</button><button type="button">Plan bars</button></>, Component: () => <p>usage body</p> });
     plugin.registerRegion({ id: "probe.title", placement: "thread-list-title", profiles: ["compact"], Component: () => <button type="button">Title bars</button> });
   },
 };
@@ -628,6 +628,7 @@ describe("a page's summary on a phone and a tablet", () => {
     const list = await screen.findByRole("navigation", { name: "Thread list" });
     const foot = within(list).getByRole("group", { name: "Sidebar controls" });
     expect(await within(foot).findByRole("button", { name: "Plan bars" })).toBeTruthy();
+    expect(within(foot).getAllByRole("button").map((button) => button.getAttribute("aria-label") ?? button.textContent)).toEqual(["This month: $12.40", "Plan bars", "Settings"]);
     expect(within(foot).queryByRole("button", { name: "Usage" })).toBeNull();
     expect(within(list).queryByRole("button", { name: "Title bars" })).toBeNull();
   });
