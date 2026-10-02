@@ -6,7 +6,7 @@ import type { HostExtensionClient } from "../extension-system";
 import { ProviderCardContext } from "../settings/provider-card-state";
 import { SignInSetup, flowLine } from "./SignInUi";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 /** A kit's host half as the window sees it: commands answered from a script, events pushed by the test. */
 function fakeHost(report: SignInReport) {
@@ -128,14 +128,18 @@ describe("SignInSetup", () => {
   });
 
   it("asks before signing out and says what the host answered", async () => {
+    // The fake address ends in a@example.com too; it is not the real address.
+    vi.spyOn(Math, "random").mockReturnValue(10 / 36);
     const onNotify = vi.fn();
     const { host, calls, answer } = fakeHost({ methods: METHODS, account: { signedIn: true, label: "a@example.com", canSignOut: true } });
     answer({ "sign-out": () => ({ methods: METHODS, account: { signedIn: false }, note: "Signed out of Codex." }) });
     render(<SignInSetup host={host} {...common} onNotify={onNotify} />);
     fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
     const dialog = screen.getByRole("dialog", { name: "Sign out of Codex?" });
-    expect(dialog.innerHTML).not.toContain("a@example.com");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Show email address" }));
+    expect(within(dialog).queryByText("a@example.com", { exact: true })).toBeNull();
+    const reveal = within(dialog).getByRole("button", { name: "Show email address" });
+    expect(reveal.textContent).toBe("user-a@example.com");
+    fireEvent.click(reveal);
     expect(within(dialog).getByText("a@example.com")).toBeTruthy();
     expect(dialog.textContent).toMatch(/stop working until you sign in again; their history stays/u);
     fireEvent.click(within(dialog).getByRole("button", { name: "Sign out" }));
