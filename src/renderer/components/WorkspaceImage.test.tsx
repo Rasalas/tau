@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Markdown } from "./Markdown";
+import type { MarkdownHtml } from "./markdown-pipeline";
 import { WorkspaceResourceProvider } from "../workspace-resource-context";
 import { WorkbenchContext, type WorkbenchContextValue } from "../workbench-context";
 import { HostClientProvider } from "../host-client-context";
@@ -16,9 +17,9 @@ function fixture(load = vi.fn().mockResolvedValue(image())) {
   const source = { id: "workspace", loadFile: load };
   const workbench = { registry: { getDocumentSource: () => source }, openWorkspaceFile: vi.fn() } as unknown as WorkbenchContextValue;
   const client = createFakeHostClient();
-  const draw = (text = "![Screenshot](a.png)", workspace: string | undefined = "ws-A", streaming = false, host = client) =>
+  const draw = (text = "![Screenshot](a.png)", workspace: string | undefined = "ws-A", streaming = false, host = client, html?: MarkdownHtml) =>
     <HostClientProvider client={host}><WorkbenchContext.Provider value={workbench}>
-      <WorkspaceResourceProvider sessionId="thread" workspace={workspace}><Markdown streaming={streaming}>{text}</Markdown></WorkspaceResourceProvider>
+      <WorkspaceResourceProvider sessionId="thread" workspace={workspace}><Markdown streaming={streaming} html={html}>{text}</Markdown></WorkspaceResourceProvider>
     </WorkbenchContext.Provider></HostClientProvider>;
   return { load, draw, client };
 }
@@ -34,6 +35,41 @@ async function hasImage(container: HTMLElement, expected = dataUrl) {
 }
 
 describe("workspace Markdown images", () => {
+  for (const protocol of ["http", "https"]) {
+    it(`preserves sanitized dimensions on ${protocol} images`, () => {
+      const src = `${protocol}://example.com/image.png`;
+      const html: MarkdownHtml = () => ({ type: "root", children: [{ type: "element", tagName: "img", properties: { src, alt: "Sized image", width: 20, height: 30 }, children: [] }] });
+      const { draw, load } = fixture();
+      const { container } = render(draw("policy image", "ws-A", false, undefined, html));
+      const rendered = container.querySelector("img")!;
+      expect(rendered.getAttribute("src")).toBe(src);
+      expect(rendered.width).toBe(20);
+      expect(rendered.height).toBe(30);
+      expect(load).not.toHaveBeenCalled();
+    });
+  }
+
+  it("preserves workspace image dimensions and updates them without refetching", async () => {
+    const sized: (width: number, height: number) => MarkdownHtml = (width, height) => () => ({ type: "root", children: [{ type: "element", tagName: "img", properties: { src: "a.png", alt: "Sized image", width, height }, children: [] }] });
+    const { draw, load } = fixture();
+    const { container, rerender } = render(draw("policy image", "ws-A", false, undefined, sized(20, 30)));
+    await hasImage(container);
+    const rendered = container.querySelector("img")!;
+    expect(rendered.width).toBe(20);
+    expect(rendered.height).toBe(30);
+    rerender(draw("unrelated text update", "ws-A", false, undefined, sized(40, 50)));
+    await waitFor(() => {
+      expect(container.querySelector("img")).toBe(rendered);
+      expect(rendered.width).toBe(40);
+      expect(rendered.height).toBe(50);
+    });
+    expect(load.mock.calls).toEqual([["a.png", { workspace: "ws-A" }]]);
+    rerender(draw("unrelated text update", "ws-A", false, undefined, () => ({ type: "root", children: [{ type: "element", tagName: "img", properties: { src: "a.png", alt: "Sized image" }, children: [] }] })));
+    expect(rendered.hasAttribute("width")).toBe(false);
+    expect(rendered.hasAttribute("height")).toBe(false);
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
   it("reads a dot path through the bound source and does not refetch for unrelated stream updates or settling", async () => {
     const { draw, load } = fixture();
     const text = "![Screenshot](.tau-dev/dictation-preview/recording-detail.png)\n\n";

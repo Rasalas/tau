@@ -312,8 +312,8 @@ export function inlineCodeFile(text: string): string | undefined {
 }
 
 const COMPONENTS: MarkdownComponents = {
-  img({ src, alt, title }) {
-    return <WorkspaceImage src={typeof src === "string" ? src : undefined} alt={alt} title={title} />;
+  img({ src, alt, title, width, height }) {
+    return <WorkspaceImage src={typeof src === "string" ? src : undefined} alt={alt} title={title} width={width} height={height} />;
   },
   // `pre` owns fenced blocks; the nested `code` is read for its text and language
   // and never rendered, so the `code` override below only ever sees inline spans.

@@ -16,7 +16,7 @@ function UnavailableImage({ name, reason }: { name: string; reason: string }) {
 }
 
 /** Relative Markdown images are files of the transcript's origin, not this device. */
-export function WorkspaceImage({ src = "", alt = "", title }: { src?: string; alt?: string; title?: string }) {
+export function WorkspaceImage({ src = "", alt = "", title, width, height }: { src?: string; alt?: string; title?: string; width?: number | string; height?: number | string }) {
   const resources = useWorkspaceResources();
   const [result, setResult] = useState<ImageResult>();
   const [failedSource, setFailedSource] = useState<string>();
@@ -50,14 +50,14 @@ export function WorkspaceImage({ src = "", alt = "", title }: { src?: string; al
   const name = alt || path?.split("/").pop() || "Image";
   if (external) {
     if (failedSource === src) return <UnavailableImage name={name} reason="The image could not be displayed." />;
-    return <img src={src} alt={alt} title={title} onError={() => setFailedSource(src)} />;
+    return <img src={src} alt={alt} title={title} width={width} height={height} onError={() => setFailedSource(src)} />;
   }
   if (!path) return <UnavailableImage name={name} reason="Name an image by its path inside the thread's workspace." />;
   if (!resources?.available) return <UnavailableImage name={name} reason={RESOURCE_UNAVAILABLE} />;
   // Never paint a previous path/origin's bytes while its replacement loads.
   const current = result?.resources === resources && result.path === path ? result : undefined;
   if (current?.dataUrl) {
-    return <img src={current.dataUrl} alt={alt} title={title} onError={() => setResult({ resources, path, error: "The workspace image could not be decoded." })} />;
+    return <img src={current.dataUrl} alt={alt} title={title} width={width} height={height} onError={() => setResult({ resources, path, error: "The workspace image could not be decoded." })} />;
   }
   return <UnavailableImage name={name} reason={current?.error || "Loading workspace image…"} />;
 }
