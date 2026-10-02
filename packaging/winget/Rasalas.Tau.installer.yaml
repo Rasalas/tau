@@ -2,7 +2,7 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.9.0.schema.json
 
 PackageIdentifier: Rasalas.Tau
-PackageVersion: 0.7.35
+PackageVersion: 0.7.38
 InstallerType: nullsoft
 # electron-builder's assisted NSIS installer installs for the current user unless told otherwise.
 Scope: user
@@ -10,7 +10,7 @@ UpgradeBehavior: install
 ReleaseDate: 2026-10-02
 Installers:
   - Architecture: x64
-    InstallerUrl: https://github.com/Rasalas/tau-releases/releases/download/v0.7.35/Tau-Setup-0.7.35.exe
-    InstallerSha256: 779F514B4559C3F963D66378CF385238FE36E5F2214338A262ADD17E7B93ADD6
+    InstallerUrl: https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-Setup-0.7.38.exe
+    InstallerSha256: 9C33BB2751F7B22624EBC135F50496E85583C41C1F3C515F4A37C77F03602285
 ManifestType: installer
 ManifestVersion: 1.9.0
