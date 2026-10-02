@@ -81,7 +81,7 @@ export function registerPullRequestTab(
       profiles: ["desktop", "compact"],
       Icon: GitPullRequest,
       order: 10,
-      // The sidebar's foot leads with "Reviews N", as the design draws it.
+      // The sidebar's foot leads with the Reviews icon and its notification dot.
       prominent: true,
       layout: "fill",
       keywords: ["merge requests", "pull requests", "local merge", "worktree branches", "rebase"],

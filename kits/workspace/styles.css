@@ -277,9 +277,12 @@
   font: 600 9.5px/14px var(--sans); font-variant-numeric: tabular-nums; text-align: center;
   box-shadow: 0 0 0 2px var(--rail);
 }
-/* Reviews as its name and count (design 1a). */
-.sidebar-footer button.sidebar-page { width: auto; display: flex; gap: 7px; padding: 0 8px; font: var(--text-sm) var(--sans); white-space: nowrap; }
-.sidebar-footer button.sidebar-page > b { color: var(--acid-text); font-weight: 600; font-variant-numeric: tabular-nums; }
+/* Reviews needs attention: a dot, with the count kept in its tooltip. */
+.sidebar-footer .page-dot {
+  position: absolute; top: 3px; right: 3px; width: 6px; height: 6px;
+  border-radius: var(--radius-pill); background: var(--acid);
+  box-shadow: 0 0 0 2px var(--rail);
+}
 /* On an app page the foot is Back alone, as it ends Settings' column. */
 .sidebar-footer button.sidebar-back {
   width: auto; height: 32px; flex: 1; justify-content: start; display: flex; align-items: center; gap: var(--space-4);

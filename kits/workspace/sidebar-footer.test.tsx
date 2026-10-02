@@ -23,6 +23,7 @@ describe("sidebar footer pages", () => {
     const usage = await screen.findByRole("button", { name: "Usage" });
     const footer = within(view.container.querySelector(".sidebar-footer") as HTMLElement);
     expect(footer.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Pull requests", "Usage", "Settings"]);
+    expect(footer.getByRole("button", { name: "Settings" }).querySelector("svg.lucide-settings")).toBeTruthy();
     fireEvent.click(footer.getByRole("button", { name: "Pull requests" }));
     expect(pullRequests).toHaveBeenCalledTimes(1);
     fireEvent.click(usage);
@@ -60,14 +61,15 @@ describe("sidebar footer pages", () => {
     expect((await screen.findByRole("button", { name: "Pull requests, 120" })).querySelector(".page-badge")?.textContent).toBe("99+");
   });
 
-  it("leads with a prominent page and ends with figures, an update and Settings", async () => {
+  it("leads with an icon-only prominent page and ends with figures, an update and Settings", async () => {
+    let count: number | undefined = 4;
     let figure: { text: string; short?: string; hint?: string } | undefined;
     const install = vi.fn();
     const pages: DesktopExtension = {
       id: "foot-test", name: "Foot test", activate(plugin) {
         plugin.registerPage({ id: "usage", label: "Usage", Icon: ChartColumn, order: 20, useSummary: () => figure, Component: () => null });
         plugin.registerPage({ id: "requests", label: "Pull requests", Icon: GitPullRequest, order: 10, Component: () => null });
-        plugin.registerPage({ id: "reviews", label: "Reviews", Icon: GitPullRequest, order: 30, prominent: true, useBadge: () => 4, Component: () => null });
+        plugin.registerPage({ id: "reviews", label: "Reviews", Icon: GitPullRequest, order: 30, prominent: true, useBadge: () => count, Component: () => null });
         plugin.registerPage({
           id: "limits", label: "Limits", order: 40, Component: () => null,
           Summary: ({ actions }) => <button type="button" aria-label="Limits left" onClick={() => actions.openPage?.("limits", { section: "limits" })}>bars</button>,
@@ -77,9 +79,10 @@ describe("sidebar footer pages", () => {
     const view = renderApp(undefined, { extensions: [workspaceExtension, pages], seed: (services) => services.appUpdate?.set({ version: "0.8.0", install }) });
     const footer = within(await waitFor(() => view.container.querySelector(".sidebar-footer") as HTMLElement));
     const reviews = await footer.findByRole("button", { name: "Reviews, 4" });
-    // "Reviews 4", as design 1a writes it.
-    expect(reviews.textContent).toBe("Reviews4");
-    expect(reviews.querySelector("b")?.textContent).toBe("4");
+    expect(reviews.textContent).toBe("");
+    expect(reviews.querySelector("svg.lucide-git-pull-request")).toBeTruthy();
+    expect(reviews.querySelector(".page-dot")?.getAttribute("aria-hidden")).toBe("true");
+    expect(reviews.querySelector(".page-badge")).toBeNull();
     // Without a figure yet, the page keeps its icon at the end.
     expect(footer.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Reviews, 4", "Pull requests", "Usage", "Limits left", "Tau 0.8.0 is ready: restart to update", "Settings"]);
     const end = view.container.querySelector(".sidebar-footer-end") as HTMLElement;
@@ -87,15 +90,26 @@ describe("sidebar footer pages", () => {
     fireEvent.click(footer.getByRole("button", { name: "Tau 0.8.0 is ready: restart to update" }));
     expect(install).toHaveBeenCalledTimes(1);
 
+    count = 0;
     figure = { text: "$12.40 · 22 · 3.1M tok", short: "$12.40", hint: "This month · $12.40 billed per token" };
     fireEvent.click(footer.getByRole("button", { name: "Pull requests" }));
     fireEvent.click(await footer.findByRole("button", { name: "Back to thread" }));
+    const quietReviews = await footer.findByRole("button", { name: "Reviews" });
+    expect(quietReviews.textContent).toBe("");
+    expect(quietReviews.querySelector(".page-dot")).toBeNull();
     const usage = await footer.findByRole("button", { name: "Usage: This month · $12.40 billed per token" });
     expect(usage.closest(".sidebar-footer-end")).toBeTruthy();
     expect(usage.querySelector(".sidebar-summary-full")?.textContent).toBe("$12.40 · 22 · 3.1M tok");
     expect(usage.querySelector(".sidebar-summary-short")?.textContent).toBe("$12.40");
     fireEvent.click(usage);
     expect(await screen.findByRole("region", { name: "Usage" })).toBeTruthy();
+
+    count = undefined;
+    fireEvent.click(footer.getByRole("button", { name: "Back to thread" }));
+    const emptyReviews = await footer.findByRole("button", { name: "Reviews" });
+    expect(emptyReviews.querySelector(".page-dot")).toBeNull();
+    fireEvent.click(emptyReviews);
+    expect(await screen.findByRole("region", { name: "Reviews" })).toBeTruthy();
   });
 
   it("does not show entries from absent kits", async () => {
