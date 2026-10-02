@@ -24,10 +24,10 @@ describe("folding the composer while scrolling", () => {
   function Harness({ enabled = true, idle = true }: { enabled?: boolean; idle?: boolean }) {
     const zoneRef = useRef<HTMLElement>(null);
     const { collapsed } = useComposerCollapse({ enabled, idle: () => idle, zoneRef });
-    return <>
+    return <section className="conversation-column">
       <div className="transcript" data-testid="transcript"><p>history</p></div>
       <footer ref={zoneRef} data-testid="zone" data-collapsed={collapsed ? "yes" : "no"}><textarea /></footer>
-    </>;
+    </section>;
   }
 
   function scrolled(transcript: HTMLElement, top: number) {
@@ -37,6 +37,22 @@ describe("folding the composer while scrolling", () => {
       scrollHeight: { configurable: true, value: 2_000 },
     });
   }
+
+  it("ignores scrolling another thread's transcript in the stage", () => {
+    const view = render(<><Harness /><section className="stage"><div className="transcript" data-testid="agent">Agent history</div></section></>);
+    const agent = view.getByTestId("agent");
+    const transcript = view.getByTestId("transcript");
+    const zone = view.getByTestId("zone");
+    scrolled(agent, 900);
+    scrolled(transcript, 900);
+    fireEvent.wheel(agent, { deltaY: -200 });
+    expect(zone.dataset.collapsed).toBe("no");
+    fireEvent.wheel(transcript, { deltaY: -200 });
+    expect(zone.dataset.collapsed).toBe("yes");
+    scrolled(agent, 1_600);
+    fireEvent.wheel(agent, { deltaY: 40 });
+    expect(zone.dataset.collapsed).toBe("yes");
+  });
 
   it("folds on a scroll back, and unfolds on a key, a press, or the transcript's end", () => {
     const view = render(<Harness />);

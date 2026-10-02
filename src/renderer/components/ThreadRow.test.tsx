@@ -269,7 +269,7 @@ describe("ThreadRow hover actions and label", () => {
     />);
     // Drawn right to left and wrapped into a clipped line: the first child is the last to go.
     const parts = [...container.querySelector(".thread-meta-line")!.children].map((child) => child.className.split(" ")[0]);
-    expect(parts).toEqual(["thread-meta-end", "thread-meta-marks", "thread-branch", "thread-agent-count"]);
+    expect(parts).toEqual(["thread-meta-end", "thread-meta-marks", "thread-branch"]);
     const end = [...container.querySelector(".thread-meta-end")!.children].map((child) => child.className.split(" ")[0]);
     expect(end).toEqual(["thread-machine", "provider-icon-stack"]);
     // jsdom lays nothing out, so the rule that does is read from the stylesheet itself.

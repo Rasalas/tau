@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { ChevronDown, ListTree, MessageSquare } from "lucide-react";
 import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiProject, UiToolOutputPreview, UiToolRun, UiThreadTree } from "../shared/contracts";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
+import type { TranscriptPage } from "../shared/host-protocol";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import type { StageState } from "../workbench/stage";
 import type { StageTabController } from "./stage-tab-controller";
@@ -174,7 +175,7 @@ export interface WorkbenchLayout {
   pinStageTab(id: string): void;
   unpinStageTab(id: string): void;
   setStageFileView(id: string, view: "source" | "diff"): void;
-  loadThread(sessionId: string): Promise<UiMessage[]>;
+  loadThread(sessionId: string): Promise<TranscriptPage>;
   takeOverThread(sessionId: string): void;
   documentState: { changes: UiWorkspaceChanges; editor?: UiEditor };
   documentSource: ReturnType<ExtensionRegistry["getDocumentSource"]>;

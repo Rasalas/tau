@@ -7,7 +7,7 @@ import type {
   UiToolOutputPreview,
   UiToolRun,
 } from "../shared/contracts";
-import type { HostActionResult } from "../shared/host-protocol";
+import type { HostActionResult, TranscriptPage } from "../shared/host-protocol";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import type { ClientStorage } from "./client-storage";
 import { errorMessage } from "./error-message";
@@ -85,10 +85,10 @@ export class ThreadCommands {
     return true;
   }
 
-  loadThread = async (sessionId: string): Promise<UiMessage[]> => {
+  loadThread = async (sessionId: string): Promise<TranscriptPage> => {
     const client = this.client;
     if (!client) throw new Error("Reading another thread requires the Electron host");
-    return [...(await client.loadTranscript(sessionId)).messages];
+    return client.loadTranscript(sessionId);
   };
 
   loadTranscriptPage = async (sessionId: string, cursor: HostTranscriptCursor) => {

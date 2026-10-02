@@ -1,6 +1,6 @@
 import { useMemo, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { Maximize2, Minimize2 } from "lucide-react";
-import type { UiMessage } from "../../shared/contracts";
+import type { TranscriptPage } from "../../shared/host-protocol";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
 import { activeTab, type StageExtensionTab, type StageState, type StageView } from "../../workbench/stage";
 import type { DocumentOrigin, ExtensionRegistry, WorkbenchActions } from "../extension-system";
@@ -74,7 +74,7 @@ export function Stage({
   loadFile(path: string): Promise<UiFileContent>;
   loadDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
   /** The transcript of a thread the composer is not addressing. */
-  loadThread(sessionId: string): Promise<UiMessage[]>;
+  loadThread(sessionId: string): Promise<TranscriptPage>;
   onActivate(id: string): void;
   onClose(id: string): void;
   onPin(id: string): void;
@@ -159,6 +159,7 @@ export function Stage({
         key={current.id}
         sessionId={current.sessionId}
         loadThread={loadThread}
+        registry={registry}
         onTakeOver={onTakeOverThread}
       />
     ) : (

@@ -346,16 +346,6 @@ button > svg { pointer-events: none; }
   font: var(--text-xs) var(--sans); color: var(--muted); overflow: hidden; white-space: nowrap;
 }
 .thread-branch > svg { flex: none; color: var(--faint); }
-/* Threads an agent spawned live in the Agents panel; the rail only counts them. */
-.thread-agent-count {
-  display: inline-flex; align-items: center; gap: 4px; flex: none;
-  color: var(--info-ink); font: 500 10px var(--mono);
-}
-.thread-agent-count > i {
-  width: 6px; height: 6px; flex: none; border-radius: 50%;
-  background: var(--info); font-style: normal; animation: blink 1.4s ease-in-out infinite;
-}
-
 /* Another machine's thread: its mark before the provider marks; this machine's threads carry none. */
 .thread-machine { flex: none; display: grid; place-items: center; color: var(--muted); }
 .thread-machine > svg { display: block; }
