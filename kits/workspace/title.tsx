@@ -39,7 +39,7 @@ function editorSections(editors: ReturnType<typeof useWorkspaceKit>["editors"], 
 }
 
 /**
- * "Open in" at the stage strip's right end, the design's Editor button: the
+ * "Open in" before the stage tools, the design's Editor button: the
  * chosen editor's logo opens the project, the chevron picks another editor.
  */
 export function WorkspaceEditorButton(_props: RegionProps) {
