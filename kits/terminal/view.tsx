@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { errorMessage, hostIsReadOnly } from "tau";
 import type { ILink, ITheme, Terminal } from "@xterm/xterm";
-import { terminalFont, terminalKit, terminalServices, terminalStore, onTerminalEvent, useTerminalFont, watchTerminalOutput } from "./store.js";
+import { terminalFont, terminalKit, terminalServices, terminalStore, onTerminalEvent, onTerminalReconnect, useTerminalFont, watchTerminalOutput } from "./store.js";
 import { unseenOutput } from "./output.js";
 import { terminalFontStack, type ResolvedTerminalFont } from "./font.js";
 import { classifyTerminalLink, findTerminalLinks, positionIn, wrappedLineAt } from "./links.js";
@@ -105,7 +105,7 @@ export interface TerminalTouchBinding {
 
 /**
  * One xterm over one host session. The session's output arrives as pushes
- * numbered by byte offset; the replay on mount and the live pushes are
+ * numbered by byte offset; replay on mount or reconnect and live pushes are
  * reconciled by that number, so nothing is drawn twice or lost in between.
  * A view takes the keyboard only when asked to (`requestFocus`), so a pane
  * that remounts never steals it.
@@ -250,24 +250,44 @@ export function TerminalView({ session, place, focused = false, fontSize, touch 
       const stopFocus = terminalStore.subscribe(takeFocus);
       // A theme switched while the shell is open repaints it, light or dark.
       const stopTheme = watchTheme(() => { if (!disposed && element.isConnected) instance.options.theme = themeFrom(element); });
+      let replayRevision = 0;
+      const readReplay = async () => {
+        const requested = ++replayRevision;
+        ready = false;
+        try {
+          const replay = await terminalKit.replay({ id });
+          if (disposed || requested !== replayRevision) return;
+          if (replay) {
+            const output = unseenOutput({ id, ...replay }, drawn);
+            if (output) {
+              replaying = true;
+              instance.write(output, () => { replaying = false; });
+              drawn = replay.offset;
+            }
+          }
+          setError("");
+        } catch (problem) { report(problem); }
+        finally {
+          if (!disposed && requested === replayRevision) {
+            ready = true;
+            pending.forEach(write);
+            pending.length = 0;
+          }
+        }
+      };
+      const stopReconnect = onTerminalReconnect(() => {
+        void readReplay().then(() => { if (!disposed) { refit(); takeFocus(); } });
+      });
       cleanup = () => {
-        stop(); unwatch(); input.dispose(); links.dispose(); selected.dispose(); stopFocus(); stopTheme(); observer.disconnect();
+        stop(); unwatch(); stopReconnect(); input.dispose(); links.dispose(); selected.dispose(); stopFocus(); stopTheme(); observer.disconnect();
         instance.textarea?.removeEventListener("focus", onFocus);
         touchRef.current?.attach(undefined);
         instance.dispose();
         terminal.current = null;
         refitRef.current = () => undefined;
       };
-      const replay = await terminalKit.replay({ id });
+      await readReplay();
       if (disposed) return;
-      if (replay) {
-        replaying = true;
-        instance.write(replay.data, () => { replaying = false; });
-        drawn = replay.offset;
-      }
-      ready = true;
-      pending.forEach(write);
-      pending.length = 0;
       touchRef.current?.attach(instance);
       refit();
       takeFocus();

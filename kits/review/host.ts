@@ -10,6 +10,7 @@ import { registerRequestCommands, type RequestCommandOptions } from "./requests-
 import { registerLocalRequestCommands } from "./local-request-host.js";
 import { registerLocalReviewCommands } from "./local-reviews-host.js";
 import { registerThreadLinks, type ThreadLinks } from "./thread-links-host.js";
+import { workspaceCommandContext } from "./workspace-host.js";
 
 const SYSTEM_PROMPTS: Record<CommitMessageStyle, string> = {
   conventional: "Write one excellent Conventional Commit message for the supplied Git diff. Use an accurate type and an optional short scope. The imperative subject must explain the intent, not list files. Keep the subject under 72 characters. Add a short body only when it explains important behavior or migration details. Return only the commit message, without quotes or Markdown fences.",
@@ -48,8 +49,9 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
   return {
     id: REVIEW_HOST_EXTENSION_ID,
     name: "Review Kit",
-    permissions: ["sessions", "process", "network", "runtime:extend"],
-    activate(context: HostExtensionContext) {
+    permissions: ["sessions", "process", "network", "runtime:extend", "machines"],
+    activate(original: HostExtensionContext) {
+      const context = workspaceCommandContext(original);
       const { services } = context;
       // Review's desktop half reaches the Workspace read API through this
       // host-owned context. Workspace declares the two commands as callers of
@@ -69,7 +71,7 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
         created: (url) => { const thread = services.thread(); if (thread) void links?.link(thread.sessionId, url, "created"); },
       });
       registerLocalRequestCommands(context, sources);
-      registerLocalReviewCommands(context, workspace);
+      registerLocalReviewCommands(context, workspace, (threadIds, branch, tip) => links?.review(threadIds, branch, tip) ?? Promise.resolve(undefined));
       registerPublishCommands(context, options);
       registerProviderSettings(context, sources);
       context.registerCommand("suggest-commit-message", async (input) => {
@@ -105,7 +107,7 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
         services.log("commit-message.suggested", message.split(/\r?\n/u)[0]);
         return { message };
       });
-      return () => links?.dispose();
+      return async () => { links?.dispose(); await sources.dispose(); };
     },
   };
 }

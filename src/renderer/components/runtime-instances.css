@@ -2,22 +2,13 @@
  * The instance dialog and the version banner a runtime backend kit draws with
  * `loadRuntimeInstanceUi`. Loaded with that chunk, so the first paint pays nothing.
  */
-.runtime-instance-dialog {
-  width: 440px; max-width: calc(100vw - 48px); max-height: calc(100vh - 80px); overflow: auto;
-  display: flex; flex-direction: column; gap: 14px; padding: 18px;
-  border: 1px solid var(--line-float); border-radius: var(--radius-lg);
-  background: var(--overlay); box-shadow: var(--elevation-3);
-  color: var(--ink); animation: fade-up .14s ease;
-}
-.runtime-instance-dialog > header h2 { margin: 0; font: 600 var(--text-lg) var(--sans); }
-.runtime-instance-dialog > header p { margin: 6px 0 0; color: var(--muted); font: var(--text-sm)/1.5 var(--sans); }
+.runtime-instance-dialog { width: 440px; max-height: calc(100vh - 80px); overflow: auto; gap: 14px; }
 .runtime-instance-dialog form { display: flex; flex-direction: column; gap: 12px; }
 .runtime-instance-field { display: flex; flex-direction: column; gap: 5px; }
 .runtime-instance-field > span:first-child { font: 500 calc(var(--text-sm) + .5px) var(--sans); color: var(--ink-2); }
 .runtime-instance-field > small { color: var(--muted); font: var(--text-sm)/1.45 var(--sans); }
 .runtime-instance-field code { font: calc(var(--text-xs) + .5px) var(--mono); }
 .runtime-instance-problem, .runtime-instance-field > small.runtime-instance-problem { margin: 0; color: var(--danger); font: var(--text-sm)/1.45 var(--sans); }
-.runtime-instance-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
 
 /* The runtime version banner: one line of title, the reason, the command. */
 .runtime-version-banner {

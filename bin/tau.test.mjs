@@ -3,8 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocketServer } from "ws";
+import { APP_IDENTITIES } from "../src/main/app-identity.ts";
 import { defaultUserData } from "../src/main/host-service-units.ts";
-import { appLauncher, askHost, main, parseArgs, readRunningHost, serviceLauncher, userDataDir } from "./tau.mjs";
+import { appLauncher, askHost, cliFlavor, main, parseArgs, readRunningHost, serviceLauncher, userDataDir } from "./tau.mjs";
 
 const cleanups = [];
 afterEach(async () => { await Promise.all(cleanups.splice(0).map((cleanup) => cleanup())); });
@@ -173,5 +174,20 @@ describe("tau service", () => {
   it("names the default userData as the service does", () => {
     expect(userDataDir({}, "darwin", "/Users/me")).toBe(defaultUserData("darwin", "/Users/me", {}));
     expect(userDataDir({ XDG_CONFIG_HOME: "/cfg" }, "linux", "/home/me")).toBe(defaultUserData("linux", "/home/me", { XDG_CONFIG_HOME: "/cfg" }));
+    for (const flavor of ["stable", "dev"]) {
+      expect(userDataDir({}, "darwin", "/Users/me", flavor)).toBe(defaultUserData("darwin", "/Users/me", {}, APP_IDENTITIES[flavor]));
+    }
+  });
+
+  it("serves Tau Dev's instance when it ships inside Tau Dev", async () => {
+    const root = await temp();
+    const unpacked = join(root, "app.asar.unpacked");
+    await mkdir(join(unpacked, "bin"), { recursive: true });
+    await writeFile(join(unpacked, "bin", "tau.mjs"), "");
+    expect(cliFlavor(join(unpacked, "bin", "tau.mjs"))).toBe("stable");
+    await writeFile(join(unpacked, "package.json"), JSON.stringify({ tauFlavor: "dev" }));
+    expect(cliFlavor(join(unpacked, "bin", "tau.mjs"))).toBe("dev");
+    // A checkout's own package.json is the released app's.
+    expect(cliFlavor()).toBe("stable");
   });
 });

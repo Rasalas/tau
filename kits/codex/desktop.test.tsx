@@ -238,7 +238,39 @@ describe("ChatGPT plan UI", () => {
   it("offers an explicit managed install repair for a registered account", async () => {
     const invoke = vi.fn(async (command: string) => command === "sign-in-state" ? { methods: [], account: { signedIn: true } } : { command: "codex", chatgptPlan: { signedIn: true, label: "fixture@example.test", usageUrl: "https://chatgpt.com/settings/usage", needsInstall: true } });
     render(<CodexProviderCard onNotify={vi.fn()} host={host(invoke)} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Install managed Codex" }));
+    const button = await screen.findByRole("button", { name: "Install managed Codex" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("managed-codex-install", {}));
+  });
+
+  it("shows Tau fetching its Codex on the card, and reads the status again once it is ready", async () => {
+    const listeners = new Map<string, (value: unknown) => void>();
+    let ready = false;
+    const invoke = vi.fn(async (command: string) => command === "sign-in-state" ? { methods: [], account: { signedIn: true } }
+      : ready ? { command: "codex", path: "/state/managed-codex/0.160.0/bin/codex", version: "0.160.0", chatgptPlan: { signedIn: true, label: "fixture@example.test", usageUrl: "https://chatgpt.com/settings/usage" } }
+        : { command: "codex", message: "Tau is fetching Codex 0.160.0; this instance uses it once it is ready.", chatgptPlan: { signedIn: true, label: "fixture@example.test", usageUrl: "https://chatgpt.com/settings/usage" }, managedInstall: { version: "0.160.0", phase: "downloading" } });
+    const client = { invoke, onEvent: (name: string, listener: (value: unknown) => void) => { listeners.set(name, listener); return () => listeners.delete(name); } };
+    render(<CodexProviderCard onNotify={vi.fn()} host={client} />);
+    await screen.findByText("Downloading Codex 0.160.0…");
+    await waitFor(() => expect(listeners.has("managed-codex")).toBe(true));
+    listeners.get("managed-codex")!({ version: "0.160.0", phase: "downloading", downloadedBytes: 64 * 1024 * 1024, totalBytes: 128 * 1024 * 1024 });
+    await screen.findByText("Downloading Codex 0.160.0… 50% (64 of 128 MB)");
+    expect(screen.queryByRole("button", { name: "Install managed Codex" })).toBeNull();
+    ready = true;
+    listeners.get("managed-codex")!({ version: "0.160.0", phase: "installed" });
+    await waitFor(() => expect(document.getElementById("setting-codex-program")?.textContent).toContain("0.160.0"));
+    await waitFor(() => expect(screen.queryByText(/Downloading Codex/u)).toBeNull());
+  });
+
+  it("offers to try again when fetching Tau's Codex failed", async () => {
+    const invoke = vi.fn(async (command: string) => command === "sign-in-state" ? { methods: [], account: { signedIn: true } }
+      : { command: "codex", chatgptPlan: { signedIn: true, label: "fixture@example.test", usageUrl: "https://chatgpt.com/settings/usage", needsInstall: true }, managedInstall: { version: "0.160.0", phase: "failed", error: "Codex download failed (503). Try again." } });
+    render(<CodexProviderCard onNotify={vi.fn()} host={host(invoke)} />);
+    expect((await screen.findByRole("alert")).textContent).toBe("Tau could not fetch Codex 0.160.0. Codex download failed (503). Try again.");
+    const button = screen.getByRole("button", { name: "Try again" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("managed-codex-install", {}));
   });
 
@@ -253,7 +285,72 @@ describe("ChatGPT plan UI", () => {
     expect(client.invoke).toHaveBeenCalledWith("chatgpt-plan-account", { instance: "work" });
     listeners.get("chatgpt-plan-limit")!({ instance: "work" });
     await screen.findByText(/Review your app limits and credits/u);
+    listeners.get("managed-codex")!({ version: "0.160.0", phase: "extracting" });
+    await screen.findByText("Unpacking Codex 0.160.0…");
     fireEvent.click(screen.getByRole("button", { name: "Manage usage" }));
     expect(actions.openExternal).toHaveBeenCalledWith("https://chatgpt.com/settings/usage");
   });
+});
+
+it("renders dynamic Ultrafast tiers and compatible accounts, then displays a switch error", async () => {
+  const { createThreadSettingsControl } = await import("./desktop.js");
+  const state = { account: "default", accounts: [{ id: "default", label: "Personal" }, { id: "work", label: "Work" }, { id: "other", label: "Other", reason: "Different shared home" }], serviceTier: { selected: null, defaultTier: "ultrafast", choices: [{ id: "ultrafast", name: "Ultrafast", description: "Provider description" }, { id: "future", name: "Future tier" }] } };
+  const invoke = vi.fn(async (command: string) => { if (command === "switch-thread-account") throw new Error("Account cannot resume this session"); return state; });
+  const Control = createThreadSettingsControl(host(invoke));
+  render(<Control snapshot={{ sessionId: "thread", backendKind: "codex", isStreaming: false } as HostSnapshot} />);
+  // Ultrafast is the thinking chip's Fast (K142); the menu keeps the other tiers.
+  const future = await screen.findByRole("radio", { name: /^Future tier/u });
+  expect(screen.queryByRole("radio", { name: /^Ultrafast/u })).toBeNull();
+  fireEvent.click(future);
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith("set-thread-tier", { threadId: "thread", tier: "future" }));
+  const other = screen.getByRole("radio", { name: /Other/u });
+  expect(other.hasAttribute("disabled")).toBe(true);
+  const work = screen.getByRole("radio", { name: /Work/u });
+  await waitFor(() => expect(work.hasAttribute("disabled")).toBe(false));
+  fireEvent.click(work);
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Account cannot resume this session");
+});
+
+it("gives the thinking chip Codex's fast tier, and none to a draft", async () => {
+  const { createCodexSpeed } = await import("./desktop.js");
+  let selected: string | null = null;
+  const settings = () => ({ account: "default", accounts: [], serviceTier: { selected, defaultTier: null, choices: [{ id: "default", name: "Standard" }, { id: "fast", name: "Fast", description: "1.5x speed" }] } });
+  const invoke = vi.fn(async (command: string, input?: unknown) => {
+    if (command === "set-thread-tier") selected = (input as { tier?: string | null } | undefined)?.tier ?? null;
+    return settings();
+  });
+  const speed = createCodexSpeed(host(invoke));
+  const changed = vi.fn();
+  speed.subscribe(changed);
+  const snapshot = { sessionId: "thread", backendKind: "codex", model: { id: "gpt-6-sol" } } as HostSnapshot;
+  expect(speed.read({ ...snapshot, backendKind: "pi" } as HostSnapshot)).toBeUndefined();
+  speed.read(snapshot);
+  await waitFor(() => expect(speed.read(snapshot)).toEqual({ fast: false, available: true, detail: "1.5x speed" }));
+  await speed.set(true, snapshot);
+  expect(invoke).toHaveBeenCalledWith("set-thread-tier", { threadId: "thread", tier: "fast" });
+  expect(speed.read(snapshot)).toMatchObject({ fast: true });
+  invoke.mockRejectedValueOnce(new Error("no such thread"));
+  const draft = { ...snapshot, sessionId: "draft" } as HostSnapshot;
+  speed.read(draft);
+  await waitFor(() => expect(speed.read(draft)).toEqual({ fast: false, available: false, reason: "Codex sets Fast once the thread runs" }));
+});
+
+it("keeps a managed thread's account banner and limit notices with its executing account after a switch", async () => {
+  const listeners = new Map<string, (value: unknown) => void>();
+  let account = "default";
+  const client = { invoke: vi.fn(async () => ({ instance: account, signedIn: true, label: `${account}@example.test`, usageUrl: "https://chatgpt.com/settings/usage" })), onEvent: (name: string, listener: (value: unknown) => void) => { listeners.set(name, listener); return () => listeners.delete(name); } };
+  const Banner = createChatGPTPlanBanner(client);
+  render(<Banner snapshot={{ sessionId: "thread", backendKind: "codex" } as HostSnapshot} actions={{ openExternal: vi.fn() } as unknown as WorkbenchActions} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Show email address" }));
+  expect(screen.getByText("default@example.test")).toBeTruthy();
+  account = "work";
+  listeners.get("thread-settings")!({ threadId: "thread" });
+  const reveal = await screen.findByRole("button", { name: "Show email address" });
+  expect(screen.queryByText("default@example.test")).toBeNull();
+  expect(screen.queryByText("work@example.test")).toBeNull();
+  fireEvent.click(reveal);
+  expect(screen.getByText("work@example.test")).toBeTruthy();
+  expect(client.invoke).toHaveBeenLastCalledWith("chatgpt-plan-account", { instance: "default", threadId: "thread" });
+  listeners.get("chatgpt-plan-limit")!({ instance: "work" });
+  await screen.findByText(/Review your app limits and credits/u);
 });

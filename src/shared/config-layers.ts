@@ -28,7 +28,7 @@ export const PI_OWNED_CONFIG_KEYS = [
   "quietStartup", "defaultProjectTrust",
 ] as const satisfies readonly (keyof TauConfig)[];
 
-const PI_OWNED = new Set<string>(PI_OWNED_CONFIG_KEYS);
+const PI_OWNED = /* @__PURE__ */ new Set<string>(PI_OWNED_CONFIG_KEYS);
 
 /** Keys whose value is a record of settings in their own right, one per entry. */
 const RECORD_KEYS = new Set(["values", "options", "keybindings", "threads", "updates", "confirm", "extensions", "modelPreferences", "modelPrices"]);

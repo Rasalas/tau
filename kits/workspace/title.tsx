@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
-import { ChevronDown, ChevronRight, Download, Ellipsis, GitCommitHorizontal, SquarePen, Upload } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, Ellipsis, GitCommitHorizontal, GitCompare, SquarePen, Upload } from "lucide-react";
 import { hostAvailable, Menu, tooltipProps, useHostCapabilities, usePreferences, type MenuSection, type RegionProps } from "tau";
 import { EditorIcon } from "./EditorIcon.js";
 import { pickProjectAction, ProjectActionEditor, ProjectActionsControl, projectActionItems, useProjectActions } from "./project-actions.js";
@@ -23,6 +23,7 @@ export function WorkspaceTitleActions(props: RegionProps) {
 }
 
 const EDITOR_PREFIX = "editor:";
+const GIT_PREFIX = "git:";
 
 /** The editors "Open in" offers, the chosen one marked. */
 function editorSections(editors: ReturnType<typeof useWorkspaceKit>["editors"], active?: { id: string }): MenuSection[] {
@@ -127,7 +128,54 @@ export function TitleActionsRow({ collapse, row, snapshot }: RegionProps & { col
 
   // A Read-only device runs nothing and changes no branch (ADR 0024); both are left out.
   const showActions = !readOnly;
-  const moreSections: MenuSection[] = showActions && collapse.actions === "overflow" ? [{ heading: "Actions", items: projectActionItems(projectActions.actions) }] : [];
+  const gitItems = [
+    {
+      id: "review",
+      label: "Review changes",
+      description: state.changes.files.length > 0 ? `${state.changes.files.length} changed files` : "The worktree is clean",
+      disabled: state.changes.files.length === 0,
+      icon: <GitCompare size={13} />,
+    },
+    {
+      id: "commit",
+      label: "Commit",
+      disabled: state.changes.files.length === 0,
+      icon: <GitCommitHorizontal size={13} />,
+    },
+    {
+      id: "commit-push",
+      label: "Commit & push",
+      description: state.workspace?.upstream ? `to ${state.workspace.upstream}` : "No upstream configured",
+      disabled: state.changes.files.length === 0 || !state.workspace?.upstream,
+      icon: <Upload size={13} />,
+    },
+    {
+      id: "push",
+      label: "Push",
+      description: state.workspace?.ahead ? `${state.workspace.ahead} local ${state.workspace.ahead === 1 ? "commit" : "commits"}` : "No local commits to push",
+      disabled: !state.workspace?.upstream || !state.workspace.ahead || Boolean(state.workspace.behind),
+      icon: <Upload size={13} />,
+    },
+  ];
+  const pickGit = (id: string) => id === "review" ? workspaceStore.openReview(undefined, gitAction.kind === "commit-push") : runGitAction(id as GitQuickActionKind);
+  const gitInMenu = !readOnly && collapse.gitMenu === "overflow";
+  const moreSections: MenuSection[] = [
+    ...(showActions && collapse.actions === "overflow" ? [{ heading: "Actions", items: projectActionItems(projectActions.actions) }] : []),
+    ...(gitInMenu ? [{ heading: state.workspace?.branch ?? "Git", items: gitItems.map((item) => ({ ...item, id: GIT_PREFIX + item.id })) }] : []),
+  ];
+  const more = moreSections.length > 0 || (projectActions.editing && collapse.actions === "overflow") ? <div className="menu-anchor">
+    <button className="chrome-button title-more" aria-label="More actions" {...tooltipProps("More actions", { side: "bottom" })} onClick={() => setMoreMenu(true)}>
+      <Ellipsis size={14} />
+    </button>
+    {moreMenu ? <Menu
+      align="right"
+      sections={moreSections}
+      label="More actions"
+      onSelect={(id) => { if (id.startsWith(GIT_PREFIX)) { setMoreMenu(false); pickGit(id.slice(GIT_PREFIX.length)); } else pickProjectAction(projectActions, id); }}
+      onClose={() => setMoreMenu(false)}
+    /> : null}
+    {projectActions.editing && collapse.actions === "overflow" ? <ProjectActionEditor state={projectActions} /> : null}
+  </div> : null;
   const gitIcon = gitAction.kind === "pull" ? <Download size={13} /> : gitAction.kind === "push" ? <Upload size={13} /> : <GitCommitHorizontal size={13} />;
   const changed = threadChanges?.files ?? state.changes.files.length;
   const others = threadChanges?.scope === "thread" ? threadChanges.uncommitted - threadChanges.files : 0;
@@ -136,19 +184,7 @@ export function TitleActionsRow({ collapse, row, snapshot }: RegionProps & { col
     <div ref={row} className="workspace-title-actions">
       {showActions && collapse.actions !== "overflow" ? <ProjectActionsControl state={projectActions} iconOnly={collapse.actions === "icon"} /> : null}
 
-      {moreSections.length > 0 || (projectActions.editing && collapse.actions === "overflow") ? <div className="menu-anchor">
-        <button className="chrome-button title-more" aria-label="More actions" {...tooltipProps("More actions", { side: "bottom" })} onClick={() => setMoreMenu(true)}>
-          <Ellipsis size={14} />
-        </button>
-        {moreMenu ? <Menu
-          align="right"
-          sections={moreSections}
-          label="More actions"
-          onSelect={(id) => { pickProjectAction(projectActions, id); }}
-          onClose={() => setMoreMenu(false)}
-        /> : null}
-        {projectActions.editing && collapse.actions === "overflow" ? <ProjectActionEditor state={projectActions} /> : null}
-      </div> : null}
+      {gitInMenu ? null : more}
 
       {changed > 0 ? <button
         type="button"
@@ -169,52 +205,26 @@ export function TitleActionsRow({ collapse, row, snapshot }: RegionProps & { col
             {gitIcon}
             {collapse.git === "label" ? <span>{gitAction.label}</span> : null}
           </button>
-          <button
+          {gitInMenu ? null : <button
             className="chrome-button accent split-trigger"
             disabled={!state.workspace?.isRepo || state.committing}
             aria-label="Choose Git action"
             onClick={() => setGitMenu(true)}
           >
             <ChevronDown size={13} />
-          </button>
+          </button>}
         </div>
         {gitMenu ? (
           <Menu
             align="right"
             heading={state.workspace?.branch ?? "Git"}
-            items={[
-              {
-                id: "review",
-                label: "Review changes",
-                description: state.changes.files.length > 0 ? `${state.changes.files.length} changed files` : "The worktree is clean",
-                disabled: state.changes.files.length === 0,
-              },
-              {
-                id: "commit",
-                label: "Commit",
-                disabled: state.changes.files.length === 0,
-                icon: <GitCommitHorizontal size={13} />,
-              },
-              {
-                id: "commit-push",
-                label: "Commit & push",
-                description: state.workspace?.upstream ? `to ${state.workspace.upstream}` : "No upstream configured",
-                disabled: state.changes.files.length === 0 || !state.workspace?.upstream,
-                icon: <Upload size={13} />,
-              },
-              {
-                id: "push",
-                label: "Push",
-                description: state.workspace?.ahead ? `${state.workspace.ahead} local ${state.workspace.ahead === 1 ? "commit" : "commits"}` : "No local commits to push",
-                disabled: !state.workspace?.upstream || !state.workspace.ahead || Boolean(state.workspace.behind),
-                icon: <Upload size={13} />,
-              },
-            ]}
-            onSelect={(id) => id === "review" ? workspaceStore.openReview(undefined, gitAction.kind === "commit-push") : runGitAction(id as GitQuickActionKind)}
+            items={gitItems}
+            onSelect={pickGit}
             onClose={() => setGitMenu(false)}
           />
         ) : null}
       </div>}
+      {gitInMenu ? more : null}
     </div>
   );
 }

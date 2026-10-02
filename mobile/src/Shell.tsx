@@ -1,6 +1,7 @@
+import { followActivities, type ActivityPort } from "./activities";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Server } from "lucide-react";
-import { parsePairingPayload, type PairingPayload } from "../../src/shared/connections";
+import { parseMobilePairingPayload, connectCandidate, type MobilePairingPayload, type MobileConnect } from "./relay-connect";
 import type { ClientEnvironment } from "../../src/renderer/client-environment";
 import { setHostClient } from "../../src/renderer/host-client-context";
 import { createRendererServices, type RendererServices } from "../../src/renderer/renderer-services";
@@ -27,6 +28,8 @@ import { createDemoHost } from "./demo-host";
 
 /** Everything the shell needs from the platform, so a test can hand it fakes. */
 export interface AppContext {
+  activities?: ActivityPort;
+  remoteActivities?: import("./activity-start").RemoteActivities;
   storage: ClientStorage;
   book: HostBook;
   bridge: SocketBridge;
@@ -64,7 +67,7 @@ const documentVisibility: Visibility = {
   },
 };
 
-export function payloadTarget(payload: PairingPayload): PairTarget {
+export function payloadTarget(payload: MobilePairingPayload): PairTarget {
   let name = payload.hostName;
   if (!name) {
     try { name = new URL(payload.endpoints[0]?.url ?? "").hostname; } catch { name = undefined; }
@@ -75,6 +78,7 @@ export function payloadTarget(payload: PairingPayload): PairTarget {
     ...targetPins(payload),
     endpoints: payload.endpoints,
     code: payload.code,
+    ...(payload.connect ? { connect: payload.connect } : {}),
   };
 }
 
@@ -102,6 +106,9 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
   const [view, setView] = useState<View>({ name: "loading" });
   const [hosts, setHosts] = useState<Array<{ host: SavedHost; signedOut: boolean }>>([]);
   const [nearby, setNearby] = useState<NearbyState>({ state: "searching", hosts: [] });
+  const [remoteStatus, setRemoteStatus] = useState<Record<string, import("./activity-start").RemoteActivityStatus>>({});
+  const [remoteNotice, setRemoteNotice] = useState<string>();
+  const activityFollow = useRef<ReturnType<typeof followActivities>>(undefined);
   const viewRef = useRef(view);
   viewRef.current = view;
   /** The pairing attempt on screen; set at once, since a refused address can fail before the next render. */
@@ -113,6 +120,10 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
     const tokens = await Promise.all(list.map((host) => book.token(host.id)));
     const next = list.map((host, index) => ({ host, signedOut: !tokens[index] }));
     setHosts(next);
+    if (context.remoteActivities) {
+      const states = await Promise.all(next.map(async ({ host }) => [host.id, await context.remoteActivities!.status(host.id).catch(() => ({ available: false, enabled: false }))] as const));
+      setRemoteStatus(Object.fromEntries(states));
+    }
     return next;
   }, [book]);
 
@@ -121,8 +132,8 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
     context.navigate(search);
   }, [context, storage]);
 
-  const openWorkbench = useCallback((host: SavedHost, token: string, threadId?: string) => {
-    window.history.replaceState(null, "", `${window.location.pathname}${routeSearch({ view: "workbench", hostId: host.id, ...(threadId ? { threadId } : {}) })}`);
+  const openWorkbench = useCallback((host: SavedHost, token: string, threadId?: string, connect?: MobileConnect, page?: string) => {
+    window.history.replaceState(null, "", `${window.location.pathname}${routeSearch({ view: "workbench", hostId: host.id, ...(threadId ? { threadId } : {}), ...(page ? { page } : {}) })}`);
     const scoped = hostStorage(storage, host.id);
     setClientStorage(scoped);
     // Read at every reconnect: a migrated pin or a refreshed address list applies to the next socket.
@@ -133,6 +144,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
     };
     const { client, connection } = connectHost(() => current, token, {
       bridge: context.bridge,
+      ...(connect ? { connect } : {}),
       device,
       ...(context.wakes ? { wakes: context.wakes } : {}),
       userAgent: navigator.userAgent,
@@ -142,6 +154,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
         void book.update(host.id, { lastUsedAt: now().toISOString(), ...(endpoint ? { lastEndpoint: endpoint } : {}) });
       },
       onUnauthorized: () => {
+        void activityFollow.current?.revoke();
         void book.forgetToken(host.id).finally(() => leaveTo("?view=hosts", `${host.name} no longer accepts this phone: its access was revoked, or it ran out unused. Open the host to ask again.`));
       },
       // After every hello: an old certificate pin moves to the key, and the host's addresses are taken as it names them.
@@ -153,28 +166,42 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       onCertificateRefused: (refusal) => leaveTo("?view=hosts", certificateRefusalNotice(host.name, refusal)),
     });
     setHostClient(client);
+    activityFollow.current?.stop();
+
     // The connection starts out "connected", so its first hello is the moment to hand over the push token.
     void connection.start("compact").then((reply) => {
-      if (reply) void pushRegistrar()?.register({ host, client }).catch(() => undefined);
+      if (reply) {
+        void Promise.resolve(pushRegistrar()?.register({ host, client })).catch(() => undefined).then(() => {
+          void context.remoteActivities?.connect(current).catch(() => undefined);
+          if (context.activities) activityFollow.current = followActivities(host.id, client, context.activities, Date.now, host.name);
+        });
+      }
     }).catch(() => undefined);
     void book.update(host.id, { lastUsedAt: now().toISOString() });
     // Every other paired host, each over its own token, for the thread list and "Run on".
+    const otherRelays = new Map<string, MobileConnect>();
     const machines = new PhoneMachines({
       hosts: async () => {
         const list = await book.list();
-        return Promise.all(list.map(async (saved) => ({ host: saved, token: await book.token(saved.id) })));
+        return Promise.all(list.map(async (saved) => {
+          const relay = await book.connect(saved.id);
+          if (relay) otherRelays.set(saved.id, relay);
+          return { host: saved, token: await book.token(saved.id) };
+        }));
       },
       storage,
       shown: host,
       client,
       socket: (other, onFailure) => {
         const pins = { ...(other.publicKey ? { publicKey: other.publicKey } : {}), ...(other.fingerprint ? { fingerprint: other.fingerprint } : {}) };
-        return new RacingSocket(socketCandidates(other.endpoints, pins, device), (candidate) => openCandidate({ bridge: context.bridge, userAgent: navigator.userAgent }, candidate), { onFailure });
+        const relay = otherRelays.get(other.id);
+        const relayCandidate = relay ? connectCandidate(relay, pins) : undefined;
+        return new RacingSocket([...socketCandidates(other.endpoints, pins, device), ...(relayCandidate ? [relayCandidate] : [])], (candidate) => openCandidate({ bridge: context.bridge, userAgent: navigator.userAgent }, candidate), { onFailure });
       },
       navigate: (route) => leaveTo(routeSearch(route)),
-      forgetToken: (id) => book.forgetToken(id),
+      forgetToken: async (id) => { await context.activities?.clear(id); await book.forgetToken(id); },
       rename: (id, name) => book.update(id, { name }),
-      remove: async (id) => { await book.remove(id); clearHostStorage(storage, id); },
+      remove: async (id) => { await context.activities?.clear(id); await book.remove(id); clearHostStorage(storage, id); void pushRegistrar()?.forget(id).catch(() => undefined); },
       visibility: context.visibility ?? documentVisibility,
     });
     const environment: ClientEnvironment = {
@@ -197,14 +224,14 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       now,
     }, {
       signal: abort.signal,
-      onAddress: (candidate) => update({ address: ADDRESS_LABEL[candidate.kind ?? ""] ?? new URL(candidate.url).hostname }),
+      onAddress: (candidate) => update({ address: candidate.connect ? "Tau Connect" : ADDRESS_LABEL[candidate.kind ?? ""] ?? new URL(candidate.url).hostname }),
       onWaiting: ({ verification }) => update({ verification }),
     }).catch((error: unknown) => ({ state: "failed" as const, message: error instanceof Error ? error.message : String(error) })).then(async (outcome) => {
       if (pairingRef.current !== abort) return;
       pairingRef.current = undefined;
       if (outcome.state === "approved") {
-        await book.save(outcome.host, outcome.token);
-        openWorkbench(outcome.host, outcome.token);
+        await book.save(outcome.host, outcome.token, target.connect);
+        openWorkbench(outcome.host, outcome.token, undefined, target.connect);
         return;
       }
       const message = abort.signal.aborted ? undefined : outcome.state === "failed" ? outcome.message : pairingNotice(outcome);
@@ -214,16 +241,17 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
   }, [book, context.bridge, device, openWorkbench, refresh]);
 
   /** A saved host: straight in with its token, or ask its owner again when it has none. */
-  const openHost = useCallback(async (host: SavedHost, threadId?: string) => {
+  const openHost = useCallback(async (host: SavedHost, threadId?: string, page?: string) => {
     const token = await book.token(host.id);
-    if (token) openWorkbench(host, token, threadId);
-    else startPairing({ hostId: host.id, name: host.name, ...targetPins(host), endpoints: host.endpoints }, "hosts");
+    const connect = await book.connect(host.id);
+    if (token) openWorkbench(host, token, threadId, connect, page);
+    else startPairing({ hostId: host.id, name: host.name, ...targetPins(host), endpoints: host.endpoints, ...(connect ? { connect } : {}) }, "hosts");
   }, [book, openWorkbench, startPairing]);
 
   const scan = useCallback(async (from: "hosts" | "add") => {
     const result = await context.scan();
     if ("text" in result) {
-      const payload = parsePairingPayload(result.text);
+      const payload = parseMobilePairingPayload(result.text);
       if (payload && payload.endpoints.length > 0) { startPairing(payloadTarget(payload), from); return; }
       setView({ name: "add", error: "This QR code is not a Tau pairing code. Scan the one in Settings → Connections." });
       return;
@@ -238,13 +266,18 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       const notice = storage.get(NOTICE_KEY) ?? undefined;
       storage.remove(NOTICE_KEY);
       const list = await refresh();
+      for (const entry of list) if (entry.signedOut) void context.activities?.clear(entry.host.id);
       if (initial.view === "workbench") {
         const saved = list.find((entry) => entry.host.id === initial.hostId);
-        if (saved) { await openHost(saved.host, initial.threadId); return; }
+        if (saved) { await openHost(saved.host, initial.threadId, initial.page); return; }
         setView({ name: "hosts", notice: "That link names a host this phone has not paired with." });
         return;
       }
-      if (initial.view === "add") { setView({ name: "add" }); return; }
+      if (initial.view === "add") {
+        const pending = await book.takeConnectLink();
+        const text = initial.text ?? pending;
+        setView({ name: "add", ...(text ? { text } : {}) }); return;
+      }
       // Straight back into the last host, unless the user asked for the list or has something to read.
       const last = sortHosts(list.filter((entry) => !entry.signedOut).map((entry) => entry.host))[0];
       if (!initial.explicit && !notice && last) { await openHost(last); return; }
@@ -255,8 +288,14 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
   // A link from outside (a push notification): the open host follows it in place, another host loads afresh.
   useEffect(() => context.subscribeToLinks((route) => {
     const current = viewRef.current;
+    if (route.view === "add" && route.text) {
+      pairingRef.current?.abort(); pairingRef.current = undefined;
+      if (current.name === "workbench") void book.stageConnectLink(route.text).then(() => context.navigate("?view=add"));
+      else setView({ name: "add", text: route.text });
+      return;
+    }
     if (route.view === "workbench" && current.name === "workbench" && current.host.id === route.hostId) {
-      if (!route.threadId) return;
+      if (!route.threadId && !route.page) return;
       window.history.pushState(null, "", `${window.location.pathname}${routeSearch(route)}`);
       window.dispatchEvent(new PopStateEvent("popstate"));
       return;
@@ -309,14 +348,18 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
     />;
     case "hosts": {
       const seen = new Set(nearby.state === "searching" ? nearby.hosts.map((host) => host.hostId) : []);
-      const rows: HostRowInfo[] = hosts.map(({ host, signedOut }) => ({ host, signedOut, nearby: seen.has(host.id) }));
+      const rows: HostRowInfo[] = hosts.map(({ host, signedOut }) => ({ host, signedOut, nearby: seen.has(host.id), ...(remoteStatus[host.id] ? { remoteActivity: remoteStatus[host.id] } : {}) }));
       return <HostsScreen
         rows={rows}
         nearby={nearby}
-        {...(view.notice ? { notice: view.notice } : {})}
+        {...(remoteNotice || view.notice ? { notice: remoteNotice ?? view.notice } : {})}
+        {...(context.remoteActivities ? { onRemoteActivity: (host: SavedHost, enabled: boolean) => {
+          setRemoteNotice(undefined);
+          void context.remoteActivities!.setEnabled(host, enabled).then(() => refresh()).catch((error: unknown) => setRemoteNotice(error instanceof Error ? error.message : "Live Activity settings could not be saved."));
+        } } : {})}
         now={now().getTime()}
         onOpen={(host) => void openHost(host)}
-        onRemove={(host) => void book.remove(host.id).then(() => { clearHostStorage(storage, host.id); return refresh(); })}
+        onRemove={(host) => void Promise.resolve(context.activities?.clear(host.id)).then(() => book.remove(host.id)).then(() => { clearHostStorage(storage, host.id); void pushRegistrar()?.forget(host.id).catch(() => undefined); return refresh(); })}
         onAdd={() => setView({ name: "add" })}
         onDemo={() => {
           const demo = createDemoHost();

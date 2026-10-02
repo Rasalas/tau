@@ -1,4 +1,5 @@
 import { hostTopicKey, type HostPushEvent, type HostSubscription } from "../shared/host-transport.js";
+import { SIGN_IN_EVENT } from "../shared/sign-in.js";
 
 /**
  * Who a push is for. `undefined` is every client: the index, run state,
@@ -6,8 +7,11 @@ import { hostTopicKey, type HostPushEvent, type HostSubscription } from "../shar
  * whatever it shows. A thread scope is the stream of one thread (its
  * messages, tools, notices and details), which only a client showing that
  * thread applies; a topic scope is an extension event published with a topic.
+ * `writers` goes to every client that may change things, never to a device
+ * paired Read only: a sign-in's consent page, code or prompt is for the one
+ * who can finish it.
  */
-export type HostPushScope = `thread:${string}` | `topic:${string}` | undefined;
+export type HostPushScope = `thread:${string}` | `topic:${string}` | "writers" | undefined;
 
 const threadScope = (sessionId: string): HostPushScope => `thread:${sessionId}`;
 
@@ -38,7 +42,8 @@ export function hostPushScope(event: HostPushEvent): HostPushScope {
       if (event.update.type === "transcript-page") return threadScope(event.update.page.sessionId);
       return undefined;
     case "extension-event":
-      return event.topic === undefined ? undefined : `topic:${hostTopicKey(event.extensionId, event.topic)}`;
+      if (event.topic !== undefined) return `topic:${hostTopicKey(event.extensionId, event.topic)}`;
+      return event.name === SIGN_IN_EVENT ? "writers" : undefined;
     default:
       return undefined;
   }
@@ -75,7 +80,7 @@ export class HostPushFilter {
 
   /** Whether this push goes to the connection; a detail answering an awaited request pins its thread. */
   admits(event: HostPushEvent, scope: HostPushScope = hostPushScope(event)): boolean {
-    if (scope === undefined) return true;
+    if (scope === undefined || scope === "writers") return true;
     if (scope.startsWith("topic:")) return this.topics.has(scope.slice("topic:".length));
     const id = scope.slice("thread:".length);
     if (this.threads.has(id) || this.pinned.includes(id)) return true;
@@ -87,7 +92,7 @@ export class HostPushFilter {
 
   /** Whether a push of this scope may have gone to the connection; for pushes it can no longer look at. */
   mayAdmit(scope: HostPushScope): boolean {
-    if (scope === undefined) return true;
+    if (scope === undefined || scope === "writers") return true;
     if (scope.startsWith("topic:")) return this.topics.has(scope.slice("topic:".length));
     const id = scope.slice("thread:".length);
     return this.threads.has(id) || this.pinned.includes(id) || this.requests.size > 0;

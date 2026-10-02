@@ -82,10 +82,12 @@ aktualisiert im selben Drive-Tresor. Die bisherige Firebase-App bleibt erhalten.
 
 ## Datenschutz und Store
 
-- Die englische [Datenschutzerklärung](https://rasalas.github.io/tau/docs/privacy.html)
-  und ihre [deutsche Übersetzung](https://rasalas.github.io/tau/docs/privacy-de.html)
-  werden über GitHub Pages gerendert. Die englische URL ist in Play gespeichert.
-  Die frühere geplante URL `https://tbuck.de/privacy/tau/` wurde nicht verwendet.
+- Die Datenschutzerklärung steht seit dem 30. September 2026 nur noch unter
+  <https://tbuck.de/privacy/tau/>, auf Deutsch und Englisch (Quelle:
+  `content/privacy/tau.md` im Repo `tbuck-www`). Die Seiten `privacy.html` und
+  `privacy-de.html` auf GitHub Pages verweisen nur noch dorthin.
+- In der Play Console steht seit dem 30. September 2026 `https://tbuck.de/privacy/tau/`
+  als Datenschutz-URL (App-Inhalte → Datenschutzerklärung).
 - Englische und deutsche Store-Texte, App-Icon, Vorstellungsgrafiken und je zwei
   echte Android-Screenshots sind in Play gespeichert. Quellen: `mobile/play/`.
 - IARC-Fragebogen am 30. September gespeichert, Status **Abgeschlossen**.
@@ -119,8 +121,10 @@ aktualisiert im selben Drive-Tresor. Die bisherige Firebase-App bleibt erhalten.
    abgeschlossen werden. Er nennt In-App-Mitteilungen, Fotos, Dateien und Geräte-IDs
    für App-Funktionen. Inhaltsdaten sind optional, FCM-Kennungen automatisch erforderlich.
    Keine pauschale Behauptung "keine Daten erhoben": Auch SDKs und die Host-Verbindung
-   zählen. FCM erhält standardmäßig Thread-Titel und Textauszüge; die Push-Nutzlast
-   ist nicht Ende-zu-Ende-verschlüsselt. Vor der Einreichung die endgültigen Angaben
+   zählen. Über Taus Push-Relay (Standard ohne eigene Schlüssel) sind Titel und Text
+   Ende-zu-Ende-verschlüsselt; FCM und das Relay sehen nur Push-Token, Chiffrat und
+   IP-Adresse ([push.md](push.md)). Mit eigenen Schlüsseln erhält FCM Thread-Titel und
+   Textauszüge lesbar. Vor der Einreichung die endgültigen Angaben
    einschließlich Löschmöglichkeit nochmals mit dem tatsächlichen Datenfluss abgleichen.
 
 Danach können die Änderungen zur Google-Prüfung eingereicht und ein öffentlicher

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { RotateCw } from "lucide-react";
+import { errorMessage } from "../../workbench/error-message";
 import type { UiDiscoveredHosts } from "../../shared/discovery";
 import { NearbyMachineList } from "./NearbyMachineList";
 import { useHostClient } from "../host-client-context";
@@ -25,7 +26,7 @@ export function NearbyMachinesDialog({ onClose }: { onClose(): void }) {
     try {
       setSearch({ status: "done", result: await client.discoverHosts() });
     } catch (error: unknown) {
-      setSearch({ status: "error", message: error instanceof Error ? error.message : String(error) });
+      setSearch({ status: "error", message: errorMessage(error) });
     }
   }, [client]);
   useEffect(() => { void look(); }, [look]);

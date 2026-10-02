@@ -8,6 +8,7 @@ import { PendingReviewStore } from "./pending-review.js";
 import type { ComposerContextChips, PullRequestDetail, PullRequestFiles, PullRequestStack } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import { parseGitHubDetail, parseGitHubThreads, parseRequestUrl, parseUnifiedDiff } from "./pull-request-json.js";
+import type { PullRequestTabParams } from "./pull-request-logic.js";
 import { PullRequestView } from "./pull-request-view.js";
 import { RowRequests } from "./requests.js";
 import { ThreadLinkRows } from "./thread-links-store.js";
@@ -34,6 +35,7 @@ function fakeClient(overrides: Partial<PullRequestClient> = {}): PullRequestClie
   return {
     view: vi.fn(async () => detail),
     checks: vi.fn(async () => detail.checks),
+    pipeline: vi.fn(async () => ({})),
     threads: vi.fn(async () => threads),
     files: vi.fn(async () => files),
     comment: vi.fn(async () => undefined),
@@ -100,13 +102,13 @@ const THREADS = [
   { id: "thread-2", path: "/sessions/two.jsonl", title: "Review the terminal", modifiedAt: 2, projectPath: "/other", projectName: "docs", messageCount: 2 },
 ];
 
-function renderView(client = fakeClient(), chips?: ComposerContextChips, readOnly = false) {
+function renderView(client = fakeClient(), chips?: ComposerContextChips, readOnly = false, params: PullRequestTabParams = PARAMS) {
   const rows = new RowRequests(async () => undefined);
   const workbench = actions();
   const tab = handle();
   const storage = memoryStorage();
   const shared = { links: new ThreadLinkRows(client), pending: new PendingReviewStore(() => storage, () => `held-${storage.keys().length}-${Math.random()}`), preferences: preferences() };
-  const view = <TestThreadStore threads={THREADS}><PullRequestView params={PARAMS} handle={tab} actions={workbench} client={client} chips={() => chips} rows={rows} shared={shared} /></TestThreadStore>;
+  const view = <TestThreadStore threads={THREADS}><PullRequestView params={params} handle={tab} actions={workbench} client={client} chips={() => chips} rows={rows} shared={shared} /></TestThreadStore>;
   render(readOnly ? <HostClientProvider client={createFakeHostClient({ isReadOnly: () => true })}>{view}</HostClientProvider> : view);
   return { client, rows, workbench, tab, shared };
 }
@@ -121,12 +123,64 @@ describe("the pull-request view", () => {
     expect(screen.getByText("enhancement")).toBeTruthy();
     expect(screen.getByLabelText("Checks summary").textContent).toContain("1 of 4 failing");
     // Failing checks open their section.
-    expect(within(screen.getByRole("list", { name: "Checks" })).getByText("smoke")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^smoke: Failed/u })).toBeTruthy();
     await waitFor(() => expect(screen.getByText("Comments (6)")).toBeTruthy());
     expect(screen.getByText("The offset counts the chunk's end.")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "kits/terminal/output.ts:10" })).toHaveLength(2);
     expect(tab.setTitle).toHaveBeenCalledWith("PR #7 Add the output helper");
     expect(rows.get("/project")).toMatchObject<Partial<UiReviewRequest>>({ number: 7, checks: { passed: 2, failed: 1, pending: 1, total: 4 } });
+  });
+
+  it("draws the checks in one row in the bar, which opens and shows them; so does a tab opened at its checks", async () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    const passing = parseGitHubDetail(REF, fixture("gh-pr-view-discussed.json"));
+    const ready = { ...passing, checks: passing.checks.map((check) => ({ ...check, status: "passed" as const })) };
+    renderView(fakeClient({ view: vi.fn(async () => ready), checks: vi.fn(async () => ready.checks) }));
+    const toggle = () => screen.getByRole("button", { name: "Checks" });
+    await waitFor(() => expect(toggle().getAttribute("aria-expanded")).toBe("false"));
+    const bar = document.querySelector(".pr-head-row")! as HTMLElement;
+    fireEvent.click(within(bar).getByRole("button", { name: /^Checks: /u }));
+    await waitFor(() => expect(toggle().getAttribute("aria-expanded")).toBe("true"));
+    expect(scroll).toHaveBeenCalled();
+    cleanup();
+    renderView(fakeClient({ view: vi.fn(async () => ready), checks: vi.fn(async () => ready.checks) }), undefined, false, { ...PARAMS, focus: "checks", at: 1 });
+    await waitFor(() => expect(toggle().getAttribute("aria-expanded")).toBe("true"));
+  });
+
+  it.each([
+    [{ state: "open", draft: false }, "Open", "open"],
+    [{ state: "open", draft: true }, "Draft", "draft"],
+    [{ state: "merged" }, "Merged", "merged"],
+    [{ state: "closed" }, "Closed", "closed"],
+  ] as const)("shows the state %j in the header as an icon named %s", async (patch, name, tone) => {
+    const detail = { ...parseGitHubDetail(REF, fixture("gh-pr-view-discussed.json")), ...patch };
+    renderView(fakeClient({ view: vi.fn(async () => detail) }));
+    const header = (await screen.findByRole("heading", { name: "Add the output helper" })).closest(".pr-view")!.querySelector(".pr-head-row")! as HTMLElement;
+    const icon = within(header).getByRole("img", { name });
+    expect(icon.getAttribute("data-tooltip")).toBe(name);
+    expect(icon.classList.contains(tone)).toBe(true);
+    expect(header.textContent).not.toMatch(/\b(open|draft|merged|closed)\b/u);
+  });
+
+  it("renders the HTML GitHub allows in the description and comments, its details closed", async () => {
+    const detail = parseGitHubDetail(REF, fixture("gh-pr-view-dependabot.json"));
+    const discussed = parseGitHubDetail(REF, fixture("gh-pr-view-discussed.json"));
+    const comment = { ...discussed.comments[0]!, body: "<details><summary>Build log</summary>\n\n<a href=\"https://ci.example/1\">run 1</a> <a href=\"javascript:alert(1)\">bad</a>\n\n</details>\n<img src=x onerror=alert(1)>" };
+    renderView(fakeClient({ view: vi.fn(async () => ({ ...detail, comments: [comment] })), threads: vi.fn(async () => []) }));
+    const summary = await screen.findByText("Dependabot commands and options");
+    const description = summary.closest(".pr-comment-body")!;
+    expect(description.textContent).not.toMatch(/<\/?(details|summary|a|blockquote|ul|li|code|br)\b/u);
+    const folds = [...description.querySelectorAll("details")];
+    expect(folds.map((fold) => fold.querySelector("summary")?.textContent)).toEqual(["Release notes", "Commits", "Release notes", "Dependabot commands and options"]);
+    expect(folds.every((fold) => !fold.open)).toBe(true);
+    fireEvent.click(folds[0]!.querySelector("summary")!);
+    expect(folds[0]!.open).toBe(true);
+    expect(within(folds[0]! as HTMLElement).getByRole("link", { name: "#1164" }).getAttribute("href")).toBe("https://redirect.github.com/KnpLabs/php-github-api/issues/1164");
+    const log = (await screen.findByText("Build log")).closest("details")!;
+    expect(within(log as HTMLElement).getByRole("link", { name: "run 1" }).getAttribute("target")).toBe("_blank");
+    expect(within(log as HTMLElement).queryByRole("link", { name: "bad" })).toBeNull();
+    expect(log.closest(".pr-comment-body")!.querySelector("img")).toBeNull();
   });
 
   it("on a device paired Read only, offers reading and disables or leaves out every change", async () => {
@@ -351,6 +405,23 @@ describe("merging, auto-merge, revert and stacks from the view", () => {
     fireEvent.click(within(screen.getByRole("dialog", { name: "Merge PR #7?" })).getByRole("button", { name: "Rebase and merge" }));
     await waitFor(() => expect(client.action).toHaveBeenCalledWith(REF.url, { action: "merge", method: "rebase", deleteBranch: true, threadId: "thread-1" }));
     await waitFor(() => expect(workbench.notify).toHaveBeenCalledWith("PR #7 merged. Deleted feat/output."));
+  });
+
+  it("names a long branch on a line of its own under the delete option, the full name in its tooltip", async () => {
+    const dependabot = parseGitHubDetail(REF, fixture("gh-pr-view-dependabot.json"));
+    const ready: PullRequestDetail = { ...dependabot, checks: dependabot.checks.map((check) => ({ ...check, status: "passed" as const })) };
+    renderView(fakeClient({ view: vi.fn(async () => ready), checks: vi.fn(async () => ready.checks) }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Squash and merge$/u }));
+    const dialog = screen.getByRole("dialog", { name: /^Merge PR #\d+\?$/u });
+    const option = dialog.querySelector(".pr-merge-option")!;
+    const branch = "dependabot/composer/static/backend/php-runtime-3063496fe1";
+    expect(within(dialog).getByRole("checkbox", { name: `Delete ${branch} after merging` })).toBeTruthy();
+    expect(option.querySelector(":scope > span")!.firstChild!.textContent).toBe("Delete the branch after merging");
+    const name = option.querySelector<HTMLElement>(".pr-merge-branch")!;
+    expect(name.textContent).toBe(branch);
+    expect(name.style.whiteSpace).toBe("nowrap");
+    expect(name.getAttribute("data-tooltip")).toBe(branch);
+    expect(option.querySelector("code")).toBeNull();
   });
 
   it("reverts a merged request and opens the revert as its own tab", async () => {

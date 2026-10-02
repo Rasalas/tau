@@ -95,12 +95,4 @@ export const commandRuns: Record<string, (app: WorkbenchActions) => void | Promi
     else app.notify("This thread's runtime sets its reasoning itself.");
   },
   "runtime.copy-chat": async (app) => { await copyChat(app, "Chat copied as Markdown.", ""); },
-  "runtime.rename-thread": async (app) => {
-    const currentTitle = app.activeThread()?.sessionId ?? "";
-    const next = window.prompt("New thread title:", currentTitle)?.trim();
-    if (next && app.renameThread) {
-      await app.renameThread(next);
-      app.notify(`Thread renamed to “${next}”.`);
-    }
-  },
 };

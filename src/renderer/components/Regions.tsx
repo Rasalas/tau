@@ -1,5 +1,5 @@
 import { Suspense, useSyncExternalStore, type ReactNode } from "react";
-import type { ExtensionRegistry, LookInRegionContext, RegionPlacement, WorkbenchActions } from "../extension-system";
+import type { ExtensionRegistry, LookInRegionContext, RegionPlacement, TranscriptTurn, WorkbenchActions } from "../extension-system";
 import type { HostSnapshot } from "../../shared/contracts";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./LazyFeature";
 
@@ -9,13 +9,14 @@ interface RegionHostProps {
   snapshot?: HostSnapshot;
   actions: WorkbenchActions;
   lookIn?: LookInRegionContext;
+  turn?: TranscriptTurn;
 }
 
 /**
  * Renders whatever extensions registered for one placement; nothing when empty.
  * `lead` and `children` are core's own controls, drawn before and after the contributions.
  */
-export function Region({ registry, placement, snapshot, actions, lookIn, lead, children, bare }: RegionHostProps & { lead?: ReactNode; children?: ReactNode; bare?: boolean }) {
+export function Region({ registry, placement, snapshot, actions, lookIn, turn, lead, children, bare }: RegionHostProps & { lead?: ReactNode; children?: ReactNode; bare?: boolean }) {
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const regions = registry.getRegions(placement);
   if (regions.length === 0 && children === undefined && !lead) return null;
@@ -31,7 +32,7 @@ export function Region({ registry, placement, snapshot, actions, lookIn, lead, c
         onNotify={actions.notify}
       >
         <Suspense fallback={<LazyFeatureFallback label={region.id} />}>
-          <region.Component snapshot={snapshot} actions={actions} {...(lookIn ? { lookIn } : {})} />
+          <region.Component snapshot={snapshot} actions={actions} {...(lookIn ? { lookIn } : {})} {...(turn ? { turn } : {})} />
         </Suspense>
       </LazyFeatureBoundary>
     ))}

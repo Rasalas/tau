@@ -1,0 +1,21 @@
+/* Why the thread stopped, on top of the composer as one card with it (2c). */
+.composer-notice {
+  max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--line); border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--field);
+  color: var(--ink); font: var(--text-sm)/1.45 var(--sans);
+}
+.composer-notice + .composer-frame { border-top-left-radius: 0; border-top-right-radius: 0; }
+.composer-notice > strong { display: flex; align-items: center; gap: 6px; color: var(--fail-ink); font-weight: 600; }
+.composer-notice.warn > strong { color: var(--warn); }
+.composer-notice > p { margin: 0; overflow-wrap: anywhere; user-select: text; }
+.composer-notice > p > em { display: block; color: var(--fail-ink); font-style: normal; }
+.composer-notice-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px; }
+.composer-notice-actions > button {
+  display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--ink-3); font: inherit; white-space: nowrap; cursor: pointer;
+}
+.composer-notice-actions > button:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.composer-notice-actions > button.primary { padding: 5px 12px; border-radius: var(--radius-pill); background: var(--acid); color: var(--acid-ink); font-weight: 600; }
+.composer-notice-actions > button.primary:hover { background: var(--acid-strong); color: var(--acid-ink); }
+.composer-notice-actions > button.secondary { padding: 4px 10px; background: var(--stage); color: var(--ink); font-weight: 600; }
+.composer-notice-actions > button:disabled { opacity: .5; cursor: default; }

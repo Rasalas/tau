@@ -1,4 +1,6 @@
 node_modules/
+.tau-native/
+kits/snapshots/native/*/target/
 dist/
 dist-electron/
 dist-web/
@@ -35,3 +37,4 @@ reports/*.json
 site/docs/
 # The signed model catalog the Pages workflow builds from catalog/models.json.
 site/catalog/
+__pycache__/

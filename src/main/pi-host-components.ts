@@ -7,6 +7,7 @@ import type {
   ThreadBackendKind,
   ThreadHostEvent,
   UiComposerCommand,
+  UiPromptAttachment,
 } from "../shared/contracts.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
 import { AttachedThreadBackend } from "./attached-thread-backend.js";
@@ -69,7 +70,7 @@ import type { PiHostOptions } from "./pi-host-options.js";
 import { SessionLocks } from "./session-locks.js";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
 import type { LiveTurnState } from "./live-turn-state.js";
-import type { ThreadRuntimeEvent } from "./runtime-types.js";
+import { requireCapability, type ThreadRuntimeEvent } from "./runtime-types.js";
 import { markTauHostRuntime } from "./tau-runtime-owner.js";
 import { QueuedMessages, type QueuedMessage } from "./queued-messages.js";
 import { LIMIT_CONTINUATION_PROMPT, ThreadLimits } from "./thread-limits.js";
@@ -155,7 +156,9 @@ export interface PiHostDeps {
   /** Sends a queued message as the prompt it stands for. */
   deliverQueued(sessionId: string, message: QueuedMessage): Promise<void>;
   /** An extension's message to a thread; a released runtime is reopened off screen first. */
-  sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string): Promise<void>;
+  sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string, attachments?: UiPromptAttachment[]): Promise<void>;
+  /** The thread's runtime, reopened off screen when it was released. */
+  reopenThread(sessionId: string): Promise<ThreadRuntime>;
   /** Continues a thread with a prompt the host writes, hidden where its runtime allows. */
   continueThread(sessionId: string, text: string): Promise<void>;
 }
@@ -335,6 +338,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   /** What extensions know about projects: name, label, nesting, all cached. */
   const projects = new ProjectFactsCache({
     onLabel: (cwd, label) => publication.publishLabel(cwd, label),
+    onName: (cwd, name) => index.publishName(cwd, name),
     onNesting: () => index.publishSnapshotSoon(),
     recordBackground: (name, startedAt) => deps.recordBackground(name, startedAt),
     log: (label, detail) => deps.log(label, detail),
@@ -433,7 +437,8 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
         publication.credentialsChanged();
       },
     }),
-    setThreadTitle: async (sessionId, title, source) => { await deps.applyThreadTitle(deps.requireThread(sessionId), title, source); },
+    // A rename may reach a released thread (another machine renaming); a generated title never reopens one.
+    setThreadTitle: async (sessionId, title, source) => { await deps.applyThreadTitle(source === "renamed" ? await deps.reopenThread(sessionId) : deps.requireThread(sessionId), title, source); },
     attachedRuntime: (sessionId) => deps.ownedByPi(deps.threadFor(sessionId)) ? attached.hostRuntime : undefined,
     describeProjects: (facts) => projects.add(facts),
     noteSubprocess: () => lifecycleMetrics.countSubprocess(),
@@ -452,7 +457,14 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     removeThread: (sessionId) => deps.removeThread(sessionId),
     restoreThread: (sessionId) => deps.restoreThread(sessionId),
     purgeThread: (sessionId) => deps.purgeThread(sessionId),
-    sendToThread: (sessionId, text, sendOptions) => deps.sendToThread(sessionId, text, sendOptions.delivery, sendOptions.from),
+    sendToThread: (sessionId, text, sendOptions) => deps.sendToThread(sessionId, text, sendOptions.delivery, sendOptions.from, sendOptions.attachments),
+    setThreadModel: async (sessionId, provider, id) => {
+      const thread = await deps.reopenThread(sessionId);
+      await requireCapability(thread.backend, "catalogWrite").setModel(provider, id);
+      if (threads.get(thread.threadId)?.runtime === thread) await index.publishModelProvider(thread);
+      if (thread === deps.getActive()) await publication.publishActiveCatalog();
+      deps.log("model.changed", `${provider}/${id}`);
+    },
     abortThread: async (sessionId) => {
       const thread = deps.threadFor(sessionId);
       if (thread && sessionId) await deps.abortThread(thread);
@@ -464,7 +476,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     ...(options.machines ? { machines: options.machines } : {}),
     ...(options.blobs ? { blobs: options.blobs } : {}),
     exclusive: (work) => lifecycle.run("extension.exclusive", work),
-    refreshThreadIndex: () => index.refresh("none").catch(() => index.snapshot()),
+    refreshThreadIndex: (refreshOptions) => index.refresh(refreshOptions?.publish ? "changed-index" : "none").catch(() => index.snapshot()),
     // Before the first scan the start publishes both anyway.
     runtimeBackendsChanged: () => {
       catalogs.sourcesChanged();

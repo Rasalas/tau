@@ -9,6 +9,8 @@ import {
   TERMINAL_EXITED_EVENT,
   TERMINAL_HOST_EXTENSION_ID,
   TERMINAL_LIST_EVENT,
+  TERMINAL_SESSIONS_TOPIC,
+  TERMINAL_SHELL_SETTING,
   type TerminalDataEvent,
   type TerminalExitedEvent,
   type TerminalFontDefaults,
@@ -71,6 +73,8 @@ export interface OpenTerminalInput {
   label?: string;
   /** A line the terminal shows before the shell's first output: why the agent is limited here and the shell is not. */
   notice?: string;
+  /** Settings' shell, in place of the user's own. */
+  shell?: string;
 }
 
 interface Session {
@@ -118,7 +122,7 @@ export class TerminalSessions {
     if (this.disposed) throw new Error("The terminal kit is shutting down; no new terminals.");
     this.assertCapacity(input.root);
     const id = randomUUID();
-    const shell = defaultShell();
+    const shell = input.shell || defaultShell();
     const file = shellAvailable(shell) ? shell : "/bin/sh";
     const pty = this.spawn({
       file,
@@ -301,13 +305,13 @@ export class TerminalSessions {
     session.pty = undefined;
     session.record = { ...session.record, exitCode };
     const event: TerminalExitedEvent = { id, exitCode };
-    this.emit(TERMINAL_EXITED_EVENT, event);
+    this.emit(TERMINAL_EXITED_EVENT, event, { topic: TERMINAL_SESSIONS_TOPIC });
     this.emitSessions();
   }
 
   private emitSessions(): void {
     if (this.disposed) return;
-    this.emit(TERMINAL_LIST_EVENT, this.list());
+    this.emit(TERMINAL_LIST_EVENT, this.list(), { topic: TERMINAL_SESSIONS_TOPIC });
   }
 }
 
@@ -419,14 +423,15 @@ export function createTerminalHostExtension(
 
       const open = async (input: Record<string, unknown>): Promise<UiTerminalSession> => {
         resolved = await ptyFactory();
-        const workspaceId = typeof input.workspaceId === "string" && input.workspaceId ? input.workspaceId : undefined;
+        const namedWorkspace = input.workspaceId ?? input.workspace;
+        const workspaceId = typeof namedWorkspace === "string" && namedWorkspace ? namedWorkspace : undefined;
         const sessionId = typeof input.sessionId === "string" && input.sessionId ? input.sessionId : undefined;
-        // A terminal belongs to the workspace the host has open now: that is
-        // the root `afterWorkspaceClose` later names when the host leaves it.
-        const root = context.services.cwd();
+        // Explicit workspace calls leave the host's active thread alone.
+        // The shell belongs to the requested root, which lifecycle cleanup names.
+        const root = workspaceId ? await context.services.knownWorkspacePath(workspaceId) : context.services.cwd();
         // The workspace id the client sent is an identity the host published;
         // resolve it to the folder the shell may start in, and refuse anything else.
-        const start = workspaceId ? await context.services.knownWorkspacePath(workspaceId) : root;
+        const start = root;
         // A thread the Workspace Kit started in its own worktree names its
         // checkout in `cwd`; that, not the project root, is where its terminal
         // belongs. A thread that is not open falls back to the workspace folder.
@@ -435,6 +440,7 @@ export function createTerminalHostExtension(
         const beside = typeof input.from === "string" ? sessions.currentDirectory(input.from) : undefined;
         const cwd = beside ?? thread?.cwd ?? start;
         const notice = terminalNetworkNotice(await context.services.executionPolicy?.for(cwd).catch(() => undefined));
+        const shell = (await context.services.settings?.().catch(() => undefined))?.values[TERMINAL_SHELL_SETTING]?.trim();
         const session = sessions.open({
           ...(workspaceId ? { workspaceId } : {}),
           ...(sessionId ? { sessionId } : {}),
@@ -442,6 +448,7 @@ export function createTerminalHostExtension(
           root,
           ...(typeof input.label === "string" ? { label: input.label } : {}),
           ...(notice ? { notice } : {}),
+          ...(shell ? { shell } : {}),
         });
         context.services.noteSubprocess();
         return session;

@@ -203,7 +203,7 @@ export function registerSignIn(context: RegisteringContext, options: SignInOptio
   ];
 
   return {
-    // What a target offers changed outside a flow (a setting the kit keeps); every window hears it.
+    // What a target offers changed outside a flow (a setting the kit keeps); every window that may sign in hears it.
     publish: async (target = options.defaultTarget ?? "default") => { emit({ target, report: await report(target) }); },
     dispose: () => {
       disposed = true;

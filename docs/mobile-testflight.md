@@ -41,8 +41,18 @@ is taken, pick your own (for example `com.<you>.tau`) and change it in two place
    your App ID; if it is missing, **+ Capability** → **Push Notifications**. Nothing else
    to add: the Keychain works without a capability, and the camera, local network and
    Bonjour texts are already in `Info.plist`.
-5. **General** → **Version** (for example `0.1.0`) and **Build** (`1`). Every upload needs
-   a higher Build number.
+   The project also builds the TauWidgets extension (widget and Live Activities),
+   which needs the App Group `group.de.tbuck.tau` on both App IDs; automatic
+   signing registers it. To build as Tau's own TestFlight releases do, without the
+   extension and the App Group, run `node scripts/packaging/ios-widgets.mjs` from the
+   repository root first; it rewrites `App.xcodeproj` and `App.entitlements`, and
+   `git checkout mobile/ios/App` undoes it.
+5. Select the **App project** under PROJECT, then **Build Settings → Versioning**.
+   Set **Marketing Version** (for example `0.1.0`) and **Current Project Version**
+   (`1`) there. App and TauWidgets inherit both values, so one change updates
+   both bundles. Every upload needs a higher Current Project Version. Avoid
+   target-specific Version or Build overrides, which can make the widget's
+   version differ from the app's.
 
 ## 4. Create the app in App Store Connect
 
@@ -109,9 +119,11 @@ background and reconnect, the terminal's key bar and review, on your own phone.
 ## 8. Push notifications
 
 Your phone hears of a thread that finished, failed, asks you something or hands over to
-you ("your turn") while you are not at Tau. There is no relay: the Mac sends them
-itself, to Apple for the iPhone and to Google for Android, with keys of your own. You
-set them up once.
+you ("your turn") while you are not at Tau. The app from the App Store or Google Play
+gets them through Tau's relay with nothing to set up ([push.md](push.md)). An app you
+build and sign yourself, as here, has a bundle identifier of your own, which the relay
+does not push to: set up keys of your own once, and the Mac sends to Apple for the
+iPhone and to Google for Android itself.
 
 ### iPhone: an APNs key
 
@@ -153,7 +165,8 @@ first and remembers which one a phone's token works with.
    a test push; the row says when the last one went, or why it failed.
 3. **Content**: "Title and excerpt" (the thread's title and the first line of the agent's
    last message; the reason for "your turn", the question for a question) or "Title
-   only". Whatever you pick goes through Apple's or Google's servers.
+   only". With your own keys, whatever you pick goes through Apple's or Google's servers
+   readable; through Tau's relay it is encrypted for your phone.
 4. Tapping a notification opens its thread in the app.
 
 The keys live in Tau's user data folder, under `kit-state/tau.push/keys.json` (on macOS

@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve, sep } from "node:path";
 import { assertAllowedCloneSource } from "./clone-source.js";
 import { readPersistedJson, writePersistedJson } from "./persisted-json.js";
+import { tauHomeDir } from "./app-identity.js";
 
 /**
  * Where an extension package comes from, in Pi's own vocabulary: `npm:<spec>`,
@@ -81,11 +82,11 @@ export function packagesHome(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 export function npmStoreDirectory(home: string = packagesHome()): string {
-  return join(home, ".tau", "npm");
+  return join(tauHomeDir(home), "npm");
 }
 
 export function gitStoreDirectory(home: string = packagesHome()): string {
-  return join(home, ".tau", "git");
+  return join(tauHomeDir(home), "git");
 }
 
 /** Where a source's package folder is, once it is installed. */
@@ -103,7 +104,7 @@ export function sourceDirectory(source: ExtensionSource, home: string = packages
 }
 
 export function packagesFilePath(scope: PackageScope, cwd: string, home: string = packagesHome()): string {
-  return scope === "global" ? join(home, ".tau", PACKAGES_FILE) : join(cwd, ".tau", PACKAGES_FILE);
+  return scope === "global" ? join(tauHomeDir(home), PACKAGES_FILE) : join(cwd, ".tau", PACKAGES_FILE);
 }
 
 export interface PackagesFile {

@@ -7,6 +7,7 @@ import { packIconSet } from "./icon-set";
 import { mangleForGzip } from "./mangle";
 import { rendererBuild } from "./renderer-build";
 import { thirdPartyLicenses } from "./third-party-licenses";
+import { browserConnectAssets } from "./browser-connect";
 
 const path = (relative: string) => fileURLToPath(new URL(relative, import.meta.url));
 
@@ -16,7 +17,7 @@ const path = (relative: string) => fileURLToPath(new URL(relative, import.meta.u
  * platform and the HTML around it differ, so this config differs only there.
  */
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), stripIconKeys(), packIconSet(), dedupeLegalComments(), mangleForGzip(), thirdPartyLicenses()],
+  plugins: [react(), stripIconKeys(), packIconSet(), dedupeLegalComments(), mangleForGzip(), thirdPartyLicenses(), browserConnectAssets()],
   root: path("../src/web"),
   base: "/",
   // Favicon, touch icon and manifest, copied to the root as they are.
@@ -25,7 +26,7 @@ export default defineConfig(({ mode }) => ({
     outDir: path("../dist-web"),
     emptyOutDir: true,
     // The key keeps the entry chunk's name (`index.web-<hash>.js`) apart from the renderer's `index` chunks.
-    rollupOptions: { input: { "index.web": path("../src/web/index.html") } },
+    rollupOptions: { input: { "index.web": path("../src/web/index.html") }, output: rendererBuild.output, onwarn: rendererBuild.onwarn },
     sourcemap: mode === "development" || process.env.TAU_SOURCEMAP === "true",
     minify: "esbuild",
     target: rendererBuild.target,

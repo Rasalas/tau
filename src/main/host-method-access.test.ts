@@ -85,6 +85,8 @@ describe("the access every host method needs", () => {
     expect(Object.keys(HOST_METHOD_AUDIT).sort()).toEqual(changes);
     expect(auditedMethodCall("prompt", ["the text", [], "s-1"])).toEqual({ action: "prompt", label: "sent a prompt", threadId: "s-1" });
     expect(auditedMethodCall("rename-thread", ["New title", "s-2"])).toEqual({ action: "rename-thread", label: "renamed a thread", threadId: "s-2" });
+    expect(auditedMethodCall("start-thread", [{ cwd: "/repo", prompt: "hello" }])).toEqual({ action: "start-thread", label: "started a thread" });
+    expect(auditedMethodCall("send-to-thread", ["s-2", "hello"])).toEqual({ action: "send-to-thread", label: "sent a message to a thread", threadId: "s-2" });
     // Sent on the way to a prompt, not a change of its own.
     expect(auditedMethodCall("prepare-prompt", ["text", "s-1"])).toMatchObject({ automatic: true, threadId: "s-1" });
     expect(auditedMethodCall("a-method-added-later")).toEqual({ action: "a-method-added-later" });
@@ -105,11 +107,15 @@ describe("the access every host method needs", () => {
 describe("what one host may ask another for its agents (ADR 0027)", () => {
   it("is a short list of thread methods, never access management, jobs, subscriptions or a kit command", () => {
     for (const method of MACHINE_REQUEST_METHODS) expect(HOST_METHOD_ACCESS[method], method).not.toBe("owner");
-    for (const method of ["connections-approve", "connections-list", "machines-add", "host.shutdown", "start-job", "subscribe", "host-extension", "environments-open", "prompt"]) {
+    for (const method of ["connections-approve", "connections-list", "machines-add", "host.shutdown", "start-job", "subscribe", "host-extension", "environments-open", "prompt", "switch-session"]) {
       expect(isMachineRequestMethod(method), method).toBe(false);
     }
     expect(isMachineRequestMethod("transcript-page")).toBe(true);
     expect(isMachineRequestMethod("abort")).toBe(true);
+    for (const method of ["start-thread", "send-to-thread", "answer-extension-ui", "sync-extension-ui"]) {
+      expect(isMachineRequestMethod(method), method).toBe(true);
+      expect(methodAccess(method), method).toBe(method === "sync-extension-ui" ? "read" : "write");
+    }
     // How busy and how ready a machine is: read, and what an automatic choice of machine weighs.
     for (const method of ["host-resources", "readiness"]) {
       expect(isMachineRequestMethod(method), method).toBe(true);

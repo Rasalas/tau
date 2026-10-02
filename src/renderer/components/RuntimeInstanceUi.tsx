@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Copy, Plus, RefreshCw, SquareTerminal, TriangleAlert, X } from "lucide-react";
+import { errorMessage } from "../../workbench/error-message";
 import type { UiRuntimeBackend } from "../../shared/contracts";
 import {
   DEFAULT_INSTANCE_ID,
@@ -81,7 +82,7 @@ export function RuntimeInstanceDialog({ program, homeVariable, homePlaceholder, 
       });
       onClose();
     } catch (error) {
-      setFailure(error instanceof Error ? error.message : String(error));
+      setFailure(errorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -89,7 +90,7 @@ export function RuntimeInstanceDialog({ program, homeVariable, homePlaceholder, 
 
   const title = adding ? `Add a ${program} instance` : isDefault ? `Edit ${program}` : `Edit ${instance.name ?? instance.id}`;
   return (
-    <Dialog className="runtime-instance-dialog" label={title} onClose={onClose}>
+    <Dialog className="confirm-dialog runtime-instance-dialog" label={title} onClose={onClose}>
       <header>
         <h2>{title}</h2>
         <p>{adding
@@ -187,7 +188,7 @@ export function RuntimeInstanceSetup({ program, homeVariable, homePlaceholder, c
     try {
       await onRemove?.();
     } catch (error) {
-      setFailure(error instanceof Error ? error.message : String(error));
+      setFailure(errorMessage(error));
     }
   };
   const threads = instance?.threads ?? 0;

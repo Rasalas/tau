@@ -1,0 +1,19 @@
+.composer-dictation { display: flex; align-items: center; flex: none; }
+.dictation-button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
+.dictation-button:hover { background: var(--hover); color: var(--ink); }
+.dictation-button.is-active { background: var(--acid-chip); color: var(--acid-text); }
+.dictation-button:disabled { opacity: .45; cursor: default; }
+.dictation-button:focus-visible, .dictation-cancel:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.composer-frame:has(.composer-dictation.is-active) { padding-bottom: 36px; }
+.dictation-status { position: absolute; bottom: 0; left: 0; right: 0; display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: var(--text-xs); }
+.dictation-status [role="status"] { flex: none; }
+.dictation-meter { display: flex; align-items: center; justify-content: center; gap: 2px; width: 30px; height: 22px; color: var(--acid-text); flex: none; }
+.dictation-meter i { width: 2px; border-radius: 2px; background: currentColor; transition: height 100ms ease-out; }
+.dictation-time { font-variant-numeric: tabular-nums; color: var(--faint); }
+.dictation-preview { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ink); }
+.dictation-cancel { display: grid; place-items: center; width: 28px; height: 28px; margin-left: auto; flex: none; padding: 0; background: transparent; border: 0; border-radius: 5px; color: var(--muted); cursor: pointer; }
+.dictation-cancel:hover { background: var(--hover); color: var(--ink); }
+.dictation-error { position: absolute; left: 12px; right: 12px; bottom: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--float); color: var(--ink); font-size: var(--text-xs); }
+.dictation-spinner { animation: dictation-spin 1s linear infinite; }
+@keyframes dictation-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .dictation-meter i { transition: none; } .dictation-spinner { animation: none; } }

@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { pairWithHost, type PairingSocket } from "../shared/host-pairing.js";
-import { HOST_ERROR } from "../shared/host-transport.js";
+import { HOST_ERROR, HOST_TRANSPORT_VERSION, type HostPushEvent } from "../shared/host-transport.js";
+import type { ThreadIndexSnapshot } from "../shared/contracts.js";
 import { MACHINE_REQUEST_METHODS } from "../shared/host-method-access.js";
 import type { HostMachine } from "./host-extensions.js";
 import { HostAccess } from "./host-access.js";
@@ -18,6 +19,7 @@ import { invokeHostMethod } from "./host-methods.js";
 import { HostPushLog } from "./host-push-log.js";
 import { HostTokenFile } from "./host-token.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
+import { EnvironmentMonitor, type EnvironmentMonitorOptions, type MonitorSocket, type MonitorState } from "./environment-monitor.js";
 
 const directories: string[] = [];
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -25,6 +27,7 @@ const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
+  vi.useRealTimers();
 });
 
 const logger: HostLogger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -84,6 +87,148 @@ const rexEntry = (url: string, token: string): HostMachineEntry => ({
   id: "rex-id", name: "rex", endpoints: [{ url, kind: "loopback" }], token, addedAt: "2026-09-25T00:00:00.000Z",
 });
 
+async function fakeMachines() {
+  const monitors: Array<{ options: EnvironmentMonitorOptions; resubscribe: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> }> = [];
+  const machines = await HostMachines.open({
+    path: join(tempDir(), "host-machines.json"), logger, ownId: "mini-id",
+    monitor: (options) => {
+      const monitor = { options, resubscribe: vi.fn(), close: vi.fn() };
+      monitors.push(monitor);
+      return monitor as unknown as EnvironmentMonitor;
+    },
+  });
+  cleanups.push(() => machines.close());
+  await machines.add(rexEntry("http://127.0.0.1:9/", "t"));
+  return { machines, monitors, monitor: monitors[0]! };
+}
+
+describe("a machine's index and followed thread streams", () => {
+  it("reads the latest index and running threads, notifying once per burst per machine", async () => {
+    const { machines, monitor, monitors } = await fakeMachines();
+    await machines.add({ ...rexEntry("http://127.0.0.1:9/", "t"), id: "studio-id", name: "studio" });
+    vi.useFakeTimers();
+    const services = machines.forExtension("tau.machines");
+    expect(monitor.options.bootstrap).toBe(true);
+    expect(services.index!("rex")).toBeUndefined();
+    expect([...services.running!("rex")]).toEqual([]);
+    const changes: Array<[string, ThreadIndexSnapshot | undefined]> = [];
+    const stop = services.subscribeIndex!((id) => changes.push([id, services.index!(id)]));
+    const first: ThreadIndexSnapshot = { projects: [], sessions: [] };
+    const latest: ThreadIndexSnapshot = { projects: [{ path: "/p", name: "p", lastOpenedAt: 1 }], sessions: [] };
+    const state: MonitorState = { status: "connected", running: new Set(), index: first };
+    monitor.options.onChange(state);
+    monitor.options.onChange({ ...state, index: latest, running: new Set(["t1"]) });
+    monitors[1]!.options.onChange(state);
+    expect(services.index!("rex-id")).toBe(latest);
+    expect([...services.running!("rex")]).toEqual(["t1"]);
+    vi.advanceTimersByTime(249);
+    expect(changes).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(changes).toEqual([["rex-id", latest], ["studio-id", first]]);
+    monitor.options.onChange({ ...state, index: latest, running: new Set() });
+    vi.advanceTimersByTime(250);
+    expect(changes).toHaveLength(3);
+    stop();
+    monitor.options.onChange(state);
+    machines.close();
+    vi.advanceTimersByTime(250);
+    expect(changes).toHaveLength(3);
+  });
+
+  it("follows only the named thread, including questions and details, until its last listener leaves", async () => {
+    const { machines, monitor } = await fakeMachines();
+    const services = machines.forExtension("tau.machines");
+    const received: HostPushEvent[] = [];
+    const second = vi.fn();
+    const stop = services.followThread!("rex", "t1", (push) => received.push(push));
+    const stopSecond = services.followThread!("rex-id", "t1", second);
+    expect(monitor.options.threads!()).toEqual(["t1"]);
+    expect(monitor.resubscribe).toHaveBeenCalledTimes(1);
+    const delta: HostPushEvent = { type: "assistant-delta", sessionId: "t1", id: "m1", delta: "hello" };
+    const question = { type: "extension-ui-prompt", sessionId: "t1", prompt: { id: "q1" } };
+    const resolved: HostPushEvent = { type: "extension-ui-resolved", sessionId: "t1", id: "q1" };
+    const running: HostPushEvent = { type: "agent-status", sessionId: "t1", running: true };
+    const run: HostPushEvent = { type: "host-update", update: { version: 1, type: "run", sessionId: "t1", event: "settled" } };
+    const detail = { type: "host-update", update: { type: "thread-detail", detail: { sessionId: "t1" } } };
+    for (const event of [delta, { ...delta, sessionId: "t2" }, question, { ...question, sessionId: "t2" }, resolved, detail, running, { ...running, sessionId: "t2" }, run,
+      { ...run, update: { ...run.update, sessionId: "t2" } }]) monitor.options.onPush!(event);
+    expect(received).toEqual([delta, question, resolved, detail, running, run]);
+    expect(received[0]).toBe(delta);
+    expect(second).toHaveBeenCalledTimes(6);
+    stop();
+    expect(monitor.options.threads!()).toEqual(["t1"]);
+    expect(monitor.resubscribe).toHaveBeenCalledTimes(1);
+    stopSecond();
+    expect(monitor.options.threads!()).toEqual([]);
+    expect(monitor.resubscribe).toHaveBeenCalledTimes(2);
+    monitor.options.onPush!(delta);
+    expect(received).toHaveLength(6);
+  });
+
+  it("keeps followers when a machine's key is replaced and isolates the same thread id on another machine", async () => {
+    const { machines, monitors, monitor } = await fakeMachines();
+    const listener = vi.fn();
+    const stop = machines.followThread("rex", "t1", listener);
+    await machines.add({ ...rexEntry("http://127.0.0.1:9/", "t"), id: "studio-id", name: "studio" });
+    monitors[1]!.options.onPush!({ type: "assistant-delta", sessionId: "t1", id: "m1", delta: "studio" });
+    expect(listener).not.toHaveBeenCalled();
+    await machines.add(rexEntry("http://127.0.0.1:9/", "new-key"));
+    const replacement = monitors[2]!;
+    expect(replacement.options.threads!()).toEqual(["t1"]);
+    monitor.options.onPush!({ type: "assistant-delta", sessionId: "t1", id: "m1", delta: "old" });
+    expect(listener).not.toHaveBeenCalled();
+    replacement.options.onPush!({ type: "assistant-delta", sessionId: "t1", id: "m1", delta: "new" });
+    expect(listener).toHaveBeenCalledOnce();
+    stop();
+    expect(replacement.options.threads!()).toEqual([]);
+    expect(replacement.resubscribe).toHaveBeenCalledOnce();
+  });
+
+  it("clears followers and pending index notifications when the machine is removed", async () => {
+    const { machines, monitor, monitors } = await fakeMachines();
+    vi.useFakeTimers();
+    const changes = vi.fn();
+    machines.subscribeIndex(changes);
+    const stop = machines.followThread("rex", "t1", vi.fn());
+    monitor.options.onChange({ status: "connected", running: new Set(["t1"]), index: { projects: [], sessions: [] } });
+    await machines.remove("rex-id");
+    vi.advanceTimersByTime(250);
+    expect(changes).not.toHaveBeenCalled();
+    stop();
+    await machines.add(rexEntry("http://127.0.0.1:9/", "t"));
+    expect(monitors[1]!.options.threads!()).toEqual([]);
+  });
+
+  it("reads followers added while offline again in the next hello", async () => {
+    class Socket implements MonitorSocket {
+      readonly sent: Array<{ type: string; hello?: { subscription: { threads: string[] } } }> = [];
+      private readonly handlers = new Map<string, (...args: never[]) => void>();
+      on(event: string, listener: (...args: never[]) => void): void { this.handlers.set(event, listener); }
+      send(data: string): void { this.sent.push(JSON.parse(data)); }
+      close(): void {}
+      fire(event: string, ...args: unknown[]): void { (this.handlers.get(event) as ((...values: unknown[]) => void) | undefined)?.(...args); }
+    }
+    const sockets: Socket[] = [];
+    const machines = await HostMachines.open({
+      path: join(tempDir(), "host-machines.json"), logger, ownId: "mini-id",
+      monitor: (options) => new EnvironmentMonitor({ ...options, createSocket: () => { const socket = new Socket(); sockets.push(socket); return socket; } }),
+    });
+    cleanups.push(() => machines.close());
+    vi.useFakeTimers();
+    await machines.add(rexEntry("http://127.0.0.1:9/", "t"));
+    const socket = sockets[0]!;
+    socket.fire("open");
+    expect(socket.sent[0]!.hello!.subscription.threads).toEqual([]);
+    socket.fire("message", JSON.stringify({ type: "hello-reply", id: "hello", reply: { protocol: HOST_TRANSPORT_VERSION, hostVersion: "test", capabilities: [], resync: false, missed: [], nextSeq: 1 } }));
+    socket.fire("close", 1006);
+    const stop = machines.followThread("rex", "t1", vi.fn());
+    vi.advanceTimersByTime(1_000);
+    sockets[1]!.fire("open");
+    expect(sockets[1]!.sent[0]!.hello!.subscription.threads).toEqual(["t1"]);
+    stop();
+  });
+});
+
 describe("another machine, reached by this host for its agents", () => {
   it("calls a kit there as the agents' own device, and stops at once when that device is revoked", async () => {
     const seen: Array<{ params: readonly unknown[]; device?: string }> = [];
@@ -115,7 +260,7 @@ describe("another machine, reached by this host for its agents", () => {
   it("asks only the methods on the list, and refuses the rest before anything leaves", async () => {
     const reached: string[] = [];
     const stub = (name: string) => async () => { reached.push(name); return name; };
-    const rex = await startRex({ "transcript-page": stub("transcript-page"), "abort": stub("abort"), "prompt": stub("prompt"), "connections-list": stub("connections-list") });
+    const rex = await startRex({ "transcript-page": stub("transcript-page"), "abort": stub("abort"), "send-to-thread": stub("send-to-thread"), "switch-session": stub("switch-session"), "prompt": stub("prompt"), "connections-list": stub("connections-list") });
     const paired = await pairWithAgents(rex);
     const { machines } = await openMachines();
     await machines.add(rexEntry(rex.url, paired.companion!.token));
@@ -123,10 +268,11 @@ describe("another machine, reached by this host for its agents", () => {
 
     expect(await machines.request("rex", "transcript-page", ["s1"])).toBe("transcript-page");
     expect(await machines.request("rex", "abort", ["s1"])).toBe("abort");
-    for (const method of ["prompt", "connections-list", "host-extension", "start-job", "subscribe", "environments-open"]) {
+    expect(await machines.request("rex", "send-to-thread", ["s1", "hello"])).toBe("send-to-thread");
+    for (const method of ["prompt", "switch-session", "connections-list", "host-extension", "start-job", "subscribe", "environments-open"]) {
       await expect(machines.request("rex", method), method).rejects.toMatchObject({ code: HOST_ERROR.forbidden });
     }
-    expect(reached).toEqual(["transcript-page", "abort"]);
+    expect(reached).toEqual(["transcript-page", "abort", "send-to-thread"]);
     expect(MACHINE_REQUEST_METHODS).not.toContain("connections-approve");
   });
 
@@ -143,6 +289,8 @@ describe("another machine, reached by this host for its agents", () => {
     expect(await machines.request("mini-id", "readiness", [])).toEqual({ cpuCount: 8 });
     // Stopping this host's own threads is `services.sessions`' job.
     await expect(machines.request("mini-id", "abort", ["s1"])).rejects.toMatchObject({ code: HOST_ERROR.forbidden });
+    await expect(machines.request("mini-id", "start-thread", ["hello"])).rejects.toMatchObject({ code: HOST_ERROR.forbidden });
+    await expect(machines.request("mini-id", "send-to-thread", ["s1", "hello"])).rejects.toMatchObject({ code: HOST_ERROR.forbidden });
     await expect(machines.request("mini-id", "prompt")).rejects.toMatchObject({ code: HOST_ERROR.forbidden });
     expect(asked).toEqual([["host-resources", []], ["readiness", []]]);
     expect(machines.list()).toEqual([]);

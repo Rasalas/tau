@@ -54,12 +54,6 @@ cask "tau" do
     "~/Library/Saved Application State/dev.tbuck.tau.savedState",
   ]
 
-  caveats <<~EOS
-    Tau is not signed yet. If macOS refuses to open it, allow it once under
-    System Settings > Privacy & Security > Open Anyway, or run:
-      xattr -dr com.apple.quarantine /Applications/Tau.app
-  EOS
 end
 `;
 }
-

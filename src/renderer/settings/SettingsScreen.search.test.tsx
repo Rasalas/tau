@@ -46,8 +46,8 @@ describe("Settings search", () => {
     fireEvent.change(search, { target: { value: "go to file" } });
     fireEvent.click(within(modal).getByRole("option", { name: /Go to file…/u }));
     expect(within(modal).getByRole("heading", { name: "Keybindings" })).toBeTruthy();
-    expect((within(modal).getByPlaceholderText("Filter keybindings or commands…") as HTMLInputElement).value).toBe("search.files");
-    const rows = [...modal.querySelectorAll(".keybinding-row strong")].map((row) => row.textContent);
+    expect((within(modal).getByPlaceholderText("Find a shortcut") as HTMLInputElement).value).toBe("search.files");
+    const rows = [...modal.querySelectorAll(".keybinding-label")].map((row) => row.textContent);
     expect(rows).toEqual(["Go to file…"]);
     expect((search as HTMLInputElement).value).toBe("");
   });

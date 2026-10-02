@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { browserClientProfile, compactFormFor, compactSidebarWidth, layoutProfileFor, parseClientProfile } from "./client-profile";
+import { browserClientProfile, compactFormFor, compactSidebarMaxWidth, compactSidebarWidth, layoutProfileFor, parseClientProfile } from "./client-profile";
 
 describe("client profile selection", () => {
   it("a browser claims web, or compact when it starts narrow", () => {
@@ -66,4 +66,13 @@ describe("client profile selection", () => {
     expect(compactSidebarWidth(1024)).toBe(328);
     expect(compactSidebarWidth(1366)).toBe(380);
   });
+  it("clamps a saved sidebar width while preserving room for the conversation", () => {
+    expect(compactSidebarWidth(1180, 420)).toBe(420);
+    expect(compactSidebarWidth(720, 420)).toBe(400);
+    expect(compactSidebarWidth(1180, 420)).toBe(420);
+    expect(compactSidebarWidth(820, 180)).toBe(280);
+    expect(compactSidebarMaxWidth(820)).toBe(500);
+    expect(compactSidebarWidth(820, Number.NaN)).toBe(280);
+  });
+
 });

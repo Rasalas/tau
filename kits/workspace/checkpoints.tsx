@@ -23,6 +23,7 @@ import {
 } from "./protocol.js";
 import { RestoreCheckpointDialog } from "./RestoreCheckpointDialog.js";
 import { hasTurnChanges, TurnChangesPill } from "./turn-changes.js";
+import { createForkAsker, createTurnActions, ForkAsks } from "./turn-actions.js";
 import type { WorkspaceStore } from "./store.js";
 
 const LazyReview = lazy(() => loadReviewMode().then((ReviewMode) => ({ default: ReviewMode })));
@@ -60,7 +61,11 @@ interface CheckpointState {
 export class CheckpointStore {
   private state: CheckpointState = { persisted: [], restoreSupported: false, supportStale: false, verifyGeneration: 0, live: new Map(), restorable: new Set(), restoreBusy: false };
   private listeners = new Set<() => void>();
+  /** Opens the restore dialog for a checkpoint; set while the controller is mounted. */
+  onRestore?: (checkpoint: UiTurnCheckpoint) => void;
   getSnapshot = () => this.state;
+  /** Every checkpoint of the thread, persisted and announced, oldest first. */
+  all(): UiTurnCheckpoint[] { return mergeCheckpoints(this.state.persisted, this.state.live); }
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   update(patch: Partial<CheckpointState>): void {
     this.state = { ...this.state, ...patch };
@@ -103,7 +108,7 @@ function mergeCheckpoints(persisted: readonly UiTurnCheckpoint[] | undefined, li
  * also turns the thread's other checkpoints into transcript rows, verifies
  * which ones restore safely, and hosts the restore dialog.
  */
-function createController(store: CheckpointStore, workspaceStore: WorkspaceStore, rows: ReturnType<DesktopExtensionContext["registerTranscriptRows"]>) {
+function createController(store: CheckpointStore, workspaceStore: WorkspaceStore, rows: ReturnType<DesktopExtensionContext["registerTranscriptRows"]>, bar: boolean) {
   return function CheckpointController({ snapshot, actions }: RegionProps) {
     const { snapshot: workbenchSnapshot, tools: workbenchTools } = useWorkbench();
     const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
@@ -190,6 +195,11 @@ function createController(store: CheckpointStore, workspaceStore: WorkspaceStore
       }
     }, [actions, checkpoints, restoreSupported, sessionId, state.restorable, streaming]);
 
+    useEffect(() => {
+      store.onRestore = (checkpoint) => void requestRestore(checkpoint);
+      return () => { store.onRestore = undefined; };
+    }, [requestRestore]);
+
     const confirmRestore = useCallback(async (files: boolean) => {
       const request = store.getSnapshot().restore;
       if (!request || !sessionId) return;
@@ -243,7 +253,7 @@ function createController(store: CheckpointStore, workspaceStore: WorkspaceStore
     void snapshot;
     return (
       <>
-        {sessionId && (live || latest) ? <div className="turn-changes-bar">
+        {bar && sessionId && (live || latest) ? <div className="turn-changes-bar">
           {latest
             ? <TurnChangesPill key={latest.id} {...pillProps(latest)} />
             : <TurnChangesPill key="live" live changes={liveChanges} onOpenDiff={(path) => workspaceStore.openReview(path)} />}
@@ -297,7 +307,7 @@ function createReviewOverlay(store: CheckpointStore, workspaceStore: WorkspaceSt
 /** Wires checkpoint rows, live updates, the restore dialog and the review overlay into the kit. */
 export function registerCheckpoints(plugin: DesktopExtensionContext, workspaceStore: WorkspaceStore): void {
   const store = new CheckpointStore();
-  const rows = plugin.registerTranscriptRows("checkpoints", 20, { profiles: ["desktop"] });
+  const rows = plugin.registerTranscriptRows("checkpoints", 20, { profiles: ["desktop", "compact"] });
   plugin.events.on("active-thread-changed", () => store.resetThread());
   plugin.host.onEvent(CHECKPOINT_EVENT, (payload) => {
     const event = payload as CheckpointEvent;
@@ -315,11 +325,22 @@ export function registerCheckpoints(plugin: DesktopExtensionContext, workspaceSt
       // The capture is over: the thread has a runtime and holds nothing, which
       // is exactly what the two host answers behind a restore control need.
       if (event.status === "released") store.revalidate();
-      if (event.status === "skipped") store.update({ notice: "Turn changes were not recorded: another turn is active in this workspace." });
+      if (event.status === "skipped") {
+        const notice = workspaceStore.skippedCheckpointNotice(event.sessionId);
+        if (notice) store.update({ notice });
+      }
     } else if (event?.type === "turn-checkpoint-error") store.update({ notice: event.message });
   });
-  plugin.registerRegion({ id: "workspace.checkpoints", placement: "composer-controls", order: 70, profiles: ["desktop"], Component: createController(store, workspaceStore, rows) });
-  plugin.registerOverlay({ id: CHECKPOINT_REVIEW_OVERLAY, profiles: ["desktop"], Component: createReviewOverlay(store, workspaceStore) });
+  plugin.registerRegion({ id: "workspace.checkpoints", placement: "composer-controls", order: 70, profiles: ["desktop"], Component: createController(store, workspaceStore, rows, true) });
+  // The phone's pill over the composer is Review Kit's; this one only keeps the rows, the checks and the restore dialog.
+  plugin.registerRegion({ id: "workspace.checkpoints-touch", placement: "composer-controls", order: 70, profiles: ["compact"], Component: createController(store, workspaceStore, rows, false) });
+  // One question for every fork: the turn's line, `f`, the thread tree, Duplicate.
+  const asks = new ForkAsks();
+  plugin.registerForkPrompt({ id: "workspace.fork", ask: (request) => asks.set(request) });
+  plugin.registerRegion({ id: "workspace.turn-actions", placement: "turn-divider", profiles: ["desktop", "compact"], Component: createTurnActions(asks, store) });
+  plugin.registerRegion({ id: "workspace.fork", placement: "composer-controls", order: 90, profiles: ["desktop"], Component: createForkAsker(asks, store, workspaceStore, false) });
+  plugin.registerRegion({ id: "workspace.fork-touch", placement: "composer-controls", order: 90, profiles: ["compact"], Component: createForkAsker(asks, store, workspaceStore, true) });
+  plugin.registerOverlay({ id: CHECKPOINT_REVIEW_OVERLAY, profiles: ["desktop", "compact"], Component: createReviewOverlay(store, workspaceStore) });
 }
 
 export type { WorkbenchActions };

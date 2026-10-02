@@ -254,9 +254,14 @@ just as removing an instance retains its threads for restoration with that ID.
 For plan connections, Tau supplies a pinned, checksum-verified upstream Codex
 package unless the user explicitly overrides its executable with a supported
 release. The package includes the platform's runtime helpers. Tau owns that
-installation and advertises no user CLI update command for it. This supersedes
-the earlier statement that the Codex kit never installs anything. Existing
-CLI-owned logins still use the user's executable and account storage.
+installation and advertises no user CLI update command for it. When a Tau
+update pins another release, the host fetches it at start without being
+asked, shows the progress on the card and above the composer, and removes the
+release it replaced; the user never needs a console. This supersedes the
+earlier statement that the Codex kit never installs anything. CLI-owned logins
+keep their account storage and use the user's executable where there is one.
+An instance without an executable override and with no `codex` on the PATH
+runs Tau's managed Codex once Tau has it, and its card says "Managed by Tau".
 
 The plan connection's `CODEX_HOME` is under Tau's state, isolated from the
 user's CLI account and configuration. Credentials are stored atomically with
@@ -274,3 +279,59 @@ capabilities and reasoning choices. The official Responses provider disables
 WebSockets and server-side response storage. Local tools remain available;
 hosted connector and image-generation features are disabled. Pi integration
 can reuse the OAuth modules in a separate change.
+
+
+## Amendment, 2026-09-30: compatible Codex executing accounts
+
+A Codex thread may change its executing account between idle turns without
+changing its durable runtime backend owner. Its backend kind and owning
+instance keep identifying the same Tau thread, transcript, tools, permissions
+and canonical Codex session. This is a narrow same-driver account operation
+in the Codex kit, not a general runtime migration capability.
+
+CLI accounts are compatible only when they share a canonical session home,
+use the same launch configuration and have separate auth homes. An auth
+overlay links shared runtime data, including session files and MCP OAuth
+locks, while auth.json and model caches remain private files. Tau never
+copies credentials between accounts or overwrites conflicting overlay data.
+The account must be signed in. Tau refuses switches while prompts are being
+admitted, a turn runs or a session opens. It resumes the exact canonical
+session under the new account before persisting the executing account; a
+failed resume restores the original selection and never creates a substitute
+conversation. Later resumes of switched threads keep that restriction.
+
+Managed ChatGPT registrations keep independent credential stores and effective
+homes. They may share canonical rollouts when both instances explicitly
+configure the same shared home before creating their conversations. Tau
+uses the same Responses provider with response storage disabled, restarts
+the process with the selected registration's token, and resumes the local
+Codex session. Independent managed homes and mixed CLI/managed provider
+connections remain incompatible. No account ID or email is used to infer
+compatibility or combine credential registrations. Model
+catalogs, billing and account-limit updates follow the executing account,
+while per-thread MCP credentials retain the same Tau thread and access policy.
+
+The protocol fields were checked against `codex app-server generate-ts
+--experimental` from CLI 0.159.2 with a fresh temporary home and the
+[official app-server documentation](https://developers.openai.com/codex/app-server).
+The compatibility and catalog behavior follows T3 Code v0.0.44's
+[home layout](https://github.com/pingdotgg/t3code/blob/v0.0.44/apps/server/src/provider/Drivers/CodexHomeLayout.ts)
+and [tier catalog](https://github.com/pingdotgg/t3code/blob/v0.0.44/apps/server/src/provider/Layers/CodexProvider.ts),
+implemented through Tau's existing kit interfaces.
+
+The [official account-switching guidance](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions)
+requires distinct validated registration/client/token mappings. The
+[managed app-server contract](https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server)
+supplies the selected OAuth token through the child environment and resumes
+a saved thread after restarting the process. Sharing local rollouts for
+stateless Responses turns is Tau's implementation choice; successfully
+resuming locally does not prove the target account's inference entitlement.
+
+## Amendment, 2026-10-01: a backend may run on another machine
+
+Machines Kit supplies the `machine` backend for proxy threads whose runtime
+is on their home machine, as ADR 0030 describes. A provider may set
+`hidden: true` to list and resume threads while staying out of new-thread
+runtime pickers. Its records may report `messageCount` without loading a
+transcript and carry `machine` for the index's runtime and machine marks.
+These optional fields are extension API 1.42.0.

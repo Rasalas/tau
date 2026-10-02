@@ -40,6 +40,7 @@ import type { ConfigLayers } from "../shared/config-layers";
 import type { HostBootstrap } from "../shared/contracts";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import { isClientSideMethod } from "../shared/host-transport";
+import type { ConnectSetup, ConnectStatus } from "../shared/connect";
 import type { SystemNotification, SystemNotificationOutcome } from "../shared/system-attention";
 import type { WindowAction } from "../shared/window-shell";
 import type { DeviceAccess, UiClientUpdate, UiConnections, UiCreatedPairingLink, UiHostService, UiNetworkAccess, UiNetworkSettingsInput } from "../shared/connections";
@@ -48,6 +49,7 @@ import type { EnvironmentAgentsResult, EnvironmentOpenTarget, EnvironmentPairInp
 import type { HostLink } from "./host-link";
 import type { HostConnection, HostConnectionState } from "./host-connection";
 import { ReadCommands, readOnlyMayCall, readOnlyRefusal, type HostHalf } from "./read-only-guard";
+import type { PersonPreferences } from "../shared/person-preferences";
 
 /**
  * Transport-neutral view of the desktop host. Every method is one call of the
@@ -60,7 +62,8 @@ export interface HostClient {
   bootstrap(): Promise<HostBootstrap>;
   newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, clientMessageIdOrRequestId?: string | ClientTurnIdentity, prepared?: PreparedPrompt, configuration?: NewThreadConfiguration): Promise<NewThreadResult>;
   getPreparedThreadCapability(cwd?: string): Promise<PreparedThreadCapability>;
-  forkThread(entryId: string, expectedSessionId?: string): Promise<HostActionResult>;
+  /** With `workspace`, the fork runs there (a worktree made for it) instead of the source's folder. */
+  forkThread(entryId: string, expectedSessionId?: string, workspace?: string): Promise<HostActionResult>;
   threadTree(sessionId?: string): Promise<UiThreadTree>;
   navigateThreadTree(entryId: string, options?: { summarize?: boolean }, expectedSessionId?: string): Promise<ThreadTreeNavigationResult>;
   duplicateThread(expectedSessionId?: string): Promise<HostActionResult>;
@@ -245,6 +248,10 @@ export interface HostClient {
   rotateHostToken(): Promise<void>;
   /** Opens or closes the listeners beyond loopback in the running host. */
   setNetworkAccess(input: UiNetworkSettingsInput): Promise<UiNetworkAccess>;
+  connectStatus?(): Promise<ConnectStatus>;
+  configureConnect?(input: ConnectSetup): Promise<ConnectStatus>;
+  createConnectLink?(): Promise<{ link: string }>;
+  removeConnect?(): Promise<ConnectStatus>;
   /** Reads the served certificates again; `changed` when a listener now serves another one. */
   reloadCertificate(): Promise<{ changed: boolean }>;
   /** Tau hosts that announce themselves on the host's network, after a few seconds of looking. */
@@ -274,6 +281,7 @@ export interface HostClient {
   takeEnvironmentArrival(): Promise<EnvironmentTarget | undefined>;
   /** A Bonjour search from the window's own host, whichever machine the page shows. */
   discoverEnvironments(): Promise<UiDiscoveredHosts>;
+  listWslEnvironments?(): Promise<string[]>;
   setEnvironmentPreferences(preferences: EnvironmentPreferences): Promise<void>;
   setEnvironmentAgents(id: string, on: boolean): Promise<EnvironmentAgentsResult>;
   /** Renews or ends the window's watch of another machine's thread (API 1.15.0). */
@@ -281,9 +289,17 @@ export interface HostClient {
   /** A page of another machine's thread, over the window's own connection to it. */
   loadEnvironmentTranscript(machine: string, sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage>;
   /** A kit command of another machine that only reads, over the window's own connection to it (API 1.15.0). */
+  invokeEnvironmentExtension(machine: string, extensionId: string, command: string, input?: unknown, options?: { timeoutMs?: number }): Promise<unknown>;
+  followEnvironmentExtension?(machine: string, extensionId: string, on: boolean): Promise<void>;
   readEnvironmentExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown>;
   /** Another machine's own Tau over the window's connection there: how it stands, a check, or an install (K103). */
   updateEnvironment?(machine: string, action: HostUpdateAction): Promise<HostUpdateStatus>;
+  /** Another machine's settings at its machine level, over the window's connection there (K170). */
+  getEnvironmentConfig(machine: string): Promise<ConfigLayers>;
+  updateEnvironmentConfig(machine: string, patch: Partial<TauConfig>): Promise<unknown>;
+  clearEnvironmentConfig(machine: string, keys: readonly string[]): Promise<unknown>;
+  /** The person's preferences as the window's own machine keeps them; with a patch, written there. */
+  personPreferences?(patch?: PersonPreferences): Promise<PersonPreferences>;
 
   /** The host machine's own Tau (K103); a host without an updater refuses with `unsupported`. */
   hostUpdate?(action: "status" | "check" | "install"): Promise<HostUpdateStatus>;
@@ -296,7 +312,7 @@ export interface HostClient {
  * a window whose host runs in another process still copies to its own
  * clipboard and rebuilds its own workbench (ADR 0021).
  */
-const WINDOW_EVENT_TYPES = new Set<string>(["app-update", "window-shell", "environments", "environment-thread"]);
+const WINDOW_EVENT_TYPES = new Set<string>(["app-update", "window-shell", "environments", "environment-thread", "environment-extension-event"]);
 
 export function createHostClient(connection: HostConnection, local?: HostConnection): HostClient {
   const route = (method: string) => (local && isClientSideMethod(method) ? local : connection);
@@ -322,7 +338,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     newSession: (initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared, configuration) =>
       call<NewThreadResult>("new-session", [initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared, configuration]),
     getPreparedThreadCapability: (cwd) => call<PreparedThreadCapability>("prepared-thread-capability", [cwd]),
-    forkThread: (entryId, expectedSessionId) => call<HostActionResult>("fork-thread", [entryId, expectedSessionId]),
+    forkThread: (entryId, expectedSessionId, workspace) => call<HostActionResult>("fork-thread", workspace ? [entryId, expectedSessionId, workspace] : [entryId, expectedSessionId]),
     threadTree: (sessionId) => call<UiThreadTree>("thread-tree", [sessionId]),
     navigateThreadTree: (entryId, options, expectedSessionId) =>
       call<ThreadTreeNavigationResult>("navigate-thread-tree", [entryId, options, expectedSessionId]),
@@ -457,6 +473,10 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
       connection.updateToken(token);
     },
     setNetworkAccess: (input) => call<UiNetworkAccess>("connections-set-network", [input]),
+    connectStatus: () => call<ConnectStatus>("connect-status"),
+    configureConnect: (input) => call<ConnectStatus>("connect-configure", [input]),
+    createConnectLink: () => call<{ link: string }>("connect-link"),
+    removeConnect: () => call<ConnectStatus>("connect-remove"),
     reloadCertificate: () => call<{ changed: boolean }>("connections-reload-certificate"),
     discoverHosts: (options) => call<UiDiscoveredHosts>("connections-discover", [options ?? {}]),
     serviceStatus: () => call<UiHostService>("service-status"),
@@ -473,12 +493,19 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     openEnvironment: (id, target) => call<void>("environments-open", target ? [id, target] : [id]),
     takeEnvironmentArrival: async () => (await call<EnvironmentTarget | null>("environments-take-arrival")) ?? undefined,
     discoverEnvironments: () => call<UiDiscoveredHosts>("environments-discover"),
+    listWslEnvironments: () => call<string[]>("environments-wsl-list"),
     setEnvironmentPreferences: (preferences) => call<void>("environments-set-preferences", [preferences]),
     setEnvironmentAgents: (id, on) => call<EnvironmentAgentsResult>("environments-set-agents", [id, on]),
     watchEnvironmentThread: async (machine, sessionId, on) => (await call<UiEnvironmentThreadView | null>("environments-watch-thread", [machine, sessionId, on])) ?? undefined,
     loadEnvironmentTranscript: (machine, sessionId, cursor) => call<TranscriptPage>("environments-transcript-page", cursor ? [machine, sessionId, cursor] : [machine, sessionId]),
+    invokeEnvironmentExtension: (machine, extensionId, command, input, options) => call<unknown>("environments-extension-invoke", options ? [machine, extensionId, command, input, options] : input === undefined ? [machine, extensionId, command] : [machine, extensionId, command, input]),
+    followEnvironmentExtension: (machine, extensionId, on) => call<void>("environments-extension-follow", [machine, extensionId, on]),
     readEnvironmentExtension: (machine, extensionId, command, input) => call<unknown>("environments-extension-read", input === undefined ? [machine, extensionId, command] : [machine, extensionId, command, input]),
     updateEnvironment: (machine, action) => call<HostUpdateStatus>("environments-update", [machine, action]),
+    getEnvironmentConfig: (machine) => call<ConfigLayers>("environments-config", [machine]),
+    updateEnvironmentConfig: (machine, patch) => call<unknown>("environments-update-config", [machine, patch]),
+    clearEnvironmentConfig: (machine, keys) => call<unknown>("environments-clear-config", [machine, keys]),
+    personPreferences: (patch) => patch ? call<PersonPreferences>("environments-set-person-preferences", [patch]) : call<PersonPreferences>("environments-person-preferences", []),
 
     // Literal names: the protocol contract test reads them from this file.
     hostUpdate: (action) => action === "install" ? call<HostUpdateStatus>("update-install") : action === "check" ? call<HostUpdateStatus>("update-check") : call<HostUpdateStatus>("update-status"),

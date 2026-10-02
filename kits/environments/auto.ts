@@ -1,7 +1,8 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { errorMessage, getClientStorage, type HostExtensionClient, type NewThreadClaimEvent, type PlatformEnvironments, type PromptHookContribution, type UiEnvironments, type WorkbenchActions } from "tau";
+import { errorMessage, getClientStorage, type HostExtensionClient, type NewThreadClaimEvent, type PlatformEnvironments, type PromptHookContribution, type UiEnvironment, type UiEnvironments, type WorkbenchActions } from "tau";
+import type { BringChoiceStore, ProjectIdentities, ProjectMatch } from "./bring-project.js";
 import { shownMachine } from "./machines.js";
-import { CHOOSE_MACHINE_COMMAND, type ChooseMachineAnswer, type ChooseMachineInput } from "./protocol.js";
+import { CHOOSE_MACHINE_COMMAND, type AgentMachines, type ChooseMachineAnswer, type ChooseMachineInput } from "./protocol.js";
 
 /** "Run on: Automatic" stays chosen for the next drafts of this window, until a machine is picked. */
 export const RUN_ON_KEY = "tau.environments.run-on";
@@ -32,13 +33,20 @@ function folderName(path: string): string {
 
 /**
  * The other machines a new thread of this project could start on, with the
- * project there: connected, Full access, and a project of the same name.
+ * project there: connected, Full access, and a checkout of the same
+ * repository (`match`, from Remote Work's identities), else a project of the
+ * same name.
  */
-export function threadTargets(list: UiEnvironments, projectPath: string | undefined): Map<string, string | undefined> {
+export function threadTargets(list: UiEnvironments, projectPath: string | undefined, match?: (machine: UiEnvironment) => ProjectMatch): Map<string, string | undefined> {
   const name = projectPath ? folderName(projectPath) : undefined;
   const targets = new Map<string, string | undefined>();
   for (const machine of list.environments) {
     if (machine.local || machine.status !== "connected" || machine.readOnly) continue;
+    if (match) {
+      const found = match(machine);
+      if (found.found) targets.set(machine.id, found.workspaceId);
+      continue;
+    }
     const project = machine.projects.find((entry) => entry.name === name);
     if (project) targets.set(machine.id, project.workspaceId);
   }
@@ -90,13 +98,13 @@ export function useAutoPreview(host: HostExtensionClient | undefined, input: Cho
  * here unclaimed, or claimed and carried to the other machine, which sends it
  * there. A thread that started stays where it runs.
  */
-export function createAutoRunOnHook(environments: PlatformEnvironments, host: HostExtensionClient): PromptHookContribution {
+export function createAutoRunOnHook(environments: PlatformEnvironments, host: HostExtensionClient, identities?: ProjectIdentities, runOn?: { choice: BringChoiceStore; hook: PromptHookContribution }): PromptHookContribution {
   return {
     id: "environments.auto-run-on",
     async claimNewThread(event: NewThreadClaimEvent, actions: WorkbenchActions) {
       const list = environments.getSnapshot();
       if (!autoRunOn.get() || !autoApplies(environments, list)) return false;
-      const targets = threadTargets(list, event.projectPath);
+      const targets = threadTargets(list, event.projectPath, identities && ((machine) => identities.match(machine, event.projectPath)));
       if (targets.size === 0) return false;
       if (event.attachments > 0) {
         actions.notify("Attachments stay on this computer, so Automatic starts this thread here.");
@@ -112,6 +120,15 @@ export function createAutoRunOnHook(environments: PlatformEnvironments, host: Ho
       }
       if (!answer.machine || !targets.has(answer.machine)) return false;
       const workspaceId = targets.get(answer.machine);
+      if (runOn && workspaceId) {
+        const agents = await host.invoke("agents").catch(() => undefined) as AgentMachines | undefined;
+        const agent = agents?.machines?.find((machine) => machine.id === answer.machine);
+        if (agent?.status === "connected" && !agent.readOnly) {
+          const machine = list.environments.find((entry) => entry.id === answer.machine)!;
+          runOn.choice.set({ machine: machine.id, machineName: machine.name, projectPath: event.projectPath, workspaceId });
+          return runOn.hook.claimNewThread?.(event, actions);
+        }
+      }
       try {
         // The page reloads there before this answers; the prompt goes with it and is sent on arrival.
         await environments.open(answer.machine, {

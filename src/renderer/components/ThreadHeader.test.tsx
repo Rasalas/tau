@@ -35,6 +35,16 @@ describe("the thread's sub-line", () => {
     expect(details[3]?.classList.contains("thread-detail-turn")).toBe(true);
   });
 
+  it("counts the turns of a window that leaves older ones out by the number it was given", () => {
+    const windowed = { ...snapshot, messages: [
+      { id: "u9", role: "user", text: "ninth", timestamp: 1, turnNumber: 9 },
+      { id: "a9", role: "assistant", text: "ok", timestamp: 2 },
+      { id: "u10", role: "user", text: "tenth", timestamp: 3 },
+    ] } as unknown as HostSnapshot;
+    const view = render(<TestProviders><ThreadDetails snapshot={windowed} view={new ThreadViewStore(windowed)} /></TestProviders>);
+    expect(view.container.querySelector(".thread-detail-turn")?.textContent).toBe("turn 10");
+  });
+
   it("names no machine where none is given (the desktop, whose kits place it)", () => {
     const view = render(<TestProviders><ThreadDetails snapshot={snapshot} view={new ThreadViewStore(snapshot)} /></TestProviders>);
     expect(view.container.querySelector(".thread-detail")?.textContent).toBe("fix/rail");

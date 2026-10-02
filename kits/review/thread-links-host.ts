@@ -1,6 +1,7 @@
 import { Type } from "typebox";
 import { HostCommandError, type HostExtensionContext, type HostMcpTool, type RuntimeSessionInfo } from "tau/host-extension";
-import { THREAD_LINKS_EVENT, THREAD_RAIL_EXTENSION_ID, type PullRequestRef, type ThreadPullRequestLink } from "./protocol.js";
+import { THREAD_LINKS_EVENT, THREAD_RAIL_EXTENSION_ID, type BranchReviewRequest, type PullRequestRef, type ThreadPullRequestLink } from "./protocol.js";
+import { LOCAL_REVIEWS_EVENT } from "./local-reviews.js";
 import type { SourceControl } from "./provider-registry.js";
 import type { PullRequestReads } from "./pull-request-host.js";
 import { projectRepository } from "./pull-request-list-host.js";
@@ -17,8 +18,6 @@ const SETTLE_READS = 4;
 const record = (input: unknown): Record<string, unknown> => input && typeof input === "object" ? input as Record<string, unknown> : {};
 const text = (value: unknown): string | undefined => typeof value === "string" && value.trim() ? value.trim() : undefined;
 
-const REGISTER_EVERY_PR = "Register every pull or merge request you open or work on for this thread, each layer of a stack included, right after creating it.";
-
 /** The section every runtime's system prompt gets, so linking does not hang on the model reading a tool description. */
 export const LINKING_INSTRUCTIONS = `<pull_request_linking>
 Tau keeps the pull and merge requests each thread works on. Whenever you open a pull or merge request, or start working on an existing one, call the link_pull_request tool with its full URL right away; for a stack, call it for every layer. Opening or updating a request through gh, glab, another CLI or the host's API does not register it with this thread. Linking one that is already linked is harmless. Before you finish work on requests, call list_thread_pull_requests and link any of yours that is missing. Do not link requests you only mention as background. If linking fails, say so instead of claiming the request is linked.
@@ -27,6 +26,8 @@ Tau keeps the pull and merge requests each thread works on. Whenever you open a 
 export interface ThreadLinks {
   /** Links a request to a thread; the Changes panel calls this after creating one. */
   link(threadId: string, url: string, source: ThreadPullRequestLink["source"]): Promise<void>;
+  /** The cached request's destination and submitted tip; asks no provider. */
+  review(threadIds: readonly string[], branch: string, tip: string): Promise<BranchReviewRequest | undefined>;
   dispose(): void;
 }
 
@@ -47,7 +48,10 @@ export function registerThreadLinks(
 ): ThreadLinks {
   const { services } = context;
   const store = new ThreadLinkStore(services.stateDir);
-  const changed = (threadId: string) => context.emit(THREAD_LINKS_EVENT, { threadId });
+  const changed = (threadId: string) => {
+    context.emit(THREAD_LINKS_EVENT, { threadId });
+    context.emit(LOCAL_REVIEWS_EVENT, {});
+  };
 
   /** A URL names its own repository; a bare number means the thread's project's. */
   const resolve = async (reference: { url?: string; repository?: string; number?: number; host?: string }, cwd: string | undefined): Promise<PullRequestRef> => {
@@ -75,13 +79,13 @@ export function registerThreadLinks(
     return number ? { number: Number(number) } : undefined;
   };
 
-  const snapshotOf = async (ref: PullRequestRef, fresh: boolean): Promise<Pick<ThreadPullRequestLink, "title" | "state" | "draft" | "headRef" | "baseRef" | "stack"> | undefined> => {
+  const snapshotOf = async (ref: PullRequestRef, fresh: boolean): Promise<Pick<ThreadPullRequestLink, "title" | "state" | "draft" | "headRef" | "headSha" | "baseRef" | "stack"> | undefined> => {
     try {
       const detail = await reads.detail(ref, fresh);
       // The stack a rail row counts; a stack that cannot be read counts as none.
       const stack = reads.stackOf ? await reads.stackOf(ref).catch(() => undefined) : undefined;
       return {
-        title: detail.title, state: detail.state, draft: detail.draft, ...(detail.headRef ? { headRef: detail.headRef } : {}), baseRef: detail.baseRef,
+        title: detail.title, state: detail.state, draft: detail.draft, ...(detail.headRef ? { headRef: detail.headRef } : {}), ...(detail.headSha ? { headSha: detail.headSha } : {}), baseRef: detail.baseRef,
         ...(stack ? { stack: { number: stack.number, size: stack.size } } : {}),
       };
     } catch {
@@ -100,7 +104,7 @@ export function registerThreadLinks(
   };
 
   const stale = (entry: ThreadPullRequestLink) => {
-    if (entry.state === "merged") return false;
+    if (entry.state === "merged" && entry.headSha) return false;
     return Date.now() - (entry.refreshedAt ?? 0) > (entry.state === "closed" ? CLOSED_REFRESH_MS : REFRESH_MS);
   };
 
@@ -197,8 +201,8 @@ export function registerThreadLinks(
     {
       name: "link_pull_request",
       label: "Link pull request",
-      description: `${REGISTER_EVERY_PR} Links a pull or merge request to this thread so Tau shows it beside the thread and tracks its state. Pass the URL, or the number (with repository for another repository). Linking one that is already linked succeeds with alreadyLinked=true.`,
-      promptSnippet: "link_pull_request: register a pull request you opened or work on with this thread",
+      description: "Track a pull or merge request worked on in this thread and show its status beside the conversation. Does not create the request.",
+      promptSnippet: "link_pull_request: track a pull or merge request in this thread",
       parameters: targetParameters,
       execute: async (_toolCallId: string, params: unknown) => {
         const ref = await resolve(decodeTarget(params), session.cwd);
@@ -209,7 +213,8 @@ export function registerThreadLinks(
     {
       name: "unlink_pull_request",
       label: "Unlink pull request",
-      description: "Remove a pull or merge request from this thread, e.g. one opened by mistake. Pass the URL, or the number. Unlinking one that is not linked succeeds with wasLinked=false.",
+      description: "Remove an incorrect pull or merge request association from this thread. Does not close or delete the request.",
+      promptSnippet: "unlink_pull_request: remove an incorrect request association",
       parameters: targetParameters,
       execute: async (_toolCallId: string, params: unknown) => {
         const ref = await resolve(decodeTarget(params), session.cwd);
@@ -221,7 +226,8 @@ export function registerThreadLinks(
     {
       name: "list_thread_pull_requests",
       label: "List thread pull requests",
-      description: `List the pull or merge requests linked to this thread with their last known state. ${REGISTER_EVERY_PR}`,
+      description: "Check which pull or merge requests this thread tracks and their last known state.",
+      promptSnippet: "list_thread_pull_requests: check tracked requests and their state",
       parameters: Type.Object({}),
       execute: async () => {
         await refresh(session.sessionId, false);
@@ -253,6 +259,13 @@ export function registerThreadLinks(
     link: async (threadId, url, source) => {
       const ref = parseRequestUrl(url);
       if (ref) await link(threadId, ref, source);
+    },
+    review: async (threadIds, branch, tip) => {
+      const candidates = (await Promise.all(threadIds.map((id) => store.list(id)))).flat()
+        .filter((entry) => entry.headRef === branch && entry.baseRef && entry.state !== "closed")
+        .sort((left, right) => Number(right.headSha === tip) - Number(left.headSha === tip) || right.linkedAt - left.linkedAt);
+      const entry = candidates[0];
+      return entry ? { target: entry.baseRef!, tip: entry.headSha, merged: entry.state === "merged", url: entry.url, number: entry.number } : undefined;
     },
     dispose: () => { for (const dispose of disposers.reverse()) dispose(); },
   };

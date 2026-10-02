@@ -8,8 +8,9 @@
     <!-- The page never reaches a host itself: every socket is a native one that
          pins the host's certificate. `blob:` is how a kit bundle the host sent
          as source becomes a module. WebKit's 'self' does not cover the app's
-         own scheme, so the origins are named (capacitor: on iOS, https: on Android). -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' capacitor://localhost https://localhost; script-src 'self' capacitor://localhost https://localhost blob:; style-src 'self' capacitor://localhost https://localhost 'unsafe-inline'; font-src 'self' capacitor://localhost https://localhost; img-src 'self' capacitor://localhost https://localhost data: blob:; connect-src 'self' capacitor://localhost https://localhost" />
+         own scheme, so the origins are named (capacitor: on iOS, https: on Android).
+         Tau's push relay (PUSH_RELAY_URL) is the one server it calls itself, to seal a push token. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' capacitor://localhost https://localhost; script-src 'self' capacitor://localhost https://localhost blob:; style-src 'self' capacitor://localhost https://localhost 'unsafe-inline'; font-src 'self' capacitor://localhost https://localhost; img-src 'self' capacitor://localhost https://localhost data: blob:; connect-src 'self' capacitor://localhost https://localhost https://europe-west3-tau-push-e3c95.cloudfunctions.net" />
     <!-- From src/web/public (scripts/icons/generate.mjs). -->
     <link rel="icon" href="/favicon.ico" sizes="48x48" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />

@@ -13,9 +13,15 @@ export interface WorkspaceChangesReader {
 const CHANGES = "changes";
 const FILE_DIFF = "file-diff";
 
-export function workspaceChangesReader(host: HostExtensionClient): WorkspaceChangesReader {
+export function workspaceChangesReader(host: HostExtensionClient, workspace: () => string | undefined = () => undefined): WorkspaceChangesReader {
   return {
-    changes: (query) => host.invoke(CHANGES, query === undefined ? undefined : { query }) as Promise<UiWorkspaceChanges>,
-    fileDiff: (relPath, options) => host.invoke(FILE_DIFF, { relPath, options }) as Promise<UiFileDiff>,
+    changes: (query) => {
+      const named = workspace();
+      return host.invoke(CHANGES, query === undefined && named === undefined ? undefined : { ...(query === undefined ? {} : { query }), ...(named ? { workspace: named } : {}) }) as Promise<UiWorkspaceChanges>;
+    },
+    fileDiff: (relPath, options) => {
+      const named = workspace();
+      return host.invoke(FILE_DIFF, { relPath, options, ...(named ? { workspace: named } : {}) }) as Promise<UiFileDiff>;
+    },
   };
 }

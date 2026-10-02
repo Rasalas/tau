@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties }
 import { createPortal } from "react-dom";
 import { ChartColumn } from "lucide-react";
 import { ProviderIconStack, tooltipProps, useThreadStore, type PageSummaryProps } from "tau";
-import { juicebarGroups, type Juicebar, type JuicebarChoices, type JuicebarGroup } from "./juicebars.js";
+import type { JuicebarChoices } from "./juicebar-choices.js";
+import { juicebarGroups, type Juicebar, type JuicebarGroup } from "./juicebars.js";
 import { providerMark, stateText } from "./limits.js";
 import type { LimitsFeed } from "./limits-feed.js";
 import { USAGE_PAGE } from "./protocol.js";
@@ -95,7 +96,7 @@ function useCard() {
 }
 
 /** Reads the limits again a moment after a run ends. */
-export function useRunEnded(feed: Pick<LimitsFeed, "runEnded">): void {
+export function useRunEnded(feed: LimitsFeed): void {
   const threads = useThreadStore();
   const running = useSyncExternalStore(threads.subscribeToActivity, () => threads.getActivity().runningThreadIds.length);
   const last = useRef(running);
@@ -128,7 +129,7 @@ export function Juicebars({ actions, feed, choices }: PageSummaryProps & { feed:
   const groups = juicebarGroups(limits, chosen, now);
   const open = () => actions.openPage?.(USAGE_PAGE, { section: "limits" });
   if (groups.length === 0) {
-    return <button type="button" {...tooltipProps("Usage", { side: "top" })} aria-label="Usage" onClick={open}><ChartColumn size={15} /></button>;
+    return <button type="button" className="usage-juice-icon" {...tooltipProps("Usage", { side: "top" })} aria-label="Usage" onClick={open}><ChartColumn size={15} /></button>;
   }
   const label = `Plan limits, ${groups.map((entry) => `${titleOf(entry)}: ${entry.bars.map((bar) => `${bar.window.label} ${bar.state.kind === "expired" ? "reset" : `${bar.left}% left`}`).join(", ")}`).join("; ")}`;
   return (

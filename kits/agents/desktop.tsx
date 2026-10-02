@@ -5,6 +5,7 @@ import { AGENTS_HOST_EXTENSION_ID, AGENTS_STATE_EVENT, REMOTE_AGENT_THREADS_SERV
 import { AgentsPanel } from "./panel.js";
 import { AGENTS_SETTINGS_PAGE, createAgentsSettingsPage } from "./settings.js";
 import { SpawnCard } from "./spawn-card.js";
+import { AgentsSpine } from "./spine.js";
 import { agentsHost, agentsStore, definitionsStore, lineageOf, remoteAgentThreads, siblingsSource } from "./store.js";
 
 /** The way back from an agent's thread to the thread that started it. */
@@ -66,7 +67,7 @@ export const agentsExtension: DesktopExtension = {
     const offWorkspace = context.events.on("workspace-changed", () => loadDefinitions(definitionsStore.refresh()));
     const canLookIn = () => Boolean(context.environments?.watchThread);
     context.registerPanel({
-      id: "agents", label: "Agents", Icon: Bot, order: 40, width: "wide", maximizable: true, profiles: ["desktop", "web", "compact"],
+      id: "agents", label: "Agents", Icon: Bot, order: 40, width: "wide", maximizable: true, threadActions: true, profiles: ["desktop", "web", "compact"],
       // "Agents 6": the thread on screen's agents that still run or ask, as in the workbench design.
       useBadge: function useAgentCount() {
         const threadId = useWorkbenchShell().snapshot?.sessionId;
@@ -77,6 +78,7 @@ export const agentsExtension: DesktopExtension = {
       Component: function Agents(props: PanelProps) { return <AgentsPanel {...props} canLookIn={canLookIn} />; },
     });
     context.registerRegion({ id: "agents.parent-link", placement: "transcript-header", order: 20, profiles: ["desktop", "web", "compact"], Component: SpawnedBy });
+    context.registerRegion({ id: "agents.spine", placement: "spine", profiles: ["desktop", "web"], Component: AgentsSpine });
     // A spawn is not a tool call to skim past: the card is the way into the
     // threads it started, so it never folds with the rest of the turn.
     context.registerToolCard({

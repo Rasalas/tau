@@ -79,6 +79,6 @@ describe("supervising a child thread", () => {
     const tab = await screen.findByRole("region", { name: "Thread Thread child" });
     await within(tab).findByText("Check the tests");
     expect(await within(tab).findByText("Running npm")).toBeTruthy();
-    expect(tab.querySelector(".work-live .spinner")).toBeTruthy();
+    expect(tab.querySelector(".work-live.running .work-live-clock")).toBeTruthy();
   });
 });

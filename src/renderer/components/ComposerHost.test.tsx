@@ -9,15 +9,16 @@ afterEach(() => {
 });
 
 describe("LiveStatus", () => {
-  it("says how long the run has worked without naming a runtime", () => {
+  it("says Thinking with the run's clock, naming no runtime", () => {
     vi.useFakeTimers({ now: 10_000 });
     const view = render(<LiveStatus startedAt={7_000} />);
-    expect(view.container.textContent).toBe("Working for 3s");
+    expect(view.container.textContent).toBe("Thinking0:03");
+    expect(view.container.querySelector(".work-live.thinking .work-shine svg")).toBeTruthy();
   });
 
-  it("falls back to a plain line without a start time, and shows a kit's label as given", () => {
+  it("drops the clock without a start time, and shows a kit's label as given", () => {
     const view = render(<LiveStatus />);
-    expect(view.container.textContent).toBe("Working…");
+    expect(view.container.textContent).toBe("Thinking");
     view.rerender(<LiveStatus label="Waiting for workspace…" />);
     expect(view.container.textContent).toBe("Waiting for workspace…");
   });

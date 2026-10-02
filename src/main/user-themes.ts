@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { homedir } from "node:os";
 import type { UserTheme } from "../shared/contracts.js";
+import { tauHomeDir } from "./app-identity.js";
 
 export interface UserThemePaths {
   globalThemesDir?: string;
@@ -12,7 +13,7 @@ export interface UserThemePaths {
 }
 
 export function defaultGlobalThemesDir(home = homedir()): string {
-  return process.env.TAU_THEMES_DIR || join(home, ".tau", "themes");
+  return process.env.TAU_THEMES_DIR || join(tauHomeDir(home), "themes");
 }
 
 export function defaultProjectThemesDir(cwd: string): string {

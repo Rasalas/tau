@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AccessibleElement } from "./accessibility.js";
 
 const electron = vi.hoisted(() => ({
   WebContentsView: vi.fn(),
@@ -10,10 +11,11 @@ const electron = vi.hoisted(() => ({
 }));
 vi.mock("electron", () => electron);
 
-const { captureResolved, default: activate, frontWindow, namedWindow, readAccess, windowIdOfSource } = await import("./window.js");
+const { addWaylandAccessibility, captureResolved, default: activate, frontWindow, namedWindow, readAccess, windowIdOfSource } = await import("./window.js");
 
 type Client = Parameters<typeof frontWindow>[0];
-const element = (name: string, active = false, bounds = { x: 100, y: 50, width: 400, height: 300 }) => ({
+type TestWindow = AccessibleElement & { name: string; active: boolean };
+const element = (name: string, active = false, bounds = { x: 100, y: 50, width: 400, height: 300 }): TestWindow => ({
   role: "window", name, value: null, description: null, bounds, actions: [], enabled: true, focused: false, selected: false,
   editable: false, expanded: null, checked: null, active,
   children: async () => [{ role: "button", name: "Press me", value: null, description: null, bounds: { x: 150, y: 100, width: 50, height: 20 }, actions: ["press"], enabled: true, focused: false, selected: false, editable: false, expanded: null, checked: null, children: async () => [] }],
@@ -42,10 +44,28 @@ beforeEach(() => {
 });
 
 describe("SnapShots' window half", () => {
+  it("attaches Wayland text only when app identity and coordinates match, including negative monitor origins and scale", async () => {
+    const bounds = { x: -1920, y: -200, width: 800, height: 600 };
+    const root = element("Private doc", true, bounds);
+    root.children = async () => [{ ...element("Press me"), role: "button", bounds: { x: -1900, y: -180, width: 50, height: 20 } }];
+    const frame = { boundsReliable: true, window: { title: "Private doc", appName: "Editor", processId: 43, bounds }, capture: {
+      app: "Editor", title: "Private doc", pid: 43, capturedAt: 1234, image: { data: "png", mimeType: "image/png", width: 1200, height: 900 },
+    } };
+    const full = await addWaylandAccessibility(frame, client([root], 43), () => 1234);
+    expect(full.accessibility?.root.children[0]?.bounds).toEqual({ x: 30, y: 30, width: 75, height: 30 });
+    expect((await addWaylandAccessibility({ ...frame, boundsReliable: false }, client([root], 43))).accessibility).toBeUndefined();
+    expect((await addWaylandAccessibility(frame, client([root, root], 43))).accessibilityNote).toMatch(/did not match/u);
+    expect((await addWaylandAccessibility(frame, client([element("Private doc", true)], 43))).accessibilityNote).toMatch(/did not match/u);
+  });
   it("reads both macOS permissions without asking, and nothing elsewhere", () => {
     expect(readAccess("darwin", () => "granted", () => false)).toEqual({ supported: true, screen: "granted", accessibility: "denied" });
     expect(readAccess("darwin", () => "odd", () => true)).toEqual({ supported: true, screen: "unavailable", accessibility: "granted" });
-    expect(readAccess("linux", () => "granted", () => true)).toEqual({ supported: false, screen: "unavailable", accessibility: "unavailable" });
+    expect(readAccess("linux", () => "granted", () => true, {})).toEqual({ supported: true, screen: "unavailable", accessibility: "unavailable" });
+    const macProbe = vi.fn(() => { throw new Error("macOS only"); });
+    expect(readAccess("win32", macProbe, macProbe)).toEqual({ supported: true, screen: "granted", accessibility: "granted" });
+    expect(readAccess("linux", macProbe, macProbe, { DISPLAY: ":0", DBUS_SESSION_BUS_ADDRESS: "unix:path=/session" })).toEqual({ supported: true, screen: "granted", accessibility: "granted" });
+    expect(readAccess("linux", macProbe, macProbe, { DISPLAY: ":0", WAYLAND_DISPLAY: "wayland-0", DBUS_SESSION_BUS_ADDRESS: "unix:path=/session" })).toEqual({ supported: true, captureMode: "picker", screen: "not-determined", accessibility: "unavailable" });
+    expect(macProbe).not.toHaveBeenCalled();
     expect(windowIdOfSource("window:35210:0")).toBe(35210);
     expect(windowIdOfSource("screen:1:0")).toBeUndefined();
   });
@@ -145,4 +165,56 @@ describe("SnapShots' window half", () => {
     expect(electron.shell.openExternal).toHaveBeenCalledWith(expect.stringMatching(/Privacy_ScreenCapture/u));
     await expect(window.handle("screenshot")).rejects.toThrow(/no command/u);
   });
+});
+
+it("reports a missing Windows accessibility backend without macOS permission calls", async () => {
+  Object.defineProperty(process, "platform", { ...platform, value: "win32" });
+  try {
+    const { half: window } = half(async () => { throw new Error("Native UI Automation binary missing"); });
+    expect(await window.handle("access")).toEqual({ supported: true, screen: "granted", accessibility: "unavailable" });
+    await expect(window.handle("capture", { accessibility: true })).rejects.toThrow(/accessibility backend/u);
+    expect(electron.systemPreferences.getMediaAccessStatus).not.toHaveBeenCalled();
+    expect(electron.systemPreferences.isTrustedAccessibilityClient).not.toHaveBeenCalled();
+    expect(electron.desktopCapturer.getSources).not.toHaveBeenCalled();
+    window.dispose?.();
+  } finally {
+    Object.defineProperty(process, "platform", { ...platform, value: "darwin" });
+  }
+});
+
+it("refuses named Wayland capture before source enumeration or a portal prompt", async () => {
+  Object.defineProperty(process, "platform", { ...platform, value: "linux" });
+  vi.stubEnv("WAYLAND_DISPLAY", "wayland-0");
+  try {
+    const { half: window } = half();
+    await expect(window.handle("capture", { target: { windowId: 12, pid: 34 } })).rejects.toThrow(/Wayland/u);
+    expect(electron.desktopCapturer.getSources).not.toHaveBeenCalled();
+    expect(electron.WebContentsView).not.toHaveBeenCalled();
+    window.dispose?.();
+  } finally {
+    vi.unstubAllEnvs();
+    Object.defineProperty(process, "platform", { ...platform, value: "darwin" });
+  }
+});
+
+it("opens one Wayland portal selection only after capture and omits accessibility", async () => {
+  Object.defineProperty(process, "platform", { ...platform, value: "linux" });
+  vi.stubEnv("WAYLAND_DISPLAY", "wayland-0");
+  vi.stubEnv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/test-session");
+  const load = vi.fn(async () => ({}));
+  try {
+    const { half: window } = half(load);
+    expect(await window.handle("access")).toMatchObject({ captureMode: "picker", screen: "not-determined", accessibility: "unavailable" });
+    expect(electron.desktopCapturer.getSources).not.toHaveBeenCalled();
+    electron.desktopCapturer.getSources.mockResolvedValueOnce([{ id: "window:123:0", name: "Selection", thumbnail: { isEmpty: () => false, getSize: () => ({ width: 40, height: 30 }), toPNG: () => Buffer.from("png") } }] as never);
+    const capture = await window.handle("capture", { accessibility: true });
+    expect(capture).toMatchObject({ app: "Selected source", pid: 0, image: { width: 40, height: 30 }, accessibilityNote: expect.stringMatching(/picker/u) });
+    expect(capture).not.toHaveProperty("accessibility");
+    expect(load).not.toHaveBeenCalled();
+    expect(electron.WebContentsView).not.toHaveBeenCalled();
+    window.dispose?.();
+  } finally {
+    vi.unstubAllEnvs();
+    Object.defineProperty(process, "platform", { ...platform, value: "darwin" });
+  }
 });

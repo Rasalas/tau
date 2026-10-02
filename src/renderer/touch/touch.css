@@ -30,12 +30,22 @@
   min-height: 52px; padding: 0 6px 0 14px;
 }
 .touch-browser-header:has(> .touch-icon-button:first-child) { padding-left: 4px; }
-.touch-browser-header > strong { min-width: 0; font: 650 var(--text-title)/1.2 var(--sans); letter-spacing: -0.01em; }
+.touch-browser-header > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 650 var(--text-title)/1.2 var(--sans); letter-spacing: -0.01em; }
 /* The phone's start page carries its title as Reviews, Usage and Settings do (design 1p, 1r, 1s). */
 .touch-browser.screen.home .touch-browser-header > strong { font-size: var(--text-display); }
 .touch-browser-header > .spacer { flex: 1; }
+/* A phone's list heads with the search field and the project pill (design 1m). */
+.touch-browser-header.search-head { gap: 6px; padding: 6px 12px; }
+.touch-search-open {
+  flex: 1; min-width: 0; height: var(--touch-target); display: flex; align-items: center; gap: 8px; padding: 0 12px;
+  border: 0; border-radius: 10px; background: var(--field); color: var(--muted); font: var(--text-md) var(--sans); cursor: text;
+}
+.touch-project-filter { grid-auto-flow: column; gap: 2px; }
+.search-head .touch-project-filter { width: auto; padding: 0 10px; gap: 6px; border-radius: 10px; background: var(--field); }
+.touch-browser.screen .region-thread-list-title { flex: none; max-width: none; margin: 0; padding: 0 13px 2px; overflow-x: auto; }
+.touch-browser.screen .region-thread-list-title:empty { display: none; }
 .touch-icon-button {
-  width: 44px; height: 44px; flex: none; display: grid; place-items: center; padding: 0;
+  width: var(--touch-target); height: var(--touch-target); flex: none; display: grid; place-items: center; padding: 0;
   border: 0; border-radius: 12px; background: transparent; color: var(--ink-2); cursor: pointer;
 }
 .touch-icon-button:active { background: var(--hover-strong); }
@@ -127,6 +137,8 @@
 .touch-thread-row .thread-project-line > time, .touch-thread-row .thread-row.compact time { font-size: var(--text-xs); }
 .touch-thread-row .thread-title { margin-top: 4px; font: 400 var(--text-md)/1.3 var(--sans); }
 .touch-thread-row .thread-meta-line { margin-top: 3px; font-size: var(--text-xs); }
+.touch-title-line { display: flex; align-items: flex-end; gap: 8px; }
+.touch-title-line > .thread-title { flex: 1; }
 .touch-thread-row .thread-meta-line, .touch-thread-row .thread-meta-line > * { height: 1.4em; line-height: 1.4em; }
 /* A draft's mark stays: a touch leaves :hover behind, and Discard lives in the sheet. */
 .touch-draft-row .thread-draft-mark, .touch-draft-row .thread-row:hover .thread-draft-mark { visibility: visible; font-size: var(--text-xs); }
@@ -150,9 +162,6 @@
 /* Kits' strip over the list: notices, the plans' juicebars. */
 .touch-browser .region-thread-list-head { flex: none; display: flex; flex-direction: column; gap: 6px; max-width: none; margin: 0; padding: 0 8px 4px; }
 .touch-browser .region-thread-list-head:empty { display: none; }
-.touch-browser .region-thread-list-foot { flex: none; max-width: none; margin: auto 0 0; }
-.touch-browser.sidebar .sidebar-footer { padding-bottom: max(10px, var(--safe-bottom, 0px)); }
-.touch-browser.sidebar .sidebar-footer button { min-width: var(--touch-target); height: var(--touch-target); }
 /* Keyboard and screen-reader way to the actions a long press opens. */
 .touch-thread-more {
   position: absolute; right: 4px; top: 4px; width: 32px; height: 28px;
@@ -173,6 +182,16 @@
 }
 .touch-thread-notice > strong { font: 600 var(--text-md) var(--sans); color: var(--ink-2); }
 .touch-thread-notice.refused > strong { color: var(--danger); }
+.touch-thread-notice.unreachable {
+  flex-direction: row; align-items: center; gap: 10px; min-height: var(--touch-target); padding: 0 4px 0 14px;
+  border: 0; background: var(--warn-chip); color: var(--ink);
+}
+.touch-thread-notice.unreachable > svg { flex: none; color: var(--warn); }
+.touch-thread-notice.unreachable > span { flex: 1; min-width: 0; }
+.touch-thread-notice.unreachable > button {
+  flex: none; min-height: var(--touch-target); padding: 0 12px; border: 0; border-radius: 10px;
+  background: transparent; color: var(--warn); font: 650 var(--text-sm) var(--sans); cursor: pointer;
+}
 .touch-thread-more-rows { padding: 2px 0 8px; }
 .touch-thread-more-rows > button {
   width: 100%; min-height: var(--touch-target); padding: 0 12px; border: 0; border-radius: 10px; text-align: left;
@@ -218,6 +237,12 @@
   position: absolute; top: 5px; left: 50%; width: 36px; height: 4px; margin-left: -18px;
   border-radius: 2px; background: var(--line-strong);
 }
+/* A thread's sheet names it by its row (design 1x); the title stays for screen readers. */
+.action-sheet.has-head .touch-sheet-header > strong { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.action-sheet.has-head .touch-sheet-header > button { margin-left: auto; }
+.action-sheet-head { margin: 0 0 10px; border-radius: 12px; background: var(--raised); }
+.action-sheet-head .thread-meta-line { display: none; }
+.action-sheet-head .thread-title { font-weight: 600; }
 .action-sheet-summary { margin: 0 4px 10px; color: var(--muted); font: var(--text-sm) var(--sans); font-variant-numeric: tabular-nums; }
 .action-sheet-list { display: flex; flex-direction: column; border-radius: 12px; overflow: hidden; background: var(--raised); }
 .action-sheet-list > button { flex: none; }
@@ -248,23 +273,40 @@
 /* The keyboard covers the home indicator, so a sheet's last row sits right on it. */
 body[data-keyboard] .touch-panel-sheet { padding-bottom: 0; }
 .touch-panel-sheet > .touch-sheet-header { padding: 8px 4px 0 14px; border-bottom: 1px solid var(--line); }
+.touch-sheet-header > strong > small { display: block; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font: var(--text-sm) var(--sans); }
 .touch-panel-sheet > .panel-slot { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .touch-panel-sheet .panel-host, .touch-panel-sheet .panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
 /* The model picker is a sheet from the bottom edge, above the keyboard, not a popover at its chip. */
-body[data-profile="compact"] .model-picker.popover {
+body[data-profile="compact"] :is(.model-picker-sheet, .thinking-sheet).popover {
   position: fixed !important; left: 0 !important; right: 0; top: auto !important;
   bottom: var(--tau-keyboard-inset, 0px) !important;
   width: 100% !important; max-width: none; max-height: none;
   height: min(calc(var(--tau-viewport-height, 100dvh) - 24px), 620px);
   border-radius: 16px 16px 0 0; padding: 0 0 env(safe-area-inset-bottom, 0px);
 }
-body[data-keyboard] .model-picker.popover { padding-bottom: 0; }
+body[data-keyboard] :is(.model-picker-sheet, .thinking-sheet).popover { padding-bottom: 0; }
+body[data-profile="compact"] .thinking-sheet.popover { height: auto; max-height: calc(var(--tau-viewport-height, 100dvh) - 24px); display: flex; flex-direction: column; }
+.thinking-sheet .touch-sheet-header { padding: 8px 4px 0 14px; }
 .model-picker .touch-sheet-header { padding: 8px 4px 0 14px; border-bottom: 1px solid var(--line); }
 
 /* A question's buttons are touch targets too. */
 .confirm-dialog footer button { min-height: var(--touch-target); padding-inline: 16px; }
 
 /* A question on the composer reads a step larger on touch, as design 1n draws it (13 and 12 against the desktop's 12 and 11). */
-body[data-profile="compact"] :is(.extension-prompt > header, .extension-prompt-title, .extension-option strong) { font-size: var(--text-md); }
-body[data-profile="compact"] :is(.extension-prompt-pick, .extension-option small, .extension-prompt > footer > span) { font-size: var(--text-sm); }
+body[data-profile="compact"] .extension-prompt { font-size: var(--text-sm); }
+body[data-profile="compact"] :is(.extension-prompt-pick, .extension-option small, .extension-prompt > footer > span) { font-size: var(--text-xs); }
+
+.touch-browser-header .region-thread-list-title { flex: 0 1 auto; min-width: 0; margin: 0; padding: 0; overflow-x: auto; }
+.touch-sidebar-footer {
+  flex: none; margin-top: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 4px 6px max(4px, var(--safe-bottom, env(safe-area-inset-bottom, 0px)));
+  box-shadow: 0 -1px 0 var(--line-soft);
+}
+.touch-sidebar-footer > .spacer { flex: 1; }
+.touch-sidebar-footer .touch-icon-button { position: relative; }
+.touch-sidebar-footer .page-badge { position: absolute; top: 2px; right: 2px; border-radius: var(--radius-pill); padding: 0 4px; background: var(--acid); color: var(--acid-ink); font: 600 var(--text-xs)/1.4 var(--sans); }
+
+.touch-sidebar-footer button { min-width: 44px; min-height: 44px; border: 0; border-radius: var(--radius-row); background: transparent; color: var(--ink-3); cursor: pointer; }
+.touch-sidebar-footer button:hover { background: var(--hover-strong); color: var(--ink); }
+.touch-sidebar-back { display: flex; align-items: center; gap: var(--space-4); flex: 1; padding: 0 var(--space-4); font: 500 var(--text-md) var(--sans); }
+.touch-page-summary { padding: 0 8px; font: var(--text-sm) var(--mono); }

@@ -1,18 +1,18 @@
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore, type ComponentType, type ReactNode } from "react";
 import { TRANSCRIPT_DETAIL_LEVELS, isTranscriptDetail, type TranscriptDetail } from "../../workbench/transcript-folding";
 import { allAvailableThemes, getUserTheme } from "../theme";
 import { usePreferences } from "../renderer-services-context";
 import type { SendShortcut } from "../components/composer-send-keys";
 import { CONFIG_DEFAULTS } from "../../shared/config-layers";
 import { composerFold } from "../components/composer-fold";
-import { UPDATE_CHANNELS, defaultUpdateChannel, isUpdateChannel, type UpdateChannel } from "../../shared/app-version";
 import { QUIT_CONFIRMATIONS, isQuitConfirmation, type QuitConfirmation } from "../../shared/window-shell";
 import { isMacPlatform } from "../keybindings";
-import { useHostClient } from "../host-client-context";
 import { useHostCapabilities } from "../use-host-capabilities";
+import type { SettingsCardId, SettingsSectionProps } from "../extension-system";
 import { SegmentedControl, Select, Switch } from "./controls";
-import { SettingRow, SettingsSection, useSetting } from "./settings-layout";
+import { SettingRow, SettingsCard, useSetting } from "./settings-layout";
 import { settingAnchor } from "./settings-search";
+import { useClientEnvironment } from "../client-environment";
 
 const SEND_SHORTCUTS: ReadonlyArray<{ value: SendShortcut; label: string }> = [
   { value: "enter", label: "Return" },
@@ -21,34 +21,44 @@ const SEND_SHORTCUTS: ReadonlyArray<{ value: SendShortcut; label: string }> = [
 ];
 
 const DETAIL_LABELS: Record<TranscriptDetail, string> = { focused: "Focused", detailed: "Detailed", everything: "Everything" };
-const CHANNEL_LABELS: Record<UpdateChannel, string> = { stable: "Stable", nightly: "Nightly" };
 const QUIT_LABELS: Record<QuitConfirmation, string> = { hold: "Hold", "double-press": "Press twice", off: "At once" };
 const THEME_LABELS: Record<string, string> = { system: "System", light: "Light", dark: "Dark" };
 
 const readBoolean = (raw: unknown) => (typeof raw === "boolean" ? raw : undefined);
 
+/** A row in its card, among the rows kits add there: lower `order` first. */
+type Placed = { order: number; node: ReactNode };
+
+export type GeneralSection = { id: string; card?: SettingsCardId | undefined; order?: number | undefined; Component: ComponentType<SettingsSectionProps> };
+
 /**
- * Settings → General: how the workbench behaves, whatever thread is open.
- * Core's, so safe mode has it; the defaults of a new thread are on Models.
+ * Settings → General (design 2i): cards in two columns. Appearance, Notify me
+ * when, New threads and Threads gather core's rows and the rows kits add with
+ * `registerSettingsSection({ page: "general", card })`; Tau's own composer and
+ * window settings follow in cards of the same kind.
  */
-export function GeneralPage({ themeHere }: {
-  /** No Appearance page to choose the theme on (safe mode): the choice stays here. */
+export function GeneralPage({ themeHere, sections = [], onNotify = () => undefined }: {
+  /** No Appearance page to choose the theme on (safe mode): every theme is offered here. */
   themeHere: boolean;
+  sections?: readonly GeneralSection[];
+  onNotify?(message: string): void;
 }) {
   const preferences = usePreferences();
+  const dictation = useClientEnvironment().dictation;
+  const DictationSettings = dictation?.Settings;
   const { sendShortcut } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const composerFolds = useSyncExternalStore(composerFold.subscribe, composerFold.get);
   const mod = isMacPlatform() ? "⌘" : "Ctrl+";
 
   const detail = useSetting<TranscriptDetail>("transcriptDetail", {
-    defaultValue: CONFIG_DEFAULTS.transcriptDetail as TranscriptDetail, scope: "both", read: (raw) => (isTranscriptDetail(raw) ? raw : undefined),
+    defaultValue: CONFIG_DEFAULTS.transcriptDetail as TranscriptDetail, read: (raw) => (isTranscriptDetail(raw) ? raw : undefined),
     format: (value) => DETAIL_LABELS[value], offline: (value) => preferences.setTranscriptDetail(value),
   });
   const theme = useSetting<string>("theme", {
     defaultValue: CONFIG_DEFAULTS.theme as string, read: (raw) => (typeof raw === "string" && raw ? raw : undefined),
     format: (value) => getUserTheme(value)?.name ?? THEME_LABELS[value] ?? value, offline: (value) => preferences.setTheme(value),
   });
-  const showCosts = useSetting<boolean>("showCosts", { defaultValue: CONFIG_DEFAULTS.showCosts as boolean, scope: "both", read: readBoolean, offline: (value) => preferences.setShowCosts(value) });
+  const showCosts = useSetting<boolean>("showCosts", { defaultValue: CONFIG_DEFAULTS.showCosts as boolean, read: readBoolean, offline: (value) => preferences.setShowCosts(value) });
   const vimMode = useSetting<boolean>("vimMode", {
     defaultValue: CONFIG_DEFAULTS.vimMode as boolean, read: readBoolean, format: (value) => (value ? "Vim" : "Standard"), offline: (value) => preferences.setVimMode(value),
   });
@@ -58,12 +68,7 @@ export function GeneralPage({ themeHere }: {
   });
   // CONFIG_DEFAULTS' value, written out: reading it here would keep the entry in the start-up chunk.
   const watchFiles = useSetting<boolean>("extensions.watch", { defaultValue: true, read: readBoolean });
-  // Unset, a nightly build stays on nightly: the updater reads it the same way.
-  const versions = useHostClient()?.getVersions();
-  const updateChannel = useSetting<UpdateChannel>("updates.channel", {
-    defaultValue: defaultUpdateChannel(versions?.window ?? versions?.host), read: (raw) => (isUpdateChannel(raw) ? raw : undefined), format: (value) => CHANNEL_LABELS[value],
-  });
-  // The updater and the quit chord read this machine's config; a host elsewhere would store a choice nothing here applies.
+  // The quit chord reads this machine's config; a host elsewhere would store a choice nothing here applies.
   const { localFiles: hostIsThisMachine } = useHostCapabilities();
   const quitShortcut = useSetting<QuitConfirmation>("confirm.quit", {
     defaultValue: CONFIG_DEFAULTS["confirm.quit"] as QuitConfirmation, read: (raw) => (isQuitConfirmation(raw) ? raw : undefined), format: (value) => QUIT_LABELS[value],
@@ -72,113 +77,114 @@ export function GeneralPage({ themeHere }: {
     defaultValue: CONFIG_DEFAULTS["confirm.quitWhileRunning"] as boolean, read: readBoolean, offline: (value) => preferences.setConfirmQuitWhileRunning(value),
   });
 
+  // Light, Dark, System as the design orders them; a theme of the user's own, chosen before, stays a choice too.
+  const themes = ["light", "dark", "system", ...(themeHere ? allAvailableThemes() : [theme.value]).filter((id) => getUserTheme(id))];
+  const themeOptions = themes.map((id) => ({ value: id, label: getUserTheme(id)?.name ?? THEME_LABELS[id] ?? id }));
+  const own: Partial<Record<SettingsCardId, Placed[]>> = {
+    appearance: [
+      {
+        order: 10,
+        node: <SettingRow
+          key="theme"
+          id={settingAnchor("Theme")}
+          title="Theme"
+          setting={theme}
+          control={<SegmentedControl label="Theme" value={theme.value} options={themeOptions} onChange={theme.set} />}
+        />,
+      },
+      {
+        order: 30,
+        node: <SettingRow key="costs" id={settingAnchor("Show costs")} title="Show costs" description="in rows, headers and reviews" setting={showCosts}
+          control={<Switch label="Show costs" checked={showCosts.value} onChange={showCosts.set} />} />,
+      },
+    ],
+  };
+  const card = (id: SettingsCardId, title: string) => {
+    const rows = [
+      ...(own[id] ?? []),
+      ...sections.filter((section) => section.card === id).map(({ id: key, order = 100, Component }) => ({ order, node: <Component key={key} onNotify={onNotify} onChanged={() => undefined} /> })),
+    ].sort((left, right) => left.order - right.order);
+    return rows.length ? <SettingsCard title={title}>{rows.map((row) => row.node)}</SettingsCard> : null;
+  };
+
   return (
-    <div className="settings-page">
-      <SettingsSection title="Conversation">
+    <div className="settings-page settings-cards">
+      {card("appearance", "Appearance")}
+      {card("notify", "Notify me when")}
+      {card("new-threads", "New threads")}
+      {card("threads", "Threads")}
+      <SettingsCard title="Composer">
+        {dictation && DictationSettings ? <DictationSettings port={dictation.port} /> : null}
         <SettingRow
           id={settingAnchor("Transcript detail")}
           title="Transcript detail"
-          description="How much of a finished turn the transcript shows."
+          description="of a finished turn"
           help={`Focused reads a settled turn as one line; Detailed opens every group and shows thinking; Everything adds full tool output and timestamps. ⇧${mod}T cycles them for the thread on screen.`}
           setting={detail}
           control={<SegmentedControl label="Transcript detail" value={detail.value} options={TRANSCRIPT_DETAIL_LEVELS.map((level) => ({ value: level, label: DETAIL_LABELS[level] }))} onChange={detail.set} />}
         />
         <SettingRow
-          id={settingAnchor("Show costs")}
-          title="Show costs"
-          description="What each thread has spent, in the composer and the thread list's hover card."
-          setting={showCosts}
-          control={<Switch label="Show costs" checked={showCosts.value} onChange={showCosts.set} />}
-        />
-        <SettingRow
           id={settingAnchor("Composer editing mode")}
           title="Composer editing mode"
-          description="Standard has Readline and Emacs shortcuts; Vim edits the composer with Normal and Insert modes."
+          help="Standard has Readline and Emacs shortcuts; Vim edits the composer with Normal and Insert modes."
           setting={vimMode}
           control={<SegmentedControl label="Composer editing mode" value={vimMode.value ? "vim" : "standard"} options={[{ value: "standard", label: "Standard" }, { value: "vim", label: "Vim" }]} onChange={(value) => vimMode.set(value === "vim")} />}
         />
         <SettingRow
           id={settingAnchor("Send with")}
           title="Send with"
-          description="The key that sends a message. This window's own choice."
+          wholeMachine
           help={`While a turn runs, the send key queues a follow-up and ${mod}Return steers the turn (${mod}⇧Return when ${mod}Return sends).`}
           control={<Select label="Send with" width="md" value={sendShortcut} options={SEND_SHORTCUTS.map((entry) => ({ value: entry.value, label: entry.label.replace("⌘", mod) }))} onChange={(value) => preferences.setSendShortcut(value)} />}
         />
         <SettingRow
           id={settingAnchor("Fold the composer while scrolling")}
           title="Fold the composer while scrolling"
-          description="Scrolling back folds an idle one-line composer to its text; typing, a click or reaching the end opens it again. This window's own choice."
+          wholeMachine
+          help="Scrolling back folds an idle one-line composer to its text; typing, a click or reaching the end opens it again."
           control={<Switch label="Fold the composer while scrolling" checked={composerFolds} onChange={composerFold.set} />}
         />
-      </SettingsSection>
-
-      {themeHere ? (
-        <SettingsSection title="Appearance">
-          <SettingRow
-            id={settingAnchor("Theme")}
-            title="Theme"
-            description={<>System follows this machine's light or dark setting. Themes are <code>.css</code> or <code>.json</code> files in <code>~/.tau/themes/</code>.</>}
-            setting={theme}
-            control={<Select label="Theme" value={theme.value} options={allAvailableThemes().map((id) => ({ value: id, label: getUserTheme(id)?.name ?? THEME_LABELS[id] ?? id }))} onChange={theme.set} />}
-          />
-        </SettingsSection>
-      ) : null}
-
-      <SettingsSection title="Background and restarts">
+      </SettingsCard>
+      <SettingsCard title="Window">
         <SettingRow
           id={settingAnchor("Keep the host running in the background")}
           title="Keep the host running in the background"
-          description="Threads keep working after you quit Tau, and the next start picks them up again."
+          description="threads keep working after you quit"
           setting={hostBackground}
           control={<Switch label="Keep the host running in the background" checked={hostBackground.value} onChange={hostBackground.set} />}
         />
         <SettingRow
           id={settingAnchor("Continue threads after restarts")}
           title="Continue threads after restarts"
-          description="Pick a thread back up where a restart cut its turn short. Off, the thread is repaired and marked instead."
+          help="Pick a thread back up where a restart cut its turn short. Off, the thread is repaired and marked instead."
           setting={continueAfterRestart}
           control={<Switch label="Continue threads after restarts" checked={continueAfterRestart.value} onChange={continueAfterRestart.set} />}
         />
         <SettingRow
           id={settingAnchor("Reload files when they change")}
           title="Reload files when they change"
-          description="An edited package, theme, keybindings.json or config file applies at once. Off, edits apply at the next start."
+          help="An edited package, theme, keybindings.json or config file applies at once. Off, edits apply at the next start."
           setting={watchFiles}
           control={<Switch label="Reload files when they change" checked={watchFiles.value} onChange={watchFiles.set} />}
         />
-      </SettingsSection>
-
-      {hostIsThisMachine ? (
-        <SettingsSection title="Quitting">
+        {hostIsThisMachine ? <>
           <SettingRow
             id={settingAnchor("Quit shortcut")}
             title="Quit shortcut"
-            description={`How ${mod}Q quits: held for a moment, pressed twice, or at once. Quit in the menu always quits at once.`}
+            help="Quit in the menu always quits at once."
             setting={quitShortcut}
             control={<SegmentedControl label="Quit shortcut" value={quitShortcut.value} options={QUIT_CONFIRMATIONS.map((mode) => ({ value: mode, label: QUIT_LABELS[mode] }))} onChange={quitShortcut.set} />}
           />
           <SettingRow
             id={settingAnchor("Ask before quitting while threads work")}
             title="Ask before quitting while threads work"
-            description="Quitting stops the threads that are working, unless the host keeps running in the background."
+            help="Quitting stops the threads that are working, unless the host keeps running in the background."
             setting={quitWhileRunning}
             control={<Switch label="Ask before quitting while threads work" checked={quitWhileRunning.value} onChange={quitWhileRunning.set} />}
           />
-        </SettingsSection>
-      ) : null}
-
-      {hostIsThisMachine ? (
-        <SettingsSection title="Updates">
-          <SettingRow
-            id={settingAnchor("Update track")}
-            title="Update track"
-            description="Stable installs tagged releases; Nightly the build of main published each night there is something new."
-            help="Switching back to Stable returns to the latest release, even when it is older than the nightly build you have."
-            setting={updateChannel}
-            control={<SegmentedControl label="Update track" value={updateChannel.value} options={UPDATE_CHANNELS.map((channel) => ({ value: channel, label: CHANNEL_LABELS[channel] }))} onChange={updateChannel.set} />}
-          />
-        </SettingsSection>
-      ) : null}
+        </> : null}
+      </SettingsCard>
+      {sections.filter((section) => !section.card).map(({ id, Component }) => <Component key={id} onNotify={onNotify} onChanged={() => undefined} />)}
     </div>
   );
 }

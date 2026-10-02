@@ -7,6 +7,8 @@ import {
   otherTabIds,
   setExtensionTabDirty,
   setExtensionTabTitle,
+  splitStage,
+  splitTab,
   stageParamsKey,
   tabIdsToTheRight,
   type StageState,
@@ -55,6 +57,9 @@ export class StageTabController {
 
   active = (): StageTab | undefined => activeTab(this.ports.stage());
 
+  /** The registered source a resource reader must still belong to before file commands act. */
+  documentSourceId = (): string | undefined => this.ports.registry.getDocumentSource()?.id;
+
   /** The handle a tab's content talks to core through; one per tab, kept while it lives. */
   handle = (id: string): StageTabHandle => {
     const held = this.handles.get(id);
@@ -89,6 +94,9 @@ export class StageTabController {
     this.ports.onOpen?.();
     return id;
   };
+
+  /** Shows `id` beside the active tab; without one, splits off the active tab or joins the panes again. */
+  split = (id?: string): void => this.ports.setStage((current) => splitStage(current, id ?? (splitTab(current) ? undefined : current.activeId)));
 
   close = (id: string): void => this.closeAll([id]);
 

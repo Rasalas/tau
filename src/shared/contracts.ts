@@ -67,6 +67,8 @@ export interface UiMessage {
   /** Stable renderer-to-runtime correlation id for this user turn. */
   clientTurnId?: string;
   clientMessageId?: string;
+  /** On the first prompt of a window that leaves older turns out: its 1-based turn number in the whole thread. */
+  turnNumber?: number;
   role: UiRole;
   text: string;
   /** Present only when the host recognized a known skill invocation. */
@@ -411,6 +413,8 @@ export interface UiSession {
   messageCount: number;
   /** Lifecycle owner; older index entries default to Pi. */
   backendKind?: ThreadBackendKind;
+  /** The home machine of a proxy thread and its runtime marks. New in API 1.42.0. */
+  machine?: { id: string; name: string; backendKind?: string; modelProvider?: string };
   /** Provider of the thread's selected model, when the host has observed it. */
   modelProvider?: string;
   /** Id of that model, where the runtime or its session file names it (API 1.23.0). */
@@ -436,6 +440,14 @@ export interface UiSession {
   parentThreadId?: string;
   /** The machine and thread an imported session came from, as its file records it. */
   origin?: UiThreadOrigin;
+}
+
+/** Runtime marks to display for a thread, including its home machine's runtime. New in API 1.43.0. */
+export function displayRuntime(session: Pick<UiSession, "machine" | "backendKind" | "modelProvider">) {
+  return {
+    backendKind: session.machine?.backendKind ?? session.backendKind,
+    modelProvider: session.machine?.modelProvider ?? session.modelProvider,
+  };
 }
 
 /** Where a thread taken over from another machine came from (`sessions.import`). */
@@ -620,7 +632,7 @@ export interface UiRuntimeCatalog {
   models: UiModel[];
   /** What a new thread runs on when nobody chooses. */
   model?: UiModel;
-  /** The levels each model offers, by model id; the first is the runtime's own default. */
+  /** The levels each model offers, by model id (Pi's by `provider/id`); the first is the runtime's own default, except Pi's. */
   thinkingLevels: Record<string, string[]>;
   runtimeCapabilities?: RuntimeCapabilities;
   /** Why the models are known only once a thread runs, or why the runtime cannot run now. */
@@ -738,8 +750,8 @@ export type GlobalHostEvent =
   | { type: "runtime-catalog"; catalog: UiRuntimeCatalog; sessionId?: undefined }
   /** What a Pi extension titled the window with (`ctx.ui.setTitle`); each client applies it to its own. */
   | { type: "window-title"; title: string; sessionId?: undefined }
-  /** A new Tau finished downloading and installs on the next restart. */
-  | { type: "app-update"; version: string; sessionId?: undefined }
+  /** A new Tau finished downloading and installs on the next restart; `phase` follows a Restart until the quit. */
+  | { type: "app-update"; version: string; phase?: AppUpdatePhase; progress?: number; sessionId?: undefined }
   /** The host's machine: which Tau it runs and how its update stands (K103). */
   | { type: "update-status"; status: import("./host-updates.js").HostUpdateStatus; sessionId?: undefined }
   /** The window's own process to its page: the app menu, the quit shortcut, a quit waiting for an answer. */
@@ -748,6 +760,8 @@ export type GlobalHostEvent =
   | { type: "environments"; environments: import("./environments.js").UiEnvironments; sessionId?: undefined }
   /** The window's own process to its page: a thread of another machine a tab looks in on changed there (API 1.15.0). */
   | { type: "environment-thread"; view: import("./environments.js").UiEnvironmentThreadView; sessionId?: undefined }
+  /** An event of a kit the page follows on another machine. New in API 1.40.0. */
+  | { type: "environment-extension-event"; machine: string; extensionId: string; name: string; payload: unknown; sessionId?: undefined }
   | { type: "event-log"; label: string; detail?: string; timestamp: number; sessionId?: undefined };
 
 /** Events emitted by a runtime always carry the owning session explicitly. */
@@ -795,6 +809,9 @@ export type ThreadHostEvent =
   | { type: "event-log"; label: string; detail?: string; timestamp: number; sessionId: string };
 
 export type HostEvent = GlobalHostEvent | ThreadHostEvent;
+
+/** After Restart: a check for a newer release (and Squirrel.Mac taking a download), its download, the quit. */
+export type AppUpdatePhase = "preparing" | "downloading" | "installing";
 
 /** The single result shape used by host, scoped composer store, and renderer. */
 export type SubmissionResult =

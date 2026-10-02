@@ -36,7 +36,7 @@ describe("large picker catalogs", () => {
   });
 
   it("keeps command search and keyboard selection bounded", () => {
-    render(<CommandPalette open commands={commands} extensionCount={1} actions={{} as WorkbenchActions} onClose={() => {}} />);
+    render(<CommandPalette open commands={commands} actions={{} as WorkbenchActions} onClose={() => {}} />);
     expect(document.querySelectorAll(".palette-results button").length).toBeLessThan(50);
     const input = screen.getByRole("textbox", { name: "Command" });
     fireEvent.change(input, { target: { value: "Command 9999" } });

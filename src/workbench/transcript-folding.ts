@@ -95,7 +95,12 @@ export function toolArgumentSummary(args: Readonly<Record<string, unknown>>): st
   return Object.keys(args).join(" · ") || "no arguments";
 }
 
-const EXIT_STATUS = /\bexit(?:ed with)? code -?\d+/iu;
+const EXIT_STATUS = /\bexit(?:ed with)? code (-?\d+)/iu;
+
+/** The exit status a shell's output names, if any. */
+export function exitCode(output: string | undefined): string | undefined {
+  return EXIT_STATUS.exec(output ?? "")?.[1];
+}
 const FAILURE_REASON_CHARS = 240;
 
 /**
@@ -183,20 +188,17 @@ export function summarizeToolFacts(facts: readonly ToolFact[]): string {
   return sentence.charAt(0).toUpperCase() + sentence.slice(1);
 }
 
-const LIVE_VERBS: Record<ToolActionClass, [present: string, past: string]> = {
-  read: ["Reading", "Read"],
-  write: ["Editing", "Edited"],
-  command: ["Running", "Ran"],
-  search: ["Searching", "Searched"],
-  other: ["Using", "Used"],
+const LIVE_VERBS: Record<ToolActionClass, string> = {
+  read: "Reading",
+  write: "Editing",
+  command: "Running",
+  search: "Searching",
+  other: "Using",
 };
 
-/** The live line's own sentence; the same row says it in the past once the tool settles. */
-export function liveActivityLabel(fact: ToolFact, present: boolean): string {
-  const [running, done] = LIVE_VERBS[fact.action];
-  const verb = present ? running : done;
-  const subject = fact.subject ?? fact.source ?? fact.title;
-  return `${verb} ${subject}`;
+/** The live line's sentence. It stays in the present until later output ends the line, as in T3 Code. */
+export function liveActivityLabel(fact: ToolFact): string {
+  return `${LIVE_VERBS[fact.action]} ${fact.subject ?? fact.source ?? fact.title}`;
 }
 
 const PERMISSION_VERBS: Record<ToolActionClass, string> = {
@@ -334,7 +336,7 @@ function liveRow(tools: readonly UiToolRun[], input: WorkGroupInput): { row: Wor
     row: {
       kind: "live",
       id: `${input.id}:live`,
-      label: liveActivityLabel(fact, newest.status === "running"),
+      label: liveActivityLabel(fact),
       action: fact.action,
       startedAt: Math.min(...live.map((tool) => tool.startedAt)),
       tools: live,

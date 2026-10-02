@@ -1,4 +1,4 @@
-import { Minimize2 } from "lucide-react";
+import { Shrink } from "lucide-react";
 import { useId, useState } from "react";
 import type { UiCompaction } from "../../shared/contracts";
 import { Markdown } from "./Markdown";
@@ -32,7 +32,7 @@ export function CompactionDivider({ compaction }: { compaction: UiCompaction }) 
     <div className="compaction-divider">
       <div className="compaction-divider-rule" role="separator" aria-label={label}>
         <span className="compaction-divider-line" aria-hidden="true" />
-        <Minimize2 size={12} aria-hidden="true" />
+        <Shrink size={12} aria-hidden="true" />
         <span className="compaction-divider-label">{label}</span>
         {summary ? (
           <button type="button" className="compaction-divider-toggle" aria-expanded={open} aria-controls={summaryId} onClick={() => setOpen((value) => !value)}>

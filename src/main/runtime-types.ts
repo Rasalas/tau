@@ -48,8 +48,8 @@ export interface ThreadBackendPromptInput {
    * Only a backend whose `resume` capability reports `hiddenPrompt` honours it.
    */
   hidden?: boolean;
-  /** Reports whether the runtime admitted the turn, before that turn ends. */
-  onAdmitted?(accepted: boolean): void;
+  /** Reports admission before the turn ends, with an optional preflight refusal reason. */
+  onAdmitted?(accepted: boolean, error?: unknown): void;
 }
 
 export interface ThreadBackendPromptResult {

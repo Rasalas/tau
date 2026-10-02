@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createMemoryStorage, setClientStorage } from "../../src/renderer/test-support/kit-harness.js";
-import { choiceKey, createJuicebarChoices, juicebarGroups, shownByDefault } from "./juicebars.js";
+import { createJuicebarChoices } from "./juicebar-choices.js";
+import { choiceKey, juicebarGroups, shownByDefault } from "./juicebars.js";
 import { groupAccounts } from "./accounts.js";
 import { mergeLimits } from "./machines.js";
 import type { UsageLimitAccount, UsageLimitWindow, UsageLimitsSummary } from "./protocol.js";

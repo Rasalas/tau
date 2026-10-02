@@ -4,18 +4,26 @@ import {
   countReviews,
   deriveReviews,
   LOCAL_REVIEWS_EVENT,
+  type ConflictFile,
+  type HunkPick,
   type LocalReview,
   type LocalReviewsAnswer,
+  type NoteThread,
+  type SentNote,
   type ReviewChecks,
   type ReviewCounts,
   type ThreadBranchMerge,
 } from "./local-reviews.js";
+import { HISTORY_RUNS, median } from "./pipeline.js";
 
 /** Project Scripts' run, mirrored: the part the Checks column reads. */
-interface ScriptRun { id: string; scriptId: string; name?: string; directory: string; trigger?: string; status: "running" | "succeeded" | "failed" | "stopped"; startedAt: number }
+interface ScriptRun { id: string; scriptId: string; name?: string; directory: string; trigger?: string; status: "running" | "succeeded" | "failed" | "stopped"; startedAt: number; endedAt?: number }
 
 // A worktree's setup run is no check of the work.
 const isRun = (value: unknown): value is ScriptRun => Boolean(value && typeof (value as ScriptRun).id === "string" && typeof (value as ScriptRun).directory === "string" && (value as ScriptRun).trigger !== "worktree-create");
+
+/** One script's last run in a review's worktree: a check. */
+export interface ReviewRun { name: string; status: ScriptRun["status"]; at: number; endedAt?: number; expectedMs?: number }
 
 export interface LocalReviewsSnapshot {
   answer?: LocalReviewsAnswer;
@@ -33,6 +41,9 @@ function decodeAnswer(value: unknown): LocalReviewsAnswer {
     merged: Array.isArray(fields.merged) ? fields.merged : [],
   };
 }
+
+/** What the thread said last, and its prompts by their first line. */
+export interface ReviewSummary { summary?: string; turns?: number; prompts?: string[] }
 
 /** A thread's end is followed by its commit; the read waits a moment for both. */
 const SETTLE_MS = 800;
@@ -108,27 +119,46 @@ export class LocalReviewsStore {
     }
   }
 
-  /** The last run of each script in a worktree, summed. */
-  checks = (path: string): ReviewChecks | undefined => {
+  /** The last run of each script in a worktree. */
+  latestRuns = (path: string): ReviewRun[] => {
     const latest = new Map<string, ScriptRun>();
     for (const run of this.snapshot.runs) {
       if (run.directory !== path) continue;
       const held = latest.get(run.scriptId);
       if (!held || held.startedAt <= run.startedAt) latest.set(run.scriptId, run);
     }
-    if (latest.size === 0) return undefined;
-    const runs = [...latest.values()];
+    return [...latest.values()].map((run) => {
+      const expectedMs = this.usual(run.scriptId);
+      return { name: run.name ?? run.scriptId, status: run.status, at: run.startedAt, ...(run.endedAt ? { endedAt: run.endedAt } : {}), ...(expectedMs ? { expectedMs } : {}) };
+    });
+  };
+
+  /** How long a script's last successful runs took, the median, in any checkout. */
+  private usual(scriptId: string): number | undefined {
+    const took = this.snapshot.runs
+      .filter((run) => run.scriptId === scriptId && run.status === "succeeded" && run.endedAt)
+      .sort((a, b) => b.startedAt - a.startedAt)
+      .slice(0, HISTORY_RUNS)
+      .map((run) => run.endedAt! - run.startedAt);
+    return median(took);
+  }
+
+  /** The last run of each script in a worktree, summed. */
+  checks = (path: string): ReviewChecks | undefined => {
+    const runs = this.latestRuns(path);
+    if (runs.length === 0) return undefined;
     return {
       passed: runs.filter((run) => run.status === "succeeded").length,
       failed: runs.filter((run) => run.status === "failed").length,
       running: runs.filter((run) => run.status === "running").length,
-      names: runs.map((run) => run.name ?? run.scriptId),
+      names: runs.map((run) => run.name),
     };
   };
 
-  async merge(review: LocalReview): Promise<ThreadBranchMerge> {
+  async merge(review: LocalReview, picks?: Record<string, HunkPick[]>): Promise<ThreadBranchMerge> {
     return await this.host.invoke("local-review-merge", {
       ...(review.remote ? { link: review.remote.link, branch: review.branch, target: review.target } : { workspace: review.workspace }),
+      ...(picks ? { picks } : {}),
       tip: review.tip,
       rootWorkspace: review.project.key,
       threadId: review.threadId,
@@ -143,9 +173,11 @@ export class LocalReviewsStore {
     }) as ThreadBranchMerge;
   }
 
-  async ask(review: LocalReview, kind: "rebase" | "note", text?: string): Promise<void> {
+  /** `notes` are the diff lines the note is about; their conversation shows under them. */
+  async ask(review: LocalReview, kind: "rebase" | "note", text?: string, notes?: ReadonlyArray<Omit<SentNote, "at">>): Promise<void> {
     await this.host.invoke("local-review-ask", {
       kind,
+      ...(notes?.length ? { notes } : {}),
       ...(review.remote ? { link: review.remote.link } : { threadId: review.threadId }),
       root: review.root,
       branch: review.branch,
@@ -156,14 +188,36 @@ export class LocalReviewsStore {
     });
   }
 
+  /** A merged branch's worktree and the branch go; the host checks it is merged. */
+  async remove(review: LocalReview): Promise<void> {
+    await this.host.invoke("local-review-remove", {
+      workspace: review.workspace, tip: review.tip, threadId: review.threadId,
+      title: review.title, project: review.project.name,
+      costUsd: review.costUsd, modelProvider: review.modelProvider, model: review.model,
+    });
+  }
+
   async withdraw(review: LocalReview): Promise<void> {
     await this.host.invoke("local-review-withdraw", { root: review.root, branch: review.branch, ...(review.remote ? { link: review.remote.link } : {}) });
   }
 
-  summary(review: LocalReview): Promise<{ summary?: string; turns?: number }> {
+  /** "Commit only": the worktree's uncommitted files as a commit on the branch. */
+  async commit(review: LocalReview): Promise<{ detail: string }> {
+    return await this.host.invoke("local-review-commit", { workspace: review.workspace, message: review.title }) as { detail: string };
+  }
+
+  conflicts(review: LocalReview): Promise<{ tip: string; files: ConflictFile[] }> {
+    return this.host.invoke("local-review-conflicts", { workspace: review.workspace }) as Promise<{ tip: string; files: ConflictFile[] }>;
+  }
+
+  notes(review: LocalReview): Promise<NoteThread[]> {
+    return this.host.invoke("local-review-notes", { root: review.root, branch: review.branch, threadId: review.threadId }) as Promise<NoteThread[]>;
+  }
+
+  summary(review: LocalReview): Promise<ReviewSummary> {
     // The thread there keeps its own history; what is here is the branch that came back.
     if (review.remote) return Promise.resolve({ summary: `Ran on ${review.remote.machine} and came back as \`${review.branch}\` here.` });
-    return this.host.invoke("local-review-summary", { threadId: review.threadId, workspace: review.workspace, target: review.target }) as Promise<{ summary?: string; turns?: number }>;
+    return this.host.invoke("local-review-summary", { threadId: review.threadId, workspace: review.workspace, target: review.target }) as Promise<ReviewSummary>;
   }
 
   dispose(): void {

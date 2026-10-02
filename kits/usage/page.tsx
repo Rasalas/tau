@@ -1,20 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChartColumn, RefreshCw } from "lucide-react";
-import { Empty, errorMessage, formatCost, SettingsPageAction, useThreadStore, type HostExtensionClient, type PlatformEnvironments, type PageProps, type ThreadStore, type UiProject, type UiSession } from "tau";
+import { Empty, errorMessage, ProviderIconStack, SettingsPageAction, tooltipProps, useThreadStore, type HostExtensionClient, type PlatformEnvironments, type PageProps, type ProjectIconSubject, type ThreadStore, type UiProject, type UiSession } from "tau";
 import { ActivityCalendar, ReadingHistory } from "./activity.js";
-import { jumpTo, RUNTIME_LABELS, UsageTopBar } from "./controls.js";
-import { dailyFigures, dayStarts, figuresFrom, HISTORY_DAYS, ofRuntime, rankUsage, runtimesOf, USAGE_RANGES, type UsageFigures } from "./dashboard.js";
+import { jumpTo, PeriodSwitch, RUNTIME_LABELS, UsageFilterButton } from "./controls.js";
+import { dailyFigures, dayStarts, HISTORY_DAYS, ofRuntime, periodFrom, rankUsage, runtimesOf, type RankedUsage } from "./dashboard.js";
 import { createUsageView, type UsageView } from "./filters.js";
-import { createJuicebarChoices, type JuicebarChoices } from "./juicebars.js";
+import { createJuicebarChoices, type JuicebarChoices } from "./juicebar-choices.js";
 import type { LimitsFeed } from "./limits-feed.js";
 import { monthFigures } from "./month.js";
 import { UsageHistory } from "./history.js";
 import { UsageLimits } from "./limits.js";
 import { ModelPrices } from "./prices.js";
 import { mergeEntries, mergeLimits, readMachines, useOtherMachines, type MachineRead } from "./machines.js";
-import { USAGE_LIMITS_COMMAND, USAGE_SUMMARY_COMMAND, type UsageLimitsSummary, type UsageSourceReport, type UsageSummary, type UsageSummaryInput } from "./protocol.js";
-import { RankList, type RankRow } from "./top-lists.js";
-import { formatTokens } from "./view-model.js";
+import { USAGE_LIMITS_COMMAND, USAGE_SUMMARY_COMMAND, USAGE_REDEEM_RESET_COMMAND, type UsageLimitAccount, type UsageLimitsSummary, type UsageSourceReport, type UsageEntry, type UsageSummary, type UsageSummaryInput } from "./protocol.js";
+import { costliestThread, Figure, projectRow, providerRow, UsageStats, UsageTable, type TableRow } from "./overview.js";
 import { readLastState, saveLastState } from "./last-state.js";
 
 /** How often an open, visible page reads again. */
@@ -23,6 +22,18 @@ const POLL_MS = 5 * 60_000;
 const READING_POLL_MS = 5_000;
 function folderName(cwd: string): string {
   return cwd.split(/[\\/]/u).filter(Boolean).pop() ?? cwd;
+}
+
+/**
+ * What the host is asked for: the page's days after a first "day" at 0, which
+ * gathers everything older. Answers come back with that one at day -1.
+ */
+export function request(starts: readonly number[]): number[] {
+  return [0, ...starts];
+}
+
+export function fromRequest(summary: UsageSummary): UsageSummary {
+  return summary.entries ? { ...summary, entries: summary.entries.map((entry) => ({ ...entry, day: entry.day - 1 })) } : summary;
 }
 
 /** The window's threads and projects; a page drawn outside a workbench (a test) has none. */
@@ -38,22 +49,6 @@ function useThreadIndex(): { threads: readonly UiSession[]; projects: readonly U
     return () => { stopThreads(); stopProjects(); };
   }, [store]);
   return index;
-}
-
-/** A period's money, billed and a plan's value side by side, over what it used. */
-function PeriodTile({ label, figures }: { label: string; figures: UsageFigures }) {
-  const billed = formatCost(figures.costUsd);
-  const plan = formatCost(figures.apiValueUsd);
-  return (
-    <section className="usage-kpi" aria-label={label}>
-      <h3>{label}</h3>
-      <div className="usage-kpi-figures">
-        <p data-empty={billed ? undefined : "true"}><b>{billed ?? "$0"}</b><small>billed</small></p>
-        <p className="plan" data-empty={plan ? undefined : "true"}><b>{plan ? `≈ ${plan}` : "—"}</b><small>plan value</small></p>
-      </div>
-      <p className="usage-kpi-detail">{formatTokens(figures.totalTokens)} tokens · {figures.requests} {figures.requests === 1 ? "turn" : "turns"} · {figures.threads} {figures.threads === 1 ? "thread" : "threads"}</p>
-    </section>
-  );
 }
 
 function Sources({ summary, limits, machines = [] }: { summary: UsageSummary | undefined; limits: UsageLimitsSummary | undefined; machines?: readonly MachineRead[] }) {
@@ -125,32 +120,32 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
   const [summaries, setSummaries] = useState<readonly MachineRead[]>([]);
   const [machineLimits, setMachineLimits] = useState<readonly MachineRead[]>([]);
   const [clock, setClock] = useState(() => (now?.() ?? new Date()).getTime());
-  const request = useRef(0);
+  const latest = useRef(0);
   const limitsRequest = useRef(0);
   const [days, setDays] = useState(() => dayStarts(HISTORY_DAYS, now?.()));
   const index = useThreadIndex();
 
   // Each source on its own: this host's answer shows as soon as it is there, other machines' after it.
   const load = useCallback(async (refresh: boolean) => {
-    const id = ++request.current;
+    const id = ++latest.current;
     setBusy(true);
     // A new day since the page opened moves every bar along.
     const starts = dayStarts(HISTORY_DAYS, now?.());
     setDays((current) => (current[current.length - 1] === starts[starts.length - 1] ? current : starts));
-    const input: UsageSummaryInput = { since: starts[0]!, days: starts, ...(refresh ? { refresh } : {}) };
+    const input: UsageSummaryInput = { days: request(starts), ...(refresh ? { refresh } : {}) };
     void readMachines(environments, machines, USAGE_SUMMARY_COMMAND, input).then((others) => {
-      if (id === request.current) setSummaries(others.map((read) => ({ machine: read.machine, ...(read.answer ? { summary: read.answer as UsageSummary } : {}), ...(read.error ? { error: read.error } : {}) })));
+      if (id === latest.current) setSummaries(others.map((read) => ({ machine: read.machine, ...(read.answer ? { summary: fromRequest(read.answer as UsageSummary) } : {}), ...(read.error ? { error: read.error } : {}) })));
     });
     try {
-      const result = await host.invoke(USAGE_SUMMARY_COMMAND, input) as UsageSummary;
-      if (id !== request.current) return;
+      const result = fromRequest(await host.invoke(USAGE_SUMMARY_COMMAND, input) as UsageSummary);
+      if (id !== latest.current) return;
       setSummary(result);
       setError(undefined);
       saveLastState(shown, { days: starts, summary: result });
     } catch (failure) {
-      if (id === request.current) setError(errorMessage(failure));
+      if (id === latest.current) setError(errorMessage(failure));
     } finally {
-      if (id === request.current) setBusy(false);
+      if (id === latest.current) setBusy(false);
     }
   }, [host, now, environments, machines, shown]);
 
@@ -209,9 +204,21 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
   const entries = useMemo(() => ofRuntime(allEntries, shownRuntime, shownMachine, shownOrigin), [allEntries, shownRuntime, shownMachine, shownOrigin]);
   const machineName = (id: string | undefined) => (id ? machines.find((other) => other.id === id)?.name ?? "another machine" : undefined);
   const last = days.length;
-  const from = last - (USAGE_RANGES.find((entry) => entry.id === range)?.days ?? 30);
-  const series = useMemo(() => dailyFigures(entries, days, from), [days, entries, from]);
-  const rangeLabel = USAGE_RANGES.find((entry) => entry.id === range)?.label ?? "";
+  const today = now?.() ?? new Date();
+  const from = periodFrom(range, days, today);
+  // A phone draws the last 12 days, as design 1r; a desktop the period's, 90 days at most.
+  const [compact] = useState(() => typeof document !== "undefined" && document.body.dataset.profile === "compact");
+  const chartFrom = compact ? last - 12 : Math.max(0, from);
+  const series = useMemo(() => {
+    const drawn = dailyFigures(entries, days, chartFrom);
+    // The month's days still to come stand empty, so the month keeps its width.
+    const newest = new Date(days.at(-1) ?? 0);
+    const [year, month, date] = [newest.getFullYear(), newest.getMonth(), newest.getDate()];
+    const rest = range === "month" && !compact ? new Date(year, month + 1, 0).getDate() - date : 0;
+    return [...drawn, ...Array.from({ length: rest }, (_, ahead) => ({ start: new Date(year, month, date + 1 + ahead).getTime(), costUsd: 0, apiValueUsd: 0, totalTokens: 0, requests: 0, planTokens: 0, planRequests: 0 }))];
+  }, [chartFrom, compact, days, entries, range]);
+  const chartTitle = compact ? "Per day · last 12" : range === "all" ? `Per day · last ${HISTORY_DAYS} days` : "Per day";
+  const rangeLabel = range === "month" ? "this month" : range === "30d" ? "the last 30 days" : "all the time kept";
   // What the filters offer and this month's figure, for the sidebar or the bar on top.
   const month = useMemo(() => (summary ? monthFigures(allEntries, days, now?.() ?? new Date()) : undefined), [allEntries, days, now, summary]);
   useEffect(() => { view.setFacts({ runtimes, machines, anyOutside, ...(month ? { month } : {}) }); }, [anyOutside, machines, month, runtimes, view]);
@@ -226,26 +233,50 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
     requestAnimationFrame(() => jumpTo(`usage-${section}`, "auto"));
   }, [laidOut, section]);
 
+  const threadIndex = useMemo(() => new Map(index.threads.map((thread) => [thread.id, thread])), [index.threads]);
+  // A thread's project, wherever it ran: a worktree's thread (and a CLI run in that worktree) counts with its project, matched as the sidebar does.
+  const projectOf = useMemo(() => {
+    const learned = new Map<string, string>();
+    const find = (path: string, workspaceId?: string, name?: string) => index.projects.find((project) => project.path === path || (workspaceId && project.workspaceId === workspaceId) || path.startsWith(`${project.path}/`))
+      ?? (name ? index.projects.find((project) => project.name === name) : undefined);
+    const direct = (entry: UsageEntry): string | undefined => {
+      if (entry.machine) return entry.cwd;
+      const thread = entry.outside ? undefined : threadIndex.get(entry.threadId);
+      const project = thread ? find(thread.projectPath, thread.workspaceId, thread.projectName) : find(entry.cwd);
+      return project ? project.workspaceId ?? project.path : thread ? thread.workspaceId ?? thread.projectPath : undefined;
+    };
+    for (const entry of allEntries) {
+      const key = !entry.outside && !entry.machine && threadIndex.has(entry.threadId) ? direct(entry) : undefined;
+      if (key && !learned.has(entry.cwd)) learned.set(entry.cwd, key);
+    }
+    return (entry: UsageEntry) => direct(entry) ?? learned.get(entry.cwd) ?? entry.cwd;
+  }, [allEntries, index.projects, threadIndex]);
+  const projectSubject = (key: string, cwd: string): ProjectIconSubject => {
+    const project = index.projects.find((item) => item.workspaceId === key || item.path === key);
+    if (project) return project;
+    const thread = index.threads.find((item) => (item.workspaceId ?? item.projectPath) === key);
+    return { path: thread?.projectDisplayPath ?? key, name: thread?.projectName ?? folderName(cwd), ...(thread?.workspaceId ? { workspaceId: thread.workspaceId } : {}) };
+  };
   const projectName = (cwd: string) => index.projects.find((project) => project.path === cwd || project.workspaceId === cwd)?.name ?? folderName(cwd);
-  const threadOf = (threadId: string | undefined) => (threadId ? index.threads.find((thread) => thread.id === threadId) : undefined);
-  const projects: RankRow[] = rankUsage(entries, from, "project", metric, 6).map((item) => {
+  const threadOf = (threadId: string | undefined) => (threadId ? threadIndex.get(threadId) : undefined);
+  const providers = rankUsage(entries, from, "provider", metric, 8).map(providerRow);
+  const projects = rankUsage(entries, from, "project", metric, 6, projectOf).map((item) => {
+    const key = item.key.slice(item.key.indexOf("\u0000") + 1);
     const where = [item.origin === "outside" ? "Outside Tau" : item.origin === "both" ? "Also outside Tau" : undefined, machineName(item.machine)].filter(Boolean).join(" · ");
-    return { item, name: projectName(item.cwd), title: item.cwd, ...(where ? { detail: where } : {}) };
+    return projectRow(item, projectSubject(key, item.cwd), where || undefined);
   });
-  const models: RankRow[] = rankUsage(entries, from, "model", metric, 6).map((item) => ({
-    item,
-    name: item.model,
-    detail: RUNTIME_LABELS[item.backend] ?? item.backend,
-    marks: { runtimeProvider: item.backend, ...(item.provider ? { modelProvider: item.provider } : {}) },
-  }));
-  const threads: RankRow[] = rankUsage(entries, from, "thread", metric, 8).map((item) => {
+  const ranked = rankUsage(entries, from, "thread", metric, Number.MAX_SAFE_INTEGER);
+  const costliest = costliestThread(ranked, threadIndex, metric);
+  const marks = (item: RankedUsage) => <ProviderIconStack runtimeProvider={item.backend} {...(item.provider ? { modelProvider: item.provider } : {})} hint={{ side: "top" }} />;
+  const models: TableRow[] = rankUsage(entries, from, "model", metric, 6).map((item) => ({ item, name: item.model, mark: marks(item), title: RUNTIME_LABELS[item.backend] ?? item.backend }));
+  const threads: TableRow[] = ranked.slice(0, 8).map((item) => {
     const outside = item.origin === "outside";
     const thread = item.machine || outside ? undefined : threadOf(item.threadId);
     return {
       item,
       name: thread?.title || (outside ? `${RUNTIME_LABELS[item.backend] ?? item.backend} session ${item.threadId?.slice(0, 8) ?? ""}` : `Thread ${item.threadId?.slice(0, 8) ?? ""}`),
-      detail: [outside ? "Outside Tau" : undefined, projectName(item.cwd), machineName(item.machine)].filter(Boolean).join(" · "),
-      marks: { runtimeProvider: item.backend, ...(item.provider ? { modelProvider: item.provider } : {}) },
+      title: [outside ? "Outside Tau" : undefined, projectName(item.cwd), machineName(item.machine)].filter(Boolean).join(" · "),
+      mark: marks(item),
       ...(thread && actions ? { onOpen: () => { void actions.switchSession(thread.path); } } : {}),
     };
   });
@@ -257,12 +288,15 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
   if (params.view === "sources") return <Sources summary={summary} limits={allLimits} machines={summaries} />;
 
   const read = summary ? `Read ${new Date(summary.scannedAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}` : "Reading usage…";
+  const status = busy && !summary ? "Reading…" : `${machines.length > 0 ? `${read} · this computer and ${machines.map((other) => other.name).join(", ")}` : read}${busy ? " · updating…" : logsReading ? " · still reading the CLIs' logs" : ""}`;
   return (
     <div className={`usage-page${busy && summary ? " refreshing" : ""}`}>
       <SettingsPageAction>
         <div className="usage-toolbar">
-          <span role="status">{busy && !summary ? "Reading…" : `${machines.length > 0 ? `${read} · this computer and ${machines.map((other) => other.name).join(", ")}` : read}${busy ? " · updating…" : logsReading ? " · still reading the CLIs' logs" : ""}`}</span>
-          <button type="button" className="usage-icon-button" aria-label="Read usage and limits again" disabled={busy || limitsBusy} onClick={readAgain}><RefreshCw size={14} /></button>
+          <span role="status" className="usage-read" data-active={busy || logsReading ? "" : undefined}>{status}</span>
+          {sidebar ? <button type="button" className="usage-icon-button" aria-label="Read usage and limits again" disabled={busy || limitsBusy} onClick={readAgain} {...tooltipProps(status, { side: "bottom" })}><RefreshCw size={14} /></button> : null}
+          <PeriodSwitch view={view} now={today} />
+          {sidebar ? null : <UsageFilterButton view={view} now={today} status={status} busy={busy || limitsBusy} onReadAgain={readAgain} />}
         </div>
       </SettingsPageAction>
 
@@ -273,45 +307,59 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
       ) : (
         <>
           {error ? <p className="usage-note" data-level="error">{error} The figures are from the last read.</p> : null}
-          {sidebar ? null : <UsageTopBar view={view} />}
-          <div className="usage-kpis" aria-label="Totals">
-            <PeriodTile label="Today" figures={figuresFrom(allEntries, last - 1)} />
-            <PeriodTile label="Last 7 days" figures={figuresFrom(allEntries, last - 7)} />
-            <PeriodTile label="Last 30 days" figures={figuresFrom(allEntries, last - 30)} />
-          </div>
+          {summary && allEntries.length === 0 ? (
+            <Empty icon={<ChartColumn size={18} />} title="Nothing used yet" description="Usage shows up here once a thread has answered. The sources say what was read.">
+              {navigate ? <button type="button" className="mini-button" onClick={() => navigate({ view: "sources" }, { label: "Sources" })}>Sources</button> : null}
+            </Empty>
+          ) : (
+            <div className="usage-overview">
+              <UsageStats entries={entries} from={from} weekFrom={last - 7} threads={threadIndex} />
+              <UsageHistory series={series} metric={metric} title={chartTitle} />
+              <div className="usage-tables">
+                <UsageTable id="usage-providers" title="By provider" rows={providers} metric={metric} bars empty={`Nothing in ${rangeLabel}.`} />
+                <UsageTable id="usage-projects" title="By project" rows={projects} metric={metric} empty={`Nothing in ${rangeLabel}.`}>
+                  {costliest ? (
+                    <p className="usage-costliest">
+                      Most expensive thread:{" "}
+                      {actions ? <button type="button" className="usage-link" onClick={() => { void actions.switchSession(costliest.thread.path); }}>{costliest.thread.title || "Untitled thread"}</button> : <span>{costliest.thread.title}</span>}
+                      {" · "}<Figure item={costliest.item} metric={metric} />{costliest.agents > 0 ? ` across ${costliest.agents} ${costliest.agents === 1 ? "agent" : "agents"}` : ""}
+                    </p>
+                  ) : null}
+                </UsageTable>
+              </div>
+            </div>
+          )}
 
           <section className="usage-section" id="usage-limits" aria-labelledby="usage-limits-title">
             <h2 id="usage-limits-title">Plan limits</h2>
-            <UsageLimits limits={allLimits} error={limitsError} now={clock} entries={allEntries} fromDay={last - 30} period="Last 30 days" choices={choices} onRetry={() => void loadLimits(true)} {...(actions ? { onOpenExternal: (url: string) => actions.openExternal(url) } : {})} />
+            <UsageLimits onRedeemReset={async (account: UsageLimitAccount, checkPending?: boolean) => {
+              const input = { runtime: account.runtime, accountId: account.id, identity: account.identity?.key, checkPending: checkPending === true };
+              try {
+                const outcome = account.machine
+                  ? await (environments?.invokeExtension ? environments.invokeExtension(account.machine, "tau.usage", USAGE_REDEEM_RESET_COMMAND, input) : Promise.reject(new Error("This Tau version cannot redeem a reset on another machine.")))
+                  : await host.invoke(USAGE_REDEEM_RESET_COMMAND, input);
+                return outcome === "reset" ? "Reset applied. The limits have been refreshed." : outcome === "nothingToReset" ? "The account is not limited yet." : outcome === "alreadyRedeemed" ? "This reset was already applied." : outcome === "alreadySettled" ? "The previous reset request is finished. The limits have been refreshed." : "No reset is available.";
+              } finally { await loadLimits(true); }
+            }} limits={allLimits} error={limitsError} now={clock} entries={allEntries} fromDay={last - 30} period="Last 30 days" choices={choices} onRetry={() => void loadLimits(true)} {...(actions ? { onOpenExternal: (url: string) => actions.openExternal(url) } : {})} />
             {allLimits ? <ReadingHistory limits={allLimits} now={clock} /> : null}
           </section>
 
-          <section className="usage-section" id="usage-activity" aria-labelledby="usage-breakdown-title">
-            <h2 id="usage-breakdown-title">Activity</h2>
-            {summary && allEntries.length === 0 ? (
-              <Empty icon={<ChartColumn size={18} />} title="Nothing used yet" description="Usage shows up here once a thread has answered. The sources say what was read.">
-                {navigate ? <button type="button" className="mini-button" onClick={() => navigate({ view: "sources" }, { label: "Sources" })}>Sources</button> : null}
-              </Empty>
-            ) : (
-              <>
-                <div className="usage-days">
-                  <ActivityCalendar days={days} entries={entries} labels={RUNTIME_LABELS} />
-                  <UsageHistory series={series} metric={metric} />
-                </div>
-                <div className="usage-ranks">
-                  <RankList id="usage-projects" title="Projects" rows={projects} metric={metric} empty={`Nothing in the last ${rangeLabel}.`} />
-                  <RankList id="usage-models" title="Models" rows={models} metric={metric} empty={`Nothing in the last ${rangeLabel}.`} />
-                  <RankList title="Threads" rows={threads} metric={metric} empty={`Nothing in the last ${rangeLabel}.`} />
-                </div>
-              </>
-            )}
-          </section>
+          {summary && allEntries.length > 0 ? (
+            <section className="usage-section" id="usage-activity" aria-labelledby="usage-activity-title">
+              <h2 id="usage-activity-title">Activity</h2>
+              <ActivityCalendar days={days} entries={entries} labels={RUNTIME_LABELS} />
+              <div className="usage-ranks">
+                <UsageTable id="usage-models" title="Models" rows={models} metric={metric} empty={`Nothing in ${rangeLabel}.`} />
+                <UsageTable title="Threads" rows={threads} metric={metric} counts={false} empty={`Nothing in ${rangeLabel}.`} />
+              </div>
+            </section>
+          ) : null}
 
           {navigate ? (
             <footer className="usage-footer">
               <button type="button" className="usage-link" onClick={() => navigate({ view: "prices" }, { label: "Model prices" })}>Model prices</button>
               <button type="button" className="usage-link" onClick={() => navigate({ view: "sources" }, { label: "Sources" })}>Sources</button>
-              <span>Billed is money an API key was charged per token; plan value is what a subscription&apos;s tokens would have cost over the API.</span>
+              <span>API spend is money an API key was charged per token; plans show as tokens, ≈ marks their value at API prices.</span>
             </footer>
           ) : null}
         </>

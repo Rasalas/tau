@@ -50,7 +50,7 @@ function PromptDialog({ prompt, feed }: { prompt: ServerPrompt; feed: ServerProm
     setValue("");
   };
   return createPortal(
-    <Dialog className="servers-prompt" label={prompt.title} onClose={() => { if (!busy) send({ action: "cancel" }); }}>
+    <Dialog className="confirm-dialog servers-prompt" label={prompt.title} onClose={() => { if (!busy) send({ action: "cancel" }); }}>
       <form onSubmit={submit}>
         <header>
           <h2>{prompt.title}</h2>

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { access, chmod, lstat, mkdir, mkdtemp, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { access, chmod, lstat, mkdir, mkdtemp, open, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join, resolve } from "node:path";
 import { extract } from "tar";
@@ -42,7 +42,8 @@ export function createManagedCodex(options: ManagedCodexOptions) {
   const arch = options.arch ?? process.arch;
   const asset = options.asset ?? managedCodexAsset(platform, arch);
   const root = resolve(options.directory);
-  const directory = join(root, `${MANAGED_CODEX_VERSION}-${platform}-${arch}`);
+  const suffix = `-${platform}-${arch}`;
+  const directory = join(root, `${MANAGED_CODEX_VERSION}${suffix}`);
   const entrypoint = `bin/codex${platform === "win32" ? ".exe" : ""}`;
 
   const resolveInstalled = async (): Promise<string | undefined> => {
@@ -59,6 +60,16 @@ export function createManagedCodex(options: ManagedCodexOptions) {
       if (platform !== "win32") await access(executable, constants.X_OK);
       return executable;
     } catch { return undefined; }
+  };
+
+  /** Other releases' folders for this platform; `.install-*` staging folders are never listed. */
+  const others = async (): Promise<string[]> => {
+    const names = await readdir(root).catch(() => [] as string[]);
+    return names.filter((name) => /^\d+\.\d+\.\d+[^/]*$/u.test(name) && name.endsWith(suffix) && join(root, name) !== directory);
+  };
+  /** A release still running elsewhere (Windows) stays until a later attempt. */
+  const prune = async (): Promise<void> => {
+    for (const name of await others()) await rm(join(root, name), { recursive: true, force: true }).catch(() => undefined);
   };
 
   const install = async (input: ManagedCodexInstallOptions): Promise<string> => {
@@ -109,12 +120,16 @@ export function createManagedCodex(options: ManagedCodexOptions) {
       const executable = await resolveInstalled();
       if (!executable) throw new Error("The managed Codex installation is incomplete. Try again.");
       input.onProgress?.({ phase: "installed" });
+      await prune();
       return executable;
     } finally { await rm(staging, { recursive: true, force: true }); }
   };
 
   return {
     resolveInstalled,
+    /** Whether an earlier pinned release was installed here, so this host used the managed Codex before. */
+    hadEarlier: async (): Promise<boolean> => (await others()).length > 0,
+    prune,
     /** Concurrent callers share the install; a failed or cancelled attempt is retryable. */
     ensure(input: ManagedCodexInstallOptions = {}): Promise<string> {
       const key = `${directory}:${asset?.sha256 ?? "unsupported"}`;

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { complete } from "@earendil-works/pi-ai/compat";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { FAKE_MODEL, FAKE_PROVIDER, fakeModelsJson, fakeReply, prepareFakePiAgentDir, startFakeModelServer } from "./fake-model-server.mjs";
+import { FAKE_MODEL, FAKE_PROVIDER, fakeModelsJson, fakeQuestion, fakeReply, prepareFakePiAgentDir, startFakeModelServer } from "./fake-model-server.mjs";
 
 describe("fakeReply", () => {
   const user = (content) => ({ messages: [{ role: "system", content: "sys" }, { role: "user", content }] });
@@ -14,6 +14,38 @@ describe("fakeReply", () => {
     expect(fakeReply(user("Reply with one word"))).toEqual({ text: "ok" });
     expect(fakeReply(user("fail 400 Unsupported parameter: temperature"))).toEqual({ status: 400, error: "Unsupported parameter: temperature" });
     expect(fakeReply({ messages: [...user("write a b").messages, { role: "assistant", content: null }, { role: "tool", content: "ok" }] })).toEqual({ text: "done" });
+  });
+
+  it("asks the ask-user tool's question, or spawns agents in one reply", () => {
+    expect(fakeReply(user("ask one"))).toEqual({ toolCall: { name: "ask_user_question", arguments: { questions: [fakeQuestion(false)] } } });
+    expect(fakeReply(user("ask any")).toolCall.arguments.questions[0].multiSelect).toBe(true);
+    expect(fakeReply(user("spawn[GET /orders=ask one; GET /products=run 900; broken]"))).toEqual({
+      toolCalls: [
+        { name: "tau_spawn_thread", arguments: { title: "GET /orders", prompt: "ask one" } },
+        { name: "tau_spawn_thread", arguments: { title: "GET /products", prompt: "run 900" } },
+      ],
+    });
+  });
+
+  it("runs a slow command and thinks before each answer when asked", () => {
+    expect(fakeReply(user("think 800 run 5"))).toEqual({ toolCall: { name: "bash", arguments: { command: "mkdir -p fake-run && sleep 5" } }, thinkMs: 800 });
+    expect(fakeReply({ messages: [...user("think 800 run 5").messages, { role: "assistant", content: null }, { role: "tool", content: "" }] })).toEqual({ text: "done", thinkMs: 800 });
+    expect(fakeReply(user("think 300"))).toEqual({ text: "ok", thinkMs: 300 });
+  });
+
+  it("takes one reply per step of a tools[…] turn, then says done", () => {
+    const turn = user("think 200 tools[read a.ts b.ts | sh echo FAIL; exit 1 | edit a.ts one two]").messages;
+    const after = (steps) => ({ messages: [...turn, ...Array.from({ length: steps }, () => [{ role: "assistant", content: null }, { role: "tool", content: "" }]).flat()] });
+    expect(fakeReply(after(0))).toEqual({ toolCalls: [{ name: "read", arguments: { path: "a.ts" } }, { name: "read", arguments: { path: "b.ts" } }] });
+    expect(fakeReply(after(1))).toEqual({ toolCalls: [{ name: "bash", arguments: { command: "echo FAIL; exit 1" } }] });
+    expect(fakeReply(after(2))).toEqual({ toolCalls: [{ name: "edit", arguments: { path: "a.ts", edits: [{ oldText: "one", newText: "two" }] } }] });
+    expect(fakeReply(after(3))).toEqual({ text: "done", thinkMs: 200 });
+  });
+
+  it("asks the user to take over the Preview at a page", () => {
+    const reply = fakeReply(user("takeover http://localhost:4100/login"));
+    expect(reply.toolCall).toEqual({ name: "request_takeover", arguments: { reason: "Sign in to localhost in the preview", target: "preview", url: "http://localhost:4100/login" } });
+    expect(reply.text).toMatch(/handed the preview to you/u);
   });
 });
 
@@ -51,6 +83,17 @@ describe("startFakeModelServer", () => {
     const message = await ask("fail 400 Unsupported parameter: temperature");
     expect(message.stopReason).toBe("error");
     expect(message.errorMessage).toContain("Unsupported parameter: temperature");
+  });
+
+  it("streams reasoning Pi reads as thinking", async () => {
+    const message = await ask("think 300");
+    expect(message.content).toEqual([expect.objectContaining({ type: "thinking" }), expect.objectContaining({ type: "text", text: "ok" })]);
+  });
+
+  it("streams several tool calls in one reply", async () => {
+    const message = await ask("spawn[A=ok; B=ok]");
+    expect(message.stopReason).toBe("toolUse");
+    expect(message.content.filter((part) => part.type === "toolCall").map((part) => part.arguments.title)).toEqual(["A", "B"]);
   });
 
   it("streams a write tool call", async () => {

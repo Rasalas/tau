@@ -125,8 +125,8 @@ export function previewTools(controller: PreviewToolController, threadId: string
     defineTool({
       name: "preview_open",
       label: "preview_open",
-      description: "Open a URL in Tau's preview panel and wait for it to load. Use this to see the app you are working on; afterwards read it with preview_snapshot instead of guessing.",
-      promptSnippet: "preview_open: show a URL in Tau's preview browser panel",
+      description: "View the app or page you are developing in Tau's preview.",
+      promptSnippet: "preview_open: view the app or page you are developing",
       parameters: Type.Object({ url: Type.String({ description: "http(s) URL, or an absolute path inside the workspace" }) }),
       ...sequential,
       execute: (_id, params, signal) => run(signal, async () => {
@@ -138,8 +138,8 @@ export function previewTools(controller: PreviewToolController, threadId: string
     defineTool({
       name: "preview_navigate",
       label: "preview_navigate",
-      description: "Navigate the preview: load another URL, or go back, forward or reload.",
-      promptSnippet: "preview_navigate: move the preview to another URL or through its history",
+      description: "Check another page, revisit navigation history or reload the preview after changes.",
+      promptSnippet: "preview_navigate: check another page or reload after changes",
       parameters: Type.Object({
         url: Type.Optional(Type.String()),
         action: Type.Optional(Type.Union([Type.Literal("back"), Type.Literal("forward"), Type.Literal("reload")])),
@@ -150,8 +150,8 @@ export function previewTools(controller: PreviewToolController, threadId: string
     defineTool({
       name: "preview_status",
       label: "preview_status",
-      description: "What the preview currently shows: URL, title, loading state, viewport size and the last console errors and failed requests.",
-      promptSnippet: "preview_status: URL, title, viewport and console errors of the preview",
+      description: "Check the preview's location, viewport and loading state; diagnose console errors and failed requests.",
+      promptSnippet: "preview_status: check page state and diagnose loading errors",
       parameters: Type.Object({}),
       ...sequential,
       execute: (_id, _params, signal) => run(signal, async () => {
@@ -162,8 +162,8 @@ export function previewTools(controller: PreviewToolController, threadId: string
     defineTool({
       name: "preview_snapshot",
       label: "preview_snapshot",
-      description: "A compact text tree of the page: headings, visible text and every interactive element with a stable ref (e1, e2, …). Read this instead of taking a screenshot, and pass the refs to preview_click, preview_type and preview_scroll. Refs are renumbered by every snapshot.",
-      promptSnippet: "preview_snapshot: read the preview page as a text tree with refs",
+      description: "Read page content and find interactive elements without an image. Element refs are replaced by each snapshot.",
+      promptSnippet: "preview_snapshot: read page content and find interactive elements",
       parameters: Type.Object({ maxChars: Type.Optional(Type.Number({ description: "Cap on the tree, 8000 by default" })) }),
       ...sequential,
       execute: (_id, params, signal) => run(signal, async () => {
@@ -175,8 +175,8 @@ export function previewTools(controller: PreviewToolController, threadId: string
     defineTool({
       name: "preview_screenshot",
       label: "preview_screenshot",
-      description: "A PNG of what the preview shows. Prefer preview_snapshot for reading content; take a screenshot when layout, styling or a visual bug is the question.",
-      promptSnippet: "preview_screenshot: see the preview as an image",
+      description: "Inspect layout, styling and rendering bugs in a PNG of the visible preview.",
+      promptSnippet: "preview_screenshot: inspect layout, styling and rendering bugs",
       parameters: Type.Object({ fullPage: Type.Optional(Type.Boolean({ description: "Reserved; the visible viewport is captured" })) }),
       ...sequential,
       execute: (_id, _params, signal) => run(signal, async () => {
@@ -194,8 +194,8 @@ export function previewTools(controller: PreviewToolController, threadId: string
     defineTool({
       name: "preview_click",
       label: "preview_click",
-      description: "Click an element of the previewed page, named by a snapshot ref, a CSS selector or its visible text.",
-      promptSnippet: "preview_click: click an element in the preview by ref, selector or text",
+      description: "Test buttons, links and other click interactions in the preview.",
+      promptSnippet: "preview_click: test buttons, links and click interactions",
       parameters: Type.Object({ ref: Type.Optional(Type.String()), selector: Type.Optional(Type.String()), text: Type.Optional(Type.String()) }),
       ...sequential,
       execute: (_id, params, signal) => run(signal, async () => {
@@ -207,8 +207,8 @@ export function previewTools(controller: PreviewToolController, threadId: string
     defineTool({
       name: "preview_type",
       label: "preview_type",
-      description: "Replace the text of an input, textarea or contenteditable in the preview. Set submit to press Enter afterwards, which submits the surrounding form.",
-      promptSnippet: "preview_type: put text into a field of the preview",
+      description: "Test forms and text inputs in the preview. Replaces existing text; can also submit the form.",
+      promptSnippet: "preview_type: test forms and text inputs",
       parameters: Type.Object({
         ref: Type.Optional(Type.String()),
         selector: Type.Optional(Type.String()),
@@ -225,8 +225,8 @@ export function previewTools(controller: PreviewToolController, threadId: string
     defineTool({
       name: "preview_press",
       label: "preview_press",
-      description: "Send a key to the previewed page, e.g. Enter, Tab, Escape, ArrowDown.",
-      promptSnippet: "preview_press: send a key to the preview",
+      description: "Test keyboard interaction and focus navigation in the preview.",
+      promptSnippet: "preview_press: test keyboard interaction and focus navigation",
       parameters: Type.Object({ key: Type.String() }),
       ...sequential,
       execute: (_id, params, signal) => run(signal, async () => {
@@ -241,8 +241,8 @@ export function previewTools(controller: PreviewToolController, threadId: string
     defineTool({
       name: "preview_scroll",
       label: "preview_scroll",
-      description: "Scroll the previewed page, or one scrollable element of it, by a pixel delta.",
-      promptSnippet: "preview_scroll: scroll the preview page or one element",
+      description: "Reach content outside the visible preview or test scrollable containers.",
+      promptSnippet: "preview_scroll: reach off-screen content and test scrolling",
       parameters: Type.Object({
         ref: Type.Optional(Type.String()),
         selector: Type.Optional(Type.String()),
@@ -262,8 +262,8 @@ export function previewTools(controller: PreviewToolController, threadId: string
     defineTool({
       name: "preview_evaluate",
       label: "preview_evaluate",
-      description: "Evaluate a JavaScript expression in the previewed page and return its JSON value. Use it for what the snapshot cannot say, e.g. computed styles or app state.",
-      promptSnippet: "preview_evaluate: run a JavaScript expression in the preview and read its value",
+      description: "Inspect DOM details, computed styles or app state through JavaScript. Expressions can change the page.",
+      promptSnippet: "preview_evaluate: inspect DOM details, computed styles and app state",
       parameters: Type.Object({ expression: Type.String() }),
       ...sequential,
       execute: (_id, params, signal) => run(signal, async () => {
@@ -277,8 +277,8 @@ export function previewTools(controller: PreviewToolController, threadId: string
     defineTool({
       name: "preview_wait_for",
       label: "preview_wait_for",
-      description: "Wait until the preview shows a text, matches a selector or reaches a URL. Use it after an action that navigates or loads.",
-      promptSnippet: "preview_wait_for: wait for text, a selector or a URL in the preview",
+      description: "Wait for expected content or navigation before continuing a preview test.",
+      promptSnippet: "preview_wait_for: wait for expected content or navigation",
       parameters: Type.Object({
         text: Type.Optional(Type.String()),
         selector: Type.Optional(Type.String()),
@@ -304,13 +304,13 @@ export function previewTools(controller: PreviewToolController, threadId: string
     defineTool({
       name: "preview_resize",
       label: "preview_resize",
-      description: `Set the preview's viewport, which changes CSS breakpoints (not the user agent). {mode:"fill"} fills the panel; {mode:"fixed",width:1024,height:768} sets a size in CSS pixels (200–4000), scaled down to fit the panel; {mode:"preset",preset:"iphone-12-pro",orientation:"landscape"} uses a device size. Presets: ${VIEWPORT_PRESETS.map((preset) => preset.id).join(", ")}.`,
-      promptSnippet: "preview_resize: give the preview a device or fixed viewport size, or fill the panel",
+      description: "Test responsive layouts at different viewport sizes. Does not change the browser user agent.",
+      promptSnippet: "preview_resize: test responsive layouts at different sizes",
       parameters: Type.Object({
-        mode: Type.Union([Type.Literal("fill"), Type.Literal("fixed"), Type.Literal("preset")]),
-        width: Type.Optional(Type.Number()),
-        height: Type.Optional(Type.Number()),
-        preset: Type.Optional(Type.String()),
+        mode: Type.Union([Type.Literal("fill"), Type.Literal("fixed"), Type.Literal("preset")], { description: "Fill the panel, set width and height, or use a device preset." }),
+        width: Type.Optional(Type.Number({ description: "Width in CSS pixels, 200–4000; required for fixed mode." })),
+        height: Type.Optional(Type.Number({ description: "Height in CSS pixels, 200–4000; required for fixed mode." })),
+        preset: Type.Optional(Type.String({ description: `Required for preset mode. Options: ${VIEWPORT_PRESETS.map((preset) => preset.id).join(", ")}.` })),
         orientation: Type.Optional(Type.Union([Type.Literal("portrait"), Type.Literal("landscape")])),
       }),
       ...sequential,
@@ -325,8 +325,8 @@ export function previewTools(controller: PreviewToolController, threadId: string
     defineTool({
       name: "preview_set_appearance",
       label: "preview_set_appearance",
-      description: "Emulate prefers-color-scheme in the preview: \"dark\" or \"light\" to see the page in that appearance, \"system\" to clear the override and follow the OS.",
-      promptSnippet: "preview_set_appearance: show the preview page in light or dark mode",
+      description: "Check the page's light, dark or system-following appearance.",
+      promptSnippet: "preview_set_appearance: check light and dark appearance",
       parameters: Type.Object({ colorScheme: Type.Union([Type.Literal("system"), Type.Literal("light"), Type.Literal("dark")]) }),
       ...sequential,
       execute: (_id, params, signal) => run(signal, async () => {
@@ -337,8 +337,8 @@ export function previewTools(controller: PreviewToolController, threadId: string
     defineTool({
       name: "preview_recording_start",
       label: "preview_recording_start",
-      description: "Start recording the preview as a video (webm), e.g. to show a flow you are about to click through. Stop it with preview_recording_stop; it stops by itself after 10 minutes.",
-      promptSnippet: "preview_recording_start: start a video recording of the preview",
+      description: "Document a preview interaction flow as video. Recording stops automatically after 10 minutes.",
+      promptSnippet: "preview_recording_start: document an interaction flow as video",
       parameters: Type.Object({}),
       ...sequential,
       execute: (_id, _params, signal) => run(signal, async () => {
@@ -349,8 +349,8 @@ export function previewTools(controller: PreviewToolController, threadId: string
     defineTool({
       name: "preview_recording_stop",
       label: "preview_recording_stop",
-      description: "Stop the preview's recording and answer with the path of the webm file, which you can mention to the user.",
-      promptSnippet: "preview_recording_stop: stop the preview recording and get its file",
+      description: "Finish documenting an interaction flow and obtain the saved WebM recording.",
+      promptSnippet: "preview_recording_stop: finish the video and obtain its file",
       parameters: Type.Object({}),
       ...sequential,
       execute: (_id, _params, signal) => run(signal, async () => {

@@ -150,8 +150,9 @@ describe("the Agents panel model", () => {
     expect(shortModel(undefined)).toBeUndefined();
   });
 
-  it("calls a held question what the rail calls it", () => {
-    expect(questionLine({ pendingToolPrompt: "Run rm?" })).toBe("Question: Run rm?");
+  it("says what a held agent asks, as design 1c words it, and an approval in its own words", () => {
+    expect(questionLine({ pendingToolPrompt: "[Index] Paginate by id?\n\n1. Yes" })).toBe("Asks: Paginate by id?");
+    expect(questionLine({ pendingToolPrompt: "Wants to edit" })).toBe("Wants to edit");
     expect(questionLine({})).toBe("Question");
     expect(rowStand({ id: "a", title: "A", status: "waiting" })).toBe("Question");
   });
@@ -189,6 +190,20 @@ describe("the Agents panel model", () => {
     expect(viewRows(rows, "done").open).toEqual([]);
     expect(panelRows(model, "done").map((row) => row.kind)).toEqual(["section", "agent", "section", "agent", "agent", "section", "agent"]);
     expect(panelRows(model, "asks").map((row) => row.key)).toEqual(["ask"]);
+    // Sorted by start, the open ones keep the order they were spawned in.
+    expect(panelRows(model, "running", "started").filter((row) => row.kind === "agent").slice(0, 3).map((row) => row.key)).toEqual(["queued", "run", "ask"]);
+  });
+
+  it("shows four finished agents per turn under the running ones, the rest one click away", () => {
+    const agents: AgentsState = {
+      maxRunning: 8,
+      links: Array.from({ length: 12 }, (_, index) => link(`done-${index}`, "parent", "completed", index, { turn: 1 })),
+    };
+    const model = agentsPanelModel(agents, "parent", []);
+    const running = panelRows(model, "running");
+    expect(running.map((row) => row.kind)).toEqual(["section", "agent", "agent", "agent", "agent", "more"]);
+    expect(running.at(-1)).toMatchObject({ kind: "more", count: 8 });
+    expect(panelRows(model, "done").filter((row) => row.kind === "agent")).toHaveLength(12);
   });
 });
 

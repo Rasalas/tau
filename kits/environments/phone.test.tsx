@@ -5,6 +5,7 @@ import type { PlatformEnvironments, UiDiscoveredHosts, UiEnvironment, UiEnvironm
 import { createKitHarness, createMemoryStorage, setClientStorage, ThreadStore, ThreadStoreContext } from "../../src/renderer/test-support/kit-harness.js";
 import { createRailSection, environmentsExtension } from "./desktop.js";
 import { notReachable } from "./list-head.js";
+import { WORKSPACE_STORE_SERVICE, type DraftMachineSource } from "./protocol.js";
 
 afterEach(cleanup);
 
@@ -15,7 +16,7 @@ const machine = (id: string, patch: Partial<UiEnvironment> = {}): UiEnvironment 
 // A phone knows no machine of its own: every one is a paired host.
 const mac = machine("mac");
 const rex = machine("rex", {
-  threads: [{ id: "r1", path: "/r/1", title: "Build on rex", projectName: "shop", modifiedAt: 5, running: true }, { id: "r2", path: "/r/2", title: "Old", projectName: "shop", modifiedAt: 1, settled: true }],
+  threads: [{ id: "r1", path: "/r/1", title: "Build on rex", projectName: "shop", modifiedAt: 5, running: true, waiting: true }, { id: "r2", path: "/r/2", title: "Old", projectName: "shop", modifiedAt: 1, settled: true }],
   threadCount: 2,
   projects: [{ name: "other", lastOpenedAt: 9, workspaceId: "ws-other" }, { name: "shop", lastOpenedAt: 1, workspaceId: "ws-shop" }],
 });
@@ -49,9 +50,14 @@ function fakeActions(patch: Partial<WorkbenchActions> = {}): WorkbenchActions {
 
 function phone(list: UiEnvironments) {
   const fake = fakeEnvironments(list);
-  const { registry } = createKitHarness(undefined, "compact", { environments: fake.environments });
+  const { registry } = createKitHarness(async (_extensionId, command) => command === "agents" ? { available: false, machines: [] } : undefined, "compact", { environments: fake.environments });
+  // Workspace Kit's store, as far as "Run on" goes: it keeps the machines' source for its pill.
+  let runOn: DraftMachineSource | undefined;
+  registry.activate({ id: "workspace-stub", name: "Workspace", activate: (context) => {
+    context.provideService(WORKSPACE_STORE_SERVICE, { registerDraftMachine: (source: DraftMachineSource) => { runOn = source; return () => undefined; } });
+  } });
   registry.activate(environmentsExtension);
-  return { ...fake, registry };
+  return { ...fake, registry, runOn: () => runOn! };
 }
 
 describe("Machines Kit on a phone", () => {
@@ -60,29 +66,28 @@ describe("Machines Kit on a phone", () => {
     const [source] = registry.getThreadListSources();
     expect(source!.id).toBe("environments.threads");
     const stop = source!.subscribe(() => undefined);
-    expect(source!.threads().map((entry) => [entry.key, entry.running ?? false, entry.settled ?? false])).toEqual([["machine:rex:r1", true, false], ["machine:rex:r2", false, true]]);
+    expect(source!.threads().map((entry) => [entry.key, entry.running ?? false, entry.waiting ?? false, entry.settled ?? false])).toEqual([["machine:rex:r1", true, true, false], ["machine:rex:r2", false, false, true]]);
     expect(source!.here!()?.name).toBe("mac");
     set({ shown: "mac", environments: [mac], secureStorage: true });
     expect(source!.here!()).toBeUndefined();
     stop();
-    // No Settings page and no title-bar chip: the phone manages its hosts in its own host list.
-    expect(registry.getSettingsPages()).toEqual([]);
-    expect(registry.getRegions("draft-actions").map((region) => region.id)).toEqual(["environments.run-on-sheet", "environments.arrival"]);
+    // Its own Machines page (1t), no title-bar chip: the phone pairs in its own host list.
+    expect(registry.getSettingsPages().map((page) => page.id)).toEqual(["environments.machines"]);
+    expect(registry.getRegions("draft-actions").map((region) => region.id)).toEqual(["environments.arrival"]);
   });
 
-  it("offers every paired host in a sheet, the one out of reach with its reason, and moves the draft to the one picked", () => {
-    const { registry, environments } = phone({ shown: "mac", environments: [mac, rex, box], secureStorage: true });
-    const Control = registry.getRegions("draft-actions").find((region) => region.id === "environments.run-on-sheet")!.Component;
+  it("offers every paired host in Run on's sheet, the one out of reach with its reason, and moves the draft to the one picked", async () => {
+    const { runOn, environments } = phone({ shown: "mac", environments: [mac, rex, box], secureStorage: true });
+    const { Section } = runOn();
     const store = new ThreadStore();
     const setComposerDraft = vi.fn();
-    render(<ThreadStoreContext.Provider value={store}><Control actions={fakeActions({ activeThread: () => ({ draftPending: true, cwd: "/Users/me/shop" }) as never, composerDraft: () => "Fix checkout", setComposerDraft })} /></ThreadStoreContext.Provider>);
-    fireEvent.click(screen.getByRole("button", { name: "Run on mac" }));
-    const sheet = screen.getByRole("dialog", { name: "Run on" });
-    const rows = [...sheet.querySelectorAll<HTMLButtonElement>(".run-on-row")];
-    expect(rows.map((row) => [row.textContent, row.getAttribute("aria-pressed"), row.disabled])).toEqual([
-      ["maconline · idle", "true", false],
-      ["rexonline · 1 running", "false", false],
-      [expect.stringMatching(/^boxOffline · last seen/u), "false", true],
+    render(<ThreadStoreContext.Provider value={store}><Section touch actions={fakeActions({ activeThread: () => ({ draftPending: true, cwd: "/Users/me/shop" }) as never, composerDraft: () => "Fix checkout", setComposerDraft })} /></ThreadStoreContext.Provider>);
+    await screen.findByRole("button", { name: /^rex.*online · 1 running · moves this window there/u });
+    const rows = within(screen.getByRole("group", { name: "Machines" })).getAllByRole("button") as HTMLButtonElement[];
+    expect(rows.map((row) => [row.textContent, row.getAttribute("aria-pressed"), row.disabled, row.dataset.touch])).toEqual([
+      ["maconline · idle · moves this window there", "true", false, "true"],
+      ["rexonline · 1 running · moves this window there", "false", false, "true"],
+      [expect.stringMatching(/^boxOffline · last seen/u), "false", true, "true"],
     ]);
     // Opening the sheet asks the machine out of reach again.
     expect(environments.retry).toHaveBeenCalledWith("box");
@@ -95,8 +100,8 @@ describe("Machines Kit on a phone", () => {
   it("says over the list which host it cannot reach, with Retry, or Pair again for one that refused it", async () => {
     const { registry, environments } = phone({ shown: "mac", environments: [mac, rex, box, attic], secureStorage: true });
     const Head = registry.getRegions("thread-list-head").find((region) => region.id === "environments.list-head")!.Component;
-    render(<Head actions={fakeActions()} />);
-    const notices = screen.getAllByRole("status");
+    render(<ThreadStoreContext.Provider value={new ThreadStore()}><Head actions={fakeActions()} /></ThreadStoreContext.Provider>);
+    const notices = await screen.findAllByRole("status");
     expect(notices.map((notice) => notice.textContent)).toEqual([
       expect.stringMatching(/^attic no longer accepts this devicePair again$/u),
       expect.stringMatching(/^box not reachable · last seen (.+ago|on .+)Retry$/u),
@@ -107,6 +112,31 @@ describe("Machines Kit on a phone", () => {
     expect(environments.open).toHaveBeenCalledWith("attic");
     // What the page was sent here for is asked for once.
     expect(environments.takeArrival).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers a machine that answers when the one on screen is gone, once (2p)", async () => {
+    const { registry, environments } = phone({ shown: "box", environments: [box, rex], secureStorage: true });
+    const Head = registry.getRegions("thread-list-head").find((region) => region.id === "environments.list-head")!.Component;
+    render(<ThreadStoreContext.Provider value={new ThreadStore()}><Head actions={fakeActions()} /></ThreadStoreContext.Provider>);
+    const card = (await screen.findByText("Showing what the phone last saw")).closest("div")!;
+    fireEvent.click(within(card).getByRole("button", { name: "Use rex" }));
+    expect(environments.open).toHaveBeenCalledWith("rex");
+    fireEvent.click(within(card).getByRole("button", { name: "OK" }));
+    expect(screen.queryByText("Showing what the phone last saw")).toBeNull();
+  });
+
+  it("lists the paired machines in Settings, shows another on a tap and pairs in the app's own screen (1t)", () => {
+    const { registry, environments } = phone({ shown: "mac", environments: [mac, rex, box], secureStorage: true });
+    const page = registry.getSettingsPages().find((entry) => entry.id === "environments.machines")!;
+    render(<page.Component onNotify={vi.fn()} onOpenSettings={vi.fn()} />);
+    const rows = screen.getByRole("group", { name: "Machines" });
+    expect(within(rows).getByRole("button", { name: /^rex/u }).textContent).toContain("online · 1 running · other, shop");
+    fireEvent.click(within(rows).getByRole("button", { name: /^rex/u }));
+    expect(environments.open).toHaveBeenCalledWith("rex");
+    fireEvent.click(within(rows).getByRole("button", { name: /^box/u }));
+    expect(environments.retry).toHaveBeenCalledWith("box");
+    fireEvent.click(screen.getByRole("button", { name: "Pair a machine" }));
+    expect(environments.pair).toHaveBeenCalled();
   });
 
   it("goes on placing a new thread's draft after the list that took it gave way to the draft, with the draft's own actions", async () => {

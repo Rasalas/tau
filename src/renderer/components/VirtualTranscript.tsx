@@ -15,6 +15,8 @@ import { useLeadingRowAnchor } from "./useLeadingRowAnchor";
 import { TranscriptRowSizes, transcriptRowKind } from "./transcript-row-sizes";
 import { LazyFeatureBoundary } from "./LazyFeature";
 import { composerReserve } from "./ComposerReserve";
+import { startsTurn, turnNumberOf } from "../../shared/message-turns";
+import type { TranscriptTurn } from "../extension-system";
 
 export interface VirtualTranscriptProps {
   messages: UiMessage[];
@@ -34,7 +36,7 @@ export interface VirtualTranscriptProps {
   /** Invalidates the user-message lookup when an existing record's metadata changes. */
   lookupRevision?: number;
   onCopyMessage?: (message: UiMessage) => void;
-  onForkMessage?: (message: UiMessage) => void;
+  onForkMessage?: (message: UiMessage, turn?: TranscriptTurn) => void;
   onEditMessage?: (message: UiMessage) => void;
   /** Offered on the last answer only, once it failed and the run is over. */
   onRetryMessage?: (message: UiMessage) => void;
@@ -148,6 +150,21 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     return { length: messages.length, lastId, ids, positions, references };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messageScopeKey, messages.length, firstId, lastId, lookupRevision]);
+  // Each prompt's turn, by the prompt's id; ids and entry ids are all a divider's kits read.
+  const turns = useMemo(() => {
+    const byPrompt = new Map<string, TranscriptTurn>();
+    let turn: { number: number; messages: UiMessage[]; last: boolean } | undefined;
+    for (const message of messages) {
+      if (startsTurn(message)) {
+        if (turn) turn.last = false;
+        turn = { number: turnNumberOf(turn?.number ?? 0, message), messages: [], last: true };
+        byPrompt.set(message.id, turn);
+      }
+      turn?.messages.push(message);
+    }
+    return byPrompt;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messageIndex]);
   const normalizedActivities = useMemo(() => pendingActivities.map((entry) => ({
     ...entry,
     ...(entry.afterMessageId && messageIndex.references.has(entry.afterMessageId)
@@ -450,7 +467,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
       event.preventDefault();
       if (focusedIndex !== undefined && focusedIndex >= 0 && focusedIndex < messages.length) {
         const msg = messages[focusedIndex];
-        if (msg) onForkMessage?.(msg);
+        if (msg) onForkMessage?.(msg, [...turns.values()].find((turn) => turn.messages.includes(msg)));
       }
       return;
     }
@@ -465,7 +482,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
       }
       return;
     }
-  }, [expandedMessageIds, focusedIndex, messages, onCopyMessage, onForkMessage, onFocusComposer, scrollRef, updateExpandedMessage, virtualizer]);
+  }, [expandedMessageIds, focusedIndex, messages, onCopyMessage, onForkMessage, onFocusComposer, scrollRef, turns, updateExpandedMessage, virtualizer]);
 
   const measuredRows = virtualizer.getVirtualItems();
   const rows = measuredRows.length > 0
@@ -536,8 +553,8 @@ export const VirtualTranscript = memo(function VirtualTranscript({
           streaming={Boolean(isStreaming && message === messages.at(-1) && message.role === "assistant")}
           detail={detail}
           onCopy={onCopyMessage}
-          onFork={onForkMessage}
           onEdit={onEditMessage}
+          turn={turns.get(message.id)}
           onRetry={message.error && !isStreaming && message === messages.at(-1) ? onRetryMessage : undefined}
           retried={retried.get(message.id)}
           onToggleExpanded={onMessageToggleExpanded}

@@ -25,6 +25,7 @@
 .stage-tab.active { background: var(--stage); color: var(--ink); font-weight: 600; }
 .stage-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .stage-tab.preview .stage-tab-label { font-style: italic; }
+.stage-tab.trace:not(.active) { color: var(--muted); }
 .stage-tab-icon { flex: none; display: grid; place-items: center; color: var(--muted); }
 .stage-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .stage-tab-changed { flex: none; color: var(--acid-text); font: 600 10px var(--sans); font-style: normal; }
@@ -59,3 +60,13 @@ body[data-profile="compact"] .stage-tab-close { width: 36px; height: 36px; right
 body[data-profile="compact"] .stage-strip-actions .stage-tool { width: 44px; height: 44px; }
 /* On the stage the tab names the panel: its own header keeps only its controls. */
 .panel-pane .panel-header > h2 { display: none; }
+
+body[data-profile="compact"] .stage-strip-actions { flex: 0 1 auto; min-width: 44px; max-width: 65%; }
+/* Design 2f: a tab dragged below the strip tints the half it splits into. */
+.stage { position: relative; }
+.stage-split-drop {
+  position: absolute; z-index: 3; inset: 40px 0 0 50%; pointer-events: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  border-left: 2px dashed var(--acid); background: color-mix(in srgb, var(--acid-bg) 85%, transparent); color: var(--acid-text); font: 600 12.5px var(--sans);
+}
+.stage-split { flex: 1; min-height: 0; display: grid; grid: minmax(0, 1fr) / repeat(2, minmax(0, 1fr)); }
+.stage-split > :last-child { border-left: 1px solid var(--line); }

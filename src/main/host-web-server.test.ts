@@ -8,6 +8,8 @@ const root = mkdtempSync(join(tmpdir(), "tau-web-client-"));
 mkdirSync(join(root, "assets"), { recursive: true });
 writeFileSync(join(root, "index.html"), "<!doctype html><title>Tau</title>");
 writeFileSync(join(root, "assets", "main.js"), "export const ok = 1;\n");
+writeFileSync(join(root, "assets", "tls.wasm"), Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]));
+writeFileSync(join(root, "THIRD-PARTY-BROWSER-CONNECT-LICENSES.txt"), "TLS library licenses\n");
 writeFileSync(join(root, "manifest.webmanifest"), "{\"name\":\"Tau\"}\n");
 
 let web: ReturnType<typeof createWebClientServer>;
@@ -44,6 +46,16 @@ describe("the web client a listening host serves", () => {
     expect(manifest.status).toBe(200);
     expect(manifest.headers.get("content-type")).toBe("application/manifest+json");
     expect(manifest.headers.get("cache-control")).toBe("no-cache");
+  });
+
+  it("serves the TLS adapter for WebAssembly streaming and its license text", async () => {
+    const wasm = await fetch(`${origin}/assets/tls.wasm`);
+    expect(wasm.headers.get("content-type")).toBe("application/wasm");
+    expect(wasm.headers.get("x-content-type-options")).toBe("nosniff");
+    expect((await wasm.arrayBuffer()).byteLength).toBe(8);
+    const licenses = await fetch(`${origin}/THIRD-PARTY-BROWSER-CONNECT-LICENSES.txt`);
+    expect(licenses.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+    expect(await licenses.text()).toContain("TLS library licenses");
   });
 
   it("serves nothing it was not given", async () => {

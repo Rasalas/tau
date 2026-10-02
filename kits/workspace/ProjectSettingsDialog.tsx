@@ -91,7 +91,7 @@ export function ProjectSettingsDialog({ project, current, automatic, onSave, onC
   );
 
   return (
-    <Dialog className="project-settings-dialog" label="Project settings" onClose={onClose}>
+    <Dialog className="confirm-dialog project-settings-dialog" label="Project settings" onClose={onClose}>
       <h2>Project settings</h2>
       <div className="project-settings-identity">
         <strong>{project.name}</strong>

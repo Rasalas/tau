@@ -23,6 +23,8 @@ import { offeringKey } from "./components/model-offerings";
 import type { NewThreadController } from "../workbench/new-thread-controller";
 import type { AppPageStore } from "../workbench/app-page-store";
 import { withAppPages } from "./app-page-actions";
+import { actionableStageTab } from "./workspace-resource-navigation";
+import type { StageTab } from "../workbench/stage";
 
 export interface UseWorkbenchActionsOptions {
   client: HostClient | undefined;
@@ -44,6 +46,7 @@ export interface UseWorkbenchActionsOptions {
   /** Brings the chat into view (out of a maximized stage, a sheet); with `focusComposer`, the composer takes the keyboard once drawn. */
   showThread?: (options: { focusComposer: true }) => void;
   toggleSidebar?: () => void;
+  toggleSpine?: () => void;
   openPanel: (id: string) => void;
   closePanel?: (id: string) => void;
   togglePanelMaximized?: () => void;
@@ -134,6 +137,8 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       });
       options.openNewThreadPicker(context ? { preselect: context.workspaceId ?? context.path } : undefined);
     };
+    const commandTab = (tab: StageTab | undefined) => actionableStageTab(tab,
+      pendingNewThreadRef.current ? pendingNewThreadRef.current.workspaceId : snapshot?.workspaceId, stageTabs.documentSourceId?.());
     const actions: WorkbenchActions = {
       openPanel,
       ...(options.closePanel ? { closePanel: options.closePanel } : {}),
@@ -166,6 +171,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       },
       openThreadTree,
       duplicateThread,
+      forkFrom: options.threadCommands.forkMessage,
       focusComposer: (seed) => {
         if (seed !== undefined) options.setComposerSeed(seed);
         const composer = options.composerRef.current;
@@ -179,16 +185,18 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       focusStage,
       toggleDock: () => { options.setDockOpen((open) => !open); },
       ...(toggleSidebar ? { toggleSidebar } : {}),
+      ...(options.toggleSpine ? { toggleSpine: options.toggleSpine } : {}),
       notify: options.setNotice,
       ...(options.toasts ? { toast: options.toasts.show } : {}),
       openProjectSources: options.openProjectSources,
       applyHostResult,
       closeActiveStageTab: stageTabs.closeActive,
       cycleStageTab,
+      splitStage: stageTabs.split,
       openStageTab: stageTabs.open,
       closeStageTab: stageTabs.close,
-      stageTabs: stageTabs.tabs,
-      activeStageTab: stageTabs.active,
+      stageTabs: () => stageTabs.tabs().filter((tab) => commandTab(tab)),
+      activeStageTab: () => commandTab(stageTabs.active()),
       copyText: async (text: string) => { await options.platform.clipboard.writeText(text); },
       openExternal: (url: string) => options.platform.openExternal(url),
       // Read when called: whether the host's files are this machine's settles after the first render.
@@ -294,7 +302,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
             options.setNotice("Draft updated from external editor.");
           }
         } catch (error) {
-          const msg = error instanceof Error ? error.message : String(error);
+          const msg = errorMessage(error);
           options.setNotice(msg);
         }
       },
@@ -358,7 +366,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
   }, [
     applyHostResult, client, openPanel, openThread, activeDraftKey, openWorkspace,
     reloadWorkbench, settleActiveThread, snapshot, switchSession, openThreadTree, duplicateThread,
-    stageTabs, cycleStageTab, openModelPicker, focusStage, openInstructions, toggleSidebar, options.attachFiles, options.pages,
+    stageTabs, cycleStageTab, openModelPicker, focusStage, openInstructions, toggleSidebar, options.toggleSpine, options.attachFiles, options.pages,
     options.openDraft, options.discardDraft,
   ]);
 }

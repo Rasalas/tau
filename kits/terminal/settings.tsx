@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { Button, SegmentedControl, SettingRow, SettingsSection, useSetting, type PreferencesStore, type SettingsPageProps } from "tau";
+import { Button, SegmentedControl, SettingRow, SettingsSection, TextField, useSetting, type PreferencesStore, type SettingsPageProps } from "tau";
 import { TERMINAL_HOST_EXTENSION_ID, TERMINAL_PLACEMENT_SETTING, type TerminalPlacement } from "./protocol.js";
 
 /** What the Settings search finds on the page; each id is a row's anchor. */
@@ -41,4 +41,18 @@ export function TerminalSettingsPage({ preferences, onOpenSettings }: SettingsPa
       />
     </SettingsSection>
   </div>;
+}
+
+/** Connections' This machine card (design 2h): the shell a terminal starts, the user's own unless set. */
+export function ShellRow() {
+    const shell = useSetting<string>(`values.${TERMINAL_HOST_EXTENSION_ID}.shell`, { defaultValue: "", read: (raw) => (typeof raw === "string" ? raw : undefined) });
+    return (
+      <SettingRow id="setting-shell" title="Shell" description="terminals start" setting={shell}
+        control={<TextField label="Shell" mono placeholder="Login shell" value={shell.value} onCommit={(draft) => {
+          const next = draft.trim();
+          if (next === shell.value) return;
+          if (next) shell.set(next);
+          else shell.reset();
+        }} />} />
+    );
 }

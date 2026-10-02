@@ -80,6 +80,8 @@ const MAX_RESTARTS = 3;
 const RESTART_WINDOW_MS = 60_000;
 const DEFAULT_START_TIMEOUT_MS = 30_000;
 const SHUTDOWN_TIMEOUT_MS = 10_000;
+/** How long a host gets to stop for an update before the next, harder step. */
+const PROMPT_STOP_MS = 3_000;
 const SERVICE_START_TIMEOUT_MS = 30_000;
 const SERVICE_CHECK_MS = 2_000;
 const SILENT_OWNER_TIMEOUT_MS = 30_000;
@@ -263,9 +265,10 @@ export class HostProcessSupervisor {
    * Asks the host to shut down and waits for it, then signals. A host that is
    * meant to outlive this window is detached instead, and a service host is
    * the service manager's to stop. A pending restart is cancelled, and a host
-   * still starting is ended.
+   * still starting is ended. `promptly` (an update) gives the host less time
+   * and stops a service's host as well, by asking only: a signalled job is restarted.
    */
-  async stop(): Promise<void> {
+  async stop(promptly = false): Promise<void> {
     this.stopping = true;
     this.stopServiceCheck();
     this.stopAdoptedCheck();
@@ -275,20 +278,28 @@ export class HostProcessSupervisor {
     if (starting) await endChild(starting);
     const running = this.running;
     if (!running) return;
-    if (running.service) {
+    if (running.service && !promptly) {
       this.running = undefined;
       return;
     }
+    const askedMs = promptly ? PROMPT_STOP_MS : SHUTDOWN_TIMEOUT_MS;
     try {
       // The file, not the token read at start: a rotation may have replaced it since.
       const token = await readFile(running.tokenPath, "utf8").then((value) => value.trim()).catch(() => "") || running.token;
-      const uplink = new HostUplink({ url: running.url, token, requestTimeoutMs: SHUTDOWN_TIMEOUT_MS });
+      const uplink = new HostUplink({ url: running.url, token, requestTimeoutMs: askedMs });
       await uplink.request("host.shutdown").catch(() => undefined);
       uplink.close();
     } catch {
       // Unreachable already: the signal below is the fallback.
     }
-    await endHost(running.pid, this.options.userData, this.endOptions(this.options.signalGraceMs ?? SHUTDOWN_TIMEOUT_MS))
+    if (running.service) {
+      // A clean exit leaves the unit stopped; the updated window starts it from the new app.
+      await waitUntil(() => !processAlive(running.pid), askedMs);
+      this.running = undefined;
+      return;
+    }
+    const ending = promptly ? { ...this.endOptions(PROMPT_STOP_MS), graceMs: PROMPT_STOP_MS } : this.endOptions(this.options.signalGraceMs ?? SHUTDOWN_TIMEOUT_MS);
+    await endHost(running.pid, this.options.userData, ending)
       .catch((error: unknown) => this.options.logger?.error("host-process.stop-failed", error));
     await rm(hostDescriptorPath(this.options.userData), { force: true }).catch(() => undefined);
     this.running = undefined;

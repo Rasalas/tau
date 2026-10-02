@@ -25,8 +25,8 @@ export function attachEvidenceTool(attach: Attach): AnyTool {
   const tool: ToolDefinition<typeof parameters, undefined> = {
     name: ATTACH_EVIDENCE_TOOL,
     label: ATTACH_EVIDENCE_TOOL,
-    description: "Attach a picture of the Preview's page or of the window you drive to this turn, with a caption, so the reviewer sees the change and not only the code. Tau already keeps a few pictures by itself; use this for the moments that prove your change — before and after. Reload the Preview first when the page does not reload by itself.",
-    promptSnippet: "attach_evidence: attach a captioned picture of the Preview or the driven window to this turn for the reviewer",
+    description: "Show the user visual evidence of a change or bug with a captioned screenshot. Captures the current preview or driven window, not a saved image.",
+    promptSnippet: "attach_evidence: show the user visual evidence of a change or bug",
     parameters,
     executionMode: "sequential",
     execute: async (_id, params, _signal, _update, ctx): Promise<AgentToolResult<undefined> & { isError?: boolean }> => {

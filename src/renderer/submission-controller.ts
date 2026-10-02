@@ -135,11 +135,11 @@ export class SubmissionController {
   }
 
   /** Offers the first prompt to an extension that starts the thread itself; true when one took it. */
-  private claimNewThread = async (pending: NewThreadDraft, prompt: string, alternate: boolean, attachments: number): Promise<boolean> => {
+  private claimNewThread = async (pending: NewThreadDraft, prompt: string, alternate: boolean, attachments: UiPromptAttachment[], skillDraft?: UiSkillDraft): Promise<boolean> => {
     const actions = this.ports.actions();
     const scope = draftKey(undefined, pending);
     if (!actions || !scope) return false;
-    const { runtime, model } = this.newThreadStart(pending);
+    const { runtime, model, thinkingLevel, mode } = this.newThreadStart(pending);
     const notice = this.preparingNotice(pending, scope);
     try {
       return await this.ports.registry.claimNewThread({
@@ -150,7 +150,11 @@ export class SubmissionController {
         alternate,
         model,
         runtime,
-        attachments,
+        attachments: attachments.length,
+        promptAttachments: attachments,
+        skillDraft,
+        thinkingLevel,
+        mode,
       }, actions);
     } finally {
       notice.clear();
@@ -227,8 +231,12 @@ export class SubmissionController {
     }
     const client = getClient();
     let pendingNewThread = newThread.current();
-    if (pendingNewThread && !pendingNewThread.sessionId && await this.claimNewThread(pendingNewThread, text, alternate, attachments.length)) {
-      return { accepted: true };
+    try {
+      if (pendingNewThread && !pendingNewThread.sessionId && await this.claimNewThread(pendingNewThread, text, alternate, attachments, skillDraft)) {
+        return { accepted: true };
+      }
+    } catch (error) {
+      return { accepted: false, message: errorMessage(error) };
     }
     const snapshot = view.getSnapshot();
     const visibleStreaming = threads.getActivity().isStreaming;
@@ -255,7 +263,7 @@ export class SubmissionController {
         // ComposerScopeStore keeps the captured draft when a submission is
         // rejected, including edits made while preflight was in flight.
         // Re-seeding here would overwrite those newer edits.
-        this.ports.notify(String(error));
+        this.ports.notify(errorMessage(error));
         return { accepted: false, message: errorMessage(error) };
       }
     }
@@ -317,7 +325,7 @@ export class SubmissionController {
       const currentSubmission = isCurrentSubmission();
       cancelTranscriptTurn();
       removeOptimisticMessage(view, optimistic.id);
-      if (currentSubmission) this.ports.notify(String(error));
+      if (currentSubmission) this.ports.notify(errorMessage(error));
       return { accepted: false, message: errorMessage(error) };
     };
     const submittedDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);

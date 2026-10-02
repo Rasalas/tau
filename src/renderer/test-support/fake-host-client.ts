@@ -133,6 +133,9 @@ function defaults(): HostClient {
     allowServiceSandbox: async () => { throw Object.assign(new Error("No service in tests."), { code: "unknown-method" }); },
     // No window process in tests unless one is given: the page shows no other machines.
     listEnvironments: async () => { throw Object.assign(new Error("No machines in tests."), { code: "unsupported" }); },
+    getEnvironmentConfig: async () => { throw Object.assign(new Error("No machines in tests."), { code: "unsupported" }); },
+    updateEnvironmentConfig: async () => ({}),
+    clearEnvironmentConfig: async () => ({}),
     pairEnvironment: async () => ({ state: "failed", message: "No machines in tests." }),
     cancelEnvironmentPairing: async () => undefined,
     renameEnvironment: async () => ({ renamed: false }),
@@ -145,6 +148,7 @@ function defaults(): HostClient {
     setEnvironmentAgents: async (_id, on) => ({ state: on ? "on" : "off" }),
     watchEnvironmentThread: async () => undefined,
     loadEnvironmentTranscript: async (_machine, sessionId) => ({ sessionId, messages: [], hasMore: false }),
+    invokeEnvironmentExtension: async () => null,
     readEnvironmentExtension: async () => null,
     // Exposed only through the FakeHostClient wrapper below; kept here so
     // `emit` shares the same listener set as the default `onHostEvent`.

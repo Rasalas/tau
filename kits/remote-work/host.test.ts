@@ -151,6 +151,28 @@ async function twoHosts(options: { projectFile?: Record<string, unknown>; projec
   return { dir, repo, rex, a, call, aEvents, rexEvents, rexRoot, rexEnv, rexServices, rexGit, hookMark, blobs, paired, machines, projectNames };
 }
 
+describe("Remote Work Kit: which repository a project is", () => {
+  it("names two checkouts of one origin alike, and a project it cannot read as none", async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), "tau-remote-identity-")));
+    made.push(dir);
+    const repo = await fixture(dir);
+    const other = join(dir, "elsewhere", "renamed");
+    execFileSync("git", ["clone", "-q", pathToFileURL(repo.origin).href, other], { cwd: dir, stdio: "pipe" });
+    const plain = join(dir, "plain");
+    await mkdir(plain, { recursive: true });
+    const known: Record<string, string> = { "ws-work": repo.work, "ws-other": other, "ws-plain": plain };
+    const kit = await activateHostKit(createRemoteWorkHostExtension(), {
+      stateDir: join(dir, "state"),
+      knownWorkspacePath: async (workspace: string) => known[workspace] ?? Promise.reject(new Error("not admitted")),
+    });
+    const answer = await kit.invoke(ID, "project-identities", { workspaces: ["ws-work", "ws-other", "ws-plain", "ws-unknown"] }) as Record<string, string | null>;
+    expect(answer["ws-work"]).toEqual(expect.any(String));
+    expect(answer["ws-other"]).toBe(answer["ws-work"]);
+    expect(answer["ws-plain"]).toBeNull();
+    expect(answer["ws-unknown"]).toBeNull();
+  });
+});
+
 describe("Remote Work Kit: a project's state to another machine and back", () => {
   it("brings the checkout's exact state to a worktree there, with the chosen ignored files, and no hook runs", async () => {
     const hosts = await twoHosts();

@@ -20,23 +20,25 @@ import * as workspaceGit from "./workspace-git.js";
 import { GitCoordinator } from "./git-coordinator.js";
 import { readBoundedFileContent, statFile, writeTextFile } from "./file-content.js";
 import { defaultEditorProbe, editorCommand, FILE_MANAGER_ID, findInstalledEditors, launchEditor } from "./editors.js";
-import { AUTO_PULL_OPTION, CHECKPOINT_EVENT, CLONE_PROGRESS_EVENT, isWorktreeSubmodules, PROJECT_SCRIPTS_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, type ProjectDefaults, type UiDirectoryListing } from "./protocol.js";
+import { AUTO_PULL_OPTION, CHECKPOINT_EVENT, CLONE_PROGRESS_EVENT, HEAD_CHANGED_EVENT, isWorktreeSubmodules, PROJECT_SCRIPTS_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, WORKSPACE_HEAD_TOPIC, WORKSPACE_CLONE_TOPIC, WORKSPACE_CHECKPOINT_TOPIC, type ProjectDefaults, type UiDirectoryListing } from "./protocol.js";
 import { createBranchRequests } from "./branch-request.js";
 import { readReviewRequestContext } from "./review-request-context.js";
 import { createWorkspaceKitLifecycle } from "./host-lifecycle.js";
 import { registerWorktreeStorage } from "./worktree-storage-host.js";
 import { registerAppOpen } from "./app-open.js";
-import { worktreeSetupCommand } from "./agent-worktrees.js";
+import { branchBaseConfigKey, captureStartingState, readBranchBase, worktreeSetupCommand } from "./agent-worktrees.js";
 import { createTurnStatsFile, turnStatOf } from "./turn-stats.js";
 import { initWorktreeSubmodules } from "./worktree-submodules.js";
 import { DefaultBranchPuller } from "./default-branch-pull.js";
 import { CloneJobs } from "./clone-jobs.js";
 import { decodeRepoFromTree, repoFromTree } from "./repo-writes.js";
 import { commitFilesToBranch, decodeBranchFiles, mergeBranch } from "./branch-commit.js";
-import { mergeThreadBranch, readThreadBranch, readThreadBranches } from "./thread-branches.js";
+import { mergeThreadBranch, readThreadBranch, readThreadBranches, readThreadConflicts, removeThreadBranch } from "./thread-branches.js";
+import { decodePicks } from "./merge-picks.js";
 import { createCheckoutTurns } from "./checkout-turns.js";
 import { countThreadChanges } from "./thread-changes.js";
 import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
+import { HeadWatch } from "./head-watch.js";
 
 const execFileAsync = promisify(execFile);
 /** The kits built on this one; their host entries may call the commands that name them. */
@@ -52,6 +54,12 @@ export function expandHome(path: string): string {
   const trimmed = path.trim();
   if (trimmed === "~") return homedir();
   return trimmed.startsWith("~/") ? join(homedir(), trimmed.slice(2)) : trimmed;
+}
+
+// Git reports resolved paths; a project opened through a symlink (macOS /var) is still the same folder.
+async function samePath(left: string, right: string): Promise<boolean> {
+  const real = (path: string) => realpath(path).catch(() => resolve(path));
+  return (await real(left)) === (await real(right));
 }
 
 export async function listDirectories(requested: string | undefined, identify: (path: string) => WorkspaceRef): Promise<UiDirectoryListing> {
@@ -176,6 +184,14 @@ export function createWorkspaceHostExtension(): HostExtension {
       // The kit owns the Git cache; core only learns project facts from it.
       const git = new GitCoordinator({ onSubprocess: () => services.noteSubprocess() });
       const labels = new Map<string, string | undefined>();
+      // The Git cache is keyed by the folder asked about, which may lie below the checkout's root.
+      const headFolders = new Map<string, Set<string>>();
+      const heads = new HeadWatch({
+        changed: (root) => {
+          for (const folder of headFolders.get(root) ?? [root]) git.invalidate(folder, ["branch", "status", "workspace"]);
+          context.emit(HEAD_CHANGED_EVENT, { root }, { topic: WORKSPACE_HEAD_TOPIC });
+        },
+      });
       // The worktrees Tau made, Settings → Storage and the cleanup sweep.
       // A branch's request comes from Review Kit, which knows the hosts; a squash or rebase merge is only known from it.
       const branchRequest = createBranchRequests((input) => context.invokeHostExtension(REVIEW_KIT_ID, "branch-request", input));
@@ -196,8 +212,8 @@ export function createWorkspaceHostExtension(): HostExtension {
         git.invalidate(project);
         return git.getChanges(project);
       };
-      const stageThen = async (path: string, mutate: (project: string, path: string) => Promise<void>) => {
-        const project = cwd();
+      const stageThen = async (input: unknown, path: string, mutate: (project: string, path: string) => Promise<void>) => {
+        const project = await shownRoot(input);
         await workspaceGit.assertWorkspacePath(project, path);
         await mutate(project, path);
         return refreshedChanges(project);
@@ -262,7 +278,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         onSubprocess: () => services.noteSubprocess(),
         emit: (snapshot) => {
           if (snapshot.phase !== "running") services.log(`git.clone.${snapshot.phase}`, snapshot.error ?? snapshot.destination);
-          context.emit(CLONE_PROGRESS_EVENT, snapshot);
+          context.emit(CLONE_PROGRESS_EVENT, snapshot, { topic: WORKSPACE_CLONE_TOPIC });
         },
       });
       context.registerCommand("clone-start", async (input) => {
@@ -308,11 +324,11 @@ export function createWorkspaceHostExtension(): HostExtension {
         await workspaceGit.assertWorkspacePath(project, path);
         return workspaceGit.getFileDiff(project, path, record(input).options as DiffLoadOptions | undefined);
       }, { access: "read", callers: [REVIEW_KIT_ID] });
-      context.registerCommand("stage-file", (input) => stageThen(relativePath(input), workspaceGit.stageFile));
-      context.registerCommand("unstage-file", (input) => stageThen(relativePath(input), workspaceGit.unstageFile));
-      context.registerCommand("revert-file", (input) => stageThen(relativePath(input), workspaceGit.revertFile));
-      context.registerCommand("stage-all", async () => {
-        const project = cwd();
+      context.registerCommand("stage-file", (input) => stageThen(input, relativePath(input), workspaceGit.stageFile));
+      context.registerCommand("unstage-file", (input) => stageThen(input, relativePath(input), workspaceGit.unstageFile));
+      context.registerCommand("revert-file", (input) => stageThen(input, relativePath(input), workspaceGit.revertFile));
+      context.registerCommand("stage-all", async (input) => {
+        const project = await shownRoot(input);
         await workspaceGit.stageAll(project);
         return refreshedChanges(project);
       });
@@ -344,8 +360,9 @@ export function createWorkspaceHostExtension(): HostExtension {
         }
         return result;
       }, { callers: [FILES_KIT_ID] });
+      // Reviews' "Commit only" names the thread's worktree.
       context.registerCommand("commit", async (input) => {
-        const project = cwd();
+        const project = await shownRoot(input);
         const message = requiredString(input, "message");
         const push = record(input).push === true;
         try {
@@ -357,9 +374,9 @@ export function createWorkspaceHostExtension(): HostExtension {
           git.invalidate(project);
           throw error;
         }
-      }, { audit: { label: "committed changes" } });
-      context.registerCommand("pull", async () => {
-        const project = cwd();
+      }, { callers: [REVIEW_KIT_ID], audit: { label: "committed changes" } });
+      context.registerCommand("pull", async (input) => {
+        const project = await shownRoot(input);
         try {
           const result = await workspaceGit.pull(project);
           git.invalidate(project);
@@ -370,8 +387,8 @@ export function createWorkspaceHostExtension(): HostExtension {
           throw error;
         }
       }, { audit: { label: "pulled" } });
-      context.registerCommand("push", async () => {
-        const project = cwd();
+      context.registerCommand("push", async (input) => {
+        const project = await shownRoot(input);
         try {
           const result = await workspaceGit.push(project);
           git.invalidate(project);
@@ -384,7 +401,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       }, { callers: [REVIEW_KIT_ID], audit: { label: "pushed" } });
       // Review Kit publishes a repository that has no remote; the remote itself is Git's and set here.
       context.registerCommand("add-remote", async (input) => {
-        const project = cwd();
+        const project = await shownRoot(input);
         try {
           const added = await workspaceGit.addFirstRemote(project, optionalString(input, "name") ?? "origin", requiredString(input, "url"));
           services.log("git.remote.added", requiredString(input, "url"));
@@ -429,9 +446,15 @@ export function createWorkspaceHostExtension(): HostExtension {
         const named = record(input).workspaces;
         const ids = (Array.isArray(named) ? named : []).filter((id): id is string => typeof id === "string" && id.length > 0).slice(0, THREAD_BRANCH_WORKSPACES);
         const paths = (await Promise.all(ids.map((id) => services.knownWorkspacePath(id).catch(() => undefined)))).filter((path): path is string => Boolean(path));
+        const requested = record(record(input).targets);
+        const targets = new Map<string, string>();
+        for (const id of ids) {
+          const target = typeof requested[id] === "string" ? requested[id] as string : undefined;
+          if (target) targets.set(await services.knownWorkspacePath(id), target);
+        }
         // Folders that are no linked worktree stay so; the set is forgotten every few minutes all the same.
         if (Date.now() - plainSince > THREAD_BRANCH_PLAIN_MS) { plainFolders.clear(); plainSince = Date.now(); }
-        return (await readThreadBranches(paths, undefined, plainFolders)).map((branch) => ({
+        return (await readThreadBranches(paths, undefined, plainFolders, targets)).map((branch) => ({
           ...branch,
           workspace: services.workspaceRef(branch.path).workspaceId,
           rootWorkspace: services.workspaceRef(branch.root).workspaceId,
@@ -440,13 +463,26 @@ export function createWorkspaceHostExtension(): HostExtension {
       context.registerCommand("merge-thread-branch", async (input) => {
         const path = await services.knownWorkspacePath(requiredString(input, "workspace"));
         const expectedTip = optionalString(input, "tip");
+        const picks = decodePicks(record(input).picks);
         const root = (await readThreadBranch(path).catch(() => undefined))?.root ?? path;
         return gitWrite(root, async () => {
-          const outcome = await git.write(root, () => mergeThreadBranch(path, expectedTip ? { expectedTip } : {}));
+          const outcome = await git.write(root, () => mergeThreadBranch(path, { target: optionalString(input, "target"), ...(expectedTip ? { expectedTip } : {}), ...(picks ? { picks } : {}) }));
           git.invalidate(path);
           return outcome;
         }, (result) => `${result.branch} into ${result.into}: ${result.state}`, "git.merge-thread-branch");
       }, { long: true, callers: [REVIEW_KIT_ID], audit: { label: "merged a thread's branch" } });
+      context.registerCommand("thread-branch-conflicts", async (input) => readThreadConflicts(await services.knownWorkspacePath(requiredString(input, "workspace")), undefined, optionalString(input, "target")), { access: "read", long: true, callers: [REVIEW_KIT_ID] });
+      // Reviews' cleanup of a merged branch; the threads stay.
+      context.registerCommand("remove-thread-branch", async (input) => {
+        const path = await services.knownWorkspacePath(requiredString(input, "workspace"));
+        const root = (await readThreadBranch(path).catch(() => undefined))?.root ?? path;
+        return gitWrite(root, async () => {
+          const removed = await git.write(root, () => removeThreadBranch(path, { target: optionalString(input, "target"), expectedTip: optionalString(input, "tip"), integratedTip: optionalString(input, "integratedTip") }));
+          await worktrees.storage.forget(path).catch(noteFailure("git.worktree.record-failed"));
+          git.invalidate(root, ["branch", "status", "workspace"]);
+          return removed;
+        }, (result) => result.branch, "git.remove-thread-branch");
+      }, { long: true, callers: [REVIEW_KIT_ID], audit: { label: "removed a merged thread's worktree and branch" } });
       // Servers Kit keeps a server's files in its own repository; the project's Git is written here.
       context.registerCommand("repo-from-tree", async (input) => {
         const request = decodeRepoFromTree(input);
@@ -466,7 +502,13 @@ export function createWorkspaceHostExtension(): HostExtension {
       }, { access: "read", callers: [REVIEW_KIT_ID] });
       context.registerCommand("workspace-info", async (input) => {
         const canonical = await services.knownWorkspacePath(workspaceOf(input));
-        return git.getWorkspaceInfo(canonical);
+        const info = await git.getWorkspaceInfo(canonical);
+        // What a client shows is what it asks about, so that is what gets watched.
+        if (info.isRepo && process.env.TAU_NO_WATCH !== "1") {
+          headFolders.set(info.root, (headFolders.get(info.root) ?? new Set()).add(canonical));
+          heads.follow(info.root);
+        }
+        return info;
       }, { access: "read" });
       context.registerCommand("worktree-statuses", async (input) => {
         const canonical = await services.knownWorkspacePath(workspaceOf(input));
@@ -479,15 +521,13 @@ export function createWorkspaceHostExtension(): HostExtension {
           ...(optionalString(input, "baseRef") ? { requested: optionalString(input, "baseRef") } : {}),
           ...(record(input).startFromOrigin === undefined ? {} : { startFromOrigin: record(input).startFromOrigin !== false }),
         });
-        return { ...base, shortCommit: base.commit.slice(0, 7) };
+        return { ...base, shortCommit: base.commit.slice(0, 7), ...await workspaceGit.readBaseChoices(project, base.ref) };
       }, { long: true });
-      context.registerCommand("create-worktree", async (input) => {
-        // A pending draft may sit on another project than the host's thread.
-        const project = await services.knownWorkspacePath(workspaceOf(input));
-        const branch = requiredString(input, "branch");
-        const baseRef = optionalString(input, "baseRef");
-        const startFromOrigin = record(input).startFromOrigin;
-        const requestedSubmodules = record(input).submodules;
+      /** A worktree on a new branch, set up as the project asks; `fill` runs on its files before the setup does. */
+      const addWorktree = async (project: string, branch: string, options: {
+        baseRef?: string; startFromOrigin?: unknown; submodules?: unknown; fill?(destination: string): Promise<void>;
+      }) => {
+        const { baseRef, startFromOrigin, submodules: requestedSubmodules } = options;
         const setupId = await beginSetup(project, branch);
         const step = (stage: string, extra: Record<string, unknown> = {}) => {
           if (setupId) void setupCall("worktree-setup-step", { setupId, stage, ...extra }).catch(() => undefined);
@@ -498,6 +538,8 @@ export function createWorkspaceHostExtension(): HostExtension {
             ...(startFromOrigin === undefined ? {} : { startFromOrigin: startFromOrigin !== false }),
             onStep: (stage) => step(stage),
           }, (path) => git.getWorkspaceInfo(path));
+          const baseCommit = (await workspaceGit.runGitCommand(destination, ["rev-parse", "--verify", "HEAD"])).trim();
+          await options.fill?.(destination);
           services.rememberProjectName(destination, await services.projectName(project));
           git.invalidate(project, ["branch", "status", "workspace"]);
           services.log("git.worktree.added", destination);
@@ -512,12 +554,21 @@ export function createWorkspaceHostExtension(): HostExtension {
           }
           await runWorktreeSetup(project, destination, setupId);
           // The draft moves here before its thread exists, and asks about it at once.
-          return services.admitWorkspace(destination);
+          return { ...services.admitWorkspace(destination), baseCommit, path: destination };
         } catch (error) {
           git.invalidate(project, ["branch", "status", "workspace"]);
           if (setupId) await setupCall("worktree-setup-failed", { setupId, error: error instanceof Error ? error.message : String(error) }).catch(() => undefined);
           throw error;
         }
+      };
+      context.registerCommand("create-worktree", async (input) => {
+        // A pending draft may sit on another project than the host's thread.
+        const project = await services.knownWorkspacePath(workspaceOf(input));
+        return addWorktree(project, requiredString(input, "branch"), {
+          ...(optionalString(input, "baseRef") ? { baseRef: optionalString(input, "baseRef") } : {}),
+          startFromOrigin: record(input).startFromOrigin,
+          submodules: record(input).submodules,
+        });
       }, { long: true, audit: { label: "created a worktree" } });
       context.registerCommand("worktree-removal-preview", async (input) => {
         const project = await services.knownWorkspacePath(workspaceOf(input));
@@ -593,24 +644,25 @@ export function createWorkspaceHostExtension(): HostExtension {
         return readProjectDefaults(project);
       }, { access: "read" });
       context.registerCommand("create-branch", async (input) => {
-        const project = cwd();
+        const project = await shownRoot(input);
         const branch = requiredString(input, "branch");
         try {
           await workspaceGit.createBranch(project, branch);
           services.log("git.branch.created", branch);
-          return services.openWorkspace(project);
+          return optionalString(input, "workspace") ? { version: 1 as const, updates: [] } : services.openWorkspace(project);
         } finally {
           git.invalidate(project, ["branch", "status", "workspace"]);
         }
       });
       context.registerCommand("switch-ref", async (input) => {
-        const project = cwd();
+        const project = await shownRoot(input);
         const ref = requiredString(input, "ref");
         try {
           const target = await workspaceGit.resolveRefTarget(project, ref, (path) => git.getWorkspaceInfo(path));
+          if (optionalString(input, "workspace") && !(await samePath(target, project))) throw new HostCommandError("That branch is checked out in another workspace. Open its worktree instead.");
           services.log("git.ref.switch", `${ref} → ${target}`);
           git.invalidate(project, ["branch", "status", "workspace"]);
-          return services.openWorkspace(target);
+          return optionalString(input, "workspace") ? { version: 1 as const, updates: [] } : services.openWorkspace(target);
         } catch (error) {
           git.invalidate(project, ["branch", "status", "workspace"]);
           throw error;
@@ -618,7 +670,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       });
       const checkoutKeys = new WorkspaceCheckpointLeaseManager();
       const checkoutTurns = createCheckoutTurns(services, (path) => checkoutKeys.canonicalKey(path));
-      context.registerCommand("checkout-turns", (input) => checkoutTurns.running(cwd(), optionalString(input, "sessionId")), { access: "read" });
+      context.registerCommand("checkout-turns", async (input) => checkoutTurns.running(await shownRoot(input), optionalString(input, "sessionId")), { access: "read" });
       // Turn checkpoints: capture per runtime, restore, recovery and ref upkeep
       // all live in the kit; core only offers the lifecycle hooks.
       // The rail's `+N −N` per thread outlives the checkpoint announcement in the kit's own state folder.
@@ -636,7 +688,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       const checkpoints = createWorkspaceKitLifecycle(services, {
         emit: (event) => {
           if (event.type === "turn-checkpoint") void turnStats.record(event.sessionId, turnStatOf(event.checkpoint));
-          context.emit(CHECKPOINT_EVENT, event);
+          context.emit(CHECKPOINT_EVENT, event, { topic: WORKSPACE_CHECKPOINT_TOPIC });
         },
         git,
         branch: (project) => labels.get(project),
@@ -660,6 +712,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         services.pinTranscriptEntries((thread) => checkpoints.pinnedEntries(thread)),
         services.registerRuntimeExtension("tau-turn-checkpoints", checkpoints.runtimeExtension),
         () => turnStats.flush(),
+        () => heads.close(),
       ];
       const checkpointRef = (input: unknown) => ({ sessionId: requiredString(input, "sessionId"), checkpointId: requiredString(input, "checkpointId") });
       context.registerCommand("checkpoints", (input) => checkpoints.checkpoints(requiredString(input, "sessionId")), { access: "read" });
@@ -679,6 +732,40 @@ export function createWorkspaceHostExtension(): HostExtension {
         const { sessionId, checkpointId } = checkpointRef(input);
         return checkpoints.rewind(sessionId, checkpointId);
       });
+      // A fork's own branch and worktree: the files of a verified checkpoint on the HEAD it ended at,
+      // the checkout as it is now (`now`), or else the source's HEAD.
+      context.registerCommand("fork-worktree", async (input) => {
+        const project = await services.knownWorkspacePath(workspaceOf(input));
+        const branch = requiredString(input, "branch").trim();
+        const run = (args: string[]) => workspaceGit.runGitCommand(project, args).then((out) => out.trim(), () => "");
+        if (await run(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])) throw new Error(`A branch named ${branch} already exists.`);
+        const sessionId = optionalString(input, "sessionId");
+        const checkpointId = optionalString(input, "checkpointId");
+        const from = sessionId && checkpointId ? await checkpoints.forkPoint(sessionId, checkpointId)
+          : record(input).now === true ? await captureStartingState(project) : undefined;
+        const head = from?.head || await run(["rev-parse", "--verify", "HEAD"]);
+        if (!head) throw new Error("This project has no commit yet, so a fork cannot have a branch of its own.");
+        // The fork merges where its source would: that branch's own base, else the branch itself.
+        const source = await run(["symbolic-ref", "--short", "-q", "HEAD"]);
+        const target = source ? await readBranchBase(project, source) ?? source : undefined;
+        const created = await addWorktree(project, branch, {
+          baseRef: head,
+          startFromOrigin: false,
+          fill: async (destination) => {
+            try {
+              if (target) await workspaceGit.runGitCommand(project, ["config", branchBaseConfigKey(branch), target]);
+              if (!from) return;
+              // The copied files stay uncommitted, as they were in the source.
+              await workspaceGit.runGitCommand(destination, ["read-tree", "--reset", "-u", from.tree]);
+              await workspaceGit.runGitCommand(destination, ["reset", "-q"]);
+            } catch (error) {
+              await workspaceGit.removeWorktree(project, destination, { branch }).catch(() => undefined);
+              throw error;
+            }
+          },
+        });
+        return { ...created, copied: Boolean(from) };
+      }, { long: true, audit: { label: "created a worktree for a fork" } });
       context.registerCommand("turn-file-diff", (input) => {
         const { sessionId, checkpointId } = checkpointRef(input);
         return checkpoints.turnFileDiff(sessionId, checkpointId, relativePath(input), record(input).options as DiffLoadOptions | undefined);

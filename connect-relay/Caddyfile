@@ -1,0 +1,6 @@
+{
+  email {$ACME_EMAIL}
+}
+{$CONNECT_DOMAIN} {
+  reverse_proxy relay:8787
+}

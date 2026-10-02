@@ -23,6 +23,8 @@ export const HOST_METHOD_ACCESS = {
   "resume-limited": "write",
   "abort": "write",
   "new-session": "write",
+  "start-thread": "write",
+  "send-to-thread": "write",
   "prepared-thread-capability": "read",
   "fork-thread": "write",
   "thread-tree": "read",
@@ -109,6 +111,10 @@ export const HOST_METHOD_ACCESS = {
   // `tau machines`: the window's machines and the agents' in one list, pairing with a link, forgetting.
   "machines-overview": "owner",
   "machines-pair": "owner",
+  "connect-status": "owner",
+  "connect-configure": "owner",
+  "connect-link": "owner",
+  "connect-remove": "owner",
   "machines-forget": "owner",
   // `tau machines update`: another machine's Tau through the window's connection there (K103).
   "machines-update": "owner",
@@ -134,6 +140,7 @@ export const HOST_METHOD_ACCESS = {
   "environments-retry": "write",
   "environments-open": "write",
   "environments-discover": "write",
+  "environments-wsl-list": "read",
   "environments-set-preferences": "write",
   "environments-set-agents": "write",
   // Another machine's own Tau, with the window's key there; that machine decides (K103).
@@ -142,6 +149,15 @@ export const HOST_METHOD_ACCESS = {
   "environments-transcript-page": "read",
   "environments-watch-thread": "read",
   "environments-extension-read": "read",
+  "environments-extension-invoke": "write",
+  "environments-extension-follow": "read",
+  // This window's own machine's look, read and written with its own key.
+  "environments-person-preferences": "read",
+  "environments-set-person-preferences": "write",
+  // Another machine's settings at its machine level, with the window's own key there (K170); that machine decides.
+  "environments-config": "read",
+  "environments-update-config": "write",
+  "environments-clear-config": "write",
   // Only the connection a call went to may answer it; the answer changes nothing else.
   "client-call-result": "read",
   // The job's own method is checked when it starts.
@@ -156,8 +172,9 @@ export function methodAccess(method: string): MethodAccess {
 
 /**
  * What a host may ask another machine's host on its threads' behalf
- * (`services.machines.request`, ADR 0027): reading a thread there, steering
- * or stopping its run, and how busy and how ready that machine is. A kit's own commands go through `call`; access
+ * (`services.machines.request`, ADR 0027): reading, starting or continuing a
+ * thread there, answering its questions, steering or stopping its run, what models
+ * it offers, and how busy and how ready that machine is. A kit's own commands go through `call`; access
  * management, jobs, subscriptions and a window's methods never go.
  */
 export const MACHINE_REQUEST_METHODS = [
@@ -167,6 +184,11 @@ export const MACHINE_REQUEST_METHODS = [
   "abort",
   "steer",
   "follow-up",
+  "start-thread",
+  "send-to-thread",
+  "answer-extension-ui",
+  "sync-extension-ui",
+  "runtime-catalog",
   "host-resources",
   "readiness",
 ] as const satisfies readonly (keyof typeof HOST_METHOD_ACCESS)[];

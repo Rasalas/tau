@@ -124,6 +124,7 @@ export function parseModelKey(key: string): { provider: string; id: string } | u
  */
 export class FanOutSelection {
   private keys: readonly string[] = [];
+  private launch?: { scope: string; group: string; baseCommit?: string; nextOrdinal: number };
   private listeners = new Set<() => void>();
 
   readonly id = "thread-rail.fan-out";
@@ -133,14 +134,25 @@ export class FanOutSelection {
     return () => { this.listeners.delete(listener); };
   };
 
-  toggle = (model: UiModel, current: UiModel | undefined): void => {
-    const key = modelKey(model);
+  toggle = (model: UiModel, current: UiModel | undefined, runtime?: string, currentRuntime?: string): void => {
+    const key = runtime ? `${runtime}::${modelKey(model)}` : modelKey(model);
     if (this.keys.length === 0 && current) {
       // The first Shift-click adds to the draft's own model, the same one included.
-      this.set([modelKey(current), key]);
+      this.set([currentRuntime ? `${currentRuntime}::${modelKey(current)}` : modelKey(current), key]);
       return;
     }
     this.set(this.keys.includes(key) ? this.keys.filter((entry) => entry !== key) : [...this.keys, key]);
+  };
+
+  attempt(scope: string, group: () => string): { scope: string; group: string; baseCommit?: string; nextOrdinal: number } {
+    if (!this.launch || this.launch.scope !== scope) this.launch = { scope, group: group(), nextOrdinal: 0 };
+    return this.launch;
+  }
+
+  retain = (keys: readonly string[]): void => {
+    this.keys = keys;
+    if (keys.length === 0) this.launch = undefined;
+    for (const listener of this.listeners) listener();
   };
 
   reset = (): void => this.set([]);
@@ -154,6 +166,7 @@ export class FanOutSelection {
   }
 
   private set(keys: readonly string[]): void {
+    this.launch = undefined;
     this.keys = keys;
     for (const listener of this.listeners) listener();
   }

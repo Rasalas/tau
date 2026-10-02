@@ -80,7 +80,7 @@ function LinkPullRequestDialog({ target, client, rows, onClose, notify }: {
   };
 
   return (
-    <Dialog className="pr-link-dialog" label="Link pull request" onClose={() => { if (!pending) onClose(); }}>
+    <Dialog className="confirm-dialog pr-link-dialog" label="Link pull request" onClose={() => { if (!pending) onClose(); }}>
       <header>
         <h2>Link pull request</h2>
         <p>Attach a pull request to this thread. A full URL can point at any repository on a host this project can reach.</p>

@@ -3,7 +3,6 @@ import {
   providerInfo,
   REQUEST_SERVICES,
   type PullRequestCheck,
-  type PullRequestCheckStatus,
   type PullRequestComment,
   type PullRequestDetail,
   type PullRequestFile,
@@ -21,26 +20,19 @@ export interface PullRequestTabParams extends Record<string, unknown> {
   service: RequestService;
   /** The checkout it was opened from, so the rail row follows what the view reads. */
   workspace?: string;
+  /** Opened at its checks; `at` tells one such ask from the next. */
+  focus?: "checks";
+  at?: number;
 }
 
 export function pullRequestTabParams(params: Record<string, unknown>): PullRequestTabParams | undefined {
-  const { url, number, service, workspace } = params;
+  const { url, number, service, workspace, focus, at } = params;
   if (typeof url !== "string" || typeof number !== "number" || !REQUEST_SERVICES.includes(service as RequestService)) return undefined;
-  return { url, number, service: service as RequestService, ...(typeof workspace === "string" ? { workspace } : {}) };
+  return { url, number, service: service as RequestService, ...(typeof workspace === "string" ? { workspace } : {}), ...(focus === "checks" ? { focus, ...(typeof at === "number" ? { at } : {}) } : {}) };
 }
 
 export const shortNoun = (service: PullRequestRef["service"]): "PR" | "MR" => providerInfo(service).short;
 export const hostName = (service: PullRequestRef["service"]): string => providerInfo(service).name;
-
-export const CHECK_LABELS: Record<PullRequestCheckStatus, string> = {
-  pending: "Running",
-  "action-required": "Awaiting action",
-  passed: "Passed",
-  failed: "Failed",
-  cancelled: "Cancelled",
-  skipped: "Skipped",
-  neutral: "Neutral",
-};
 
 export type ChecksRollup = "failing" | "pending" | "passing";
 

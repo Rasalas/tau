@@ -42,7 +42,7 @@ function makeIndex(options: {
   const updates: HostUpdate[] = [];
   const noop = () => undefined;
   const projects = new ProjectFactsCache({
-    onLabel: noop, onNesting: noop, recordBackground: noop, log: noop,
+    onLabel: noop, onName: noop, onNesting: noop, recordBackground: noop, log: noop,
     errorMessage: (error) => String(error),
   });
   const index = new ThreadIndex({
@@ -100,6 +100,17 @@ function piThread(threadId: string, title?: string) {
 }
 
 describe("ThreadIndex", () => {
+  it("keeps the home identities of proxy workspaces distinct at the same path", () => {
+    const { index } = makeIndex();
+    const first = shell({ id: "rex~one", path: "machine:rex~one", backendKind: "machine", projectPath: "/home/dev/repo", workspaceId: "ws1_rex", projectDisplayPath: "~/repo" });
+    const second = { ...first, id: "mini~one", path: "machine:mini~one", workspaceId: "ws1_mini" };
+    seed(index, [first, second]);
+    const snapshot = index.snapshot();
+    expect(snapshot.sessions.map((session) => session.workspaceId)).toEqual(["ws1_rex", "ws1_mini"]);
+    expect(snapshot.projects.filter((project) => project.path === "/home/dev/repo").map((project) => project.workspaceId)).toEqual(["ws1_rex", "ws1_mini"]);
+    expect(snapshot.sessions.map((session) => session.projectDisplayPath)).toEqual(["~/repo", "~/repo"]);
+  });
+
   it("draws a shell for a live thread and derives its title from the first message", async () => {
     const { index, updates } = makeIndex();
     await index.refreshShell(piThread("session"), true);
@@ -159,7 +170,7 @@ describe("ThreadIndex", () => {
     const { index, updates } = makeIndex();
     seed(index, [shell({ id: "a", path: "/a.jsonl" })]);
     const update = index.publishTitle("a", "Renamed");
-    expect(update).toMatchObject({ type: "thread-shell", update: { sessionId: "a", shell: { title: "Renamed" } } });
+    expect(update).toMatchObject({ type: "thread-shell", update: { sessionId: "a", shell: { title: "Renamed", workspaceId: expect.stringMatching(/^ws1_/u), projectDisplayPath: "/repo" } } });
     expect(updates).toHaveLength(1);
     expect(() => index.publishTitle("missing", "Renamed")).toThrow("missing from the session index");
   });
@@ -194,6 +205,22 @@ describe("ThreadIndex", () => {
     expect(index.byId("b")?.projectLabel).toBeUndefined();
     // The unchanged label publishes nothing a second time.
     index.publishLabel("/repo", "main");
+    await flush();
+    expect(updates).toHaveLength(1);
+  });
+
+  it("carries a project's name read after the shells were built into each of its shells", async () => {
+    const { index, updates } = makeIndex();
+    seed(index, [
+      shell({ id: "a", path: "/a.jsonl", projectPath: "/repo-2", projectName: "repo-2" }),
+      shell({ id: "b", path: "/b.jsonl", projectName: "other" }),
+    ]);
+    index.publishName("/repo-2", "repo");
+    await flush();
+    expect(index.byId("a")?.projectName).toBe("repo");
+    expect(index.byId("b")?.projectName).toBe("other");
+    expect(updates).toHaveLength(1);
+    index.publishName("/repo-2", "repo");
     await flush();
     expect(updates).toHaveLength(1);
   });

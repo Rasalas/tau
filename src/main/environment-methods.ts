@@ -13,9 +13,11 @@ import {
 import type { TranscriptPage } from "../shared/host-protocol.js";
 import { HOST_ERROR } from "../shared/host-transport.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
-import { decodeHostTranscriptCursor } from "./ipc-input.js";
+import { decodeHostTranscriptCursor, decodeSettingKeys } from "./ipc-input.js";
+import type { ConfigLayers } from "../shared/config-layers.js";
 import type { HostMethodTable } from "./host-methods.js";
 import type { HostUpdateAction, HostUpdateStatus } from "../shared/host-updates.js";
+import { personPreferences, type PersonPreferences } from "../shared/person-preferences.js";
 
 /** What the window's process answers about its machines (ADR 0025); `WindowEnvironments` is the one implementation. */
 export interface EnvironmentsService {
@@ -28,12 +30,19 @@ export interface EnvironmentsService {
   open(id: string, target?: EnvironmentOpenTarget): Promise<void>;
   takeArrival(): EnvironmentTarget | undefined;
   discover(): Promise<UiDiscoveredHosts>;
+  listWsl?(): Promise<string[]>;
   setPreferences(preferences: EnvironmentPreferences): Promise<void>;
   setAgents(id: string, on: boolean): Promise<EnvironmentAgentsResult>;
   watchThread(machine: string, sessionId: string, on: boolean): UiEnvironmentThreadView | undefined;
   transcriptPage(machine: string, sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage>;
+  invokeExtension(machine: string, extensionId: string, command: string, input?: unknown, options?: { timeoutMs?: number }): Promise<unknown>;
+  followExtension(machine: string, extensionId: string, on: boolean): void;
   readExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown>;
   updateMachine(machine: string, action: HostUpdateAction): Promise<HostUpdateStatus>;
+  personPreferences?(patch?: PersonPreferences): Promise<PersonPreferences>;
+  configLayers(machine: string): Promise<ConfigLayers>;
+  updateConfig(machine: string, patch: Record<string, unknown>): Promise<unknown>;
+  clearConfig(machine: string, keys: readonly string[]): Promise<unknown>;
 }
 
 function text(method: string, name: string, value: unknown, max = 4_096): string {
@@ -54,17 +63,25 @@ export function createEnvironmentMethods(service: () => EnvironmentsService | un
     if (current) return current;
     throw Object.assign(new Error("Only a desktop window keeps a list of machines."), { code: HOST_ERROR.unsupported });
   };
+  const ownMachine = (): EnvironmentsService & Required<Pick<EnvironmentsService, "personPreferences">> => {
+    const current = require();
+    if (current.personPreferences) return current as EnvironmentsService & Required<Pick<EnvironmentsService, "personPreferences">>;
+    throw Object.assign(new Error("This window keeps no preferences of its own machine."), { code: HOST_ERROR.unsupported });
+  };
   return {
     "environments-list": async () => require().snapshot(),
     "environments-pair": async (params) => {
-      const input = params[0] as { text?: unknown; nearby?: unknown; deviceName?: unknown; agents?: unknown } | undefined;
+      const input = params[0] as { text?: unknown; nearby?: unknown; ssh?: unknown; wsl?: unknown; deviceName?: unknown; agents?: unknown } | undefined;
       return require().pair({
         ...(input?.agents === false ? { agents: false } : {}),
-        ...(input?.nearby !== undefined ? { nearby: text("environments-pair", "nearby", input.nearby, 128) } : { text: text("environments-pair", "text", input?.text) }),
+        ...(input?.ssh !== undefined ? { ssh: text("environments-pair", "ssh", input.ssh, 255) }
+          : input?.wsl !== undefined ? { wsl: text("environments-pair", "wsl", input.wsl, 100) }
+            : input?.nearby !== undefined ? { nearby: text("environments-pair", "nearby", input.nearby, 128) } : { text: text("environments-pair", "text", input?.text, 16_384) }),
         ...(typeof input?.deviceName === "string" && input.deviceName.trim() ? { deviceName: input.deviceName.slice(0, 80) } : {}),
       });
     },
     "environments-discover": async () => require().discover(),
+    "environments-wsl-list": async () => require().listWsl?.() ?? [],
     "environments-set-preferences": async (params) => {
       const input = params[0] as { reopenShown?: unknown } | undefined;
       if (typeof input?.reopenShown !== "boolean") {
@@ -98,6 +115,25 @@ export function createEnvironmentMethods(service: () => EnvironmentsService | un
       }
       return require().updateMachine(text("environments-update", "machine", params[0], 200), typeof automatic === "boolean" ? { automatic } : action as "status" | "check" | "install");
     },
+    "environments-person-preferences": async () => ownMachine().personPreferences(),
+    "environments-set-person-preferences": async (params) => {
+      if (params[0] === null || typeof params[0] !== "object" || Array.isArray(params[0])) {
+        throw Object.assign(new Error("environments-set-person-preferences: patch must be an object."), { code: HOST_ERROR.invalidRequest });
+      }
+      return ownMachine().personPreferences(personPreferences(params[0]));
+    },
+    // A machine's settings (K170): its host checks the keys and the access, so a newer machine's keys pass.
+    "environments-config": async (params) => require().configLayers(text("environments-config", "machine", params[0], 200)),
+    "environments-update-config": async (params) => {
+      if (params[1] === null || typeof params[1] !== "object" || Array.isArray(params[1])) {
+        throw Object.assign(new Error("environments-update-config: patch must be an object."), { code: HOST_ERROR.invalidRequest });
+      }
+      return require().updateConfig(text("environments-update-config", "machine", params[0], 200), params[1] as Record<string, unknown>);
+    },
+    "environments-clear-config": async (params) => require().clearConfig(
+      text("environments-clear-config", "machine", params[0], 200),
+      decodeSettingKeys("environments-clear-config", "keys", params[1]),
+    ),
     "environments-watch-thread": async (params) => {
       if (typeof params[2] !== "boolean") {
         throw Object.assign(new Error("environments-watch-thread: on must be a boolean."), { code: HOST_ERROR.invalidRequest });
@@ -113,6 +149,30 @@ export function createEnvironmentMethods(service: () => EnvironmentsService | un
       text("environments-transcript-page", "sessionId", params[1], 512),
       decodeHostTranscriptCursor("environments-transcript-page", "cursor", params[2]),
     ),
+    "environments-extension-follow": async (params) => {
+      if (typeof params[2] !== "boolean") {
+        throw Object.assign(new Error("environments-extension-follow: on must be a boolean."), { code: HOST_ERROR.invalidRequest });
+      }
+      require().followExtension(
+        text("environments-extension-follow", "machine", params[0], 200),
+        text("environments-extension-follow", "extensionId", params[1], 200),
+        params[2],
+      );
+    },
+    "environments-extension-invoke": async (params) => {
+      const options = params[4];
+      if (options !== undefined && (options === null || typeof options !== "object" || Array.isArray(options)
+        || ("timeoutMs" in options && (typeof options.timeoutMs !== "number" || !Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)))) {
+        throw Object.assign(new Error("environments-extension-invoke: options must contain a positive timeoutMs."), { code: HOST_ERROR.invalidRequest });
+      }
+      return require().invokeExtension(
+        text("environments-extension-invoke", "machine", params[0], 200),
+        text("environments-extension-invoke", "extensionId", params[1], 200),
+        text("environments-extension-invoke", "command", params[2], 200),
+        params[3],
+        options as { timeoutMs?: number } | undefined,
+      );
+    },
     "environments-extension-read": async (params) => require().readExtension(
       text("environments-extension-read", "machine", params[0], 200),
       text("environments-extension-read", "extensionId", params[1], 200),

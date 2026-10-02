@@ -1,0 +1,12 @@
+{
+  "wasmBindgen": "0.2.129",
+  "hashes": {
+    "Cargo.toml": "f56c80d8b4ae2aa69b644f60b66cf2d0904f145fd73bfc9c5ab3236d1a43fb1c",
+    "Cargo.lock": "90cd367618f4cdb52a9373301df5283eb2a0f430c5032f1813ec3abb58851777",
+    ".cargo/config.toml": "237cb09f569ed196999b3d671e432bec6ca8c5c8be6b2e367d43dda22fb4bdc4",
+    "src/lib.rs": "5b670525ff2e57a30231e0c37ec97976e01fe9a07caba49bdcf33db8b6318a28",
+    "pkg/tau_browser_connect.js": "0def31a473d85ed34e5b8c9c2bdc0994f7cb850b4623703ee096fd784344957f",
+    "pkg/tau_browser_connect_bg.wasm": "948d0963a968464e4ecdf30d1f9db70675e83ce46640aea65f8215818f32efce",
+    "pkg/THIRD-PARTY-LICENSES.txt": "a16e25ea13906f18c09b946b81933c755e5180fa28741a00974646268662b134"
+  }
+}

@@ -88,7 +88,7 @@ export class ThreadActivation {
       pointerGeneration = ++this.visibleGeneration;
       this.port.setVisible(thread, pointerGeneration);
       pointerChanged = true;
-      await this.port.rememberProject(thread.cwd);
+      if (thread.backend.kind !== "machine") await this.port.rememberProject(thread.cwd);
       if (!activation.isCurrent()) {
         await rollback();
         return false;

@@ -83,4 +83,73 @@ describe("ConfigLayersStore", () => {
     await store.refresh();
     expect(store.getSnapshot().error).toBeUndefined();
   });
+
+  describe("another machine's levels", () => {
+    function withMachine() {
+      const base = fakeHost();
+      const rex: { host: TauConfig } = { host: { hostBackground: true } };
+      const client = {
+        ...base.client,
+        getEnvironmentConfig: vi.fn(async (_machine: string) => ({ host: rex.host })),
+        updateEnvironmentConfig: vi.fn(async (_machine: string, patch: Partial<TauConfig>) => { rex.host = { ...rex.host, ...patch }; return {}; }),
+        clearEnvironmentConfig: vi.fn(async (_machine: string, keys: readonly string[]) => { rex.host = keys.reduce(withoutSetting, rex.host); return {}; }),
+      };
+      return { ...base, client, rex };
+    }
+
+    it("reads and writes that machine's host level, never this machine's files or a project's", async () => {
+      const { files, client, rex } = withMachine();
+      const store = new ConfigLayersStore(client);
+      store.setProject(app);
+      store.editMachine({ id: "rex", name: "rex" });
+      await vi.waitFor(() => expect(store.getSnapshot().layers).toEqual({ host: { hostBackground: true } }));
+      expect(store.getSnapshot()).toMatchObject({ editing: "host", machine: { id: "rex" } });
+
+      await store.write("hostBackground", false);
+      expect(client.updateEnvironmentConfig).toHaveBeenCalledWith("rex", { hostBackground: false });
+      expect(rex.host).toEqual({ hostBackground: false });
+      await store.clear("hostBackground");
+      expect(client.clearEnvironmentConfig).toHaveBeenCalledWith("rex", ["hostBackground"]);
+      expect(store.getSnapshot().layers).toEqual({ host: {} });
+      expect(files.host).toEqual({});
+      expect(client.updateConfig).not.toHaveBeenCalled();
+    });
+
+    it("goes back to this machine's levels when this machine or a project is chosen", async () => {
+      const { files, client } = withMachine();
+      files.host = { showCosts: false };
+      const store = new ConfigLayersStore(client);
+      store.editMachine({ id: "rex", name: "rex" });
+      await vi.waitFor(() => expect(store.getSnapshot().loaded).toBe(true));
+      store.edit("project", app);
+      expect(store.getSnapshot().machine).toBeUndefined();
+      await vi.waitFor(() => expect(store.getSnapshot().layers.project).toEqual({}));
+      store.editMachine({ id: "rex", name: "rex" });
+      store.edit("host");
+      await vi.waitFor(() => expect(store.getSnapshot().layers.host).toEqual({ showCosts: false }));
+    });
+
+    it("says why a machine cannot be reached, and follows a change of its access without reading again", async () => {
+      const { client } = withMachine();
+      client.getEnvironmentConfig.mockRejectedValueOnce(new Error("rex is not reachable right now."));
+      const store = new ConfigLayersStore(client);
+      store.editMachine({ id: "rex", name: "rex" });
+      await vi.waitFor(() => expect(store.getSnapshot().error).toBe("rex is not reachable right now."));
+      await store.refresh();
+      store.editMachine({ id: "rex", name: "rex", blocked: "Read only" });
+      expect(store.getSnapshot().machine?.blocked).toBe("Read only");
+      expect(client.getEnvironmentConfig).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("counts the rows on screen that a project may override", () => {
+    const store = new ConfigLayersStore(fakeHost().client);
+    const first = store.declareProjectSetting();
+    const second = store.declareProjectSetting();
+    expect(store.getSnapshot().projectSettings).toBe(true);
+    first();
+    expect(store.getSnapshot().projectSettings).toBe(true);
+    second();
+    expect(store.getSnapshot().projectSettings).toBe(false);
+  });
 });

@@ -1,6 +1,7 @@
 import type { ComponentType, JSX, ReactElement, ReactNode } from "react";
 import { Fragment, jsx, jsxs } from "react/jsx-runtime";
 import type { Element, ElementContent, Parents as HastParents, Properties, Root as HastRoot } from "hast";
+import type {} from "mdast-util-to-hast";
 import type { Definition, FootnoteDefinition, ListItem, Nodes, Parents, Root, Table, TableRow } from "mdast";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmFromMarkdown } from "mdast-util-gfm";
@@ -15,6 +16,9 @@ import { normalizeUri } from "micromark-util-sanitize-uri";
  * and `toReact` replace `mdast-util-to-hast` and `hast-util-to-jsx-runtime`
  * for the closed set of trees GFM parsing builds, raw HTML as text.
  */
+
+/** Takes a tree whose raw HTML is `raw` nodes and returns the tree to draw (`Markdown`'s `html`). */
+export type MarkdownHtml = (tree: HastRoot) => HastRoot;
 
 export type MarkdownComponents = {
   [Tag in keyof JSX.IntrinsicElements]?: ComponentType<JSX.IntrinsicElements[Tag] & { node?: Element }>;
@@ -57,10 +61,10 @@ const url = (value: string) => safeUrl(normalizeUri(value));
 
 /**
  * mdast to hast as `mdast-util-to-hast` with `allowDangerousHtml` builds it,
- * then raw HTML as text and unsafe URLs emptied. Text holds no line ending
+ * then raw HTML as text (or `raw` nodes, with `html`) and unsafe URLs emptied. Text holds no line ending
  * here: `newlineToBreak` has turned each into a break.
  */
-export function toHast(tree: Root): HastRoot {
+export function toHast(tree: Root, { html = false }: { html?: boolean } = {}): HastRoot {
   const definitions = new Map<string, Definition>();
   const footnotes = new Map<string, FootnoteDefinition>();
   const order: string[] = [];
@@ -158,7 +162,7 @@ export function toHast(tree: Root): HastRoot {
       case "heading": return element(`h${node.depth}`, {}, all(node));
       case "paragraph": return element("p", {}, all(node));
       case "thematicBreak": return element("hr");
-      case "html": return text(node.value);
+      case "html": return html ? { type: "raw", value: node.value } : text(node.value);
       case "text": return text(node.value);
       case "inlineCode": return element("code", {}, [text(node.value.replace(/\r?\n|\r/gu, " "))]);
       case "footnoteReference": {
@@ -311,8 +315,8 @@ export function toReact(tree: HastRoot, components: MarkdownComponents): ReactEl
   return create(Fragment, {}, reactChildren(tree, components));
 }
 
-export function renderMarkdown(source: string, components: MarkdownComponents): ReactElement {
+export function renderMarkdown(source: string, components: MarkdownComponents, html?: MarkdownHtml): ReactElement {
   const mdast = parseMarkdown(source);
   newlineToBreak(mdast);
-  return toReact(toHast(mdast), components);
+  return toReact(html ? html(toHast(mdast, { html: true })) : toHast(mdast), components);
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Copy, ExternalLink, SquareTerminal } from "lucide-react";
+import { errorMessage } from "../../workbench/error-message";
 import {
   SIGN_IN_COMMANDS,
   SIGN_IN_EVENT,
@@ -52,10 +53,6 @@ export interface SignInSetupProps {
 }
 
 const DEFAULT_TARGET = "default";
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /** The line under the account while a flow runs or after it ended. */
 export function flowLine(flow: SignInFlowState, program: string): string {
@@ -259,6 +256,8 @@ export function SignInSetup({ host, target, program, heading = "Account", runInT
   const methods = (report?.methods ?? []).filter((method) => !account?.signedIn || method.availableWhenSignedIn);
   const ended = flow && !active ? flow : undefined;
   useProviderCardBadge("account", showAccount && cardBadge ? accountBadge(report, active) : undefined);
+  const privateAccount = account?.label?.includes("@") ?? false;
+  const who = account?.label && account.label !== program && !privateAccount ? ` (${account.label})` : "";
 
   const messages: ReactNode[] = [];
   if (ended?.message && ended.phase !== "succeeded") {
@@ -288,8 +287,8 @@ export function SignInSetup({ host, target, program, heading = "Account", runInT
       ) : messages.length ? <div className="sign-in-messages">{messages}</div> : null}
       {confirming ? (
         <ConfirmDialog
-          title={`Sign out of ${program}?`}
-          message={<>{account?.label && account.label !== program ? <>Account: <PrivateAccountText text={account.label} />. </> : null}Threads on {program} stop working until you sign in again; their history stays.</>}
+          title={`Sign out of ${program}${who}?`}
+          message={<>{privateAccount && account?.label ? <>Account: <PrivateAccountText text={account.label} />. </> : null}Threads on {program} stop working until you sign in again; their history stays.</>}
           confirmLabel="Sign out"
           destructive
           onCancel={() => setConfirming(false)}

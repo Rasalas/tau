@@ -13,7 +13,16 @@ interface StageTabBase {
   preview: boolean;
 }
 
+/** Internal persisted resource authority. Workspace ids are opaque and host-owned. */
+export interface WorkspaceResourceOrigin {
+  readonly sessionId: string;
+  readonly workspace: string;
+  readonly sourceId: string;
+}
+
 export interface StageFileTab extends StageTabBase {
+  /** Absent on legacy/local tabs; null means an explicit origin could not be determined. */
+  resourceOrigin?: WorkspaceResourceOrigin | null;
   kind: "file";
   /** Absolute path inside the workspace. */
   path: string;
@@ -21,6 +30,8 @@ export interface StageFileTab extends StageTabBase {
   /** The line to bring into view, 1-based; `reveal` counts the requests so the same line can be asked for again. */
   line?: number;
   reveal?: number;
+  /** Opened by the agent, not the user (design 1a): it waits behind the tab in front until pinned. */
+  trace?: boolean;
 }
 
 /** A thread read beside the conversation; the composer keeps addressing the active one. */
@@ -60,6 +71,8 @@ export type StageTab = StageFileTab | StageThreadTab | StageExtensionTab | Stage
 export interface StageState {
   tabs: StageTab[];
   activeId?: string;
+  /** The tab shown beside the active one while the stage is split. */
+  splitId?: string | undefined;
 }
 
 export const EMPTY_STAGE: StageState = { tabs: [] };
@@ -135,20 +148,27 @@ function openTab(state: StageState, tab: StageTab): StageState {
 }
 
 function reopen(state: StageState, existing: StageTab, next: StageTab): StageState {
-  return { tabs: state.tabs.map((tab) => tab.id === existing.id ? next : tab), activeId: existing.id };
+  return { ...activateTab(state, existing.id), tabs: state.tabs.map((tab) => tab.id === existing.id ? next : tab) };
 }
 
-export function openFileTab(state: StageState, path: string, options: { view?: StageView; pin?: boolean; line?: number } = {}): StageState {
-  const id = fileTabId(path);
+export function openFileTab(state: StageState, path: string, options: { view?: StageView; pin?: boolean; line?: number; trace?: boolean; resourceOrigin?: WorkspaceResourceOrigin | null; localWorkspace?: string } = {}): StageState {
+  const id = options.resourceOrigin && options.resourceOrigin.workspace === options.localWorkspace ? fileTabId(path) : options.resourceOrigin ? `${fileTabId(path)}:${JSON.stringify([options.resourceOrigin.sourceId, options.resourceOrigin.workspace])}` : options.resourceOrigin === null ? `${fileTabId(path)}:unavailable` : fileTabId(path);
   const existing = state.tabs.find((tab) => tab.id === id);
+  if (options.trace) {
+    // One trace tab, after the others; never on an empty stage, never in front.
+    if (existing || state.tabs.length === 0) return state;
+    const tab: StageFileTab = { id, kind: "file", path, view: "source", preview: true, trace: true };
+    const at = state.tabs.findIndex((entry) => entry.kind === "file" && entry.trace && entry.id !== state.activeId && entry.id !== state.splitId);
+    return { ...state, tabs: at >= 0 ? state.tabs.map((entry, index) => index === at ? tab : entry) : [...state.tabs, tab] };
+  }
   const line = options.line !== undefined && Number.isSafeInteger(options.line) && options.line > 0 ? options.line : undefined;
   // A line is always shown as source: a diff has no line of the file to go to.
   const view = line ? "source" : options.view;
   if (existing?.kind === "file") {
     const reveal = line ? { line, reveal: (existing.reveal ?? 0) + 1 } : {};
-    return reopen(state, existing, { ...existing, view: view ?? existing.view, preview: existing.preview && !options.pin, ...reveal });
+    return reopen(state, existing, { ...existing, view: view ?? existing.view, preview: existing.preview && !options.pin, ...(options.resourceOrigin !== undefined ? { resourceOrigin: options.resourceOrigin } : {}), ...reveal });
   }
-  return openTab(state, { id, kind: "file", path, view: view ?? "source", preview: !options.pin, ...(line ? { line, reveal: 1 } : {}) });
+  return openTab(state, { id, kind: "file", path, view: view ?? "source", preview: !options.pin, ...(options.resourceOrigin !== undefined ? { resourceOrigin: options.resourceOrigin } : {}), ...(line ? { line, reveal: 1 } : {}) });
 }
 
 export function openThreadTab(state: StageState, sessionId: string, options: { pin?: boolean; machine?: string } = {}): StageState {
@@ -215,22 +235,40 @@ export function setExtensionTabDirty(state: StageState, id: string, dirty: boole
   return mapExtensionTab(state, id, (tab) => Boolean(tab.dirty) === dirty ? tab : { ...tab, dirty });
 }
 
+/** The split tab is already on screen, so activating it changes nothing. */
 export function activateTab(state: StageState, id: string): StageState {
-  if (state.activeId === id || !state.tabs.some((tab) => tab.id === id)) return state;
+  if (state.activeId === id || state.splitId === id || !state.tabs.some((tab) => tab.id === id)) return state;
   return { ...state, activeId: id };
+}
+
+/** The tab beside the active one, when the stage is split. */
+export function splitTab(state: StageState): StageTab | undefined {
+  return state.splitId === state.activeId ? undefined : state.tabs.find((tab) => tab.id === state.splitId);
+}
+
+/**
+ * Shows `id` beside the active tab, pinned; the active tab itself moves there
+ * and its neighbour takes its place. Without `id` the stage is one pane again.
+ */
+export function splitStage(state: StageState, id?: string): StageState {
+  const index = state.tabs.findIndex((tab) => tab.id === id);
+  if (index < 0 || state.tabs.length < 2) return { ...state, splitId: undefined };
+  const activeId = id === state.activeId ? (state.tabs[index - 1] ?? state.tabs[index + 1])!.id : state.activeId;
+  return { tabs: state.tabs.map((tab) => tab.id === id ? { ...tab, preview: false } : tab), activeId, splitId: id };
 }
 
 export function closeTab(state: StageState, id: string): StageState {
   const index = state.tabs.findIndex((tab) => tab.id === id);
   if (index < 0) return state;
   const tabs = state.tabs.filter((tab) => tab.id !== id);
-  if (state.activeId !== id) return { tabs, activeId: state.activeId };
-  const neighbour = tabs[index] ?? tabs[index - 1];
-  return { tabs, activeId: neighbour?.id };
+  const activeId = state.activeId !== id ? state.activeId : (tabs[index] ?? tabs[index - 1])?.id;
+  // Without the split tab, or with it in front, the stage is one pane again.
+  const { splitId } = state;
+  return { tabs, activeId, splitId: splitId !== id && splitId !== activeId ? splitId : undefined };
 }
 
 export function pinTab(state: StageState, id: string): StageState {
-  return { ...state, tabs: state.tabs.map((tab) => tab.id === id && tab.preview ? { ...tab, preview: false } : tab) };
+  return { ...state, tabs: state.tabs.map((tab) => tab.id === id && tab.preview ? { ...tab, preview: false, ...(tab.kind === "file" ? { trace: false } : {}) } : tab) };
 }
 
 /** The one preview slot moves to this tab; every other tab keeps its place, pinned. */
@@ -256,11 +294,13 @@ export function setFileView(state: StageState, id: string, view: StageView): Sta
   return { ...state, tabs: state.tabs.map((tab) => tab.id === id && tab.kind === "file" ? { ...tab, view } : tab) };
 }
 
+/** Walks the active pane's tabs; the split tab stays where it is. */
 export function cycleTab(state: StageState, direction: 1 | -1): StageState {
-  if (state.tabs.length <= 1) return state;
-  const currentIndex = state.tabs.findIndex((tab) => tab.id === state.activeId);
+  const tabs = state.tabs.filter((tab) => tab.id !== state.splitId);
+  if (tabs.length <= 1) return state;
+  const currentIndex = tabs.findIndex((tab) => tab.id === state.activeId);
   const nextIndex = currentIndex < 0
     ? 0
-    : (currentIndex + direction + state.tabs.length) % state.tabs.length;
-  return { ...state, activeId: state.tabs[nextIndex]?.id };
+    : (currentIndex + direction + tabs.length) % tabs.length;
+  return { ...state, activeId: tabs[nextIndex]?.id };
 }

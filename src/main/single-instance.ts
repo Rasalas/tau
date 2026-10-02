@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { appIdentity, type AppIdentity as AppNames } from "./app-identity.js";
 
 export interface AppIdentity {
   getPath(name: "appData"): string;
@@ -7,19 +8,15 @@ export interface AppIdentity {
   setAppUserModelId?(id: string): void;
 }
 
-/** `appId` in tooling/electron-builder.yml: the macOS bundle id and the AppUserModelID the installer's shortcuts carry. */
-export const APP_ID = "de.tbuck.tau";
-
 /**
- * Changes Tau's visible name without abandoning preferences stored under its
- * original package name. A separate `userData` gives a second, independent
- * instance (its own lock, window state and preferences) for verification runs.
+ * Names the app and its userData (the app identity's folder, or `TAU_USER_DATA`
+ * for an isolated instance), which also gives it its own lock and preferences.
  * Windows shows a toast only for an app whose AppUserModelID matches a shortcut's.
  */
-export function configureAppIdentity(app: AppIdentity, userData?: string, platform: NodeJS.Platform = process.platform): void {
-  app.setPath("userData", userData || join(app.getPath("appData"), "tau-pi-desktop-prototype"));
-  app.setName("Tau");
-  if (platform === "win32") app.setAppUserModelId?.(APP_ID);
+export function configureAppIdentity(app: AppIdentity, userData?: string, platform: NodeJS.Platform = process.platform, identity: AppNames = appIdentity()): void {
+  app.setPath("userData", userData || join(app.getPath("appData"), identity.userDataFolder));
+  app.setName(identity.productName);
+  if (platform === "win32") app.setAppUserModelId?.(identity.appId);
 }
 
 export interface SingleInstanceApp {

@@ -2,6 +2,7 @@ import { createContext, useContext } from "react";
 import type { HostEvent, HostSnapshot, UiToolRun } from "../shared/contracts";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
 import type { ThreadStore } from "../workbench/thread-store";
+import type { WorkspaceResourceOrigin } from "../workbench/stage";
 export type { TimelineEvent } from "../workbench/thread-view-store";
 import type { TimelineEvent } from "../workbench/thread-view-store";
 
@@ -12,7 +13,9 @@ export interface WorkbenchContextValue {
   registry: ExtensionRegistry;
   /** Absolute path of the document shown in the active stage tab. */
   activeDocumentPath?: string;
-  openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff"; line?: number }): void;
+  openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff"; line?: number; trace?: boolean }): void;
+  /** Renderer resource navigation, separate from legacy extension openFile actions. */
+  openWorkspaceFile?(relativePath: string, origin: WorkspaceResourceOrigin | null): void;
   applySnapshot(snapshot: HostSnapshot): void;
   handleHostEvent(event: HostEvent): void;
 }

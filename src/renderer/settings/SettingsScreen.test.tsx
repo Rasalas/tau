@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useState } from "react";
+import { useState, type ComponentProps } from "react";
 import type { ExtensionInspection, HostSnapshot, TauConfig } from "../../shared/contracts";
 import { withSetting, withoutSetting } from "../../shared/config-layers";
 import { ExtensionRegistry } from "../extension-system";
@@ -13,6 +13,7 @@ import { SettingsScreen } from "./SettingsScreen";
 import { AppPageContext } from "../app-page-context";
 import { AppPageStore } from "../../workbench/app-page-store";
 import { SettingsPageAction } from "./page-action";
+import { SettingRow, Switch, useSetting } from "./settings-layout";
 import { CORE_PAGE_DESCRIPTIONS } from "./settings-nav";
 
 afterEach(cleanup);
@@ -39,15 +40,29 @@ function hostWithFiles() {
   return { files, client };
 }
 
-function renderScreen(options: { page?: string; client?: ReturnType<typeof hostWithFiles>["client"]; onClose?: () => void; extensions?: string[]; registry?: ExtensionRegistry } = {}) {
+/** A row a project may override, as a kit adds to General's New threads card. */
+function ProjectRule() {
+  const rule = useSetting<boolean>("options.fixture.rule", { defaultValue: false, scope: "both", read: (raw) => (typeof raw === "boolean" ? raw : undefined) });
+  return <SettingRow title="Project rule" setting={rule} control={<Switch label="Project rule" checked={rule.value} onChange={rule.set} />} />;
+}
+
+function registryWithProjectRule() {
+  const registry = new ExtensionRegistry(undefined, { preferences: new PreferencesStore() });
+  registry.activate({ id: "fixture.rules", name: "Rules", activate(context) {
+    context.registerSettingsSection({ id: "fixture.rule", page: "general", card: "new-threads", Component: ProjectRule });
+  } });
+  return registry;
+}
+
+function renderScreen(options: { page?: string; client?: ReturnType<typeof hostWithFiles>["client"]; onClose?: () => void; extensions?: string[]; registry?: ExtensionRegistry; projects?: ComponentProps<typeof SettingsScreen>["projects"]; threads?: ComponentProps<typeof SettingsScreen>["threads"] } = {}) {
   const onClose = options.onClose ?? vi.fn();
   const onSetPage = vi.fn();
-  const registry = options.registry ?? new ExtensionRegistry(undefined, { preferences: new PreferencesStore() });
+  const registry = options.registry ?? registryWithProjectRule();
   for (const name of options.extensions ?? []) registry.activate({ id: name.toLowerCase(), name, activate() {} });
   // The page is the caller's state, as the workbench keeps it.
   function Harness() {
     const [page, setPage] = useState(options.page ?? "defaults");
-    return <SettingsScreen page={page} snapshot={snapshot} registry={registry} projects={[{ path: "/work/other", workspaceId: "ws-other", name: "other", lastOpenedAt: 1 }]} onSetPage={(next) => { onSetPage(next); setPage(next); }} onSetModel={vi.fn()} onSetThinking={vi.fn()} onClose={onClose} onNotify={vi.fn()} />;
+    return <SettingsScreen page={page} snapshot={snapshot} registry={registry} projects={options.projects ?? [{ path: "/work/other", workspaceId: "ws-other", name: "other", lastOpenedAt: 1 }]} threads={options.threads ?? []} onSetPage={(next) => { onSetPage(next); setPage(next); }} onSetModel={vi.fn()} onSetThinking={vi.fn()} onClose={onClose} onNotify={vi.fn()} />;
   }
   const view = render(<HostClientProvider client={options.client}>
     <TestProviders>
@@ -64,7 +79,8 @@ describe("the Settings screen", () => {
     // "defaults" is the older name of General. A page at the top has no breadcrumb.
     const head = page.querySelector<HTMLElement>(".settings-page-head")!;
     expect(within(head).getByRole("heading", { level: 1, name: "General" })).toBeTruthy();
-    expect(within(head).getByText(CORE_PAGE_DESCRIPTIONS.general)).toBeTruthy();
+    // General is cards under its title alone (design 2i).
+    expect(within(head).queryByText(CORE_PAGE_DESCRIPTIONS.general)).toBeNull();
     expect(within(page).queryByRole("navigation", { name: "Settings breadcrumb" })).toBeNull();
     // Above the search and under About: both go to the thread, past a page Settings was opened over.
     const backs = within(page).getAllByRole("button", { name: "Back to thread" });
@@ -129,34 +145,120 @@ describe("the Settings screen", () => {
     const { page } = renderScreen({ client });
     const scope = await within(page).findByRole("button", { name: /Settings apply to this machine/u });
 
-    fireEvent.click(within(page).getByRole("switch", { name: "Show costs" }));
-    await waitFor(() => expect(files.host).toEqual({ showCosts: false }));
+    fireEvent.click(within(page).getByRole("switch", { name: "Project rule" }));
+    await waitFor(() => expect(files.host).toEqual({ options: { "fixture.rule": true } }));
 
     fireEvent.click(scope);
     fireEvent.click(within(page).getByRole("menuitem", { name: /app/u }));
     await within(page).findByRole("button", { name: /Settings apply to app/u });
-    const costs = await within(page).findByRole("button", { name: /Inherited from this machine/u });
-    expect(costs).toBeTruthy();
+    const rule = await within(page).findByRole("button", { name: /Inherited from this machine/u });
+    expect(rule).toBeTruthy();
 
-    fireEvent.click(within(page).getByRole("switch", { name: "Show costs" }));
-    await waitFor(() => expect(files.project).toEqual({ showCosts: true }));
+    fireEvent.click(within(page).getByRole("switch", { name: "Project rule" }));
+    await waitFor(() => expect(files.project).toEqual({ options: { "fixture.rule": false } }));
     const overridden = await within(page).findByRole("button", { name: /Overridden for app/u });
     fireEvent.click(overridden);
     const origin = within(page).getByRole("dialog", { name: "Where this value comes from" });
-    expect([...origin.querySelectorAll("li")].map((row) => row.textContent)).toEqual(["ProjectOn", "This machineOff", "DefaultOn"]);
+    expect([...origin.querySelectorAll("li")].map((row) => row.textContent)).toEqual(["ProjectOff", "This machineOn", "DefaultOff"]);
     fireEvent.click(within(origin).getByRole("button", { name: "Reset to inherited value" }));
     await waitFor(() => expect(files.project).toEqual({}));
   });
 
-  it("keeps a machine-only row inert while a project is edited", async () => {
+  it("keeps machine-wide rows in sight but inert, with the reason, while a project is edited", async () => {
     const { client } = hostWithFiles();
     const { page } = renderScreen({ client });
     fireEvent.click(await within(page).findByRole("button", { name: /Settings apply to this machine/u }));
     fireEvent.click(within(page).getByRole("menuitem", { name: /app/u }));
     await within(page).findByRole("button", { name: /Settings apply to app/u });
-    const row = within(page).getByRole("switch", { name: "Keep the host running in the background" }).closest(".settings-row-control")!;
-    expect(row.getAttribute("data-inert")).toBe("");
-    expect(row.getAttribute("data-tooltip")).toMatch(/setting of this machine/u);
+    for (const name of ["Keep the host running in the background", "Reload files when they change", "Ask before quitting while threads work"]) {
+      const row = within(page).getByRole("switch", { name }).closest(".settings-row")!;
+      expect(row.querySelector(".settings-row-control")!.getAttribute("data-inert")).toBe("");
+      expect(row.querySelector(".settings-row-control")!.getAttribute("data-tooltip")).toBe("Applies to the whole machine.");
+      expect(row.querySelector(".settings-row-lock")!.textContent).toBe("Applies to the whole machine.");
+    }
+    // Rows that are no setting of Tau's config lock the same way; the project row stays live.
+    expect(within(page).getByRole("combobox", { name: "Send with" }).closest(".settings-row-control")!.hasAttribute("data-inert")).toBe(true);
+    expect(within(page).getByRole("switch", { name: "Project rule" }).closest(".settings-row-control")!.hasAttribute("data-inert")).toBe(false);
+  });
+
+  it("offers a project only where a row can hold one", async () => {
+    const { client } = hostWithFiles();
+    const { page } = renderScreen({ client, registry: new ExtensionRegistry(undefined, { preferences: new PreferencesStore() }) });
+    await act(async () => undefined);
+    // General's own rows are all machine-wide or personal: nothing to choose.
+    expect(within(page).queryByRole("button", { name: /Settings apply to/u })).toBeNull();
+  });
+
+  it("lists each project of this machine once, without the root or another machine's projects, and tells equal names apart", async () => {
+    const { client } = hostWithFiles();
+    const project = (path: string, workspaceId: string, name = path.split("/").at(-1)!) => ({ path, workspaceId, name, lastOpenedAt: 1 });
+    const { page } = renderScreen({
+      client,
+      projects: [
+        project("/", "ws-root"),
+        project("/Users/me/code/git-nrw", "ws-a"),
+        project("/Users/me/code/git-nrw", "ws-a-again"),
+        project("/Users/me/old/git-nrw", "ws-b"),
+        project("/home/rex/git-nrw", "ws-rex", "git-nrw"),
+        project("/Users/me/tau", "ws-tau"),
+      ],
+      threads: [{ id: "t1", path: "/s/t1", title: "On rex", modifiedAt: 1, projectPath: "/home/rex/git-nrw", workspaceId: "ws-rex", projectName: "git-nrw", messageCount: 1, backendKind: "machine", machine: { id: "rex", name: "rex" } }],
+    });
+    fireEvent.click(await within(page).findByRole("button", { name: /Settings apply to this machine/u }));
+    const entries = within(page).getAllByRole("menuitem").map((item) => item.textContent);
+    expect(entries).toEqual([
+      expect.stringContaining("This machine"),
+      expect.stringMatching(/^app/u),
+      expect.stringMatching(/^git-nrw~\/code$/u),
+      expect.stringMatching(/^git-nrw~\/old$/u),
+      expect.stringMatching(/^tau$/u),
+    ]);
+  });
+
+  it("offers each other machine, and edits its own settings there instead of this machine's", async () => {
+    const { files, client } = hostWithFiles();
+    const rex: { host: TauConfig } = { host: { hostBackground: true } };
+    const calls: unknown[][] = [];
+    const reaching = createFakeHostClient({
+      ...Object.fromEntries(Object.entries(client).filter(([, value]) => typeof value === "function")),
+      listEnvironments: async () => ({ shown: "mac", secureStorage: true, environments: [
+        { id: "mac", name: "mac", local: true, status: "connected", threads: [], threadCount: 0, projects: [] },
+        { id: "rex", name: "rex", local: false, status: "connected", threads: [], threadCount: 0, projects: [] },
+        { id: "nas", name: "nas", local: false, status: "offline", threads: [], threadCount: 0, projects: [] },
+        { id: "lab", name: "lab", local: false, status: "connected", readOnly: true, threads: [], threadCount: 0, projects: [] },
+      ] }),
+      getEnvironmentConfig: async () => ({ host: rex.host }),
+      updateEnvironmentConfig: async (machine: string, patch: TauConfig) => { calls.push(["update", machine, patch]); rex.host = { ...rex.host, ...patch }; return {}; },
+      clearEnvironmentConfig: async (machine: string, keys: string[]) => { calls.push(["clear", machine, keys]); rex.host = keys.reduce(withoutSetting, rex.host); return {}; },
+    });
+    const { page } = renderScreen({ client: reaching as ReturnType<typeof hostWithFiles>["client"] });
+    fireEvent.click(await within(page).findByRole("button", { name: /Settings apply to this machine/u }));
+    const items = await within(page).findAllByRole("menuitem");
+    expect(items.map((item) => item.textContent)).toEqual([
+      expect.stringMatching(/^This machine/u), "rex", "nasNot reachable", "labRead only", expect.stringMatching(/^app/u), "other",
+    ]);
+    expect(within(page).getByRole("menuitem", { name: /nas/u }).hasAttribute("disabled")).toBe(true);
+
+    fireEvent.click(within(page).getByRole("menuitem", { name: /rex/u }));
+    await within(page).findByRole("button", { name: /Settings apply to rex/u });
+    const background = await within(page).findByRole("switch", { name: "Keep the host running in the background" });
+    await waitFor(() => expect(background.getAttribute("aria-checked")).toBe("true"));
+    fireEvent.click(background);
+    await waitFor(() => expect(calls).toEqual([["update", "rex", { hostBackground: false }]]));
+    expect(files.host).toEqual({});
+    // Personal looks apply on every machine, so they are not offered a second time; a device's own choice is not rex's.
+    const theme = within(page).getByRole("radiogroup", { name: "Theme" }).closest(".settings-row")!;
+    expect(theme.querySelector(".settings-row-lock")!.textContent).toBe("Personal: applies on every machine.");
+    expect(within(page).getByRole("combobox", { name: "Send with" }).closest(".settings-row-control")!.hasAttribute("data-inert")).toBe(true);
+    // Projects belong to this machine.
+    expect(within(page).queryByRole("switch", { name: "Project rule" })).toBeTruthy();
+    expect(within(page).getByRole("switch", { name: "Project rule" }).closest(".settings-row-control")!.hasAttribute("data-inert")).toBe(false);
+
+    fireEvent.click(within(page).getByRole("button", { name: /Settings apply to rex/u }));
+    fireEvent.click(within(page).getByRole("menuitem", { name: /lab/u }));
+    await within(page).findByRole("button", { name: /Settings apply to lab/u });
+    const locked = within(page).getByRole("switch", { name: "Keep the host running in the background" }).closest(".settings-row-control")!;
+    expect(locked.getAttribute("data-tooltip")).toMatch(/lab paired this window Read only/u);
   });
 
   it("turns watching Tau's files off and back to the default", async () => {
@@ -172,17 +274,17 @@ describe("the Settings screen", () => {
 
   it("writes the update track to this machine, and hides it for a host elsewhere", async () => {
     const { files, client } = hostWithFiles();
-    const { page } = renderScreen({ client });
-    const track = await within(page).findByRole("radiogroup", { name: "Update track" });
-    fireEvent.click(within(track).getByRole("radio", { name: "Nightly" }));
+    const { page } = renderScreen({ client, page: "about" });
+    const track = await within(page).findByRole("switch", { name: "Pre-release builds" });
+    fireEvent.click(track);
     await waitFor(() => expect(files.host).toEqual({ updates: { channel: "nightly" } }));
-    expect(within(track).getByRole("radio", { name: "Nightly" }).getAttribute("aria-checked")).toBe("true");
+    expect(track.getAttribute("aria-checked")).toBe("true");
     cleanup();
 
     const remote = createFakeHostClient({ hasCapability: () => false });
-    const { page: remotePage } = renderScreen({ client: remote as ReturnType<typeof hostWithFiles>["client"] });
+    const { page: remotePage } = renderScreen({ client: remote as ReturnType<typeof hostWithFiles>["client"], page: "about" });
     await act(async () => undefined);
-    expect(within(remotePage).queryByRole("radiogroup", { name: "Update track" })).toBeNull();
+    expect(within(remotePage).queryByRole("switch", { name: "Pre-release builds" })).toBeNull();
   });
 
   it("turns the thread defaults inert with the reason on a device paired Read only", async () => {
@@ -242,6 +344,17 @@ describe("the section column", () => {
     expect(within(page).getByRole("button", { name: "Threads" }).getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("opens Settings with the groups folded as they were left", () => {
+    const first = renderScreen();
+    const extensions = () => within(within(document.body).getByRole("group", { name: "Extensions" })).getByRole("button", { name: "Extensions" });
+    // Folds live as long as the window, so an earlier test may have left this one either way.
+    const was = extensions().getAttribute("aria-expanded");
+    fireEvent.click(within(first.page).getByRole("button", { name: "Extensions" }));
+    cleanup();
+    renderScreen();
+    expect(extensions().getAttribute("aria-expanded")).toBe(was === "true" ? "false" : "true");
+  });
+
   it("opens a row a link names, and an extension's page by its older link", async () => {
     const { page } = renderScreen({ page: "general#setting-show-costs" });
     await waitFor(() => expect(document.activeElement?.id).toBe("setting-show-costs"));
@@ -263,7 +376,7 @@ describe("the page head", () => {
     registry.activate({ id: "fixture.pages", name: "Pages", activate(context) {
       context.registerSettingsPage({
         id: "look", label: "Look", description: "How the zebra stripes are drawn.", group: "general", scope: "both",
-        Component: () => <div className="settings-page"><SettingsPageAction><button type="button">Add stripes</button></SettingsPageAction><p>Rows</p></div>,
+        Component: () => <div className="settings-page"><SettingsPageAction><button type="button">Add stripes</button></SettingsPageAction><ProjectRule /></div>,
       });
       context.registerSettingsPage({ id: "plain", label: "Plain", Component: () => <div className="settings-page"><h3>Plain</h3><p>Rows</p></div> });
     } });
@@ -278,7 +391,7 @@ describe("the page head", () => {
     expect(await within(head).findByRole("button", { name: /Settings apply to this machine/u })).toBeTruthy();
     // The page keeps its action's state; the head draws it.
     await waitFor(() => expect(within(head.querySelector<HTMLElement>(".settings-page-action")!).getByRole("button", { name: "Add stripes" })).toBeTruthy());
-    expect(page.querySelector(".settings-page")!.textContent).toBe("Rows");
+    expect(within(page.querySelector<HTMLElement>(".settings-page")!).getByRole("switch", { name: "Project rule" })).toBeTruthy();
   });
 
   it("gives a page without a description its title alone", () => {
@@ -307,6 +420,24 @@ describe("the page head", () => {
     const head = document.querySelector<HTMLElement>(".settings-page-head")!;
     expect(within(head).queryByRole("heading")).toBeNull();
     expect(within(head).getByText(CORE_PAGE_DESCRIPTIONS.extensions)).toBeTruthy();
+  });
+});
+
+describe("Settings on a phone (design 1s)", () => {
+  it("lists the sections as cards with their values, leaves the keys out, and says where keys live", async () => {
+    const registry = new ExtensionRegistry(undefined, { preferences: new PreferencesStore(), profile: "compact" });
+    await registry.activate({ id: "test.machines", name: "Machines", activate(context) {
+      context.registerSettingsPage({ id: "test.machines", label: "Machines", group: "general", order: -1, profiles: ["compact"], useSummary: () => "2 online", Component: () => null });
+    } });
+    const phoneSnapshot = { ...snapshot, runtimeBackends: [{ kind: "pi", label: "Pi" }] } as unknown as HostSnapshot;
+    render(<HostClientProvider client={undefined}><TestProviders>
+      <SettingsScreen page="general" stacked view="sections" snapshot={phoneSnapshot} registry={registry} nav={<nav aria-label="Main" />} onSetPage={vi.fn()} onSetModel={vi.fn()} onSetThinking={vi.fn()} onClose={vi.fn()} onNotify={vi.fn()} />
+    </TestProviders></HostClientProvider>);
+    const sections = screen.getByRole("navigation", { name: "Settings sections" });
+    expect(within(sections).getByRole("button", { name: /^Machines/u }).querySelector(".settings-nav-value")?.textContent).toBe("2 online");
+    expect(within(sections).getByRole("button", { name: /^Runtimes/u }).textContent).toContain("Pi default");
+    expect(within(sections).queryByRole("button", { name: /^Keybindings/u })).toBeNull();
+    expect(within(sections).getByText(/Keys and sign-ins live on your machines/u)).toBeTruthy();
   });
 });
 

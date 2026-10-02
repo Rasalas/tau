@@ -1,10 +1,11 @@
 import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, ChevronRight, Search, SquareChevronRight } from "lucide-react";
 import type { ExtensionRegistry, PaletteItem, PaletteMenu, PaletteSearchContext, WorkbenchActions } from "../extension-system";
-import { menuRows, paletteRows, readOnlyCommands, readOnlySources, rowEntry, stepRow, type PaletteCommand, type PaletteRow, type PaletteSourceResult } from "../palette-results";
+import { menuRows, PALETTE_SCOPES, PALETTE_SOURCE_LIMIT, paletteRows, paletteScope, readOnlyCommands, readOnlySources, rowEntry, stepRow, type PaletteCommand, type PaletteRow, type PaletteSourceResult } from "../palette-results";
 import { searchSettings, settingsSearchEntries } from "../settings/settings-search";
 import { settingsTarget } from "../settings/settings-nav";
 import { commandRefusal, useHostCapabilities } from "../use-host-capabilities";
+import { isMacPlatform } from "../keybindings";
 import { ThreadStoreContext } from "../workbench-context";
 import { errorMessage } from "../../workbench/error-message";
 import { VirtualList } from "./VirtualList";
@@ -13,9 +14,9 @@ import { tooltipProps } from "./ui/Tooltip";
 import { useFocusReturn, useFocusTrap } from "./ui/focus";
 import "./command-palette.css";
 
-/** Core's own source: the Settings pages and rows, found by the words Settings search uses. */
-const SETTINGS_SOURCE = { id: "core.settings", label: "Settings" };
 const SETTINGS_LIMIT = 5;
+/** Rows a source may put in a tab of its own. */
+const SCOPED_LIMIT = 60;
 const NO_RESULTS: PaletteSourceResult[] = [];
 /** The breadcrumb names this many levels at most; the ones between collapse to "…". */
 const CRUMBS = 3;
@@ -29,20 +30,6 @@ interface PaletteLevel {
 
 type LevelAnswer = { key: number; items: readonly PaletteItem[]; loading: boolean; error?: string };
 
-/** Underline the matched run so the reason a row ranked is visible. */
-function highlight(label: string, query: string): ReactNode {
-  if (!query) return label;
-  const index = label.toLowerCase().indexOf(query.toLowerCase());
-  if (index < 0) return label;
-  return (
-    <>
-      {label.slice(0, index)}
-      <mark>{label.slice(index, index + query.length)}</mark>
-      {label.slice(index + query.length)}
-    </>
-  );
-}
-
 function settingsItems(registry: ExtensionRegistry, needle: string): PaletteItem[] {
   const entries = settingsSearchEntries({
     pages: registry.getSettingsPages().map((page) => ({ id: page.id, label: page.label, description: page.description, keywords: page.keywords, extensionName: page.extensionName, rows: page.rows })),
@@ -51,7 +38,8 @@ function settingsItems(registry: ExtensionRegistry, needle: string): PaletteItem
   return searchSettings(entries, needle, SETTINGS_LIMIT).map((entry) => ({
     id: entry.id,
     label: entry.label,
-    detail: entry.section,
+    detail: entry.section === "Settings" ? "Settings" : `Settings › ${entry.section}`,
+    icon: <SquareChevronRight size={13} />,
     access: "read",
     run: (actions) => actions.openSettings(settingsTarget(entry.page, entry.target)),
   }));
@@ -60,7 +48,6 @@ function settingsItems(registry: ExtensionRegistry, needle: string): PaletteItem
 export function CommandPalette({
   open,
   commands,
-  extensionCount,
   actions,
   registry,
   shortcutFor,
@@ -71,7 +58,6 @@ export function CommandPalette({
   /** The id of a command with a `submenu`: the palette opens on its level. */
   menu?: string;
   commands: PaletteCommand[];
-  extensionCount: number;
   actions: WorkbenchActions;
   /** Where the palette's sources and the Settings pages come from; without it, commands only. */
   registry?: ExtensionRegistry;
@@ -81,7 +67,7 @@ export function CommandPalette({
 }) {
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
-  const [found, setFound] = useState<{ needle: string; results: PaletteSourceResult[] }>({ needle: "", results: [] });
+  const [found, setFound] = useState<{ key: string; results: PaletteSourceResult[] }>({ key: "", results: [] });
   const [levels, setLevels] = useState<readonly PaletteLevel[]>([]);
   const [reply, setReply] = useState<LevelAnswer>();
   const levelKey = useRef(0);
@@ -96,15 +82,19 @@ export function CommandPalette({
   useFocusReturn(open, surface, () => actionsRef.current.focusComposer?.());
   useFocusTrap(surface, open);
 
-  const typed = query.trim();
-  const needle = typed.toLowerCase();
   const level = levels.at(-1);
+  // A level searches what is typed as it is; the commands' level reads a prefix first.
+  const { scope, text } = level ? { scope: "all" as const, text: query } : paletteScope(query);
+  const typed = text.trim();
+  const needle = typed.toLowerCase();
+  const foundKey = `${scope}:${needle}`;
 
   const searchContext = (signal: AbortSignal): PaletteSearchContext => {
     const snapshot = threads?.getSnapshot();
     return {
       actions: actionsRef.current,
-      index: { projects: snapshot?.projects ?? [], threads: snapshot?.threads ?? [], ...(snapshot?.activeThreadId ? { activeThreadId: snapshot.activeThreadId } : {}) },
+      index: { projects: snapshot?.projects ?? [], threads: snapshot?.threads ?? [], running: snapshot?.runningThreadIds ?? [], ...(snapshot?.activeThreadId ? { activeThreadId: snapshot.activeThreadId } : {}) },
+      ...(scope === "commands" ? {} : { scope }),
       signal,
     };
   };
@@ -113,19 +103,16 @@ export function CommandPalette({
 
   // Every source is asked again for every query; an answer that arrives after
   // the next keystroke is dropped, and the source sees its signal abort.
+  // A source with a scope is asked for an empty query too, in All and in its tab.
   useEffect(() => {
-    if (!open || !needle || !registry || level) return;
+    if (!open || !registry || level || scope === "commands") return;
     const controller = new AbortController();
     const context = contextRef.current(controller.signal);
-    const sources = registry.getPaletteSources();
+    const sources = registry.getPaletteSources().filter((source) => (scope === "all" ? needle || source.scope : source.scope === scope));
     const answers = new Map<string, PaletteSourceResult>();
     const publish = () => {
-      if (controller.signal.aborted) return;
-      const results = sources.flatMap((source) => answers.get(source.id) ?? []);
-      const settings = answers.get(SETTINGS_SOURCE.id);
-      setFound({ needle, results: settings ? [...results, settings] : results });
+      if (!controller.signal.aborted) setFound({ key: foundKey, results: sources.flatMap((source) => answers.get(source.id) ?? []) });
     };
-    answers.set(SETTINGS_SOURCE.id, { ...SETTINGS_SOURCE, items: settingsItems(registry, needle) });
     for (const source of sources) {
       let answer: ReturnType<typeof source.search>;
       try {
@@ -145,7 +132,7 @@ export function CommandPalette({
     }
     publish();
     return () => controller.abort();
-  }, [level, needle, open, registry]);
+  }, [level, needle, open, registry, scope]);
 
   // A level is asked when it opens and on every keystroke, under the same rules as a source.
   useEffect(() => {
@@ -174,18 +161,21 @@ export function CommandPalette({
     return () => controller.abort();
   }, [level, typed, open]);
 
-  const results = found.needle === needle ? found.results : NO_RESULTS;
+  const results = found.key === foundKey ? found.results : NO_RESULTS;
   const levelAnswer = level && reply?.key === level.key ? reply : undefined;
-  const rows = useMemo(
-    () => level
-      ? menuRows(levelAnswer?.items ?? [], needle, level.menu.searches)
-      : readOnly
-        ? paletteRows(readOnlyCommands(commands), needle, readOnlySources(results))
-        : paletteRows(commands, needle, results),
-    [commands, level, levelAnswer, needle, readOnly, results],
-  );
-  const refusal = (row: PaletteRow | undefined) => (row ? commandRefusal(rowEntry(row), readOnly) : undefined);
-  const usable = (index: number) => Boolean(rows[index]) && !refusal(rows[index]);
+  const rows = useMemo(() => {
+    if (level) return menuRows(levelAnswer?.items ?? [], needle, level.menu.searches);
+    const wide = scope === "all" || scope === "commands";
+    const shown = !wide ? [] : readOnly ? readOnlyCommands(commands) : commands;
+    const settings = registry && needle && wide ? settingsItems(registry, needle) : [];
+    return paletteRows(shown, needle, readOnly ? readOnlySources(results) : results, scope === "all" ? PALETTE_SOURCE_LIMIT : SCOPED_LIMIT, settings);
+  }, [commands, level, levelAnswer, needle, readOnly, registry, results, scope]);
+  const refusal = (row: PaletteRow | undefined) => {
+    const entry = row && rowEntry(row);
+    return entry ? commandRefusal(entry, readOnly) : undefined;
+  };
+  // A heading is never a stop.
+  const usable = (index: number) => rows[index]?.kind !== "head" && Boolean(rows[index]) && !refusal(rows[index]);
   // The cursor never rests on a row this device may not run.
   const next = usable(cursor) ? cursor : stepRow(rows.length, cursor - 1, 1, usable);
   const current = usable(next) ? next : -1;
@@ -195,14 +185,13 @@ export function CommandPalette({
     const start = menu ? commands.find((command) => command.id === menu && !commandRefusal(command, readOnly))?.submenu : undefined;
     setQuery("");
     setCursor(0);
-    setFound({ needle: "", results: [] });
     setReply(undefined);
     setLevels(start ? [{ key: ++levelKey.current, menu: start, parentQuery: "" }] : []);
     requestAnimationFrame(() => input.current?.focus());
     // The commands may change while the palette is open; that is no reason to start over.
   }, [open, menu]);
 
-  useEffect(() => setCursor(0), [needle, level]);
+  useEffect(() => setCursor(0), [foundKey, level]);
 
   if (!open) return null;
 
@@ -220,11 +209,12 @@ export function CommandPalette({
     input.current?.focus();
   };
 
-  const run = (row: PaletteRow) => {
-    if (refusal(row)) return;
+  const run = (row: PaletteRow, inStage = false) => {
+    if (row.kind === "head" || refusal(row)) return;
     const submenu = row.kind === "command" ? row.command.submenu : row.item.submenu;
     if (submenu) { enter(submenu); return; }
-    const done = row.kind === "command" ? row.command.run(actions) : row.item.run?.(actions);
+    const item = row.kind === "item" ? row.item : undefined;
+    const done = row.kind === "command" ? row.command.run(actions) : inStage && item?.stage ? item.stage(actions) : item?.run?.(actions);
     void Promise.resolve(done).catch((error: unknown) => actions.notify(errorMessage(error)));
     onClose();
   };
@@ -237,7 +227,7 @@ export function CommandPalette({
     if (event.key === "Enter" && rows[current]) {
       // Cancelling the keydown drops its keypress, which would submit a dialog the command opens.
       event.preventDefault();
-      run(rows[current]);
+      run(rows[current], event.metaKey || event.ctrlKey);
     }
     if (event.key === "Backspace" && level && query === "") {
       event.preventDefault();
@@ -252,7 +242,7 @@ export function CommandPalette({
     : levelAnswer?.error ? <p className="palette-empty" role="alert">{levelAnswer.error}</p>
       : levelAnswer?.loading ? <p className="palette-empty palette-loading"><Spinner size="xs" label="Loading" /> Loading…</p>
         : <p className="palette-empty">{level && !needle ? level.menu.empty ?? "Nothing here." : `Nothing matches “${query}”.`}</p>;
-  const trailing = (row: PaletteRow): ReactNode => {
+  const trailing = (row: PaletteRow & { kind: "command" | "item" }): ReactNode => {
     const item = row.kind === "item" ? row.item : undefined;
     const submenu = row.kind === "command" ? row.command.submenu : item?.submenu;
     const shortcut = row.kind === "command" ? shortcutFor?.(row.command.id) : undefined;
@@ -299,49 +289,53 @@ export function CommandPalette({
         <div className="palette-input-wrap">
           {level
             ? <button type="button" className="palette-back" aria-label="Back" onClick={() => back()}><ArrowLeft size={15} /></button>
-            : <span>›</span>}
+            : <Search size={15} aria-hidden />}
           <input
             ref={input}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={level ? level.menu.placeholder ?? "Search…" : registry ? "Run a command, find a thread, a project or a setting…" : "Run a command…"}
+            placeholder={level ? level.menu.placeholder ?? "Search…" : "Search threads, files and commands…"}
             aria-label={level ? level.menu.title : "Command"}
           />
           {levelAnswer?.loading && levelAnswer.items.length > 0 ? <Spinner size="xs" label="Loading" /> : null}
-          <kbd className="keyboard-hint">esc</kbd>
+          {level || !registry ? null : <span className="palette-scopes">
+            {PALETTE_SCOPES.map(([id, prefix, label]) => <button
+              key={id}
+              type="button"
+              aria-pressed={scope === id}
+              onClick={() => { setQuery(prefix + text); input.current?.focus(); }}
+            >{label}</button>)}
+          </span>}
         </div>
         <VirtualList
           items={rows}
-          itemHeight={38}
+          itemHeight={(row) => (row.kind === "head" ? 24 : 33)}
           className="palette-results"
           scrollToIndex={Math.max(current, 0)}
           empty={emptyLine}
-          renderItem={(row, index) => row.kind === "command" ? <button
-            key={row.key}
-            className={index === current ? "selected" : ""}
-            data-group={row.command.group}
-            {...lockProps(row, index)}
-            onClick={() => run(row)}
-          >
-            <span>{highlight(row.command.label, needle)}</span><small>{row.command.extensionName.toLowerCase()}</small>{trailing(row)}
-          </button> : <button
-            key={row.key}
-            className={index === current ? "selected" : ""}
-            data-source={row.source || undefined}
-            {...lockProps(row, index)}
-            onClick={() => run(row)}
-          >
-            {row.item.icon ? <i className="palette-icon">{row.item.icon}</i> : null}
-            <span>{highlight(row.item.label, needle)}{row.item.detail ? <em>{row.item.detail}</em> : null}</span>{row.source ? <small>{row.source.toLowerCase()}</small> : null}{trailing(row)}
-          </button>}
+          renderItem={(row, index) => {
+            if (row.kind === "head") return <h3 key={row.key} className="palette-head">{row.label}</h3>;
+            const item = row.kind === "item" ? row.item : undefined;
+            const command = row.kind === "command" ? row.command : undefined;
+            const Icon = command && (command.Icon ?? SquareChevronRight);
+            return <button
+              key={row.key}
+              className={index === current ? "selected" : ""}
+              {...lockProps(row, index)}
+              onClick={(event) => run(row, event.metaKey || event.ctrlKey)}
+            >
+              {Icon ? <i className="palette-icon"><Icon size={13} /></i> : item?.icon ? <i className="palette-icon">{item.icon}</i> : null}
+              <span>{item?.label ?? command?.label}{item?.detail ? <em>{item.detail}</em> : null}</span>{trailing(row)}
+            </button>;
+          }}
         />
-        <footer>
-          <span className="keyboard-hint">↑↓ navigate</span>
-          <span className="keyboard-hint">↵ {level ? "select" : "run"}</span>
-          {level ? <span className="keyboard-hint">⌫ back</span> : null}
+        <footer className="keyboard-hint">
+          <span>↑↓ move</span>
+          <span>⏎ {level ? "select" : "open"}</span>
+          <span>{level ? "⌫ back" : `${isMacPlatform() ? "⌘" : "Ctrl+"}⏎ open in stage`}</span>
           <span className="spacer" />
-          {level ? <span className="keyboard-hint">esc close</span> : <span>{extensionCount} extensions contribute {commands.length} commands</span>}
+          {level ? "esc close" : "> for commands · # for threads · / for files"}
         </footer>
       </section>
     </div>

@@ -2,6 +2,8 @@ import { open, readFile, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import { unpricedUsage, type UiModelBilling, type UsageTurn } from "tau/host-extension";
+import { sessionUsageTurns } from "../usage/session-usage.js";
 import type { ClaudeRuntimeSessionStore, ClaudeStoredMessage } from "./session-store.js";
 
 /**
@@ -37,6 +39,8 @@ export interface ParsedSession {
   title: string;
   model?: string;
   messages: ClaudeStoredMessage[];
+  /** When each prompt was sent, the ones the kept messages drop included. */
+  prompts: number[];
 }
 
 /** The CLI's config folder: `CLAUDE_CONFIG_DIR`, else `~/.claude`. */
@@ -99,7 +103,8 @@ export function parseClaudeSession(lines: Iterable<string>, fallback: { sessionI
   if (!UUID.test(sessionId) || !cwd || !first) return undefined;
   // The first prompt names the conversation; the newest messages are the ones worth reading.
   const kept = messages.length <= MAX_MESSAGES ? messages : [first, ...messages.slice(-(MAX_MESSAGES - 1))];
-  return { sessionId, cwd, title: titleOf(summary ?? first.text) || "Imported conversation", ...(model ? { model } : {}), messages: kept };
+  const prompts = messages.flatMap((message) => message.role === "user" ? [message.timestamp] : []);
+  return { sessionId, cwd, title: titleOf(summary ?? first.text) || "Imported conversation", ...(model ? { model } : {}), messages: kept, prompts };
 }
 
 async function sessionFiles(dirs: readonly string[]): Promise<Array<{ path: string; mtimeMs: number; size: number }>> {
@@ -171,11 +176,13 @@ export async function sessionFileWithin(dirs: readonly string[], path: unknown):
   return undefined;
 }
 
-export async function readClaudeSession(path: string): Promise<ParsedSession | undefined> {
+/** The session a file holds, and what its responses used, each prompt's apart. */
+export async function readClaudeSession(path: string, billing?: UiModelBilling): Promise<(ParsedSession & { usageTurns: UsageTurn[] }) | undefined> {
   const info = await stat(path);
   if (info.size > MAX_FILE_BYTES) throw new Error("larger than 16 MiB");
-  const content = await readFile(path, "utf8");
-  return parseClaudeSession(content.split("\n").filter(Boolean), { sessionId: path.slice(-42, -6), updatedAt: info.mtimeMs });
+  const lines = (await readFile(path, "utf8")).split("\n").filter(Boolean);
+  const session = parseClaudeSession(lines, { sessionId: path.slice(-42, -6), updatedAt: info.mtimeMs });
+  return session && { ...session, usageTurns: sessionUsageTurns("agent-sdk", lines, { sessionId: session.sessionId, prompts: session.prompts, ...(billing ? { billing } : {}) }) };
 }
 
 export interface ImportOutcome {
@@ -186,25 +193,30 @@ export interface ImportOutcome {
   failed: Array<{ path: string; reason: string }>;
 }
 
+/** `billing` is the login's now, as work outside Tau is counted: the log does not say how it was paid. */
 export async function importClaudeSessions(
   dirs: readonly string[],
   paths: unknown,
   store: Pick<ClaudeRuntimeSessionStore, "adopt">,
+  billing?: UiModelBilling,
 ): Promise<ImportOutcome> {
   const outcome: ImportOutcome = { imported: [], skipped: 0, failed: [] };
-  const parsed: Array<ParsedSession & { updatedAt: number }> = [];
+  const parsed: Array<ParsedSession & { usageTurns: UsageTurn[]; updatedAt: number }> = [];
   for (const path of Array.isArray(paths) ? paths : []) {
     const file = await sessionFileWithin(dirs, path);
     if (!file) { outcome.failed.push({ path: String(path), reason: "not a session file of Claude Code" }); continue; }
     try {
-      const session = await readClaudeSession(file);
+      const session = await readClaudeSession(file, billing);
       if (!session) { outcome.failed.push({ path: file, reason: "no conversation to resume" }); continue; }
       parsed.push({ ...session, updatedAt: session.messages.at(-1)?.timestamp ?? Date.now() });
     } catch (error) {
       outcome.failed.push({ path: file, reason: error instanceof Error ? error.message : String(error) });
     }
   }
-  const ids = await store.adopt(parsed.map((session) => ({ ...session, claudeSessionId: session.sessionId })));
+  const ids = await store.adopt(parsed.map((session) => {
+    const usage = unpricedUsage(session.usageTurns);
+    return { ...session, claudeSessionId: session.sessionId, ...(usage ? { usage } : {}) };
+  }));
   for (const id of ids) {
     if (id) outcome.imported.push(id);
     else outcome.skipped += 1;

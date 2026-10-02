@@ -35,15 +35,19 @@ import {
   type WorkspaceHostClient,
   type WorkspaceKitState,
   type WorkspaceMode,
+  type ThreadDropTargets,
   type ThreadRailOrganizer,
   type ThreadCardSection,
   type ThreadRowAccessoryProps,
+  type ThreadRowStatusMark,
   type RailThreadSource,
   type ThreadWorktreeRequest,
   type TurnStat,
   type WorkspaceStoreApi,
   type WorktreeNamer,
   type WorktreeSubmodules,
+  type BranchNaming,
+  type DraftMachineSource,
 } from "./protocol.js";
 import { recordTurnStat } from "./turn-stats.js";
 
@@ -68,6 +72,7 @@ const INITIAL: WorkspaceKitState = {
   preparingWorktree: false,
   changesSections: [],
   threadRowAccessories: [],
+  threadRowStatuses: {},
   threadCardSections: [],
   railSections: [],
   railThreadSources: [],
@@ -77,8 +82,14 @@ const INITIAL: WorkspaceKitState = {
 
 /** The user's global answer for where a new thread runs. */
 export const NEW_THREAD_WORKSPACE_KEY = "new-thread-workspace";
+/** How an unnamed draft branch is named: `random` skips the naming kit. */
+export const BRANCH_NAMING_KEY = "branch-naming";
 /** Whether a new worktree starts from the freshly fetched remote; on by default. */
 export const START_FROM_ORIGIN_OPTION = "start-from-origin";
+/** `values.tau.workspace.worktree-directory`: where new worktrees go on this machine; unset is beside each project. */
+export const WORKTREE_DIRECTORY_KEY = "worktree-directory";
+/** Whether a file the agent reads or edits opens as a trace tab (design 1a). */
+export const TRACE_TABS_OPTION = "trace-tabs";
 /** How a new worktree fills its submodules; unset lets the checkout's project file decide. */
 export const WORKTREE_SUBMODULES_KEY = "worktree-submodules";
 /** Where new projects start: the folder browser and the clone's destination. */
@@ -126,6 +137,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   private actions?: WorkbenchActions;
   /** Kits that draw the review overlay. */
   private reviewViews = 0;
+  private rowStatuses = new Map<string, Readonly<Record<string, ThreadRowStatusMark>>>();
   private changesRequest = 0;
   private workspaceRequest = 0;
   private sessionId?: string;
@@ -133,6 +145,12 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   private defaults?: ProjectDefaults;
   private commitMessageSuggester?: CommitMessageSuggester;
   private fileEditor?: WorkspaceFileEditor;
+  /** Another thread's turn runs in the draft's folder, as the follower last saw it. */
+  private busyCheckout = false;
+  /** The draft took the suggested worktree, but it could not be made. */
+  private draftFellBack = false;
+  /** Threads that run in the checkout only because their suggested worktree failed. */
+  private readonly fellBack = new Set<string>();
 
   /** Clones in flight and just finished, as toasts. */
   readonly clones: CloneToasts;
@@ -198,8 +216,14 @@ export class WorkspaceStore implements WorkspaceStoreApi {
 
   /** Follows the workbench: called whenever the thread, its project, or the draft state changes. */
   follow(next: { cwd?: string; workspaceId?: string; sessionId?: string; draftPending: boolean }): void {
-    const projectChanged = next.cwd !== this.state.cwd;
+    const projectChanged = next.cwd !== this.state.cwd || next.workspaceId !== this.state.workspaceId;
     const threadChanged = next.sessionId !== this.sessionId;
+    const draftChanged = projectChanged || threadChanged || next.draftPending !== this.state.draftPending;
+    if (this.draftFellBack && !next.draftPending && next.sessionId) {
+      this.fellBack.add(next.sessionId);
+      this.draftFellBack = false;
+    } else if (draftChanged && next.draftPending) this.draftFellBack = false;
+    const suggested = draftChanged && this.state.worktreeSuggested;
     this.sessionId = next.sessionId;
     this.update({
       cwd: next.cwd,
@@ -207,8 +231,10 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       draftPending: next.draftPending,
       ...(projectChanged ? { changes: NO_CHANGES, fileTree: [], workspace: undefined } : {}),
       ...(threadChanged ? { turnBaseline: next.sessionId ? readBaseline(next.sessionId) : undefined, turnSettled: false } : {}),
-      ...(projectChanged || threadChanged || next.draftPending !== this.state.draftPending ? { draftBranch: undefined, draftBase: undefined } : {}),
+      ...(draftChanged ? { draftBranch: undefined, draftBase: undefined } : {}),
     });
+    // A new draft starts from the default as it is now; a suggestion was the old draft's.
+    if (draftChanged && (next.draftPending || suggested)) this.update({ worktreeSuggested: false, workspaceMode: this.defaultWorkspaceMode() });
     if (next.cwd && (projectChanged || threadChanged)) {
       void this.refreshChanges();
       void this.refreshWorkspace();
@@ -219,6 +245,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       this.update({ workspaceMode: this.defaultWorkspaceMode(), worktreeBase: undefined });
       void this.loadProjectDefaults();
     }
+    this.suggestWorktree();
   }
 
   /**
@@ -231,6 +258,15 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     return own ?? this.defaults?.workspaceMode ?? asMode(this.preferences.value(WORKSPACE_KIT_ID, NEW_THREAD_WORKSPACE_KEY)) ?? "current";
   }
 
+  /** A draft not yet decided follows the default when Settings changes it. */
+  followDefaultChanges(): () => void {
+    return this.preferences.subscribe(() => {
+      if (!this.state.draftPending || this.state.worktreeSuggested) return;
+      const mode = this.defaultWorkspaceMode();
+      if (mode !== this.state.workspaceMode) this.update({ workspaceMode: mode });
+    });
+  }
+
   /** `.tau/project.json`, read once per project. */
   private async loadProjectDefaults(): Promise<void> {
     if (!hostAvailable()) return;
@@ -239,7 +275,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       const defaults = await this.host.getProjectDefaults(this.workspace());
       if (cwd !== this.state.cwd) return;
       this.defaults = defaults;
-      this.update({ workspaceMode: this.defaultWorkspaceMode() });
+      // A suggestion already shown keeps its switch where it is.
+      if (!this.state.worktreeSuggested) this.update({ workspaceMode: this.defaultWorkspaceMode() });
     } catch { /* a project without the file simply has no answer */ }
   }
 
@@ -254,12 +291,51 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     this.update({ workspaceMode: mode });
   }
 
+  /** Whether another thread's turn runs in the draft's folder; the follower reads it off the thread list. */
+  followBusyCheckout(busy: boolean): void {
+    this.busyCheckout = busy;
+    this.suggestWorktree();
+  }
+
+  /**
+   * Preselects a worktree once per draft while another turn runs in its folder.
+   * It stays when that turn ends, and a switch turned off is never turned on again.
+   */
+  private suggestWorktree(): void {
+    const { draftPending, worktreeSuggested, workspaceMode, workspace } = this.state;
+    if (!this.busyCheckout || !draftPending || worktreeSuggested || workspaceMode !== "current" || !workspace?.isRepo) return;
+    this.update({ worktreeSuggested: true, workspaceMode: "worktree" });
+  }
+
+  /** The suggestion's switch: this draft's choice only, never the project's default. */
+  setWorktreeSuggestion(on: boolean): void {
+    if (this.state.worktreeSuggested) this.update({ workspaceMode: on ? "worktree" : "current" });
+  }
+
+  /** What a skipped checkpoint says; nothing for a thread whose suggested worktree could not be made. */
+  skippedCheckpointNotice(sessionId: string): string | undefined {
+    if (this.fellBack.has(sessionId)) return undefined;
+    return "Turn changes were not recorded: another turn is active in this workspace. Start the next thread in its own worktree to keep changes separate.";
+  }
+
   /** The draft's branch name and base; empty values go back to automatic. */
   setDraftBranch(branch: { name?: string; base?: string }): void {
     this.update({
       ...("name" in branch ? { draftBranch: branch.name?.trim() || undefined } : {}),
       ...("base" in branch ? { draftBase: branch.base || undefined } : {}),
     });
+  }
+
+  branchNaming(): BranchNaming {
+    // What applies here (a project may override it) wins over the popover's own last choice.
+    const stored = this.preferences.value(WORKSPACE_KIT_ID, BRANCH_NAMING_KEY);
+    return stored === "random" || stored === "prompt" ? stored : this.state.branchNaming ?? "prompt";
+  }
+
+  /** "If empty": a global choice, as Settings would keep it. */
+  setBranchNaming(naming: BranchNaming): void {
+    this.preferences.setValue(WORKSPACE_KIT_ID, BRANCH_NAMING_KEY, naming);
+    this.update({ branchNaming: naming });
   }
 
   /** Whether a new worktree starts from the freshly fetched remote commit. */
@@ -358,8 +434,11 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     const cwd = this.state.cwd;
     this.update({ workspaceBusy: true });
     try {
-      const next = this.state.draftPending && cwd ? await this.host.getWorkspaceInfo(this.workspace()) : await this.host.getWorkspaceInfo();
-      if (request === this.workspaceRequest && cwd === this.state.cwd) this.update({ workspace: next });
+      const next = await this.host.getWorkspaceInfo(this.workspace());
+      if (request === this.workspaceRequest && cwd === this.state.cwd) {
+        this.update({ workspace: next });
+        this.suggestWorktree();
+      }
     } catch (error) {
       if (request === this.workspaceRequest) this.notify(errorMessage(error));
     } finally {
@@ -396,8 +475,17 @@ export class WorkspaceStore implements WorkspaceStoreApi {
 
   turnSettled(sessionId: string): void {
     // Another thread's tools reach only the clients showing it; the end of its turn reaches all.
-    if (sessionId === this.sessionId) this.update({ turnSettled: true });
+    if (sessionId === this.sessionId) {
+      this.update({ turnSettled: true });
+      // The turn may have switched the branch; the header and THREAD_BRANCH_SERVICE follow.
+      void this.refreshWorkspace();
+    }
     void this.refreshChanges();
+  }
+
+  /** The host saw HEAD move in a checkout, e.g. `git checkout` in a terminal. */
+  headChanged(root: unknown): void {
+    if (root === this.state.workspace?.root) void this.refresh();
   }
 
   toolFinished(tool: UiToolRun): void {
@@ -446,10 +534,10 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     catch (error) { this.notify(errorMessage(error)); }
   }
 
-  stageFile(path: string): Promise<void> { return this.mutate("Staging changes", () => this.host.stageFile(path)); }
-  unstageFile(path: string): Promise<void> { return this.mutate("Unstaging changes", () => this.host.unstageFile(path)); }
-  stageAll(): Promise<void> { return this.mutate("Staging changes", () => this.host.stageAll()); }
-  revertFile(path: string): Promise<void> { return this.mutate("Reverting changes", () => this.host.revertFile(path)); }
+  stageFile(path: string): Promise<void> { return this.mutate("Staging changes", () => this.host.stageFile(path, this.workspace())); }
+  unstageFile(path: string): Promise<void> { return this.mutate("Unstaging changes", () => this.host.unstageFile(path, this.workspace())); }
+  stageAll(): Promise<void> { return this.mutate("Staging changes", () => this.host.stageAll(this.workspace())); }
+  revertFile(path: string): Promise<void> { return this.mutate("Reverting changes", () => this.host.revertFile(path, this.workspace())); }
 
   async commit(message: string, push: boolean): Promise<boolean> {
     if (!this.allowed("Committing") || !this.requireHost("Committing")) return false;
@@ -472,7 +560,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     if (!this.allowed("Pulling") || !this.requireHost("Pulling")) return;
     this.update({ committing: true });
     try {
-      const result = await this.host.pull();
+      const result = await this.host.pull(this.workspace());
       this.notify(result.detail);
       await Promise.all([this.refreshChanges(), this.refreshWorkspace()]);
     } catch (error) {
@@ -486,7 +574,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     if (!this.allowed("Pushing") || !this.requireHost("Pushing")) return;
     this.update({ committing: true });
     try {
-      const result = await this.host.push();
+      const result = await this.host.push(this.workspace());
       this.notify(result.detail);
       await Promise.all([this.refreshChanges(), this.refreshWorkspace()]);
     } catch (error) {
@@ -565,17 +653,18 @@ export class WorkspaceStore implements WorkspaceStoreApi {
    * Anything that goes wrong leaves the thread in the checkout it was started
    * from: a prompt is never lost to a worktree that could not be made.
    */
-  async prepareThreadWorktree(event: ThreadWorktreeRequest): Promise<{ workspace?: { workspaceId: string; displayPath: string } }> {
+  async prepareThreadWorktree(event: ThreadWorktreeRequest): Promise<{ workspace?: { workspaceId: string; displayPath: string }; baseCommit?: string }> {
     if ((!event.force && this.workspaceMode() !== "worktree") || !this.state.workspace?.isRepo || !hostAvailable()) return {};
     this.update({ preparingWorktree: true });
     try {
       event.preparing("Setting up worktree…");
       const named = this.state.draftBranch ?? await this.threadBranchName(event.prompt);
       const branch = event.branchSuffix ? `${named}-${event.branchSuffix}` : named;
-      const base = this.state.draftBase;
-      const created = await this.host.createWorktree(branch, { ...(base ? { baseRef: base } : {}), ...this.worktreeOptions() }, this.workspace());
-      return { workspace: { workspaceId: created.workspaceId, displayPath: created.displayPath } };
+      const base = event.baseCommit ?? this.state.draftBase;
+      const created = await this.host.createWorktree(branch, { ...this.worktreeOptions(), ...(base ? { baseRef: base } : {}), ...(event.baseCommit ? { startFromOrigin: false } : {}) }, this.workspace());
+      return { workspace: { workspaceId: created.workspaceId, displayPath: created.displayPath }, ...(created.baseCommit ? { baseCommit: created.baseCommit } : {}) };
     } catch (error) {
+      if (this.state.worktreeSuggested) this.draftFellBack = true;
       this.notify(`The worktree could not be created; this thread runs in the checkout. ${errorMessage(error)}`);
       return {};
     } finally {
@@ -589,7 +678,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
    */
   private async threadBranchName(prompt: string): Promise<string> {
     const taken = this.state.workspace?.refs.map((ref) => ref.name) ?? [];
-    if (this.namer && this.actions) {
+    if (this.namer && this.actions && this.branchNaming() === "prompt") {
       try {
         const named = await this.namer({ hint: "", description: prompt, taken, actions: this.actions });
         if (named) return named;
@@ -668,6 +757,12 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     return () => this.update({ threadRowAccessories: this.state.threadRowAccessories.filter((entry) => entry !== accessory) });
   }
 
+  setThreadRowStatuses(owner: string, statuses: Readonly<Record<string, ThreadRowStatusMark>>): void {
+    if (Object.keys(statuses).length) this.rowStatuses.set(owner, statuses);
+    else if (!this.rowStatuses.delete(owner)) return;
+    this.update({ threadRowStatuses: Object.assign({}, ...this.rowStatuses.values()) as Record<string, ThreadRowStatusMark> });
+  }
+
   registerThreadCardSection(section: ThreadCardSection): () => void {
     this.update({ threadCardSections: [...this.state.threadCardSections, section] });
     return () => this.update({ threadCardSections: this.state.threadCardSections.filter((entry) => entry !== section) });
@@ -681,6 +776,11 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   registerRailThreads(source: RailThreadSource): () => void {
     this.update({ railThreadSources: [...this.state.railThreadSources, source] });
     return () => this.update({ railThreadSources: this.state.railThreadSources.filter((entry) => entry !== source) });
+  }
+
+  registerDraftMachine(source: DraftMachineSource): () => void {
+    this.update({ draftMachine: source });
+    return () => { if (this.state.draftMachine === source) this.update({ draftMachine: undefined }); };
   }
 
   setRailProjectFilter(projectName: string | undefined): void {
@@ -715,6 +815,11 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     if (turnStats[sessionId] !== this.state.turnStats[sessionId]) this.update({ turnStats });
   }
 
+  registerThreadDropTargets(targets: ThreadDropTargets): () => void {
+    this.update({ threadDropTargets: targets });
+    return () => { if (this.state.threadDropTargets === targets) this.update({ threadDropTargets: undefined }); };
+  }
+
   registerThreadRailOrganizer(organizer: ThreadRailOrganizer): () => void {
     this.update({ threadRailOrganizer: organizer });
     return () => { if (this.state.threadRailOrganizer === organizer) this.update({ threadRailOrganizer: undefined }); };
@@ -743,8 +848,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     return this.commitMessageSuggester({ changes, diffs, actions: this.actions });
   }
 
-  switchRef(ref: string): Promise<boolean> { return this.workspaceAction(() => this.host.switchRef(ref)); }
-  createBranch(branch: string): Promise<boolean> { return this.workspaceAction(() => this.host.createBranch(branch)); }
+  switchRef(ref: string): Promise<boolean> { return this.workspaceAction(() => this.host.switchRef(ref, this.workspace())); }
+  createBranch(branch: string): Promise<boolean> { return this.workspaceAction(() => this.host.createBranch(branch, this.workspace())); }
   /** A worktree whose folder vanished is recreated rather than refused. */
   async openWorktree(path: string): Promise<boolean> {
     if (path === this.state.cwd) return true;

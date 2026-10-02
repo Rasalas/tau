@@ -3,7 +3,7 @@ import type { DesktopExtension, RegionProps, SettingsPageProps } from "tau";
 import { userThemes } from "tau";
 import { AppearanceApplier, readAppearance } from "./apply.js";
 import { ThemeEditorPanel, ThemeEditorStore, draftFromWindow } from "./editor.js";
-import { AppearancePage } from "./page.js";
+import { AppearancePage, DensityRow } from "./page.js";
 import { APPEARANCE_EXTENSION_ID, APPEARANCE_SETTINGS_PAGE, TERMINAL_FONT_SERVICE, type TerminalFontService } from "./protocol.js";
 import { TerminalFontLink } from "./terminal-font.js";
 import { TextSizeStore } from "./text-size.js";
@@ -35,7 +35,6 @@ export const appearanceExtension: DesktopExtension = {
       Icon: Palette,
       order: 5,
       profiles: ["desktop", "web", "compact"],
-      scope: "both",
       rows: [
         { id: "setting-appearance-mode", label: "Mode", keywords: ["theme", "dark", "light", "system"] },
         { id: "setting-appearance-themes", label: "Themes", keywords: ["theme", "colors", "colours", "vs code", "import", "new theme"] },
@@ -51,6 +50,7 @@ export const appearanceExtension: DesktopExtension = {
       keywords: ["theme", "dark", "light", "density", "compact", "contrast", "font", "font size", "typeface", "monospace", "terminal", "ghostty", "vs code", "colors", "colours", "timestamps", "12-hour", "24-hour", "text size", "larger text", "animation", "motion", "panels"],
       Component: (props: SettingsPageProps) => <AppearancePage {...props} preferences={plugin.preferences} editor={editor} terminalFont={terminalFont} textSize={textSize} />,
     });
+    plugin.registerSettingsSection({ id: "appearance.density", page: "general", card: "appearance", order: 20, profiles: ["desktop"], Component: () => <DensityRow /> });
     // The title bar is always there, so the editor outlives the Settings page it was opened from.
     plugin.registerRegion({
       id: "appearance.theme-editor",

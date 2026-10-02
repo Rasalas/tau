@@ -151,3 +151,25 @@ Remote Work Kit; its `snapshotRef` input is gone. When the parent's checkout
 still holds uncommitted work that the child's base carries, applying a child
 that committed goes through `mergeBranchIntoCheckout` with that base, as a
 remote result does, since `git merge` refuses to overwrite those files.
+
+## Amendment, 2026-10-02: reviews keep their integration target and completed tip
+
+A worktree's review target is independent of the branch currently checked out
+in the repository's main folder. Workspace Kit records
+`branch.<name>.tau-review-target` when it creates a worktree: the chosen base
+branch for an ordinary thread, the parent's branch for a spawned child.
+Review Kit prefers a linked pull request's base and remembers inferred targets
+for older worktrees in its own state. A missing local target is unavailable;
+Tau never switches the main checkout as part of reading or merging a review.
+Merge requires that checkout to be on the intended target.
+
+A completed review records its exact branch tip and target. A merged pull
+request proves completion only for its submitted head commit. Local Git also
+recognizes individual cherry-picked patches and a combined patch squashed
+into a historical target commit, even after later edits to the same files.
+Completion stays visible under Merged across restarts and target changes.
+New commits or uncommitted files reopen the review.
+
+Completion does not remove a worktree. The separate confirmed cleanup action
+checks the current tip and working copy again, removes the worktree and branch,
+and retains the thread and completed review.

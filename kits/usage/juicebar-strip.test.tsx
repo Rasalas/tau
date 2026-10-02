@@ -7,7 +7,7 @@ import { createKitHarness, createMemoryStorage, HostClientProvider, setClientSto
 import { TestProviders, TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
 import { usageExtension } from "./desktop.js";
 import { JuicebarStrip } from "./juicebar-strip.js";
-import { createJuicebarChoices } from "./juicebars.js";
+import { createJuicebarChoices } from "./juicebar-choices.js";
 import { createLimitsFeed } from "./limits-feed.js";
 import { forgetLastState } from "./last-state.js";
 import { UsagePage } from "./page.js";
@@ -26,7 +26,7 @@ const account = (id: string, runtime: string, used: number[], identity?: { provi
 const host = (answer: unknown): HostExtensionClient => ({ invoke: vi.fn(async () => answer), onEvent: () => () => undefined }) as unknown as HostExtensionClient;
 
 beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(NOW); });
-afterEach(() => { forgetLastState(); cleanup(); vi.useRealTimers(); setClientStorage(undefined); document.body.removeAttribute("data-profile"); });
+afterEach(() => { forgetLastState(); cleanup(); vi.useRealTimers(); setClientStorage(undefined); document.body.removeAttribute("data-profile"); document.querySelector(".touch-browser")?.remove(); });
 
 describe("the juicebars on top of a phone's thread list", () => {
   const renderStrip = (feed: ReturnType<typeof createLimitsFeed>, openPage = vi.fn()) => {
@@ -36,7 +36,7 @@ describe("the juicebars on top of a phone's thread list", () => {
     return openPage;
   };
 
-  it("draws nothing until a plan has a window, then each account once with its bars and its lowest rest; a tap opens the limits", () => {
+  it("draws nothing until a plan has a window, then each account once with only its bars; a tap opens the limits", () => {
     const feed = createLimitsFeed(host(undefined));
     const openPage = renderStrip(feed);
     expect(screen.queryByRole("button")).toBeNull();
@@ -51,10 +51,10 @@ describe("the juicebars on top of a phone's thread list", () => {
     };
     act(() => feed.publish(limits));
     const strip = screen.getByRole("button", { name: "Plan limits, ChatGPT: 5-hour 50% left, Weekly 4% left. Opens Usage." });
-    const groups = strip.querySelectorAll(".usage-juicestrip-group");
+    const groups = strip.querySelectorAll(".usage-juicebar-group");
     expect(groups).toHaveLength(1);
-    expect(groups[0]!.getAttribute("data-level")).toBe("warn");
-    expect(groups[0]!.querySelector("b")!.textContent).toBe("4%");
+    expect(strip.textContent).toBe("");
+    expect(groups[0]!.querySelectorAll('[data-level="warn"]')).toHaveLength(1);
     expect(groups[0]!.querySelectorAll(".usage-juicebar")).toHaveLength(2);
     fireEvent.click(strip);
     expect(openPage).toHaveBeenCalledWith("usage", { section: "limits" });
@@ -63,10 +63,10 @@ describe("the juicebars on top of a phone's thread list", () => {
   it("is registered for a phone's or tablet's thread list only", () => {
     const desktop = createKitHarness();
     desktop.registry.activate(usageExtension);
-    expect(desktop.registry.getRegions("thread-list-head")).toEqual([]);
+    expect(desktop.registry.getRegions("thread-list-title")).toEqual([]);
     const phone = createKitHarness(undefined, "compact");
     phone.registry.activate(usageExtension);
-    expect(phone.registry.getRegions("thread-list-head").map((region) => region.id)).toEqual(["usage.juicebars"]);
+    expect(phone.registry.getRegions("thread-list-title").map((region) => region.id)).toEqual(["usage.juicebars"]);
   });
 
   it("reads the other paired hosts' limits through the phone's machines", async () => {
@@ -103,5 +103,18 @@ describe("choosing a phone's bars on its Usage page", () => {
     const choice = within(card).getByRole("group", { name: "Show in thread list" });
     fireEvent.click(within(choice).getByRole("button", { name: "Weekly" }));
     expect(choices.getSnapshot()).toEqual({ "openai:k|secondary": false });
+  });
+
+  it("names the sidebar on a tablet, whose sidebar's foot draws them", async () => {
+    setClientStorage(createMemoryStorage());
+    document.body.dataset.profile = "compact";
+    const sidebar = document.body.appendChild(document.createElement("nav"));
+    sidebar.className = "touch-browser sidebar";
+    const limits: UsageLimitsSummary = { checkedAt: NOW, accounts: [account("codex:a", "codex", [41, 95], { provider: "openai", key: "k" })], sources: [] };
+    const answers = vi.fn(async (command: string) => command === "limits" ? limits : { entries: [], scannedAt: NOW, rows: [], sources: [], totals: { requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, costUsd: 0, threads: 0 } });
+    const client = { invoke: answers, onEvent: () => () => undefined } as unknown as HostExtensionClient;
+    render(<TestProviders><HostClientProvider client={createFakeHostClient()}><UsagePage host={client} now={() => new Date(NOW)} navigate={vi.fn()} choices={createJuicebarChoices()} /></HostClientProvider></TestProviders>);
+    const card = await screen.findByRole("region", { name: "Codex limits" });
+    expect(within(card).getByRole("group", { name: "Show in sidebar" })).toBeTruthy();
   });
 });

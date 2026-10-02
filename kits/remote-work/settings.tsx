@@ -214,7 +214,7 @@ function ThreadLinkRow({ link, host, allowed, now, onNotify, openThere }: {
   allowed: boolean;
   now: number;
   onNotify(message: string): void;
-  /** Moves the window to the machine with the thread open; absent where the client cannot. */
+  /** Opens the thread here through connected agents, or follows the legacy desktop machine. */
   openThere?(link: RemoteThreadLink): Promise<void>;
 }) {
   const [busy, setBusy] = useState<string>();
@@ -233,7 +233,7 @@ function ThreadLinkRow({ link, host, allowed, now, onNotify, openThere }: {
   // Looking works Read only too; answering there is that machine's to allow.
   const there = openThere && link.thread && open && link.status !== "offline" ? () => {
     setBusy("open");
-    openThere(link).catch((error: unknown) => { setBusy(undefined); onNotify(errorMessage(error)); });
+    openThere(link).catch((error: unknown) => onNotify(errorMessage(error))).finally(() => setBusy(undefined));
   } : undefined;
   return (
     <SettingRow

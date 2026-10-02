@@ -1,48 +1,47 @@
-/* Takeover Kit: the card above the composer of a thread that waits for the user, and its rail mark. */
+/* Takeover Kit: "Your turn" on the composer, over a phone's Preview, and in the transcript. */
 
+/* The card and the composer under it read as one filled card, a hairline between them (design 3d). */
 .takeover-card {
-  width: 100%; box-sizing: border-box; max-width: 780px; margin: 0 auto 8px; padding: 6px 6px 6px 12px;
-  display: flex; flex-direction: column; gap: 6px; min-width: 0;
-  border: 1px solid var(--acid-line); border-radius: var(--radius-lg);
-  background: var(--acid-bg); font: 12.5px/1.4 var(--sans); color: var(--ink-2);
+  max-width: 780px; margin: 0 auto; padding: 12px 12px 10px; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 8px; min-width: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0; border-bottom: 1px solid var(--line);
+  background: var(--field); font: var(--text-xs)/1.45 var(--sans); color: var(--ink);
 }
-.takeover-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
-.takeover-icon { flex: none; color: var(--acid-text); }
-.takeover-row > strong { flex: none; font-weight: 600; color: var(--ink); }
-.takeover-reason { flex: 1 1 160px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.takeover-actions { flex: none; margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.conversation-column:has(.takeover-card) .composer-zone { padding-top: 0; }
+.conversation-column:has(.takeover-card) .composer-frame { border-top-left-radius: 0; border-top-right-radius: 0; }
+.takeover-card > header { display: flex; align-items: center; gap: 6px; color: var(--warn); font-weight: 600; }
+.takeover-card > header > span { margin-left: auto; color: var(--muted); font-weight: 400; }
+.takeover-card > p { margin: 0; overflow-wrap: anywhere; }
+.takeover-card code { font: var(--text-xs) var(--mono); }
+.takeover-card > .takeover-note { color: var(--muted); }
+.takeover-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.takeover-spacer { flex: 1; }
 
-.takeover-button {
-  display: inline-flex; align-items: center; gap: 6px;
-  height: 28px; padding: 0 12px; border: 1px solid var(--line-control); border-radius: var(--radius-pill);
-  background: var(--raised); color: var(--ink); font: 500 var(--text-sm) var(--sans); cursor: pointer; white-space: nowrap;
+.takeover-link, .takeover-done {
+  display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--ink-3); font: var(--text-xs) var(--sans); white-space: nowrap; cursor: pointer;
 }
-.takeover-button:hover:not(:disabled) { background: var(--raised-hover); border-color: var(--line-hover); }
-.takeover-button.primary { border-color: transparent; background: var(--acid); color: var(--acid-ink); font-weight: 600; }
-.takeover-button.primary:hover:not(:disabled) { background: var(--acid-strong); }
-.takeover-button:disabled { opacity: .6; cursor: default; }
-
-.takeover-icon-button {
-  width: 28px; height: 28px; display: grid; place-items: center; padding: 0;
-  border: 1px solid transparent; border-radius: var(--radius-pill); background: transparent; color: var(--muted); cursor: pointer;
-}
-.takeover-icon-button:hover:not(:disabled), .takeover-icon-button.active { background: var(--raised); border-color: var(--line-control); color: var(--ink); }
-.takeover-icon-button:disabled { opacity: .5; cursor: default; }
-
-.takeover-passwords { display: flex; flex-direction: column; gap: 6px; padding: 6px 6px 4px 22px; border-top: 1px solid var(--acid-line); }
-.takeover-passwords > p { margin: 0; color: var(--ink-2); }
-.takeover-password-steps { display: flex; flex-wrap: wrap; gap: 6px; }
-.takeover-passwords > .takeover-password-status { color: var(--muted); }
-
-.takeover-row-mark { flex: none; display: inline-flex; align-items: center; color: var(--acid-text); }
+.takeover-link:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.takeover-done { padding: 5px 12px; border-radius: var(--radius-pill); background: var(--acid); color: var(--acid-ink); font-weight: 600; }
+.takeover-done:hover:not(:disabled) { background: var(--acid-strong); }
+:is(.takeover-link, .takeover-done):disabled { opacity: .6; cursor: default; }
+.takeover-app-icon { width: 14px; height: 14px; flex: none; }
 
 /* Away from the host's machine: what the user takes over, as it looks now; a tap opens it to drive. */
 .takeover-frame {
   display: block; width: 100%; max-height: 220px; padding: 0; overflow: hidden;
-  border: 1px solid var(--acid-line); border-radius: var(--radius-md); background: var(--sunken); cursor: pointer;
+  border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--sunken); cursor: pointer;
 }
 .takeover-frame > img { display: block; width: 100%; height: auto; }
-.takeover-note { margin: 0; color: var(--muted); font: var(--text-sm) var(--sans); }
-body[data-profile="compact"] .takeover-button { min-height: 44px; }
-body[data-profile="compact"] .takeover-icon-button { width: 44px; height: 44px; }
-.takeover-app-icon { width: 16px; height: 16px; flex: none; }
+
+/* Over a phone's Preview while the user holds it (design 3f). */
+.takeover-bar { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 12px 8px; background: var(--warn-chip); color: var(--ink); font: 12.5px var(--sans); }
+.takeover-bar > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.takeover-bar > .takeover-link { color: inherit; font-size: 13px; }
+.takeover-bar > .takeover-done { font-size: 13px; padding: 7px 14px; }
+.takeover-footer { flex: none; margin: 0; padding: 10px 16px 12px; background: var(--stage); color: var(--muted); font: 11.5px/1.45 var(--sans); text-align: center; }
+
+.takeover-line > .work-live-line { cursor: default; }
+.takeover-line svg { flex: none; }
+
+body[data-profile="compact"] :is(.takeover-link, .takeover-done) { min-height: 44px; }

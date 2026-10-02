@@ -131,6 +131,29 @@ describe("FilesPanel", () => {
     expect(screen.getByTitle("src/a.ts")).toBeTruthy();
   });
 
+  it("shows a phone the changes with the picked one's diff under them, and All on a tap (design 2l)", async () => {
+    const workspaceStore = newStore();
+    kitState(workspaceStore, { changes: { ...CHANGED, files: [...CHANGED.files, { path: "src/b.ts", name: "b.ts", directory: "src", status: "added", added: 3, removed: 0 }] }, fileTree: [{ name: "README.md", path: "README.md", kind: "file" }] });
+    vi.spyOn(workspaceStore, "refreshFiles").mockResolvedValue(undefined);
+    vi.spyOn(workspaceStore, "refreshChanges").mockResolvedValue(undefined);
+    const diff = vi.spyOn(workspaceStore.host, "getFileDiff").mockImplementation(async (path) => ({ path, added: 1, removed: 0, hunks: [] }));
+    render(withServices(workspaceStore,
+      <WorkbenchContext.Provider value={workbench()}>
+        <FilesPanel active placement="sheet" extensionName="Workspace" actions={{} as never} />
+      </WorkbenchContext.Provider>,
+    ));
+
+    expect(screen.getByText("2 changed")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Changed" }).getAttribute("aria-pressed")).toBe("true");
+    await vi.waitFor(() => expect(diff).toHaveBeenCalledWith("src/a.ts", undefined, CWD));
+    fireEvent.click(screen.getByTitle("src/b.ts"));
+    await vi.waitFor(() => expect(diff).toHaveBeenCalledWith("src/b.ts", undefined, CWD));
+    expect(screen.getByRole("button", { name: "Read src/b.ts" }).textContent).toContain("+3");
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    expect(screen.getByTitle("README.md")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Read / })).toBeNull();
+  });
+
   it("offers Search Kit's Go to file once it is there, and reads the pick in a phone's sheet", async () => {
     const workspaceStore = newStore();
     kitState(workspaceStore, { changes: NO_CHANGES, fileTree: [] });

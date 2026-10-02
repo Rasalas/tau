@@ -340,6 +340,10 @@ export interface PullRequestCheck {
   workflow?: string;
   description?: string;
   url?: string;
+  startedAt?: string;
+  completedAt?: string;
+  /** Pending and not started yet. */
+  queued?: boolean;
 }
 
 export interface PullRequestComment {
@@ -490,6 +494,8 @@ export interface PullRequestListEntry {
   labels: PullRequestLabel[];
   reviewDecision?: PullRequestReviewDecision;
   checks?: PullRequestChecksState;
+  /** The checks one by one, where the list read them (GitHub). */
+  checkRuns?: PullRequestCheck[];
   /** The signed-in account is among the requested reviewers. */
   reviewRequested: boolean;
   /** Its layer in a stack, where the host keeps stacks. */
@@ -534,10 +540,21 @@ export interface ThreadPullRequestLink {
   state?: "open" | "closed" | "merged";
   draft?: boolean;
   headRef?: string;
+  /** The submitted head commit, retained after a squash merge. */
+  headSha?: string;
   baseRef?: string;
   /** The stack it is a layer of, where the host keeps stacks: its number and how many layers it has. */
   stack?: { number: number; size: number };
   refreshedAt?: number;
+}
+
+/** A thread's cached request for its branch, used to target and settle a local review. */
+export interface BranchReviewRequest {
+  target: string;
+  tip?: string;
+  merged: boolean;
+  url: string;
+  number: number;
 }
 
 /** Emitted with `{ threadId }` whenever a thread's links change. */
@@ -552,4 +569,6 @@ export interface PendingReviewComment {
   line: number;
   side: "new" | "old";
   body: string;
+  /** The line as the diff shows it, sent along with a note to a thread. */
+  code?: string;
 }

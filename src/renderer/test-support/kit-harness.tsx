@@ -81,6 +81,7 @@ export async function expectKitActivatesCleanly(
   if (leftovers.length > 0) throw new Error(`${extension.id} left ${leftovers.length} contributions behind`);
   if (registry.getDocumentSource()) throw new Error(`${extension.id} left its document source registered`);
   if (registry.getModelSelection()) throw new Error(`${extension.id} left its model selection registered`);
+  if (registry.getForkPrompt()) throw new Error(`${extension.id} left its fork prompt registered`);
   if (registry.getServiceIds().length > 0) throw new Error(`${extension.id} left ${registry.getServiceIds().join(", ")} published`);
 }
 
@@ -99,12 +100,14 @@ export { RendererServicesProvider } from "../renderer-services-context";
 export { WorkbenchContext, WorkbenchShellContext, ObservatoryContext, ThreadStoreContext } from "../workbench-context";
 export { ThreadStore } from "../../workbench/thread-store";
 export { ToastStore } from "../../workbench/toast-store";
+/** Core's toast stack, for a kit whose toasts are its output. */
+export { ToastViewport } from "../components/ui/Toasts";
 export { ClientStorageProvider } from "../client-storage-context";
 export { createMemoryStorage, getClientStorage, setClientStorage } from "../../workbench/client-storage";
 export { createNewThreadDraft, writeNewThreadDraft } from "../../workbench/draft-store";
 export { threadStageKey } from "../../workbench/storage-keys";
 export { stageOwner } from "../../workbench/thread-stages";
-export { createNewThreadRequestId } from "../../shared/contracts";
+export { createNewThreadRequestId, displayRuntime } from "../../shared/contracts";
 export { HostClientProvider, setHostClient } from "../host-client-context";
 export { HOST_CAPABILITY } from "../../shared/host-transport";
 export { CLIENT_PROFILES, type ClientProfile } from "../../workbench/client-profile";

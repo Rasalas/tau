@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { DEFAULT_PACKAGE_ISOLATION, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { tauHomeDir } from "./app-identity.js";
 
 export interface ExtensionGrant {
   id: string;
@@ -18,7 +19,7 @@ export interface ExtensionGrantsFile {
 
 /** `TAU_EXTENSION_GRANTS_FILE` keeps a test instance's approvals out of the user's own file. */
 export function defaultGrantsFilePath(home = homedir(), env: NodeJS.ProcessEnv = process.env): string {
-  return env.TAU_EXTENSION_GRANTS_FILE?.trim() || join(home, ".tau", "extension-grants.json");
+  return env.TAU_EXTENSION_GRANTS_FILE?.trim() || join(tauHomeDir(home), "extension-grants.json");
 }
 
 export async function readExtensionGrants(filePath = defaultGrantsFilePath()): Promise<ExtensionGrantsFile> {

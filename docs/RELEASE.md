@@ -65,6 +65,13 @@ signing secret, the publishing app's secrets or the phone apps' keys the run
 fails in `preflight`, before it builds. Every secret lives in the environment
 `release` ([Runners and environments](#runners-and-environments)).
 
+The desktop builds also package portable remote hosts, with a separate
+Linux ARM64 job. Before uploading an archive, each job extracts it into a
+temporary directory and checks its embedded CLI, native PTY dependency and
+authenticated host protocol with isolated state. Publishing requires all five
+host feeds, their signatures and the exact archives they name. The Windows
+portable ZIP has no differential-update blockmap.
+
 The tag drives nothing but the release name. If it does not match
 `package.json`, the artifacts carry the version from `package.json` and the
 updater will compare against that one. Keep them equal.
@@ -155,7 +162,7 @@ download it, so look at one before trusting that it holds no secret.
 npm run install:mac                    # the latest release
 npm run install:mac -- --version v0.1.1
 npm run install:mac -- --open          # and launch it
-npm run install:mac -- --local         # build this checkout instead
+npm run install:mac -- --local         # build this checkout as Tau Dev instead
 ```
 
 `scripts/install-mac.mjs` reads the release's `latest-mac.yml` from the
@@ -167,7 +174,12 @@ and older) falls back to `gh` and `Rasalas/tau-private`, which it must be able
 to read (`gh auth status`). It then quits a running Tau, replaces
 `/Applications/Tau.app`, and removes the `com.apple.quarantine` attribute — the mark Gatekeeper uses to
 block an unsigned download, which is why an unsigned Tau otherwise needs
-right-click → Open on first launch.
+right-click → Open on first launch. With `--local` it builds this checkout
+as Tau Dev instead (`tooling/electron-builder.dev.mjs`, `--dir`), checks that
+the bundle is `de.tbuck.tau.dev` and carries no `app-update.yml`, quits a
+running Tau Dev by its bundle id and installs `/Applications/Tau Dev.app`
+beside Tau. Tau Dev has its own data, ports and `~/.tau-dev` and never
+updates itself ([install.md](install.md#tau-dev-a-build-of-this-checkout-beside-tau)).
 
 ## Build one locally
 
@@ -257,13 +269,29 @@ through each). From there:
 
 1. An installed Tau asks that repository for a newer release a few seconds
    after it starts and then every hour, on the update track the config holds at
-   that moment, and downloads one in the background. It stops asking while a
-   downloaded version waits for a restart. A Tau running from a checkout never
+   that moment, and downloads one in the background. It keeps asking while a
+   downloaded version waits for a restart, and a newer release replaces the
+   one on disk. Tau starts each download itself (`autoDownload` is off):
+   electron-updater would otherwise fetch and hand the version already on disk
+   to Squirrel.Mac again at every check. A Tau running from a checkout never
    checks (`src/main/app-updates.ts`).
 2. When the download finishes the window's process publishes an `app-update`
    event and the workbench offers a toast: *Tau 0.2.0 downloaded, restart to
-   install*, with a Restart button that quits into the new version. A page that
-   loads later asks for it (`window-action` `status`).
+   install*, with a Restart button. It stays until the user acts; closed, the
+   sidebar's foot keeps the restart. A page that loads later asks for it
+   (`window-action` `status`). Restart (the toast, the sidebar's foot, Update
+   now on Settings → About) never installs a stale version (K161):
+   - it asks the feed first (15 s at most; a feed that does not answer leaves
+     the version on disk) and, when a newer release is out, downloads it while
+     the toast shows *Downloading Tau 0.2.1… 41 %*;
+   - it then shows *Installing Tau 0.2.1* in the window for about a second,
+     and a system notification that outlives the quit says Tau reopens by
+     itself and that this can take a few minutes;
+   - the quit stops the host as well, with less time than a normal quit, even
+     when the host would stay (Settings → Defaults) or a service runs it. A
+     service host is asked to stop and never signalled, so launchd or systemd
+     leave the unit stopped; the updated window starts it again from the new
+     app. A host left running would run on from a bundle ShipIt moves away.
 3. A user who ignores the toast gets the update the next time they quit Tau,
    except with the `.deb`, whose update waits for the Restart (below).
 4. "Check for Updates…" in the application menu (and Check now on Settings →
@@ -319,6 +347,22 @@ so an image prepared in a container gets it too. An upgrade keeps both in place
 instead of removing and re-adding them. A release published without them
 installs fine and then never updates, which is why the workflow uploads
 `release/latest*.yml` and fails when a matrix job produced no files.
+
+On macOS electron-updater downloads the zip, then serves it to Squirrel.Mac
+over a local proxy. Squirrel unzips it, verifies the signature and writes
+`~/Library/Caches/de.tbuck.tau.ShipIt/ShipItState.plist`, whose
+`updateBundleURL` names the bundle ShipIt installs. Each staged download
+rewrites that file, and ShipIt reads it again once the app has quit, so the
+newest one wins. Squirrel's staging takes a while for a large bundle, and
+electron-updater's own `quitAndInstall` does not wait for it after a second
+download. Tau counts a version as ready only after Electron's own `autoUpdater`
+reported it staged (`nextStaging`), and Restart waits for that.
+
+After the app quits, ShipIt verifies the new bundle's signature, moves the old
+bundle away and the new one into place, and relaunches it. Verification reads
+every file of the bundle, so its time grows with the bundle's size and file
+count; on a busy Mac 0.7.25 (791 MB, 33,000 files) took more than five
+minutes. Keep what ships small (below).
 
 Both macOS architectures build on one runner on purpose: each would otherwise
 write its own `latest-mac.yml` and the second job to finish would leave the
@@ -432,7 +476,7 @@ delete the old key).
 
 ### Stable and nightly
 
-Settings → General → **Update track** writes `updates.channel` (`stable` or
+Settings → About → **Pre-release builds** writes `updates.channel` (`stable` or
 `nightly`) to this machine's `~/.tau/config.json`; the row is hidden while the
 window is a client of a host on another machine, because the updater reads the
 file of the machine it runs on. `src/main/app-updates.ts` reads the channel
@@ -523,7 +567,7 @@ For the release notes:
 
 ## Nightly builds
 
-`.github/workflows/release.yml` has a schedule (03:17 UTC). Its `gate` job
+`.github/workflows/release.yml` has a schedule (03:14 UTC). Its `gate` job
 decides whether anything runs:
 
 - only on `Rasalas/tau` (a fork's schedule stops there);
@@ -605,7 +649,8 @@ that it says `de.tbuck.tau` with the expected versionCode and versionName.
   fails (`preflight`, then `android`); a dry run warns and builds an app that
   cannot take pushes. The app asks Firebase for a token only after the
   user allowed notifications (`firebase_messaging_auto_init_enabled` is off in
-  the manifest).
+  the manifest). The push relay in the same project is not part of a release:
+  `push-relay.yml` deploys it on its own ([push.md](push.md)).
 - **versionCode** is computed from the version by `build.gradle` (and
   `scripts/packaging/mobile-version.mjs android-code`, which the job compares
   with the APK): major·10000 + minor·100 + patch. It rises with every release as
@@ -663,6 +708,30 @@ key (cloud signing); the key needs a role in App Store Connect that may manage
 certificates, which Admin has. The key file lives in the runner's temp folder
 for the step and is deleted when it ends.
 
+The job sets `TAU_IOS_WIDGETS` to `1` (since 0.7.31): the TestFlight build
+carries the TauWidgets extension and the App Group. Set it to `0` to ship
+without them, as up to 0.7.30: `scripts/packaging/ios-widgets.mjs` then
+removes the App target's dependency on TauWidgets, its embed and the
+`com.apple.security.application-groups` entitlement from the checkout before
+the archive; the widget code stays in the repository. The app then neither
+writes widget snapshots nor starts Live Activities. `IOS_PROFILE` alone signs
+it: an App Store profile for `de.tbuck.tau` with production push and the
+shared `de.tbuck.tau.shared` keychain group (the team wildcard covers it);
+`IOS_WIDGET_PROFILE` is ignored.
+
+With `TAU_IOS_WIDGETS: "1"`, supply both `IOS_PROFILE` and
+`IOS_WIDGET_PROFILE`. They are separate App Store distribution profiles for
+`de.tbuck.tau` and `de.tbuck.tau.widgets`, both on team `V4MWQ28RZ2`, with
+App Group `group.de.tbuck.tau` and the shared keychain group.
+`node scripts/packaging/ios-store-profiles.mjs` registers the widget's App ID,
+turns on App Groups for both and creates the two profiles through the App
+Store Connect API; the group itself is assigned to the App IDs by hand in the
+developer portal, which the API cannot do. The workflow checks every profile
+before installing any, rejects expired or development profiles, selects the
+profile for each target through `profiles.xcconfig`, and names each bundle
+identifier when exporting. With no profile set, automatic signing remains
+available. A dry run without the Apple key archives unsigned.
+
 - **When it uploads:** for a `v*` tag or a `publish` dispatch. A dispatch on
   `main` archives signed and uploads nothing; a branch's dry run, which has no
   key, archives unsigned. The release job does not wait for `ios`: TestFlight
@@ -698,9 +767,8 @@ the committed files disagree with it, so edit the scripts, never the output.
 All three download the assets anonymously, and winget's validation rejects
 a URL it cannot fetch, so the installers, the homepage and `LICENSE` all
 point at the release in `Rasalas/tau-releases`. Only winget's `PublisherSupportUrl` names `Rasalas/tau/issues`,
-which answers once the source repository is public. The committed files still
-describe 0.4.0, which exists only in `Rasalas/tau`; the next
-`packaging:update` writes them for a release in `Rasalas/tau-releases`.
+which answers once the source repository is public. `packaging/release.json`
+records the published release the committed files describe.
 
 ### Homebrew (macOS)
 
@@ -826,6 +894,8 @@ configuration. The secrets live in the environment `release`:
 | `APPLE_API_ISSUER` | its issuer id |
 | `IOS_DIST_P12` | base64 of the Apple Distribution `.p12` the iOS job imports into a temporary keychain; without it Xcode would need Apple's cloud signing and an Admin key |
 | `IOS_DIST_P12_PASSWORD` | its password |
+| `IOS_PROFILE` | base64 App Store profile for `de.tbuck.tau`; with `TAU_IOS_WIDGETS` 1 it needs the App Group and the widget profile too |
+| `IOS_WIDGET_PROFILE` | base64 App Store profile for `de.tbuck.tau.widgets`, with the same App Group and shared keychain entitlement; read only with `TAU_IOS_WIDGETS` 1 |
 
 Only the macOS build reads them: it is the only build job in the environment,
 and the Package step passes them only when the matrix entry is macOS, since
@@ -905,7 +975,14 @@ workflow file and pick any runner label. How the move went is in
 
 `files:` in `tooling/electron-builder.yml` starts from everything and names what to
 leave out: sources, scripts, docs, reports, tests, and the parts of Pi and of
-computer use that only another platform would use.
+computer use that only another platform would use. Source maps stay out too
+(about 6,900 files and 80 MB in 0.7.25), as do `dist-source` (the editable
+source ships once, as the `tau-source` resource) and the pruned
+`node_modules/typescript` (the editable source links
+`tau-source-vendor/typescript`). Each of these files would be one more for
+ShipIt to verify at every update. Measure a change with
+`CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder -c tooling/electron-builder.yml --mac --dir --publish never`
+and `du -sh release/mac-arm64/Tau.app`.
 
 **The kits ship as their own artifact.** `dist-kits/` is `@tau/kits`, every kit
 under `kits/` compiled by `scripts/build-kits.mjs`, with `dist-kits/manifest.json`

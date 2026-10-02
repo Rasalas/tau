@@ -74,6 +74,14 @@ describe("HostPublication", () => {
     } as unknown as HostSnapshot;
   }
 
+  it("keeps hidden thread providers out of new-thread runtime pickers", () => {
+    const { pub } = makePublication({ backends: () => [
+      { kind: "machine", hidden: true, adapter: { capabilities: {} } },
+      { kind: "codex", label: "Codex", order: 20, adapter: { capabilities: {} } },
+    ] as never });
+    expect(pub.runtimeBackends().map((backend) => backend.kind)).toEqual(["pi", "codex"]);
+  });
+
   it("projects detail for snapshot and caches in detailStore", () => {
     const { pub } = makePublication();
     const snap = makeSnapshot();

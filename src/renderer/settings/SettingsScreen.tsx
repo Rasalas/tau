@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ArrowLeft, Blocks, Bot, ChevronLeft, ChevronRight, Command, Cpu, Info, MonitorSmartphone, Puzzle, Search, Server, Settings2, Sparkles, X, type LucideIcon } from "lucide-react";
-import type { HostSnapshot, UiProject } from "../../shared/contracts";
+import type { HostSnapshot, UiProject, UiSession } from "../../shared/contracts";
 import type { ExtensionRegistry } from "../extension-system";
 import { usePreferences } from "../renderer-services-context";
 import { useHostClient } from "../host-client-context";
 import { useHostCapabilities } from "../use-host-capabilities";
+import { usePlatform } from "../platform-context";
 import { useAppPageStore } from "../app-page-context";
 import { PanelIcon, type PanelIconComponent } from "../components/PanelIcon";
 import { PiSettingsPage } from "../components/PiSettingsPage";
@@ -17,6 +18,7 @@ import { CORE_PAGE_DESCRIPTIONS, CORE_PAGE_TITLES, CORE_SETTINGS_PAGES, extensio
 import { SettingsLevelsProvider } from "./settings-layout";
 import { SettingsPageActionSlot } from "./page-action";
 import { SettingsPageHead, type SettingsCrumb } from "./page-head";
+import { scopeMachines, scopeProjects } from "./settings-scope";
 import { extensionCatalog, needsAttention } from "./extension-catalog";
 import { AboutPage } from "./AboutPage";
 import { ConnectionsPage } from "./ConnectionsPage";
@@ -29,6 +31,7 @@ import { KeybindingsPage } from "./KeybindingsPage";
 import { ProvidersPage, providerCardId } from "./ProvidersPage";
 import { RuntimesPage } from "./RuntimesPage";
 import { inRuntimeOrder } from "../runtime-order";
+import { effectiveNewThreadRuntime } from "../new-thread-runtime";
 import "./settings.css";
 
 function projectName(path?: string): string {
@@ -62,7 +65,19 @@ interface NavItem {
   group: SettingsNavGroup | undefined;
   order: number | undefined;
   Icon: PanelIconComponent | undefined;
+  useSummary?: (() => string | undefined) | undefined;
 }
+
+/** A page's value beside its row on a phone (design 1s): "2 online", "Pi default". */
+function NavValue({ use }: { use(): string | undefined }) {
+  const value = use();
+  return value ? <small className="settings-nav-value">{value}</small> : null;
+}
+
+const noSubscription = () => () => undefined;
+
+/** The groups the user opened, kept while the window lives; one they folded follows the page on screen again next time. */
+let navFolds: Partial<Record<SettingsNavGroup, true | undefined>> = {};
 
 /**
  * Settings as a page of its own that takes the whole window. A navigation
@@ -77,6 +92,7 @@ export function SettingsScreen({
   snapshot,
   registry,
   projects = [],
+  threads = [],
   onSetPage,
   onSetModel,
   onSetThinking,
@@ -91,6 +107,8 @@ export function SettingsScreen({
   snapshot?: HostSnapshot;
   registry: ExtensionRegistry;
   projects?: readonly UiProject[];
+  /** The window's threads: those of other machines tell which projects are not this machine's. */
+  threads?: readonly UiSession[];
   onSetPage(page: string): void;
   onSetModel(provider: string, id: string): void;
   onSetThinking(level: string): void;
@@ -115,6 +133,10 @@ export function SettingsScreen({
   const [levels] = useState(() => new ConfigLayersStore(client, () => void preferences.syncFromHost()));
   const project = currentProject(snapshot, projects);
   useEffect(() => { levels.setProject(project); }, [levels, project?.workspaceId, project?.label]);
+  // Another machine's refusal or silence is said once: its values would otherwise just snap back.
+  const levelsError = useSyncExternalStore(levels.subscribe, () => (levels.getSnapshot().machine ? levels.getSnapshot().error : undefined));
+  // oxlint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (levelsError) onNotify(levelsError); }, [levelsError]);
   // A push that changed a file, or the palette's theme, moves the levels too.
   useEffect(() => {
     void levels.refresh();
@@ -151,9 +173,10 @@ export function SettingsScreen({
     : extensionId ? extension?.name ?? "Extension"
       : CORE_PAGE_TITLES[page as keyof typeof CORE_PAGE_TITLES] ?? contributed?.label ?? "Settings";
   const parent = parentSettingsPage(page);
-  // Pages that write settings a project may override.
-  const pageScope = page === "general" || page === "models" || onProviders ? "both" : contributed?.scope ?? "host";
-  const showScope = pageScope !== "host";
+  // Other machines' own settings: General only, where every row is a setting or says it is not one.
+  const environments = usePlatform().environments;
+  const environmentList = useSyncExternalStore(environments?.subscribe ?? noSubscription, () => environments?.getSnapshot());
+  const machines = page === "general" && !environments?.shownElsewhere ? scopeMachines(environmentList?.environments) : [];
   const pageDescription = onProviders ? CORE_PAGE_DESCRIPTIONS.providers
     : extensionId ? undefined
       : CORE_PAGE_DESCRIPTIONS[page as keyof typeof CORE_PAGE_DESCRIPTIONS] ?? contributed?.description;
@@ -165,8 +188,8 @@ export function SettingsScreen({
     { label: "Settings", open: () => onSetPage("general") },
     { label: parentLabel!, open: () => onSetPage(parent) },
   ] : [];
-  // A page without project rows edits this machine; leaving one puts the scope back.
-  useEffect(() => { if (!showScope) levels.edit("host"); }, [levels, showScope]);
+  // What a page is applied to is chosen per visit: leaving it puts the scope back on this machine.
+  useEffect(() => { levels.edit("host"); }, [levels, page]);
 
   const [ownShowingPage, setOwnShowingPage] = useState(!stacked);
   const showingPage = view && stacked ? view === "page" : ownShowingPage;
@@ -183,7 +206,7 @@ export function SettingsScreen({
   const found = search.trim() ? searchSettings(settingsSearchEntries({
     // A runtime's card is found like a page: its id opens Providers at the card.
     pages: [...pages, ...providers].map((entry) => ({ id: entry.id, label: entry.label, description: entry.description, keywords: entry.keywords, extensionName: entry.extensionName, rows: entry.rows })),
-    sections: (["connections", "extensions", "runtimes"] as const).flatMap((sectionPage) => registry.getSettingsSections(sectionPage)),
+    sections: (["general", "connections", "extensions", "runtimes"] as const).flatMap((sectionPage) => registry.getSettingsSections(sectionPage)),
     extensions: catalog.map((entry) => ({ id: entry.id, name: entry.name, core: entry.locked, options: entry.summary?.options ?? [] })),
     keybindings: registry.getKeybindings().map((binding) => ({
       commandId: binding.commandId,
@@ -217,6 +240,9 @@ export function SettingsScreen({
     const show = () => {
       const row = document.getElementById(scrollTarget);
       if (!row) return;
+      // A row under Connections' Advanced is folded away.
+      const fold = row.closest("details");
+      if (fold) fold.open = true;
       row.scrollIntoView?.({ block: "center" });
       if (row === shown) return;
       shown = row;
@@ -286,17 +312,19 @@ export function SettingsScreen({
     };
   }, [onClose]);
 
+  const runtimeLabel = snapshot?.runtimeBackends?.find((backend) => backend.kind === effectiveNewThreadRuntime(preferences.getSnapshot().newThreadRuntime, snapshot))?.label;
   const navItems: NavItem[] = [
     ...CORE_SETTINGS_PAGES
-      .filter((entry) => entry.id !== "providers" || providers.length > 0)
-      .map((entry) => ({ id: entry.id, label: entry.label, group: entry.group, order: entry.order, Icon: CORE_ICONS[entry.id] })),
-    ...pages.map((entry) => ({ id: entry.id, label: entry.label, group: entry.group, order: entry.order, Icon: entry.Icon })),
+      // A phone has no keys to bind (design 1s).
+      .filter((entry) => (entry.id !== "providers" || providers.length > 0) && !(nav && entry.id === "keybindings"))
+      .map((entry) => ({ id: entry.id, label: entry.label, group: entry.group, order: entry.order, Icon: CORE_ICONS[entry.id], ...(entry.id === "runtimes" && runtimeLabel ? { useSummary: () => `${runtimeLabel} default` } : {}) })),
+    ...pages.map((entry) => ({ id: entry.id, label: entry.label, group: entry.group, order: entry.order, Icon: entry.Icon, useSummary: entry.useSummary })),
   ];
   const attention = catalog.filter(needsAttention).length;
   const iconOf = (id: string): PanelIconComponent | undefined => CORE_ICONS[id] ?? (extensionOfPage(id) ? Blocks : pages.find((entry) => entry.id === id)?.Icon);
   const activeNav = onProviders ? "providers" : parent ?? page;
-  // A folding group as the user left it; unset, it follows the page on screen.
-  const [toggledGroups, setToggledGroups] = useState<Partial<Record<SettingsNavGroup, boolean>>>({});
+  // A folding group as the user left it, also last time Settings was open; unset, it follows the page on screen.
+  const [toggledGroups, setToggledGroups] = useState<Partial<Record<SettingsNavGroup, boolean>>>(navFolds);
   const navButton = (item: NavItem) => (
     <button
       key={item.id}
@@ -310,6 +338,8 @@ export function SettingsScreen({
     >
       <PanelIcon Icon={item.Icon} size={15} /><span>{item.label}</span>
       {item.id === "extensions" && attention > 0 ? <small className="settings-nav-count" aria-label={`${attention} need attention`}>{attention}</small> : null}
+      {stacked && item.useSummary ? <NavValue use={item.useSummary} /> : null}
+      {stacked ? <ChevronRight size={14} className="settings-nav-chevron" aria-hidden /> : null}
     </button>
   );
   const versions = client?.getVersions();
@@ -394,7 +424,7 @@ export function SettingsScreen({
                 <div key={group.id} className="settings-nav-group" role="group" aria-label={group.label} data-folds={group.folds ? "" : undefined}>
                   {group.folds ? (
                     <h2 className="settings-nav-heading">
-                      <button type="button" className="settings-nav-fold" aria-expanded={open} onClick={() => setToggledGroups((current) => ({ ...current, [group.id]: !open }))}>
+                      <button type="button" className="settings-nav-fold" aria-expanded={open} onClick={() => { navFolds = { ...navFolds, [group.id]: !open || undefined }; setToggledGroups((current) => ({ ...current, [group.id]: !open })); }}>
                         <ChevronRight size={12} aria-hidden /><span>{group.label}</span>
                         {waiting ? <small className="settings-nav-count" aria-label={`${attention} need attention`}>{attention}</small> : null}
                       </button>
@@ -407,8 +437,9 @@ export function SettingsScreen({
           </div>
           <div className="settings-nav-footer">
             <button type="button" className={`settings-about-link ${page === "about" ? "active" : ""}`} aria-current={page === "about" ? "page" : undefined} onClick={() => openPage("about")}>
-              <Info size={15} /><span>About Tau</span>{version ? <small>{version}</small> : null}
+              <Info size={15} /><span>About Tau</span>{version ? <small>{version}</small> : null}{stacked ? <ChevronRight size={14} className="settings-nav-chevron" aria-hidden /> : null}
             </button>
+            {nav ? <p className="settings-nav-note">Keys and sign-ins live on your machines; the phone only connects to them.</p> : null}
             <button type="button" className="settings-back" onClick={onBackToThread}>
               <ChevronLeft size={15} /><span>Back to thread</span>
             </button>
@@ -427,22 +458,22 @@ export function SettingsScreen({
           <div className="settings-scroll" ref={scrollRef}>
             <div className="settings-content" data-page={page}>
               <SettingsPageHead
-                title={stacked || ownTitle ? undefined : pageLabel}
-                description={pageDescription}
+                title={stacked || ownTitle ? undefined : page === "about" ? "Tau" : pageLabel}
+                description={page === "about" || page === "general" ? undefined : pageDescription}
                 crumbs={stacked ? [] : crumbs}
-                scope={showScope ? { projects, current: project } : undefined}
+                scope={{ projects: scopeProjects(projects, threads, project), current: project, machines }}
                 actionSlot={setActionSlot}
               />
               {readOnly ? <p className="settings-read-only" role="note">This device is paired Read only: the host keeps its settings as they are. Theme and layout stay on this device.</p> : null}
               <SettingsPageActionSlot.Provider value={actionSlot}>
                 {page === "general" ? (
-                  <GeneralPage themeHere={!pages.some((entry) => entry.keywords?.includes("theme"))} />
+                  <GeneralPage themeHere={!pages.some((entry) => entry.keywords?.includes("theme"))} sections={registry.getSettingsSections("general")} onNotify={onNotify} />
                 ) : page === "models" ? (
                   <ModelsPage snapshot={snapshot} providersHere={providers.length > 0} onSetModel={onSetModel} onSetThinking={onSetThinking} onOpen={openPage} />
                 ) : page === "runtimes" ? (
                   <RuntimesPage snapshot={snapshot} cards={providers} sections={registry.getSettingsSections("runtimes")} onOpen={openPage} onNotify={onNotify} />
                 ) : page === "keybindings" ? (
-                  <KeybindingsPage key={keybindingFilter.seq} registry={registry} initialFilter={keybindingFilter.filter} onNotify={onNotify} />
+                  <KeybindingsPage key={keybindingFilter.seq} registry={registry} initialFilter={keybindingFilter.filter} onNotify={onNotify} onOpen={openPage} />
                 ) : page === "pi" ? (
                   <PiSettingsPage snapshot={snapshot} onNotify={onNotify} />
                 ) : onProviders ? (

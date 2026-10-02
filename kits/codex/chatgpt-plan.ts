@@ -16,6 +16,8 @@ export const CHATGPT_PLAN_ARGS = [
   "-c", "disable_response_storage=true",
   "-c", "features.apps=false",
   "-c", "features.image_generation=false",
+  // ACCESS_TOKEN is in Codex's environment: keep the *TOKEN* filter on for the commands it runs.
+  "-c", "shell_environment_policy.ignore_default_excludes=false",
 ];
 
 function tokens(response: TokenResponse, previous?: ChatGPTRegistration["tokens"]): NonNullable<ChatGPTRegistration["tokens"]> {
@@ -25,7 +27,7 @@ function tokens(response: TokenResponse, previous?: ChatGPTRegistration["tokens"
   return { accessToken: response.access_token, refreshToken: response.refresh_token ?? previous?.refreshToken, idToken, scopes, expiresAt: Date.now() + response.expires_in * 1000 };
 }
 
-/** Owns only the selected instance's session; an account change requires a new instance. */
+/** Each saved instance retains its validated account registration and tokens. */
 export class ChatGPTPlan {
   readonly store: ChatGPTPlanStore;
   private readonly oauth: ChatGPTOAuthClient;
@@ -51,16 +53,23 @@ export class ChatGPTPlan {
       flow.verifying("Verifying your ChatGPT account…");
       const response = await this.oauth.token({ grant_type: "authorization_code", client_id: returned.clientId, code: returned.code, code_verifier: attempt.verifier, redirect_uri: attempt.redirectUri }, flow.signal);
       const next = tokens(response);
-      const identity = await this.oauth.identity(next.idToken, returned.clientId, attempt.nonce);
-      if (saved && (identity.subject !== saved.subject || saved.clientId !== returned.clientId)) throw new Error("This instance belongs to another ChatGPT account. Add a Codex instance for a different account.");
-      if (flow.signal.aborted) throw new Error("Sign-in cancelled.");
-      await this.store.lock(instance, async () => {
-        if (flow.signal.aborted) throw new Error("Sign-in cancelled.");
+      // Tokens issued for an account this instance cannot keep are revoked, not just dropped.
+      const discard = async (message: string): Promise<never> => {
+        await this.oauth.revoke({ clientId: returned.clientId, issuer: CHATGPT_ISSUER, subject: "", tokens: next });
+        throw new Error(message);
+      };
+      const identity = await this.oauth.identity(next.idToken, returned.clientId, attempt.nonce).catch((error: unknown) => discard(error instanceof Error ? error.message : String(error)));
+      if (saved && (identity.subject !== saved.subject || saved.clientId !== returned.clientId)) await discard("This instance belongs to another ChatGPT account. Add a Codex instance for a different account.");
+      if (flow.signal.aborted) await discard("Sign-in cancelled.");
+      const changed = await this.store.lock(instance, async () => {
+        if (flow.signal.aborted) return "Sign-in cancelled.";
         const current = await this.store.read(instance);
-        if (current && (current.clientId !== returned.clientId || current.subject !== identity.subject)) throw new Error("This instance's account changed while signing in. Start again.");
+        if (current && (current.clientId !== returned.clientId || current.subject !== identity.subject)) return "This instance's account changed while signing in. Start again.";
         await this.store.write(instance, { clientId: returned.clientId, issuer: CHATGPT_ISSUER, ...identity, confirmed: saved?.confirmed ?? false, tokens: next });
         await this.store.forget(`pending:${instance}`);
+        return undefined;
       });
+      if (changed) await discard(changed);
       if (!next.scopes.includes(PLAN_SCOPE)) return "Signed in to ChatGPT. Plan use is not enabled. Continue with ChatGPT again to authorize it.";
       if (!saved?.confirmed) {
         await flow.ask({ kind: "select", message: "Tau can now use your ChatGPT plan. Usage is shared with other apps and follows the limits you set in ChatGPT. Manage usage in ChatGPT Settings.", options: [{ id: "continue", label: "Continue" }] });
@@ -102,19 +111,31 @@ export class ChatGPTPlan {
     });
   }
 
-  async models(instance: string): Promise<CodexModel[]> {
+  /** The slugs this account may use, in the account's order. */
+  async models(instance: string): Promise<Array<{ slug: string; displayName: string }>> {
     const saved = await this.credentials(instance);
-    return (await this.oauth.models(saved.tokens!.accessToken)).map((model, index) => ({ id: model.slug, model: model.slug, displayName: model.display_name, hidden: false, isDefault: index === 0, defaultReasoningEffort: "", supportedReasoningEfforts: [] }));
+    return (await this.oauth.models(saved.tokens!.accessToken)).map((model) => ({ slug: model.slug, displayName: model.display_name }));
   }
 
-  async signOut(instance: string): Promise<string> {
+  async signOut(instance: string): Promise<{ revoked: boolean; message: string }> {
     return this.store.lock(instance, async () => {
       const saved = await this.store.read(instance);
-      if (!saved) return "Signed out of ChatGPT.";
+      if (!saved) return { revoked: true, message: "Signed out of ChatGPT." };
       const revoked = await this.oauth.revoke(saved);
       const { tokens: _tokens, ...mapping } = saved;
       await this.store.write(instance, mapping);
-      return revoked ? "Signed out of ChatGPT." : "Signed out locally. Remote revocation was not confirmed; disconnect Tau in ChatGPT Settings to end remote access.";
+      return { revoked, message: revoked ? "Signed out of ChatGPT." : "Signed out locally. Remote revocation was not confirmed; disconnect Tau in ChatGPT Settings to end remote access." };
     });
   }
+}
+
+/**
+ * The account's models as Codex describes them. Codex's catalog names the
+ * default and the reasoning efforts; a model it does not know is left out.
+ */
+export function planCatalog(allowed: ReadonlyArray<{ slug: string; displayName: string }>, codex: readonly CodexModel[]): CodexModel[] {
+  return allowed.flatMap((model) => {
+    const details = codex.find((entry) => entry.model === model.slug || entry.id === model.slug);
+    return details ? [{ ...details, id: model.slug, model: model.slug, displayName: model.displayName, hidden: false }] : [];
+  });
 }

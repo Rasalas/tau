@@ -12,29 +12,37 @@ import {
 } from "tau";
 import {
   CLONE_PROGRESS_EVENT,
+  HEAD_CHANGED_EVENT,
+  WORKSPACE_HEAD_TOPIC,
+  WORKSPACE_CLONE_TOPIC,
+  WORKSPACE_CHECKPOINT_TOPIC,
   createWorkspaceHostClient,
   WORKSPACE_CHANGES_PANEL,
   WORKSPACE_FILES_PANEL,
   WORKSPACE_HOST_EXTENSION_ID,
   WORKSPACE_STORE_SERVICE,
 } from "./protocol.js";
+import { outsideThreadItems } from "./rail-external.js";
 import { addProjectMenu } from "./add-project-menu.js";
 import { threadBranchService } from "./branch-service.js";
 import { registerCheckpoints } from "./checkpoints.js";
 import { WorkspaceFollower } from "./dock.js";
-import { createDraftBranchPill, ThreadBranch } from "./branch-menu.js";
+import { WorktreeSuggestionPill } from "./branch-menu.js";
+import { createHeadingBranch, createRunOnControl } from "./run-on.js";
+import { FreshStart } from "./fresh-start.js";
 import { CloneProjectSource, LocalFolderSource, requestProjectSwitcher, WorkspaceSidebar } from "./navigation.js";
 import { ChangesPanel, FilesPanel, SEARCH_FILES_SERVICE, serviceSlot, type SearchFilesService } from "./panels.js";
-import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, WorkspaceStore } from "./store.js";
+import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, TRACE_TABS_OPTION, WorkspaceStore } from "./store.js";
 import { withWorkspaceStore } from "./store-context.js";
 import { RAIL_ORDER_OPTIONS } from "./rail-order.js";
 import { publishProjectIcons } from "./project-icons.js";
 import { WorkspaceEditorButton, WorkspaceTitleActions } from "./title.js";
+import { TraceTabs } from "./trace-tabs.js";
 import { createStoragePage, STORAGE_SETTINGS_ROWS } from "./storage-page.js";
 import { OPEN_REQUEST_EVENT, OPEN_REQUEST_WAITING_COMMAND, STORAGE_CHANGED_EVENT, TAKE_OPEN_REQUEST_COMMAND, type WorktreeStorageHostCommands } from "./storage-protocol.js";
 import { OpenRequests } from "./open-requests.js";
-import { SOURCE_CONTROL_SETTINGS_ROWS, SourceControlPage } from "./source-control-page.js";
-import { SidebarFooter } from "./sidebar-footer.js";
+import { NewThreadRows, SOURCE_CONTROL_SETTINGS_ROWS, SourceControlPage, ThisMachineRows, TraceTabsRow } from "./source-control-page.js";
+import { presentRead, presentWrite, READ_TOOLS, WRITE_TOOLS } from "./tool-cards.js";
 
 /** No need to poll every 30 s; a tick, a focus and a project switch are enough here. */
 const AUTO_PULL_INTERVAL_MS = 5 * 60_000;
@@ -68,6 +76,7 @@ export const workspaceExtension: DesktopExtension = {
   activate(context) {
     const host = createWorkspaceHostClient((command, input) => context.host.invoke(command, input));
     const store = new WorkspaceStore(context.preferences, host);
+    const stopTopics = [WORKSPACE_HEAD_TOPIC, WORKSPACE_CLONE_TOPIC, WORKSPACE_CHECKPOINT_TOPIC].map((topic) => context.host.watch?.(topic));
     const bind = <P extends object>(Component: Parameters<typeof withWorkspaceStore<P>>[1]) => withWorkspaceStore(store, Component);
     context.provideService(WORKSPACE_STORE_SERVICE, store);
     // The branch on screen, for any package: a public contract, unlike the store.
@@ -76,10 +85,8 @@ export const workspaceExtension: DesktopExtension = {
     const unpublishIcons = publishProjectIcons(context.preferences, (icons) => context.setProjectIcons?.(icons));
 
     context.registerSidebar({ id: "workspace.sidebar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceSidebar) });
-    context.registerRegion({
-      id: "workspace.sidebar-foot", placement: "thread-list-foot", profiles: ["compact"],
-      Component: ({ actions }) => <SidebarFooter actions={actions} readOnly={context.host.isReadOnly?.() ?? false} />,
-    });
+    // Other machines' threads the rail lists, found by the palette as this machine's are.
+    context.registerPaletteSource({ id: "workspace.outside-threads", label: "Threads", order: 25, scope: "threads", search: (query) => outsideThreadItems(store.getSnapshot().railThreadSources, query) });
     context.registerProjectSource({
       id: "workspace.local-folder",
       label: "Local folder",
@@ -106,7 +113,7 @@ export const workspaceExtension: DesktopExtension = {
     });
     const FilesPanelWithSearch = (props: PanelProps) => <FilesPanel {...props} search={search} />;
     context.registerPanel({
-      id: WORKSPACE_FILES_PANEL, label: "Files", Icon: Folder, order: 10, maximizable: true, stageButton: true, profiles: ["desktop", "compact"],
+      id: WORKSPACE_FILES_PANEL, label: "Files", Icon: Folder, order: 10, maximizable: true, stageButton: true, threadActions: true, profiles: ["desktop", "compact"],
       Component: bind(FilesPanelWithSearch),
     });
     // The Changes panel reads the same Git state as the rest of the kit, so it
@@ -120,13 +127,25 @@ export const workspaceExtension: DesktopExtension = {
     // A phone or tablet follows too: its Files panel and documents read the thread's project.
     context.registerRegion({ id: "workspace.follower", placement: "composer-above", order: 0, profiles: ["desktop", "compact"], Component: bind(WorkspaceFollower) });
     context.registerRegion({ id: "workspace.title-actions", placement: "title-bar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceTitleActions) });
+    context.registerRegion({ id: "workspace.trace-tabs", placement: "title-bar", profiles: ["desktop"], Component: () => <TraceTabs enabled={() => context.preferences.optionValue(WORKSPACE_HOST_EXTENSION_ID, TRACE_TABS_OPTION, true)} /> });
+    context.registerSettingsSection({ id: "workspace.new-threads", page: "general", card: "new-threads", order: 20, profiles: ["desktop"], Component: bind(NewThreadRows),
+      rows: [{ id: "setting-new-thread-workspace", label: "New threads run in" }, { id: "setting-branch-name", label: "Branch name", keywords: ["worktree", "from prompt", "random"] }] });
+    context.registerSettingsSection({ id: "workspace.this-machine", page: "connections", card: "this-machine", order: 10, profiles: ["desktop"], Component: bind(ThisMachineRows),
+      rows: [{ id: "setting-editor", label: "Editor", keywords: ["open in editor", "vscode", "zed"] }, { id: "setting-worktrees-under", label: "Worktrees under", keywords: ["git", "folder", "directory", "worktree"] }] });
+    context.registerSettingsSection({ id: "workspace.trace-tabs", page: "general", card: "threads", profiles: ["desktop"], Component: TraceTabsRow,
+      rows: [{ id: "setting-trace-tabs", label: "Trace tabs", keywords: ["files the agent touches", "tabs"] }] });
     // The design's Editor button at the stage strip's right end.
     context.registerRegion({ id: "workspace.open-in", placement: "stage-bar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceEditorButton) });
-    // The branch in the thread header: a menu over the checkout, or a new thread's Branch section.
-    context.registerRegion({ id: "workspace.branch", placement: "thread-branch", order: 10, profiles: ["desktop"], Component: bind(ThreadBranch) });
-    // A new thread's branch as a pill under its heading, beside project and machine; a sheet on touch.
-    context.registerRegion({ id: "workspace.draft-branch", placement: "draft-actions", order: 10, profiles: ["desktop"], Component: bind(createDraftBranchPill(false)) });
-    context.registerRegion({ id: "workspace.draft-branch-sheet", placement: "draft-actions", order: 10, profiles: ["compact"], Component: bind(createDraftBranchPill(true)) });
+    // The header's branch: a menu over the checkout; for a new thread "project · machine · no worktree yet".
+    context.registerRegion({ id: "workspace.branch", placement: "thread-branch", order: 10, profiles: ["desktop"], Component: bind(createHeadingBranch(false)) });
+    context.registerRegion({ id: "workspace.branch-touch", placement: "thread-branch", order: 10, profiles: ["compact"], Component: bind(createHeadingBranch(true)) });
+    // A new thread's machine and branch: one pill before the model (design 1k), a sheet on touch (1o).
+    context.registerComposerControl({ id: "workspace.run-on", placement: "lead", order: 5, profiles: ["desktop"], Component: bind(createRunOnControl(false)) });
+    context.registerComposerControl({ id: "workspace.run-on-sheet", placement: "lead", order: 5, profiles: ["compact"], Component: bind(createRunOnControl(true)) });
+    // A fresh install's first screen (2a), in place of the draft until a thread exists.
+    context.registerRegion({ id: "workspace.fresh-start", placement: "draft-actions", order: 0, profiles: ["desktop"], Component: bind(FreshStart) });
+    // Offered while another thread's turn runs in the draft's folder; the phone gets it too.
+    context.registerRegion({ id: "workspace.worktree-suggestion", placement: "draft-actions", order: 11, profiles: ["desktop", "compact"], Component: bind(WorktreeSuggestionPill) });
     const documents = documentStates(store);
     context.registerDocumentSource({
       profiles: ["desktop", "compact"],
@@ -165,6 +184,7 @@ export const workspaceExtension: DesktopExtension = {
     context.events.on("user-message", (event) => store.turnStarted(event.sessionId));
     context.events.on("agent-status", (event) => { if (!event.running) store.turnSettled(event.sessionId); });
     context.events.on("tool-end", (event) => store.toolFinished(event.tool));
+    context.host.onEvent(HEAD_CHANGED_EVENT, (payload) => store.headChanged((payload as { root?: unknown } | undefined)?.root));
     // Transcript checkpoint cards and their historical review belong to the
     // workspace contribution. Removing Workspace Kit therefore removes both
     // the card and its diff surface without App knowing their implementation.
@@ -193,11 +213,10 @@ export const workspaceExtension: DesktopExtension = {
     context.registerSettingsPage({
       id: "workspace.source-control",
       label: "Source control",
-      description: "Where new threads run and what they start from: worktrees, branches, submodules, and the folder new projects start in.",
+      description: "How a new worktree fills its submodules, whether the default branch keeps itself current, and where new projects start.",
       group: "projects",
       Icon: GitBranch,
       order: 35,
-      scope: "both",
       keywords: ["git", "worktree", "submodules", "pull", "fast-forward", "default branch", "clone", "base folder", "origin"],
       rows: SOURCE_CONTROL_SETTINGS_ROWS,
       profiles: ["desktop", "web"],
@@ -322,34 +341,16 @@ export const workspaceExtension: DesktopExtension = {
       } });
       context.registerKeybinding({ keys, commandId: id, when: "!terminalFocus" });
     }
+    // The header's Commit as a command; no chord, since ⇧⌘C is T3 Code's and VS Code's (K159).
+    context.registerCommand({ id: "workspace.commit", label: "Commit…", group: "Thread", access: "write", run: () => store.openReview(undefined, false) });
+    // Not the design's ⌘E, which edits the prompt outside.
+    context.registerKeybinding({ keys: "mod+alt+e", commandId: "workspace.files" });
     context.registerKeybinding({ keys: "mod+alt+p", commandId: "workspace.open-project" });
     context.registerKeybinding({ keys: "mod+o", commandId: "workspace.open-in-editor" });
     context.registerKeybinding({ keys: "mod+alt+j", commandId: "workspace.open-terminal" });
     context.registerKeybinding({ keys: "mod+shift+s", commandId: "workspace.settle" });
-    context.registerToolRenderer(
-      "workspace.read-renderer",
-      (tool) => tool.name === "read" || tool.name === "grep" || tool.name === "find" || tool.name === "ls",
-      (tool) => ({
-        glyph: "→",
-        title: tool.name,
-        tone: "read",
-        detail: String(tool.args.path ?? tool.args.pattern ?? tool.args.query ?? "workspace"),
-        ...(tool.name === "read" && typeof tool.args.path === "string" ? { file: tool.args.path } : {}),
-      }),
-      { profiles: ["desktop", "web", "compact"] },
-    );
-    context.registerToolRenderer(
-      "workspace.write-renderer",
-      (tool) => tool.name === "edit" || tool.name === "write",
-      (tool) => ({
-        glyph: "±",
-        title: tool.name,
-        tone: "write",
-        detail: String(tool.args.path ?? "file mutation"),
-        ...(typeof tool.args.path === "string" ? { file: tool.args.path } : {}),
-      }),
-      { profiles: ["desktop", "web", "compact"] },
-    );
+    context.registerToolRenderer("workspace.read-renderer", (tool) => READ_TOOLS.has(tool.name), presentRead, { profiles: ["desktop", "web", "compact"] });
+    context.registerToolRenderer("workspace.write-renderer", (tool) => WRITE_TOOLS.has(tool.name), presentWrite, { profiles: ["desktop", "web", "compact"] });
 
     let lastAppActions: import("tau").WorkbenchActions | undefined;
     const openPromptInEditor = async (app?: import("tau").WorkbenchActions) => {
@@ -418,7 +419,10 @@ export const workspaceExtension: DesktopExtension = {
       },
     });
     context.registerKeybinding({ keys: "mod+e", commandId: "workspace.open-prompt-editor" });
+    const stopDefault = store.followDefaultChanges();
     return () => {
+      stopTopics.forEach((stop) => stop?.());
+      stopDefault();
       unpublishIcons();
       window.clearInterval(autoPullTimer);
       window.removeEventListener("focus", autoPull);

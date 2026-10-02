@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
+import { pruneIdleLeaseFolders, WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
 import { createWorkspaceKitCheckpointMaintenance } from "./workspace-kit-checkpoints.js";
 
 async function repository(prefix: string): Promise<string> {
@@ -14,6 +14,27 @@ async function repository(prefix: string): Promise<string> {
 
 // Every case runs real git in temp repositories; the whole suite pushes single cases past 5 s.
 describe("workspace checkpoint leases", { timeout: 60_000 }, () => {
+  it("prunes the lease folders nobody has touched for a while and keeps those with a lock or a ticket", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-lease-prune-"));
+    try {
+      const old = new Date(Date.now() - 60 * 60_000);
+      const folder = async (name: string, files: string[]) => {
+        await mkdir(join(root, name, "tickets"), { recursive: true });
+        for (const file of files) await writeFile(join(root, name, file), "x");
+        for (const path of [join(root, name, "tickets"), join(root, name)]) await utimes(path, old, old);
+      };
+      await folder("empty", []);
+      await folder("sequence-only", ["tickets/sequence"]);
+      await folder("locked", ["tau-turn-checkpoint.lock"]);
+      await folder("waiting", ["tickets/00000000000000000001-a.json"]);
+      await mkdir(join(root, "recent", "tickets"), { recursive: true });
+      expect(await pruneIdleLeaseFolders(root, Date.now())).toBe(2);
+      expect((await readdir(root)).sort()).toEqual(["locked", "recent", "waiting"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("serializes turns sharing a checkout and hands ownership over in FIFO order", async () => {
     const cwd = await repository("tau-lease-shared-");
     try {

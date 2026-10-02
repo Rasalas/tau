@@ -18,9 +18,9 @@ describe("the Usage page's last state", () => {
     const monday = Date.UTC(2026, 8, 21);
     saveLastState(undefined, { days: days(monday), summary: summary([entry(0, 1), entry(89, 2)]) });
     forgetLastState();
-    // A day later: the oldest day is no longer asked for, the last one is the second to last.
+    // A day later: the oldest day joins what came before the days read (-1), the last one is the second to last.
     const state = readLastState(undefined, days(monday + DAY));
-    expect(state?.summary?.entries).toEqual([entry(88, 2)]);
+    expect(state?.summary?.entries).toEqual([entry(-1, 1), entry(88, 2)]);
   });
 
   it("is kept per machine a page shows", () => {

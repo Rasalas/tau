@@ -20,6 +20,8 @@ import {
   type WelcomeState,
 } from "./protocol.js";
 
+/** Thread Rail Kit settles what is imported (`settle-imported`, granted to this kit). */
+const THREAD_RAIL_EXTENSION_ID = "tau.thread-rail";
 /** Paths per call to a backend kit, so progress moves and the rail fills as it goes. */
 const IMPORT_BATCH = 10;
 const PROBE_TIMEOUT_MS = 8_000;
@@ -178,6 +180,18 @@ export function createOnboardingHostExtension(options: OnboardingHostOptions = {
         return services.workspaceRef(path);
       });
 
+      // A source that names no state leaves its threads settled: found by search, but not in the way.
+      const settleImported = async (imported: readonly unknown[] = [], active: readonly unknown[] = []) => {
+        const threadIds = imported.filter((id): id is string => typeof id === "string" && !active.includes(id));
+        if (threadIds.length === 0) return;
+        try {
+          await context.invokeHostExtension(THREAD_RAIL_EXTENSION_ID, "settle-imported", { threadIds });
+        } catch (error) {
+          // Without Thread Rail there is no shelf; the threads simply stay active.
+          services.log("onboarding.settle-failed", error instanceof Error ? error.message : String(error));
+        }
+      };
+
       context.registerCommand("import-sessions", async (input): Promise<ImportResult> => {
         const { source, paths } = (input ?? {}) as { source?: unknown; paths?: unknown };
         const target = SESSION_SOURCES.find((entry) => isSessionSource(source) && entry.source === source);
@@ -185,7 +199,8 @@ export function createOnboardingHostExtension(options: OnboardingHostOptions = {
         const result: ImportResult = { imported: 0, skipped: 0, failed: 0 };
         for (let done = 0; done < paths.length; done += IMPORT_BATCH) {
           const batch = paths.slice(done, done + IMPORT_BATCH);
-          const answer = await context.invokeHostExtension(target.extensionId, "import-sessions", { paths: batch }) as { imported?: unknown[]; skipped?: number; failed?: unknown[]; update?: unknown };
+          const answer = await context.invokeHostExtension(target.extensionId, "import-sessions", { paths: batch }) as { imported?: unknown[]; skipped?: number; failed?: unknown[]; update?: unknown; active?: unknown[] };
+          await settleImported(answer.imported, answer.active);
           result.imported += answer.imported?.length ?? 0;
           result.skipped += answer.skipped ?? 0;
           result.failed += answer.failed?.length ?? 0;

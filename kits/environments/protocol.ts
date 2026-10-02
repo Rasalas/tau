@@ -1,9 +1,19 @@
-import type { ComponentType, ReactNode } from "react";
-import type { WorkbenchActions } from "tau";
+import type { ComponentType, ReactElement, ReactNode } from "react";
+import type { HostSnapshot, UiSession, WorkbenchActions } from "tau";
 import type { MachineRailThread } from "./rail.js";
 
 export const ENVIRONMENTS_EXTENSION_ID = "tau.environments";
 export const MACHINES_SETTINGS_PAGE = "environments.machines";
+
+/** Commands of this kit's host half on a thread's home machine (K166): rename, change model, send with images. */
+export const THREAD_RENAME_COMMAND = "thread-rename";
+export const THREAD_MODEL_COMMAND = "thread-model";
+export const THREAD_SEND_COMMAND = "thread-send";
+
+/** Onboarding Kit's desktop service (`kits/onboarding/protocol.ts`); its UI imports on the named machine. */
+export const MACHINE_IMPORT_SERVICE = "tau.onboarding/machine-import";
+export interface MachineImportProps { machine: string; name: string }
+export interface MachineImportService { Component: (props: MachineImportProps) => ReactElement }
 
 /** Workspace Kit's desktop service (`kits/workspace/protocol.ts`); the rail draws what is registered here. */
 export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
@@ -14,10 +24,29 @@ export interface WorkspaceRailSlice {
   registerRailThreads?(source: { subscribe(listener: () => void): () => void; threads(): readonly MachineRailThread[] }): () => void;
   /** Absent before API 1.23.0; the row's hover card then names no machine for this machine's threads. */
   registerThreadCardSection?(section: { place: "row"; order?: number; Component: ComponentType<MachineCardRowProps> }): () => void;
+  /** A new thread's Run-on pill: its machine and the machines to pick from. */
+  registerDraftMachine?(source: DraftMachineSource): () => void;
 }
+
+/** Workspace Kit's `DraftMachineSource` (`kits/workspace/protocol.ts`). */
+export interface DraftMachineProps {
+  snapshot?: HostSnapshot;
+  actions?: WorkbenchActions;
+}
+export interface DraftMachineSource {
+  useMachine(props: DraftMachineProps): { name: string; icon: ReactNode; tooltip?: string; moving?: boolean } | undefined;
+  Section: ComponentType<DraftMachineProps & { touch: boolean }>;
+  openOnDraft?(): boolean;
+}
+
+/** `values.tau.environments.run-on`: where a new thread starts (design 2i); unset is the machine used last. */
+export const RUN_ON_DEFAULT_KEY = "run-on";
+export type RunOnDefault = "this" | "last" | "ask";
 
 /** The part of Workspace Kit's `ThreadCardSectionProps` the machine's line reads. */
 export interface MachineCardRowProps {
+  /** The row's index entry, as Workspace Kit supplies it. New in API 1.43.0. */
+  session?: UiSession;
   external: boolean;
   Row: ComponentType<{ icon: ReactNode; children: ReactNode }>;
 }

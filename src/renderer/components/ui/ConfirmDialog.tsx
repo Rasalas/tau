@@ -17,6 +17,7 @@ export function ConfirmDialog({
   destructive = false,
   dontAskAgain = false,
   confirmText,
+  icon,
   onConfirm,
   onCancel,
 }: {
@@ -27,6 +28,8 @@ export function ConfirmDialog({
   destructive?: boolean;
   dontAskAgain?: boolean;
   confirmText?: string;
+  /** Drawn before the action's label, as in the design's Delete and Merge. */
+  icon?: ReactNode;
   onConfirm(dontAskAgain: boolean): void;
   onCancel(): void;
 }) {
@@ -52,7 +55,7 @@ export function ConfirmDialog({
       ) : null}
       <footer>
         <button type="button" className="text-button" onClick={onCancel}>{cancelLabel}</button>
-        <button type="button" className={destructive ? "danger" : "primary"} autoFocus={confirmText === undefined} disabled={locked} onClick={() => onConfirm(skip)}>{confirmLabel}</button>
+        <button type="button" className={destructive ? "danger" : "primary"} autoFocus={confirmText === undefined} disabled={locked} onClick={() => onConfirm(skip)}>{icon}{confirmLabel}</button>
       </footer>
     </Dialog>
   );

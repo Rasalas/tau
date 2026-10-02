@@ -116,6 +116,9 @@ export function chromeArgs({ port, profile, device, names = [] }) {
     "--disable-sync",
     "--disable-background-networking",
     "--disable-component-update",
+    // Never the login keychain, also under a fake HOME: cookies and passwords stay in the profile.
+    "--use-mock-keychain",
+    "--password-store=basic",
     "--hide-scrollbars",
     "--touch-events=enabled",
     `--window-size=${width},${height}`,

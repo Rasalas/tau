@@ -1,20 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, Layers, RefreshCw } from "lucide-react";
+import { GitMerge, Layers, RefreshCw } from "lucide-react";
 import { Dialog, Menu, READ_ONLY_REASON, errorMessage, type MenuSection, type WorkbenchActions } from "tau";
 import { providerInfo, type MergeMethod, type PullRequestDetail, type PullRequestStack, type PullRequestStackLayer, type StackAction } from "./protocol.js";
+import { RequestStateIcon } from "./request-state-icon.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import { openPullRequest } from "./pull-request-open.js";
 import { METHOD_WORDS, layerLine, preferredMethod } from "./merge-controls.js";
 import { ALL_WRITES, type PullRequestWrites } from "./pull-request-writes.js";
 
 function LayerGlyph({ layer }: { layer: PullRequestStackLayer }) {
-  const { state } = layerLine(layer);
-  const props = { size: 13, "aria-hidden": true, className: `pr-glyph ${state}` } as const;
-  if (state === "merged") return <GitMerge {...props} />;
-  if (state === "closed") return <GitPullRequestClosed {...props} />;
-  if (state === "draft") return <GitPullRequestDraft {...props} />;
-  return <GitPullRequest {...props} />;
+  return <RequestStateIcon state={layerLine(layer).state} />;
 }
 
 /** What a stack step may do from this layer: merge it with the layers below, and rebase them all. */
@@ -115,7 +111,7 @@ export function PullRequestStackControl({ detail, client, actions, workspace, on
         {menu ? <Menu label={label} sections={sections} footer={<small className="pr-stack-base">↳ {stack.base}</small>} onSelect={pick} onClose={() => setMenu(false)} /> : null}
       </span>
       {confirm ? createPortal(
-        <Dialog className="pr-link-dialog pr-merge-dialog" label={confirm === "merge" ? "Merge the stack" : "Rebase the stack"} onClose={() => { if (!busy) setConfirm(undefined); }}>
+        <Dialog className="confirm-dialog pr-link-dialog pr-merge-dialog" label={confirm === "merge" ? "Merge the stack" : "Rebase the stack"} onClose={() => { if (!busy) setConfirm(undefined); }}>
           <header>
             <h2>{confirm === "merge" ? `Merge ${layers.length} ${layers.length === 1 ? "pull request" : "pull requests"}?` : `Rebase ${layers.length} ${layers.length === 1 ? "pull request" : "pull requests"}?`}</h2>
             <p>{confirm === "merge"
@@ -125,7 +121,7 @@ export function PullRequestStackControl({ detail, client, actions, workspace, on
           <ul className="pr-stack-confirm">
             {layers.map((layer) => {
               const line = layerLine(layer);
-              return <li key={layer.number}><LayerGlyph layer={layer} /><span><strong>{line.title}</strong><small>#{layer.number} · {line.state}</small></span></li>;
+              return <li key={layer.number}><LayerGlyph layer={layer} /><span><strong>{line.title}</strong><small>#{layer.number}</small></span></li>;
             })}
           </ul>
           {error ? <p className="pr-error" role="alert">{error}</p> : null}

@@ -5,7 +5,7 @@ import type { HostSnapshot, WorkbenchActions } from "tau";
 import { HostClientProvider, createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import takeoverKit from "./desktop.js";
-import { isGenericRuntime, jumpLabel, windowTooltip } from "./card.js";
+import { TakeoverLine, isGenericRuntime, jumpLabel, windowTooltip } from "./card.js";
 import {
   COMPUTER_USE_SCREEN_SERVICE,
   PREVIEW_BROWSER_SERVICE,
@@ -39,10 +39,12 @@ function setup(initial: Takeover[] = [], platform: Record<string, unknown> = {},
     return true;
   });
   const { registry } = createKitHarness(invoke, undefined, platform);
-  const preview = { open: vi.fn(async () => undefined), jump: vi.fn(async () => undefined), ...previewExtras } satisfies PreviewBrowserService;
+  const release = vi.fn();
+  const hold = vi.fn<NonNullable<PreviewBrowserService["hold"]>>(() => release);
+  const preview = { open: vi.fn(async () => undefined), jump: vi.fn(async () => undefined), hold, ...previewExtras } satisfies PreviewBrowserService;
   const cookies = { importSite: vi.fn<PreviewCookieImportService["importSite"]>(async () => ({ imported: 2, skipped: 0, skippedSites: [], profile: "default", reloaded: true })) };
   const screen = { load: async () => ({ window: { app: "TextEdit" } }), bringToFront: vi.fn(async () => undefined), icon: vi.fn(async () => "data:image/png;base64,SUNPTg==") } satisfies ComputerUseScreenService;
-  let rowMark: ((props: { session: { id: string } }) => unknown) | undefined;
+  let rowStatuses: Record<string, { label: string; hint?: string }> | undefined;
   registry.activate({
     id: "test.services",
     name: "Services",
@@ -50,7 +52,9 @@ function setup(initial: Takeover[] = [], platform: Record<string, unknown> = {},
       context.provideService(PREVIEW_BROWSER_SERVICE, preview);
       context.provideService(PREVIEW_COOKIE_IMPORT_SERVICE, cookies);
       context.provideService(COMPUTER_USE_SCREEN_SERVICE, screen);
-      context.provideService(WORKSPACE_STORE_SERVICE, { registerThreadRowAccessory: (mark: typeof rowMark) => { rowMark = mark; return () => { rowMark = undefined; }; } });
+      context.provideService(WORKSPACE_STORE_SERVICE, {
+        setThreadRowStatuses: (_owner: string, statuses: typeof rowStatuses) => { rowStatuses = statuses; },
+      });
     },
   });
   registry.activate(takeoverKit);
@@ -63,6 +67,7 @@ function setup(initial: Takeover[] = [], platform: Record<string, unknown> = {},
     openPanel: vi.fn(),
     openExternal: vi.fn(),
     notify: vi.fn(),
+    closePanel: vi.fn(),
     toast: vi.fn(() => ({ update: () => undefined, dismiss: vi.fn() })),
     switchSession: vi.fn(async () => true),
     activeThread: () => ({ sessionId: "s1", draftPending: false }),
@@ -73,7 +78,7 @@ function setup(initial: Takeover[] = [], platform: Record<string, unknown> = {},
     const { Component } = registry.getRegions("composer-above").find((region) => region.id === "takeover.card")!;
     return render(<Component snapshot={{ sessionId } as HostSnapshot} actions={actions} />);
   };
-  return { registry, calls, preview, cookies, screen, actions, publish, card, stage, rowMark: () => rowMark };
+  return { registry, calls, preview, cookies, screen, actions, publish, card, stage, hold, release, rowStatuses: () => rowStatuses };
 }
 
 describe("Takeover card on a device away from the host", () => {
@@ -106,13 +111,15 @@ describe("Takeover card on a device away from the host", () => {
     expect(view.getByText(/paired Read only/u)).toBeTruthy();
   });
 
-  it("points to this device's field for a password instead of the host's browsers", () => {
-    const { card, publish } = setup([], {}, { remote: () => true, watch: () => () => undefined });
+  it("offers none of the host's browsers, which are not on this device", async () => {
+    const { card, publish, preview } = setup([], {}, { remote: () => true, watch: () => () => undefined });
     const view = card();
     publish([takeover({ kind: "preview", url: "http://127.0.0.1:8741/login" })]);
-    fireEvent.click(view.getByRole("button", { name: "Your passwords" }));
-    expect(view.getByRole("group", { name: "Your passwords" }).textContent).toMatch(/never recorded/u);
-    expect(view.queryByRole("button", { name: "Bring the session over" })).toBeNull();
+    expect(view.getByRole("button", { name: "Take over here" })).toBeTruthy();
+    expect(view.queryByRole("button", { name: /Bring my browser session over|Open in my browser/u })).toBeNull();
+    // A phone opens the sheet on a tap, not by itself.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(preview.jump).not.toHaveBeenCalled();
   });
 });
 
@@ -164,7 +171,8 @@ describe("Takeover card", () => {
     const view = card();
     const request = takeover({ kind: "preview" });
     publish([request]);
-    fireEvent.click(view.getByRole("button", { name: "Show the page" }));
+    // No click: on the host's machine the page comes forward with the card.
+    expect(view.queryByRole("button", { name: "Show the page" })).toBeNull();
     await waitFor(() => expect(stage).toHaveLength(1));
     expect(preview.jump).toHaveBeenCalledWith({ kind: "browser" }, actions);
     fireEvent.click(view.getByRole("button", { name: "Done" }));
@@ -182,8 +190,8 @@ describe("Takeover card", () => {
     await waitFor(() => expect(preview.jump).toHaveBeenCalledWith({ kind: "app", threadId: "s1" }, actions));
 
     publish([takeover({ kind: "browser", url: "https://example.test/device" })]);
-    expect(view.queryByRole("button", { name: "Your passwords" })).toBeNull();
-    fireEvent.click(view.getByRole("button", { name: "Open in browser" }));
+    expect(view.queryByRole("button", { name: "Bring my browser session over" })).toBeNull();
+    fireEvent.click(view.getByRole("button", { name: "Open in my browser" }));
     expect(actions.openExternal).toHaveBeenCalledWith("https://example.test/device");
   });
 
@@ -197,32 +205,67 @@ describe("Takeover card", () => {
     expect(isGenericRuntime("Visual Studio Code")).toBe(false);
     expect(jumpLabel(takeover({ kind: "window" }))).toBe("Show window");
     expect(jumpLabel(takeover({ kind: "preview" }), true, true)).toBe("Watch here");
+    expect(jumpLabel(takeover({ kind: "preview" }))).toBeUndefined();
   });
 
-  it("offers the ways to a password only on a click, and imports only the page's site", async () => {
+  it("says what is held and for how long, and brings the page's session over only on a click", async () => {
     const { card, publish, cookies, actions } = setup();
     const view = card();
     publish([takeover({ kind: "preview" })]);
-    expect(view.queryByRole("group", { name: "Your passwords" })).toBeNull();
-    fireEvent.click(view.getByRole("button", { name: "Your passwords" }));
-    const ways = view.getByRole("group", { name: "Your passwords" });
-    expect(ways.textContent).toMatch(/cannot reach your password manager/u);
-    const bring = await waitFor(() => view.getByRole("button", { name: "Bring the session over" }));
+    const region = view.getByRole("region", { name: "Your turn" });
+    expect(region.textContent).toMatch(/waits up to 30 min/u);
+    expect(region.textContent).toMatch(/Sign in to staging\. The agent's preview and computer-use calls are held until you press Done\./u);
+    const bring = await waitFor(() => view.getByRole("button", { name: "Bring my browser session over" }));
     expect(cookies.importSite).not.toHaveBeenCalled();
-    fireEvent.click(view.getAllByRole("button", { name: "Open in browser" })[0]!);
+    fireEvent.click(view.getByRole("button", { name: "Open in my browser" }));
     expect(actions.openExternal).toHaveBeenCalledWith("http://127.0.0.1:8741/login");
     fireEvent.click(bring);
     await waitFor(() => expect(view.getByRole("status").textContent).toMatch(/Imported 2 cookies into the Preview; the page reloaded/u));
     expect(cookies.importSite).toHaveBeenCalledWith({ site: "127.0.0.1" });
   });
 
-  it("marks the thread's rail row", () => {
-    const { publish, rowMark } = setup();
-    const Mark = rowMark() as (props: { session: { id: string } }) => React.JSX.Element | null;
-    const view = render(<><Mark session={{ id: "s1" }} /><Mark session={{ id: "s2" }} /></>);
-    expect(view.queryByRole("img")).toBeNull();
+  it("names the page's host in mono where the agent's words name it", () => {
+    const { card, publish } = setup();
+    const view = card();
+    publish([{ ...takeover({ kind: "preview", url: "http://staff.shop.local/login" }), reason: "Sign in to staff.shop.local in the preview" }]);
+    expect(view.getByRole("region", { name: "Your turn" }).querySelector("code")?.textContent).toBe("staff.shop.local");
+  });
+
+  it("gives the thread's rail row the state Your turn", () => {
+    const { publish, rowStatuses } = setup();
+    expect(rowStatuses()).toEqual({});
     publish([takeover({ kind: "preview" })]);
-    expect(view.getAllByRole("img").map((mark) => mark.getAttribute("aria-label"))).toEqual(["Your turn: Sign in to staging"]);
+    expect(rowStatuses()).toEqual({ s1: expect.objectContaining({ label: "Your turn", hint: "Sign in to staging" }) });
+    publish([]);
+    expect(rowStatuses()).toEqual({});
+  });
+
+  it("holds the Preview while the user has a page or a window, with a bar that hands it back on a phone", async () => {
+    const { publish, hold, release, calls, actions } = setup();
+    publish([takeover({ kind: "none" })]);
+    expect(hold).not.toHaveBeenCalled();
+    const request = takeover({ kind: "preview" });
+    publish([request]);
+    expect(hold).toHaveBeenCalledTimes(1);
+    const { Bar, Footer } = hold.mock.calls[0]![0];
+    const view = render(<>{Bar ? <Bar actions={actions} /> : null}{Footer ? <Footer /> : null}</>);
+    expect(view.getByRole("region", { name: "Your turn" }).textContent).toContain("Your turn · Sign in to staging");
+    expect(view.container.textContent).toMatch(/streams to your phone\. Evidence is paused while you type\./u);
+    fireEvent.click(view.getByRole("button", { name: "Done" }));
+    expect(actions.closePanel).toHaveBeenCalledWith("preview");
+    await waitFor(() => expect(calls).toContainEqual([TAKEOVER_EXTENSION_ID, "done", { id: request.id }]));
+    publish([]);
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it("says in the transcript that it waits for the user, then how it ended", () => {
+    const tool = { id: "c1", name: "request_takeover", args: {}, status: "running" as const, startedAt: 1 };
+    const view = render(<TakeoverLine tools={[tool]} actions={{} as WorkbenchActions} />);
+    expect(view.container.textContent).toBe("Waiting for you · evidence paused");
+    view.rerender(<TakeoverLine tools={[{ ...tool, status: "done", output: "The user is done and handed control back. Carry on." }]} actions={{} as WorkbenchActions} />);
+    expect(view.container.textContent).toBe("You handed control back");
+    view.rerender(<TakeoverLine tools={[{ ...tool, status: "error", output: "The user cancelled the takeover. Stop here." }]} actions={{} as WorkbenchActions} />);
+    expect(view.container.textContent).toBe("You cancelled the takeover");
   });
 
   it("notifies a window without focus of a new request and opens its thread from the notification", async () => {

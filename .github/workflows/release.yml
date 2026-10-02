@@ -3,10 +3,10 @@ name: Release
 on:
   push:
     tags: ["v*.*.*"]
-  # The nightly: 03:17 UTC, published only when main moved since the last one,
+  # The nightly: 03:14 UTC, published only when main moved since the last one,
   # and only once the repository variable NIGHTLY is `true` (docs/RELEASE.md).
   schedule:
-    - cron: "17 3 * * *"
+    - cron: "14 3 * * *"
   workflow_dispatch:
     inputs:
       publish:
@@ -201,6 +201,12 @@ jobs:
             runner: ubuntu-24.04
             platform: --linux --x64
             artifact: linux
+          # SSH hosts include ARM Linux machines. Only their portable archive is
+          # published here, so this does not replace the desktop Linux update feed.
+          - name: Linux arm64 portable host
+            runner: ubuntu-24.04-arm
+            platform: --linux --arm64 --dir
+            artifact: linux-arm64
           - name: Windows x64
             runner: windows-2025
             # node-pty's N-API binaries load as they are; a node-gyp rebuild fails on the runner.
@@ -241,7 +247,16 @@ jobs:
         env:
           VERSION: ${{ needs.gate.outputs.version }}
         run: npm pkg set version="$VERSION"
+      - name: Prepare Wayland capture toolchain
+        if: matrix.artifact == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev pkg-config
+          rustup update stable
+          rustup default stable
       - run: npm run build
+        env:
+          TAU_BUILD_WAYLAND_HELPERS: ${{ matrix.artifact == 'linux' && '1' || '0' }}
 
       - name: Package
         shell: bash
@@ -273,6 +288,13 @@ jobs:
           npx electron-builder -c tooling/electron-builder.yml ${{ matrix.platform }} --publish never || status=$?
           rm -f "$RUNNER_TEMP/notary-api-key.p8"
           exit "$status"
+
+      - name: Package the portable remote host
+        shell: bash
+        run: |
+          archive="$(node scripts/packaging/portable-host.mjs ${{ (matrix.artifact == 'macos-arm64' || matrix.artifact == 'linux-arm64') && 'arm64' || 'x64' }})"
+          version="$(node -p 'require("./package.json").version')"
+          node scripts/packaging/portable-host-smoke.mjs "$archive" "$version"
 
       # What apt installs and what DebUpdater downloads: Xvfb comes along, the
       # AppArmor profile is inside, and the feed names the package.
@@ -310,6 +332,7 @@ jobs:
           path: |
             release/*.dmg
             release/*.zip
+            release/*.tar.gz
             release/*.AppImage
             release/*.deb
             release/*.exe
@@ -463,6 +486,9 @@ jobs:
     runs-on: macos-26
     environment: ${{ needs.gate.outputs.environment }}
     timeout-minutes: 45
+    env:
+      # 0 leaves TauWidgets and the App Group out; 1 needs IOS_WIDGET_PROFILE too (K163, K164).
+      TAU_IOS_WIDGETS: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -489,11 +515,14 @@ jobs:
           npx vite build
           npx cap sync ios
           if grep -l tauAutomation dist/assets/*.js; then echo "::error::The release web layer contains the automation bridge."; exit 1; fi
+      - name: Leave out the widgets unless TAU_IOS_WIDGETS is 1
+        run: node scripts/packaging/ios-widgets.mjs mobile/ios/App
       # The runner has no signing certificate; Apple's cloud signing would need an Admin key.
       - name: Import the distribution certificate
         env:
           IOS_DIST_P12: ${{ secrets.IOS_DIST_P12 }}
           IOS_DIST_P12_PASSWORD: ${{ secrets.IOS_DIST_P12_PASSWORD }}
+          IOS_PROFILE: ${{ secrets.IOS_PROFILE }}
         run: |
           if [ -z "${IOS_DIST_P12:-}" ]; then
             echo "::warning::No IOS_DIST_P12; signing falls back to Apple's cloud signing."
@@ -511,6 +540,11 @@ jobs:
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
           security find-identity -v -p codesigning "$keychain" | grep -q "Apple Distribution" || { echo "::error::The imported certificate is not an Apple Distribution identity."; exit 1; }
           echo "IOS_SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+      - name: Install the App Store profiles
+        env:
+          IOS_PROFILE: ${{ secrets.IOS_PROFILE }}
+          IOS_WIDGET_PROFILE: ${{ secrets.IOS_WIDGET_PROFILE }}
+        run: python3 scripts/packaging/ios-profiles.py "$RUNNER_TEMP/tau-profiles"
       - name: Archive, and upload to TestFlight
         env:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
@@ -536,7 +570,11 @@ jobs:
           unset APPLE_API_KEY_P8
           trap 'rm -f "$key"' EXIT
           auth=(-allowProvisioningUpdates -authenticationKeyPath "$key" -authenticationKeyID "$APPLE_API_KEY_ID" -authenticationKeyIssuerID "$APPLE_API_ISSUER")
-          xcodebuild archive "${project[@]}" "${settings[@]}" DEVELOPMENT_TEAM=V4MWQ28RZ2 CODE_SIGN_STYLE=Automatic "${auth[@]}"
+          signing=(CODE_SIGN_STYLE=Automatic)
+          if [ -f "$RUNNER_TEMP/tau-profiles/profiles.xcconfig" ]; then
+            signing=(-xcconfig "$RUNNER_TEMP/tau-profiles/profiles.xcconfig")
+          fi
+          xcodebuild archive "${project[@]}" "${settings[@]}" DEVELOPMENT_TEAM=V4MWQ28RZ2 "${signing[@]}" "${auth[@]}"
           if [ "$UPLOAD" != true ]; then
             echo "A dry run: archived $version ($build), not uploaded."
             exit 0
@@ -551,6 +589,11 @@ jobs:
             <key>signingStyle</key><string>automatic</string>
           </dict></plist>
           PLIST
+          if [ -f "$RUNNER_TEMP/tau-profiles/profiles.json" ]; then
+            plutil -replace signingStyle -string manual "$RUNNER_TEMP/export.plist"
+            plutil -replace signingCertificate -string 'Apple Distribution' "$RUNNER_TEMP/export.plist"
+            plutil -replace provisioningProfiles -json "$(cat "$RUNNER_TEMP/tau-profiles/profiles.json")" "$RUNNER_TEMP/export.plist"
+          fi
           xcodebuild -exportArchive -archivePath "$archive" -exportOptionsPlist "$RUNNER_TEMP/export.plist" -exportPath "$RUNNER_TEMP/export" "${auth[@]}"
           echo "::notice::Uploaded Tau for iOS $version ($build) to TestFlight."
       - name: Remove the signing keychain
@@ -588,7 +631,7 @@ jobs:
           PUBLISHING: ${{ needs.gate.outputs.nightly == 'true' || startsWith(github.ref, 'refs/tags/v') || inputs.publish == true }}
         run: |
           # One per platform of the matrix; a missing one leaves that platform without updates.
-          for name in latest-mac.yml latest.yml latest-linux.yml; do
+          for name in latest-mac.yml latest.yml latest-linux.yml latest-host-darwin-arm64.yml latest-host-darwin-x64.yml latest-host-linux-x64.yml latest-host-linux-arm64.yml latest-host-win32-x64.yml; do
             [ -f "feed/$name" ] || { echo "::error::The builds wrote no $name."; exit 1; }
           done
           if [ -z "${TAU_RELEASE_SIGNING_KEY:-}" ]; then

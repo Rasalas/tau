@@ -1,16 +1,19 @@
 // @vitest-environment jsdom
-import type { ReactElement } from "react";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { useState, type ReactElement } from "react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { DiscoveredHost, EnvironmentPairResult, HostReadiness, HostResources, PlatformEnvironments, UiDiscoveredHosts, UiEnvironment, UiEnvironments, WorkbenchActions } from "tau";
-import { createKitHarness, createMemoryStorage, HostClientProvider, RendererServicesProvider, setClientStorage } from "../../src/renderer/test-support/kit-harness.js";
+import { tooltipProps, type DiscoveredHost, type EnvironmentPairResult, type HostExtensionClient, type HostReadiness, type HostResources, type PlatformEnvironments, type UiDiscoveredHosts, type UiEnvironment, type UiEnvironments, type WorkbenchActions } from "tau";
+import { createKitHarness, createMemoryStorage, HostClientProvider, RendererServicesProvider, setClientStorage, ThreadStore, ThreadStoreContext } from "../../src/renderer/test-support/kit-harness.js";
 import { autoRunOn, createAutoRunOnHook, RUN_ON_KEY } from "./auto.js";
 import { ARRIVAL_KEY, createRailSection, environmentsExtension } from "./desktop.js";
 import { followArrival, otherMachines, readPendingArrival, statusText, unavailableReason } from "./machines.js";
 import { agentThreadsSource, createMachineCardRow, createMachineThreads, createShownMachine } from "./rail.js";
-import { createRunOnControl, runOnDetail } from "./run-on.js";
+import { createRunOnSource, runOnDetail, RunOnDefaultRow, type RunOnBringing } from "./run-on.js";
+import { createBringChoice, createBringProjectHook, createProjectIdentities, matchProject } from "./bring-project.js";
 import { createMachinesPage } from "./settings.js";
-import { REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE } from "./protocol.js";
+import { machineKitClient } from "./machine-kit.js";
+import { MachineSetup, setupRows, stateText } from "./setup.js";
+import { REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE, type DraftMachineProps, type RunOnDefault } from "./protocol.js";
 
 afterEach(cleanup);
 
@@ -61,6 +64,133 @@ function fakeActions(patch: Partial<WorkbenchActions> = {}): WorkbenchActions {
   return new Proxy(patch, { get: (target, key) => (target as Record<string, unknown>)[key as string] ?? vi.fn() }) as WorkbenchActions;
 }
 
+/** Workspace Kit's Run-on pill, cut down: the machine it names, and the rows it opens. */
+function createRunOnControl(environments: PlatformEnvironments, host?: HostExtensionClient, bringing?: RunOnBringing, runOnDefault?: () => RunOnDefault | undefined) {
+  const source = createRunOnSource(environments, host, bringing, runOnDefault);
+  function Pill(props: DraftMachineProps) {
+    const chosen = source.useMachine(props);
+    const [open, setOpen] = useState(false);
+    if (!chosen) return null;
+    return <>
+      <button aria-label={`Run on ${chosen.name}`} {...(chosen.tooltip ? tooltipProps(chosen.tooltip) : {})} onClick={() => setOpen(!open)}>{chosen.name}</button>
+      {open ? <div onClickCapture={() => setOpen(false)}><source.Section {...props} touch={false} /></div> : null}
+    </>;
+  }
+  return function Control(props: DraftMachineProps) {
+    return <ThreadStoreContext.Provider value={new ThreadStore()}><Pill {...props} /></ThreadStoreContext.Provider>;
+  };
+}
+
+const row = (name: RegExp) => within(screen.getByRole("group", { name: "Machines" })).getByRole("button", { name });
+const queryRow = (name: RegExp) => screen.queryByRole("group", { name: "Machines" }) && within(screen.getByRole("group", { name: "Machines" })).queryByRole("button", { name });
+
+describe("a kit on another machine", () => {
+  it("routes commands there and hears only the requested event name", async () => {
+    const { environments: base } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const invokeExtension = vi.fn(async () => "answer");
+    const off = vi.fn();
+    let receive: (name: string, payload: unknown) => void = () => undefined;
+    const onExtensionEvent = vi.fn((_machine: string, _extension: string, listener: typeof receive) => { receive = listener; return off; });
+    const host = machineKitClient({ ...base, invokeExtension, onExtensionEvent }, "studio", "tau.codex");
+    await expect(host.invoke("sign-in-state", { instance: "default" })).resolves.toBe("answer");
+    expect(invokeExtension).toHaveBeenCalledWith("studio", "tau.codex", "sign-in-state", { instance: "default" });
+    const listener = vi.fn();
+    const stop = host.onEvent("sign-in", listener);
+    receive("import-progress", { done: 1 });
+    expect(listener).not.toHaveBeenCalled();
+    receive("sign-in", { phase: "waiting" });
+    expect(listener).toHaveBeenCalledWith({ phase: "waiting" });
+    stop();
+    expect(off).toHaveBeenCalledOnce();
+    expect(host.watch).toBeUndefined();
+  });
+
+  it("passes import timeouts and handles a platform without remote kit support", async () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop], secureStorage: true });
+    const invokeExtension = vi.fn(async () => undefined);
+    await machineKitClient({ ...environments, invokeExtension }, "studio", "tau.onboarding", { timeoutMs: 120_000 }).invoke("import");
+    expect(invokeExtension).toHaveBeenCalledWith("studio", "tau.onboarding", "import", undefined, { timeoutMs: 120_000 });
+    const unsupported = machineKitClient(environments, "studio", "tau.codex");
+    expect(() => unsupported.invoke("sign-in-state")).toThrow("This window cannot reach kits of other machines.");
+    expect(() => unsupported.onEvent("sign-in", vi.fn())()).not.toThrow();
+  });
+});
+
+describe("Set up a machine", () => {
+  const readiness = (runtimes: HostReadiness["runtimes"]): HostReadiness => ({ checkedAt: 0, runtimes, git: { mergeTree: true }, disk: { path: "/work" }, display: { kind: "none" } });
+  function setup(connected = true) {
+    const { environments: base } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const invokeExtension = vi.fn(async (_machine: string, _kit: string, command: string) => command === "tools" ? { tools: [{ id: "claude-code", install: "curl install-claude" }] } : command === "sign-in-state" ? { methods: [{ id: "chatgpt", label: "Sign in with ChatGPT", kind: "browser" }], account: { signedIn: false } } : undefined);
+    const environments = { ...base, invokeExtension, onExtensionEvent: vi.fn(() => () => undefined), setAgents: vi.fn(async () => ({ state: "on" as const })) };
+    const invoke = vi.fn(async (command: string, input?: unknown) => command === "agents" ? { available: true, machines: connected ? [{ id: "studio", name: "studio", status: "connected" }] : [] } : (input as { machine?: string })?.machine === "laptop" ? readiness([{ kind: "codex", label: "Codex", state: "ready", account: "me@example.com" }]) : readiness([{ kind: "codex", label: "Codex", state: "sign-in-required" }, { kind: "claude-code", label: "Claude Code", state: "not-installed" }]));
+    const host: HostExtensionClient = { invoke, onEvent: vi.fn(() => () => undefined) };
+    return { environments, host, invokeExtension };
+  }
+
+  it("merges kinds in here's order, then kinds found only there", () => {
+    const here = readiness([{ kind: "pi", label: "Pi", state: "ready" }, { kind: "codex", label: "Codex", state: "ready" }]);
+    const there = readiness([{ kind: "codex", label: "Codex there", state: "sign-in-required" }, { kind: "claude-code", label: "Claude Code", state: "not-installed" }]);
+    const rows = setupRows(here, there);
+    expect(rows.map((entry) => entry.kind)).toEqual(["pi", "codex", "claude-code"]);
+    expect(rows[1]).toMatchObject({ label: "Codex", here: here.runtimes[1], there: there.runtimes[0] });
+  });
+
+  it("names every readiness state", () => {
+    expect(stateText(undefined)).toBe("unavailable");
+    expect(stateText({ kind: "codex", label: "Codex", state: "ready", account: "me" })).toBe("ready (me)");
+    expect(stateText({ kind: "pi", label: "Pi", state: "ready" })).toBe("ready");
+    expect(stateText({ kind: "codex", label: "Codex", state: "sign-in-required" })).toBe("not signed in");
+    expect(stateText({ kind: "codex", label: "Codex", state: "not-installed" })).toBe("not installed");
+    expect(stateText({ kind: "codex", label: "Codex", state: "unavailable", note: "offline" })).toBe("offline");
+    expect(stateText({ kind: "codex", label: "Codex", state: "checking" })).toBe("checking…");
+  });
+
+  it("reads both machines and opens sign-in on the other machine", async () => {
+    const { environments, host, invokeExtension } = setup();
+    render(<MachineSetup environments={environments} host={host} machine={studio} onDone={vi.fn()} />);
+    const table = await screen.findByRole("table", { name: "Agents here and on studio" });
+    expect(await within(table).findByText("not signed in")).toBeTruthy();
+    expect(await within(table).findByText("ready (me@example.com)")).toBeTruthy();
+    expect(await within(table).findByText("curl install-claude")).toBeTruthy();
+    fireEvent.click(within(table).getByRole("button", { name: "Sign in on studio" }));
+    expect(await screen.findByText("Sign in with ChatGPT")).toBeTruthy();
+    expect(invokeExtension).toHaveBeenCalledWith("studio", "tau.codex", "sign-in-state", undefined);
+    expect(environments.onExtensionEvent).toHaveBeenCalledWith("studio", "tau.codex", expect.any(Function));
+  });
+
+  it("offers the agents switch before it can read readiness", async () => {
+    const { environments, host } = setup(false);
+    render(<MachineSetup environments={environments} host={host} machine={studio} onDone={vi.fn()} />);
+    expect(await screen.findByText("Let this computer's agents work on studio first; the setup reads the machine over their connection.")).toBeTruthy();
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.getByRole("switch", { name: "This computer's agents may work on studio" })).toBeTruthy();
+    await waitFor(() => expect(host.invoke).toHaveBeenCalledWith("agents"));
+    expect(host.invoke).not.toHaveBeenCalledWith("readiness", expect.anything());
+  });
+
+  it("marks onboarding complete on Done, also if the command fails", async () => {
+    const { environments, host, invokeExtension } = setup();
+    const onDone = vi.fn();
+    render(<MachineSetup environments={environments} host={host} machine={studio} onDone={onDone} />);
+    invokeExtension.mockRejectedValueOnce(new Error("older Tau"));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(onDone).toHaveBeenCalledOnce());
+    expect(invokeExtension).toHaveBeenCalledWith("studio", "tau.onboarding", "complete", undefined);
+  });
+
+  it("opens setup after adding a machine", async () => {
+    const { environments, host } = setup();
+    const Page = createMachinesPage(environments, host);
+    render(withSettings(<Page />));
+    fireEvent.change(screen.getByRole("textbox", { name: "Pairing link or address" }), { target: { value: "link" } });
+    const add = screen.getByRole("button", { name: "Add machine" });
+    await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(add);
+    expect(await screen.findByRole("region", { name: "Set up studio" })).toBeTruthy();
+    expect(await screen.findByText("not signed in")).toBeTruthy();
+  });
+});
+
 describe("Machines Kit", () => {
   it("draws nothing in a client that has no window process", () => {
     const { registry } = createKitHarness();
@@ -75,11 +205,14 @@ describe("Machines Kit", () => {
     const registered = vi.fn(() => () => undefined);
     const listed = vi.fn(() => () => undefined);
     const card = vi.fn(() => () => undefined);
-    registry.activate({ id: "workspace-stub", name: "Workspace", activate: (context) => { context.provideService(WORKSPACE_STORE_SERVICE, { registerRailSection: registered, registerRailThreads: listed, registerThreadCardSection: card }); } });
+    const runOn = vi.fn(() => () => undefined);
+    registry.activate({ id: "workspace-stub", name: "Workspace", activate: (context) => { context.provideService(WORKSPACE_STORE_SERVICE, { registerRailSection: registered, registerRailThreads: listed, registerThreadCardSection: card, registerDraftMachine: runOn }); } });
     registry.activate(environmentsExtension);
     expect(registry.getSettingsPages().map((page) => page.id)).toEqual(["environments.machines"]);
     expect(registry.getComposerControls()).toEqual([]);
-    expect(registry.getRegions("draft-actions").map((region) => region.id)).toEqual(["environments.run-on"]);
+    // A new thread's machine goes into Workspace Kit's Run-on pill (design 1k), not under the heading.
+    expect(registry.getRegions("draft-actions")).toEqual([]);
+    expect(runOn).toHaveBeenCalledWith(expect.objectContaining({ useMachine: expect.any(Function), Section: expect.any(Function) }));
     expect(registry.getCommands().some((command) => command.id === "environments.add")).toBe(true);
     expect(registered).toHaveBeenCalledTimes(1);
     expect(listed).toHaveBeenCalledTimes(1);
@@ -124,6 +257,55 @@ describe("the other machines' threads in the rail", () => {
     expect(environments.open).toHaveBeenCalledWith("studio", { thread: { path: "/s/1" } });
     expect(source.threads().find((thread) => thread.key === "machine:studio:s1")?.opening).toBe(true);
     expect(listener).toHaveBeenCalled();
+    stop();
+  });
+
+  it("reads which threads are settled on their machine, and settles them there", async () => {
+    const { environments: base } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const readExtension = vi.fn(async () => ({ threads: { s2: { settledAt: 1, settledBy: "inactive" } }, settings: {} }));
+    const invokeExtension = vi.fn(async () => ({ threads: { s1: { settledAt: 2, settledBy: "user" }, s2: { settledAt: 1 } }, settings: {} }));
+    const environments = { ...base, readExtension, invokeExtension };
+    const source = createMachineThreads(environments);
+    const stop = source.subscribe(() => undefined);
+    await act(async () => undefined);
+    expect(readExtension).toHaveBeenCalledWith("studio", "tau.thread-rail", "state");
+    const settled = () => source.threads().filter((thread) => thread.settled).map((thread) => thread.key);
+    expect(settled()).toEqual(["machine:studio:s2"]);
+    source.threads().find((thread) => thread.key === "machine:studio:s1")!.toggleSettled!(fakeActions());
+    // Shown at once, before the machine answers.
+    expect(settled()).toEqual(["machine:studio:s1", "machine:studio:s2"]);
+    await act(async () => undefined);
+    expect(invokeExtension).toHaveBeenCalledWith("studio", "tau.thread-rail", "patch", { patches: { s1: expect.objectContaining({ settledBy: "user", settledAt: expect.any(Number) }) } });
+    // The same list is not read again.
+    expect(readExtension).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it("takes a settle back when the machine refuses it, and says why", async () => {
+    const { environments: base } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const environments = {
+      ...base,
+      readExtension: vi.fn(async () => ({ threads: {}, settings: {} })),
+      invokeExtension: vi.fn(async () => { throw new Error("studio lets this device read only."); }),
+    };
+    const source = createMachineThreads(environments);
+    const stop = source.subscribe(() => undefined);
+    await act(async () => undefined);
+    const notify = vi.fn();
+    source.threads()[0]!.toggleSettled!(fakeActions({ notify }));
+    await act(async () => undefined);
+    expect(source.threads().some((thread) => thread.settled)).toBe(false);
+    expect(notify).toHaveBeenCalledWith("studio lets this device read only.");
+    stop();
+  });
+
+  it("offers no settling on a machine that lets this device read only", async () => {
+    const { environments: base } = fakeEnvironments({ shown: "laptop", environments: [laptop, { ...studio, readOnly: true }], secureStorage: true });
+    const environments = { ...base, readExtension: vi.fn(async () => ({ threads: {} })), invokeExtension: vi.fn() };
+    const source = createMachineThreads(environments);
+    const stop = source.subscribe(() => undefined);
+    await act(async () => undefined);
+    expect(source.threads().every((thread) => !thread.toggleSettled)).toBe(true);
     stop();
   });
 
@@ -213,6 +395,42 @@ describe("the title bar", () => {
 });
 
 describe("Run on", () => {
+  it("asks for a machine only when the persisted default is Ask", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    let preference: RunOnDefault | undefined;
+    const source = createRunOnSource(environments, undefined, undefined, () => preference);
+    expect(source.openOnDraft?.()).toBe(false);
+    preference = "ask";
+    expect(source.openOnDraft?.()).toBe(true);
+    preference = "last";
+    expect(source.openOnDraft?.()).toBe(false);
+  });
+
+  it("names its Settings row for the search, and the row carries that anchor", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const { registry } = createKitHarness(undefined, undefined, { environments });
+    registry.activate(environmentsExtension);
+    const named = registry.getSettingsSections("general").flatMap((section) => section.rows ?? []);
+    expect(named.map((entry) => entry.label)).toContain("Run on");
+    render(withSettings(<RunOnDefaultRow />));
+    for (const entry of named) expect(document.getElementById(entry.id), entry.id).toBeTruthy();
+  });
+
+  it("asks nothing when there is only one machine", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop], secureStorage: true });
+    expect(createRunOnSource(environments, undefined, undefined, () => "ask").openOnDraft?.()).toBe(false);
+  });
+
+  it("brings a new draft home once when This machine is the persisted default", () => {
+    const { environments } = fakeEnvironments({ shown: "studio", environments: [laptop, studio], secureStorage: true });
+    const Control = createRunOnControl(environments, undefined, undefined, () => "this");
+    const actions = fakeActions({ activeThread: () => ({ draftPending: true }), composerDraft: () => "Keep this draft" });
+    const { rerender } = render(<Control actions={actions} />);
+    expect(environments.open).toHaveBeenCalledWith("laptop", { newThread: { draft: "Keep this draft" } });
+    rerender(<Control actions={actions} />);
+    expect(environments.open).toHaveBeenCalledTimes(1);
+  });
+
   it("moves a draft and its text to another machine, into its latest project", () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio, attic], secureStorage: true });
     const Control = createRunOnControl(environments);
@@ -220,9 +438,9 @@ describe("Run on", () => {
     const actions = fakeActions({ activeThread: () => ({ draftPending: true }), composerDraft: () => "Refactor the parser", setComposerDraft });
     render(<Control actions={actions} />);
     fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
-    const offline = screen.getByRole("menuitem", { name: /attic/u });
+    const offline = row(/attic/u);
     expect(offline.getAttribute("aria-disabled") ?? String((offline as HTMLButtonElement).disabled)).toMatch(/true/u);
-    fireEvent.click(screen.getByRole("menuitem", { name: /studio/u }));
+    fireEvent.click(row(/studio/u));
     expect(environments.open).toHaveBeenCalledWith("studio", { newThread: { draft: "Refactor the parser", workspaceId: "ws-api" } });
     expect(setComposerDraft).toHaveBeenCalledWith("");
   });
@@ -232,7 +450,7 @@ describe("Run on", () => {
     const Control = createRunOnControl(environments);
     render(<Control actions={fakeActions({ activeThread: () => ({ draftPending: true }), composerDraft: () => "x" })} />);
     fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
-    const item = screen.getByRole("menuitem", { name: /studio/u });
+    const item = row(/studio/u);
     expect(item.getAttribute("aria-disabled") ?? String((item as HTMLButtonElement).disabled)).toMatch(/true/u);
     expect(item.textContent).toMatch(/Read only: studio lets this computer look/u);
     fireEvent.click(item);
@@ -244,12 +462,160 @@ describe("Run on", () => {
     const Control = createRunOnControl(one.environments);
     const { container, rerender } = render(<Control actions={fakeActions({ activeThread: () => ({ draftPending: true }) })} />);
     fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
-    expect(screen.getByRole("menuitem", { name: /laptop/u }).textContent).toContain("this machine · idle");
+    expect(row(/laptop/u).textContent).toContain("this machine · idle");
     fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
     const two = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
     const Started = createRunOnControl(two.environments);
     rerender(<Started actions={fakeActions({ activeThread: () => ({ draftPending: false, sessionId: "s" }) })} snapshot={{ messages: [{ id: "m" }], isStreaming: false } as never} />);
     expect(container.innerHTML).toBe("");
+  });
+});
+
+describe("Run on: a machine without the project", () => {
+  const tauHere = "/work/tau";
+  const rex = machine("rex", { projects: [{ name: "api", lastOpenedAt: 1, workspaceId: "ws-api" }, { name: "tau-checkout", lastOpenedAt: 2, workspaceId: "ws-tau" }] });
+
+  it("finds the project there by its repository, not by its folder's name", () => {
+    const keys = { "ws-api": "key-api", "ws-tau": "key-tau" };
+    expect(matchProject(rex, tauHere, "key-tau", keys)).toEqual({ found: true, workspaceId: "ws-tau" });
+    // The same folder name with another repository is not this project.
+    expect(matchProject(machine("rex", { projects: [{ name: "tau", lastOpenedAt: 1, workspaceId: "ws-x" }] }), tauHere, "key-tau", { "ws-x": "key-other" })).toEqual({ found: false });
+    // Where a side cannot say, the folder's name decides, as before.
+    expect(matchProject(machine("rex", { projects: [{ name: "tau", lastOpenedAt: 1, workspaceId: "ws-x" }] }), tauHere, null, undefined)).toEqual({ found: true, workspaceId: "ws-x" });
+  });
+
+  function bringingFor(keysThere: Record<string, string | null>, keyHere: string | null = "key-tau") {
+    const { environments: base } = fakeEnvironments({ shown: "laptop", environments: [laptop, rex], secureStorage: true });
+    const readExtension = vi.fn(async () => keysThere);
+    const environments = { ...base, readExtension };
+    const remoteWork = { invoke: vi.fn(async () => ({ [tauHere]: keyHere })), onEvent: vi.fn(() => () => undefined) } as unknown as HostExtensionClient;
+    const bringing = { identities: createProjectIdentities(environments, remoteWork), choice: createBringChoice() };
+    const host = { invoke: vi.fn(async () => ({ available: true, machines: [{ id: "rex", name: "rex", status: "connected" }] })), onEvent: vi.fn(() => () => undefined) } as unknown as HostExtensionClient;
+    return { environments, bringing, remoteWork, readExtension, host };
+  }
+
+  it("keeps the draft here and says the project goes along, then names that machine on the pill", async () => {
+    const { environments, bringing, host } = bringingFor({ "ws-api": "key-api", "ws-tau": "key-other" });
+    const Control = createRunOnControl(environments, host, bringing, () => "ask");
+    render(<Control actions={fakeActions({ activeThread: () => ({ draftPending: true, cwd: tauHere }), composerDraft: () => "Fix it" })} />);
+    await act(async () => undefined);
+    fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
+    await waitFor(() => expect(row(/rex/u).textContent).toContain("Tau takes tau along"));
+    fireEvent.click(row(/rex/u));
+    expect(environments.open).not.toHaveBeenCalled();
+    expect(bringing.choice.get()).toEqual({ machine: "rex", machineName: "rex", projectPath: tauHere });
+    expect(screen.getByRole("button", { name: "Run on rex" })).toBeTruthy();
+    // Back to this computer forgets it.
+    fireEvent.click(screen.getByRole("button", { name: "Run on rex" }));
+    fireEvent.click(row(/laptop/u));
+    expect(bringing.choice.get()).toBeUndefined();
+  });
+
+  it("moves into that machine's checkout of the same repository, whatever its folder is called", async () => {
+    const { environments, bringing } = bringingFor({ "ws-api": "key-api", "ws-tau": "key-tau" });
+    const Control = createRunOnControl(environments, undefined, bringing);
+    render(<Control actions={fakeActions({ activeThread: () => ({ draftPending: true, cwd: tauHere }), composerDraft: () => "Fix it" })} />);
+    await act(async () => undefined);
+    fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
+    expect(row(/rex/u).textContent).not.toContain("along");
+    fireEvent.click(row(/rex/u));
+    expect(environments.open).toHaveBeenCalledWith("rex", { newThread: { draft: "Fix it", workspaceId: "ws-tau" } });
+  });
+
+  it("does not offer to take a project that is no repository with a commit", async () => {
+    const { environments, bringing, host } = bringingFor({ "ws-api": "key-api" }, null);
+    const Control = createRunOnControl(environments, host, bringing);
+    render(<Control actions={fakeActions({ activeThread: () => ({ draftPending: true, cwd: tauHere }), composerDraft: () => "Fix it" })} />);
+    await act(async () => undefined);
+    fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
+    expect(row(/rex/u).textContent).not.toContain("along");
+  });
+
+  it("records a connected-agent checkout choice and opens the proxy only after its row arrives", async () => {
+    const { environments, bringing, remoteWork, host } = bringingFor({ "ws-api": "key-api", "ws-tau": "key-tau" });
+    const Control = createRunOnControl(environments, host, bringing);
+    const actions = fakeActions({ activeThread: () => ({ draftPending: true, cwd: tauHere }), composerDraft: () => "Fix it", switchSession: vi.fn(async () => true) });
+    render(<Control actions={actions} />);
+    await waitFor(() => expect(remoteWork.invoke).toHaveBeenCalled());
+    await waitFor(() => expect(host.invoke).toHaveBeenCalledWith("agents"));
+    await waitFor(() => expect(bringing.identities.match(rex, tauHere)).toEqual({ found: true, workspaceId: "ws-tau" }));
+    fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
+    await waitFor(() => expect(row(/rex/u).textContent).not.toContain("moves this window"));
+    fireEvent.click(row(/rex/u));
+    expect(bringing.choice.get()).toEqual({ machine: "rex", machineName: "rex", projectPath: tauHere, workspaceId: "ws-tau" });
+    expect(environments.open).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Run on rex" })).toBeTruthy();
+    const threads = new ThreadStore();
+    bringing.choice.bindThreads(threads);
+    vi.mocked(host.invoke).mockResolvedValue({ sessionId: "t9", path: "/remote/t9" });
+    const event = { prompt: "Fix it", projectPath: tauHere, preparing: vi.fn(), alternate: false, runtime: "codex", attachments: 0, thinkingLevel: "high", mode: "plan" };
+    const hook = createBringProjectHook(bringing.choice, remoteWork, environments, host);
+    const pending = hook.claimNewThread!(event, actions);
+    await waitFor(() => expect(host.invoke).toHaveBeenCalledWith("start-there", { machine: "rex", workspaceId: "ws-tau", prompt: "Fix it", backend: "codex", thinkingLevel: "high", mode: "plan" }));
+    expect(actions.switchSession).not.toHaveBeenCalled();
+    act(() => threads.applyThreadIndex({ projects: [], sessions: [{ id: "rex~t9", path: "tau-thread:machine:rex~t9", title: "Fix it", projectPath: "/rex/tau", projectName: "tau", messageCount: 1, modifiedAt: 1, backendKind: "machine" }] }));
+    await expect(pending).resolves.toBe(true);
+    expect(actions.switchSession).toHaveBeenCalledExactlyOnceWith("tau-thread:machine:rex~t9");
+    expect(environments.open).not.toHaveBeenCalled();
+  });
+
+  it("shows a delayed-index notice after a successful remote start without creating a local thread", async () => {
+    vi.useFakeTimers();
+    try {
+      const { environments, bringing, remoteWork, host } = bringingFor({});
+      bringing.choice.bindThreads(new ThreadStore());
+      bringing.choice.set({ machine: "rex", machineName: "rex", projectPath: tauHere, workspaceId: "ws-tau" });
+      vi.mocked(host.invoke).mockResolvedValue({ sessionId: "t9", path: "/remote/t9" });
+      const toast = vi.fn();
+      const actions = fakeActions({ toast, switchSession: vi.fn() });
+      const pending = createBringProjectHook(bringing.choice, remoteWork, environments, host).claimNewThread!({ prompt: "x", projectPath: tauHere, preparing: vi.fn(), alternate: false, runtime: "pi", attachments: 0 }, actions);
+      await vi.advanceTimersByTimeAsync(5000);
+      await expect(pending).resolves.toBe(true);
+      expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Started on rex; it shows in the list in a moment." }));
+      expect(actions.switchSession).not.toHaveBeenCalled();
+      expect(environments.open).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("starts the thread there with the project when the prompt is sent, and says when it runs or why not", async () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, rex], secureStorage: true });
+    let emit!: (payload: unknown) => void;
+    const remoteWork = {
+      invoke: vi.fn(async () => ({ id: "l1", machine: "rex", machineName: "rex", status: "sending" })),
+      onEvent: vi.fn((_name: string, listener: (payload: unknown) => void) => { emit = listener; return () => undefined; }),
+    } as unknown as HostExtensionClient;
+    const choice = createBringChoice();
+    const hook = createBringProjectHook(choice, remoteWork, { ...environments, watchThread: vi.fn() });
+    const toast = vi.fn();
+    const actions = fakeActions({ toast });
+    const event = { prompt: "Fix it", projectPath: tauHere, preparing: vi.fn(), alternate: false, runtime: "codex", attachments: 0, model: { provider: "openai", id: "gpt" } };
+    // Nothing chosen: the thread starts here as ever.
+    await expect(hook.claimNewThread!(event, actions)).resolves.toBe(false);
+    choice.set({ machine: "rex", machineName: "rex", projectPath: tauHere });
+    await expect(hook.claimNewThread!({ ...event, attachments: 1 }, actions)).rejects.toThrow(/Attachments cannot go along to rex/u);
+    await expect(hook.claimNewThread!(event, actions)).resolves.toBe(true);
+    expect(remoteWork.invoke).toHaveBeenCalledWith("thread-start", { machine: "rex", cwd: tauHere, prompt: "Fix it", backend: "codex", model: { provider: "openai", id: "gpt" } });
+    expect(event.preparing).toHaveBeenCalledWith("Taking tau to rex…");
+    expect(choice.get()).toBeUndefined();
+    emit({ id: "l1", machine: "rex", machineName: "rex", status: "starting" });
+    expect(toast).not.toHaveBeenCalled();
+    emit({ id: "l1", machine: "rex", machineName: "rex", status: "running", thread: "t9" });
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ type: "success", title: "Runs on rex" }));
+  });
+
+  it("says why when the thread never starts there", async () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, rex], secureStorage: true });
+    let emit!: (payload: unknown) => void;
+    const remoteWork = {
+      invoke: vi.fn(async () => ({ id: "l2", machine: "rex", machineName: "rex", status: "sending" })),
+      onEvent: vi.fn((_name: string, listener: (payload: unknown) => void) => { emit = listener; return () => undefined; }),
+    } as unknown as HostExtensionClient;
+    const choice = createBringChoice();
+    choice.set({ machine: "rex", machineName: "rex", projectPath: tauHere });
+    const toast = vi.fn();
+    await createBringProjectHook(choice, remoteWork, environments).claimNewThread!({ prompt: "x", projectPath: tauHere, preparing: vi.fn(), alternate: false, runtime: "pi", attachments: 0 }, fakeActions({ toast }));
+    emit({ id: "l2", machine: "rex", machineName: "rex", status: "failed", error: "rex has no git." });
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ type: "error", description: "rex has no git." }));
   });
 });
 
@@ -261,30 +627,21 @@ describe("Run on, as in the design", () => {
     expect(runOnDetail(attic, 60_000)).toBe(statusText(attic, 60_000));
   });
 
-  it("is a pill under a new thread's heading, its menu holding the machines only (design 1k: Branch is a pill of its own)", () => {
-    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
-    const { registry } = createKitHarness(undefined, undefined, { environments });
-    registry.activate(environmentsExtension);
-    const Control = registry.getRegions("draft-actions").find((entry) => entry.id === "environments.run-on")!.Component;
-    render(<Control actions={fakeActions({ activeThread: () => ({ draftPending: true }) })} />);
-    const pill = screen.getByRole("button", { name: "Run on laptop" });
-    expect(pill.className).toContain("draft-pill");
-    fireEvent.click(pill);
-    expect(within(screen.getByRole("menu")).getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
-      expect.stringMatching(/^Automatic/u), expect.stringMatching(/^laptop/u), expect.stringMatching(/^studio/u),
-    ]);
-    expect(screen.queryByRole("textbox")).toBeNull();
-  });
-
-  it("checks the machine without a badge (design 1k)", () => {
-    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
-    const RunOn = createRunOnControl(environments);
+  it("lists Automatic and every machine, the one it runs on checked without a badge, one out of reach faded with why (design 1k)", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio, attic], secureStorage: true });
+    const RunOn = createRunOnControl(environments, { invoke: vi.fn(async () => undefined), onEvent: vi.fn(() => () => undefined) } as never);
     render(<RunOn actions={fakeActions({ activeThread: () => ({ draftPending: true }) })} />);
     fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
-    const menu = screen.getByRole("menu");
-    const row = within(menu).getByRole("menuitem", { name: /^laptop/u });
-    expect(row.className).toContain("selected");
-    expect(row.querySelector(".menu-label b")).toBeNull();
+    const rows = within(screen.getByRole("group", { name: "Machines" })).getAllByRole("button") as HTMLButtonElement[];
+    expect(rows.map((entry) => [entry.textContent, entry.getAttribute("aria-pressed"), entry.disabled])).toEqual([
+      [expect.stringMatching(/^Automatic/u), "false", false],
+      ["laptopthis machine · idle", "true", false],
+      ["studioonline · 1 running · moves this window there", "false", false],
+      [expect.stringMatching(/^atticOffline/u), "false", true],
+    ]);
+    expect(rows[1]!.querySelector("b, .machine-badge")).toBeNull();
+    // Opening asks the machine out of reach again.
+    expect(environments.retry).toHaveBeenCalledWith("attic");
   });
 });
 
@@ -627,14 +984,14 @@ describe("Run on: Automatic", () => {
     const Control = createRunOnControl(environments, host);
     render(<Control actions={fakeActions({ activeThread: () => draft })} />);
     fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /Automatic/u }));
+    fireEvent.click(row(/Automatic/u));
     expect(storage.get(RUN_ON_KEY)).toBe("auto");
     const chip = screen.getByRole("button", { name: "Run on Automatic" });
     await vi.waitFor(() => expect(chip.getAttribute("data-tooltip")).toMatch(/\nNow: studio\. studio has the most room: 45/u));
     expect(host.invoke).toHaveBeenCalledWith("choose-machine", { purpose: "thread", cwd: "/work/api", backend: "pi", model: "openai-codex/gpt-5.6-luna", machines: ["studio"] });
     // Picking a machine ends it.
     fireEvent.click(chip);
-    fireEvent.click(screen.getByRole("menuitem", { name: /laptop/u }));
+    fireEvent.click(row(/laptop/u));
     expect(storage.get(RUN_ON_KEY)).toBeNull();
     expect(screen.getByRole("button", { name: "Run on laptop" })).toBeTruthy();
   });
@@ -647,10 +1004,10 @@ describe("Run on: Automatic", () => {
     const Control = createRunOnControl(environments, host);
     render(<Control actions={fakeActions({ activeThread: () => ({ draftPending: false, sessionId: "s", cwd: "/work/api" }) })} snapshot={{ messages: [], isStreaming: false } as never} />);
     fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
-    const item = screen.getByRole("menuitem", { name: /Automatic/u });
+    const item = row(/Automatic/u);
     expect(item.getAttribute("aria-disabled") ?? String((item as HTMLButtonElement).disabled)).toMatch(/true/u);
     expect(item.textContent).toMatch(/exists here already/u);
-    expect(host.invoke).not.toHaveBeenCalled();
+    expect(host.invoke).not.toHaveBeenCalledWith("choose-machine", expect.anything());
   });
 
   it("is not offered while the window shows another machine, whose host does not choose for this one", () => {
@@ -659,7 +1016,7 @@ describe("Run on: Automatic", () => {
     const Control = createRunOnControl({ ...environments, shownElsewhere: "studio" }, chooser());
     render(<Control actions={fakeActions({ activeThread: () => draft })} />);
     fireEvent.click(screen.getByRole("button", { name: "Run on studio" }));
-    expect(screen.queryByRole("menuitem", { name: /Automatic/u })).toBeNull();
+    expect(queryRow(/Automatic/u)).toBeNull();
   });
 
   const claim = (patch: Record<string, unknown> = {}) => ({
@@ -676,6 +1033,28 @@ describe("Run on: Automatic", () => {
     expect(await hook.claimNewThread!(event, fakeActions())).toBe(true);
     expect(event.preparing).toHaveBeenCalledWith("Choosing a machine…");
     expect(environments.open).toHaveBeenCalledWith("studio", { newThread: { draft: "Fix the parser", send: true, workspaceId: "ws-api", model: luna } });
+  });
+
+  it("uses the same off-screen start and proxy switch for Automatic with connected agents", async () => {
+    useStorage();
+    autoRunOn.set(true);
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, withApi], secureStorage: true });
+    const host = {
+      invoke: vi.fn(async (command: string) => command === "agents" ? { available: true, machines: [{ id: "studio", name: "studio", status: "connected" }] } : command === "start-there" ? { sessionId: "t9", path: "/remote/t9" } : answer),
+      onEvent: vi.fn(() => () => undefined),
+    } as HostExtensionClient;
+    const choice = createBringChoice();
+    const threads = new ThreadStore();
+    threads.applyThreadIndex({ projects: [], sessions: [{ id: "studio~t9", path: "tau-thread:machine:studio~t9", title: "Fix", projectPath: "/rex/api", projectName: "api", messageCount: 1, modifiedAt: 1, backendKind: "machine" }] });
+    choice.bindThreads(threads);
+    const remoteWork = { invoke: vi.fn(), onEvent: vi.fn(() => () => undefined) } as unknown as HostExtensionClient;
+    const hook = createBringProjectHook(choice, remoteWork, environments, host);
+    const actions = fakeActions({ switchSession: vi.fn(async () => true) });
+    expect(await createAutoRunOnHook(environments, host, undefined, { choice, hook }).claimNewThread!(claim(), actions)).toBe(true);
+    expect(host.invoke).toHaveBeenCalledWith("start-there", { machine: "studio", workspaceId: "ws-api", prompt: "Fix the parser", backend: "pi", model: luna });
+    expect(actions.switchSession).toHaveBeenCalledWith("tau-thread:machine:studio~t9");
+    expect(environments.open).not.toHaveBeenCalled();
+    expect(remoteWork.invoke).not.toHaveBeenCalled();
   });
 
   it("leaves the prompt here when this computer is chosen, and when it cannot go", async () => {
@@ -758,5 +1137,41 @@ describe("Settings → Machines → Automatic", () => {
     expect(other.value).toBe("140");
     expect(screen.getByRole("alert").textContent).toBe("Enter a number from 0 to 100.");
     expect(updateConfig).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe("setup for machines paired before the setup panel", () => {
+  function bench(state: unknown, failed = false) {
+    const initial: UiEnvironments = { environments: [laptop, studio, attic], shown: laptop.id, secureStorage: true };
+    const { environments: base, set } = fakeEnvironments(initial);
+    const readExtension = vi.fn(async () => { if (failed) throw new Error("offline"); return state; });
+    const invokeExtension = vi.fn(async () => undefined);
+    const environments = { ...base, readExtension, invokeExtension };
+    const host = { invoke: vi.fn(async () => ({ available: false, machines: [] })), onEvent: () => () => undefined } as unknown as HostExtensionClient;
+    const Page = createMachinesPage(environments, host);
+    render(withSettings(<Page />));
+    return { readExtension, invokeExtension, set, initial };
+  }
+
+  it("completes an unfinished wizard once for a connected machine with threads", async () => {
+    const { readExtension, invokeExtension, set, initial } = bench({ completed: false, firstStart: false });
+    await waitFor(() => expect(invokeExtension).toHaveBeenCalledWith(studio.id, "tau.onboarding", "complete"));
+    expect(readExtension).toHaveBeenCalledWith(studio.id, "tau.onboarding", "state");
+    set({ ...initial, environments: [...initial.environments] });
+    await waitFor(() => expect(readExtension).toHaveBeenCalledTimes(1));
+    expect(invokeExtension).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves completed onboarding alone", async () => {
+    const { readExtension, invokeExtension } = bench({ completed: true, firstStart: false });
+    await waitFor(() => expect(readExtension).toHaveBeenCalledTimes(1));
+    expect(invokeExtension).not.toHaveBeenCalled();
+  });
+
+  it("silently leaves onboarding alone when the state cannot be read", async () => {
+    const { readExtension, invokeExtension } = bench(undefined, true);
+    await waitFor(() => expect(readExtension).toHaveBeenCalledTimes(1));
+    expect(invokeExtension).not.toHaveBeenCalled();
   });
 });

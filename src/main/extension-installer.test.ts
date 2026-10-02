@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -60,6 +61,38 @@ describe("extension installer", () => {
     await installExtensionSource(source, "project", { cwd: project, home });
     expect((await readPackagesFile(join(project, ".tau", "packages.json"))).sources).toEqual([source]);
     expect((await readPackagesFile(join(home, ".tau", "packages.json"))).sources).toEqual([]);
+  });
+
+  it("records a folder inside the project relative to it, and forgets it however it is named", async () => {
+    const home = await scratch();
+    const project = await scratch();
+    const source = await packageFolder(join(project, "kits"), "hello");
+    const installed = await installExtensionSource(source, "project", { cwd: project, home });
+    expect(installed.source).toBe("./kits/hello");
+    // The same folder typed another way is the entry already there, not a second one.
+    await installExtensionSource("kits/hello", "project", { cwd: project, home });
+    expect((await readPackagesFile(packagesFilePath("project", project, home))).sources).toEqual(["./kits/hello"]);
+    const scan = await listExtensionPackages(project, "/agent", { home, trusted: () => true });
+    expect(scan.packages.map((pkg) => pkg.manifest.id)).toEqual(["acme.hello"]);
+    await expect(removeExtensionSource(source, "project", { cwd: project, home })).resolves.toMatchObject({ removed: true });
+    expect((await readPackagesFile(packagesFilePath("project", project, home))).sources).toEqual([]);
+  });
+
+  it("keeps packages.json out of Git while it names only folders outside the project", async () => {
+    const home = await scratch();
+    const project = await scratch();
+    execFileSync("git", ["init", "-q", project]);
+    const exclude = join(project, ".git", "info", "exclude");
+    const before = await readFile(exclude, "utf8").catch(() => "");
+    const elsewhere = await packageFolder(await scratch(), "hello");
+    await installExtensionSource(elsewhere, "project", { cwd: project, home });
+    expect(execFileSync("git", ["-C", project, "status", "--porcelain"], { encoding: "utf8" })).toBe("");
+
+    // A folder in the project is for every clone: Git sees the file again.
+    const inside = await packageFolder(join(project, "kits"), "other", { id: "acme.other" });
+    await installExtensionSource(inside, "project", { cwd: project, home });
+    expect(execFileSync("git", ["-C", project, "status", "--porcelain", "--", ".tau"], { encoding: "utf8" })).toContain(".tau/");
+    expect(await readFile(exclude, "utf8")).toBe(before);
   });
 
   it("refuses a source that is not a package or that escapes its store", async () => {

@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ClientEnvironmentProvider, electronClientEnvironment } from "../client-environment";
 import { HostClientProvider } from "../host-client-context";
 import { createFakeHostClient } from "../test-support/fake-host-client";
 import { TestProviders } from "../test-support/test-providers";
+import type { HostUpdateStatus } from "../../shared/host-updates";
 import { packLicenses, type ThirdPartyLicense } from "../../shared/third-party-licenses";
 import { AboutPage, loadLicenses } from "./AboutPage";
 import { settingsSearchEntries } from "./settings-search";
@@ -15,14 +17,32 @@ const LICENSES: ThirdPartyLicense[] = [
   { name: "highlight.js", version: "11.12.0", license: "BSD-3-Clause" },
 ];
 
-function renderAbout(loader: () => Promise<ThirdPartyLicense[]>, versions: { host?: string; window?: string } = { host: "0.5.0", window: "0.5.0" }) {
+function renderAbout(loader: () => Promise<ThirdPartyLicense[]>, versions: { host?: string; window?: string } = { host: "0.5.0", window: "0.5.0" }, open = true, status?: HostUpdateStatus) {
   const windowAction = vi.fn(async () => undefined);
-  const client = createFakeHostClient({ getVersions: () => versions, windowAction });
+  const copyText = vi.fn(async () => undefined);
+  const client = createFakeHostClient({ getVersions: () => versions, windowAction, copyText, ...(status ? { hostUpdate: async () => status } : {}) });
   render(<TestProviders><HostClientProvider client={client}><AboutPage loader={loader} /></HostClientProvider></TestProviders>);
-  return { windowAction };
+  // The list loads once asked for.
+  if (open) fireEvent.click(screen.getByRole("button", { name: "Licenses" }));
+  return { windowAction, copyText };
 }
 
 describe("Settings → About", () => {
+  it.each(["ios", "android"] as const)("separates the %s app version and update channel from the host release", async (platform) => {
+    const windowAction = vi.fn(async () => undefined);
+    const client = createFakeHostClient({ getVersions: () => ({ host: "0.9.0" }), windowAction });
+    const environment = { ...electronClientEnvironment(new URLSearchParams()), mobileApp: { platform, version: "0.7.17" } };
+    render(<TestProviders><ClientEnvironmentProvider environment={environment}><HostClientProvider client={client}><AboutPage loader={async () => []} /></HostClientProvider></ClientEnvironmentProvider></TestProviders>);
+    expect(screen.getByText("Tau 0.7.17")).toBeTruthy();
+    expect(screen.getByText("0.9.0")).toBeTruthy();
+    expect(screen.getByText(platform === "ios" ? /TestFlight/u : /Google Play/u)).toBeTruthy();
+    expect(screen.getByText(/does not mean a mobile update is available/u)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Check now" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Licenses" }));
+    await screen.findByText("No licenses listed");
+    expect(windowAction).not.toHaveBeenCalled();
+  });
+
   it("lists the licences, filters them and opens a notice", async () => {
     renderAbout(async () => LICENSES);
     expect(await screen.findByText("Open-source licenses (2)")).toBeTruthy();
@@ -50,30 +70,36 @@ describe("Settings → About", () => {
     expect(await screen.findByText("Open-source licenses (2)")).toBeTruthy();
   });
 
-  it("shows the version with a copy button and asks the window's process to check for updates", async () => {
-    const { windowAction } = renderAbout(async () => []);
+  it("shows the version, copies diagnostics and loads the licences only when asked", async () => {
+    const loader = vi.fn(async () => LICENSES);
+    const { copyText } = renderAbout(loader, undefined, false);
     expect(screen.getByText("0.5.0")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Copy Version" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Check now" }));
-    await waitFor(() => expect(windowAction).toHaveBeenCalledWith({ kind: "check-for-updates" }));
+    expect(loader).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Copy diagnostics" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith(expect.stringMatching(/^Tau 0\.5\.0/u)));
+    expect(await screen.findByRole("button", { name: "Copied" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Licenses" }));
+    expect(await screen.findByText("Open-source licenses (2)")).toBeTruthy();
   });
 
   it("names both versions when the window and the host differ", () => {
     renderAbout(async () => [], { host: "0.5.0", window: "0.5.1" });
-    expect(screen.getByText("0.5.1")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Copy Host" })).toBeTruthy();
+    expect(screen.getByText("0.5.0")).toBeTruthy();
+    expect(screen.getByText(/this window 0\.5\.1/u)).toBeTruthy();
   });
 
-  it("offers no update check where there is no window process", () => {
+  it("offers no update check where there is no window process", async () => {
     renderAbout(async () => [], { host: "0.5.0" });
+    await act(async () => undefined);
     expect(screen.queryByRole("button", { name: "Check now" })).toBeNull();
   });
 
   it("has every row the search names for it", async () => {
-    renderAbout(async () => LICENSES);
+    renderAbout(async () => LICENSES, undefined, true, { version: "0.5.0", phase: "current", channel: "stable", automatic: true, installer: "host", devicesMayInstall: true });
     await screen.findByText("Open-source licenses (2)");
+    await screen.findByRole("switch", { name: "Automatic updates" });
     const rows = settingsSearchEntries({ pages: [], extensions: [] }).filter((entry) => entry.page === "about" && entry.target);
-    expect(rows.length).toBe(3);
+    expect(rows.length).toBe(5);
     for (const row of rows) expect(document.getElementById(row.target!), row.label).not.toBeNull();
   });
 

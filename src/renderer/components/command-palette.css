@@ -1,40 +1,39 @@
 /* The command palette. Loaded with its chunk on first open; the backdrop,
    input row and empty line it shares with other overlays stay in styles.css. */
+/* Design 2b: 600 px, rows 7/10 px at a 7 px radius under small section headings. */
 .command-palette {
-  width: 560px; max-width: calc(100vw - 48px);
+  width: 600px; max-width: calc(100vw - 48px); margin-top: 56px;
   border: 1px solid var(--line-float); border-radius: 12px;
   background: var(--overlay); box-shadow: var(--elevation-3);
-  overflow: hidden; color: var(--ink); animation: fade-up .14s ease;
+  overflow: hidden; color: var(--ink); font-size: calc(var(--text-sm) + 1px); animation: fade-up .14s ease;
 }
-.palette-results { padding: 8px; max-height: 380px; overflow: auto; }
+.command-palette .palette-input-wrap { height: 46px; gap: 10px; color: var(--muted); }
+.command-palette .palette-input-wrap input { font-size: 14px; }
+.palette-scopes { display: flex; gap: 2px; flex: none; }
+.palette-scopes button {
+  padding: 2px 8px; border: 0; border-radius: 6px; background: transparent;
+  color: var(--muted); font: 11px var(--sans); cursor: pointer;
+}
+.palette-scopes button:hover { color: var(--ink); }
+.palette-scopes button[aria-pressed="true"] { background: var(--raised); color: var(--ink); font-weight: 600; }
+.palette-results { padding: 6px; max-height: min(460px, calc(100vh - 240px)); overflow: auto; }
+.palette-head { height: 24px; margin: 0; padding: 8px 10px 2px; box-sizing: border-box; font: 400 11px var(--sans); color: var(--muted); }
 .palette-results button {
-  width: 100%; display: flex; align-items: center; gap: 10px;
-  border: 0; border-radius: 8px; background: transparent;
-  padding: 9px 10px; cursor: pointer; text-align: left;
+  width: 100%; height: 32px; margin-bottom: 1px; display: flex; align-items: center; gap: 10px;
+  border: 0; border-radius: 7px; background: transparent;
+  padding: 0 10px; cursor: pointer; text-align: left; font: inherit; color: var(--ink-2);
 }
 .palette-results button > span {
-  flex: 1; min-width: 0; font-size: var(--text-md); font-weight: 500; color: var(--ink-2);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.palette-results button > small { font: 10px var(--mono); color: var(--faint); flex: none; }
-.palette-results button > span > em { margin-left: 8px; font: var(--text-xs) var(--mono); font-style: normal; color: var(--muted); }
-.palette-results button > kbd {
-  font: 10px var(--mono); color: var(--muted); flex: none;
-  border: 1px solid var(--line-strong); border-radius: 4px; padding: 2px 6px;
-}
-.palette-results button.selected {
-  border-radius: 0; background: var(--raised); box-shadow: inset 2px 0 var(--acid);
-}
+.palette-results button > span > em { margin-left: 8px; font-size: 11px; font-style: normal; color: var(--muted); }
+.palette-results button > kbd { font: 10.5px var(--mono); color: var(--faint); flex: none; }
+.palette-results button.selected { background: color-mix(in srgb, var(--ink) 7%, transparent); }
 .palette-results button.selected > span { color: var(--ink); font-weight: 600; }
-.palette-results mark {
-  background: transparent; color: inherit;
-  text-decoration: underline; text-decoration-color: var(--faint); text-underline-offset: 3px;
-}
-.palette-results button.selected mark { text-decoration-color: var(--acid-text); }
+.palette-results button.selected > span > em { font-weight: 400; }
 .command-palette > footer {
-  display: flex; align-items: center; gap: 14px; height: 36px;
-  border-top: 1px solid var(--line); padding: 0 14px;
-  font: 10px var(--mono); color: var(--faint);
+  display: flex; align-items: center; gap: 14px; padding: 8px 14px;
+  border-top: 1px solid var(--line); font-size: 11px; color: var(--muted);
 }
 .command-palette > footer .spacer { flex: 1; }
 /* Levels: the trail above the field, a back button in place of the prompt mark. */
@@ -56,7 +55,7 @@
 }
 .palette-back:hover { color: var(--ink); background: var(--raised); }
 .palette-results .palette-icon {
-  display: grid; place-items: center; width: 20px; height: 20px; flex: none;
+  display: grid; place-items: center; min-width: 14px; height: 14px; flex: none;
   font-style: normal; color: var(--muted);
 }
 .palette-results button > .palette-current { font: 10.5px var(--sans); color: var(--muted); }

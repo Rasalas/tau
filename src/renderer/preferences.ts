@@ -4,6 +4,7 @@ import { isTranscriptDetail, type TranscriptDetail } from "../workbench/transcri
 import type { HostClient } from "../workbench/host-client";
 import type { TauConfig, TauModelPreferences, UiModelPrice } from "../shared/contracts";
 import { readModelPreferenceRecord } from "../shared/model-preferences";
+import { PERSON_PREFERENCE_KEYS, personPreferences, type PersonPreferences } from "../shared/person-preferences";
 import { DEFAULT_THEME, isThemePreference, registerUserThemes, applyTheme, type ThemePreference } from "./theme";
 import { SEND_SHORTCUTS, type SendShortcut } from "./components/composer-send-keys";
 
@@ -29,6 +30,8 @@ export interface PreferencesState {
   modelPrices: Readonly<Record<string, UiModelPrice>>;
   /** The models last chosen in a picker, newest first, keyed like favourites; this client's own. */
   recentModels: readonly string[];
+  /** Per recent model, the thinking level last set on it. */
+  recentLevels: Readonly<Record<string, string>>;
   /** The runtime backend a new thread is created on; unset means the host's default. */
   newThreadRuntime?: string;
   /** Keyed `extensionId.optionId`. */
@@ -44,6 +47,8 @@ export interface PreferencesState {
   vimMode?: boolean;
   /** Which chord sends from the composer; this client's own, like its keys. */
   sendShortcut: SendShortcut;
+  /** This device's speech language; empty follows its system language, never the remote host's. */
+  dictationLanguage: string;
   /** Leave the host process running when the app quits; its threads keep going. */
   hostBackground?: boolean;
   /** Ask before a quit stops threads that are working (`confirm.quitWhileRunning`). */
@@ -64,11 +69,13 @@ const DEFAULTS: PreferencesState = {
   modelPreferences: {},
   modelPrices: {},
   recentModels: [],
+  recentLevels: {},
   extensionOptions: {},
   extensionValues: {},
   disabledExtensions: [],
   vimMode: false,
   sendShortcut: "enter",
+  dictationLanguage: "",
   hostBackground: false,
   confirmQuitWhileRunning: true,
 };
@@ -132,6 +139,7 @@ function load(): PreferencesState {
       // The host checked them; the picker's own chunk reads each entry it uses.
       modelPrices: typeof raw.modelPrices === "object" && raw.modelPrices ? raw.modelPrices as Record<string, UiModelPrice> : {},
       recentModels: stringList(raw.recentModels).slice(0, RECENT_MODELS),
+      recentLevels: typeof raw.recentLevels === "object" && raw.recentLevels ? raw.recentLevels as Record<string, string> : {},
       newThreadRuntime: typeof raw.newThreadRuntime === "string" ? raw.newThreadRuntime : undefined,
       extensionOptions: options,
       extensionValues: values,
@@ -143,11 +151,21 @@ function load(): PreferencesState {
       maxTokens: typeof raw.maxTokens === "number" ? raw.maxTokens : undefined,
       vimMode: typeof raw.vimMode === "boolean" ? raw.vimMode : false,
       sendShortcut: SEND_SHORTCUTS.includes(raw.sendShortcut as SendShortcut) ? raw.sendShortcut as SendShortcut : "enter",
+      dictationLanguage: typeof raw.dictationLanguage === "string" ? raw.dictationLanguage : "",
       confirmQuitWhileRunning: raw.confirmQuitWhileRunning !== false,
     };
   } catch {
     return DEFAULTS;
   }
+}
+
+/**
+ * The window's own machine's copy of the person's preferences, while the page
+ * shows another machine (`environments-person-preferences`).
+ */
+export interface PersonPreferencesSource {
+  get(): Promise<PersonPreferences>;
+  set(patch: PersonPreferences): Promise<PersonPreferences>;
 }
 
 export class PreferencesStore {
@@ -157,12 +175,40 @@ export class PreferencesStore {
   private activeWorkspaceId?: string;
   /** The effective config the host answered with last; see `applyConfig`. */
   private lastHostConfig?: TauConfig;
+  private person?: PersonPreferencesSource;
+  /** The shown machine taking the own machine's look over, once per page; every read of the host waits for it. */
+  private personTaking?: Promise<void>;
 
-  bindHost(client: HostClient, workspaceId?: string): void {
+  /**
+   * `person` is set while the page shows another machine: that machine takes
+   * over the own machine's look once, and a change of it made here goes back
+   * to the own machine, so the look follows the person, not the machine.
+   */
+  bindHost(client: HostClient, workspaceId?: string, person?: PersonPreferencesSource): void {
     this.hostClient = client;
     // App binds once, after the effect that names the workspace may already have run.
     this.activeWorkspaceId = workspaceId ?? this.activeWorkspaceId;
+    if (person) this.person = person;
     void this.syncFromHost();
+  }
+
+  private takePersonPreferences(): Promise<void> {
+    const client = this.hostClient;
+    if (this.personTaking || !this.person || !client || client.isReadOnly?.()) return this.personTaking ?? Promise.resolve();
+    this.personTaking = this.takeFrom(client, this.person);
+    return this.personTaking;
+  }
+
+  private async takeFrom(client: HostClient, person: PersonPreferencesSource): Promise<void> {
+    try {
+      const own = await person.get();
+      // What the own machine leaves at its default, the shown one does too.
+      const unset = PERSON_PREFERENCE_KEYS.filter((key) => own[key] === undefined);
+      if (unset.length > 0) await client.clearConfig(unset, "global", this.activeWorkspaceId);
+      if (Object.keys(own).length > 0) await client.updateConfig(own, "global", this.activeWorkspaceId);
+    } catch {
+      // The own machine out of reach, or the shown one refusing: the shown machine's look stays.
+    }
   }
 
   setWorkspace(workspaceId?: string): void {
@@ -172,6 +218,7 @@ export class PreferencesStore {
 
   async syncFromHost(): Promise<void> {
     if (!this.hostClient) return;
+    await this.takePersonPreferences();
     try {
       if (this.hostClient.listUserThemes) {
         const userThemes = await this.hostClient.listUserThemes(this.activeWorkspaceId);
@@ -195,7 +242,9 @@ export class PreferencesStore {
       for (const key of Object.keys(before ?? {})) if (!now || !(key in now)) delete kept[key];
       return { ...kept, ...(now ?? {}) };
     };
-    const patch: Partial<PreferencesState> = {};
+    // An absent host value means the shared default, not an old setting cached on this device.
+    // Explicit thread overrides remain separate and survive this synchronization.
+    const patch: Partial<PreferencesState> = { transcriptDetail: isTranscriptDetail(config.transcriptDetail) ? config.transcriptDetail : DEFAULTS.transcriptDetail };
     const target = patch as Record<string, unknown>;
     for (const key of SCALARS) {
       const value = config[key];
@@ -216,6 +265,13 @@ export class PreferencesStore {
     if (config.values || previous?.values) patch.extensionValues = record(this.state.extensionValues, previous?.values, config.values);
     if (config.keybindings || previous?.keybindings) patch.keybindings = record(this.state.keybindings ?? {}, previous?.keybindings, config.keybindings);
     this.update(patch, false);
+    // Changed on the shown machine since its last answer, by this page's settings or a command: the own machine keeps it too.
+    if (this.person && this.personTaking && previous) {
+      const before = personPreferences(previous);
+      const now = personPreferences(config);
+      const changed = Object.fromEntries(PERSON_PREFERENCE_KEYS.flatMap((key) => now[key] !== undefined && JSON.stringify(now[key]) !== JSON.stringify(before[key]) ? [[key, now[key]]] : []));
+      if (Object.keys(changed).length > 0) void this.person.set(changed as PersonPreferences).catch(() => undefined);
+    }
   }
 
   getSnapshot = (): PreferencesState => this.state;
@@ -277,6 +333,10 @@ export class PreferencesStore {
 
   setVimMode(vimMode: boolean): void {
     this.update({ vimMode });
+  }
+
+  setDictationLanguage(dictationLanguage: string): void {
+    this.update({ dictationLanguage }, false);
   }
 
   setSendShortcut(sendShortcut: SendShortcut): void {
@@ -351,6 +411,11 @@ export class PreferencesStore {
     this.update({ recentModels: recent }, false);
   }
 
+  /** The level just set on a recent model; a model not in "Recent" keeps none. */
+  noteModelLevel(key: string, level: string): void {
+    if (this.state.recentModels.includes(key)) this.update({ recentLevels: { ...this.state.recentLevels, [key]: level } }, false);
+  }
+
   isSettled(threadId: string): boolean {
     return this.state.settledThreadIds.includes(threadId);
   }
@@ -405,6 +470,8 @@ export class PreferencesStore {
       if (patch.extensionValues) hostPatch.values = { ...patch.extensionValues };
       if (patch.keybindings) hostPatch.keybindings = { ...patch.keybindings };
       if (Object.keys(hostPatch).length > 0) void host.updateConfig(hostPatch, "global", this.activeWorkspaceId).catch(() => {});
+      const look = personPreferences(hostPatch);
+      if (this.person && this.personTaking && Object.keys(look).length > 0) void this.person.set(look).catch(() => undefined);
     }
     this.listeners.forEach((listener) => listener());
   }

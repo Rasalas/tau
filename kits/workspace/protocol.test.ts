@@ -11,6 +11,20 @@ function recorder() {
 }
 
 describe("Workspace Kit client encoding", () => {
+  it("names the workspace on Git writes and branch safety reads", async () => {
+    const { calls, client } = recorder();
+    await client.stageFile("a", "ws1_rex");
+    await client.unstageFile("a", "ws1_rex");
+    await client.revertFile("a", "ws1_rex");
+    await client.stageAll("ws1_rex");
+    await client.pull("ws1_rex");
+    await client.push("ws1_rex");
+    await client.createBranch("fix", "ws1_rex");
+    await client.switchRef("main", "ws1_rex");
+    await client.checkoutTurns("thread", "ws1_rex");
+    for (const call of calls) expect(call.input).toHaveProperty("workspace", "ws1_rex");
+  });
+
   it("names a file by its path inside the workspace", async () => {
     const { calls, client } = recorder();
     await client.readFile("src/main/index.ts");

@@ -6,6 +6,8 @@ import {
   writePersistedJson,
   type HostExtension,
   type HostExtensionContext,
+  type HostThreadStartOptions,
+  type HostSessionSummary,
 } from "tau/host-extension";
 import {
   EMPTY_STATE,
@@ -26,8 +28,10 @@ import {
   type SweepRequest,
   type SweepThread,
 } from "./meta.js";
+import { followMachineState, machineThreadOwner, MACHINE_META_EVENT, MACHINE_STATE_TOPIC, MACHINE_TRASH_EVENT } from "./machine-state.js";
 import {
   META_EVENT,
+  ONBOARDING_EXTENSION_ID,
   REVIEW_EXTENSION_ID,
   THREAD_RAIL_EXTENSION_ID,
   TRASH_EVENT,
@@ -78,7 +82,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
   return {
     id: THREAD_RAIL_EXTENSION_ID,
     name: "Thread Rail",
-    permissions: ["sessions"],
+    permissions: ["sessions", "machines"],
     async activate(context: HostExtensionContext) {
       const { services } = context;
       const file = join(services.stateDir, "thread-meta.json");
@@ -92,7 +96,25 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
       let sweeping: Promise<void> | undefined;
       let saving: Promise<void> = Promise.resolve();
 
-      const publicState = (): RailState => ({ threads: state.threads, settings: state.settings });
+      let sessions = new Map<string, HostSessionSummary>();
+      let localTrashIds = new Set<string>();
+      const owner = (id: string) => !sessions.has(id) && localTrashIds.has(id) ? undefined : machineThreadOwner(id, sessions, services.machines?.list() ?? []);
+      const callMachine = (machine: string, command: string, input: unknown) => {
+        if (!services.machines) throw new HostCommandError("Machines are unavailable on this host.");
+        return services.machines.call(machine, THREAD_RAIL_EXTENSION_ID, command, input);
+      };
+      const readOwnership = async () => {
+        const [listed, trash] = await Promise.all([services.sessions.list(), services.sessions.trash()]);
+        sessions = new Map(listed.map((session) => [session.sessionId, session]));
+        // Deleted local ids still have backend ownership in the host's trash.
+        localTrashIds = new Set(trash.filter((entry) => entry.backendKind !== "machine").map((entry) => entry.sessionId));
+      };
+      await readOwnership();
+      const homeState = (): RailState => ({ threads: Object.fromEntries(Object.entries(state.threads).filter(([id]) => !owner(id))), settings: state.settings });
+      // Do not await peer reads during activation: reciprocally paired hosts answer from their caches.
+      let remote: ReturnType<typeof followMachineState>;
+      remote = followMachineState(context, () => { if (remote) context.emit(META_EVENT, publicState()); }, owner);
+      function publicState(): RailState { return remote.merged(homeState()); }
       const persist = () => {
         saving = writePersistedJson(file, STATE_VERSION, { ...state })
           .catch((error: unknown) => services.log("thread-rail.save-failed", error instanceof Error ? error.message : String(error)));
@@ -100,9 +122,9 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
       const armWake = () => {
         if (wakeTimer) clearTimeout(wakeTimer);
         wakeTimer = undefined;
-        const next = nextWake(state, clock());
+        const next = nextWake(homeState(), clock());
         if (next === undefined) return;
-        wakeTimer = setTimeout(() => change(sweepPatches([], state, running, new Map(), clock())), Math.min(MAX_TIMER_MS, Math.max(0, next - clock())));
+        wakeTimer = setTimeout(() => change(sweepPatches([], homeState(), running, new Map(), clock())), Math.min(MAX_TIMER_MS, Math.max(0, next - clock())));
         wakeTimer.unref?.();
       };
       const commit = (next: StoredState) => {
@@ -110,6 +132,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         state = next;
         persist();
         context.emit(META_EVENT, publicState());
+        context.emit(MACHINE_META_EVENT, homeState(), { topic: MACHINE_STATE_TOPIC });
         armWake();
       };
       const change = (patches: Record<string, ThreadMetaPatch | null>) => {
@@ -117,16 +140,37 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         if (next !== state) commit({ ...next, ...(state.imported ? { imported: true } : {}) });
       };
 
+      const changeOwned = async (patches: Record<string, ThreadMetaPatch | null>) => {
+        const local: Record<string, ThreadMetaPatch | null> = {};
+        const byMachine = new Map<string, Record<string, ThreadMetaPatch | null>>();
+        for (const [id, patch] of Object.entries(patches)) {
+          const home = owner(id);
+          if (!home) local[id] = patch;
+          else {
+            const group = byMachine.get(home.machine) ?? {};
+            group[home.sessionId] = patch;
+            byMachine.set(home.machine, group);
+          }
+        }
+        change(local);
+        await Promise.all([...byMachine].map(async ([machine, remotePatches]) => {
+          await callMachine(machine, "patch", { patches: remotePatches });
+          await remote.refresh(machine);
+        }));
+      };
+
       const sweep = (): Promise<void> => {
         sweeping ??= (async () => {
           try {
-            const sessions = (await services.sessions.list()).filter((session) => !session.parentThreadId);
-            const threads: SweepThread[] = await Promise.all(sessions.map(async (session) => {
+            await readOwnership();
+            const localSessions = [...sessions.values()].filter((session) => !session.parentThreadId && !owner(session.sessionId));
+            const local = homeState();
+            const threads: SweepThread[] = await Promise.all(localSessions.map(async (session) => {
               const at = await modifiedAt(session.path);
               return { id: session.sessionId, cwd: session.cwd, ...(at === undefined ? {} : { modifiedAt: at }) };
             }));
             const requests = new Map<string, SweepRequest>();
-            for (const cwd of requestCheckouts(threads, state, running, clock())) {
+            for (const cwd of requestCheckouts(threads, local, running, clock())) {
               try {
                 // Sequential on purpose: each answer may run `gh` or `glab`.
                 // oxlint-disable-next-line no-await-in-loop
@@ -139,7 +183,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
             }
             // Every thread's linked requests too; one still open keeps its thread active.
             const linked = new Map<string, SweepRequest[]>();
-            const asked = linkedRequestThreads(threads, state, running, clock());
+            const asked = linkedRequestThreads(threads, local, running, clock());
             if (asked.length > 0) {
               try {
                 const answer = record(await context.invokeHostExtension(REVIEW_EXTENSION_ID, "thread-requests", { threadIds: asked }));
@@ -153,7 +197,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
                 // An older Review Kit, or none: the branch's request is all there is to go by.
               }
             }
-            const patches = sweepPatches(threads, state, running, requests, clock(), linked);
+            const patches = sweepPatches(threads, local, running, requests, clock(), linked);
             for (const [id, patch] of Object.entries(patches)) {
               if (patch.settledBy) services.log("thread-rail.settled", `${id.slice(0, 8)} · ${patch.settledBy}`);
             }
@@ -167,14 +211,15 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         return sweeping;
       };
 
-      context.registerCommand("state", () => publicState(), { access: "read" });
-      context.registerCommand("patch", (input) => {
+      context.registerCommand("state", (input) => record(input).homeOnly === true ? homeState() : publicState(), { access: "read" });
+      context.registerCommand("patch", async (input) => {
+        await readOwnership();
         const patches: Record<string, ThreadMetaPatch | null> = {};
         for (const [id, patch] of Object.entries(record(record(input).patches))) {
           if (!id) continue;
           patches[id] = patch === null ? null : record(patch) as ThreadMetaPatch;
         }
-        change(patches);
+        await changeOwned(patches);
         return publicState();
       });
       context.registerCommand("settings", (input) => {
@@ -185,16 +230,34 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         return publicState();
       });
       // Core kept pins and the settled shelf in each client's preferences; the first client hands them over once.
-      context.registerCommand("import", (input) => {
+      context.registerCommand("import", async (input) => {
         if (state.imported) return publicState();
+        await readOwnership();
         const fields = record(input);
         const now = clock();
-        let next: StoredState = state;
-        for (const id of idList(fields.pinned)) next = applyPatches(next, { [id]: pinPatch(next, id, true, now) });
-        for (const id of idList(fields.settled)) next = applyPatches(next, { [id]: settlePatch(now, "user") });
-        commit({ ...next, imported: true });
+        let next = publicState();
+        const patches: Record<string, ThreadMetaPatch> = {};
+        for (const id of idList(fields.pinned)) {
+          const patch = pinPatch(next, id, true, now);
+          patches[id] = { ...patches[id], ...patch };
+          next = applyPatches(next, { [id]: patch });
+        }
+        for (const id of idList(fields.settled)) patches[id] = { ...patches[id], ...settlePatch(now, "user") };
+        await changeOwned(patches);
+        commit({ ...state, imported: true });
         return publicState();
       });
+      // Imported threads have no state of their own: they start on the shelf, found by search, not to be clicked away.
+      context.registerCommand("settle-imported", async (input) => {
+        await readOwnership();
+        const now = clock();
+        const patches: Record<string, ThreadMetaPatch> = {};
+        for (const id of idList(record(input).threadIds)) {
+          if (!owner(id) && !state.threads[id]) patches[id] = settlePatch(now, "import");
+        }
+        change(patches);
+        return { settled: Object.keys(patches).length };
+      }, { callers: [ONBOARDING_EXTENSION_ID] });
       context.registerCommand("sweep", async () => {
         await sweep();
         return publicState();
@@ -205,27 +268,46 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         return id;
       };
       // Archive rejects a thread with a turn in flight.
-      context.registerCommand("archive", (input) => {
+      context.registerCommand("archive", async (input) => {
         const id = threadId(input);
+        await readOwnership();
+        const home = owner(id);
+        if (home) {
+          await callMachine(home.machine, "archive", { threadId: home.sessionId });
+          await remote.refresh(home.machine);
+          return publicState();
+        }
         if (running.has(id)) throw new HostCommandError("Cannot archive a running thread.");
         change({ [id]: archivePatch(clock()) });
         return publicState();
       });
       // The thread's meta stays until the trash purges it, so a restored thread comes back where it was.
-      const publishTrash = async () => { context.emit(TRASH_EVENT, await services.sessions.trash()); };
-      context.registerCommand("remove", async (input) => {
-        await services.sessions.remove(threadId(input));
-        await publishTrash();
+      const homeTrash = async () => {
+        const local = (await services.sessions.trash()).filter((entry) => entry.backendKind !== "machine");
+        localTrashIds = new Set(local.map((entry) => entry.sessionId));
+        return local;
+      };
+      const publishTrash = async () => {
+        const local = await homeTrash();
+        context.emit(TRASH_EVENT, remote.mergedTrash(local));
+        context.emit(MACHINE_TRASH_EVENT, local, { topic: MACHINE_STATE_TOPIC });
+      };
+      for (const command of ["remove", "restore", "purge"] as const) context.registerCommand(command, async (input) => {
+        const id = threadId(input);
+        await readOwnership();
+        const home = owner(id);
+        if (home) {
+          await callMachine(home.machine, command, { threadId: home.sessionId });
+          await remote.refresh(home.machine);
+        } else {
+          await services.sessions[command](id);
+          await publishTrash();
+        }
       }, { long: true });
-      context.registerCommand("restore", async (input) => {
-        await services.sessions.restore(threadId(input));
-        await publishTrash();
-      }, { long: true });
-      context.registerCommand("purge", async (input) => {
-        await services.sessions.purge(threadId(input));
-        await publishTrash();
-      }, { long: true });
-      context.registerCommand("trash", () => services.sessions.trash(), { access: "read" });
+      context.registerCommand("trash", async (input) => {
+        const local = await homeTrash();
+        return record(input).homeOnly === true ? local : remote.mergedTrash(local);
+      }, { access: "read" });
       context.registerCommand("start", async (input) => {
         const fields = record(input);
         const cwd = typeof fields.cwd === "string" ? fields.cwd : "";
@@ -237,7 +319,12 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         const model = record(fields.model);
         const provider = typeof model.provider === "string" ? model.provider : "";
         const modelId = typeof model.id === "string" ? model.id : "";
-        const started = await services.sessions.start({ cwd, prompt, ...(provider && modelId ? { model: { provider, id: modelId } } : {}) });
+        const started = await services.sessions.start({ cwd, prompt,
+          ...(typeof fields.backend === "string" ? { backend: fields.backend } : {}),
+          ...(fields.attachments !== undefined ? { attachments: fields.attachments as HostThreadStartOptions["attachments"] } : {}),
+          ...(fields.skillDraft !== undefined ? { skillDraft: fields.skillDraft as HostThreadStartOptions["skillDraft"] } : {}),
+          ...(typeof fields.thinkingLevel === "string" ? { thinkingLevel: fields.thinkingLevel } : {}),
+          ...(typeof fields.mode === "string" ? { mode: fields.mode } : {}), ...(provider && modelId ? { model: { provider, id: modelId } } : {}) });
         const group = typeof fields.siblingGroupId === "string" && fields.siblingGroupId ? fields.siblingGroupId : undefined;
         change({
           [started.sessionId]: {
@@ -253,6 +340,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
       const disposers = [
         services.registerTurnObserver({
           accepted: (sessionId) => {
+            if (owner(sessionId)) return;
             running.add(sessionId);
             const meta = state.threads[sessionId];
             const now = clock();
@@ -268,6 +356,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
           },
           cancelled: async (sessionId) => { running.delete(sessionId); },
           ended: async (sessionId) => {
+            if (owner(sessionId)) return;
             running.delete(sessionId);
             change({ [sessionId]: { activityAt: clock() } });
           },
@@ -275,7 +364,13 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
           closed: async (sessionId) => { running.delete(sessionId); },
         }),
         services.registerThreadLifecycle({
+          sweep: async (snapshot) => {
+            sessions = new Map(snapshot.sessions.map((session) => [session.sessionId, session]));
+            await homeTrash();
+            armWake();
+          },
           threadDeleted: async (sessionId) => {
+            if (owner(sessionId)) return;
             change({ [sessionId]: null });
             // A purge by the host's own timer: the Archived page's list moved too.
             await publishTrash().catch(() => undefined);
@@ -294,6 +389,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         clearTimeout(first);
         clearInterval(interval);
         if (wakeTimer) clearTimeout(wakeTimer);
+        remote.dispose();
         for (const dispose of disposers) dispose();
         await sweeping;
         await saving;

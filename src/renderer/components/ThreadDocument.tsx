@@ -14,6 +14,7 @@ import { LiveStatus } from "./ComposerHost";
 import { WorkGroup } from "./WorkRows";
 import { WorkDisclosures } from "./work-disclosures";
 import type { TranscriptActivity } from "./transcript-activity";
+import { WorkspaceResourceProvider } from "../workspace-resource-context";
 
 /** How often a streaming thread's tab re-reads its transcript. An idle tab polls nothing. */
 export const THREAD_TAB_POLL_MS = 2_000;
@@ -114,7 +115,7 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver, registry }: 
   const cost = session?.usage?.costUsd === undefined ? undefined : formatCost(session.usage.costUsd);
   const status = [waiting ? "waiting for an answer" : streaming ? "working" : session ? "idle" : "gone", cost].filter(Boolean).join(" · ");
 
-  return <section className="stage-pane thread-document" aria-label={`Thread ${title}`}>
+  return <WorkspaceResourceProvider sessionId={sessionId} workspace={session?.workspaceId} displayPath={session?.projectDisplayPath ?? session?.projectPath}><section className="stage-pane thread-document" aria-label={`Thread ${title}`}>
     <header className="stage-pane-header">
       <span className="stage-tab-icon"><Bot size={13} aria-hidden="true" /></span>
       <strong title={title}>{title}</strong>
@@ -149,5 +150,5 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver, registry }: 
                 {liveStatus}
               </div>
             </div>}
-  </section>;
+  </section></WorkspaceResourceProvider>;
 }

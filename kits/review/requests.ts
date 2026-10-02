@@ -47,7 +47,7 @@ export function checksTone(checks: UiReviewRequestChecks | undefined): "failed" 
 }
 
 /** open, draft, merged or closed, as a word for the row and the panel. */
-export function requestStateLabel(request: ReviewRequest): string {
+export function requestStateLabel(request: ReviewRequest): "open" | "draft" | "merged" | "closed" {
   if (request.state === "merged" || request.state === "closed") return request.state;
   return request.draft ? "draft" : "open";
 }

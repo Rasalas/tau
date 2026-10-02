@@ -78,18 +78,24 @@ function decodeTab(value: unknown): StageTab | undefined {
   if (tab.kind === "file" && (typeof tab.path !== "string" || (tab.view !== "source" && tab.view !== "diff"))) return undefined;
   if (tab.kind === "thread" && (typeof tab.sessionId !== "string" || (tab.machine !== undefined && typeof tab.machine !== "string"))) return undefined;
   if (tab.kind === "panel" && (typeof tab.panelId !== "string" || !tab.panelId)) return undefined;
+  if (tab.kind === "file" && tab.resourceOrigin !== undefined && tab.resourceOrigin !== null) {
+    const origin = tab.resourceOrigin as Record<string, unknown>;
+    if (typeof origin !== "object" || ![origin.sessionId, origin.workspace, origin.sourceId].every((field) => typeof field === "string" && field.length > 0)) {
+      return { ...tab, resourceOrigin: null } as unknown as StageTab;
+    }
+  }
   return tab as unknown as StageTab;
 }
 
 export function decodeStageState(value: unknown): StageState {
-  const stored = value as { tabs?: unknown; activeId?: unknown } | undefined;
+  const stored = value as { tabs?: unknown; activeId?: unknown; splitId?: unknown } | undefined;
   if (!Array.isArray(stored?.tabs)) return EMPTY_STAGE;
   const tabs = stored.tabs.flatMap((entry) => { const tab = decodeTab(entry); return tab ? [tab] : []; });
   if (tabs.length === 0) return EMPTY_STAGE;
   const activeId = typeof stored.activeId === "string" && tabs.some((tab) => tab.id === stored.activeId)
     ? stored.activeId
     : tabs[0].id;
-  return { tabs, activeId };
+  return { tabs, activeId, splitId: tabs.find((tab) => tab.id === stored.splitId && tab.id !== activeId)?.id };
 }
 
 /** The stage a project kept before stages were per thread (`tau.stage.v1`). */
@@ -179,7 +185,7 @@ export function pruneStageState(state: StageState, options: StagePruneOptions): 
   });
   if (tabs.length === state.tabs.length) return state;
   if (tabs.length === 0) return EMPTY_STAGE;
-  return { tabs, activeId: tabs.some((tab) => tab.id === state.activeId) ? state.activeId : tabs[0].id };
+  return { ...state, tabs, activeId: tabs.some((tab) => tab.id === state.activeId) ? state.activeId : tabs[0].id };
 }
 
 /**

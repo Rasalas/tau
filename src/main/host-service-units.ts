@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { posix, win32 } from "node:path";
-import { APP_ID } from "./single-instance.js";
+import { posix } from "node:path";
+import { appIdentity, type AppIdentity } from "./app-identity.js";
 
 /**
  * What a service manager needs to run Tau's host: the files it reads and the
@@ -12,17 +12,6 @@ export type HostServiceManagerKind = "launchd" | "systemd" | "task-scheduler";
 
 /** Set in a unit's environment: the host runs as that service and owns `host.json` itself. */
 export const HOST_SERVICE_ENV = "TAU_HOST_SERVICE";
-
-/** `configureAppIdentity` and `bin/tau.mjs` name the default userData folder the same way. */
-export const USER_DATA_FOLDER = "tau-pi-desktop-prototype";
-
-/**
- * Distinct from the app's bundle id, so launchd and privacy records never mix the two up.
- * Named after the bundle id before de.tbuck.tau; a new label would leave an installed agent running beside it.
- */
-const LAUNCHD_LABEL = "dev.tbuck.tau.host";
-const SYSTEMD_UNIT = "tau-host";
-const TASK_NAME = "Tau Host";
 
 /**
  * What a service host keeps from the environment it was installed from: where
@@ -39,12 +28,7 @@ export const FORWARDED_SERVICE_ENV = [
   "PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR", "CODEX_HOME",
 ] as const;
 
-/** Electron's `appData` joined with Tau's folder, the userData a Tau without `TAU_USER_DATA` uses. */
-export function defaultUserData(platform: NodeJS.Platform, home: string, env: NodeJS.ProcessEnv): string {
-  if (platform === "darwin") return posix.join(home, "Library", "Application Support", USER_DATA_FOLDER);
-  if (platform === "win32") return win32.join(env.APPDATA || win32.join(home, "AppData", "Roaming"), USER_DATA_FOLDER);
-  return posix.join(env.XDG_CONFIG_HOME || posix.join(home, ".config"), USER_DATA_FOLDER);
-}
+export { defaultUserData } from "./app-identity.js";
 
 export interface HostServiceNames {
   /** launchd's label. */
@@ -56,14 +40,15 @@ export interface HostServiceNames {
 }
 
 /**
- * One service per userData: the default instance gets the plain names, any
- * other (a dev instance, a second profile) a suffix from its path, so two
- * never replace each other's unit.
+ * One service per userData: the default instance gets the app identity's names
+ * (distinct from its bundle id, so launchd never mixes the two up), any other
+ * (a dev instance, a second profile) a suffix from its path.
  */
-export function hostServiceNames(userData: string, defaultPath: string): HostServiceNames {
-  if (userData === defaultPath) return { label: LAUNCHD_LABEL, unit: `${SYSTEMD_UNIT}.service`, task: TASK_NAME };
+export function hostServiceNames(userData: string, defaultPath: string, identity: AppIdentity = appIdentity()): HostServiceNames {
+  const { label, unit, task } = identity.service;
+  if (userData === defaultPath) return { label, unit: `${unit}.service`, task };
   const suffix = createHash("sha256").update(userData).digest("hex").slice(0, 8);
-  return { label: `${LAUNCHD_LABEL}.${suffix}`, unit: `${SYSTEMD_UNIT}-${suffix}.service`, task: `${TASK_NAME} ${suffix}` };
+  return { label: `${label}.${suffix}`, unit: `${unit}-${suffix}.service`, task: `${task} ${suffix}` };
 }
 
 /** Everything a unit says, whichever manager reads it. */
@@ -86,7 +71,7 @@ export function serviceEnvironment(input: { userData: string; manager: HostServi
     ELECTRON_RUN_AS_NODE: "1",
     TAU_USER_DATA: input.userData,
     TAU_HOST_LISTEN: "127.0.0.1:0",
-    TAU_HOST_LOCAL_FILES: "1",
+    TAU_HOST_LOCAL_FILES: input.env.TAU_HOST_LOCAL_FILES === "0" ? "0" : "1",
     [HOST_SERVICE_ENV]: input.manager,
   };
   for (const key of FORWARDED_SERVICE_ENV) {
@@ -123,7 +108,7 @@ export function renderLaunchAgent(label: string, spec: HostServiceSpec): string 
     `  <string>${xml(label)}</string>`,
     // Login Items names the app this belongs to (macOS 13+).
     `  <key>AssociatedBundleIdentifiers</key>`,
-    `  <string>${APP_ID}</string>`,
+    `  <string>${appIdentity().appId}</string>`,
     `  <key>ProgramArguments</key>`,
     `  <array>`,
     ...spec.program.map((argument) => `    <string>${xml(argument)}</string>`),
@@ -227,9 +212,11 @@ export const DISPLAY_SCREEN = "1920x1080x24";
 export const FIRST_DISPLAY_NUMBER = 99;
 
 /** The display units that go with a host unit: `tau-host-1a2b.service` → `tau-xvfb-1a2b.service`. */
-export function displayServiceNames(hostUnit: string): { xvfbUnit: string; windowUnit: string } {
-  const suffix = hostUnit.slice(SYSTEMD_UNIT.length, -".service".length);
-  return { xvfbUnit: `tau-xvfb${suffix}.service`, windowUnit: `tau-window${suffix}.service` };
+export function displayServiceNames(hostUnit: string, identity: AppIdentity = appIdentity()): { xvfbUnit: string; windowUnit: string } {
+  const { unit } = identity.service;
+  const suffix = hostUnit.slice(unit.length, -".service".length);
+  const base = unit.replace(/-host$/u, "");
+  return { xvfbUnit: `${base}-xvfb${suffix}.service`, windowUnit: `${base}-window${suffix}.service` };
 }
 
 /**

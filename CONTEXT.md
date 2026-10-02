@@ -8,7 +8,18 @@ The system that executes an agent loop, selects models, invokes tools, and persi
 
 ## Runtime backend
 
-The owner of one thread's runtime for that thread's whole life (ADR 0005). Core knows the Pi backend; every other one arrives through `registerRuntimeBackend` and speaks to core in Tau's vocabulary: runtime events, a dialog route, an access level. A thread never changes its backend; the workbench chooses it before the first message, from the list the host publishes (`runtimeBackends`), and `TAU_RUNTIME_ADAPTER` only sets the default. A Pi model reached through a subscription login carries `login: "subscription"`; where the vendor forbids that login outside its own apps, the Subscription Login Warning kit asks once per provider and never blocks it.
+The owner of one thread's runtime for that thread's whole life (ADR 0005). Core knows the Pi backend; every other one arrives through `registerRuntimeBackend` and speaks to core in Tau's vocabulary: runtime events, a dialog route, an access level. A thread never changes its backend; the workbench chooses it before the first message, from the list the host publishes (`runtimeBackends`), and `TAU_RUNTIME_ADAPTER` only sets the default. A Codex thread may change its executing account between compatible accounts that share its session, while its backend remains its durable owner. A Pi model reached through a subscription login carries `login: "subscription"`; where the vendor forbids that login outside its own apps, the Subscription Login Warning kit asks once per provider and never blocks it.
+
+## Executing account
+
+The account whose credentials and model access a thread uses for its next turn. A compatible account change preserves the thread, its session and its runtime backend owner.
+
+## Home machine
+
+The machine a thread runs on: its agent, workspace, files, shells and git are
+there (ADR 0030). It is chosen in the draft and never changes; a thread that
+continues on another machine is a new thread there. The device in front of the
+person only shows and steers the thread.
 
 ## Workbench
 
@@ -60,7 +71,7 @@ A page of the app beside the sidebar, like Settings: Usage and Reviews. It takes
 
 ## Review
 
-A thread's finished work as a local merge request: the branch a thread worked on in a worktree of its own (or that came back from another machine), once no thread there works any more, against the branch its main checkout has out. It is ready, in conflict, waiting on changes the user asked the thread for, or merged; the Reviews page lists them across projects, and remote pull requests under Remote.
+A thread's finished work as a local merge request, with an intended target branch that stays the same when the project's checkout switches branches. It is ready, in conflict, waiting on requested changes, or merged; completed work stays merged, and further work on the thread's branch opens it again.
 
 ## Extension
 

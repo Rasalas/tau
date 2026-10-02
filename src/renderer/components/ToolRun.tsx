@@ -1,7 +1,7 @@
 import { FileSymlink, Square } from "lucide-react";
 import { memo, useContext, useEffect, useState } from "react";
 import type { UiToolOutputPreview, UiToolRun } from "../../shared/contracts";
-import { toolFailureReason, type TranscriptDetail } from "../../workbench/transcript-folding";
+import { exitCode, formatWorkDuration, toolActionClass, toolFailureReason, type TranscriptDetail } from "../../workbench/transcript-folding";
 import type { ExtensionRegistry } from "../extension-system";
 import { ACTIVE_TOOL_OUTPUT_LIMIT, SETTLED_TOOL_OUTPUT_LIMIT, boundToolOutput } from "../tool-output";
 import { formatBytes } from "../format-bytes";
@@ -10,6 +10,11 @@ import { compactTimestamp, fullTimestamp } from "./message-timestamp";
 
 function seconds(from: number, to: number): string {
   return `${Math.max(1, Math.round((to - from) / 1000))}s`;
+}
+
+/** How long a settled call took: tenths under ten seconds, as in "exit 1 · 2.3s". */
+function took(ms: number): string {
+  return ms < 10_000 ? `${(Math.max(ms, 100) / 1000).toFixed(1)}s` : formatWorkDuration(ms);
 }
 
 /** One tool call: what it was, how long it took, and — on request — what it said. */
@@ -39,12 +44,14 @@ export const ToolRun = memo(function ToolRun({
   onLoadOutput?(tool: UiToolRun): Promise<UiToolOutputPreview | undefined>;
 }) {
   const running = tool.status === "running" && !stalled;
-  // A running tool shows its live tail without needing a click. Settled output
-  // is deliberately hidden until the row itself is opened.
-  const [outputOpen, setOutputOpen] = useState(running);
+  const failed = tool.status === "error";
+  // A running tool shows its live tail, and a failed command what it printed; other
+  // settled output stays hidden until the row itself is opened.
+  const openByDefault = running || (failed && toolActionClass(tool.name) === "command");
+  const [outputOpen, setOutputOpen] = useState(openByDefault);
   useEffect(() => {
-    setOutputOpen(running);
-  }, [running]);
+    setOutputOpen(openByDefault);
+  }, [openByDefault]);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!running) return;
@@ -74,7 +81,7 @@ export const ToolRun = memo(function ToolRun({
     || bounded.truncated
     || liveOutputClipped;
   const pending = deferred && typeof loaded !== "object";
-  const showOutput = view.output !== "hidden" && (Boolean(visibleOutput) || deferred) && outputOpen;
+  const showOutput = view.output !== "hidden" && !view.body && (Boolean(visibleOutput) || deferred) && outputOpen;
   const size = deferred && tool.outputLength !== undefined ? formatBytes(tool.outputLength) : undefined;
   const [copying, setCopying] = useState(false);
   const copyFullOutput = async () => {
@@ -94,11 +101,11 @@ export const ToolRun = memo(function ToolRun({
   const openFile = useContext(WorkbenchContext)?.openFile;
   // A settled call that names its file links to it; the stop button has the place while it runs.
   const linked = !stoppable && view.file && openFile ? view.file : undefined;
-  const failure = tool.status === "error" ? toolFailureReason(shown.output) ?? (deferred ? "Failed; open the call for its output" : "Failed") : undefined;
+  const failure = failed ? toolFailureReason(shown.output) ?? (deferred ? "Failed; open the call for its output" : "Failed") : undefined;
   const stopTitle = stalled ? "Close the interrupted call" : waiting ? "Stop waiting and end the run" : "Stop the run";
 
   return (
-    <div className={`tool-run tone-${view.tone}${running ? " running" : ""}${stoppable || linked ? " stoppable" : ""}`}>
+    <div className={`tool-run tone-${view.tone}${running ? " running" : ""}${failed ? " failed" : ""}${stoppable || linked ? " stoppable" : ""}`}>
       <button
         type="button"
         className="tool-run-line"
@@ -109,6 +116,7 @@ export const ToolRun = memo(function ToolRun({
         <span className="tool-run-name">{view.title}</span>
         <span className="tool-run-detail" title={view.detail}>{view.detail}</span>
         {size ? <span className="tool-run-size" title="Output size; it loads when the row opens">{size}</span> : null}
+        {view.note}
         {complete ? (
           <time className="tool-run-stamp" dateTime={new Date(tool.startedAt).toISOString()} title={fullTimestamp(tool.startedAt)}>
             {compactTimestamp(tool.startedAt)}
@@ -124,9 +132,8 @@ export const ToolRun = memo(function ToolRun({
               ? "interrupted"
               : running
                 ? seconds(tool.startedAt, now)
-                : tool.status === "error"
-                  ? "!"
-                  : tool.endedAt ? seconds(tool.startedAt, tool.endedAt) : "✓"}
+                : [failed && (exitCode(shown.output) ? `exit ${exitCode(shown.output)}` : "failed"), tool.endedAt && took(tool.endedAt - tool.startedAt)]
+                  .filter(Boolean).join(" · ") || "✓"}
         </span>
       </button>
       {stoppable ? (
@@ -146,6 +153,7 @@ export const ToolRun = memo(function ToolRun({
         </button>
       ) : null}
       {failure && !showOutput ? <div className="tool-run-reason" title={failure}>{failure}</div> : null}
+      {view.body}
       {showOutput && pending ? (
         // As tall as the output it stands for, which always fills the box, so nothing moves when it arrives.
         <pre className="tool-output tool-output-pending" aria-busy={loaded === "loading"}>

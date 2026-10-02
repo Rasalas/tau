@@ -17,6 +17,8 @@ import {
   type SnapShotTarget,
 } from "./protocol.js";
 import { isAccelerator } from "./shortcut.js";
+import { captureWaylandWindow } from "./wayland.js";
+import { WaylandForeground, type WaylandFrame } from "./wayland-foreground.js";
 
 const SETTINGS_PANES: Record<PermissionKind, string> = {
   screen: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
@@ -59,12 +61,23 @@ export function windowIdOfSource(id: string): number | undefined {
   return match ? Number(match[1]) : undefined;
 }
 
-/** macOS only; `isTrustedAccessibilityClient(false)` answers without asking. */
+/** Reads platform availability without listing windows or raising a permission prompt. */
 export function readAccess(
   platform: string = process.platform,
   screen: () => string = () => systemPreferences.getMediaAccessStatus("screen"),
   trusted: () => boolean = () => systemPreferences.isTrustedAccessibilityClient(false),
+  environment: NodeJS.ProcessEnv = process.env,
 ): SnapShotAccess {
+  if (platform === "win32") return { supported: true, screen: "granted", accessibility: "granted" };
+  if (platform === "linux") {
+    // Portal availability needs the user's session bus. The chooser is opened
+    // only on a capture action, never while checking access or arming a key.
+    const wayland = environment.XDG_SESSION_TYPE === "wayland" || Boolean(environment.WAYLAND_DISPLAY);
+    return { supported: true,
+      ...(wayland ? { captureMode: "picker" as const } : {}),
+      screen: wayland ? environment.DBUS_SESSION_BUS_ADDRESS ? "not-determined" : "unavailable" : environment.DISPLAY ? "granted" : "unavailable",
+      accessibility: !wayland && environment.DBUS_SESSION_BUS_ADDRESS ? "granted" : "unavailable" };
+  }
   if (platform !== "darwin") return { supported: false, screen: "unavailable", accessibility: "unavailable" };
   const answer = screen();
   const known: Permission[] = ["granted", "denied", "not-determined", "restricted"];
@@ -86,6 +99,7 @@ async function readWindows(app: AccessibleApp, retryMs = 300): Promise<Accessibl
 
 function executableName(pid: number): Promise<string | undefined> {
   return new Promise((resolve) => {
+    if (process.platform === "win32") return resolve(undefined);
     execFile("/bin/ps", ["-p", String(pid), "-o", "comm="], { timeout: 2_000 }, (error, stdout) => resolve(error ? undefined : basename(stdout.trim()) || undefined));
   });
 }
@@ -161,13 +175,43 @@ export async function captureResolved(
   };
 }
 
+/** AT-SPI bounds must agree with compositor coordinates before attaching text to the image. */
+export async function addWaylandAccessibility(frame: WaylandFrame, client: AccessibilityClient | undefined, now = Date.now): Promise<SnapShotCapture> {
+  const capture = frame.capture;
+  const window = frame.window;
+  if (!client || !window?.processId || !frame.boundsReliable) return { ...capture, accessibilityNote: "The compositor did not provide reliable accessibility coordinates for this window, or AT-SPI is unavailable." };
+  try {
+    const app = await client.App.byPid(window.processId, { timeout: 0 });
+    const matches = (await readWindows(app)).filter((element) => element.name?.trim() === window.title.trim());
+    const element = matches.length === 1 ? matches[0] : undefined;
+    const bounds = element?.bounds;
+    if (!element || !bounds || !(["x", "y", "width", "height"] as const).every((key) => Math.abs(bounds[key] - window.bounds[key]) <= 2))
+      return { ...capture, accessibilityNote: "The app's window and coordinates did not match the captured window. Accessibility text was omitted." };
+    const accessibility = await readElementTree(element, window.bounds, capture.image, { deadline: now() + ACCESSIBILITY_BUDGET_MS, now });
+    return { ...capture, accessibility };
+  } catch { return { ...capture, accessibilityNote: "The app did not provide accessibility text for this window." }; }
+}
+
 /**
  * SnapShots' window half: the global shortcut, the permissions and the
- * capture itself, all where the user's windows are. It records one window,
- * never a screen, and asks the system for nothing unless the user pressed a
- * button that says so.
+ * capture itself, all where the user's windows are. Foreground capture records
+ * one window. The explicit Wayland portal chooser may also select a display.
  */
 export default function activate(context: WindowExtensionContext): WindowExtension {
+  let wayland: WaylandForeground | undefined;
+  const foreground = () => wayland ??= new WaylandForeground();
+  const accessNow = async (): Promise<SnapShotAccess> => {
+    const access = readAccess();
+    if (access.captureMode === "picker") {
+      access.wayland = await foreground().state();
+      if (access.wayland.status === "ready") {
+        access.captureMode = "foreground";
+        access.screen = "granted";
+        access.accessibility = process.env.DBUS_SESSION_BUS_ADDRESS ? "granted" : "unavailable";
+      }
+    }
+    return access;
+  };
   let client: Promise<AccessibilityClient | undefined> | undefined;
   const accessibilityClient = (): Promise<AccessibilityClient | undefined> => client ??= (context.loadDependency
     ? context.loadDependency(ACCESSIBILITY_PACKAGE).then((module) => module as AccessibilityClient, (error: unknown) => {
@@ -181,17 +225,33 @@ export default function activate(context: WindowExtensionContext): WindowExtensi
   let busy = false;
   let last = 0;
 
-  const capture = async (target: SnapShotTarget | undefined, accessibility: boolean): Promise<SnapShotCapture> => {
+  const capture = async (target: SnapShotTarget | undefined, accessibility: boolean, picker = false): Promise<SnapShotCapture> => {
     const access = readAccess();
-    if (!access.supported) throw new Error("SnapShots need macOS for now.");
+    if (!access.supported) throw new Error("SnapShots are available on macOS, Windows and Linux.");
+    if (access.captureMode === "picker") {
+      if (target) throw new Error("A client window number cannot identify a Wayland window. Capture the focused window or use the desktop picker.");
+      const backend = foreground();
+      const state = !picker ? await backend.state() : undefined;
+      if (state?.status === "ready") {
+        // A denied or failed native capture stays a failure. The manual chooser remains an explicit action.
+        const frame = await backend.capture(state);
+        return accessibility ? addWaylandAccessibility(frame, process.env.DBUS_SESSION_BUS_ADDRESS ? await accessibilityClient() : undefined) : frame.capture;
+      }
+      if (access.screen === "unavailable") throw new Error("The Wayland desktop picker needs a session D-Bus, xdg-desktop-portal and PipeWire.");
+      return captureWaylandWindow();
+    }
     // Recording asks the system for permission on its first try; only the Settings button may do that.
-    if (access.screen !== "granted") throw new Error("Tau may not record windows yet. Allow Screen Recording for Tau in System Settings.");
+    if (access.screen !== "granted") throw new Error(process.platform === "darwin"
+      ? "Tau may not record windows yet. Allow Screen Recording for Tau in System Settings."
+      : "Window capture is unavailable in this desktop session. On Linux, use an X11 session; Wayland does not expose foreground window capture without a portal chooser.");
     const trusted = access.accessibility === "granted";
     const ax = trusted ? await accessibilityClient() : undefined;
     let resolved: ResolvedWindow;
     if (target) resolved = await namedWindow(target, ax, windowSources);
     else {
-      if (!ax) throw new Error("Tau needs Accessibility to know which window is in front. Allow it in System Settings.");
+      if (!ax) throw new Error(process.platform === "darwin"
+        ? "Tau needs Accessibility to know which window is in front. Allow it in System Settings."
+        : "Tau cannot read the foreground window. Check that the accessibility backend is installed and available; Linux needs the session D-Bus and AT-SPI service, and Windows cannot read an elevated app from an unelevated Tau.");
       resolved = await frontWindow(ax, windowSources);
     }
     return captureResolved(resolved, {
@@ -228,14 +288,16 @@ export default function activate(context: WindowExtensionContext): WindowExtensi
     armed = undefined;
     if (!accelerator) return {};
     if (!isAccelerator(accelerator)) return { error: `“${accelerator}” is not a shortcut Tau can register.` };
-    if (!readAccess().supported) return { error: "SnapShots need macOS for now." };
+    if (!readAccess().supported) return { error: "SnapShots are available on macOS, Windows and Linux." };
     let ok = false;
     try {
       ok = globalShortcut.register(accelerator, fire);
     } catch (error) {
       return { error: error instanceof Error ? error.message : String(error) };
     }
-    if (!ok) return { error: "Another app or the system already uses this shortcut." };
+    if (!ok) return { error: readAccess().captureMode === "picker"
+      ? "Your desktop could not register this global shortcut. Check the desktop's shortcut permission and portal backend, or use capture in Settings."
+      : "Another app or the system already uses this shortcut." };
     registered = accelerator;
     armed = input;
     return { registered };
@@ -245,11 +307,15 @@ export default function activate(context: WindowExtensionContext): WindowExtensi
     async handle(command: string, input?: unknown): Promise<unknown> {
       switch (command) {
         case "access":
-          return readAccess();
+          {
+            const access = await accessNow();
+            if (process.platform !== "darwin" && access.accessibility === "granted" && !await accessibilityClient()) access.accessibility = "unavailable";
+            return access;
+          }
         case "request-access": {
           const kind = (input as { kind?: unknown } | undefined)?.kind;
           const access = readAccess();
-          if (!access.supported) return access;
+          if (!access.supported || process.platform !== "darwin") return access;
           if (kind === "accessibility") systemPreferences.isTrustedAccessibilityClient(true);
           // Listing windows is what raises the system's Screen Recording question the first time.
           else if (kind === "screen" && access.screen === "not-determined") await windowSources().catch(() => []);
@@ -263,9 +329,16 @@ export default function activate(context: WindowExtensionContext): WindowExtensi
         }
         case "shortcut":
           return arm(input as ArmInput);
+        case "wayland-helper": {
+          if (readAccess().captureMode !== "picker") throw new Error("Capture helpers are available only in a Wayland desktop session.");
+          const action = (input as { action?: unknown } | undefined)?.action;
+          if (action !== "install" && action !== "remove") throw new Error("Choose install or remove for the capture helper.");
+          await foreground().setup(action);
+          return accessNow();
+        }
         case "capture": {
-          const { target, accessibility } = (input ?? {}) as { target?: SnapShotTarget; accessibility?: boolean };
-          return capture(target, accessibility !== false);
+          const { target, accessibility, picker } = (input ?? {}) as { target?: SnapShotTarget; accessibility?: boolean; picker?: boolean };
+          return capture(target, accessibility !== false, picker === true);
         }
         default:
           throw new Error(`SnapShots' window half has no command "${command}".`);

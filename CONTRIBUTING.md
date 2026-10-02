@@ -15,6 +15,13 @@ npm run dev       # Electron with hot reload
 npm run dev:web   # the UI in a browser, with fixture data
 ```
 
+To use your change as an app for a while, `npm run install:mac -- --local`
+installs this checkout as **Tau Dev** (`/Applications/Tau Dev.app`) beside
+your Tau, with its own data, ports and `~/.tau-dev` and without updates
+([docs/install.md](docs/install.md#tau-dev-a-build-of-this-checkout-beside-tau)).
+To try a change in isolation from your own data, use `npm run dev:instance`
+([docs/agents/testing-the-app.md](docs/agents/testing-the-app.md)).
+
 [docs/architecture.md](docs/architecture.md) explains the architecture; [docs/CORE.md](docs/CORE.md)
 and [docs/EXTENSIONS.md](docs/EXTENSIONS.md) describe the core and the extension
 API; [CONTEXT.md](CONTEXT.md) defines the words the code uses.

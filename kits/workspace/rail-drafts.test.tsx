@@ -174,11 +174,9 @@ describe("railDrafts", () => {
   const draft = (draftId: string, projectName: string, preview: string, sessionId?: string) => ({
     draftId, projectName, projectPath: `/${projectName}`, preview, attachments: 0, createdAt: 1, active: false, ...(sessionId ? { sessionId } : {}),
   });
-  it("keeps the filtered project's drafts that match the search, and none whose thread is listed", () => {
+  it("keeps the filtered project's drafts, and none whose thread is listed", () => {
     const drafts = [draft("a", "tau", "Fix the login"), draft("b", "other", "Fix the logout"), draft("c", "tau", "", "listed")];
     expect(railDrafts(drafts, { project: "tau" }).map((entry) => entry.draftId)).toEqual(["a", "c"]);
-    expect(railDrafts(drafts, { query: "logout" }).map((entry) => entry.draftId)).toEqual(["b"]);
-    expect(railDrafts(drafts, { query: "new thread" }).map((entry) => entry.draftId)).toEqual(["c"]);
     expect(railDrafts(drafts, { listed: new Set(["listed"]) }).map((entry) => entry.draftId)).toEqual(["a", "b"]);
   });
 });

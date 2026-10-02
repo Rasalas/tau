@@ -51,7 +51,7 @@ there (ADR 0024). Settings → Machines has the switch per machine and one in
 the add form.
 
 **Kits reach the machines through `services.machines`.** The seam needs the
-`machines` permission. It has five members:
+`machines` permission. Its initial members are:
 
 - `list()` and `subscribe(listener)`: each machine's status, never a token.
 - `call(machine, extensionId, command, input)`: a kit command there, sent as
@@ -59,12 +59,23 @@ the add form.
   device (preset, `access: "read"`, audit).
 - `request(machine, method, params)`: only the core methods in
   `MACHINE_REQUEST_METHODS` (`src/shared/host-method-access.ts`), the thread
-  reads and `abort`, `steer`, `follow-up`. Any other name is refused before it
+  reads and `abort`, `steer`, `follow-up`, `start-thread`, `send-to-thread`,
+  `answer-extension-ui` and `sync-extension-ui`. Any other name is refused before it
   leaves. Access management, jobs, subscriptions and a window's methods are
   never sent.
 - `watch(machine, topic, listener)`: events that kit emits there under a
   topic. The kit is the caller's own counterpart unless `extension` names
   another one.
+
+The connection also follows threads without selecting them on the other host:
+
+- `index(machine)` reads that machine's last pushed thread index.
+- `subscribeIndex(listener)` hears index and running-thread changes, at most
+  once per 250 ms per machine.
+- `running(machine)` reads the IDs of threads running there.
+- `followThread(machine, sessionId, listener)` follows that thread's original
+  pushes, run status and questions until its last listener leaves, including
+  across reconnects.
 
 A machine is named by its host id, or by its name when that is unique. An
 offline or refused machine rejects with the reason.
@@ -72,6 +83,19 @@ offline or refused machine rejects with the reason.
 Wave H added two members on the same permission: `upload(machine, source)`
 sends a file there in pieces, which a kit there takes once with
 `services.blobs.take`, and `self` names this host (id, name, Tau version).
+
+ADR 0030 uses this connection for threads represented by the machine backend.
+Workspace, Files, Terminal and Review calls follow the indexed home machine,
+carrying its original workspace identity. Core checks the source client’s
+command authority and audit before forwarding through the agents connection.
+Backend records may supply an optional workspace reference (API 1.44); opening
+a proxy does not add its remote directory to local project history.
+
+Topic subscriptions relay Workspace and Terminal changes to each subscribing
+client. Terminal ownership survives navigation, and session tables retain
+shells from each machine. These client-specific relays preserve sequence order
+but stay outside the connection-wide replay log; reconnect reads recover
+terminal sessions and scrollback.
 
 ## Alternatives
 

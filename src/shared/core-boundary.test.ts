@@ -54,6 +54,8 @@ const HOST_FORBIDDEN_IMPORTS = ["git-coordinator", "workspace-git", "workspace-k
  */
 const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./app-menu.js",   "./app-shell.js",   "./app-updates.js",
+  // Tau or Tau Dev: every name two installed apps could share (K132).
+  "./app-identity.js",
   // An AppImage without sandbox installing the .deb and restarting from it (K26).
   "./appimage-install.js",
   // A machine's host updating its own Tau, with or without a window (K103).
@@ -81,7 +83,15 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-service.js",   "./host-service-units.js",   "./display-window.js",   "./display-number.js",   "./keep-awake.js",
   // Other machines this host's agents reach, with keys the owner's window handed over (ADR 0027).
   "./host-machines.js",
+  // Routes the selected kit calls and topics to the indexed home machine (ADR 0030).
+  "./machine-kit-route.js",
   "./host-machine-pairing.js",
+  // Host connectivity, pairing and signed bootstrap belong to core (CORE.md, ADRs 0025/0027).
+  // These carry host protocol bytes and machine identity; no kit owns their lifetime.
+  "./host-connect.js", "./connect-listener.js", "./connect-tunnel.js",
+  "./managed-ssh.js", "./managed-host-release.js", "./wsl-host.js",
+  // Host model configuration and runtime-aware system-prompt inspection.
+  "./host-model-configuration.js",
   // How busy the machine is and what it could run, read when asked (plan H §4).
   "./host-resources.js",
   // Files those machines' agents send in pieces, taken once by a kit (plan-H).
@@ -111,6 +121,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./queued-messages.js",   "./quit-shortcut.js",   "./release-notes.js",   "./thread-limits.js",   "./turn-settlement.js",   "./provider-limits.js",
   "./user-themes.js",   "./workbench-build.js",
   "./workbench-reload-coordinator.js",   "./workbench-reloader.js",   "./workbench-source.js",
+  // Lucide icons drawn as template images for native menus (K136).
+  "./menu-icons.js",   "./menu-icon-set.js",
   "./window-attention.js",   "./window-context-menu.js",   "./window-extensions.js",   "./window-host.js",   "./workspace-identity.js",   "./workspace-watch.js",
   // Runtime-neutral helpers backends share (API 1.12.0), and files that go with an answer.
   "./turn-activity-store.js",   "./elicitation-form.js",   "./answer-attachments.js",   "./turn-attachments.js",   "./host-execution-policy.js",

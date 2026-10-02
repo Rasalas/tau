@@ -1,5 +1,5 @@
-import type { UiProject, UiSession, UiThreadUsage } from "../shared/contracts";
-import type { ThreadActivitySnapshot } from "./thread-store";
+import { displayRuntime, type UiProject, type UiSession, type UiThreadUsage } from "../shared/contracts";
+import { EMPTY_SNAPSHOT, type ThreadActivitySnapshot } from "./thread-store";
 import type { DraftThread } from "./draft-threads";
 import { threadRowStatus, type ThreadRowStatus } from "./thread-row-status";
 
@@ -34,6 +34,8 @@ export interface ThreadSupervisionRow {
   settled: boolean;
   backendKind?: string;
   modelProvider?: string;
+  /** Home machine mark for an own-index proxy. */
+  machine?: UiSession["machine"];
 }
 
 const RANK: Record<ThreadSupervisionStatus, number> = { waiting: 0, running: 1, failed: 2, done: 3 };
@@ -54,12 +56,14 @@ export interface ThreadOrganization {
 function rowFor(thread: UiSession, activity: ThreadActivitySnapshot, organization: ThreadOrganization): ThreadSupervisionRow {
   const status = threadSupervisionStatus(thread.id, activity);
   const startedAt = activity.runningStartedAt[thread.id];
+  const display = displayRuntime(thread);
   return {
     id: thread.id,
     path: thread.path,
     title: thread.title || "Untitled thread",
     projectName: thread.projectName,
     projectPath: thread.projectPath,
+    ...(thread.machine ? { machine: thread.machine } : {}),
     ...(thread.workspaceId ? { workspaceId: thread.workspaceId } : {}),
     ...(thread.projectLabel ? { projectLabel: thread.projectLabel } : {}),
     ...(thread.usage ? { usage: thread.usage } : {}),
@@ -71,8 +75,8 @@ function rowFor(thread: UiSession, activity: ThreadActivitySnapshot, organizatio
     pinned: organization.pinned?.includes(thread.id) ?? false,
     // A thread that needs the user again is not settled, whatever the list says.
     settled: status === "done" && (organization.settled?.includes(thread.id) ?? false),
-    ...(thread.backendKind ? { backendKind: thread.backendKind } : {}),
-    ...(thread.modelProvider ? { modelProvider: thread.modelProvider } : {}),
+    ...(display.backendKind ? { backendKind: display.backendKind } : {}),
+    ...(display.modelProvider ? { modelProvider: display.modelProvider } : {}),
   };
 }
 
@@ -117,26 +121,10 @@ export interface ThreadListOptions extends ThreadOrganization {
   extra?: readonly ThreadSupervisionRow[];
 }
 
-/** Another machine's thread as a list row: running or idle, as far as that machine's list says. */
-export function outsideRow(key: string, thread: UiSession, options: { running?: boolean; settled?: boolean } = {}): ThreadSupervisionRow {
-  return {
-    id: key,
-    path: thread.path,
-    title: thread.title || "Untitled thread",
-    projectName: thread.projectName,
-    projectPath: thread.projectPath,
-    ...(thread.workspaceId ? { workspaceId: thread.workspaceId } : {}),
-    ...(thread.projectLabel ? { projectLabel: thread.projectLabel } : {}),
-    ...(thread.usage ? { usage: thread.usage } : {}),
-    status: options.running ? "running" : "done",
-    state: options.running ? { activity: "working", label: "Working" } : { activity: "idle", label: "Idle" },
-    unread: false,
-    modifiedAt: thread.modifiedAt,
-    pinned: false,
-    settled: !options.running && options.settled === true,
-    ...(thread.backendKind ? { backendKind: thread.backendKind } : {}),
-    ...(thread.modelProvider ? { modelProvider: thread.modelProvider } : {}),
-  };
+/** Another machine's thread as a list row: asking, running or idle, as far as that machine's list says. */
+export function outsideRow({ key, session, running, waiting, settled }: { key: string; session: UiSession; running?: boolean; waiting?: boolean; settled?: boolean }): ThreadSupervisionRow {
+  const ids = (on?: boolean) => on ? [session.id] : [];
+  return { ...rowFor(session, { ...EMPTY_SNAPSHOT, waitingThreadIds: ids(waiting), runningThreadIds: ids(running) }, { settled: ids(settled) }), id: key };
 }
 
 /** A thread belongs to a project by its id, or by its path where one side has no id. */
@@ -227,4 +215,3 @@ export function threadAge(modifiedAt: number, now: number): string {
   if (hours < 24) return `${hours}h`;
   return `${Math.floor(hours / 24)}d`;
 }
-

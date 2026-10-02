@@ -1,4 +1,4 @@
-import { mkdtemp, rm, symlink } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -16,11 +16,40 @@ describe("workspace identity", () => {
     await rm(directory, { recursive: true, force: true });
   });
 
-  it("keeps one host id across reads and creates it on first use", () => {
+  it("keeps one host id across reads and creates it on first use", async () => {
     const path = join(directory, "state", "host-id");
     const first = readOrCreateHostId(path);
-    expect(first).toHaveLength(32);
+    expect(first).toMatch(/^[0-9a-f]{32}$/u);
+    expect(await readFile(path, "utf8")).toBe(`${first}\n`);
     expect(readOrCreateHostId(path)).toBe(first);
+  });
+
+  it.each([
+    "0123456789abcdef0123456789abcdef",
+    "0123456789ABCDEF0123456789ABCDEF",
+  ])("preserves a valid saved host id %s", async (hostId) => {
+    const path = join(directory, "host-id");
+    const contents = `${hostId}\n`;
+    await writeFile(path, contents);
+
+    expect(readOrCreateHostId(path)).toBe(hostId);
+    expect(await readFile(path, "utf8")).toBe(contents);
+  });
+
+  it.each([
+    "0123456789abcdef0123456789abcdef~rex",
+    "0123456789abcdef0123456789abcde~",
+    "0123456789abcdef0123456789abcdef0",
+    "0123456789abcdef",
+    "0123456789abcdef0123456789abcdeg",
+    "",
+  ])("rejects an invalid saved host id %s without replacing it", async (hostId) => {
+    const path = join(directory, "host-id");
+    const contents = `${hostId}\n`;
+    await writeFile(path, contents);
+
+    expect(() => readOrCreateHostId(path)).toThrow(/must contain exactly 32 hexadecimal characters/u);
+    expect(await readFile(path, "utf8")).toBe(contents);
   });
 
   it("mints an opaque id that carries neither the path nor the host id", () => {

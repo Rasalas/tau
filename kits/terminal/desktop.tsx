@@ -3,8 +3,8 @@ import type { DesktopExtension, WorkbenchActions } from "tau";
 import { TerminalPanel } from "./panel.js";
 import { CompactTerminalPanel } from "./compact.js";
 import { restoreTerminalTab, TerminalStageTab, terminalTabParams } from "./stage-tab.js";
-import { connectTerminalFont, connectTerminalHost, createTerminalFontService, terminalKit, terminalServices, terminalStore } from "./store.js";
-import { TERMINAL_SETTINGS_ROWS, TerminalSettingsPage } from "./settings.js";
+import { connectTerminalFont, connectTerminalHost, createTerminalFontService, refreshTerminalSessions, terminalHostReconnected, terminalKit, terminalServices, terminalStore, useTerminalActivity } from "./store.js";
+import { ShellRow, TERMINAL_SETTINGS_ROWS, TerminalSettingsPage } from "./settings.js";
 import { paneIds } from "./layout.js";
 import { closeTerminals, focusNextPane, keyboardShell, naturalSplit, onStage, openTerminal, runInTerminal, targetShell, toggleTerminal } from "./controller.js";
 import {
@@ -82,7 +82,11 @@ export const terminalExtension: DesktopExtension = {
     const stopFont = connectTerminalFont(plugin.preferences);
     // The panel groups terminals by the thread on screen; the event is the
     // only push a kit gets about a switch, so the store follows it here.
-    plugin.events.on("active-thread-changed", (event) => terminalStore.setActiveSession(event.sessionId));
+    plugin.events.on("active-thread-changed", (event) => {
+      terminalStore.setActiveSession(event.sessionId);
+      void refreshTerminalSessions();
+    });
+    plugin.events.on("host-connection", ({ state }) => { if (state === "connected") terminalHostReconnected(); });
     const services = [
       plugin.useService<ComposerContextChips>(COMPOSER_CONTEXT_CHIPS_SERVICE, (chips) => {
         terminalServices.chips = chips;
@@ -94,10 +98,22 @@ export const terminalExtension: DesktopExtension = {
       }),
       plugin.useService<WorkspaceStoreMirror>(WORKSPACE_STORE_SERVICE, (workspace) => {
         terminalServices.workspace = workspace;
+        const shownWorkspace = () => {
+          const snapshot = workspace.getSnapshot?.();
+          return snapshot?.workspaceId ?? snapshot?.cwd;
+        };
+        let shown = shownWorkspace();
+        const stopWorkspace = workspace.subscribe?.(() => {
+          const next = shownWorkspace();
+          if (next === shown) return;
+          shown = next;
+          void refreshTerminalSessions();
+        });
         const unmark = workspace.registerThreadRowAccessory(TerminalRowStatus);
         // After the model.
         const unlist = workspace.registerThreadCardSection?.({ place: "row", order: 45, Component: TerminalCardRow });
         return () => {
+          stopWorkspace?.();
           unmark();
           unlist?.();
           if (terminalServices.workspace === workspace) delete terminalServices.workspace;
@@ -109,10 +125,10 @@ export const terminalExtension: DesktopExtension = {
     // The setting picks dock or drawer; changing it registers the panel again in its new place.
     const placementNow = () => terminalPlacement(plugin.preferences.value(TERMINAL_HOST_EXTENSION_ID, TERMINAL_PLACEMENT_SETTING));
     let placement = placementNow();
-    const registerPanel = () => plugin.registerPanel({ id: TERMINAL_PANEL, label: "Terminal", Icon: Terminal, order: TERMINAL_PANEL_ORDER, profiles: ["desktop", "web"], placement, width: "wide", maximizable: true, stageButton: true, Component: TerminalPanel });
+    const registerPanel = () => plugin.registerPanel({ id: TERMINAL_PANEL, label: "Terminal", Icon: Terminal, order: TERMINAL_PANEL_ORDER, profiles: ["desktop", "web"], placement, width: "wide", maximizable: true, stageButton: true, useActivity: useTerminalActivity, Component: TerminalPanel });
     let panel = registerPanel();
     // Touch clients draw the same shells with a key bar: a phone as a sheet, a tablet beside the chat.
-    const compactPanel = plugin.registerPanel({ id: TERMINAL_PANEL, label: "Terminal", Icon: Terminal, order: TERMINAL_PANEL_ORDER, profiles: ["compact"], width: "wide", maximizable: true, stageButton: true, Component: CompactTerminalPanel });
+    const compactPanel = plugin.registerPanel({ id: TERMINAL_PANEL, label: "Terminal", Icon: Terminal, order: TERMINAL_PANEL_ORDER, profiles: ["compact"], width: "wide", maximizable: true, stageButton: true, useActivity: useTerminalActivity, Component: CompactTerminalPanel });
     const stopPlacement = plugin.preferences.subscribe(() => {
       const next = placementNow();
       if (next === placement) return;
@@ -142,6 +158,8 @@ export const terminalExtension: DesktopExtension = {
       Component: (props) => <TerminalSettingsPage {...props} preferences={plugin.preferences} />,
     });
     const disposers = [
+      plugin.registerSettingsSection({ id: "terminal.shell", page: "connections", card: "this-machine", order: 30, profiles: ["desktop"], Component: ShellRow,
+        rows: [{ id: "setting-shell", label: "Shell", keywords: ["terminal", "zsh", "bash", "login shell"] }] }),
       plugin.registerCommand({ id: "terminal.open", label: "Open terminal panel", group: "Terminal", access: "read", run: (app) => app.openPanel(TERMINAL_PANEL) }),
       // The terminal opens in the app; the external one is Workspace Kit's command (mod+alt+j).
       ...["terminal", "term"].map((name) => plugin.registerSlashCommand({

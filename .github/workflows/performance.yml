@@ -30,9 +30,30 @@ jobs:
       # Ubuntu 24.04 restricts unprivileged user namespaces, which Electron's sandbox needs.
       - name: Allow Electron's sandbox on the runner
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      # Sizes and counts are deterministic; the build-time budget only catches a runaway build.
+      # The last main runs' build times; PRs read main's entry, only main pushes write one.
+      - name: Restore build-time history
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .build-time-history
+          key: build-time-history-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: build-time-history-
+      # Sizes and counts are deterministic; build time is held at reference speed and
+      # against the history (docs/PERFORMANCE.md, "Build time on shared runners").
       - name: Build and Git budgets
+        id: build
+        env:
+          TAU_BUILD_TIME_HISTORY: .build-time-history/history.json
         run: npm run build:budget && npm run benchmark:git:check
+      # Also after a failed check, so a regression that landed moves the median.
+      - name: Record build time
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.build.outcome != 'skipped' }}
+        run: node scripts/build-time.mjs record .build-time-history/history.json
+      - name: Save build-time history
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.build.outcome != 'skipped' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .build-time-history
+          key: build-time-history-${{ github.run_id }}-${{ github.run_attempt }}
       # Structural checks plus timings; the tight ones are listed in docs/PERFORMANCE.md.
       - name: Host budgets
         run: npm run benchmark:host:check && npm run benchmark:host:full:check

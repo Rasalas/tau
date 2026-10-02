@@ -3,7 +3,6 @@ import { rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createServer as createNetServer } from "node:net";
 import type { Server as TlsServer } from "node:tls";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
@@ -18,6 +17,7 @@ import { HostJobRunner, NO_JOB_CONTEXT } from "./host-jobs.js";
 import { HostPushLog } from "./host-push-log.js";
 import { HostPushCoalescer } from "./host-push-coalescer.js";
 import { createHostMethods, type HostMethodTable } from "./host-methods.js";
+import { MachineKitRoute } from "./machine-kit-route.js";
 import { HostTokenFile, hostTokenPath } from "./host-token.js";
 import { HostAccess } from "./host-access.js";
 import { promptPairingsOnTerminal } from "./host-pairing-terminal.js";
@@ -25,13 +25,13 @@ import { publishedEndpoints, type HostConnectionsService, type HostListenInfo } 
 import { isHostOwner } from "./host-invocation.js";
 import { HostClientRegistry } from "./host-clients.js";
 import { hostAllowedOrigins } from "./host-origin.js";
-import { createProtocolServer, startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
+import { createProtocolServer, startSocketHostTransport, type SocketHostTransport, type SocketHostTransportOptions } from "./host-transport-socket.js";
 import { createWebClientServer } from "./host-web-server.js";
 import { isLoopbackHost, parseListen, rememberPort, rememberedPort, stickyListen } from "./host-listen.js";
 import { HostTlsReloader, resolveHostTls } from "./host-tls.js";
 import { HostNetworkAccess } from "./host-network.js";
 import { ServiceAnnouncer, discoverHosts, machineDisplayName } from "./host-discovery.js";
-import { TAU_SERVICE_TYPE, isServiceType } from "../shared/discovery.js";
+import { isServiceType } from "../shared/discovery.js";
 import { NetworkContributions } from "./host-network-contributions.js";
 import { NO_BUNDLED_KITS, inspectBundledKits, loadBundledKitDesktopHalves, shippedHostExtensions } from "./bundled-kits.js";
 import { loadHostExtensionPackages, inspectExtensionPackages } from "./extension-packages.js";
@@ -62,6 +62,9 @@ import { HostUpdater, localWindowUpdatePort } from "./host-updater.js";
 import { hostInstaller } from "./update-installers.js";
 import { readUpdateFeed, releaseKeysFor } from "./release-feed.js";
 import { RELEASE_PUBLIC_KEYS } from "../shared/release-keys.js";
+import { HostConnect } from "./host-connect.js";
+import { openConnectListener } from "./connect-listener.js";
+import { appIdentity, tauHomeDir } from "./app-identity.js";
 
 /**
  * The host without a window: the same `PiHost` and the same method table,
@@ -70,12 +73,12 @@ import { RELEASE_PUBLIC_KEYS } from "../shared/release-keys.js";
  */
 const requestedWorkspace = process.env.TAU_WORKSPACE || undefined;
 const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
-const userData = process.env.TAU_USER_DATA || join(homedir(), ".tau", "headless");
+const userData = process.env.TAU_USER_DATA || join(tauHomeDir(), "headless");
 const listen = process.env.TAU_HOST_LISTEN || "127.0.0.1:0";
 // A loopback listener for a reverse proxy on this machine; every peer on it counts as remote.
 const proxyListen = process.env.TAU_HOST_PROXY_LISTEN;
 // Isolated instances and tests announce and browse `_tau-test._tcp`, never the real type.
-const bonjourType = process.env.TAU_BONJOUR_SERVICE_TYPE || TAU_SERVICE_TYPE;
+const bonjourType = process.env.TAU_BONJOUR_SERVICE_TYPE || appIdentity().bonjourType;
 if (!isServiceType(bonjourType)) throw new Error(`TAU_BONJOUR_SERVICE_TYPE must look like _name._tcp; ${bonjourType} does not.`);
 /** How often network access looks again at Tailscale's addresses and the certificate files. */
 const NETWORK_POLL_MS = 60_000;
@@ -114,6 +117,7 @@ const pushes = new HostPushCoalescer((event) => {
   return push.seq;
 });
 const jobs = new HostJobRunner((event) => broadcast(event));
+let machineRoutes: MachineKitRoute | undefined;
 /** The other direction: what a host extension asks one client's process to do. */
 const clientCalls = new ClientCalls((connection, call) => socket?.sendCall(connection, call) ?? false);
 let socket: SocketHostTransport | undefined;
@@ -128,6 +132,8 @@ function broadcast(event: HostPushEvent): void {
 }
 
 function publish(event: HostEvent): void {
+  event = machineRoutes?.localEvent(event) ?? event;
+  if (event.type === "host-update" && event.update.type === "project") machineRoutes?.refresh();
   if (event.type === "event-log") hostLog.info(event.label, event.detail);
   keepAwake.observe(event);
   resources.observe(event);
@@ -310,6 +316,7 @@ async function main(): Promise<void> {
   }
   let listening: HostListenInfo | undefined;
   let network: HostNetworkAccess | undefined;
+  let connect: HostConnect | undefined;
   let mainTls: HostTlsReloader | undefined;
   const reloadCertificates = async (): Promise<{ changed: boolean }> => {
     const own = mainTls?.reload() ?? false;
@@ -371,17 +378,21 @@ async function main(): Promise<void> {
     dir: join(userData, "updates"),
     fetch: (url, init) => fetch(url, init),
     channel: async () => (await defaultHostConfigManager.read()).updates?.channel,
-    window: localWindowUpdatePort(clientCalls),
+    // A build that never updates has no window updater to hand an install to.
+    ...(appIdentity().updates ? { window: localWindowUpdatePort(clientCalls) } : {}),
     // Only a service is started again; any other host keeps running until its next start.
     ...(serviceKind ? { restart: () => shutdown(RESTART_EXIT_CODE) } : {}),
     exit: () => shutdown(0),
     publish: (status) => publish({ type: "update-status", status }),
     log: hostLog,
   });
+  machineRoutes = new MachineKitRoute({ machines: () => machines, active: () => started.current()?.activeThreadIdentity() });
   const methods = createHostMethods({
+    machineRoutes,
     updates: () => updates,
     clientCalls,
     connections: () => connectionsService(),
+    connect: () => connect,
     service: () => service,
     machines: () => machines,
     resources: () => resources,
@@ -432,6 +443,7 @@ async function main(): Promise<void> {
       keepAwake.dispose();
       clearInterval(networkPoll);
       updates?.dispose();
+      await connect?.close();
       await network?.close().catch((error: unknown) => hostLog.warn("host-network.close-failed", error));
       await socket?.close();
       // Only a service host wrote the file; a window's supervisor removes its own.
@@ -469,13 +481,15 @@ async function main(): Promise<void> {
   const web = existsSync(join(webRoot, "index.html"))
     ? createWebClientServer({ dir: webRoot, ...(tls ? { tls } : {}) })
     : undefined;
-  socket = await startSocketHostTransport({
+  const transportOptions: SocketHostTransportOptions = {
     listen: listenOn,
     methods: compactor.observe(methods),
     pushLog,
     beforeReply: () => pushes.flush(),
     onSnapshotClient: () => pushes.resendWholeOutputs(),
     onThreadsSubscribed: (sessionIds) => pushes.resendWholeOutputs(sessionIds),
+    onTopicsSubscribed: (connection, topics, emit) => machineRoutes?.subscribe(connection, topics, emit),
+    onClientDetached: (connection) => machineRoutes?.detach(connection),
     hostVersion,
     capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay],
     host: { id: hostId, name: machineName, endpoints: () => networkEndpoints },
@@ -487,7 +501,18 @@ async function main(): Promise<void> {
     clients,
     calls: clientCalls,
     logger: hostLog,
+  };
+  socket = await startSocketHostTransport(transportOptions);
+  connect = new HostConnect({
+    userData,
+    host: { id: hostId, name: machineName },
+    createLink: () => access.createLink({ lifetimeMs: 120_000 }),
+    listen: async () => {
+      const material = resolveHostTls({ TAU_HOST_TLS: "1" }, { userData, bindHost: "127.0.0.1" })!;
+      return openConnectListener(socket!, material);
+    },
   });
+  await connect.start().catch((error: unknown) => hostLog.warn("connect.start-failed", error));
   if (mainTls) mainTls.track(socket.server as unknown as TlsServer);
   // The smoke test reads this line to learn the port when it asked for 0.
   listening = { scheme: socket.scheme, host: boundHost, port: socket.port, webClient: web !== undefined, ...(tls ? { fingerprint: tls.fingerprint, publicKey: tls.publicKey } : {}) };

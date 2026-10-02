@@ -202,7 +202,7 @@ describe("workbench layout", () => {
     expect(within(stage).getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Browser", "Tree", "a.ts"]);
   });
 
-  it("gives the chat the design's 380 px by default, the stage the rest, and keeps a dragged width", async () => {
+  it("gives the chat the design's 470 px by default, the stage the rest, and keeps a dragged width", async () => {
     setWindowWidth(1600);
     const files: DesktopExtension = { id: "test.files", name: "File opener", activate(plugin) {
       plugin.registerCommand({ id: "test.open-file", label: "Open the fixture file", group: "Test", run: (actions) => actions.openFile("/project/notes.txt") });
@@ -211,11 +211,11 @@ describe("workbench layout", () => {
     await runPaletteCommand("Open the fixture file");
     await screen.findByRole("region", { name: "Stage" });
     const center = view.container.querySelector(".workbench-center") as HTMLElement;
-    expect(center.style.getPropertyValue("--chat-width")).toBe("380px");
+    expect(center.style.getPropertyValue("--chat-width")).toBe("470px");
     const divider = screen.getByRole("separator", { name: "Resize chat" });
     fireEvent.keyDown(divider, { key: "ArrowRight" });
-    expect(center.style.getPropertyValue("--chat-width")).toBe("396px");
-    expect(view.storage.get("tau:chat-width")).toBe("396");
+    expect(center.style.getPropertyValue("--chat-width")).toBe("486px");
+    expect(view.storage.get("tau:chat-width")).toBe("486");
   });
 
   it("maximizes the stage when the divider is pushed past the chat's minimum", async () => {
@@ -289,11 +289,11 @@ describe("workbench layout", () => {
       return screen.findByRole("region", { name: "Stage" });
     }
 
-    it("hides the stage from the header and brings it back as it was", async () => {
+    it("hides the stage from the dock toggle and brings it back as it was", async () => {
       setWindowWidth(1440);
       const view = renderApp(undefined, { extensions: [rail, files] });
       await openFile();
-      fireEvent.click(screen.getByRole("button", { name: "Hide stage" }));
+      await runPaletteCommand("Toggle dock");
       await waitFor(() => expect(screen.queryByRole("region", { name: "Stage" })).toBeNull());
       expect(view.container.querySelector(".workbench-center")?.className).not.toContain("stage-open");
       const stage = await showStage();
@@ -305,11 +305,47 @@ describe("workbench layout", () => {
       renderApp(undefined, { extensions: [rail, files] });
       await openFile();
       await openFile("Open the other fixture");
-      fireEvent.click(screen.getByRole("button", { name: "Hide stage" }));
+      await runPaletteCommand("Toggle dock");
       await waitFor(() => expect(screen.queryByRole("region", { name: "Stage" })).toBeNull());
       const stage = await openFile("Open the fixture relatively");
       expect(within(stage).getAllByRole("tab", { name: /notes\.txt/ })).toHaveLength(1);
       expect(within(stage).getByRole("tab", { name: /notes\.txt/ }).getAttribute("aria-selected")).toBe("true");
+    });
+
+    it("collapses the conversation to its spine beside the stage, with the composer over the stage, and opens it again", async () => {
+      setWindowWidth(1440);
+      const view = renderApp(undefined, { extensions: [rail, files] });
+      const stage = await openFile();
+      const center = () => view.container.querySelector(".workbench-center")?.className ?? "";
+      fireEvent.click(screen.getByRole("button", { name: "Collapse conversation" }));
+      const spine = await screen.findByRole("complementary", { name: "Thread" });
+      expect(center()).toContain("spine");
+      expect(center()).toContain("composer-floating");
+      expect(center()).toContain("conversation-folded");
+      expect((view.container.querySelector("textarea") as HTMLTextAreaElement).placeholder).toBe("Say something to the thread…");
+      // The strip's last button leads back too.
+      expect(within(stage).getByRole("button", { name: "Show conversation" })).toBeTruthy();
+      fireEvent.click(within(spine).getByRole("button", { name: "Open conversation" }));
+      await waitFor(() => expect(center()).toContain("stage-open"));
+      expect(center()).not.toContain("spine");
+      expect(screen.queryByRole("complementary", { name: "Thread" })).toBeNull();
+    });
+
+    it("keeps the spine across a restart, and drops it with the stage", async () => {
+      setWindowWidth(1440);
+      const storage = createMemoryStorage();
+      const first = renderApp(undefined, { extensions: [rail, files], storage });
+      await openFile();
+      fireEvent.click(screen.getByRole("button", { name: "Collapse conversation" }));
+      await screen.findByRole("complementary", { name: "Thread" });
+      expect(storage.get("tau:spine")).toBe("true");
+      first.unmount();
+      // A restart: the stage opens later than the first paint, and the choice is still the user's.
+      const second = renderApp(undefined, { extensions: [rail, files], storage });
+      await openFile();
+      expect(second.container.querySelector(".workbench-center")?.className).toContain("spine");
+      fireEvent.click(await screen.findByRole("button", { name: "Open conversation" }));
+      await waitFor(() => expect(storage.get("tau:spine")).toBe("false"));
     });
 
     it("maximizes the stage over the whole centre, with no strip for the chat, and its toggle brings the chat back", async () => {

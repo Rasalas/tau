@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { gitExecutable } from "tau/host-extension";
+import { gitExecutable, tauHomeDir } from "tau/host-extension";
 
 const execFileAsync = promisify(execFile);
 const PATCH_BUFFER = 64 * 1024 * 1024;
@@ -42,6 +42,19 @@ export const runAgentGit: AgentGitRunner = async (cwd, args, options = {}) => {
 /** The base a branch started from, in the repository's own config. */
 export function branchBaseConfigKey(branch: string): string {
   return `branch.${branch}.tau-base`;
+}
+
+/** The intended integration branch, independent of the checkout's current HEAD. */
+export function branchReviewTargetConfigKey(branch: string): string {
+  return `branch.${branch}.tau-review-target`;
+}
+
+/** A local or remote-tracking branch's integration name; commits and tags are not targets. */
+export async function branchTargetOfRef(cwd: string, ref: string, runGit: (cwd: string, args: string[]) => Promise<string> = runAgentGit): Promise<string | undefined> {
+  const full = (await runGit(cwd, ["rev-parse", "--symbolic-full-name", ref]).catch(() => "")).trim();
+  if (full.startsWith("refs/heads/")) return full.slice("refs/heads/".length);
+  if (/^refs\/remotes\/[^/]+\//u.test(full)) return full.replace(/^refs\/remotes\/[^/]+\//u, "");
+  return undefined;
 }
 
 export async function readBranchBase(
@@ -122,7 +135,8 @@ export function resolveWorktreeParent(mainRoot: string, configured?: string): st
 /**
  * Reads the configured worktree directory for a repository.
  * Checks `.tau/project.json` in the workspace/mainRoot, then `TAU_WORKTREES_DIR` env var,
- * and finally global `~/.tau/project.json` or `~/.tau/config.json`.
+ * and finally global `~/.tau/project.json` or Tau's config (`TAU_CONFIG_FILE`, else `~/.tau/config.json`),
+ * where Settings writes `values["tau.workspace.worktree-directory"]`.
  */
 export async function readWorktreeConfig(mainRoot: string, cwd?: string): Promise<string | undefined> {
   const candidates = [
@@ -150,14 +164,19 @@ export async function readWorktreeConfig(mainRoot: string, cwd?: string): Promis
   }
 
   const globalCandidates = [
-    join(homedir(), ".tau", "project.json"),
-    join(homedir(), ".tau", "config.json"),
+    join(tauHomeDir(), "project.json"),
+    process.env.TAU_CONFIG_FILE || join(tauHomeDir(), "config.json"),
   ];
   for (const candidate of globalCandidates) {
     try {
       const raw = JSON.parse(await readFile(candidate, "utf8")) as Record<string, unknown>;
       if (typeof raw.worktreeDirectory === "string" && raw.worktreeDirectory.trim()) {
         return raw.worktreeDirectory.trim();
+      }
+      // Settings → Connections → This machine writes Tau's config here.
+      const values = raw.values as Record<string, unknown> | undefined;
+      if (typeof values?.["tau.workspace.worktree-directory"] === "string" && (values["tau.workspace.worktree-directory"] as string).trim()) {
+        return (values["tau.workspace.worktree-directory"] as string).trim();
       }
       const options = raw.options as Record<string, unknown> | undefined;
       if (typeof options?.["worktree-directory"] === "string" && (options["worktree-directory"] as string).trim()) {
@@ -251,6 +270,8 @@ export async function createAgentWorktree(options: {
   // The base is the child's own starting point, so its diff is exactly what it
   // changed — never what the parent had already changed before it started.
   await runGit(parentCwd, ["config", branchBaseConfigKey(branch), baseCommit]).catch(() => "");
+  const target = (await runGit(parentCwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => "")).trim();
+  if (target) await runGit(parentCwd, ["config", branchReviewTargetConfigKey(branch), target]);
   return { path, branch, baseCommit, withUncommitted: state.dirty };
 }
 
@@ -378,8 +399,8 @@ function gitFailure(error: unknown): { code?: number; stdout?: string; message: 
 }
 
 /** Git 2.38's `merge-tree --write-tree`: the merge of HEAD and `branch` as a tree, and its conflicted paths. */
-export async function previewBranchMerge(cwd: string, branch: string, runGit: AgentGitRunner = runAgentGit): Promise<BranchMergePreview> {
-  const head = (await runGit(cwd, ["rev-parse", "--verify", "HEAD"])).trim();
+export async function previewBranchMerge(cwd: string, branch: string, runGit: AgentGitRunner = runAgentGit, target = "HEAD"): Promise<BranchMergePreview> {
+  const head = (await runGit(cwd, ["rev-parse", "--verify", `${target}^{commit}`])).trim();
   const tip = (await runGit(cwd, ["rev-parse", "--verify", `${branch}^{commit}`])).trim();
   const merged = await runGit(cwd, ["merge-base", "--is-ancestor", tip, head]).then(() => true, () => false);
   if (merged) return { tree: (await runGit(cwd, ["rev-parse", `${head}^{tree}`])).trim(), conflicts: [], merged: true };
@@ -441,6 +462,8 @@ export async function mergeBranchIntoCheckout(options: {
   /** The commit the branch started from, when it differs from what HEAD was then. */
   base?: string;
   message?: string;
+  /** Turns a merge with conflicts into a tree without them (the user's picks); without it a conflict merges nothing. */
+  resolve?: (tree: string, conflicts: readonly string[]) => Promise<string>;
   runGit?: AgentGitRunner;
 }): Promise<BranchMergeOutcome> {
   const runGit = options.runGit ?? runAgentGit;
@@ -454,7 +477,7 @@ export async function mergeBranchIntoCheckout(options: {
 
   const preview = await previewBranchMerge(cwd, branch, runGit);
   if (preview.merged) return { branch, state: "already-merged", files: [], detail: `${branch} is already merged.` };
-  if (preview.conflicts.length > 0) {
+  if (preview.conflicts.length > 0 && !options.resolve) {
     return { branch, state: "conflict", files: preview.conflicts, detail: `${branch} conflicts with this checkout in ${preview.conflicts.length} file${preview.conflicts.length === 1 ? "" : "s"}; nothing was applied.` };
   }
   const head = (await runGit(cwd, ["rev-parse", "--verify", "HEAD"])).trim();
@@ -463,8 +486,9 @@ export async function mergeBranchIntoCheckout(options: {
   const worktreeTree = await captureWorktreeTree(cwd, runGit);
   const indexTree = (await runGit(cwd, ["write-tree"])).trim();
   const message = options.message ?? `Merge branch '${branch}'`;
+  const tree = preview.conflicts.length > 0 && options.resolve ? await options.resolve(preview.tree, preview.conflicts) : preview.tree;
 
-  if (worktreeTree === headTree && indexTree === headTree) {
+  if (tree === preview.tree && worktreeTree === headTree && indexTree === headTree) {
     try {
       await runGit(cwd, ["merge", "--no-ff", "--no-edit", "-m", message, tip]);
     } catch (error) {
@@ -476,7 +500,7 @@ export async function mergeBranchIntoCheckout(options: {
   }
 
   // A path blocks when the checkout holds a version of it that neither HEAD, the base nor the result keeps.
-  const keptIn = [headTree, preview.tree, ...(options.base ? [`${options.base}^{tree}`] : [])];
+  const keptIn = [headTree, tree, ...(options.base ? [`${options.base}^{tree}`] : [])];
   const blocking = new Set<string>();
   for (const held of new Set([worktreeTree, indexTree])) {
     const lost = await Promise.all(keptIn.map((kept) => changedPaths(cwd, held, kept, runGit)));
@@ -486,12 +510,12 @@ export async function mergeBranchIntoCheckout(options: {
     const files = [...blocking].sort();
     return { branch, state: "blocked", files, detail: `This checkout has changes the merge would overwrite: ${files.slice(0, 5).join(", ")}${files.length > 5 ? " …" : ""}. Commit or move them first; nothing was applied.` };
   }
-  const commit = (await runGit(cwd, ["commit-tree", preview.tree, "-p", head, "-p", tip, "-m", message])).trim();
+  const commit = (await runGit(cwd, ["commit-tree", tree, "-p", head, "-p", tip, "-m", message])).trim();
   // Files the checkout has that the result drops: untracked ones read-tree would leave behind.
-  const dropped = [...(await changedPaths(cwd, worktreeTree, preview.tree, runGit))].filter(([, status]) => status === "D").map(([path]) => path);
+  const dropped = [...(await changedPaths(cwd, worktreeTree, tree, runGit))].filter(([, status]) => status === "D").map(([path]) => path);
   await runGit(cwd, ["read-tree", "--reset", "-u", commit]);
   for (const path of dropped) await rm(join(cwd, path), { force: true }).catch(() => undefined);
   await runGit(cwd, ["update-ref", "-m", `merge ${branch}: Merge made by Tau`, "HEAD", commit, head]);
   await runGit(cwd, ["update-ref", "ORIG_HEAD", head]).catch(() => "");
-  return { branch, state: "merged", commit, files: [], detail: `Merged ${branch} over this checkout's uncommitted work, which it already held.` };
+  return { branch, state: "merged", commit, files: [], detail: tree === preview.tree ? `Merged ${branch} over this checkout's uncommitted work, which it already held.` : `Merged ${branch} with your picks.` };
 }

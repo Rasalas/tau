@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { AppWindow, Hand, KeyRound, X } from "lucide-react";
-import { errorMessage, hostCommandAllowed, tooltipProps, useCommandAllowed, type HostExtensionClient, type RegionProps, type WorkbenchActions } from "tau";
-import { PREVIEW_EXTENSION_ID, PREVIEW_PANEL, TAKEOVER_EXTENSION_ID, webUrl, type Takeover } from "./protocol.js";
+import { AppWindow, Check, Cookie, ExternalLink, Hand } from "lucide-react";
+import { errorMessage, hostCommandAllowed, tooltipProps, useCommandAllowed, useHostName, type HostExtensionClient, type RegionProps, type ToolCardProps, type WorkbenchActions } from "tau";
+import { PREVIEW_EXTENSION_ID, PREVIEW_PANEL, TAKEOVER_EXTENSION_ID, TAKEOVER_TIMEOUT_MS, webUrl, type Takeover } from "./protocol.js";
 import { services, takeovers, workbench } from "./store.js";
 
 export interface TakeoverHosts {
@@ -31,17 +31,17 @@ export function windowTooltip(driven: { app?: string; title?: string } | undefin
 
 /**
  * The label of the one button that brings the target forward; none when there
- * is nothing to show. Away from the host's machine the Preview opens here
- * instead, where the user takes over by tapping and typing. A window's app is
- * the button's icon and tooltip, never its text.
+ * is nothing to show or the Preview came forward by itself. Away from the
+ * host's machine the Preview opens here instead, where the user takes over by
+ * tapping and typing. A window's app is the button's icon and tooltip, never its text.
  */
 export function jumpLabel(takeover: Takeover, remote = false, watchOnly = false): string | undefined {
   // A device that may not type follows along; it cannot take over.
   const here = watchOnly ? "Watch here" : "Take over here";
   switch (takeover.target.kind) {
-    case "preview": return remote ? here : "Show the page";
+    case "preview": return remote ? here : undefined;
     case "window": return remote ? here : "Show window";
-    case "browser": return "Open in browser";
+    case "browser": return "Open in my browser";
     default: return undefined;
   }
 }
@@ -56,6 +56,8 @@ const settle = () => new Promise<void>((resolve) => { setTimeout(resolve, 50); }
 
 /** Takeovers whose Preview this client moved onto the stage, so Done can put it back. */
 const staged = new Set<string>();
+/** Takeovers whose page this client already brought forward once. */
+const shown = new Set<string>();
 
 /** The Preview on the stage beside the chat, large enough to sign in; the dock's toggle puts it back. */
 async function enlargePreview(actions: WorkbenchActions, takeoverId: string): Promise<void> {
@@ -105,6 +107,7 @@ export async function jumpTo(takeover: Takeover, actions: WorkbenchActions, host
 
 /** After Done or Cancel: the Preview goes back where it was, if this client staged it. */
 export function putBack(takeoverId: string, actions: WorkbenchActions | undefined): void {
+  shown.delete(takeoverId);
   if (!staged.delete(takeoverId)) return;
   if (actions && isStagedPreview(actions)) actions.togglePanelMaximized?.();
 }
@@ -112,69 +115,6 @@ export function putBack(takeoverId: string, actions: WorkbenchActions | undefine
 function hostOf(url: string | undefined): string | undefined {
   if (!url) return undefined;
   try { return new URL(url).hostname || undefined; } catch { return undefined; }
-}
-
-/**
- * The two ways to a password the Preview cannot reach: type it into the page,
- * or sign in in the user's own browser and bring that site's cookies over.
- * Both only on a click; the import dialog's Import is the consent.
- */
-function PasswordWays({ takeover, actions, hosts, remote }: { takeover: Takeover; actions: WorkbenchActions; hosts: TakeoverHosts; remote: boolean }) {
-  const cookies = useSyncExternalStore(services.cookies.subscribe, services.cookies.get);
-  const [pageUrl, setPageUrl] = useState(takeover.target.kind === "preview" ? takeover.target.url : undefined);
-  const [status, setStatus] = useState<string>();
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    if (pageUrl) return;
-    let live = true;
-    void hosts.preview.invoke("state").then((state) => {
-      const url = webUrl((state as { url?: unknown } | undefined)?.url);
-      if (live && url) setPageUrl(url);
-    }, () => undefined);
-    return () => { live = false; };
-  }, [hosts, pageUrl]);
-  const site = hostOf(pageUrl);
-  if (remote) {
-    // The browser to import from and the one to open are on the host's machine, not on this device.
-    return (
-      <div className="takeover-passwords" role="group" aria-label="Your passwords">
-        <p>
-          Type the password into the Preview's field on this device: it goes to the page and is never recorded. This device's
-          password manager can fill that field.
-        </p>
-      </div>
-    );
-  }
-  const bringOver = () => {
-    if (!cookies || !site) return;
-    setBusy(true);
-    setStatus(undefined);
-    cookies.importSite({ site }).then((result) => {
-      if (!result) setStatus("Nothing was imported.");
-      else setStatus(`Imported ${String(result.imported)} ${result.imported === 1 ? "cookie" : "cookies"} into the Preview${result.reloaded ? "; the page reloaded" : ""}. Press Done when you are signed in.`);
-    }, (error: unknown) => setStatus(errorMessage(error))).finally(() => setBusy(false));
-  };
-  return (
-    <div className="takeover-passwords" role="group" aria-label="Your passwords">
-      <p>
-        The Preview cannot reach your password manager. Type or paste the password into the page — or sign in in your own
-        browser, where your passwords are, and bring the session over.
-      </p>
-      {site ? (
-        <div className="takeover-password-steps">
-          <button type="button" className="takeover-button" onClick={() => actions.openExternal(pageUrl!)} {...tooltipProps(`Opens ${site} in your default browser`)}>
-            Open in browser
-          </button>
-          {cookies ? (
-            <button type="button" className="takeover-button" disabled={busy} onClick={bringOver} {...tooltipProps(`You pick the browser; only ${site}'s cookies are copied into the Preview`)}>
-              {busy ? "Importing…" : "Bring the session over"}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-      {status ? <p className="takeover-password-status" role="status">{status}</p> : null}
-    </div>
-  );
 }
 
 /** What the user takes over, as it looks now, on a device away from the host's machine; a tap opens it. */
@@ -193,21 +133,56 @@ function TakeoverFrame({ takeover, onOpen, watchOnly }: { takeover: Takeover; on
 
 const READ_ONLY_REASON = "This device is paired Read only: answer on a device with Full access";
 
+/** The one hand every "Your turn" draws; one element, so a memoized row stays put. */
+export const HAND = <Hand size={11} aria-hidden="true" />;
+
+/** Done and Cancel, from the card or from the phone's bar; `after` runs once the answer is on its way. */
+function useFinish(takeover: Takeover, actions: WorkbenchActions, hosts: TakeoverHosts, after?: () => void) {
+  const mayDone = useCommandAllowed(TAKEOVER_EXTENSION_ID, "done");
+  const mayCancel = useCommandAllowed(TAKEOVER_EXTENSION_ID, "cancel");
+  const [busy, setBusy] = useState(false);
+  const finish = (command: "done" | "cancel") => {
+    setBusy(true);
+    putBack(takeover.id, actions);
+    after?.();
+    hosts.own.invoke(command, { id: takeover.id }).catch((error: unknown) => {
+      setBusy(false);
+      actions.notify(errorMessage(error));
+    });
+  };
+  const buttons = <>
+    <button type="button" className="takeover-link" disabled={busy || !mayCancel} onClick={() => finish("cancel")} {...tooltipProps(mayCancel ? "Cancel: the agent stops" : READ_ONLY_REASON)}>Cancel</button>
+    <button type="button" className="takeover-done" disabled={busy || !mayDone} onClick={() => finish("done")} {...tooltipProps(mayDone ? "Hand control back to the agent" : READ_ONLY_REASON)}>
+      <Check size={11} aria-hidden="true" />Done
+    </button>
+  </>;
+  return { buttons, readOnly: !mayDone || !mayCancel };
+}
+
+/** The agent's words with the page's host in mono, as one sentence. */
+function Reason({ text, host }: { text: string; host: string | undefined }) {
+  const at = host ? text.indexOf(host) : -1;
+  const end = /[.!?]$/u.test(text) ? "" : ".";
+  return at < 0 || !host ? <>{text}{end}</> : <>{text.slice(0, at)}<code>{host}</code>{text.slice(at + host.length)}{end}</>;
+}
+
 function TakeoverCard({ takeover, actions, hosts }: { takeover: Takeover; actions: WorkbenchActions; hosts: TakeoverHosts }) {
   const screen = useSyncExternalStore(services.screen.subscribe, services.screen.get);
   const preview = useSyncExternalStore(services.preview.subscribe, services.preview.get);
+  const cookies = useSyncExternalStore(services.cookies.subscribe, services.cookies.get);
   const remote = preview?.remote?.() ?? false;
-  const mayDone = useCommandAllowed(TAKEOVER_EXTENSION_ID, "done");
-  const mayCancel = useCommandAllowed(TAKEOVER_EXTENSION_ID, "cancel");
-  // Passwords are typed into the page; a device that may not type has no use for the help.
+  // Passwords are typed into the page; a device that may not type has no use for the ways to them.
   const mayType = useCommandAllowed(PREVIEW_EXTENSION_ID, "input");
-  const readOnly = !mayDone || !mayCancel;
-  const [passwords, setPasswords] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const { buttons, readOnly } = useFinish(takeover, actions, hosts);
+  const { target } = takeover;
   const [driven, setDriven] = useState<{ app?: string; title?: string }>();
   const [appIcon, setAppIcon] = useState<string | null>(null);
+  const [pageUrl, setPageUrl] = useState(target.kind === "preview" ? target.url : undefined);
+  const [status, setStatus] = useState<string>();
+  const [importing, setImporting] = useState(false);
+  const jump = () => { jumpTo(takeover, actions, hosts).catch((error: unknown) => actions.notify(errorMessage(error))); };
   useEffect(() => {
-    if (takeover.target.kind !== "window" || !screen) return;
+    if (target.kind !== "window" || !screen) return;
     let live = true;
     void screen.load(takeover.threadId).then((state) => {
       if (!live) return;
@@ -217,58 +192,65 @@ function TakeoverCard({ takeover, actions, hosts }: { takeover: Takeover; action
       if (app && !isGenericRuntime(app)) void screen.icon?.(takeover.threadId).then((url) => { if (live) setAppIcon(url); }, () => undefined);
     }, () => undefined);
     return () => { live = false; };
-  }, [screen, takeover]);
+  }, [screen, takeover, target.kind]);
+  useEffect(() => {
+    if (target.kind !== "preview" || pageUrl) return;
+    let live = true;
+    void hosts.preview.invoke("state").then((state) => {
+      const url = webUrl((state as { url?: unknown } | undefined)?.url);
+      if (live && url) setPageUrl(url);
+    }, () => undefined);
+    return () => { live = false; };
+  }, [hosts, pageUrl, target.kind]);
+  // On the host's machine the page comes forward once, without a click (design 3d).
+  useEffect(() => {
+    if (target.kind !== "preview" || remote || !preview || shown.has(takeover.id)) return;
+    shown.add(takeover.id);
+    jump();
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- once per takeover
+  }, [preview, remote, takeover.id, target.kind]);
   const label = jumpLabel(takeover, remote, !mayType);
-  const showsFrame = remote && (takeover.target.kind === "preview" || takeover.target.kind === "window");
-  const where = takeover.target.kind === "browser" ? takeover.target.url : takeover.target.kind === "window" ? windowTooltip(driven) : undefined;
-  const passwordsApply = takeover.target.kind === "preview" && mayType;
-  const finish = (command: "done" | "cancel") => {
-    setBusy(true);
-    putBack(takeover.id, actions);
-    hosts.own.invoke(command, { id: takeover.id }).catch((error: unknown) => {
-      setBusy(false);
-      actions.notify(errorMessage(error));
-    });
+  const showsFrame = remote && (target.kind === "preview" || target.kind === "window");
+  const where = target.kind === "browser" ? target.url : target.kind === "window" ? windowTooltip(driven) : undefined;
+  const site = target.kind === "preview" && !remote && mayType ? hostOf(pageUrl) : undefined;
+  const bringOver = () => {
+    if (!cookies || !site) return;
+    setImporting(true);
+    setStatus(undefined);
+    cookies.importSite({ site }).then((result) => {
+      if (!result) setStatus("Nothing was imported.");
+      else setStatus(`Imported ${String(result.imported)} ${result.imported === 1 ? "cookie" : "cookies"} into the Preview${result.reloaded ? "; the page reloaded" : ""}. Press Done when you are signed in.`);
+    }, (error: unknown) => setStatus(errorMessage(error))).finally(() => setImporting(false));
   };
-  const jump = () => { jumpTo(takeover, actions, hosts).catch((error: unknown) => actions.notify(errorMessage(error))); };
   return (
     <section className="takeover-card" role="region" aria-label="Your turn">
-      <div className="takeover-row">
-        <Hand size={14} className="takeover-icon" aria-hidden="true" />
-        <strong>Your turn</strong>
-        <span className="takeover-reason" {...tooltipProps(takeover.reason, { when: "truncated" })}>{takeover.reason}</span>
-        <span className="takeover-actions">
-          {passwordsApply ? (
-            <button
-              type="button"
-              className={`takeover-icon-button${passwords ? " active" : ""}`}
-              aria-label="Your passwords"
-              aria-expanded={passwords}
-              onClick={() => setPasswords((open) => !open)}
-              {...tooltipProps("Your passwords")}
-            >
-              <KeyRound size={14} aria-hidden="true" />
-            </button>
-          ) : null}
-          {label ? (
-            <button type="button" className="takeover-button" onClick={jump} {...(where ? tooltipProps(where, takeover.target.kind === "browser" ? { variant: "code" } : {}) : {})}>
-              {takeover.target.kind === "window"
-                ? appIcon ? <img className="takeover-app-icon" src={appIcon} alt="" draggable={false} /> : <AppWindow size={14} aria-hidden="true" />
-                : null}
-              {label}
-            </button>
-          ) : null}
-          <button type="button" className="takeover-button primary" disabled={busy || !mayDone} onClick={() => finish("done")} {...tooltipProps(mayDone ? "Hand control back to the agent" : READ_ONLY_REASON)}>
-            Done
-          </button>
-          <button type="button" className="takeover-icon-button" aria-label="Cancel" disabled={busy || !mayCancel} onClick={() => finish("cancel")} {...tooltipProps(mayCancel ? "Cancel: the agent stops" : READ_ONLY_REASON)}>
-            <X size={14} aria-hidden="true" />
-          </button>
-        </span>
-      </div>
+      <header><Hand size={12} aria-hidden="true" />Your turn<span>{`waits up to ${String(TAKEOVER_TIMEOUT_MS / 60_000)} min`}</span></header>
+      <p><Reason text={takeover.reason} host={hostOf(target.kind === "window" || target.kind === "none" ? undefined : pageUrl ?? target.url)} /> The agent's preview and computer-use calls are held until you press Done.</p>
       {showsFrame ? <TakeoverFrame takeover={takeover} onOpen={jump} watchOnly={!mayType} /> : null}
       {readOnly ? <p className="takeover-note">{READ_ONLY_REASON}.</p> : null}
-      {passwords ? <PasswordWays takeover={takeover} actions={actions} hosts={hosts} remote={remote} /> : null}
+      <div className="takeover-actions">
+        {site && cookies ? (
+          <button type="button" className="takeover-link" disabled={importing} onClick={bringOver} {...tooltipProps(`You pick the browser; only ${site}'s cookies are copied into the Preview`)}>
+            <Cookie size={11} aria-hidden="true" />{importing ? "Importing…" : "Bring my browser session over"}
+          </button>
+        ) : null}
+        {site ? (
+          <button type="button" className="takeover-link" onClick={() => actions.openExternal(pageUrl!)} {...tooltipProps(`Opens ${site} in your default browser, where your passwords are`)}>
+            <ExternalLink size={11} aria-hidden="true" />Open in my browser
+          </button>
+        ) : null}
+        {label ? (
+          <button type="button" className="takeover-link" onClick={jump} {...(where ? tooltipProps(where, target.kind === "browser" ? { variant: "code" } : {}) : {})}>
+            {target.kind === "window"
+              ? appIcon ? <img className="takeover-app-icon" src={appIcon} alt="" draggable={false} /> : <AppWindow size={11} aria-hidden="true" />
+              : target.kind === "browser" ? <ExternalLink size={11} aria-hidden="true" /> : null}
+            {label}
+          </button>
+        ) : null}
+        <span className="takeover-spacer" />
+        {buttons}
+      </div>
+      {status ? <p className="takeover-note" role="status">{status}</p> : null}
     </section>
   );
 }
@@ -283,15 +265,52 @@ export function createTakeoverRegion(hosts: TakeoverHosts) {
   };
 }
 
-/** The rail row's mark for a thread that waits for the user. */
-export function TakeoverRowMark({ session }: { session: { id: string } }) {
-  const list = useSyncExternalStore(takeovers.subscribe, takeovers.get);
-  const takeover = list.find((entry) => entry.threadId === session.id);
-  if (!takeover) return null;
-  const label = `Your turn: ${takeover.reason}`;
-  return (
-    <span className="takeover-row-mark" role="img" aria-label={label} {...tooltipProps(label)}>
-      <Hand size={12} aria-hidden="true" />
-    </span>
-  );
+/** The first takeover of the page or a window: what the Preview's frame stands for. */
+export const heldTakeover = (list: readonly Takeover[]) => list.find((entry) => entry.target.kind === "preview" || entry.target.kind === "window");
+
+/** Over a phone's Preview while the user holds it: whose turn, and the way back (design 3f). */
+export function createTakeoverBar(hosts: TakeoverHosts) {
+  function Bar({ takeover, actions }: { takeover: Takeover; actions: WorkbenchActions }) {
+    const { buttons } = useFinish(takeover, actions, hosts, () => actions.closePanel?.(PREVIEW_PANEL));
+    return (
+      <div className="takeover-bar" role="region" aria-label="Your turn">
+        <Hand size={16} aria-hidden="true" />
+        <span {...tooltipProps(takeover.reason, { when: "truncated" })}>Your turn · {takeover.reason}</span>
+        {buttons}
+      </div>
+    );
+  }
+  return function TakeoverBar({ actions }: { actions: WorkbenchActions }) {
+    const takeover = heldTakeover(useSyncExternalStore(takeovers.subscribe, takeovers.get));
+    return takeover ? <Bar key={takeover.id} takeover={takeover} actions={actions} /> : null;
+  };
+}
+
+export function TakeoverFooter() {
+  const machine = useHostName();
+  return <p className="takeover-footer">This page runs on {machine ?? "your computer"} and streams to your phone. Evidence is paused while you type.</p>;
+}
+
+const ENDED: ReadonlyArray<[RegExp, string]> = [
+  [/^The user is done/u, "You handed control back"],
+  [/^The user cancelled/u, "You cancelled the takeover"],
+  [/^Nobody took over/u, "Nobody took over within 30 min"],
+];
+
+/** The transcript's line for `request_takeover`: waiting for the user, then how it ended. */
+export function TakeoverLine({ tools }: ToolCardProps) {
+  return <>{tools.map((tool) => {
+    const running = tool.status === "running";
+    const output = tool.output?.trim() ?? "";
+    return (
+      <div key={tool.id} className="work-live takeover-line">
+        <div className="work-live-line">
+          {running ? <span className="spinner tone-current small" aria-hidden="true" /> : HAND}
+          <span className="work-live-label">
+            {running ? "Waiting for you · evidence paused" : ENDED.find(([pattern]) => pattern.test(output))?.[1] ?? (output.split("\n")[0] || "The takeover ended")}
+          </span>
+        </div>
+      </div>
+    );
+  })}</>;
 }

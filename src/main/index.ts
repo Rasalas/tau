@@ -1,4 +1,4 @@
-import { app, BaseWindow, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, net, Notification, safeStorage, session, shell } from "electron";
+import { app, autoUpdater as nativeUpdater, BaseWindow, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, net, Notification, safeStorage, session, shell } from "electron";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,6 +20,8 @@ import { getAgentDir, VERSION as PI_VERSION } from "@earendil-works/pi-coding-ag
 import { inspectExtensionPackages, loadHostExtensionPackages } from "./extension-packages.js";
 import { installShellEnvironment } from "./shell-environment.js";
 import { configureAppIdentity, installSingleInstance } from "./single-instance.js";
+import { appIdentity } from "./app-identity.js";
+import { builtFromSource } from "./update-installers.js";
 import { backgroundModeRequested, installBackgroundMode } from "./background-mode.js";
 import { EXTENSION_API_VERSION, type ExtensionHostVersions } from "../shared/extension-compat.js";
 import { HostLog } from "./host-log.js";
@@ -42,10 +44,11 @@ import { parseListen } from "./host-listen.js";
 import { WINDOW_SERVICES_ID } from "./window-extensions.js";
 import { createWindowAttention, OVERLAY_BADGE_SIZE, overlayBadgeBitmap } from "./window-attention.js";
 import { showWindowContextMenu } from "./window-context-menu.js";
+import { menuIconImage } from "./menu-icons.js";
 import type { MenuPoint, NativeMenuEntry } from "../shared/context-menu.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import electronUpdater from "electron-updater";
-import { createAppUpdates, linuxInstall, linuxUpdates, readUpdateFeed, type AppUpdates } from "./app-updates.js";
+import { createAppUpdates, installGuardPorts, installStillRunning, linuxInstall, linuxUpdates, nextStaging, readUpdateFeed, type AppUpdates } from "./app-updates.js";
 import { offerPackageInstall } from "./appimage-install.js";
 import { appMenuTemplate, nextZoomLevel } from "./app-menu.js";
 import { createAppShell } from "./app-shell.js";
@@ -53,6 +56,7 @@ import { createQuitShortcut } from "./quit-shortcut.js";
 import { ReleaseNotesStore, fileReleaseNotes, githubReleaseNotes } from "./release-notes.js";
 import { DEFAULT_QUIT_CONFIRMATION, type QuitConfirmation, type WindowShellEvent } from "../shared/window-shell.js";
 import { WindowEnvironments, answerEnvironmentCommand, type EnvironmentConnection } from "./window-environments.js";
+import { listWslDistributions, bootstrapWslHost, resumeWslHost } from "./wsl-host.js";
 import { machineDisplayName } from "./host-discovery.js";
 import { installEnvironmentSession } from "./environment-session.js";
 import { DATA_FOLDER_BUSY_EXIT_CODE, claimDataFolder, dataFolderBusyMessage, describeDataFolderOwner } from "./data-folder-lock.js";
@@ -86,6 +90,13 @@ let inProcessFolderLock: ProcessLock | undefined;
 
 // Identity (and so userData) must be set before anything reads app.getPath("userData").
 configureAppIdentity(app, process.env.TAU_USER_DATA);
+// A copy of Tau started while ShipIt installs makes it give up and reopen the old version.
+const installGuard = process.platform === "darwin" && app.isPackaged ? installGuardPorts(app.getPath("userData"), appIdentity().appId) : undefined;
+const installing = installGuard ? installStillRunning(installGuard, app.getVersion()) : undefined;
+if (installing) void app.whenReady().then(() => {
+  if (Notification.isSupported()) new Notification({ title: `Installing Tau ${installing.version}`, body: installing.reopens ? "Tau opens by itself when it is done." : "Open Tau again in a minute." }).show();
+  setTimeout(() => app.exit(0), 500);
+});
 const backgroundMode = backgroundModeRequested(process.env);
 if (backgroundMode) installBackgroundMode(app, BaseWindow.prototype);
 // Both must happen before the app is ready: a privileged scheme cannot be added later.
@@ -229,6 +240,8 @@ let workbenchLoading = false;
 let quitAfterWindowClosed = false;
 let projectHistory: ProjectHistory;
 let updates: AppUpdates | undefined;
+/** Set when the quit installs an update: the host stops too, at once, so ShipIt can start (K161). */
+let updateQuit = false;
 let shutdownStarted = false;
 let shutdownComplete = false;
 /** One build at a time; a second request joins the running one. */
@@ -271,9 +284,17 @@ const windowAttention = createWindowAttention({
   },
   log: (label, detail) => hostLog.info(label, { ...detail as object, ...(app.dock ? { dock: app.dock.getBadge() } : {}) }),
 });
+const menuIcons = new Map<string, ReturnType<typeof menuIconImage>>();
 /** Right-click menus the page asks for; the coordinates arrive in CSS pixels of the page. */
 const windowContextMenu = (entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined> => showWindowContextMenu({
   platform: process.platform,
+  // Template images only on macOS; a Windows or Linux menu's background is not known here.
+  ...(process.platform === "darwin" ? {
+    icon: (name: string) => {
+      if (!menuIcons.has(name)) menuIcons.set(name, menuIconImage(nativeImage, name));
+      return menuIcons.get(name);
+    },
+  } : {}),
   popup: (template, at, closed) => {
     if (!mainWindow || mainWindow.isDestroyed()) { closed(); return; }
     const zoom = mainWindow.webContents.getZoomFactor();
@@ -313,7 +334,7 @@ const quitShortcut = createQuitShortcut({
 /** Tracks repeated renderer crashes so a second one within the window gives up on reloading. */
 let lastRenderProcessGoneAt: number | undefined;
 
-const primaryInstance = installSingleInstance(app, () => mainWindow, () => {
+const primaryInstance = !installing && installSingleInstance(app, () => mainWindow, () => {
   if (BrowserWindow.getAllWindows().length === 0) void createWindow();
 });
 
@@ -608,9 +629,17 @@ async function startEnvironments(local: WindowHost): Promise<void> {
     local: { id: localHostId, name },
     publish: (list) => publish({ type: "environments", environments: list }),
     publishThread: (view) => publish({ type: "environment-thread", view }),
+    publishExtensionEvent: (event) => publish({ type: "environment-extension-event", ...event }),
     show: showEnvironment,
     // Looks from this machine's host, whichever machine the page shows.
     discover: () => local.request("connections-discover", [{}]),
+    wsl: {
+      list: () => listWslDistributions(),
+      bootstrap: (distro, signal) => bootstrapWslHost(distro, {
+        cacheDir: join(app.getPath("userData"), "managed-hosts"), signal,
+      }),
+      resume: (distro) => resumeWslHost(distro),
+    },
     // The agents' keys live with this machine's host, which reaches the machines without a window (ADR 0027).
     agents: {
       add: async (entry) => { await local.request("machines-add", [entry]); },
@@ -853,16 +882,25 @@ if (primaryInstance) app.whenReady().then(async () => {
   const linux = process.platform === "linux" && app.isPackaged
     ? linuxUpdates(electronUpdater, linuxInstall(process.env, process.resourcesPath, process.execPath))
     : undefined;
+  const unsupported = appIdentity().updates ? linux?.unsupported : builtFromSource(app.name);
   updates = createAppUpdates({
     updater: linux?.updater ?? electronUpdater.autoUpdater,
     enabled: app.isPackaged,
-    ...(linux?.unsupported ? { unsupported: linux.unsupported } : {}),
+    ...(unsupported ? { unsupported } : {}),
     ...(linux?.installOnQuit === false ? { installOnQuit: false } : {}),
     log: hostLog,
     onDownloaded: (version, info) => {
       publish({ type: "app-update", version });
       void releaseNotes?.downloaded(version, info.releaseNotes);
     },
+    onInstallStep: (step) => {
+      publish({ type: "app-update", ...step });
+      // A failed install comes back without a phase.
+      updateQuit = step.phase === "installing";
+      // Outlives the quit: ShipIt replaces the app silently, for minutes on a busy Mac.
+      if (updateQuit && Notification.isSupported()) new Notification({ title: `Installing Tau ${step.version}`, body: "Tau reopens by itself when it is done. This can take a few minutes." }).show();
+    },
+    ...(process.platform === "darwin" ? { whenStaged: () => nextStaging(nativeUpdater) } : {}),
     currentVersion: app.getVersion(),
     ...(feed ? { feed } : {}),
     // This machine's config file: the updater belongs to the machine, not to a remote host.
@@ -939,9 +977,9 @@ if (primaryInstance) app.on("before-quit", (event) => {
   if (shutdownStarted) return;
   shutdownStarted = true;
   void (async () => {
-    const hostStays = Boolean(windowHost) && (quitAfterWindowClosed || windowHost?.servedByService === true || await keepHostRunning());
-    // Threads stop with the host; the page asks first when any are working.
-    if (!hostStays && !await appShell.confirmQuit()) {
+    const hostStays = !updateQuit && Boolean(windowHost) && (quitAfterWindowClosed || windowHost?.servedByService === true || await keepHostRunning());
+    // Threads stop with the host; the page asks first when any are working. Restart for an update was the answer.
+    if (!hostStays && !updateQuit && !await appShell.confirmQuit()) {
       shutdownStarted = false;
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setOpacity(1);
       return;
@@ -950,10 +988,13 @@ if (primaryInstance) app.on("before-quit", (event) => {
       environments?.close();
       await shownHost?.stop(true);
       if (host) await host.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
-      if (windowHost) await windowHost.stop(hostStays);
+      // An old host would run on from a bundle ShipIt moves away; the next start runs the new one.
+      if (windowHost) await windowHost.stop(hostStays, updateQuit);
     } catch (error: unknown) {
       hostLog.error("host.shutdown.failed", error);
     }
+    const staged = updates?.downloaded();
+    if (installGuard && staged) installGuard.write(staged, updateQuit);
     shutdownComplete = true;
     app.quit();
   })();

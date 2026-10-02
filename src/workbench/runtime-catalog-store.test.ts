@@ -91,6 +91,17 @@ describe("draftRuntimeSnapshot", () => {
     expect(forPi).toMatchObject({ model: luna, thinkingLevel: "default (low)" });
   });
 
+  it("gives a draft on the thread's own runtime the levels of the model it chose, from Pi's default (K137)", () => {
+    const pi: UiRuntimeCatalog = { kind: "pi", models: [luna, sol], model: luna, thinkingLevels: { "openai/gpt-5.6-luna": ["off", "low", "medium", "high"] } };
+    const onFake = { ...SNAPSHOT, model: { provider: "tau-fake", id: "fake-1", name: "Fake 1" }, thinkingLevels: ["off"] } as HostSnapshot;
+    const shown = draftRuntimeSnapshot(onFake, { ...draft(), model: luna }, "pi", { status: "ready", catalog: pi });
+    expect(shown).toMatchObject({ backendKind: "pi", models: onFake.models, model: luna, thinkingLevel: "medium", thinkingLevels: ["off", "low", "medium", "high"] });
+    expect(draftRuntimeSnapshot(onFake, { ...draft(), model: luna, thinkingLevel: "high" }, "pi", { status: "ready", catalog: pi }).thinkingLevel).toBe("high");
+    // No model chosen, or one the catalog does not know: the thread's levels stand.
+    expect(draftRuntimeSnapshot(onFake, draft(), "pi", { status: "ready", catalog: pi })).toBe(onFake);
+    expect(draftRuntimeSnapshot(SNAPSHOT, { ...draft(), model: SNAPSHOT.model! }, "pi", { status: "ready", catalog: pi })).toBe(SNAPSHOT);
+  });
+
   it("leaves the snapshot alone until the catalog is there", () => {
     expect(draftRuntimeSnapshot(SNAPSHOT, draft(), "codex", { status: "loading" })).toBe(SNAPSHOT);
     expect(draftRuntimeSnapshot(SNAPSHOT, draft(), "codex", undefined)).toBe(SNAPSHOT);

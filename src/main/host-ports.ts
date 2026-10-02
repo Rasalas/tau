@@ -11,6 +11,7 @@ import type {
   ThreadBackendKind,
   ThreadIndexSnapshot,
   UiModel,
+  UiPromptAttachment,
 } from "../shared/contracts.js";
 import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, type HostActionResult, type HostUpdate, type ThreadDetail } from "../shared/host-protocol.js";
 import type { CompletionRequest } from "./runtime-types.js";
@@ -147,12 +148,14 @@ export interface ExtensionServicesPort {
   /** Writes a session another machine made as a thread of this one and indexes it. */
   importThread(options: HostThreadImportOptions): Promise<HostImportedThread>;
   exclusive<T>(work: () => Promise<T>): Promise<T>;
-  refreshThreadIndex(): Promise<ThreadIndexSnapshot>;
+  refreshThreadIndex(options?: { publish?: boolean }): Promise<ThreadIndexSnapshot>;
   /** Moves a persisted thread to the trash; the `threadDeleted` hooks run when it is purged. */
   removeThread(sessionId: string): Promise<void>;
   restoreThread(sessionId: string): Promise<void>;
   purgeThread(sessionId: string): Promise<void>;
-  sendToThread(sessionId: string, text: string, options: { delivery: "prompt" | "steer" | "queue"; from?: string }): Promise<void>;
+  sendToThread(sessionId: string, text: string, options: { delivery: "prompt" | "steer" | "queue"; from?: string; attachments?: UiPromptAttachment[] }): Promise<void>;
+  /** Changes a thread's model by id, on or off screen. */
+  setThreadModel(sessionId: string, provider: string, id: string): Promise<void>;
   /** Stops a thread's running turn; nothing happens to a thread without a runtime. */
   abortThread(sessionId: string): Promise<void>;
   trashedThreads(): Promise<HostTrashedThread[]>;
@@ -389,13 +392,15 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
       send: (sessionId, text, sendOptions) => port.sendToThread(sessionId, text, {
         delivery: sendOptions?.delivery ?? "prompt",
         ...(sendOptions?.from ? { from: sendOptions.from } : {}),
+        ...(sendOptions?.attachments ? { attachments: [...sendOptions.attachments] } : {}),
       }),
+      setModel: (sessionId, provider, id) => port.setThreadModel(sessionId, provider, id),
       abort: (sessionId) => port.abortThread(sessionId),
       exclusive: (work) => port.exclusive(work),
-      refreshIndex: async () => ({
+      refreshIndex: async (options) => ({
         version: HOST_PROTOCOL_VERSION,
         type: "thread-index",
-        index: await port.refreshThreadIndex(),
+        index: await port.refreshThreadIndex(options),
       }),
     },
     clients: port.clients,

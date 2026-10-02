@@ -7,6 +7,8 @@ import type { UiSession } from "../../shared/contracts";
 import type { UiFileContent, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
 import { activateTab, closeTab, EMPTY_STAGE, openExtensionTab, openFileTab, openThreadTab, otherTabIds, pinTab, setFileView, tabIdsToTheRight, unpinTab, type StageState } from "../../workbench/stage";
 import { ThreadStore } from "../../workbench/thread-store";
+import { HostClientProvider } from "../host-client-context";
+import type { HostClient } from "../../workbench/host-client";
 import { ThreadStoreContext } from "../workbench-context";
 import { TestProviders } from "../test-support/test-providers";
 import { ExtensionRegistry, type WorkbenchActions } from "../extension-system";
@@ -26,6 +28,15 @@ afterEach(async () => {
 });
 
 const CWD = "/repo";
+
+/**
+ * The file's line once it is drawn. The highlighter is a lazy import: when it has
+ * loaded, the line is split into token spans, which a plain text query misses.
+ */
+function findFileText(text = "const a = 1;") {
+  const whole = (element: Element | null) => element?.textContent?.trim() === text;
+  return screen.findByText((_, element) => whole(element) && ![...element!.children].some(whole));
+}
 const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
 const CHANGED: UiWorkspaceChanges = {
   files: [{ path: "src/a.ts", name: "a.ts", directory: "src", status: "modified", added: 1, removed: 0 }],
@@ -105,11 +116,11 @@ function storeWith(session?: UiSession, running = false): ThreadStore {
 describe("Stage", () => {
   it("marks the line a file was opened at, and the last line for one past the end", async () => {
     render(<Harness initial={openFileTab(EMPTY_STAGE, `${CWD}/src/a.ts`, { line: 7 })} />);
-    expect(await screen.findByText("const a = 1;")).toBeTruthy();
+    expect(await findFileText()).toBeTruthy();
     expect(document.querySelector(".source-line-mark")?.getAttribute("data-line")).toBe("1");
     cleanup();
     render(<Harness initial={openFileTab(EMPTY_STAGE, `${CWD}/src/a.ts`)} />);
-    expect(await screen.findByText("const a = 1;")).toBeTruthy();
+    expect(await findFileText()).toBeTruthy();
     expect(document.querySelector(".source-line-mark")).toBeNull();
   });
 
@@ -145,14 +156,14 @@ describe("Stage", () => {
     render(<Harness initial={openFileTab(EMPTY_STAGE, `${CWD}/src/a.ts`)} />);
 
     expect(screen.getByRole("tab", { name: /a\.ts/u })).toHaveProperty("className", expect.stringContaining("preview"));
-    expect(await screen.findByText("const a = 1;")).toBeTruthy();
+    expect(await findFileText()).toBeTruthy();
     expect(screen.getByText("src/a.ts")).toBeTruthy();
     expect(screen.getByText(/12 B · 1 line/u)).toBeTruthy();
   });
 
   it("offers a diff view only for changed files and swaps to it", async () => {
     render(<Harness initial={openFileTab(EMPTY_STAGE, `${CWD}/src/a.ts`)} changes={CHANGED} />);
-    await screen.findByText("const a = 1;");
+    await findFileText();
 
     fireEvent.click(screen.getByRole("button", { name: "Diff" }));
 
@@ -163,7 +174,7 @@ describe("Stage", () => {
   it("falls back to source once a diff tab's file has no changes left", async () => {
     render(<Harness initial={openFileTab(EMPTY_STAGE, `${CWD}/src/a.ts`, { view: "diff" })} />);
 
-    expect(await screen.findByText("const a = 1;")).toBeTruthy();
+    expect(await findFileText()).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Diff" })).toBeNull();
   });
 
@@ -175,7 +186,7 @@ describe("Stage", () => {
       tools={<button type="button">Files tool</button>}
       maximize={{ maximized: false, onToggle }}
     />);
-    await screen.findByText("const a = 1;");
+    await findFileText();
     const changed = screen.getByRole("tab", { name: /a\.ts/u });
     expect(changed.querySelector(".stage-tab-changed")?.textContent).toBe("M");
     expect(screen.getByRole("tab", { name: /b\.ts/u }).querySelector(".stage-tab-changed")).toBeNull();
@@ -192,7 +203,7 @@ describe("Stage", () => {
     const windowEscape = vi.fn();
     window.addEventListener("keydown", windowEscape);
     render(<Harness initial={openFileTab(EMPTY_STAGE, `${CWD}/src/a.ts`)} onClose={onClose} />);
-    await screen.findByText("const a = 1;");
+    await findFileText();
 
     fireEvent.keyDown(screen.getByRole("tab", { name: /a\.ts/u }), { key: "Escape" });
 
@@ -209,11 +220,11 @@ describe("a thread tab", () => {
     let answer = "Starting";
     render(<Harness initial={openThreadTab(EMPTY_STAGE, CHILD)} threads={store} loadThread={async () => reply(answer)} />);
     await screen.findByText("Starting");
-    expect(await screen.findByText(/^Working for/)).toBeTruthy();
+    expect(await screen.findByText("Thinking", { exact: true })).toBeTruthy();
     answer = "Finished";
     act(() => store.setThreadRunning(CHILD, false));
     await screen.findByText("Finished");
-    expect(screen.queryByText(/^Working for/)).toBeNull();
+    expect(screen.queryByText("Thinking", { exact: true })).toBeNull();
   });
 
   it("names the tab from the index and renders the thread's transcript read-only", async () => {
@@ -379,6 +390,43 @@ describe("a tab a kit drew", () => {
     expect(screen.getByRole("tab", { name: /shell t1/u })).toBeTruthy();
   });
 
+  it("splits the stage from a tab's menu, draws both panes, and joins them again (design 2f)", async () => {
+    render(<Harness initial={openFileTab(tab("t1"), `${CWD}/src/a.ts`, { pin: true })} registry={terminals()} />);
+    await findFileText();
+
+    fireEvent.contextMenu(screen.getByRole("tab", { name: /shell t1/u }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Split right" }));
+
+    expect(await screen.findByRole("button", { name: /shell t1 output/u })).toBeTruthy();
+    // The pane in front is drawn anew beside the split one, so its file is read again.
+    expect(await findFileText()).toBeTruthy();
+    expect(screen.getAllByRole("tab").filter((entry) => entry.classList.contains("active"))).toHaveLength(2);
+
+    fireEvent.contextMenu(screen.getByRole("tab", { name: /shell t1/u }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Unsplit" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /shell t1 output/u })).toBeNull());
+    expect(await findFileText()).toBeTruthy();
+  });
+
+  it("splits when a tab dragged off the strip is let go over the stage, not over the strip", async () => {
+    render(<Harness initial={openFileTab(tab("t1"), `${CWD}/src/a.ts`, { pin: true })} registry={terminals()} />);
+    const body = await findFileText();
+    const id = "ext:terminal:t1";
+    const carried = { types: ["application/x-tau-stage-tab"], getData: () => id, setData: vi.fn() };
+
+    fireEvent.dragStart(screen.getByRole("tab", { name: /shell t1/u }), { dataTransfer: carried });
+    expect(carried.setData).toHaveBeenCalledWith("application/x-tau-stage-tab", id);
+    fireEvent.dragOver(screen.getByRole("tab", { name: /a\.ts/u }), { dataTransfer: carried });
+    expect(screen.queryByText("Drop to split")).toBeNull();
+    fireEvent.dragOver(body, { dataTransfer: carried });
+    expect(await screen.findByText("Drop to split")).toBeTruthy();
+    fireEvent.drop(body, { dataTransfer: carried });
+
+    expect(await screen.findByRole("button", { name: /shell t1 output/u })).toBeTruthy();
+    expect(await findFileText()).toBeTruthy();
+    expect(screen.queryByText("Drop to split")).toBeNull();
+  });
+
   it("unpins a tab from the context menu, which makes it the preview again", async () => {
     render(<Harness initial={tab("t1")} registry={terminals()} />);
 
@@ -449,12 +497,31 @@ describe("a thread of another machine", () => {
     expect(screen.getByText("Answer it on rex")).toBeTruthy();
     expect(screen.getByText(/waiting for an answer/u)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open on rex" }));
-    expect(environments.open).toHaveBeenCalledWith("host-rex", { thread: { path: "/rex/t9.jsonl" } });
+    await waitFor(() => expect(environments.open).toHaveBeenCalledWith("host-rex", { thread: { path: "/rex/t9.jsonl" } }));
     await push({ ...base, status: "offline", lastSeenAt: 5, revision: 3 });
     expect(screen.getByText(/rex is offline/u)).toBeTruthy();
     expect((screen.getByRole("button", { name: "Open on rex" }) as HTMLButtonElement).disabled).toBe(true);
     // What it showed last stays.
     expect(screen.getByText("First words.")).toBeTruthy();
+  });
+
+  it("opens a connected agents thread here from an existing look-in tab even if the window's old key is refused", async () => {
+    const { platform, environments, push } = lookIn();
+    const switchSession = vi.fn(async () => true);
+    const actions = new Proxy(NO_ACTIONS, { get: (target, name) => name === "switchSession" ? switchSession : Reflect.get(target, name) });
+    const invokeHostExtension = vi.fn(async () => ({ machines: [{ id: "host-rex", status: "connected" }] }));
+    const client = { invokeHostExtension } as unknown as HostClient;
+    render(<HostClientProvider client={client}><PlatformProvider platform={platform}><Harness
+      initial={openThreadTab(EMPTY_STAGE, SESSION, { pin: true, machine: "host-rex" })}
+      actions={actions}
+    /></PlatformProvider></HostClientProvider>);
+    await screen.findByText("First words.");
+    await push({ ...base, status: "refused", revision: 1 });
+    await waitFor(() => expect((screen.getByRole("button", { name: "Open on rex" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Open on rex" }));
+    await waitFor(() => expect(switchSession).toHaveBeenCalledWith("tau-thread:machine:host-rex~t9"));
+    expect(invokeHostExtension).toHaveBeenCalledWith("tau.environments", "agents");
+    expect(environments.open).not.toHaveBeenCalled();
   });
 
   it("lends kits a look-in region that names the machine and thread, and whether it is reached", async () => {

@@ -14,6 +14,19 @@ export interface DeviceInfo {
 
 /** The app's own plugin (`plugins/tau-native`): Keychain/Keystore, pinned sockets, QR scanner, Bonjour. */
 interface TauNativePlugin {
+  activityRemoteStatus(options: { hostId: string }): Promise<import("./activity-start").RemoteActivityStatus>;
+  activityRemoteConfigure(options: Parameters<import("./activity-start").RemoteActivityNative["configure"]>[0]): Promise<void>;
+  activityRemoteDisable(options: { hostId: string }): Promise<void>;
+  activityKey(options: { hostId: string; keyId: string; key: string }): Promise<void>;
+  activityTokens(): Promise<{ tokens: import("./activities").ActivityToken[] }>;
+  /** One snapshot per host: iOS stores it in the App Group and follows it with the host's Live Activity; Android keeps it for its widgets and notification. */
+  widgetSnapshot(options: import("./widgets").WidgetSnapshot): Promise<void>;
+  activityClear(options: { hostId: string }): Promise<void>;
+  dictationLanguages(): ReturnType<import("../../src/renderer/dictation").DictationPort["languages"]>;
+  dictationDownload(options: { language: string }): Promise<void>;
+  dictationStart(options: { language: string; id: string }): Promise<void>;
+  dictationFinish(): Promise<{ text: string }>;
+  dictationCancel(): Promise<void>;
   secureGet(options: { key: string }): Promise<{ value?: string }>;
   secureSet(options: { key: string; value: string }): Promise<void>;
   secureRemove(options: { key: string }): Promise<void>;
@@ -28,8 +41,10 @@ interface TauNativePlugin {
   pushAvailable(): Promise<{ available: boolean }>;
   /** Android only: the system's font scale (1 by default). */
   textScale(): Promise<{ scale: number }>;
+  addListener(event: "activityToken", listener: (event: import("./activities").ActivityToken) => void): Promise<PluginListenerHandle>;
   addListener(event: "socket", listener: (event: NativeSocketEvent) => void): Promise<PluginListenerHandle>;
   addListener(event: "discovery", listener: (event: { services: NativeService[]; error?: string }) => void): Promise<PluginListenerHandle>;
+  addListener(event: "dictation", listener: (event: import("../../src/renderer/dictation").DictationUpdate & { id: string }) => void): Promise<PluginListenerHandle>;
   addListener(event: "textScale", listener: (event: { scale: number }) => void): Promise<PluginListenerHandle>;
 }
 
@@ -101,4 +116,34 @@ export const textScalePort: TextScalePort = {
     const handle = await TauNative.addListener("textScale", (event) => listener(event.scale));
     return () => { void handle.remove(); };
   },
+};
+
+let dictationId = "";
+export const nativeDictation: import("../../src/renderer/dictation").DictationPort = {
+  languages: () => TauNative.dictationLanguages(),
+  download: (language) => TauNative.dictationDownload({ language }),
+  start: (language) => {
+    dictationId = crypto.randomUUID();
+    return TauNative.dictationStart({ language, id: dictationId });
+  },
+  finish: async () => (await TauNative.dictationFinish()).text,
+  cancel: () => { dictationId = ""; return TauNative.dictationCancel().catch(() => undefined); },
+  listen: async (listener) => {
+    const handle = await TauNative.addListener("dictation", (event) => { if (dictationId && event.id === dictationId) listener(event); });
+    return () => { void handle.remove(); };
+  },
+};
+
+export const nativeActivities: import("./activities").ActivityPort = {
+  tokens: async (listener) => { const handle = await TauNative.addListener("activityToken", listener); for (const token of (await TauNative.activityTokens()).tokens) listener(token); return () => { void handle.remove(); }; },
+  snapshot: (value) => TauNative.widgetSnapshot(value),
+  clear: (hostId) => TauNative.activityClear({ hostId }),
+};
+
+export function installActivityKey(options: { hostId: string; keyId: string; key: string }): Promise<void> { return TauNative.activityKey(options); }
+
+export const nativeRemoteActivities: import("./activity-start").RemoteActivityNative = {
+  status: (hostId) => TauNative.activityRemoteStatus({ hostId }),
+  configure: (options) => TauNative.activityRemoteConfigure(options),
+  disable: (hostId) => TauNative.activityRemoteDisable({ hostId }),
 };

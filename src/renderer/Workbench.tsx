@@ -14,7 +14,9 @@ import type { UiQueuedMessage } from "../shared/contracts";
 import { LazyFeatureBoundary, LazyFeatureFallback, retryableLazy } from "./components/LazyFeature";
 import { ComposerHost, LiveStatus } from "./components/ComposerHost";
 import { ComposerReserve } from "./components/ComposerReserve";
-import { retryPrompt, TurnErrorLine } from "./components/TurnError";
+import { WorkingTimer } from "./components/WorkRows";
+import { threadCostLabel } from "./cost-format";
+import { retryPrompt } from "./components/TurnError";
 import { useThreadShell } from "./use-thread-shell";
 import { declareRuntimeMarks } from "./runtime-marks";
 import { PairingRequestWatcher, QueuedMessages } from "./deferred-surfaces";
@@ -24,10 +26,10 @@ import { ContextMenuLayer } from "./components/ui/ContextMenu";
 import type { ToastStore } from "../workbench/toast-store";
 import { Region, StatusLine } from "./components/Regions";
 import { HostConnectionStatus } from "./host-connection-status";
-import { compactSidebarWidth, rendersOnProfile, type ClientProfile } from "../workbench/client-profile";
+import { COMPACT_SIDEBAR_MIN_WIDTH, compactSidebarMaxWidth, compactSidebarWidth, rendersOnProfile, type ClientProfile } from "../workbench/client-profile";
 import { useCompactForm } from "./use-layout-profile";
 import { useClientEnvironment } from "./client-environment";
-import { ThreadTitleMenu } from "./components/ThreadTitleMenu";
+import { coreThreadMenu, ThreadTitleMenu } from "./components/ThreadTitleMenu";
 import type { ThreadTreeMode } from "./components/ThreadTreeModal";
 import { TitleBar } from "./components/TitleBar";
 import { ThreadRuntimeBanner } from "./components/ThreadRuntimeBanner";
@@ -37,7 +39,7 @@ import { JumpToLatestButton, JumpToLatestStore } from "./components/JumpToLatest
 import { TaskPill } from "./components/TaskProgress";
 import { useConversationActivities } from "./conversation-activities";
 import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
-import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
+import type { ExtensionRegistry, TranscriptTurn, WorkbenchActions } from "./extension-system";
 import { MountedPanel, PanelMaximizeButton, PanelSlot, usePanelHosts } from "./components/PanelHosts";
 import { StartDetails, ThreadDetails, ThreadHeader } from "./components/ThreadHeader";
 import { ProjectIcon } from "./components/ProjectIcon";
@@ -80,12 +82,14 @@ import {
 } from "./workbench-context";
 import { displayPath } from "./path-display";
 import { usePhoneNavigation } from "./use-phone-navigation";
+import { WorkspaceResourceProvider } from "./workspace-resource-context";
+const LazyWorkspaceFileSheet = lazy(() => import("./touch/WorkspaceFileSheet").then((module) => ({ default: module.WorkspaceFileSheet })));
 import type { ShowThreadOptions } from "./use-thread-navigation";
 import { phoneTab } from "../workbench/phone-route";
 import { THREAD_DROP_FEEDBACK } from "../shared/thread-drop";
 
 const LazyCommandPalette = retryableLazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
-const LazyLimitNotice = lazy(() => import("./components/LimitNotice").then(({ LimitNotice }) => ({ default: LimitNotice })));
+const LazyComposerNotice = lazy(() => import("./components/ComposerNotice").then(({ ComposerNotice }) => ({ default: ComposerNotice })));
 const LazyStage = retryableLazy(() => import("./components/Stage").then(({ Stage }) => ({ default: Stage })));
 // Drawn only beside the stage, so they come with its chunk.
 const LazyStageTools = retryableLazy(() => import("./components/Stage").then(({ StageTools }) => ({ default: StageTools })));
@@ -129,6 +133,8 @@ export interface WorkbenchControlHandle {
   focusStage(): void;
   /** Hides or shows the sidebar; on a compact client, the thread sheet. */
   toggleSidebar(): void;
+  /** Collapses the conversation to its spine beside a shown stage, or opens it again. */
+  toggleSpine(): void;
   /** On a compact layout a panel is a sheet: true when this opened or closed one, false where the dock does it. */
   openSheet(id: string): boolean;
   closeSheet(id: string): boolean;
@@ -232,12 +238,12 @@ export interface WorkbenchThread {
   runStartedAt?: number;
   activeDraftKey?: string;
   copyMessage(message: UiMessage): Promise<void>;
-  forkMessage(message: UiMessage): Promise<void>;
+  forkMessage(message: UiMessage, turn?: TranscriptTurn): Promise<void>;
   /** Rewinds the conversation to before a prompt and puts the prompt back into the composer. */
   editMessage(message: UiMessage): Promise<void>;
   titleCommands: ReturnType<ExtensionRegistry["getCommandsFor"]>;
   openThreadTree(mode?: ThreadTreeMode): void;
-  duplicateThread(): Promise<boolean>;
+  duplicateThread(options?: { ask?: boolean }): Promise<boolean>;
   settleActiveThread(): void;
   renameThread(title: string): Promise<boolean>;
   copyThreadValue(kind: "chat" | "path" | "thread-id"): Promise<void>;
@@ -327,7 +333,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const windowWidth = useSyncExternalStore(subscribeToViewport, viewportWidth);
   const windowHeight = useSyncExternalStore(subscribeToViewport, viewportHeight);
   const [sidebarWidth, setSidebarWidthState] = useState(() => storedSidebarWidth(clientStorage.get(STORAGE_KEYS.sidebarWidth)));
+  const [sidebarWidthChosen, setSidebarWidthChosen] = useState(() => Boolean(clientStorage.get(STORAGE_KEYS.sidebarWidth)));
   const setSidebarWidth = (width: number) => {
+    setSidebarWidthChosen(true);
     setSidebarWidthState(width);
     clientStorage.set(STORAGE_KEYS.sidebarWidth, String(width));
   };
@@ -366,6 +374,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(() => clientStorage.get(STORAGE_KEYS.sidebarOpen) !== "false");
   const [systemPromptOpen, setSystemPromptOpen] = useState(false);
+  // The conversation collapsed to its spine beside the stage (design 1b): a layout state, kept across threads.
+  const [spineWanted, setSpine] = useState(() => clientStorage.get(STORAGE_KEYS.spine) === "true");
+  useEffect(() => clientStorage.set(STORAGE_KEYS.spine, String(spineWanted)), [spineWanted]);
   const [jumpToLatest] = useState(() => new JumpToLatestStore());
   const openPage = useSyncExternalStore(pages.subscribe, pages.getSnapshot);
   // A phone shows a page as a screen of its own; elsewhere it takes the thread's place beside the sidebar.
@@ -386,6 +397,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         return !open;
       });
     },
+    toggleSpine: () => setSpine((on) => !on),
     openSheet: (id) => {
       if (!compactRef.current.sheets.includes(id)) return false;
       setPanelSheet(id);
@@ -430,21 +442,31 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const sidebarShown = sidebarOpen && sidebarContributions.length > 0;
   const shownSidebar = sidebarShown ? shownSidebarWidth(sidebarWidth, windowWidth) : 0;
   const touchSidebarShown = split && touchSidebarOpen;
-  // A page with a sidebar of its own draws it in the thread list's place, on a desktop.
-  const pageSidebar = Boolean(openPage && sidebarShown && !compact && registry.getPage(openPage.id)?.Sidebar);
-  const drawnSidebar = split ? (touchSidebarShown ? compactSidebarWidth(windowWidth) : 0) : shownSidebar;
+  // A page with its own navigation replaces the visible desktop or tablet thread list.
+  const pageSidebar = Boolean(openPage && (split ? touchSidebarShown : sidebarShown && !compact) && registry.getPage(openPage.id)?.Sidebar);
+  const drawnSidebar = split ? (touchSidebarShown ? compactSidebarWidth(windowWidth, sidebarWidthChosen ? sidebarWidth : undefined) : 0) : shownSidebar;
   const clearStageMaximized = useCallback(() => setStageMaximized(false), [setStageMaximized]);
   // A phone draws no stage (profile-compact.css): its panels are sheets.
+  const folded = maximized || (spineWanted && !compact && !showStartScreen);
   const { stageShown, tabs, canSplit } = useCenterLayout({
-    windowWidth, sidebarWidth: drawnSidebar, stageOpen: stage.tabs.length > 0 && !phone, folded: stageFolded, maximized,
+    windowWidth, sidebarWidth: drawnSidebar, stageOpen: stage.tabs.length > 0 && !phone, folded: stageFolded, maximized: folded,
     tabCount: stage.tabs.length, clearMaximized: clearStageMaximized,
   });
   // Maximized, the stage takes the centre and the chat is out of sight; where only one fits, the one in front shows.
   const stacked = tabs;
   compactRef.current.stacked = stacked;
   compactRef.current.maximized = maximized;
-  const conversationFolded = stacked && (maximized || !chatFocused);
-  const stageExpanded = stageShown && !(stacked && !maximized && chatFocused);
+  const conversationFolded = stacked && (folded || !chatFocused);
+  const stageExpanded = stageShown && !(stacked && !folded && chatFocused);
+  const spine = spineWanted && stageExpanded && canSplit && !compact && !showStartScreen;
+  // Closing the stage ends the spine; the first paint of a restart has none yet and keeps the stored choice.
+  const stageSeen = useRef(false);
+  useEffect(() => {
+    if (stageShown) stageSeen.current = true;
+    else if (stageSeen.current) setSpine(false);
+  }, [stageShown]);
+  // Where the conversation is out of sight, its composer floats over the stage (design 1b).
+  const floating = conversationFolded && stageExpanded && !compact && !showStartScreen;
   const sideOpen = stageShown && !stacked;
   const centerWidth = windowWidth - drawnSidebar;
   const chatWidth = shownChatWidth(chatWidthPreference, centerWidth);
@@ -476,9 +498,17 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     ...(stageExpanded && frontTab?.kind === "panel" ? [frontTab.panelId] : []),
     ...(drawerPanel ? [drawerPanel.id] : []),
   ]), [drawerPanel, frontTab, stageExpanded]);
-  const openTool = (id: string) => (drawerPanel?.id === id ? actions.closePanel?.(id) : openPanel(id));
+  const openedTools = useMemo(() => new Set([
+    ...stage.tabs.flatMap((tab) => tab.kind === "panel" ? [tab.panelId] : []),
+    ...(drawerPanel ? [drawerPanel.id] : []),
+  ]), [drawerPanel, stage.tabs]);
+  const openTool = (id: string) => {
+    if (drawerPanel?.id === id) { actions.closePanel?.(id); return; }
+    if (split && stageExpanded && frontTab?.kind === "panel" && frontTab.panelId === id) { setStageFolded(true); return; }
+    openPanel(id);
+  };
   const stageTools = <>
-    <Suspense fallback={null}><LazyStageTools panels={panels} shown={shownTools} onOpen={openTool} /></Suspense>
+    <Suspense fallback={null}><LazyStageTools panels={panels} shown={shownTools} opened={split ? openedTools : undefined} onOpen={openTool} /></Suspense>
     <Region registry={registry} placement="stage-bar" snapshot={snapshot} actions={actions} />
   </>;
 
@@ -489,6 +519,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     sideOpen ? "stage-open" : "",
     stageExpanded && stacked ? "stage-full" : "",
     conversationFolded ? "conversation-folded" : "",
+    spine ? "spine" : "",
+    floating ? "composer-floating" : "",
   ].filter(Boolean).join(" ");
   const shellClassName = [
     "app-shell",
@@ -528,6 +560,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     activeDraftKey={activeDraftKey}
     onNotify={actions.notify}
     actions={actions}
+    threadStore={threadStore}
+    floating={floating}
   />;
 
   // The frame goes around the card too: bare, it would fall into the shell grid's next free cell.
@@ -551,7 +585,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       <LazyTouchThreadBrowser variant="home" {...threadBrowserProps} nav={phoneNav.route.kind === "threads" ? bottomNav : undefined} />
     </Suspense> : null}
     {sheetPanel ? <Suspense fallback={null}>
-      <LazyPanelSheet label={sheetPanel.label} host={hostFor(sheetPanel.id)} onClose={() => setPanelSheet(undefined)} />
+      <LazyPanelSheet label={sheetPanel.label} detail={conversationSnapshot?.sessionTitle} host={hostFor(sheetPanel.id)} onClose={() => setPanelSheet(undefined)} />
     </Suspense> : null}
     {threadTreeModal ? <Suspense fallback={null}><LazyThreadTreeModal
       tree={threadTreeModal.tree} mode={threadTreeModal.mode} busy={threadTreeModal.busy} error={threadTreeModal.error}
@@ -569,7 +603,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           {...(paletteMenu ? { menu: paletteMenu } : {})}
           shortcutFor={(commandId) => registry.keybindingLabel(commandId)}
           commands={commands}
-          extensionCount={registry.getExtensionNames().length}
           actions={actions}
           registry={registry}
           onClose={closePalette}
@@ -605,6 +638,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           snapshot={snapshot}
           registry={registry}
           projects={projects}
+          threads={threadStore.getSnapshot().threads}
           onSetPage={setSettingsPage}
           onSetModel={(provider, id) => void setModel(provider, id)}
           onSetThinking={(level) => void setThinking(level)}
@@ -617,7 +651,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
 
   // One of each for the whole window, over the shell, an overlay and Settings alike.
   const floats = <>
-    <ToastLayer store={toasts} placement={compact ? "bottom" : "top"} />
+    <ToastLayer store={toasts} touch={compact} />
     <TooltipLayer />
     <ContextMenuLayer />
     <PairingRequestWatcher onNotify={actions.notify} />
@@ -650,21 +684,32 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           <Region registry={registry} placement="thread-title" snapshot={snapshot} actions={actions} />
           <ThreadTitleMenu
             title={conversationSnapshot?.sessionTitle || "Untitled thread"}
-            label={snapshot?.projectLabel}
-            pinned={Boolean(snapshot?.sessionId && settings.pinnedThreadIds.includes(snapshot.sessionId))}
-            settled={Boolean(snapshot?.sessionId && settings.settledThreadIds.includes(snapshot.sessionId))}
-            onNewThread={() => actions.newSession()}
-            onOpenTree={() => openThreadTree("navigate")}
-            onOpenInstructions={() => setSystemPromptOpen(true)}
-            onDuplicate={() => void duplicateThread()}
-            onTogglePin={() => { if (snapshot?.sessionId) preferences.togglePinned(snapshot.sessionId); }}
-            onToggleSettled={settleActiveThread}
             onRename={renameThread}
-            commands={titleCommands}
-            onCommand={(id) => { void titleCommands.find((command) => command.id === id)?.run(actions); }}
-            onMarkUnread={() => { if (snapshot?.sessionId) threadStore.markUnread(snapshot.sessionId); }}
-            onCopy={(kind) => void copyThreadValue(kind)}
-            canCopyPath={hostCapabilities.localFiles}
+            menu={() => {
+              const id = snapshot?.sessionId;
+              const session = threadStore.getSnapshot().threads.find((entry) => entry.id === id);
+              const provider = registry.getThreadMenu();
+              const sections = session && provider?.menu(session, registry);
+              return sections ? { sections, run: (item) => provider!.run(session!, item, actions) } : coreThreadMenu({
+                label: snapshot?.projectLabel,
+                pinned: Boolean(id && settings.pinnedThreadIds.includes(id)),
+                settled: Boolean(id && settings.settledThreadIds.includes(id)),
+                readOnly: hostCapabilities.readOnly,
+                commands: titleCommands,
+                canCopyPath: hostCapabilities.localFiles,
+                run: (item) => {
+                  if (item === "new") actions.newSession();
+                  if (item === "tree") openThreadTree("navigate");
+                  if (item === "instructions") setSystemPromptOpen(true);
+                  if (item === "duplicate") void duplicateThread();
+                  if (item === "pin" && id) preferences.togglePinned(id);
+                  if (item === "settle") settleActiveThread();
+                  if (item === "unread" && id) threadStore.markUnread(id);
+                  if (item.startsWith("copy-")) void copyThreadValue(item.slice(5) as "chat" | "path" | "thread-id");
+                  if (item.startsWith("command:")) void titleCommands.find((command) => `command:${command.id}` === item)?.run(actions);
+                },
+              });
+            }}
           />
         </>;
   // The conversation's head replaces the window-wide bar everywhere but on a phone, whose bar is its own.
@@ -674,12 +719,12 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       {split ? <button type="button" className="stage-tool" aria-label="Threads" {...tooltipProps("Threads", { side: "bottom" })} onClick={() => setTouchSidebarOpen((open) => !open)}><ListTree size={16} /></button> : null}
     </>}
     title={threadTitle}
-    // A draft's pills say project, machine and branch; an empty thread's branch has no pill.
-    details={!showStartScreen ? <ThreadDetails snapshot={conversationSnapshot} view={view} slots={detailSlots} />
-      : pendingNewThread ? undefined : <StartDetails snapshot={conversationSnapshot} slots={detailSlots} />}
+    details={!showStartScreen && !split ? <ThreadDetails snapshot={conversationSnapshot} view={view} slots={detailSlots} />
+      : split ? <StartDetails snapshot={conversationSnapshot} /> : <StartDetails snapshot={conversationSnapshot} slots={detailSlots} />}
     actions={conversationFolded ? null : <PanelSlot host={titleActionsHost} />}
     tools={stageExpanded ? undefined : stageTools}
-    {...(firstTool || stage.tabs.length > 0 ? { stage: { shown: stageExpanded, shortcut: registry.keybindingLabel?.("workbench.toggle-dock"), onToggle: toggleStage } } : {})}
+    {...(!split && (firstTool || stage.tabs.length > 0) ? { stage: { shown: stageExpanded, shortcut: registry.keybindingLabel?.("workbench.toggle-dock"), onToggle: toggleStage } } : {})}
+    {...(canSplit && !compact ? { onSpine: () => setSpine(true) } : {})}
   />;
   return providers(<>
     {/* Settings covers the shell rather than unmounting it, so threads, terminals and scroll stay as they were. */}
@@ -689,7 +734,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         snapshot={snapshot}
         actions={actions}
         thread={threadTitle}
-        details={showStartScreen ? undefined : <ThreadDetails snapshot={conversationSnapshot} view={view} machine={hostName} />}
+        details={showStartScreen ? undefined : <StartDetails snapshot={conversationSnapshot} />}
         onBack={phoneNav.showList}
         foldSheets
         sheets={sheetPanels.map((panel) => ({
@@ -702,7 +747,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         }))}
       /> : null}
       {macInset && sidebarShown ? <div className="sidebar-top" aria-hidden /> : null}
-      {split ? <div className="sidebar-slot">
+      {split ? <div className={pageSidebar ? "sidebar-slot covered" : "sidebar-slot"}>
         <Suspense fallback={<aside className="touch-browser sidebar" />}><LazyTouchThreadBrowser variant="sidebar" {...threadBrowserProps} /></Suspense>
       </div> : null}
       {pageSidebar ? <div className="sidebar-slot"><LazyFeatureBoundary label="sidebar" frame={pageSidebarFrame}>
@@ -718,19 +763,28 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       >
         <Suspense fallback={<LazyFeatureFallback label="sidebar" />}><contribution.Component actions={actions} /></Suspense>
       </LazyFeatureBoundary>)}</div>
-      {sidebarShown && !compact ? <ResizeHandle
+      {touchSidebarShown || (sidebarShown && !compact) ? <ResizeHandle
         className="sidebar-resizer"
         label="Resize sidebar"
         orientation="vertical"
         grows="right"
-        value={shownSidebar}
-        min={SIDEBAR_MIN_WIDTH}
-        max={sidebarMaxWidth(windowWidth)}
-        defaultValue={SIDEBAR_DEFAULT_WIDTH}
+        value={drawnSidebar}
+        min={split ? COMPACT_SIDEBAR_MIN_WIDTH : SIDEBAR_MIN_WIDTH}
+        max={split ? compactSidebarMaxWidth(windowWidth) : sidebarMaxWidth(windowWidth)}
+        defaultValue={split ? compactSidebarWidth(windowWidth) : SIDEBAR_DEFAULT_WIDTH}
         onChange={setSidebarWidth}
       /> : null}
       <div className="workbench-main" inert={Boolean(openPage) && !pageScreen}>
       <div className={centerClassName} style={{ "--chat-width": `${chatWidth}px` } as CSSProperties}>
+        {spine ? <aside className="thread-spine" aria-label="Thread">
+          <h2>{conversationSnapshot?.sessionTitle || "Untitled thread"}</h2>
+          <p className="thread-spine-state">{conversationSnapshot?.isStreaming
+            ? <><span className="spinner small" aria-hidden /><span>Working {thread.runStartedAt ? <WorkingTimer startedAt={thread.runStartedAt} /> : null}</span></>
+            : "Idle"}{threadCostLabel(conversationSnapshot?.usage) ? ` · ${threadCostLabel(conversationSnapshot?.usage)}` : null}</p>
+          <Region registry={registry} placement="spine" snapshot={conversationSnapshot} actions={actions} />
+          {composer.queue.length > 0 ? <p>{composer.queue.length} queued</p> : null}
+          <button type="button" onClick={() => setSpine(false)}><MessageSquare size={13} />Open conversation</button>
+        </aside> : null}
         <main
           className={`conversation-column ${showStartScreen ? "conversation-start" : ""}`}
           data-keybinding-context="chat"
@@ -755,7 +809,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                 onRetry={(path) => void actions.switchSession(path)}
                 onOpenProviders={() => (phone ? phoneNav.openSettings("providers") : actions.openSettings("providers"))}
               /> : null}
-              <ConversationTranscript view={view} thread={thread} registry={registry} actions={actions} prompts={composer.prompts} abort={composer.abort} composer={composer} jumpToLatest={jumpToLatest} />
+              <WorkspaceResourceProvider sessionId={conversationSnapshot?.sessionId} workspace={conversationSnapshot?.workspaceId} displayPath={conversationSnapshot?.cwd}>
+                <ConversationTranscript view={view} thread={thread} registry={registry} actions={actions} prompts={composer.prompts} abort={composer.abort} composer={composer} jumpToLatest={jumpToLatest} />
+              </WorkspaceResourceProvider>
               {/* On the transcript's bottom edge, so a floating Jump to latest never covers the footer. */}
               <Region
                 registry={registry}
@@ -821,7 +877,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               workspace={stageWorkspace}
               changes={documentState.changes}
               editor={documentState.editor}
-              maximize={panelLayout && (canSplit || maximized) ? { maximized, onToggle: () => {
+              maximize={spine ? { maximized: true, label: "Show conversation", onToggle: () => setSpine(false) } : panelLayout && (canSplit || maximized) ? { maximized, onToggle: () => {
                 setChatFocused(false);
                 if (maximized) panelLayout.restore();
                 else panelLayout.maximizeStage();
@@ -871,6 +927,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     </div>
     {overlays}
     {floats}
+    {phone && !stageFolded && frontTab?.kind === "file" ? <Suspense fallback={null}>
+      <LazyWorkspaceFileSheet key={JSON.stringify([pendingNewThread, snapshot?.sessionId, stageWorkspace, frontTab.id])} tab={frontTab} source={documentSource} onClose={() => { stageTabs.close(frontTab.id); setStageFolded(true); }} />
+    </Suspense> : null}
     {sheetPanel ? createPortal(<MountedPanel
       Component={sheetPanel.Component}
       active
@@ -888,7 +947,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       // A panel lives as long as its tab or its drawer; a folded stage keeps it mounted, only hidden.
       if (!onStage && drawerPanel?.id !== panel.id) return null;
       const placement = onStage ? "stage" : "drawer";
-      const active = onStage ? stage.activeId === panelTabId(panel.id) && stageExpanded : true;
+      const active = onStage ? [stage.activeId, stage.splitId].includes(panelTabId(panel.id)) && stageExpanded : true;
       return createPortal(<MountedPanel
         Component={panel.Component}
         active={active}
@@ -960,7 +1019,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
     runStartedAt, activeDraftKey, copyMessage, forkMessage, editMessage,
   } = thread;
   const detail = preferences.transcriptDetailFor(conversationSnapshot?.sessionId);
-  const { conversationActivityTools, liveStatusLabel, transcriptActivities } = useConversationActivities({
+  const { thinking, liveStatusLabel, transcriptActivities } = useConversationActivities({
     pendingNewThread, conversationSnapshot, running: Boolean(snapshot?.isStreaming), lastMessageId, prompts,
     registry, viewStore: view, detail, actions, recoverThread, copyToolOutput, loadToolOutput,
     abortSessionId: snapshot?.sessionId, abort,
@@ -972,17 +1031,13 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
   // Stable across renders: a new callback or status element per tool flush
   // would re-render every visible message and restart the tail follow.
   const onCopyMessage = useCallback((message: UiMessage) => void copyMessage(message), [copyMessage]);
-  const onForkMessage = useCallback((message: UiMessage) => void forkMessage(message), [forkMessage]);
+  const onForkMessage = useCallback((message: UiMessage, turn?: TranscriptTurn) => void forkMessage(message, turn), [forkMessage]);
   const onEditMessage = useCallback((message: UiMessage) => void editMessage(message), [editMessage]);
   const { readOnly } = useHostCapabilities();
-  const showRunClock = Boolean(conversationSnapshot?.isStreaming) && conversationActivityTools.length === 0;
   const { queue, steerQueued, returnQueued, reorderQueue } = composer;
   const running = Boolean(conversationSnapshot?.isStreaming);
   const steerShortcut = registry.keybindingLabel("thread.steerQueuedMessage");
   const shell = useThreadShell(conversationSnapshot?.sessionId ?? "");
-  // An answer that carries its error shows it in place; the line is for runtimes whose failure has no answer.
-  const failedAnswer = messages.at(-1)?.error !== undefined;
-  const turnError = pendingNewThread || running || failedAnswer ? undefined : shell?.turnError;
   // Stable across deltas, like the callbacks above.
   const latestMessages = useRef(messages);
   latestMessages.current = messages;
@@ -991,18 +1046,16 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
     const prompt = retryPrompt(latestMessages.current, failed);
     if (prompt) void submit(prompt.text, prompt.attachments);
   }, [submit]);
-  // A provider limit replaces the failure line: it says when, and offers to continue.
+  // The composer's bar retries a failed turn, and says when a limit resets.
   const limit = pendingNewThread || running ? undefined : shell?.limit;
   const queueHeld = shell?.queueHeld === true;
   const liveStatus = useMemo(() => {
     const status = liveStatusLabel !== undefined
       ? <LiveStatus label={liveStatusLabel} />
-      : showRunClock ? <LiveStatus startedAt={runStartedAt} />
-      : limit && conversationSnapshot ? <Suspense fallback={null}><LazyLimitNotice sessionId={conversationSnapshot.sessionId} limit={limit} /></Suspense>
-      : turnError ? <TurnErrorLine message={turnError} onRetry={readOnly ? undefined : () => retry()} /> : undefined;
+      : thinking ? <LiveStatus startedAt={runStartedAt} /> : undefined;
     if (pendingNewThread || queue.length === 0) return status;
     return <>{status}<QueuedMessages queue={queue} streaming={running} held={queueHeld} steerShortcut={steerShortcut} onSteer={steerQueued} onReturn={returnQueued} onReorder={reorderQueue} /></>;
-  }, [conversationSnapshot, limit, liveStatusLabel, pendingNewThread, queue, queueHeld, readOnly, reorderQueue, retry, returnQueued, runStartedAt, running, showRunClock, steerQueued, steerShortcut, turnError]);
+  }, [liveStatusLabel, pendingNewThread, queue, queueHeld, reorderQueue, returnQueued, runStartedAt, running, thinking, steerQueued, steerShortcut]);
   return <TranscriptHistoryBoundary
     controller={transcriptHistory}
     showControl={!pendingNewThread && messages.length > 0}
@@ -1026,7 +1079,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
       // A Read-only device may not rewind or fork; the buttons are left out.
       onForkMessage={readOnly ? undefined : onForkMessage}
       onEditMessage={readOnly ? undefined : onEditMessage}
-      onRetryMessage={readOnly || limit ? undefined : retry}
+      onRetryMessage={readOnly || limit || shell?.turnError ? undefined : retry}
       history={history}
       onReachStart={loadOlderOnReach}
       jumpToLatest={jumpToLatest}
@@ -1035,8 +1088,10 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
 }
 
 /** The context meter reads the running token estimate, so the composer subscribes too. */
-function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, draftRuntime, activeDraftKey, onNotify, actions, lead }: {
+function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, draftRuntime, activeDraftKey, onNotify, actions, lead, threadStore, floating }: {
   view: ThreadViewStore;
+  floating?: boolean;
+  threadStore: ThreadStore;
   lead?: React.ReactNode;
   composer: WorkbenchComposer;
   snapshot?: HostSnapshot;
@@ -1061,12 +1116,33 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     scopeStore, seed, textareaRef, attachmentRef, controlRef, queue, holds, prompts, submit, abort,
     cancelQueued, steerQueued, setModel, setThinking, answerUiPrompt, compactContext,
   } = composer;
+  const shell = useThreadShell(conversationSnapshot?.sessionId ?? "");
+  const { readOnly } = useHostCapabilities();
+  const settled = !pendingNewThread && !conversationSnapshot?.isStreaming;
+  const limit = settled ? shell?.limit : undefined;
+  const error = settled ? shell?.turnError : undefined;
+  const notice = conversationSnapshot && (limit || error) ? <Suspense fallback={null}><LazyComposerNotice
+    sessionId={conversationSnapshot.sessionId}
+    limit={limit}
+    error={error}
+    provider={conversationSnapshot.model?.provider}
+    onRetry={readOnly ? undefined : () => {
+      const prompt = retryPrompt(view.getTranscript().messages);
+      if (prompt) void submit(prompt.text, prompt.attachments);
+    }}
+    onSwitchModel={actions?.openModelPicker}
+    onReplaceKey={() => actions?.openSettings("providers")}
+  /></Suspense> : undefined;
   const contextBreakdown = useMemo(
     () => contextBreakdownFor(snapshot?.contextUsage, transcript.tokenEstimate, toolKiloTokens * 1000),
     [snapshot?.contextUsage, toolKiloTokens, transcript.tokenEstimate],
   );
+  // A sub-agent's question arrives on its parent's composer, named after the agent.
+  const asking = threadStore.getSnapshot().threads.find((thread) => thread.id === prompts[0]?.sessionId && thread.parentThreadId);
   return <Composer
     snapshot={conversationSnapshot}
+    floating={floating}
+    promptAgent={asking && `${asking.title} agent`}
     scopeStore={scopeStore}
     seed={seed}
     draftStorageKey={activeDraftKey}
@@ -1083,8 +1159,9 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     onSetModel={(provider, id) => void setModel(provider, id)}
     onSetThinking={(level) => void setThinking(level)}
     runtimeChoice={runtimeChoice}
-    onNewThreadOnRuntime={actions ? (kind, model) => {
+    onNewThreadOnRuntime={actions ? (kind, model, via) => {
       composer.carryModel?.(kind, model);
+      if (via) { via(kind); return; }
       preferences.setNewThreadRuntime(kind);
       // The new thread stays in this thread's project.
       const workspace = snapshot?.workspaceId ?? snapshot?.cwd;
@@ -1092,6 +1169,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     } : undefined}
     newThread={pendingNewThread}
     lead={lead}
+    notice={notice}
     prompt={prompts[0]}
     promptsPending={Math.max(0, prompts.length - 1)}
     onAnswerPrompt={(value, typed, attachments) => {

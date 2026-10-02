@@ -310,11 +310,28 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
       );
       input.onAdmitted?.(true);
     } else {
-      await this.session.prompt(prepared.runtimeText, {
-        images,
-        streamingBehavior: input.queued ? "followUp" : undefined,
-        ...(input.onAdmitted ? { preflightResult: (success: boolean) => input.onAdmitted?.(success) } : {}),
-      });
+      // Pi reports false before throwing the preflight error. Keep that
+      // refusal here until the SDK supplies its reason, rather than settling
+      // the host with a generic fallback first. Acceptance still reports
+      // immediately, without waiting for the agent run to finish.
+      let refused = false;
+      let admitted = false;
+      try {
+        await this.session.prompt(prepared.runtimeText, {
+          images,
+          streamingBehavior: input.queued ? "followUp" : undefined,
+          ...(input.onAdmitted ? { preflightResult: (success: boolean) => {
+            if (success) {
+              admitted = true;
+              input.onAdmitted?.(true);
+            } else refused = true;
+          } } : {}),
+        });
+      } catch (error) {
+        if (!admitted) input.onAdmitted?.(false, error);
+        throw error;
+      }
+      if (refused && !admitted) input.onAdmitted?.(false);
     }
     return {};
   }

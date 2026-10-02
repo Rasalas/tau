@@ -73,6 +73,12 @@ describe("the phone stays on this machine", () => {
     expect(() => chromeArgs({ port: 9000, profile: "/p", device: "iphone", names: ["x, MAP * 1.2.3.4"] })).toThrow(/not a host name/);
   });
 
+  it("keeps the browser off the login keychain", () => {
+    const args = chromeArgs({ port: 9000, profile: "/p", device: "iphone" });
+    expect(args).toContain("--use-mock-keychain");
+    expect(args).toContain("--password-store=basic");
+  });
+
   it("signals only a process whose command line names this worktree", () => {
     expect(() => assertOwnProcess("/x/chrome --user-data-dir=/w/.tau-dev/mobile/chrome-profile", "--user-data-dir=/w/.tau-dev/mobile/chrome-profile", "pid 1")).not.toThrow();
     expect(() => assertOwnProcess("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "--user-data-dir=/w/.tau-dev/mobile/chrome-profile", "pid 1")).toThrow(/refusing/);

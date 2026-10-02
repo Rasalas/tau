@@ -4,6 +4,7 @@ import { basename, dirname, join } from "node:path";
 import type { UpdateChannel } from "../shared/app-version.js";
 import type { HostUpdateMethod } from "../shared/host-updates.js";
 import { UNPACKED_UPDATES, linuxInstall } from "./release-feed.js";
+import { appIdentity, type AppIdentity } from "./app-identity.js";
 
 /**
  * How a host process installs a verified download of its own app (K103).
@@ -228,12 +229,20 @@ export interface HostInstallerInput {
   /** The service task a Windows installer starts again. */
   windowsTask?: string;
   system?: InstallerSystem;
+  identity?: Pick<AppIdentity, "updates" | "productName">;
+}
+
+/** Why a build without a release feed (Tau Dev) stays as it is. */
+export function builtFromSource(productName: string): string {
+  return `${productName} is built from source and does not update itself. Build and install it again with npm run install:mac -- --local.`;
 }
 
 /** The installer of the copy this host runs from, or why there is none. */
 export function hostInstaller(input: HostInstallerInput): { installer?: UpdateInstaller; unsupported?: string } {
   const marker = input.env.TAU_UPDATE_FAKE_INSTALL?.trim();
   if (marker) return { installer: fakeInstaller(marker) };
+  const identity = input.identity ?? appIdentity();
+  if (!identity.updates) return { unsupported: builtFromSource(identity.productName) };
   if (basename(input.appRoot) !== "app.asar.unpacked") {
     return { unsupported: "This Tau runs from a checkout, so it updates with `git pull` and `npm run build`." };
   }

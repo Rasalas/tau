@@ -1,11 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionServices } from "tau/host-extension";
-import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
-import { createWorkspaceHostClient } from "./protocol.js";
+import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
+import { WORKSPACE_HEAD_TOPIC, createWorkspaceHostClient } from "./protocol.js";
 import { createWorkspaceHostExtension } from "./host.js";
 
 const directories: string[] = [];
@@ -15,12 +15,13 @@ afterEach(async () => {
 });
 
 async function workspace(): Promise<string> {
-  const path = await mkdtemp(join(tmpdir(), "tau-workspace-kit-"));
+  // Git reports canonical paths; on macOS /var is a symlink to /private/var.
+  const path = await realpath(await mkdtemp(join(tmpdir(), "tau-workspace-kit-")));
   directories.push(path);
   return path;
 }
 
-async function activated(cwd: string, overrides: Partial<HostExtensionServices> = {}) {
+async function activated(cwd: string, overrides: Partial<HostExtensionServices> = {}, publish?: (event: PublishedKitEvent) => void) {
   const services: Partial<HostExtensionServices> = {
     cwd: () => cwd,
     openWorkspace: async () => ({ version: 1 as const, updates: [] }),
@@ -59,7 +60,7 @@ async function activated(cwd: string, overrides: Partial<HostExtensionServices> 
     callClient: async () => { throw new Error("no window half in this test"); },
     ...overrides,
   };
-  return activateHostKit(createWorkspaceHostExtension(), services);
+  return activateHostKit(createWorkspaceHostExtension(), services, publish);
 }
 
 async function client(cwd: string, overrides: Partial<HostExtensionServices> = {}) {
@@ -68,6 +69,82 @@ async function client(cwd: string, overrides: Partial<HostExtensionServices> = {
 }
 
 describe("Workspace Kit host extension", () => {
+  it("issue 12 reads dot-directory images and Markdown from the named workspace, not active cwd", async () => {
+    const cwd = await workspace();
+    const origin = await workspace();
+    const images = [".tau-dev/dictation-preview/recording-detail.png", ".tau-dev/dictation-preview/inserted-detail.png"];
+    const document = ".scratch/mobile-transcript-images/issues/01-render-workspace-screenshots-on-mobile.md";
+    await mkdir(join(origin, ".tau-dev/dictation-preview"), { recursive: true });
+    await mkdir(join(origin, ".scratch/mobile-transcript-images/issues"), { recursive: true });
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=", "base64");
+    for (const path of images) await writeFile(join(origin, path), png);
+    await writeFile(join(origin, document), "Issue 12 readable workspace document fixture");
+    const host = await client(cwd, { knownWorkspacePath: async (id) => {
+      if (id !== "ws-origin") throw new Error("Unknown workspace");
+      return origin;
+    } });
+    for (const path of images) expect(await host.readFile(path, "ws-origin")).toMatchObject({ kind: "image", dataUrl: `data:image/png;base64,${png.toString("base64")}` });
+    expect(await host.readFile(document, "ws-origin")).toMatchObject({ kind: "text", text: "Issue 12 readable workspace document fixture" });
+    await expect(host.readFile(document, "unknown-workspace")).rejects.toThrow("Unknown workspace");
+    await expect(host.readFile("../outside.md", "ws-origin")).rejects.toThrow();
+    await expect(host.readFile("/etc/passwd", "ws-origin")).rejects.toThrow();
+    await expect(host.readFile(".scratch/missing.md", "ws-origin")).rejects.toThrow();
+  });
+  it("stages and changes branches in a named workspace while leaving the active workspace alone", async () => {
+    const cwd = await workspace();
+    const target = await workspace();
+    const git = (root: string, ...args: string[]) => execFileSync("git", ["-C", root, "-c", "user.name=Tau", "-c", "user.email=tau@example.invalid", ...args], { encoding: "utf8" });
+    for (const root of [cwd, target]) {
+      git(root, "init", "-q", "-b", "main");
+      await writeFile(join(root, "a.txt"), "initial");
+      git(root, "add", "a.txt");
+      git(root, "commit", "-q", "-m", "first");
+      await writeFile(join(root, "a.txt"), "changed");
+    }
+    const openWorkspace = vi.fn(async () => ({ version: 1 as const, updates: [] }));
+    const host = await client(cwd, { knownWorkspacePath: async (id) => { expect(id).toBe("ws1_other"); return target; }, openWorkspace });
+    await host.stageFile("a.txt", "ws1_other");
+    expect(git(target, "diff", "--cached", "--name-only").trim()).toBe("a.txt");
+    expect(git(cwd, "diff", "--cached", "--name-only").trim()).toBe("");
+    await host.unstageFile("a.txt", "ws1_other");
+    expect(git(target, "diff", "--cached", "--name-only").trim()).toBe("");
+    await host.stageAll("ws1_other");
+    expect(git(target, "diff", "--cached", "--name-only").trim()).toBe("a.txt");
+    await host.unstageFile("a.txt", "ws1_other");
+    await host.revertFile("a.txt", "ws1_other");
+    expect(git(target, "diff", "--name-only").trim()).toBe("");
+    await expect(host.createBranch("feature", "ws1_other")).resolves.toEqual({ version: 1, updates: [] });
+    expect(git(target, "branch", "--show-current").trim()).toBe("feature");
+    await expect(host.switchRef("main", "ws1_other")).resolves.toEqual({ version: 1, updates: [] });
+    expect(git(target, "branch", "--show-current").trim()).toBe("main");
+    expect(git(cwd, "branch", "--show-current").trim()).toBe("main");
+    expect(openWorkspace).not.toHaveBeenCalled();
+  });
+
+
+  it("tells clients when HEAD moves outside Tau, and answers the new branch at once", async () => {
+    const cwd = await workspace();
+    const git = (...args: string[]) => execFileSync("git", ["-C", cwd, "-c", "user.name=Tau", "-c", "user.email=tau@example.invalid", ...args], { stdio: "ignore" });
+    git("init", "-q", "-b", "main");
+    git("commit", "-q", "--allow-empty", "-m", "first");
+    git("branch", "feature");
+    // The test setup turns every watch off.
+    vi.stubEnv("TAU_NO_WATCH", "0");
+    const events: PublishedKitEvent[] = [];
+    const registry = await activated(cwd, {}, (event) => events.push(event));
+    const host = createWorkspaceHostClient((command, input) => registry.invoke("tau.workspace", command, input));
+    const before = await host.getWorkspaceInfo();
+    expect(before.branch).toBe("main");
+
+    git("checkout", "-q", "feature");
+    await vi.waitFor(() => expect(events.some((event) => event.name === "head-changed")).toBe(true), { timeout: 5_000 });
+    expect(events.find((event) => event.name === "head-changed")).toMatchObject({ topic: WORKSPACE_HEAD_TOPIC, payload: { root: before.root } });
+    // The 30 s cache would otherwise still answer "main".
+    expect((await host.getWorkspaceInfo()).branch).toBe("feature");
+    await registry.deactivate("tau.workspace");
+    vi.unstubAllEnvs();
+  });
+
   it("pulls the default branch only when the host's own config turns that on", async () => {
     const cwd = await workspace();
     const git = (...args: string[]) => execFileSync("git", ["-C", cwd, "-c", "user.name=Tau", "-c", "user.email=tau@example.invalid", ...args], { stdio: "ignore" });
@@ -194,7 +271,41 @@ describe("Workspace Kit host extension", () => {
       const created = await kit.createWorktree("feature", { startFromOrigin: false });
       expect(admitWorkspace).toHaveBeenCalledWith(created.displayPath);
       expect(created.workspaceId).toBe(`admitted_${created.displayPath}`);
+      expect(created.baseCommit).toBe(execFileSync("git", ["-C", cwd, "rev-parse", "HEAD"], { encoding: "utf8" }).trim());
       expect(created.displayPath.startsWith(worktrees)).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("gives a fork a branch and worktree of its own, with the checkout's files as they are now or HEAD's alone", async () => {
+    const cwd = await workspace();
+    const worktrees = await workspace();
+    const git = (dir: string, ...args: string[]) => execFileSync("git", ["-C", dir, "-c", "user.name=Tau", "-c", "user.email=tau@example.invalid", ...args], { encoding: "utf8" }).trim();
+    git(cwd, "init", "-q", "-b", "main");
+    await writeFile(join(cwd, "README.md"), "# fixture\n");
+    git(cwd, "add", "README.md");
+    git(cwd, "commit", "-qm", "fixture");
+    git(cwd, "switch", "-qc", "feat/frost");
+    git(cwd, "config", "branch.feat/frost.tau-base", "main");
+    await writeFile(join(cwd, "README.md"), "# changed\n");
+    await writeFile(join(cwd, "frost.txt"), "one\n");
+    vi.stubEnv("TAU_WORKTREES_DIR", worktrees);
+    try {
+      const kit = await client(cwd);
+      const copy = await kit.forkWorktree({ branch: "feat/frost-2", now: true });
+      expect(copy.copied).toBe(true);
+      expect(git(copy.path, "branch", "--show-current")).toBe("feat/frost-2");
+      expect(await readFile(join(copy.path, "frost.txt"), "utf8")).toBe("one\n");
+      // Uncommitted there as here, and merging where the source merges.
+      expect(git(copy.path, "status", "--porcelain")).toBe("M README.md\n?? frost.txt");
+      expect(git(cwd, "config", "branch.feat/frost-2.tau-base")).toBe("main");
+      expect(git(cwd, "status", "--porcelain")).toBe("M README.md\n?? frost.txt");
+
+      const bare = await kit.forkWorktree({ branch: "feat/frost-3" });
+      expect(bare.copied).toBe(false);
+      expect(git(bare.path, "status", "--porcelain")).toBe("");
+      await expect(kit.forkWorktree({ branch: "feat/frost-2" })).rejects.toThrow(/already exists/u);
     } finally {
       vi.unstubAllEnvs();
     }

@@ -10,14 +10,23 @@ import { MessageImages, PersistedMessageImages } from "./MessageImages";
 import { copyableMessage, embeddedFileContexts, localImagePaths, visibleUserMessageText } from "./MessageText";
 import { isLongMessage } from "./message-grapheme";
 import { compactTimestamp, fullTimestamp } from "./message-timestamp";
+import { Region } from "./Regions";
+import type { TranscriptTurn } from "../extension-system";
 
 interface UserMessageProps {
   message: UiMessage;
   onCopy?: (message: UiMessage) => void;
-  onFork?: (message: UiMessage) => void;
   onEdit?: (message: UiMessage) => void;
   onToggleExpanded?: (messageId: string, expanded: boolean) => void;
   expanded?: boolean;
+  /** The turn this prompt starts; used by its contextual actions. */
+  turn?: TranscriptTurn;
+}
+
+/** Keep the existing extension placement for Fork and Restore, without a numbered separator. */
+function TurnActions({ turn }: { turn: TranscriptTurn }) {
+  const shell = useContext(WorkbenchShellContext);
+  return shell?.actions ? <Region registry={shell.registry} placement="turn-divider" snapshot={shell.snapshot} actions={shell.actions} turn={turn} bare /> : null;
 }
 
 function SkillChip({ name }: { name: string }) {
@@ -69,10 +78,10 @@ function useUserBlocks(message: UiMessage): { text: string; blocks: ReactNode[] 
 export function UserMessage({
   message,
   onCopy,
-  onFork,
   onEdit,
   onToggleExpanded,
   expanded: controlledExpanded,
+  turn,
 }: UserMessageProps) {
   const { text, blocks } = useUserBlocks(message);
   const visibleText = visibleUserMessageText(text);
@@ -95,7 +104,7 @@ export function UserMessage({
   return (
     <div className="message-shell user">
       {blocks.length > 0 ? <div className="message-user-blocks">{blocks}</div> : null}
-      <PersistedMessageImages images={persistedImages} />
+      <PersistedMessageImages images={persistedImages} text={message.text} />
       {hasLocalImages ? <MessageImages text={message.text} /> : null}
       <article className="message user">
         {hasMessageContent ? (
@@ -138,6 +147,7 @@ export function UserMessage({
           </button>
         ) : null}
         <div className="message-user-meta">
+          {turn ? <TurnActions turn={turn} /> : null}
           <time
             dateTime={new Date(message.timestamp).toISOString()}
             title={fullTimestamp(message.timestamp)}
@@ -148,7 +158,6 @@ export function UserMessage({
           {onCopy ? <MessageActions
             message={message}
             onCopy={() => onCopy(copyableMessage(message))}
-            onFork={message.sourceEntryId && onFork ? () => onFork(message) : undefined}
             onEdit={message.sourceEntryId && onEdit ? () => onEdit(message) : undefined}
           /> : null}
         </div>

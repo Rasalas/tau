@@ -18,6 +18,8 @@ export interface NativeSocketRequest {
   /** Accept a certificate the platform trusts for this name when it is not the pinned one: old pins only. */
   allowAuthority?: boolean;
   headers?: Record<string, string>;
+  /** Outer relay credential; inner TLS still verifies publicKey/fingerprint before hello. */
+  connect?: { url: string; token: string };
 }
 
 /** The plugin's socket methods and its one event stream, per socket id. */
@@ -33,6 +35,8 @@ export interface NativeSocketOptions {
   fingerprint?: string;
   allowAuthority?: boolean;
   headers?: Record<string, string>;
+  /** Outer relay credential; inner TLS still verifies publicKey/fingerprint before hello. */
+  connect?: { url: string; token: string };
 }
 
 type Listener = (event: { data?: unknown; code?: number; reason?: string }) => void;
@@ -77,6 +81,7 @@ export class NativeSocket {
       ...(options.fingerprint ? { fingerprint: options.fingerprint } : {}),
       ...(options.allowAuthority ? { allowAuthority: true } : {}),
       ...(options.headers ? { headers: options.headers } : {}),
+      ...(options.connect ? { connect: options.connect } : {}),
     }).catch((error: unknown) => this.handle({ id: this.id, type: "close", code: 1006, reason: error instanceof Error ? error.message : String(error) }));
   }
 

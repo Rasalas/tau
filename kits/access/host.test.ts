@@ -124,7 +124,7 @@ describe("Access Kit host extension", () => {
     await registry.invoke(ACCESS_HOST_EXTENSION_ID, "set-level", { level: "ask" });
     await expect(call("preview_snapshot")).resolves.toBeUndefined();
     await expect(call("tau_apply_thread_changes")).resolves.toEqual({ block: true, reason: "Blocked by Tau: tau_apply_thread_changes was not approved." });
-    expect(asked).toEqual(["Approve tau_apply_thread_changes? Apply the changes of thread child-1"]);
+    expect(asked).toEqual(["Wants to apply an agent's work Apply the changes of thread child-1"]);
     approve = true;
     await expect(call("tau_apply_thread_changes")).resolves.toBeUndefined();
 

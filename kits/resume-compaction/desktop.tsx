@@ -2,7 +2,7 @@ import { Minimize2 } from "lucide-react";
 import type { DesktopExtension } from "tau";
 import { createResumeCompactionBanner } from "./banner.js";
 import { RESUME_COMPACTION_EXTENSION_ID, RESUME_COMPACTION_OPT_OUT_SERVICE, type ResumeCompactionOptOut } from "./protocol.js";
-import { createSettingsPage, RESUME_COMPACTION_ROWS, setOff } from "./settings.js";
+import { CompactAtRow, createSettingsPage, RESUME_COMPACTION_ROWS, setOff } from "./settings.js";
 
 const EVERY_CLIENT = ["desktop", "web", "compact"] as const;
 
@@ -32,6 +32,8 @@ export const resumeCompactionExtension: DesktopExtension = {
         rows: RESUME_COMPACTION_ROWS,
         Component: createSettingsPage(preferences),
       }),
+      plugin.registerSettingsSection({ id: "resume-compaction.compact-at", page: "general", card: "threads", order: 20, profiles: EVERY_CLIENT, Component: CompactAtRow,
+        rows: [{ id: "setting-compact-context", label: "Compact context", keywords: ["compaction", "context window", "threads"] }] }),
       plugin.provideService(RESUME_COMPACTION_OPT_OUT_SERVICE, optOut),
     ];
     return () => { for (const stop of stops) stop(); };

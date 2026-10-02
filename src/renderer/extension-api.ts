@@ -53,7 +53,7 @@ export { useClientStorage } from "./client-storage-context";
 // The app page on screen, for a sidebar that marks it and offers Back.
 export { useOpenPage } from "./app-page-context";
 export { getClientStorage } from "../workbench/client-storage";
-export { useHostCapabilities, hostHasLocalFiles, hostIsReadOnly, READ_ONLY_REASON, useCommandAllowed, hostCommandAllowed } from "./use-host-capabilities";
+export { useHostCapabilities, useHostName, hostHasLocalFiles, hostIsReadOnly, READ_ONLY_REASON, useCommandAllowed, hostCommandAllowed } from "./use-host-capabilities";
 export { hostAvailable } from "./host-client-context";
 // Whether a package's own host half runs, and why not, to disable what calls it (K112).
 export { hostAvailability, useHostAvailability, type HostAvailability } from "./use-host-availability";
@@ -72,7 +72,7 @@ export { Menu } from "./deferred-surfaces";
 export { Tooltip, tooltipProps, type TooltipOptions } from "./components/ui/Tooltip";
 // Paths and branches cut in the middle, not at the end (API 1.11.0).
 export { MiddleTruncate, splitMiddle } from "./components/ui/MiddleTruncate";
-// Account email privacy, with click-to-reveal (API 1.33.0).
+// Account email privacy, with click-to-reveal (API 1.40.0).
 export { PrivateAccountText } from "./components/ui/PrivateAccountText";
 export { useContextMenu } from "./components/ui/ContextMenu";
 export { ConfirmDialog, Dialog, Popover, Sheet } from "./deferred-surfaces";
@@ -94,6 +94,7 @@ export { useModelName } from "./use-runtime-catalog";
 export { usePagedWorkspaceFiles } from "./components/usePagedWorkspaceFiles";
 // Core's own Markdown renderer, and the highlighter behind its code blocks; highlight.js loads on first use.
 export { Markdown, canonicalHighlightLanguage, highlightSource, loadHighlightLanguage } from "./components/Markdown";
+export type { MarkdownHtml } from "./components/markdown-pipeline";
 /** The full-window review surface, as its own chunk: `lazy(() => loadReviewMode().then((ReviewMode) => ({ default: ReviewMode })))`. */
 export const loadReviewMode = () => import("./components/ReviewMode").then((module) => module.ReviewMode);
 // Runtime instances and version policy (API 1.11.0): the vocabulary, and the
@@ -133,6 +134,8 @@ export type {
   ComposerGateContribution,
   ComposerGateProps,
   ModelBadgeContribution,
+  ComposerSpeedContribution,
+  ComposerSpeedState,
   ComposerChipDetailProps,
   ComposerChipIcon,
   ComposerInlineChip,
@@ -147,6 +150,9 @@ export type {
   TranscriptRow,
   TranscriptRowsHandle,
   LookInRegionContext,
+  TranscriptTurn,
+  ForkRequest,
+  ForkPromptContribution,
   RegionPlacement,
   RegionProps,
   RegionContribution,
@@ -174,6 +180,7 @@ export type {
   PageSummary,
   PageSummaryProps,
   PageProps,
+  SettingsCardId,
   SettingsSectionContribution,
   SettingsSectionPage,
   SettingsSectionProps,
@@ -189,6 +196,8 @@ export type {
   PaletteSearchContext,
   PaletteSourceContribution,
   ModelSelectionContribution,
+  ThreadMenuContribution,
+  ThreadMenuLookup,
   UserKeybinding,
   UserKeymapContribution,
   NewThreadClaimEvent,
@@ -255,3 +264,4 @@ export type * from "../shared/workspace-kit-types";
 export { THREAD_BRANCH_SERVICE, THREAD_PULL_REQUESTS_SERVICE } from "../shared/thread-git";
 export type { ThreadBranch, ThreadBranchService, ThreadPullRequest, ThreadPullRequestsService } from "../shared/thread-git";
 export type * from "../shared/contracts";
+export { displayRuntime } from "../shared/contracts";

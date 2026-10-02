@@ -186,4 +186,17 @@ describe("Cursor host half", () => {
     });
     await expect(usage.call!("thread-texts", {})).rejects.toThrow(/not allowed/u);
   });
+
+  it("lists what each thread cost from its store, as its open thread shows it", async () => {
+    const { provider, root } = await harness();
+    const store = new CursorSessionStore({ filePath: CursorSessionStore.defaultPath(join(root, "agent", "sessions")) });
+    const total = (turns: number) => ({ inputTokens: 1_000 * turns, outputTokens: 100 * turns, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 1_100 * turns, costUsd: 0.25 * turns, turns });
+    // Cursor keeps a running total, no turns and no model per turn.
+    await store.recordUsage("used", "/repo", total(2));
+    await store.setObservedModel("used", "/repo", "default");
+    await store.ensure("unused", "/repo");
+    const listed = new Map((await provider.listThreads()).map((record) => [record.threadId, record.usage]));
+    expect(listed.get("used")).toEqual([total(2)]);
+    expect(listed.get("unused")).toBeUndefined();
+  });
 });

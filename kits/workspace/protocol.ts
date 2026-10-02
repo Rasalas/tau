@@ -6,7 +6,9 @@ import type {
   DiffLoadOptions,
   FileNode,
   HostActionResult,
+  HostSnapshot,
   MenuSection,
+  ThreadMenuLookup,
   UiEditor,
   UiTerminal,
   UiFileContent,
@@ -51,6 +53,32 @@ export interface EditorPosition {
   column?: number;
 }
 
+export type BranchNaming = "prompt" | "random";
+
+/** The machine a new thread starts on, as its Run-on pill and heading name it. */
+export interface DraftMachine {
+  name: string;
+  icon: ReactNode;
+  tooltip?: string;
+  /** The draft is on its way to another machine. */
+  moving?: boolean;
+}
+
+export interface DraftMachineProps {
+  snapshot?: HostSnapshot;
+  actions?: WorkbenchActions;
+}
+
+/** Machines Kit's half of a new thread's "Run on": the chosen machine, and the list to choose from. */
+export interface DraftMachineSource {
+  /** A hook; undefined where no machine can be chosen (a started thread). */
+  useMachine(props: DraftMachineProps): DraftMachine | undefined;
+  /** The rows under "Run on"; `touch` draws them 44 px high. */
+  Section: ComponentType<DraftMachineProps & { touch: boolean }>;
+  /** Whether a new draft opens the popover at once: Settings' Run on is Ask. */
+  openOnDraft?(): boolean;
+}
+
 /** Where a new worktree starts, as the picker shows it. */
 export interface UiWorktreeBase {
   ref: string;
@@ -60,6 +88,10 @@ export interface UiWorktreeBase {
   fromOrigin: boolean;
   /** Why the base is not the one that was asked for. */
   note?: string;
+  /** When the remote was last fetched (FETCH_HEAD), for "fetched 2m ago". */
+  fetchedAt?: number;
+  /** A few other remote branches, latest first, for "Based on". */
+  others?: string[];
 }
 
 /** What removing a worktree would lose. */
@@ -113,6 +145,9 @@ export interface CloneSnapshot {
 
 export const CLONE_PROGRESS_EVENT = "clone-progress";
 
+/** A checkout's HEAD moved outside Tau (a `git checkout` in a terminal); payload `{ root }`. */
+export const HEAD_CHANGED_EVENT = "head-changed";
+
 /** The folder a clone lands in, from the last path segment of its URL. */
 export function repositoryFolderName(repositoryUrl: string): string {
   const normalized = repositoryUrl.trim().replace(/[\\/]+$/u, "").replace(/\.git$/iu, "");
@@ -139,8 +174,26 @@ export const PROJECT_SCRIPTS_HOST_EXTENSION_ID = "tau.project-scripts";
 /** Per-thread workspace choice, made before the first turn and locked after it. */
 export type WorkspaceMode = "current" | "worktree";
 
+export interface ForkWorktreeRequest {
+  branch: string;
+  sessionId?: string;
+  checkpointId?: string;
+  now?: boolean;
+}
+
+export interface ForkWorktree extends WorkspaceRef {
+  path: string;
+  /** The checkpoint's or checkout's files came along; false when the fork starts from HEAD only. */
+  copied: boolean;
+}
+
 /** Published for every checkpoint the host records or whose capture status changes. */
 export const CHECKPOINT_EVENT = "checkpoint";
+
+/** Live Workspace events, followed locally and on a thread's home machine. */
+export const WORKSPACE_HEAD_TOPIC = "head";
+export const WORKSPACE_CLONE_TOPIC = "clone";
+export const WORKSPACE_CHECKPOINT_TOPIC = "checkpoints";
 
 export interface WorkspaceCheckpointList {
   checkpoints: UiTurnCheckpoint[];
@@ -216,20 +269,20 @@ export interface WorkspaceHostCommands {
   "file-tree": { input: { relPath?: string; workspace?: string } | undefined; output: FileNode[] };
   "changes": { input: { query?: WorkspaceChangesQuery; workspace?: string } | undefined; output: UiWorkspaceChanges };
   "file-diff": { input: { relPath: string; options?: DiffLoadOptions; workspace?: string }; output: UiFileDiff };
-  "stage-file": { input: { relPath: string }; output: UiWorkspaceChanges };
-  "unstage-file": { input: { relPath: string }; output: UiWorkspaceChanges };
-  "stage-all": { input: undefined; output: UiWorkspaceChanges };
-  "revert-file": { input: { relPath: string }; output: UiWorkspaceChanges };
+  "stage-file": { input: { relPath: string; workspace?: string }; output: UiWorkspaceChanges };
+  "unstage-file": { input: { relPath: string; workspace?: string }; output: UiWorkspaceChanges };
+  "stage-all": { input: { workspace?: string } | undefined; output: UiWorkspaceChanges };
+  "revert-file": { input: { relPath: string; workspace?: string }; output: UiWorkspaceChanges };
   "read-file": { input: { relPath: string; workspace?: string }; output: UiFileContent };
   "file-stat": { input: { relPath: string; workspace?: string }; output: UiFileStat };
   /** `expectedMtimeMs` is when the caller last saw the file; `null` expects none, absent writes regardless. */
   "write-file": { input: { relPath: string; text: string; expectedMtimeMs?: number | null; workspace?: string }; output: UiFileWriteResult };
-  "commit": { input: { message: string; push: boolean }; output: CommitResult };
-  "pull": { input: undefined; output: PullResult };
+  "commit": { input: { message: string; push: boolean; workspace?: string }; output: CommitResult };
+  "pull": { input: { workspace?: string } | undefined; output: PullResult };
   /** Pushes the branch; one without an upstream is published to the primary remote. Review Kit may call it. */
-  "push": { input: undefined; output: PushResult };
+  "push": { input: { workspace?: string } | undefined; output: PushResult };
   /** The first remote of a repository Review Kit just published; refused when it has one (callers: `tau.review`). */
-  "add-remote": { input: { name?: string; url: string }; output: { hasCommits: boolean } };
+  "add-remote": { input: { name?: string; url: string; workspace?: string }; output: { hasCommits: boolean } };
   /** A new branch holding the parent's tree with these files put in; the checkout is not touched (callers: `tau.servers`). */
   "commit-files-to-branch": { input: CommitFilesInput & { workspace?: string }; output: CommitFilesResult };
   /** A normal merge commit of a branch into the checkout's own; a conflict is backed out (callers: `tau.servers`). */
@@ -243,7 +296,7 @@ export interface WorkspaceHostCommands {
   /** Where a new worktree would start: the base ref, the commit it resolves to, and whether that came from origin. */
   "worktree-base": { input: { workspace?: string; baseRef?: string; startFromOrigin?: boolean } | undefined; output: UiWorktreeBase };
   /** Adds a worktree next to `workspace` (the host's own by default) and answers with its identity; opening it is the caller's move. */
-  "create-worktree": { input: { branch: string; baseRef?: string; startFromOrigin?: boolean; submodules?: WorktreeSubmodules; workspace?: string }; output: WorkspaceRef };
+  "create-worktree": { input: { branch: string; baseRef?: string; startFromOrigin?: boolean; submodules?: WorktreeSubmodules; workspace?: string }; output: WorkspaceRef & { baseCommit?: string } };
   /** What removing a worktree would lose: uncommitted files and commits beyond its base. */
   "worktree-removal-preview": { input: { path: string; workspace?: string }; output: UiWorktreeRemoval };
   /** Removes a linked worktree and the branch it held; the caller confirmed what the preview named. */
@@ -260,13 +313,13 @@ export interface WorkspaceHostCommands {
   "auto-pull": { input: { workspace?: string } | undefined; output: AutoPullOutcome[] };
   /** Defaults a project checks in under `.tau/project.json`, plus this client's own. */
   "project-defaults": { input: { workspace?: string } | undefined; output: ProjectDefaults };
-  "switch-ref": { input: { ref: string }; output: HostActionResult };
+  "switch-ref": { input: { ref: string; workspace?: string }; output: HostActionResult };
   /** What the thread header's "N files changed" counts for this thread. */
   "thread-changes": { input: { sessionId?: string; workspace?: string }; output: ThreadChangesCount };
   /** Threads with a turn running in the shown checkout; a branch switch there changes their files. */
-  "checkout-turns": { input: { sessionId?: string }; output: CheckoutTurn[] };
+  "checkout-turns": { input: { sessionId?: string; workspace?: string }; output: CheckoutTurn[] };
   /** A new branch at the checkout's HEAD, switched to in place. */
-  "create-branch": { input: { branch: string }; output: HostActionResult };
+  "create-branch": { input: { branch: string; workspace?: string }; output: HostActionResult };
   "list-editors": { input: undefined; output: UiEditor[] };
   /** `file-manager` reveals the file in Finder, Explorer or Files; a line reaches editors that take one. */
   "open-in-editor": { input: { editorId: string; relPath?: string; workspace?: string } & EditorPosition; output: void };
@@ -281,6 +334,8 @@ export interface WorkspaceHostCommands {
   "restore": { input: { sessionId: string; checkpointId: string }; output: HostActionResult };
   /** Conversation only: a new branch at the checkpoint, files untouched. Its own command, so an older host refuses rather than restores. */
   "rewind": { input: { sessionId: string; checkpointId: string }; output: HostActionResult };
+  /** A fork's branch and worktree, from a verified checkpoint, the checkout now (`now`), or HEAD; `copied` says which files came. */
+  "fork-worktree": { input: ForkWorktreeRequest & { workspace?: string }; output: ForkWorktree };
   /** Immutable diff captured for one completed turn; never the live workspace. */
   "turn-file-diff": { input: { sessionId: string; checkpointId: string; relPath: string; options?: DiffLoadOptions }; output: UiFileDiff };
   "turn-files": { input: { sessionId: string; checkpointId: string; cursor?: string; limit?: number }; output: UiWorkspaceChangesPage };
@@ -302,30 +357,30 @@ export interface WorkspaceHostClient {
   getFileTree(relPath?: string, workspace?: string): Promise<FileNode[]>;
   getChanges(query?: WorkspaceChangesQuery, workspace?: string): Promise<UiWorkspaceChanges>;
   getFileDiff(relPath: string, options?: DiffLoadOptions, workspace?: string): Promise<UiFileDiff>;
-  stageFile(relPath: string): Promise<UiWorkspaceChanges>;
-  unstageFile(relPath: string): Promise<UiWorkspaceChanges>;
-  stageAll(): Promise<UiWorkspaceChanges>;
-  revertFile(relPath: string): Promise<UiWorkspaceChanges>;
+  stageFile(relPath: string, workspace?: string): Promise<UiWorkspaceChanges>;
+  unstageFile(relPath: string, workspace?: string): Promise<UiWorkspaceChanges>;
+  stageAll(workspace?: string): Promise<UiWorkspaceChanges>;
+  revertFile(relPath: string, workspace?: string): Promise<UiWorkspaceChanges>;
   readFile(relPath: string, workspace?: string): Promise<UiFileContent>;
   statFile(relPath: string): Promise<UiFileStat>;
   writeFile(relPath: string, text: string, expectedMtimeMs?: number | null): Promise<UiFileWriteResult>;
   commit(message: string, push: boolean): Promise<CommitResult>;
-  pull(): Promise<PullResult>;
-  push(): Promise<PushResult>;
+  pull(workspace?: string): Promise<PullResult>;
+  push(workspace?: string): Promise<PushResult>;
   getWorkspaceInfo(workspace?: string): Promise<WorkspaceInfo>;
   getWorktreeStatuses(workspace?: string): Promise<UiWorktreeStatus[]>;
   getWorktreeBase(workspace?: string, options?: { baseRef?: string; startFromOrigin?: boolean }): Promise<UiWorktreeBase>;
-  createWorktree(branch: string, options?: { baseRef?: string; startFromOrigin?: boolean; submodules?: WorktreeSubmodules }, workspace?: string): Promise<WorkspaceRef>;
+  createWorktree(branch: string, options?: { baseRef?: string; startFromOrigin?: boolean; submodules?: WorktreeSubmodules }, workspace?: string): Promise<WorkspaceRef & { baseCommit?: string }>;
   getWorktreeRemoval(path: string, workspace?: string): Promise<UiWorktreeRemoval>;
   removeWorktree(path: string, branch?: string, workspace?: string): Promise<void>;
   ensureWorktree(path: string, branch?: string, workspace?: string): Promise<boolean>;
   getProjectDefaults(workspace?: string): Promise<ProjectDefaults>;
   getDefaultBranch(workspace?: string): Promise<string>;
   autoPull(workspace?: string): Promise<AutoPullOutcome[]>;
-  switchRef(ref: string): Promise<HostActionResult>;
-  checkoutTurns(sessionId?: string): Promise<CheckoutTurn[]>;
+  switchRef(ref: string, workspace?: string): Promise<HostActionResult>;
+  checkoutTurns(sessionId?: string, workspace?: string): Promise<CheckoutTurn[]>;
   threadChanges(sessionId?: string, workspace?: string): Promise<ThreadChangesCount>;
-  createBranch(branch: string): Promise<HostActionResult>;
+  createBranch(branch: string, workspace?: string): Promise<HostActionResult>;
   listEditors(): Promise<UiEditor[]>;
   openInEditor(editorId: string, relPath?: string, workspace?: string, position?: EditorPosition): Promise<void>;
   listTerminals(): Promise<UiTerminal[]>;
@@ -335,6 +390,7 @@ export interface WorkspaceHostClient {
   getRestorePreview(sessionId: string, checkpointId: string): Promise<UiWorkspaceChanges>;
   restoreCheckpoint(sessionId: string, checkpointId: string): Promise<HostActionResult>;
   rewindCheckpoint(sessionId: string, checkpointId: string): Promise<HostActionResult>;
+  forkWorktree(request: ForkWorktreeRequest, workspace?: string): Promise<ForkWorktree>;
   getTurnFileDiff(sessionId: string, checkpointId: string, relPath: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
   getTurnFiles(sessionId: string, checkpointId: string, cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
   getTurnStats(): Promise<Record<string, TurnStat>>;
@@ -354,16 +410,16 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     getFileTree: (relPath, workspace) => call("file-tree", relPath === undefined && workspace === undefined ? undefined : { ...(relPath === undefined ? {} : { relPath }), ...(workspace ? { workspace } : {}) }),
     getChanges: (query, workspace) => call("changes", query === undefined && workspace === undefined ? undefined : { ...(query === undefined ? {} : { query }), ...(workspace ? { workspace } : {}) }),
     getFileDiff: (relPath, options, workspace) => call("file-diff", workspace ? { relPath, options, workspace } : { relPath, options }),
-    stageFile: (relPath) => call("stage-file", { relPath }),
-    unstageFile: (relPath) => call("unstage-file", { relPath }),
-    stageAll: () => call("stage-all", undefined),
-    revertFile: (relPath) => call("revert-file", { relPath }),
+    stageFile: (relPath, workspace) => call("stage-file", workspace ? { relPath, workspace } : { relPath }),
+    unstageFile: (relPath, workspace) => call("unstage-file", workspace ? { relPath, workspace } : { relPath }),
+    stageAll: (workspace) => call("stage-all", workspace ? { workspace } : undefined),
+    revertFile: (relPath, workspace) => call("revert-file", workspace ? { relPath, workspace } : { relPath }),
     readFile: (relPath, workspace) => call("read-file", workspace ? { relPath, workspace } : { relPath }),
     statFile: (relPath) => call("file-stat", { relPath }),
     writeFile: (relPath, text, expectedMtimeMs) => call("write-file", expectedMtimeMs === undefined ? { relPath, text } : { relPath, text, expectedMtimeMs }),
     commit: (message, push) => call("commit", { message, push }),
-    pull: () => call("pull", undefined),
-    push: () => call("push", undefined),
+    pull: (workspace) => call("pull", workspace ? { workspace } : undefined),
+    push: (workspace) => call("push", workspace ? { workspace } : undefined),
     getWorkspaceInfo: (workspace) => call("workspace-info", workspace === undefined ? undefined : { workspace }),
     getWorktreeStatuses: (workspace) => call("worktree-statuses", workspace === undefined ? undefined : { workspace }),
     getWorktreeBase: (workspace, options) => call("worktree-base", { workspace, ...options }),
@@ -374,10 +430,10 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     getProjectDefaults: (workspace) => call("project-defaults", { workspace }),
     getDefaultBranch: (workspace) => call("default-branch", workspace === undefined ? undefined : { workspace }),
     autoPull: (workspace) => call("auto-pull", workspace === undefined ? undefined : { workspace }),
-    switchRef: (ref) => call("switch-ref", { ref }),
-    checkoutTurns: (sessionId) => call("checkout-turns", { sessionId }),
+    switchRef: (ref, workspace) => call("switch-ref", workspace ? { ref, workspace } : { ref }),
+    checkoutTurns: (sessionId, workspace) => call("checkout-turns", { sessionId, ...(workspace ? { workspace } : {}) }),
     threadChanges: (sessionId, workspace) => call("thread-changes", { sessionId, workspace }),
-    createBranch: (branch) => call("create-branch", { branch }),
+    createBranch: (branch, workspace) => call("create-branch", workspace ? { branch, workspace } : { branch }),
     listEditors: () => call("list-editors", undefined),
     openInEditor: (editorId, relPath, workspace, position) => call("open-in-editor", { editorId, relPath, workspace, ...position }),
     listTerminals: () => call("list-terminals", undefined),
@@ -387,6 +443,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     getRestorePreview: (sessionId, checkpointId) => call("restore-preview", { sessionId, checkpointId }),
     restoreCheckpoint: (sessionId, checkpointId) => call("restore", { sessionId, checkpointId }),
     rewindCheckpoint: (sessionId, checkpointId) => call("rewind", { sessionId, checkpointId }),
+    forkWorktree: (request, workspace) => call("fork-worktree", { ...request, workspace }),
     getTurnFileDiff: (sessionId, checkpointId, relPath, options) => call("turn-file-diff", { sessionId, checkpointId, relPath, options }),
     getTurnFiles: (sessionId, checkpointId, cursor, limit) => call("turn-files", { sessionId, checkpointId, cursor, limit }),
     getTurnStats: () => call("turn-stats", undefined),
@@ -436,10 +493,18 @@ export interface WorkspaceKitState {
   draftBase?: string;
   /** A worktree is being created for the thread that is starting. */
   preparingWorktree: boolean;
+  /** The draft offers its own worktree because another thread's turn runs in its folder (K125). */
+  worktreeSuggested?: boolean;
+  /** How a draft's worktree branch is named when the field stays empty; unset is from the prompt. */
+  branchNaming?: BranchNaming;
+  /** Machines Kit's half of a new thread's "Run on". */
+  draftMachine?: DraftMachineSource;
   /** Sections other kits add to the Changes panel. */
   changesSections: ReadonlyArray<ComponentType<ChangesSectionProps>>;
   /** Marks other kits add to rail rows. */
   threadRowAccessories: ReadonlyArray<ComponentType<ThreadRowAccessoryProps>>;
+  /** Other kits' states for some threads, by thread id, drawn in place of the row's own. */
+  threadRowStatuses: Readonly<Record<string, ThreadRowStatusMark>>;
   /** Rows and sections other kits add to a rail row's hover card. */
   threadCardSections: readonly ThreadCardSection[];
   /** Another kit's say over the rail's sections, menus and drops. */
@@ -448,6 +513,8 @@ export interface WorkspaceKitState {
   railSections: ReadonlyArray<ComponentType<{ actions: WorkbenchActions }>>;
   /** Threads other kits list among this machine's own: other machines' threads. */
   railThreadSources: readonly RailThreadSource[];
+  /** Where a thread dragged in the rail can go besides the list: other machines. */
+  threadDropTargets?: ThreadDropTargets;
   /** Each project's main line as the host read it, by workspace id or path. */
   defaultBranches: Readonly<Record<string, string>>;
   /** The rail shows only this repository's threads (the row menu's "Filter by"). */
@@ -482,7 +549,8 @@ export interface ChangesSectionProps {
 /**
  * A thread another kit lists in the rail among this machine's own, another
  * machine's say. The rail sorts, groups and searches it by `session` like its
- * own threads; it cannot be settled, pinned or dragged here.
+ * own threads. It is settled where it runs, when that kit can (`settled`,
+ * `toggleSettled`); it cannot be pinned or dragged here.
  */
 export interface RailExternalThread {
   /** Unique in the rail, and never the id of a thread of this host. */
@@ -499,6 +567,10 @@ export interface RailExternalThread {
   open(actions: WorkbenchActions): void;
   /** Reads it here without leaving this machine: the row's hover button. */
   lookIn?(actions: WorkbenchActions): void;
+  /** Settled where it runs: the rail puts it on its settled shelf. */
+  settled?: boolean;
+  /** Settles it where it runs, or takes it back from the shelf there. */
+  toggleSettled?(actions: WorkbenchActions): void;
 }
 
 /** A kit's threads for the rail; `threads()` keeps its identity until `subscribe`'s listener runs. */
@@ -510,6 +582,13 @@ export interface RailThreadSource {
 /** A small mark another kit draws on a thread's rail row, e.g. its request status. */
 export interface ThreadRowAccessoryProps {
   session: UiSession;
+}
+
+/** A state another kit gives a thread's row, drawn like a question: a takeover's "Your turn". */
+export interface ThreadRowStatusMark {
+  label: string;
+  hint?: string;
+  icon: ReactNode;
 }
 
 /**
@@ -565,6 +644,26 @@ export interface ThreadRailDrop {
   beforeThreadId?: string;
 }
 
+/** A place a thread dragged in the rail can be let go of, drawn in a panel at the rail's foot (design 2f). */
+export interface ThreadDropTarget {
+  id: string;
+  label: string;
+  /** Under the label: its state, or why the thread cannot go there. */
+  detail?: string;
+  icon?: ReactNode;
+  /** Dimmed; letting go there does nothing. */
+  disabled?: boolean;
+}
+
+/** Another kit's drop targets for a dragged thread; one at a time, the last wins. */
+export interface ThreadDropTargets {
+  /** The panel's heading, e.g. "Drop to move the thread". */
+  heading: string;
+  /** Read when a drag starts; an empty list draws no panel. */
+  targets(thread: UiSession, actions: WorkbenchActions): readonly ThreadDropTarget[];
+  drop(thread: UiSession, targetId: string, actions: WorkbenchActions): void;
+}
+
 /** An icon button shown on hover or keyboard focus that opens a row action menu. */
 export interface ThreadRailRowAction {
   id: string;
@@ -586,8 +685,8 @@ export interface ThreadRailOrganizer {
   getVersion(): number;
   /** `threads` is what the rail would show, searched and newest first. */
   sections(threads: readonly UiSession[]): ThreadRailSection[];
-  /** A row's right-click menu. */
-  menu(session: UiSession): MenuSection[];
+  /** A row's right-click menu; `lookup` gives chords for its hints and the commands offered on a thread. */
+  menu(session: UiSession, lookup?: ThreadMenuLookup): MenuSection[];
   runMenu(session: UiSession, itemId: string, actions: WorkbenchActions): void;
   /** Settles or returns a thread the rail itself moves (a drop on the shelf's heading). */
   toggleSettled(session: UiSession): void;
@@ -605,6 +704,7 @@ export interface ThreadRailOrganizer {
 
 /** What a kit asks of `prepareThreadWorktree` beyond what the pending draft already says. */
 export interface ThreadWorktreeRequest {
+  baseCommit?: string;
   prompt: string;
   preparing(message: string): void;
   /** Make one even when the draft runs in the current checkout. */
@@ -658,11 +758,13 @@ export interface WorkspaceStoreApi {
   registerReviewView(): () => void;
   stageFile(path: string): Promise<void>;
   unstageFile(path: string): Promise<void>;
-  stageAll(): Promise<void>;
+  stageAll(workspace?: string): Promise<void>;
   /** Discards one file's changes; the caller asked the user first. */
   revertFile(path: string): Promise<void>;
   /** A mark drawn on every thread row of the rail. */
   registerThreadRowAccessory(accessory: ComponentType<ThreadRowAccessoryProps>): () => void;
+  /** `owner`'s states for rows, by thread id, in place of Working or Question; `{}` withdraws them. */
+  setThreadRowStatuses?(owner: string, statuses: Readonly<Record<string, ThreadRowStatusMark>>): void;
   /** A row or section on every rail row's hover card: a terminal count, the thread's pull requests (API 1.23.0). */
   registerThreadCardSection?(section: ThreadCardSection): () => void;
   /** Sections, row menus and drops of the rail. */
@@ -671,6 +773,10 @@ export interface WorkspaceStoreApi {
   registerRailSection?(section: ComponentType<{ actions: WorkbenchActions }>): () => void;
   /** Threads listed among the rail's own, each with its machine's mark: other machines' threads. */
   registerRailThreads?(source: RailThreadSource): () => void;
+  /** The machines a new thread's "Run on" lists above its branch (design 1k/1o). */
+  registerDraftMachine?(source: DraftMachineSource): () => void;
+  /** Places beside the list a dragged thread can go: other machines (design 2f). */
+  registerThreadDropTargets?(targets: ThreadDropTargets): () => void;
   /** Shows only the threads of one repository, by its project name; `undefined` shows all again (API 1.11.0). */
   setRailProjectFilter(projectName: string | undefined): void;
   /** Opens the settings of the project a thread runs in: its icon, name and path (API 1.11.0). */

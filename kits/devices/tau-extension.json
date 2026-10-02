@@ -1,0 +1,13 @@
+{
+  "id": "tau.devices",
+  "name": "Devices",
+  "description": "View and control iOS simulators and Android emulators on local and SSH hosts.",
+  "icon": "Smartphone",
+  "version": "1.0.0",
+  "engines": { "api": "^1.27.0" },
+  "permissions": ["runtime:extend", "process", "network"],
+  "isolation": "in-process",
+  "host": "./host.ts",
+  "desktop": "./desktop.tsx",
+  "styles": "./styles.css"
+}

@@ -1,6 +1,9 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { packageBuilds } from "./package-builds.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { bundleDesktopExtension, desktopExtensionLabel, listDesktopExtensionEntries, loadDesktopExtensions, isGeneratedOrVendored } from "./desktop-extensions.js";
@@ -37,12 +40,37 @@ describe("desktop extension bundling", () => {
     const code = await bundleDesktopExtension(join(dir, "hello.tsx"), {
       sharedExports: { react: ["useState"], "react/jsx-runtime": ["jsx", "jsxs", "Fragment"], tau: [] },
     });
-    expect(code).toContain('globalThis.__tauShared?.["react"]');
-    expect(code).toContain('globalThis.__tauShared?.["react/jsx-runtime"]');
+    expect(code).toContain("globalThis.__tauShared?.[specifier]");
+    expect(code).toContain('shared("react")');
+    expect(code).toContain('shared("react/jsx-runtime")');
+    // One copy of the lookup and its error, however many shared modules the bundle binds.
+    expect(code.match(/is not available in this workbench/gu)).toHaveLength(1);
     expect(code).not.toMatch(/from\s+["']react["']/u);
     expect(code).toMatch(/export\s*\{/u);
     // Minified whitespace: no indented lines.
     expect(code.split("\n").filter((line) => /^\s/u.test(line))).toEqual([]);
+  });
+
+  it("binds shared modules from the renderer at import, and names the one that is missing", async () => {
+    const dir = await scratch();
+    await writeFile(join(dir, "uses.ts"), `
+      import { useState } from "react";
+      export default { id: "x.uses", name: "Uses", activate() { return useState; } };
+    `);
+    const code = await bundleDesktopExtension(join(dir, "uses.ts"), { sharedExports: { react: ["useState"], tau: [] } });
+    const url = `data:text/javascript;base64,${Buffer.from(code).toString("base64")}`;
+    const global = globalThis as Record<string, unknown>;
+    const key = "__tauShared";
+    const useState = () => 1;
+    try {
+      global[key] = { react: { useState } };
+      const module = await import(/* @vite-ignore */ `${url}#ok`) as { default: { activate(): unknown } };
+      expect(module.default.activate()).toBe(useState);
+      global[key] = {};
+      await expect(import(/* @vite-ignore */ `${url}#missing`)).rejects.toThrow("Shared module react is not available in this workbench");
+    } finally {
+      delete global[key];
+    }
   });
 
   it("ships only the shared bindings the extension imports, in the code and in the map", async () => {
@@ -64,6 +92,59 @@ describe("desktop extension bundling", () => {
     expect(map.sourcesContent[map.sources.indexOf("tau-shared:icons")]).toBeNull();
     expect(map.sourcesContent[map.sources.findIndex((source) => source.endsWith("one-icon.tsx"))]).toContain("registerStatusItem");
     expect(code.length).toBeLessThan(20_000);
+  });
+
+  it("keeps exported function names, shared calls, and original sources when simplifying syntax", async () => {
+    const dir = await scratch();
+    const source = `
+      import { describe } from "fixture";
+      export function extensionDisplayName(value?: string) {
+        if (value === undefined) return describe("default");
+        return describe(value);
+      }
+      export function extensionFailure() { throw new Error("extension failed"); }
+    `;
+    await writeFile(join(dir, "names.ts"), source);
+    const code = await bundleDesktopExtension(join(dir, "names.ts"), { sharedExports: { fixture: ["describe"] } });
+    const map = JSON.parse(Buffer.from(/base64,([A-Za-z0-9+/=]+)/u.exec(code)![1], "base64").toString("utf8")) as { sources: string[]; sourcesContent: (string | null)[] };
+    expect(map.sourcesContent[map.sources.findIndex((file) => file.endsWith("names.ts"))]).toBe(source);
+    const output = join(dir, "names.mjs");
+    await writeFile(output, code);
+    // Evaluate the shipped module with Node's loader, without Vite transforming it again.
+    const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "-e", `
+      globalThis.__tauShared = { fixture: { describe: (value) => "Extension " + value } };
+      const module = await import(${JSON.stringify(pathToFileURL(output).href)});
+      let stack;
+      try { module.extensionFailure(); } catch (error) { stack = error.stack; }
+      console.log(JSON.stringify({ name: module.extensionDisplayName.name, defaultValue: module.extensionDisplayName(), customValue: module.extensionDisplayName("custom"), failureName: module.extensionFailure.name, stack }));
+    `]);
+    expect(JSON.parse(stdout)).toEqual({ name: "extensionDisplayName", defaultValue: "Extension default", customValue: "Extension custom", failureName: "extensionFailure", stack: expect.stringContaining("extensionFailure") });
+  });
+
+  it("shortens a dependency's local names but keeps the extension's, and maps both back", async () => {
+    const dir = await scratch();
+    const vendor = join(dir, "node_modules", "dep");
+    await mkdir(vendor, { recursive: true });
+    await writeFile(join(vendor, "package.json"), JSON.stringify({ name: "dep", type: "module", main: "index.js" }));
+    await writeFile(join(vendor, "index.js"), "function vendorLocalHelper(input) {\n  const vendorLocalValue = input * 2;\n  return vendorLocalValue;\n}\nexport function double(value) { return vendorLocalHelper(value); }\n");
+    await mkdir(join(dir, "node_modules", "linked"), { recursive: true });
+    await writeFile(join(dir, "node_modules", "linked", "package.json"), JSON.stringify({ name: "linked", type: "module", main: "index.js" }));
+    await writeFile(join(dir, "node_modules", "linked", "index.js"), "export function triple(linkedLocalValue) { return linkedLocalValue * 3; }\n//# sourceMappingURL=index.js.map\n");
+    await writeFile(join(dir, "uses-dep.ts"), `
+      import { double } from "dep";
+      import { triple } from "linked";
+      function extensionOwnHelper(n: number) { return double(n) + triple(n); }
+      export default { id: "x.dep", name: "Dep", activate() { return extensionOwnHelper(1); } };
+    `);
+    const code = await bundleDesktopExtension(join(dir, "uses-dep.ts"), { sharedExports: {} });
+    expect(code).not.toContain("vendorLocalHelper");
+    expect(code).not.toContain("vendorLocalValue");
+    expect(code).toContain("extensionOwnHelper");
+    // A file that links its own map keeps its names, so that map still fits.
+    expect(code).toContain("linkedLocalValue");
+    const map = JSON.parse(Buffer.from(/base64,([A-Za-z0-9+/=]+)/u.exec(code)![1], "base64").toString("utf8")) as { sources: string[]; names: string[] };
+    expect(map.sources.some((source) => source.endsWith("node_modules/dep/index.js"))).toBe(true);
+    expect(map.names).toContain("vendorLocalHelper");
   });
 
   it("loads the user folder always and the project folder only when Pi trusts the project", async () => {

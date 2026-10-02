@@ -4,7 +4,7 @@
   "description": "A notification, a sound and a badge when a thread finishes, fails or asks you something.",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.19.0"
+    "api": "^1.37.0"
   },
   "permissions": [
     "sessions",

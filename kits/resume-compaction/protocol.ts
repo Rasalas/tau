@@ -15,3 +15,13 @@ export interface ResumeCompactionOptOut {
 export const OFF_KEY = "off";
 /** `values.tau.resume-compaction.kept`: the latest "Keep full history" answers, as a JSON array of dismissal keys. */
 export const KEPT_KEY = "kept";
+
+/** `values.tau.resume-compaction.compact-at`: past which share of its context a Pi thread compacts when its turn ends (design 2i). */
+export const COMPACT_AT_KEY = "compact-at";
+export const COMPACT_AT_CHOICES = ["60", "80", "never"] as const;
+export type CompactAt = (typeof COMPACT_AT_CHOICES)[number];
+export const DEFAULT_COMPACT_AT: CompactAt = "80";
+
+export function readCompactAt(raw: unknown): CompactAt | undefined {
+  return COMPACT_AT_CHOICES.find((choice) => choice === raw);
+}

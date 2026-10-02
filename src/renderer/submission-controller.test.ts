@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, UiPromptAttachment, UiSkillDraft } from "../shared/contracts";
 import { createNewThreadRequestId } from "../shared/contracts";
 import type { HostClient } from "../workbench/host-client";
+import { HostRequestError } from "../workbench/host-connection";
 import { ComposerScopeStore, createDraftKey } from "../workbench/composer-scope-store";
 import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
 import { createMemoryStorage } from "../workbench/client-storage";
@@ -165,6 +166,76 @@ beforeEach(() => {
   } catch {
     // localStorage might not be initialized in Node 22 without storage file
   }
+});
+
+describe("issue 13 client refusal presentation", () => {
+  // Client-only contract test. The host refusal is injected here; this does not
+  // reproduce or identify the phone incident's admission cause.
+  it("retains a refused draft and retries once, without counting the refusal as accepted", async () => {
+    const reason = "Wait for compaction to finish and retry.";
+    let attempts = 0;
+    const h = harness({ client: { sendPrompt: async () => {
+      if (++attempts === 1) throw new HostRequestError(reason, "runtime-refused");
+    } } });
+    const text = "text-only follow-up";
+    const attachments = [{ kind: "image" as const, name: "fixture.png", mimeType: "image/png", data: "fixture", size: 7, id: 1, previewUrl: "fixture://image" }];
+    const scope = createDraftKey(draftKey("session"));
+    h.scopes.setDraft(scope, text);
+    h.scopes.setAttachments(scope, attachments);
+    await expect(h.submission.submit({ text, attachments })).resolves.toEqual({ accepted: false, message: reason });
+    expect(h.view.getOptimisticMessages()).toEqual([]);
+    expect(h.state.turn).toBeUndefined();
+    expect(h.promptHooks).not.toHaveBeenCalled();
+    expect(h.scopes.getSnapshot(scope).draft).toBe(text);
+    expect(h.scopes.getSnapshot(scope).attachments).toEqual(attachments);
+    await expect(h.submission.submit({ text, attachments })).resolves.toEqual({ accepted: true });
+    expect(attempts).toBe(2);
+    expect(h.promptHooks).toHaveBeenCalledOnce();
+    expect(h.view.getOptimisticMessages()).toHaveLength(1);
+    expect(sentPrompts(h.client).map((call) => call.args.slice(0, 2))).toEqual([[text, attachments], [text, attachments]]);
+  });
+
+  it("normalizes a preparation refusal in both the inline result and toast", async () => {
+    const reason = "This skill is unavailable.";
+    const h = harness({ client: { preparePrompt: async () => { throw new HostRequestError(reason, "runtime-refused"); } } });
+    await expect(h.submission.submit({ text: "/skill:missing" })).resolves.toEqual({ accepted: false, message: reason });
+    expect(h.view.getNotice()?.message).toBe(reason);
+    expect(sentPrompts(h.client)).toHaveLength(0);
+    expect(h.view.getOptimisticMessages()).toEqual([]);
+    expect(h.state.turn).toBeUndefined();
+    expect(h.promptHooks).not.toHaveBeenCalled();
+  });
+
+  it("leaves a newer draft and turn alone when an old prompt is refused after navigation", async () => {
+    let refuse!: (error: unknown) => void;
+    const h = harness({ client: { sendPrompt: () => new Promise<void>((_resolve, reject) => { refuse = reject; }) } });
+    const oldSubmission = h.submission.submit({ text: "old follow-up" });
+    await vi.waitFor(() => expect(sentPrompts(h.client)).toHaveLength(1));
+
+    h.view.setSnapshot({ ...SESSION_SNAPSHOT, sessionId: "other" });
+    const newerScope = createDraftKey(draftKey("other"));
+    h.scopes.setDraft(newerScope, "newer draft");
+    const newerTurn = { ...h.state.turn!, turnId: "newer-turn", sessionId: "other" };
+    h.state.turn = newerTurn;
+    h.view.setNotice("Newer notice");
+    refuse(new HostRequestError("The old prompt was refused.", "runtime-refused"));
+
+    await expect(oldSubmission).resolves.toEqual({ accepted: false, message: "The old prompt was refused." });
+    expect(h.scopes.getSnapshot(newerScope).draft).toBe("newer draft");
+    expect(h.state.turn).toBe(newerTurn);
+    expect(h.view.getNotice()?.message).toBe("Newer notice");
+    expect(h.view.getOptimisticMessages()).toEqual([]);
+    expect(h.promptHooks).not.toHaveBeenCalled();
+    expect(sentPrompts(h.client)).toHaveLength(1);
+    expect(h.followUps).toEqual([]);
+  });
+
+  it("shows a useful refusal without an internal exception class name in the toast", async () => {
+    const reason = "Wait for compaction to finish and retry.";
+    const h = harness({ client: { sendPrompt: async () => { throw new HostRequestError(reason, "runtime-refused"); } } });
+    await expect(h.submission.submit({ text: "text-only follow-up" })).resolves.toEqual({ accepted: false, message: reason });
+    expect(h.view.getNotice()?.message).toBe(reason);
+  });
 });
 
 describe("SubmissionController", () => {
@@ -499,4 +570,11 @@ describe("SubmissionController", () => {
     expect(resultSilent).toEqual({ accepted: true });
     expect(actions.runShellAction).toHaveBeenCalledWith("echo silent", false);
   });
+  it("keeps a claimed launch failure out of ordinary new-thread creation", async () => {
+    const claimNewThread = vi.fn(async () => { throw new Error("Started 1 of 2 threads"); });
+    const { submission, client } = harness({ pending: DRAFT, claimNewThread });
+    await expect(submission.submit({ text: "fix it", delivery: "alternate" })).resolves.toEqual({ accepted: false, message: "Started 1 of 2 threads" });
+    expect(client.calls.some((call) => call.method === "newSession" || call.method === "sendPrompt" || call.method === "preparePrompt")).toBe(false);
+  });
+
 });

@@ -14,7 +14,7 @@ export interface SearchFilesService {
 /** Workspace Kit's store, copied down to what this kit reads; a kit never imports another kit. */
 export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
 export interface WorkspaceStoreView {
-  getSnapshot(): { cwd?: string; changes: unknown };
+  getSnapshot(): { cwd?: string; changes?: { branch?: string; files?: ReadonlyArray<{ path: string; status: string }> } };
   subscribe(listener: () => void): () => void;
 }
 

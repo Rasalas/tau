@@ -5,7 +5,7 @@ import { join } from "node:path";
 import ts from "typescript";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildTypes } from "../scripts/build-types.mjs";
-import { extensionApiTypes, kitFiles, kitSlug, kitTitle, parseKitArgs, runKit } from "./tau-kit.mjs";
+import { extensionApiTypes, kitFiles, kitName, kitSlug, kitTitle, parseKitArgs, runKit } from "./tau-kit.mjs";
 import { main } from "./tau.mjs";
 
 const cleanups = [];
@@ -29,6 +29,8 @@ describe("tau kit", () => {
   it("reads new and types with their flags", () => {
     expect(parseKitArgs(["new", "pr-title"])).toEqual({ action: "new", target: "pr-title", host: true, install: false, local: false });
     expect(parseKitArgs(["new", "x", "--id", "me.x", "--no-host", "--install", "--local"])).toEqual({ action: "new", target: "x", id: "me.x", host: false, install: true, local: true });
+    expect(parseKitArgs(["new", "x", "--name", "PR Title"])).toMatchObject({ target: "x", name: "PR Title" });
+    expect(() => parseKitArgs(["new", "x", "--name"])).toThrow(/--name needs a value/u);
     expect(parseKitArgs(["types"])).toEqual({ action: "types", folder: undefined });
     expect(parseKitArgs(["--help"])).toEqual({ help: true });
     expect(() => parseKitArgs(["new"])).toThrow(/Name the kit/u);
@@ -40,7 +42,12 @@ describe("tau kit", () => {
     expect(kitSlug("PR title")).toBe("pr-title");
     expect(kitSlug("2fast")).toBe("fast");
     expect(() => kitSlug("!!")).toThrow(/no usable kit name/u);
-    expect(kitTitle("pr-title")).toBe("Pr title");
+    expect(kitTitle("pr-title")).toBe("PR Title");
+    expect(kitTitle("my-json-view")).toBe("My JSON View");
+    // --name wins; a folder named like a title keeps its spelling.
+    expect(kitName("pr-title", "pr-title", "Copy PR title")).toBe("Copy PR title");
+    expect(kitName("PR title", "pr-title")).toBe("PR title");
+    expect(kitName("pr-title", "pr-title")).toBe("PR Title");
   });
 
   it("writes a manifest for the running API, both halves, a command, styles, types and a README", async () => {
@@ -64,7 +71,7 @@ describe("tau kit", () => {
     expect(existsSync(join(cwd, "my-kit", ".tau-types", "tau.d.ts"))).toBe(true);
     expect(JSON.parse(await readFile(join(cwd, "my-kit", "tau-extension.json"), "utf8")).id).toBe("local.my-kit");
     expect(install).toHaveBeenCalledWith(join(cwd, "my-kit"), "global");
-    expect(lines.join("\n")).toMatch(/approve it in Tau's Settings → Extensions → My kit/u);
+    expect(lines.join("\n")).toMatch(/approve it in Tau's Settings → Extensions → My Kit/u);
     await expect(runKit(parseKitArgs(["new", "my-kit"]), { cwd, out: () => undefined, types: { env: { TAU_TYPES_DIR: types } } })).rejects.toThrow(/is not empty/u);
     // A project install in a project Pi does not trust is skipped until it is trusted; the next step says so.
     lines.length = 0;
@@ -90,6 +97,25 @@ describe("tau kit", () => {
     await mkdir(join(resources, "extension-api"));
     await writeFile(join(resources, "extension-api", "package.json"), "{}");
     expect(extensionApiTypes({ env: {}, self: join(resources, "app.asar.unpacked", "bin", "tau-kit.mjs") })).toBe(join(resources, "extension-api"));
+  });
+
+  it("builds a checkout's types each time, and says so when it has to copy an older build", async () => {
+    const root = await temp();
+    await mkdir(join(root, "bin"));
+    await mkdir(join(root, "scripts"));
+    await writeFile(join(root, "bin", "tau-kit.mjs"), "");
+    await writeFile(join(root, "scripts", "build-types.mjs"), "");
+    const built = join(root, "dist-types", "extension-api");
+    const self = join(root, "bin", "tau-kit.mjs");
+    const build = vi.fn(() => undefined);
+    await mkdir(built, { recursive: true });
+    await writeFile(join(built, "package.json"), "{}");
+    expect(extensionApiTypes({ env: {}, self, build })).toBe(built);
+    expect(extensionApiTypes({ env: {}, self, build })).toBe(built);
+    expect(build).toHaveBeenCalledTimes(2);
+    const warn = vi.fn();
+    expect(extensionApiTypes({ env: {}, self, build: () => "tsc failed", warn })).toBe(built);
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/Could not build the extension API types from this checkout \(tsc failed\); copying the last build/u));
   });
 
   it("is reached through tau kit", async () => {

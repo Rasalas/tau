@@ -13,14 +13,19 @@ import type {
   UiRuntimeBackend,
   UiRuntimeCatalog,
   ThreadBackendKind,
+  ThreadIndexSnapshot,
   UiComposerCommand,
   UiMessage,
   UiModel,
+  UiPromptAttachment,
+  UiSkillDraft,
   UiThreadOrigin,
   UiThreadUsage,
   UiToolRun,
+  UiSession,
 } from "../shared/contracts.js";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
+import { HOST_ERROR, type HostPushEvent } from "../shared/host-transport.js";
 import type { UiHostEndpoint, UiNetworkAccess } from "../shared/connections.js";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
@@ -73,6 +78,12 @@ export interface HostBackendThreadRecord {
   updatedAt: number;
   /** Visible messages, enough for a title and a count. */
   messages: ReadonlyArray<Pick<UiMessage, "role" | "text">>;
+  /** A count without loading the transcript. New in API 1.42.0. */
+  messageCount?: number;
+  /** The home machine of a proxy thread and its runtime marks. New in API 1.42.0. */
+  machine?: UiSession["machine"];
+  /** The workspace identity supplied by the backend's home host. New in API 1.44.0. */
+  workspace?: WorkspaceRef;
   /** The model it last ran on, for its row before it opens; else the row shows `modelProvider` (API 1.24.0). */
   model?: Pick<UiModel, "provider" | "id">;
   /**
@@ -143,6 +154,8 @@ export interface HostRuntimeBackendProvider {
    * 10, 20 and 30 (API 1.11.0).
    */
   readonly order?: number;
+  /** Lists existing threads but stays out of new-thread runtime pickers. New in API 1.42.0. */
+  readonly hidden?: true;
   readonly adapter: AgentRuntimeAdapter;
   /** Provider identity used for the thread index when the backend has no selectable model. */
   readonly modelProvider?: string;
@@ -276,6 +289,10 @@ export interface HostThreadStartOptions {
   cwd: string;
   /** First prompt, delivered as soon as the thread exists. */
   prompt: string;
+  attachments?: readonly UiPromptAttachment[];
+  skillDraft?: UiSkillDraft;
+  thinkingLevel?: string;
+  mode?: string;
   title?: string;
   /** Model the thread starts with; the host's own default otherwise. */
   model?: { provider: string; id: string };
@@ -333,6 +350,8 @@ export interface HostThreadSendOptions {
   delivery?: "prompt" | "steer" | "queue";
   /** The thread that sent the message; the queue shows where it came from. */
   from?: string;
+  /** Images for the message, checked as a composer's are; a file is refused. New in API 1.46.0. */
+  attachments?: readonly UiPromptAttachment[];
 }
 
 /** A deleted thread waiting in the trash. */
@@ -395,10 +414,18 @@ export interface HostSessionServices {
   send?(sessionId: string, text: string, options?: HostThreadSendOptions): Promise<void>;
   /** Stops a thread's running turn, as the stop button does; what it had queued waits for the user. New in API 1.11.0. */
   abort?(sessionId: string): Promise<void>;
+  /**
+   * Changes a thread's model, on screen or not; a released runtime is reopened off screen.
+   * Rejects where its runtime has no model selection. New in API 1.46.0; absent on an older host.
+   */
+  setModel?(sessionId: string, provider: string, id: string): Promise<void>;
   /** Serializes with the host's own thread lifecycle work (open, switch, fork). */
   exclusive<T>(work: () => Promise<T>): Promise<T>;
-  /** Rescans persisted sessions and returns the index update. The sweep runs inside, so release any lease first. */
-  refreshIndex(): Promise<HostUpdate>;
+  /**
+   * Rescans persisted sessions and returns the index update. Release any lease before the sweep.
+   * `publish` also sends a changed index to connected clients. New in API 1.45.0.
+   */
+  refreshIndex(options?: { publish?: boolean }): Promise<HostUpdate>;
 }
 
 /** Work an extension wraps around a thread becoming visible; core commits after activation and rolls back when it fails. */
@@ -551,6 +578,8 @@ export interface HostMachine {
   /** The socket URL in use, or the one last used. */
   address?: string;
   hostVersion?: string;
+  /** Pinned public host key or certificate fingerprint. Never a device token. */
+  trustIdentity?: string;
   /** Its owner let this machine's agents in Read only. */
   readOnly?: boolean;
 }
@@ -599,6 +628,18 @@ export interface HostMachineServices {
    * the other host disagrees with, or `signal`. New in API 1.15.0.
    */
   upload(machine: string, source: HostBlobSource, options?: HostBlobUploadOptions): Promise<HostUploadedBlob>;
+  /** That machine's last thread index; undefined before its first read. New in API 1.41.0. */
+  index?(machine: string): ThreadIndexSnapshot | undefined;
+  /** Hears changes of a machine's index and running threads; read `index()` in the listener. New in API 1.41.0. */
+  subscribeIndex?(listener: (machine: string) => void): () => void;
+  /** The ids running there, from `agent-status` pushes. New in API 1.41.0. */
+  running?(machine: string): ReadonlySet<string>;
+  /**
+   * Follows a thread's pushes as they arrived, including host-wide run state,
+   * questions and their resolutions that name this session. Subscribes while any
+   * listener remains, including after reconnect. New in API 1.41.0.
+   */
+  followThread?(machine: string, sessionId: string, listener: (push: HostPushEvent) => void): () => void;
 }
 
 /** Bytes to send: a buffer, or any stream of them (a `fs.createReadStream` without an encoding). */
@@ -1653,22 +1694,31 @@ export class HostExtensionRegistry {
     ]);
   }
 
+  async authorizeInvocation(extensionId: string, command: string, input: unknown, principal: HostInvocationPrincipal): Promise<void> {
+    const record = await this.requireCommand(extensionId, command);
+    this.authorize(record, extensionId, command, principal, input);
+  }
+
+  private async requireCommand(extensionId: string, command: string): Promise<ActiveHostExtension> {
+    const record = this.active.get(extensionId) ?? await this.restartCrashed(extensionId);
+    if (!record) {
+      const known = this.known.get(extensionId);
+      const failure = this.failures.get(extensionId);
+      if (known) throw new Error(`Host extension ${known.name} is not active${failure ? `: ${failure}` : ""}.`);
+      throw Object.assign(new HostCommandError(`Host extension ${extensionId} is not installed.`), { code: HOST_ERROR.unknownExtension });
+    }
+    if (!record.commands.has(command)) throw Object.assign(new HostCommandError(`Host extension ${record.extension.name} has no command "${command}".`), { code: HOST_ERROR.unknownCommand });
+    return record;
+  }
+
   async invoke(
     extensionId: string,
     command: string,
     input?: unknown,
     principal: HostInvocationPrincipal = HOST_CORE_PRINCIPAL,
   ): Promise<unknown> {
-    const record = this.active.get(extensionId) ?? await this.restartCrashed(extensionId);
-    if (!record) {
-      const known = this.known.get(extensionId);
-      const failure = this.failures.get(extensionId);
-      throw new Error(known
-        ? `Host extension ${known.name} is not active${failure ? `: ${failure}` : ""}.`
-        : `Host extension ${extensionId} is not installed.`);
-    }
-    const handler = record.commands.get(command);
-    if (!handler) throw new Error(`Host extension ${record.extension.name} has no command "${command}".`);
+    const record = await this.requireCommand(extensionId, command);
+    const handler = record.commands.get(command)!;
     this.authorize(record, extensionId, command, principal, input);
 
     const timeoutMs = this.options.commandTimeoutMs ?? 30_000;

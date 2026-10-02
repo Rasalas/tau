@@ -3,7 +3,7 @@ import { useThreadStore } from "../workbench-context";
 import { useAppPageStore } from "../app-page-context";
 import { PHONE_HOME, type PhoneRoute } from "../../workbench/phone-route";
 import {
-  historySteps, routeFromState, routeFromUrl, routeKey, routePath, sameRoute, stateWithRoute, urlWithRoute, type HistorySteps,
+  claimPhoneReaderRoute, closePhoneReader, coordinatePhoneReaderHistory, currentPhoneReader, phoneReaderFromState, stateWithPhoneReader, historySteps, routeFromState, routeFromUrl, routeKey, routePath, sameRoute, stateWithRoute, urlWithRoute, type HistorySteps,
 } from "../../workbench/phone-history";
 import { pageFromUrl, urlWithPage } from "./page-url";
 import { threadFromUrl, threadUrlStep, urlWithThread } from "./thread-url";
@@ -18,8 +18,7 @@ export interface PhoneRouting {
 
 /**
  * What the compact layout needs of the page beyond its components: the room
- * the on-screen keyboard leaves, a tap that reveals a message's actions where
- * a mouse would hover, and (in a browser) where it is in the address and the
+ * the on-screen keyboard leaves, and (in a browser) where it is in the address and the
  * history. Mounted only while the layout is compact; `phone` is set on one
  * screen, where the list is home and back steps out of a chat.
  */
@@ -58,20 +57,6 @@ export function TouchLayer({ syncUrl, openThread, phone }: { syncUrl: boolean; o
     };
   }, []);
 
-  // A tap on a message shows its actions (copy, fork, edit) until another one is tapped.
-  useEffect(() => {
-    const onClick = (event: MouseEvent) => {
-      const target = event.target instanceof Element ? event.target : null;
-      if (!target || target.closest("button, a, input, textarea, [role=button]")) return;
-      const shell = target.closest<HTMLElement>(".message-shell");
-      for (const shown of document.querySelectorAll<HTMLElement>(".message-shell[data-touch-actions]")) {
-        if (shown !== shell) shown.removeAttribute("data-touch-actions");
-      }
-      shell?.toggleAttribute("data-touch-actions");
-    };
-    document.addEventListener("click", onClick);
-    return () => document.removeEventListener("click", onClick);
-  }, []);
   return null;
 }
 
@@ -172,13 +157,34 @@ function usePhoneHistory(phone: PhoneRouting | undefined, openThread: (path: str
       if (steps.replace) window.history.replaceState(stateWithRoute(window.history.state, steps.replace), "", urlWithRoute(href, steps.replace));
       for (const route of steps.push) window.history.pushState(stateWithRoute(null, route), "", urlWithRoute(href, route));
     };
+    let dismissing: string | undefined;
+    let readerShown: string | undefined;
+    const reconcileReader = () => {
+      const route = latest.current.phone?.route;
+      if (!route || !shown.current || !sameRoute(route, shown.current) || pending.current) return;
+      const reader = phoneReaderFromState(window.history.state);
+      const active = currentPhoneReader();
+      if (active) {
+        if (!claimPhoneReaderRoute(active.key, route)) { closePhoneReader(active.key); return; }
+        if (reader?.key === active.key && sameRoute(reader.route, route)) { readerShown = active.key; return; }
+        const next = stateWithPhoneReader(window.history.state, { key: active.key, route });
+        if (reader && sameRoute(reader.route, route)) window.history.replaceState(next, "");
+        else window.history.pushState(next, "");
+        readerShown = active.key;
+      } else if (reader && sameRoute(reader.route, route)) {
+        pending.current = { back: 1, push: [] };
+        window.history.go(-1);
+      }
+    };
     sync.current = () => {
       const to = latest.current.phone?.route;
       const from = shown.current;
-      if (!to || !from || pending.current || sameRoute(from, to)) return;
-      const steps = historySteps(from, to);
+      if (!to || !from || pending.current) return;
+      if (sameRoute(from, to)) { reconcileReader(); return; }
+      const reader = phoneReaderFromState(window.history.state);
+      const steps = historySteps(from, to, reader?.route);
       shown.current = to;
-      if (steps.back === 0) { write(steps); return; }
+      if (steps.back === 0) { write(steps); reconcileReader(); return; }
       pending.current = steps;
       window.history.go(-steps.back);
     };
@@ -218,6 +224,8 @@ function usePhoneHistory(phone: PhoneRouting | undefined, openThread: (path: str
       if (steps) {
         pending.current = undefined;
         write(steps);
+        if (dismissing) { closePhoneReader(dismissing); dismissing = undefined; }
+        readerShown = undefined;
         sync.current();
         return;
       }
@@ -225,13 +233,25 @@ function usePhoneHistory(phone: PhoneRouting | undefined, openThread: (path: str
       const stampedRoute = routeFromState(event.state);
       const route = stampedRoute ?? routeFromUrl(window.location.href);
       if (!stampedRoute) window.history.replaceState(stateWithRoute(event.state, route), "", urlWithRoute(window.location.href, route));
+      if (readerShown && phoneReaderFromState(event.state)?.key !== readerShown) closePhoneReader(readerShown);
+      readerShown = undefined;
       shown.current = route;
       apply(route);
     };
+    const stopReader = coordinatePhoneReaderHistory({ changed: reconcileReader, dismiss: (key) => {
+      const reader = phoneReaderFromState(window.history.state);
+      const route = latest.current.phone?.route;
+      if (!reader || reader.key !== key || !route || !sameRoute(reader.route, route) || pending.current) return false;
+      dismissing = key;
+      pending.current = { back: 1, push: [] };
+      window.history.go(-1);
+      return true;
+    } });
     const stop = store.subscribe(() => { if (waiting) apply(waiting); });
     window.addEventListener("popstate", onPop);
     return () => {
       stop();
+      stopReader();
       window.removeEventListener("popstate", onPop);
       shown.current = undefined;
       pending.current = undefined;

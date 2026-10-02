@@ -9,6 +9,7 @@ import { isQuitConfirmation } from "../shared/window-shell.js";
 import { readModelPreferenceRecord } from "../shared/model-preferences.js";
 import { readModelPrices } from "../shared/model-prices.js";
 import { PI_OWNED_CONFIG_KEYS, isPiOwnedSetting, withoutPiOwned, withoutSetting, type ConfigLayers } from "../shared/config-layers.js";
+import { tauHomeDir } from "./app-identity.js";
 
 export interface HostConfigPaths {
   globalFilePath?: string;
@@ -29,7 +30,7 @@ export interface HostConfigPaths {
 const PI_OWNED = new Set<string>(PI_OWNED_CONFIG_KEYS);
 
 export function defaultGlobalConfigPath(home = homedir()): string {
-  return process.env.TAU_CONFIG_FILE || join(home, ".tau", "config.json");
+  return process.env.TAU_CONFIG_FILE || join(tauHomeDir(home), "config.json");
 }
 
 export function defaultProjectConfigPath(cwd: string): string {

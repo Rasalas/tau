@@ -1,0 +1,41 @@
+name: Browser Connect adapter
+
+on:
+  pull_request:
+    paths:
+      - browser-connect/**
+      - src/web/connect/**
+      - scripts/build-browser-connect.mjs
+      - .github/workflows/browser-connect.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-connect-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install adapter tools
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal --target wasm32-unknown-unknown
+          cargo +1.98.1 install wasm-bindgen-cli --version 0.2.129 --locked --jobs 1
+      - name: Rebuild locked Rust source and verify its transport
+        env:
+          RUSTUP_TOOLCHAIN: 1.98.1
+        run: |
+          npm run build:browser-connect
+          npx vitest run src/web/connect --maxWorkers=1
