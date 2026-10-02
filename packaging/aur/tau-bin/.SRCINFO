@@ -1,8 +1,8 @@
 pkgbase = tau-bin
 	pkgdesc = Desktop workbench for the Pi coding agent
-	pkgver = 0.4.0
+	pkgver = 0.7.35
 	pkgrel = 1
-	url = https://github.com/Rasalas/tau
+	url = https://github.com/Rasalas/tau-releases
 	arch = x86_64
 	license = MIT
 	depends = alsa-lib
@@ -23,12 +23,12 @@ pkgbase = tau-bin
 	provides = tau
 	conflicts = tau
 	conflicts = tau-editor
-	noextract = Tau-0.4.0.AppImage
+	noextract = Tau-0.7.35.AppImage
 	options = !debug
 	options = !strip
-	source = Tau-0.4.0.AppImage::https://github.com/Rasalas/tau/releases/download/v0.4.0/Tau-0.4.0.AppImage
-	source = LICENSE-0.4.0::https://raw.githubusercontent.com/Rasalas/tau/v0.4.0/LICENSE
-	sha256sums = 575d2258af61696957684356fd7e9be57bce37bb36c34311596b6a98ab385aaa
+	source = Tau-0.7.35.AppImage::https://github.com/Rasalas/tau-releases/releases/download/v0.7.35/Tau-0.7.35.AppImage
+	source = LICENSE-0.7.35::https://github.com/Rasalas/tau-releases/releases/download/v0.7.35/LICENSE
+	sha256sums = 0fdfd38316134bbccaa4655342716641563b185e45c60019258d00d6360518c3
 	sha256sums = 0fa5f57f09e2e9ba3b07d5c0c9f342bfb03d8fbb13e416565ae195430fb35e8f
 
 pkgname = tau-bin

@@ -767,9 +767,8 @@ the committed files disagree with it, so edit the scripts, never the output.
 All three download the assets anonymously, and winget's validation rejects
 a URL it cannot fetch, so the installers, the homepage and `LICENSE` all
 point at the release in `Rasalas/tau-releases`. Only winget's `PublisherSupportUrl` names `Rasalas/tau/issues`,
-which answers once the source repository is public. The committed files still
-describe 0.4.0, which exists only in `Rasalas/tau`; the next
-`packaging:update` writes them for a release in `Rasalas/tau-releases`.
+which answers once the source repository is public. `packaging/release.json`
+records the published release the committed files describe.
 
 ### Homebrew (macOS)
 
