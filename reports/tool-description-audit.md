@@ -6,7 +6,7 @@ The 34 Tau-owned descriptions in Preview, Agents, Evidence, Takeover, Review and
 
 The PR-linking policy remains in `LINKING_INSTRUCTIONS`, which reaches every runtime, rather than being repeated in list-tool descriptions.
 
-The pre-existing kits typecheck failure was a separate access bug: `kits/workspace/desktop.tsx` queried `isReadOnly` on the extension command client, where that method does not exist. The compact footer now uses `useHostCapabilities`. A regression test exercises the registered region with read-only and writable host clients.
+On the original audit branch, the pre-existing kits typecheck failure was a separate access bug: `kits/workspace/desktop.tsx` queried `isReadOnly` on the extension command client, where that method does not exist. That branch's fix uses `useHostCapabilities`, with a regression test covering read-only and writable host clients. The current main branch has already removed that region registration, so the tool-description PR does not carry this obsolete fix.
 
 ## Tools owned elsewhere
 
@@ -14,9 +14,9 @@ These findings describe local source and installed packages, not a fresh upstrea
 
 ### Devices
 
-The exact three descriptions exposed in this conversation are present in `kits/devices/host.ts` in the sibling `tau-public-worktrees/parity-device-hub` checkout, inspected at `8fd5f804`. This branch has no Devices Kit. This establishes a matching source, not proof of which installation supplied the running session.
+The exact three descriptions exposed in this conversation are present in `kits/devices/host.ts` in the sibling `tau-public-worktrees/parity-device-hub` checkout, inspected at `8fd5f804`. The original audit branch had no Devices Kit; current main does. This establishes a matching source, not proof of which installation supplied the running session.
 
-Suggested descriptions when that kit is integrated:
+Suggested descriptions for a separate Devices Kit follow-up:
 
 - `device_list`: "Find available iOS simulators and Android emulators for app testing. Requires agent device consent."
 - `device_screenshot`: "Inspect visual layout and rendering on a booted device. Requires agent device consent."
@@ -60,9 +60,9 @@ Suggested purpose-first leads for the core tools:
 
 Retain exact-window targeting, snapshot freshness, coordinate frames, input-delivery limits and password/consent restrictions. These are correctness and safety requirements, not removable wording overhead. Keep optional groups lazy-loaded. A local replacement description risks hiding platform-specific driver limitations.
 
-## Validation
+## Validation on the original audit branch
 
-- Full `npm run typecheck` passes after the workspace access fix.
+- Full `npm run typecheck` passed after the workspace access fix.
 - The workspace access regression failed before the fix, rendering `writable` for a read-only host, and passes after it.
 - Targeted kit tests cover Preview, Agents, Evidence, Takeover, Review and Servers.
 - Tests use the existing sibling checkout's dependencies through a temporary symlink. A temporary Vitest config permits that dependency path for SVG imports in component tests; neither file is retained.
