@@ -69,6 +69,27 @@ async function client(cwd: string, overrides: Partial<HostExtensionServices> = {
 }
 
 describe("Workspace Kit host extension", () => {
+  it("issue 12 reads dot-directory images and Markdown from the named workspace, not active cwd", async () => {
+    const cwd = await workspace();
+    const origin = await workspace();
+    const images = [".tau-dev/dictation-preview/recording-detail.png", ".tau-dev/dictation-preview/inserted-detail.png"];
+    const document = ".scratch/mobile-transcript-images/issues/01-render-workspace-screenshots-on-mobile.md";
+    await mkdir(join(origin, ".tau-dev/dictation-preview"), { recursive: true });
+    await mkdir(join(origin, ".scratch/mobile-transcript-images/issues"), { recursive: true });
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=", "base64");
+    for (const path of images) await writeFile(join(origin, path), png);
+    await writeFile(join(origin, document), "Issue 12 readable workspace document fixture");
+    const host = await client(cwd, { knownWorkspacePath: async (id) => {
+      if (id !== "ws-origin") throw new Error("Unknown workspace");
+      return origin;
+    } });
+    for (const path of images) expect(await host.readFile(path, "ws-origin")).toMatchObject({ kind: "image", dataUrl: `data:image/png;base64,${png.toString("base64")}` });
+    expect(await host.readFile(document, "ws-origin")).toMatchObject({ kind: "text", text: "Issue 12 readable workspace document fixture" });
+    await expect(host.readFile(document, "unknown-workspace")).rejects.toThrow("Unknown workspace");
+    await expect(host.readFile("../outside.md", "ws-origin")).rejects.toThrow();
+    await expect(host.readFile("/etc/passwd", "ws-origin")).rejects.toThrow();
+    await expect(host.readFile(".scratch/missing.md", "ws-origin")).rejects.toThrow();
+  });
   it("stages and changes branches in a named workspace while leaving the active workspace alone", async () => {
     const cwd = await workspace();
     const target = await workspace();

@@ -13,7 +13,16 @@ interface StageTabBase {
   preview: boolean;
 }
 
+/** Internal persisted resource authority. Workspace ids are opaque and host-owned. */
+export interface WorkspaceResourceOrigin {
+  readonly sessionId: string;
+  readonly workspace: string;
+  readonly sourceId: string;
+}
+
 export interface StageFileTab extends StageTabBase {
+  /** Absent on legacy/local tabs; null means an explicit origin could not be determined. */
+  resourceOrigin?: WorkspaceResourceOrigin | null;
   kind: "file";
   /** Absolute path inside the workspace. */
   path: string;
@@ -142,8 +151,8 @@ function reopen(state: StageState, existing: StageTab, next: StageTab): StageSta
   return { ...activateTab(state, existing.id), tabs: state.tabs.map((tab) => tab.id === existing.id ? next : tab) };
 }
 
-export function openFileTab(state: StageState, path: string, options: { view?: StageView; pin?: boolean; line?: number; trace?: boolean } = {}): StageState {
-  const id = fileTabId(path);
+export function openFileTab(state: StageState, path: string, options: { view?: StageView; pin?: boolean; line?: number; trace?: boolean; resourceOrigin?: WorkspaceResourceOrigin | null; localWorkspace?: string } = {}): StageState {
+  const id = options.resourceOrigin && options.resourceOrigin.workspace === options.localWorkspace ? fileTabId(path) : options.resourceOrigin ? `${fileTabId(path)}:${JSON.stringify([options.resourceOrigin.sourceId, options.resourceOrigin.workspace])}` : options.resourceOrigin === null ? `${fileTabId(path)}:unavailable` : fileTabId(path);
   const existing = state.tabs.find((tab) => tab.id === id);
   if (options.trace) {
     // One trace tab, after the others; never on an empty stage, never in front.
@@ -157,9 +166,9 @@ export function openFileTab(state: StageState, path: string, options: { view?: S
   const view = line ? "source" : options.view;
   if (existing?.kind === "file") {
     const reveal = line ? { line, reveal: (existing.reveal ?? 0) + 1 } : {};
-    return reopen(state, existing, { ...existing, view: view ?? existing.view, preview: existing.preview && !options.pin, ...reveal });
+    return reopen(state, existing, { ...existing, view: view ?? existing.view, preview: existing.preview && !options.pin, ...(options.resourceOrigin !== undefined ? { resourceOrigin: options.resourceOrigin } : {}), ...reveal });
   }
-  return openTab(state, { id, kind: "file", path, view: view ?? "source", preview: !options.pin, ...(line ? { line, reveal: 1 } : {}) });
+  return openTab(state, { id, kind: "file", path, view: view ?? "source", preview: !options.pin, ...(options.resourceOrigin !== undefined ? { resourceOrigin: options.resourceOrigin } : {}), ...(line ? { line, reveal: 1 } : {}) });
 }
 
 export function openThreadTab(state: StageState, sessionId: string, options: { pin?: boolean; machine?: string } = {}): StageState {

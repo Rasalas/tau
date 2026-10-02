@@ -36,7 +36,7 @@ import { selectionOnScreen } from "../workbench/new-thread-project";
 import { useRuntimeCatalog } from "./use-runtime-catalog";
 import { draftRuntimeSnapshot } from "../workbench/runtime-catalog-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
-import { activeTab as activeStageTab, openFileTab, openThreadTab, stageFilePath as projectFilePath, stageTabPath, type StageView } from "../workbench/stage";
+import { activeTab as activeStageTab, openFileTab, openThreadTab, stageFilePath as projectFilePath, stageTabPath, type StageView, type WorkspaceResourceOrigin } from "../workbench/stage";
 import { machineThreadPath } from "./machine-thread-navigation";
 import { lookInMachine } from "../workbench/look-in";
 import { useStageTabs } from "./stage-tab-controller";
@@ -475,6 +475,7 @@ export default function App() {
     setStage((current) => openFileTab(current, projectFilePath(path, workspaceCwd), options));
     if (!options?.trace) revealDocuments.current();
   }, [workspaceCwd]);
+  const openWorkspaceFile = useCallback((path: string, origin: WorkspaceResourceOrigin | null) => { setStage((current) => openFileTab(current, path, { resourceOrigin: origin, localWorkspace: stageWorkspace })); revealDocuments.current(); }, [setStage, stageWorkspace]);
   const openThread = useCallback((sessionId: string, options?: { pin?: boolean; machine?: string }) => {
     const machine = lookInMachine(options?.machine, platform.environments);
     const lookIn = () => { setStage((current) => openThreadTab(current, sessionId, { ...(options?.pin ? { pin: true } : {}), ...(machine ? { machine } : {}) })); revealDocuments.current(); };
@@ -564,8 +565,8 @@ export default function App() {
   const stageFilePath = stageTabPath(stageTab);
   // The workbench adds the tool runs to both contexts itself.
   const contextValue = useMemo(
-    () => ({ snapshot: liveSnapshot, events, registry, activeDocumentPath: stageFilePath, openFile, applySnapshot, handleHostEvent }),
-    [liveSnapshot, events, registry, stageFilePath, openFile, applySnapshot, handleHostEvent],
+    () => ({ snapshot: liveSnapshot, events, registry, activeDocumentPath: stageFilePath, openFile, openWorkspaceFile, applySnapshot, handleHostEvent }),
+    [liveSnapshot, events, registry, stageFilePath, openFile, openWorkspaceFile, applySnapshot, handleHostEvent],
   );
   const shellContextValue = useMemo(() => ({ snapshot: liveSnapshot, registry, actions }), [actions, liveSnapshot, registry]);
   const observatoryContextValue = useMemo(() => ({ events, snapshot: liveSnapshot, registry }), [events, liveSnapshot, registry]);
