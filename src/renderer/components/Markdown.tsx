@@ -6,6 +6,7 @@ import { FileKindIcon } from "./FileKindIcon";
 import { StreamingMarkdownBlocks } from "./markdown-blocks";
 import { parseMarkdown, renderMarkdown, type MarkdownComponents, type MarkdownHtml } from "./markdown-pipeline";
 import { WorkbenchContext } from "../workbench-context";
+import { WorkspaceImage } from "./WorkspaceImage";
 type LanguageDefinition = LanguageFn;
 
 // The core arrives with the first grammar: nothing highlights before one is loaded anyway.
@@ -311,6 +312,9 @@ export function inlineCodeFile(text: string): string | undefined {
 }
 
 const COMPONENTS: MarkdownComponents = {
+  img({ src, alt, title }) {
+    return <WorkspaceImage src={typeof src === "string" ? src : undefined} alt={alt} title={title} />;
+  },
   // `pre` owns fenced blocks; the nested `code` is read for its text and language
   // and never rendered, so the `code` override below only ever sees inline spans.
   pre({ children }) {
