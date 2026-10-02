@@ -32,13 +32,30 @@ export interface TurnDeliveryPort {
 
 /**
  * Handing a runtime a message for a turn it is already running, and the whole
- * delivery path of a runtime that keeps no host-owned journal.
+ * delivery path of a runtime that keeps no host-owned journal. Also owns
+ * failed accepted-turn cleanup, shared by the host's prompt failure paths.
  *
- * The first prompt of a turn is not here: it reports a preflight result and
- * owns the marker bookkeeping around it, which is the host's own path.
+ * The journal-backed first prompt's preflight and marker bookkeeping remain
+ * the host's own path.
  */
 export class TurnDelivery {
   constructor(private readonly port: TurnDeliveryPort) {}
+
+  /**
+   * Admission already succeeded: clear only this turn's in-flight record and
+   * observe cleanup failure without holding the reply open for an extension's
+   * ended hook. Both errors keep the captured runtime's barrier and thread id.
+   */
+  failAcceptedTurn(thread: ThreadRuntime, turnId: string | undefined, error: unknown): void {
+    const reportFailure = (failure: unknown): void => {
+      if (!thread.deferError(failure)) this.port.fail(failure, thread.threadId);
+    };
+    if (turnId) {
+      this.port.turnsInFlight.clear(thread.threadId, turnId);
+      void this.port.turnObservers.ended(thread.threadId, turnId, "failed").catch(reportFailure);
+    }
+    reportFailure(error);
+  }
 
   /**
    * Steering and follow-up share one path: both hand the runtime a message for
