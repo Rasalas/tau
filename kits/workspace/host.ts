@@ -446,9 +446,15 @@ export function createWorkspaceHostExtension(): HostExtension {
         const named = record(input).workspaces;
         const ids = (Array.isArray(named) ? named : []).filter((id): id is string => typeof id === "string" && id.length > 0).slice(0, THREAD_BRANCH_WORKSPACES);
         const paths = (await Promise.all(ids.map((id) => services.knownWorkspacePath(id).catch(() => undefined)))).filter((path): path is string => Boolean(path));
+        const requested = record(record(input).targets);
+        const targets = new Map<string, string>();
+        for (const id of ids) {
+          const target = typeof requested[id] === "string" ? requested[id] as string : undefined;
+          if (target) targets.set(await services.knownWorkspacePath(id), target);
+        }
         // Folders that are no linked worktree stay so; the set is forgotten every few minutes all the same.
         if (Date.now() - plainSince > THREAD_BRANCH_PLAIN_MS) { plainFolders.clear(); plainSince = Date.now(); }
-        return (await readThreadBranches(paths, undefined, plainFolders)).map((branch) => ({
+        return (await readThreadBranches(paths, undefined, plainFolders, targets)).map((branch) => ({
           ...branch,
           workspace: services.workspaceRef(branch.path).workspaceId,
           rootWorkspace: services.workspaceRef(branch.root).workspaceId,
@@ -460,18 +466,18 @@ export function createWorkspaceHostExtension(): HostExtension {
         const picks = decodePicks(record(input).picks);
         const root = (await readThreadBranch(path).catch(() => undefined))?.root ?? path;
         return gitWrite(root, async () => {
-          const outcome = await git.write(root, () => mergeThreadBranch(path, { ...(expectedTip ? { expectedTip } : {}), ...(picks ? { picks } : {}) }));
+          const outcome = await git.write(root, () => mergeThreadBranch(path, { target: optionalString(input, "target"), ...(expectedTip ? { expectedTip } : {}), ...(picks ? { picks } : {}) }));
           git.invalidate(path);
           return outcome;
         }, (result) => `${result.branch} into ${result.into}: ${result.state}`, "git.merge-thread-branch");
       }, { long: true, callers: [REVIEW_KIT_ID], audit: { label: "merged a thread's branch" } });
-      context.registerCommand("thread-branch-conflicts", async (input) => readThreadConflicts(await services.knownWorkspacePath(requiredString(input, "workspace"))), { access: "read", long: true, callers: [REVIEW_KIT_ID] });
+      context.registerCommand("thread-branch-conflicts", async (input) => readThreadConflicts(await services.knownWorkspacePath(requiredString(input, "workspace")), undefined, optionalString(input, "target")), { access: "read", long: true, callers: [REVIEW_KIT_ID] });
       // Reviews' cleanup of a merged branch; the threads stay.
       context.registerCommand("remove-thread-branch", async (input) => {
         const path = await services.knownWorkspacePath(requiredString(input, "workspace"));
         const root = (await readThreadBranch(path).catch(() => undefined))?.root ?? path;
         return gitWrite(root, async () => {
-          const removed = await git.write(root, () => removeThreadBranch(path, { requestMerged: record(input).requestMerged === true }));
+          const removed = await git.write(root, () => removeThreadBranch(path, { target: optionalString(input, "target"), expectedTip: optionalString(input, "tip"), integratedTip: optionalString(input, "integratedTip") }));
           await worktrees.storage.forget(path).catch(noteFailure("git.worktree.record-failed"));
           git.invalidate(root, ["branch", "status", "workspace"]);
           return removed;

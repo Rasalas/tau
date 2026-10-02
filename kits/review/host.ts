@@ -71,7 +71,7 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
         created: (url) => { const thread = services.thread(); if (thread) void links?.link(thread.sessionId, url, "created"); },
       });
       registerLocalRequestCommands(context, sources);
-      registerLocalReviewCommands(context, workspace, (threadIds, branch) => links?.merged(threadIds, branch) ?? Promise.resolve(false));
+      registerLocalReviewCommands(context, workspace, (threadIds, branch, tip) => links?.review(threadIds, branch, tip) ?? Promise.resolve(undefined));
       registerPublishCommands(context, options);
       registerProviderSettings(context, sources);
       context.registerCommand("suggest-commit-message", async (input) => {

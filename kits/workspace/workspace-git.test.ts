@@ -1198,6 +1198,7 @@ describe("worktree creation", () => {
       }), async (_path, args) => {
         calls.push(args);
         if (args[0] === "remote") return "origin\n";
+        if (args[1] === "--symbolic-full-name") return "refs/remotes/origin/main\n";
         if (args[0] === "rev-parse") return "origin/main\n";
         return "";
       });
@@ -1207,6 +1208,7 @@ describe("worktree creation", () => {
       expect(calls).toContainEqual(["worktree", "add", "-b", "feat/fresh-main", destination, "origin/main"]);
       // The base a later diff compares against is recorded on the branch.
       expect(calls).toContainEqual(["config", "branch.feat/fresh-main.tau-base", "origin/main"]);
+      expect(calls).toContainEqual(["config", "branch.feat/fresh-main.tau-review-target", "main"]);
       expect(calls.findIndex((args) => args[0] === "fetch"))
         .toBeLessThan(calls.findIndex((args) => args[0] === "worktree"));
     } finally {
@@ -1230,12 +1232,14 @@ describe("worktree creation", () => {
       }), async (_path, args) => {
         calls.push(args);
         if (args[0] === "remote") return "origin\n";
+        if (args[1] === "--symbolic-full-name") return "refs/heads/main\n";
         if (args[0] === "rev-parse") return "main\n";
         return "";
       });
 
       expect(calls.some((args) => args[0] === "fetch")).toBe(false);
       expect(calls.find((args) => args[0] === "worktree")?.at(-1)).toBe("main");
+      expect(calls).toContainEqual(["config", "branch.feat/local-main.tau-review-target", "main"]);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

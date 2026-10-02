@@ -44,6 +44,19 @@ export function branchBaseConfigKey(branch: string): string {
   return `branch.${branch}.tau-base`;
 }
 
+/** The intended integration branch, independent of the checkout's current HEAD. */
+export function branchReviewTargetConfigKey(branch: string): string {
+  return `branch.${branch}.tau-review-target`;
+}
+
+/** A local or remote-tracking branch's integration name; commits and tags are not targets. */
+export async function branchTargetOfRef(cwd: string, ref: string, runGit: (cwd: string, args: string[]) => Promise<string> = runAgentGit): Promise<string | undefined> {
+  const full = (await runGit(cwd, ["rev-parse", "--symbolic-full-name", ref]).catch(() => "")).trim();
+  if (full.startsWith("refs/heads/")) return full.slice("refs/heads/".length);
+  if (/^refs\/remotes\/[^/]+\//u.test(full)) return full.replace(/^refs\/remotes\/[^/]+\//u, "");
+  return undefined;
+}
+
 export async function readBranchBase(
   cwd: string,
   branch: string,
@@ -257,6 +270,8 @@ export async function createAgentWorktree(options: {
   // The base is the child's own starting point, so its diff is exactly what it
   // changed — never what the parent had already changed before it started.
   await runGit(parentCwd, ["config", branchBaseConfigKey(branch), baseCommit]).catch(() => "");
+  const target = (await runGit(parentCwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => "")).trim();
+  if (target) await runGit(parentCwd, ["config", branchReviewTargetConfigKey(branch), target]);
   return { path, branch, baseCommit, withUncommitted: state.dirty };
 }
 
@@ -384,8 +399,8 @@ function gitFailure(error: unknown): { code?: number; stdout?: string; message: 
 }
 
 /** Git 2.38's `merge-tree --write-tree`: the merge of HEAD and `branch` as a tree, and its conflicted paths. */
-export async function previewBranchMerge(cwd: string, branch: string, runGit: AgentGitRunner = runAgentGit): Promise<BranchMergePreview> {
-  const head = (await runGit(cwd, ["rev-parse", "--verify", "HEAD"])).trim();
+export async function previewBranchMerge(cwd: string, branch: string, runGit: AgentGitRunner = runAgentGit, target = "HEAD"): Promise<BranchMergePreview> {
+  const head = (await runGit(cwd, ["rev-parse", "--verify", `${target}^{commit}`])).trim();
   const tip = (await runGit(cwd, ["rev-parse", "--verify", `${branch}^{commit}`])).trim();
   const merged = await runGit(cwd, ["merge-base", "--is-ancestor", tip, head]).then(() => true, () => false);
   if (merged) return { tree: (await runGit(cwd, ["rev-parse", `${head}^{tree}`])).trim(), conflicts: [], merged: true };

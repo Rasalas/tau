@@ -28,10 +28,12 @@ export interface ThreadBranch {
   committedAt?: number;
   merged: boolean;
   /** Merged without the branch's own commits: same patches, same tree, or its pull request merged on the host. */
-  mergedBy?: "patches" | "tree" | "request";
+  mergedBy?: "patches" | "tree" | "squash" | "request";
   defaultBranch?: string;
   conflicts: string[];
   unavailable?: string;
+  mergeBlocked?: string;
+  request?: { url: string; number: number };
   /** The worktree's workspace id, as a thread working there names its project. */
   workspace: string;
   rootWorkspace: string;
@@ -95,6 +97,10 @@ export interface MergedReview {
   title: string;
   project?: string;
   commit?: string;
+  /** The completed branch tip; later commits reopen the review. */
+  tip?: string;
+  mergedBy?: ThreadBranch["mergedBy"];
+  request?: ThreadBranch["request"];
   at: number;
   files: number;
   added: number;
@@ -177,6 +183,8 @@ export interface LocalReview {
   behind: number;
   conflicts: string[];
   unavailable?: string;
+  mergeBlocked?: string;
+  request?: ThreadBranch["request"];
   mergedBy?: ThreadBranch["mergedBy"];
   /** The repository's default branch, when Merge would land elsewhere. */
   offDefault?: string;
@@ -240,11 +248,13 @@ export function deriveReviews({ answer, threads, projects, busy, checks }: Revie
     const own = threads.filter((thread) => thread.workspaceId === branch.workspace).sort((left, right) => right.modifiedAt - left.modifiedAt);
     if (own.length === 0 || own.some((thread) => busy.has(thread.id))) continue;
     const key = reviewKey(branch.root, branch.branch);
-    const record = records.get(key);
+    const completed = branch.merged && branch.uncommitted === 0;
+    const saved = records.get(key);
+    const record = completed && (!saved?.tip || saved.tip === branch.tip) ? saved : undefined;
     const latest = own[0]!;
     const ask = answer.asks[key]?.tip === branch.tip ? answer.asks[key] : undefined;
     if (!branch.merged && branch.ahead === 0 && branch.uncommitted === 0) continue;
-    const state: ReviewState = branch.merged ? "merged" : ask ? "requested" : branch.conflicts.length > 0 ? "conflicts" : "ready";
+    const state: ReviewState = completed ? "merged" : ask ? "requested" : branch.conflicts.length > 0 ? "conflicts" : "ready";
     seen.add(key);
     const cost = costOf(own);
     const scriptChecks = checks?.(branch.path);
@@ -270,7 +280,9 @@ export function deriveReviews({ answer, threads, projects, busy, checks }: Revie
       behind: branch.behind,
       conflicts: branch.conflicts,
       ...(branch.unavailable ? { unavailable: branch.unavailable } : {}),
-      ...(branch.mergedBy && !record ? { mergedBy: branch.mergedBy } : {}),
+      ...(branch.mergeBlocked ? { mergeBlocked: branch.mergeBlocked } : {}),
+      ...(completed && (branch.mergedBy || record?.mergedBy) ? { mergedBy: branch.mergedBy ?? record?.mergedBy } : {}),
+      ...(completed && (branch.request || record?.request) ? { request: branch.request ?? record?.request } : {}),
       ...(branch.defaultBranch && branch.target && branch.defaultBranch !== branch.target ? { offDefault: branch.defaultBranch } : {}),
       ...(ask ? { ask } : {}),
       ...(cost !== undefined ? { costUsd: cost } : record?.costUsd !== undefined ? { costUsd: record.costUsd } : {}),
@@ -344,6 +356,8 @@ export function deriveReviews({ answer, threads, projects, busy, checks }: Revie
       ...(thread?.backendKind ? { backendKind: thread.backendKind } : {}),
       at: record.at,
       merged: record,
+      ...(record.mergedBy ? { mergedBy: record.mergedBy } : {}),
+      ...(record.request ? { request: record.request } : {}),
     });
   }
   // A record without `rootWorkspace` keys its project by path; give it the id another row found for that folder.
@@ -406,6 +420,7 @@ export function noteRequest(review: Pick<LocalReview, "branch">, note: string): 
 export function mergeBlocker(review: LocalReview): string | undefined {
   if (review.state === "merged") return "Already merged.";
   if (review.unavailable) return review.unavailable;
+  if (review.mergeBlocked) return review.mergeBlocked;
   if (review.uncommitted > 0) return `${review.uncommitted} file${review.uncommitted === 1 ? " is" : "s are"} not committed; ask the thread to commit first.`;
   if (review.conflicts.length > 0) return `Conflicts with ${review.target} in ${review.conflicts.length} file${review.conflicts.length === 1 ? "" : "s"}; ask the thread to rebase.`;
   return undefined;

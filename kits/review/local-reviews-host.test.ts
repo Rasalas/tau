@@ -8,6 +8,7 @@ import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-sup
 import { createWorkspaceHostExtension } from "../workspace/host.js";
 import { noteThreads, registerLocalReviewCommands, summaryFromEntries } from "./local-reviews-host.js";
 import { LOCAL_REVIEWS_EVENT, reviewKey, type ConflictFile, type LocalReviewsAnswer, type NoteThread, type ThreadBranchMerge } from "./local-reviews.js";
+import type { BranchReviewRequest } from "./protocol.js";
 
 const created: string[] = [];
 afterEach(async () => { for (const path of created.splice(0)) await rm(path, { recursive: true, force: true }); });
@@ -35,7 +36,7 @@ async function fixture() {
 }
 
 /** Workspace Kit's host half, and the Reviews commands on a host half of their own under Review's id. */
-async function hosts(stateDir: string, overrides: Partial<HostExtensionServices> = {}, requestMerged?: (threadIds: readonly string[], branch: string) => Promise<boolean>) {
+async function hosts(stateDir: string, overrides: Partial<HostExtensionServices> = {}, requestFor?: (threadIds: readonly string[], branch: string, tip: string) => Promise<BranchReviewRequest | undefined>) {
   const events: PublishedKitEvent[] = [];
   const send = vi.fn(async () => undefined);
   const services: Partial<HostExtensionServices> = {
@@ -83,7 +84,7 @@ async function hosts(stateDir: string, overrides: Partial<HostExtensionServices>
     id: "tau.review",
     name: "Reviews",
     permissions: ["sessions"],
-    activate(context) { registerLocalReviewCommands(context, (command, input) => context.invokeHostExtension("tau.workspace", command, input), requestMerged); },
+    activate(context) { registerLocalReviewCommands(context, (command, input) => context.invokeHostExtension("tau.workspace", command, input), requestFor); },
   };
   await registry.activate(reviews);
   const remote = remoteWorkStub();
@@ -228,16 +229,62 @@ describe("Reviews on the host", () => {
   it("counts a branch whose linked pull request merged, and removes its worktree and branch", async () => {
     const repo = await fixture();
     const sessions = { list: async () => [{ sessionId: "t1", path: "", cwd: repo.worktree }] } as unknown as HostExtensionServices["sessions"];
-    const requestMerged = vi.fn(async (ids: readonly string[], branch: string) => ids.includes("t1") && branch === "tau/rate-limit");
-    const { invoke, events } = await hosts(repo.stateDir, { sessions }, requestMerged);
+    const tip = repo.git(repo.worktree, "rev-parse", "HEAD");
+    const requestFor = vi.fn(async (ids: readonly string[], branch: string) => ids.includes("t1") && branch === "tau/rate-limit"
+      ? { target: "main", tip, merged: true, url: "https://github.com/acme/shop-api/pull/5", number: 5 } : undefined);
+    const { invoke, events } = await hosts(repo.stateDir, { sessions }, requestFor);
     const workspaces = [`ws1_${repo.worktree}`];
     const [branch] = (await invoke("local-reviews", { workspaces }) as LocalReviewsAnswer).branches;
     expect(branch).toMatchObject({ ahead: 1, merged: true, mergedBy: "request" });
 
-    await invoke("local-review-remove", { workspace: branch!.workspace });
+    await expect(invoke("local-review-remove", { workspace: branch!.workspace, tip: "old-tip" })).rejects.toThrow(/moved since/u);
+    await invoke("local-review-remove", { workspace: branch!.workspace, tip, threadId: "t1", title: "Rate limit", costUsd: 1.25 });
     expect(repo.git(repo.project, "worktree", "list", "--porcelain")).not.toContain(repo.worktree);
     expect(repo.git(repo.project, "branch", "--list", "tau/rate-limit")).toBe("");
+    const completed = (await invoke("local-reviews", { workspaces: [] }) as LocalReviewsAnswer).merged;
+    expect(completed).toContainEqual(expect.objectContaining({ tip, threadId: "t1", title: "Rate limit", costUsd: 1.25 }));
     expect(events.map((event) => event.name)).toContain(LOCAL_REVIEWS_EVENT);
+  });
+
+  it("keeps a completed tip across host restarts, and reopens it after a new commit", async () => {
+    const repo = await fixture();
+    const workspaces = [`ws1_${repo.worktree}`];
+    repo.git(repo.project, "merge", "--squash", "tau/rate-limit");
+    repo.git(repo.project, "commit", "-qm", "squash");
+    const first = await hosts(repo.stateDir);
+    expect((await first.invoke("local-reviews", { workspaces }) as LocalReviewsAnswer).branches[0]).toMatchObject({ target: "main", merged: true });
+
+    // Even a later rewrite of the destination does not erase a recorded completion.
+    repo.git(repo.project, "switch", "-q", "-c", "fix/privacy", "main~1");
+    repo.git(repo.project, "branch", "-f", "main", "HEAD");
+    const restarted = await hosts(repo.stateDir);
+    const done = await restarted.invoke("local-reviews", { workspaces }) as LocalReviewsAnswer;
+    expect(done.branches[0]).toMatchObject({ target: "main", merged: true });
+    expect(done.merged[0]?.tip).toBe(repo.git(repo.worktree, "rev-parse", "HEAD"));
+
+    await writeFile(join(repo.worktree, "new.ts"), "new work\n");
+    repo.git(repo.worktree, "add", "-A");
+    repo.git(repo.worktree, "commit", "-qm", "after merge");
+    expect((await restarted.invoke("local-reviews", { workspaces }) as LocalReviewsAnswer).branches[0]).toMatchObject({ target: "main", merged: false });
+    await expect(restarted.invoke("local-review-remove", { workspace: workspaces[0] })).rejects.toThrow(/does not hold/u);
+  });
+
+  it("uses a linked request's destination and only completes its submitted tip", async () => {
+    const repo = await fixture();
+    repo.git(repo.project, "branch", "release");
+    const submitted = repo.git(repo.worktree, "rev-parse", "HEAD");
+    const sessions = { list: async () => [{ sessionId: "t1", path: "", cwd: repo.worktree }] } as unknown as HostExtensionServices["sessions"];
+    const requestFor = async () => ({ target: "release", tip: submitted, merged: true, url: "https://github.com/acme/shop-api/pull/5", number: 5 });
+    const { invoke } = await hosts(repo.stateDir, { sessions }, requestFor);
+    const workspaces = [`ws1_${repo.worktree}`];
+    expect((await invoke("local-reviews", { workspaces }) as LocalReviewsAnswer).branches[0]).toMatchObject({ target: "release", merged: true, request: { number: 5 } });
+
+    await writeFile(join(repo.worktree, "new.ts"), "new work\n");
+    repo.git(repo.worktree, "add", "-A");
+    repo.git(repo.worktree, "commit", "-qm", "after the request merged");
+    expect((await invoke("local-reviews", { workspaces }) as LocalReviewsAnswer).branches[0]).toMatchObject({ target: "release", merged: false });
+    await expect(invoke("local-review-remove", { workspace: workspaces[0] })).rejects.toThrow(/does not hold/u);
+    await expect(invoke("local-review-merge", { workspace: workspaces[0] })).rejects.toThrow(/Check out release/u);
   });
 
   it("refuses to remove a branch the target lacks", async () => {

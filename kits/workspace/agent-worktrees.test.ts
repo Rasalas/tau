@@ -40,6 +40,7 @@ describe("a spawned thread's worktree", () => {
     const plain = await createAgentWorktree({ parentCwd: parent, agentId: "99999999" });
     expect(plain.withUncommitted).toBe(false);
     expect(plain.baseCommit).toBe(git("rev-parse", "--verify", "HEAD").trim());
+    expect(git("config", "--get", `branch.${plain.branch}.tau-review-target`).trim()).toBe("main");
 
     await writeFile(join(parent, "draft.txt"), "work in progress\n");
     const worktree = await createAgentWorktree({ parentCwd: parent, agentId: "abcdef1234" });
@@ -72,6 +73,15 @@ describe("a spawned thread's worktree", () => {
     expect((await applyAgentWorktree({ parentCwd: parent, worktree: child })).strategy).toBe("merge");
     await expect(readFile(join(parent, "fruit.txt"), "utf8")).resolves.toBe("pear\n");
     await expect(readFile(join(parent, "basket.txt"), "utf8")).resolves.toBe("a basket\n");
+  });
+
+  it("keeps the parent's feature branch as the child's review target", async () => {
+    const parent = await repository();
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: parent, stdio: "pipe" }).toString().trim();
+    git("switch", "-c", "feature/parent");
+    const child = await createAgentWorktree({ parentCwd: parent, agentId: "55555555" });
+    git("switch", "main");
+    expect(git("config", "--get", `branch.${child.branch}.tau-review-target`)).toBe("feature/parent");
   });
 
   it("reports what the child changed and applies it to the parent", async () => {

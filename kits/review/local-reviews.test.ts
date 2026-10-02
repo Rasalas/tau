@@ -101,6 +101,29 @@ describe("which threads are local merge requests", () => {
     expect(mergeBlocker(review!)).toBe("2 files are not committed; ask the thread to commit first.");
   });
 
+  it("reopens uncommitted work on a completed branch without its old completion metadata", () => {
+    const [review] = deriveReviews({
+      answer: answer({ branches: [branch("dirty", { merged: true, mergedBy: "request", ahead: 0, uncommitted: 1 })] }),
+      threads: [thread("d", "ws-dirty")], busy: new Set(),
+    });
+    expect(review?.state).toBe("ready");
+    expect(review?.mergedBy).toBeUndefined();
+    expect(mergeBlocker(review!)).toContain("not committed");
+    expect(countReviews([review!])).toMatchObject({ ready: 1, merged: 0 });
+  });
+
+  it("keeps completed work out of the open count while its target is not checked out", () => {
+    const message = "Check out main before merging.";
+    const [review] = deriveReviews({
+      answer: answer({ branches: [branch("done", { merged: true, mergedBy: "squash", mergeBlocked: message })] }),
+      threads: [thread("d", "ws-done")], busy: new Set(),
+    });
+    expect(review).toMatchObject({ state: "merged", target: "main", mergedBy: "squash" });
+    expect(countReviews([review!])).toMatchObject({ ready: 0, conflicts: 0, merged: 1 });
+    const [open] = deriveReviews({ answer: answer({ branches: [branch("open", { mergeBlocked: message })] }), threads: [thread("o", "ws-open")], busy: new Set() });
+    expect(mergeBlocker(open!)).toBe(message);
+  });
+
   it("holds a branch in Changes requested while an ask about its tip is open, and lets go once it moves", () => {
     const key = reviewKey("/repo/shop-api", "tau/asked");
     const ask = { kind: "note" as const, text: "retry budget", at: 5, tip: "asked-tip" };

@@ -16,7 +16,7 @@ import {
   type ThreadBranch,
   type ThreadBranchMerge,
 } from "./local-reviews.js";
-import type { ReviewRequestContext } from "./protocol.js";
+import type { BranchReviewRequest, ReviewRequestContext } from "./protocol.js";
 
 const FILE = "local-reviews.json";
 const REMOTE_WORK = "tau.remote-work";
@@ -61,6 +61,7 @@ interface Book {
   asks: Record<string, ReviewAsk>;
   merged: MergedReview[];
   sent: Record<string, SentNote[]>;
+  targets: Record<string, string>;
 }
 
 /** Asks and merges, in the kit's own state folder, written whole through a temporary file. */
@@ -80,9 +81,10 @@ export class LocalReviewBook {
       })) as Record<string, ReviewAsk>;
       const merged = (Array.isArray(raw.merged) ? raw.merged : []).filter((entry): entry is MergedReview => typeof record(entry).key === "string" && typeof record(entry).at === "number");
       const sent = Object.fromEntries(Object.entries(record(raw.sent)).map(([key, list]) => [key, (Array.isArray(list) ? list : []).filter((note): note is SentNote => typeof record(note).id === "string" && typeof record(note).body === "string" && typeof record(note).at === "number")]));
-      this.book = { asks, merged, sent };
+      const targets = Object.fromEntries(Object.entries(record(raw.targets)).filter(([, value]) => typeof value === "string" && value.length > 0)) as Record<string, string>;
+      this.book = { asks, merged, sent, targets };
     } catch {
-      this.book = { asks: {}, merged: [], sent: {} };
+      this.book = { asks: {}, merged: [], sent: {}, targets: {} };
     }
     return this.book;
   }
@@ -172,24 +174,59 @@ const clip = (value: string) => value.length > SUMMARY_CHARS ? `${value.slice(0,
 export function registerLocalReviewCommands(
   context: HostExtensionContext,
   workspace: (command: string, input?: unknown) => Promise<unknown>,
-  requestMerged?: (threadIds: readonly string[], branch: string) => Promise<boolean>,
+  requestFor?: (threadIds: readonly string[], branch: string, tip: string) => Promise<BranchReviewRequest | undefined>,
 ): void {
   const { services } = context;
   const book = new LocalReviewBook(services.stateDir);
   const changed = () => context.emit(LOCAL_REVIEWS_EVENT, {});
 
-  /** Git's answer, with the branches whose linked pull request is known to have merged on the host. */
+  /** Stable destinations and completed tips, supplemented by the thread's cached request. */
   const readBranches = async (workspaces: string[]): Promise<ThreadBranch[]> => {
     const branches = workspaces.length ? await workspace("thread-branches", { workspaces }) as ThreadBranch[] : [];
-    const open = branches.filter((branch) => !branch.merged && branch.ahead > 0);
-    if (!requestMerged || open.length === 0) return branches;
-    const sessions = await services.sessions.list().catch(() => []);
+    if (branches.length === 0) return branches;
+    const current = await book.read();
+    const sessions = requestFor ? await services.sessions.list().catch(() => []) : [];
     const inside = (path: string, cwd: string) => cwd === path || cwd.startsWith(`${path}${sep}`);
-    return Promise.all(branches.map(async (branch) => {
-      if (!open.includes(branch)) return branch;
+    const resolved = await Promise.all(branches.map(async (initial) => {
+      let branch = initial;
+      const key = reviewKey(branch.root, branch.branch);
       const ids = sessions.filter((session) => inside(branch.path, session.cwd)).map((session) => session.sessionId);
-      return ids.length && await requestMerged(ids, branch.branch).catch(() => false) ? { ...branch, merged: true, mergedBy: "request" as const, conflicts: [] } : branch;
+      const request = ids.length ? await requestFor?.(ids, branch.branch, branch.tip).catch(() => undefined) : undefined;
+      const target = request?.target ?? current.targets[key] ?? current.merged.find((entry) => entry.key === key)?.target ?? branch.target;
+      if (target && target !== branch.target) {
+        const [read] = await workspace("thread-branches", { workspaces: [branch.workspace], targets: { [branch.workspace]: target } }) as ThreadBranch[];
+        if (!read) throw new HostCommandError("The review branch moved while its target was read; refresh the review.");
+        branch = read;
+      }
+      const completed = current.merged.find((entry) => entry.key === key && entry.tip === branch.tip && entry.target === branch.target);
+      if (request?.merged && request.tip === branch.tip) {
+        return { ...branch, merged: true, mergedBy: "request" as const, request: { url: request.url, number: request.number }, conflicts: [] };
+      }
+      return completed ? { ...branch, merged: true, mergedBy: completed.mergedBy ?? branch.mergedBy, request: completed.request, conflicts: [] } : branch;
     }));
+    // Remember inference for legacy worktrees, and retain completion even if
+    // the target later changes or the worktree is removed. Never delete Git data here.
+    const updates = resolved.filter((branch) => {
+      const key = reviewKey(branch.root, branch.branch);
+      const completed = current.merged.find((entry) => entry.key === key);
+      return branch.target && (current.targets[key] !== branch.target || branch.merged && branch.uncommitted === 0 && (completed?.tip !== branch.tip || completed.request?.url !== branch.request?.url));
+    });
+    if (updates.length) await book.change((next) => {
+      for (const branch of updates) {
+        const key = reviewKey(branch.root, branch.branch);
+        next.targets[key] = branch.target!;
+        if (!branch.merged || branch.uncommitted > 0) continue;
+        const previous = next.merged.find((entry) => entry.key === key && (!entry.tip || entry.tip === branch.tip));
+        next.merged = next.merged.filter((entry) => entry.key !== key);
+        next.merged.push({
+          ...previous, key, root: branch.root, branch: branch.branch, target: branch.target!, workspace: branch.workspace, rootWorkspace: branch.rootWorkspace,
+          tip: branch.tip, title: previous?.title ?? branch.branch, at: previous?.tip === branch.tip ? previous.at : branch.committedAt ?? Date.now(),
+          files: branch.files, added: branch.added, removed: branch.removed,
+          ...(branch.mergedBy ? { mergedBy: branch.mergedBy } : {}), ...(branch.request ? { request: branch.request } : {}),
+        });
+      }
+    });
+    return resolved;
   };
 
   const remoteWork = (command: string, input: unknown) => context.invokeHostExtension(REMOTE_WORK, command, input);
@@ -257,9 +294,11 @@ export function registerLocalReviewCommands(
   context.registerCommand("local-review-merge", async (input) => {
     const fields = record(input);
     const link = text(fields.link);
+    const [branch] = link ? [] : await readBranches([required(input, "workspace")]);
+    if (!link && !branch) throw new HostCommandError("This worktree is gone already.");
     const outcome = link
       ? await mergeRemote(link, fields)
-      : await workspace("merge-thread-branch", { workspace: required(input, "workspace"), ...(text(fields.tip) ? { tip: text(fields.tip) } : {}), ...(fields.picks ? { picks: fields.picks } : {}) }) as ThreadBranchMerge;
+      : await workspace("merge-thread-branch", { workspace: required(input, "workspace"), target: branch!.target, tip: text(fields.tip) ?? branch!.tip, ...(fields.picks ? { picks: fields.picks } : {}) }) as ThreadBranchMerge;
     if (outcome.state !== "merged" && outcome.state !== "already-merged") return outcome;
     const key = link ? remoteReviewKey(link) : reviewKey(outcome.root, outcome.branch);
     await book.change((next) => {
@@ -277,6 +316,7 @@ export function registerLocalReviewCommands(
         title: text(fields.title) ?? outcome.branch,
         ...(text(fields.project) ? { project: text(fields.project) } : {}),
         ...(outcome.commit ? { commit: outcome.commit } : {}),
+        ...(branch ? { tip: branch.tip } : {}),
         at: Date.now(),
         files: number(fields.files) ?? 0,
         added: number(fields.added) ?? 0,
@@ -293,10 +333,23 @@ export function registerLocalReviewCommands(
 
   // A merged branch's worktree and branch go; its threads and any merge record stay.
   context.registerCommand("local-review-remove", async (input) => {
+    const fields = record(input);
     const named = required(input, "workspace");
     const [branch] = await readBranches([named]);
     if (!branch) throw new HostCommandError("This worktree is gone already.");
-    const removed = await workspace("remove-thread-branch", { workspace: named, ...(branch.mergedBy === "request" ? { requestMerged: true } : {}) }) as { branch: string };
+    if (text(fields.tip) && fields.tip !== branch.tip) throw new HostCommandError(`${branch.branch} moved since it was read; nothing was removed.`);
+    if (!branch.merged) throw new HostCommandError(`${branch.target} does not hold ${branch.branch} yet; nothing was removed.`);
+    const removed = await workspace("remove-thread-branch", { workspace: named, target: branch.target, tip: branch.tip, integratedTip: branch.tip }) as { branch: string };
+    await book.change((next) => {
+      const completed = next.merged.find((entry) => entry.key === reviewKey(branch.root, branch.branch) && entry.tip === branch.tip);
+      if (!completed) return;
+      if (text(fields.threadId)) completed.threadId = text(fields.threadId);
+      if (text(fields.title)) completed.title = text(fields.title)!;
+      if (text(fields.project)) completed.project = text(fields.project);
+      if (number(fields.costUsd) !== undefined) completed.costUsd = number(fields.costUsd);
+      if (text(fields.modelProvider)) completed.modelProvider = text(fields.modelProvider);
+      if (text(fields.model)) completed.model = text(fields.model);
+    });
     services.log("reviews.removed", removed.branch);
     changed();
     return removed;
@@ -376,7 +429,12 @@ export function registerLocalReviewCommands(
     return result;
   }, { long: true, audit: { label: "committed a thread's worktree from Reviews" } });
 
-  context.registerCommand("local-review-conflicts", (input) => workspace("thread-branch-conflicts", { workspace: required(input, "workspace") }), { access: "read", long: true });
+  context.registerCommand("local-review-conflicts", async (input) => {
+    const named = required(input, "workspace");
+    const [branch] = await readBranches([named]);
+    if (!branch) throw new HostCommandError("This worktree is gone already.");
+    return workspace("thread-branch-conflicts", { workspace: named, target: branch.target });
+  }, { access: "read", long: true });
 
   context.registerCommand("local-review-summary", async (input): Promise<{ summary?: string; turns?: number; prompts?: string[] }> => {
     const fields = record(input);
