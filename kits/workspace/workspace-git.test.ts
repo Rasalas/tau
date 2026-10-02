@@ -32,6 +32,7 @@ import {
   readWorktreeStatuses,
   removeWorktree,
   resolveDefaultBaseRef,
+  readBaseChoices,
   resolveWorktreeBase,
   revertFile,
   restoreWorkspaceSnapshot,
@@ -1099,6 +1100,23 @@ describe("worktree base", () => {
     expect(offline.some((args) => args[0] === "fetch")).toBe(false);
   });
 
+  it("lists origin's other latest branches and when it was fetched, for Based on (design 1k)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tau-base-choices-"));
+    try {
+      const fetchHead = join(dir, "FETCH_HEAD");
+      await writeFile(fetchHead, "");
+      const { mtimeMs } = await stat(fetchHead);
+      await expect(readBaseChoices("/repo", "origin/main", runner({
+        "rev-parse --path-format=absolute --git-path FETCH_HEAD": `${fetchHead}\n`,
+        "for-each-ref --sort=-committerdate --count=12 --format=%(refname:short) refs/remotes/origin": "origin/develop\norigin/main\norigin\norigin/feat/a\norigin/feat/b\norigin/feat/c\n",
+      }))).resolves.toEqual({ fetchedAt: mtimeMs, others: ["origin/develop", "origin/feat/a", "origin/feat/b", "origin/feat/c"] });
+      // Never fetched, no remote: nothing but the default.
+      await expect(readBaseChoices("/repo", "main", runner({}))).resolves.toEqual({ others: [] });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("keeps offering the local base when origin cannot be reached", async () => {
     const base = await resolveWorktreeBase("/repo", { requested: "main" }, async (_cwd, args) => {
       if (args[0] === "remote") return "origin\n";
@@ -1180,6 +1198,7 @@ describe("worktree creation", () => {
       }), async (_path, args) => {
         calls.push(args);
         if (args[0] === "remote") return "origin\n";
+        if (args[1] === "--symbolic-full-name") return "refs/remotes/origin/main\n";
         if (args[0] === "rev-parse") return "origin/main\n";
         return "";
       });
@@ -1189,6 +1208,7 @@ describe("worktree creation", () => {
       expect(calls).toContainEqual(["worktree", "add", "-b", "feat/fresh-main", destination, "origin/main"]);
       // The base a later diff compares against is recorded on the branch.
       expect(calls).toContainEqual(["config", "branch.feat/fresh-main.tau-base", "origin/main"]);
+      expect(calls).toContainEqual(["config", "branch.feat/fresh-main.tau-review-target", "main"]);
       expect(calls.findIndex((args) => args[0] === "fetch"))
         .toBeLessThan(calls.findIndex((args) => args[0] === "worktree"));
     } finally {
@@ -1212,12 +1232,14 @@ describe("worktree creation", () => {
       }), async (_path, args) => {
         calls.push(args);
         if (args[0] === "remote") return "origin\n";
+        if (args[1] === "--symbolic-full-name") return "refs/heads/main\n";
         if (args[0] === "rev-parse") return "main\n";
         return "";
       });
 
       expect(calls.some((args) => args[0] === "fetch")).toBe(false);
       expect(calls.find((args) => args[0] === "worktree")?.at(-1)).toBe("main");
+      expect(calls).toContainEqual(["config", "branch.feat/local-main.tau-review-target", "main"]);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

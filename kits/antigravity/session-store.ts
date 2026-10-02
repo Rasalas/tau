@@ -1,6 +1,7 @@
 import { chmod } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { appendUsageTurn, readPersistedJson, readUsageTurns, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage, type UsageTurn } from "tau/host-extension";
+import { appendUsageTurn, readPersistedJson, readUsageTurns, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage, type UsageTally, type UsageTurn } from "tau/host-extension";
+import { talliesOfRecord } from "../_acp/session-store.js";
 
 /**
  * App-data persistence for Antigravity threads: the Tau thread → ACP session
@@ -185,6 +186,12 @@ export class AntigravitySessionStore {
     await this.load();
     const record = this.records.get(tauThreadId);
     return record ? cloneRecord(record) : undefined;
+  }
+
+  /** A listed thread's tallies, for its row before it opens; `origin` names a thread that kept only its total. */
+  talliesOf(tauThreadId: string, origin?: (record: AntigravitySessionRecord) => { provider?: string; model?: string }): UsageTally[] {
+    const record = this.records.get(tauThreadId);
+    return record ? talliesOfRecord(record, origin?.(record)) : [];
   }
 
   async list(cwd?: string): Promise<AntigravitySessionRecord[]> {

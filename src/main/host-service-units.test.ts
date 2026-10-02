@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { installShellEnvironment } from "./shell-environment.js";
+import { APP_IDENTITIES } from "./app-identity.js";
 import {
   HOST_SERVICE_ENV,
   defaultUserData,
@@ -38,6 +39,14 @@ describe("service names", () => {
     expect(other.label).toMatch(/^dev\.tbuck\.tau\.host\.[0-9a-f]{8}$/u);
     expect(other.unit).toMatch(/^tau-host-[0-9a-f]{8}\.service$/u);
     expect(hostServiceNames("/w/.tau-dev/userdata", "/x")).toEqual(other);
+  });
+
+  it("names Tau Dev's service apart from the released app's", () => {
+    const dev = APP_IDENTITIES.dev;
+    const userData = defaultUserData("darwin", "/Users/me", {}, dev);
+    expect(userData).toBe("/Users/me/Library/Application Support/tau-dev");
+    expect(hostServiceNames(userData, userData, dev)).toEqual({ label: "de.tbuck.tau.dev.host", unit: "tau-dev-host.service", task: "Tau Dev Host" });
+    expect(displayServiceNames("tau-dev-host-1a2b.service", dev)).toEqual({ xvfbUnit: "tau-dev-xvfb-1a2b.service", windowUnit: "tau-dev-window-1a2b.service" });
   });
 
   it("finds the app's default userData on each platform", () => {

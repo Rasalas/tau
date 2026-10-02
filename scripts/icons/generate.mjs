@@ -10,7 +10,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  ANDROID_LAUNCHER, ANDROID_SPLASH, COLOURS, androidBackground, androidForeground, androidMonochrome, clippedSvg,
+  ANDROID_LAUNCHER, ANDROID_SPLASH, COLOURS, androidBackground, androidForeground, androidMonochrome, clippedSvg, devBandSvg,
   iconComposerDocument, iconComposerGlyph, iosAppIconContents, iosSplashContents, nightFolder, splashSvg, tintedSvg, webManifest,
 } from "./icon-files.mjs";
 import { packIco, withoutAlpha } from "./png.mjs";
@@ -53,6 +53,11 @@ write("assets/icon/tau.ico", packIco([
 write("assets/icon/Tau.icon/icon.json", iconComposerDocument());
 write("assets/icon/Tau.icon/Assets/tau.svg", iconComposerGlyph(icon.light, COLOURS.paper));
 write("assets/icon/Tau.icon/Assets/tau-dark.svg", iconComposerGlyph(icon.light, COLOURS.blueDark));
+// Tau Dev (install:mac --local): the same icon with a DEV band.
+write("assets/icon/TauDev.icon/icon.json", iconComposerDocument({ dev: true }));
+write("assets/icon/TauDev.icon/Assets/tau.svg", iconComposerGlyph(icon.light, COLOURS.paper));
+write("assets/icon/TauDev.icon/Assets/tau-dark.svg", iconComposerGlyph(icon.light, COLOURS.blueDark));
+write("assets/icon/TauDev.icon/Assets/dev-band.svg", devBandSvg());
 
 // Android: vectors for the adaptive icon (with Android 13's monochrome layer),
 // PNGs for launchers older than Android 8, and the splash in both themes.

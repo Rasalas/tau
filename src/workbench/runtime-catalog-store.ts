@@ -1,3 +1,4 @@
+import { errorMessage } from "./error-message";
 import type { HostSnapshot, ThreadBackendKind, UiModel, UiRuntimeCatalog, UiRuntimeCatalogStatus } from "../shared/contracts";
 import type { NewThreadDraft } from "./draft-store";
 
@@ -55,7 +56,7 @@ export class RuntimeCatalogStore {
     this.put(kind, { status: "loading" });
     this.port.runtimeCatalog(kind).then(
       (catalog) => this.put(kind, catalogEntry(catalog)),
-      (error: unknown) => this.put(kind, { status: "unavailable", message: error instanceof Error ? error.message : String(error) }),
+      (error: unknown) => this.put(kind, { status: "unavailable", message: errorMessage(error) }),
     );
   }
 
@@ -90,27 +91,36 @@ export class RuntimeCatalogStore {
   }
 }
 
+/** A model's levels in a catalog; Pi's go by `provider/id`, since an id recurs across its providers. */
+export const catalogLevels = (catalog: UiRuntimeCatalog | undefined, model: UiModel): string[] =>
+  catalog?.thinkingLevels[`${model.provider}/${model.id}`] ?? catalog?.thinkingLevels[model.id] ?? [];
+
 /**
- * The snapshot a draft bound for another runtime shows its composer: that
- * runtime's models and levels, with what the draft chose already applied.
+ * The snapshot a draft shows its composer: the catalog's models and levels
+ * of the runtime it is bound for, with what the draft chose already applied.
+ * On the thread's own runtime it takes over only for a model the draft chose.
  * Without a catalog the snapshot stays as it was, and the composer's pickers
- * stay off for the draft.
+ * stay off for a draft bound for another runtime.
  */
 export function draftRuntimeSnapshot(snapshot: HostSnapshot, draft: NewThreadDraft, runtime: ThreadBackendKind, entry: RuntimeCatalogEntry | undefined): HostSnapshot {
   if (entry?.status !== "ready") return snapshot;
   const { catalog } = entry;
   const chosen = (draft.selectionRuntime ?? "pi") === runtime;
-  const model: UiModel | undefined = (chosen && draft.model && catalog.models.find((candidate) => candidate.id === draft.model!.id && candidate.provider === draft.model!.provider)) || catalog.model;
-  const levels = model ? catalog.thinkingLevels[model.id] ?? [] : [];
-  const level = chosen && draft.thinkingLevel && levels.includes(draft.thinkingLevel) ? draft.thinkingLevel : levels[0];
+  const own = runtime === (snapshot.backendKind ?? "pi");
+  const picked = chosen && draft.model && catalog.models.find((candidate) => candidate.id === draft.model!.id && candidate.provider === draft.model!.provider);
+  if (own && !picked) return snapshot;
+  const model: UiModel | undefined = picked || catalog.model;
+  const levels = model ? catalogLevels(catalog, model) : [];
+  // Pi starts a thread at "medium" where the model has it; other runtimes list their default first.
+  const level = chosen && draft.thinkingLevel && levels.includes(draft.thinkingLevel) ? draft.thinkingLevel : runtime === "pi" && levels.includes("medium") ? "medium" : levels[0];
   const { contextUsage: _context, usage: _usage, model: _visible, ...rest } = snapshot;
   return {
     ...rest,
     backendKind: runtime,
-    models: [...catalog.models],
+    models: own ? snapshot.models : [...catalog.models],
     ...(model ? { model } : {}),
     thinkingLevel: level ?? "",
     thinkingLevels: [...levels],
-    ...(catalog.runtimeCapabilities ? { runtimeCapabilities: catalog.runtimeCapabilities } : {}),
+    ...(!own && catalog.runtimeCapabilities ? { runtimeCapabilities: catalog.runtimeCapabilities } : {}),
   };
 }

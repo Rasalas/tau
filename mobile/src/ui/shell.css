@@ -138,3 +138,16 @@ html, body { margin: 0; background: var(--shell); }
 .shell-dialog > p { margin: 4px 16px 4px; font: var(--text-md)/1.5 var(--sans); color: var(--ink-3); }
 
 .shell-fatal { padding: calc(24px + env(safe-area-inset-top, 0px)) 24px; font: 15px/1.5 var(--sans); color: var(--ink); }
+
+.composer-dictation { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 12px; font-size: 12px; }
+.composer-dictation select { max-width: 180px; color: inherit; background: var(--bg); }
+.composer-dictation textarea { width: 100%; min-height: 80px; }
+
+/* A host's preference stays below its navigation row, with the shared switch. */
+.shell-paired-host { display: block; padding-right: 0; }
+.shell-host-main-row { display: flex; align-items: center; padding-right: 6px; }
+.shell-activity-setting { display: flex; align-items: center; gap: 12px; margin: 0 16px 12px 64px; }
+.shell-activity-setting > span { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.shell-activity-setting strong { font: 500 var(--text-sm)/1.3 var(--sans); }
+.shell-activity-setting small { color: var(--muted); font: var(--text-xs)/1.4 var(--sans); }
+.shell-activity-setting .switch { flex: none; }

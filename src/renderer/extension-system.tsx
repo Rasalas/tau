@@ -5,6 +5,7 @@ import { evaluateWhen, isSpecificWhen, parseWhen, whenOverlaps, type WhenNode } 
 import { domKeybindingContext } from "./keybinding-context";
 import type { ComponentType, ReactNode } from "react";
 import type { PanelIconComponent } from "./components/PanelIcon";
+import type { MenuSection } from "./components/Menu";
 import type { HostClient } from "../workbench/host-client";
 import type { HostConnectionState } from "../workbench/host-connection";
 import type { HostActionResult } from "../shared/host-protocol";
@@ -22,6 +23,7 @@ import type {
   UiProject,
   UiSession,
   UiPromptAttachment,
+  UiSkillDraft,
   UiPromptImageAttachment,
   UiSharedFile,
   UiToolOutputPreview,
@@ -75,14 +77,21 @@ export interface WorkbenchActions {
   openWorkbenchSource(): Promise<boolean>;
   /** Pi's /tree and /fork: the session tree of the active thread, to move in or fork from. */
   openThreadTree(mode?: "navigate" | "fork"): void;
-  /** Pi's /clone: a new thread continuing from the active thread's current point. */
-  duplicateThread(): Promise<boolean>;
+  /** Pi's /clone: a new thread continuing from the active thread's current point; a fork prompt asks first unless `ask` is false. */
+  duplicateThread(options?: { ask?: boolean }): Promise<boolean>;
+  /**
+   * Forks the thread on screen through `message`: a new thread with the conversation up to it (API 1.39.0).
+   * With `workspace`, the fork runs in that project; false when nothing was forked.
+   */
+  forkFrom?(message: Pick<UiMessage, "sourceEntryId">, options?: { workspace?: string }): Promise<boolean>;
   focusComposer(seed?: string): void;
   focusTranscript(): void;
   focusStage(): void;
   toggleDock(): void;
   /** Hides or shows the sidebar (the thread sheet on a compact client). */
   toggleSidebar?(): void;
+  /** Collapses the conversation to its spine beside the stage, or opens it again (design 1b). */
+  toggleSpine?(): void;
   notify(message: string): void;
   /**
    * A toast on the window's stack: a type icon, a title and a line, actions,
@@ -113,7 +122,8 @@ export interface WorkbenchActions {
    */
   threadListOrder?(): readonly string[] | undefined;
   /** Opens a document in the stage, as source or as its working-tree diff; `line` scrolls the source to it and marks it. */
-  openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff"; line?: number }): void;
+  /** `trace`: the agent opened it; it joins the stage's end without coming to the front (design 1a). */
+  openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff"; line?: number; trace?: boolean }): void;
   /**
    * Opens a thread in the stage as a read-only tab, leaving the active thread
    * alone. `machine` (a host id, or a machine's unique name) reads a thread of
@@ -161,6 +171,8 @@ export interface WorkbenchActions {
   closeActiveStageTab?(): void;
   /** Moves forward or backward through stage tabs. */
   cycleStageTab?(direction: 1 | -1): void;
+  /** Shows a stage tab beside the active one; without an id, splits off the active tab or joins the panes again. */
+  splitStage?(tabId?: string): void;
   /** Puts text on the user's clipboard. */
   copyText(text: string): Promise<void>;
   /** Opens a URL outside the workbench, in whatever the client calls a browser. */
@@ -310,9 +322,12 @@ export interface TranscriptRowsHandle {
  * plain label (both API 1.27.0). `draft-actions` adds pills beside the
  * project under a new thread's heading, each opening its own popover.
  * `thread-list-head` tops a phone's or tablet's thread list, under its header
- * (API 1.30.0).
+ * (API 1.30.0). `thread-list-title` adds compact controls beside a phone's header title;
+ * a tablet's sidebar has a foot for them (`PageContribution.Summary`). `turn-divider` sits in
+ * the line above each turn after the first; its props carry `turn` (API 1.39.0).
+ * `spine` fills the narrow column the conversation collapses to (design 1b), under the title.
  */
-export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in" | "thread-list-head";
+export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in" | "thread-list-head" | "thread-list-title" | "turn-divider" | "spine";
 
 /** Where a thread of a list source runs: its mark and name on the row's project line. */
 export interface ThreadListPlace {
@@ -330,6 +345,8 @@ export interface ThreadListEntry {
   key: string;
   session: UiSession;
   running?: boolean;
+  /** Waits for an answer there (API 1.35.0). */
+  waiting?: boolean;
   /** Set while `open` is under way. */
   opening?: boolean;
   /** On the settled shelf rather than among the active threads. */
@@ -359,11 +376,23 @@ export interface LookInRegionContext {
   connected: boolean;
 }
 
+/** One turn of the thread on screen, for a `turn-divider` region (API 1.39.0). */
+export interface TranscriptTurn {
+  /** 1-based among the turns the transcript has loaded. */
+  number: number;
+  /** Its prompt, then everything that answered it. */
+  messages: readonly UiMessage[];
+  /** The newest turn, which may still run. */
+  last: boolean;
+}
+
 export interface RegionProps {
   snapshot?: HostSnapshot;
   actions: WorkbenchActions;
   /** Set only in the `look-in` placement. */
   lookIn?: LookInRegionContext;
+  /** Set only in the `turn-divider` placement. */
+  turn?: TranscriptTurn;
 }
 
 export interface RegionContribution extends ProfileScoped {
@@ -605,7 +634,31 @@ export interface ComposerGateContribution extends ProfileScoped {
   Component: ComponentType<ComposerGateProps>;
 }
 
-/** A mark on a model's row in the model picker. */
+/** Fast for the composer's thread, as one kit knows it. */
+export interface ComposerSpeedState {
+  fast: boolean;
+  /** False where the thread's model or runtime offers no faster tier; `reason` says why. */
+  available: boolean;
+  reason?: string;
+  /** What Fast does or costs, under its name. */
+  detail?: string;
+}
+
+/**
+ * A runtime's faster tier, drawn by core in the thinking chip (⚡) and its
+ * menu (K142). `read` answers from what the kit holds and must return the same
+ * object until it changes; it says `undefined` for a thread it has nothing to
+ * do with, and calls `subscribe`'s listener once it knows more.
+ */
+export interface ComposerSpeedContribution extends ProfileScoped {
+  id: string;
+  order?: number;
+  read(snapshot: HostSnapshot | undefined): ComposerSpeedState | undefined;
+  subscribe(listener: () => void): () => void;
+  set(fast: boolean, snapshot: HostSnapshot | undefined): void | Promise<void>;
+}
+
+/** A mark on a model's row in the model picker, and optionally a line under "Runs with". */
 export interface ModelBadgeContribution extends ProfileScoped {
   id: string;
   order?: number;
@@ -617,6 +670,12 @@ export interface ModelBadgeContribution extends ProfileScoped {
   tone?: "neutral" | "warning";
   /** One line under the list while any listed model wears this badge. */
   note?: string;
+  /**
+   * Added after the facts under "Runs with" for the way highlighted there,
+   * whether or not the model wears the badge: what an account has left, say.
+   * It draws nothing when it has nothing to say, and must not throw.
+   */
+  WayLine?: ComponentType<{ model: UiModel; runtime: ThreadBackendKind }>;
 }
 
 export interface PanelProps {
@@ -673,6 +732,10 @@ export interface PanelContribution extends ProfileScoped {
   stageButton?: boolean;
   /** A hook for a count beside the panel's tab title, say running agents; nothing for `undefined` or 0 (API 1.27.0). */
   useBadge?(): number | undefined;
+  /** Offered in a phone's actions sheet of a thread row, which opens the thread and then this panel (design 1x, API 1.39.0). */
+  threadActions?: boolean;
+  /** Unseen background activity. `visible` lets the tool mark its activity as read. */
+  useActivity?(visible: boolean): boolean;
   Component: ComponentType<PanelProps>;
 }
 
@@ -853,21 +916,27 @@ export interface SettingsPageContribution extends ProfileScoped {
    * buttons open the card.
    */
   runtimeRows?: { program?: string; addInstance?: string };
-  /**
-   * The levels this page's settings may be written to. With "project" or
-   * "both" the Settings bar offers the project a change applies to, and a row
-   * built with `useSetting` follows it; "host", the default, edits this machine.
-   */
+  /** @deprecated No longer read: "Applies to" offers a project while a row with its own `scope` is on the page. */
   scope?: SettingScope;
+  /** A hook for the value a phone's Settings list shows beside the page's name: "2 online" (design 1s, API 1.39.0). */
+  useSummary?(): string | undefined;
   Component: ComponentType<SettingsPageProps>;
 }
 
 /**
  * Core's own Settings pages a package may add a section to (API 1.13.0):
  * Connections; the list of extensions, above it; each extension's own page,
- * after its settings (both API 1.18.0); and Runtimes, below its table (API 1.27.0).
+ * after its settings (both API 1.18.0); Runtimes, below its table (API 1.27.0);
+ * and General, as rows of one of its cards.
  */
-export type SettingsSectionPage = "connections" | "extensions" | "extension" | "runtimes";
+export type SettingsSectionPage = "connections" | "extensions" | "extension" | "runtimes" | "general";
+
+/**
+ * The cards a section's rows join (design 2i, 2h): General's appearance,
+ * notify, new-threads and threads, Connections' this-machine. Such a section
+ * draws `SettingRow`s only; the card draws the frame and the heading.
+ */
+export type SettingsCardId = "appearance" | "notify" | "new-threads" | "threads" | "this-machine";
 
 export interface SettingsSectionProps {
   onNotify(message: string): void;
@@ -886,6 +955,8 @@ export interface SettingsSectionProps {
 export interface SettingsSectionContribution extends ProfileScoped {
   id: string;
   page: SettingsSectionPage;
+  /** The card on the page its rows join, in `order` among the card's rows. */
+  card?: SettingsCardId;
   order?: number;
   /** The rows the Settings search finds in the section, as on a page (API 1.18.0). */
   rows?: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] }>;
@@ -909,6 +980,8 @@ export interface PaletteItem {
   submenu?: PaletteMenu;
   /** What the row does; a row with a `submenu` needs none. */
   run?(actions: WorkbenchActions): void | Promise<void>;
+  /** What ⌘⏎ does instead: the row opened in the stage. */
+  stage?(actions: WorkbenchActions): void;
   /** As on a command: without `"read"`, a Read-only device shows the row disabled with the reason (API 1.13.0). */
   access?: "read" | "write";
 }
@@ -938,21 +1011,26 @@ export interface PaletteMenu {
 /** What the palette hands a source with every query. */
 export interface PaletteSearchContext {
   actions: WorkbenchActions;
-  /** The thread index as this window holds it. */
-  index: { projects: readonly UiProject[]; threads: readonly UiSession[]; activeThreadId?: string };
+  /** The thread index as this window holds it; `running` are the threads with a turn going. */
+  index: { projects: readonly UiProject[]; threads: readonly UiSession[]; activeThreadId?: string; running?: readonly string[] };
+  /** The tab or prefix the palette is narrowed to; "all" when none is. */
+  scope?: "all" | "threads" | "files";
   /** Aborted when the query changes or the palette closes; a late answer is dropped either way. */
   signal: AbortSignal;
 }
 
 /**
  * Rows the palette asks for as the user types, beside the commands: threads,
- * projects, anything a query finds. Asked only for a non-empty query.
+ * projects, anything a query finds. Asked only for a non-empty query, unless
+ * it has a `scope`: then also for an empty one, in All and in its own tab.
  */
 export interface PaletteSourceContribution {
   id: string;
-  /** What the rows are, shown beside each: "Threads", "Projects". */
+  /** The section heading its rows stand under; sources with one label share a section. */
   label: string;
   order?: number;
+  /** The tab (and prefix: `#` threads, `/` files) that narrows the palette to this source. */
+  scope?: "threads" | "files";
   search(query: string, context: PaletteSearchContext): readonly PaletteItem[] | Promise<readonly PaletteItem[]>;
 }
 
@@ -1121,6 +1199,8 @@ export interface PromptRendererProps {
   pending: number;
   /** Who asks, for the card's head (`ExtensionPromptFrame`'s `from`): the thread's agent, by its model. */
   asker?: string;
+  /** The sub-agent that asks ("GET /orders agent") when the question is a child thread's, shown on its parent's composer. */
+  agent?: string | undefined;
   onAnswer(value: string | boolean, typed?: boolean): void;
   onCancel(): void;
 }
@@ -1173,6 +1253,10 @@ export interface NewThreadClaimEvent extends NewThreadPromptEvent {
   runtime: string;
   /** Images and files attached to the prompt. */
   attachments: number;
+  promptAttachments?: readonly UiPromptAttachment[];
+  skillDraft?: UiSkillDraft;
+  thinkingLevel?: string;
+  mode?: string;
 }
 
 export interface PromptHookContribution {
@@ -1180,8 +1264,8 @@ export interface PromptHookContribution {
   /**
    * Runs first when a pending draft's first prompt leaves the composer.
    * Answering `true` takes the prompt: core creates no thread, the composer
-   * empties and the draft stays open for the next one. A hook that throws is
-   * reported and the prompt goes on as if nobody had claimed it.
+   * empties and the draft stays open for the next one. A hook that throws
+   * rejects submission and keeps the draft for retry.
    */
   claimNewThread?(event: NewThreadClaimEvent, actions: WorkbenchActions): Promise<boolean | void>;
   /**
@@ -1242,9 +1326,36 @@ export interface ModelSelectionContribution {
   selected(): readonly string[];
   subscribe(listener: () => void): () => void;
   /** Shift-click on a row; `current` is the model the draft has now. */
-  toggle(model: UiModel, current: UiModel | undefined): void;
+  toggle(model: UiModel, current: UiModel | undefined, runtime?: string, currentRuntime?: string): void;
   /** A plain pick: back to one model. */
   reset(): void;
+}
+
+/** What a thread menu reads from the window: chords for its hints, and the commands offered on a thread. */
+export type ThreadMenuLookup = Pick<ExtensionRegistry, "keybindingLabel" | "getCommandsFor">;
+
+/**
+ * A thread's menu, the same on its title and on its row in the thread list
+ * (API 1.37.0). The last one registered wins; without one the title keeps
+ * core's own. On the title, `rename` edits the title in place.
+ */
+export interface ThreadMenuContribution {
+  id: string;
+  /** Undefined leaves the title's own menu. */
+  menu(session: UiSession, lookup: ThreadMenuLookup): MenuSection[] | undefined;
+  run(session: UiSession, itemId: string, actions: WorkbenchActions): void;
+}
+
+/** A fork the user started: through `entryId` (its turn when one), or the whole thread without one (Duplicate). */
+export interface ForkRequest {
+  entryId?: string;
+  turn?: TranscriptTurn;
+}
+
+/** Asks before every fork the user starts (the `f` key, the thread tree, Duplicate); the last one wins. */
+export interface ForkPromptContribution {
+  id: string;
+  ask(request: ForkRequest): void;
 }
 
 /** Which project a document belongs to; absent, the source reads the project it follows. */
@@ -1266,10 +1377,15 @@ export interface DocumentSourceContribution extends ProfileScoped {
 }
 
 export interface ToolPresentation {
-  glyph: string;
+  /** A character or an icon (an icon since API 1.39.0). */
+  glyph: ReactNode;
   title: string;
   tone: "neutral" | "read" | "write" | "shell";
   detail: string;
+  /** Drawn at the row's end before its state, e.g. an edit's "+4 −2" (API 1.39.0). */
+  note?: ReactNode;
+  /** Drawn open under the row in place of the output, e.g. an edit's diff (API 1.39.0). */
+  body?: ReactNode;
   /** Structured tools can keep their machine payload out of the transcript. */
   output?: "default" | "hidden";
   /**
@@ -1398,6 +1514,8 @@ export interface DesktopExtensionContext {
   registerComposerGate(gate: ComposerGateContribution): () => void;
   /** Marks models in the model picker, with a line explaining the mark. */
   registerModelBadge(badge: ModelBadgeContribution): () => void;
+  /** A faster tier for threads of this kit's runtime, shown in the composer's thinking chip and menu. */
+  registerComposerSpeed(speed: ComposerSpeedContribution): () => void;
   /** Rows this extension shows in the transcript; `order` sorts rows sharing an anchor. */
   registerTranscriptRows(id: string, order?: number, options?: ProfileScoped): TranscriptRowsHandle;
   /** Replaces the transcript's waiting label for a thread while the label is set; `undefined` clears it. */
@@ -1446,6 +1564,9 @@ export interface DesktopExtensionContext {
   registerPromptHook(hook: PromptHookContribution): () => void;
   /** Lets a new thread's model picker hold several models; one extension at a time, the last one wins. */
   registerModelSelection(selection: ModelSelectionContribution): () => void;
+  /** The menu of a thread, on its title and its row; the last one wins (API 1.37.0). */
+  registerThreadMenu(menu: ThreadMenuContribution): () => void;
+  registerForkPrompt(prompt: ForkPromptContribution): () => void;
   registerMessageAction(action: MessageActionContribution): () => void;
   /** Draws a tagged block of an assistant reply itself. New in API 1.11.0. */
   registerMessageBlock(block: MessageBlockContribution): () => void;
@@ -1584,6 +1705,7 @@ export class ExtensionRegistry {
   private composerInlines = new Map<string, Owned<ComposerInlineContribution>>();
   private composerGates = new Map<string, Owned<ComposerGateContribution>>();
   private modelBadges = new Map<string, Owned<ModelBadgeContribution>>();
+  private composerSpeeds = new Map<string, Owned<ComposerSpeedContribution>>();
   private regions = new Map<string, Owned<RegionContribution>>();
   private statusItems = new Map<string, Owned<StatusItemContribution>>();
   private overlays = new Map<string, Owned<OverlayContribution>>();
@@ -1610,6 +1732,8 @@ export class ExtensionRegistry {
   private shadowedCommands = new Map<string, number>();
   private promptHooks = new Map<string, Owned<PromptHookContribution>>();
   private modelSelections = new Map<string, Owned<ModelSelectionContribution>>();
+  private threadMenus = new Map<string, Owned<ThreadMenuContribution>>();
+  private forkPrompts = new Map<string, Owned<ForkPromptContribution>>();
   private messageActions = new Map<string, Owned<MessageActionContribution>>();
   private messageBlocks = new Map<string, Owned<MessageBlockContribution>>();
   private promptRenderers = new Map<string, Owned<PromptRendererContribution>>();
@@ -1876,6 +2000,11 @@ export class ExtensionRegistry {
         note("model badges");
         return this.register(this.modelBadges, badge.id, { ...badge, ...owner }, disposers);
       },
+      registerComposerSpeed: (speed) => {
+        if (!this.scopeToProfile(owner, "composer speed", speed.id, undefined, speed)) return noContribution;
+        note("composer speed");
+        return this.register(this.composerSpeeds, speed.id, { ...speed, ...owner }, disposers);
+      },
       provideService: (id, value) => {
         const held = this.extensionServices.get(id);
         if (held) throw new Error(`Extension service ${id} is already provided by ${held.extensionId}`);
@@ -1969,6 +2098,11 @@ export class ExtensionRegistry {
         note("model selection");
         return this.register(this.modelSelections, selection.id, { ...selection, ...owner }, disposers);
       },
+      registerThreadMenu: (menu) => {
+        note("thread menu");
+        return this.register(this.threadMenus, menu.id, { ...menu, ...owner }, disposers);
+      },
+      registerForkPrompt: (prompt) => this.register(this.forkPrompts, prompt.id, { ...prompt, ...owner }, disposers),
       registerMessageAction: (action) => {
         if (!this.scopeToProfile(owner, "message action", action.id, action.label, action)) return noContribution;
         note("message actions");
@@ -2218,6 +2352,10 @@ export class ExtensionRegistry {
 
   getModelBadges(): Array<Owned<ModelBadgeContribution>> {
     return this.sorted("model-badges", this.modelBadges);
+  }
+
+  getComposerSpeeds(): Array<Owned<ComposerSpeedContribution>> {
+    return this.sorted("composer-speeds", this.composerSpeeds);
   }
 
   getSidebarContributions(): Array<Owned<SidebarContribution>> {
@@ -2510,11 +2648,9 @@ export class ExtensionRegistry {
   async claimNewThread(event: NewThreadClaimEvent, actions: WorkbenchActions): Promise<boolean> {
     for (const hook of this.promptHooks.values()) {
       if (!hook.claimNewThread) continue;
-      try {
-        if (await hook.claimNewThread(event, actions)) return true;
-      } catch (error) {
-        actions.notify(`${hook.id}: ${errorMessage(error)}`);
-      }
+      // Claims run in order; a rejection must keep the draft out of later hooks.
+      // oxlint-disable-next-line no-await-in-loop
+      if (await hook.claimNewThread(event, actions)) return true;
     }
     return false;
   }
@@ -2522,6 +2658,14 @@ export class ExtensionRegistry {
   /** The model set a new thread's picker builds, from the extension that registered last. */
   getModelSelection(): Owned<ModelSelectionContribution> | undefined {
     return [...this.modelSelections.values()].at(-1);
+  }
+
+  getThreadMenu(): Owned<ThreadMenuContribution> | undefined {
+    return [...this.threadMenus.values()].at(-1);
+  }
+
+  getForkPrompt(): Owned<ForkPromptContribution> | undefined {
+    return [...this.forkPrompts.values()].at(-1);
   }
 
   streamingDelivery(): "followUp" | "steer" | undefined {

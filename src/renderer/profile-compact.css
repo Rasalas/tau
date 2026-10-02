@@ -27,6 +27,8 @@ body[data-keyboard] .app-shell { --safe-bottom: 0px; }
 /* The tablet's desktop chrome at touch size: the head's glyphs, a divider a finger can take. */
 body[data-profile="compact"] .thread-header .stage-tool { width: 44px; height: 44px; }
 body[data-profile="compact"] .resize-handle[aria-orientation="vertical"] { width: 24px; }
+body[data-profile="compact"] .sidebar-resizer { margin-right: -12px; }
+body[data-profile="compact"] .sidebar-resizer::after { left: 11px; }
 body[data-profile="compact"] .chat-resizer { left: calc(var(--chat-width) - 12px); }
 body[data-profile="compact"] .resize-handle[aria-orientation="vertical"]::after { left: 11px; }
 body[data-profile="compact"] .panel-maximize { width: 44px; height: 44px; top: 4px; right: 4px; }
@@ -94,7 +96,10 @@ body[data-profile="compact"] .draft-pill { min-height: var(--touch-target); padd
 body[data-profile="compact"] :is(textarea, select, input:not([type="checkbox"], [type="radio"], [type="range"])) { font-size: max(16px, var(--text-input)); }
 /* 44 px to tap, 36 px to see; stop keeps its distance from send. */
 body[data-profile="compact"] .send-button { width: 44px; height: 44px; border: 4px solid transparent; background-clip: padding-box; }
-body[data-profile="compact"] .send-button.stop { margin-right: 8px; }
+/* A finger gets the ring and the square, not the desktop's word. */
+body[data-profile="compact"] .send-button.stop { margin-right: 8px; padding: 0; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line-control); }
+body[data-profile="compact"] .send-button.stop > span { display: none; }
+body[data-profile="compact"] .send-button.stop > i { display: block; width: 9px; height: 9px; background: currentColor; border-radius: 2px; }
 /* A phone keeps model and reasoning in view while it answers (design 1n); the card's Skip or Decline ends the wait, and stop comes back. */
 body[data-profile="compact"] .send-button.stop.answering { display: none; }
 /* The rest of the composer's footer and the thread title: 44 px to tap, drawn as small as before. */
@@ -114,6 +119,9 @@ body[data-profile="compact"] .context-dial::before {
 }
 body[data-profile="compact"] .context-dial > i { position: relative; }
 body[data-profile="compact"] .thread-title-trigger { min-height: var(--touch-target); }
+/* 16 px keeps iOS from zooming into the field. */
+body[data-profile="compact"] .thread-title-rename { width: 100%; min-width: 0; max-width: none; }
+body[data-profile="compact"] .thread-title-rename input { min-height: var(--touch-target); margin-top: 4px; font-size: 16px; }
 /* The row over the composer: 36 px to see, 44 px to tap, and the tap areas never meet. */
 /* The row keeps 8 px clear of the docked composer. */
 body[data-profile="compact"] .region-composer-controls { --controls-gap: 10px; margin-bottom: 0; padding-bottom: 8px; }
@@ -122,6 +130,9 @@ body[data-profile="compact"] .control-pill::before { content: ""; position: abso
 body[data-profile="compact"] .menu button[role="menuitem"] { min-height: var(--touch-target); }
 body[data-profile="compact"] .message-thinking > summary { min-height: var(--touch-target); }
 body[data-profile="compact"] .extension-option { min-height: var(--touch-target); }
+/* The card's buttons stay the design's size and reach 44 px for a finger. */
+body[data-profile="compact"] .extension-prompt > footer > button { position: relative; }
+body[data-profile="compact"] .extension-prompt > footer > button::before { content: ""; position: absolute; inset: calc((var(--touch-target) - 100%) / -2) 0; }
 body[data-profile="compact"] :is(button, a, [data-tooltip]) { -webkit-tap-highlight-color: transparent; }
 /* A long press on something with a label shows the label, not the system's callout. */
 body[data-profile="compact"] [data-tooltip] { -webkit-touch-callout: none; user-select: none; }
@@ -130,15 +141,18 @@ body[data-profile="compact"] [data-tooltip] { -webkit-touch-callout: none; user-
 body[data-profile="compact"] .tool-output { max-height: 180px; overflow: auto; }
 body[data-profile="compact"] .tool-output-pending { height: 180px; }
 
-/* No hover: what a pointer would uncover shows on a tap (a message) or always (stopping a tool). */
-body[data-profile="compact"] .message-shell[data-touch-actions] :is(.message-actions, .message-user-meta) { opacity: 1; pointer-events: auto; }
-/* A tapped message's actions take their room in the flow, each 44 px high. */
-body[data-profile="compact"] .message-shell[data-touch-actions] .message-actions { position: static; }
-body[data-profile="compact"] .message-actions button { min-height: var(--touch-target); padding: 0 12px; font-size: var(--text-sm); }
-body[data-profile="compact"] .message-shell.assistant .message-actions { margin-left: -12px; }
+/* Message actions open by long press as a sheet; a tap or sticky hover shows no toolbar. */
+body[data-profile="compact"] .message-actions { display: none; }
+body[data-profile="compact"] .message-shell { -webkit-touch-callout: none; }
+
 /* A message's time: meta, never under 12px on a touch device (ADR 0029). */
 body[data-profile="compact"] .message.user time { font-size: var(--text-xs); }
 @media (hover: none) {
   .tool-run.stoppable > .tool-run-stop { opacity: 1; }
 }
 
+
+/* A tablet's heading keeps only the branch directly under the title. */
+body[data-profile="compact"] .touch-split .thread-heading { gap: 0; }
+body[data-profile="compact"] .touch-split .thread-header .thread-title-trigger { position: relative; min-height: 28px; }
+body[data-profile="compact"] .touch-split .thread-header .thread-title-trigger::before { content: ""; position: absolute; inset: -8px 0; }

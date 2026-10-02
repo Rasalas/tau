@@ -132,6 +132,19 @@ describe("rail render cost with a thousand threads", () => {
     expect(stat.rows).toBe(1);
   });
 
+  it("draws another kit's state in place of the row's own, and redraws only that row", async () => {
+    const { workspace } = await renderRail();
+    const hand = <b data-testid="hand" />;
+    const marked = timed(() => workspace.setThreadRowStatuses("tau.takeover", { "thread-40": { label: "Your turn", hint: "Sign in to staging", icon: hand } }));
+    const status = (screen.getByText("Thread 40").closest("[data-rail-thread]") as HTMLElement).querySelector(".thread-status-age.status-waiting");
+    expect(status?.textContent).toBe("Your turn");
+    expect(status?.querySelector("[data-testid=hand]")).toBeTruthy();
+    expect(marked.rows).toBe(1);
+    const cleared = timed(() => workspace.setThreadRowStatuses("tau.takeover", {}));
+    expect(cleared.rows).toBe(1);
+    expect(screen.queryByText("Your turn")).toBeNull();
+  });
+
   it("mounts as fast with every thread's cost, and a rescan that carries the costs redraws no row", async () => {
     const projects = Array.from({ length: 12 }, (_, index) => ({ path: `/projects/p${index}`, name: `p${index}`, lastOpenedAt: index }));
     const rescan = (client: Awaited<ReturnType<typeof renderRail>>["client"], sessions: UiSession[]) => {

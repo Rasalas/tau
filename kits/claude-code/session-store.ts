@@ -665,7 +665,7 @@ export class ClaudeRuntimeSessionStore {
    * A session id Tau already holds is skipped, so importing twice adds nothing;
    * the answer is the new thread id, or `undefined` for a skipped one.
    */
-  async adopt(sessions: readonly { claudeSessionId: string; cwd: string; title: string; model?: string; messages: readonly ClaudeStoredMessage[]; updatedAt: number }[]): Promise<Array<string | undefined>> {
+  async adopt(sessions: readonly { claudeSessionId: string; cwd: string; title: string; model?: string; messages: readonly ClaudeStoredMessage[]; usage?: UiThreadUsage; usageTurns?: readonly UsageTurn[]; updatedAt: number }[]): Promise<Array<string | undefined>> {
     const held = await this.claudeSessionIds();
     const ids = sessions.map((session) => {
       if (held.has(session.claudeSessionId) || !UUID.test(session.claudeSessionId)) return undefined;
@@ -685,6 +685,8 @@ export class ClaudeRuntimeSessionStore {
         title: visibleStoredTitle(session.title).slice(0, MAX_TITLE_LENGTH),
         titleSource: "derived",
         ...(session.model ? { observedModel: session.model } : {}),
+        ...(session.usage ? { usage: { ...session.usage } } : {}),
+        ...(session.usageTurns?.length ? { usageTurns: session.usageTurns.map((turn) => ({ ...turn })) } : {}),
         updatedAt: session.updatedAt,
       });
       return tauThreadId;

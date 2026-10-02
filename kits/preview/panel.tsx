@@ -1,8 +1,8 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Monitor, RotateCw, Smartphone, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Hand, Monitor, RotateCw, Smartphone, X } from "lucide-react";
 import { errorMessage, reserveRegion, tooltipProps, type PanelProps } from "tau";
 import { overlayWatch } from "./overlay-watch.js";
-import { activeThread, previewView, screenService, type PreviewView } from "./screen-store.js";
+import { activeThread, previewHold, previewView, screenService, type PreviewView } from "./screen-store.js";
 import { isPreviewState, notePanelShown, previewKit, previewStore, readPreviewState, usePreviewState } from "./store.js";
 import { RecentPages, RecentSuggestions, useRecentPages } from "./recent.js";
 import { PortSuggestions } from "./suggestions.js";
@@ -37,6 +37,7 @@ export function PreviewPanel({ active, placement, actions }: PanelProps) {
   const chosen = previewView.use();
   const view: PreviewView = screen ? chosen : "browser";
   const threadId = activeThread.use() ?? actions?.activeThread?.()?.sessionId;
+  const held = Boolean(previewHold.use());
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
   const [addressFocused, setAddressFocused] = useState(false);
@@ -114,7 +115,7 @@ export function PreviewPanel({ active, placement, actions }: PanelProps) {
   const cwd = actions?.activeThread?.()?.cwd;
   const recent = useRecentPages(state.url);
 
-  return <section className="panel-body preview-panel" data-keybinding-context="preview">
+  return <section className={`panel-body preview-panel${held ? " held" : ""}`} data-keybinding-context="preview">
     <header className="panel-header">
       <h2>Preview</h2>
       {screen ? <div className="preview-views" role="tablist" aria-label="Preview shows">
@@ -147,6 +148,7 @@ export function PreviewPanel({ active, placement, actions }: PanelProps) {
             onBlur={() => { editing.current = false; setAddressFocused(false); }}
           />
         </form>
+        {held ? <span className="preview-held"><Hand size={11} aria-hidden="true" />you have control</span> : null}
       </div>
       {active && (addressFocused || !state.url) ? <PortSuggestions cwd={cwd} current={state.url} onOpen={openUrl} /> : null}
       {active && addressFocused ? <RecentSuggestions entries={recent.entries} typed={draft} current={state.url} onOpen={openUrl} onForget={recent.forget} /> : null}

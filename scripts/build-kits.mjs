@@ -11,7 +11,7 @@
 // `--kits <dir> --out <dir>` build another checkout of the distribution against
 // this core; the defaults are this repository's own two folders.
 import { build } from "esbuild";
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { basename, join, relative as relativeTo, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -120,6 +120,27 @@ async function buildKits() {
     if (windowEntry) {
       await writeLinkedBundle(`${manifest.id}/window.cjs`, await bundleHostExtension(windowEntry));
       shippedManifest.window = "./window.cjs";
+    }
+    if (manifest.id === "tau.snapshots") {
+      const helpers = join(OUTPUT, manifest.id, "wayland-helpers");
+      await mkdir(join(helpers, "gnome"), { recursive: true });
+      for (const name of ["extension.js", "capture-service.js", "metadata.json", "client.py"]) {
+        await write(`${manifest.id}/wayland-helpers/gnome/${name}`, await readFile(join(kit.directory, "native", "gnome", name), "utf8"));
+      }
+      await write(`${manifest.id}/wayland-helpers/LICENSE`, await readFile(join(kit.directory, "native", "LICENSE"), "utf8"));
+      if (process.platform === "linux" && process.env.TAU_BUILD_WAYLAND_HELPERS === "1") {
+        const { buildWaylandHelpers } = await import("./build-wayland-helpers.mjs");
+        await buildWaylandHelpers(join(kit.directory, "native"), helpers);
+      } else if (process.platform === "linux") {
+        for (const backend of ["kde", "hyprland"]) {
+          const name = `tau-${backend}-snapshot`;
+          const prebuilt = join(ROOT, ".tau-native", "bundled", name);
+          if (await stat(prebuilt).catch(() => undefined)) {
+            await copyFile(prebuilt, join(helpers, name));
+            await chmod(join(helpers, name), 0o755);
+          }
+        }
+      }
     }
     if (desktopEntry) {
       await writeLinkedBundle(`${manifest.id}/desktop.js`, await bundleDesktopExtension(desktopEntry, { sharedExports }));

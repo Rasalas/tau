@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  activeTab, addPanelTabBehind, closeTab, cycleTab, EMPTY_STAGE, extensionTabId, fileTabId, openExtensionTab, openFileTab, stageFilePath,
+  activateTab, activeTab, addPanelTabBehind, closeTab, cycleTab, EMPTY_STAGE, extensionTabId, fileTabId, openExtensionTab, openFileTab, stageFilePath,
   openThreadTab, otherTabIds, pinTab, setExtensionTabDirty, setExtensionTabTitle, setFileView, stageParamsKey,
-  openPanelTab, panelTabId, stagedPanelIds, tabIdsToTheRight, threadTabId, unpinTab,
+  openPanelTab, panelTabId, splitStage, splitTab, stagedPanelIds, tabIdsToTheRight, threadTabId, unpinTab,
 } from "./stage";
 
 const A = "/repo/src/a.ts";
@@ -254,6 +254,42 @@ describe("the tab strip's own commands", () => {
   });
 });
 
+describe("a split stage", () => {
+  const three = () => openFileTab(openFileTab(openFileTab(EMPTY_STAGE, A, { pin: true }), B, { pin: true }), C);
+
+  it("shows a tab beside the active one, pinned, and joins the panes again", () => {
+    const state = splitStage(three(), fileTabId(A));
+    expect(state).toMatchObject({ activeId: fileTabId(C), splitId: fileTabId(A) });
+    const split = splitStage(three(), fileTabId(C));
+    // The active tab moves beside; its left neighbour takes the front.
+    expect(split).toMatchObject({ activeId: fileTabId(B), splitId: fileTabId(C) });
+    expect(splitTab(split)).toMatchObject({ id: fileTabId(C), preview: false });
+    expect(splitTab(splitStage(split))).toBeUndefined();
+    // One tab has nothing to be beside.
+    expect(splitStage(openFileTab(EMPTY_STAGE, A), fileTabId(A)).splitId).toBeUndefined();
+  });
+
+  it("keeps the split tab where it is while the other pane activates, cycles and reopens", () => {
+    let state = splitStage(three(), fileTabId(A));
+    state = activateTab(state, fileTabId(A));
+    expect(state.activeId).toBe(fileTabId(C));
+    state = cycleTab(state, 1);
+    expect(state).toMatchObject({ activeId: fileTabId(B), splitId: fileTabId(A) });
+    state = openFileTab(state, A);
+    expect(state).toMatchObject({ activeId: fileTabId(B), splitId: fileTabId(A) });
+  });
+
+  it("is one pane again when the split tab closes, or when it would take the front", () => {
+    const split = splitStage(three(), fileTabId(A));
+    expect(splitTab(closeTab(split, fileTabId(A)))).toBeUndefined();
+    expect(closeTab(split, fileTabId(B))).toMatchObject({ activeId: fileTabId(C), splitId: fileTabId(A) });
+    const beside = splitStage(three(), fileTabId(C));
+    const closed = closeTab(beside, fileTabId(B));
+    expect(closed.activeId).toBe(fileTabId(C));
+    expect(splitTab(closed)).toBeUndefined();
+  });
+});
+
 describe("stageFilePath", () => {
   it("names a file inside the project relative to it, so a link and the tree open one tab", () => {
     expect(stageFilePath("/repo/src/a.ts", "/repo")).toBe("src/a.ts");
@@ -267,5 +303,25 @@ describe("stageFilePath", () => {
     expect(stageFilePath("/other/a.ts", "/repo")).toBe("/other/a.ts");
     expect(stageFilePath("/repository/a.ts", "/repo")).toBe("/repository/a.ts");
     expect(stageFilePath("/repo/a.ts", undefined)).toBe("/repo/a.ts");
+  });
+});
+
+describe("trace tabs", () => {
+  it("adds the agent's file behind the tab in front, one at a time, and never to an empty stage", () => {
+    expect(openFileTab(EMPTY_STAGE, "/repo/a.ts", { trace: true })).toBe(EMPTY_STAGE);
+    const open = openFileTab(EMPTY_STAGE, "/repo/a.ts", { pin: true });
+    const traced = openFileTab(open, "/repo/b.ts", { trace: true });
+    expect(traced.activeId).toBe(open.activeId);
+    expect(traced.tabs.map((tab) => tab.kind === "file" && [tab.path, tab.trace ?? false])).toEqual([["/repo/a.ts", false], ["/repo/b.ts", true]]);
+    // The next one takes its place; a file already open stays as it is.
+    const next = openFileTab(traced, "/repo/c.ts", { trace: true });
+    expect(next.tabs.map((tab) => tab.kind === "file" && tab.path)).toEqual(["/repo/a.ts", "/repo/c.ts"]);
+    expect(openFileTab(next, "/repo/a.ts", { trace: true })).toBe(next);
+  });
+
+  it("stops being a trace once pinned", () => {
+    const traced = openFileTab(openFileTab(EMPTY_STAGE, "/repo/a.ts", { pin: true }), "/repo/b.ts", { trace: true });
+    const pinned = pinTab(traced, traced.tabs[1]!.id);
+    expect(pinned.tabs[1]).toMatchObject({ preview: false, trace: false });
   });
 });

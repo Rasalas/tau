@@ -40,7 +40,10 @@ export { knownSkillNames, parseSkillEnvelope, type ParsedSkillEnvelope } from ".
 export type { ExtensionIsolation, ExtensionPermission } from "../shared/extension-permissions.js";
 export type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 export { isWorkspaceRelativePath, type WorkspaceRef } from "../shared/workspace-identity.js";
-export type { HostActionResult } from "../shared/host-protocol.js";
+export type { HostActionResult, TranscriptPage } from "../shared/host-protocol.js";
+// A machine backend follows pushes and pages its home host. New in API 1.42.0.
+export type { HostPushEvent } from "../shared/host-transport.js";
+export type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 
 /**
  * The workspace vocabulary: changed files, diffs, worktrees and editors. Core
@@ -57,6 +60,8 @@ export { gitExecutable, findExecutable, type FindExecutableOptions } from "./she
 /** Starting a command the way the platform needs: `.cmd` shims through `cmd.exe`, process trees ended whole. */
 export { commandInvocation, killProcessTree, type CommandInvocation, type CommandInvocationOptions } from "./platform-process.js";
 export { assertAllowedCloneSource } from "./clone-source.js";
+// `~/.tau`, or Tau Dev's `~/.tau-dev`: where a kit reads the user's own settings (API 1.34.0).
+export { tauHomeDir } from "./app-identity.js";
 
 /** For a backend that drives a CLI: the newest npm release, the package manager's update command, version order. */
 export { homebrewLatestVersion, npmLatestVersion, packageInstallCommand, packageUpdateCommand, type HomebrewKind, type NpmLatestVersionOptions } from "./cli-versions.js";

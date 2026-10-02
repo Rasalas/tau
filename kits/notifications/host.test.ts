@@ -3,18 +3,19 @@ import type {
   ExtensionUiPrompt,
   HostClientObserver,
   HostExtensionServices,
+  HostExtensionSettings,
   HostThread,
   HostThreadLifecycle,
   HostTurnObserver,
 } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { createNotificationsHostExtension } from "./host.js";
-import { ATTENTION_EVENT, NOTIFICATIONS_EXTENSION_ID, NOTIFY_EVENT, PRESENCE_REQUEST_EVENT, type PresenceReply } from "./protocol.js";
+import { ATTENTION_EVENT, NOTIFICATIONS_EXTENSION_ID, NOTIFY_EVENT, PRESENCE_REQUEST_EVENT, silenced, type PresenceReply } from "./protocol.js";
 
 const registries: Array<{ dispose(): Promise<void> }> = [];
 afterEach(async () => { await Promise.all(registries.splice(0).map((registry) => registry.dispose())); });
 
-async function harness() {
+async function harness(settings?: HostExtensionSettings) {
   const events: PublishedKitEvent[] = [];
   const observers: HostTurnObserver[] = [];
   const lifecycles: HostThreadLifecycle[] = [];
@@ -30,6 +31,7 @@ async function harness() {
     registerThreadLifecycle: (lifecycle) => { lifecycles.push(lifecycle); return () => undefined; },
     decorateUiPrompt: (decorator) => { decorators.push(decorator); return () => undefined; },
     clients: { count: () => clientObservers.length, observe: (observer) => { clientObservers.push(observer); return () => undefined; } },
+    ...(settings ? { settings: async () => settings } : {}),
   };
   let now = 1_000;
   const registry = await activateHostKit(createNotificationsHostExtension({ now: () => now, debounceMs: 5_000 }), services, (event) => events.push(event));
@@ -132,11 +134,34 @@ describe("the notifications host half", () => {
   it("tells Push whether someone is at a focused client that was used lately", async () => {
     const { presence, registry } = await harness();
     const attended = () => registry.invoke(NOTIFICATIONS_EXTENSION_ID, "attended");
-    await expect(attended()).resolves.toEqual({ attended: false });
+    await expect(attended()).resolves.toEqual({ attended: false, muted: false });
     await presence({ clientKey: "window", focused: true, threadId: "t2" });
-    await expect(attended()).resolves.toEqual({ attended: true });
+    await expect(attended()).resolves.toEqual({ attended: true, muted: false });
     await presence({ clientKey: "window", focused: true, threadId: "t2", idle: true });
-    await expect(attended()).resolves.toEqual({ attended: false });
+    await expect(attended()).resolves.toEqual({ attended: false, muted: false });
+  });
+
+  it("keeps news the user silenced from every client and from Push, and still counts it", async () => {
+    const { observers, presence, named, registry, tick } = await harness({ options: { "event-completed": false }, values: {} });
+    await presence({ clientKey: "window", focused: false });
+    await observers[0]!.ended!("t1", "turn-1", "completed");
+    tick(10_000);
+    await observers[0]!.ended!("t1", "turn-2", "failed");
+    await expect.poll(() => named(NOTIFY_EVENT).length).toBe(1);
+    expect(named(NOTIFY_EVENT)[0]).toMatchObject({ items: [{ reason: "failed" }] });
+    expect(named(ATTENTION_EVENT).at(-1)).toMatchObject({ items: [{ threadId: "t1" }] });
+    await expect(registry.invoke(NOTIFICATIONS_EXTENSION_ID, "attended", { kind: "completed" })).resolves.toEqual({ attended: false, muted: true });
+    await expect(registry.invoke(NOTIFICATIONS_EXTENSION_ID, "attended", { kind: "question" })).resolves.toEqual({ attended: false, muted: false });
+  });
+
+  it("is quiet between the hours the user chose, across midnight too", () => {
+    const at = (hours: number, minutes = 0) => new Date(2026, 9, 1, hours, minutes);
+    const night = { options: { quiet: true }, values: {} };
+    expect(silenced("question", night, at(23, 30))).toBe(true);
+    expect(silenced("question", night, at(6, 59))).toBe(true);
+    expect(silenced("question", night, at(7, 0))).toBe(false);
+    expect(silenced("question", { options: { quiet: true }, values: { "quiet-from": "12:00", "quiet-to": "13:00" } }, at(12, 30))).toBe(true);
+    expect(silenced("question", { options: { quiet: false }, values: {} }, at(23, 30))).toBe(false);
   });
 
   it("refuses a presence report it cannot read", async () => {

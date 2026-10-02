@@ -78,7 +78,7 @@ export async function pairStudio(ctx, studio) {
   await ctx.click(`[...document.querySelectorAll("button[aria-label]")].find((button) => button.getAttribute("aria-label") === "Settings")`);
   await ctx.click(byText("Remote"));
   await ctx.click(byText("Machines"));
-  await ctx.click(`document.querySelector('input[placeholder*="#pair="]')`);
+  await ctx.click(`document.querySelector('input[aria-label="Pairing link or address"]')`);
   await ctx.insertText(studio.link);
   await ctx.click(byText("Add machine"));
   let request;

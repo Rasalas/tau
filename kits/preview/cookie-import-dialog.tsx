@@ -174,7 +174,7 @@ function CookieImportDialog({ request, client, onClose }: {
   </header>;
 
   if (phase.step === "importing") {
-    return <Dialog className="cookie-import-dialog" label="Importing cookies" onClose={close}>
+    return <Dialog className="confirm-dialog cookie-import-dialog" label="Importing cookies" onClose={close}>
       {header("Importing cookies", source?.keychain ? `Answer the keychain prompt for "${source.keychain}" if macOS shows one.` : "This takes a moment.")}
       <div className="cookie-import-wait"><Spinner size="sm" /> Importing {selected.size === 1 ? [...selected][0] : `${selected.size} sites`}…</div>
     </Dialog>;
@@ -182,7 +182,7 @@ function CookieImportDialog({ request, client, onClose }: {
 
   if (phase.step === "done") {
     const { imported, skipped, skippedSites, profile, reloaded } = phase.result;
-    return <Dialog className="cookie-import-dialog" label="Cookies imported" onClose={close}>
+    return <Dialog className="confirm-dialog cookie-import-dialog" label="Cookies imported" onClose={close}>
       {header(
         imported > 0 ? `Imported ${cookies(imported)}` : skipped > 0 ? `Skipped ${cookies(skipped)}` : "No cookies to import",
         imported > 0
@@ -195,7 +195,7 @@ function CookieImportDialog({ request, client, onClose }: {
   }
 
   if (phase.step === "failed") {
-    return <Dialog className="cookie-import-dialog" label="Import failed" onClose={close}>
+    return <Dialog className="confirm-dialog cookie-import-dialog" label="Import failed" onClose={close}>
       {header(`Couldn’t import from ${source?.name ?? "the browser"}`, phase.text)}
       <footer>
         {phase.reason === "full-disk-access" ? <button onClick={() => void client["import-open-access"]().catch(() => undefined)}>Open System Settings</button> : null}
@@ -205,7 +205,7 @@ function CookieImportDialog({ request, client, onClose }: {
     </Dialog>;
   }
 
-  return <Dialog className="cookie-import-dialog" label="Import cookies from a browser" onClose={close}>
+  return <Dialog className="confirm-dialog cookie-import-dialog" label="Import cookies from a browser" onClose={close}>
     {header("Import cookies from a browser", "Bring sign-ins from your own browser into a Preview profile. It is a one-time copy on this machine: later sign-ins and sign-outs stay separate.")}
     <div className="cookie-import-route">
       <label>

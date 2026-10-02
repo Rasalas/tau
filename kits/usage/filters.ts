@@ -28,7 +28,7 @@ const EMPTY_FACTS: UsageFacts = { runtimes: [], machines: [], anyOutside: false 
  * the window's run, so the page opens again as it was left.
  */
 export function createUsageView() {
-  let filters: UsageFilters = { range: "30d", metric: "cost" };
+  let filters: UsageFilters = { range: "month", metric: "cost" };
   let facts = EMPTY_FACTS;
   const listeners = new Set<() => void>();
   const changed = () => { for (const listener of [...listeners]) listener(); };

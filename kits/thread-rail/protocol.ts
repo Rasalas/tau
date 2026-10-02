@@ -1,6 +1,6 @@
 // Type-only imports: both halves and other kits read this file.
 import type { ComponentType, ReactNode } from "react";
-import type { MenuSection, UiSession, WorkbenchActions } from "tau";
+import type { MenuSection, ThreadMenuLookup, UiSession, WorkbenchActions } from "tau";
 
 export const THREAD_RAIL_EXTENSION_ID = "tau.thread-rail";
 /** Pushed with the whole state whenever a thread's meta or the settings change. */
@@ -14,6 +14,8 @@ export interface ThreadTitlesSlice {
 }
 /** Review Kit's host entry; its `pr-status` names Thread Rail as a caller. */
 export const REVIEW_EXTENSION_ID = "tau.review";
+/** Onboarding Kit, which hands over the threads it imported (`settle-imported`). */
+export const ONBOARDING_EXTENSION_ID = "tau.onboarding";
 /**
  * Threads started together from one prompt, for the kits that show them
  * (Agents Kit's panel): `siblingsOf(threadId)` answers the whole group,
@@ -26,7 +28,7 @@ export interface ThreadSiblingsService {
   subscribe(listener: () => void): () => void;
 }
 
-export type SettledBy = "user" | "inactive" | "pr-merged" | "pr-closed";
+export type SettledBy = "user" | "inactive" | "pr-merged" | "pr-closed" | "import";
 
 /** What the kit keeps about one thread; the thread itself is core's. */
 export interface ThreadMeta {
@@ -130,7 +132,8 @@ export interface RailOrganizer {
   subscribe(listener: () => void): () => void;
   getVersion(): number;
   sections(threads: readonly UiSession[]): Array<{ id: string; label?: string; threads: readonly UiSession[]; shelf?: boolean; collapsed?: boolean; settled?: boolean }>;
-  menu(session: UiSession): MenuSection[];
+  /** `shortcut` names a command's chord, for an item that runs one. */
+  menu(session: UiSession, lookup?: ThreadMenuLookup): MenuSection[];
   runMenu(session: UiSession, itemId: string, actions: WorkbenchActions): void;
   toggleSettled(session: UiSession): void;
   rowActions?(session: UiSession): Array<{ id: string; label: string; icon: ReactNode; menu(): MenuSection[] }>;
@@ -150,10 +153,12 @@ export interface WorkspaceStoreSlice {
   subscribe(listener: () => void): () => void;
   registerThreadRailOrganizer(organizer: RailOrganizer): () => void;
   registerThreadRowAccessory(accessory: ComponentType<{ session: UiSession }>): () => void;
+  removeWorktree?(path: string, branch?: string): Promise<boolean>;
   prepareThreadWorktree(request: {
     prompt: string;
     preparing(message: string): void;
     force?: boolean;
+    baseCommit?: string;
     branchSuffix?: string;
-  }): Promise<{ workspace?: { workspaceId: string; displayPath: string } }>;
+  }): Promise<{ workspace?: { workspaceId: string; displayPath: string }; baseCommit?: string }>;
 }

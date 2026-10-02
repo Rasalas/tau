@@ -4,7 +4,7 @@ import { Check, Copy, WrapText } from "lucide-react";
 import { tooltipProps } from "./ui/Tooltip";
 import { FileKindIcon } from "./FileKindIcon";
 import { StreamingMarkdownBlocks } from "./markdown-blocks";
-import { parseMarkdown, renderMarkdown, type MarkdownComponents } from "./markdown-pipeline";
+import { parseMarkdown, renderMarkdown, type MarkdownComponents, type MarkdownHtml } from "./markdown-pipeline";
 import { WorkbenchContext } from "../workbench-context";
 type LanguageDefinition = LanguageFn;
 
@@ -350,8 +350,8 @@ const INLINE_COMPONENTS: MarkdownComponents = {
   },
 };
 
-const MarkdownTree = memo(function MarkdownTree({ children, components = COMPONENTS }: { children: string; components?: MarkdownComponents }) {
-  return renderMarkdown(children, components);
+const MarkdownTree = memo(function MarkdownTree({ children, components = COMPONENTS, html }: { children: string; components?: MarkdownComponents; html?: MarkdownHtml | undefined }) {
+  return renderMarkdown(children, components, html);
 });
 
 const StreamingChunk = memo(function StreamingChunk({ children }: { children: string }) {
@@ -422,15 +422,18 @@ export function isInlineMarkdown(text: string): boolean {
   }
 }
 
-/** A message that streamed parses each completed block once and keeps those blocks after the stream ends. */
-export const Markdown = memo(function Markdown({ children, streaming = false, inlineStart = false }: { children: string; streaming?: boolean; inlineStart?: boolean }) {
+/**
+ * A message that streamed parses each completed block once and keeps those blocks after the stream ends.
+ * `html` receives the raw HTML of finished text as `raw` nodes and decides what of it renders; without it HTML stays text.
+ */
+export const Markdown = memo(function Markdown({ children, streaming = false, inlineStart = false, html }: { children: string; streaming?: boolean; inlineStart?: boolean; html?: MarkdownHtml }) {
   const [streamed, setStreamed] = useState(streaming);
   if (streaming && !streamed) setStreamed(true);
   if (inlineStart && !streaming && isInlineMarkdown(children)) {
     return <span className="markdown markdown-inline"><MarkdownTree components={INLINE_COMPONENTS}>{children}</MarkdownTree></span>;
   }
   if (!streaming && !streamed) {
-    return <div className="markdown"><MarkdownTree>{children}</MarkdownTree></div>;
+    return <div className="markdown"><MarkdownTree html={html}>{children}</MarkdownTree></div>;
   }
   return <StreamedMarkdown text={children} live={streaming} />;
 });

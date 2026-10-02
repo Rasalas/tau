@@ -1,13 +1,15 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { Bell, CircleAlert, CircleCheck, MessageCircleQuestionMark, Play, ShieldQuestionMark, X, type LucideIcon } from "lucide-react";
-import { Button, SegmentedControl, SettingRow, SettingsSection, Switch, useSetting } from "tau";
+import { Bell, Play } from "lucide-react";
+import { Button, SegmentedControl, SettingRow, SettingsSection, Switch, useSetting, useThreadStore } from "tau";
 import type {
   DesktopExtension,
   DesktopExtensionContext,
   PreferencesStore,
   RegionProps,
   SettingsPageProps,
-  UiSession,
+  ThreadStore,
+  ToastHandle,
+  ToastType,
   WorkbenchActions,
 } from "tau";
 import {
@@ -16,6 +18,7 @@ import {
   SOUNDS,
   badgeCount,
   describe,
+  headline,
   presentation,
   readMode,
   readSound,
@@ -27,6 +30,8 @@ import {
   NOTIFICATIONS_EXTENSION_ID as ID,
   NOTIFY_EVENT,
   PRESENCE_REQUEST_EVENT,
+  QUIET,
+  eventOption,
   decodeAttentionItems,
   decodeDelivery,
   type AttentionItem,
@@ -46,44 +51,6 @@ export function readSettings(preferences: PreferencesStore): NotificationSetting
   };
 }
 
-interface Toast { id: number; item: AttentionItem; title: string; body: string }
-
-/** The in-window toasts, newest first, each gone after a few seconds. */
-class Toasts {
-  private items: Toast[] = [];
-  private readonly listeners = new Set<() => void>();
-  private readonly timers = new Map<number, ReturnType<typeof setTimeout>>();
-  private next = 0;
-
-  subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
-  get = () => this.items;
-
-  show(toast: Omit<Toast, "id">): void {
-    const id = this.next += 1;
-    const replaced = this.items.filter((entry) => entry.item.threadId === toast.item.threadId);
-    for (const entry of replaced) clearTimeout(this.timers.get(entry.id));
-    this.items = [{ ...toast, id }, ...this.items.filter((entry) => !replaced.includes(entry))].slice(0, 3);
-    this.timers.set(id, setTimeout(() => this.dismiss(id), TOAST_MS));
-    this.changed();
-  }
-
-  dismiss(id: number): void {
-    clearTimeout(this.timers.get(id));
-    this.timers.delete(id);
-    this.items = this.items.filter((entry) => entry.id !== id);
-    this.changed();
-  }
-
-  clear(): void {
-    for (const timer of this.timers.values()) clearTimeout(timer);
-    this.timers.clear();
-    this.items = [];
-    this.changed();
-  }
-
-  private changed(): void { for (const listener of this.listeners) listener(); }
-}
-
 /**
  * The client's half: says which thread this window shows and whether it has
  * focus, keeps the app icon's badge at the count of unseen threads, and shows
@@ -91,8 +58,8 @@ class Toasts {
  */
 function coordinate(context: DesktopExtensionContext) {
   const clientKey = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  const toasts = new Toasts();
-  const threads = new Map<string, UiSession>();
+  const toasts = new Map<string, ToastHandle>();
+  let threads: ThreadStore | undefined;
   let items: AttentionItem[] = [];
   let actions: WorkbenchActions | undefined;
   let eventThread: string | undefined;
@@ -109,7 +76,9 @@ function coordinate(context: DesktopExtensionContext) {
     if (active) return active.draftPending ? undefined : active.sessionId;
     return eventThread;
   };
-  const titleOf = (item: AttentionItem) => threads.get(item.threadId)?.title || item.title || "A thread";
+  // The live index: a thread made after this window connected is in it, with the title the rail shows.
+  const threadOf = (item: AttentionItem) => threads?.getSnapshot().threads.find((thread) => thread.id === item.threadId);
+  const titleOf = (item: AttentionItem) => threadOf(item)?.title || item.title || "A thread";
 
   const applyBadge = () => {
     const next = badgeCount(settings(), items);
@@ -120,8 +89,23 @@ function coordinate(context: DesktopExtensionContext) {
   const setItems = (next: AttentionItem[]) => { items = next; applyBadge(); };
 
   const open = (item: AttentionItem) => {
-    const path = threads.get(item.threadId)?.path ?? item.path;
+    const path = threadOf(item)?.path ?? item.path;
     if (path && actions) void actions.switchSession(path);
+  };
+
+  /** One toast per thread on core's stack; news of the same thread replaces it. */
+  const toast = (item: AttentionItem) => {
+    const id = `${ID}:${item.threadId}`;
+    const handle = actions?.toast?.({
+      id,
+      type: TOAST_TYPES[item.reason],
+      title: titleOf(item),
+      description: headline(item.reason),
+      timeoutMs: TOAST_MS,
+      actions: [{ label: "Open", run: () => open(item) }],
+      onClose: () => { if (toasts.get(id) === handle) toasts.delete(id); },
+    });
+    if (handle) toasts.set(id, handle);
   };
 
   const present = (delivered: AttentionItem[], seen = false) => {
@@ -130,7 +114,7 @@ function coordinate(context: DesktopExtensionContext) {
     const current = settings();
     const plan = presentation(current, seen ? "on-screen" : focused() ? "other-thread" : "background");
     if (plan.sound) playSound(current.sound);
-    if (plan.toast) for (const item of delivered.slice(0, 3).reverse()) toasts.show({ item, ...describe([item], titleOf) });
+    if (plan.toast) for (const item of delivered.slice(0, 3).reverse()) toast(item);
     const attention = context.attention;
     if (!plan.system || !attention) return;
     const tag = delivered.length === 1 ? `tau.thread:${first.threadId}` : "tau.threads";
@@ -159,10 +143,6 @@ function coordinate(context: DesktopExtensionContext) {
   // A client came or went, or this one reconnected to a host that may have restarted.
   context.events.on("client-count", () => report(true));
   context.events.on("active-thread-changed", (event) => { eventThread = event.sessionId; report(); });
-  context.events.on("thread-index", (event) => {
-    threads.clear();
-    for (const session of event.threadIndex.sessions) threads.set(session.id, session);
-  });
 
   const changed = () => report();
   // A touch, a key or a click; a focused window nobody used for a while stops counting as attended.
@@ -188,10 +168,9 @@ function coordinate(context: DesktopExtensionContext) {
   report(true);
 
   return {
-    toasts,
-    open,
-    bind(next: WorkbenchActions) {
+    bind(next: WorkbenchActions, store: ThreadStore) {
       actions = next;
+      threads = store;
       report();
     },
     dispose() {
@@ -202,7 +181,7 @@ function coordinate(context: DesktopExtensionContext) {
       document.removeEventListener("pointerdown", gesture, true);
       document.removeEventListener("keydown", gesture, true);
       stopPreferences();
-      toasts.clear();
+      for (const handle of [...toasts.values()]) handle.dismiss();
       if (badge) context.attention?.setBadge(0);
       void context.host.invoke("leave", { clientKey }).catch(() => undefined);
     },
@@ -211,36 +190,15 @@ function coordinate(context: DesktopExtensionContext) {
 
 type Coordinator = ReturnType<typeof coordinate>;
 
-/** The rail's status marks: done, failed, waiting for an answer, waiting for a permission. */
-const REASON_ICONS: Record<AttentionReason, LucideIcon> = {
-  completed: CircleCheck,
-  failed: CircleAlert,
-  question: MessageCircleQuestionMark,
-  approval: ShieldQuestionMark,
-};
+/** A toast's icon is the rail's status mark: done, failed, or waiting for the user. */
+const TOAST_TYPES: Record<AttentionReason, ToastType> = { completed: "success", failed: "error", question: "question", approval: "question" };
 
-function ReasonIcon({ reason }: { reason: AttentionReason }) {
-  const Icon = REASON_ICONS[reason];
-  return <Icon size={13} aria-hidden="true" />;
-}
-
-function createToastRegion(coordinator: Coordinator) {
-  return function NotificationToasts({ actions }: RegionProps) {
-    useEffect(() => coordinator.bind(actions), [actions]);
-    const toasts = useSyncExternalStore(coordinator.toasts.subscribe, coordinator.toasts.get);
-    if (toasts.length === 0) return null;
-    return (
-      <div className="notifications-toasts" role="status">
-        {toasts.map((toast) => (
-          <div className="notifications-toast" key={toast.id} data-reason={toast.item.reason}>
-            <ReasonIcon reason={toast.item.reason} />
-            <span className="notifications-toast-text"><strong>{toast.title}</strong><small>{toast.body}</small></span>
-            <button type="button" className="text-button" onClick={() => { coordinator.open(toast.item); coordinator.toasts.dismiss(toast.id); }}>Open</button>
-            <button type="button" className="icon-button" aria-label="Dismiss" onClick={() => coordinator.toasts.dismiss(toast.id)}><X size={12} /></button>
-          </div>
-        ))}
-      </div>
-    );
+/** Draws nothing: core's toast stack shows the toasts, and a region is where a kit receives the actions. */
+function createActionsRegion(coordinator: Coordinator) {
+  return function NotificationActions({ actions }: RegionProps) {
+    const threads = useThreadStore();
+    useEffect(() => coordinator.bind(actions, threads), [actions, threads]);
+    return null;
   };
 }
 
@@ -296,6 +254,7 @@ function createSettingsPage(context: DesktopExtensionContext) {
             </>}
           />
         </SettingsSection>
+        <NotifyWhen preferences={preferences} />
         <SettingsSection title="While Tau is in front">
           <SettingRow
             id="setting-notifications-toasts"
@@ -317,6 +276,60 @@ function createSettingsPage(context: DesktopExtensionContext) {
   };
 }
 
+/** The news a switch each silences (design 2n); the words sum them up on a phone's Settings list. */
+const EVENTS: ReadonlyArray<[AttentionReason, string, string]> = [
+  ["question", "A thread asks a question", "Questions"],
+  ["completed", "A thread is done", "done"],
+  ["approval", "A permission is needed", "permissions"],
+  ["failed", "A thread failed", "failures"],
+];
+
+function eventsSummary(preferences: PreferencesStore): string {
+  const on = EVENTS.filter(([kind]) => preferences.optionValue(ID, eventOption(kind), true)).map(([, , word]) => word);
+  return on.length === EVENTS.length ? "All" : on.join(", ") || "Off";
+}
+
+function useKitSetting<T>(preferences: PreferencesStore, kind: "options" | "values", id: string, fallback: T) {
+  return useSetting<T>(`${kind}.${ID}.${id}`, {
+    defaultValue: fallback,
+    read: (raw) => (typeof raw === typeof fallback ? raw as T : undefined),
+    offline: (value) => (kind === "options" ? preferences.setOption(ID, id, value as boolean) : preferences.setValue(ID, id, value as string)),
+  });
+}
+
+/** A switch per kind of news, on any client and as a push (design 2n, 2i); on the page and General's card. */
+function NotifyRows({ preferences }: { preferences: PreferencesStore }) {
+  // In EVENTS' order.
+  const settings = [
+    useKitSetting(preferences, "options", eventOption("question"), true),
+    useKitSetting(preferences, "options", eventOption("completed"), true),
+    useKitSetting(preferences, "options", eventOption("approval"), true),
+    useKitSetting(preferences, "options", eventOption("failed"), true),
+  ];
+  return <>
+    {EVENTS.map(([kind, title], index) => <SettingRow key={kind} id={`setting-notifications-${kind}`} title={title}
+      description={kind === "completed" ? "also on the phone" : undefined} setting={settings[index]}
+      control={<Switch label={title} checked={settings[index]!.value} onChange={settings[index]!.set} />} />)}
+  </>;
+}
+
+/** Which news reaches you at all, and when none does. */
+function NotifyWhen({ preferences }: { preferences: PreferencesStore }) {
+  const quiet = useKitSetting(preferences, "options", QUIET.on, false);
+  const from = useKitSetting<string>(preferences, "values", QUIET.from, QUIET.start);
+  const to = useKitSetting<string>(preferences, "values", QUIET.to, QUIET.end);
+  const time = (setting: typeof from, label: string) => <input type="time" aria-label={label} value={setting.value} onChange={(event) => { if (event.target.value) setting.set(event.target.value); }} />;
+  return <>
+    <SettingsSection title="Notify me when"><NotifyRows preferences={preferences} /></SettingsSection>
+    <SettingsSection title="Quiet hours">
+      <SettingRow id="setting-notifications-quiet" title="Quiet hours" description={`${from.value} – ${to.value}, on the host's clock`} setting={quiet}
+        control={<Switch label="Quiet hours" checked={quiet.value} onChange={quiet.set} />}>
+        {quiet.value ? <div className="notifications-quiet">{time(from, "Quiet from")}–{time(to, "Quiet until")}</div> : null}
+      </SettingRow>
+    </SettingsSection>
+  </>;
+}
+
 /** What the Settings search finds on the page; each id is a row's anchor. */
 export const NOTIFICATION_ROWS = [
   { id: "setting-notifications-mode", label: "Tell me with", keywords: ["notification", "sound", "alert", "off", "system notification"] },
@@ -330,12 +343,20 @@ const notifications: DesktopExtension = {
   name: "Notifications",
   activate(context) {
     const coordinator = coordinate(context);
-    context.registerRegion({ id: "notifications.toasts", placement: "composer-above", profiles: ["desktop", "web", "compact"], Component: createToastRegion(coordinator) });
-    context.registerSettingsPage({ id: "notifications.settings", label: "Notifications",
+    context.registerRegion({ id: "notifications.toasts", placement: "composer-above", profiles: ["desktop", "web", "compact"], Component: createActionsRegion(coordinator) });
+    const page = { id: "notifications.settings", label: "Notifications", Icon: Bell, group: "general", order: 45, rows: NOTIFICATION_ROWS } as const;
+    context.registerSettingsPage({ ...page,
       description: "How Tau tells you that a thread finished, failed or asks you something while you look elsewhere. The window you used last hears of it.",
-      Icon: Bell, group: "general", order: 45, profiles: ["desktop", "web", "compact"],
-      rows: NOTIFICATION_ROWS,
+      profiles: ["desktop", "web"],
       Component: createSettingsPage(context),
+    });
+    context.registerSettingsSection({ id: "notifications.events", page: "general", card: "notify", profiles: ["desktop"], Component: () => <NotifyRows preferences={context.preferences} /> });
+    // A phone hears through pushes: which news, and when not; the window's sound and toasts are not its own (design 2n).
+    const preferences = context.preferences;
+    context.registerSettingsPage({ ...page,
+      profiles: ["compact"],
+      useSummary: () => useSyncExternalStore(preferences.subscribe, () => eventsSummary(preferences)),
+      Component: () => <div className="settings-page notifications-settings"><NotifyWhen preferences={preferences} /></div>,
     });
     return () => coordinator.dispose();
   },

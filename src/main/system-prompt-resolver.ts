@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { tauHomeDir } from "./app-identity.js";
 
 export interface DiscoveredPromptFile {
   path: string;
@@ -38,8 +39,8 @@ export function discoverPromptOverrides(
     join(cwd, ".tau", "SYSTEM.md"),
     join(cwd, ".pi", "system-prompt.md"),
     join(cwd, ".pi", "SYSTEM.md"),
-    join(home, ".tau", "system-prompt.md"),
-    join(home, ".tau", "SYSTEM.md"),
+    join(tauHomeDir(home), "system-prompt.md"),
+    join(tauHomeDir(home), "SYSTEM.md"),
     ...(agentDir ? [join(agentDir, "SYSTEM.md")] : []),
   ];
 
@@ -57,8 +58,8 @@ export function discoverPromptOverrides(
     join(cwd, ".tau", "APPEND_SYSTEM.md"),
     join(cwd, ".pi", "append-system-prompt.md"),
     join(cwd, ".pi", "APPEND_SYSTEM.md"),
-    join(home, ".tau", "append-system-prompt.md"),
-    join(home, ".tau", "APPEND_SYSTEM.md"),
+    join(tauHomeDir(home), "append-system-prompt.md"),
+    join(tauHomeDir(home), "APPEND_SYSTEM.md"),
     ...(agentDir ? [join(agentDir, "APPEND_SYSTEM.md")] : []),
   ];
 

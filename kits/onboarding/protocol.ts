@@ -1,7 +1,12 @@
-// Shared by both halves; no imports, so either side may read it.
+// Shared by both halves; type-only imports keep either side safe to read it.
+import type { ReactElement } from "react";
 
 export const ONBOARDING_EXTENSION_ID = "tau.onboarding";
 export const WELCOME_OVERLAY = "onboarding.welcome";
+/** Imports earlier conversations through the window's connection to the named machine. */
+export const MACHINE_IMPORT_SERVICE = "tau.onboarding/machine-import";
+export interface MachineImportProps { machine: string; name: string }
+export interface MachineImportService { Component: (props: MachineImportProps) => ReactElement }
 /** Pushed while `import-sessions` runs: `{ source, done, total }`. */
 export const IMPORT_PROGRESS_EVENT = "import-progress";
 

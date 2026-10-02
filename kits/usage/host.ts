@@ -1,5 +1,5 @@
 import { isAbsolute, join } from "node:path";
-import type { WorkerHostExtension, WorkerHostExtensionContext } from "tau/host";
+import { HostCommandError, type WorkerHostExtension, type WorkerHostExtensionContext } from "tau/host";
 import { applyPrices, priceEntries, summarize, type BackendScan, type OutsideLogs, type RowPrice, type UsageScan } from "./aggregate.js";
 import { OutsideUsageCache, type OutsideRoot } from "./outside-cache.js";
 import { PiUsageCache } from "./pi-sessions.js";
@@ -26,6 +26,7 @@ import {
   type UsageLimitAccount,
   type UsageLimitSourceReport,
   type UsageLimitWindow,
+  USAGE_REDEEM_RESET_COMMAND, BACKEND_REDEEM_RESET_COMMAND,
   type UsageLimitsSummary,
   type UsageSummary,
 } from "./protocol.js";
@@ -108,6 +109,12 @@ export function readLimitsAnswer(value: unknown): UsageLimitAccount[] | undefine
       ...(typeof raw.plan === "string" && raw.plan ? { plan: raw.plan } : {}),
       checkedAt,
       ...(typeof raw.managementUrl === "string" && /^https:\/\//u.test(raw.managementUrl) ? { managementUrl: raw.managementUrl } : {}),
+      ...(raw.resetCredits && typeof raw.resetCredits === "object" && Number.isSafeInteger((raw.resetCredits as { availableCount?: unknown }).availableCount) && Number((raw.resetCredits as { availableCount?: unknown }).availableCount) >= 0 ? { resetCredits: {
+        ...((raw.resetCredits as { pending?: unknown }).pending === true ? { pending: true } : {}),
+        availableCount: Number((raw.resetCredits as { availableCount?: unknown }).availableCount),
+        ...(finite((raw.resetCredits as { nextExpiresAt?: unknown }).nextExpiresAt) ? { nextExpiresAt: Number((raw.resetCredits as { nextExpiresAt?: unknown }).nextExpiresAt) } : {}),
+        ...(typeof (raw.resetCredits as { unavailable?: unknown }).unavailable === "string" ? { unavailable: String((raw.resetCredits as { unavailable?: unknown }).unavailable) } : {}),
+      } } : {}),
       windows: Array.isArray(raw.windows) ? raw.windows.flatMap((window) => windowOf(window) ?? []) : [],
       ...(why ? { unavailable: { reason: why, ...(typeof unavailable?.message === "string" ? { message: unavailable.message } : {}) } } : {}),
       ...(identity ? { identity } : {}),
@@ -335,6 +342,19 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
         return readingLimits;
       }, { access: "read", long: true });
 
+      context.registerCommand(USAGE_REDEEM_RESET_COMMAND, async (input) => {
+        const request = input as { runtime?: unknown; accountId?: unknown; identity?: unknown; checkPending?: unknown } | undefined;
+        const runtime = request?.runtime;
+        if (typeof runtime !== "string" || typeof request?.accountId !== "string") throw new HostCommandError("Choose an account to reset.");
+        const source = limitSources.find((entry) => entry.extensionId === (runtime.split("@")[0] === "codex" ? "tau.codex" : runtime.split("@")[0] === "claude-code" ? "tau.claude-code" : ""));
+        if (!source) throw new HostCommandError("This provider does not support resets.");
+        const fresh = await readLimits(true);
+        const account = fresh.accounts.find((entry) => entry.runtime === runtime && entry.id === request.accountId);
+        if (!account) throw new HostCommandError("No reset is available for this account.");
+        if (request.identity !== undefined && account.identity?.key !== request.identity) throw new HostCommandError("The account changed. Refresh before using a reset.");
+        try { return await context.invokeHostExtension(source.extensionId, BACKEND_REDEEM_RESET_COMMAND, { runtime, identity: request.identity, checkPending: request.checkPending === true }); }
+        finally { limits = undefined; }
+      }, { long: true });
       return () => { stopObserving(); };
     },
   };

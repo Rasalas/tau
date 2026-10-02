@@ -12,6 +12,7 @@ import {
   cliMaintenance,
   commandInvocation,
   executableFingerprint,
+  legacyUsageTurn,
   packageInstallCommand,
   packageUpdateCommand,
   runtimeUpdateCommand,
@@ -265,12 +266,14 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
         return models;
       };
 
+      // OpenCode keeps a total with its own price, unnamed as the open thread shows it.
       const record = (entry: Awaited<ReturnType<OpenCodeSessionStore["list"]>>[number]): HostBackendThreadRecord => ({
         threadId: entry.tauThreadId,
         cwd: entry.cwd,
         ...(entry.title ? { title: entry.title } : {}),
         updatedAt: entry.updatedAt,
         messages: entry.messages,
+        ...(entry.usage && entry.usage.turns > 0 ? { usage: [legacyUsageTurn(entry.usage, entry.updatedAt)] } : {}),
       });
 
       const versionOf = async (id: string): Promise<RuntimeToolVersion | undefined> => {

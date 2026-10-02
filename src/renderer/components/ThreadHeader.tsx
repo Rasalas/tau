@@ -1,5 +1,5 @@
 import { useSyncExternalStore, type ReactNode } from "react";
-import { GitBranch, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { GitBranch, PanelLeftClose, PanelRightClose, PanelRightOpen } from "lucide-react";
 import type { HostSnapshot } from "../../shared/contracts";
 import type { ThreadViewStore } from "../../workbench/thread-view-store";
 import type { TranscriptState } from "../../workbench/transcript-state";
@@ -9,15 +9,16 @@ import { ProviderIconStack } from "./ProviderIconStack";
 import { ThreadCost } from "./ThreadCost";
 import { tooltipProps } from "./ui/Tooltip";
 import { Region, RegionOr } from "./Regions";
+import { lastTurnNumber } from "../../shared/message-turns";
 import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
 
 const turnCounts = new WeakMap<TranscriptState, number>();
 
-/** Prompts the transcript holds; counted once per transcript state, so a streamed delta costs a lookup. */
+/** The number of the last prompt the transcript holds; counted once per transcript state, so a streamed delta costs a lookup. */
 function countTurns(transcript: TranscriptState): number {
   let count = turnCounts.get(transcript);
   if (count === undefined) {
-    count = transcript.messages.reduce((sum, message) => sum + (message.role === "user" ? 1 : 0), 0);
+    count = lastTurnNumber(transcript.messages);
     turnCounts.set(transcript, count);
   }
   return count;
@@ -46,7 +47,7 @@ function SlotDetails({ slots, snapshot, branch }: { slots?: ThreadDetailSlots; s
   </>;
 }
 
-/** An empty thread's sub-line on the start screen: its branch alone, which no pill offers there. */
+/** The start screen's sub-line: an empty thread's branch, or what a kit says of a draft (design 1k). */
 export function StartDetails({ snapshot, slots }: { snapshot?: HostSnapshot; slots?: ThreadDetailSlots }) {
   return <div className="thread-details"><SlotDetails slots={slots} snapshot={snapshot} {...(snapshot?.projectLabel ? { branch: snapshot.projectLabel } : {})} /></div>;
 }
@@ -79,7 +80,7 @@ export function ThreadDetails({ snapshot, view, slots, machine }: {
  * thread's title and details, what kits place at its end, and the stage's
  * toggle. It is the window's drag region over the conversation.
  */
-export function ThreadHeader({ lead, title, details, actions, tools, stage }: {
+export function ThreadHeader({ lead, title, details, actions, tools, stage, onSpine }: {
   /** Before the title: room for the traffic lights, a tablet's threads toggle. */
   lead?: ReactNode;
   title: ReactNode;
@@ -89,8 +90,11 @@ export function ThreadHeader({ lead, title, details, actions, tools, stage }: {
   /** The stage strip's tools, here while the stage is hidden (design 1k). */
   tools?: ReactNode;
   stage?: { shown: boolean; shortcut?: string; onToggle(): void };
+  /** Beside a shown stage the button collapses the conversation to its spine instead (design 1a). */
+  onSpine?(): void;
 }) {
-  const stageLabel = stage?.shown ? "Hide stage" : "Show stage";
+  const spine = stage?.shown ? onSpine : undefined;
+  const stageLabel = spine ? "Collapse conversation" : stage?.shown ? "Hide stage" : "Show stage";
   return <header className="thread-header">
     {lead}
     <div className="thread-heading">
@@ -104,9 +108,9 @@ export function ThreadHeader({ lead, title, details, actions, tools, stage }: {
       type="button"
       className="stage-tool"
       aria-label={stageLabel}
-      aria-pressed={stage.shown}
-      {...tooltipProps(stageLabel, { side: "bottom", shortcut: stage.shortcut })}
-      onClick={stage.onToggle}
-    >{stage.shown ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}</button> : null}
+      aria-pressed={spine ? undefined : stage.shown}
+      {...tooltipProps(stageLabel, { side: "bottom", shortcut: spine ? undefined : stage.shortcut })}
+      onClick={spine ?? stage.onToggle}
+    >{spine ? <PanelLeftClose size={14} /> : stage.shown ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}</button> : null}
   </header>;
 }

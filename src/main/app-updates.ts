@@ -1,5 +1,10 @@
+import { execFileSync } from "node:child_process";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { dialog } from "electron";
+import type { AppUpdatePhase } from "../shared/contracts.js";
 import { DEFAULT_UPDATE_CHANNEL, defaultUpdateChannel, isNightlyVersion, type UpdateChannel } from "../shared/app-version.js";
+import { compareVersions } from "../shared/runtime-version.js";
 import { NIGHTLY_TAG, UNPACKED_UPDATES, type LinuxInstall, type UpdateFeed, type UpdateLog } from "./release-feed.js";
 
 // Moved to release-feed.ts, which the host process can load without Electron.
@@ -16,9 +21,26 @@ export interface DesktopUpdater {
   allowDowngrade: boolean;
   setFeedURL(options: UpdateFeedOptions): void;
   on(event: "update-available" | "update-not-available" | "update-downloaded", listener: (info: UpdateInfo) => void): unknown;
+  on(event: "download-progress", listener: (progress: { percent: number }) => void): unknown;
   on(event: "error", listener: (error: Error) => void): unknown;
   checkForUpdates(): Promise<unknown>;
+  downloadUpdate(): Promise<unknown>;
   quitAndInstall(): void;
+}
+
+/** Electron's own `autoUpdater` (Squirrel.Mac), which electron-updater hands a download to. */
+export interface NativeUpdater {
+  once(event: "update-downloaded", listener: () => void): unknown;
+  once(event: "error", listener: (error: Error) => void): unknown;
+  removeListener(event: "update-downloaded", listener: () => void): unknown;
+  removeListener(event: "error", listener: (error: Error) => void): unknown;
+}
+
+/** What the window shows between Restart and the quit; no phase is a download waiting for Restart. */
+export interface InstallStep {
+  version: string;
+  phase?: AppUpdatePhase;
+  progress?: number;
 }
 
 /** What electron-updater reports about a release; `releaseNotes` is the release's body, or one per version. */
@@ -74,6 +96,17 @@ export interface AppUpdatesOptions {
   channel?(): Promise<UpdateChannel | undefined>;
   /** False where nobody sees the window (a test instance, an invisible display): the host installs there. */
   interactive?: boolean;
+  /**
+   * Squirrel.Mac takes a download only after electron-updater reports it: it
+   * unpacks and verifies the bundle, then points ShipIt at it. Resolves then.
+   */
+  whenStaged?(): Promise<void>;
+  /** Each step between Restart and the quit, for the window's toast. */
+  onInstallStep?(step: InstallStep): void;
+  /** How long the window shows "Installing" before it quits. */
+  noticeMs?: number;
+  /** How long Restart waits for the feed before it installs what it has. */
+  checkBeforeInstallMs?: number;
 }
 
 export interface AppUpdates {
@@ -83,7 +116,7 @@ export interface AppUpdates {
   stop(): void;
   /** The check behind "Check for updates…"; every outcome is reported. */
   checkForUpdates(): Promise<void>;
-  /** Quits and installs what was downloaded. False when nothing is waiting. */
+  /** Quits and installs the newest release, downloading it first when the one on disk is older. False when nothing is waiting. */
   install(): boolean;
   /** The version on disk, if a download finished. */
   downloaded(): string | undefined;
@@ -97,6 +130,8 @@ export interface AppUpdates {
 
 const DEFAULT_STARTUP_DELAY_MS = 8_000;
 const DEFAULT_POLL_INTERVAL_MS = 60 * 60_000;
+const DEFAULT_NOTICE_MS = 1_200;
+const DEFAULT_CHECK_BEFORE_INSTALL_MS = 15_000;
 
 /** An update feed answers a failure with headers and a body; the reason is the first line. */
 function reason(error: unknown): string {
@@ -107,19 +142,63 @@ function reason(error: unknown): string {
 export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
   const { updater, enabled, log, onDownloaded } = options;
   const tell = options.tell ?? ((message: string) => { void dialog.showMessageBox({ message: "Software update", detail: message, buttons: ["OK"] }); });
+  const step = (next: InstallStep) => options.onInstallStep?.(next);
+  /** The version the platform installs on quit: downloaded and, on macOS, staged. */
   let ready: string | undefined;
+  /** A newer version on its way to `ready`. */
+  let fetching: string | undefined;
+  let shownPercent: number | undefined;
   /** Set while a check the user asked for is in flight, so only that one reports. */
   let asked = false;
-  /** Set once the user chose to install; a failure then is theirs to hear about. */
+  /** The user (or the host) asked to install: the quit follows once the newest version is ready. */
+  let wanted = false;
+  /** Set once the quit for an install started; a failure then is theirs to hear about. */
   let installing = false;
   /** The failure the event listener already handled; `checkForUpdates` rejects with it too. */
   let handled: unknown;
-  /** The host asked for an install; the download finishing is the moment. */
-  let installOnDownload = false;
+
+  const readyMessage = (version: string) => `Tau ${version} is ready. Restart to install it.`;
+
+  // Tau starts every download itself: electron-updater would fetch and stage
+  // the version on disk again at each check.
+  function fetch(version: string): void {
+    fetching = version;
+    shownPercent = undefined;
+    log.info("update.downloading", version);
+    if (wanted) step({ version, phase: "downloading" });
+    // A failure also arrives as the `error` event, which reports it.
+    void updater.downloadUpdate().catch(() => undefined);
+  }
+
+  function take(info: UpdateInfo): void {
+    if (fetching === info.version) fetching = undefined;
+    ready = info.version;
+    onDownloaded(info.version, info);
+    if (wanted) quit();
+  }
+
+  function quit(): void {
+    if (installing || !ready) return;
+    wanted = false;
+    installing = true;
+    log.info("update.installing", ready);
+    step({ version: ready, phase: "installing" });
+    const ms = options.noticeMs ?? DEFAULT_NOTICE_MS;
+    if (ms > 0) setTimeout(() => updater.quitAndInstall(), ms);
+    else updater.quitAndInstall();
+  }
+
+  /** An install that did not happen leaves the toast's Restart for another try. */
+  function settle(): void {
+    wanted = false;
+    installing = false;
+    if (ready) step({ version: ready });
+  }
 
   updater.on("update-available", (info) => {
     log.info("update.available", info.version);
-    if (asked) tell(`Tau ${info.version} is downloading. You will be told when it is ready.`);
+    if (!fetching && info.version !== ready) fetch(info.version);
+    if (asked) tell(info.version === ready ? readyMessage(ready) : `Tau ${info.version} is downloading. You will be told when it is ready.`);
     asked = false;
   });
   updater.on("update-not-available", () => {
@@ -127,38 +206,44 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
     if (asked) tell("Tau is up to date.");
     asked = false;
   });
+  updater.on("download-progress", ({ percent }) => {
+    const rounded = Math.floor(percent);
+    if (!wanted || !fetching || rounded === shownPercent) return;
+    shownPercent = rounded;
+    step({ version: fetching, phase: "downloading", progress: rounded });
+  });
   updater.on("update-downloaded", (info) => {
-    ready = info.version;
     log.info("update.downloaded", info.version);
-    onDownloaded(info.version, info);
-    if (installOnDownload) {
-      installOnDownload = false;
-      log.info("update.installing", ready);
-      installing = true;
-      updater.quitAndInstall();
-    }
+    // Subscribed now: electron-updater hands the file to Squirrel right after this event.
+    const staged = options.whenStaged?.();
+    if (!staged) return take(info);
+    if (wanted) step({ version: info.version, phase: "preparing" });
+    staged.then(() => { log.info("update.staged", info.version); take(info); }, () => undefined);
   });
   updater.on("error", (error) => {
     handled = error;
     log.warn("update.failed", error);
     if (installing) tell(installFailure(ready, error));
+    else if (wanted && fetching) tell(`Tau ${fetching} could not be downloaded: ${reason(error)}`);
     else if (asked) tell(`The update check failed: ${reason(error)}`);
-    installing = false;
     asked = false;
+    // A check fails before anything downloads; while one runs, this is its failure.
+    fetching = undefined;
+    if (wanted || installing) settle();
   });
 
+  updater.autoDownload = false;
   // Installing is the user's call, but a Tau that is quit anyway may as well
   // come back updated.
-  updater.autoDownload = true;
   updater.autoInstallOnAppQuit = options.installOnQuit ?? true;
 
   let applied: UpdateChannel | undefined;
   async function applyChannel(): Promise<UpdateChannel> {
     const fallback = defaultUpdateChannel(options.currentVersion);
-    const wanted = (await (options.channel?.() ?? Promise.resolve(undefined)).catch(() => undefined)) ?? fallback;
-    const channel = wanted === "nightly" && !options.feed ? DEFAULT_UPDATE_CHANNEL : wanted;
+    const chosen = (await (options.channel?.() ?? Promise.resolve(undefined)).catch(() => undefined)) ?? fallback;
+    const channel = chosen === "nightly" && !options.feed ? DEFAULT_UPDATE_CHANNEL : chosen;
     if (channel === applied) return channel;
-    if (wanted !== channel) log.warn("update.channel.unavailable", "No GitHub feed in this build; staying on stable.");
+    if (chosen !== channel) log.warn("update.channel.unavailable", "No GitHub feed in this build; staying on stable.");
     // The first stable check keeps the feed the build wrote; only a switch needs a new one.
     if (options.feed && (applied !== undefined || channel !== "stable")) updater.setFeedURL(feedFor(channel, options.feed));
     updater.allowPrerelease = channel === "nightly";
@@ -187,10 +272,29 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
     return checking;
   }
 
+  /**
+   * A release may have come out since the one on disk was downloaded (K161):
+   * ask the feed first and fetch that one. A feed that does not answer in time
+   * leaves the version on disk.
+   */
+  async function installNewest(): Promise<void> {
+    if (wanted || installing) return;
+    wanted = true;
+    if (fetching) step({ version: fetching, phase: "downloading" });
+    else if (ready) step({ version: ready, phase: "preparing" });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([check(), new Promise((resolve) => { timer = setTimeout(resolve, options.checkBeforeInstallMs ?? DEFAULT_CHECK_BEFORE_INSTALL_MS); })]);
+    clearTimeout(timer);
+    if (!wanted || fetching) return;
+    if (ready) quit();
+    // Nothing on disk yet: the check still running may find one, which installs once it is here.
+    else wanted = checking !== undefined;
+  }
+
   let first: ReturnType<typeof setTimeout> | undefined;
   let interval: ReturnType<typeof setInterval> | undefined;
-  /** A poll skips while a version waits on disk; the next one follows the channel as it is then. */
-  const poll = () => { if (!ready) void check(); };
+  /** A poll goes on with a version on disk, so a newer release replaces it before the user restarts. */
+  const poll = () => { if (!fetching && !wanted && !installing) void check(); };
 
   return {
     start() {
@@ -216,40 +320,42 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
         tell("This Tau runs from a checkout, so it updates with `git pull` and `npm run build`.");
         return;
       }
-      if (ready) {
-        tell(`Tau ${ready} is ready. Restart to install it.`);
+      if (fetching) {
+        tell(`Tau ${fetching} is downloading. You will be told when it is ready.`);
         return;
       }
       asked = true;
       await check();
     },
     install() {
-      if (!ready) return false;
-      log.info("update.installing", ready);
-      installing = true;
-      updater.quitAndInstall();
+      if (!ready && !fetching) return false;
+      void installNewest();
       return true;
     },
     downloaded: () => ready,
     installs: () => enabled && !options.unsupported && options.interactive !== false,
     installWhenReady() {
       if (!enabled || options.unsupported || options.interactive === false) return { started: false, reason: options.unsupported ?? "This window does not install updates." };
-      if (ready) {
-        log.info("update.installing", ready);
-        installing = true;
-        updater.quitAndInstall();
-        return { started: true };
-      }
-      installOnDownload = true;
-      void check();
-      return { started: false, reason: "The Tau window on this machine downloads it and installs it then." };
+      const now = Boolean(ready);
+      void installNewest();
+      return now ? { started: true } : { started: false, reason: "The Tau window on this machine downloads it and installs it then." };
     },
     async channelChanged() {
-      if (!enabled || options.unsupported || applied === undefined || ready) return;
+      if (!enabled || options.unsupported || applied === undefined || ready || fetching) return;
       const before = applied;
       if ((await applyChannel()) !== before) await check();
     },
   };
+}
+
+/** The next time Squirrel.Mac has a download unpacked, verified and named in ShipIt's request. */
+export function nextStaging(native: NativeUpdater): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const done = () => { native.removeListener("error", failed); resolve(); };
+    const failed = (error: Error) => { native.removeListener("update-downloaded", done); reject(error); };
+    native.once("update-downloaded", done);
+    native.once("error", failed);
+  });
 }
 
 /** electron-updater runs pkexec for a package; 126 is its dialog closed. */
@@ -274,4 +380,61 @@ export function linuxUpdates(updaters: LinuxUpdaters, install: LinuxInstall): Pi
   if (install === "appimage") return { updater: new updaters.AppImageUpdater() };
   if (install === "deb") return { updater: new updaters.DebUpdater(), installOnQuit: false };
   return { unsupported: UNPACKED_UPDATES };
+}
+
+/** After this, a start no longer waits on ShipIt: a stuck install must not lock Tau out. */
+export const INSTALL_GUARD_MS = 3 * 60_000;
+
+export interface InstallMarker {
+  version: string;
+  at: number;
+  /** A Restart, which ShipIt reopens; a plain quit installs without reopening. */
+  reopens: boolean;
+}
+
+export interface InstallGuardPorts {
+  read(): InstallMarker | undefined;
+  clear(): void;
+  shipItRunning(): boolean;
+  now(): number;
+}
+
+/**
+ * The version ShipIt is still installing, when this start would race it.
+ * Squirrel.Mac gives up on an install while a copy of the app runs and then
+ * reopens the old version, so a start in that window has to step aside.
+ */
+export function installStillRunning(ports: InstallGuardPorts, currentVersion: string): InstallMarker | undefined {
+  const marker = ports.read();
+  if (!marker) return undefined;
+  if (compareVersions(currentVersion, marker.version) >= 0 || ports.now() - marker.at > INSTALL_GUARD_MS || !ports.shipItRunning()) {
+    ports.clear();
+    return undefined;
+  }
+  return marker;
+}
+
+/** The marker in userData, and ShipIt as `ps` lists it (`…/ShipIt <bundle id>.ShipIt <state>`). */
+export function installGuardPorts(userData: string, bundleId: string): InstallGuardPorts & { write(version: string, reopens: boolean): void } {
+  const path = join(userData, "update-installing.json");
+  return {
+    read() {
+      try {
+        const value = JSON.parse(readFileSync(path, "utf8")) as Partial<InstallMarker>;
+        return typeof value.version === "string" && typeof value.at === "number" ? { version: value.version, at: value.at, reopens: value.reopens === true } : undefined;
+      } catch {
+        return undefined;
+      }
+    },
+    clear: () => rmSync(path, { force: true }),
+    write: (version, reopens) => writeFileSync(path, JSON.stringify({ version, at: Date.now(), reopens })),
+    shipItRunning() {
+      try {
+        return execFileSync("/bin/ps", ["-axo", "command"], { encoding: "utf8" }).split("\n").some((line) => line.includes(`/ShipIt ${bundleId}.ShipIt `));
+      } catch {
+        return false;
+      }
+    },
+    now: Date.now,
+  };
 }

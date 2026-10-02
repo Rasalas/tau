@@ -52,6 +52,14 @@ export function approvalSummary(toolName: string, input: Record<string, unknown>
   return Object.keys(input).join(" · ") || toolName;
 }
 
+/** The approval card's head, as the workbench design words it: "Wants to edit", "Wants to run". */
+export function approvalTitle(toolName: string): string {
+  if (toolName === "edit" || toolName === "write") return "Wants to edit";
+  if (toolName === "bash" || toolName === "powershell") return "Wants to run";
+  if (toolName === "tau_apply_thread_changes") return "Wants to apply an agent's work";
+  return toolName.startsWith("computer_use_") ? "Wants to use the computer" : `Wants to use ${toolName}`;
+}
+
 export interface AccessControl {
   /** The level for one thread; `sessionId` is absent where the runtime did not name one. */
   level(sessionId?: string): AccessLevel;
@@ -75,7 +83,7 @@ export async function gateToolCall(
     onBlocked(toolName, reason);
     return { block: true, reason };
   }
-  if (await confirm(`Approve ${toolName}?`, approvalSummary(toolName, input))) return undefined;
+  if (await confirm(approvalTitle(toolName), approvalSummary(toolName, input))) return undefined;
   const reason = `Blocked by Tau: ${toolName} was not approved.`;
   onBlocked(toolName, reason);
   return { block: true, reason };

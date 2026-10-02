@@ -7,6 +7,7 @@ import { runPaletteCommand } from "../../src/renderer/test-support/palette.js";
 import { renderApp } from "../../src/renderer/test-support/render-app.js";
 import { workspaceHostStub } from "../../src/renderer/test-support/workspace-host-stub.js";
 import { setClientStorage, setHostClient } from "../../src/renderer/test-support/kit-harness.js";
+import { installPointerEvents } from "../../src/renderer/test-support/pointer-events.js";
 import { workspaceExtension } from "./desktop.js";
 import { navigationRowsFor } from "./navigation.js";
 import { WORKSPACE_STORE_SERVICE, type ThreadRailOrganizer, type WorkspaceStoreApi } from "./protocol.js";
@@ -185,6 +186,27 @@ describe("the rest of the rail", () => {
     expect(screen.queryByText("Thread a")).toBeNull();
   });
 
+  it("lists each project with the rail's thread count and its path, and manages projects in Settings", async () => {
+    await renderRail([
+      shell("a", 0),
+      shell("c", 2, { messageCount: 0 }),
+      shell("d", 3, { parentThreadId: "a" }),
+      shell("b", 1, { projectPath: "/other", projectName: "other" }),
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Filter threads by project" }));
+    const list = await screen.findByRole("dialog", { name: "Filter by project" });
+    expect(within(list).getByText("Show threads from")).toBeTruthy();
+    // A draft and an agent's thread are not in the rail, so they are not counted.
+    const detail = (name: string) => within(list).getByRole("option", { name }).querySelector("small")?.textContent;
+    expect(detail("All projects")).toBe("2 threads");
+    expect(detail("project")).toBe("1 thread ·\u00a0/project");
+    await waitFor(() => expect(document.activeElement).toBe(within(list).getByRole("textbox", { name: "Search projects" })));
+    expect(within(list).getByRole("button", { name: /Open a project…/ }).querySelector("kbd")).toBeTruthy();
+    fireEvent.click(within(list).getByRole("button", { name: "Manage projects" }));
+    expect(screen.queryByRole("dialog", { name: "Filter by project" })).toBeNull();
+    expect((await screen.findAllByRole("heading", { name: "Source control" })).length).toBeGreaterThan(0);
+  });
+
   it("puts the last turn's changes on the row and the details on its hover card", async () => {
     const { workspace, row } = await renderRail([shell("a", 0, { projectLabel: "feature/very-long-branch-name-20260923" })]);
     act(() => workspace.recordTurnStat("a", { added: 12, removed: 3, files: 2, at: 5 }));
@@ -220,6 +242,43 @@ describe("the rest of the rail", () => {
     const image = row("a").querySelector<HTMLImageElement>(".thread-project-icon img");
     expect(decodeURIComponent(image?.src ?? "")).toContain("🚀");
     expect(view.services.preferences.value("tau.workspace", "project-icon:/project")).toContain("\"kind\":\"emoji\"");
+  });
+});
+
+describe("dragging a thread onto another kit's target (design 2f)", () => {
+  const threads = ["a", "b"].map((id, index) => shell(id, index));
+
+  it("lifts the row, lists the targets at the rail's foot, and hands the thread to the one it is let go on", async () => {
+    installPointerEvents();
+    const { workspace, main } = await renderRail(threads);
+    const drop = vi.fn();
+    act(() => { workspace.registerThreadDropTargets({
+      heading: "Drop to move the thread",
+      targets: (thread) => [
+        { id: "here", label: "This Mac", detail: `${thread.title} is here already`, disabled: true },
+        { id: "rex", label: "rex", detail: "online · idle" },
+      ],
+      drop,
+    }); });
+    let under: Element | null = null;
+    Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => under });
+    try {
+      fireEvent.pointerDown(main("a"), { button: 0, clientX: 20, clientY: 20 });
+      fireEvent.pointerMove(window, { clientX: 20, clientY: 60 });
+      const panel = await screen.findByRole("group", { name: "Drop to move the thread" });
+      expect(within(panel).getByText("Thread a is here already").closest(".rail-drop-target")?.hasAttribute("data-rail-drop")).toBe(false);
+      expect(document.querySelector(".rail-drag-card")?.textContent).toContain("Thread a");
+
+      under = within(panel).getByText("rex");
+      fireEvent.pointerMove(window, { clientX: 30, clientY: 300 });
+      await waitFor(() => expect(within(panel).getByText("rex").closest(".rail-drop-target")?.className).toContain("over"));
+      fireEvent.pointerUp(window);
+
+      expect(drop).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }), "rex", expect.anything());
+      await waitFor(() => expect(screen.queryByRole("group", { name: "Drop to move the thread" })).toBeNull());
+    } finally {
+      Reflect.deleteProperty(document, "elementFromPoint");
+    }
   });
 });
 

@@ -118,6 +118,25 @@ export function decodeNewThreadConfiguration(channel: string, field: string, val
   };
 }
 
+export function decodeThreadStartOptions(channel: string, value: unknown) {
+  const item = record(channel, "options", value);
+  const backend = decodeOptionalString(channel, "options.backend", item.backend);
+  const title = decodeOptionalString(channel, "options.title", item.title);
+  return {
+    cwd: decodeString(channel, "options.cwd", item.cwd),
+    prompt: decodeString(channel, "options.prompt", item.prompt),
+    ...decodeNewThreadConfiguration(channel, "options", item),
+    ...(backend ? { backend } : {}),
+    ...(title ? { title } : {}),
+  };
+}
+
+export function decodeThreadDelivery(channel: string, value: unknown): "prompt" | "steer" | "queue" {
+  const delivery = decodeOptionalString(channel, "delivery", value) ?? "prompt";
+  if (delivery !== "prompt" && delivery !== "steer" && delivery !== "queue") fail(channel, "delivery", 'must be "prompt", "steer" or "queue"');
+  return delivery;
+}
+
 export function decodeClientTurnIdentity(channel: string, field: string, value: unknown): ClientTurnIdentity {
   const item = record(channel, field, value);
   return {

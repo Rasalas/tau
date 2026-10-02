@@ -198,7 +198,7 @@ describe("Settings → SnapShots", () => {
     expect(screen.getByText("Not asked yet")).toBeTruthy();
     // Only the permission still missing offers its buttons.
     expect(screen.getAllByRole("button", { name: "Open System Settings" })).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "Ask macOS" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask the system" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith(ID, "request-access", { kind: "accessibility" }));
     expect(missingSettingsRows(page)).toEqual([]);
   });
@@ -206,7 +206,35 @@ describe("Settings → SnapShots", () => {
   it("says what it needs where macOS is not there", async () => {
     const { page } = settingsPage({ supported: false, screen: "unavailable", accessibility: "unavailable" });
     renderKitSettingsPage(page.Component);
-    expect(await screen.findByText("SnapShots need macOS")).toBeTruthy();
+    expect(await screen.findByText("SnapShots are unavailable")).toBeTruthy();
     expect(screen.queryByRole("switch")).toBeNull();
   });
+  it("offers explicit Wayland source selection without a macOS permission prompt", async () => {
+    const { page, invoke } = settingsPage({ supported: true, captureMode: "picker", screen: "not-determined", accessibility: "unavailable" });
+    renderKitSettingsPage(page.Component);
+    const choose = await screen.findByRole("button", { name: "Choose a window or display" });
+    expect(invoke).not.toHaveBeenCalledWith(ID, "capture", expect.anything());
+    expect(screen.queryByRole("button", { name: "Ask the system" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open System Settings" })).toBeNull();
+    fireEvent.click(choose);
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith(ID, "capture", { accessibility: false, picker: true }));
+    expect(await screen.findByText("Capture saved for your draft.")).toBeTruthy();
+  });
+
+  it("explains and requests Wayland helper installation only after the person chooses it", async () => {
+    const access = { supported: true, captureMode: "picker", screen: "not-determined", accessibility: "unavailable", wayland: { backend: "gnome", status: "not-installed", message: "Install the GNOME helper." } };
+    const { page, invoke } = settingsPage(access);
+    invoke.mockImplementation(async (_id, command) => command === "wayland-helper" ? { ...access, captureMode: "foreground", screen: "granted", wayland: { ...access.wayland, status: "ready", message: "Focused capture is ready." } } : command === "access" ? access : {});
+    renderKitSettingsPage(page.Component);
+    const install = await screen.findByRole("button", { name: "Install helper" });
+    expect(invoke).not.toHaveBeenCalledWith(ID, "wayland-helper", expect.anything());
+    expect(screen.getByText(/Installing allows Tau to capture/u)).toBeTruthy();
+    fireEvent.click(install);
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith(ID, "wayland-helper", { action: "install" }));
+    expect(await screen.findByText("Focused capture is ready.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Choose a window or display" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove helper" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith(ID, "wayland-helper", { action: "remove" }));
+  });
+
 });

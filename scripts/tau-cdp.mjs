@@ -53,6 +53,7 @@ const KEY_TABLE = {
   ArrowRight: { key: "ArrowRight", code: "ArrowRight", windowsVirtualKeyCode: 39 },
   Home: { key: "Home", code: "Home", windowsVirtualKeyCode: 36 },
   End: { key: "End", code: "End", windowsVirtualKeyCode: 35 },
+  F2: { key: "F2", code: "F2", windowsVirtualKeyCode: 113 },
   F6: { key: "F6", code: "F6", windowsVirtualKeyCode: 117 },
   " ": { key: " ", code: "Space", windowsVirtualKeyCode: 32, text: " " },
 };

@@ -1,0 +1,4 @@
+<!-- @lobehub/icons opencode. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="16dp" android:height="16dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd" android:pathData="M16,6H8v12h8V6zM20,22H4V2h16v20z" />
+</vector>

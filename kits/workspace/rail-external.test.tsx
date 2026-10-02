@@ -3,14 +3,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DesktopExtension, UiSession } from "tau";
+import type { DesktopExtension, UiSession, WorkbenchActions } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { renderApp } from "../../src/renderer/test-support/render-app.js";
 import { workspaceHostStub } from "../../src/renderer/test-support/workspace-host-stub.js";
 import { setClientStorage, setHostClient } from "../../src/renderer/test-support/kit-harness.js";
 import { workspaceExtension } from "./desktop.js";
 import { WORKSPACE_STORE_SERVICE, type RailExternalThread, type WorkspaceStoreApi } from "./protocol.js";
-import { mergeByTime } from "./rail-external.js";
+import { mergeByTime, outsideThreadItems } from "./rail-external.js";
 
 // The main list is virtual; jsdom measures nothing, so every box gets a size and the rows draw.
 beforeEach(() => {
@@ -64,12 +64,27 @@ async function renderRail(threads: RailExternalThread[], own: UiSession[]) {
   const rendered = renderApp(client, { extensions: [workspaceExtension, listing] });
   const rail = await screen.findByRole("navigation", { name: "Threads" });
   await within(rail).findByText(own[0]!.title);
-  return { ...rendered, rail, outside };
+  return { ...rendered, rail, outside, client };
 }
 
 const titles = (rail: HTMLElement) => [...rail.querySelectorAll(".rail-active .thread-title")].filter((title) => !title.closest(".rail-shelves")).map((title) => title.textContent);
 
 describe("other machines' threads in the rail", () => {
+  it("shows an own-index machine proxy as an ordinary selectable row with its home runtime", async () => {
+    const proxy = session("rex~t1", 25, {
+      backendKind: "machine", modelProvider: "anthropic",
+      machine: { id: "rex", name: "rex", backendKind: "codex", modelProvider: "openai" },
+    });
+    const { rail, client } = await renderRail([], [session("a", 30), proxy]);
+    const title = await within(rail).findByText(proxy.title);
+    const row = title.closest(".thread-row") as HTMLElement;
+    expect(await within(row).findByRole("img", { name: "On rex" })).toBeTruthy();
+    expect(await within(row).findByLabelText(/^Codex.*OpenAI/)).toBeTruthy();
+    expect(row.closest(".rail-external")).toBeNull();
+    fireEvent.click(title);
+    expect(client.calls.filter((call) => call.method === "switchSession").at(-1)?.args[0]).toBe(proxy.path);
+  });
+
   it("stand among this machine's by time, with the machine's mark and no cost on the row", async () => {
     const usage = { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 2, costUsd: 0.75, turns: 1 };
     const { rail } = await renderRail([remote("r1", 25, {}, { usage })], [session("a", 30), session("b", 20)]);
@@ -96,6 +111,16 @@ describe("other machines' threads in the rail", () => {
     expect(within(rail).getByText("Remote r2").closest(".rail-external")?.classList.contains("unavailable")).toBe(true);
   });
 
+  it("put a thread settled on its machine on the settled shelf, and settle one there", async () => {
+    const toggleSettled = vi.fn();
+    const { rail } = await renderRail([remote("r1", 25, { toggleSettled }), remote("r2", 24, { settled: true, toggleSettled: vi.fn() })], [session("a", 30)]);
+    expect(titles(rail)).toEqual(["Thread a", "Remote r1"]);
+    const shelf = rail.querySelector(".settled-shelf") as HTMLElement;
+    expect(within(shelf).getByText("Remote r2")).toBeTruthy();
+    fireEvent.click(within(rail).getByRole("button", { name: "Settle Remote r1" }));
+    expect(toggleSettled).toHaveBeenCalledTimes(1);
+  });
+
   it("offers a look-in where the source has one", async () => {
     const lookIn = vi.fn();
     const { rail } = await renderRail([remote("r1", 25, { lookIn })], [session("a", 30)]);
@@ -103,10 +128,15 @@ describe("other machines' threads in the rail", () => {
     expect(lookIn).toHaveBeenCalledTimes(1);
   });
 
-  it("follows the search and the project filter like this machine's threads", async () => {
-    const { rail } = await renderRail([remote("r1", 25), remote("r2", 24, {}, { projectName: "web", title: "Remote web" })], [session("a", 30)]);
-    fireEvent.change(screen.getByRole("textbox", { name: "Search threads" }), { target: { value: "web" } });
-    expect(titles(rail)).toEqual(["Remote web"]);
+  it("are found by the palette's Threads, by project, title or machine, and open from there", () => {
+    const web = remote("r2", 24, {}, { projectName: "web", title: "Remote web" });
+    const outside = source([remote("r1", 25), web, remote("r3", 23, { unavailable: "rex is offline." }, { projectName: "web", title: "Offline web" })]);
+    expect(outsideThreadItems([outside], "")).toEqual([]);
+    const found = outsideThreadItems([outside], "web rex");
+    expect(found.map((item) => [item.label, item.detail])).toEqual([["Remote web", "web · on rex"]]);
+    const actions = {} as WorkbenchActions;
+    found[0]!.run!(actions);
+    expect(web.open).toHaveBeenCalledWith(actions);
   });
 
   it("follows the source when its threads change", async () => {

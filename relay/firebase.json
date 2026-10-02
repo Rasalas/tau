@@ -1,0 +1,24 @@
+{
+  "functions": [
+    {
+      "source": ".",
+      "codebase": "push-relay",
+      "runtime": "nodejs22",
+      "ignore": [
+        "node_modules",
+        "src",
+        "scripts",
+        ".git",
+        "firebase-debug.log",
+        "*.local",
+        "tsconfig.json",
+        "firebase.json",
+        ".firebaserc",
+        ".gitignore"
+      ],
+      "predeploy": [
+        "npm --prefix \"$RESOURCE_DIR\" run build"
+      ]
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 import { SegmentedControl, Select, SettingRow, SettingsSection, Switch, TextField, useSetting, type HostExtensionClient, type SettingHandle, type SettingsPageProps } from "tau";
 import { REVIEW_HOST_EXTENSION_ID as ID } from "./protocol.js";
 import { COLLAPSED_OPTION, COLORS_KEY, SPLIT_OPTION, WHITESPACE_OPTION, WRAP_OPTION, type DiffColorScheme } from "./diff-settings.js";
+import { GitHubSharingSettings } from "./github-sharing-settings.js";
 import { SourceControlSettings } from "./source-settings.js";
 import { INSTRUCTIONS_OPTION, TEMPLATE_OPTION } from "./writing.js";
 import { DELETE_BRANCH_OPTION } from "./merge-controls.js";
@@ -41,6 +42,7 @@ export const REVIEW_SETTINGS_ROWS = [
   { id: "setting-review-whitespace", label: "Hide whitespace changes", keywords: ["diff", "whitespace"] },
   { id: "setting-review-collapsed", label: "Files start collapsed", keywords: ["diff", "collapse"] },
   { id: "setting-review-git-hosts", label: "Git hosts", keywords: ["github", "gitlab", "forgejo", "bitbucket", "azure devops", "signed in"] },
+  { id: "setting-review-github-sharing", label: "GitHub across paired hosts", keywords: ["github", "sharing", "routing", "machines", "credentials"] },
   { id: "setting-review-servers", label: "Self-hosted servers", keywords: ["self-hosted", "gitea", "forgejo", "provider", "host"] },
 ];
 
@@ -110,7 +112,7 @@ export function ReviewSettingsPage({ host, onNotify = () => undefined }: { host?
         <SettingRow id="setting-review-whitespace" title="Hide whitespace changes" setting={whitespace} control={toggle("Hide whitespace changes", whitespace)} />
         <SettingRow id="setting-review-collapsed" title="Files start collapsed" setting={collapsed} control={toggle("Files start collapsed", collapsed)} />
       </SettingsSection>
-      {host ? <SourceControlSettings host={host} onNotify={onNotify} /> : null}
+      {host ? <><SourceControlSettings host={host} onNotify={onNotify} /><GitHubSharingSettings host={host} onNotify={onNotify} /></> : null}
     </div>
   );
 }

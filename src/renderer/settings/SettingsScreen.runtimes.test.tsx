@@ -73,7 +73,7 @@ describe("Settings → Runtimes", () => {
     expect(within(page).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Runtime", "Version", "Talks to", ""]);
     await within(row("Pi")).findByRole("img", { name: "OpenAI" });
     expect(within(row("Pi")).getByText("Default for new threads")).toBeTruthy();
-    expect(within(row("Pi")).getByText("Built in")).toBeTruthy();
+    expect(within(row("Pi")).getByText("Built in · agents, worktrees, per-tool approvals")).toBeTruthy();
     expect(within(row("Pi")).getAllByRole("img").map((mark) => mark.getAttribute("aria-label"))).toEqual(["Pi", "Anthropic", "OpenAI"]);
     expect(within(row("Codex")).getByText("Update available")).toBeTruthy();
     expect(within(row("Codex")).getByText("0.48.2 → 0.49.0")).toBeTruthy();

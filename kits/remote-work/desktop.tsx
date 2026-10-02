@@ -5,6 +5,9 @@ import { REMOTE_WORK_EXTENSION_ID, THREAD_LINK_EVENT, type RemoteThreadLink } fr
 import { QuestionNotices } from "./questions.js";
 import { REMOTE_WORK_ROWS, createRemoteWorkPage } from "./settings.js";
 
+/** Machines Kit's agents catalog (`kits/environments/host.ts`); kits do not import one another. */
+const MACHINES_EXTENSION_ID = "tau.environments";
+
 export const REMOTE_WORK_SETTINGS_PAGE = "remote-work.settings";
 
 /**
@@ -18,10 +21,15 @@ export const remoteWorkExtension: DesktopExtension = {
   name: "Remote Work",
   activate(context) {
     let actions: WorkbenchActions | undefined;
+    const machines = context.hostExtension(MACHINES_EXTENSION_ID);
     const notices = new QuestionNotices({
       actions: () => actions,
       attention: () => context.attention,
       environments: () => context.environments,
+      connectedAgents: async (machine) => {
+        const catalog = await machines.invoke("agents").catch(() => undefined) as { machines?: Array<{ id: string; status: string }> } | undefined;
+        return catalog?.machines?.some((entry) => entry.id === machine && entry.status === "connected") === true;
+      },
       focused: () => document.visibilityState !== "hidden" && document.hasFocus(),
     });
     let seeded = false;
@@ -38,7 +46,7 @@ export const remoteWorkExtension: DesktopExtension = {
       seeded = true;
       for (const link of early.splice(0)) notices.update(link);
     });
-    // The toast and the moves need the workbench's actions, which a region receives.
+    // Thread navigation needs the workbench's actions, which a region receives.
     context.registerRegion({
       id: "remote-work.questions",
       placement: "composer-above",

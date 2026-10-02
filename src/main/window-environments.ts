@@ -1,4 +1,9 @@
 import { lookup } from "node:dns/promises";
+import { dirname, join } from "node:path";
+import { bootstrapSshHost, ManagedSshTunnel, freeLocalPort } from "./managed-ssh.js";
+import { ConnectClientBridge } from "./connect-tunnel.js";
+import { decodeConnectOffer, type ManagedRoute } from "../shared/managed-connections.js";
+import { parsePairingPayload, pairingUrl } from "../shared/connections.js";
 import { decodeHostUpdateStatus, HOST_UPDATE_METHODS, type HostUpdateAction, type HostUpdateStatus } from "../shared/host-updates.js";
 import type { UiDiscoveredHosts } from "../shared/discovery.js";
 import type {
@@ -16,6 +21,8 @@ import type {
 } from "../shared/environments.js";
 import type { HostExtensionSummary } from "../shared/contracts.js";
 import type { TranscriptPage } from "../shared/host-protocol.js";
+import { HOST_ERROR, type HostPushEvent } from "../shared/host-transport.js";
+import type { ConfigLayers } from "../shared/config-layers.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import { agentsDeviceName, environmentProjects, environmentThreads, orderEndpoints, refreshEndpoints, sameEndpoints, socketUrl } from "../shared/environments.js";
 import type { PairingEndpoint } from "../shared/connections.js";
@@ -34,6 +41,7 @@ import {
   type PresentedIdentity,
 } from "./host-tls-trust.js";
 import { fingerprintsMatch } from "./host-tls.js";
+import { personPreferences, type PersonPreferences } from "../shared/person-preferences.js";
 
 /** Where the page reaches a machine: what a `WindowHost` attaches to and the page's `?host=`. */
 export interface EnvironmentConnection {
@@ -45,6 +53,11 @@ export interface EnvironmentConnection {
 }
 
 export interface WindowEnvironmentsOptions {
+  wsl?: {
+    list(): Promise<string[]>;
+    bootstrap(distro: string, signal?: AbortSignal): Promise<{ link: string; close(): void }>;
+    resume(distro: string): Promise<string>;
+  };
   catalogPath: string;
   box: SecretBox;
   logger: HostLogger;
@@ -56,6 +69,8 @@ export interface WindowEnvironmentsOptions {
   publish(environments: UiEnvironments): void;
   /** A thread a tab looks in on changed there; the page hears it as the `environment-thread` window event. */
   publishThread?(view: UiEnvironmentThreadView): void;
+  /** A kit the page follows emitted an event on another machine. */
+  publishExtensionEvent?(event: { machine: string; extensionId: string; name: string; payload: unknown }): void;
   /**
    * Point the page at another machine, or back at this one (`undefined`).
    * The window's process attaches its uplink and loads the page again.
@@ -99,6 +114,7 @@ interface Watched {
  * snapshot this publishes.
  */
 export class WindowEnvironments {
+  private readonly routes = new Map<string, { close(): void }>();
   private catalog: EnvironmentCatalog | undefined;
   private readonly watched = new Map<string, Watched>();
   private localConnection: { url: string; token: string } | undefined;
@@ -106,6 +122,7 @@ export class WindowEnvironments {
   private arrival: EnvironmentTarget | undefined;
   private pairing: UiEnvironmentPairing | undefined;
   private pairingAbort: AbortController | undefined;
+  private setupAbort: AbortController | undefined;
   private publishTimer: ReturnType<typeof setTimeout> | undefined;
   private closed = false;
   /** What the last Bonjour search found, by host id; pairing with one takes its addresses and pin from here. */
@@ -119,6 +136,7 @@ export class WindowEnvironments {
   private readonly lookIns: EnvironmentThreadWatches;
   /** Per machine, the kit commands registered to only read; asked again after a reconnect. */
   private readonly readCommands = new Map<string, { at: number; commands: Promise<ReadonlySet<string>> }>();
+  private readonly extensionInterest = new Map<string, Map<string, number>>();
 
   constructor(private readonly options: WindowEnvironmentsOptions) {
     this.shownId = options.local.id;
@@ -130,7 +148,11 @@ export class WindowEnvironments {
 
   async start(): Promise<void> {
     this.catalog = await EnvironmentCatalog.open(this.options.catalogPath, this.options.box, this.options.logger);
-    for (const saved of this.catalog.list()) this.watchSaved(saved);
+    for (const saved of this.catalog.list()) {
+      try { await this.resumeRoute(saved); }
+      catch (error: unknown) { this.options.logger.warn("environment.route.failed", { id: saved.id, error: error instanceof Error ? error.message : String(error) }); }
+      this.watchSaved(saved);
+    }
     this.schedulePublish();
     await this.reopenShown();
   }
@@ -224,6 +246,63 @@ export class WindowEnvironments {
   }
 
   async pair(input: EnvironmentPairInput): Promise<EnvironmentPairResult> {
+    if (input.ssh || input.wsl || input.text?.startsWith("tau-connect:")) return this.pairManaged(input);
+    return this.pairDirect(input);
+  }
+
+  async listWsl(): Promise<string[]> { return this.options.wsl?.list() ?? []; }
+
+  private async pairManaged(input: EnvironmentPairInput): Promise<EnvironmentPairResult> {
+    if (!this.catalog?.secure) return { state: "failed", message: "Encrypted storage is required before adding a machine." };
+    if (this.setupAbort || this.pairingAbort) return { state: "failed", message: "Finish or cancel the current pairing first." };
+    const abort = new AbortController(); this.setupAbort = abort;
+    let close: (() => void) | undefined;
+    let finish: (() => Promise<void>) | undefined;
+    let transport: { close(): void } | undefined;
+    try {
+      this.pairing = { address: input.ssh ?? input.wsl ?? "Tau Connect", state: "connecting" }; this.schedulePublish();
+      let link: string; let managed: ManagedRoute;
+      if (input.ssh) {
+        const result = await bootstrapSshHost(input.ssh, join(dirname(this.options.catalogPath), "managed-hosts"), input.deviceName ?? this.options.deviceName, abort.signal);
+        link = result.pairing.link; managed = { ssh: result.pairing.route }; close = () => result.pairing.close(); finish = () => result.pairing.finish(); transport = result.tunnel;
+      } else if (input.wsl) {
+        if (!this.options.wsl) throw new Error("WSL machines are available in Tau for Windows.");
+        const result = await this.options.wsl.bootstrap(input.wsl, abort.signal);
+        link = result.link; managed = { wsl: input.wsl }; close = () => result.close();
+      } else {
+        const offer = decodeConnectOffer(input.text!);
+        const payload = offer ? parsePairingPayload(offer.link) : undefined;
+        if (!offer || !payload?.publicKey) throw new Error("The Tau Connect link is invalid or has no pinned host key. Create a new link on the host machine.");
+        const route = { relay: offer.relay, id: offer.id, token: offer.token, port: await freeLocalPort() };
+        const bridge = new ConnectClientBridge(route); transport = bridge; await bridge.start();
+        const endpoint = { url: `https://127.0.0.1:${route.port}/` };
+        link = pairingUrl(endpoint, { ...payload, endpoints: [endpoint] }); managed = { connect: route };
+      }
+      if (abort.signal.aborted) return { state: "cancelled" };
+      const result = await this.pairDirect({ ...input, ssh: undefined, wsl: undefined, text: link, nearby: undefined }, managed);
+      if (result.state === "added") {
+        if (transport) { this.routes.get(result.environment.id)?.close(); this.routes.set(result.environment.id, transport); transport = undefined; }
+        await finish?.();
+      }
+      return result;
+    } catch (error: unknown) { return abort.signal.aborted ? { state: "cancelled" } : { state: "failed", message: error instanceof Error ? error.message : String(error) }; }
+    finally { close?.(); transport?.close(); this.setupAbort = undefined; this.pairing = undefined; this.schedulePublish(); }
+  }
+
+  private async resumeRoute(saved: SavedEnvironment): Promise<void> {
+    if (saved.managed?.ssh) {
+      const tunnel = new ManagedSshTunnel(saved.managed.ssh); this.routes.set(saved.id, tunnel);
+      await tunnel.start();
+    } else if (saved.managed?.connect) {
+      const bridge = new ConnectClientBridge(saved.managed.connect); this.routes.set(saved.id, bridge);
+      await bridge.start();
+    } else if (saved.managed?.wsl && this.options.wsl) {
+      const url = await this.options.wsl.resume(saved.managed.wsl);
+      await this.catalog?.update(saved.id, { endpoints: [{ url }], lastUrl: url });
+    }
+  }
+
+  private async pairDirect(input: EnvironmentPairInput, managed?: ManagedRoute): Promise<EnvironmentPairResult> {
     if (!this.catalog) throw new Error("The machine list is not ready yet.");
     if (!this.catalog.secure) return { state: "failed", message: "This machine offers Tau no encrypted storage (no keychain or secret service), so it cannot keep another machine's key." };
     const nearby = input.nearby ? this.nearby.get(input.nearby) : undefined;
@@ -237,6 +316,11 @@ export class WindowEnvironments {
       ...(withAgents ? { companion: agentsDeviceName(deviceName) } : {}),
     });
     if (result.state !== "approved") return result;
+    if (managed) {
+      const endpoint = parsePairingPayload(input.text ?? "")?.endpoints[0];
+      if (!endpoint) return { state: "failed", message: "The managed connection has no address." };
+      result.environment = { ...result.environment, managed, endpoints: [endpoint], lastUrl: endpoint.url };
+    }
     if (result.environment.id === this.options.local.id) {
       return { state: "failed", message: "That address is this machine; its threads are listed already." };
     }
@@ -318,6 +402,7 @@ export class WindowEnvironments {
 
   cancelPairing(): void {
     this.pairingAbort?.abort();
+    this.setupAbort?.abort();
   }
 
   async rename(id: string, name: string): Promise<boolean> {
@@ -331,6 +416,7 @@ export class WindowEnvironments {
     if (!this.catalog?.get(id)) return false;
     this.watched.get(id)?.monitor.close();
     this.watched.delete(id);
+    this.routes.get(id)?.close(); this.routes.delete(id);
     await this.catalog.remove(id);
     // Its agents' key goes with it; the other machine lists both devices until its owner revokes them.
     await this.options.agents?.remove(id).catch((error: unknown) => this.options.logger.warn("environment.agents.remove-failed", { id, error: error instanceof Error ? error.message : String(error) }));
@@ -492,6 +578,67 @@ export class WindowEnvironments {
    * window's connection there: the window's key could change things, so the
    * command must be one that machine lists as `access: "read"`.
    */
+  /** Forwards an explicit write over the window's authenticated connection.
+   * Both the origin method and the destination command enforce write access. */
+  async invokeExtension(machine: string, extensionId: string, command: string, input?: unknown, options?: { timeoutMs?: number }): Promise<unknown> {
+    const { watched } = this.reachable(machine);
+    return watched.monitor.call("host-extension", [extensionId, command, input], Math.min(options?.timeoutMs ?? 30_000, 600_000));
+  }
+
+  followExtension(machine: string, extensionId: string, on: boolean): void {
+    const id = this.resolveMachine(machine);
+    if (!id) throw new Error("Tau does not know that machine.");
+    const interests = this.extensionInterest.get(id) ?? new Map<string, number>();
+    const count = Math.max(0, (interests.get(extensionId) ?? 0) + (on ? 1 : -1));
+    if (count > 0) interests.set(extensionId, count);
+    else interests.delete(extensionId);
+    if (interests.size > 0) this.extensionInterest.set(id, interests);
+    else this.extensionInterest.delete(id);
+  }
+
+  /**
+   * The person's preferences as the window's own machine keeps them, over the
+   * window's connection there; with a patch, written there first. A page that
+   * shows another machine reads them here, so it looks as this one does.
+   */
+  async personPreferences(patch?: PersonPreferences): Promise<PersonPreferences> {
+    const { watched } = this.reachable(this.options.local.id);
+    const config = patch
+      ? await watched.monitor.call<unknown>("update-config", [personPreferences(patch), "global"])
+      : await watched.monitor.call<unknown>("get-config", []);
+    return personPreferences(config);
+  }
+
+  /**
+   * A machine's own settings (K170), read and written at its machine level
+   * over the window's connection there. Its host decides with the window's
+   * key, so a Read-only pairing reads but is refused a change.
+   */
+  async configLayers(machine: string): Promise<ConfigLayers> {
+    const { id, watched } = this.reachable(machine);
+    return this.settingsCall(id, () => watched.monitor.call<ConfigLayers>("get-config-layers", []));
+  }
+
+  async updateConfig(machine: string, patch: Record<string, unknown>): Promise<unknown> {
+    const { id, watched } = this.reachable(machine);
+    return this.settingsCall(id, () => watched.monitor.call("update-config", [patch, "global"]));
+  }
+
+  async clearConfig(machine: string, keys: readonly string[]): Promise<unknown> {
+    const { id, watched } = this.reachable(machine);
+    return this.settingsCall(id, () => watched.monitor.call("clear-config", [keys, "global"]));
+  }
+
+  private async settingsCall<T>(id: string, call: () => Promise<T>): Promise<T> {
+    try {
+      return await call();
+    } catch (error) {
+      if ((error as { code?: unknown } | null)?.code !== HOST_ERROR.unknownMethod) throw error;
+      const name = this.machineName(id);
+      throw Object.assign(new Error(`${name} runs an older Tau that cannot share its settings yet. Update ${name} in Settings → Machines.`, { cause: error }), { code: HOST_ERROR.unknownMethod });
+    }
+  }
+
   async readExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown> {
     const { id, watched } = this.reachable(machine);
     if (!await this.onlyReads(id, watched, extensionId, command)) {
@@ -600,9 +747,12 @@ export class WindowEnvironments {
   close(): void {
     this.closed = true;
     this.pairingAbort?.abort();
+    this.setupAbort?.abort();
     this.lookIns.close();
     for (const watched of this.watched.values()) watched.monitor.close();
     this.watched.clear();
+    this.extensionInterest.clear();
+    for (const route of this.routes.values()) route.close(); this.routes.clear();
     if (this.publishTimer) clearTimeout(this.publishTimer);
   }
 
@@ -638,6 +788,7 @@ export class WindowEnvironments {
   private async refreshAddresses(id: string, fresh: readonly PairingEndpoint[], keep: string | undefined, source: "hello" | "bonjour"): Promise<boolean> {
     const current = this.catalog?.get(id);
     if (!current) return false;
+    if (current.managed) return false;
     const endpoints = refreshEndpoints(current.endpoints, fresh, keep ?? current.lastUrl);
     if (sameEndpoints(endpoints, current.endpoints)) return false;
     await this.catalog!.update(id, { endpoints });
@@ -658,7 +809,14 @@ export class WindowEnvironments {
       ...options,
       logger: this.options.logger,
       threads: () => this.lookIns.threads(id),
-      onPush: (event) => { if (this.watched.get(id) === entry) this.lookIns.onPush(id, event); },
+      onPush: (event) => {
+        if (this.watched.get(id) !== entry) return;
+        this.lookIns.onPush(id, event);
+        const push = event as HostPushEvent;
+        if (push.type === "extension-event" && this.extensionInterest.get(id)?.has(push.extensionId)) {
+          this.options.publishExtensionEvent?.({ machine: id, extensionId: push.extensionId, name: push.name, payload: push.payload });
+        }
+      },
       onChange: (state) => {
         if (this.watched.get(id) !== entry) return;
         const reached = state.status === "connected" && entry.state.status !== "connected";

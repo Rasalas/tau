@@ -16,5 +16,7 @@ describe("AppUpdateStore", () => {
     store.set({ version: "0.8.1", install });
     expect(store.getSnapshot()?.version).toBe("0.8.1");
     expect(listener).toHaveBeenCalledTimes(2);
+    store.set({ version: "0.8.1", phase: "downloading", progress: 40, install });
+    expect(listener).toHaveBeenCalledTimes(3);
   });
 });

@@ -1,5 +1,11 @@
-import { Suspense, lazy, useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Gauge, UserRound } from "lucide-react";
 import {
+  ComposerMenuItem,
+  ComposerMenuSection,
+  type ComposerControlProps,
+  type ComposerSpeedContribution,
+  type ComposerSpeedState,
   DEFAULT_INSTANCE_ID,
   PrivateAccountText,
   SettingRow,
@@ -25,10 +31,14 @@ import {
   CODEX_HOME_VARIABLE,
   CODEX_HOST_EXTENSION_ID,
   INSTANCES_EVENT,
+  MANAGED_CODEX_EVENT,
   MIN_CODEX_VERSION,
+  type ChatGPTPlanSummary,
   type CodexInstanceView,
   type CodexInstancesReport,
   type CodexStatusReport,
+  type CodexThreadSettings,
+  type ManagedCodexState,
 } from "./protocol.js";
 
 const TERMINAL_HOST_EXTENSION_ID = "tau.terminal";
@@ -47,6 +57,21 @@ const SignIn = lazy(() => loadSignInUi().then((module) => ({ default: module.Sig
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** "Downloading Codex 0.160.0… 45% (61 of 135 MB)" while Tau fetches its pinned release. */
+export function managedProgressLabel(state: ManagedCodexState): string {
+  if (state.phase === "extracting") return `Unpacking Codex ${state.version}…`;
+  if (state.phase === "failed") return `Tau could not fetch Codex ${state.version}. ${state.error ?? ""}`.trim();
+  if (state.phase === "installed") return `Codex ${state.version} is ready.`;
+  const total = state.totalBytes ?? 0;
+  const done = state.downloadedBytes ?? 0;
+  const mb = (bytes: number) => Math.round(bytes / (1024 * 1024));
+  return total > 0 ? `Downloading Codex ${state.version}… ${Math.floor((done / total) * 100)}% (${mb(done)} of ${mb(total)} MB)` : `Downloading Codex ${state.version}…`;
+}
+
+function isManagedState(value: unknown): value is ManagedCodexState {
+  return Boolean(value && typeof value === "object" && typeof (value as ManagedCodexState).phase === "string" && typeof (value as ManagedCodexState).version === "string");
 }
 
 /** The workbench's actions where a Settings card is drawn inside it; a test renders none. */
@@ -114,12 +139,13 @@ export interface CodexProviderCardProps extends SettingsPageProps {
  * it is current and a version Tau works with, who it is signed in as, where
  * Tau finds it and how the instance is set up. The default instance's card
  * adds another instance. A plan connection uses Tau’s managed binary and
- * protected credentials; CLI connections use the user’s installation.
+ * the credentials Tau keeps; CLI connections use the user’s installation.
  */
 export function CodexProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_ID, instances, terminal, runner }: CodexProviderCardProps) {
   const [status, setStatus] = useState<CodexStatusReport>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [install, setInstall] = useState<ManagedCodexState>();
   const actions = useShellActions();
   const report = useSyncExternalStore(instances?.subscribe ?? noSubscription, () => instances?.snapshot ?? EMPTY_REPORT);
   const isDefault = instance === DEFAULT_INSTANCE_ID;
@@ -130,7 +156,9 @@ export function CodexProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_
     setBusy(true);
     setError(undefined);
     try {
-      setStatus(await host.invoke("status", { fresh, ...(instance === DEFAULT_INSTANCE_ID ? {} : { instance }) }) as CodexStatusReport);
+      const next = await host.invoke("status", { fresh, ...(instance === DEFAULT_INSTANCE_ID ? {} : { instance }) }) as CodexStatusReport;
+      setStatus(next);
+      setInstall(next.managedInstall);
     } catch (failure) {
       setError(errorMessage(failure));
     } finally {
@@ -139,6 +167,18 @@ export function CodexProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_
   }, [host, instance]);
 
   useEffect(() => { void read(false); }, [read]);
+  // One download serves every instance; a card shows it only while its instance waits for it.
+  useEffect(() => host.onEvent(MANAGED_CODEX_EVENT, (payload) => {
+    if (!isManagedState(payload)) return;
+    if (payload.phase === "installed") { setInstall(undefined); void read(true); }
+    else setInstall((held) => held || (status?.chatgptPlan && !status.commandSource) || status?.managedInstall ? payload : held);
+  }), [host, read, status]);
+
+  const installManaged = () => {
+    setBusy(true);
+    setError(undefined);
+    void host.invoke("managed-codex-install", scope).then(() => read(true)).catch((failure) => { setError(errorMessage(failure)); setBusy(false); });
+  };
 
   const saveCommand = async (command: string) => {
     setError(undefined);
@@ -212,9 +252,13 @@ export function CodexProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_
         onNotify={onNotify}
         onReport={(next) => { if (next.flow?.phase === "succeeded") void read(false); }}
       />
-      {status?.chatgptPlan?.needsInstall ? (
+      {install && install.phase !== "failed" ? (
+        <SettingRow id={`${rows.program}-managed`} title="Managed Codex" description="Tau fetches the Codex release this version of Tau is tested with. Threads of this instance start once it is ready."
+          status={<p role="status">{managedProgressLabel(install)}</p>} />
+      ) : status?.chatgptPlan?.needsInstall || install?.phase === "failed" ? (
         <SettingRow id={`${rows.program}-managed`} title="Managed Codex" description="Install or repair the Codex release tested with this Tau version."
-          control={<button type="button" className="settings-button" disabled={busy} onClick={() => { setBusy(true); void host.invoke("managed-codex-install", scope).then(() => read(true)).catch((failure) => { setError(errorMessage(failure)); setBusy(false); }); }}>Install managed Codex</button>} />
+          {...(install?.phase === "failed" ? { status: <p role="alert">{managedProgressLabel(install)}</p> } : {})}
+          control={<button type="button" className="settings-button" disabled={busy} onClick={installManaged}>{install?.phase === "failed" ? "Try again" : "Install managed Codex"}</button>} />
       ) : null}
       {status?.chatgptPlan ? (
         <SettingRow id={`${rows.account}-usage`} title={status.chatgptPlan.signedIn ? "Using ChatGPT plan" : "ChatGPT account"}
@@ -239,6 +283,7 @@ export function CodexProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_
         placeholder="codex, from your login shell's PATH"
         onSave={saveCommand}
       />
+      <SettingRow title="Separate CLI account" description={<>CLI accounts sharing <code>CODEX_HOME</code> use <code>TAU_CODEX_AUTH_HOME</code> with a different fresh folder in this instance's environment below. Managed ChatGPT accounts can share the same explicitly configured home below while Tau keeps their credentials private. Configure shared homes before starting threads, then switch accounts from the composer menu.</>} />
       {view ? (
         <InstanceSetup
           program="Codex"
@@ -283,22 +328,145 @@ const dismissedBanners = new Set<string>();
 export function createChatGPTPlanBanner(host: HostExtensionClient) {
   return function ChatGPTPlanBanner({ snapshot, actions }: RegionProps) {
     const kind = snapshot?.backendKind;
-    const [plan, setPlan] = useState<CodexStatusReport["chatgptPlan"]>();
+    const threadId = snapshot?.sessionId;
+    const [plan, setPlan] = useState<ChatGPTPlanSummary>();
     const [limited, setLimited] = useState(false);
+    const [install, setInstall] = useState<ManagedCodexState>();
     useEffect(() => {
       let active = true;
       setPlan(undefined);
       setLimited(false);
+      setInstall(undefined);
       if (!isRuntimeInstanceOf(kind, CODEX_BACKEND_KIND)) return;
-      const read = () => void host.invoke("chatgpt-plan-account", { instance: runtimeInstanceId(kind!) }).then((value) => { if (active) setPlan(value as CodexStatusReport["chatgptPlan"]); }).catch(() => undefined);
+      let account = runtimeInstanceId(kind!);
+      let request = 0;
+      const read = () => {
+        const current = ++request;
+        void host.invoke("chatgpt-plan-account", { instance: runtimeInstanceId(kind!), ...(threadId ? { threadId } : {}) }).then((value) => {
+          if (!active || current !== request) return;
+          const summary = value as ChatGPTPlanSummary | undefined;
+          account = summary?.instance ?? runtimeInstanceId(kind!);
+          setPlan(summary);
+        }).catch(() => undefined);
+      };
       read();
       const stop = host.onEvent("sign-in", read);
-      const stopLimits = host.onEvent("chatgpt-plan-limit", (value) => { if ((value as { instance?: string })?.instance === runtimeInstanceId(kind!)) setLimited(true); });
-      return () => { active = false; stop(); stopLimits(); };
-    }, [kind]);
+      const stopSettings = host.onEvent("thread-settings", (value) => {
+        if ((value as { threadId?: string })?.threadId !== threadId) return;
+        setLimited(false);
+        read();
+      });
+      const stopLimits = host.onEvent("chatgpt-plan-limit", (value) => { if ((value as { instance?: string })?.instance === account) setLimited(true); });
+      const stopInstall = host.onEvent(MANAGED_CODEX_EVENT, (value) => {
+        if (!isManagedState(value) || !active) return;
+        setInstall(value.phase === "installed" ? undefined : value);
+        if (value.phase === "installed") read();
+      });
+      return () => { active = false; stop(); stopSettings(); stopLimits(); stopInstall(); };
+    }, [kind, threadId]);
     useEffect(() => { if (snapshot?.isStreaming) setLimited(false); }, [snapshot?.isStreaming]);
     if (!plan?.signedIn) return null;
-    return <div className="runtime-version-banner"><div className="runtime-version-banner-body"><strong>Using ChatGPT plan · <PrivateAccountText text={plan.label} /></strong>{limited ? <p>ChatGPT plan usage is unavailable. Review your app limits and credits in ChatGPT.</p> : null}<div className="runtime-version-banner-actions"><button type="button" onClick={() => actions.openExternal(plan.usageUrl)}>Manage usage</button></div></div></div>;
+    return <div className="runtime-version-banner"><div className="runtime-version-banner-body"><strong>Using ChatGPT plan · <PrivateAccountText text={plan.label} /></strong>{install ? <p role="status">{managedProgressLabel(install)}</p> : null}{limited ? <p>ChatGPT plan usage is unavailable. Review your app limits and credits in ChatGPT.</p> : null}<div className="runtime-version-banner-actions"><button type="button" onClick={() => actions.openExternal(plan.usageUrl)}>Manage usage</button></div></div></div>;
+  };
+}
+
+/** The tier the thinking chip calls Fast: Codex's `fast`, else the first that says it is faster. */
+export const fastTier = (settings: CodexThreadSettings | undefined) => settings?.serviceTier.choices.find((tier) => tier.id === "fast")
+  ?? settings?.serviceTier.choices.find((tier) => /fast|priority/iu.test(tier.name));
+
+/** Fast for Codex threads, drawn by core in the thinking chip (K142); a draft has none until its thread runs. */
+export function createCodexSpeed(host: HostExtensionClient): ComposerSpeedContribution {
+  let asked: string | undefined;
+  let threadId: string | undefined;
+  let held: ComposerSpeedState | undefined;
+  let stopEvents: (() => void) | undefined;
+  const listeners = new Set<() => void>();
+  const publish = (settings: CodexThreadSettings | undefined) => {
+    const tier = fastTier(settings);
+    held = tier
+      ? { fast: settings!.serviceTier.selected === tier.id, available: true, ...(tier.description ? { detail: tier.description } : {}) }
+      : { fast: false, available: false, reason: settings ? "This account and model offer no Fast tier on Codex" : "Codex sets Fast once the thread runs" };
+    for (const listener of listeners) listener();
+  };
+  const read = () => {
+    const asking = threadId;
+    if (!asking) { publish(undefined); return; }
+    void host.invoke("thread-settings", { threadId: asking }).then((value) => { if (asking === threadId) publish(value as CodexThreadSettings); }, () => { if (asking === threadId) publish(undefined); });
+  };
+  return {
+    id: "codex.speed",
+    profiles: ["desktop", "web", "compact"],
+    read(snapshot) {
+      if (!isRuntimeInstanceOf(snapshot?.backendKind, CODEX_BACKEND_KIND)) return undefined;
+      const key = `${snapshot?.sessionId}|${snapshot?.model?.id}`;
+      if (key !== asked) { asked = key; threadId = snapshot?.sessionId; read(); }
+      return held;
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      stopEvents ??= host.onEvent("thread-settings", read);
+      return () => {
+        listeners.delete(listener);
+        if (listeners.size === 0) { stopEvents?.(); stopEvents = undefined; }
+      };
+    },
+    async set(fast, snapshot) {
+      const id = snapshot?.sessionId;
+      const tier = fastTier(await host.invoke("thread-settings", { threadId: id }) as CodexThreadSettings);
+      publish(await host.invoke("set-thread-tier", { threadId: id, tier: fast && tier ? tier.id : null }) as CodexThreadSettings);
+    },
+  };
+}
+
+export function createThreadSettingsControl(host: HostExtensionClient) {
+  return function CodexThreadSettingsControl({ snapshot, actions }: ComposerControlProps) {
+    const [state, setState] = useState<CodexThreadSettings>();
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string>();
+    const threadId = snapshot?.sessionId;
+    const currentThread = useRef(threadId);
+    currentThread.current = threadId;
+    const isCodex = isRuntimeInstanceOf(snapshot?.backendKind, CODEX_BACKEND_KIND);
+    useEffect(() => {
+      let active = true;
+      setState(undefined);
+      setBusy(false);
+      setError(undefined);
+      if (!isCodex || !threadId) return;
+      const read = () => void host.invoke("thread-settings", { threadId }).then((value) => {
+        if (active) { setState(value as CodexThreadSettings); setError(undefined); }
+      }).catch((failure) => { if (active) setError(errorMessage(failure)); });
+      read();
+      const stop = host.onEvent("thread-settings", read);
+      const stopInstances = host.onEvent(INSTANCES_EVENT, read);
+      const stopLogin = host.onEvent("sign-in", read);
+      return () => { active = false; stop(); stopInstances(); stopLogin(); };
+    }, [isCodex, threadId, snapshot?.model?.id, snapshot?.isStreaming]);
+    if (!isCodex || !threadId) return null;
+    const change = async (command: string, input: Record<string, unknown>) => {
+      setBusy(true);
+      setError(undefined);
+      try {
+        const value = await host.invoke(command, { threadId, ...input }) as CodexThreadSettings;
+        if (currentThread.current === threadId) setState(value);
+      }
+      catch (failure) { const message = errorMessage(failure); if (currentThread.current === threadId) setError(message); actions?.notify(message); }
+      finally { if (currentThread.current === threadId) setBusy(false); }
+    };
+    const disabled = busy || Boolean(snapshot?.isStreaming);
+    // Fast is the thinking chip's; the menu keeps any other tier.
+    const fast = fastTier(state);
+    const tiers = state?.serviceTier.choices.filter((tier) => tier !== fast && tier.id !== "default") ?? [];
+    return <>
+      <ComposerMenuSection heading="Codex account">
+        {state?.accounts.map((account) => <ComposerMenuItem key={account.id} icon={<UserRound size={13} />} label={account.label} selected={account.id === state.account} disabled={disabled || Boolean(account.reason)} disabledReason={account.reason ?? "Wait for Codex to finish"} onSelect={() => void change("switch-thread-account", { account: account.id })} />)}
+        {error ? <div role="alert">{error}</div> : null}
+      </ComposerMenuSection>
+      {state && tiers.length ? <ComposerMenuSection heading="Codex service tier">
+        <ComposerMenuItem icon={<Gauge size={13} />} label="Provider default" detail={state.serviceTier.choices.find((tier) => tier.id === state.serviceTier.defaultTier)?.name} selected={state.serviceTier.selected === null} disabled={disabled} disabledReason="Wait for Codex to finish" onSelect={() => void change("set-thread-tier", { tier: null })} />
+        {tiers.map((tier) => <ComposerMenuItem key={tier.id} icon={<Gauge size={13} />} label={tier.name} detail={tier.description} selected={state.serviceTier.selected === tier.id} disabled={disabled} disabledReason="Wait for Codex to finish" onSelect={() => void change("set-thread-tier", { tier: tier.id })} />)}
+      </ComposerMenuSection> : null}
+    </>;
   };
 }
 
@@ -371,6 +539,8 @@ export const codexExtension: DesktopExtension = {
   id: CODEX_HOST_EXTENSION_ID,
   name: "Codex",
   activate(plugin) {
+    plugin.registerComposerControl({ id: "codex.thread-settings", placement: "menu", order: 21, profiles: ["desktop", "web", "compact"], Component: createThreadSettingsControl(plugin.host) });
+    plugin.registerComposerSpeed(createCodexSpeed(plugin.host));
     const instances = new CodexInstances();
     const terminal = () => plugin.hostExtension(TERMINAL_HOST_EXTENSION_ID);
     const cards = new Map<string, { label: string; dispose: () => void }>();

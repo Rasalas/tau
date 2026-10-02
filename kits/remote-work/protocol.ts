@@ -173,6 +173,14 @@ export interface RemoteRepoCommands {
 
 /** Kits that may drive transfers on this machine (ADR 0020): threads on another machine, and the handoff to one. */
 export const TRANSFER_CALLERS = ["tau.agents", "tau.handoff"] as const;
+
+/**
+ * `{ workspaces: string[] }` (ids or paths of projects this host admitted) →
+ * `{ [workspace]: key | null }`: each one's repository identity (`identity.ts`),
+ * null where it has none. Read only, so another machine's window may ask.
+ */
+export const PROJECT_IDENTITIES_COMMAND = "project-identities";
+export const MAX_PROJECT_IDENTITIES = 50;
 /** Review Kit's Reviews page lists threads whose work came back, and merges or asks them (`threads`, `preview`, `thread-send`, `thread-settle`). */
 export const REVIEW_CALLERS = [...TRANSFER_CALLERS, "tau.review"] as const;
 

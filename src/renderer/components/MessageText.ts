@@ -37,3 +37,5 @@ export function copyableMessage(message: UiMessage): UiMessage {
   const text = visibleUserMessageText(message.text);
   return text === message.text ? message : { ...message, text };
 }
+
+export { parseAsyncActivity, startsTurn, type AsyncActivity } from "../../shared/message-turns";

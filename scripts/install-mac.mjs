@@ -8,16 +8,20 @@
 // repository existed falls back to `gh`, which must be logged in to the
 // private repository that kept those releases.
 //
+// --local builds this checkout as Tau Dev instead: its own app
+// (/Applications/Tau Dev.app, de.tbuck.tau.dev) with its own data, ports and
+// ~/.tau-dev, beside the released Tau and never over it, and without updates.
+//
 //   npm run install:mac                 # latest release
 //   npm run install:mac -- --version v0.1.1
 //   npm run install:mac -- --open       # launch afterwards
-//   npm run install:mac -- --local      # build this checkout and install that
+//   npm run install:mac -- --local      # build this checkout as Tau Dev and install that
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createWriteStream, mkdtempSync, readdirSync, renameSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { RELEASE_PUBLIC_KEYS, parseReleaseInfo, verifySignature } from "../bin/tau-update-helper.mjs";
@@ -27,8 +31,17 @@ export const RELEASES = "Rasalas/tau-releases";
 /** Releases before tau-releases existed stayed here when the source repository went public. */
 export const PRIVATE_REPO = "Rasalas/tau-private";
 export const MAC_FEED = "latest-mac.yml";
-export const APP_NAME = "Tau.app";
+/** The released app's names; `--local` reads Tau Dev's from the app identity module it just built. */
+export const RELEASED_APP = { productName: "Tau", appId: "de.tbuck.tau", cliName: "tau" };
+export const APP_NAME = `${RELEASED_APP.productName}.app`;
 export const INSTALL_DIR = "/Applications";
+export const USAGE = `npm run install:mac -- [--version <tag> | --local] [--open]
+
+  (none)           the latest release, to /Applications/Tau.app
+  --version <tag>  that release instead
+  --local          this checkout, built as Tau Dev, to /Applications/Tau Dev.app:
+                   its own data, ports and ~/.tau-dev, no updates; Tau.app stays
+  --open           launch the app afterwards`;
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 export function parseArgs(argv) {
@@ -48,16 +61,41 @@ export function parseArgs(argv) {
   return options;
 }
 
-/** Where `electron-builder --dir` leaves the app for an architecture. */
-export function localAppPath(arch) {
-  if (arch === "arm64") return join("release", "mac-arm64", APP_NAME);
-  if (arch === "x64") return join("release", "mac", APP_NAME);
+/** electron-builder for this checkout as Tau Dev on one architecture; `--dir` writes no update feed either. */
+export function localBuildArgs(arch) {
+  if (arch !== "arm64" && arch !== "x64") throw new Error(`Unsupported architecture: ${arch}`);
+  return ["electron-builder", "-c", "tooling/electron-builder.dev.mjs", "--mac", "--dir", `--${arch}`, "--publish", "never"];
+}
+
+/** Where electron-builder leaves Tau Dev for an architecture (`directories.output` of the dev config). */
+export function localAppPath(arch, productName) {
+  if (arch === "arm64") return join("release", "dev", "mac-arm64", `${productName}.app`);
+  if (arch === "x64") return join("release", "dev", "mac", `${productName}.app`);
   throw new Error(`Unsupported architecture: ${arch}`);
+}
+
+/** Where a local build goes; never over the released app. */
+export function localInstallTarget(identity) {
+  const target = join(INSTALL_DIR, `${identity.productName}.app`);
+  if (identity.appId === RELEASED_APP.appId || target === join(INSTALL_DIR, APP_NAME)) {
+    throw new Error(`A local build must not replace ${join(INSTALL_DIR, APP_NAME)}.`);
+  }
+  return target;
+}
+
+/** AppleScript that quits the app with this bundle id, and only if it runs. */
+export function quitScript(appId) {
+  return `if application id "${appId}" is running then tell application id "${appId}" to quit`;
 }
 
 /** The release's .dmg for an architecture: `Tau-1.2.3-arm64.dmg` on Apple silicon, `Tau-1.2.3.dmg` on Intel. */
 export function dmgPattern(arch) {
   return arch === "arm64" ? "Tau-*-arm64.dmg" : "Tau-[0-9]*.dmg";
+}
+
+/** Where the updater reads the release feed inside a bundle. */
+export function updateFeedPath(app) {
+  return join(app, "Contents", "Resources", "app-update.yml");
 }
 
 /** The command line inside an installed bundle; `asarUnpack` keeps it a real file. */
@@ -152,34 +190,39 @@ async function download(options, arch, workDir) {
   return { tag, dmg: join(workDir, pickDmg(readdirSync(workDir), arch)) };
 }
 
-/** Copies an app bundle into /Applications, quitting a running copy first. */
-function installApp(source, label, open) {
-  const target = join(INSTALL_DIR, APP_NAME);
-  // A running copy is quit first; copying over a live bundle leaves a half-updated app.
-  spawnSync("osascript", ["-e", 'tell application "Tau" to quit'], { stdio: "ignore" });
+/** Copies an app bundle into /Applications, quitting a running copy of that same app first. */
+function installApp(source, label, open, app = RELEASED_APP, target = join(INSTALL_DIR, APP_NAME)) {
+  // Copying over a live bundle leaves a half-updated app; by bundle id, so Tau Dev never quits Tau.
+  spawnSync("osascript", ["-e", quitScript(app.appId)], { stdio: "ignore" });
   if (existsSync(target)) rmSync(target, { recursive: true, force: true });
   run("cp", ["-R", source, target], { quiet: true });
   // Gatekeeper blocks an unsigned download; the attribute is the "came from the internet" mark.
   spawnSync("xattr", ["-dr", "com.apple.quarantine", target], { stdio: "ignore" });
   console.log(`Installed ${label} to ${target}`);
   // Nothing is put on the PATH unasked; this says how (README: "Open a folder from a terminal").
-  console.log(`For \`tau app <path>\` in a terminal: ln -s "${cliPath(target)}" ~/.local/bin/tau`);
+  console.log(`For \`${app.cliName} app <path>\` in a terminal: ln -s "${cliPath(target)}" ~/.local/bin/${app.cliName}`);
   if (open) run("open", ["-a", target], { quiet: true });
 }
 
-/** Builds this checkout for this Mac's architecture, unpacked, and installs the result. */
-function installLocal(arch, open) {
-  const source = join(ROOT, localAppPath(arch));
+/** Builds this checkout as Tau Dev for this Mac's architecture and installs it beside Tau. */
+async function installLocal(arch, open) {
   run("npm", ["run", "build"], { cwd: ROOT });
-  run("npx", ["electron-builder", "-c", "tooling/electron-builder.yml", "--mac", `--${arch}`, "--dir", "--publish", "never"], { cwd: ROOT });
+  const { APP_IDENTITIES } = await import(pathToFileURL(join(ROOT, "dist-electron", "main", "app-identity.js")).href);
+  const identity = APP_IDENTITIES.dev;
+  const source = join(ROOT, localAppPath(arch, identity.productName));
+  const target = localInstallTarget(identity);
+  run("npx", localBuildArgs(arch), { cwd: ROOT });
   if (!existsSync(source)) throw new Error(`electron-builder left no ${source}`);
-  installApp(source, "this checkout's build", open);
+  if (existsSync(updateFeedPath(source))) throw new Error(`${source} carries an update feed; a local build must not update itself.`);
+  const bundleId = run("plutil", ["-extract", "CFBundleIdentifier", "raw", join(source, "Contents", "Info.plist")], { quiet: true }).trim();
+  if (bundleId !== identity.appId) throw new Error(`${source} is ${bundleId}, not ${identity.appId}; nothing was installed.`);
+  installApp(source, "this checkout's build", open, identity, target);
 }
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
-    console.log("npm run install:mac -- [--version <tag> | --local] [--open]");
+    console.log(USAGE);
     return;
   }
   if (process.platform !== "darwin") throw new Error("install:mac runs on macOS only.");

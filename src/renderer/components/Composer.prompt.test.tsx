@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionUiPrompt, HostSnapshot } from "../../shared/contracts";
@@ -84,15 +84,16 @@ describe("prompt controls in the composer", () => {
         />
       </TestProviders>
     );
-    const approval: ExtensionUiPrompt = { id: "approve", sessionId: "session", kind: "select", title: "Run it?", options: ["Allow", "Deny"] };
-    const { rerender } = render(view(approval));
+    const choice: ExtensionUiPrompt = { id: "choose", sessionId: "session", kind: "select", title: "Which colour?", options: ["Red", "Blue"] };
+    const { rerender } = render(view(choice));
     const attach = async (name: string) => {
       fireEvent.change(screen.getByLabelText("Choose attachment files"), { target: { files: [new File([new Uint8Array([137, 80, 78, 71])], name, { type: "image/png" })] } });
       await screen.findByRole("button", { name: `Preview ${name}` });
     };
     await attach("shot.png");
     // A pick among fixed choices takes no files; an image alone does not answer it.
-    expect((screen.getByRole("button", { name: "Send answer" }) as HTMLButtonElement).disabled).toBe(true);
+    // The card's Answer and the composer's send button both wait for a pick.
+    expect(screen.getAllByRole("button", { name: "Answer" }).map((button) => (button as HTMLButtonElement).disabled)).toEqual([true, true]);
     expect(screen.getByText("Or type an answer below")).toBeTruthy();
 
     rerender(view({ id: "why", sessionId: "session", kind: "input", title: "Why?" }));
@@ -193,7 +194,10 @@ describe("prompt controls in the composer", () => {
       await vi.advanceTimersByTimeAsync(1600);
       await waitFor(() => expect(field.value).toBe(""));
       expect(screen.getByText(/draft is set aside/u)).toBeTruthy();
+      // A pick fills the radio; Answer sends it (design 1c).
       fireEvent.click(screen.getByRole("button", { name: /B$/u }));
+      expect(onAnswerPrompt).not.toHaveBeenCalled();
+      fireEvent.click(within(screen.getByRole("region", { name: "Question" })).getByRole("button", { name: "Answer" }));
       expect(onAnswerPrompt).toHaveBeenCalledWith("B", undefined);
 
       rerender(view());
@@ -236,6 +240,38 @@ describe("prompt controls in the composer", () => {
 
     rerender(view());
     await waitFor(() => expect(field.value).toBe("left here earlier\nbecause"));
+  });
+
+  it("allows a permission on ⌘↵ in the empty composer, never on Enter or from the send button", () => {
+    const onAnswerPrompt = vi.fn();
+    render(
+      <TestProviders>
+        <Composer
+          scopeStore={new ComposerScopeStore()}
+          snapshot={snapshot}
+          prompt={{ id: "permission", sessionId: "session", kind: "confirm", title: "Wants to edit", message: "src/a.ts" }}
+          queue={[]}
+          contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
+          textareaRef={createRef<HTMLTextAreaElement>()}
+          onSubmit={vi.fn(async () => ({ accepted: true as const }))}
+          onAbort={() => {}}
+          onCancelQueued={() => {}}
+          onSteerQueued={() => {}}
+          onSetModel={() => {}}
+          onSetThinking={() => {}}
+          onAnswerPrompt={onAnswerPrompt}
+          onCompactContext={() => {}}
+        />
+      </TestProviders>,
+    );
+
+    const send = screen.getByRole("button", { name: "Send answer" }) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    const textarea = screen.getByPlaceholderText(/Answer in text/u);
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onAnswerPrompt).not.toHaveBeenCalled();
+    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
+    expect(onAnswerPrompt).toHaveBeenCalledWith(true, undefined);
   });
 
   it("submits registered prompt actions from the composer button and on Enter", () => {

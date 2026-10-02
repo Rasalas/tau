@@ -28,7 +28,7 @@ and a **Review** button in the thread header that fills the composer with a revi
 
 <!-- include: examples/review-button/desktop.tsx -->
 
-`title-bar` is the end of the thread header. The [package reference](../EXTENSIONS.md#1-what-a-package-is) lists every other place a kit can draw and the hooks it can use; [Your first package](../EXTENSIONS.md#your-first-package) covers what a kit usually needs next: the thread's branch, a host half that isn't running, and bad input.
+[The tutorial](../kit-tutorial.md) takes one kit through these steps and a real edit. `title-bar` is the end of the thread header. The [package reference](../EXTENSIONS.md#1-what-a-package-is) lists every other place a kit can draw and the hooks it can use; [Your first package](../EXTENSIONS.md#your-first-package) covers what a kit usually needs next: the thread's branch, a host half that isn't running, and bad input.
 
 ## Change Tau itself
 

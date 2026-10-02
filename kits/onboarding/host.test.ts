@@ -23,13 +23,13 @@ function backendKit(id: string, sessions: unknown[], grant = true): HostExtensio
       context.registerCommand("import-sessions", (input) => {
         const paths = (input as { paths: string[] }).paths;
         imported.push(paths);
-        return { imported: paths.filter((path) => !path.includes("old")), skipped: paths.filter((path) => path.includes("old")).length, failed: [], update: { type: "thread-index" } };
+        return { imported: paths.filter((path) => !path.includes("old")), skipped: paths.filter((path) => path.includes("old")).length, failed: [], update: { type: "thread-index" }, active: paths.filter((path) => path.includes("open")) };
       }, options);
     },
   };
 }
 
-async function harness(options: { piSessions?: Array<{ sessionId: string; path: string; cwd: string }>; grantCodex?: boolean; claudeSessions?: (root: string) => Promise<unknown[]> } = {}) {
+async function harness(options: { piSessions?: Array<{ sessionId: string; path: string; cwd: string }>; grantCodex?: boolean; claudeSessions?: (root: string) => Promise<unknown[]>; withRail?: boolean } = {}) {
   const root = await mkdtemp(join(tmpdir(), "tau-onboarding-"));
   directories.push(root);
   const alpha = join(root, "alpha");
@@ -52,11 +52,20 @@ async function harness(options: { piSessions?: Array<{ sessionId: string; path: 
     { path: "/h/gone.jsonl", sessionId: "g", cwd: join(root, "gone"), title: "Gone", updatedAt: 300, imported: false },
     { broken: true },
   ]);
+  const settled: string[][] = [];
+  const rail: HostExtension = {
+    id: "tau.thread-rail",
+    name: "Thread Rail",
+    activate(context) {
+      context.registerCommand("settle-imported", (input) => { settled.push((input as { threadIds: string[] }).threadIds); return { settled: 0 }; }, { callers: ["tau.onboarding"] });
+    },
+  };
+  if (options.withRail !== false) await registry.activate(rail);
   const codex = backendKit("tau.codex", [{ path: "/h/b.jsonl", sessionId: "b", cwd: alpha, title: "Flag", updatedAt: 100, imported: true }], options.grantCodex ?? true);
   await registry.activate(claude);
   await registry.activate(codex);
   const invoke = <T>(command: string, input?: unknown) => registry.invoke("tau.onboarding", command, input) as Promise<T>;
-  return { root, alpha, invoke, events, claude, codex };
+  return { root, alpha, invoke, events, claude, codex, settled };
 }
 
 describe("Onboarding host half", () => {
@@ -134,6 +143,17 @@ describe("Onboarding host half", () => {
       { source: "claude-code", done: 12, total: 12 },
     ]);
     await expect(invoke("import-sessions", { source: "pi", paths })).rejects.toThrow("needs a source");
+  });
+
+  it("settles what a batch imported, except the sessions their source marks as open", async () => {
+    const { invoke, settled } = await harness();
+    await invoke("import-sessions", { source: "claude-code", paths: ["/h/new-1.jsonl", "/h/old-2.jsonl", "/h/open-3.jsonl"] });
+    expect(settled).toEqual([["/h/new-1.jsonl"]]);
+  });
+
+  it("imports even where there is no Thread Rail to settle the threads", async () => {
+    const { invoke } = await harness({ withRail: false });
+    await expect(invoke("import-sessions", { source: "claude-code", paths: ["/h/new-1.jsonl"] })).resolves.toMatchObject({ imported: 1 });
   });
 
   it("admits a found folder as a workspace, and refuses one that is not there", async () => {

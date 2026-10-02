@@ -19,6 +19,7 @@ import {
   type PreferencesStore,
   type RegionProps,
   type SettingsPageProps,
+  type SettingsSectionProps,
   type UiSession,
   type WorkbenchActions,
 } from "tau";
@@ -81,8 +82,8 @@ function createFanOutChip(selection: FanOutSelection, workspace: () => Workspace
     const store = workspace();
     const draftPending = useSyncExternalStore(store?.subscribe ?? noSubscription, () => store?.getSnapshot().draftPending ?? true);
     const [open, setOpen] = useState(false);
-    if (keys.length < 2 || !draftPending) return null;
-    const name = (key: string) => snapshot?.models.find((model) => modelKey(model) === key)?.name ?? key;
+    if (keys.length === 0 || !draftPending) return null;
+    const name = (key: string) => snapshot?.models.find((model) => modelKey(model) === key.split("::").at(-1))?.name ?? key;
     return (
       <span className="menu-anchor">
         <button type="button" className="runtime-chip thread-rail-fanout" title="One thread and worktree per model" onClick={() => setOpen(true)}>
@@ -203,6 +204,22 @@ function createSettingsPage(store: RailStore, preferences: PreferencesStore, upd
   };
 }
 
+/** General's Threads card (design 2i): the rules as one switch, worded as they stand; the Thread rail page has each. */
+function createSettleRow(store: RailStore, update: (settings: Partial<Record<keyof RailSettings, unknown>>) => Promise<void>) {
+  return function SettleAutomatically({ onNotify }: SettingsSectionProps) {
+    useSyncExternalStore(store.subscribe, store.getVersion);
+    const { settings } = store.getState();
+    const days = settings.inactiveDays;
+    const on = settings.onMerged || days !== undefined;
+    return (
+      <SettingRow id="setting-settle-automatically" title="Settle automatically" wholeMachine description={on ? `after a merge, or ${daysLabel(days ?? 7)} idle` : undefined}
+        control={<Switch label="Settle automatically" checked={on} onChange={(next) => {
+          update(next ? { onMerged: true, inactiveDays: days ?? 7 } : { onMerged: false, onClosed: false, inactiveDays: null }).catch((error: unknown) => onNotify(errorMessage(error)));
+        }} />} />
+    );
+  };
+}
+
 /**
  * Core kept pins and the settled shelf in each client's preferences, and its
  * own surfaces (the title menu, Settle thread, a prompt into a settled
@@ -258,49 +275,60 @@ async function claimNewThread(
   workspace: WorkspaceStoreSlice | undefined,
 ): Promise<boolean> {
   const models = selection.selected();
-  const fanOut = models.length > 1;
+  const fanOut = models.length > 0;
   if (!fanOut && !event.alternate) return false;
-  if (event.runtime !== "pi") {
-    actions.notify("Background and multi-model starts run on Pi; this one went out as a normal thread.");
-    return false;
-  }
-  if (event.attachments > 0) {
-    actions.notify("A thread started off screen takes text only; this one went out as a normal thread.");
-    return false;
-  }
-  const start = (cwd: string, model?: { provider: string; id: string }, siblingGroupId?: string) =>
-    context.host.invoke("start", { cwd, prompt: event.prompt, ...(model ? { model } : {}), ...(siblingGroupId ? { siblingGroupId } : {}) });
+  if (event.attachments !== (event.promptAttachments?.length ?? 0)) throw new Error("The attached files were not available. Retry this draft.");
+  const start = (cwd: string, model: { provider: string; id: string } | undefined, backend: string, siblingGroupId?: string) =>
+    context.host.invoke("start", { cwd, prompt: event.prompt, backend, attachments: event.promptAttachments ?? [], skillDraft: event.skillDraft,
+      ...(backend === event.runtime ? { thinkingLevel: event.thinkingLevel, mode: event.mode } : {}),
+      ...(model ? { model } : {}), ...(siblingGroupId ? { siblingGroupId } : {}) });
   if (!fanOut) {
     const prepared = await workspace?.prepareThreadWorktree({ prompt: event.prompt, preparing: event.preparing });
-    await start(prepared?.workspace?.displayPath ?? event.projectPath, event.model);
+    try {
+      await start(prepared?.workspace?.displayPath ?? event.projectPath, event.model, event.runtime);
+    } catch (error) {
+      if (prepared?.workspace) await workspace?.removeWorktree?.(prepared.workspace.displayPath);
+      throw error;
+    }
     actions.notify(`Started in the background: ${firstLine(event.prompt)}`);
     return true;
   }
   if (!workspace?.getSnapshot().workspace?.isRepo) {
-    actions.notify("One prompt to several models needs a Git project, one worktree per model; this one went out to a single model.");
-    selection.reset();
-    return false;
+    throw new Error("One prompt to several models needs a Git project, one worktree per model.");
   }
-  const group = randomId();
+  const attempt = selection.attempt(JSON.stringify([event.projectPath, event.prompt, event.skillDraft]), randomId);
+  const group = attempt.group;
   let started = 0;
-  for (const [index, key] of models.entries()) {
-    const model = parseModelKey(key);
-    // One after another: each worktree is a Git operation on the same repository.
-    // oxlint-disable-next-line no-await-in-loop
-    const prepared = await workspace.prepareThreadWorktree({ prompt: event.prompt, preparing: event.preparing, force: true, branchSuffix: String(index + 1) });
-    if (!prepared.workspace) continue;
+  const failed: string[] = [];
+  for (const key of models) {
+    const split = key.indexOf("::");
+    const backend = split < 0 ? event.runtime : key.slice(0, split);
+    const model = parseModelKey(split < 0 ? key : key.slice(split + 2));
+    let prepared: Awaited<ReturnType<WorkspaceStoreSlice["prepareThreadWorktree"]>> | undefined;
     try {
+      // Worktree creation serializes Git operations in the same repository.
       // oxlint-disable-next-line no-await-in-loop
-      await start(prepared.workspace.displayPath, model, group);
+      prepared = await workspace.prepareThreadWorktree({ prompt: event.prompt, preparing: event.preparing, force: true, baseCommit: attempt.baseCommit, branchSuffix: `${group}-${++attempt.nextOrdinal}` });
+      attempt.baseCommit ??= prepared.baseCommit;
+      if (!prepared.workspace) throw new Error("The worktree could not be created.");
+      // oxlint-disable-next-line no-await-in-loop
+      await start(prepared.workspace.displayPath, model, backend, group);
       started += 1;
     } catch (error) {
+      failed.push(key);
+      if (prepared?.workspace) {
+        // oxlint-disable-next-line no-await-in-loop
+        await workspace.removeWorktree?.(prepared.workspace.displayPath);
+      }
       actions.notify(`${key}: ${errorMessage(error)}`);
     }
   }
-  selection.reset();
-  actions.notify(started === models.length
+  selection.retain(failed);
+  const message = started === models.length
     ? `Started ${started} threads from one prompt, one worktree each.`
-    : `Started ${started} of ${models.length} threads; the rest could not get a worktree.`);
+    : `Started ${started} of ${models.length} threads. The draft keeps the targets that failed.`;
+  actions.notify(message);
+  if (failed.length) throw new Error(message);
   return true;
 }
 
@@ -440,6 +468,8 @@ export const threadRailExtension: DesktopExtension = {
         rows: THREAD_RAIL_ROWS,
         Component: createSettingsPage(store, context.preferences, async (settings) => { store.set(await context.host.invoke("settings", settings)); }),
       }),
+      context.registerSettingsSection({ id: "thread-rail.settle", page: "general", card: "threads", order: 10, profiles: ["desktop"],
+        Component: createSettleRow(store, async (settings) => { store.set(await context.host.invoke("settings", settings)); }) }),
       context.registerCommand({ id: "thread.pin", label: "Pin or unpin thread", group: "Thread", access: "write", run: (app) => withActive(app, organizer.togglePin) }),
       context.registerCommand({ id: "thread.settle", label: "Settle or un-settle thread", group: "Thread", access: "write", run: (app) => withActive(app, (threadId) => organizer.toggleSettledById(threadId, app)) }),
       context.registerCommand({
@@ -515,6 +545,16 @@ export const threadRailExtension: DesktopExtension = {
       context.registerKeybinding({ keys: "mod+alt+arrowdown", commandId: "thread.next" }),
       context.registerKeybinding({ keys: "mod+alt+arrowup", commandId: "thread.prev" }),
     ];
+    // The thread menu, on the title as on the row; `?.`: a core before API 1.37.0 keeps its own.
+    const stopMenu = context.registerThreadMenu?.({ id: "thread-rail.menu", menu: organizer.menu, run: (session, itemId, app) => organizer.runMenu(session, itemId, app) });
+    if (stopMenu) disposers.push(stopMenu);
+    // The menu's items the palette has no other command for, on the open thread.
+    for (const [item, label, access] of [
+      ["move-up", "Move thread up", "write"], ["move-down", "Move thread down", "write"], ["mark-unread", "Mark thread unread", "read"],
+      ["copy-path", "Copy thread path", "read"], ["copy-thread-id", "Copy thread ID", "read"], ["filter-project", "Filter the rail by the thread's project", "read"],
+    ] as const) {
+      disposers.push(context.registerCommand({ id: `thread.${item}`, label, group: "Thread", access, run: (app) => withActiveSession(app, async (session) => organizer.runMenu(session, item, app)) }));
+    }
     // The open model picker answers the same digits with its own jumps.
     for (let position = 1; position <= 9; position += 1) {
       const id = `thread.jump-${position}`;

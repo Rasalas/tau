@@ -4,6 +4,7 @@ import { Markdown, type WorkbenchActions } from "tau";
 import { providerInfo, type PullRequestDetail } from "./protocol.js";
 import { buildTimeline, relativeTime, shortNoun, type TimelineItem } from "./pull-request-logic.js";
 import { verdictWord } from "./pull-request-parts.js";
+import { githubHtml } from "./github-html.js";
 
 function Conversation({ item, actions }: { item: Extract<TimelineItem, { kind: "conversation" }>; actions: WorkbenchActions }) {
   const [open, setOpen] = useState(false);
@@ -22,7 +23,7 @@ function Conversation({ item, actions }: { item: Extract<TimelineItem, { kind: "
               <strong>{comment.author.login}</strong> {verdictWord(comment)}{" "}
               {comment.url ? <button className="pr-time" onClick={() => actions.openExternal(comment.url!)}>{relativeTime(comment.createdAt)}</button> : <span className="pr-time">{relativeTime(comment.createdAt)}</span>}
             </p>
-            {comment.body.trim() ? <div className="pr-comment-body"><Markdown>{comment.body}</Markdown></div> : null}
+            {comment.body.trim() ? <div className="pr-comment-body"><Markdown html={githubHtml}>{comment.body}</Markdown></div> : null}
           </article>
         )) : null}
       </div>
@@ -60,7 +61,7 @@ export function PullRequestTimeline({ detail, oldestFirst, actions }: { detail: 
                 <span className="pr-event-mark" aria-hidden="true">{approved ? <CircleCheck size={12} /> : <CircleX size={12} />}</span>
                 <div className="pr-event-body">
                   <span className="pr-event-line"><strong>{item.comment.author.login}</strong> <span className="pr-verb">{verdictWord(item.comment)}</span> <span className="pr-time">{relativeTime(item.at)}</span></span>
-                  {item.comment.body.trim() ? <div className="pr-comment-body"><Markdown>{item.comment.body}</Markdown></div> : null}
+                  {item.comment.body.trim() ? <div className="pr-comment-body"><Markdown html={githubHtml}>{item.comment.body}</Markdown></div> : null}
                 </div>
               </li>
             );

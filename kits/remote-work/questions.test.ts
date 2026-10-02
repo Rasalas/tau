@@ -18,20 +18,21 @@ const link = (patch: Partial<RemoteThreadLink> = {}): RemoteThreadLink => ({
 });
 const waiting = (question: string) => link({ status: "waiting", there: { thread: "t9", state: "waiting", turns: 0, question, updatedAt: 2, epoch: "e", revision: 3 } });
 
-function setup(focused = false) {
+function setup(focused = false, connectedAgents?: (machine: string) => Promise<boolean>) {
   const toasts: ToastOptions[] = [];
   const dismissed: string[] = [];
   const openThread = vi.fn();
   const actions = {
     toast: (options: ToastOptions) => { toasts.push(options); return { id: options.id!, update: vi.fn(), dismiss: () => dismissed.push(options.id!) }; },
     openThread,
+    switchSession: vi.fn(async () => true),
     notify: vi.fn(),
   } as unknown as WorkbenchActions;
   let clicked: (outcome: "clicked" | "dismissed") => void = () => undefined;
   const attention = { notify: vi.fn(() => new Promise((resolve) => { clicked = resolve; })), setBadge: vi.fn() } as unknown as PlatformAttention;
   const environments = { open: vi.fn(async () => undefined), watchThread: vi.fn() } as unknown as PlatformEnvironments;
-  const notices = new QuestionNotices({ actions: () => actions, attention: () => attention, environments: () => environments, focused: () => focused });
-  return { notices, toasts, dismissed, openThread, attention, environments, click: (outcome: "clicked" | "dismissed") => clicked(outcome) };
+  const notices = new QuestionNotices({ actions: () => actions, attention: () => attention, environments: () => environments, ...(connectedAgents ? { connectedAgents } : {}), focused: () => focused });
+  return { notices, toasts, dismissed, openThread, attention, environments, actions, click: (outcome: "clicked" | "dismissed") => clicked(outcome) };
 }
 
 describe("a question a thread asks on another machine", () => {
@@ -69,5 +70,30 @@ describe("a question a thread asks on another machine", () => {
     notices.update(link({ id: "link-2", status: "waiting", there: { thread: "t8", state: "waiting", turns: 1, question: "Proceed?", updatedAt: 1, epoch: "e", revision: 1 } }));
     expect(toasts).toHaveLength(1);
     expect(attention.notify).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("question navigation with an agents connection", () => {
+  it("opens toast and notification clicks as proxy threads, preserving remote separators", async () => {
+    const connectedAgents = vi.fn(async () => true);
+    const { notices, toasts, environments, actions, click } = setup(false, connectedAgents);
+    const remote = waiting("Which colour?");
+    remote.thread = "saved~thread";
+    notices.update(remote);
+    toasts[0]!.actions![0]!.run();
+    await vi.waitFor(() => expect(actions.switchSession).toHaveBeenCalledWith("tau-thread:machine:host-rex~saved~thread"));
+    expect(connectedAgents).toHaveBeenCalledWith("host-rex");
+    expect(environments.open).not.toHaveBeenCalled();
+    click("clicked");
+    await vi.waitFor(() => expect(actions.switchSession).toHaveBeenCalledTimes(2));
+    expect(environments.open).not.toHaveBeenCalled();
+  });
+
+  it("keeps the moving-window fallback when the agents connection is absent", async () => {
+    const { notices, environments, actions } = setup(true, async () => false);
+    await notices.openThere(link());
+    expect(environments.open).toHaveBeenCalledWith("host-rex", { threadId: "t9" });
+    expect(actions.switchSession).not.toHaveBeenCalled();
   });
 });

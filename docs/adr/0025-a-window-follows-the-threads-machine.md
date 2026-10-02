@@ -2,7 +2,12 @@
 
 ## Status
 
-Accepted, 2026-09-24. Amends [ADR 0021](0021-host-runs-in-its-own-process.md),
+Accepted, 2026-09-24. Partly superseded by
+[ADR 0030](0030-the-workbench-controls-every-machine.md) (2026-10-01): a
+workbench keeps threads of connected agents machines in one list and stays on
+its own host. This ADR's catalog, pairing, address selection and window
+navigation remain for machines this computer's agents may not reach, and for
+explicit `tau machines open` commands. Amends [ADR 0021](0021-host-runs-in-its-own-process.md),
 where a window is the client of exactly one host for its whole life. Builds on
 [ADR 0024](0024-pairing-allowed-on-the-host.md) for pairing.
 
@@ -219,9 +224,27 @@ two ways, so it keeps no standing connection to the hosts it does not show:
   host replays; only a gap the host cannot replay costs a `bootstrap`. The
   link stays open 20 s for a kit's read (`readExtension`), then closes, and
   every link closes when the app goes to the background.
+- **Busy hosts are visited more often.** While the app is in front and a host
+  the phone does not show has a thread that runs or waits for an answer (as
+  far as the last visit saw), the next visit comes after 30 s instead of two
+  minutes; once the visits find nothing running or asking, the interval goes
+  back to two minutes. In the background there are no visits at all. 30 s
+  with the 20 s linger keeps a link open about two thirds of the time only
+  while there is work to watch, and a quiet host costs one short visit every
+  two minutes.
 - **Reloads.** Every machine switch reloads the app, so what each visit found
-  (threads, running ones, the last sequence, reached or not) is kept per host
-  and shown at once on the next page.
+  (threads, running ones, open questions, the last sequence, reached or not)
+  is kept per host and shown at once on the next page.
+
+Questions count as host-wide pushes (`extension-ui-prompt`,
+`extension-ui-resolved`), so a visit replays them like the run state, and a
+thread asking there shows as "Question" in the phone's list. A visit that
+takes a `bootstrap` also asks for the open set (`sync-extension-ui`), because
+the snapshot does not carry questions; the host re-announces them to its
+clients, which drop repeats. The list's search looks at every thread the
+visits kept (up to 80 per host); the hosts have no search method, so it
+matches titles, projects and branches on the phone.
 
 So on a phone "connected" means "reached at the last visit", and a host's
-running threads are as current as that visit. The shown host is live.
+running threads are as current as that visit (30 s while something runs
+there). The shown host is live.

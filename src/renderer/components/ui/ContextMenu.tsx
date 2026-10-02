@@ -8,21 +8,25 @@ import { Menu } from "../../deferred-surfaces";
 /** The sections a `Menu` draws, as the entries an OS menu takes. */
 export function nativeMenuEntries(sections: readonly MenuSection[]): NativeMenuEntry[] {
   const out: NativeMenuEntry[] = [];
-  sections.forEach((section, index) => {
-    if (section.items.length === 0 && !section.heading) return;
-    if (index > 0 && out.length > 0) out.push({ type: "separator" });
+  for (const section of sections) {
+    if (!section.items.length && !section.heading) continue;
+    if (out.length) out.push({ type: "separator" });
     if (section.heading) out.push({ type: "heading", label: section.heading });
     for (const item of section.items) {
       out.push({
         type: "item",
         id: item.id,
-        label: item.badge ? `${item.label} (${item.badge})` : item.label,
-        ...(item.disabled ? { enabled: false } : {}),
-        ...(item.selected ? { checked: true } : {}),
-        ...(item.submenu ? { submenu: nativeMenuEntries(item.submenu) } : {}),
+        label: item.label,
+        badge: item.badge,
+        // A lucide icon's component carries its name; the OS draws it from that.
+        icon: (item.icon as { type?: { displayName?: string } } | undefined)?.type?.displayName,
+        hint: item.hint,
+        enabled: !item.disabled,
+        checked: item.selected,
+        submenu: item.submenu && nativeMenuEntries(item.submenu),
       });
     }
-  });
+  }
   return out;
 }
 
@@ -55,7 +59,7 @@ export function ContextMenuLayer() {
     key={`${current.point.x}:${current.point.y}`}
     at={current.point}
     sections={current.sections}
-    onSelect={(id) => settle(id)}
+    onSelect={settle}
     onClose={() => settle(undefined)}
   />;
 }
@@ -69,7 +73,7 @@ interface ContextMenuEvent {
 
 /** Where a menu opened from the keyboard (Shift-F10, the menu key) goes: under the element, not at 0,0. */
 function pointOf(event: ContextMenuEvent): MenuPoint {
-  if ((event.clientX !== 0 || event.clientY !== 0) || !(event.currentTarget instanceof Element)) return { x: event.clientX, y: event.clientY };
+  if (event.clientX || event.clientY || !(event.currentTarget instanceof Element)) return { x: event.clientX, y: event.clientY };
   const rect = event.currentTarget.getBoundingClientRect();
   return { x: rect.left + 8, y: rect.bottom };
 }
@@ -78,12 +82,10 @@ function pointOf(event: ContextMenuEvent): MenuPoint {
 export async function openContextMenu(platform: Platform, event: ContextMenuEvent, sections: MenuSection[]): Promise<string | undefined> {
   event.preventDefault?.();
   const point = pointOf(event);
-  if (platform.contextMenu) {
-    try {
-      return await platform.contextMenu.show(nativeMenuEntries(sections), point);
-    } catch {
-      // Refused (a window without menus, a host that answers for none): the page draws it.
-    }
+  try {
+    return await platform.contextMenu!.show(nativeMenuEntries(sections), point);
+  } catch {
+    // No OS menu here, or it refused (a window without menus, a host that answers for none): the page draws it.
   }
   return new Promise((resolve) => publish({ point, sections, resolve }));
 }

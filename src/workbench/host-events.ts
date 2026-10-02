@@ -1,5 +1,5 @@
 import type { WindowShellEvent } from "../shared/window-shell";
-import type { ExtensionUiAnswer, HostEvent, PackageBuildError, ThreadIndexSnapshot, UiMessage } from "../shared/contracts";
+import type { AppUpdatePhase, ExtensionUiAnswer, HostEvent, PackageBuildError, ThreadIndexSnapshot, UiMessage } from "../shared/contracts";
 
 /** What a package change says beyond which packages moved. */
 export interface PackagesChangeReport {
@@ -72,8 +72,8 @@ export interface HostEventTargets {
    */
   /** What the host reported with the change: host halves that did not compile, packages waiting for approval. */
   syncDesktopExtensions(only?: readonly string[], report?: PackagesChangeReport): void;
-  /** A downloaded Tau waiting for a restart. */
-  setUpdateReady(version: string): void;
+  /** A downloaded Tau waiting for a restart; `phase` follows a Restart until the quit. */
+  setUpdateReady(version: string, phase?: AppUpdatePhase, progress?: number): void;
   /** A Pi extension retitled the window; the page title is what the OS shows for it. */
   setWindowTitle?(title: string): void;
   /** The window's own process: its menu, the quit shortcut, a quit waiting for an answer. */
@@ -132,7 +132,7 @@ export function applyHostEvent(event: HostEvent, targets: HostEventTargets): voi
       );
       return;
     case "app-update":
-      targets.setUpdateReady(event.version);
+      targets.setUpdateReady(event.version, event.phase, event.progress);
       return;
     // The machine's own Tau; `update-store` follows it on the connection itself.
     case "update-status":

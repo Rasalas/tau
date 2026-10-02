@@ -86,6 +86,46 @@ async function hello(port: number, token: string, lastSeq?: number, profile?: st
 }
 
 describe("socket host transport", () => {
+  it("sends remote topic relays to their subscribed client only and never replays them to another connection", async () => {
+    const pushLog = new HostPushLog();
+    const relays = new Map<string, (event: HostPushEvent) => void>();
+    const detached = vi.fn();
+    transport = await startSocketHostTransport({
+      listen: "127.0.0.1:0", methods, pushLog, hostVersion: "test", capabilities: [], token: TOKEN,
+      onTopicsSubscribed: (connection, topics, emit) => { if (topics.includes("tau.terminal/output/s1")) relays.set(connection, emit); },
+      onClientDetached: detached,
+    });
+    const first = await hello(transport.port, TOKEN);
+    await first.frame;
+    const second = await hello(transport.port, TOKEN);
+    await second.frame;
+    const subscribed = nextFrame(first.socket);
+    first.socket.send(JSON.stringify({ type: "request", request: { id: "s", method: "subscribe", params: [{ threads: [], topics: ["tau.terminal/output/s1"] }] } }));
+    expect((await subscribed).type).toBe("response");
+    const firstPush = nextFrame(first.socket);
+    const secondPush = nextFrame(second.socket);
+    const remote: HostPushEvent = { type: "extension-event", extensionId: "tau.terminal", name: "data", topic: "output/s1", payload: { id: "s1", data: "rex", offset: 3 } };
+    expect(relays.size).toBe(1);
+    [...relays.values()][0]!(remote);
+    expect(await firstPush).toMatchObject({ type: "push", push: { seq: 1, event: remote } });
+    const shared: HostPushEvent = { type: "event-log", label: "shared", timestamp: 0 };
+    transport.deliver(pushLog.record(shared));
+    expect(await secondPush).toMatchObject({ type: "push", push: { seq: 2, prev: 0, event: shared } });
+    const reconnected = await hello(transport.port, TOKEN, 0);
+    const reply = await reconnected.frame;
+    expect(reply).toMatchObject({ type: "hello-reply", reply: { resync: false, missed: [{ seq: 2, event: shared }], nextSeq: 3 } });
+    // A reconnect with only private pushes after its cursor must keep a compatible prev link.
+    [...relays.values()][0]!(remote);
+    const legacy = await hello(transport.port, TOKEN, 2);
+    await legacy.frame;
+    const legacyPush = nextFrame(legacy.socket);
+    transport.deliver(pushLog.record(shared));
+    expect(await legacyPush).toMatchObject({ type: "push", push: { seq: 4, prev: 2, event: shared } });
+    first.socket.close();
+    await closed(first.socket);
+    await vi.waitFor(() => expect(detached).toHaveBeenCalledOnce());
+  });
+
   it("counts a client from its hello until its socket closes", async () => {
     const clients = new HostClientRegistry();
     const seen: string[] = [];
@@ -201,6 +241,50 @@ describe("socket host transport", () => {
     const reply = await again.frame;
     expect(reply.type === "hello-reply" && reply.reply.missed.map((entry) => entry.seq)).toEqual([2, 3]);
     expect(reply.type === "hello-reply" && reply.reply.resync).toBe(false);
+  });
+});
+
+describe("socket host transport and paired devices", () => {
+  it("keeps sign-in pushes from a device paired Read only, live and on replay, and follows a changed preset", async () => {
+    const access: Record<string, "full" | "read-only"> = { "reader-token": "read-only", "writer-token": "full" };
+    const connections = new Map<string, string>();
+    const pushLog = new HostPushLog();
+    transport = await startSocketHostTransport({
+      listen: "127.0.0.1:0", methods, pushLog, hostVersion: "test", capabilities: [],
+      access: {
+        authenticate: (token) => token && token in access ? { kind: "client", clientId: token } : undefined,
+        attach: (credential) => { const id = `c-${connections.size}`; connections.set(id, (credential as { clientId: string }).clientId); return id; },
+        touch: () => undefined,
+        detach: () => undefined,
+        accessOf: (connection) => access[connections.get(connection)!]!,
+      },
+    });
+    const signIn: HostPushEvent = { type: "extension-event", extensionId: "tau.codex", name: "sign-in", payload: { target: "default", flow: { flowId: "f", method: "chatgpt-plan", phase: "waiting", browser: { url: "https://auth.example/consent" } } } };
+    const other: HostPushEvent = { type: "event-log", label: "for everyone", timestamp: 0 };
+    const reader = await hello(transport.port, "reader-token");
+    const writer = await hello(transport.port, "writer-token");
+    await Promise.all([reader.frame, writer.frame]);
+    const seen = (socket: WebSocket) => {
+      const frames: HostServerFrame[] = [];
+      socket.on("message", (data) => { const frame = decodeHostServerFrame(JSON.parse(String(data)) as unknown); if (frame) frames.push(frame); });
+      return frames;
+    };
+    const readerFrames = seen(reader.socket);
+    const writerFrames = seen(writer.socket);
+    transport.deliver(pushLog.record(signIn));
+    transport.deliver(pushLog.record(other));
+    await vi.waitFor(() => expect(readerFrames).toHaveLength(1));
+    await vi.waitFor(() => expect(writerFrames).toHaveLength(2));
+    expect(readerFrames[0]).toMatchObject({ type: "push", push: { seq: 2, prev: 0, event: { type: "event-log" } } });
+
+    const replay = await hello(transport.port, "reader-token", 0);
+    const reply = await replay.frame;
+    expect(reply.type === "hello-reply" && reply.reply.missed.map((push) => push.event.type)).toEqual(["event-log"]);
+
+    access["reader-token"] = "full";
+    transport.deliver(pushLog.record(signIn));
+    await vi.waitFor(() => expect(readerFrames).toHaveLength(2));
+    expect(readerFrames[1]).toMatchObject({ type: "push", push: { event: { name: "sign-in" } } });
   });
 });
 

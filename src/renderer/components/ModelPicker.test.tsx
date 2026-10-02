@@ -1,26 +1,39 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeAll, afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import type { UiModel, UiRuntimeBackend } from "../../shared/contracts";
-import { ModelPicker, type RuntimeAction, type ThinkingChoice } from "./ModelPicker";
+import { ModelPicker, type RuntimeAction } from "./ModelPicker";
 import { PreferencesStore } from "../preferences";
 import { TestProviders } from "../test-support/test-providers";
 import { declareRuntimeMarks } from "../runtime-marks";
 import { BUNDLED_RUNTIME_MARKS } from "../test-support/runtime-marks";
 import { setHostClient } from "../host-client-context";
 import type { HostClient } from "../../workbench/host-client";
+import type { RuntimeCatalogEntry } from "../../workbench/runtime-catalog-store";
 
 beforeAll(() => declareRuntimeMarks(BUNDLED_RUNTIME_MARKS));
 afterAll(() => declareRuntimeMarks([]));
-import type { RuntimeCatalogEntry } from "../../workbench/runtime-catalog-store";
+afterEach(cleanup);
 
 const models: UiModel[] = [
   { provider: "anthropic", id: "claude-fable-5-1", name: "Claude Fable 5.1", login: "subscription" },
   { provider: "anthropic", id: "claude-opus-5", name: "Claude Opus 5" },
   { provider: "anthropic", id: "claude-opus-4-1", name: "Claude Opus 4.1" },
   { provider: "anthropic", id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5" },
-  { provider: "openai-codex", id: "gpt-5.6-sol", name: "GPT-5.6 Sol" },
+  { provider: "openai-codex", id: "gpt-5.6-sol", name: "GPT-5.6 Sol", billing: "subscription" },
+  { provider: "openai", id: "gpt-5.6-sol", name: "GPT-5.6 Sol", billing: "api-key", price: { input: 5, output: 30 } },
 ];
+const luna = { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna", billing: "subscription" as const, price: { input: 0.2, output: 1.2 }, contextWindow: 400_000 };
+const solCodex = { provider: "openai", id: "gpt-5.6-sol", name: "GPT-5.6-Sol", billing: "subscription" as const, contextWindow: 272_000 };
+const backends: UiRuntimeBackend[] = [
+  { kind: "pi", label: "Pi" },
+  { kind: "claude-code", label: "Claude Code", homeProviders: ["anthropic"] },
+  { kind: "antigravity", label: "Antigravity" },
+  { kind: "codex", label: "Codex", homeProviders: ["openai"] },
+];
+const cached = (entries: Array<[string, RuntimeCatalogEntry]>) => new Map(entries);
+const codexReady = (list: UiModel[] = [luna, solCodex]): [string, RuntimeCatalogEntry] => ["codex", { status: "ready", catalog: { kind: "codex", models: list, thinkingLevels: {} } }];
+const notInstalled: [string, RuntimeCatalogEntry] = ["claude-code", { status: "unavailable", reason: "not-installed" }];
 
 function renderPicker(options: {
   runtime?: string;
@@ -35,8 +48,8 @@ function renderPicker(options: {
   activeKey?: string;
   list?: UiModel[];
   onClose?: () => void;
-  thinking?: ThinkingChoice;
   onOpenSettings?: (kind: string, part: "runtime" | "models") => void;
+  onOpenThinking?: () => void;
 } = {}) {
   const onSelect = options.onSelect ?? vi.fn();
   render(<TestProviders preferences={options.preferences}>
@@ -46,7 +59,6 @@ function renderPicker(options: {
       onSelect={onSelect}
       onClose={options.onClose ?? (() => {})}
       anchor={{ current: null }}
-      thinking={options.thinking}
       onOpenSettings={options.onOpenSettings}
       runtime={options.runtime}
       catalogRuntime={options.catalogRuntime}
@@ -55,269 +67,128 @@ function renderPicker(options: {
       onSelectRuntime={options.onSelectRuntime}
       onNewThreadOnRuntime={options.onNewThreadOnRuntime}
       runtimeActions={options.runtimeActions}
+      thinkingSummary="High · 1M"
+      onOpenThinking={options.onOpenThinking}
     />
   </TestProviders>);
   return onSelect;
 }
 
-const backends = [
-  { kind: "pi", label: "Pi" },
-  { kind: "claude-code", label: "Claude Code" },
-  { kind: "antigravity", label: "Antigravity" },
-];
-
-afterEach(cleanup);
-
-const codexBackends = [...backends, { kind: "codex", label: "Codex" }];
-const luna = { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna", billing: "subscription" as const, price: { input: 0.2, output: 1.2 }, contextWindow: 400_000 };
-const cached = (entries: Array<[string, RuntimeCatalogEntry]>) => new Map(entries);
-const codexReady = (list: UiModel[] = [luna]): [string, RuntimeCatalogEntry] => ["codex", { status: "ready", catalog: { kind: "codex", models: list, thinkingLevels: { "gpt-5.6-luna": ["low", "medium", "high"] } } }];
 const search = () => screen.getByRole("combobox", { name: "Search models" });
-const runtimeButton = (label: string) => screen.getByRole("button", { name: new RegExp(`^${label},`, "u") });
+const rail = () => within(screen.getByRole("navigation", { name: "Providers" })).getAllByRole("button").map((button) => button.getAttribute("aria-label"));
+const railButton = (label: string) => within(screen.getByRole("navigation", { name: "Providers" })).getByRole("button", { name: new RegExp(`^${label}`, "u") });
 const optionNames = () => screen.queryAllByRole("option").map((option) => option.getAttribute("aria-label"));
-const detail = () => document.querySelector(".model-detail")?.textContent ?? "";
-const providerGroup = () => screen.getByRole("group", { name: "Pi providers" });
+const ways = () => [...screen.getByRole("radiogroup", { name: /^Runs with/u }).querySelectorAll("button")].map((button) => `${button.getAttribute("aria-label")}${button.getAttribute("aria-checked") === "true" ? " ✓" : ""}${(button as HTMLButtonElement).disabled ? " (off)" : ""}`);
+const note = () => document.querySelector(".model-ways-note")?.textContent ?? "";
 
-describe("ModelPicker", () => {
-  it("lists runtimes on the left with their state, and another runtime's models from the host's cache", () => {
-    const onSelectRuntime = vi.fn();
+describe("ModelPicker (K142 B: model first)", () => {
+  it("lists who made the models on the rail, each model once, and the runtimes that list none after them", () => {
+    renderPicker({ runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady(), notInstalled]) });
+    expect(rail()).toEqual(["Favourites", "Recent", "OpenAI", "Anthropic", "Claude Code, not installed", "Antigravity, models listed once a thread runs"]);
+    fireEvent.click(railButton("OpenAI"));
+    // GPT-5.6 Sol is one row though Pi reaches it two ways and Codex a third.
+    expect(optionNames()).toEqual(["GPT-5.6 Sol, Pi, Plan", "GPT-5.6 Luna, Codex, Plan"]);
+    const sol = screen.getAllByRole("option")[0]!;
+    expect(within(sol).getAllByRole("img").map((mark) => mark.getAttribute("aria-label"))).toEqual(["Pi", "Codex"]);
+    expect(sol.textContent).toMatch(/272k · API \$5\/\$30/u);
+  });
+
+  it("offers every way to run the highlighted model under the list; Tab and the arrows pick one, Enter takes both", () => {
+    const onSelect = renderPicker({ runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady()]) });
+    fireEvent.click(railButton("OpenAI"));
+    expect(ways()).toEqual(["Pi, Plan ✓", "Pi, API key", "Codex, Plan"]);
+    expect(note()).toMatch(/^Pi via ChatGPT plan · in the plan/u);
+    const input = search();
+    input.focus();
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Pi, Plan");
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" });
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" });
+    expect(ways()).toEqual(["Pi, Plan", "Pi, API key", "Codex, Plan ✓"]);
+    expect(note()).toMatch(/^Codex \(OpenAI\) · 272k context/u);
+    fireEvent.keyDown(document.activeElement!, { key: "Enter" });
+    expect(onSelect).toHaveBeenCalledWith(solCodex, "codex");
+  });
+
+  it("keeps a running thread on its runtime: the thread's runtime stands greyed first, and a way elsewhere continues in a new thread", () => {
     const onSelect = renderPicker({
-      runtime: "pi",
-      runtimeBackends: codexBackends,
-      onSelectRuntime,
-      catalogs: cached([codexReady(), ["claude-code", { status: "unavailable", reason: "not-installed" }]]),
+      runtime: "pi", runtimeBackends: backends, catalogs: cached([codexReady()]),
+      runtimeActions: [{ id: "handoff.continue-in", label: "Continue in", run: vi.fn() }],
     });
-    const column = screen.getByRole("navigation", { name: "Runtimes" });
-    expect(within(column).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
-      "Favourites", "Pi, ready", "Claude Code, not installed", "Antigravity, models listed once a thread runs", "Codex, ready",
-    ]);
-    // One click on a runtime moves the draft there.
-    fireEvent.click(runtimeButton("Codex"));
-    expect(onSelectRuntime).toHaveBeenCalledWith("codex");
-    expect(screen.getByRole("region", { name: "Models" }).querySelector(".model-column-title")?.textContent).toBe("Codex");
-    // Context and price are no columns: the detail line says them for the row under the cursor.
-    const row = screen.getByRole("option", { name: /GPT-5.6 Luna, Codex, Plan/u });
-    expect(row.textContent).not.toMatch(/400k|\$/u);
-    fireEvent.mouseMove(row);
-    expect(detail()).toBe("gpt-5.6-luna400k contextin the planAPI ≈ $0.2/$1.2 per MTok");
-    fireEvent.click(row);
+    fireEvent.click(railButton("OpenAI"));
+    fireEvent.keyDown(search(), { key: "ArrowDown" });
+    expect(ways()).toEqual(["Pi, can't run it (off)", "Codex, Plan ✓"]);
+    expect(note()).toBe("This thread runs with Pi. ↵ continues in a new thread with Codex, carrying a summary.");
+    fireEvent.keyDown(search(), { key: "Enter" });
     expect(onSelect).toHaveBeenCalledWith(luna, "codex");
   });
 
-  it("shows a runtime's providers as marks only when it has several", () => {
-    renderPicker({ runtime: "pi", runtimeBackends: codexBackends, catalogs: cached([codexReady()]) });
-    const providers = providerGroup();
-    expect(within(providers).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["All providers (5)", "Anthropic (4)", "ChatGPT plan (1)"]);
-    fireEvent.click(within(providers).getByRole("button", { name: "ChatGPT plan (1)" }));
-    expect(optionNames()).toEqual(["GPT-5.6 Sol, Pi"]);
-    fireEvent.click(runtimeButton("Codex"));
-    expect(screen.queryByRole("group", { name: /providers/u })).toBeNull();
+  it("offers what makes a runtime of the model's maker ready: Install, Sign in (from E)", () => {
+    const onOpenSettings = vi.fn();
+    renderPicker({ runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady(), notInstalled]), onOpenSettings });
+    fireEvent.click(railButton("Anthropic"));
+    expect(ways()).toEqual(["Pi, Plan ✓", "Install Claude Code"]);
+    fireEvent.click(screen.getByRole("button", { name: "Install Claude Code" }));
+    expect(onOpenSettings).toHaveBeenCalledWith("claude-code", "runtime");
   });
 
-  it("searches every runtime at once and groups a model's offerings under it", () => {
-    renderPicker({
-      runtime: "pi",
-      runtimeBackends: codexBackends,
-      onSelectRuntime: vi.fn(),
-      list: [...models, { ...luna, provider: "openai-codex" }],
-      catalogs: cached([codexReady([luna, { ...luna, id: "gpt-5.6-sol", name: "GPT-5.6 Sol" }])]),
-    });
-    fireEvent.change(search(), { target: { value: "luna" } });
-    expect(document.querySelector(".model-group")?.textContent).toBe("GPT-5.6 Luna2");
-    expect(optionNames()).toEqual(["GPT-5.6 Luna, Pi, Plan", "GPT-5.6 Luna, Codex, Plan"]);
-    expect(screen.getByRole("region", { name: "Models" }).querySelector(".model-column-title")?.textContent).toBe("Every runtime");
+  it("searches every provider and runtime at once, one row per model", () => {
+    renderPicker({ runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady()]) });
     fireEvent.change(search(), { target: { value: "sol" } });
-    expect(optionNames()).toHaveLength(2);
+    expect(screen.getByText("Every provider · 1 match")).toBeTruthy();
+    expect(optionNames()).toEqual(["GPT-5.6 Sol, Pi, Plan"]);
+    expect(ways()).toEqual(["Pi, Plan ✓", "Pi, API key", "Codex, Plan"]);
+    // A runtime's name narrows the ways to it (Pi's ChatGPT plan goes through "openai-codex").
+    fireEvent.change(search(), { target: { value: "sol codex" } });
+    expect(ways()).toEqual(["Pi, Plan ✓", "Codex, Plan"]);
   });
 
-  it("sorts by price with every plan first, and by the API price within both groups", () => {
-    const list: UiModel[] = [
-      { provider: "openai", id: "o4-mini", name: "o4-mini", billing: "api-key", price: { input: 1.1, output: 4.4 } },
-      { provider: "openai", id: "gpt-5.6-sol", name: "GPT-5.6 Sol", billing: "subscription", price: { input: 2, output: 12 } },
-      { provider: "openai", id: "gpt-4.1-nano", name: "GPT-4.1 nano", billing: "api-key", price: { input: 0.1, output: 0.4 } },
-      { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna", billing: "subscription", price: { input: 0.2, output: 1.2 } },
-    ];
-    renderPicker({ list });
-    fireEvent.click(screen.getByRole("button", { name: "Sort and filter" }));
-    fireEvent.click(screen.getByRole("menuitemradio", { name: /Price/u }));
-    expect(optionNames()).toEqual(["GPT-5.6 Luna, Pi, Plan", "GPT-5.6 Sol, Pi, Plan", "GPT-4.1 nano, Pi, API", "o4-mini, Pi, API"]);
-    expect(screen.getByRole("button", { name: "Sort and filter (1 on)" })).toBeTruthy();
-    fireEvent.mouseMove(screen.getByRole("option", { name: "GPT-4.1 nano, Pi, API" }));
-    expect(detail()).toContain("$0.1/$0.4 per MTok");
-  });
-
-  it("shows and sorts by the user's own price in place of the catalog's", () => {
-    const list: UiModel[] = [
-      { provider: "openai", id: "o4-mini", name: "o4-mini", billing: "api-key", price: { input: 1.1, output: 4.4 } },
-      { provider: "openai", id: "gpt-4.1-nano", name: "GPT-4.1 nano", billing: "api-key", price: { input: 0.1, output: 0.4 } },
-    ];
+  it("pins a model with its way: ⌘n reaches it, Favourites lists it with that way, the row's star is the way's", () => {
     const preferences = new PreferencesStore();
-    preferences.applyConfig({ modelPrices: { "openai/o4-mini": { input: 0.01, output: 0.02 } } });
-    renderPicker({ list, preferences });
-    fireEvent.click(screen.getByRole("button", { name: "Sort and filter" }));
-    fireEvent.click(screen.getByRole("menuitemradio", { name: /Price/u }));
-    expect(optionNames()).toEqual(["o4-mini, Pi, API", "GPT-4.1 nano, Pi, API"]);
-    expect(detail()).toContain("$0.01/$0.02 per MTok (your price)");
+    preferences.toggleFavouriteModel("codex:openai/gpt-5.6-sol");
+    const onSelect = renderPicker({ preferences, runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady()]) });
+    fireEvent.click(railButton("OpenAI"));
+    // The pinned way comes first for its row.
+    expect(ways()).toEqual(["Pi, Plan", "Pi, API key", "Codex, Plan ✓"]);
+    expect(screen.getByText("⌘1")).toBeTruthy();
+    fireEvent.click(railButton("Favourites"));
+    expect(optionNames()).toEqual(["GPT-5.6 Sol, Codex, Plan"]);
+    fireEvent.keyDown(search(), { key: "1", metaKey: true });
+    expect(onSelect).toHaveBeenCalledWith(solCodex, "codex");
+    expect(preferences.getSnapshot().recentModels).toEqual(["codex:openai/gpt-5.6-sol"]);
+    fireEvent.click(railButton("Recent"));
+    expect(optionNames()).toEqual(["GPT-5.6 Sol, Codex, Plan"]);
   });
 
-  it("filters by billing and hides a model until the hidden ones are shown", () => {
+  it("lists a recent model with the thinking level it was last used with, and hands it back on a pick", () => {
     const preferences = new PreferencesStore();
-    renderPicker({ preferences });
-    fireEvent.click(screen.getByRole("button", { name: "Sort and filter" }));
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Plan" }));
-    expect(optionNames()).toEqual(["Claude Fable 5.1, Pi, Plan"]);
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Plan" }));
-    fireEvent.click(screen.getByRole("button", { name: "Hide Claude Opus 5 from the picker" }));
-    expect(preferences.getSnapshot().modelPreferences.pi).toEqual({ hidden: ["anthropic/claude-opus-5"] });
-    expect(screen.queryByText("Claude Opus 5")).toBeNull();
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: /Show hidden models/u }));
-    expect(screen.getByRole("option", { name: /^Claude Opus 5/u }).textContent).toContain("hidden");
+    preferences.noteModelUsed("openai/gpt-5.6-sol");
+    preferences.noteModelLevel("openai/gpt-5.6-sol", "high");
+    // A model that is no recent one keeps no level.
+    preferences.noteModelLevel("openai/gpt-5.6-luna", "low");
+    expect(preferences.getSnapshot().recentLevels).toEqual({ "openai/gpt-5.6-sol": "high" });
+    const onSelect = renderPicker({ preferences, runtime: "pi", onSelect: vi.fn() }) as ReturnType<typeof vi.fn>;
+    fireEvent.click(railButton("Recent"));
+    expect(screen.getByRole("option", { name: /GPT-5.6 Sol/u }).textContent).toContain("High");
+    fireEvent.click(screen.getByRole("option", { name: /GPT-5.6 Sol/u }));
+    expect(onSelect).toHaveBeenCalledWith(models[5], undefined, "high");
+    // Another rail entry hands over no level.
+    fireEvent.click(railButton("OpenAI"));
+    onSelect.mockClear();
+    fireEvent.click(screen.getByRole("option", { name: /GPT-5.6 Sol/u }));
+    expect(onSelect.mock.calls[0]).toHaveLength(1);
   });
 
-  it("shows runtimes and providers as marks only, named in their tooltips", () => {
-    renderPicker({
-      runtime: "pi",
-      runtimeBackends: [...codexBackends, { kind: "codex@work", label: "Codex · work" }],
-      onSelectRuntime: vi.fn(),
-      list: [...models, { provider: "radius", id: "r-1", name: "Radius One" }],
-      catalogs: cached([codexReady(), ["claude-code", { status: "unavailable", reason: "not-installed", message: "The CLI is not on the PATH." }]]),
-    });
-    const rail = screen.getByRole("navigation", { name: "Runtimes" });
-    const providers = providerGroup();
-    for (const column of [rail, providers]) {
-      expect(column.textContent).not.toMatch(/Favourites|Pi|Claude|Codex|Antigravity|providers|Anthropic|OpenAI|ChatGPT|radius|\d/u);
-    }
-    const tips = (column: HTMLElement) => within(column).getAllByRole("button").map((button) => button.getAttribute("data-tooltip"));
-    expect(tips(rail)).toEqual([
-      "Favourites · pinned models of every runtime", "Pi · ready · 6 models", "Claude Code · not installed\nThe CLI is not on the PATH.", "Antigravity · run this thread on it", "Codex · ready · 1 model", "Codex · work · run this thread on it",
-    ]);
-    // A second instance wears its initials on the program's mark.
-    expect(within(rail).getByRole("button", { name: /^Codex · work,/u }).querySelector(".rail-instance")?.textContent).toBe("W");
-    expect(tips(providers)).toEqual(["All providers · 6 models", "Anthropic · 4 models", "ChatGPT plan · 1 model", "radius · 1 model"]);
-    // A provider without a mark gets its monogram.
-    expect(within(providers).getByRole("button", { name: "radius (1)" }).querySelector(".provider-icon-fallback")?.textContent).toBe("R");
-    // A row names its provider by its mark, not in text.
-    const row = screen.getByRole("option", { name: /^Claude Opus 5, Pi/u });
-    expect(row.textContent).not.toContain("Anthropic");
-    expect(row.querySelector("[data-tooltip='Claude Opus 5 · Pi via Anthropic']")).toBeTruthy();
+  it("adds a badge's line after the facts under Runs with, for the way highlighted", () => {
+    const badge = { id: "test.left", applies: () => false, label: "Plan", WayLine: ({ runtime }: { runtime: string }) => <> · 65% left on {runtime}</> };
+    render(<TestProviders><ModelPicker models={models} activeKey="anthropic/claude-opus-5" onSelect={vi.fn()} onClose={() => {}} anchor={{ current: null }} badges={[badge]} /></TestProviders>);
+    expect(document.querySelector(".model-ways-note")!.textContent).toMatch(/ · 65% left on pi$/u);
+    expect(screen.queryByText("Plan", { selector: ".model-badge" })).toBeNull();
   });
 
-  it("marks the runtime and provider of an offering in search instead of naming them", () => {
-    const preferences = new PreferencesStore();
-    preferences.toggleFavouriteModel("codex:openai/gpt-5.6-luna");
-    renderPicker({
-      preferences,
-      runtime: "pi",
-      runtimeBackends: codexBackends,
-      onSelectRuntime: vi.fn(),
-      list: [...models, { ...luna, provider: "openai-codex" }],
-      catalogs: cached([codexReady([luna, { ...luna, id: "gpt-5.6-sol", name: "GPT-5.6 Sol" }])]),
-    });
-    fireEvent.change(search(), { target: { value: "luna" } });
-    const pi = screen.getByRole("option", { name: "GPT-5.6 Luna, Pi, Plan" });
-    const codex = screen.getByRole("option", { name: "GPT-5.6 Luna, Codex, Plan" });
-    for (const row of [pi, codex]) {
-      expect(row.textContent).not.toMatch(/Pi|Codex|OpenAI/u);
-    }
-    const marks = (row: HTMLElement) => [...row.querySelectorAll("[data-tooltip]")].map((mark) => mark.getAttribute("data-tooltip"));
-    expect(marks(pi)).toEqual(["GPT-5.6 Luna · Pi via ChatGPT plan"]);
-    expect(marks(codex)).toEqual(["GPT-5.6 Luna · Codex (OpenAI)"]);
-    // A list across runtimes: the access mark with the runtime's badge, or the runtime's own mark at home.
-    fireEvent.change(search(), { target: { value: "" } });
-    fireEvent.click(screen.getByRole("button", { name: "Favourites" }));
-    const favourite = screen.getByRole("option", { name: /^GPT-5.6 Luna, Codex/u });
-    expect(favourite.textContent).not.toMatch(/Codex|OpenAI/u);
-    expect(marks(favourite)).toEqual(["GPT-5.6 Luna · Codex (OpenAI)"]);
-  });
-
-  it("says each thing once: no billing badge beside the price, no counts, a dot only for a runtime that is not ready", () => {
-    renderPicker({
-      runtime: "pi",
-      runtimeBackends: codexBackends,
-      onSelectRuntime: vi.fn(),
-      catalogs: cached([codexReady(), ["claude-code", { status: "unavailable", reason: "not-installed" }]]),
-    });
-    const rail = screen.getByRole("navigation", { name: "Runtimes" });
-    expect(runtimeButton("Pi").querySelector(".runtime-dot")).toBeNull();
-    expect(runtimeButton("Claude Code").querySelector(".runtime-dot-not-installed")).toBeTruthy();
-    expect(document.querySelector(".model-picker-content")?.textContent).not.toMatch(/\d+ models? · \d+ runtimes?/u);
-    // The plan's mark says a plan pays; the row says it in no word.
-    const fable = screen.getByRole("option", { name: "Claude Fable 5.1, Pi, Plan" });
-    expect(fable.textContent).not.toContain("Plan");
-    // Across providers a row wears its provider's mark, a plan's for a plan; within one provider it needs none.
-    expect(fable.querySelector("[data-tooltip='Claude Fable 5.1 · Pi via Claude plan']")).toBeTruthy();
-    fireEvent.click(within(providerGroup()).getByRole("button", { name: "Anthropic (4)" }));
-    expect(screen.getByRole("option", { name: "Claude Fable 5.1, Pi, Plan" }).querySelector(".model-marks")).toBeNull();
-    fireEvent.click(within(rail).getByRole("button", { name: /^Codex,/u }));
-    expect(screen.getByRole("option", { name: "GPT-5.6 Luna, Codex, Plan" }).querySelector(".model-marks")).toBeNull();
-  });
-
-  it("says why a runtime lists no models instead of an empty list", () => {
-    renderPicker({
-      runtime: "pi",
-      runtimeBackends: codexBackends,
-      onSelectRuntime: vi.fn(),
-      catalogs: cached([
-        ["codex", { status: "unavailable", reason: "not-installed", message: "The Codex CLI \"codex\" is not installed." }],
-        ["claude-code", { status: "loading" }],
-      ]),
-    });
-    fireEvent.click(runtimeButton("Codex"));
-    expect(screen.getByRole("region", { name: "Codex" }).textContent).toMatch(/is not installed/u);
-    fireEvent.click(runtimeButton("Claude Code"));
-    expect(screen.getByRole("region", { name: "Claude Code" }).textContent).toMatch(/Asking Claude Code for its models/u);
-  });
-
-  it("moves a new thread to another runtime with one click on its entry", () => {
-    const onSelectRuntime = vi.fn();
-    const onSelect = renderPicker({ runtime: "pi", runtimeBackends: backends, onSelectRuntime });
-    fireEvent.click(runtimeButton("Claude Code"));
-    expect(onSelectRuntime).toHaveBeenCalledWith("claude-code");
-    expect(screen.getByRole("region", { name: "Claude Code" }).textContent).toMatch(/can run this thread/u);
-    expect(onSelect).not.toHaveBeenCalled();
-  });
-
-  it("says on a runtime's entry that its program has an update, and how to install it", () => {
-    const codex = { kind: "codex", label: "Codex", version: { tool: "codex", installed: "0.154.0", latest: "0.155.1", updateCommand: "brew upgrade --cask codex" } };
-    renderPicker({ runtime: "pi", runtimeBackends: [...backends, codex], onSelectRuntime: vi.fn(), catalogs: cached([codexReady()]) });
-    const entry = runtimeButton("Codex");
-    expect(entry.getAttribute("aria-label")).toBe("Codex, update available");
-    expect(entry.getAttribute("data-tooltip")).toBe("Codex · update available · 1 model");
-    fireEvent.click(entry);
-    expect(screen.getByRole("status").textContent).toBe("Codex 0.155.1 is out; 0.154.0 is installed. Update with brew upgrade --cask codex.");
-  });
-
-  it("opens a draft bound for another runtime on that runtime, with Pi's models a click away", () => {
-    renderPicker({ runtime: "claude-code", catalogRuntime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn() });
-    expect(screen.getByRole("region", { name: "Claude Code" }).textContent).toMatch(/starts on Claude Code with its default model/u);
-    fireEvent.click(runtimeButton("Pi"));
-    expect(screen.getByText("Claude Opus 5")).toBeTruthy();
-  });
-
-  it("offers a thread that exists a new thread on another runtime, and what kits do with one", () => {
-    const onNewThreadOnRuntime = vi.fn();
-    const run = vi.fn();
-    const onSelect = renderPicker({
-      runtime: "pi", runtimeBackends: codexBackends, onNewThreadOnRuntime,
-      runtimeActions: [{ id: "handoff.continue-in", label: "Continue in", run }],
-      catalogs: cached([codexReady()]),
-    });
-    fireEvent.click(runtimeButton("Antigravity"));
-    expect(screen.getByRole("region", { name: "Antigravity" }).textContent).toMatch(/a thread keeps the runtime it started on/u);
-    fireEvent.click(screen.getByRole("button", { name: "Continue in Antigravity" }));
-    expect(run).toHaveBeenCalledWith("antigravity");
-    cleanup();
-    renderPicker({ runtime: "pi", runtimeBackends: codexBackends, onNewThreadOnRuntime, runtimeActions: [{ id: "x", label: "Continue in", run }], catalogs: cached([codexReady()]), onSelect });
-    fireEvent.click(runtimeButton("Codex"));
-    expect(screen.getByText(/Choosing one starts a new thread on Codex; this one stays on Pi./u)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Continue in Codex" })).toBeTruthy();
-    fireEvent.click(runtimeButton("Antigravity"));
-    fireEvent.click(screen.getByRole("button", { name: "New thread on Antigravity" }));
-    expect(onNewThreadOnRuntime).toHaveBeenCalledWith("antigravity");
-  });
-
-  it("folds a runtime's legacy models behind one row and badges the newest", () => {
+  it("folds a maker's legacy models behind one row and badges the newest", () => {
     renderPicker();
+    fireEvent.click(railButton("Anthropic"));
     expect(screen.getByText("NEW")).toBeTruthy();
     expect(screen.queryByText("Claude Opus 4.1")).toBeNull();
     const fold = screen.getByRole("option", { name: /Legacy models/u });
@@ -326,56 +197,34 @@ describe("ModelPicker", () => {
     expect(screen.getByText("Claude Opus 4.1")).toBeTruthy();
   });
 
-  it("lists legacy models flat while searching, tagged", () => {
-    renderPicker();
-    fireEvent.change(search(), { target: { value: "sonnet" } });
-    expect(screen.getByText("Claude Sonnet 4.5")).toBeTruthy();
-    expect(screen.getByText("legacy")).toBeTruthy();
-    expect(screen.queryByText("Legacy models")).toBeNull();
-  });
-
-  it("reaches the n-th favourite of any runtime with ⌘n and lists favourites together", () => {
+  it("hides a model with every way to run it", () => {
     const preferences = new PreferencesStore();
-    preferences.toggleFavouriteModel("openai-codex/gpt-5.6-sol");
-    preferences.toggleFavouriteModel("codex:openai/gpt-5.6-luna");
-    const onSelect = renderPicker({ preferences, runtime: "pi", runtimeBackends: codexBackends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady()]) });
-    fireEvent.click(screen.getByRole("button", { name: "Favourites" }));
-    expect(optionNames()).toEqual(["GPT-5.6 Sol, Pi", "GPT-5.6 Luna, Codex, Plan"]);
-    expect(screen.getByText("⌘2")).toBeTruthy();
-    fireEvent.keyDown(search(), { key: "2", metaKey: true });
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "gpt-5.6-luna" }), "codex");
-    expect(preferences.getSnapshot().recentModels).toEqual(["codex:openai/gpt-5.6-luna"]);
-  });
-
-  it("moves between columns with the arrows and hands typing to the search field", () => {
-    renderPicker({ runtime: "pi", runtimeBackends: codexBackends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady()]) });
-    const input = search();
-    input.focus();
-    // Left from the field: the runtimes.
-    fireEvent.keyDown(input, { key: "ArrowLeft" });
-    expect(document.activeElement?.getAttribute("aria-label")).toBe("Pi, ready");
-    fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
-    expect(document.activeElement?.getAttribute("aria-label")).toBe("Favourites");
-    fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
-    expect(document.activeElement?.getAttribute("aria-label")).toBe("Codex, ready");
+    renderPicker({ preferences, runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady()]) });
+    fireEvent.click(railButton("OpenAI"));
+    fireEvent.click(screen.getByRole("button", { name: "Hide GPT-5.6 Sol from the picker" }));
+    expect(preferences.getSnapshot().modelPreferences.pi?.hidden).toEqual(["openai-codex/gpt-5.6-sol", "openai/gpt-5.6-sol"]);
+    expect(preferences.getSnapshot().modelPreferences.codex?.hidden).toEqual(["openai/gpt-5.6-sol"]);
     expect(optionNames()).toEqual(["GPT-5.6 Luna, Codex, Plan"]);
-    fireEvent.keyDown(document.activeElement!, { key: "l" });
-    expect(document.activeElement).toBe(input);
-    expect((input as HTMLInputElement).value).toBe("l");
   });
 
-  it("walks the list with the arrows, over group headings, and takes a row with Enter", () => {
-    const onSelect = renderPicker({ list: [{ ...luna, provider: "openai-codex" }], runtime: "pi", runtimeBackends: codexBackends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady()]) });
-    fireEvent.change(search(), { target: { value: "luna" } });
-    const input = search();
-    expect(input.getAttribute("aria-activedescendant")).toBe("model-option-1");
-    fireEvent.keyDown(input, { key: "ArrowDown" });
-    expect(input.getAttribute("aria-activedescendant")).toBe("model-option-2");
-    fireEvent.keyDown(input, { key: "ArrowDown" });
-    expect(input.getAttribute("aria-activedescendant")).toBe("model-option-1");
-    fireEvent.keyDown(input, { key: "ArrowUp" });
-    fireEvent.keyDown(input, { key: "Enter" });
-    expect(onSelect).toHaveBeenCalledWith(luna, "codex");
+  it("opens a draft bound for a runtime that lists nothing on that runtime, and moves a draft to one", () => {
+    const onSelectRuntime = vi.fn();
+    renderPicker({ runtime: "antigravity", catalogRuntime: "pi", runtimeBackends: backends, onSelectRuntime });
+    expect(screen.getByRole("region", { name: "Antigravity" }).textContent).toMatch(/starts on Antigravity with its default model/u);
+    fireEvent.click(railButton("Claude Code"));
+    expect(onSelectRuntime).toHaveBeenCalledWith("claude-code");
+  });
+
+  it("offers a thread that exists a new thread on a runtime that lists nothing, and what kits do with one", () => {
+    const onNewThreadOnRuntime = vi.fn();
+    const run = vi.fn();
+    renderPicker({ runtime: "pi", runtimeBackends: backends, onNewThreadOnRuntime, runtimeActions: [{ id: "handoff.continue-in", label: "Continue in", run }] });
+    fireEvent.click(railButton("Antigravity"));
+    expect(screen.getByRole("region", { name: "Antigravity" }).textContent).toMatch(/a thread keeps the runtime it started on/u);
+    fireEvent.click(screen.getByRole("button", { name: "Continue in Antigravity" }));
+    expect(run).toHaveBeenCalledWith("antigravity");
+    fireEvent.click(screen.getByRole("button", { name: "New thread on Antigravity" }));
+    expect(onNewThreadOnRuntime).toHaveBeenCalledWith("antigravity");
   });
 
   it("hands Shift-clicks to the model selection an extension registered, and a plain pick resets it", () => {
@@ -392,159 +241,66 @@ describe("ModelPicker", () => {
       reset: vi.fn(() => { chosen = []; listeners.forEach((listener) => listener()); }),
     };
     const onSelect = vi.fn();
-    const onClose = vi.fn();
     render(<TestProviders>
-      <ModelPicker models={models} activeKey="anthropic/claude-sonnet-4-5" onSelect={onSelect} onClose={onClose} multiSelect={selection} anchor={{ current: null }} />
+      <ModelPicker models={models} activeKey="anthropic/claude-fable-5-1" onSelect={onSelect} onClose={vi.fn()} multiSelect={selection} anchor={{ current: null }} />
     </TestProviders>);
-
     fireEvent.click(screen.getByText("Claude Opus 5"), { shiftKey: true });
-    expect(selection.toggle).toHaveBeenCalledWith(models[1], models[3]);
+    expect(selection.toggle).toHaveBeenCalledWith(models[1], models[0], "pi", "pi");
     expect(onSelect).not.toHaveBeenCalled();
-    expect(onClose).not.toHaveBeenCalled();
     expect(screen.getAllByText("added")).toHaveLength(2);
     expect(screen.getByText("2 models chosen")).toBeTruthy();
-
-    fireEvent.click(screen.getByText("Claude Opus 4.1"));
+    fireEvent.click(screen.getByText("Claude Opus 5"));
     expect(selection.reset).toHaveBeenCalled();
-    expect(onSelect).toHaveBeenCalledWith(models[2]);
-  });
-
-  it("treats a Shift-click as a plain pick when nobody keeps a model set", () => {
-    const onSelect = renderPicker();
-    fireEvent.click(screen.getByText("Claude Opus 5"), { shiftKey: true });
     expect(onSelect).toHaveBeenCalledWith(models[1]);
   });
-  describe("in three columns", () => {
-    const reasoner: UiModel = { provider: "anthropic", id: "claude-reasoner", name: "Reasoner", reasoning: true };
-    const plain: UiModel = { provider: "anthropic", id: "claude-plain", name: "Plain", reasoning: false };
-    const gpt55 = { provider: "openai", id: "gpt-5.5", name: "GPT-5.5", billing: "subscription" as const };
-    const astra = { provider: "openai", id: "gpt-6-astra", name: "GPT-6 Astra", billing: "subscription" as const };
-    const terra = { provider: "openai", id: "gpt-5.6-terra", name: "GPT-5.6 Terra", billing: "subscription" as const };
-    const codexCatalog = (): [string, RuntimeCatalogEntry] => ["codex", { status: "ready", catalog: {
-      kind: "codex", models: [luna, gpt55, astra, terra],
-      thinkingLevels: { "gpt-5.6-luna": ["low", "medium", "high"], "gpt-5.5": ["low", "medium"], "gpt-6-astra": ["low", "medium", "high", "max"], "gpt-5.6-terra": ["low"] },
-    } }];
-    const levelNames = () => within(screen.getByRole("radiogroup")).getAllByRole("radio").map((radio) => radio.textContent);
 
-    it("takes the keyboard from search to model to thinking: type, Enter, arrows, a level", async () => {
-      const onClose = vi.fn();
-      const onLevel = vi.fn();
-      const onSelect = vi.fn();
-      const picker = (activeKey: string, thinking: ThinkingChoice) => <TestProviders>
-        <ModelPicker models={[plain, reasoner]} activeKey={activeKey} thinking={thinking} onSelect={onSelect} onClose={onClose} anchor={{ current: null }} />
-      </TestProviders>;
-      const { rerender } = render(picker("anthropic/claude-plain", { levels: ["off"], level: "off", onSelect: onLevel }));
-      const input = search();
-      input.focus();
-      fireEvent.change(input, { target: { value: "reas" } });
-      expect(optionNames()).toEqual(["Reasoner, Pi"]);
-      fireEvent.keyDown(input, { key: "Enter" });
-      expect(onSelect).toHaveBeenCalledWith(reasoner);
-      // A level is still to choose: the picker stays, and the focus moves to the third column once the thread reports the levels.
-      expect(onClose).not.toHaveBeenCalled();
-      rerender(picker("anthropic/claude-reasoner", { levels: ["off", "low", "medium", "high"], level: "medium", onSelect: onLevel }));
-      await waitFor(() => expect(document.activeElement?.getAttribute("role")).toBe("radio"));
-      expect(screen.getByRole("radiogroup", { name: "Thinking for Reasoner" })).toBeTruthy();
-      fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
-      fireEvent.keyDown(document.activeElement!, { key: "ArrowLeft" });
-      expect(document.activeElement).toBe(input);
-      // Right from the end of the field: the third column again.
-      fireEvent.keyDown(input, { key: "ArrowRight" });
-      expect(document.activeElement?.getAttribute("role")).toBe("radio");
-      fireEvent.click(document.activeElement!);
-      expect(onLevel).toHaveBeenCalled();
-      expect(onClose).toHaveBeenCalledOnce();
-    });
-
-    it("closes on a model with nothing left to choose", () => {
-      const onClose = vi.fn();
-      const onSelect = renderPicker({ list: [plain, reasoner], activeKey: "anthropic/claude-reasoner", onClose, thinking: { levels: ["low", "medium", "high"], level: "medium", onSelect: vi.fn() } });
-      fireEvent.click(screen.getByRole("option", { name: "Plain, Pi" }));
-      expect(onSelect).toHaveBeenCalledWith(plain);
-      expect(onClose).toHaveBeenCalledOnce();
-    });
-
-    it("shows the thinking levels of each model, the chosen one's before the thread reports it", () => {
-      const onLevel = vi.fn();
-      const onClose = vi.fn();
-      const onSelect = renderPicker({
-        runtime: "codex", catalogRuntime: "codex", runtimeBackends: codexBackends, list: [luna, gpt55, astra, terra],
-        activeKey: "openai/gpt-5.6-luna", catalogs: cached([codexCatalog()]), onClose,
-        thinking: { levels: ["low", "medium", "high"], level: "medium", onSelect: onLevel },
-      });
-      expect(levelNames()).toEqual(["Low", "Medium", "High"]);
-      expect(screen.getByRole("radio", { name: /Medium/u }).getAttribute("aria-checked")).toBe("true");
-      fireEvent.click(screen.getByRole("option", { name: /^GPT-6 Astra, Codex/u }));
-      expect(onSelect).toHaveBeenCalledWith(astra);
-      expect(onClose).not.toHaveBeenCalled();
-      expect(levelNames()).toEqual(["Low", "Medium", "High", "Max"]);
-      fireEvent.click(screen.getByRole("radio", { name: "Max" }));
-      expect(onLevel).toHaveBeenCalledWith("max");
-      expect(onClose).toHaveBeenCalledOnce();
-      cleanup();
-      // One level is no choice: the model is taken and the picker closes.
-      const closed = vi.fn();
-      renderPicker({
-        runtime: "codex", catalogRuntime: "codex", runtimeBackends: codexBackends, list: [luna, terra],
-        activeKey: "openai/gpt-5.6-luna", catalogs: cached([codexCatalog()]), onClose: closed,
-        thinking: { levels: ["low", "medium", "high"], level: "medium", onSelect: vi.fn() },
-      });
-      fireEvent.click(screen.getByRole("option", { name: /^GPT-5.6 Terra, Codex/u }));
-      expect(closed).toHaveBeenCalledOnce();
-    });
-
-    it("says why a runtime sets no thinking here", () => {
-      renderPicker({ thinking: { levels: [], note: "Codex sets thinking once this thread exists." } });
-      expect(screen.getByRole("region", { name: "Thinking" }).textContent).toContain("Codex sets thinking once this thread exists.");
-      expect(screen.queryByRole("radiogroup")).toBeNull();
-    });
-
-    it("preselects the model in use, and on another runtime the one last chosen there, pinned ones first", () => {
-      const preferences = new PreferencesStore();
-      preferences.toggleFavouriteModel("codex:openai/gpt-6-astra");
-      preferences.noteModelUsed("codex:openai/gpt-5.5");
-      renderPicker({
-        preferences, runtime: "pi", activeKey: "anthropic/claude-opus-5", runtimeBackends: codexBackends,
-        onNewThreadOnRuntime: vi.fn(), catalogs: cached([codexCatalog()]),
-      });
-      const input = search();
-      expect(document.getElementById(input.getAttribute("aria-activedescendant")!)?.getAttribute("aria-label")).toBe("Claude Opus 5, Pi, in use");
-      fireEvent.click(runtimeButton("Codex"));
-      expect(optionNames()).toEqual(["GPT-5.5, Codex, Plan", "GPT-6 Astra, Codex, Plan", "Show all 4"]);
-      expect(document.getElementById(input.getAttribute("aria-activedescendant")!)?.getAttribute("aria-label")).toBe("GPT-5.5, Codex, Plan");
-      fireEvent.click(screen.getByRole("option", { name: "Show all 4" }));
-      expect(optionNames()).toEqual(["GPT-5.5, Codex, Plan", "GPT-6 Astra, Codex, Plan", "Pinned only", "GPT-5.6 Luna, Codex, Plan", "GPT-5.6 Terra, Codex, Plan"]);
-      // Recent sits at the bottom, one click each.
-      expect(screen.getByRole("button", { name: "GPT-5.5, Codex" }).closest(".model-recent")).toBeTruthy();
-    });
-
-    it("dims a runtime that cannot run a thread and says why, with the way to fix it", () => {
-      const onOpenSettings = vi.fn();
-      const onSelectRuntime = vi.fn();
-      const onClose = vi.fn();
-      renderPicker({
-        runtime: "pi", runtimeBackends: codexBackends, onSelectRuntime, onOpenSettings, onClose,
-        catalogs: cached([["claude-code", { status: "unavailable", reason: "sign-in-required", message: "Run the login to use your plan." }], ["codex", { status: "unavailable", reason: "not-installed" }]]),
-      });
-      const entry = runtimeButton("Claude Code");
-      expect(entry.classList).toContain("blocked");
-      expect(runtimeButton("Pi").classList).not.toContain("blocked");
-      fireEvent.click(entry);
-      // A draft stays where it is: the runtime cannot take it yet.
-      expect(onSelectRuntime).not.toHaveBeenCalled();
-      expect(screen.getByRole("region", { name: "Claude Code" }).textContent).toContain("Run the login to use your plan.");
-      fireEvent.click(screen.getByRole("button", { name: "Sign in to Claude Code…" }));
-      expect(onOpenSettings).toHaveBeenCalledWith("claude-code", "runtime");
-      expect(onClose).toHaveBeenCalledOnce();
-      fireEvent.click(runtimeButton("Codex"));
-      expect(screen.getByRole("button", { name: "Install Codex…" })).toBeTruthy();
-      fireEvent.click(screen.getByRole("button", { name: "Pin models in Settings" }));
-      expect(onOpenSettings).toHaveBeenLastCalledWith("codex", "models");
-    });
+  it("makes a row the one 'Runs with' is for once the pointer rests on it, not while it passes", () => {
+    vi.useFakeTimers();
+    try {
+      renderPicker({ runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady()]) });
+      fireEvent.click(railButton("OpenAI"));
+      const [, lunaRow] = screen.getAllByRole("option");
+      fireEvent.mouseEnter(lunaRow!);
+      fireEvent.mouseLeave(lunaRow!);
+      act(() => { vi.advanceTimersByTime(300); });
+      expect(ways()[0]).toBe("Pi, Plan ✓");
+      fireEvent.mouseEnter(lunaRow!);
+      act(() => { vi.advanceTimersByTime(300); });
+      expect(ways()).toEqual(["Codex, Plan ✓"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
 describe("where the picker opens", () => {
+  it("keeps the tablet picker as a popover and switches to a sheet in a narrow window, with Done and the thinking row", () => {
+    const width = Object.getOwnPropertyDescriptor(window, "innerWidth");
+    const profile = document.body.dataset.profile;
+    document.body.dataset.profile = "compact";
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 820 });
+    const onOpenThinking = vi.fn();
+    try {
+      renderPicker({ onOpenThinking });
+      const picker = screen.getByRole("dialog", { name: "Select model" });
+      expect(picker.classList.contains("model-picker-sheet")).toBe(false);
+      expect(within(picker).queryByRole("button", { name: "Done" })).toBeNull();
+      act(() => {
+        Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+        window.dispatchEvent(new Event("resize"));
+      });
+      expect(picker.classList.contains("model-picker-sheet")).toBe(true);
+      expect(within(picker).getByRole("button", { name: "Done" })).toBeTruthy();
+      fireEvent.click(within(picker).getByRole("button", { name: /^Thinking and speed/u }));
+      expect(onOpenThinking).toHaveBeenCalled();
+    } finally {
+      cleanup();
+      if (width) Object.defineProperty(window, "innerWidth", width);
+      if (profile === undefined) delete document.body.dataset.profile;
+      else document.body.dataset.profile = profile;
+    }
+  });
+
   const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
 
   it("sits 6 px above the composer's frame at its left edge, not at the chip that opened it (design 1l)", () => {
@@ -569,15 +325,14 @@ describe("where the picker opens", () => {
     }
   });
 
-  it("asks every runtime for its models again from the footer (K124)", async () => {
+  it("asks every runtime for its models again from the options menu (K124)", async () => {
     const runtimeTools = vi.fn(async () => ({ tools: [], log: [] }));
     setHostClient({ runtimeTools } as unknown as HostClient);
     try {
       renderPicker();
-      fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
-      expect(screen.getByRole("button", { name: "Refreshing…" })).toHaveProperty("disabled", true);
+      fireEvent.click(screen.getByRole("button", { name: "Sort and filter" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "Refresh models" }));
       await waitFor(() => expect(runtimeTools).toHaveBeenCalledWith("refresh"));
-      await screen.findByRole("button", { name: "Refresh" });
     } finally {
       setHostClient(undefined);
     }

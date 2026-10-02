@@ -1,21 +1,15 @@
-import { Component, createRef, useEffect, useState, type ReactNode } from "react";
+import { Brain } from "lucide-react";
+import { Component, createRef, type ReactNode } from "react";
+import { WorkingTimer } from "./WorkRows";
 
-function elapsedLabel(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
-}
-
-/** The run's own line; it names no runtime, since the thread may run on any of them. */
+/** The run's own line: a kit's label, or "Thinking" and the run's clock while no tool row is live. */
 export function LiveStatus({ startedAt, label }: { startedAt?: number; label?: string }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (startedAt === undefined) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [startedAt]);
-  const text = label ?? (startedAt ? `Working for ${elapsedLabel(Math.max(0, now - startedAt))}` : "Working…");
-  return <div className="live-status"><span className="spinner" /><span>{text}</span></div>;
+  return label === undefined
+    ? <div className="work-live thinking"><div className="work-live-line">
+      <span className="work-shine"><Brain size={15} strokeWidth={1.7} />Thinking</span>
+      {startedAt ? <WorkingTimer startedAt={startedAt} /> : null}
+    </div></div>
+    : <div className="live-status"><span className="spinner" /><span>{label}</span></div>;
 }
 
 export function measureComposerGeometry(host: HTMLElement): DOMRect {

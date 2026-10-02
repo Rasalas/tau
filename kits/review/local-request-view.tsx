@@ -103,12 +103,14 @@ export default function LocalRequestView({ handle, actions, parts }: { handle: S
   // The draft of this branch: the text being written and the chosen pictures, kept per checkout and branch.
   const [form, setForm] = useState<LocalForm>({ title: "", body: "", base: "", draft: false });
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [attached, setAttached] = useState(0);
+  useEffect(() => parts.drafts.subscribe(() => setAttached((count) => count + 1)), [parts.drafts]);
   useEffect(() => {
     if (!root) return;
     const kept = parts.drafts.get(root, branchName);
     setForm(kept ? { title: kept.title, body: kept.body, base: kept.base, draft: kept.draft } : { title: "", body: "", base: "", draft: false });
     setSelected(new Set(kept?.selected ?? []));
-  }, [branchName, parts.drafts, root]);
+  }, [attached, branchName, parts.drafts, root]);
   const save = (nextForm: LocalForm, nextSelected: ReadonlySet<string>) => {
     if (root) parts.drafts.set(root, branchName, { ...nextForm, selected: [...nextSelected] });
   };

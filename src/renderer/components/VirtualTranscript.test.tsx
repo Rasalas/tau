@@ -17,7 +17,7 @@ afterEach(async () => {
   await act(async () => { await new Promise((resolve) => requestAnimationFrame(resolve)); });
 });
 
-function Fixture({ messages, sessionKey = "fixture", activity, activityAfterMessageId, activities, detail, onCopyMessage, onForkMessage, onFocusComposer }: {
+function Fixture({ messages, sessionKey = "fixture", activity, activityAfterMessageId, activities, detail, onCopyMessage, onEditMessage, onForkMessage, onFocusComposer }: {
   messages: UiMessage[];
   sessionKey?: string;
   activity?: ReactNode;
@@ -25,6 +25,7 @@ function Fixture({ messages, sessionKey = "fixture", activity, activityAfterMess
   activities?: TranscriptActivity[];
   detail?: TranscriptDetail;
   onCopyMessage?: (message: UiMessage) => void;
+  onEditMessage?: (message: UiMessage) => void;
   onForkMessage?: (message: UiMessage) => void;
   onFocusComposer?: () => void;
 }) {
@@ -47,6 +48,7 @@ function Fixture({ messages, sessionKey = "fixture", activity, activityAfterMess
       activities={allActivities}
       detail={detail}
       onCopyMessage={onCopyMessage}
+      onEditMessage={onEditMessage}
       onForkMessage={onForkMessage}
       onFocusComposer={onFocusComposer}
     />
@@ -800,8 +802,8 @@ describe("virtual transcript", () => {
         { id: "msg-1", role: "assistant", text: "An answer", timestamp: 2, sourceEntryId: "e1" },
       ];
       const onFocusComposer = vi.fn();
-      const onForkMessage = vi.fn();
-      const view = render(<Fixture messages={messages} onCopyMessage={vi.fn()} onForkMessage={onForkMessage} onFocusComposer={onFocusComposer} />);
+      const onEditMessage = vi.fn();
+      const view = render(<Fixture messages={messages} onCopyMessage={vi.fn()} onEditMessage={onEditMessage} onFocusComposer={onFocusComposer} />);
       const transcript = view.container.querySelector<HTMLElement>(".virtual-transcript")!;
       const rows = view.container.querySelectorAll<HTMLElement>(".virtual-transcript-row");
       const actionsOf = (row: HTMLElement) => [...row.querySelectorAll<HTMLButtonElement>(".message-actions button")];
@@ -814,9 +816,9 @@ describe("virtual transcript", () => {
       fireEvent.keyDown(transcript, { key: "ArrowRight" });
       expect(document.activeElement).toBe(actionsOf(rows[0]!)[0]);
       fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" });
-      expect(document.activeElement?.textContent).toBe("Fork");
+      expect(document.activeElement?.textContent).toBe("Edit from here");
       fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" });
-      expect(document.activeElement?.textContent).toBe("Fork");
+      expect(document.activeElement?.textContent).toBe("Edit from here");
       fireEvent.keyDown(document.activeElement!, { key: "ArrowLeft" });
       expect(document.activeElement?.textContent).toBe("Copy");
       fireEvent.keyDown(document.activeElement!, { key: "ArrowLeft" });
@@ -824,10 +826,10 @@ describe("virtual transcript", () => {
 
       fireEvent.keyDown(transcript, { key: "ArrowRight" });
       fireEvent.keyDown(document.activeElement!, { key: "End" });
-      // Enter is the button's own: it forks, and the transcript does not take the key.
+      // Enter is the button's own: it edits, and the transcript does not take the key.
       fireEvent.keyDown(document.activeElement!, { key: "Enter" });
       fireEvent.click(document.activeElement!);
-      expect(onForkMessage).toHaveBeenCalledWith(messages[0]);
+      expect(onEditMessage).toHaveBeenCalledWith(messages[0]);
       fireEvent.keyDown(document.activeElement!, { key: "Escape" });
       expect(document.activeElement).toBe(transcript);
       expect(onFocusComposer).not.toHaveBeenCalled();
@@ -903,7 +905,7 @@ describe("virtual transcript", () => {
       view.unmount();
     });
 
-    it("triggers fork on focused message with f", async () => {
+    it("triggers fork on focused message with f, with the turn it belongs to", async () => {
       const messages: UiMessage[] = [
         { id: "u1", role: "user", text: "Turn 1", timestamp: 1 },
       ];
@@ -913,7 +915,7 @@ describe("virtual transcript", () => {
 
       fireEvent.keyDown(transcript, { key: "j" });
       fireEvent.keyDown(transcript, { key: "f" });
-      expect(onFork).toHaveBeenCalledWith(messages[0]);
+      expect(onFork).toHaveBeenCalledWith(messages[0], { number: 1, messages, last: true });
       view.unmount();
     });
 

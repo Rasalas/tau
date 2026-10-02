@@ -1,10 +1,15 @@
-import { useContext } from "react";
-import { Copy, GitFork, Pencil } from "lucide-react";
+import { lazy, Suspense, useContext, useRef } from "react";
+import { createPortal } from "react-dom";
+import { Copy, Pencil } from "lucide-react";
 import type { UiMessage } from "../../shared/contracts";
 import { WorkbenchShellContext } from "../workbench-context";
 import { errorMessage } from "../../workbench/error-message";
+import { useMessageMenu } from "../touch/use-message-menu";
+import type { SheetAction } from "../touch/ActionSheet";
 import { PanelIcon } from "./PanelIcon";
 import { tooltipProps } from "./ui/Tooltip";
+
+const LazyActionSheet = lazy(() => import("../touch/ActionSheet").then(({ ActionSheet }) => ({ default: ActionSheet })));
 
 /** The text selected inside this message's shell, if any. */
 function selectionInside(element: Element | null): string | undefined {
@@ -13,39 +18,36 @@ function selectionInside(element: Element | null): string | undefined {
   return text && element && selection?.anchorNode && element.contains(selection.anchorNode) ? text : undefined;
 }
 
-function ExtensionMessageActions({ message }: { message: UiMessage }) {
+/** The desktop toolbar and mobile long-press sheet share the message's actions. */
+export function MessageActions({ message, onCopy, onEdit }: { message?: UiMessage; onCopy(): void; onEdit?: () => void }) {
+  const toolbar = useRef<HTMLDivElement>(null);
+  const menu = useMessageMenu(toolbar);
   const shell = useContext(WorkbenchShellContext);
-  const actions = shell?.actions;
-  if (!actions) return null;
-  return <>{shell.registry.getMessageActions()
-    .filter((action) => (action.roles ?? ["assistant"]).includes(message.role as "user" | "assistant"))
-    .map((action) => (
-      <button
-        key={action.id}
-        type="button"
-        tabIndex={-1}
-        // Keeps the text selection the action reads.
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={(event) => {
-          const selection = selectionInside(event.currentTarget.closest(".message-shell"));
-          const run = async () => action.run(message, selection ? { selection } : {}, actions);
-          run().catch((error) => actions.notify(errorMessage(error)));
-        }}
-      >
+  const actions: (SheetAction & { hint?: string })[] = [
+    { id: "copy", label: "Copy", hint: "Copy message", Icon: Copy, run: onCopy },
+    ...(onEdit ? [{ id: "edit", label: "Edit from here", hint: "Rewind to before this message and edit it in the composer", Icon: Pencil, run: onEdit }] : []),
+  ];
+  if (message && shell?.actions) {
+    const workbench = shell.actions;
+    for (const action of shell.registry.getMessageActions().filter((candidate) => (candidate.roles ?? ["assistant"]).includes(message.role as "user" | "assistant"))) {
+      actions.push({
+        id: `extension:${action.id}`, label: action.label, Icon: action.Icon,
+        run: () => {
+          const selection = selectionInside(toolbar.current?.closest(".message-shell") ?? null);
+          const run = async () => action.run(message, selection ? { selection } : {}, workbench);
+          void run().catch((error) => workbench.notify(errorMessage(error)));
+        },
+      });
+    }
+  }
+  return <>
+    <div ref={toolbar} className="message-actions" role="toolbar" aria-label="Message actions">
+      {actions.map((action) => <button key={action.id} type="button" tabIndex={-1}
+        onMouseDown={action.id.startsWith("extension:") ? (event) => event.preventDefault() : undefined}
+        onClick={action.run} {...(action.hint ? tooltipProps(action.hint) : {})}>
         <PanelIcon Icon={action.Icon} size={13} /><span>{action.label}</span>
-      </button>
-    ))}</>;
-}
-
-/**
- * A message's actions. They are no tab stops of their own: the transcript
- * reaches them through its focused message (→ in, ← or Escape out).
- */
-export function MessageActions({ message, onCopy, onFork, onEdit }: { message?: UiMessage; onCopy(): void; onFork?: () => void; onEdit?: () => void }) {
-  return <div className="message-actions" role="toolbar" aria-label="Message actions">
-    <button type="button" tabIndex={-1} onClick={onCopy} {...tooltipProps("Copy message")}><Copy size={13} /><span>Copy</span></button>
-    {onEdit ? <button type="button" tabIndex={-1} onClick={onEdit} {...tooltipProps("Rewind to before this message and edit it in the composer")}><Pencil size={13} /><span>Edit from here</span></button> : null}
-    {onFork ? <button type="button" tabIndex={-1} onClick={onFork} {...tooltipProps("Fork through this message")}><GitFork size={13} /><span>Fork</span></button> : null}
-    {message ? <ExtensionMessageActions message={message} /> : null}
-  </div>;
+      </button>)}
+    </div>
+    {menu.open ? createPortal(<Suspense fallback={null}><LazyActionSheet title="Message actions" actions={actions} onClose={menu.close} /></Suspense>, document.body) : null}
+  </>;
 }

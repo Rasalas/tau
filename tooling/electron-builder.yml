@@ -39,6 +39,10 @@ files:
   # The website and its screenshots (GitHub Pages, .github/workflows/pages.yml).
   - "!site"
   - "!release"
+  # Server deployments and native mobile projects ship separately.
+  - "!relay/**"
+  - "!connect-relay/**"
+  - "!mobile/**"
   # The renderer benchmark's own build (`npm run benchmark:renderer`).
   - "!dist-benchmark"
   # The extension API's declarations travel as a resource beside the archive (below).
@@ -56,7 +60,15 @@ files:
   - "!vite"
   - "!vitest.config.ts"
   - "!**/*.test.js"
-  - "!**/*.test.js.map"
+  - "!**/*.test.mjs"
+  # Source maps only help a debugger, and every file in the bundle is one more
+  # ShipIt verifies on each update (K161): ~6,900 files, ~80 MB.
+  - "!**/*.map"
+  # The editable source travels once, as the `tau-source` resource below.
+  - "!dist-source"
+  # The editable source links `tau-source-vendor/typescript`, which keeps the
+  # declarations this pruned copy lacks; nothing else loads TypeScript.
+  - "!node_modules/typescript"
   # esbuild's npm command line, a second 10 MB copy of the binary the library
   # itself never runs. Dependencies bring their own esbuild, built for the build machine.
   - "!**/node_modules/esbuild/bin{,/**}"
@@ -162,6 +174,8 @@ linux:
   icon: assets/tau-icon.png
   category: Development
   executableName: tau
+  # Electron's Wayland shortcut portal identity must match the installed entry.
+  syncDesktopName: true
   # Packages and the menu entry show these, not package.json's description. Never rename
   # package.json's `name`: Electron names every user's data folder after it.
   synopsis: Desktop workbench for the Pi coding agent

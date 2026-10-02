@@ -201,6 +201,45 @@ export interface LiveWorkspaceLeaseOptions {
   staleAfterMs?: number;
   processAlive?(pid: number): boolean;
   lockFileName?: string;
+  /** The folder holding one lease folder per checkout; the machine-wide one by default. */
+  root?: string;
+}
+
+/** A lease folder that holds no lock and no ticket and has not been touched this long is nobody's. */
+const IDLE_LEASE_FOLDER_MS = 10 * 60_000;
+const PRUNE_EVERY_MS = 10 * 60_000;
+let lastPrune = 0;
+
+/**
+ * Removes the lease folders of checkouts nobody has worked in for ten minutes. They
+ * pile up one per checkout ever seen, and every ref sweep reads them all while
+ * it holds its checkout's lease, which a turn starting meanwhile would time out on.
+ */
+export async function pruneIdleLeaseFolders(
+  root: string,
+  now: number,
+  lockFileName = "tau-turn-checkpoint.lock",
+  idleMs = IDLE_LEASE_FOLDER_MS,
+): Promise<number> {
+  const idle = async (path: string) => {
+    const item = await stat(path).catch(() => undefined);
+    return item !== undefined && now - item.mtimeMs >= idleMs;
+  };
+  let removed = 0;
+  const directories = await readdir(root, { withFileTypes: true }).catch(() => []);
+  for (const directory of directories) {
+    if (!directory.isDirectory()) continue;
+    const folder = join(root, directory.name);
+    const entries = await readdir(folder).catch(() => undefined);
+    if (!entries || entries.some((name) => name !== "tickets")) continue;
+    const tickets = await readdir(join(folder, "tickets")).catch(() => [] as string[]);
+    if (tickets.some((name) => name !== "sequence")) continue;
+    if (!await idle(folder) || (tickets.length > 0 && !await idle(join(folder, "tickets")))) continue;
+    // The lock file is checked last: a lease taken since the listing keeps its folder.
+    if (await stat(join(folder, lockFileName)).then(() => true, () => false)) continue;
+    await rm(folder, { recursive: true, force: true }).then(() => { removed += 1; }, () => undefined);
+  }
+  return removed;
 }
 
 /**
@@ -212,11 +251,15 @@ export interface LiveWorkspaceLeaseOptions {
 export async function listLiveWorkspaceLeaseSessions(
   options: LiveWorkspaceLeaseOptions = {},
 ): Promise<readonly WorkspaceLeaseMetadata[]> {
-  const root = leaseRoot();
+  const root = options.root ?? leaseRoot();
   const now = options.now ?? Date.now;
   const staleAfterMs = options.staleAfterMs ?? DEFAULT_STALE_AFTER_MS;
   const isAlive = options.processAlive ?? defaultProcessAlive;
   const lockFileName = options.lockFileName ?? "tau-turn-checkpoint.lock";
+  if (now() - lastPrune >= PRUNE_EVERY_MS) {
+    lastPrune = now();
+    void pruneIdleLeaseFolders(root, now(), lockFileName).catch(() => undefined);
+  }
   const directories = await readdir(root, { withFileTypes: true }).catch(() => []);
   const owners: WorkspaceLeaseMetadata[] = [];
   for (const directory of directories) {

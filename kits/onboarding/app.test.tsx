@@ -235,6 +235,21 @@ describe("Onboarding in the workbench", () => {
     expect(screen.queryByRole("heading", { name: "Your agents" })).toBeNull();
   });
 
+  it("stays shut on another machine the window shows, which is set up from Settings → Machines", async () => {
+    const { calls, invokeHostExtension } = host();
+    // The page's address names the machine it shows when that is not the window's own.
+    const elsewhere: DesktopExtension = {
+      ...onboarding,
+      activate: (context) => onboarding.activate(new Proxy(context, {
+        get: (target, key) => key === "environments" ? { shownElsewhere: "rex" } : Reflect.get(target, key),
+      })),
+    };
+    renderApp(createFakeHostClient({ invokeHostExtension }), { extensions: [elsewhere] });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+    expect(screen.queryByRole("heading", { name: "Your agents" })).toBeNull();
+    expect(calls.filter(([id, command]) => id === "tau.onboarding" && command === "state")).toEqual([]);
+  });
+
   it("stays closed once setup ran, and /welcome brings it back", async () => {
     const { invokeHostExtension } = host();
     await invokeHostExtension("tau.onboarding", "complete");

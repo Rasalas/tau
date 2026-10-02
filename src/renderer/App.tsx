@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { HostEvent, UiMessage } from "../shared/contracts";
+import type { AppUpdatePhase, HostEvent, UiMessage } from "../shared/contracts";
 import type { UiEditor, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import { mockSnapshot, mockThreadIndex, reconcileOptimisticMessages, transcriptNavigationScope, transcriptNavigationScopeKey } from "../workbench/app-state";
 import { WorkbenchSession } from "../workbench/workbench-session";
@@ -36,6 +36,7 @@ import { useRuntimeCatalog } from "./use-runtime-catalog";
 import { draftRuntimeSnapshot } from "../workbench/runtime-catalog-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { activeTab as activeStageTab, openFileTab, openThreadTab, stageFilePath as projectFilePath, stageTabPath, type StageView } from "../workbench/stage";
+import { machineThreadPath } from "./machine-thread-navigation";
 import { lookInMachine } from "../workbench/look-in";
 import { useStageTabs } from "./stage-tab-controller";
 import { useWorkbenchLayoutState } from "./use-workbench-layout-state";
@@ -207,8 +208,8 @@ export default function App() {
   const newThreadDeliveryPending = Boolean(pendingNewThread);
   // The release the host downloaded; the toast and the sidebar's foot offer the restart.
   const [appUpdate] = useState(() => services.appUpdate ?? new AppUpdateStore());
-  const updateReady = useSyncExternalStore(appUpdate.subscribe, appUpdate.getSnapshot)?.version;
-  const setUpdateReady = useCallback((version: string) => appUpdate.set({ version, install: () => { void client?.installUpdate(); } }), [appUpdate, client]);
+  const update = useSyncExternalStore(appUpdate.subscribe, appUpdate.getSnapshot);
+  const setUpdateReady = useCallback((version: string, phase?: AppUpdatePhase, progress?: number) => appUpdate.set({ version, phase, progress, install: () => { void client?.installUpdate(); } }), [appUpdate, client]);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const composerAttachmentRef = useRef<ComposerAttachmentHandle>(null);
   const composerControlRef = useRef<ComposerControlHandle>(null);
@@ -218,6 +219,7 @@ export default function App() {
   const focusStage = useCallback(() => workbenchControlRef.current?.focusStage(), []);
   const showThread = useCallback((options?: ShowThreadOptions) => workbenchControlRef.current?.showThread(options), []);
   const toggleSidebar = useCallback(() => workbenchControlRef.current?.toggleSidebar(), []);
+  const toggleSpine = useCallback(() => workbenchControlRef.current?.toggleSpine(), []);
   const threadView = useCallback(() => workbenchControlRef.current?.threadView(), []);
   const inheritSelection = useCallback(() => {
     const draft = newThreadController.current();
@@ -362,6 +364,7 @@ export default function App() {
     composerDraft: () => actionsRef.current?.composerDraft() ?? "",
     notify: (message) => setNotice(message),
     composerRef,
+    requestFork: threadCommands.requestFork,
   });
 
   useEffect(() => {
@@ -398,7 +401,9 @@ export default function App() {
     let stopFollowing = () => {};
     let stopPrompts = () => {};
     if (client) {
-      preferences.bindHost(client, activeWorkspaceId);
+      // A page showing another machine looks as the window's own machine does.
+      const personPreferences = getPlatform()?.environments?.shownElsewhere ? client.personPreferences?.bind(client) : undefined;
+      preferences.bindHost(client, activeWorkspaceId, personPreferences ? { get: () => personPreferences(), set: (patch) => personPreferences(patch) } : undefined);
       unsubscribe = client.onHostEvent(handleHostEvent);
       // A question raised while nobody was listening would otherwise stall the
       // host forever, including during bootstrap itself.
@@ -449,10 +454,9 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [snapshot?.sessionId]);
 
-
   useWorkbenchToasts({
-    view: viewStore, toasts: workbenchSession.toasts, updateReady,
-    onRestart: () => { void client?.installUpdate(); },
+    view: viewStore, toasts: workbenchSession.toasts, update,
+    openMachines: () => setSettingsPage("environments.machines"),
   });
 
   // Stage tab or drawer: where each panel shows, and the moves between them.
@@ -467,28 +471,31 @@ export default function App() {
   revealDocuments.current = panelLayout.documentOpened;
   const openPanel = panelLayout.openPanel;
   // One tab per file, however a link, the tree or a kit names it.
-  const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView; line?: number }) => {
+  const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView; line?: number; trace?: boolean }) => {
     setStage((current) => openFileTab(current, projectFilePath(path, workspaceCwd), options));
-    revealDocuments.current();
+    if (!options?.trace) revealDocuments.current();
   }, [workspaceCwd]);
   const openThread = useCallback((sessionId: string, options?: { pin?: boolean; machine?: string }) => {
     const machine = lookInMachine(options?.machine, platform.environments);
-    setStage((current) => openThreadTab(current, sessionId, { ...(options?.pin ? { pin: true } : {}), ...(machine ? { machine } : {}) }));
-    revealDocuments.current();
-  }, [platform]);
+    const lookIn = () => { setStage((current) => openThreadTab(current, sessionId, { ...(options?.pin ? { pin: true } : {}), ...(machine ? { machine } : {}) })); revealDocuments.current(); };
+    if (!machine) { lookIn(); return; }
+    void machineThreadPath(machine, sessionId, client, threadStore).then(async (path) => { if (path) await switchSession(path); else lookIn(); }).catch((error: unknown) => setNotice(errorMessage(error)));
+  }, [client, platform, threadStore, switchSession, setNotice]);
+  // A sub-agent's question waits on its parent too: that is where it is answered (design 1c).
+  const parentOf = useCallback((sessionId: string) => threadStore.getSnapshot().threads.find((thread) => thread.id === sessionId)?.parentThreadId, [threadStore]);
   useEffect(() => {
-    threadStore.setWaiting(uiPrompts.map((entry) => entry.sessionId));
-  }, [threadStore, uiPrompts]);
+    threadStore.setWaiting(uiPrompts.flatMap((entry) => [entry.sessionId, parentOf(entry.sessionId) ?? entry.sessionId]));
+  }, [parentOf, threadStore, uiPrompts]);
 
   // A prompt must never be unanswerable. Workspace-level questions (project trust
   // is asked before any session exists) and questions naming a thread we do not
-  // know surface on whatever thread is open; only a known other thread defers to
-  // its own rail badge.
+  // know surface on whatever thread is open, a child's on its parent's; only a
+  // known other thread defers to its own rail badge.
   const threadPrompts = useMemo(() => {
     const known = new Set(threadStore.getSnapshot().threads.map((thread) => thread.id));
-    return uiPrompts.filter((entry) =>
-      !entry.sessionId || entry.sessionId === snapshot?.sessionId || !known.has(entry.sessionId));
-  }, [snapshot?.sessionId, threadStore, uiPrompts]);
+    return uiPrompts.filter((entry) => !entry.sessionId || entry.sessionId === snapshot?.sessionId
+      || !known.has(entry.sessionId) || (snapshot && parentOf(entry.sessionId) === snapshot.sessionId));
+  }, [parentOf, snapshot?.sessionId, threadStore, uiPrompts]);
 
   const copyMessage = useCallback((message: UiMessage) => threadCommands.copyText(
     message.role === "user" ? message.skill?.copyText ?? visibleUserMessageText(message.text) : message.text,
@@ -531,7 +538,7 @@ export default function App() {
     applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay,
     openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, setComposerMode, submitPrompt: submitText, preferences,
     steerQueuedMessage, beforeAbort: returnQueued,
-    openModelPicker, openInstructions, focusStage, showThread, toggleSidebar, attachFiles, selectDraftRuntime, newThreadController, pages, threadView,
+    openModelPicker, openInstructions, focusStage, showThread, toggleSidebar, toggleSpine, attachFiles, selectDraftRuntime, newThreadController, pages, threadView,
     executeCommand: (id) => {
       if (!actionsRef.current) throw new Error("Actions are not ready yet.");
       return registry.executeCommand(id, actionsRef.current);
@@ -579,13 +586,12 @@ export default function App() {
     viewStore.subscribeToConversation,
     () => viewStore.selectConversation(activeDraftKey, Boolean(pendingNewThread)),
   );
-  // A draft bound for another runtime than the one on screen chooses from that runtime's own catalog.
+  // A draft chooses from the catalog of the runtime it is bound for; the thread on screen's levels are its model's.
   const boundRuntime = pendingNewThread && !pendingNewThread.sessionId ? effectiveNewThreadRuntime(pendingNewThread.runtime ?? settings.newThreadRuntime, snapshot) : undefined;
-  const otherDraftRuntime = boundRuntime && boundRuntime !== (snapshot?.backendKind ?? "pi") ? boundRuntime : undefined;
-  const draftCatalog = useRuntimeCatalog(otherDraftRuntime);
-  const draftSnapshot = useMemo(() => pendingNewThread && snapshot && otherDraftRuntime
-    ? draftRuntimeSnapshot(snapshot, pendingNewThread, otherDraftRuntime, draftCatalog)
-    : snapshot, [draftCatalog, otherDraftRuntime, pendingNewThread, snapshot]);
+  const draftCatalog = useRuntimeCatalog(boundRuntime);
+  const draftSnapshot = useMemo(() => pendingNewThread && snapshot && boundRuntime
+    ? draftRuntimeSnapshot(snapshot, pendingNewThread, boundRuntime, draftCatalog)
+    : snapshot, [draftCatalog, boundRuntime, pendingNewThread, snapshot]);
   const conversationSnapshot = useMemo(() => pendingNewThread && snapshot && draftSnapshot ? {
     ...draftSnapshot,
     cwd: pendingNewThread.projectPath,
@@ -655,7 +661,7 @@ export default function App() {
     transcriptHistory, transcriptRef, loadTranscriptPage: threadCommands.loadTranscriptPage, applyTranscriptPage, transcriptScopeKey,
     transcriptScope, transcriptTurnStart, visibleTranscriptTurnStart, lastMessageId: conversation.lastMessageId,
     recoverThread: threadCommands.recoverThread, copyToolOutput: threadCommands.copyToolOutput, loadToolOutput: threadCommands.loadToolOutput,
-    runStartedAt, activeDraftKey, copyMessage, forkMessage: threadCommands.forkMessage, editMessage: editFromMessage,
+    runStartedAt, activeDraftKey, copyMessage, forkMessage: threadCommands.forkFromMessage, editMessage: editFromMessage,
     titleCommands, openThreadTree, duplicateThread, settleActiveThread, renameThread: threadCommands.renameThread, copyThreadValue: threadCommands.copyThreadValue,
     threadTreeModal, closeThreadTree, navigateThreadTree, forkFromTree,
   }), [

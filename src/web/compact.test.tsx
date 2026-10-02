@@ -8,7 +8,7 @@ import { installPointerEvents } from "../renderer/test-support/pointer-events";
 import { setHostClient } from "../renderer/host-client-context";
 import { createFakeHostClient, type FakeHostClient } from "../renderer/test-support/fake-host-client";
 import { createRendererServices } from "../renderer/renderer-services";
-import { createMemoryStorage, setClientStorage } from "../workbench/client-storage";
+import { createMemoryStorage, getClientStorage, setClientStorage } from "../workbench/client-storage";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { WebWorkbench, webClientEnvironment } from "./WebWorkbench";
 
@@ -93,14 +93,15 @@ async function openChat(title = "Rename the store"): Promise<void> {
   await screen.findByRole("button", { name: "Back to threads" });
 }
 
-const rowNamed = (title: string) => screen.getByRole("button", { name: `Open thread ${title}` }).closest("li") as HTMLElement;
+// The list's row, not the copy of it that heads its action sheet.
+const rowNamed = (title: string) => screen.getAllByRole("button", { name: `Open thread ${title}` }).map((button) => button.closest("li")).find(Boolean) as HTMLElement;
 
 const running = (sessionId: string): HostEvent => ({ type: "agent-status", sessionId, running: true });
 
 // The Workbench loads the Settings screen as a chunk of its own. Loaded here, outside the tests,
 // its first import on a busy machine does not count against findByRole's wait.
 beforeAll(async () => { await import("../renderer/settings/SettingsScreen"); });
-beforeEach(() => { installPointerEvents(); setViewport(400); archived.length = 0; });
+beforeEach(() => { window.history.replaceState(null, "", "/"); installPointerEvents(); setViewport(400); archived.length = 0; });
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); setViewport(1024); window.history.replaceState(null, "", "/"); });
 
 describe("the web client at 400 px", () => {
@@ -189,16 +190,16 @@ describe("the web client at 400 px", () => {
     await openChat();
     client.emit({ type: "extension-ui-prompt", sessionId: "t-a", prompt: { id: "q7", sessionId: "t-a", kind: "confirm", title: "Run the migration?" } });
     await screen.findByText("Run the migration?");
-    // The phone draws it as the design's approval card: its head, and Approve in the card.
-    expect(screen.getByRole("region", { name: /^Approval/u })).toBeTruthy();
+    // The phone draws it as the design's permission card: what it wants in the head, and Allow in the card.
+    expect(screen.getByRole("region", { name: "Run the migration?" })).toBeTruthy();
     expect((screen.getByRole("textbox") as HTMLTextAreaElement).placeholder).toBe("Answer in text…");
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(within(screen.getByRole("region", { name: "Run the migration?" })).getByRole("button", { name: "Allow" }));
     await waitFor(() => expect(client.calls.some((call) => call.method === "answerExtensionUi")).toBe(true));
     const answer = client.calls.find((call) => call.method === "answerExtensionUi");
     expect(answer?.args).toEqual(["q7", { confirmed: true }]);
   });
 
-  it("keeps the model and its reasoning level in the phone's footer, the rest behind its menu", async () => {
+  it("keeps the model and its thinking level in the phone's footer, the rest behind its menu", async () => {
     const base = bootstrapWith(THREADS);
     const luna = { provider: "openai-codex", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" };
     renderCompactClient({ bootstrap: async () => {
@@ -208,7 +209,7 @@ describe("the web client at 400 px", () => {
     await openChat();
     const footer = document.querySelector<HTMLElement>(".composer-toolbar")!;
     expect(within(footer).getByLabelText("Select model: GPT-5.6 Luna").textContent).toContain("GPT-5.6 Luna");
-    expect(within(footer).getByLabelText("Reasoning: Medium").textContent).toBe("Medium");
+    expect(within(footer).getByLabelText("Thinking: Medium").textContent).toBe("Medium");
     expect(within(footer).queryByText(/\$/u)).toBeNull();
   });
 
@@ -255,7 +256,8 @@ describe("the web client at 400 px", () => {
     fireEvent.contextMenu(rowNamed("Ship the web client").querySelector(".swipe-row")!);
     const sheet = await screen.findByRole("dialog", { name: "Ship the web client" });
     const labels = within(sheet).getAllByRole("button").map((button) => button.getAttribute("aria-label") ?? button.textContent);
-    expect(labels).toEqual(["Close", "Settle", "Pin", "Mark as unread", "Archive thread"]);
+    // The thread's own row heads the sheet (design 1x) and opens it.
+    expect(labels).toEqual(["Close", "Open thread Ship the web client", "Settle", "Pin", "Mark as unread", "Archive thread"]);
     // The row leaves the cost out, as the desktop rail does; a phone has no hover card, so the sheet says it.
     expect(sheet.querySelector(".action-sheet-summary")?.textContent).toBe("Cost $0.42");
     expect(rowNamed("Ship the web client").textContent).not.toContain("$0.42");
@@ -482,6 +484,57 @@ describe("a phone with no thread open", () => {
   });
 });
 
+describe("a phone's thread list as design 1m, 1x and 2p draw it", () => {
+  it("heads the list with the search field and the project pill, and puts a branchless row's marks on its title line", async () => {
+    renderHome([probe]);
+    const home = await screen.findByRole("region", { name: "Threads" });
+    const search = within(home).getByRole("button", { name: "Search threads" });
+    expect(search.closest(".search-head")).toBeTruthy();
+    expect(within(home).queryByRole("heading", { name: "Threads" })).toBeNull();
+    const row = rowNamed("Ship the web client");
+    expect(row.querySelector(".touch-title-line .thread-meta-end")).toBeTruthy();
+    expect(row.querySelector(".thread-meta-line")).toBeNull();
+  });
+
+  it("opens the thread and then a panel that offers itself from a row's sheet", async () => {
+    const offered: DesktopExtension = {
+      id: "test.offered",
+      name: "Offered probe",
+      activate(plugin) {
+        plugin.registerPanel({ id: "probe-work", label: "Work", Icon: Bot, profiles: ["compact"], threadActions: true, Component: () => <p>work panel body</p> });
+      },
+    };
+    renderHome([offered]);
+    await screen.findByRole("list", { name: "Threads" });
+    fireEvent.contextMenu(rowNamed("Ship the web client").querySelector(".swipe-row")!);
+    const sheet = await screen.findByRole("dialog", { name: "Ship the web client" });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Work" }));
+    expect(await screen.findByText("work panel body")).toBeTruthy();
+  });
+
+  it("says which host it cannot reach over the threads it last saw, with Retry (2p)", async () => {
+    const client = createFakeHostClient({ bootstrap: bootstrapWith(THREADS, { home: true, projects: PROJECTS }) });
+    let state: "connected" | "reconnecting" = "connected";
+    const listeners = new Set<() => void>();
+    const reconnect = vi.fn();
+    Object.assign(client, {
+      getConnectionState: () => state,
+      onConnectionState: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+      getHostName: () => "MacBook Pro",
+      reconnectNow: reconnect,
+    });
+    const storage = createMemoryStorage();
+    setHostClient(client);
+    setClientStorage(storage);
+    render(<WebWorkbench client={client} storage={storage} services={createRendererServices([])} environment={webClientEnvironment("compact")} />);
+    await screen.findByRole("list", { name: "Threads" });
+    act(() => { state = "reconnecting"; for (const listener of [...listeners]) listener(); });
+    const notice = (await screen.findByText("MacBook Pro not reachable · last seen just now")).closest("p")!;
+    fireEvent.click(within(notice).getByRole("button", { name: "Retry" }));
+    expect(reconnect).toHaveBeenCalled();
+  });
+});
+
 describe("a new thread's draft in the phone's list", () => {
   const composer = () => screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
   async function startDraft(): Promise<HTMLElement> {
@@ -558,8 +611,108 @@ describe("a new thread's draft in the phone's list", () => {
   });
 });
 
+/** Usage's shape: a page that draws its own summary, and bars beside a phone's list title. */
+const summaryProbe: DesktopExtension = {
+  id: "test.summary",
+  name: "Summary probe",
+  activate(plugin) {
+    plugin.registerPage({ id: "probe.usage", label: "Usage", Icon: ChartColumn, profiles: ["desktop", "web", "compact"], Summary: () => <button type="button">Plan bars</button>, Component: () => <p>usage body</p> });
+    plugin.registerRegion({ id: "probe.title", placement: "thread-list-title", profiles: ["compact"], Component: () => <button type="button">Title bars</button> });
+  },
+};
+
+describe("a page's summary on a phone and a tablet", () => {
+  it("sits at the tablet sidebar's foot, not beside the list title", async () => {
+    setViewport(1024, 768);
+    renderCompactClient({}, [summaryProbe]);
+    const list = await screen.findByRole("navigation", { name: "Thread list" });
+    const foot = within(list).getByRole("group", { name: "Sidebar controls" });
+    expect(await within(foot).findByRole("button", { name: "Plan bars" })).toBeTruthy();
+    expect(within(foot).queryByRole("button", { name: "Usage" })).toBeNull();
+    expect(within(list).queryByRole("button", { name: "Title bars" })).toBeNull();
+  });
+
+  it("tops a phone's list, under its search field", async () => {
+    renderCompactClient({}, [summaryProbe]);
+    const home = await screen.findByRole("region", { name: "Threads" });
+    expect((await within(home).findByRole("button", { name: "Title bars" })).closest(".touch-browser-body")).toBeTruthy();
+    expect(within(home).queryByRole("button", { name: "Plan bars" })).toBeNull();
+  });
+});
+
 describe("the compact client on a tablet", () => {
   beforeEach(() => setViewport(1024, 768));
+
+  it("renders page summaries at the tablet sidebar foot and replaces the list with page navigation", async () => {
+    const usage: DesktopExtension = { id: "test.tablet-usage", name: "Tablet usage", activate(plugin) {
+      plugin.registerRegion({ id: "phone-limits", placement: "thread-list-title", profiles: ["compact"], Component: () => <span>Phone juicebars</span> });
+      plugin.registerPage({ id: "tablet-usage", label: "Usage", profiles: ["compact"], Icon: ChartColumn,
+        Summary: ({ actions }) => <button type="button" aria-label="Plan limits" onClick={() => actions.openPage?.("tablet-usage")}>juicebars</button>,
+        Sidebar: ({ navigate }) => <button type="button" onClick={() => navigate({ detail: true })}>Usage filters</button>,
+        Component: ({ sidebar, params }) => <p>{sidebar ? "Sidebar filters active" : "Inline filters"}{params.detail ? " details" : ""}</p>,
+      });
+    } };
+    renderCompactClient({}, [usage]);
+    const bars = await screen.findByRole("button", { name: "Plan limits" });
+    expect(bars.closest(".touch-sidebar-footer")).toBeTruthy();
+    expect(screen.queryByText("Phone juicebars")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Usage" })).toBeNull();
+    fireEvent.click(bars);
+    const sidebar = await screen.findByRole("navigation", { name: "Usage" });
+    expect(await screen.findByText("Sidebar filters active")).toBeTruthy();
+    expect(screen.getByRole("navigation", { name: "Thread list" }).closest(".sidebar-slot")?.classList.contains("covered")).toBe(true);
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Usage filters" }));
+    expect(await screen.findByText("Sidebar filters active details")).toBeTruthy();
+    fireEvent.click(within(sidebar).getAllByRole("button", { name: "Back to thread" })[0]!);
+    expect(await screen.findByRole("navigation", { name: "Thread list" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Plan limits" })).toBeTruthy();
+  });
+
+  it("offers Back in the tablet sidebar footer for a page without its own sidebar", async () => {
+    renderCompactClient({}, [pageProbe]);
+    const footer = await screen.findByRole("group", { name: "Sidebar controls" });
+    fireEvent.click(await within(footer).findByRole("button", { name: "Pull requests" }));
+    expect(await screen.findByText("requests body")).toBeTruthy();
+    const back = await within(footer).findByRole("button", { name: "Back to thread" });
+    expect(within(footer).queryByRole("button", { name: "Settings" })).toBeNull();
+    fireEvent.click(back);
+    expect(await within(footer).findByRole("button", { name: "Settings" })).toBeTruthy();
+    expect(screen.queryByText("requests body")).toBeNull();
+  });
+
+  it("shows only the branch under the tablet's thread title", async () => {
+    const base = bootstrapWith(THREADS);
+    const model = { provider: "openai-codex", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" };
+    renderCompactClient({ bootstrap: async () => {
+      const boot = await base();
+      return { ...boot, project: { ...boot.project, label: "feat/tablet" }, catalog: { ...boot.catalog, models: [model], model } };
+    } });
+    const branch = await screen.findByText("feat/tablet");
+    const details = branch.closest(".thread-details")!;
+    expect(details.textContent).toBe("feat/tablet");
+    expect(details.querySelector(".thread-detail-branch svg")).toBeTruthy();
+    expect(details.querySelector(".thread-detail-model, .thread-detail-turn")).toBeNull();
+    expect(await screen.findByLabelText("Select model: GPT-5.6 Luna")).toBeTruthy();
+  });
+
+  it("resizes the sidebar by touch and remembers its width across narrower windows", async () => {
+    renderCompactClient();
+    const handle = await screen.findByRole("separator", { name: "Resize sidebar" });
+    const width = () => (document.querySelector(".app-shell") as HTMLElement).style.getPropertyValue("--sidebar-width");
+    fireEvent.pointerDown(handle, { pointerType: "touch", pointerId: 7, button: 0, clientX: 328 });
+    fireEvent.pointerMove(document, { pointerType: "touch", pointerId: 7, clientX: 500 });
+    fireEvent.pointerUp(document, { pointerType: "touch", pointerId: 7, clientX: 500 });
+    expect(width()).toBe("500px");
+    expect(getClientStorage()?.get(STORAGE_KEYS.sidebarWidth)).toBe("500");
+    act(() => setViewport(700, 768, { width: 1024, height: 768 }));
+    expect(width()).toBe("380px");
+    expect(getClientStorage()?.get(STORAGE_KEYS.sidebarWidth)).toBe("500");
+    act(() => setViewport(1024, 768));
+    expect(width()).toBe("500px");
+    fireEvent.keyDown(handle, { key: "Home" });
+    expect(width()).toBe("328px");
+    expect(document.body.classList.contains("resizing-col")).toBe(false);
+  });
 
   it("offers the project of the thread beside the list first, or the filtered one", async () => {
     // `other` is where the host last worked; the thread on screen is in `project`.
@@ -666,7 +819,9 @@ describe("the compact client on a tablet", () => {
     renderCompactClient({}, [probe]);
     await screen.findByRole("navigation", { name: "Thread list" });
     expect(document.querySelector(".panel-rail")).toBeNull();
-    fireEvent.click(await screen.findByRole("button", { name: "Show stage" }));
+    expect(screen.queryByRole("button", { name: "Show stage" })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "More tools" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Agents" }));
     const stage = await screen.findByRole("region", { name: "Stage" });
     // Only what claims the compact client: a desktop-only panel is not there.
     expect(within(stage).queryByRole("button", { name: "Files" })).toBeNull();
@@ -674,6 +829,14 @@ describe("the compact client on a tablet", () => {
     expect(within(stage).getByRole("tab", { name: /Agents/ }).getAttribute("aria-selected")).toBe("true");
     expect(screen.queryByRole("dialog", { name: "Agents" })).toBeNull();
     expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
+    const tool = await screen.findByRole("button", { name: "Agents" });
+    expect(tool.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(tool);
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Stage" })).toBeNull());
+    const folded = await screen.findByRole("button", { name: "Agents" });
+    expect(folded.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(folded);
+    expect(await screen.findByRole("region", { name: "Stage" })).toBeTruthy();
   });
 });
 

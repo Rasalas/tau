@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore, type ReactNode } from "react";
+import { errorMessage } from "../../workbench/error-message";
 import type { TranscriptPage } from "../../shared/host-protocol";
 import type { HostTranscriptCursor } from "../../shared/transcript-cursor";
 import { countUserTurns } from "../../shared/transcript-pager";
@@ -43,7 +44,7 @@ export function TranscriptHistoryBoundary({
       // The rows are in; the transcript holds its leading row itself (useLeadingRowAnchor).
       controller.completeSuccess(request, countUserTurns(page.messages));
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       controller.completeError(request, `Could not load older turns: ${message}`);
     }
   }, [applyPage, controller, loadPage]);

@@ -135,13 +135,13 @@ describe("Settings → Keybindings as an editor", () => {
   it("adds another chord and removes one of several", async () => {
     const { setChords } = setup();
     fireEvent.click(screen.getByRole("button", { name: "More for New thread" }));
-    expect(screen.queryByRole("menuitem", { name: "Remove this chord" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /^Remove/u })).toBeNull();
     fireEvent.click(screen.getByRole("menuitem", { name: "Add another chord" }));
     fireEvent.keyDown(recorder(), ctrl("t"));
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save" })); });
     expect(setChords).toHaveBeenLastCalledWith("new-thread", [{ key: "mod+n" }, { key: "mod+t" }]);
     fireEvent.click(screen.getAllByRole("button", { name: "More for New thread" })[0]!);
-    await act(async () => { fireEvent.click(screen.getByRole("menuitem", { name: "Remove this chord" })); });
+    await act(async () => { fireEvent.click(screen.getByRole("menuitem", { name: "Remove Ctrl+N" })); });
     expect(setChords).toHaveBeenLastCalledWith("new-thread", [{ key: "mod+t" }]);
   });
 
@@ -149,19 +149,19 @@ describe("Settings → Keybindings as an editor", () => {
     setup();
     fireEvent.click(screen.getByRole("button", { name: "Search by keys" }));
     fireEvent.keyDown(screen.getByRole("textbox", { name: "Press the keys to search for" }), ctrl("k"));
-    expect(screen.getByRole("heading", { name: "Active keybindings (1)" })).toBeTruthy();
     expect(chordButton(/Change the chord for Command palette/u)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Change the chord for New thread/u })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Clear the key search" }));
-    expect(screen.getByRole("heading", { name: "Active keybindings (3)" })).toBeTruthy();
+    expect(chordButton(/Change the chord for New thread/u)).toBeTruthy();
   });
 
   it("says when nothing matches the filter and clears it", () => {
     setup();
-    fireEvent.change(screen.getByRole("searchbox", { name: "Filter keybindings or commands" }), { target: { value: "nothing like this" } });
-    expect(screen.getByRole("heading", { name: "Active keybindings (0)" })).toBeTruthy();
-    expect(screen.getByText("No keybinding matches “nothing like this”")).toBeTruthy();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Find a shortcut" }), { target: { value: "nothing like this" } });
+    expect(screen.queryByRole("button", { name: /Change the chord/u })).toBeNull();
+    expect(screen.getByText("No shortcut matches “nothing like this”")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Clear the search" }));
-    expect(screen.getByRole("heading", { name: "Active keybindings (3)" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /Change the chord/u })).toHaveLength(3);
   });
 
   it("says so when the write fails and keeps the draft", async () => {
@@ -176,6 +176,18 @@ describe("Settings → Keybindings as an editor", () => {
   it("only lists while no extension offers a keymap", () => {
     setup({ keymap: false });
     expect(screen.queryByRole("button", { name: /Change the chord/u })).toBeNull();
-    expect(screen.getByText("Ctrl+K")).toBeTruthy();
+    expect(screen.getByLabelText("Ctrl+K")).toBeTruthy();
+  });
+
+  it("draws cards by layer, each key a cap, the composer's own keys among the conversation's", () => {
+    setup();
+    const app = screen.getByRole("region", { name: "App" });
+    expect(within(app).getByText("Command palette")).toBeTruthy();
+    expect([...within(app).getByLabelText("Ctrl+K").querySelectorAll("kbd")].map((cap) => cap.textContent)).toEqual(["Ctrl", "K"]);
+    expect(within(screen.getByRole("region", { name: "Stage" })).getByText("Split terminal")).toBeTruthy();
+    const conversation = screen.getByRole("region", { name: "Conversation" });
+    expect(within(conversation).getByText("Send").closest(".keybinding-row")?.querySelector(".keycaps")?.getAttribute("aria-label")).toBe("↵");
+    expect(within(conversation).getByText("Steer while running").closest(".keybinding-row")?.querySelector(".keycaps")?.getAttribute("aria-label")).toBe("Ctrl+↵");
+    expect(within(conversation).getByText("New line")).toBeTruthy();
   });
 });

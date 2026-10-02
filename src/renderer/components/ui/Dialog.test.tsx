@@ -2,6 +2,7 @@
 import { useRef, useState } from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { Dialog, Popover } from "./Dialog";
 
 afterEach(cleanup);
@@ -61,5 +62,15 @@ describe("Popover", () => {
     fireEvent.pointerDown(screen.getByText("outside"));
     expect(screen.queryByRole("dialog", { name: "Details" })).toBeNull();
     expect(document.activeElement).toBe(trigger);
+  });
+});
+
+describe("ConfirmDialog (1v)", () => {
+  it("draws the action's icon before its label, as the design's Delete", () => {
+    render(<ConfirmDialog title="Delete it?" confirmLabel="Delete" destructive icon={<svg data-testid="trash" />} onConfirm={() => undefined} onCancel={() => undefined} />);
+    const action = screen.getByRole("button", { name: "Delete" });
+    expect(action.className).toBe("danger");
+    expect(action.firstElementChild?.getAttribute("data-testid")).toBe("trash");
+    expect(screen.getByRole("dialog").className).toBe("confirm-dialog");
   });
 });

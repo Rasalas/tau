@@ -2,6 +2,8 @@ import "../../src/renderer/tokens.css";
 import "../../src/renderer/styles.css";
 import "../../src/renderer/profile-compact.css";
 import "./ui/shell.css";
+import { Capacitor } from "@capacitor/core";
+import { remoteActivities } from "./activity-start";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "@capacitor/app";
@@ -10,12 +12,16 @@ import { createLocalStorageAdapter } from "../../src/renderer/browser-storage";
 import { webClientEnvironment } from "../../src/web/WebWorkbench";
 import { appleDynamicType, applyTypeScale, deviceClassFor } from "../../src/renderer/type-scale";
 import { screenMinSide } from "../../src/renderer/use-layout-profile";
+import { relayActivities } from "./activity-relay";
+import { NativeComposerDictation } from "../../src/renderer/components/ComposerDictation";
+import { PUSH_RELAY_URL } from "../../kits/push/protocol";
 import { Shell, type AppContext } from "./Shell";
 import { HostBook } from "./hosts";
-import { browseHosts, createSocketBridge, deviceInfo, scanQrCode, secureStore, textScalePort, type DeviceInfo } from "./native";
+import { nativeRemoteActivities, installActivityKey, nativeActivities, nativeDictation, browseHosts, createSocketBridge, deviceInfo, scanQrCode, secureStore, textScalePort, type DeviceInfo } from "./native";
 import { androidFontScale } from "./text-scale";
 import { linkRoute, readRoute } from "./routes";
-import { createPushRegistrar, setPushRegistrar, tapRoute } from "./push";
+import { createPushRegistrar, createRelayPort, sealedTapRoute, setPushRegistrar, tapRoute } from "./push";
+import { PushKeys } from "./push-keys";
 import { nativePushPort } from "./push-native";
 import { nativeWakeSource } from "./wakes";
 
@@ -28,21 +34,34 @@ async function boot(): Promise<void> {
   const system = device.platform === "android" ? await androidFontScale(textScalePort).catch(() => undefined) : appleDynamicType();
   applyTypeScale(deviceClassFor("compact", true, screenMinSide()), system);
   const push = nativePushPort(device.platform);
-  setPushRegistrar(createPushRegistrar(push));
+  const pushKeys = new PushKeys(secureStore);
+  const book = new HostBook(secureStore);
+  const activityKeys = new PushKeys({ get: (key) => secureStore.get("activity:" + key), set: (key, value) => secureStore.set("activity:" + key, value), remove: (key) => secureStore.remove("activity:" + key) });
+  const isNative = Capacitor.isNativePlatform();
+  const remoteControl = isNative && device.platform === "ios" ? remoteActivities(book, activityKeys, nativeRemoteActivities, device.virtual) : undefined;
+  const activityPort = { ...nativeActivities, clear: async (hostId: string) => { await remoteControl?.revoke(hostId); await nativeActivities.clear(hostId); } };
+  const pushRoutes = new Map<string, "direct" | "relay">();
+  setPushRegistrar(createPushRegistrar(push, { relay: createRelayPort(), keys: pushKeys, onRoute: (id, route) => pushRoutes.set(id, route) }));
   const context: AppContext = {
+    ...(remoteControl ? { remoteActivities: remoteControl } : {}),
+    activities: !isNative ? undefined : device.platform === "ios" ? relayActivities(activityPort, { url: PUSH_RELAY_URL, keys: pushKeys, installKey: installActivityKey, authorized: async (id) => Boolean(await book.token(id)), direct: (id) => pushRoutes.get(id) === "direct" }) : nativeActivities,
     storage: createLocalStorageAdapter(),
-    book: new HostBook(secureStore),
+    book,
     bridge,
     device,
-    environment: webClientEnvironment("compact"),
+    environment: { ...webClientEnvironment("compact"), ...(isNative && device.platform === "ios" ? { dictation: { port: nativeDictation, Control: NativeComposerDictation } } : {}) },
     wakes: nativeWakeSource(App, Network),
     scan: scanQrCode,
     browse: (listener) => browseHosts(TAU_BONJOUR_TYPE, listener),
     navigate: (search) => window.location.replace(`${window.location.pathname}${search}`),
     subscribeToLinks: (listener) => {
       const handle = App.addListener("appUrlOpen", ({ url }) => { const route = linkRoute(url); if (route) listener(route); });
-      // A tapped notification carries the same link.
-      const stopTaps = push.onTap((data) => { const route = tapRoute(data); if (route) listener(route); });
+      // A tapped notification carries the same link, in the clear or sealed (a relay push on iOS).
+      const stopTaps = push.onTap((data) => {
+        const route = tapRoute(data);
+        if (route) listener(route);
+        else void sealedTapRoute(data, pushKeys).then((sealed) => { if (sealed) listener(sealed); });
+      });
       return () => { stopTaps(); void handle.then((entry) => entry.remove()); };
     },
   };

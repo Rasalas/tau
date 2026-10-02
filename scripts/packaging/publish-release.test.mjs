@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { STABLE_NAMES, publishDraft, releaseBody, releaseProblems, removeNightly, stableCopies } from "./publish-release.mjs";
+import { HOST_FEEDS, STABLE_NAMES, publishDraft, releaseBody, releaseProblems, removeNightly, stableCopies } from "./publish-release.mjs";
 
 const SCRIPT = new URL("./publish-release.mjs", import.meta.url).pathname;
 const feed = (...urls) => `version: 0.7.15\nfiles:\n${urls.map((url) => `  - url: ${url}\n    sha512: x==\n    size: 1\n`).join("")}path: ${urls[0]}\n`;
@@ -11,12 +11,17 @@ const FEEDS = {
   "latest-mac.yml": feed("Tau-0.7.15-arm64-mac.zip", "Tau-0.7.15-arm64.dmg", "Tau-0.7.15-mac.zip", "Tau-0.7.15.dmg"),
   "latest.yml": feed("Tau-Setup-0.7.15.exe"),
   "latest-linux.yml": feed("Tau-0.7.15.AppImage", "Tau_0.7.15_amd64.deb"),
+  ...Object.fromEntries(HOST_FEEDS.map((name) => {
+    const target = name.slice("latest-host-".length, -".yml".length);
+    return [name, feed(`Tau-host-0.7.15-${target}.${target.startsWith("win32-") ? "zip" : "tar.gz"}`)];
+  })),
 };
 const INSTALLERS = ["Tau-0.7.15-arm64-mac.zip", "Tau-0.7.15-arm64.dmg", "Tau-0.7.15-mac.zip", "Tau-0.7.15.dmg", "Tau-Setup-0.7.15.exe"];
 const COMPLETE = [
   ...Object.keys(FEEDS), ...Object.keys(FEEDS).map((name) => `${name}.sig`),
   ...INSTALLERS, ...INSTALLERS.map((name) => `${name}.blockmap`),
   "Tau-0.7.15.AppImage", "Tau_0.7.15_amd64.deb", "LICENSE",
+  ...HOST_FEEDS.map((name) => /url: (\S+)/u.exec(FEEDS[name])[1]),
 ];
 const read = (name) => FEEDS[name];
 const STABLE = ["Tau-mac-arm64.dmg", "Tau-mac-x64.dmg", "Tau-windows-x64.exe", "Tau-linux-amd64.deb", "Tau-linux-x86_64.AppImage", "Tau-android.apk"];
@@ -57,6 +62,18 @@ describe("a release folder", () => {
     expect(releaseProblems(without("Tau_0.7.15_amd64.deb"), read)).toEqual(["latest-linux.yml names Tau_0.7.15_amd64.deb, which is missing."]);
     expect(releaseProblems(without("Tau-0.7.15.dmg.blockmap"), read)).toEqual(["Tau-0.7.15.dmg.blockmap is missing."]);
     expect(releaseProblems(without("LICENSE"), read)).toEqual(["LICENSE is missing."]);
+  });
+
+  it("requires signed portable host feeds and archives without installer blockmaps", () => {
+    for (const name of HOST_FEEDS) {
+      expect(releaseProblems(COMPLETE.filter((entry) => entry !== name), read)).toContain(`${name} is missing.`);
+      expect(releaseProblems(COMPLETE.filter((entry) => entry !== `${name}.sig`), read)).toContain(`${name}.sig is missing.`);
+      const archive = /url: (\S+)/u.exec(FEEDS[name])[1];
+      expect(releaseProblems(COMPLETE.filter((entry) => entry !== archive), read)).toContain(`${name} names ${archive}, which is missing.`);
+    }
+    expect(releaseProblems(COMPLETE, read)).toEqual([]);
+    const wrong = (name) => name === "latest-host-linux-arm64.yml" ? feed("Tau-host-0.7.15-linux-x64.tar.gz") : read(name);
+    expect(releaseProblems(COMPLETE, wrong)).toContain("latest-host-linux-arm64.yml must name only Tau-host-0.7.15-linux-arm64.tar.gz.");
   });
 
   it("is checked from the command line", () => {

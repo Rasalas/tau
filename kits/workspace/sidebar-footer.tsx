@@ -1,18 +1,22 @@
-import { ChevronLeft, CircleArrowUp, Settings } from "lucide-react";
+import { ChevronLeft, CircleArrowUp, SlidersHorizontal } from "lucide-react";
 import { READ_ONLY_REASON, tooltipProps, useAppUpdate, useOpenPage, useWorkbenchShell, type PageContribution, type WorkbenchActions } from "tau";
 
 const noBadge = () => undefined;
 const noSummary = () => undefined;
 
-/** A page's entry: its icon, with the count its kit reports (open pull requests, say) as a badge. */
+/**
+ * A page's entry: its icon, with the count its kit reports (open pull requests, say) as a badge.
+ * A prominent page (Reviews) reads as its name and count, as design 1a writes it.
+ */
 function PageButton({ page, actions }: { page: PageContribution; actions: WorkbenchActions }) {
   const count = (page.useBadge ?? noBadge)();
   const label = count ? `${page.label}, ${count}` : page.label;
   const shown = count && count > 99 ? "99+" : count;
   return (
-    <button type="button" {...tooltipProps(label, { side: "top" })} aria-label={label} onClick={() => actions.openPage?.(page.id)}>
+    <button type="button" className={page.prominent ? "sidebar-page" : undefined} {...tooltipProps(label, { side: "top" })} aria-label={label} onClick={() => actions.openPage?.(page.id)}>
       {page.Icon ? <page.Icon size={15} /> : page.label.slice(0, 1)}
-      {count ? <span className="page-badge" aria-hidden="true">{shown}</span> : null}
+      {page.prominent ? <>{page.label}{count ? <b aria-hidden="true">{shown}</b> : null}</>
+        : count ? <span className="page-badge" aria-hidden="true">{shown}</span> : null}
     </button>
   );
 }
@@ -54,9 +58,9 @@ function UpdateButton() {
 }
 
 /**
- * The sidebar's foot: the leading pages (Reviews) and the other pages as icons
- * with their counts, the commands kits put here, and at the end what pages
- * sum up (Usage's juicebars), a waiting update and Settings.
+ * The sidebar's foot (design 1a): Reviews and its count, the other pages as icons,
+ * the commands kits put here and Settings; at the end what pages sum up (Usage's
+ * juicebars and this month's cost) and a waiting update.
  * While a page shows, the foot is Back alone, as Settings' column ends.
  */
 export function SidebarFooter({ actions, readOnly }: { actions: WorkbenchActions; readOnly: boolean }) {
@@ -91,12 +95,12 @@ export function SidebarFooter({ actions, readOnly }: { actions: WorkbenchActions
           {command.Icon ? <command.Icon size={15} /> : command.label}
         </button>
       ))}
+      <button type="button" {...tooltipProps("Settings", { side: "top", shortcut: registry.keybindingLabel("runtime.settings") })} aria-label="Settings" onClick={() => actions.openSettings()}>
+        <SlidersHorizontal size={14} />
+      </button>
       <span className="sidebar-footer-end">
         {summaries.map((page) => <PageSummarySlot key={page.id} page={page} actions={actions} />)}
         <UpdateButton />
-        <button type="button" {...tooltipProps("Settings", { side: "top", shortcut: registry.keybindingLabel("runtime.settings") })} aria-label="Settings" onClick={() => actions.openSettings()}>
-          <Settings size={15} />
-        </button>
       </span>
     </div>
   );

@@ -42,7 +42,7 @@ function renderList(extensions: DesktopExtension[]) {
 }
 
 /** A kit listing two threads of another machine, one of them running, the machine out of reach when `offline`. */
-function machineKit(options: { offline?: boolean; opened?: string[] } = {}): DesktopExtension {
+function machineKit(options: { offline?: boolean; opened?: string[]; asking?: boolean } = {}): DesktopExtension {
   const place = { name: "rex", icon: <Server size={12} aria-hidden /> };
   const entry = (id: string, title: string, modifiedAt: number, patch: Partial<ThreadListEntry> = {}): ThreadListEntry => ({
     key: `machine:rex:${id}`,
@@ -52,7 +52,11 @@ function machineKit(options: { offline?: boolean; opened?: string[] } = {}): Des
     open: (_actions: WorkbenchActions) => { options.opened?.push(id); },
     ...patch,
   });
-  const threads = [entry("r1", "Build on rex", 40, { running: true }), entry("r2", "Old work on rex", 5, { settled: true })];
+  const threads = [
+    entry("r1", "Build on rex", 40, { running: true }),
+    entry("r2", "Old work on rex", 5, { settled: true }),
+    ...(options.asking ? [entry("r3", "Ask on rex", 20, { running: true, waiting: true })] : []),
+  ];
   return {
     id: "test.machines",
     name: "Machines stub",
@@ -97,6 +101,30 @@ describe("another machine's threads in the phone's list", () => {
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Show threads of" })).getByRole("button", { name: /^other/u }));
     await waitFor(() => expect(within(home).queryByRole("button", { name: "Open thread Build on rex on rex" })).toBeNull());
     expect(within(home).getByRole("button", { name: "Open thread Tune the other one on Mac" })).toBeTruthy();
+  });
+
+  it("shows a question there as one, first among the threads", async () => {
+    renderList([machineKit({ asking: true })]);
+    const home = await screen.findByRole("region", { name: "Threads" });
+    const active = await within(home).findByRole("list", { name: "Threads" });
+    const asking = await within(active).findByRole("button", { name: "Open thread Ask on rex on rex" });
+    expect(within(active).getAllByRole("button", { name: /^Open thread/u })[0]).toBe(asking);
+    expect(asking.getAttribute("aria-description")).toBe("Waiting for an answer");
+    expect(asking.textContent).toContain("Question");
+  });
+
+  it("finds another machine's threads in the search, names the machine and opens there", async () => {
+    const opened: string[] = [];
+    renderList([machineKit({ opened })]);
+    const home = await screen.findByRole("region", { name: "Threads" });
+    fireEvent.click(within(home).getByRole("button", { name: "Search threads" }));
+    fireEvent.change(await screen.findByRole("searchbox", { name: "Search threads" }), { target: { value: "on rex" } });
+    const results = within(screen.getByRole("list", { name: "Search results" })).getAllByRole("button");
+    expect(results.map((button) => button.querySelector("strong")?.textContent)).toEqual(["Build on rex", "Old work on rex"]);
+    expect(results[0]!.querySelector(".touch-thread-machine")?.textContent).toBe("rex");
+    fireEvent.click(results[1]!);
+    expect(opened).toEqual(["r2"]);
+    await waitFor(() => expect(screen.queryByRole("list", { name: "Search results" })).toBeNull());
   });
 
   it("names no machine while no other machine's thread shows", async () => {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { errorMessage } from "../../workbench/error-message";
 import type { UiHostService } from "../../shared/connections";
 import { CONFIG_DEFAULTS } from "../../shared/config-layers";
 import { useHostClient } from "../host-client-context";
@@ -58,7 +59,7 @@ export function HostServiceSection({ onNotify }: { onNotify(message: string): vo
       const code = (error as { code?: unknown })?.code;
       if (!mounted.current) return undefined;
       if (code === "unknown-method" || code === "unsupported") setState({ status: "absent" });
-      else setState({ status: "error", message: error instanceof Error ? error.message : String(error) });
+      else setState({ status: "error", message: errorMessage(error) });
       return undefined;
     }
   }, [client]);
@@ -84,7 +85,7 @@ export function HostServiceSection({ onNotify }: { onNotify(message: string): vo
       if (action === "sandbox") await client.allowServiceSandbox();
       else await (action === "uninstall" ? client.uninstallService() : client.installService(display === undefined ? undefined : { display }));
     } catch (error: unknown) {
-      failure = error instanceof Error ? error.message : String(error);
+      failure = errorMessage(error);
     }
     if (action === "sandbox") {
       const service = await load();

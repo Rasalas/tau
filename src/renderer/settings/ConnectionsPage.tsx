@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ComponentType } from "react";
-import { Link2, Plus, SlidersHorizontal, X } from "lucide-react";
+import { Link2, Monitor, MonitorSmartphone, SlidersHorizontal, X } from "lucide-react";
+import { errorMessage } from "../../workbench/error-message";
 import {
   IDLE_EXPIRY_WARNING_MS,
   IDLE_TIMEOUT_CHOICES,
@@ -23,13 +24,15 @@ import { Badge, Button, DangerAction, DangerZone, SegmentedControl, Select, Sett
 import { AccessChoice, PairingRequestDialog } from "../pairing/PairingRequestDialog";
 import { DialogClose, submitOnEnter, useFieldValue } from "../pairing/dialog-parts";
 import { requestTitle } from "../pairing/pairing-format";
-import { SettingRow, SettingsSection } from "./settings-layout";
+import { SettingRow, SettingsCard, SettingsSection } from "./settings-layout";
+import { SettingsPageAction } from "./page-action";
 import { settingAnchor } from "./settings-search";
 import { LINK_LIFETIMES, describeDevice, describeLastChange, formatAgo, formatExpiresIn, qrEndpoint } from "./connections-format";
 import { PairingQrCode } from "./PairingQrCode";
 import { NetworkAccessSection } from "./NetworkAccessSection";
 import { NearbyMachinesDialog } from "./NearbyMachines";
-import type { SettingsSectionProps } from "../extension-system";
+import { ConnectSettings } from "./ConnectSettings";
+import type { SettingsCardId, SettingsSectionProps } from "../extension-system";
 import { HostServiceSection } from "./HostServiceSection";
 
 type PageState =
@@ -39,7 +42,7 @@ type PageState =
 
 function errorOf(error: unknown): { code?: string; message: string } {
   const code = typeof (error as { code?: unknown })?.code === "string" ? (error as { code: string }).code : undefined;
-  return { ...(code ? { code } : {}), message: error instanceof Error ? error.message : String(error) };
+  return { ...(code ? { code } : {}), message: errorMessage(error) };
 }
 
 /** Relative times move on their own; a quarter minute is fine enough for "5 min ago". */
@@ -52,8 +55,14 @@ function useNow(intervalMs: number): number {
   return now;
 }
 
-function StatusDot({ tone, label }: { tone: "live" | "idle" | "pending"; label: string }) {
-  return <span className={`connection-dot ${tone}`} role="img" aria-label={label} title={label} />;
+/** A device's state column (design 2h): Online, Paired, Offline, Waiting. */
+function State({ tone, children }: { tone: "success" | "muted" | "warn"; children: string }) {
+  return <td className="connection-state"><span data-tone={tone}>{children}</span></td>;
+}
+
+function DeviceMark({ kind }: { kind?: "desktop" | "phone" | "tablet" | "unknown" | "browser" }) {
+  const Icon = kind === "phone" || kind === "tablet" ? MonitorSmartphone : kind ? Monitor : Link2;
+  return <td className="settings-table-mark"><Icon size={15} aria-hidden /></td>;
 }
 
 /** What the host keeps of a device's or a link's name. */
@@ -69,8 +78,8 @@ const idleLabel = (days: IdleTimeoutDays): string => (days === null ? "Never" : 
  */
 export function ConnectionsPage({ onNotify, sections = [] }: {
   onNotify(message: string): void;
-  /** What packages add below Network access (`registerSettingsSection`). */
-  sections?: ReadonlyArray<{ id: string; Component: ComponentType<SettingsSectionProps> }>;
+  /** What packages add (`registerSettingsSection`): rows of This machine, or sections under Advanced. */
+  sections?: ReadonlyArray<{ id: string; card?: SettingsCardId | undefined; order?: number | undefined; Component: ComponentType<SettingsSectionProps> }>;
 }) {
   const client = useHostClient();
   const [state, setState] = useState<PageState>({ status: "loading" });
@@ -155,119 +164,132 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
   const nothing = links.length === 0 && requests.length === 0 && data.clients.length === 0 && data.owners.length === 0;
   const others = data.clients.filter((paired) => !paired.current).length;
 
+  const thisMachine = sections.filter((section) => section.card === "this-machine").sort((left, right) => (left.order ?? 100) - (right.order ?? 100));
   return (
     <div className="settings-page connections-page">
-      <SettingsSection title="This host">
-        <SettingRow
-          id={settingAnchor("Address")}
-          title="Address"
-          description={data.endpoints.some((endpoint) => endpoint.reachability === "network")
-            ? "Other devices on these networks can open the host in a browser. A device picks whichever it reaches."
-            : data.network
-              ? "Reachable from this machine only. Turn on Local network or Tailscale below to pair another device."
-              : "Reachable from this machine only. To pair another device, start the host with TAU_HOST_LISTEN=0.0.0.0:<port> and TAU_HOST_TLS=1."}
-          status={<ul className="connection-endpoints">
-            {data.endpoints.map((endpoint) => (
-              <li key={endpoint.url} data-kind={endpoint.kind}><code>{endpoint.url}</code><small>{endpoint.label}</small></li>
-            ))}
-          </ul>}
-        />
-        {data.fingerprint ? (
-          <SettingRow
-            // Network access has its own Certificate row, which the search finds.
-            {...(data.network ? {} : { id: settingAnchor("Certificate") })}
-            title="Certificate"
-            description="A self-signed certificate is met with a browser warning. Trust it only if the browser shows this SHA-256 fingerprint. Pairing links carry it, so the Tau app pins it without asking."
-            status={<code className="connection-fingerprint">{data.fingerprint}</code>}
-          />
-        ) : null}
-        <SettingRow
-          id={settingAnchor("Other machines")}
-          title="Other machines"
-          description="Tau hosts nearby that announce themselves. macOS may ask about local network access the first time."
-          control={<Button onClick={() => setFindingMachines(true)}>Find machines…</Button>}
-        />
-      </SettingsSection>
+      <SettingsPageAction>
+        <Button variant="ghost" icon={<Link2 size={14} aria-hidden />} onClick={() => setCreating(true)}
+          {...tooltipProps(data.webClient ? undefined : "This build serves no web client, so only the Tau app can open a link.")}>Pair a device</Button>
+      </SettingsPageAction>
 
-      {data.network ? (
-        <NetworkAccessSection
-          network={data.network}
-          busy={busy === "network" || busy === "reload"}
-          onChange={changeNetwork}
-          onReload={() => void act("reload", async () => {
-            const { changed } = await client!.reloadCertificate();
-            onNotify(changed ? "Tau now serves the renewed certificate" : "The certificate on disk is the one Tau serves");
-          })}
-        />
+      <div className="settings-table-frame" id={settingAnchor("Authorized clients")} tabIndex={-1}>
+        <table className="settings-table connections-table">
+          <thead><tr><td className="settings-table-mark" /><th scope="col">Device</th><th scope="col">State</th><th scope="col" aria-label="Actions" /></tr></thead>
+          <tbody>
+            {requests.map((request) => (
+              <RequestRow key={request.id} request={request} now={now} busy={busy === `request:${request.id}`}
+                onReview={() => setReviewing(request)}
+                onDeny={() => void act(`request:${request.id}`, () => client!.denyPairing(request.id), `${requestTitle(request)} was denied`)} />
+            ))}
+            {/* Gone once used: the client it paired takes its place below. */}
+            {created && links.some((link) => link.id === created.link.id)
+              ? <tr><td colSpan={4}><CreatedLink created={created} now={now} onCopy={copy} onDismiss={() => setCreated(undefined)} /></td></tr>
+              : null}
+            {links.map((link) => (
+              <LinkRow key={link.id} link={link} now={now} busy={busy === `link:${link.id}`}
+                onRevoke={() => void act(`link:${link.id}`, async () => {
+                  await client?.revokePairingLink(link.id);
+                  if (created?.link.id === link.id) setCreated(undefined);
+                }, "Pairing link revoked")} />
+            ))}
+            {data.clients.map((paired) => (
+              <ClientRow key={paired.id} paired={paired} now={now} busy={busy === `client:${paired.id}`}
+                {...(paired.companionOf ? { companionOf: data.clients.find((other) => other.id === paired.companionOf)?.label ?? "a device since revoked" } : {})}
+                onEdit={() => setEditing(paired)}
+                onRevoke={() => void act(`client:${paired.id}`, () => client!.revokeClient(paired.id), `${paired.label} can no longer connect`)} />
+            ))}
+            {data.owners.map((owner) => <OwnerRow key={owner.id} owner={owner} now={now} />)}
+            {nothing ? <tr><td colSpan={4}><SettingsState kind="empty" title="No device is paired yet" description="Pair a device and open the link on a phone or another computer; you allow it here when it asks." /></td></tr> : null}
+          </tbody>
+        </table>
+      </div>
+
+      {thisMachine.length ? (
+        <SettingsCard title="This machine">
+          {thisMachine.map(({ id, Component }) => <Component key={id} onNotify={onNotify} onChanged={() => void refresh()} />)}
+        </SettingsCard>
       ) : null}
 
-      {sections.map(({ id, Component }) => <Component key={id} onNotify={onNotify} onChanged={() => void refresh()} />)}
+      {/* The design leaves the network out; it stays, folded. */}
+      <details className="connections-advanced">
+        <summary>Advanced</summary>
+        <SettingsSection title="This host">
+          <SettingRow
+            id={settingAnchor("Address")}
+            title="Address"
+            description={data.endpoints.some((endpoint) => endpoint.reachability === "network")
+              ? "Other devices on these networks can open the host in a browser. A device picks whichever it reaches."
+              : data.network
+                ? "Reachable from this machine only. Turn on Local network or Tailscale below to pair another device."
+                : "Reachable from this machine only. To pair another device, start the host with TAU_HOST_LISTEN=0.0.0.0:<port> and TAU_HOST_TLS=1."}
+            status={<ul className="connection-endpoints">
+              {data.endpoints.map((endpoint) => (
+                <li key={endpoint.url} data-kind={endpoint.kind}><code>{endpoint.url}</code><small>{endpoint.label}</small></li>
+              ))}
+            </ul>}
+          />
+          {data.fingerprint ? (
+            <SettingRow
+              // Network access has its own Certificate row, which the search finds.
+              {...(data.network ? {} : { id: settingAnchor("Certificate") })}
+              title="Certificate"
+              description="A self-signed certificate is met with a browser warning. Trust it only if the browser shows this SHA-256 fingerprint. Pairing links carry it, so the Tau app pins it without asking."
+              status={<code className="connection-fingerprint">{data.fingerprint}</code>}
+            />
+          ) : null}
+          <SettingRow
+            id={settingAnchor("Other machines")}
+            title="Other machines"
+            description="Tau hosts nearby that announce themselves. macOS may ask about local network access the first time."
+            control={<Button onClick={() => setFindingMachines(true)}>Find machines…</Button>}
+          />
+        </SettingsSection>
 
-      <SettingsSection
-        id={settingAnchor("Authorized clients")}
-        title="Authorized clients"
-        headerAction={(
-          <div className="connection-header-actions">
-            <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}
-              {...tooltipProps(data.webClient ? undefined : "This build serves no web client, so only the Tau app can open a link.")}>Create link</Button>
-          </div>
-        )}
-      >
-        {requests.map((request) => (
-          <RequestRow key={request.id} request={request} now={now} busy={busy === `request:${request.id}`}
-            onReview={() => setReviewing(request)}
-            onDeny={() => void act(`request:${request.id}`, () => client!.denyPairing(request.id), `${requestTitle(request)} was denied`)} />
-        ))}
-        {/* Gone once used: the client it paired takes its place below. */}
-        {created && links.some((link) => link.id === created.link.id)
-          ? <CreatedLink created={created} now={now} onCopy={copy} onDismiss={() => setCreated(undefined)} />
-          : null}
-        {links.map((link) => (
-          <LinkRow key={link.id} link={link} now={now} busy={busy === `link:${link.id}`}
-            onRevoke={() => void act(`link:${link.id}`, async () => {
-              await client?.revokePairingLink(link.id);
-              if (created?.link.id === link.id) setCreated(undefined);
-            }, "Pairing link revoked")} />
-        ))}
-        {data.clients.map((paired) => (
-          <ClientRow key={paired.id} paired={paired} now={now} busy={busy === `client:${paired.id}`}
-            {...(paired.companionOf ? { companionOf: data.clients.find((other) => other.id === paired.companionOf)?.label ?? "a device since revoked" } : {})}
-            onEdit={() => setEditing(paired)}
-            onRevoke={() => void act(`client:${paired.id}`, () => client!.revokeClient(paired.id), `${paired.label} can no longer connect`)} />
-        ))}
-        {data.owners.map((owner) => <OwnerRow key={owner.id} owner={owner} now={now} />)}
-        {nothing ? <SettingsState kind="empty" title="No device is paired yet" description="Create a link and open it on a phone or another computer; you allow the device here when it asks." /> : null}
-      </SettingsSection>
+        {data.network ? (
+          <NetworkAccessSection
+            network={data.network}
+            busy={busy === "network" || busy === "reload"}
+            onChange={changeNetwork}
+            onReload={() => void act("reload", async () => {
+              const { changed } = await client!.reloadCertificate();
+              onNotify(changed ? "Tau now serves the renewed certificate" : "The certificate on disk is the one Tau serves");
+            })}
+          />
+        ) : null}
 
-      <HostServiceSection onNotify={onNotify} />
+        {sections.filter((section) => !section.card).map(({ id, Component }) => <Component key={id} onNotify={onNotify} onChanged={() => void refresh()} />)}
 
-      <DangerZone>
-        <DangerAction
-          id={settingAnchor("Sign out every other device")}
-          title="Sign out every other device"
-          description="Every paired device loses its token at once; each needs a new pairing to come back. Windows with the host token stay."
-          actionLabel="Revoke others…"
-          disabled={others === 0}
-          disabledReason="No other device is paired."
-          busy={busy === "revoke-others"}
-          confirmTitle="Revoke every other device?"
-          confirmMessage="Every paired device is signed out at once and its open connections close. Each needs a new pairing to come back. Windows with the host token are not affected."
-          onConfirm={() => void act("revoke-others", async () => {
-            const { revoked } = await client!.revokeOtherClients();
-            onNotify(revoked === 1 ? "1 device signed out" : `${revoked} devices signed out`);
-          })}
-        />
-        <DangerAction
-          id={settingAnchor("Rotate the host token")}
-          title="Rotate the host token"
-          description={<>The owner’s key, kept in <code>{data.tokenPath}</code>. Every other connection that uses it closes; paired devices keep their own tokens.</>}
-          actionLabel="Rotate…"
-          busy={busy === "rotate"}
-          confirmTitle="Rotate the host token?"
-          confirmMessage="Every other connection that uses the host token closes at once: other windows at this host, and any browser the token was pasted into. This window carries on with the new token."
-          onConfirm={() => void act("rotate", () => client!.rotateHostToken(), "Host token rotated")}
-        />
-      </DangerZone>
+        <HostServiceSection onNotify={onNotify} />
+
+        <DangerZone>
+          <DangerAction
+            id={settingAnchor("Sign out every other device")}
+            title="Sign out every other device"
+            description="Every paired device loses its token at once; each needs a new pairing to come back. Windows with the host token stay."
+            actionLabel="Revoke others…"
+            disabled={others === 0}
+            disabledReason="No other device is paired."
+            busy={busy === "revoke-others"}
+            confirmTitle="Revoke every other device?"
+            confirmMessage="Every paired device is signed out at once and its open connections close. Each needs a new pairing to come back. Windows with the host token are not affected."
+            onConfirm={() => void act("revoke-others", async () => {
+              const { revoked } = await client!.revokeOtherClients();
+              onNotify(revoked === 1 ? "1 device signed out" : `${revoked} devices signed out`);
+            })}
+          />
+          <DangerAction
+            id={settingAnchor("Rotate the host token")}
+            title="Rotate the host token"
+            description={<>The owner’s key, kept in <code>{data.tokenPath}</code>. Every other connection that uses it closes; paired devices keep their own tokens.</>}
+            actionLabel="Rotate…"
+            busy={busy === "rotate"}
+            confirmTitle="Rotate the host token?"
+            confirmMessage="Every other connection that uses the host token closes at once: other windows at this host, and any browser the token was pasted into. This window carries on with the new token."
+            onConfirm={() => void act("rotate", () => client!.rotateHostToken(), "Host token rotated")}
+          />
+        </DangerZone>
+        <ConnectSettings onNotify={onNotify} />
+      </details>
 
       {creating ? (
         <CreateLinkDialog
@@ -308,14 +330,15 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
 
 function LinkRow({ link, now, busy, onRevoke }: { link: UiPairingLink; now: number; busy: boolean; onRevoke(): void }) {
   return (
-    <div className="connection-row">
-      <StatusDot tone="pending" label={`Created ${formatAgo(link.createdAt, now)}`} />
-      <div className="connection-row-text">
-        <strong>{link.label ?? "Pairing link"}{link.access === "read-only" ? <Badge>Read only</Badge> : null}</strong>
+    <tr>
+      <DeviceMark />
+      <td className="settings-table-name">
+        <span>{link.label ?? "Pairing link"}{link.access === "read-only" ? <Badge>Read only</Badge> : null}</span>
         <small title={new Date(link.expiresAt).toLocaleString()}>{formatExpiresIn(link.expiresAt, now)} · single use · you allow the device when it asks</small>
-      </div>
-      <Button variant="danger" busy={busy} onClick={onRevoke}>{busy ? "Revoking…" : "Revoke"}</Button>
-    </div>
+      </td>
+      <State tone="warn">Link open</State>
+      <td className="settings-table-actions"><Button variant="ghost" icon={<X size={13} aria-hidden />} busy={busy} onClick={onRevoke}>Revoke</Button></td>
+    </tr>
   );
 }
 
@@ -324,44 +347,48 @@ function RequestRow({ request, now, busy, onReview, onDeny }: { request: UiPairi
     request.companion ? `and its agents as “${request.companion.name}”` : undefined,
     formatExpiresIn(request.expiresAt, now).replace("Expires", "expires")].filter(Boolean);
   return (
-    <div className="connection-row connection-request" role="group" aria-label={`${requestTitle(request)} wants to connect`}>
-      <StatusDot tone="pending" label="Waiting for you" />
-      <div className="connection-row-text">
-        <strong>{requestTitle(request)} wants to connect <code className="connection-request-code">{formatVerification(request.verification)}</code></strong>
+    <tr className="connection-request" aria-label={`${requestTitle(request)} wants to connect`}>
+      <DeviceMark kind={request.device.kind} />
+      <td className="settings-table-name">
+        <span>{requestTitle(request)} <code className="connection-request-code">{formatVerification(request.verification)}</code></span>
         <small>{details.join(" · ")}</small>
-      </div>
-      <Button variant="danger" disabled={busy} onClick={onDeny}>Deny</Button>
-      <Button variant="primary" disabled={busy} onClick={onReview}>Allow…</Button>
-    </div>
+      </td>
+      <State tone="warn">Wants to connect</State>
+      <td className="settings-table-actions">
+        <Button variant="ghost" disabled={busy} onClick={onDeny}>Deny</Button>
+        <Button disabled={busy} onClick={onReview}>Allow…</Button>
+      </td>
+    </tr>
   );
 }
 
 function ClientRow({ paired, companionOf, now, busy, onEdit, onRevoke }: { paired: UiPairedClient; companionOf?: string; now: number; busy: boolean; onEdit(): void; onRevoke(): void }) {
   const live = paired.connections > 0;
   const details = [describeDevice(paired.device), companionOf ? `agents of ${companionOf}` : undefined, paired.lastAddress, paired.proxyUser ? `as ${paired.proxyUser}` : undefined, `paired ${formatAgo(paired.pairedAt, now)}`,
-    live ? "connected" : paired.lastSeenAt ? `last active ${formatAgo(paired.lastSeenAt, now)}` : "not connected yet",
+    live ? "connected" : paired.lastSeenAt ? `last seen ${formatAgo(paired.lastSeenAt, now)}` : "not connected yet",
     paired.lastAction ? describeLastChange(paired.lastAction, now) : undefined].filter(Boolean);
   // Unused tokens run out; the owner hears of it a week ahead, the device only when it is refused.
   const expiring = !live && paired.expiresAt !== undefined && Date.parse(paired.expiresAt) - now < IDLE_EXPIRY_WARNING_MS;
+  // A phone is mostly away; paired is its usual state, as the design says.
+  const phone = paired.device.kind === "phone" || paired.device.kind === "tablet";
   return (
-    <div className="connection-row">
-      <StatusDot tone={live ? "live" : "idle"} label={live ? "Connected" : "Not connected"} />
-      <div className="connection-row-text">
-        <strong>
+    <tr>
+      <DeviceMark kind={paired.device.kind} />
+      <td className="settings-table-name">
+        <span>
           {paired.label}
           {paired.current ? <Badge tone="accent">This device</Badge> : null}
           {paired.access === "read-only" ? <Badge>Read only</Badge> : null}
-        </strong>
+        </span>
         <small>{details.join(" · ")}</small>
         {expiring ? <small className="connection-expiring">Signed out {formatExpiresIn(paired.expiresAt!, now).replace("Expires in", "in").replace("Expired", "now")} unless it connects</small> : null}
-      </div>
-      <button type="button" className="tau-icon-button connection-edit" aria-label={`Settings for ${paired.label}`} {...tooltipProps("Name, access and sign-out")} disabled={busy} onClick={onEdit}>
-        <SlidersHorizontal size={15} />
-      </button>
-      {paired.current ? null : (
-        <Button variant="danger" busy={busy} onClick={onRevoke}>{busy ? "Revoking…" : "Revoke"}</Button>
-      )}
-    </div>
+      </td>
+      <State tone={live || phone ? "success" : "muted"}>{live ? "Online" : phone ? "Paired" : "Offline"}</State>
+      <td className="settings-table-actions">
+        <Button variant="ghost" icon={<SlidersHorizontal size={13} aria-hidden />} aria-label={`Settings for ${paired.label}`} {...tooltipProps("Name, access and sign-out")} disabled={busy} onClick={onEdit}>Access</Button>
+        {paired.current ? null : <Button variant="ghost" icon={<X size={13} aria-hidden />} busy={busy} onClick={onRevoke}>Unpair</Button>}
+      </td>
+    </tr>
   );
 }
 
@@ -411,16 +438,18 @@ function DeviceDialog({ paired, busy, onSave, onCancel }: { paired: UiPairedClie
 }
 
 function OwnerRow({ owner, now }: { owner: UiOwnerConnection; now: number }) {
-  const name = owner.profile === "web" || owner.profile === "compact" ? "Browser" : "Tau window";
+  const browser = owner.profile === "web" || owner.profile === "compact";
   const details = [describeDevice(owner.device), owner.address, owner.proxyUser ? `as ${owner.proxyUser}` : undefined, `connected ${formatAgo(owner.since, now)}`, "host token"].filter(Boolean);
   return (
-    <div className="connection-row">
-      <StatusDot tone="live" label="Connected" />
-      <div className="connection-row-text">
-        <strong>{name}{owner.current ? <Badge tone="accent">This device</Badge> : null}</strong>
+    <tr>
+      <DeviceMark kind={browser ? "browser" : "desktop"} />
+      <td className="settings-table-name">
+        <span>{browser ? "Browser" : "Tau window"}{owner.current ? <Badge tone="accent">This device</Badge> : null}</span>
         <small>{details.join(" · ")}</small>
-      </div>
-    </div>
+      </td>
+      <State tone="success">Online</State>
+      <td />
+    </tr>
   );
 }
 

@@ -1,3 +1,4 @@
+import { errorMessage } from "../workbench/error-message";
 import type { ExtensionRegistry } from "./extension-system";
 import type { PreferencesStore } from "./preferences";
 
@@ -24,7 +25,7 @@ export function followExtensionChoices(registry: ExtensionRegistry, preferences:
       try {
         registry.setActive(id, on);
       } catch (error) {
-        log?.("extension.follow.failed", `${id}: ${error instanceof Error ? error.message : String(error)}`);
+        log?.("extension.follow.failed", `${id}: ${errorMessage(error)}`);
       }
     }
   });

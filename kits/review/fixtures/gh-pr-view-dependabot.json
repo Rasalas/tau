@@ -1,0 +1,103 @@
+{
+  "additions": 56,
+  "assignees": [],
+  "author": {
+    "id": "MDM6Qm90NDk2OTkzMzM=",
+    "is_bot": true,
+    "login": "app/dependabot"
+  },
+  "baseRefName": "main",
+  "body": "Bumps the php-runtime group in /static/backend with 2 updates: [knplabs/github-api](https://github.com/KnpLabs/php-github-api) and [vlucas/phpdotenv](https://github.com/vlucas/phpdotenv).\n\nUpdates `knplabs/github-api` from 3.16.0 to 3.16.1\n<details>\n<summary>Release notes</summary>\n<p><em>Sourced from <a href=\"https://github.com/KnpLabs/php-github-api/releases\">knplabs/github-api's releases</a>.</em></p>\n<blockquote>\n<h2>Release v3.16.1</h2>\n<h3>Fixed</h3>\n<ul>\n<li>Fix handling of 422 responses where errors is a string (<a href=\"https://github.com/GrahamCampbell\">GrahamCampbell</a>) <a href=\"https://redirect.github.com/KnpLabs/php-github-api/issues/1164\">#1164</a></li>\n</ul>\n</blockquote>\n</details>\n<details>\n<summary>Commits</summary>\n<ul>\n<li><a href=\"https://github.com/KnpLabs/php-github-api/commit/5c4f31019c8fdbf5e678201c09c54dd360eee42f\"><code>5c4f310</code></a> Update changelog for 3.16.1 release</li>\n<li><a href=\"https://github.com/KnpLabs/php-github-api/commit/754a9e8d195efa742977337c65a78e4aa88224aa\"><code>754a9e8</code></a> Fix handling of 422 responses where errors is a string</li>\n<li>See full diff in <a href=\"https://github.com/KnpLabs/php-github-api/compare/v3.16.0...v3.16.1\">compare view</a></li>\n</ul>\n</details>\n<br />\n\nUpdates `vlucas/phpdotenv` from 5.6.4 to 5.7.0\n<details>\n<summary>Release notes</summary>\n<p><em>Sourced from <a href=\"https://github.com/vlucas/phpdotenv/releases\">vlucas/phpdotenv's releases</a>.</em></p>\n<blockquote>\n<h2>v5.7.0</h2>\n<h2>What's Changed</h2>\n<ul>\n<li>Fix parsing of export with single character variable names by <a href=\"https://github.com/GrahamCampbell\"><code>@GrahamCampbell</code></a> in <a href=\"https://redirect.github.com/vlucas/phpdotenv/pull/599\">vlucas/phpdotenv#599</a></li>\n<li>PHP 8.6 support by <a href=\"https://github.com/GrahamCampbell\"><code>@GrahamCampbell</code></a> in <a href=\"https://redirect.github.com/vlucas/phpdotenv/pull/601\">vlucas/phpdotenv#601</a></li>\n</ul>\n<p><strong>Full Changelog</strong>: <a href=\"https://github.com/vlucas/phpdotenv/compare/v5.6.4...v5.7.0\">https://github.com/vlucas/phpdotenv/compare/v5.6.4...v5.7.0</a></p>\n</blockquote>\n</details>\n<br />\n\n\nDependabot will resolve any conflicts with this PR as long as you don't alter it yourself. You can also trigger a rebase manually by commenting `@dependabot rebase`.\n\n[//]: # (dependabot-automerge-start)\n[//]: # (dependabot-automerge-end)\n\n---\n\n<details>\n<summary>Dependabot commands and options</summary>\n<br />\n\nYou can trigger Dependabot actions by commenting on this PR:\n- `@dependabot rebase` will rebase this PR\n- `@dependabot recreate` will recreate this PR, overwriting any edits that have been made to it\n\n</details>",
+  "changedFiles": 1,
+  "closedAt": null,
+  "comments": [],
+  "commits": [
+    {
+      "authoredDate": "2026-09-17T19:06:08Z",
+      "authors": [
+        {
+          "email": "rasalas@users.noreply.github.com",
+          "id": "MDQ6VXNlcjc0ODM1NjU=",
+          "login": "Rasalas",
+          "name": "Torben Buck"
+        }
+      ],
+      "committedDate": "2026-09-17T21:21:57Z",
+      "messageBody": "\u2026endencies\n\nA user opens a shell in the workspace the agent works in, from the dock, on\ndesktop and web, on any runtime backend. The kit was a draft with seven\nlisted blockers; this closes them.\n\nHost seam: `HostExtensionServices.loadDependency(packageName)` resolves a\nmodule from Tau's own npm dependencies, the way `loadRuntimeExtension`\nalready does for Pi extensions. A bundled kit's host half runs from a cache\nfile under userData, from which `createRequire` cannot see the app's\n`node_modules`, and node-pty finds its `spawn-helper` beside its own binary\nonly where npm put it, so bundling is not an option either. The member needs\nno permission (an in-process package could reach the module anyway) and is\ndenied in a worker like every live object. API version 1.7.0; the kits\ndistribution requires it.\n\nTerminal Kit:\n- pty sessions filed under the workspace the host has open; a thread's own\n  worktree is where its shell starts when the thread is open. Capacity\n  counts by that root, not by the client's string.\n- terminals die with the workspace: `beforeWorkspace` names the root the\n  host moves to, and every shell of another root is closed then. They\n  survive a client reload (replay by byte offset, no double drawing) and a\n  thread's runtime closing.\n- an exited shell stays listed with its exit code until the user closes or\n  restarts it; `restart` puts a fresh shell in the same place under a new\n  id, so a client redraws from zero. Killing a running shell and dropping\n  an ended one are the same command.\n- the panel groups terminals by the thread on screen and marks the ones\n  running in another thread instead of killing them; xterm takes its colors\n  from the workbench tokens and is rebuilt only when the session changes,\n  not on every resize.\n- Windows keeps `ComSpec` instead of falling back to /bin/sh.\n- tests: host round trip (open, write, resize, replay, exit, restart, kill),\n  workspace close, capacity, missing node-pty, disposal; panel with a fake\n  host (grouping, exit and restart, close, refusal); output reconciliation;\n  the kit in the lifecycle and profile checks; the seam's name validation.\n- xterm moves to devDependencies: it is bundled into the kit's desktop half.\n\nVerified in the isolated instance: a real zsh under node-pty prints what was\ntyped, `exit 5` shows in the status and Restart opens a fresh prompt, a\nrenderer reload replays the scrollback, and opening a new thread marks the\nfirst thread's terminal as running elsewhere.",
+      "messageHeadline": "feat(terminal): ship the Terminal Kit with a host seam for native dep\u2026",
+      "oid": "d3d07dddc7c34ff3aecb4434d446871d074d6720"
+    }
+  ],
+  "createdAt": "2026-09-17T09:23:52Z",
+  "deletions": 54,
+  "files": [
+    {
+      "path": "static/backend/composer.lock",
+      "additions": 56,
+      "deletions": 54,
+      "changeType": "MODIFIED"
+    }
+  ],
+  "headRefName": "dependabot/composer/static/backend/php-runtime-3063496fe1",
+  "headRefOid": "d3d07dddc7c34ff3aecb4434d446871d074d6720",
+  "id": "PR_kwDOdependabot105",
+  "isDraft": false,
+  "labels": [
+    {
+      "id": "LA_1",
+      "name": "dependencies",
+      "description": "Pull requests that update a dependency file",
+      "color": "0366d6"
+    },
+    {
+      "id": "LA_2",
+      "name": "php",
+      "description": "Pull requests that update php code",
+      "color": "2b67c6"
+    }
+  ],
+  "latestReviews": [],
+  "mergeStateStatus": "CLEAN",
+  "mergeable": "MERGEABLE",
+  "mergedAt": null,
+  "number": 105,
+  "reviewDecision": "",
+  "reviewRequests": [],
+  "reviews": [],
+  "state": "OPEN",
+  "statusCheckRollup": [
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-17T21:49:23Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/Rasalas/tau/actions/runs/35276254187/job/105387514379",
+      "name": "fast",
+      "startedAt": "2026-09-17T21:34:21Z",
+      "status": "COMPLETED",
+      "workflowName": "CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-17T21:54:39Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/Rasalas/tau/actions/runs/35276254178/job/105387513389",
+      "name": "performance",
+      "startedAt": "2026-09-17T21:49:25Z",
+      "status": "COMPLETED",
+      "workflowName": "Performance gates"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-17T22:06:24Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/Rasalas/tau/actions/runs/35276254187/job/105395647870",
+      "name": "smoke",
+      "startedAt": "2026-09-17T21:54:41Z",
+      "status": "COMPLETED",
+      "workflowName": "CI"
+    }
+  ],
+  "title": "chore(deps): bump the php-runtime group in /static/backend with 2 updates",
+  "updatedAt": "2026-09-17T22:07:18Z",
+  "url": "https://github.com/acme/demo/pull/105"
+}

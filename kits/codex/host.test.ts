@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,13 +6,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TurnActivityStore, findExecutable, type HostExtension, type HostMcpConnection, type HostRuntimeBackendProvider, type RuntimeSessionInfo } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { CodexAppServer, spawnInput } from "./app-server.js";
-import createCodexHostExtension, { codexNewThreadCatalog } from "./host.js";
+import createCodexHostExtension, { codexNewThreadCatalog, codexSignInAccount } from "./host.js";
 import { codexMcpLaunch, TAU_MCP_TOKEN_VARIABLE } from "./mcp.js";
 import { codexToolArgs } from "./tools.js";
 import { spawnRpcProcess } from "./rpc.js";
 import { ChatGPTPlanStore } from "./chatgpt-plan-store.js";
 import { CHATGPT_PLAN_ARGS } from "./chatgpt-plan.js";
 import { CodexSessionStore } from "./session-store.js";
+import { MANAGED_CODEX_VERSION } from "./managed-install.js";
+import type { ManagedCodexAsset } from "./managed-release.js";
+import { MANAGED_CODEX_EVENT, type CodexStatusReport, type ManagedCodexState } from "./protocol.js";
+import { createHash } from "node:crypto";
+import { create } from "tar";
 
 const STUB = fileURLToPath(new URL("./fixtures/stub-app-server.mjs", import.meta.url));
 const directories: string[] = [];
@@ -28,9 +33,23 @@ async function caskInstall(root: string): Promise<string> {
   return join(root, "bin", "codex");
 }
 
+/** A package shaped like the pinned release, served in place of GitHub's. */
+async function managedFixture(): Promise<{ asset: ManagedCodexAsset; archive: Uint8Array }> {
+  const root = await mkdtemp(join(tmpdir(), "tau-codex-package-"));
+  directories.push(root);
+  const entrypoint = `bin/codex${process.platform === "win32" ? ".exe" : ""}`;
+  await mkdir(join(root, "source", "bin"), { recursive: true });
+  await writeFile(join(root, "source", entrypoint), "fixture codex");
+  await chmod(join(root, "source", entrypoint), 0o755);
+  await writeFile(join(root, "source", "codex-package.json"), JSON.stringify({ version: MANAGED_CODEX_VERSION, target: "fixture-target", entrypoint }));
+  await create({ file: join(root, "package.tar.gz"), cwd: join(root, "source"), gzip: true, portable: true }, ["bin", "codex-package.json"]);
+  const archive = await readFile(join(root, "package.tar.gz"));
+  return { archive, asset: { target: "fixture-target", bytes: archive.length, sha256: createHash("sha256").update(archive).digest("hex") } };
+}
+
 const TAU_SERVER: HostMcpConnection = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
 
-async function harness(options: { installed?: string | undefined; found?: boolean; env?: NodeJS.ProcessEnv; settings?: unknown; install?: (root: string) => Promise<string> } = {}) {
+async function harness(options: { installed?: string | undefined; found?: boolean; env?: NodeJS.ProcessEnv; settings?: unknown; sharedSessions?: boolean; install?: (root: string) => Promise<string>; before?: (root: string) => Promise<void>; managed?: { asset: ManagedCodexAsset; archive: Uint8Array } } = {}) {
   const root = await mkdtemp(join(tmpdir(), "tau-codex-host-"));
   directories.push(root);
   const path = await (options.install ?? caskInstall)(root);
@@ -38,21 +57,25 @@ async function harness(options: { installed?: string | undefined; found?: boolea
     await mkdir(join(root, "state", "tau.codex"), { recursive: true });
     await writeFile(join(root, "state", "tau.codex", "settings.json"), JSON.stringify(options.settings));
   }
+  await options.before?.(root);
   const backends: HostRuntimeBackendProvider[] = [];
   const events: PublishedKitEvent[] = [];
-  const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ version: "0.155.1" }) }) as Response);
+  const fetch = vi.fn(async (url?: string | URL | Request) => String(url).startsWith("https://github.com/openai/codex/releases/") && options.managed
+    ? new Response(new Uint8Array(options.managed.archive))
+    : ({ ok: true, json: async () => ({ version: "0.155.1" }) }) as Response);
   const launches: Array<{ threadId?: string; args: readonly string[]; env: NodeJS.ProcessEnv; instance: string }> = [];
   const connected: RuntimeSessionInfo[] = [];
   const connectOptions: unknown[] = [];
   // Never the user's own ~/.codex: the default instance's home is the scratch folder's.
   const extension = createCodexHostExtension({
     env: options.env ?? { CODEX_HOME: join(root, "home") },
-    fetch,
+    fetch: fetch as typeof globalThis.fetch,
+    ...(options.managed ? { managedAsset: options.managed.asset } : {}),
     readVersion: async () => "installed" in options ? options.installed : "0.154.0",
     openSession: (input) => (launches.push({ ...(input.threadId ? { threadId: input.threadId } : {}), args: input.args, env: input.env, instance: input.instance }), CodexAppServer.open({
       command: process.execPath,
       cwd: input.cwd,
-      env: { ...process.env, CODEX_HOME: join(root, "home") },
+      env: options.sharedSessions ? { ...process.env, ...input.env, STUB_THREADS: join(input.env.CODEX_HOME!, "sessions", "threads.json") } : { ...process.env, CODEX_HOME: join(root, "home") },
       clientVersion: "test",
       spawn: (spawn) => spawnRpcProcess({ ...spawn, args: [STUB, ...spawn.args] }),
       onNotification: input.onNotification,
@@ -278,6 +301,14 @@ describe("Codex host half", () => {
     expect(answer).toMatchObject({ threads: [{ threadId: "thread-1", messages: [{ role: "user", text: "Where is the luna launch?" }, { role: "assistant", text: "On Friday." }] }], removed: [], more: false });
     await expect(search.read!({ known: { "thread-1": answer.threads[0]!.updatedAt, gone: 1 } })).resolves.toEqual({ threads: [], removed: ["gone"], more: false });
     await expect(stranger.read!({})).rejects.toThrow("Caller acme.stranger is not allowed to invoke tau.codex/thread-texts.");
+  });
+
+  it("redeems through the official app-server operation and refreshes the account", async () => {
+    const { registry } = await harness();
+    let redeem: (() => Promise<unknown>) | undefined;
+    await registry.activate({ id: "tau.usage", name: "Usage", activate(activation) { redeem = () => activation.invokeHostExtension("tau.codex", "usage-redeem-reset", { runtime: "codex" }); } });
+    await expect(redeem!()).resolves.toBe("reset");
+    await expect(registry.invoke("tau.codex", "usage-redeem-reset", { runtime: "unknown" })).rejects.toThrow("Unknown Codex account");
   });
 
   it("reads the account's quota windows for the Usage kit without changing the account, and keeps them a while", async () => {
@@ -572,9 +603,19 @@ describe("Codex ChatGPT plan instances", () => {
     const { registry, provider, root, launches, fetch } = await harness({ installed: "0.159.2", env: { TAU_CODEX_COMMAND: "codex", CODEX_HOME: "/never-read-user-home" } });
     const credentials = new ChatGPTPlanStore(join(root, "state", "tau.codex", "chatgpt-plan"));
     await credentials.write("default", { issuer: "https://auth.openai.com", subject: "fixture-subject", clientId: "oaiapp_fixture", email: "fixture@example.test", tokens: { accessToken: "fixture-access", refreshToken: "fixture-refresh", idToken: "fixture-id", scopes: ["chatgpt.tokens.use.direct"], expiresAt: Date.now() + 3600_000 } });
-    fetch.mockImplementation(async () => Response.json({ models: [{ slug: "gpt-6.1-sol", display_name: "Account model", visibility: "list" }] }));
+    fetch.mockImplementation(async () => Response.json({ models: [
+      { slug: "gpt-5.6-sol", display_name: "Account Sol", visibility: "list" },
+      { slug: "gpt-6-astra", display_name: "Account Astra", visibility: "list" },
+      { slug: "gpt-7-unknown", display_name: "Not in Codex's catalog", visibility: "list" },
+    ] }));
     const catalog = await provider.newThreadCatalog!();
-    expect(catalog!.models).toEqual([expect.objectContaining({ id: "gpt-6.1-sol", name: "Account model", billing: "subscription" })]);
+    // The account's models Codex knows, starting on Codex's default, with Codex's efforts.
+    expect(catalog!.models).toEqual([
+      expect.objectContaining({ id: "gpt-5.6-sol", name: "Account Sol", billing: "subscription", reasoning: true }),
+      expect.objectContaining({ id: "gpt-6-astra", name: "Account Astra", reasoning: true }),
+    ]);
+    expect(catalog!.model).toMatchObject({ id: "gpt-6-astra" });
+    expect(catalog!.thinkingLevels["gpt-6-astra"]).toContain("high");
     expect(launches[0]!.env.ACCESS_TOKEN).toBe("fixture-access");
     expect(launches[0]!.env.CODEX_HOME).toBe(join(root, "state", "tau.codex", "chatgpt-plan-homes", "default"));
     expect(launches[0]!.args).toEqual(CHATGPT_PLAN_ARGS);
@@ -592,6 +633,57 @@ describe("Codex ChatGPT plan instances", () => {
     expect(launches).toHaveLength(0);
   });
 
+  it("fetches the newly pinned Codex by itself after a Tau update, with progress, and removes the old release", async () => {
+    const managed = await managedFixture();
+    const earlier = join(`0.100.0-${process.platform}-${process.arch}`, "bin");
+    const { registry, root, events, fetch } = await harness({
+      found: false, installed: MANAGED_CODEX_VERSION, managed,
+      before: async (at) => {
+        await mkdir(join(at, "state", "tau.codex", "managed-codex", earlier), { recursive: true });
+        await new ChatGPTPlanStore(join(at, "state", "tau.codex", "chatgpt-plan")).write("default", { issuer: "https://auth.openai.com", subject: "fixture-subject", clientId: "oaiapp_fixture", tokens: { accessToken: "fixture-access", idToken: "fixture-id", scopes: ["chatgpt.tokens.use.direct"], expiresAt: Date.now() + 3600_000 } });
+      },
+    });
+    const states = () => events.filter((event) => event.name === MANAGED_CODEX_EVENT).map((event) => event.payload as ManagedCodexState);
+    await vi.waitFor(() => expect(states().at(-1)?.phase).toBe("installed"));
+    expect(states().some((state) => state.phase === "downloading" && state.totalBytes === managed.asset.bytes)).toBe(true);
+    expect(fetch.mock.calls.filter(([url]) => String(url).includes(`/rust-v${MANAGED_CODEX_VERSION}/`))).toHaveLength(1);
+    await expect(readdir(join(root, "state", "tau.codex", "managed-codex"))).resolves.toEqual([`${MANAGED_CODEX_VERSION}-${process.platform}-${process.arch}`]);
+    const status = await registry.invoke("tau.codex", "status") as CodexStatusReport;
+    expect(status.path).toBe(join(root, "state", "tau.codex", "managed-codex", `${MANAGED_CODEX_VERSION}-${process.platform}-${process.arch}`, "bin", `codex${process.platform === "win32" ? ".exe" : ""}`));
+    expect(status.chatgptPlan?.needsInstall).toBeUndefined();
+    expect(status.managedInstall).toBeUndefined();
+  });
+
+  it("fetches nothing for a CLI instance that never ran Tau's Codex", async () => {
+    const { registry, fetch } = await harness({ found: false, managed: await managedFixture() });
+    const status = await registry.invoke("tau.codex", "status") as CodexStatusReport;
+    expect(status.message).toMatch(/Continue with ChatGPT/u);
+    expect(fetch.mock.calls.some(([url]) => String(url).startsWith("https://github.com/"))).toBe(false);
+  });
+
+  it("removes a plan instance only when ChatGPT confirmed the revocation", async () => {
+    const { registry, root, fetch } = await harness();
+    await registry.invoke("tau.codex", "save-instance", { instance: { id: "work" } });
+    await new ChatGPTPlanStore(join(root, "state", "tau.codex", "chatgpt-plan")).write("work", { issuer: "https://auth.openai.com", subject: "fixture-subject", clientId: "oaiapp_fixture", tokens: { accessToken: "fixture-access", refreshToken: "fixture-refresh", idToken: "fixture-id", scopes: ["chatgpt.tokens.use.direct"], expiresAt: Date.now() + 3600_000 } });
+    let revocation = 400;
+    fetch.mockImplementation(async (url) => String(url).endsWith("openid-configuration")
+      ? Response.json({ issuer: "https://auth.openai.com", jwks_uri: "https://auth.openai.com/jwks", revocation_endpoint: "https://auth.openai.com/revoke" })
+      : new Response(null, { status: revocation }));
+    await expect(registry.invoke("tau.codex", "remove-instance", { instance: "work" })).rejects.toThrow("Remote revocation was not confirmed");
+    expect((await registry.invoke("tau.codex", "instances") as { instances: Array<{ id: string }> }).instances.map((entry) => entry.id)).toContain("work");
+    revocation = 200;
+    await registry.invoke("tau.codex", "remove-instance", { instance: "work" });
+    expect((await registry.invoke("tau.codex", "instances") as { instances: Array<{ id: string }> }).instances.map((entry) => entry.id)).not.toContain("work");
+  });
+
+  it("refuses to let a plan instance's commands see variables named *TOKEN*", async () => {
+    const { registry, root } = await harness();
+    await registry.invoke("tau.codex", "save-instance", { instance: { id: "work" } });
+    await new ChatGPTPlanStore(join(root, "state", "tau.codex", "chatgpt-plan")).write("work", { issuer: "https://auth.openai.com", subject: "fixture-subject", clientId: "oaiapp_fixture" });
+    await expect(registry.invoke("tau.codex", "save-instance", { instance: { id: "work", args: "-c shell_environment_policy.ignore_default_excludes=true" } })).rejects.toThrow("*TOKEN*");
+    await registry.invoke("tau.codex", "save-instance", { instance: { id: "work", args: "-c model_verbosity=low" } });
+  });
+
   it("shows plan permission accurately and retains the bound registration after logout", async () => {
     const { registry, root } = await harness();
     const credentials = new ChatGPTPlanStore(join(root, "state", "tau.codex", "chatgpt-plan"));
@@ -602,4 +694,70 @@ describe("Codex ChatGPT plan instances", () => {
     expect((await credentials.read("default"))!.subject).toBe("fixture-subject");
     expect((await registry.invoke("tau.codex", "sign-in-state") as { methods: unknown[] }).methods).toHaveLength(1);
   });
+});
+
+it("offers only signed-in accounts sharing the session home with private auth overlays", async () => {
+  const sharedRoot = await mkdtemp(join(tmpdir(), "tau-shared-home-choice-")); directories.push(sharedRoot);
+  const shared = join(sharedRoot, "shared");
+  const { provider, registry, root } = await harness({ env: { CODEX_HOME: shared }, settings: {
+    instances: [
+      { id: "work", home: shared, env: { TAU_CODEX_AUTH_HOME: join(sharedRoot, "work") } },
+      { id: "same", home: shared },
+      { id: "other", home: join(sharedRoot, "other") },
+    ],
+  } });
+  const thread = await provider.open("account-choice", root, { resume: false }, context);
+  try {
+    const state = await registry.invoke("tau.codex", "thread-settings", { threadId: "account-choice" }) as { account: string; accounts: Array<{ id: string; reason?: string }> };
+    expect(state.account).toBe("default");
+    expect(state.accounts.find((entry) => entry.id === "work")?.reason).toBeUndefined();
+    expect(state.accounts.find((entry) => entry.id === "same")?.reason).toContain("separate TAU_CODEX_AUTH_HOME");
+    expect(state.accounts.find((entry) => entry.id === "other")?.reason).toContain("different shared CODEX_HOME");
+    await expect(registry.invoke("tau.codex", "switch-thread-account", { threadId: "account-choice", account: "other" })).rejects.toThrow("different shared CODEX_HOME");
+    await expect(registry.invoke("tau.codex", "set-thread-tier", { threadId: "account-choice", tier: "invented" })).rejects.toThrow("do not offer");
+  } finally { await thread.dispose(); }
+});
+
+
+it("keeps Pro Max and future ChatGPT plans usable", () => {
+  expect(codexSignInAccount({ type: "chatgpt", email: "fixture@example.test", planType: "pro_max" })).toMatchObject({ signedIn: true, detail: "ChatGPT Pro Max" });
+  expect(codexSignInAccount({ type: "chatgpt", email: null, planType: "future-plan" })).toMatchObject({ signedIn: true, label: "ChatGPT future-plan" });
+});
+
+
+it("switches compatible managed registrations using shared rollouts and separate tokens", async () => {
+  const sharedRoot = await mkdtemp(join(tmpdir(), "tau-managed-continuity-")); directories.push(sharedRoot);
+  const shared = join(sharedRoot, "shared");
+  const { provider, registry, root, fetch, launches } = await harness({ installed: MANAGED_CODEX_VERSION, sharedSessions: true, settings: {
+    command: "codex", home: shared, instances: [{ id: "work", command: "codex", home: shared }, { id: "independent", command: "codex" }, { id: "cli", home: shared }],
+  } });
+  const credentials = new ChatGPTPlanStore(join(root, "state", "tau.codex", "chatgpt-plan"));
+  for (const id of ["default", "work", "independent"]) {
+    await credentials.write(id, { issuer: "https://auth.openai.com", subject: `fixture-${id}`, clientId: `oaiapp_fixture_${id}`, tokens: { accessToken: `fixture-access-${id}`, idToken: `fixture-id-${id}`, scopes: ["chatgpt.tokens.use.direct"], expiresAt: Date.now() + 3600_000 } });
+  }
+  fetch.mockImplementation(async () => Response.json({ models: [{ slug: "gpt-5.6-luna", display_name: "Account model", visibility: "list" }] }));
+  const thread = await provider.open("managed-continuity", root, { resume: false }, context);
+  try {
+    await thread.prompt({ text: "Hello", delivery: "prompt" });
+    const session = thread.providerSessionId;
+    const transcript = await thread.transcript();
+    const before = await registry.invoke("tau.codex", "thread-settings", { threadId: "managed-continuity" }) as { accounts: Array<{ id: string; reason?: string }> };
+    expect(before.accounts.find((entry) => entry.id === "work")?.reason).toBeUndefined();
+    expect(before.accounts.find((entry) => entry.id === "independent")?.reason).toContain("explicit shared home");
+    expect(before.accounts.find((entry) => entry.id === "cli")?.reason).toContain("different inference providers");
+    const after = await registry.invoke("tau.codex", "switch-thread-account", { threadId: "managed-continuity", account: "work" });
+    expect(after).toMatchObject({ account: "work", serviceTier: { choices: [], selected: null } });
+    expect(await registry.invoke("tau.codex", "chatgpt-plan-account", { instance: "default", threadId: "managed-continuity" })).toMatchObject({ instance: "work", signedIn: true });
+    expect(thread.providerSessionId).toBe(session);
+    expect(await thread.transcript()).toEqual(transcript);
+    expect(thread.kind).toBe("codex");
+    await thread.prompt({ text: "Continue", delivery: "prompt" });
+    const sessions = launches.filter((entry) => entry.threadId === "managed-continuity");
+    expect(sessions.map((entry) => entry.env.ACCESS_TOKEN)).toEqual(["fixture-access-default", "fixture-access-work"]);
+    expect(sessions[0]!.env.CODEX_HOME).not.toBe(sessions[1]!.env.CODEX_HOME);
+    expect(sessions.every((entry) => entry.args.includes('model_provider="openai_chatgpt_plan"'))).toBe(true);
+    expect(await credentials.read("default")).toMatchObject({ subject: "fixture-default", clientId: "oaiapp_fixture_default", tokens: { accessToken: "fixture-access-default" } });
+    expect(await credentials.read("work")).toMatchObject({ subject: "fixture-work", clientId: "oaiapp_fixture_work", tokens: { accessToken: "fixture-access-work" } });
+    await expect(registry.invoke("tau.codex", "set-thread-tier", { threadId: "managed-continuity", tier: "fast" })).rejects.toThrow("do not offer service tiers");
+  } finally { await thread.dispose(); }
 });

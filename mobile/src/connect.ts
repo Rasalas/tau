@@ -5,10 +5,12 @@ import type { HostConnection } from "../../src/workbench/host-connection";
 import type { HostWakeSource } from "../../src/workbench/host-link";
 import { RacingSocket, listAddresses, socketCandidates, type CertificateRefusal, type DeviceNetwork, type SocketCandidate } from "./endpoints";
 import type { SavedHost, WonAddress } from "./hosts";
+import { connectCandidate, type MobileConnect } from "./relay-connect";
 import { NativeSocket, type SocketBridge } from "./native-socket";
 
 export interface ConnectDependencies {
   bridge: SocketBridge;
+  connect?: MobileConnect;
   device: DeviceNetwork;
   wakes?: HostWakeSource;
   /** What the phone tells the host about itself; the web view's own, so the host sees a phone. */
@@ -44,6 +46,7 @@ export function openCandidate(dependencies: Pick<ConnectDependencies, "bridge" |
     ...(candidate.publicKey ? { publicKey: candidate.publicKey } : {}),
     ...(candidate.fingerprint ? { fingerprint: candidate.fingerprint } : {}),
     ...(candidate.allowAuthority ? { allowAuthority: true } : {}),
+    ...(candidate.connect ? { connect: candidate.connect } : {}),
     ...(dependencies.userAgent ? { headers: { "User-Agent": dependencies.userAgent } } : {}),
   });
 }
@@ -60,7 +63,9 @@ export function connectHost(host: () => SavedHost, token: string, dependencies: 
   let won: WonAddress | undefined;
   const candidates = () => {
     const current = host();
-    return socketCandidates(current.endpoints, { ...(current.publicKey ? { publicKey: current.publicKey } : {}), ...(current.fingerprint ? { fingerprint: current.fingerprint } : {}) }, dependencies.device);
+    const pins = { ...(current.publicKey ? { publicKey: current.publicKey } : {}), ...(current.fingerprint ? { fingerprint: current.fingerprint } : {}) };
+    const relay = dependencies.connect ? connectCandidate(dependencies.connect, pins) : undefined;
+    return [...socketCandidates(current.endpoints, pins, dependencies.device), ...(relay ? [relay] : [])];
   };
   const { client, connection } = createSocketHostClient(candidates()[0]?.url ?? "wss://unreachable.invalid/", token, {
     ...(dependencies.wakes ? { wakes: dependencies.wakes } : {}),

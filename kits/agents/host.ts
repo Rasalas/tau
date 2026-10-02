@@ -9,6 +9,7 @@ import {
   HostCommandError,
   PARENT_LINK_ENTRY,
   readPersistedJson,
+  tauHomeDir,
   writePersistedJson,
   type HostExtension,
   type HostExtensionContext,
@@ -119,11 +120,11 @@ const ACCESS_THREAD_LEVEL_COMMAND = "thread-level";
 
 /**
  * How many children of one thread may run at a time is the user's setting, so
- * it stays in their own `~/.tau`. The kit only ever reads it; no instance,
+ * it stays in their own `~/.tau` (`~/.tau-dev` in Tau Dev). The kit only ever reads it; no instance,
  * least of all a dev one, writes here.
  */
 export function agentsSettingsPath(home = homedir()): string {
-  return join(home, ".tau", "agents.json");
+  return join(tauHomeDir(home), "agents.json");
 }
 
 /**
@@ -138,7 +139,7 @@ export function agentsLinksPath(stateDir: string): string {
 
 /** Where the links lived before they were a kit's own state; read once, then left alone. */
 export function legacyAgentsLinksPath(home = homedir()): string {
-  return join(home, ".tau", "agents-links.json");
+  return join(tauHomeDir(home), "agents-links.json");
 }
 
 /** v2 added `startedAt`/`endedAt`, so a restored agent still shows how long it ran. */
@@ -542,10 +543,15 @@ export function createAgentsHostExtension(options: {
         return true;
       };
 
+      /** `sessions.start` waits for the first prompt's admission, so its turn is accepted before the thread id is known here. */
+      const acceptedEarly = new Set<string>();
+      let starting = 0;
+
       /** Builds one agent's thread. Its slot is already claimed. */
       const startAgent = async (agent: AgentThreadLink): Promise<void> => {
         if (agent.machine) return startRemote(agent);
         let workspace: AgentWorkspace | undefined;
+        starting += 1;
         try {
           // The worktree comes first: a thread that started in the parent's
           // checkout cannot be moved into one afterwards.
@@ -573,6 +579,7 @@ export function createAgentsHostExtension(options: {
           });
           prompts.delete(agent.id);
           changed(agent.id, book.noteStarted(agent.id, started.sessionId, Date.now()));
+          if (acceptedEarly.delete(started.sessionId)) changed(agent.id, book.noteAccepted(agent.id));
           remember(book.linkFor(agent.id)!);
           services.log("agents.started", `${started.sessionId.slice(0, 8)} · ${agent.title}`);
           const guard = setTimeout(() => {
@@ -593,6 +600,7 @@ export function createAgentsHostExtension(options: {
         } finally {
           wanted.delete(agent.id);
           definitions.delete(agent.id);
+          if (--starting === 0) acceptedEarly.clear();
         }
       };
 
@@ -627,6 +635,7 @@ export function createAgentsHostExtension(options: {
         } finally {
           wanted.delete(agent.id);
           definitions.delete(agent.id);
+          if (--starting === 0) acceptedEarly.clear();
         }
       };
 
@@ -1149,6 +1158,8 @@ export function createAgentsHostExtension(options: {
         // thread; the parent only learns that it is waiting on one.
         pi.on("ui_prompt_start", (event) => { changed(threadId, book.notePrompt(threadId, event.title ?? event.kind)); });
         pi.on("ui_prompt_end", () => { changed(threadId, book.notePrompt(threadId, undefined)); });
+        // The row names the tool at work now, not only the last one that ended (design 1c).
+        pi.on("tool_execution_start", (event) => { changed(threadId, book.noteTool(threadId, toolLine({ name: event.toolName, args: event.args }))); });
 
         // A thread started from a definition carries it in its own link entry;
         // `null` until that entry was read for this runtime.
@@ -1234,7 +1245,10 @@ export function createAgentsHostExtension(options: {
         }),
         services.mcp.registerTools(agentTools),
         services.registerTurnObserver({
-          accepted: (sessionId) => { changed(sessionId, book.noteAccepted(sessionId)); },
+          accepted: (sessionId) => {
+            if (book.has(sessionId)) changed(sessionId, book.noteAccepted(sessionId));
+            else if (starting > 0) acceptedEarly.add(sessionId);
+          },
           toolEnded: (sessionId, tool) => { changed(sessionId, book.noteTool(sessionId, toolLine(tool))); },
           ended: async (sessionId, _turnId, outcome) => {
             // A parent whose turn ended hears what finished meanwhile.

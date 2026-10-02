@@ -146,7 +146,7 @@ describe("composer gates", () => {
     expect((onSubmit.mock.calls[0] as unknown[])[2]).toBe("alternate");
   });
 
-  it("hold a model added to a new thread's model set, and let one taken out go", async () => {
+  it.each(["legacy", "qualified"])("hold a model added to a %s model set, and let one taken out go", async (format) => {
     let keys: string[] = [];
     const listeners = new Set<() => void>();
     const modelSet: ModelSelectionContribution = {
@@ -154,7 +154,7 @@ describe("composer gates", () => {
       selected: () => keys,
       subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
       toggle: (model) => {
-        const key = `${model.provider}/${model.id}`;
+        const key = `${format === "qualified" ? "pi::" : ""}${model.provider}/${model.id}`;
         keys = keys.includes(key) ? keys.filter((entry) => entry !== key) : [...keys, key];
         for (const listener of listeners) listener();
       },
@@ -167,7 +167,7 @@ describe("composer gates", () => {
     fireEvent.click(row, { shiftKey: true });
     expect(keys).toEqual([]);
     fireEvent.click(screen.getByText("Yes"));
-    expect(keys).toEqual(["acme/big"]);
+    expect(keys).toEqual([`${format === "qualified" ? "pi::" : ""}acme/big`]);
     fireEvent.click(screen.getByText("Acme Big").closest("[role=option]")!, { shiftKey: true });
     expect(keys).toEqual([]);
     expect(screen.queryByRole("dialog", { name: "Ask model" })).toBeNull();
@@ -214,7 +214,7 @@ describe("model badges", () => {
     expect(badge.getAttribute("title")).toBe("Acme says no");
     expect(badge.classList).toContain("model-badge-warning");
     expect(screen.getAllByText("Acme models are risky.")).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: /^ChatGPT plan/u }));
+    fireEvent.click(screen.getByRole("button", { name: /^OpenAI/u }));
     expect(screen.queryByText("risky")).toBeNull();
     expect(screen.queryByText("Acme models are risky.")).toBeNull();
   });

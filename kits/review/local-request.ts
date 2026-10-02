@@ -1,4 +1,4 @@
-import type { ClientStorage } from "tau";
+import type { ClientStorage, WorkbenchActions } from "tau";
 
 /**
  * The local pull request: a branch against its base before any request
@@ -6,6 +6,17 @@ import type { ClientStorage } from "tau";
  * halves share. No React and no host code here.
  */
 export const LOCAL_PULL_REQUEST_TAB = "review.local-pull-request";
+
+/**
+ * Lent to other packages: puts pictures (turn attachments) into the local pull
+ * request's description draft of the checkout on screen and opens it; `false`
+ * when no project is open. Evidence Kit's viewer calls it.
+ */
+export const REVIEW_ATTACH_SERVICE = "tau.review/attach-evidence";
+
+export interface ReviewAttachService {
+  attach(media: readonly EvidenceMedia[], actions: Pick<WorkbenchActions, "openStageTab">): boolean;
+}
 
 /** One turn attachment of a thread, as `local-pr-evidence` answers it. */
 export interface LocalEvidence {
@@ -203,7 +214,23 @@ const MAX_DRAFTS = 50;
 
 /** The drafts per checkout and branch, in client storage; the oldest go past fifty. */
 export class LocalDrafts {
+  private readonly listeners = new Set<() => void>();
+
   constructor(private readonly storage: () => ClientStorage | undefined, private readonly now: () => number = Date.now) {}
+
+  /** Hears a draft changed from outside the view, as Evidence Kit's "Attach to review" does. */
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+
+  /** Chooses pictures for a branch's description, keeping what the draft holds. */
+  attach(root: string, branch: string | undefined, keys: readonly string[]): void {
+    const kept = this.get(root, branch);
+    const { updatedAt: _updatedAt, ...draft } = kept ?? { title: "", body: "", base: "", draft: false, selected: [], updatedAt: 0 };
+    this.set(root, branch, { ...draft, selected: [...new Set([...draft.selected, ...keys])] });
+    for (const listener of [...this.listeners]) listener();
+  }
 
   private read(): Record<string, LocalDraft> {
     try {

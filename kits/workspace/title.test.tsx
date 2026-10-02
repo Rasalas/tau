@@ -108,7 +108,7 @@ describe("Workspace Kit title actions", () => {
     expect(TITLE_COLLAPSE_STEPS[0]).toEqual({ actions: "label", git: "label", changes: "label" });
     // Each step takes one more thing away and gives nothing back.
     const rank = { label: 0, icon: 1, short: 1, overflow: 2 } as const;
-    for (let level = 1; level <= MAX_TITLE_COLLAPSE; level += 1) {
+    for (let level = 1; level < MAX_TITLE_COLLAPSE; level += 1) {
       const before = titleCollapse(level - 1);
       const after = titleCollapse(level);
       const moved = (["actions", "git", "changes"] as const).filter((item) => rank[after[item]] !== rank[before[item]]);
@@ -116,8 +116,10 @@ describe("Workspace Kit title actions", () => {
       expect(rank[after[moved[0]!]]).toBeGreaterThan(rank[before[moved[0]!]]);
     }
     // The Git action keeps its words until only the changes' count can still give way; it never leaves the header.
-    expect(TITLE_COLLAPSE_STEPS.findIndex((step) => step.git === "icon")).toBe(MAX_TITLE_COLLAPSE - 1);
-    expect(TITLE_COLLAPSE_STEPS.findIndex((step) => step.changes === "short")).toBe(MAX_TITLE_COLLAPSE);
+    expect(TITLE_COLLAPSE_STEPS.findIndex((step) => step.git === "icon")).toBe(MAX_TITLE_COLLAPSE - 2);
+    expect(TITLE_COLLAPSE_STEPS.findIndex((step) => step.changes === "short")).toBe(MAX_TITLE_COLLAPSE - 1);
+    // Last, its menu joins More, so the row is design 1a's "N files", Commit and "…".
+    expect(titleCollapse(MAX_TITLE_COLLAPSE)).toEqual({ ...titleCollapse(MAX_TITLE_COLLAPSE - 1), gitMenu: "overflow" });
     expect(titleCollapse(99)).toEqual(titleCollapse(MAX_TITLE_COLLAPSE));
   });
 
@@ -130,8 +132,11 @@ describe("Workspace Kit title actions", () => {
     fireEvent.click(commit);
     expect(openReview).toHaveBeenCalledWith(undefined, false);
 
-    // Adding an action from More opens the same form.
+    // The Git menu has no chevron of its own any more; its entries are in More.
+    expect(screen.queryByRole("button", { name: "Choose Git action" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    expect(within(screen.getByRole("menu", { name: "More actions" })).getByRole("menuitem", { name: /^Review changes/u })).toBeTruthy();
+    // Adding an action from More opens the same form.
     fireEvent.click(within(screen.getByRole("menu", { name: "More actions" })).getByRole("menuitem", { name: /Add action/u }));
     expect(screen.getByPlaceholderText("!! npm test")).toBeTruthy();
   });

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import { TriangleAlert } from "lucide-react";
 import type { PlatformEnvironments, UiEnvironment, WorkbenchActions } from "tau";
 import { otherMachines, shortAge, shownMachine } from "./machines.js";
@@ -29,7 +29,7 @@ const AGE_REFRESH_MS = 30_000;
  * reach, with Retry, or Pair again for one that refused it; that machine's
  * rows below stay, greyed. Also opens what the page was sent here for.
  */
-export function createListHead(environments: PlatformEnvironments, Arrival: (props: { actions: WorkbenchActions }) => null) {
+export function createListHead(environments: PlatformEnvironments, Arrival: ComponentType<{ actions: WorkbenchActions }>) {
   return function MachinesListHead({ actions }: { actions: WorkbenchActions }) {
     const list = useEnvironments(environments);
     const [now, setNow] = useState(() => Date.now());
@@ -39,7 +39,11 @@ export function createListHead(environments: PlatformEnvironments, Arrival: (pro
       return () => clearInterval(timer);
     }, []);
     const shown = list ? shownMachine(list) : undefined;
-    const away = list && shown ? otherMachines(list).filter((machine) => machine.status === "offline" || machine.status === "refused") : [];
+    const others = list && shown ? otherMachines(list) : [];
+    const away = others.filter((machine) => machine.status === "offline" || machine.status === "refused");
+    // The machine on screen is gone: say so once, and offer one that answers (design 2p).
+    const [dismissed, setDismissed] = useState(false);
+    const elsewhere = shown?.status === "offline" && !dismissed ? others.find((machine) => machine.status === "connected") : undefined;
     const retry = (machine: UiEnvironment) => {
       setRetrying((current) => new Set(current).add(machine.id));
       void environments.retry(machine.id).catch(() => undefined).finally(() => {
@@ -47,17 +51,26 @@ export function createListHead(environments: PlatformEnvironments, Arrival: (pro
         setNow(Date.now());
       });
     };
-    const pairAgain = (machine: UiEnvironment) => {
+    // Shows that machine; one that refused this device asks to pair again there.
+    const show = (machine: UiEnvironment) => {
       void environments.open(machine.id).catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error)));
     };
     return <>
       <Arrival actions={actions} />
+      {elsewhere ? <div className="machine-elsewhere" role="status">
+        <strong>Showing what the phone last saw</strong>
+        <span>You can read the threads. Or start on another machine.</span>
+        <div>
+          <button type="button" onClick={() => show(elsewhere)}><MachineIcon environment={elsewhere} size={15} />Use {elsewhere.name}</button>
+          <button type="button" onClick={() => setDismissed(true)}>OK</button>
+        </div>
+      </div> : null}
       {away.map((machine) => (
         <p key={machine.id} className="machine-notice" data-status={machine.status} role="status">
           <TriangleAlert size={16} aria-hidden />
           <span>{notReachable(machine, now)}</span>
           {machine.status === "refused"
-            ? <button type="button" onClick={() => pairAgain(machine)}>Pair again</button>
+            ? <button type="button" onClick={() => show(machine)}>Pair again</button>
             : <button type="button" disabled={retrying.has(machine.id)} aria-label={`Retry ${machine.name}`} onClick={() => retry(machine)}>{retrying.has(machine.id) ? "Trying…" : "Retry"}</button>}
         </p>
       ))}

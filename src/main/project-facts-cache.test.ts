@@ -4,16 +4,18 @@ import { ProjectFactsCache } from "./project-facts-cache.js";
 function cache() {
   const labels: Array<{ cwd: string; label: string | undefined }> = [];
   const nesting: string[] = [];
+  const names: Array<{ cwd: string; name: string }> = [];
   const background: string[] = [];
   const logs: string[] = [];
   const facts = new ProjectFactsCache({
     onLabel: (cwd, label) => { labels.push({ cwd, label }); },
+    onName: (cwd, name) => { names.push({ cwd, name }); },
     onNesting: (cwd) => { nesting.push(cwd); },
     recordBackground: (name) => { background.push(name); },
     log: (label, detail) => { logs.push(`${label}: ${detail ?? ""}`); },
     errorMessage: (error) => error instanceof Error ? error.message : String(error),
   });
-  return { facts, labels, nesting, background, logs };
+  return { facts, labels, nesting, names, background, logs };
 }
 
 /** Every answer arrives in a background task; the caller only ever reads the cache. */
@@ -35,6 +37,28 @@ describe("ProjectFactsCache", () => {
     facts.rememberName("/tmp/widgets", "Linked");
     expect(await facts.loadName("/tmp/widgets")).toBe("Linked");
     expect(asked).toBe(0);
+  });
+
+  it("reads the name of a path nobody opened in the background and publishes it once", async () => {
+    const { facts, names } = cache();
+    let asked = 0;
+    facts.add({ name: async (cwd) => { asked += 1; return cwd.endsWith("-2") ? "Widgets" : undefined; } });
+    expect(facts.name("/work/widgets-2")).toBe("widgets-2");
+    expect(facts.name("/work/widgets-2")).toBe("widgets-2");
+    await settle();
+    expect(names).toEqual([{ cwd: "/work/widgets-2", name: "Widgets" }]);
+    expect(facts.name("/work/widgets-2")).toBe("Widgets");
+    // A path no provider names is asked once, not on every read, and again after a provider is added.
+    facts.name("/work/plain");
+    await settle();
+    facts.name("/work/plain");
+    await settle();
+    expect(asked).toBe(2);
+    expect(names).toHaveLength(1);
+    // A provider that arrives after the host listed its threads names them without another read.
+    facts.add({ name: async () => "Plain" });
+    await settle();
+    expect(names.at(-1)).toEqual({ cwd: "/work/plain", name: "Plain" });
   });
 
   it("never awaits a label and publishes it once it changes", async () => {

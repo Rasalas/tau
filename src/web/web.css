@@ -1,31 +1,46 @@
-/* The browser client's own chrome: the way in, before there is a workbench. */
-
+/* The browser client's own chrome, before there is a workbench. */
 .token-gate {
-  min-height: 100vh; display: grid; place-items: center; padding: 24px;
-  background: var(--shell); color: var(--ink);
+  --gate-control-h: 30px;
+  min-height: 100dvh; display: grid; place-items: center; padding: 24px;
+  background: var(--shell); color: var(--ink); font-family: var(--sans);
 }
 .token-gate form, .token-gate-wait {
-  width: min(420px, 100%); display: flex; flex-direction: column; gap: 12px;
-  padding: 22px; border: 1px solid var(--line); border-radius: 14px; background: var(--chrome);
+  width: min(400px, 100%); display: flex; flex-direction: column; gap: 16px;
+  padding: 28px; border: 1px solid var(--line-soft); border-radius: var(--radius-lg); background: var(--rail);
 }
-.token-gate h1 { margin: 0; font: 650 17px var(--sans); }
-.token-gate p { margin: 0; font: var(--text-sm)/1.5 var(--sans); color: var(--ink-3); }
-.token-gate code { font: var(--text-xs) var(--mono); color: var(--ink-2); }
-.token-gate-notice { color: #d88c83; }
-.token-gate label { display: flex; flex-direction: column; gap: 5px; }
-.token-gate label span { font: 550 var(--text-xs) var(--sans); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
-.token-gate input {
-  border: 1px solid var(--line-control); border-radius: 8px; padding: 9px 10px;
-  background: var(--raised); color: var(--ink); font: var(--text-sm) var(--mono);
+.token-gate-mark { width: 36px; height: 36px; color: var(--brand); }
+.token-gate h1 { margin: 0; font: 650 var(--text-lg)/1.3 var(--sans); }
+.token-gate p { margin: 0; font: var(--text-sm)/1.5 var(--sans); color: var(--muted); }
+.token-gate p.token-gate-notice { color: var(--danger); }
+.token-gate-request { display: grid; gap: 10px; }
+.token-gate-entry { display: grid; gap: 10px; }
+.token-gate-request + .token-gate-entry { margin-top: 4px; padding-top: 20px; border-top: 1px solid var(--line-soft); }
+.token-gate-field-label { display: flex; align-items: center; gap: 6px; font: 500 var(--text-sm) var(--sans); }
+.token-gate-wait { align-items: center; text-align: center; }
+.token-gate-wait > button { align-self: stretch; }
+.token-gate input, .token-gate button {
+  min-width: 0; height: var(--gate-control-h); padding: 0 10px; border: 1px solid var(--line-field);
+  border-radius: var(--radius-sm); background: transparent; color: var(--ink); font: 500 var(--text-sm) var(--sans);
 }
-.token-gate button {
-  border: 1px solid var(--line-control); border-radius: 8px; padding: 9px;
-  background: var(--raised); color: var(--ink-2); font: 550 var(--text-sm) var(--sans); cursor: pointer;
-}
-.token-gate button:disabled { opacity: .5; cursor: default; }
-.token-gate button.token-gate-ask { background: var(--ink); border-color: var(--ink); color: var(--stage); }
-.token-gate-wait { text-align: center; }
+.token-gate input { width: 100%; font-family: var(--mono); }
+.token-gate button { cursor: pointer; }
+.token-gate button:hover:not(:disabled) { background: var(--hover); }
+.token-gate button.token-gate-primary { background: var(--acid); border-color: var(--acid); color: var(--acid-ink); }
+.token-gate button.token-gate-primary:hover { background: var(--acid-strong); }
+.token-gate button:disabled { opacity: .45; cursor: not-allowed; }
+.token-gate :is(input, button, summary):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.token-gate-help { position: relative; color: var(--muted); }
+.token-gate-help > summary { display: grid; place-items: center; width: 20px; height: 20px; list-style: none; cursor: pointer; }
+.token-gate-help > summary::-webkit-details-marker { display: none; }
+.token-gate-help > summary::before { content: "i"; display: grid; place-items: center; width: 14px; height: 14px; border: 1px solid currentColor; border-radius: 50%; font: 600 10px/1 var(--sans); }
+.token-gate-help > p { position: absolute; z-index: 1; right: 0; top: 24px; width: 240px; padding: 12px; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); background: var(--float); color: var(--ink-2); box-shadow: 0 4px 16px var(--shadow); }
+.token-gate-help code { font: var(--text-xs) var(--mono); }
 .token-gate-code {
-  display: block; padding: 10px 0; font: 600 34px/1 var(--mono); letter-spacing: 0.08em; color: var(--ink);
+  display: block; padding: 12px 0; font: 600 34px/1 var(--mono); letter-spacing: 0.08em; color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
+@media (max-width: 480px) {
+  .token-gate { padding: 20px; --gate-control-h: var(--touch-target); }
+  .token-gate form, .token-gate-wait { padding: 24px; }
+}
+@media (pointer: coarse) { .token-gate { --gate-control-h: var(--touch-target); } }

@@ -1,0 +1,100 @@
+# Debug-only preview of the TauWidgets extension and its Live Activity in the iOS Simulator.
+# It compiles the shipping widget and plugin sources unchanged; nothing here is part of a release.
+#   xcodegen generate --spec project.yml   (https://github.com/yonaskolb/XcodeGen)
+# Gallery (every widget, size and state at its real size, light or dark):
+#   xcrun simctl launch <udid> de.tbuck.tau -gallery usage -scheme dark   (-scheme light is the default)
+#   pages: usage, states, threads, lock, live, live2, island, island2; then `xcrun simctl io <udid> screenshot`.
+# SpringBoard (the real widgets, lock screen and Dynamic Island), with your own fresh simulator:
+#   SHOTS=/tmp/widget-shots TEST_RUNNER_SHOTS=$SHOTS xcodebuild -project TauWidgetPreview.xcodeproj -scheme Driver \
+#     -destination "id=<udid>" test -only-testing:Driver/Driver/testHomeWidgets
+#   Then testLiveActivities. The driver edits the home screen.
+# Model tests: xcodebuild … -scheme ModelTests test.
+name: TauWidgetPreview
+options:
+  deploymentTarget: { iOS: "17.0" }
+settings:
+  base:
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+    SWIFT_VERSION: "5.0"
+targets:
+  Harness:
+    type: application
+    platform: iOS
+    sources:
+      - Harness
+      - path: ../../plugins/tau-native/ios/Sources/TauNativePlugin/MobileActivity.swift
+      - path: ../../plugins/tau-native/ios/Sources/TauNativePlugin/ActivityCipher.swift
+      - path: ../../plugins/tau-native/ios/Sources/TauNativePlugin/WidgetModel.swift
+      - path: ../App/TauWidgets/Theme.swift
+      - path: ../App/TauWidgets/PlanLimitsWidget.swift
+      - path: ../App/TauWidgets/ThreadsWidget.swift
+      - path: ../App/TauWidgets/LiveActivity.swift
+      - path: ../App/TauWidgets/Assets.xcassets
+    info:
+      path: Harness/Info.plist
+      properties:
+        CFBundleDisplayName: Tau
+        UILaunchScreen: {}
+        NSSupportsLiveActivities: true
+        UIStatusBarHidden: true
+    entitlements:
+      path: Harness/Harness.entitlements
+      properties:
+        com.apple.security.application-groups: [group.de.tbuck.tau]
+        # Activity.request(pushType: .token) fails without it, also in the simulator.
+        aps-environment: development
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: de.tbuck.tau
+        PRODUCT_NAME: Tau
+        # The widgets' catalog has no app icon; the harness goes without one.
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+    dependencies:
+      - target: TauWidgets
+  TauWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ../App/TauWidgets/TauWidgets.swift
+      - path: ../App/TauWidgets/Theme.swift
+      - path: ../App/TauWidgets/PlanLimitsWidget.swift
+      - path: ../App/TauWidgets/ThreadsWidget.swift
+      - path: ../App/TauWidgets/LiveActivity.swift
+      - path: ../App/TauWidgets/Assets.xcassets
+      - path: ../../plugins/tau-native/ios/Sources/TauNativePlugin/ActivityCipher.swift
+      - path: ../../plugins/tau-native/ios/Sources/TauNativePlugin/WidgetModel.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: de.tbuck.tau.widgets
+        INFOPLIST_FILE: ../App/TauWidgets/Info.plist
+        CODE_SIGN_ENTITLEMENTS: ../App/TauWidgets/TauWidgets.entitlements
+        MARKETING_VERSION: "0.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+  Driver:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [Driver]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: de.tbuck.tau.widgetdriver
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: Harness
+  ModelTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - ModelTests
+      - path: ../../plugins/tau-native/ios/Sources/TauNativePlugin/WidgetModel.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: de.tbuck.tau.modeltests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  ModelTests:
+    build:
+      targets: { ModelTests: [test] }
+    test:
+      targets: [ModelTests]

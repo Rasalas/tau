@@ -266,10 +266,10 @@ Initial local targets:
 - renderer mount work below 24 ms mount p95, with the transcript setup exception documented below
 - host benchmark sampling since 2026-09-05: each report starts the host three times (`TAU_HOST_BENCH_RUNS`); only the first start of a process is cold (later hosts reuse the SDK resource cache: 2.0 s versus 60 ms on the development machine), so the bootstrap budget compares that cold sample, with median, p95 and maximum kept in the report; switch scenarios keep their p95 over all samples, now interpolated like the renderer benchmark. The full-mode cold budget is 2500 ms (`hostBootstrapFullMs`): with extension binding off the critical path the whole cold start is SDK resource loading, 1.1 to 2.0 s locally and 2.0 s on the GitHub runner
 - CI split on 2026-09-05: CI gates lint, typecheck, and tests; the GitHub performance workflow gates build, Git, and host budgets. The renderer and start budgets run under software rendering on the shared runner and are advisory there (published as artifacts, never blocking). `npm run performance:ci` on a development machine remains the complete gate. Before this split the workflow had never passed on GitHub
-- CI on GitHub-hosted runners since 0.7.14: the performance workflow runs on `ubuntu-24.04` with two blocking steps, build and Git budgets, then host budgets; renderer and start stay advisory. Sizes and counts do not depend on the machine, timings do. The tightest blocking timings measured on the old self-hosted runner were the build time (20.5 of 30 s) and the safe-mode cold bootstrap (549 of 1,000 ms); a two-core hosted runner took 2.0 s for the full-mode cold bootstrap (budget 2,500 ms) in early September. If they flake there, the next step is a mode of the `evaluate*Budgets` functions that turns timing violations into warnings and keeps structural ones fatal; `npm run performance:ci` on a quiet machine stays the timing gate.
+- CI on GitHub-hosted runners since 0.7.14: the performance workflow runs on `ubuntu-24.04` with two blocking steps, build and Git budgets, then host budgets; renderer and start stay advisory. Sizes and counts do not depend on the machine, timings do. The tightest blocking timings measured on the old self-hosted runner were the build time (20.5 of 30 s) and the safe-mode cold bootstrap (549 of 1,000 ms); a two-core hosted runner took 2.0 s for the full-mode cold bootstrap (budget 2,500 ms) in early September. The build time flaked there first, in the slower eastus regions; since K157 it is compared at reference speed and against the recent main runs ("Build time on shared runners" below), so a rerun is no longer the remedy. If other timings flake, the next step is a mode of the `evaluate*Budgets` functions that turns timing violations into warnings and keeps structural ones fatal; `npm run performance:ci` on a quiet machine stays the timing gate.
 - build budgets recalibrated on 2026-09-05: the initial script had grown to 1.62 MB because the icon set shared with extension packages was bundled as a namespace import; it is now a lazy 935 KB chunk fetched only when a workspace has packages, and the initial script is 721 KB (221 KB gzip). The initial JavaScript budget is 800 KB raw with the 275 KB gzip budget unchanged, the CSS budgets follow the 128 KB stylesheet (140 KB raw, 30 KB gzip), the total budgets include the lazy icon chunk (1.9 MB raw, 500 KB gzip), and the build-time budget allows a CI runner (20 s; raised to 30 s on 2026-09-06 after the Agents, Preview and cost work took the shared runner to 20.7 s — the build takes 7–10 s on a development machine, and the budget only guards against a runaway build, not a regression in output size)
 - license headers deduplicated on 2026-09-22, budgets unchanged: every icon module carries the same license comment, and the minifier kept all 1,722 copies, 294 KB of the icon chunk. `vite/legal-comments.ts` now keeps the first copy of each legal comment per chunk. Total JavaScript went from 1,900,561 to 1,584,805 bytes (gzip 479,758 to 474,747), the icon chunk from 935 KB to 631 KB and the initial script from 749 KB to 740 KB (227 KB gzip). The browser client's total went down to 1,577,244 bytes (472,681 gzip). Gzip is now the tighter of the two total budgets
-- kit bundles are outside these budgets: `scripts/build-report.mjs` measures `dist/` only, and `scripts/build-kits.mjs` writes each kit's desktop half to `dist-kits/<id>/desktop.js`, one ES module that the renderer imports when the kit activates (whitespace-minified since K121, see "Script and kit headroom, 0.7.15"). Since ticket G05 (2026-09-25) its map sits beside it in `desktop.js.map` instead of inline, and `kitDesktopJavascriptBytes` holds the sum of these files to 4,000,000 bytes (3,495,621 measured; see "Start-up after first paint" below). Files Kit's CodeMirror 6 editor (2026-09-23) took its bundle from 140,806 bytes (42,623 gzip; 38,875 without the map) to 4,847,915 (1,301,657 gzip; 1,427,626 and 380,419 gzip without the map), and left the renderer's own assets unchanged. CodeMirror and each language mode are evaluated on the first open of a file that needs them; that first open measured 24 ms from the click to highlighted text in the isolated instance, and compiling the module about 16 ms under Node (9 ms without the map, which is two thirds of the bytes)
+- kit bundles are outside these budgets: `scripts/build-report.mjs` measures `dist/` only, and `scripts/build-kits.mjs` writes each kit's desktop half to `dist-kits/<id>/desktop.js`, one ES module that the renderer imports when the kit activates (whitespace-minified since K121, syntax-minified with dependencies' local names shortened since K158; see "Script and kit headroom, 0.7.15" and "Kit headroom, 0.7.25"). Since ticket G05 (2026-09-25) its map sits beside it in `desktop.js.map` instead of inline, and `kitDesktopJavascriptBytes` holds the sum of these files to 3,100,000 bytes (2,931,174 measured on 2026-09-30; lowered from 4,000,000 once K121's whitespace minification left a million bytes unused; see "Start-up after first paint" below). Files Kit's CodeMirror 6 editor (2026-09-23) took its bundle from 140,806 bytes (42,623 gzip; 38,875 without the map) to 4,847,915 (1,301,657 gzip; 1,427,626 and 380,419 gzip without the map), and left the renderer's own assets unchanged. CodeMirror and each language mode are evaluated on the first open of a file that needs them; that first open measured 24 ms from the click to highlighted text in the isolated instance, and compiling the module about 16 ms under Node (9 ms without the map, which is two thirds of the bytes)
 - plan mode, the queued-message bubbles, Edit from here and the composer chords (2026-09-23) cost the renderer's initial script 6,813 bytes (777,435 → 784,248; gzip 238,820 → 240,998) and its initial stylesheet 118 bytes (137,968 → 138,086); the lazy chunks did not change. The plan card and the Plan ready row live in Plan Kit's own bundle (`dist-kits/tau.plan/desktop.js`, 42,480 bytes, 15,546 gzip). That leaves about 5.5 KB of gzip under the 500 KB total and 15.7 KB under the 800 KB initial budget
 - gzip headroom won back on 2026-09-23 (ticket D27), budgets unchanged: total JavaScript from 494,702 to 427,033 bytes of gzip and the initial script from 785,075 to 762,071 bytes, which leaves 73 KB of gzip under the total budget and 38 KB under the initial one. Merged with wave D's later tickets the total is 432,911 bytes of gzip, 67 KB under the budget "Gzip headroom" below lists the four build changes and what each saved
 
@@ -433,6 +433,20 @@ The local budget fixture runs with `npm run build:budget` and `npm run start:bud
 The report schema includes each asset's uncompressed and gzip size and classifies entry versus lazy chunks from `dist/index.html`. The Electron start fixture uses Chromium paint and resource timing APIs; it also reports a missing paint as a failed budget rather than silently treating it as zero.
 
 The browser client (`npm run build:web`, ticket 19b) is measured the same way over `dist-web/` into `reports/build-web-report.json`, and `npm run build:budget` runs it after the desktop check. It ships separately from the desktop bundle and therefore has its own `web` section in `scripts/performance-budgets.json`. A production run on the development machine reported 698.84 kB initial JavaScript (215.45 kB gzip), 114.79 kB initial CSS (20.66 kB gzip), 1.05 MB lazy JavaScript across 23 chunks, and a 1.9 s build. The budgets are 820 kB / 255 kB gzip initial JavaScript, 140 kB / 30 kB gzip initial CSS, 2.0 MB / 510 kB gzip total JavaScript and 20 s of build time — the same shape as the desktop budgets, calibrated on the first measurement rather than on the desktop's numbers, because the two entries differ (the browser client bundles no Electron platform and its stylesheet carries the compact profile).
+
+### Build time on shared runners
+
+GitHub's `ubuntu-24.04` runners differ in speed by region. On 2026-09-30 the same commit built in 22–25 s in westus3 and 30–34 s in eastus and eastus2, every build step 30–50 % slower; a development machine takes 11–15 s. A fixed 30 s budget therefore failed eastus runs without any change to the build. Since K157 (2026-10-01) the build time is compared at a fixed machine speed instead of raising the budget (`scripts/build-time.mjs`):
+
+- **Reference workload.** `npm run build:budget` runs `scripts/build.mjs --reference`, which times a fixed, dependency-free workload before and after the build: it generates 80,000 lines of source, scans them, builds a tree, renames identifiers, prints and gzips the result, five samples after a warm-up on each side. The median of the ten samples is `buildTime.referenceMs` in `reports/build-report.json`. It does what tsc, Rollup and terser do (JIT-compiled scanning, allocation, maps, strings), and no dependency upgrade changes it.
+- **Reference speed.** `buildTimeReference.referenceMs` in `scripts/performance-budgets.json` is the workload's time on the reference runner, the self-hosted Linux runner CI uses. The speed factor is that value divided by the measured one, and the normalized build time is the raw time times the factor: what the build would have taken on the reference runner. 266 ms is the median of the desktop build's reference on the first eight `main` runs (185–315 ms, 2026-10-01); the first value, 360 ms, was an estimate. A value set too high only withholds credit; recalibrate it from the job log when the runner changes. The history check does not depend on it, because both sides are normalized with the same value.
+- **Absolute cap.** `buildTimeMs` (30,000) is held against the raw time times the speed factor, bounded to between `minSpeedFactor` (0.5) and 1. A slower machine gets credit for at most half of its time; a faster one, such as a development machine, is held to the raw budget as before. The check is never stricter than the old raw one.
+- **History.** On pushes to `main`, the performance workflow appends the run's raw time and reference time to `.build-time-history/history.json` and saves it as an Actions cache entry (`build-time-history-<run>`). Every run restores the newest entry first; pull requests read main's entries but never write. This needs no secret and no extra permission. With at least `historyMinRuns` (5) entries of the current `historyEpoch`, the normalized time must stay within `historyMargin` (20 %) of the median of the last `historyRuns` (20). Entries keep raw values, so a new `referenceMs` recomputes them.
+- **Without history** (a local run, a fork, or a cache evicted after seven days without a run) only the cap applies. Without a reference (`npm run build` followed by `node scripts/build-report.mjs --check`) the raw budget applies.
+- **An intended slowdown.** A change that has to make the build slower fails the history check while it is under the cap. Bump `historyEpoch` in the same change: the old runs stop counting and the check starts over with the cap alone. That does not raise any budget.
+- **The web build** (`npm run build:web -- --check`) measures five samples after its build and holds its 20 s budget the same way, without history.
+
+The step's log and the job summary show one line per run, for example `Build time: 32000 ms raw, reference 512 ms (speed 0.703), 22500 ms at reference speed (cap 30000 ms), median of the last 12 main runs 23100 ms (limit 27720 ms)`. The unit tests in `scripts/build-time.test.mjs` include 30 % more real work on a westus3-speed and on an eastus-speed runner: the cap alone passes it on the slower runner (29.9 s at reference speed), and the history check fails it on both.
 
 ### Renderer and host budget evidence
 
@@ -771,7 +785,7 @@ On v0.7.15 (`1099ab01`) the initial script had 189 bytes left under its 800,000 
 | browser initial JavaScript | 811,876 (248,503 gzip) | 782,821 (238,997 gzip) | 820,000 (255,000) |
 | browser total JavaScript gzip | 503,871 | 503,156 | 510,000 |
 
-That leaves 29,575 bytes under the desktop initial script, 1,065,588 bytes under the kit budget and 3,103 bytes of gzip under the desktop total (5,071 before).
+That leaves 29,575 bytes under the desktop initial script, 1,065,588 bytes under the kit budget and 3,103 bytes of gzip under the desktop total (5,071 before). The kit budget came down to 3,100,000 afterwards (2026-09-30, 2,931,174 measured), so the room K121 won is not spent by accident.
 
 | change | desktop initial JavaScript | desktop total gzip | kits' desktop halves |
 | --- | ---: | ---: | ---: |
@@ -783,6 +797,9 @@ The rows come from renderer builds of each step side by side; their gzip sums di
 
 - **Kit whitespace.** esbuild printed each desktop half unminified, and reprinting already-minified vendor code spread it further: xterm's 345 KB `xterm.mjs` came out at 440 KB, CodeMirror's modules at about 1.3 MB. `bundleDesktopExtension` now passes `minifyWhitespace`, which keeps every name and the linked map, so stack traces and devtools read as before. Files Kit went from 1,430,551 to 1,009,933 bytes, Terminal Kit from 580,596 to 437,998. The kits hardly share code: the only source two kits both bundle is Workspace Kit's `protocol.ts` (5 KB). With whitespace and syntax minified the halves would be 2,868,879 bytes, fully minified 2,253,875; renaming was left out so names stay readable without the map.
 - **Compress pass.** K101 left terser's compressor out for its build time. The desktop Vite step measured 3.3 s without it and 5.1 s with it (full build 13.7 → 16.4 s, budget 30 s); a second pass bought 1 KB more for another 0.5 s and was left out. `vite/mangle.test.ts` now checks that constants fold while strings, imports, exports and legal comments stay.
+
+The runtime and device work briefly needed three compression passes to fit the total script budget. Grouping related lazy modules recovered that space. On main at 0.7.21, the hosted performance run then took 31,376 ms against the unchanged 30,000 ms build budget, with 11.6 s between Vite's chunk rendering and gzip reporting. The compressor now uses its default single pass again. Two comparisons on the same already-minified initial chunk used 2.57 to 3.42 CPU seconds for one pass and 5.86 to 7.38 for three, with identical output on that fixture. A fresh single-pass desktop build totals 496,393 gzip bytes, leaving 3,607 under the unchanged 500,000-byte budget. Full pipeline timing remains a CI measurement; the build's checks, parallel-writer failure handling and browser budget are unchanged.
+
 - **The kit API.** Only kits run the `tau` module, and they activate after the host answers, well after the first paint. `runtime-extensions.ts` imports `extension-api.ts` on demand: `installSharedModules` starts the import when `App` first renders, and every bundle request waits for it, since the request carries the module's export names. What only the API reached moved with it: the thread and draft rows, `VirtualList`, the feedback primitives, `useSetting` and its config-layer store, the machine-update hooks (19 KB by source map). Several of those are shared with lazy core surfaces (the touch thread list, Settings, the pickers), so Rollup put them in nine chunks, which is where the gzip goes. `deferred-surfaces.test.ts` keeps `extension-api.ts` out of the start-up graph.
 
 `npm run start:budget` passes (first paint 200 ms under a load average of 14). The start fixture, base (a build of `1099ab01`) and change alternated eight times each under a load average of 6 to 7: base 80 to 172 ms (median 104), after 80 to 148 ms (median 94), the same seven files. In the isolated instance on the fake model, over seven warm reloads, the API chunk finished loading 26 to 38 ms after the document request and first paint came at 36 to 52 ms, so the bundle request, sent from an effect after the first commit, found it loaded. In that instance the rail's rows, a new thread's draft row, a Markdown reply (table, task boxes, footnote, highlighted TypeScript), a `write` turn, Files with its diff and the CodeMirror editor, Terminal, the command palette, the model picker, Usage and the Settings pages drew with no console error or exception.
@@ -793,6 +810,84 @@ Tried and left out:
 - Routing the lazy consumers of the API's modules through one barrel to get one chunk instead of nine: Rollup still split the modules other chunks import directly. A `manualChunks` group pulled 260 KB of the entry's own modules with it.
 - The Markdown parser (about 90 KB in the entry) as its own chunk: the first paint draws the cached transcript, so the chunk would have to arrive before it.
 - Transcript pieces drawn only now and then (images, the task pill, the compaction divider, tool runs, turn navigation) as one chunk: −17.9 KB of initial script for +2.5 KB of gzip, and each would appear a moment after a first paint that shows it.
+
+### Total script headroom, 0.7.24 (K153)
+
+On v0.7.24 (`badd2a82`) the desktop build's total JavaScript was 498,296 bytes of gzip, 1,704 under its 500,000 budget, with design work ahead that needs 2.6 to 4.9 KB. Ticket K153 (2026-10-01) won back 9,155 bytes of gzip without raising a budget, moving code into the entry or removing a feature. Only the build's chunking and the packed icon set changed; no module's code did. Desktop build and browser client, from `reports/build-report.json` and `reports/build-web-report.json`:
+
+| budget line | before | after | budget |
+| --- | ---: | ---: | ---: |
+| desktop initial JavaScript | 772,341 (234,357 gzip) | 772,488 (234,395 gzip) | 800,000 (275,000) |
+| desktop lazy JavaScript | 782,026 (263,939 gzip), 76 files | 758,726 (254,746 gzip), 49 files | |
+| desktop total JavaScript | 1,554,367 (498,296 gzip) | 1,531,214 (489,141 gzip) | 1,900,000 (500,000) |
+| desktop initial CSS | 131,687 (25,062 gzip) | unchanged | 140,000 (30,000) |
+| kits' desktop halves | 3,059,184 | unchanged | 3,100,000 |
+| browser initial JavaScript | 784,753 (239,947 gzip) | 783,618 (239,383 gzip) | 820,000 (255,000) |
+| browser total JavaScript gzip | 504,842 | 494,442 | 510,000 |
+
+| change, each measured on the one above | desktop total gzip |
+| --- | ---: |
+| icons that only lazy code draws go with the dialogs, not one chunk per shared icon | −3,728 |
+| the packed icon set takes the icons core bundles from their modules | −1,368 |
+| each packed icon name after the prefix it shares with the one before | −945 |
+| one `common` lazy chunk: the dialogs, those icons and thirteen small shared helpers | −3,114 |
+
+- **Which icons the entry draws.** Rollup's module graph cannot tell: lucide's barrel imports all 1,790 icons. `entryGraph` (`vite/renderer-build.ts`) walks the entry's static imports through the app's own modules and reads their `lucide-react` import specifiers from the ASTs Rollup already parsed. Those icons stay in the entry; every other icon joins the lazy `common` chunk instead of 15 single-icon chunks and copies inside the surfaces that draw them. K90 and K36 found no way to know the entry's icons; the ASTs are that way.
+- **The icon set without core's icons.** The 103 icons core imports were packed a second time. `readSourceIconFiles` (`vite/icon-set.ts`) lists them from the renderer's sources (tests left out) before Rollup has the graph; the generated set module imports those components and packs only their names. An empty element list marks them, so an unbundled icon without elements is refused. A digest over all 6,137 names of the shared `lucide-react` module (display name, class names and element list of each) in the isolated instance equals the one of lucide's own ES module.
+- **Front-coded names.** Each name in the packed set starts with how many characters it shares with the name before it, one base-36 digit (at most 35). Other orders of the icons (by content, by reversed name segments, greedy by shared elements) packed worse than the alphabetical one.
+- **The common chunk.** `COMMON_MODULES` lists helpers several lazy surfaces import (escape layers, `Feedback`, `VirtualList`, `ChangesTree`, the runtime version, sheet dragging, the pairing format, `runtime-models`, `file-mention-expander`, ...). None imports a stylesheet or a module of another lazy chunk: a module that did (`NearbyMachineList` and `page-head` import the Settings controls) made a chunk cycle and moved the controls' stylesheet into nearly every dynamic import's list, which changes the cascade. Both renderer builds now fail on Rollup's `CIRCULAR_CHUNK` warning, and a script comparing each dynamic import's list of stylesheets between base and change found them identical. A module the entry imports itself stays in the entry, so the chunk never loads at start-up. It loads with the first surface that needs it and with the deferred preload two seconds after `load`, as the dialogs chunk did.
+
+`npm run start:budget` passes: first paint 108 ms under a load average of 17 and 152 ms under 6, seven files. In the isolated instance on the fake model a plain turn, a `write` turn and a prompt with an `@` mention (sent with the file's text) ran; the command palette with its Set model level, the fourteen Settings entries, the review surface with the diff, and the system prompt dialog opened with no empty icon, and the logs showed no chunk error.
+
+Tried and left out:
+
+- Rollup's `experimentalMinChunkSize` at 1,000 and 2,000 bytes on top: −886 and −1,910 bytes of gzip, but it merges modules K25 moved out of the entry back into it (+362 and +1,639 gzip there).
+- A dictionary of the icon elements that repeat (837 distinct, 88 KB of repeats): gzip already finds most of them, −300 bytes.
+- Dead code the sweep found in the bundle is small (about 150 lines): public `usePreferences` setters, a deprecated settings-page flag, preference migrations from v0.4.0, host updates no host sends, class members only tests call. Each is API, a migration too young to drop, or worth less than 100 bytes of gzip.
+
+### Kit headroom, 0.7.25 (K158)
+
+On v0.7.25 (`eb7aa24a`) the kits' desktop halves measured 3,097,289 bytes, 2,711 under `kitDesktopJavascriptBytes` (3,100,000), with more design work in kits ahead. Ticket K158 (2026-10-01) won back 253,265 bytes without raising the budget or removing a feature. Only `bundleDesktopExtension` changed, so the prebuilt kits and a package compiled at runtime still come out the same.
+
+| change, each measured on the one above | kits' desktop halves |
+| --- | ---: |
+| base `eb7aa24a` | 3,097,289 |
+| one shared-module lookup per bundle instead of one per shim, the unused default binding dropped | −22,928 |
+| `minifySyntax` | −74,513 |
+| local names in bundled dependencies shortened, the kits' own names kept | −155,824 |
+| **after** | **2,844,024** (871,366 gzip) |
+
+- **Shims.** Each shared module's shim repeated the `globalThis.__tauShared` lookup, its error message and a default binding nobody imports, about 170 times across the kits. The shims now import `shared()` and `defaultOf()` from one generated helper per bundle; `defaultOf` is annotated free of side effects, so it disappears where nothing imports a default. A missing shared module still throws the same message at import.
+- **Syntax.** K121 left syntax minification out together with renaming. It keeps every name, so a kit's stack trace still reads without the map.
+- **Dependencies' names.** CodeMirror and Lezer ship readable ESM and made up most of Files Kit (1,009,933 → 836,263 bytes). Each module under `node_modules` goes through a rename-only esbuild transform with an inline map, which the bundler chains, so `desktop.js.map` still points at the original file, line and name. A file that links a map of its own (xterm) is left as it is, so that map still reaches xterm's TypeScript sources; xterm ships minified anyway. The prebuild took as long as before (3.1–5.0 s either way under a load of 20 to 60).
+- **Not worth it / not found.** The kits share almost no code: per esbuild's metafile, the only source bundled by two kits is a 254-byte file of Remote Work Kit and 50 bytes of Workspace Kit. No kit bundles its own React, icons or virtualizer (all shared), none inlines an asset, and no `process.env.NODE_ENV` branch remains. Destructuring the shared bindings (`var {a, b} = m`) instead of one `pick` per name would save about 20 KB more but needs a second build per kit to learn which names survive tree shaking. Full renaming of the kits' own code would save about 485 KB more; it stays out so a kit's names read without the map.
+
+### Web script headroom, 0.7.32 (K169)
+
+On v0.7.32 (`0e777d26`) the browser client's total JavaScript was 509,758 bytes of gzip, 242 under its 510,000 budget, and the desktop build's 497,097, 2,903 under 500,000. Ticket K169 (2026-10-01) won back 7,037 and 6,171 bytes without raising a budget or removing a feature. Only `vite/renderer-build.ts` changed. Numbers from `reports/build-web-report.json` and `reports/build-report.json` (Node 22; gzip sizes differ by a few hundred bytes on Node 26's zlib):
+
+| budget line | before | after | budget |
+| --- | ---: | ---: | ---: |
+| browser total JavaScript gzip | 509,758 | 502,721 | 510,000 |
+| browser initial JavaScript | 800,724 (244,890 gzip) | 799,960 (244,342 gzip) | 820,000 (255,000) |
+| browser lazy JavaScript | 785,929 (264,868 gzip), 51 files | 785,228 (258,379 gzip), 32 files | |
+| desktop total JavaScript gzip | 497,097 | 490,926 | 500,000 |
+| desktop initial JavaScript | 785,193 (238,675 gzip) | 785,260 (238,553 gzip) | 800,000 (275,000) |
+| desktop lazy JavaScript | 769,096 (258,422 gzip), 47 files | 768,566 (252,373 gzip), 30 files | |
+| kits' desktop halves | 2,922,915 | unchanged | 3,100,000 |
+
+- **Chunk overhead.** Concatenated, the 51 lazy files gzip 18 KB smaller than apart: each file repeats its import list, export list and compression tables. Most small lazy modules without a stylesheet (menus, prompts, the submission controller, settings search and navigation, thread rows, the config-layer store, `ThreadCostPopover`, `FileSource`, ...) and the helpers only they reached joined `COMMON_MODULES`; their chunks were all preloaded when idle anyway. A module moved this way exposes its private helpers as new small chunks, so the list holds those too. Cost per merged chunk: 150 to 450 bytes of gzip.
+- **Browser pairing code.** `web/connect/{offer,socket,storage}.ts` and `shared/managed-connections.ts` were three chunks and a fourth for the shared module; they are one `browser-connect` chunk (−450 bytes).
+- **Checks.** The build still fails on `CIRCULAR_CHUNK`. A script comparing the stylesheet list of every dynamic import between base and change found no difference (the merged modules bring none; `COMMON_MODULES` is tested for that). None of the merged modules runs code when imported.
+
+`npm run build:budget` size lines pass; its build-time lines fail here on both base and change at a load average of 17 to 24 (reference speed 20.7 s against 20 s for the browser client on the base). In an isolated instance on the fake model a `write` turn ran, the command palette and the Settings pages opened, and the log showed no chunk error.
+
+Tried and left out:
+
+- terser's compress pass run twice for the browser client: −474 bytes for 2 s more build time; with `pure_getters: true` −978, but that drops `void node.offsetWidth` reflow reads.
+- terser as the only minifier (no esbuild first): no smaller.
+- Re-packing the icon set (69 KB of gzip, path data already minimal), a smaller QR encoder (`uqr`, 3.8 KB) and the Markdown stack: no saving without removing behavior.
+- Merging `ComposerChipLayer` (its private hooks would join `common`, which every dialog loads): about 300 bytes.
 
 ### Deferred extension binding
 
@@ -1224,6 +1319,18 @@ Measured on the development machine (load average 6 to 12), with the same harnes
 | one thread's cost changes | – | 1 row / about 1 ms |
 
 Merging the turns on every listing instead of once per turn cost 3.6–4.7 ms (Codex) and 4.5–6.0 ms (Agent SDK) per listing of 1,000 threads, and grows with a thread's turns (up to 2,000 kept), which is why the stores keep the merged tallies. The full index again costs the rail about 0.8 ms more per 1,000 threads because `threadEqual` compares each thread's usage as JSON, which Pi threads already paid; the host sends a full index only at start-up and on request, and a rescan otherwise publishes changed shells alone. `src/main/thread-index.test.ts` ("thread index scale") holds one `listThreads` per backend per scan, no `lookup`, and one pricing per thread; `kits/workspace/rail-render.test.tsx` holds that a rescan carrying every cost redraws no row and a new cost redraws one.
+
+Follow-up (K118, 2026-09-30). OpenCode, Cursor, Grok and Antigravity list their threads' usage too: Grok and Antigravity from their turns, merged once per new turn like Codex's (`kits/_acp/session-store.ts`, `talliesOfRecord`), Cursor and OpenCode from the running total their stores keep, unnamed so the index shows the figure their open thread shows. An import from the Codex or Agent SDK CLI now counts the session file's responses with the Usage kit's parsers (`kits/usage/session-usage.ts`) once, at import, and keeps them as the thread's turns; no listing reads a file for it.
+
+`threadEqual` in the renderer compared a shell's usage, limit and queue as two JSON strings each. It now walks the fields (`same` in `src/workbench/thread-store.ts`), and the activity snapshot's ten fields are listed once, which pays for the walk's bytes (total JavaScript gzip 499,984 → 499,886). Same harness, same machine, load 6 to 10:
+
+| what | before | after |
+| --- | ---: | ---: |
+| a full thread index again, 1,000 threads with costs, rows redrawn / time (`rail-render.test.tsx`, 5 runs) | 0 / 1.36–1.81 ms | 0 / 0.92–1.10 ms |
+| the same without costs | 0 / 0.47–0.61 ms | 0 / 0.48–0.59 ms |
+| `threadEqual` alone over 1,000 threads with usage (node, median of 300) | 0.45–0.65 ms | 0.09–0.10 ms |
+
+The rest of the gap between a rescan with costs and one without is the harness copying each usage before it emits, not the comparison: with the comparison replaced by `true`, a rescan with costs took 0.89–0.99 ms.
 
 ### Chips in the composer's text
 

@@ -19,10 +19,12 @@ export const PAGES = [
   { slug: "get-started", source: "docs/site/get-started.md", group: "Guides", blurb: "Install Tau, connect your agents, start a thread, pair your phone." },
   { slug: "install", source: "docs/install.md", group: "Guides", blurb: "Every installer, Linux details, updates, the tau command, and running from a checkout." },
   { slug: "make-a-change", source: "docs/site/make-a-change.md", group: "Guides", blurb: "Write a kit of your own, or change Tau and open a pull request." },
+  { slug: "kit-tutorial", source: "docs/kit-tutorial.md", group: "Guides", title: "Your first kit", blurb: "Create, install, trust, approve, edit and rebuild one small kit, step by step." },
   { slug: "updates-and-machines", source: "docs/site/updates-and-machines.md", group: "Guides", blurb: "How Tau updates itself, other computers, and a host without a window." },
   { slug: "servers", source: "docs/servers.md", group: "Guides", title: "Servers", blurb: "Work on a site that lives on a server: upload, drift, roll back." },
   { slug: "runtimes", source: "docs/runtimes.md", group: "Reference", blurb: "Claude Code, Codex, Antigravity and Pi, pull request tools, and a live Pi session." },
   { slug: "hosts", source: "docs/hosts.md", group: "Reference", title: "Hosts and devices", blurb: "The host as a service, over a socket or TLS, other machines, the web client and the phone app." },
+  { slug: "push", source: "docs/push.md", group: "Reference", title: "Push notifications", blurb: "Tau's relay, what it sees, the end-to-end encryption, and your own keys." },
   { slug: "extensions", source: "docs/EXTENSIONS.md", group: "Reference", title: "Writing a package", blurb: "The manifest, the API a kit uses, permissions, isolation and signing." },
   { slug: "architecture", source: "docs/architecture.md", group: "Reference", blurb: "Core and kits, the window and the host, the extension seam." },
   { slug: "core", source: "docs/CORE.md", group: "Reference", title: "Core and kits", blurb: "What the core owns, and what each shipped kit does." },
@@ -30,8 +32,8 @@ export const PAGES = [
   { slug: "contributing", source: "CONTRIBUTING.md", group: "Reference", title: "Contributing", blurb: "Setting up, where a change goes, and what a pull request needs." },
   { slug: "features", source: "docs/features.md", group: "Project", blurb: "The workbench's features, in one list." },
   { slug: "roadmap", source: "docs/roadmap.md", group: "Project", title: "Roadmap", blurb: "What is not done yet, and what Tau does not try to be." },
-  { slug: "privacy", source: "docs/site/privacy.md", group: "Project", title: "Privacy policy", blurb: "How the Android app handles connections, notifications and your data." },
-  { slug: "privacy-de", source: "docs/site/privacy-de.md", group: "Project", title: "Datenschutzerklärung", lang: "de", blurb: "Datenschutz für die Android-App, auf Deutsch." },
+  { slug: "privacy", source: "docs/site/privacy.md", group: "Project", title: "Privacy policy", blurb: "Where to read how Tau handles connections, notifications and your data." },
+  { slug: "privacy-de", source: "docs/site/privacy-de.md", group: "Project", title: "Datenschutzerklärung", lang: "de", blurb: "Wo die Datenschutzerklärung steht, auf Deutsch." },
 ];
 
 const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);

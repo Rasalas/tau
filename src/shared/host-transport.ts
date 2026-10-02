@@ -48,12 +48,20 @@ export const CLIENT_SIDE_METHODS = [
   "environments-open",
   "environments-take-arrival",
   "environments-discover",
+  "environments-wsl-list",
   "environments-set-preferences",
   "environments-update",
   "environments-set-agents",
   "environments-transcript-page",
   "environments-watch-thread",
   "environments-extension-read",
+  "environments-extension-invoke",
+  "environments-extension-follow",
+  "environments-person-preferences",
+  "environments-set-person-preferences",
+  "environments-config",
+  "environments-update-config",
+  "environments-clear-config",
 ] as const;
 
 export const isClientSideMethod = (method: string): boolean =>
@@ -274,6 +282,10 @@ export function tokenRefused(code?: number, reason?: string): boolean {
 export const HOST_ERROR = {
   invalidRequest: "invalid-request",
   unknownMethod: "unknown-method",
+  /** The host has no installed kit with this id. */
+  unknownExtension: "unknown-extension",
+  /** The active kit has no command with this name. */
+  unknownCommand: "unknown-command",
   unauthorized: "unauthorized",
   /** Authenticated, but not allowed this: a paired client asking to manage access. */
   forbidden: "forbidden",

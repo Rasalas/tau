@@ -2,6 +2,7 @@ import { authorityName, type PairingEndpoint, type UiHostEndpointKind } from "..
 import { socketUrl } from "../shared/environments.js";
 import type { EndpointTrust } from "./host-tls-trust.js";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
+import { decodeManagedRoute, type ManagedRoute } from "../shared/managed-connections.js";
 
 /**
  * Encrypts what the catalog must not keep in the clear. Electron's
@@ -17,6 +18,7 @@ export interface SecretBox {
 
 /** A machine the user paired this window with; `token` is decrypted in memory only. */
 export interface SavedEnvironment {
+  managed?: ManagedRoute;
   id: string;
   name: string;
   endpoints: PairingEndpoint[];
@@ -31,7 +33,8 @@ export interface SavedEnvironment {
   readOnly?: boolean;
 }
 
-interface StoredEnvironment extends Omit<SavedEnvironment, "token"> {
+interface StoredEnvironment extends Omit<SavedEnvironment, "token" | "managed"> {
+  managed?: string;
   token: string;
 }
 
@@ -129,7 +132,7 @@ export class EnvironmentCatalog {
     this.prefs = stored?.data.preferences ?? {};
     for (const entry of stored?.data.environments ?? []) {
       try {
-        entries.push({ ...entry, token: this.box.decrypt(entry.token) });
+        entries.push({ ...entry, token: this.box.decrypt(entry.token), managed: entry.managed ? decodeManagedRoute(JSON.parse(this.box.decrypt(entry.managed))) : undefined });
       } catch (error: unknown) {
         // Another user's keychain, or a copied file: the token is gone, the machine has to pair again.
         this.logger?.warn(`environments: the key for ${entry.name} could not be decrypted`, error);
@@ -139,7 +142,7 @@ export class EnvironmentCatalog {
   }
 
   private async persist(): Promise<void> {
-    const environments: StoredEnvironment[] = this.entries.map((entry) => ({ ...entry, token: this.box.encrypt(entry.token) }));
+    const environments: StoredEnvironment[] = this.entries.map((entry) => ({ ...entry, token: this.box.encrypt(entry.token), managed: entry.managed ? this.box.encrypt(JSON.stringify(entry.managed)) : undefined }));
     await writePersistedJson(this.path, VERSION, { environments, ...this.prefs }, this.logger ? { logger: this.logger } : {});
   }
 }
@@ -173,6 +176,7 @@ function decodeStored(value: unknown): StoredCatalog | undefined {
       ...(typeof item.publicKey === "string" && item.publicKey ? { publicKey: item.publicKey } : {}),
       ...(typeof item.fingerprint === "string" && item.fingerprint ? { fingerprint: item.fingerprint } : {}),
       token: item.token,
+      ...(typeof item.managed === "string" ? { managed: item.managed } : {}),
       addedAt: typeof item.addedAt === "string" ? item.addedAt : "",
       ...(typeof item.lastUrl === "string" ? { lastUrl: item.lastUrl } : {}),
       ...(item.readOnly === true ? { readOnly: true } : {}),

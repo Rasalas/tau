@@ -13,6 +13,7 @@ import {
   type HostClientCall,
   type HostIdentity,
   type HostPush,
+  type HostPushEvent,
   type HostServerFrame,
 } from "../shared/host-transport.js";
 import { ACCESS_CLOSE_REASON, type DeviceAccess, type PairingEndpoint } from "../shared/connections.js";
@@ -108,6 +109,9 @@ export interface SocketHostTransportOptions {
   onSnapshotClient?(): void;
   /** A connection's subscription gained these threads; what it never saw must travel whole again. */
   onThreadsSubscribed?(sessionIds: readonly string[]): void;
+  /** Relays machine kit topics to this connection alone. */
+  onTopicsSubscribed?(connection: string, topics: readonly string[], emit: (event: HostPushEvent) => void): void;
+  onClientDetached?(connection: string): void;
   /** Page origins accepted besides the listener's own and Electron's local `file://` (`hostAllowedOrigins`); a function is asked per socket. */
   allowedOrigins?: readonly string[] | (() => readonly string[]);
   /** Defaults to `SOCKET_HELLO_TIMEOUT_MS`. */
@@ -190,6 +194,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     const session = authenticated.get(socket);
     authenticated.delete(socket);
     if (session) {
+      options.onClientDetached?.(session.connection);
       sockets.delete(session.connection);
       access.detach(session.connection);
       options.calls?.detach(session.connection);
@@ -203,10 +208,13 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   const send = (socket: WebSocket, frame: HostServerFrame): void => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(frame));
   };
+  /** A paired device's access as it stands now: a new preset applies to its next request and push. */
+  const readOnlySession = (session: { connection: string; principal: HostInvocationPrincipal }): boolean =>
+    session.principal.kind === "workbench-client" && session.principal.pairedClient !== undefined && (access.accessOf?.(session.connection) ?? "read-only") === "read-only";
   /** A paired device's requests carry what it may do now and a way to record what it changed. */
   const principalFor = (session: { connection: string; principal: HostInvocationPrincipal }): HostInvocationPrincipal => {
     if (session.principal.kind !== "workbench-client" || session.principal.pairedClient === undefined) return session.principal;
-    const readOnly = (access.accessOf?.(session.connection) ?? "read-only") === "read-only";
+    const readOnly = readOnlySession(session);
     return Object.freeze({
       ...session.principal,
       ...(readOnly ? { readOnly: true as const } : {}),
@@ -253,6 +261,15 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     send(socket, response);
   };
 
+  const followTopics = (socket: WebSocket, session: Session, topics: readonly string[]): void => {
+    options.onTopicsSubscribed?.(session.connection, topics, (event) => {
+      if (authenticated.get(socket) !== session || socket.readyState !== socket.OPEN) return;
+      const push = options.pushLog.record(event, { replay: false });
+      send(socket, { type: "push", push: { ...push, ...(session.lastSent === push.seq - 1 ? {} : { prev: session.lastSent }) } });
+      session.lastSent = push.seq;
+    });
+  };
+
   /**
    * Answered at once, without flushing waiting pushes first: every push before
    * the response went out under the old subscription, every push after it
@@ -262,6 +279,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     if (value === null || value === undefined) {
       delete session.filter;
       send(socket, { type: "response", response: { id, result: true } });
+      followTopics(socket, session, []);
       return;
     }
     const subscription = decodeHostSubscription(value);
@@ -274,6 +292,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     session.filter = filter;
     if (added.length > 0) options.onThreadsSubscribed?.(added);
     send(socket, { type: "response", response: { id, result: true } });
+    followTopics(socket, session, subscription.topics);
   };
 
   /** Sockets that answered the last WebSocket ping, or sent anything since. */
@@ -382,11 +401,14 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         // The reply first: it carries the sequence this client starts from, and
         // the push that announces its own arrival must come after that number.
         const identity = options.host ? helloIdentity(options.host) : undefined;
-        const reply = helloReply(options.pushLog, frame.hello, { hostVersion: options.hostVersion, capabilities, ...(identity ? { host: identity } : {}) }, filter);
-        const readOnly = credential.kind === "client" && (access.accessOf?.(connection) ?? "read-only") === "read-only";
+        const readOnly = readOnlySession(session);
+        const reply = helloReply(options.pushLog, frame.hello, { hostVersion: options.hostVersion, capabilities, ...(identity ? { host: identity } : {}) }, filter, readOnly);
+        // Legacy unfiltered clients advance only through replayed events, not over client-only relays.
+        if (!filter && frame.hello.lastSeq !== undefined && !reply.resync) session.lastSent = reply.missed.at(-1)?.seq ?? frame.hello.lastSeq;
         // Said here so a client that manages nothing never asks for the list it would be refused.
         const owner = isHostOwner(session.principal);
         send(socket, { type: "hello-reply", id: frame.id, reply: { ...reply, ...(readOnly ? { access: "read-only" as const } : {}), owner } });
+        followTopics(socket, session, frame.hello.subscription?.topics ?? []);
         if (!frame.hello.auxiliary && (frame.hello.lastSeq === undefined || reply.resync)) options.onSnapshotClient?.();
         if (options.clients && !frame.hello.auxiliary) {
           clientIds.set(socket, options.clients.attached({
@@ -475,6 +497,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
       let frame: string | undefined;
       for (const [socket, session] of authenticated) {
         if (socket.readyState !== socket.OPEN || !(session.filter?.admits(push.event, scope) ?? true)) continue;
+        if (scope === "writers" && readOnlySession(session)) continue;
         event ??= JSON.stringify(push.event);
         // The first push after skipped ones says so, or the client would count a gap.
         const prev = session.lastSent === push.seq - 1 ? "" : `,"prev":${session.lastSent}`;

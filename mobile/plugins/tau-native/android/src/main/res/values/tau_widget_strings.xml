@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tau_widget_plan_limits">Plan limits</string>
+    <string name="tau_widget_plan_limits_description">What is left of your plans, with the next reset</string>
+    <string name="tau_widget_threads">Threads</string>
+    <string name="tau_widget_threads_description">Threads that wait for you, run or just finished</string>
+</resources>

@@ -24,7 +24,13 @@ import java.util.concurrent.ConcurrentHashMap;
 @CapacitorPlugin(name = "TauNative")
 public class TauNativePlugin extends Plugin {
 
+    @PluginMethod public void activityTokens(PluginCall call) { JSObject result = new JSObject(); result.put("tokens", new org.json.JSONArray()); call.resolve(result); }
+    /** The app's snapshot of one host: accounts and threads, the same JSON iOS reads. */
+    @PluginMethod public void widgetSnapshot(PluginCall call) { de.tbuck.tau.plugin.widgets.WidgetStore.save(getContext(), call.getData()); call.resolve(); }
+    @PluginMethod public void activityClear(PluginCall call) { AgentActivity.clear(getContext(), call.getString("hostId", "")); call.resolve(); }
+
     private final Map<String, PinnedSocket> sockets = new ConcurrentHashMap<>();
+    private final Map<String, ConnectRelay> relays = new ConcurrentHashMap<>();
     private SecureStore store;
     private HostBrowser browser;
 
@@ -111,24 +117,41 @@ public class TauNativePlugin extends Plugin {
             String value = given.optString(name, null);
             if (value != null) headers.put(name, value);
         }
+        JSObject connect = call.getObject("connect");
+        if (connect != null && (!url.startsWith("wss://") || (call.getString("publicKey") == null && call.getString("fingerprint") == null))) {
+            call.reject("Connect requires a pinned TLS host."); return;
+        }
+        java.util.function.Consumer<String> open = (socketUrl) -> {
+            try {
+                PinnedSocket socket = new PinnedSocket(id, socketUrl, call.getString("publicKey"), call.getString("fingerprint"), connect == null && Boolean.TRUE.equals(call.getBoolean("allowAuthority", false)), headers, (event) -> {
+                    if ("close".equals(event.getString("type"))) {
+                        sockets.remove(id);
+                        ConnectRelay relay = relays.remove(id);
+                        if (relay != null) relay.close();
+                    }
+                    notifyListeners("socket", event);
+                });
+                sockets.put(id, socket);
+                call.resolve();
+            } catch (Exception error) { call.reject("Host socket could not start."); }
+        };
+        if (connect == null) { open.accept(url); return; }
         try {
-            PinnedSocket socket = new PinnedSocket(
-                id,
-                url,
-                call.getString("publicKey"),
-                call.getString("fingerprint"),
-                Boolean.TRUE.equals(call.getBoolean("allowAuthority", false)),
-                headers,
-                (event) -> {
-                    if ("close".equals(event.getString("type"))) sockets.remove(id);
+            ConnectRelay relay = new ConnectRelay(connect.getString("url"), connect.getString("token"), () -> {
+                PinnedSocket socket = sockets.get(id);
+                if (socket != null) socket.close(1006, "Connect relay disconnected.");
+                else {
+                    JSObject event = new JSObject(); event.put("id", id); event.put("type", "close"); event.put("code", 1006);
                     notifyListeners("socket", event);
                 }
-            );
-            sockets.put(id, socket);
-            call.resolve();
-        } catch (Exception error) {
-            call.reject(error.getMessage(), error);
-        }
+                relays.remove(id);
+            });
+            relays.put(id, relay);
+            relay.start(url, new ConnectRelay.Ready() {
+                public void ready(String local) { open.accept(local); }
+                public void failed() { call.reject("Connect relay could not start."); }
+            });
+        } catch (Exception error) { call.reject("Connect requires a secure relay and a client credential."); }
     }
 
     @PluginMethod
@@ -147,7 +170,8 @@ public class TauNativePlugin extends Plugin {
     public void socketClose(PluginCall call) {
         PinnedSocket socket = sockets.get(call.getString("id", ""));
         if (socket == null) {
-            call.reject("unknown socket", "unknown-socket");
+            ConnectRelay relay = relays.remove(call.getString("id", ""));
+            if (relay != null) { relay.close(); JSObject event = new JSObject(); event.put("id", call.getString("id")); event.put("type", "close"); event.put("code", call.getInt("code", 1000)); notifyListeners("socket", event); call.resolve(); } else call.reject("unknown socket", "unknown-socket");
             return;
         }
         socket.close(call.getInt("code", 1000), call.getString("reason"));
@@ -218,6 +242,8 @@ public class TauNativePlugin extends Plugin {
     protected void handleOnDestroy() {
         for (PinnedSocket socket : sockets.values()) socket.close(1001, null);
         sockets.clear();
+        for (ConnectRelay relay : relays.values()) relay.close();
+        relays.clear();
         if (browser != null) browser.stop();
     }
 

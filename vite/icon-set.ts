@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +11,8 @@ const CODEC = normalizePath(fileURLToPath(new URL("../src/renderer/icon-set-code
 const EXPORT = /^export \{ default as (\w+) \} from '\.\/([\w-]+)\.mjs';$/gmu;
 const NODE = /const __iconNode = (\[[\s\S]*?\]);\n/u;
 const NAMES = /^export \{ ([^}]+) \} from '\.\/icons\/([\w-]+)\.mjs';$/gmu;
+const LUCIDE_IMPORT = /\bimport\s*\{([^}]*)\}\s*from\s*"lucide-react"/gu;
+const SOURCES = ["shared", "renderer", "workbench", "web"].map((directory) => fileURLToPath(new URL(`../src/${directory}`, import.meta.url)));
 
 const esmDirectory = () => join(dirname(createRequire(import.meta.url).resolve("lucide-react")), "..", "esm");
 
@@ -35,6 +37,16 @@ function ownNames(): Map<string, string> {
   return own;
 }
 
+/** The icon file behind each name lucide's entry exports (`Check`, `CheckIcon`, `LucideCheck` → `check`). */
+export function readLucideExports(): Map<string, string> {
+  const files = new Map<string, string>();
+  for (const [, list, file] of readFileSync(join(esmDirectory(), "lucide-react.mjs"), "utf8").matchAll(NAMES)) {
+    for (const entry of list!.split(", ")) files.set(entry.replace(/^default as /u, ""), file!);
+  }
+  if (files.size === 0) throw new Error("lucide-react changed its entry; revisit vite/icon-set.ts");
+  return files;
+}
+
 /**
  * The older names lucide's entry still exports for each icon file: every name
  * but the icon's own and the `…Icon` and `Lucide…` forms of each.
@@ -51,17 +63,38 @@ export function readLucideAliases(icons: Record<string, IconNode> = readLucideIc
   return aliases;
 }
 
-export function iconSetModule(icons = readLucideIcons(), aliases = readLucideAliases(icons)): string {
+/** The icon files the renderer's own sources import by name, tests left out. */
+export function readSourceIconFiles(directories = SOURCES, exports = readLucideExports()): Set<string> {
+  const files = new Set<string>();
+  for (const directory of directories) {
+    for (const entry of readdirSync(directory, { recursive: true, withFileTypes: true })) {
+      if (!entry.isFile() || !/\.tsx?$/u.test(entry.name) || /\.test\.tsx?$/u.test(entry.name)) continue;
+      for (const [, list] of readFileSync(join(entry.parentPath, entry.name), "utf8").matchAll(LUCIDE_IMPORT)) {
+        for (const specifier of list!.split(",")) {
+          const file = exports.get(specifier.trim().split(/\s+/u)[0]!);
+          if (file) files.add(file);
+        }
+      }
+    }
+  }
+  return files;
+}
+
+/** The set's module; icons in `bundled` come from their own modules, which the renderer bundles anyway. */
+export function iconSetModule(icons = readLucideIcons(), aliases = readLucideAliases(icons), bundled = readSourceIconFiles()): string {
+  const own = ownNames();
+  const components = Object.keys(icons).filter((file) => bundled.has(file)).map((file) => own.get(file)!);
   return [
-    'import { createLucideIcon } from "lucide-react";',
+    `import { createLucideIcon${components.map((name) => `, ${name}`).join("")} } from "lucide-react";`,
     `import { decodeIconSet } from ${JSON.stringify(CODEC)};`,
-    `export const { icons, aliases } = decodeIconSet(${JSON.stringify(encodeIconSet(icons, aliases))}, createLucideIcon);`,
+    `export const { icons, aliases } = decodeIconSet(${JSON.stringify(encodeIconSet(icons, aliases, bundled))}, createLucideIcon, [${components.join(", ")}]);`,
   ].join("\n");
 }
 
 /**
  * Production only: the icon set extensions share, as one packed string decoded
  * when its chunk loads. The chunk is 30 % smaller than with 1,790 icon modules.
+ * Icons core imports itself are not packed a second time.
  */
 export function packIconSet(): Plugin {
   let production = false;

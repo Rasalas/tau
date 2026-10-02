@@ -90,6 +90,18 @@ in that method's argument order. The host implements them in one table
 (`src/main/host-methods.ts`) which decodes every argument through `ipc-input.ts`;
 a transport only moves frames in and out of it.
 
+The core methods below start and continue a thread off screen. Both require
+`write` access and keep the host's active thread unchanged.
+
+| Method | Params | Result |
+|---|---|---|
+| `start-thread` | `[options]`, where `options` is `{ cwd, prompt, backend?, model?: { provider, id }, thinkingLevel?, mode?, title? }`. `cwd` is a host path or workspace id. | `{ sessionId, path, cwd, title? }`, with the new thread's index path. Resolves after the first prompt is admitted. |
+| `send-to-thread` | `[sessionId, text, delivery?]`. `delivery` is `"prompt"` by default, `"steer"` or `"queue"`. | `null`. A released thread is reopened off screen. |
+
+Neither method accepts attachments. `prompt` starts a turn or follows a running
+one; `steer` joins a running turn now; `queue` waits in the thread's visible
+queue until its turn ends.
+
 A connection opens with `hello { protocol, token?, lastSeq?, subscription? }`. The reply names
 the host version, its capabilities (`jobs`, `replay`, `local-files`, `heartbeat`, `subscriptions`), the pushes
 the client missed, and `resync: true` when it cannot be repaired from the
@@ -622,7 +634,7 @@ default and combine:
 | Tailscale | each Tailscale address (100.64.0.0/10, fd7a:115c:a1e0::/48) on `<port>`, so the LAN sees no open port; not needed while Local network covers them | TLS |
 | Tailscale, or a package's hold | `127.0.0.1:<proxyPort>`, for a reverse proxy such as `tailscale serve` | plain HTTP |
 
-`port` (default 7788) and `proxyPort` (default 7789) are fixed, so a paired
+`port` (default 7788) and `proxyPort` (default 7789; 7790 and 7791 in Tau Dev) are fixed, so a paired
 device and a `tailscale serve --bg` mapping find the host again after a
 restart. The TLS certificate is the self-signed one of [TLS](#tls) or one of
 the user's own (`certificate`); a pair that does not load is refused before
@@ -665,7 +677,7 @@ the host announces it as a DNS-SD service (`src/main/host-discovery.ts`):
 
 | Field | Value |
 |---|---|
-| Type | `_tau._tcp` (`TAU_BONJOUR_SERVICE_TYPE` overrides it; isolated instances use `_tau-test._tcp`) |
+| Type | `_tau._tcp`, `_tau-dev._tcp` in Tau Dev (`TAU_BONJOUR_SERVICE_TYPE` overrides it; isolated instances use `_tau-test._tcp`) |
 | Instance | the machine's host name without `.local`; the network may suffix it after a clash |
 | Port | the Local network listener's, TLS |
 | TXT | `v=1`, `id=<host id>`, `fp=<SHA-256 of the certificate, 64 hex>`, `pk=<SHA-256 of its public key, 64 hex>` |
@@ -925,9 +937,10 @@ Kits reach the machines through `services.machines`: a kit command there goes
 as `host-extension`, and `request` sends only the methods in
 `MACHINE_REQUEST_METHODS` (`src/shared/host-method-access.ts`:
 `transcript-page`, `thread-tree`, `tool-output`, `abort`, `steer`,
-`follow-up`, `host-resources`, `readiness`); every other name is refused before
-it leaves. Named by the host's own id, a `read` method of that list is answered
-by the host itself.
+`follow-up`, `start-thread`, `send-to-thread`, `answer-extension-ui`,
+`sync-extension-ui`, `runtime-catalog`, `host-resources`, `readiness`); every other name is refused
+before it leaves. Named by the host's own id, a `read` method of that list is
+answered by the host itself. Writes to its own id are refused.
 
 ### How busy a machine is, and what it could run
 
@@ -954,6 +967,37 @@ the window's `environments-update` and the command line's `machines-update`
 (owner) carry a machine's own Tau update (K103).
 [host-updates.md](host-updates.md#protocol) lists them with their params and
 results, and what an older host or client does with them.
+
+### Kit calls for a machine thread
+
+The `host-extension` handler routes Workspace, Files, Terminal and Review calls
+through the indexed home machine. An explicit `workspace` or `workspaceId`
+selects the machine whose index published it; an unnamed call follows the
+active machine backend and carries that remote session's workspace identity.
+Other kits remain local, as does Workspace's native folder picker. Before a
+forwarded call uses the host's machine credential, the source host checks the
+original client's command authority and records its write audit.
+
+A machine backend record may publish an optional `workspace: WorkspaceRef`
+(API 1.44.0). Proxy index rows and active project metadata preserve this home
+identity rather than minting an identity for the proxy cwd on the relaying host.
+The cwd remains a host coordinate; two machines can publish different workspace
+identities for the same path. Activating a proxy does not learn that path as a
+local project.
+
+Workspace publishes head, clone and checkpoint events under its dedicated
+topics. Terminal output uses `output/<shellId>`, and its session list and exits
+use `sessions`. A client's topic subscription attaches a matching remote watch;
+its events return to that client with the original extension, event name and
+topic. Remote thread ids are wrapped in the proxy namespace. Detaching or
+replacing the subscription stops its remote watches. Shell ownership survives
+navigation; session tables merge by machine so remote updates retain local
+shells. Named-workspace Git mutations and terminal opens leave the home host's
+active thread unchanged.
+
+These client-only relays use global push sequence numbers and per-client `prev`
+links, but are omitted from replay to prevent another connection receiving them.
+Terminal reconnects fetch session state and scrollback through the kit's commands.
 
 ### Files between hosts
 
@@ -1084,3 +1128,11 @@ them and both are edited by hand as often as by Tau:
 | --- | --- | --- |
 | `~/.tau/config.json`, `<project>/.tau/config.json` | `HostConfigManager.update` and `clear` | the keys Tau applies itself: theme, transcript detail, costs, favourites, disabled extensions, keybindings, typography, sampling, vim mode, prewarm, the host and restart settings, and the per-extension `options` / `values` records. The two files are the host and project levels of a setting: `get-config` answers them merged, `get-config-layers` apart, and `clear-config` removes keys from one of them |
 | `~/.pi/agent/settings.json`, `<project>/.pi/settings.json` | `HostConfigManager.update` and the Pi CLI | the keys Pi applies itself: startup model and thinking level, compaction, retry, steering and follow-up modes, built-in tools, shell path and command prefix, npm command, quiet startup, project trust. Pi's file wins for these, and an `update-config` patch carrying one is written there rather than to Tau's own file ([CORE.md](CORE.md)) |
+
+`environments-person-preferences []` and `environments-set-person-preferences [patch]` read and write the person's look (theme, transcript detail, costs, typography, vim mode, keybindings; `src/shared/person-preferences.ts`) on the window's own machine, over its connection there, and pass no other key. A page that shows another machine has that machine take them over once and sends a change made there back (ADR 0030).
+
+`environments-config [machine]`, `environments-update-config [machine, patch]` and `environments-clear-config [machine, keys]` read and write another machine's settings at its machine level (`get-config-layers`, `update-config`, `clear-config` with scope `global` there), over the window's connection to it (K170). The machine's host checks the keys and the access with the window's key, so a Read-only pairing can read and is refused a change, and a machine older than the methods answers with an update notice. A project override on another machine is not offered: a project is addressed by a workspace id of that machine, which only its own window knows. The writes are `write`; the read is `read`.
+
+`environments-extension-invoke [machine, extensionId, command, input?, options?]` forwards an explicit kit action to another connected host over the window's authenticated connection. It is classified as `write` on the originating host; the destination applies the kit command's own access policy again. `PlatformEnvironments.invokeExtension` exposes this route to desktop kits. Read-only clients cannot use it. Use `readExtension` for look-ins, which continue to require an explicitly read-only command. `options.timeoutMs` extends the default 30-second wait for a long command, up to ten minutes.
+
+`environments-extension-follow [machine, extensionId, on]` registers or removes interest in a machine's kit events. While any interest remains, the window forwards that kit's events from its existing monitor connection as `environment-extension-event`, with `{ machine, extensionId, name, payload }`. `PlatformEnvironments.onExtensionEvent` shares one registration among listeners of the same machine and kit and removes it when the last listener leaves. It does not subscribe to kit topics.

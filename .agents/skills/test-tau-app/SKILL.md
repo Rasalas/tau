@@ -123,7 +123,7 @@ npm run cdp -- wait-for "document.querySelector('.message.assistant') && !docume
 npm run cdp -- snapshot
 ```
 
-- Picker rows are `role="option"` with an aria-label `<model>, <runtime or instance>, <billing>[, in use]`; the search field has the focus when the picker opens, so typing narrows it across all runtimes. Pick by aria-label, not by text: several runtimes can offer the same model.
+- The picker lists each model once (K142): rows are `role="option"` with an aria-label `<model>, <runtime or instance>, <billing>[, in use]` that names the way "Runs with" has picked for it; the ways themselves are `role="radio"` buttons under the list, labelled `<runtime>, <Plan | API key | Free | gateway>` (`Pi, Plan`, `Codex, Plan`). The search field has the focus when the picker opens, so typing narrows it across all providers and runtimes; to be sure of the way, search the model so it is the only row, then click its radio (`all('[role=radio]').find(b => b.getAttribute('aria-label') === 'Pi, Plan')`).
 - Proof of the model: the thread's session file under `.tau-dev/pi-sessions/` has a `model_change` to `gpt-5.6-luna` before the user message, and the assistant message carries `"model":"gpt-5.6-luna"`. A `model_change` to the inherited default at the very start is normal.
 - Waiting for a word of the reply in the page's text is a trap: the prompt itself contains it.
 - In zsh, call `npm run cdp -- …` per step; a command kept in a variable (`C="npm run cdp --"; $C …`) is not split into words.

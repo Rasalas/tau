@@ -10,8 +10,8 @@ import type { HostCatalogModel, HostRuntimeNewThreadCatalog } from "./host-exten
 import type { ModelPriceBook } from "./model-price-book.js";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
 
-/** 2 keeps `apiModelId`; a version-1 answer is served but asked again as if old. */
-const VERSION = 2;
+/** 2 keeps `apiModelId`, 3 Pi's levels; an older answer is served but asked again as if old. */
+const VERSION = 3;
 /** A client that opens a picker gets an answer this old as it is; an older one is asked again behind it. */
 const FRESH_MS = 10 * 60_000;
 /** At start an answer from disk younger than this stands; the programs are not started for it. */

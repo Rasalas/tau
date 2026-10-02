@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tau tokens (src/renderer theme) for widget states and providers; surfaces come from Material You. -->
+<resources>
+    <color name="tau_widget_openai">#6EA6F7</color>
+    <color name="tau_widget_anthropic">#E5936A</color>
+    <color name="tau_widget_google">#5FC28F</color>
+    <color name="tau_widget_pi">#AE93F0</color>
+    <color name="tau_widget_other">#9EA3AD</color>
+    <color name="tau_widget_warn">#E8C67F</color>
+    <color name="tau_widget_warn_bar">#E8C67F</color>
+    <color name="tau_widget_warn_soft">#38E8C67F</color>
+    <color name="tau_widget_fail">#D9756B</color>
+    <color name="tau_widget_fail_ink">#EBA9A2</color>
+    <color name="tau_widget_fail_soft">#2ED9756B</color>
+    <color name="tau_widget_info">#6B93E0</color>
+    <color name="tau_widget_info_ink">#A6BFEE</color>
+    <color name="tau_widget_info_soft">#246B93E0</color>
+    <color name="tau_widget_ready">#A4D0B1</color>
+    <color name="tau_widget_done_soft">#2E6FAE82</color>
+    <color name="tau_widget_brand">#6B93E0</color>
+</resources>

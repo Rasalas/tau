@@ -76,14 +76,15 @@ describe("Settings → Appearance", () => {
     return { page, preferences, notify };
   }
 
-  it("is a page of project-capable rows: modes, a theme per scheme, density, contrast, type", () => {
+  it("is a page of this device's look: modes, a theme per scheme, density, contrast, type", () => {
     const { page } = renderPage();
-    expect(page.scope).toBe("both");
+    // How Tau looks is not a project's to override.
+    expect(page.scope).toBeUndefined();
     expect(page.keywords).toContain("density");
     for (const title of ["Mode", "Themes", "Density", "Contrast", "Timestamps", "Panel animations", "Interface font", "Prompt font", "Code font"]) {
       expect(screen.getByRole("heading", { level: 3, name: title })).toBeTruthy();
     }
-    expect(within(screen.getByRole("radiogroup", { name: "Density" })).getAllByRole("radio").map((button) => button.textContent)).toEqual(["Compact", "Normal", "Comfortable"]);
+    expect(within(screen.getByRole("radiogroup", { name: "Density" })).getAllByRole("radio").map((button) => button.textContent)).toEqual(["Airy", "Balanced", "Dense"]);
   });
 
   it("chooses the mode from three tiles and gives a theme one scheme from its card", async () => {

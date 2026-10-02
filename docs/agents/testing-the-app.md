@@ -377,7 +377,7 @@ Three helpers, each touching only what it started (recorded under `.tau-dev/`, c
 | `node scripts/tau-test-host.mjs …` | A headless host with its own home, userData and token under `.tau-dev/test-host` (`--name <name>`: `.tau-dev/test-host-<name>`), on 127.0.0.1, optionally with the proxy listener (`--proxy`) or TLS (`--tls`). |
 | `node mobile/scripts/sim-device.mjs …` | A simulator of this worktree's own: create, boot, install, launch and the automation bridge in one step, and `down` deletes exactly that device. |
 
-The phone uses Playwright's Chromium from `~/Library/Caches/ms-playwright` (`~/.cache/ms-playwright` on Linux), else an installed Chrome or Chromium, else `TAU_MOBILE_CHROME`. It opens only loopback URLs and names that `launch --resolve` maps to 127.0.0.1.
+The phone uses Playwright's Chromium from `~/Library/Caches/ms-playwright` (`~/.cache/ms-playwright` on Linux), else an installed Chrome or Chromium, else `TAU_MOBILE_CHROME`. It opens only loopback URLs and names that `launch --resolve` maps to 127.0.0.1. It starts with `--use-mock-keychain` and `--password-store=basic`, so it never asks the login keychain, under a fake `HOME` included; `TAU_MOBILE_CHROME` or a Playwright cache there points it at a browser.
 
 ### The phone: pair, prompt, reconnect
 
@@ -445,14 +445,16 @@ npm run cdp:mobile -- host connections-list --test-host    # the device's lastAd
 
 ### Push notifications
 
-Push Kit sends to Apple and Google itself; a test never does, and never reads the user's APNs key or Firebase project. The stand-ins run on loopback:
+Push Kit sends to Apple and Google itself, or through Tau's relay; a test never reaches any of them, and never reads the user's APNs key or Firebase project. The stand-ins run on loopback:
 
 ```
 npm run build && node scripts/push-fakes.mjs                       # in the background: fake APNs (cleartext HTTP/2), fake OAuth + FCM
-TAU_PUSH_APNS_ORIGIN=<printed> TAU_PUSH_FCM_ORIGIN=<printed> npm run dev:instance -- --fresh   # or `tau-test-host.mjs start --kits` with the same two variables
+TAU_PUSH_APNS_ORIGIN=<printed> TAU_PUSH_FCM_ORIGIN=<printed> TAU_PUSH_RELAY_URL=<printed> npm run dev:instance -- --fresh   # or `tau-test-host.mjs start --kits` with the same three variables
 ```
 
 `push-fakes.mjs` writes a throwaway `.p8` key (Key ID `FAKEKEY123`, Team ID `FAKETEAM12`) and a service account whose `token_uri` is the fake into `.tau-dev/push-fakes/`, and appends every push it receives to `.tau-dev/push-fakes/pushes.jsonl`. Enter the two files in Settings → Push (paste the text; `cdp type` fills the textareas, the Key ID and Team ID inputs need the `HTMLInputElement` value setter and an `input` event). Then a paired device registers its token: the simulator's app does so after its first hello, once iOS's "allow notifications" dialog was answered; without the simulator, any paired socket client can call `host-extension ["tau.push", "register", { platform: "ios", token: <64 hex>, host: <host id>, topic: "de.tbuck.tau" }]`. The device's row in Settings → Push has a test push; a real one follows a turn that ends while no client is focused and used in the last three minutes (leave the window alone for that long). The recorded body is an APNs payload: add `"Simulator Target Bundle": "de.tbuck.tau"` and hand it to `xcrun simctl push <udid> de.tbuck.tau payload.json`; that works only after the app's notification permission was granted by a tap on the dialog, which an agent cannot give (no system events, and `simctl privacy` has no notifications service). `xcrun simctl openurl <udid> "<the payload's url>"` checks the link a tap would follow. `npm run smoke:remote-host` runs the same fakes against a headless host with signed-token checks.
+
+Without keys in Settings → Push the host takes the relay route. The fake relay's `POST /register { platform, token }` answers a handle; a paired socket client then calls `host-extension ["tau.push", "register", { platform: "android", token: <20+ characters>, host: <host id>, relay: { handle, keyId: <22 base64url characters>, key: <32 random bytes, base64url> } }]`, and every push is a `/send` line in `pushes.jsonl` whose `payload` opens with that key (`openSealed` in `kits/push/host.test.ts`). Settings → Push shows "Tau's relay" under How pushes travel.
 
 ### The native app in the iOS Simulator
 
@@ -503,7 +505,7 @@ Tau clones only HTTPS and SSH URLs. Instances and test hosts set `TAU_TEST_CLONE
 
 ### A fake model instead of a login
 
-`scripts/fake-model-server.mjs` is an OpenAI-compatible model on 127.0.0.1 (`startFakeModelServer()`), and `prepareFakePiAgentDir(agentDir, baseUrl)` gives a Pi agent dir only that provider (`tau-fake/fake-1`, priced so a thread costs more than zero). It answers from the last user message: `write <path> <word>` makes a `write` tool call and then says "done", `wait <ms>` pauses mid-answer (for aborts), `fail <status> <text>` answers with that HTTP status and `<text>` as the provider's error (a failed turn), anything else is "ok". A test host started from a script takes it through `startTestHost(flags, { prepare: (env) => prepareFakePiAgentDir(env.PI_CODING_AGENT_DIR, baseUrl) })` with `login: false`.
+`scripts/fake-model-server.mjs` is an OpenAI-compatible model on 127.0.0.1 (`startFakeModelServer()`), and `prepareFakePiAgentDir(agentDir, baseUrl)` gives a Pi agent dir only that provider (`tau-fake/fake-1`, priced so a thread costs more than zero). It answers from the last user message: `write <path> <word>` makes a `write` tool call and then says "done", `wait <ms>` pauses mid-answer (for aborts), `fail <status> <text>` answers with that HTTP status and `<text>` as the provider's error (a failed turn), `run <seconds>` makes a `bash` call (`mkdir -p fake-run && sleep <seconds>`) and then says "done", `think <ms>` streams reasoning for that long before each answer (combine it with the others), `ask one`/`ask any` calls the ask-user tool (`ask_user_question`, from `@juicesharp/rpiv-ask-user-question`; the agent dir must load it) with one pick-one or pick-any question, `spawn[<title>=<prompt>; …]` starts one sub-agent per entry in a single reply (each child gets its `<prompt>` and answers it the same way), `tools[<step> | <step> …]` answers one step per reply and then says "done" (a step is `read <path>…`, one `read` call per path; `sh <command>`, a `bash` call; or `edit <path> <old> <new>`), `takeover <url>` says a line and calls `request_takeover` for the Preview at `<url>` (its own `GET /login` is a sign-in page for it), anything else is "ok". A desktop instance runs on it with `--agent-dir` pointing at a folder `prepareFakePiAgentDir` filled, with the fake started from a small script beside it. A test host started from a script takes it through `startTestHost(flags, { prepare: (env) => prepareFakePiAgentDir(env.PI_CODING_AGENT_DIR, baseUrl) })` with `login: false`.
 
 ### The remote-work smoke
 

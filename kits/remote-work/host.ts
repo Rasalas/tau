@@ -15,7 +15,9 @@ import {
   HOSTED_DEPTH_COMMAND,
   HOSTED_THREAD_EVENT,
   MAX_AGENT_DEPTH_CLAIM,
+  MAX_PROJECT_IDENTITIES,
   OPERATION_EVENT,
+  PROJECT_IDENTITIES_COMMAND,
   PROJECT_SCRIPTS_EXTENSION_ID,
   RECEIVING_COMMANDS,
   REMOTE_WORK_EXTENSION_ID,
@@ -288,6 +290,17 @@ export function createRemoteWorkHostExtension(options: RemoteWorkHostOptions = {
         return cwd ? { root: await transfers.rootOf(cwd) } : {};
       };
       context.registerCommand("send", (input) => transfers.send(decodeSend(input)), { long: true, ...kits, audit: { label: "sent a project's state to another machine" } });
+      // Which repository each project is, so another machine finds its own checkout of it (by origin, not folder name).
+      context.registerCommand(PROJECT_IDENTITIES_COMMAND, async (input) => {
+        const raw = fields(input);
+        const asked = (Array.isArray(raw.workspaces) ? raw.workspaces : []).filter((value): value is string => typeof value === "string" && value.length > 0).slice(0, MAX_PROJECT_IDENTITIES);
+        const answer: Record<string, string | null> = {};
+        await Promise.all(asked.map(async (workspace) => {
+          const path = await services.knownWorkspacePath(workspace).catch(() => undefined);
+          answer[workspace] = path ? await transfers.identityKey(path) ?? null : null;
+        }));
+        return answer;
+      }, { access: "read" });
       context.registerCommand("transfers", async (input) => transfers.list(await rootOf(input)), { access: "read", ...kits });
       context.registerCommand("transfer", (input) => transfers.get(transferId(input)), { access: "read", ...kits });
       context.registerCommand("fetch-result", (input) => transfers.fetchResult(transferId(input)), { long: true, ...kits, audit: { label: "brought back work from another machine" } });

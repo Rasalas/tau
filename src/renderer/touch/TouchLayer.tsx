@@ -18,8 +18,7 @@ export interface PhoneRouting {
 
 /**
  * What the compact layout needs of the page beyond its components: the room
- * the on-screen keyboard leaves, a tap that reveals a message's actions where
- * a mouse would hover, and (in a browser) where it is in the address and the
+ * the on-screen keyboard leaves, and (in a browser) where it is in the address and the
  * history. Mounted only while the layout is compact; `phone` is set on one
  * screen, where the list is home and back steps out of a chat.
  */
@@ -58,20 +57,6 @@ export function TouchLayer({ syncUrl, openThread, phone }: { syncUrl: boolean; o
     };
   }, []);
 
-  // A tap on a message shows its actions (copy, fork, edit) until another one is tapped.
-  useEffect(() => {
-    const onClick = (event: MouseEvent) => {
-      const target = event.target instanceof Element ? event.target : null;
-      if (!target || target.closest("button, a, input, textarea, [role=button]")) return;
-      const shell = target.closest<HTMLElement>(".message-shell");
-      for (const shown of document.querySelectorAll<HTMLElement>(".message-shell[data-touch-actions]")) {
-        if (shown !== shell) shown.removeAttribute("data-touch-actions");
-      }
-      shell?.toggleAttribute("data-touch-actions");
-    };
-    document.addEventListener("click", onClick);
-    return () => document.removeEventListener("click", onClick);
-  }, []);
   return null;
 }
 

@@ -52,6 +52,30 @@ const thread = (id: string, workspace: string, patch: Partial<UiSession> = {}): 
 const answer = (patch: Partial<LocalReviewsAnswer> = {}): LocalReviewsAnswer => ({ branches: [], asks: {}, merged: [], ...patch });
 
 describe("which threads are local merge requests", () => {
+  it("keeps a forked thread's source as its own review: the fork has a worktree and branch of its own", () => {
+    // K160: a fork used to share its source's worktree, so the source's row took the fork's title and vanished.
+    const reviews = deriveReviews({
+      answer: answer({ branches: [branch("frost"), branch("frost-2", { tip: "frost-tip" })] }),
+      threads: [thread("source", "ws-frost", { title: "Frost warning" }), thread("fork", "ws-frost-2", { title: "Frost warning, other way", modifiedAt: 3_000 })],
+      busy: new Set(),
+    });
+    expect(reviews.map((review) => [review.branch, review.title, review.threadId])).toEqual([
+      ["tau/frost-2", "Frost warning, other way", "fork"],
+      ["tau/frost", "Frost warning", "source"],
+    ]);
+  });
+
+  it("counts a branch the target holds under other commits as merged, and names a target off the default branch", () => {
+    const reviews = deriveReviews({
+      answer: answer({ branches: [branch("picked", { merged: true, mergedBy: "patches", defaultBranch: "main" }), branch("aside", { target: "feat/x", defaultBranch: "main" })] }),
+      threads: [thread("p", "ws-picked"), thread("a", "ws-aside")],
+      busy: new Set(),
+    });
+    expect(reviews.find((review) => review.branch === "tau/picked")).toMatchObject({ state: "merged", mergedBy: "patches" });
+    expect(reviews.find((review) => review.branch === "tau/picked")?.offDefault).toBeUndefined();
+    expect(reviews.find((review) => review.branch === "tau/aside")).toMatchObject({ state: "ready", offDefault: "main" });
+  });
+
   it("takes a finished thread's worktree branch, in its state from Git", () => {
     const reviews = deriveReviews({
       answer: answer({ branches: [branch("ready"), branch("conflict", { conflicts: ["a.ts"] }), branch("merged", { ahead: 0, merged: true })] }),
@@ -75,6 +99,29 @@ describe("which threads are local merge requests", () => {
     const [review] = deriveReviews({ answer: answer({ branches: [branch("dirty", { ahead: 0, uncommitted: 2 })] }), threads: [thread("d", "ws-dirty")], busy: new Set() });
     expect(review?.state).toBe("ready");
     expect(mergeBlocker(review!)).toBe("2 files are not committed; ask the thread to commit first.");
+  });
+
+  it("reopens uncommitted work on a completed branch without its old completion metadata", () => {
+    const [review] = deriveReviews({
+      answer: answer({ branches: [branch("dirty", { merged: true, mergedBy: "request", ahead: 0, uncommitted: 1 })] }),
+      threads: [thread("d", "ws-dirty")], busy: new Set(),
+    });
+    expect(review?.state).toBe("ready");
+    expect(review?.mergedBy).toBeUndefined();
+    expect(mergeBlocker(review!)).toContain("not committed");
+    expect(countReviews([review!])).toMatchObject({ ready: 1, merged: 0 });
+  });
+
+  it("keeps completed work out of the open count while its target is not checked out", () => {
+    const message = "Check out main before merging.";
+    const [review] = deriveReviews({
+      answer: answer({ branches: [branch("done", { merged: true, mergedBy: "squash", mergeBlocked: message })] }),
+      threads: [thread("d", "ws-done")], busy: new Set(),
+    });
+    expect(review).toMatchObject({ state: "merged", target: "main", mergedBy: "squash" });
+    expect(countReviews([review!])).toMatchObject({ ready: 0, conflicts: 0, merged: 1 });
+    const [open] = deriveReviews({ answer: answer({ branches: [branch("open", { mergeBlocked: message })] }), threads: [thread("o", "ws-open")], busy: new Set() });
+    expect(mergeBlocker(open!)).toBe(message);
   });
 
   it("holds a branch in Changes requested while an ask about its tip is open, and lets go once it moves", () => {

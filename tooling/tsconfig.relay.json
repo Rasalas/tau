@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["../relay/src"],
+  // The Firebase entry needs relay/'s own install; `npm --prefix relay run typecheck` covers it.
+  "exclude": ["../relay/src/index.ts"]
+}

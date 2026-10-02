@@ -49,6 +49,19 @@ describe("HostsScreen", () => {
     expect(removed).toEqual(["h-1"]);
   });
 
+  it("offers remote starts only as an unchecked phone control, and can disable after system denial", () => {
+    const choices: boolean[] = [];
+    const props = { nearby: { state: "searching" as const, hosts: [] }, onOpen: () => {}, onRemove: () => {}, onAdd: () => {}, onScan: () => {}, onAsk: () => {}, onRemoteActivity: (_host: SavedHost, enabled: boolean) => choices.push(enabled) };
+    const view = render(<HostsScreen {...props} rows={[{ host: host(), signedOut: false, nearby: false, remoteActivity: { available: true, enabled: false } }]} />);
+    const checkbox = screen.getByRole("checkbox", { name: "Remote Live Activities for Studio Mac" }) as HTMLInputElement;
+    expect(checkbox.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(checkbox); expect(choices).toEqual([true]);
+    view.rerender(<HostsScreen {...props} rows={[{ host: host(), signedOut: false, nearby: false, remoteActivity: { available: false, enabled: true } }]} />);
+    fireEvent.click(screen.getByRole("checkbox")); expect(choices).toEqual([true, false]);
+    view.rerender(<HostsScreen {...props} rows={[{ host: host(), signedOut: false, nearby: false }]} />);
+    expect(screen.queryByRole("checkbox")).toBeNull();
+  });
+
   it("lists hosts on the network that are not paired yet, to ask", () => {
     const asked: string[] = [];
     const nearby = { hostId: "h-2", name: "Laptop", fingerprint: FP, port: 7788, addresses: ["10.0.0.3"], endpoints: [{ url: "https://10.0.0.3:7788/" }] };
@@ -108,6 +121,7 @@ describe("Shell", () => {
     render(<Shell context={context()} initial={{ view: "add" }} />);
     const link = `https://192.168.1.2:7788/#pair=abc&fp=${FP}&host=h-1&name=Studio`;
     fireEvent.change(await screen.findByRole("textbox"), { target: { value: link } });
+    await waitFor(() => expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
     expect(await screen.findByText(/did not answer on any of its addresses/u)).toBeTruthy();
     expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(link);

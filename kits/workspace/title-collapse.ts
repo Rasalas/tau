@@ -10,6 +10,8 @@ import { useLayoutEffect, useState, type RefObject } from "react";
  *    next click does (Commit, Push, Pull, Up to date).
  * 4. "N files changed ›" shortens to "N files", as design 1l draws it in a
  *    380 px chat.
+ * 5. The Git action's chevron goes: its menu joins the overflow, and the row
+ *    is design 1a's "N files", Commit and "…", so title and details keep their room.
  *
  * "Open in" is no longer here: it sits in the stage's tab strip and the thread's menu.
  */
@@ -19,6 +21,8 @@ export interface TitleCollapse {
   actions: TitleItemShape;
   git: Exclude<TitleItemShape, "overflow">;
   changes: "label" | "short";
+  /** The Git menu sits in the overflow instead of behind the action's chevron. */
+  gitMenu?: "overflow";
 }
 
 export const TITLE_COLLAPSE_STEPS: readonly TitleCollapse[] = [
@@ -27,6 +31,7 @@ export const TITLE_COLLAPSE_STEPS: readonly TitleCollapse[] = [
   { actions: "overflow", git: "label", changes: "label" },
   { actions: "overflow", git: "icon", changes: "label" },
   { actions: "overflow", git: "icon", changes: "short" },
+  { actions: "overflow", git: "icon", changes: "short", gitMenu: "overflow" },
 ];
 
 export const MAX_TITLE_COLLAPSE = TITLE_COLLAPSE_STEPS.length - 1;

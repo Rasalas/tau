@@ -12,9 +12,10 @@ import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { UPDATE_WAIT_MS, describeUpdate, parseMachinesArgs, runMachines } from "./tau-machines.mjs";
 import { parseKitArgs, runKit } from "./tau-kit.mjs";
+import { CONNECT_USAGE, parseConnectArgs, runConnect } from "./tau-connect.mjs";
 
-/** `configureAppIdentity` in `src/main/single-instance.ts` names the folder the same way. */
-export const USER_DATA_FOLDER = "tau-pi-desktop-prototype";
+/** The userData folder of each app identity, as `src/main/app-identity.ts` names it. */
+export const USER_DATA_FOLDERS = { stable: "tau-pi-desktop-prototype", dev: "tau-dev" };
 const PROTOCOL = 1;
 const WORKSPACE_KIT = "tau.workspace";
 const PACKAGES_KIT = "tau.packages";
@@ -26,11 +27,12 @@ export const USAGE = `Usage: tau app [path]
        tau service <install|status|uninstall|restart>
        tau service install --display | --no-display
        tau update [--check | --status] [--json]
+       tau connect <register|status|link|disconnect> [options]
        tau machines add --ssh <target> [--name <name>] [--agents] [--access full|read-only] [--json]
        tau machines list [--json]
        tau machines update <name or id> [--check | --status] [--json]
        tau machines remove <name or id> [--json]
-       tau kit new <name or path> [--id <id>] [--no-host] [--install [--local]]
+       tau kit new <name or path> [--id <id>] [--name <name>] [--no-host] [--install [--local]]
        tau kit types [folder]
 
 tau app opens a folder in the running Tau with a new thread, and brings its
@@ -75,6 +77,7 @@ export function parseArgs(argv) {
     return { command, action, flags };
   }
   if (command === "machines") return { command, machines: parseMachinesArgs(rest) };
+  if (command === "connect") return { command, connect: parseConnectArgs(rest) };
   if (command === "kit") return { command, kit: parseKitArgs(rest) };
   if (command === "update") return { command, update: parseUpdateFlags(rest, "tau update") };
   if (command !== "app") throw new Error(`Unknown command "${command}". ${USAGE}`);
@@ -102,12 +105,23 @@ export function reportUpdate(status, { name, json }, out) {
   return status.phase === "failed" || status.phase === "unsupported" ? 1 : 0;
 }
 
+/** Tau Dev when the app this file ships in says so (`tauFlavor` in its unpacked package.json). */
+export function cliFlavor(self = fileURLToPath(import.meta.url)) {
+  try {
+    const manifest = JSON.parse(readFileSync(join(dirname(dirname(realpathSync(self))), "package.json"), "utf8"));
+    return manifest.tauFlavor === "dev" ? "dev" : "stable";
+  } catch {
+    return "stable";
+  }
+}
+
 /** Electron's `appData` joined with the folder the app names itself. */
-export function userDataDir(env = process.env, platform = process.platform, home = homedir()) {
+export function userDataDir(env = process.env, platform = process.platform, home = homedir(), flavor = cliFlavor()) {
   if (env.TAU_USER_DATA) return resolve(env.TAU_USER_DATA);
-  if (platform === "darwin") return join(home, "Library", "Application Support", USER_DATA_FOLDER);
-  if (platform === "win32") return join(env.APPDATA || join(home, "AppData", "Roaming"), USER_DATA_FOLDER);
-  return join(env.XDG_CONFIG_HOME || join(home, ".config"), USER_DATA_FOLDER);
+  const folder = USER_DATA_FOLDERS[flavor];
+  if (platform === "darwin") return join(home, "Library", "Application Support", folder);
+  if (platform === "win32") return join(env.APPDATA || join(home, "AppData", "Roaming"), folder);
+  return join(env.XDG_CONFIG_HOME || join(home, ".config"), folder);
 }
 
 function alive(pid) {
@@ -311,6 +325,14 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     } finally {
       session.close();
     }
+  }
+  if (options.command === "connect") {
+    if (options.connect.help) { out(CONNECT_USAGE); return 0; }
+    const host = (io.readRunningHost ?? readRunningHost)(userDataDir(env));
+    if (!host) throw new Error("Start Tau or its host service before configuring Tau Connect.");
+    const session = await (io.openSession ?? ((target) => openHostSession(target, io.WebSocket)))(host);
+    try { return await runConnect(options.connect, { session, out, env }); }
+    finally { session.close(); }
   }
   if (options.command === "kit") {
     return runKit(options.kit, {

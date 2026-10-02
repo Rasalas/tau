@@ -1,6 +1,7 @@
 import { Type } from "typebox";
 import { HostCommandError, type HostExtensionContext, type HostMcpTool, type RuntimeSessionInfo } from "tau/host-extension";
-import { THREAD_LINKS_EVENT, THREAD_RAIL_EXTENSION_ID, type PullRequestRef, type ThreadPullRequestLink } from "./protocol.js";
+import { THREAD_LINKS_EVENT, THREAD_RAIL_EXTENSION_ID, type BranchReviewRequest, type PullRequestRef, type ThreadPullRequestLink } from "./protocol.js";
+import { LOCAL_REVIEWS_EVENT } from "./local-reviews.js";
 import type { SourceControl } from "./provider-registry.js";
 import type { PullRequestReads } from "./pull-request-host.js";
 import { projectRepository } from "./pull-request-list-host.js";
@@ -27,6 +28,8 @@ Tau keeps the pull and merge requests each thread works on. Whenever you open a 
 export interface ThreadLinks {
   /** Links a request to a thread; the Changes panel calls this after creating one. */
   link(threadId: string, url: string, source: ThreadPullRequestLink["source"]): Promise<void>;
+  /** The cached request's destination and submitted tip; asks no provider. */
+  review(threadIds: readonly string[], branch: string, tip: string): Promise<BranchReviewRequest | undefined>;
   dispose(): void;
 }
 
@@ -47,7 +50,10 @@ export function registerThreadLinks(
 ): ThreadLinks {
   const { services } = context;
   const store = new ThreadLinkStore(services.stateDir);
-  const changed = (threadId: string) => context.emit(THREAD_LINKS_EVENT, { threadId });
+  const changed = (threadId: string) => {
+    context.emit(THREAD_LINKS_EVENT, { threadId });
+    context.emit(LOCAL_REVIEWS_EVENT, {});
+  };
 
   /** A URL names its own repository; a bare number means the thread's project's. */
   const resolve = async (reference: { url?: string; repository?: string; number?: number; host?: string }, cwd: string | undefined): Promise<PullRequestRef> => {
@@ -75,13 +81,13 @@ export function registerThreadLinks(
     return number ? { number: Number(number) } : undefined;
   };
 
-  const snapshotOf = async (ref: PullRequestRef, fresh: boolean): Promise<Pick<ThreadPullRequestLink, "title" | "state" | "draft" | "headRef" | "baseRef" | "stack"> | undefined> => {
+  const snapshotOf = async (ref: PullRequestRef, fresh: boolean): Promise<Pick<ThreadPullRequestLink, "title" | "state" | "draft" | "headRef" | "headSha" | "baseRef" | "stack"> | undefined> => {
     try {
       const detail = await reads.detail(ref, fresh);
       // The stack a rail row counts; a stack that cannot be read counts as none.
       const stack = reads.stackOf ? await reads.stackOf(ref).catch(() => undefined) : undefined;
       return {
-        title: detail.title, state: detail.state, draft: detail.draft, ...(detail.headRef ? { headRef: detail.headRef } : {}), baseRef: detail.baseRef,
+        title: detail.title, state: detail.state, draft: detail.draft, ...(detail.headRef ? { headRef: detail.headRef } : {}), ...(detail.headSha ? { headSha: detail.headSha } : {}), baseRef: detail.baseRef,
         ...(stack ? { stack: { number: stack.number, size: stack.size } } : {}),
       };
     } catch {
@@ -100,7 +106,7 @@ export function registerThreadLinks(
   };
 
   const stale = (entry: ThreadPullRequestLink) => {
-    if (entry.state === "merged") return false;
+    if (entry.state === "merged" && entry.headSha) return false;
     return Date.now() - (entry.refreshedAt ?? 0) > (entry.state === "closed" ? CLOSED_REFRESH_MS : REFRESH_MS);
   };
 
@@ -253,6 +259,13 @@ export function registerThreadLinks(
     link: async (threadId, url, source) => {
       const ref = parseRequestUrl(url);
       if (ref) await link(threadId, ref, source);
+    },
+    review: async (threadIds, branch, tip) => {
+      const candidates = (await Promise.all(threadIds.map((id) => store.list(id)))).flat()
+        .filter((entry) => entry.headRef === branch && entry.baseRef && entry.state !== "closed")
+        .sort((left, right) => Number(right.headSha === tip) - Number(left.headSha === tip) || right.linkedAt - left.linkedAt);
+      const entry = candidates[0];
+      return entry ? { target: entry.baseRef!, tip: entry.headSha, merged: entry.state === "merged", url: entry.url, number: entry.number } : undefined;
     },
     dispose: () => { for (const dispose of disposers.reverse()) dispose(); },
   };

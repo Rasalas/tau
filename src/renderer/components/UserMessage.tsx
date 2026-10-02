@@ -10,14 +10,27 @@ import { MessageImages, PersistedMessageImages } from "./MessageImages";
 import { copyableMessage, embeddedFileContexts, localImagePaths, visibleUserMessageText } from "./MessageText";
 import { isLongMessage } from "./message-grapheme";
 import { compactTimestamp, fullTimestamp } from "./message-timestamp";
+import { Region } from "./Regions";
+import { truncatePromptPreview } from "./transcript-turn-navigation";
+import type { TranscriptTurn } from "../extension-system";
 
 interface UserMessageProps {
   message: UiMessage;
   onCopy?: (message: UiMessage) => void;
-  onFork?: (message: UiMessage) => void;
   onEdit?: (message: UiMessage) => void;
   onToggleExpanded?: (messageId: string, expanded: boolean) => void;
   expanded?: boolean;
+  /** The turn this prompt starts; from the second on, a divider names it (design 2d). */
+  turn?: TranscriptTurn;
+}
+
+/** "Turn 3 · Regression tests" between two turns; kits add what can be done from there. */
+function TurnDivider({ turn }: { turn: TranscriptTurn }) {
+  const shell = useContext(WorkbenchShellContext);
+  return <div className="turn-divider">
+    <span tabIndex={-1}>Turn {turn.number} · {truncatePromptPreview(turn.messages[0]!.text, 40)}</span>
+    {shell?.actions ? <Region registry={shell.registry} placement="turn-divider" snapshot={shell.snapshot} actions={shell.actions} turn={turn} bare /> : null}
+  </div>;
 }
 
 function SkillChip({ name }: { name: string }) {
@@ -69,10 +82,10 @@ function useUserBlocks(message: UiMessage): { text: string; blocks: ReactNode[] 
 export function UserMessage({
   message,
   onCopy,
-  onFork,
   onEdit,
   onToggleExpanded,
   expanded: controlledExpanded,
+  turn,
 }: UserMessageProps) {
   const { text, blocks } = useUserBlocks(message);
   const visibleText = visibleUserMessageText(text);
@@ -93,9 +106,9 @@ export function UserMessage({
   };
 
   return (
-    <div className="message-shell user">
+    <>{turn && turn.number > 1 ? <TurnDivider turn={turn} /> : null}<div className="message-shell user">
       {blocks.length > 0 ? <div className="message-user-blocks">{blocks}</div> : null}
-      <PersistedMessageImages images={persistedImages} />
+      <PersistedMessageImages images={persistedImages} text={message.text} />
       {hasLocalImages ? <MessageImages text={message.text} /> : null}
       <article className="message user">
         {hasMessageContent ? (
@@ -148,11 +161,10 @@ export function UserMessage({
           {onCopy ? <MessageActions
             message={message}
             onCopy={() => onCopy(copyableMessage(message))}
-            onFork={message.sourceEntryId && onFork ? () => onFork(message) : undefined}
             onEdit={message.sourceEntryId && onEdit ? () => onEdit(message) : undefined}
           /> : null}
         </div>
       </article>
-    </div>
+    </div></>
   );
 }

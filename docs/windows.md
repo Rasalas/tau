@@ -179,3 +179,117 @@ gh run watch
 What to report from a first run: whether the window opens, whether a thread
 answers, whether a console window flashes when Git runs, and the host log
 under `%APPDATA%\tau-pi-desktop-prototype\logs`.
+
+## WSL environments
+
+The Windows desktop can list installed distributions through `wsl.exe --list
+--quiet`. Adding a distribution installs Tau's signed Linux portable host for
+its architecture under the distro user's `~/.local/share/tau/wsl-host`. The
+Windows client downloads and checks the signed release, then the distro checks
+the archive checksum again before extraction. It uses Tau's embedded runtime;
+Node and npm do not need to be installed in the distribution. The archive
+bootstrap follows [T3 Code's Linux archive approach](https://github.com/pingdotgg/t3code/pull/11511).
+
+The distro owns the host's data, Linux workspace paths and provider sign-ins.
+Windows credentials and Windows workspace paths are not copied into it. It
+needs `wslpath`, `tar`, `openssl`, a working user systemd service manager, and
+WSL localhost forwarding. A distribution without systemd must enable it and
+restart WSL before adding the environment. Tau never installs WSL, enables
+systemd, changes a distro's configuration, or asks for a root password.
+
+The pairing approval channel runs inside the selected distribution and accepts
+only the link made by that host. Closing the channel leaves the user host
+service running. Distribution names and archive paths are process arguments;
+they are never inserted into shell source.
+
+## SnapShots on Windows and Linux
+
+SnapShots captures one window through Electron and reads its text through the
+existing [xa11y accessibility backend](https://github.com/xa11y/xa11y), which
+uses Windows UI Automation or Linux AT-SPI2. Windows has no macOS permission
+prompt. Protected windows can reject capture, and an unelevated app cannot
+read an elevated app's accessibility tree. Tau does not elevate itself to
+work around this.
+
+On X11, foreground capture needs the session D-Bus and AT-SPI2. Wayland
+uses the current compositor's native window capture when it is ready:
+
+| Desktop | Focused window capture | Setup |
+| --- | --- | --- |
+| GNOME Shell 45–50 | Shell captures the focused window actor and returns app identity and frame bounds. | Choose Install helper in Settings → SnapShots. This installs and enables Tau's Shell extension. Python 3 and PyGObject, usually `python3-gi`, provide its D-Bus transport. A new extension may need a logout and login before Shell discovers it. |
+| KDE Plasma 6 | The dedicated executable calls KWin ScreenShot2 v2 with a pinned window ID and receives pixels through a file descriptor. A temporary KWin script supplies identity and frame bounds, and is unloaded afterwards. | Choose Install helper to install the bundled executable and its desktop entry, which explicitly grants `org.kde.KWin.ScreenShot2`. KDE's `kbuildsycoca6` must be available. |
+| Hyprland | The dedicated executable exports the exact active window through toplevel-export v2 and toplevel-mapping v1. It does not crop a desktop screenshot. | Choose Install helper. Hyprland must expose those protocols and the `locked` IPC query. Approve the compositor's screen-sharing permission if it asks on first capture. |
+| Niri 25.11 or newer | IPC pins the focused window ID and waits for the completion event for Tau's own temporary path. | No helper installation. `NIRI_SOCKET` must identify this session. Niri also copies the capture to the system clipboard and may show its own screenshot notification. |
+
+Helpers are never installed at startup. Settings explains the access before
+installation and offers Remove helper. GNOME removal disables the extension
+before removing its files. KDE removal deletes the dedicated binary and its
+permission entry. Tau does not install system packages, enable unsafe GNOME
+Shell evaluation, change compositor configuration or claim that an unavailable
+global shortcut works. Native capture failures and permission denials remain
+errors. They do not open another capture route automatically.
+
+Choose a window or display in Settings remains available as the manual portal
+fallback. Without a ready native backend, the shortcut uses that chooser where
+the desktop supports global shortcuts. Tau captures only the source approved
+in the chooser and stores no image after cancellation or denial. The portal
+does not identify the app, so manual captures omit accessibility text. It needs
+PipeWire, xdg-desktop-portal and the backend for your desktop. Flatpak and Snap
+sessions use this manual route.
+
+Native adapters keep screenshots in private temporary directories, reject
+linked, malformed and oversized files, and remove the directory after success
+or failure. They capture a window buffer at the compositor's native scale and
+resize to at most 1920 pixels wide. Tau never reconstructs a window by cropping
+an entire screen, so monitor scale, negative monitor coordinates and overlaps
+do not select pixels from a neighbouring window. Accessibility text requires
+matching process, title and compositor coordinates. Niri's local window size
+cannot establish global AT-SPI coordinates, so its native captures omit text.
+Changed or closed windows also lose their identity rather than receiving text
+from a replacement.
+
+The capture helpers follow the primary implementations in
+[T3 Code v0.0.44](https://github.com/pingdotgg/t3code/tree/v0.0.44/apps/desktop/src/snapShot).
+The KDE and Hyprland Rust helpers adapt its MIT-licensed native capture code;
+the license and original copyright are included beside the distributed helpers.
+The APIs were checked against the official
+[Niri IPC definitions](https://github.com/YaLTeR/niri/blob/main/niri-ipc/src/lib.rs),
+[KWin ScreenShot2 implementation](https://github.com/KDE/kwin/blob/master/src/plugins/screenshot/screenshotdbusinterface2.cpp),
+[GNOME Shell screenshot implementation](https://github.com/GNOME/gnome-shell/blob/main/js/ui/screenshot.js)
+and [Hyprland toplevel export protocol](https://github.com/hyprwm/hyprland-protocols/blob/main/protocols/hyprland-toplevel-export-v1.xml).
+Electron's generic PipeWire chooser can label a selected display as a window,
+so manual captures say Selected source and never infer app identity.
+
+[Electron's Wayland shortcut portal](https://www.electronjs.org/docs/latest/api/global-shortcut#usage-on-linux)
+is enabled by default in the shipped version. Tau supplies a stable
+`de.tbuck.tau.desktop` identity and packages the matching desktop entry. GNOME
+may ask for shortcut consent, while KDE exposes bindings in System Settings.
+A source checkout without an installed matching desktop entry may have no
+global shortcut; use the Settings capture controls to test that environment.
+
+For source Linux builds, run `node scripts/build-wayland-helpers.mjs` before
+building Tau, or set `TAU_BUILD_WAYLAND_HELPERS=1` on the build. This requires a
+current stable Rust toolchain. Published Linux desktop releases build and ship
+the helpers; a person using those releases does not need Rust. Builds without
+the native binaries report the missing helper and keep the manual picker.
+Managed source rebuilds retain the release's native helpers.
+
+Missing native accessibility binaries report unavailable rather than showing
+macOS permission instructions.
+
+Verification on 2026-09-30 used injected Windows and Linux environments,
+recordable window sources, accessibility trees, WSL executors and pairing
+channels on macOS. Focused Wayland adapter tests covered explicit installation,
+permission denial, changed window identity, negative monitor origins,
+accessibility scaling, symlink rejection and temporary-file cleanup. Linux
+container transport tests passed against private fake KWin D-Bus and Hyprland
+Wayland servers, including real descriptor transfer and capture rejection.
+No real WSL installation, Windows or Linux desktop capture, compositor helper
+installation in the user's session, or system permission change was performed.
+
+Platform verification still needs isolated desktop instances. Test ordinary,
+protected and elevated Windows apps; X11 foreground capture; each Wayland
+compositor's helper install, shortcut, removal and picker fallback; mixed-scale
+monitors; and a window closing during capture. Check that startup and Settings
+access checks never capture or open the chooser, that cancellation and denial
+store no image, and that native failures leave the manual picker available.

@@ -3,7 +3,10 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { mergeThreadBranch, readThreadBranch, readThreadBranches } from "./thread-branches.js";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { mergeThreadBranch, readThreadBranch, readThreadBranches, readThreadConflicts, removeThreadBranch } from "./thread-branches.js";
+import { applyPicks, parseConflictText } from "./merge-picks.js";
 
 const created: string[] = [];
 
@@ -31,10 +34,10 @@ async function repository() {
     run(cwd, "config", `branch.${branch}.tau-base`, "main");
     return dir;
   };
-  const commit = async (dir: string, file: string, text: string) => {
+  const commit = async (dir: string, file: string, text: string, message = `edit ${file}`) => {
     await writeFile(join(dir, file), text);
     run(dir, "add", "-A");
-    run(dir, "commit", "-qm", `edit ${file}`);
+    run(dir, "commit", "-qm", message);
   };
   return { cwd, root, run, worktree, commit };
 }
@@ -81,11 +84,166 @@ describe("a thread's worktree branch", () => {
     expect(branches[0]).toMatchObject({ branch: "tau/dirty", uncommitted: 1, ahead: 0 });
   });
 
-  it("says why nothing can be checked while the main checkout is detached", async () => {
+  it("counts new files and uncommitted edits in the files it carries, beside the committed ones", async () => {
+    const repo = await repository();
+    const dir = repo.worktree("tau/pending");
+    const fresh = async () => {
+      await mkdir(join(dir, "fresh"));
+      await writeFile(join(dir, "fresh", "one.txt"), "x\ny\n");
+      await writeFile(join(dir, "fresh", "two.txt"), "z\n");
+    };
+    await fresh();
+    // Only new files: a branch with no commit still carries them.
+    expect(await readThreadBranch(dir)).toMatchObject({ ahead: 0, files: 2, added: 3, removed: 0, uncommitted: 2 });
+
+    await rm(join(dir, "fresh"), { recursive: true });
+    await repo.commit(dir, "b.txt", "bee\nbee\n");
+    await fresh();
+    await writeFile(join(dir, "a.txt"), "one\nTWO\nthree\n");
+    const branch = await readThreadBranch(dir);
+    expect(branch).toMatchObject({ ahead: 1, files: 4, added: 6, removed: 1, uncommitted: 3 });
+    expect(branch?.paths.map(({ path, uncommitted }) => [path, uncommitted ?? false]).sort())
+      .toEqual([["a.txt", true], ["b.txt", false], ["fresh/one.txt", true], ["fresh/two.txt", true]]);
+  });
+
+  it("reads the intended target while the main checkout is detached, and blocks integration", async () => {
     const repo = await repository();
     const dir = repo.worktree("tau/x");
     repo.run(repo.cwd, "checkout", "-q", "--detach");
-    expect(await readThreadBranch(dir)).toMatchObject({ unavailable: "The main checkout is not on a branch." });
+    expect(await readThreadBranch(dir)).toMatchObject({ target: "main", mergeBlocked: expect.stringContaining("a detached HEAD") });
+  });
+});
+
+describe("a branch the target holds under other commits", () => {
+  it("is merged by its patches after a cherry-pick the target changed again", async () => {
+    const repo = await repository();
+    const dir = repo.worktree("tau/picked");
+    await repo.commit(dir, "c.txt", "see\n");
+    repo.run(repo.cwd, "cherry-pick", "-x", repo.run(dir, "rev-parse", "HEAD"));
+    await repo.commit(repo.cwd, "c.txt", "SEE\n");
+    expect(await readThreadBranch(dir)).toMatchObject({ ahead: 1, merged: true, mergedBy: "patches", conflicts: [] });
+  });
+
+  it("is merged by its tree after a squash merge", async () => {
+    const repo = await repository();
+    const dir = repo.worktree("tau/squashed");
+    await repo.commit(dir, "c.txt", "see\n");
+    await repo.commit(dir, "a.txt", "one\n2\nthree\n");
+    repo.run(repo.cwd, "merge", "--squash", "tau/squashed");
+    repo.run(repo.cwd, "commit", "-qm", "squash");
+    await repo.commit(repo.cwd, "d.txt", "dee\n");
+    expect(await readThreadBranch(dir)).toMatchObject({ ahead: 2, merged: true, mergedBy: "tree" });
+  });
+
+  it("is merged after a rebase merge onto a target that moved", async () => {
+    const repo = await repository();
+    const dir = repo.worktree("tau/rebased");
+    await repo.commit(repo.cwd, "d.txt", "dee\n");
+    await repo.commit(dir, "c.txt", "see\n");
+    await repo.commit(dir, "e.txt", "e\n");
+    repo.run(repo.cwd, "cherry-pick", "-x", "main..tau/rebased");
+    expect(await readThreadBranch(dir)).toMatchObject({ ahead: 2, merged: true });
+  });
+
+  it("is merged by its patches when the target's history was written anew", async () => {
+    const repo = await repository();
+    const first = repo.run(repo.cwd, "rev-parse", "HEAD");
+    await repo.commit(repo.cwd, "b.txt", "bee\n");
+    const dir = repo.worktree("tau/old-history");
+    await repo.commit(dir, "a.txt", "one\nTWO\nthree\n");
+    // The same two changes on new commits from `first`, then the target edits the line again.
+    repo.run(repo.cwd, "reset", "-q", "--hard", first);
+    await repo.commit(repo.cwd, "b.txt", "bee\n", "b, rewritten");
+    await repo.commit(repo.cwd, "a.txt", "one\nTWO\nthree\n", "a, rewritten");
+    await repo.commit(repo.cwd, "a.txt", "one\nzwei\nthree\n");
+    expect(await readThreadBranch(dir)).toMatchObject({ ahead: 2, merged: true, mergedBy: "patches", conflicts: [] });
+  });
+
+  it("stays open while one of its commits is not in the target", async () => {
+    const repo = await repository();
+    const dir = repo.worktree("tau/half");
+    await repo.commit(dir, "c.txt", "see\n");
+    repo.run(repo.cwd, "cherry-pick", "-x", repo.run(dir, "rev-parse", "HEAD"));
+    await repo.commit(dir, "e.txt", "e\n");
+    await repo.commit(repo.cwd, "c.txt", "SEE\n");
+    const branch = await readThreadBranch(dir);
+    expect(branch).toMatchObject({ ahead: 2, merged: false });
+    expect(branch?.mergedBy).toBeUndefined();
+  });
+
+  it("names the default branch beside a target that is another one", async () => {
+    const repo = await repository();
+    repo.run(repo.cwd, "update-ref", "refs/remotes/origin/main", "HEAD");
+    repo.run(repo.cwd, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+    const dir = repo.worktree("tau/aside");
+    await repo.commit(dir, "c.txt", "see\n");
+    expect(await readThreadBranch(dir)).toMatchObject({ target: "main", defaultBranch: "main" });
+    repo.run(repo.cwd, "switch", "-q", "-c", "feat/elsewhere");
+    repo.run(repo.cwd, "config", "branch.tau/aside.tau-review-target", "feat/elsewhere");
+    expect(await readThreadBranch(dir)).toMatchObject({ target: "feat/elsewhere", defaultBranch: "main" });
+  });
+
+  it("keeps a squash merge completed after later edits and a switch to an old feature branch", async () => {
+    const repo = await repository();
+    repo.run(repo.cwd, "branch", "fix/privacy");
+    const dir = repo.worktree("fix/tablet");
+    await repo.commit(dir, "a.txt", "one\nTWO\nthree\n");
+    await repo.commit(dir, "b.txt", "tablet\n");
+    repo.run(repo.cwd, "merge", "--squash", "fix/tablet");
+    repo.run(repo.cwd, "commit", "-qm", "squashed tablet work");
+    await repo.commit(repo.cwd, "a.txt", "one\ntwo, revised again\nthree\n");
+    repo.run(repo.cwd, "switch", "-q", "fix/privacy");
+    const head = repo.run(repo.cwd, "rev-parse", "HEAD");
+
+    expect(await readThreadBranch(dir)).toMatchObject({ target: "main", files: 2, merged: true, mergedBy: "squash", conflicts: [] });
+    expect(await mergeThreadBranch(dir)).toMatchObject({ state: "already-merged", into: "main" });
+    expect(repo.run(repo.cwd, "rev-parse", "HEAD")).toBe(head);
+
+    await repo.commit(dir, "c.txt", "new work after the merge\n");
+    expect(await readThreadBranch(dir)).toMatchObject({ target: "main", merged: false });
+    await expect(mergeThreadBranch(dir)).rejects.toThrow(/Check out main/u);
+    await expect(removeThreadBranch(dir)).rejects.toThrow(/does not hold/u);
+    expect(repo.run(repo.cwd, "rev-parse", "HEAD")).toBe(head);
+  });
+
+  it("previews conflicts against the fixed target and refuses picks on another checkout", async () => {
+    const repo = await repository();
+    const dir = repo.worktree("fix/tablet");
+    await repo.commit(dir, "a.txt", "one\nTWO\nthree\n");
+    await repo.commit(repo.cwd, "a.txt", "one\nzwei\nthree\n");
+    repo.run(repo.cwd, "switch", "-q", "-c", "fix/privacy", "main~1");
+    const head = repo.run(repo.cwd, "rev-parse", "HEAD");
+    const read = await readThreadConflicts(dir);
+    expect(read.files[0]?.hunks[0]).toMatchObject({ main: ["zwei"], thread: ["TWO"] });
+    await expect(mergeThreadBranch(dir, { picks: { "a.txt": ["thread"] } })).rejects.toThrow(/Check out main/u);
+    expect(repo.run(repo.cwd, "rev-parse", "HEAD")).toBe(head);
+  });
+
+  it("only accepts external integration evidence for the exact tip being removed", async () => {
+    const repo = await repository();
+    const dir = repo.worktree("fix/tablet");
+    await repo.commit(dir, "a.txt", "one\nTWO\nthree\n");
+    const completed = repo.run(dir, "rev-parse", "HEAD");
+    await repo.commit(dir, "c.txt", "new work\n");
+    await expect(removeThreadBranch(dir, { integratedTip: completed })).rejects.toThrow(/does not hold/u);
+    await expect(removeThreadBranch(dir, { expectedTip: completed })).rejects.toThrow(/moved since/u);
+    expect(existsSync(dir)).toBe(true);
+  });
+});
+
+describe("removing a merged thread's branch", () => {
+  it("removes the worktree and the branch once the target holds it, and refuses before", async () => {
+    const repo = await repository();
+    const dir = repo.worktree("tau/cleanup");
+    await repo.commit(dir, "c.txt", "see\n");
+    await expect(removeThreadBranch(dir)).rejects.toThrow(/main does not hold tau\/cleanup yet/u);
+    repo.run(repo.cwd, "cherry-pick", "-x", repo.run(dir, "rev-parse", "HEAD"));
+    await writeFile(join(dir, "loose.txt"), "x\n");
+    await expect(removeThreadBranch(dir)).rejects.toThrow(/1 file not committed/u);
+    await rm(join(dir, "loose.txt"));
+    expect(await removeThreadBranch(dir)).toMatchObject({ branch: "tau/cleanup" });
+    expect(existsSync(dir)).toBe(false);
+    expect(repo.run(repo.cwd, "branch", "--list", "tau/cleanup")).toBe("");
   });
 });
 
@@ -122,5 +280,61 @@ describe("merging a thread's branch", () => {
     await expect(mergeThreadBranch(dir, { expectedTip: read })).rejects.toThrow(/moved since it was read/u);
     await writeFile(join(dir, "e.txt"), "e\n");
     await expect(mergeThreadBranch(dir)).rejects.toThrow(/1 file not committed/u);
+  });
+});
+
+const MIDDLE = ["2", "3", "4", "5", "6", "7", "8", "9"];
+
+describe("picking a side per conflicting hunk", () => {
+  async function conflicted() {
+    const repo = await repository();
+    const file = (first: string, last: string) => [first, ...MIDDLE, last, ""].join("\n");
+    await repo.commit(repo.cwd, "a.txt", file("one", "ten"));
+    const dir = repo.worktree("tau/picks");
+    await repo.commit(dir, "a.txt", file("ONE", "TEN"));
+    await repo.commit(repo.cwd, "a.txt", file("uno", "diez"));
+    await repo.commit(repo.cwd, "b.txt", "bee\n");
+    return { repo, dir };
+  }
+
+  it("reads each hunk with both sides and their line numbers, touching nothing", async () => {
+    const { repo, dir } = await conflicted();
+    const head = repo.run(repo.cwd, "rev-parse", "HEAD");
+    const read = await readThreadConflicts(dir);
+    expect(read.tip).toBe(repo.run(dir, "rev-parse", "HEAD"));
+    expect(read.files).toEqual([{ path: "a.txt", hunks: [
+      { main: ["uno"], thread: ["ONE"], mainLine: 1, threadLine: 1, after: "2" },
+      { main: ["diez"], thread: ["TEN"], mainLine: 10, threadLine: 10, before: "9", after: "" },
+    ] }]);
+    expect(repo.run(repo.cwd, "rev-parse", "HEAD")).toBe(head);
+    expect(repo.run(repo.cwd, "status", "--porcelain")).toBe("");
+  });
+
+  it("merges with the picks as a merge commit of both sides", async () => {
+    const { repo, dir } = await conflicted();
+    const tip = repo.run(dir, "rev-parse", "HEAD");
+    const outcome = await mergeThreadBranch(dir, { expectedTip: tip, picks: { "a.txt": ["thread", { text: "10" }] } });
+    expect(outcome).toMatchObject({ state: "merged", into: "main" });
+    expect(await readFile(join(repo.cwd, "a.txt"), "utf8")).toBe(["ONE", ...MIDDLE, "10", ""].join("\n"));
+    expect(await readFile(join(repo.cwd, "b.txt"), "utf8")).toBe("bee\n");
+    expect(repo.run(repo.cwd, "rev-list", "--parents", "-n", "1", "HEAD").split(" ").slice(1)).toContain(tip);
+    expect(repo.run(repo.cwd, "status", "--porcelain")).toBe("");
+    expect(await readThreadBranch(dir)).toMatchObject({ merged: true });
+  });
+
+  it("refuses picks that miss a hunk and leaves the checkout as it was", async () => {
+    const { repo, dir } = await conflicted();
+    const head = repo.run(repo.cwd, "rev-parse", "HEAD");
+    await expect(mergeThreadBranch(dir, { picks: { "a.txt": ["both"] } })).rejects.toThrow(/do not match/u);
+    await expect(mergeThreadBranch(dir, { picks: {} })).rejects.toThrow(/a.txt has no picks/u);
+    expect(repo.run(repo.cwd, "rev-parse", "HEAD")).toBe(head);
+    expect(repo.run(repo.cwd, "status", "--porcelain")).toBe("");
+  });
+
+  it("keeps both sides, the thread's first, and reads a diff3 base section past", () => {
+    const parts = parseConflictText("a\n<<<<<<< ours\nmain\n||||||| base\nold\n=======\nthread\n>>>>>>> theirs\nz");
+    expect(parts && applyPicks(parts, ["both"])).toBe("a\nthread\nmain\nz");
+    expect(parseConflictText("no markers\n")).toBeUndefined();
+    expect(parseConflictText("<<<<<<< ours\nopen")).toBeUndefined();
   });
 });

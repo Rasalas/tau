@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { HostCommandError, type HostExtensionContext } from "tau/host-extension";
 import { providerInfo, REQUEST_SERVICES, WORKSPACE_HOST_EXTENSION_ID, type PullRequestRef, type RequestService } from "./protocol.js";
 import type { GitCredential, HttpAnswer, HttpFetch, ProviderTools, SourceControlProvider } from "./provider.js";
+import { createGitHubRouting } from "./github-routing.js";
 import { createGitHubProvider } from "./provider-github.js";
 import { createAzureProvider } from "./provider-azure.js";
 import { createBitbucketProvider } from "./provider-bitbucket.js";
@@ -49,6 +50,7 @@ export interface SourceControl {
   /** Grows with every change of the user's choices, so a cached detection knows it is stale. */
   revision(): number;
   tools: ProviderTools;
+  dispose(): Promise<void>;
 }
 
 type ProviderFactory = (tools: ProviderTools, env: Record<string, string | undefined>) => SourceControlProvider;
@@ -206,6 +208,8 @@ export function createSourceControl(context: HostExtensionContext, options: Sour
   };
 
   const providers = new Map(REQUEST_SERVICES.map((kind) => [kind, FACTORIES[kind](tools, env)] as const));
+  const routing = createGitHubRouting(context, providers.get("github")!, tools);
+  providers.set("github", routing.provider);
   const get = (kind: RequestService) => providers.get(kind) ?? providers.get("github")!;
   const hosts = () => (hostChoices ??= readHosts());
 
@@ -242,5 +246,6 @@ export function createSourceControl(context: HostExtensionContext, options: Sour
     },
     revision: () => revision,
     tools,
+    dispose: routing.dispose,
   };
 }

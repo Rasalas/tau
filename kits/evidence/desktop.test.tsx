@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, WorkbenchActions } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
@@ -7,7 +7,7 @@ import { createKitHarness, setHostClient, WorkbenchContext } from "../../src/ren
 import { missingSettingsRows, renderKitSettingsPage } from "../../src/renderer/test-support/kit-settings-page.js";
 import { EvidenceClient } from "./client.js";
 import evidence from "./desktop.js";
-import { EVIDENCE_CHANGED_EVENT, EVIDENCE_EXTENSION_ID, EVIDENCE_SERVICE, type EvidenceCaptureService, type EvidenceFrame, type EvidenceThread } from "./protocol.js";
+import { EVIDENCE_CHANGED_EVENT, EVIDENCE_EXTENSION_ID, EVIDENCE_SERVICE, REVIEW_ATTACH_SERVICE, type EvidenceCaptureService, type EvidenceFrame, type EvidenceThread, type ReviewAttachService } from "./protocol.js";
 import { EvidenceViewer } from "./viewer.js";
 
 afterEach(() => { cleanup(); setHostClient(undefined); vi.useRealTimers(); });
@@ -48,7 +48,7 @@ describe("Evidence rows", () => {
     registry.activate(evidence);
     const { Component } = registry.getRegions("transcript-header").find((region) => region.id === "evidence.controller")!;
     const snapshot = {
-      sessionId: "s1", isStreaming: true,
+      sessionId: "s1", sessionTitle: "Header work", isStreaming: true,
       messages: [
         { id: "u1", role: "user", text: "Change the header", timestamp: 900 },
         { id: "a1", role: "assistant", text: "Done", timestamp: 4_000 },
@@ -67,10 +67,17 @@ describe("Evidence rows", () => {
     expect(running).toMatchObject({ id: "evidence:t2", fallbackToTail: true });
 
     const card = render(<>{settled!.content}</>);
-    expect(card.getByText("· 3 images · Preview, TextEdit")).toBeTruthy();
+    expect(card.getByText("· 3 pictures · 0:04")).toBeTruthy();
+    expect(card.getByRole("button", { name: "Save video" })).toBeTruthy();
     await waitFor(() => expect(card.container.querySelectorAll("img")).toHaveLength(3));
+    // Each picture says when in the turn it was taken.
+    expect([...card.container.querySelectorAll(".evidence-mark")].map((mark) => mark.textContent)).toEqual(["0:00", "0:01", "0:02"]);
     fireEvent.click(card.getByRole("listitem", { name: "Picture 2 of 3: Clicked “Save”" }));
-    await waitFor(() => expect(screen.getByRole("dialog", { name: "Evidence" })).toBeTruthy());
+    const dialog = await screen.findByRole("dialog", { name: "Evidence" });
+    expect(within(dialog).getByText("Evidence · turn 1")).toBeTruthy();
+    expect(within(dialog).getByText("Header work · 3 pictures · 0:04")).toBeTruthy();
+    // No review kit, no Attach to review.
+    expect(within(dialog).queryByRole("button", { name: /Attach to review/u })).toBeNull();
   });
 
   it("reads a thread again when the host says its pictures changed, and lends the service", async () => {
@@ -118,21 +125,55 @@ describe("EvidenceViewer", () => {
     vi.useFakeTimers();
     const { invoke } = host();
     const client = new EvidenceClient({ invoke: (command, input) => invoke(EVIDENCE_EXTENSION_ID, command, input), onEvent: () => () => undefined });
-    render(<EvidenceViewer client={client} request={{ threadId: "s1", turn: thread.turns[0]!, index: 0 }} onClose={() => undefined} onDelete={() => undefined} notify={() => undefined} />);
+    render(<EvidenceViewer client={client} request={{ threadId: "s1", turn: thread.turns[0]!, index: 0, title: "Header work", turnNumber: 5 }} onClose={() => undefined} onDelete={() => undefined} notify={() => undefined} />);
     const dialog = screen.getByRole("dialog", { name: "Evidence" });
-    expect(screen.getByText("When the turn started")).toBeTruthy();
+    // The picture on screen is the bold line among the actions around it.
+    const current = () => dialog.querySelector(".evidence-actions li[aria-current]")?.textContent;
+    expect(screen.getByText("Evidence · turn 5")).toBeTruthy();
+    expect(current()).toBe("0:00When the turn started");
     fireEvent.keyDown(dialog.firstElementChild!, { key: "ArrowRight" });
-    expect(screen.getByText("Clicked “Save”")).toBeTruthy();
+    expect(current()).toBe("0:01Clicked “Save”");
     fireEvent.keyDown(dialog.firstElementChild!, { key: "End" });
-    expect(screen.getByText("Pressed ⌘A")).toBeTruthy();
-    expect(screen.getByText("3 / 3")).toBeTruthy();
+    expect(current()).toBe("0:02Pressed ⌘A");
+    expect(screen.getByText("At 0:02")).toBeTruthy();
     fireEvent.keyDown(dialog.firstElementChild!, { key: "Home" });
     fireEvent.click(screen.getByRole("button", { name: "Play" }));
     await act(async () => { await vi.advanceTimersByTimeAsync(1_200); });
-    expect(screen.getByText("2 / 3")).toBeTruthy();
+    expect(current()).toBe("0:01Clicked “Save”");
     await act(async () => { await vi.advanceTimersByTimeAsync(1_200); });
-    expect(screen.getByText("3 / 3")).toBeTruthy();
+    expect(current()).toBe("0:02Pressed ⌘A");
     await act(async () => { await vi.advanceTimersByTimeAsync(1_200); });
     expect(screen.getByRole("button", { name: "Play" })).toBeTruthy();
+  });
+});
+
+describe("Attach to review", () => {
+  it("hands the turn's pictures to Review Kit's service and closes the viewer", async () => {
+    setHostClient(createFakeHostClient());
+    const { invoke } = host();
+    const { registry } = createKitHarness(invoke);
+    const attach = vi.fn((_media: unknown, _actions: unknown) => true);
+    registry.activate({ id: "test.review", name: "Review", activate: (context) => { context.provideService<ReviewAttachService>(REVIEW_ATTACH_SERVICE, { attach }); } });
+    registry.activate(evidence);
+    const { Component } = registry.getRegions("transcript-header").find((region) => region.id === "evidence.controller")!;
+    const snapshot = { sessionId: "s1", sessionTitle: "Header work", isStreaming: false, messages: [{ id: "u1", role: "user", text: "Go", timestamp: 900 }, { id: "a1", role: "assistant", text: "Done", timestamp: 4_000 }] } as unknown as HostSnapshot;
+    const notify = vi.fn();
+    const actions = new Proxy({ notify }, { get: (target, key) => key === "notify" ? notify : () => undefined }) as unknown as WorkbenchActions;
+    render(
+      <WorkbenchContext.Provider value={{ snapshot, tools: [], events: [], registry, openFile: () => undefined, applySnapshot: () => undefined, handleHostEvent: () => undefined } as never}>
+        <Component snapshot={snapshot} actions={actions} />
+      </WorkbenchContext.Provider>,
+    );
+    await waitFor(() => expect(registry.getTranscriptRows("s1").length).toBeGreaterThan(0));
+    const card = render(<>{registry.getTranscriptRows("s1")[0]!.content}</>);
+    fireEvent.click(card.getByRole("button", { name: "Play the pictures" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Attach to review" }));
+    expect(attach).toHaveBeenCalledWith([
+      { threadId: "s1", source: EVIDENCE_EXTENSION_ID, id: "f1", caption: "When the turn started" },
+      { threadId: "s1", source: EVIDENCE_EXTENSION_ID, id: "f2", caption: "Clicked “Save”" },
+      { threadId: "s1", source: EVIDENCE_EXTENSION_ID, id: "f3", caption: "Pressed ⌘A" },
+    ], expect.anything());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Evidence" })).toBeNull());
+    expect(notify).toHaveBeenCalledWith("3 pictures added to the local pull request.");
   });
 });

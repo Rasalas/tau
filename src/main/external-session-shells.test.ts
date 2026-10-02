@@ -15,6 +15,13 @@ const load = (providers: HostRuntimeBackendProvider[]) => loadExternalSessionShe
 });
 
 describe("loadExternalSessionShells", () => {
+  it("lists a remote thread's count and machine without loading its transcript", async () => {
+    const machine = { id: "rex", name: "rex", backendKind: "codex", modelProvider: "openai" };
+    const [shell] = await load([provider([{ threadId: "rex~t1", cwd: "/remote", title: "Remote work", updatedAt: 1, messages: [], messageCount: 42, machine }])]);
+    expect(shell).toMatchObject({ messageCount: 42, machine, title: "Remote work" });
+    expect(shell!.machine).not.toBe(machine);
+  });
+
   it("names the model a thread last ran on, and the backend's provider where the record names none", async () => {
     const base = { cwd: "/repo", updatedAt: 1, messages: [{ role: "user" as const, text: "hi" }] };
     const shells = await load([provider([

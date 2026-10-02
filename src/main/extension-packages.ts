@@ -18,6 +18,7 @@ import { createWorkerHostExtension, type WorkerHostExtensionOptions } from "./ho
 import { isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 import { listInstalledSources, packagesHome } from "./extension-sources.js";
 import { describeSignature, readTrustedPublishers, verifyExtensionSignature, type SignatureState, type TrustedPublisher } from "./extension-signature.js";
+import { tauHomeDir } from "./app-identity.js";
 
 export const MANIFEST_FILE = "tau-extension.json";
 const EXTENSION_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/u;
@@ -79,7 +80,7 @@ export interface ExtensionPackage {
 
 export function extensionPackageDirectories(cwd: string, home = packagesHome()): Array<{ scope: "global" | "project"; directory: string }> {
   return [
-    { scope: "global", directory: join(home, ".tau", "extensions") },
+    { scope: "global", directory: join(tauHomeDir(home), "extensions") },
     { scope: "project", directory: join(cwd, ".tau", "extensions") },
   ];
 }

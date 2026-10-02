@@ -32,7 +32,7 @@ export function primaryControl(detail: Pick<PullRequestDetail, "state" | "draft"
  * Each step the provider cannot take is left out rather than refused; one
  * this device may not take is disabled with the reason.
  */
-export function PullRequestHeaderActions({ detail, checks, client, actions, preferences, threadId, onDetail, onPickThread, writes = ALL_WRITES, extra = [] }: {
+export function PullRequestHeaderActions({ detail, checks, client, actions, preferences, threadId, onDetail, onPickThread, writes = ALL_WRITES, extra = [], intoBase = false }: {
   detail: PullRequestDetail;
   checks: readonly PullRequestCheck[];
   client: PullRequestClient;
@@ -44,6 +44,8 @@ export function PullRequestHeaderActions({ detail, checks, client, actions, pref
   writes?: PullRequestWrites;
   /** The view's own steps, first in the menu. */
   extra?: readonly HeaderMenuStep[];
+  /** The merge button names its target, "Merge into main". */
+  intoBase?: boolean;
 }) {
   const info = providerInfo(detail.ref.service);
   const { capabilities } = info;
@@ -128,7 +130,7 @@ export function PullRequestHeaderActions({ detail, checks, client, actions, pref
         </button>
       ) : primary === "merge" && confirmation.method ? (
         <button className="pr-primary" disabled={!writes.action} {...tooltipProps(writes.action ? undefined : READ_ONLY_REASON)} onClick={() => confirmation.open("merge")}>
-          <GitMerge size={12} aria-hidden="true" /> {METHOD_LABELS[confirmation.method]}
+          <GitMerge size={12} aria-hidden="true" /> {METHOD_LABELS[confirmation.method]}{intoBase ? ` into ${detail.baseRef}` : ""}
         </button>
       ) : null}
       <span className="menu-anchor">

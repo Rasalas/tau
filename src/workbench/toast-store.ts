@@ -1,4 +1,5 @@
-export type ToastType = "info" | "success" | "warning" | "error" | "loading";
+/** `question`: something waits for the user's answer. */
+export type ToastType = "info" | "success" | "warning" | "error" | "loading" | "question";
 
 export interface ToastAction {
   label: string;

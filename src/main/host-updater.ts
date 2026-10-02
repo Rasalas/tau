@@ -127,6 +127,8 @@ export class HostUpdater {
       automatic: this.settings.automatic,
       installer: this.installer,
       devicesMayInstall: this.settings.devicesMayInstall,
+      platform: this.options.platform,
+      arch: this.options.arch,
       ...(this.options.installer ? { method: this.options.installer.method } : {}),
       ...(this.latest ? { latest: this.latest } : {}),
       ...(this.reason ? { reason: this.reason } : {}),

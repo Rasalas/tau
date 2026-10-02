@@ -166,5 +166,22 @@ describe("Antigravity host half", () => {
     await backend.dispose();
     await expect(backends[0]!.newThreadCatalog!()).resolves.toEqual({ models: [{ provider: "google", id: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)" }], thinkingLevels: {} });
   });
-});
 
+  it("lists what each thread cost from its store, without opening it", async () => {
+    const { backends, directory } = await harness(true);
+    const store = new AntigravitySessionStore({ filePath: AntigravitySessionStore.defaultPath(join(directory, "sessions")) });
+    const total = (turns: number) => ({ inputTokens: 1_000 * turns, outputTokens: 100 * turns, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 1_100 * turns, costUsd: 0.25 * turns, turns });
+    await store.recordUsage("turns", "/repo", total(1), { provider: "google", model: "gemini-3.8-flash-low", billing: "subscription", ...total(1), at: 1 });
+    await store.recordUsage("turns", "/repo", total(2), { provider: "anthropic", model: "claude-sonnet-4-6", billing: "subscription", ...total(1), at: 2 });
+    await store.recordUsage("legacy", "/repo", total(1));
+    await store.setModel("legacy", "/repo", "claude-sonnet-4-6");
+    await store.ensure("unused", "/repo");
+    const listed = new Map((await backends[0]!.listThreads()).map((record) => [record.threadId, record.usage]));
+    expect(listed.get("turns")).toEqual([
+      { provider: "google", model: "gemini-3.8-flash-low", billing: "subscription", ...total(1) },
+      { provider: "anthropic", model: "claude-sonnet-4-6", billing: "subscription", ...total(1) },
+    ]);
+    expect(listed.get("legacy")).toEqual([{ provider: "anthropic", model: "claude-sonnet-4-6", ...total(1) }]);
+    expect(listed.get("unused")).toBeUndefined();
+  });
+});

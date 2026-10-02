@@ -20,7 +20,7 @@ import {
 import { DesktopPreviewPanel, createMiniBarRegion, createRemotePreviewPanel } from "./remote-panel.js";
 import { watchFrames, type LiveFrameAnswer, type LiveFrameSource } from "./live-frames.js";
 import { COMPUTER_USE_SCREEN_SERVICE, type ComputerUseScreenService } from "./screen-protocol.js";
-import { activeThread, holdScreenService, previewView, screenService } from "./screen-store.js";
+import { activeThread, holdScreenService, previewHold, previewView, screenService } from "./screen-store.js";
 import { followHostMachine } from "./machine.js";
 import { PREVIEW_PANEL, PreviewFollower, connectPreviewHost, drawsFrames, isPreviewState, previewKit, previewStore, readPreviewState, togglePreviewPanel, workbenchActions } from "./store.js";
 
@@ -69,7 +69,6 @@ export const previewExtension: DesktopExtension = {
       keywords: ["browser", "viewport", "zoom", "appearance", "dark mode", "links", "recording", "floating", "picture in picture"],
       rows: PREVIEW_SETTINGS_ROWS,
       // Most rows take a project override; without the scope crumb Settings would edit this machine only.
-      scope: "both",
       profiles: ["desktop"],
       Component: PreviewSettingsPage,
     });
@@ -113,6 +112,15 @@ export const previewExtension: DesktopExtension = {
         return watchFrames(source, maxWidth, (picture) => onFrame(picture ? { url: picture.url, width: picture.width, height: picture.height } : undefined));
       },
       remote: () => drawsFrames(),
+      hold: (control) => {
+        previewHold.set(control);
+        void previewKit.hold({ on: true }).catch(() => undefined);
+        return () => {
+          if (previewHold.get() !== control) return;
+          previewHold.set(undefined);
+          void previewKit.hold({ on: false }).catch(() => undefined);
+        };
+      },
     });
     // A plain click on a link in a reply opens it here when Settings → Preview says so.
     const stopLinks = followLinkTarget(

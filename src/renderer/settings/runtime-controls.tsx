@@ -1,9 +1,11 @@
+import { errorMessage } from "../../workbench/error-message";
 import { TRANSCRIPT_DETAIL_LEVELS, nextTranscriptDetail, type TranscriptDetail } from "../../workbench/transcript-folding";
 import type { DesktopExtension, WorkbenchActions } from "../extension-system";
 import type { PreferencesStore } from "../preferences";
 import { THEME_PREFERENCES, nextTheme, getUserTheme, type ThemePreference } from "../theme";
 import type { PaletteItem, PaletteMenu } from "../extension-system";
 import { loadRuntimeControlRuns } from "../deferred-surfaces";
+import { openTitleRename, titleRenameRefusal } from "../thread-rename";
 
 /** The levels' rows load with their own chunk the first time one opens. */
 const menus = () => import("./palette-menus");
@@ -91,7 +93,7 @@ export const runtimeControls: DesktopExtension = {
         label: "Back to this computer",
         group: "Workbench",
         access: "read",
-        run: (app) => environments.showLocal().catch((error: unknown) => app.notify(error instanceof Error ? error.message : String(error))),
+        run: (app) => environments.showLocal().catch((error: unknown) => app.notify(errorMessage(error))),
       });
     }
     // In the palette it lists the models; from a chord it opens the picker.
@@ -164,6 +166,8 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerCommand({ id: "workbench.close-stage-tab", label: "Close active stage tab", group: "Workbench", access: "read", run: (app) => app.closeActiveStageTab?.() });
     plugin.registerCommand({ id: "workbench.next-stage-tab", label: "Next stage tab", group: "Workbench", access: "read", run: (app) => app.cycleStageTab?.(1) });
     plugin.registerCommand({ id: "workbench.prev-stage-tab", label: "Previous stage tab", group: "Workbench", access: "read", run: (app) => app.cycleStageTab?.(-1) });
+    plugin.registerCommand({ id: "workbench.toggle-spine", label: "Collapse to spine", group: "Workbench", access: "read", run: (app) => app.toggleSpine?.() });
+    plugin.registerCommand({ id: "workbench.split-stage", label: "Split or join the stage", group: "Workbench", access: "read", run: (app) => app.splitStage?.() });
     plugin.registerCommand({
       id: "runtime.instructions",
       label: "Inspect active system prompt & instructions",
@@ -183,7 +187,8 @@ export const runtimeControls: DesktopExtension = {
       label: "Rename thread",
       group: "Thread",
       access: "write",
-      run: later("runtime.rename-thread"),
+      unavailable: titleRenameRefusal,
+      run: openTitleRename,
     });
     plugin.registerCommand({ id: "runtime.cycle-model", label: "Cycle model forward", group: "Runtime", access: "write", run: async (app) => { await app.cycleModel?.(1); } });
     plugin.registerCommand({ id: "runtime.cycle-model-backward", label: "Cycle model backward", group: "Runtime", access: "write", run: async (app) => { await app.cycleModel?.(-1); } });
@@ -210,7 +215,10 @@ export const runtimeControls: DesktopExtension = {
     // Pi's chord, in the composer only: elsewhere Ctrl+P is `mod+p` off macOS, the file picker.
     plugin.registerKeybinding({ keys: "ctrl+p", commandId: "runtime.cycle-model", when: "composerFocus" });
     plugin.registerKeybinding({ keys: "shift+tab", commandId: "runtime.cycle-thinking" });
-    plugin.registerKeybinding({ keys: "mod+shift+r", commandId: "runtime.rename-thread" });
+    // F2 as in VS Code; ⇧⌘R opens Reviews (design 2g). A terminal keeps its function keys.
+    plugin.registerKeybinding({ keys: "f2", commandId: "runtime.rename-thread", when: "!terminalFocus" });
+    // Not the design's ⇧⌘K: T3 Code and VS Code use it (K159).
+    plugin.registerKeybinding({ keys: "mod+alt+k", commandId: "runtime.compact" });
     plugin.registerKeybinding({ keys: "ctrl+g", commandId: "runtime.open-prompt-editor" });
     plugin.registerKeybinding({ keys: "mod+alt+shift+a", commandId: "runtime.theme" });
     // ⌘1–⌘9 jump between threads, so focus moves with ⌥ added.
@@ -224,5 +232,8 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerKeybinding({ keys: "mod+w", commandId: "workbench.close-stage-tab" });
     plugin.registerKeybinding({ keys: "ctrl+tab", commandId: "workbench.next-stage-tab" });
     plugin.registerKeybinding({ keys: "ctrl+shift+tab", commandId: "workbench.prev-stage-tab" });
+    // ⌘\ splits as it does in VS Code; the spine takes the design's ⇧ variant.
+    plugin.registerKeybinding({ keys: "mod+\\", commandId: "workbench.split-stage" });
+    plugin.registerKeybinding({ keys: "mod+shift+\\", commandId: "workbench.toggle-spine" });
   },
 };

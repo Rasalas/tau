@@ -5,6 +5,8 @@ import { HostProjectFactsSet, type HostProjectFacts } from "./host-extensions.js
 export interface ProjectFactsCachePort {
   /** A label the providers answered with, once it differs from the last one. */
   onLabel(cwd: string, label: string | undefined): void;
+  /** A name was read in the background and differs from the folder name; what shows it has to be published again. */
+  onName(cwd: string, name: string): void;
   /** A path was classified as nested or root; what listed it has to be published again. */
   onNesting(cwd: string): void;
   recordBackground(name: string, startedAt: number): void;
@@ -22,6 +24,9 @@ export class ProjectFactsCache {
   /** A linked worktree keeps the repository's project name instead of becoming a new project. */
   private readonly names = new Map<string, string>();
   /** Last known label per project; the provider is never awaited on an interactive path. */
+  private readonly nameLoads = new Map<string, Promise<void>>();
+  /** Paths no provider named; asked again only once a provider is added. */
+  private readonly unnamed = new Set<string>();
   private readonly labels = new Map<string, string | undefined>();
   private readonly labelRefreshes = new Map<string, Promise<void>>();
   /** Which known project paths are nested in another project. Unclassified paths stay absent. */
@@ -30,13 +35,34 @@ export class ProjectFactsCache {
 
   constructor(private readonly port: ProjectFactsCachePort) {}
 
-  /** Registers a provider; the returned function removes it again. */
+  /** Registers a provider; the returned function removes it again. Paths nobody named so far are asked again. */
   add(facts: HostProjectFacts): () => void {
-    return this.providers.add(facts);
+    const remove = this.providers.add(facts);
+    const asked = [...this.unnamed];
+    this.unnamed.clear();
+    for (const cwd of asked) this.refreshName(cwd);
+    return remove;
   }
 
+  /** The folder name until a provider answers; an unknown path is read in the background and published when it differs. */
   name(cwd: string): string {
-    return this.names.get(cwd) ?? (basename(cwd) || cwd);
+    const known = this.names.get(cwd);
+    if (known) return known;
+    if (!this.unnamed.has(cwd)) this.refreshName(cwd);
+    return basename(cwd) || cwd;
+  }
+
+  private refreshName(cwd: string): void {
+    if (this.nameLoads.has(cwd)) return;
+    const pending = this.providers.name(cwd).then((name) => {
+      if (!name) { this.unnamed.add(cwd); return; }
+      this.names.set(cwd, name);
+      if (name !== (basename(cwd) || cwd)) this.port.onName(cwd, name);
+    }).catch((error) => {
+      this.unnamed.add(cwd);
+      this.port.log("project-name.failed", `${basename(cwd)}: ${this.port.errorMessage(error)}`);
+    }).finally(() => { this.nameLoads.delete(cwd); });
+    this.nameLoads.set(cwd, pending);
   }
 
   async loadName(cwd: string): Promise<string> {
