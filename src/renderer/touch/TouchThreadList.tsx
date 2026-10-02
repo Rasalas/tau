@@ -9,9 +9,9 @@ import {
   threadListGroups,
   type ThreadListGroup,
   type ThreadSupervisionRow,
-  inProject,
 } from "../../workbench/thread-supervision";
 import type { UiProject } from "../../shared/contracts";
+import { findProjectForSession } from "../../shared/session-project";
 import type { DraftThread } from "../../workbench/draft-threads";
 import { DraftRow, draftTitle } from "../components/DraftRow";
 import type { ExtensionRegistry, ThreadListEntry, ThreadListPlace, WorkbenchActions } from "../extension-system";
@@ -265,8 +265,8 @@ function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen,
       // Another machine's thread only opens there: no swipe, no actions here.
       if (entry) {
         return <li key={row.id} className="touch-thread-row touch-outside-row" data-status={row.status} data-settled={row.settled || undefined} data-unavailable={entry.unavailable ? "" : undefined}>
-          <div className={`thread-row${row.settled ? " compact" : ""}`}>
-            <ThreadCard row={row} machine={entry.machine} unavailable={entry.unavailable} busy={entry.opening} onOpen={() => entry.open(actions)} />
+          <div className={`thread-row${row.settled ? " compact activity-settled" : ""}`}>
+            <ThreadCard row={row} projectIcon={entry.projectIcon} machine={entry.machine} unavailable={entry.unavailable} busy={entry.opening} onOpen={() => entry.open(actions)} />
           </div>
         </li>;
       }
@@ -278,7 +278,7 @@ function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen,
           onOpenChange={(open) => setOpenRow(open ? row.id : undefined)}
           onLongPress={() => { setOpenRow(undefined); onSheet(row); }}
         >
-          <div className={`thread-row${row.settled ? " compact" : ""}${active ? " active" : ""}`}>
+          <div className={`thread-row${row.settled ? " compact activity-settled" : ""}${active ? " active" : ""}`}>
             <ThreadCard row={row} machine={here} onOpen={() => onOpen(row)} />
             <button type="button" className="touch-thread-more" aria-label={`Actions for ${row.title}`} onClick={() => onSheet(row)}>…</button>
           </div>
@@ -318,8 +318,9 @@ function sheetCost(row: ThreadSupervisionRow, showCosts: boolean): string | unde
  * state or age, the title, and the branch and runtime; a settled one
  * as the rail's slim row.
  */
-function ThreadCard({ row, machine, unavailable, busy, onOpen }: {
+function ThreadCard({ row, projectIcon, machine, unavailable, busy, onOpen }: {
   row: ThreadSupervisionRow;
+  projectIcon?: string | undefined;
   /** Where the thread runs, named while the list shows several machines. */
   machine?: ThreadListPlace | undefined;
   unavailable?: string | undefined;
@@ -330,8 +331,8 @@ function ThreadCard({ row, machine, unavailable, busy, onOpen }: {
   const projects = useSyncExternalStore(store.subscribeToProjects, store.getProjects);
   if (row.machine) machine = { name: row.machine.name, icon: <Server size={13} aria-hidden="true" /> };
   const place = { path: row.projectPath ?? row.projectName, workspaceId: row.workspaceId };
-  const project = projects.find((candidate) => inProject({ projectPath: place.path, workspaceId: place.workspaceId }, candidate));
-  const mark = <ProjectIcon project={{ ...place, ...project, name: row.projectName }} hue={place.path} />;
+  const project = findProjectForSession(projects, { projectPath: place.path, workspaceId: place.workspaceId, projectName: row.projectName });
+  const mark = <ProjectIcon project={{ ...place, ...project, name: row.projectName }} icon={projectIcon} hue={place.path} />;
   const where = machine ? ` on ${machine.name}` : "";
   const label = {
     "aria-label": `Open thread ${row.title}${where}`,
@@ -342,7 +343,6 @@ function ThreadCard({ row, machine, unavailable, busy, onOpen }: {
     return <button type="button" className="thread-main touch-thread-open" {...label} onClick={onOpen}>
       {mark}
       <span className="thread-title">{row.title}</span>
-      {machine ? <span className="touch-thread-machine" aria-hidden="true">{machine.icon}</span> : null}
       <RowTime row={row} />
     </button>;
   }

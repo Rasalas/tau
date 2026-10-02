@@ -1,4 +1,4 @@
-import type { UiSession, UiThreadUsage } from "../shared/contracts.js";
+import type { UiProject, UiSession, UiThreadUsage } from "../shared/contracts.js";
 import type { HostRuntimeBackendProvider } from "./host-extensions.js";
 import { cleanThreadTitle, firstSentence, safeSessionTitle, visibleTitleText } from "./host-messages.js";
 import { externalThreadPath } from "./pi-host-support.js";
@@ -10,6 +10,7 @@ export async function loadExternalSessionShells(options: {
   providers: Iterable<HostRuntimeBackendProvider>;
   projectName(cwd: string): string;
   projectLabel(cwd: string): string | undefined;
+  onProject?(threadId: string, project: Pick<UiProject, "name" | "icon">): void;
   onError(provider: HostRuntimeBackendProvider, error: unknown): void;
   /** Prices a thread's tallies for its shell; without it a shell carries no cost. */
   usage?(path: string, tallies: readonly UsageTally[]): UiThreadUsage | undefined;
@@ -21,6 +22,7 @@ export async function loadExternalSessionShells(options: {
     try { records = await provider.listThreads(); }
     catch (error) { options.onError(provider, error); continue; }
     for (const record of records) {
+      if (record.project) options.onProject?.(record.threadId, record.project);
       const firstUser = record.messages.find((message) => message.role === "user");
       const modelProvider = record.model?.provider ?? provider.modelProvider;
       const path = externalThreadPath(provider.kind, record.threadId);
@@ -31,7 +33,7 @@ export async function loadExternalSessionShells(options: {
         title: cleanThreadTitle(safeSessionTitle(record.title) || firstSentence(visibleTitleText(firstUser?.text ?? ""))),
         modifiedAt: record.updatedAt,
         projectPath: record.cwd,
-        projectName: options.projectName(record.cwd),
+        projectName: record.project?.name ?? options.projectName(record.cwd),
         projectLabel: options.projectLabel(record.cwd),
         ...(record.workspace ? { workspaceId: record.workspace.workspaceId, projectDisplayPath: record.workspace.displayPath } : {}),
         messageCount: record.messageCount ?? record.messages.length,

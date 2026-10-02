@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { SessionManager, type SessionInfo } from "@earendil-works/pi-coding-agent";
-import type { HostEvent, ThreadIndexSnapshot, UiQueuedMessage, UiSession, UiThreadLimit, UiThreadUsage } from "../shared/contracts.js";
+import type { HostEvent, ThreadIndexSnapshot, UiProject, UiQueuedMessage, UiSession, UiThreadLimit, UiThreadUsage } from "../shared/contracts.js";
 import { HOST_PROTOCOL_VERSION, type HostUpdate } from "../shared/host-protocol.js";
 import type { HostLogger } from "./host-log.js";
 import {
@@ -83,6 +83,7 @@ export class ThreadIndex {
   private lineageCacheLoaded?: Promise<void>;
   /** Other runtimes' tallies by shell path, as their last listing gave them, for repricing. */
   private externalTallies = new Map<string, readonly UsageTally[]>();
+  private externalProjects = new Map<string, Pick<UiProject, "name" | "icon">>();
   /** The parent of a thread this host started or indexed, for its live shell. */
   private readonly parents = new Map<string, string>();
   /** Deletions already announced, so the sweep does not repeat one the host made itself. */
@@ -97,7 +98,7 @@ export class ThreadIndex {
   private readonly limits = new Map<string, UiThreadLimit>();
   /** The host's queue of each thread that has one. */
   private readonly queues = new Map<string, { messages: UiQueuedMessage[]; held: boolean }>();
-  private scan?: Promise<{ previous: readonly UiSession[]; next: UiSession[] }>;
+  private scan?: Promise<{ previous: readonly UiSession[]; next: UiSession[]; projectsChanged: boolean }>;
   private scannedOnce = false;
   private readonly firstScan = settledLater();
   private recoveryTimer?: ReturnType<typeof setInterval>;
@@ -179,8 +180,8 @@ export class ThreadIndex {
       this.scan = this.scanSessions().finally(() => { this.scan = undefined; });
       this.scan.then(() => this.firstScan.resolve(), (error: unknown) => this.firstScan.reject(error));
     }
-    const { previous, next } = await this.scan;
-    if (publish === "index" || publish === "changed-index" && sessionIndexUpdates(previous, next).length > 0) this.port.emit({ type: "thread-index", threadIndex: this.snapshot() });
+    const { previous, next, projectsChanged } = await this.scan;
+    if (publish === "index" || publish !== "none" && projectsChanged || publish === "changed-index" && sessionIndexUpdates(previous, next).length > 0) this.port.emit({ type: "thread-index", threadIndex: this.snapshot() });
     else if (publish === "changes") for (const update of sessionIndexUpdates(previous, next)) this.port.emitUpdate(update);
     return this.snapshot();
   }
@@ -193,7 +194,7 @@ export class ThreadIndex {
     this.recoveryTimer.unref?.();
   }
 
-  private async scanSessions(): Promise<{ previous: readonly UiSession[]; next: UiSession[] }> {
+  private async scanSessions(): Promise<{ previous: readonly UiSession[]; next: UiSession[]; projectsChanged: boolean }> {
     const scanStartedAt = Date.now();
     this.usageCacheLoaded ??= this.usage.load().catch(() => undefined);
     this.lineageCacheLoaded ??= this.lineage.load().catch(() => undefined);
@@ -225,7 +226,12 @@ export class ThreadIndex {
       (info) => this.lineage.originOf(info.path),
     );
     const previous = this.sessions;
+    const previousProjects = this.externalProjects;
     const external = await this.externalShells();
+    const projectsChanged = previousProjects.size !== this.externalProjects.size || [...this.externalProjects].some(([id, project]) => {
+      const before = previousProjects.get(id);
+      return before?.name !== project.name || before?.icon !== project.icon;
+    });
     const byId = new Map(scanned.map((session) => [session.id, session] as const));
     for (const session of external) if (!byId.has(session.id)) byId.set(session.id, session);
     const trashed = (id: string) => this.port.inTrash?.(id) === true;
@@ -234,18 +240,21 @@ export class ThreadIndex {
     this.sessions = next;
     this.scannedOnce = true;
     await this.sweep(sessionInfos, previous, next);
-    return { previous, next };
+    return { previous, next, projectsChanged };
   }
 
   private async externalShells(): Promise<UiSession[]> {
     const tallies = new Map<string, readonly UsageTally[]>();
+    const projects = new Map<string, Pick<UiProject, "name" | "icon">>();
     const shells = await loadExternalSessionShells({
       safeMode: this.port.safeMode, providers: this.port.backends().values(),
       projectName: (cwd) => this.port.projects.name(cwd), projectLabel: (cwd) => this.port.projects.label(cwd),
+      onProject: (id, project) => { projects.set(id, project); },
       onError: (provider, error) => this.port.log("runtime-backend.list.failed", `${provider.kind}: ${this.port.errorMessage(error)}`),
       usage: (path, list) => { tallies.set(path, list); return usageOrUndefined(this.port.priceUsage(list)); },
     });
     this.externalTallies = tallies;
+    this.externalProjects = projects;
     return shells;
   }
 
@@ -313,7 +322,7 @@ export class ThreadIndex {
       derivedTitle: firstSentence(visibleTitleText(visibleMessages.find((message) => message.role === "user")?.text ?? "")),
       now: Date.now(),
       projectPath,
-      projectName: this.port.projects.name(projectPath),
+      projectName: existing?.machine ? existing.projectName : this.port.projects.name(projectPath),
       projectLabel: this.port.projects.label(projectPath),
       messageCount: visibleMessages.length,
       backendKind: threadBackendKind(thread),
@@ -422,10 +431,10 @@ export class ThreadIndex {
 
   /** Carries a project's name, read after the shells were built, into every shell of that project. */
   publishName(cwd: string, name: string): void {
-    if (!this.sessions.some((session) => session.projectPath === cwd && session.projectName !== name)) return;
-    this.sessions = this.sessions.map((session) => session.projectPath === cwd ? { ...session, projectName: name } : session);
+    if (!this.sessions.some((session) => !session.machine && session.projectPath === cwd && session.projectName !== name)) return;
+    this.sessions = this.sessions.map((session) => !session.machine && session.projectPath === cwd ? { ...session, projectName: name } : session);
     for (const session of this.sessions) {
-      if (session.projectPath === cwd) this.publishShellSoon(session);
+      if (!session.machine && session.projectPath === cwd) this.publishShellSoon(session);
     }
   }
 
@@ -548,6 +557,7 @@ export class ThreadIndex {
         ...[...new Map(this.sessions.filter((session) => session.backendKind === "machine" && session.workspaceId).map((session) => [session.workspaceId, {
           path: session.projectPath, name: session.projectName, lastOpenedAt: session.modifiedAt,
           workspaceId: session.workspaceId, displayPath: session.projectDisplayPath ?? session.projectPath,
+          ...this.externalProjects.get(session.id),
         }])).values()],
       ],
       sessions: this.sessions.map((session) => this.withIdentity(session)),

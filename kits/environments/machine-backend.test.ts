@@ -42,7 +42,7 @@ describe("machine backend identities and index", () => {
     const f = fixture();
     f.setSessions([session, { ...session, id: "child", parentThreadId: "t1" }, { ...session, id: "empty", messageCount: 0 }]);
     expect(f.provider).toMatchObject({ kind: "machine", label: "Another machine", order: 90, hidden: true });
-    const record = { threadId: machineThreadId(rex.id, session.id), cwd: session.projectPath, title: session.title, updatedAt: 4, messages: [], messageCount: 2, model: { provider: "openai", id: "gpt-test" }, machine: { id: rex.id, name: "rex", backendKind: "codex", modelProvider: "openai" } };
+    const record = { project: { name: session.projectName }, threadId: machineThreadId(rex.id, session.id), cwd: session.projectPath, title: session.title, updatedAt: 4, messages: [], messageCount: 2, model: { provider: "openai", id: "gpt-test" }, machine: { id: rex.id, name: "rex", backendKind: "codex", modelProvider: "openai" } };
     expect(await f.provider.listThreads()).toEqual([record]);
     expect(await f.provider.lookup(record.threadId)).toEqual(record);
     expect(await f.provider.lookup("missing~thread")).toBeUndefined();

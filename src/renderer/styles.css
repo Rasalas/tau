@@ -432,6 +432,7 @@ button > svg { pointer-events: none; }
 .thread-row.compact:hover { opacity: 1; }
 .thread-row.compact .thread-main { flex-direction: row; align-items: center; gap: calc(8px * var(--density)); padding: calc(5px * var(--density)) calc(10px * var(--density)); }
 .thread-row.compact .thread-project-icon { font-size: 9px; }
+.thread-row.activity-settled .thread-project-icon { filter: grayscale(1); }
 .thread-row.compact .thread-title {
   flex: 1; min-width: 0; margin: 0; font-size: var(--text-md); font-weight: 400; color: var(--muted);
   -webkit-line-clamp: 1; white-space: nowrap;
@@ -1396,11 +1397,11 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 /* --------------------------------------------------------- context dial */
 
 .context-dial {
-  height: 28px; flex: none; display: flex; align-items: center; gap: 5px; padding: 0 8px 0 4px;
-  border: 0; border-radius: 6px; background: none; color: var(--muted); font: 11px var(--sans); cursor: pointer;
+  width: 16px; height: 16px; flex: none; border: 0; padding: 0;
+  border-radius: 50%; display: grid; place-items: center; cursor: pointer;
+  background: conic-gradient(var(--muted) 0 var(--used), var(--line-control) var(--used) 100%);
 }
-.context-dial:hover { color: var(--ink-2); }
-.context-dial > i { width: 36px; height: 3px; border-radius: 2px; background: linear-gradient(to right, var(--acid) var(--used), var(--track) 0); }
+.context-dial > i { width: 10px; height: 10px; border-radius: 50%; background: var(--field); }
 .composer-queued { padding-right: 6px; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .context-popover {
   position: absolute; bottom: 28px; right: -52px; width: 252px; z-index: 30;

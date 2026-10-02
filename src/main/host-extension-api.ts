@@ -123,3 +123,5 @@ export async function tryProcessLock(path: string, owner: import("./process-lock
   const { tryLock } = await import("./process-lock.js");
   return tryLock(path, owner);
 }
+
+export { findProjectForSession } from "../shared/session-project.js";

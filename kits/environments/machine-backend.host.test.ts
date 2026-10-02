@@ -81,6 +81,27 @@ async function fixture() {
 }
 
 describe("machine provider in the real host", () => {
+  it("keeps a remote worktree's project name and icon through indexing and activation", async () => {
+    const f = await fixture();
+    const icon = "data:image/svg+xml;base64,PHN2Zy8+";
+    f.remote.projectName = "Tau";
+    f.remote.workspaceId = "remote-worktree";
+    f.machines.index = () => ({
+      projects: [{ path: "/remote/tau", workspaceId: "remote-root", name: "Tau", lastOpenedAt: 1, icon }],
+      sessions: [f.remote],
+    });
+    const { host } = await f.open();
+    const check = async () => {
+      const { threadIndex } = await host.bootstrap();
+      expect(threadIndex.sessions.find((entry) => entry.id === f.proxyId)?.projectName).toBe("Tau");
+      expect(threadIndex.projects.find((entry) => entry.workspaceId === "remote-worktree")?.icon).toBe(icon);
+    };
+    await check();
+    await host.switchSession(externalThreadPath("machine", f.proxyId));
+    await check();
+    expect(existsSync(f.remote.projectPath)).toBe(false);
+  });
+
   it("lists the machine row, hides the backend from new threads, activates without moving rex, and resumes after restart", async () => {
     const f = await fixture();
     const first = await f.open();

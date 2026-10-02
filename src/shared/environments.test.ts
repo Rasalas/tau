@@ -110,6 +110,11 @@ describe("a machine's thread list", () => {
     });
     expect(projects).toEqual([{ name: "b", lastOpenedAt: 2, workspaceId: "ws-b" }, { name: "a", lastOpenedAt: 1 }]);
   });
+
+  it("carries project images as data for another device", () => {
+    const icon = "data:image/svg+xml;base64,PHN2Zy8+";
+    expect(environmentProjects({ sessions: [], projects: [{ path: "/remote/tau", name: "Tau", lastOpenedAt: 1, icon }] })[0]?.icon).toBe(icon);
+  });
 });
 
 describe("client storage per machine", () => {

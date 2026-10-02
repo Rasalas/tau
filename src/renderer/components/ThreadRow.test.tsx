@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ThreadRow } from "./ThreadRow";
+import { ThreadRow, ThreadStatus } from "./ThreadRow";
 
 const session = {
   id: "thread",
@@ -18,6 +18,22 @@ const session = {
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+});
+
+describe("ThreadStatus elapsed time", () => {
+  it.each([
+    [3_599, "59:59", "1h 00m"],
+    [3_900, "1h 05m", "1h 05m"],
+    [86_399, "23h 59m", "1d 00h"],
+    [176_399, "2d 00h", "2d 01h"],
+  ])("updates the running duration at %i seconds", (seconds, before, after) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(seconds * 1_000);
+    const { container } = render(<ThreadStatus activity="working" label="Working" startedAt={0} />);
+    expect(container.querySelector("time")?.textContent).toBe(before);
+    act(() => { vi.advanceTimersByTime(1_000); });
+    expect(container.querySelector("time")?.textContent).toBe(after);
+  });
 });
 
 describe("ThreadRow project mark", () => {

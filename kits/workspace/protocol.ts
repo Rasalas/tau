@@ -557,6 +557,7 @@ export interface RailExternalThread {
   key: string;
   /** The thread as its own host lists it. */
   session: UiSession;
+  projectIcon?: string;
   running?: boolean;
   /** Set while `open` is under way. */
   opening?: boolean;

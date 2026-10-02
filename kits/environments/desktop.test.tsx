@@ -316,6 +316,16 @@ describe("the other machines' threads in the rail", () => {
     expect(createMachineThreads(environments).threads()[0]?.session).toMatchObject({ projectLabel: "feat/x", usage, backendKind: "codex", modelProvider: "openai", modifiedAt: 5 });
   });
 
+  it("keeps a worktree's root project icon in another machine's row", () => {
+    const icon = "data:image/svg+xml;base64,PHN2Zy8+";
+    const rich = machine("studio", {
+      projects: [{ workspaceId: "root", name: "api", lastOpenedAt: 1, icon }],
+      threads: [{ id: "s9", workspaceId: "worktree", path: "/s/9", title: "Tune", projectName: "api", modifiedAt: 5 }],
+    });
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, rich], secureStorage: true });
+    expect(createMachineThreads(environments).threads()[0]?.projectIcon).toBe(icon);
+  });
+
   it("keeps an offline machine's threads listed but closed, with the reason", () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, attic], secureStorage: true });
     const [idea] = createMachineThreads(environments).threads();

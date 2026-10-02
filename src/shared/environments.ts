@@ -37,6 +37,7 @@ export interface UiEnvironmentProject {
   workspaceId?: string;
   name: string;
   lastOpenedAt: number;
+  icon?: string;
 }
 
 export interface UiEnvironment {
@@ -309,6 +310,7 @@ export function environmentProjects(index: ThreadIndexSnapshot): UiEnvironmentPr
     .map((project) => {
       const entry: UiEnvironmentProject = { name: project.name, lastOpenedAt: project.lastOpenedAt };
       if (project.workspaceId) entry.workspaceId = project.workspaceId;
+      if (project.icon) entry.icon = project.icon;
       return entry;
     });
 }

@@ -344,6 +344,7 @@ export interface ThreadListEntry {
   /** Unique in the list, and never the id of a thread of this host. */
   key: string;
   session: UiSession;
+  projectIcon?: string;
   running?: boolean;
   /** Waits for an answer there (API 1.35.0). */
   waiting?: boolean;

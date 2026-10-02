@@ -4,6 +4,7 @@ import { ArchiveRestore, ArrowLeft, Check, ChevronDown, CornerLeftUp, Eye, Folde
 import {
   DraftRow,
   errorMessage,
+  findProjectForSession,
   ProjectIcon,
   Menu,
   MiddleTruncate,
@@ -309,39 +310,7 @@ export function CloneProjectSource({ actions, onBack, onDone }: ProjectSourcePro
   );
 }
 
-export function findProjectForSession(
-  projects: readonly UiProject[],
-  session: Pick<UiSession, "projectPath"> & Partial<Pick<UiSession, "projectName" | "workspaceId">>,
-): UiProject | undefined {
-  if (!projects.length) return undefined;
-  const byPath = projects.find((project) => project.path === session.projectPath);
-  if (byPath) return byPath;
-
-  if (session.workspaceId) {
-    const byWorkspace = projects.find((project) => project.workspaceId === session.workspaceId);
-    if (byWorkspace) return byWorkspace;
-  }
-
-  const bySubpath = projects.find((project) => {
-    const prefix = project.path.endsWith("/") ? project.path : `${project.path}/`;
-    return session.projectPath.startsWith(prefix);
-  });
-  if (bySubpath) return bySubpath;
-
-  if (session.projectName) {
-    const byName = projects.filter((project) => project.name === session.projectName);
-    if (byName.length === 1) return byName[0];
-    if (byName.length > 1) {
-      const bySharedDir = byName.find((project) => {
-        const parentDir = project.path.slice(0, project.path.lastIndexOf("/"));
-        return Boolean(parentDir && session.projectPath.startsWith(parentDir));
-      });
-      return bySharedDir ?? byName[0];
-    }
-  }
-
-  return undefined;
-}
+export { findProjectForSession } from "tau";
 
 const switcherRequests = new Set<() => void>();
 
@@ -791,6 +760,7 @@ const ExternalThreadRow = memo(function ExternalThreadRow({ thread, onOpen, onLo
       <ThreadRow
         session={session}
         machine={machine}
+        projectIcon={thread.projectIcon}
         active={false}
         age={age}
         activity={activity}
@@ -858,6 +828,7 @@ function ExternalThreadCard({ thread, actions, onClose }: { thread: RailExternal
   return (
     <ThreadCard
       session={session}
+      projectIcon={thread.projectIcon}
       activity={opening ? "ready" : running ? "working" : "idle"}
       {...(opening ? { activityLabel: "Opening…" } : running ? { activityLabel: "Working" } : {})}
       age={sessionAge(session.modifiedAt)}

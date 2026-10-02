@@ -100,6 +100,33 @@ function piThread(threadId: string, title?: string) {
 }
 
 describe("ThreadIndex", () => {
+  it("publishes a remote project icon change even when its threads have not changed", async () => {
+    const sessionsDir = await mkdtemp(join(tmpdir(), "tau-project-icon-"));
+    const record: HostBackendThreadRecord = {
+      threadId: "rex~one", cwd: "/remote", title: "Work", updatedAt: 1, messages: [], messageCount: 1,
+      machine: { id: "rex", name: "rex" }, workspace: { workspaceId: "remote", displayPath: "/remote" },
+      project: { name: "Tau", icon: "data:image/svg+xml,first" },
+    };
+    const backend = { kind: "machine", listThreads: async () => [record] } as HostRuntimeBackendProvider;
+    const { index, events } = makeIndex({ sessionsDir, backends: [backend] });
+    try {
+      await index.refresh("changed-index");
+      events.length = 0;
+      record.project = { name: "Tau", icon: "data:image/svg+xml,second" };
+      await index.refresh("changed-index");
+      expect(events).toContainEqual(expect.objectContaining({ type: "thread-index" }));
+      expect(index.snapshot().projects.find((project) => project.workspaceId === "remote")?.icon).toBe(record.project.icon);
+      events.length = 0;
+      await index.refresh("changed-index");
+      expect(events).toEqual([]);
+      index.publishName("/remote", "Local folder");
+      expect(index.byId("rex~one")?.projectName).toBe("Tau");
+    } finally {
+      await index.dispose();
+      await rm(sessionsDir, { recursive: true, force: true });
+    }
+  });
+
   it("keeps the home identities of proxy workspaces distinct at the same path", () => {
     const { index } = makeIndex();
     const first = shell({ id: "rex~one", path: "machine:rex~one", backendKind: "machine", projectPath: "/home/dev/repo", workspaceId: "ws1_rex", projectDisplayPath: "~/repo" });

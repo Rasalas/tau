@@ -59,6 +59,9 @@ interface ThreadRowProps {
 function elapsedLabel(milliseconds: number): string {
   const totalSeconds = Math.max(0, Math.floor(milliseconds / 1_000));
   const minutes = Math.floor(totalSeconds / 60);
+  const hours = Math.floor(minutes / 60);
+  if (hours >= 24) return `${Math.floor(hours / 24)}d ${String(hours % 24).padStart(2, "0")}h`;
+  if (hours >= 1) return `${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
   return `${minutes}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
@@ -129,7 +132,7 @@ export const ThreadRow = memo(function ThreadRow({
           {projectMark}
           <span className="thread-title" {...titleTip}>{session.title}</span>
           {accessory}
-          {machine ? <MachineMark machine={machine} /> : null}
+          {!settled && machine ? <MachineMark machine={machine} /> : null}
           {showStatus
             ? <ThreadStatus activity={activity} label={working ? "Working" : label} hint={activityHint} startedAt={startedAt ?? session.modifiedAt} />
             : <time>{age}</time>}

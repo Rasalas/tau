@@ -71,6 +71,7 @@ export function MachineDot({ environment, now }: { environment: UiEnvironment; n
 export interface MachineRailThread {
   key: string;
   session: UiSession;
+  projectIcon?: string;
   running?: boolean;
   /** A question waits there; the phone's list shows it as one. */
   waiting?: boolean;
@@ -179,10 +180,13 @@ export function createMachineThreads(environments: PlatformEnvironments, host?: 
       for (const thread of machine.threads) {
         if (subagents?.has(thread.id)) continue;
         const session = railSession(machine, thread);
+        const project = machine.projects.find((entry) => thread.workspaceId && entry.workspaceId === thread.workspaceId)
+          ?? machine.projects.find((entry) => entry.name === thread.projectName);
         const settled = Boolean(thread.settled) || shelf.has(thread.id);
         next.push({
           key: session.id,
           session,
+          ...(project?.icon ? { projectIcon: project.icon } : {}),
           ...(thread.running ? { running: true } : {}),
           ...(thread.waiting ? { waiting: true } : {}),
           ...(settled ? { settled: true } : {}),

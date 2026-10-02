@@ -64,6 +64,14 @@ describe("findProjectForSession", () => {
     expect(findProjectForSession(projects, { projectPath: "/repos/tau", projectName: "tau" })?.icon).toBe("data:image/svg+xml;tau");
   });
 
+  it("uses the home workspace identity when two machines share a path", () => {
+    const copies = [
+      { ...projects[0]!, workspaceId: "local", icon: "local-icon" },
+      { ...projects[0]!, workspaceId: "remote", icon: "remote-icon" },
+    ];
+    expect(findProjectForSession(copies, { projectPath: "/repos/tau", workspaceId: "remote" })?.icon).toBe("remote-icon");
+  });
+
   it("finds project for a worktree by projectName when path differs", () => {
     expect(findProjectForSession(projects, { projectPath: "/worktrees/tau-feat", projectName: "tau" })?.icon).toBe("data:image/svg+xml;tau");
   });

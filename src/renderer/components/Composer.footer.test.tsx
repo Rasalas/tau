@@ -128,8 +128,8 @@ describe("the composer's slim footer", () => {
     const row = screen.getByLabelText("Select model: GPT-5.6 Luna").closest(".composer-toolbar") as HTMLElement;
     const labels = [...row.querySelectorAll("button")].map((button) => button.getAttribute("aria-label") ?? button.textContent);
     expect(labels).toEqual(["Machine", "Select model: GPT-5.6 Luna", "Thinking: Medium", "Kit chip", "More composer controls", "Context 20 percent used", "Send"]);
-    // The meter says its share, as design 1a writes "19%".
-    expect(screen.getByLabelText("Context 20 percent used").textContent).toBe("20%");
+    // The ring keeps its percentage in the accessible label and the details.
+    expect(screen.getByLabelText("Context 20 percent used").textContent).toBe("");
     fireEvent.click(screen.getByLabelText("More composer controls"));
     const menu = screen.getByRole("dialog", { name: "More composer controls" });
     expect(within(menu).getByRole("button", { name: /Attach files/u })).toBeTruthy();

@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Archive, Bot, ChartColumn, GitPullRequest } from "lucide-react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HostEvent, UiSession } from "../shared/contracts";
+import type { HostEvent, UiProject, UiSession } from "../shared/contracts";
 import type { DesktopExtension } from "../renderer/extension-system";
 import { installPointerEvents } from "../renderer/test-support/pointer-events";
 import { setHostClient } from "../renderer/host-client-context";
@@ -46,7 +46,7 @@ const SPENT = { inputTokens: 1_000, outputTokens: 200, cacheReadTokens: 0, cache
 const THREADS = [thread("t-a", "Rename the store", 30), { ...thread("t-b", "Ship the web client", 20), usage: SPENT }, thread("t-c", "Fix the flaky test", 10)];
 /** The session a host opens at start: in the index, with nothing written in it yet. */
 const BLANK: UiSession = { ...thread("t-new", "", 40), projectPath: "/", projectName: "/", messageCount: 0 };
-type ProjectEntry = { path: string; name: string; lastOpenedAt: number };
+type ProjectEntry = UiProject;
 const PROJECTS: ProjectEntry[] = [{ path: "/project", name: "project", lastOpenedAt: 1 }];
 
 /** `t-a` open with a message in it; `home` puts the host on its blank session in `/`, as an app opened from the Finder did. */
@@ -105,6 +105,15 @@ beforeEach(() => { window.history.replaceState(null, "", "/"); installPointerEve
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); setViewport(1024); window.history.replaceState(null, "", "/"); });
 
 describe("the web client at 400 px", () => {
+  it("shows the root project icon for a worktree outside the project folder", async () => {
+    const icon = "data:image/svg+xml;base64,PHN2Zy8+";
+    renderCompactClient({ bootstrap: bootstrapWith([
+      { ...THREADS[0]!, projectPath: "/worktrees/feature", workspaceId: "worktree" },
+    ], { home: true, projects: [{ ...PROJECTS[0]!, workspaceId: "root", icon }] }) });
+    const row = await screen.findByRole("button", { name: "Open thread Rename the store" });
+    await waitFor(() => expect(row.querySelector(".thread-project-icon img")?.getAttribute("src")).toBe(icon));
+  });
+
   it("lays itself out compactly and says which client it is", async () => {
     renderCompactClient();
     await waitFor(() => expect(document.body.dataset.profile).toBe("compact"));

@@ -1,4 +1,4 @@
-import { clientMessageFingerprint, type AgentRuntimeAdapter, type HostBackendOpenContext, type HostBackendThreadRecord, type HostMachineServices, type HostPushEvent, type HostRuntimeBackendProvider, type HostTranscriptCursor, type PreparedPrompt, type ThreadBackendCapabilities, type ThreadBackendPromptInput, type ThreadBackendPromptResult, type ThreadBackendState, type ThreadCatalogView, type ThreadCatalogWriteCapability, type ThreadRuntimeBackend, type ThreadRuntimeEvent, type ThreadTitleSource, type TranscriptPage, type UiComposerCommand, type UiMessage, type UiModel, type UiPromptImageAttachment, type UiRuntimeCatalog, type UiSession, type UiThreadUsage, type UsageTally } from "tau/host-extension";
+import { findProjectForSession, clientMessageFingerprint, type AgentRuntimeAdapter, type HostBackendOpenContext, type HostBackendThreadRecord, type HostMachineServices, type HostPushEvent, type HostRuntimeBackendProvider, type HostTranscriptCursor, type PreparedPrompt, type ThreadBackendCapabilities, type ThreadBackendPromptInput, type ThreadBackendPromptResult, type ThreadBackendState, type ThreadCatalogView, type ThreadCatalogWriteCapability, type ThreadRuntimeBackend, type ThreadRuntimeEvent, type ThreadTitleSource, type TranscriptPage, type UiComposerCommand, type UiMessage, type UiModel, type UiPromptImageAttachment, type UiProject, type UiRuntimeCatalog, type UiSession, type UiThreadUsage, type UsageTally } from "tau/host-extension";
 import { machineCommandError, machineMethodError, type MachineOperation } from "./compatibility.js";
 import { ENVIRONMENTS_EXTENSION_ID, THREAD_MODEL_COMMAND, THREAD_RENAME_COMMAND, THREAD_SEND_COMMAND } from "./protocol.js";
 
@@ -61,8 +61,10 @@ function sessionOn(machines: HostMachineServices, machine: string, sessionId: st
   return machines.index?.(machine)?.sessions.find((session) => session.id === sessionId);
 }
 
-function record(machine: { id: string; name: string }, session: UiSession): HostBackendThreadRecord {
+function record(machine: { id: string; name: string }, session: UiSession, projects: readonly UiProject[]): HostBackendThreadRecord {
+  const project = findProjectForSession(projects, session);
   return {
+    project: { name: session.projectName, ...(project?.icon ? { icon: project.icon } : {}) },
     threadId: machineThreadId(machine.id, session.id), cwd: session.projectPath, title: session.title,
     updatedAt: session.modifiedAt, messages: [], messageCount: session.messageCount,
     ...(session.workspaceId ? { workspace: { workspaceId: session.workspaceId, displayPath: session.projectDisplayPath ?? session.projectPath } } : {}),
@@ -95,12 +97,12 @@ export function createMachineBackendProvider(machines: HostMachineServices): Hos
   return {
     kind: "machine", label: "Another machine", order: 90, hidden: true, adapter: runtimeAdapter,
     listThreads: async () => machines.list().flatMap((machine) => (machines.index?.(machine.id)?.sessions ?? [])
-      .filter((session) => session.backendKind !== "machine" && !session.parentThreadId && session.messageCount > 0).map((session) => record(machine, session))),
+      .filter((session) => session.backendKind !== "machine" && !session.parentThreadId && session.messageCount > 0).map((session) => record(machine, session, machines.index?.(machine.id)?.projects ?? []))),
     lookup: async (threadId) => {
       const parsed = parseMachineThreadId(threadId);
       const machine = parsed && machines.list().find((entry) => entry.id === parsed.machine);
       const session = parsed && machine && sessionOn(machines, parsed.machine, parsed.sessionId);
-      return machine && session && session.backendKind !== "machine" ? record(machine, session) : undefined;
+      return machine && session && session.backendKind !== "machine" ? record(machine, session, machines.index?.(machine.id)?.projects ?? []) : undefined;
     },
     open: async (threadId, cwd, { resume }, context) => {
       if (!resume) throw new Error("Start threads on another machine with Run on.");
