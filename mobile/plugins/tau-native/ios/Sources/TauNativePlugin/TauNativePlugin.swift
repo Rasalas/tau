@@ -48,7 +48,7 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
         SecureStore.forgetAfterReinstall()
         dictationBackgroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
-                if #available(iOS 26.0, *), let dictation = self?.localDictation as? LocalDictation { dictation.cancel() }
+                if #available(iOS 26.0, *), let dictation = self?.localDictation as? LocalDictation { dictation.cancel(notify: true) }
             }
         }
         // Capacitor lets script focus raise the keyboard; the composer takes focus on every
@@ -66,8 +66,11 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func dictationLanguages(_ call: CAPPluginCall) {
         Task { @MainActor in
             guard #available(iOS 26.0, *) else { call.resolve(["available": false, "languages": []]); return }
-            let languages = await dictation().languages()
-            call.resolve(["available": !languages.isEmpty, "languages": languages])
+            let current = dictation()
+            let languages = await current.languages()
+            var result: [String: Any] = ["available": !languages.isEmpty, "languages": languages]
+            if let language = await current.defaultLanguage() { result["defaultLanguage"] = language }
+            call.resolve(result)
         }
     }
     @objc func dictationDownload(_ call: CAPPluginCall) { dictationAction(call, action: "download") }
@@ -82,7 +85,13 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
                 if action == "cancel" { current.cancel(); call.resolve(); return }
                 if action == "finish" { call.resolve(["text": try await current.finish()]); return }
                 guard let language = call.getString("language") else { call.reject("Choose a dictation language."); return }
-                if action == "download" { try await current.download(language) } else { try await current.start(language) }
+                if action == "download" { try await current.download(language) }
+                else {
+                    let id = call.getString("id") ?? ""
+                    try await current.start(language) { [weak plugin = self] update in
+                        plugin?.notifyListeners("dictation", data: update.merging(["id": id]) { _, new in new })
+                    }
+                }
                 call.resolve()
             } catch { call.reject(error.localizedDescription, "dictation-failed") }
         }

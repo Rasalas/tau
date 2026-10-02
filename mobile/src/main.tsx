@@ -14,6 +14,7 @@ import { appleDynamicType, applyTypeScale, deviceClassFor } from "../../src/rend
 import { screenMinSide } from "../../src/renderer/use-layout-profile";
 import { relayActivities } from "./activity-relay";
 import { NativeComposerDictation } from "../../src/renderer/components/ComposerDictation";
+import { DictationSettings } from "../../src/renderer/settings/DictationSettings";
 import { PUSH_RELAY_URL } from "../../kits/push/protocol";
 import { Shell, type AppContext } from "./Shell";
 import { HostBook } from "./hosts";
@@ -49,7 +50,7 @@ async function boot(): Promise<void> {
     book,
     bridge,
     device,
-    environment: { ...webClientEnvironment("compact"), ...(isNative && device.platform === "ios" ? { dictation: { port: nativeDictation, Control: NativeComposerDictation } } : {}) },
+    environment: { ...webClientEnvironment("compact"), ...(isNative && device.platform === "ios" ? { dictation: { port: nativeDictation, Control: NativeComposerDictation, Settings: DictationSettings } } : {}) },
     wakes: nativeWakeSource(App, Network),
     scan: scanQrCode,
     browse: (listener) => browseHosts(TAU_BONJOUR_TYPE, listener),

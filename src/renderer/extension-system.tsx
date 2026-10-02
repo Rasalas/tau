@@ -324,7 +324,7 @@ export interface TranscriptRowsHandle {
  * `thread-list-head` tops a phone's or tablet's thread list, under its header
  * (API 1.30.0). `thread-list-title` adds compact controls beside a phone's header title;
  * a tablet's sidebar has a foot for them (`PageContribution.Summary`). `turn-divider` sits in
- * the line above each turn after the first; its props carry `turn` (API 1.39.0).
+ * the prompt's metadata without a numbered separator; its props carry `turn` (API 1.39.0).
  * `spine` fills the narrow column the conversation collapses to (design 1b), under the title.
  */
 export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in" | "thread-list-head" | "thread-list-title" | "turn-divider" | "spine";

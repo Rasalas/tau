@@ -915,13 +915,13 @@ tab that shows a thread of another machine (`openThread(id, { machine })`); its
 props carry `lookIn: { machine, machineName, sessionId, connected }`, and what
 it shows comes from that machine through `context.environments.readExtension`.
 Preview Kit puts that machine's page there, small and view only. An older core
-never draws the placement. `turn-divider` (API 1.39.0) sits in the line above
-each turn after the first ("Turn 3 · Regression tests", design 2d); its props
+never draws the placement. `turn-divider` (API 1.39.0, a retained placement name)
+sits beside the prompt's metadata, without a numbered line or separator; its props
 carry `turn: { number, messages, last }` — the turn's prompt and everything that
 answered it, `last` while it may still run. Workspace Kit puts Fork here (a
 question first, then `actions.forkFrom(message, { workspace })` through the turn's last saved
 message, in a worktree on a branch of the fork's own) and Restore files (the turn's checkpoint, when it verified) there,
-shown on hover and, on touch, on a tap.
+shown on hover and always available on touch.
 `thread-list-head` (API 1.30.0) tops a phone's or a tablet's thread list,
 under its header and over the rows, and stays put while they scroll: a strip
 about the list as a whole. Machines Kit says there which paired machine is out

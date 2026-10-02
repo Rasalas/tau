@@ -75,17 +75,18 @@ describe("Message actions", () => {
   });
 });
 
-describe("Turn dividers", () => {
+describe("Turn actions without separators", () => {
   const prompt = { id: "p2", sourceEntryId: "e2", role: "user" as const, text: "Move the subscription into the constructor and keep the effect only for cleanup", timestamp: 0 };
 
-  it("names the turn above its prompt from the second turn on", () => {
+  it("does not number or separate conversation turns", () => {
     const view = render(<Message message={prompt} turn={{ number: 2, messages: [prompt], last: true }} />);
-    expect(view.container.querySelector(".turn-divider")?.textContent).toBe("Turn 2 · Move the subscription into the…");
+    expect(view.container.querySelector(".turn-divider")).toBeNull();
+    expect(screen.queryByText(/^Turn 2/)).toBeNull();
     view.rerender(<Message message={prompt} turn={{ number: 1, messages: [prompt], last: true }} />);
     expect(view.container.querySelector(".turn-divider")).toBeNull();
   });
 
-  it("lends kits the turn in the divider's region", () => {
+  it("keeps contextual turn actions beside the prompt metadata", () => {
     const registry = new ExtensionRegistry();
     registry.activate({ id: "acme.turns", name: "Turns", activate(context) {
       context.registerRegion({ id: "acme.turn", placement: "turn-divider", Component: ({ turn }) => <button type="button">Fork turn {turn?.number} of {turn?.messages.length}</button> });
@@ -94,7 +95,8 @@ describe("Turn dividers", () => {
     render(<WorkbenchShellContext.Provider value={{ registry, actions }}>
       <Message message={prompt} turn={{ number: 3, messages: [prompt, { id: "a", role: "assistant", text: "done", timestamp: 1 }], last: false }} />
     </WorkbenchShellContext.Provider>);
-    expect(screen.getByRole("button", { name: "Fork turn 3 of 2" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Fork turn 3 of 2" }).closest(".message-user-meta")).toBeTruthy();
+    expect(document.querySelector(".turn-divider")).toBeNull();
   });
 });
 

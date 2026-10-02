@@ -139,9 +139,7 @@ html, body { margin: 0; background: var(--shell); }
 
 .shell-fatal { padding: calc(24px + env(safe-area-inset-top, 0px)) 24px; font: 15px/1.5 var(--sans); color: var(--ink); }
 
-.composer-dictation { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 12px; font-size: 12px; }
-.composer-dictation select { max-width: 180px; color: inherit; background: var(--bg); }
-.composer-dictation textarea { width: 100%; min-height: 80px; }
+.dictation-button { width: 36px; height: 36px; }
 
 /* A host's preference stays below its navigation row, with the shared switch. */
 .shell-paired-host { display: block; padding-right: 0; }

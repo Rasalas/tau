@@ -47,6 +47,8 @@ export interface PreferencesState {
   vimMode?: boolean;
   /** Which chord sends from the composer; this client's own, like its keys. */
   sendShortcut: SendShortcut;
+  /** This device's speech language; empty follows its system language, never the remote host's. */
+  dictationLanguage: string;
   /** Leave the host process running when the app quits; its threads keep going. */
   hostBackground?: boolean;
   /** Ask before a quit stops threads that are working (`confirm.quitWhileRunning`). */
@@ -73,6 +75,7 @@ const DEFAULTS: PreferencesState = {
   disabledExtensions: [],
   vimMode: false,
   sendShortcut: "enter",
+  dictationLanguage: "",
   hostBackground: false,
   confirmQuitWhileRunning: true,
 };
@@ -148,6 +151,7 @@ function load(): PreferencesState {
       maxTokens: typeof raw.maxTokens === "number" ? raw.maxTokens : undefined,
       vimMode: typeof raw.vimMode === "boolean" ? raw.vimMode : false,
       sendShortcut: SEND_SHORTCUTS.includes(raw.sendShortcut as SendShortcut) ? raw.sendShortcut as SendShortcut : "enter",
+      dictationLanguage: typeof raw.dictationLanguage === "string" ? raw.dictationLanguage : "",
       confirmQuitWhileRunning: raw.confirmQuitWhileRunning !== false,
     };
   } catch {
@@ -238,7 +242,9 @@ export class PreferencesStore {
       for (const key of Object.keys(before ?? {})) if (!now || !(key in now)) delete kept[key];
       return { ...kept, ...(now ?? {}) };
     };
-    const patch: Partial<PreferencesState> = {};
+    // An absent host value means the shared default, not an old setting cached on this device.
+    // Explicit thread overrides remain separate and survive this synchronization.
+    const patch: Partial<PreferencesState> = { transcriptDetail: isTranscriptDetail(config.transcriptDetail) ? config.transcriptDetail : DEFAULTS.transcriptDetail };
     const target = patch as Record<string, unknown>;
     for (const key of SCALARS) {
       const value = config[key];
@@ -327,6 +333,10 @@ export class PreferencesStore {
 
   setVimMode(vimMode: boolean): void {
     this.update({ vimMode });
+  }
+
+  setDictationLanguage(dictationLanguage: string): void {
+    this.update({ dictationLanguage }, false);
   }
 
   setSendShortcut(sendShortcut: SendShortcut): void {

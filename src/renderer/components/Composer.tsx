@@ -203,6 +203,7 @@ export function Composer({
   const { readOnly } = useHostCapabilities();
   const dictation = useClientEnvironment().dictation;
   const DictationControl = dictation?.Control;
+  const [dictating, setDictating] = useState(false);
   const clientStorage = useClientStorage();
   const attachmentScope = createDraftKey(draftStorageKey);
   const subscribeToScope = useCallback((listener: () => void) => scopeStore.subscribe(attachmentScope, listener), [attachmentScope, scopeStore]);
@@ -690,7 +691,7 @@ export function Composer({
   const answerHasFiles = Boolean(answerable && prompt && promptTakesFiles(prompt) && (attachments.length > 0 || inlineHasContent));
   const submitRef = useRef<(delivery?: ComposerDelivery, gated?: boolean) => void>(() => {});
   const submitCurrent = useCallback((delivery?: ComposerDelivery, gated = false) => {
-    if (held || arrival.waiting) return;
+    if (held || arrival.waiting || dictating) return;
     // An answer's chips go along as its files; its text is the user's own words.
     const intent = classifyComposerInput({
       text: plainChipText(text, Boolean(answerable)),
@@ -754,6 +755,7 @@ export function Composer({
     passGates,
     promptSubmit,
     recordPrompt,
+    dictating,
     runtimeChoice?.kind,
     snapshot,
     submitPrompt,
@@ -1136,7 +1138,6 @@ export function Composer({
           />
         </Suspense>
 
-        {dictation && DictationControl ? <DictationControl key={attachmentScope} port={dictation.port} text={text} inputRef={textareaRef} updateDraft={updateDraft} /> : null}
         <div className="composer-toolbar">
           <ComposerFooterControls
             revision={`${text.trimStart().startsWith("!!") ? "silent-shell" : text.trimStart().startsWith("!") ? "shell" : ""}|${snapshot?.model?.name ?? ""}|${snapshot?.thinkingLevel ?? ""}`}
@@ -1217,6 +1218,8 @@ export function Composer({
             }}
           />
 
+          {dictation && DictationControl ? <DictationControl key={attachmentScope} port={dictation.port} text={text} inputRef={textareaRef} updateDraft={updateDraft} onActiveChange={setDictating} /> : null}
+
           {/* Send is the row's one round button (design 1a); Stop is a quiet word before it, never in its place. */}
           {streaming ? (
             <button className={`send-button stop${answerable ? " answering" : ""}`} {...tooltipProps("Stop the run", { shortcut: registry?.keybindingLabel?.("runtime.abort") })} aria-label="Stop the run" onClick={onAbort}><i /><span>Stop</span></button>
@@ -1233,7 +1236,7 @@ export function Composer({
                 {...tooltipProps(hint ?? label)}
                 aria-label={label}
                 aria-busy={activeScopeSnapshot.submissionPending}
-                disabled={held || (answerable
+                disabled={held || dictating || (answerable
                   ? !typedAnswer && (promptSubmit?.disabled ?? true)
                   : arrival.waiting || activeScopeSnapshot.submissionPending || !hasDraft)}
                 onClick={() => {

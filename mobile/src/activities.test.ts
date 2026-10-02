@@ -54,7 +54,7 @@ describe("widget snapshots", () => {
       expect(native.snapshot).toHaveBeenLastCalledWith(expect.objectContaining({ threads: [expect.objectContaining({ id: "t1", state: "waiting", reason: "Allow edit?", askedAt: clock })] }));
       // The two-minute beat writes again, so a Live Activity followed from the app never reads as stale.
       await vi.advanceTimersByTimeAsync(120_000);
-      expect(native.snapshot.mock.calls.length).toBeGreaterThanOrEqual(3);
+      expect(vi.mocked(native.snapshot).mock.calls.length).toBeGreaterThanOrEqual(3);
       follow.stop();
     } finally { vi.useRealTimers(); }
   });

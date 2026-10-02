@@ -13,6 +13,17 @@ beforeEach(() => {
   preferences = new PreferencesStore();
 });
 
+describe("device dictation language", () => {
+  it("follows the device until overridden, persists locally and is not replaced by host config", () => {
+    expect(preferences.getSnapshot().dictationLanguage).toBe("");
+    preferences.setDictationLanguage("de-DE");
+    preferences.applyConfig({ transcriptDetail: "focused" });
+    expect(new PreferencesStore().getSnapshot().dictationLanguage).toBe("de-DE");
+    preferences.setDictationLanguage("");
+    expect(new PreferencesStore().getSnapshot().dictationLanguage).toBe("");
+  });
+});
+
 describe("settled threads", () => {
   it("can be idempotently returned to active when work resumes", () => {
     preferences.toggleSettled("thread");
@@ -94,6 +105,23 @@ describe("subscription login acknowledgements", () => {
 });
 
 describe("host configuration sync", () => {
+  it("uses the host's default transcript detail on every client, not an old device-local value", async () => {
+    storage.set(STORAGE_KEYS.preferences, JSON.stringify({ transcriptDetail: "everything" }));
+    const ipad = new PreferencesStore();
+    const host = { getConfig: async () => ({}) } as unknown as import("../workbench/host-client").HostClient;
+    ipad.bindHost(host);
+    await ipad.syncFromHost();
+    expect(ipad.getSnapshot().transcriptDetail).toBe("focused");
+    expect(preferences.getSnapshot().transcriptDetail).toBe(ipad.getSnapshot().transcriptDetail);
+  });
+
+  it("keeps an explicit thread override while adopting the host default", () => {
+    preferences.overrideTranscriptDetail("thread", "everything");
+    preferences.applyConfig({});
+    expect(preferences.transcriptDetailFor("thread")).toBe("everything");
+    expect(preferences.transcriptDetailFor("other")).toBe("focused");
+  });
+
   it("synchronizes preferences from host config", async () => {
     const fakeClient = {
       getConfig: async () => ({ theme: "light" as const, showCosts: false, transcriptDetail: "everything" as const }),
