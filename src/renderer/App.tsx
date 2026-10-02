@@ -27,6 +27,7 @@ import { useAppKeybindings } from "./use-app-keybindings";
 import { useWorkbenchActions } from "./use-workbench-actions";
 import { useClientEnvironment } from "./client-environment";
 import { useLayoutProfile } from "./use-layout-profile";
+import { primaryPointerIsTouch } from "./touch-input";
 import { HOST_CAPABILITY } from "../shared/host-transport";
 import { usePreferences, useRendererServices } from "./renderer-services-context";
 import { AppUpdateStore } from "./app-update";
@@ -442,10 +443,9 @@ export default function App() {
     registry.dispatchWorkbenchEvent({ type: "workspace-changed", ...(from ? { from } : {}), to: hostWorkspace });
   }, [hostWorkspace, registry]);
 
-  // Opening or switching a thread should leave you ready to type — but never
-  // steal the caret out of the thread search or a dialog the user is using.
+  // Desktop opens ready to type; touch opens without raising the keyboard.
   useEffect(() => {
-    if (!snapshot?.sessionId) return;
+    if (!snapshot?.sessionId || primaryPointerIsTouch()) return;
     const timer = window.setTimeout(() => {
       const active = document.activeElement;
       const idle = !active || active === document.body || active.tagName === "HTML";
