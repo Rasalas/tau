@@ -18,8 +18,6 @@ const SETTLE_READS = 4;
 const record = (input: unknown): Record<string, unknown> => input && typeof input === "object" ? input as Record<string, unknown> : {};
 const text = (value: unknown): string | undefined => typeof value === "string" && value.trim() ? value.trim() : undefined;
 
-const REGISTER_EVERY_PR = "Register every pull or merge request you open or work on for this thread, each layer of a stack included, right after creating it.";
-
 /** The section every runtime's system prompt gets, so linking does not hang on the model reading a tool description. */
 export const LINKING_INSTRUCTIONS = `<pull_request_linking>
 Tau keeps the pull and merge requests each thread works on. Whenever you open a pull or merge request, or start working on an existing one, call the link_pull_request tool with its full URL right away; for a stack, call it for every layer. Opening or updating a request through gh, glab, another CLI or the host's API does not register it with this thread. Linking one that is already linked is harmless. Before you finish work on requests, call list_thread_pull_requests and link any of yours that is missing. Do not link requests you only mention as background. If linking fails, say so instead of claiming the request is linked.
@@ -203,8 +201,8 @@ export function registerThreadLinks(
     {
       name: "link_pull_request",
       label: "Link pull request",
-      description: `${REGISTER_EVERY_PR} Links a pull or merge request to this thread so Tau shows it beside the thread and tracks its state. Pass the URL, or the number (with repository for another repository). Linking one that is already linked succeeds with alreadyLinked=true.`,
-      promptSnippet: "link_pull_request: register a pull request you opened or work on with this thread",
+      description: "Track a pull or merge request worked on in this thread and show its status beside the conversation. Does not create the request.",
+      promptSnippet: "link_pull_request: track a pull or merge request in this thread",
       parameters: targetParameters,
       execute: async (_toolCallId: string, params: unknown) => {
         const ref = await resolve(decodeTarget(params), session.cwd);
@@ -215,7 +213,8 @@ export function registerThreadLinks(
     {
       name: "unlink_pull_request",
       label: "Unlink pull request",
-      description: "Remove a pull or merge request from this thread, e.g. one opened by mistake. Pass the URL, or the number. Unlinking one that is not linked succeeds with wasLinked=false.",
+      description: "Remove an incorrect pull or merge request association from this thread. Does not close or delete the request.",
+      promptSnippet: "unlink_pull_request: remove an incorrect request association",
       parameters: targetParameters,
       execute: async (_toolCallId: string, params: unknown) => {
         const ref = await resolve(decodeTarget(params), session.cwd);
@@ -227,7 +226,8 @@ export function registerThreadLinks(
     {
       name: "list_thread_pull_requests",
       label: "List thread pull requests",
-      description: `List the pull or merge requests linked to this thread with their last known state. ${REGISTER_EVERY_PR}`,
+      description: "Check which pull or merge requests this thread tracks and their last known state.",
+      promptSnippet: "list_thread_pull_requests: check tracked requests and their state",
       parameters: Type.Object({}),
       execute: async () => {
         await refresh(session.sessionId, false);

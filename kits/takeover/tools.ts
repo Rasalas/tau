@@ -52,8 +52,8 @@ export function requestTakeoverTool(request: Request): AnyTool {
   const tool: ToolDefinition<typeof parameters, undefined> = {
     name: REQUEST_TAKEOVER_TOOL,
     label: REQUEST_TAKEOVER_TOOL,
-    description: "Ask the user to take over when only they can go on: signing in, a two-factor code, a captcha, a consent screen. Tau shows your reason, brings the page or window forward and waits; while it waits, Computer Use and the Preview are the user's. Never type a password yourself or ask for one in the chat. Answers when the user is done (carry on) or cancelled (stop).",
-    promptSnippet: "request_takeover: hand the Preview page, the driven app or a browser page to the user for a sign-in, 2FA or captcha, and wait until they are done",
+    description: "Get human help with sign-in, 2FA, captchas or consent. Waits for completion or cancellation; stop if cancelled. Never enter passwords yourself or ask for them in chat.",
+    promptSnippet: "request_takeover: get human help with sign-in, 2FA, captchas or consent",
     parameters,
     executionMode: "sequential",
     execute: async (_id, params, signal, _update, ctx): Promise<AgentToolResult<undefined> & { isError?: boolean }> => {

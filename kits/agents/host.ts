@@ -1017,16 +1017,8 @@ export function createAgentsHostExtension(options: {
           {
             name: "tau_spawn_thread",
             label: "Spawn thread",
-            description: [
-              "Start a new Tau thread in this project that works on a task on its own.",
-              "It appears in the Agents panel beside this conversation, has its own agent and its own transcript, and runs in the background.",
-              "By default it gets its own Git worktree, branched from this thread's current state, so it can write without colliding with this checkout; take its work back with tau_apply_thread_changes.",
-              `Returns immediately. Spawns beyond the running budget are queued with status "pending" and start as slots free; sub-agents may nest ${MAX_AGENT_DEPTH} levels deep.`,
-              "Read an answer with tau_wait_for_thread or tau_get_thread_status; when it finishes while you are not waiting for it, this thread gets its answer as a new message.",
-              "Pass agent to start it from one of the project's agent definitions in .tau/agents/: its instructions, model, runtime, tools and workspace apply.",
-              "Pass machine to run it on another computer this one's agents reach (by name, like \"rex\"): it gets a worktree there with this thread's state, and tau_apply_thread_changes brings its work back here as a branch and merges it. Each machine runs as many at once as it has cores; the rest queue.",
-            ].join(" "),
-            promptSnippet: "tau_spawn_thread: delegate a task to a new background thread in this project",
+            description: "Delegate an independent task to a background Tau thread, locally or on another machine. Uses an isolated Git worktree by default in Git projects. Results arrive automatically; changes require separate application.",
+            promptSnippet: "tau_spawn_thread: delegate an independent task to a background thread",
             parameters: Type.Object({
               prompt: Type.String({ description: "The first message for the new thread. Say what it should do and what to report back." }),
               title: Type.Optional(Type.String({ description: "Title for the Agents panel; derived from the prompt when left out." })),
@@ -1050,7 +1042,8 @@ export function createAgentsHostExtension(options: {
           {
             name: "tau_get_thread_status",
             label: "Thread status",
-            description: "Report what a thread spawned from here is doing right now, and its latest answer.",
+            description: "Check a delegated task's current progress and latest answer without waiting.",
+            promptSnippet: "tau_get_thread_status: check a delegated task without waiting",
             parameters: Type.Object({
               threadId: Type.String({ description: "Thread id returned by tau_spawn_thread." }),
             }),
@@ -1064,12 +1057,8 @@ export function createAgentsHostExtension(options: {
           {
             name: "tau_wait_for_thread",
             label: "Wait for thread",
-            description: [
-              "Wait until a thread spawned from here finishes its current turn, then report its status and final answer.",
-              "A queued thread is waited for as well: the wait covers the time it spends pending.",
-              "It also returns early when that thread asks the user a question, which only the user can answer in that thread.",
-              "For a thread with its own worktree the answer also carries its branch and what it changed there.",
-            ].join(" "),
+            description: "Wait when further work depends on a delegated task's result. Returns early for questions that require the user's answer in the child thread.",
+            promptSnippet: "tau_wait_for_thread: wait for a result needed to continue",
             parameters: Type.Object({
               threadId: Type.String({ description: "Thread id returned by tau_spawn_thread." }),
               timeoutMs: Type.Optional(Type.Number({ description: "How long to wait; 10 minutes by default, 30 minutes at most." })),
@@ -1087,16 +1076,12 @@ export function createAgentsHostExtension(options: {
           {
             name: "tau_send_to_thread",
             label: "Send to thread",
-            description: [
-              "Send a thread spawned from here another message: a follow-up task, a correction, or what it asked for.",
-              'mode "auto" (the default) starts it when it is idle and steers its running turn, queueing when it cannot steer;',
-              '"queue" waits for its running turn to end; "steer" joins the running turn now; "restart" stops the running turn and starts over with this message.',
-              "When the turn ends and you are not waiting for it, this thread gets its answer as a new message.",
-            ].join(" "),
+            description: "Give a delegated task a correction, missing context or follow-up work. Can interrupt its current turn when restarting.",
+            promptSnippet: "tau_send_to_thread: correct or follow up on a delegated task",
             parameters: Type.Object({
               threadId: Type.String({ description: "Thread id returned by tau_spawn_thread." }),
               message: Type.String({ description: "What the thread should do or know next." }),
-              mode: Type.Optional(Type.String({ description: '"auto", "queue", "steer" or "restart"; "auto" when left out.' })),
+              mode: Type.Optional(Type.String({ description: '"auto" (default) starts an idle thread or steers a running turn, queueing if needed; "queue" waits for the turn to end; "steer" joins it now; "restart" stops it and starts over.' })),
               clientRequestId: Type.Optional(Type.String({ description: "Your own id for this message; a retry with the same id sends nothing twice." })),
             }),
             execute: async (_toolCallId, params) =>
@@ -1105,10 +1090,8 @@ export function createAgentsHostExtension(options: {
           {
             name: "tau_cancel_thread",
             label: "Cancel thread",
-            description: [
-              "Stop a thread spawned from here: a queued one never starts, a running one ends its turn.",
-              "Its transcript and worktree stay, and a message sent with tau_send_to_thread starts it again. Cancelling a finished thread changes nothing.",
-            ].join(" "),
+            description: "Stop delegated work that is no longer needed. Preserves its transcript and worktree; the thread can be resumed.",
+            promptSnippet: "tau_cancel_thread: stop unneeded work without deleting its changes",
             parameters: Type.Object({
               threadId: Type.String({ description: "Thread id returned by tau_spawn_thread." }),
               clientRequestId: Type.Optional(Type.String({ description: "Your own id for this request; a retry with the same id returns the first result." })),
@@ -1119,11 +1102,8 @@ export function createAgentsHostExtension(options: {
           {
             name: "tau_apply_thread_changes",
             label: "Apply thread changes",
-            description: [
-              "Take the work of a thread spawned from here into this checkout, and remove its worktree.",
-              "A thread that committed everything is merged; anything else is applied as one patch of its whole working copy.",
-              "Nothing is applied when it would collide: the error names the branch, which stays for you to merge by hand.",
-            ].join(" "),
+            description: "Integrate a delegated task's changes into this checkout, or discard them. Removes the worktree on success; conflicts leave it intact. Discard deletes the work and branch.",
+            promptSnippet: "tau_apply_thread_changes: integrate or discard delegated changes",
             parameters: Type.Object({
               threadId: Type.String({ description: "Thread id returned by tau_spawn_thread." }),
               discard: Type.Optional(Type.Boolean({ description: "Throw the work away instead of applying it; the worktree and its branch go too." })),
@@ -1137,7 +1117,8 @@ export function createAgentsHostExtension(options: {
           {
             name: "tau_list_threads",
             label: "List spawned threads",
-            description: "List the threads spawned from this one, with what each is doing.",
+            description: "Get an overview of this thread's delegated tasks and their current activity.",
+            promptSnippet: "tau_list_threads: get an overview of delegated tasks",
             parameters: Type.Object({}),
             execute: async () => toolResult({
               threads: book.childrenOf(threadId).map((link) => ({
