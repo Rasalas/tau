@@ -263,7 +263,7 @@ export class SubmissionController {
         // ComposerScopeStore keeps the captured draft when a submission is
         // rejected, including edits made while preflight was in flight.
         // Re-seeding here would overwrite those newer edits.
-        this.ports.notify(String(error));
+        this.ports.notify(errorMessage(error));
         return { accepted: false, message: errorMessage(error) };
       }
     }
@@ -325,7 +325,7 @@ export class SubmissionController {
       const currentSubmission = isCurrentSubmission();
       cancelTranscriptTurn();
       removeOptimisticMessage(view, optimistic.id);
-      if (currentSubmission) this.ports.notify(String(error));
+      if (currentSubmission) this.ports.notify(errorMessage(error));
       return { accepted: false, message: errorMessage(error) };
     };
     const submittedDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);

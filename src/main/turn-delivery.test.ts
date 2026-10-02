@@ -3,6 +3,8 @@ import type { HostEvent } from "../shared/contracts.js";
 import { TurnDelivery, type TurnDeliveryPort } from "./turn-delivery.js";
 import { ThreadRuntime } from "./thread-runtime.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
+import { HostTurnObserverSet } from "./host-extensions.js";
+import { TurnsInFlight } from "./turns-in-flight.js";
 
 function makeThread(options: { kind?: string; journal?: boolean; turnReporting?: "streamed" | "awaited"; prompt?: (input: never) => Promise<unknown> } = {}) {
   const sent: Array<{ text: string; delivery: string }> = [];
@@ -53,6 +55,40 @@ function makeDelivery(thread: ThreadRuntime, overrides: Partial<TurnDeliveryPort
 }
 
 describe("TurnDelivery", () => {
+  it("cleans an accepted failure once without clearing a newer turn or waiting for observers", async () => {
+    const { thread } = makeThread();
+    const turnsInFlight = new TurnsInFlight();
+    turnsInFlight.record({ sessionId: "session", cwd: "/repo", turnId: "new-turn", backend: "pi", startedAt: 1, prompt: { text: "new prompt" } });
+    const turnObservers = new HostTurnObserverSet();
+    let rejectCleanup!: (error: Error) => void;
+    const cleanup = new Promise<void>((_resolve, reject) => { rejectCleanup = reject; });
+    const ended = vi.fn(() => cleanup);
+    turnObservers.add({ ended });
+    const fail = vi.fn();
+    const { delivery } = makeDelivery(thread, { turnsInFlight, turnObservers, fail });
+    const originalError = new Error("accepted run failed");
+    expect(delivery.failAcceptedTurn(thread, "old-turn", originalError)).toBeUndefined();
+    expect(turnsInFlight.get("session")?.turnId).toBe("new-turn");
+    expect(ended).toHaveBeenCalledExactlyOnceWith("session", "old-turn", "failed");
+    expect(fail).toHaveBeenCalledExactlyOnceWith(originalError, "session");
+    const observerError = new Error("observer cleanup failed");
+    rejectCleanup(observerError);
+    await vi.waitFor(() => expect(fail).toHaveBeenLastCalledWith(observerError, "session"));
+    expect(fail).toHaveBeenCalledTimes(2);
+    expect(ended).toHaveBeenCalledOnce();
+    expect(turnsInFlight.get("session")?.turnId).toBe("new-turn");
+  });
+
+  it("reports an accepted failure without a turn id without ending an observer turn", () => {
+    const { thread } = makeThread();
+    const fail = vi.fn();
+    const { delivery, port } = makeDelivery(thread, { fail });
+    const error = new Error("accepted command failed");
+    delivery.failAcceptedTurn(thread, undefined, error);
+    expect(fail).toHaveBeenCalledExactlyOnceWith(error, "session");
+    expect(port.turnsInFlight.clear).not.toHaveBeenCalled();
+    expect(port.turnObservers.ended).not.toHaveBeenCalled();
+  });
   it("appends a marker and hands a steer to a journal-backed runtime", async () => {
     const { thread, sent } = makeThread();
     const { delivery, port } = makeDelivery(thread);
@@ -130,6 +166,28 @@ describe("TurnDelivery", () => {
     await expect(brokenDelivery.delivery.toRuntime(broken.thread, "work", [], "prompt")).rejects.toThrow("broke");
     expect(brokenDelivery.port.turnObservers.ended).toHaveBeenCalledWith("session", expect.any(String), "failed");
     expect(brokenDelivery.port.turnObservers.cancelled).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, new Error("specific refusal")])("settles external false without waiting for the run and cancels accounting, reason=%s", async (error) => {
+    let rejectLate!: (error: Error) => void;
+    const run = new Promise<void>((_resolve, reject) => { rejectLate = reject; });
+    const refused = makeThread({ kind: "external", journal: false, prompt: (async (input: { onAdmitted?: (accepted: boolean, error?: unknown) => void }) => {
+      input.onAdmitted?.(false, error);
+      await run;
+      return {};
+    }) as never });
+    const { delivery, port } = makeDelivery(refused.thread);
+    const admitted = vi.fn();
+    const identity = { clientTurnId: "t", clientMessageId: "m" };
+    await expect(delivery.toRuntime(refused.thread, "work", [], "prompt", identity, undefined, admitted)).rejects.toThrow(error?.message ?? "The prompt was rejected before it started.");
+    expect(admitted).toHaveBeenCalledOnce();
+    expect(port.clientTurns.cancel).toHaveBeenCalledExactlyOnceWith("session", identity);
+    expect(port.turnObservers.cancelled).toHaveBeenCalledOnce();
+    expect(port.turnsInFlight.clear).toHaveBeenCalledOnce();
+    expect(port.turnObservers.ended).not.toHaveBeenCalled();
+    rejectLate(new Error("late refusal detail"));
+    await Promise.resolve();
+    expect(port.turnObservers.cancelled).toHaveBeenCalledOnce();
   });
 
   it("brackets an awaited backend's turn with a running status", async () => {

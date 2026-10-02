@@ -796,9 +796,9 @@ describe("Workspace Kit in the workbench", () => {
     rejectNewSession(new Error("prompt rejected"));
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("prompt rejected"));
     // The notice is a toast now, drawn once the stack's chunk has loaded.
-    expect(await screen.findByText("Error: prompt rejected")).toBeTruthy();
-    expect(plainChipText(composer.value)).toBe("draft.png submitted text\n\nnewer draft");
-    expect(screen.getByRole("button", { name: "Preview draft.png" })).toBeTruthy();
+    expect((await screen.findByText("prompt rejected", { selector: ".toast-body", exact: true })).textContent).toBe("prompt rejected");
+    await waitFor(() => expect(plainChipText(composer.value)).toBe("draft.png submitted text\n\nnewer draft"));
+    expect(await screen.findByRole("button", { name: "Preview draft.png" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "New thread" }));
     await waitFor(() => expect(plainChipText(composer.value)).toBe(""));

@@ -1584,10 +1584,10 @@ export class PiHost {
         onPreflightResult?.(result);
         resolveAdmitted();
       };
-      const run = this.turns.toRuntime(thread, text, attachments, "prompt", identity, prepared, (accepted) => { if (accepted) report({ accepted: true }); }, options.hidden)
+      const run = this.turns.toRuntime(thread, text, attachments, "prompt", identity, prepared, (accepted, error) => report({ accepted, ...(error !== undefined ? { error } : {}) }), options.hidden)
         .then(() => report({ accepted: true }), (error) => {
           if (preflight.state === "pending") report({ accepted: false, error });
-          else this.fail(error, thread.threadId);
+          else if (preflight.state === "accepted") this.fail(error, thread.threadId);
         });
       await Promise.race([admitted, run]);
       if (preflight.state === "rejected") throw preflight.rejection;
@@ -1624,9 +1624,9 @@ export class PiHost {
       rejectPreflight = reject;
     });
     const failUnpersistedMarker = () => {
+      if (identity) this.clientTurns.cancel(thread.threadId, identity);
       if (!markerActive) return;
       this.clientMessages.failIfUnpersisted(thread, clientMessageId);
-      if (identity) this.clientTurns.cancel(thread.threadId, identity);
       markerActive = false;
     };
     const reportPreflight = (result: PromptPreflightResult) => {
@@ -1641,7 +1641,6 @@ export class PiHost {
         rejectPreflight(result.error ?? new Error("The prompt was rejected before it started."));
       }
     };
-    this.log("prompt.accepted", `${prompt.slice(0, 80)}${attachments.length ? ` · ${attachments.length} image(s)` : ""}`);
     try {
       if (identity) this.clientTurns.enqueue(thread.threadId, identity, resolvedPrepared.sourceFingerprint);
       markerActive = this.clientMessages.appendMarker(thread, clientMessageId, text, resolvedPrepared.sourceFingerprint);
@@ -1653,30 +1652,26 @@ export class PiHost {
         attachments,
         queued: wasStreaming,
         ...(options.hidden ? { hidden: true } : {}),
-        onAdmitted: (accepted) => reportPreflight({ accepted }),
+        onAdmitted: (accepted, error) => reportPreflight({ accepted, ...(error !== undefined ? { error } : {}) }),
       });
       void run.then(async () => {
         if (preflightState === "pending") reportPreflight({ accepted: true });
+        if ((preflightState as PromptPreflightState) === "rejected") return;
         if (preparedTurnId) this.turnsInFlight.clear(thread.threadId, preparedTurnId);
         if (preparedTurnId) await this.turnObservers.ended(thread.threadId, preparedTurnId, "completed");
         if (this.threads.get(thread.threadId)?.runtime === thread) await this.index.refreshShell(thread, true);
       }).catch((error) => {
         if (preflightState === "pending") reportPreflight({ accepted: false, error });
-        else if (preflightState === "accepted") {
-          if (preparedTurnId) this.turnsInFlight.clear(thread.threadId, preparedTurnId);
-          if (preparedTurnId) void this.turnObservers.ended(thread.threadId, preparedTurnId, "failed");
-          if (!thread.deferError(error)) this.fail(error, thread.threadId);
-        }
+        else if (preflightState === "accepted") this.turns.failAcceptedTurn(thread, preparedTurnId, error);
       });
     } catch (error) {
       if (this.threads.get(thread.threadId)?.runtime !== thread) return;
-      if (preparedTurnId) this.turnsInFlight.clear(thread.threadId, preparedTurnId);
-      if (preparedTurnId) await this.turnObservers.cancelled(thread.threadId, preparedTurnId);
-      if (identity) this.clientTurns.cancel(thread.threadId, identity);
-      reportPreflight({ accepted: false, error });
+      if ((preflightState as PromptPreflightState) === "accepted") this.turns.failAcceptedTurn(thread, preparedTurnId, error);
+      else reportPreflight({ accepted: false, error });
     }
     // Reaching here means preflight accepted; a rejection throws out of the await.
     await preflight;
+    this.log("prompt.accepted", `${prompt.slice(0, 80)}${attachments.length ? ` · ${attachments.length} image(s)` : ""}`);
     // An extension command is answered without a user message or an agent run.
     // Its marker would otherwise label the next turn and be reported as a lost
     // message by agent_settled, and the client would wait for a turn that never
