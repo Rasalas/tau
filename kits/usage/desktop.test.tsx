@@ -10,11 +10,11 @@ import { UsageLimits } from "./limits.js";
 import { UsagePage } from "./page.js";
 import { priceFromDraft } from "./prices.js";
 import { dayStarts, HISTORY_DAYS } from "./dashboard.js";
-import { forgetLastState } from "./last-state.js";
+import { forgetLastState, saveLastState } from "./last-state.js";
 import { USAGE_PAGE, type UsageEntry, type UsageLimitsSummary, type UsageRow, type UsageSummary } from "./protocol.js";
 import { resetsIn } from "./view-model.js";
 
-afterEach(() => { forgetLastState(); });
+afterEach(() => { forgetLastState(); vi.useRealTimers(); });
 afterEach(cleanup);
 
 const NOW = new Date(2026, 8, 22, 15, 30);
@@ -426,6 +426,22 @@ describe("Usage across machines", () => {
 });
 
 describe("Usage kit", () => {
+  it("draws the monthly price before the plan bars in desktop and tablet summaries", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const { registry } = createKitHarness(answers());
+    registry.activate(usageExtension);
+    saveLastState(undefined, { days: dayStarts(HISTORY_DAYS, NOW), summary: summary({ entries: [entry({ day: HISTORY_DAYS - 1, costUsd: 12.4 })] }), limits });
+    const Summary = registry.getPages().find((page) => page.id === USAGE_PAGE)!.Summary!;
+    const openPage = vi.fn();
+    render(<TestProviders><TestThreadStore threads={[]}><Summary actions={{ openPage } as unknown as WorkbenchActions} /></TestThreadStore></TestProviders>);
+    expect(screen.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
+      "This month: $12.40", expect.stringMatching(/^Plan limits/u),
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "This month: $12.40" }));
+    expect(openPage).toHaveBeenCalledWith(USAGE_PAGE);
+  });
+
   it("contributes an app page and the command that opens it, and takes both back", () => {
     const { registry } = createKitHarness(answers());
     registry.activate(usageExtension);
