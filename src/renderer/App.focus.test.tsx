@@ -48,6 +48,7 @@ describe("thread-opening composer focus", () => {
       },
     }] });
     await settleFocus();
+    expect(screen.getByText("first")).toBeTruthy();
     const composer = screen.getByRole("textbox");
     expect(document.activeElement === composer).toBe(!touch);
 

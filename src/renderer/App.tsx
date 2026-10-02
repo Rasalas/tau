@@ -443,8 +443,7 @@ export default function App() {
     registry.dispatchWorkbenchEvent({ type: "workspace-changed", ...(from ? { from } : {}), to: hostWorkspace });
   }, [hostWorkspace, registry]);
 
-  // Desktop opens ready to type. Touch opens ready to read, without raising
-  // the keyboard. Never steal focus from a search field or a dialog.
+  // Desktop opens ready to type; touch opens without raising the keyboard.
   useEffect(() => {
     if (!snapshot?.sessionId || primaryPointerIsTouch()) return;
     const timer = window.setTimeout(() => {
