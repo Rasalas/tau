@@ -95,7 +95,7 @@ function useCard() {
 }
 
 /** Reads the limits again a moment after a run ends. */
-export function useRunEnded(feed: LimitsFeed): void {
+export function useRunEnded(feed: Pick<LimitsFeed, "runEnded">): void {
   const threads = useThreadStore();
   const running = useSyncExternalStore(threads.subscribeToActivity, () => threads.getActivity().runningThreadIds.length);
   const last = useRef(running);

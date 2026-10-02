@@ -161,7 +161,7 @@ describe("Usage page", () => {
     expect(within(projects).getByText("side-project")).toBeTruthy();
     expect(within(projects).getByText("Outside Tau")).toBeTruthy();
 
-    const where = screen.getByRole("radiogroup", { name: "Where the work ran" });
+    const where = await screen.findByRole("radiogroup", { name: "Where the work ran" });
     fireEvent.click(within(where).getByRole("radio", { name: "In Tau" }));
     await waitFor(() => expect(within(screen.getByRole("region", { name: "Threads" })).queryByText("Codex session 019a-cli")).toBeNull());
     fireEvent.click(within(where).getByRole("radio", { name: "Outside Tau" }));

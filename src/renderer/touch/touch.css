@@ -150,6 +150,9 @@
 /* Kits' strip over the list: notices, the plans' juicebars. */
 .touch-browser .region-thread-list-head { flex: none; display: flex; flex-direction: column; gap: 6px; max-width: none; margin: 0; padding: 0 8px 4px; }
 .touch-browser .region-thread-list-head:empty { display: none; }
+.touch-browser .region-thread-list-foot { flex: none; max-width: none; margin: auto 0 0; }
+.touch-browser.sidebar .sidebar-footer { padding-bottom: max(10px, var(--safe-bottom, 0px)); }
+.touch-browser.sidebar .sidebar-footer button { min-width: var(--touch-target); height: var(--touch-target); }
 /* Keyboard and screen-reader way to the actions a long press opens. */
 .touch-thread-more {
   position: absolute; right: 4px; top: 4px; width: 32px; height: 28px;

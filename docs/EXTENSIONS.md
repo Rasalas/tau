@@ -890,6 +890,10 @@ about the list as a whole. Machines Kit says there which paired machine is out
 of reach (Retry) or refused the device (Pair again), and Usage Kit draws the
 plans' juicebars; register it with `profiles: ["compact"]` and render nothing
 when there is nothing to say. An older core never draws the placement.
+`thread-list-foot` (API 1.34.0) sits below the scrolling rows in a tablet's
+split sidebar, never on a phone's home screen. Workspace Kit draws the same
+footer there as on desktop, with touch-sized targets. Register it with
+`profiles: ["compact"]`; an older core never draws the placement.
 
 #### Threads of elsewhere in the compact list
 
@@ -1241,10 +1245,13 @@ its end come what pages sum up, a Tau release waiting for a restart and
 Settings. Before API 1.28.0 a prominent page wrote its label and count beside
 the icon ("Reviews 4") and Settings came second. `Summary` (API 1.28.0) is an
 optional component the foot draws for the page at its end, in place of the
-icon and of `useSummary`: Usage's juicebars. It gets `{ actions }`, opens the
+icon and of `useSummary`: Usage's monthly billed price followed by juicebars. It gets `{ actions }`, opens the
 page itself (`actions.openPage(id, params)`, Usage at `{ section: "limits" }`)
 and draws the page's icon when it has nothing to show. A phone has no foot:
-Usage draws the same bars in `thread-list-head` instead. `useSummary()` (API
+Usage draws the same bars in `thread-list-head` instead. A tablet's split
+sidebar uses the desktop footer through `thread-list-foot` (API 1.34.0),
+with Reviews at the left and price, juicebars, Settings aligned at the right.
+The top juicebar strip is hidden there. `useSummary()` (API
 1.27.0) is an optional hook for a short figure `{ text, short?, hint? }` the
 foot shows at its end instead of the icon when there is no `Summary`; `short`
 stands in where the foot has no room for `text`, `hint` is the tooltip, and

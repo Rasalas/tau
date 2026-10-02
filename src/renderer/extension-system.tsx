@@ -310,9 +310,10 @@ export interface TranscriptRowsHandle {
  * plain label (both API 1.27.0). `draft-actions` adds pills beside the
  * project under a new thread's heading, each opening its own popover.
  * `thread-list-head` tops a phone's or tablet's thread list, under its header
- * (API 1.30.0).
+ * (API 1.30.0). `thread-list-foot` sits below a tablet's scrolling thread
+ * list in split layout, never on a phone's home screen (API 1.34.0).
  */
-export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in" | "thread-list-head";
+export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in" | "thread-list-head" | "thread-list-foot";
 
 /** Where a thread of a list source runs: its mark and name on the row's project line. */
 export interface ThreadListPlace {

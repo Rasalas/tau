@@ -87,6 +87,7 @@ export function TouchThreadBrowser({ variant, nav, onNewThread, onOpenSettings, 
     {header}
     {head}
     <TouchThreadList {...list} onNewThread={onNewThread} />
+    <Region registry={list.registry} placement="thread-list-foot" actions={list.actions} />
     {popovers}
   </nav>;
 }

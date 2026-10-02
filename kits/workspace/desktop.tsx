@@ -34,6 +34,7 @@ import { createStoragePage, STORAGE_SETTINGS_ROWS } from "./storage-page.js";
 import { OPEN_REQUEST_EVENT, OPEN_REQUEST_WAITING_COMMAND, STORAGE_CHANGED_EVENT, TAKE_OPEN_REQUEST_COMMAND, type WorktreeStorageHostCommands } from "./storage-protocol.js";
 import { OpenRequests } from "./open-requests.js";
 import { SOURCE_CONTROL_SETTINGS_ROWS, SourceControlPage } from "./source-control-page.js";
+import { SidebarFooter } from "./sidebar-footer.js";
 
 /** No need to poll every 30 s; a tick, a focus and a project switch are enough here. */
 const AUTO_PULL_INTERVAL_MS = 5 * 60_000;
@@ -75,6 +76,10 @@ export const workspaceExtension: DesktopExtension = {
     const unpublishIcons = publishProjectIcons(context.preferences, (icons) => context.setProjectIcons?.(icons));
 
     context.registerSidebar({ id: "workspace.sidebar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceSidebar) });
+    context.registerRegion({
+      id: "workspace.sidebar-foot", placement: "thread-list-foot", profiles: ["compact"],
+      Component: ({ actions }) => <SidebarFooter actions={actions} readOnly={context.host.isReadOnly?.() ?? false} />,
+    });
     context.registerProjectSource({
       id: "workspace.local-folder",
       label: "Local folder",
