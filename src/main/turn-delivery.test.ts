@@ -132,6 +132,28 @@ describe("TurnDelivery", () => {
     expect(brokenDelivery.port.turnObservers.cancelled).not.toHaveBeenCalled();
   });
 
+  it.each([undefined, new Error("specific refusal")])("settles external false without waiting for the run and cancels accounting, reason=%s", async (error) => {
+    let rejectLate!: (error: Error) => void;
+    const run = new Promise<void>((_resolve, reject) => { rejectLate = reject; });
+    const refused = makeThread({ kind: "external", journal: false, prompt: (async (input: { onAdmitted?: (accepted: boolean, error?: unknown) => void }) => {
+      input.onAdmitted?.(false, error);
+      await run;
+      return {};
+    }) as never });
+    const { delivery, port } = makeDelivery(refused.thread);
+    const admitted = vi.fn();
+    const identity = { clientTurnId: "t", clientMessageId: "m" };
+    await expect(delivery.toRuntime(refused.thread, "work", [], "prompt", identity, undefined, admitted)).rejects.toThrow(error?.message ?? "The prompt was rejected before it started.");
+    expect(admitted).toHaveBeenCalledOnce();
+    expect(port.clientTurns.cancel).toHaveBeenCalledExactlyOnceWith("session", identity);
+    expect(port.turnObservers.cancelled).toHaveBeenCalledOnce();
+    expect(port.turnsInFlight.clear).toHaveBeenCalledOnce();
+    expect(port.turnObservers.ended).not.toHaveBeenCalled();
+    rejectLate(new Error("late refusal detail"));
+    await Promise.resolve();
+    expect(port.turnObservers.cancelled).toHaveBeenCalledOnce();
+  });
+
   it("brackets an awaited backend's turn with a running status", async () => {
     const { thread, sent } = makeThread({ journal: false, turnReporting: "awaited" });
     const { delivery, events, port } = makeDelivery(thread);

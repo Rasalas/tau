@@ -6,6 +6,9 @@ import { decodeHostCursor } from "./transcript-cursor.js";
 import { detailFromSnapshot, type ThreadDetail } from "../shared/host-protocol.js";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import { PiHost } from "./pi-host.js";
+import { AgentSession } from "@earendil-works/pi-coding-agent";
+import { PiThreadRuntimeBackend } from "./thread-runtime-backend.js";
+import type { ThreadBackendPromptInput } from "./runtime-types.js";
 import { ThreadRuntime } from "./thread-runtime.js";
 import { cleanThreadTitle, lastTurnActivityFromMessages, modelSupportsImageInput, turnActivityHistoryFromMessages } from "./host-messages.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
@@ -88,7 +91,7 @@ function piPromptThread(session: {
     cwd: "/repo",
     turnReporting: "streamed" as const,
     capabilities: {
-      journal: { entries: () => entries, appendCustomEntry: () => undefined, appendMessage: () => undefined },
+      journal: { entries: () => entries, appendCustomEntry: (customType: string, data: unknown) => { entries.push({ type: "custom", customType, data }); }, appendMessage: () => undefined },
     },
     preparePrompt: async (text: string) => ({
       tauThreadId: "session",
@@ -179,6 +182,219 @@ function makeActivationThread(threadId: string, sessionFile = `/${threadId}.json
   };
   return new ThreadRuntime(backend, { session } as never) as any;
 }
+
+describe("issue 13 real SDK refusal reason", () => {
+  // Controlled SDK state, not evidence that compaction caused the phone incident.
+  // Calling the installed SDK implementation exercises its false-then-throw order.
+  const reason = "Cannot submit a prompt while compaction is in progress. Wait for compaction to finish and retry.";
+  function compactingSdkPrompt(text: string, options?: { preflightResult?: (success: boolean) => void }) {
+    return AgentSession.prototype.prompt.call({ _compactionAbortController: new AbortController() } as never, text, options);
+  }
+
+  it("establishes the real SDK refusal and callback order without delivering a user message", async () => {
+    const order: unknown[] = [];
+    await compactingSdkPrompt("text-only follow-up", { preflightResult: (accepted) => order.push(accepted) })
+      .catch((error: Error) => order.push(error.message));
+    expect(order).toEqual([false, reason]);
+  });
+
+  it("admits one retry through the SDK once the controlled compaction gate clears", async () => {
+    const delivered: unknown[] = [];
+    const sdkState = {
+      _compactionAbortController: new AbortController() as AbortController | undefined,
+      isStreaming: false,
+      model: { provider: "fixture", id: "fixture", input: ["text"] },
+      _extensionRunner: { hasHandlers: () => false, emitBeforeAgentStart: async () => undefined },
+      _expandSkillCommand: (text: string) => text,
+      promptTemplates: [],
+      _flushPendingBashMessages: () => undefined,
+      _flushPendingCustomMessages: () => undefined,
+      _modelRuntime: { hasConfiguredAuth: () => true },
+      _findLastAssistantMessage: () => ({ role: "assistant", stopReason: "stop" }),
+      _checkCompaction: async () => undefined,
+      _pendingNextTurnMessages: [],
+      _baseSystemPrompt: "fixture",
+      agent: { state: { systemPrompt: "fixture" } },
+      _runAgentPrompt: async (messages: unknown[]) => { delivered.push(...messages); },
+      prompt: (text: string, options?: { preflightResult?: (success: boolean) => void }) =>
+        AgentSession.prototype.prompt.call(sdkState as never, text, options),
+    };
+    const runtime = piPromptThread(sdkState);
+    const backendContext = { ...runtime.backend, session: sdkState };
+    runtime.backend.prompt = (input: ThreadBackendPromptInput) =>
+      PiThreadRuntimeBackend.prototype.prompt.call(backendContext as never, input);
+    const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
+    await adoptThread(host, { threadId: "session", cwd: "/repo", runtime });
+    await expect(host.prompt("text-only follow-up", [], "session")).rejects.toThrow();
+    expect(delivered).toEqual([]);
+    sdkState["_compactionAbortController"] = undefined;
+    const admitted = vi.fn();
+    await expect(host.prompt("text-only follow-up", [], "session", admitted)).resolves.toBeUndefined();
+    expect(admitted).toHaveBeenCalledExactlyOnceWith({ accepted: true });
+    expect(delivered).toEqual([expect.objectContaining({ role: "user", content: [{ type: "text", text: "text-only follow-up" }] })]);
+  });
+
+  it.each([true, false])("preserves the available SDK reason at host admission, journal=%s", async (journal) => {
+    const session = { model: { input: ["text"] }, isStreaming: false, prompt: compactingSdkPrompt };
+    const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
+    const runtime = piPromptThread(session);
+    if (!journal) delete runtime.backend.capabilities.journal;
+    const backendContext = { ...runtime.backend, session };
+    runtime.backend.prompt = (input: ThreadBackendPromptInput) =>
+      PiThreadRuntimeBackend.prototype.prompt.call(backendContext as never, input);
+    await adoptThread(host, { threadId: "session", cwd: "/repo", runtime });
+    const preflight = vi.fn();
+    await expect(host.prompt("text-only follow-up", [], "session", preflight)).rejects.toThrow(reason);
+    expect(preflight).toHaveBeenCalledWith(expect.objectContaining({ accepted: false }));
+  });
+});
+
+describe("PiHost admission settlement contracts", () => {
+  it.each([true, false])("settles bare false and cancels its accounting, journal=%s", async (journal) => {
+    let finish!: () => void;
+    const run = new Promise<void>((resolve) => { finish = resolve; });
+    const runtime = piPromptThread({ model: { input: ["text"] }, isStreaming: false, prompt: async () => undefined });
+    if (!journal) {
+      delete runtime.backend.capabilities.journal;
+      (runtime.backend as { kind: string }).kind = "external";
+    }
+    runtime.backend.prompt = async (input) => { input.onAdmitted?.(false); await run; return {}; };
+    const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
+    await adoptThread(host, { threadId: "session", cwd: "/repo", runtime });
+    const internals = host as unknown as {
+      clientTurns: { pendingSize: number };
+      turnsInFlight: { list(): unknown[] };
+      turnObservers: { cancelled: (...args: unknown[]) => Promise<void>; ended: (...args: unknown[]) => Promise<void> };
+    };
+    const cancelled = vi.spyOn(internals.turnObservers, "cancelled");
+    const ended = vi.spyOn(internals.turnObservers, "ended");
+    const identity = { clientTurnId: "refused-turn", clientMessageId: "refused-message" };
+    await expect(host.prompt("refused", [], "session", identity)).rejects.toThrow("The prompt was rejected before it started.");
+    await vi.waitFor(() => {
+      expect(internals.clientTurns.pendingSize).toBe(0);
+      expect(internals.turnsInFlight.list()).toEqual([]);
+      expect(cancelled).toHaveBeenCalledOnce();
+    });
+    expect(runtime.pendingClientMessageIds).toEqual([]);
+    expect(runtime.inFlightClientMessageIds.size).toBe(0);
+    if (journal) expect(runtime.entries).toContainEqual(expect.objectContaining({ customType: "tau-client-message-cancel", data: { clientMessageId: "refused-message" } }));
+    finish();
+    await Promise.resolve();
+    expect(ended).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])("preserves synchronous rejection, journal=%s", async (journal) => {
+    const runtime = piPromptThread({ model: { input: ["text"] }, isStreaming: false, prompt: async () => undefined });
+    if (!journal) delete runtime.backend.capabilities.journal;
+    runtime.backend.prompt = () => { throw new Error("synchronous refusal"); };
+    const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
+    await adoptThread(host, { threadId: "session", cwd: "/repo", runtime });
+    const callback = vi.fn();
+    await expect(host.prompt("follow-up", [], "session", callback)).rejects.toThrow("synchronous refusal");
+    expect(callback).toHaveBeenCalledExactlyOnceWith({ accepted: false, error: expect.any(Error) });
+  });
+
+  it.each([true, false])("accepted-then-synchronous-error is only a thread failure, journal=%s", async (journal) => {
+    const runtime = piPromptThread({ model: { input: ["text"] }, isStreaming: false, prompt: async () => undefined });
+    if (!journal) delete runtime.backend.capabilities.journal;
+    runtime.backend.prompt = (input) => { input.onAdmitted?.(true); throw new Error("synchronous run failure"); };
+    const emit = vi.fn();
+    const host = new PiHost("/repo", emit, {} as never, true, false);
+    await adoptThread(host, { threadId: "session", cwd: "/repo", runtime });
+    const callback = vi.fn();
+    await expect(host.prompt("follow-up", [], "session", callback)).resolves.toBeUndefined();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(expect.objectContaining({ type: "error", message: "synchronous run failure", sessionId: "session" })));
+    expect(callback).toHaveBeenCalledExactlyOnceWith({ accepted: true });
+  });
+
+  it.each([true, false])("accepted-then-late-error is only a thread failure, journal=%s", async (journal) => {
+    let fail!: (error: Error) => void;
+    const run = new Promise<void>((_resolve, reject) => { fail = reject; });
+    const runtime = piPromptThread({ model: { input: ["text"] }, isStreaming: false, prompt: async () => undefined });
+    if (!journal) delete runtime.backend.capabilities.journal;
+    runtime.backend.prompt = async (input) => { input.onAdmitted?.(true); await run; return {}; };
+    const emit = vi.fn();
+    const host = new PiHost("/repo", emit, {} as never, true, false);
+    await adoptThread(host, { threadId: "session", cwd: "/repo", runtime });
+    const callback = vi.fn();
+    await expect(host.prompt("follow-up", [], "session", callback)).resolves.toBeUndefined();
+    fail(new Error("late run failure"));
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(expect.objectContaining({ type: "error", message: "late run failure", sessionId: "session" })));
+    expect(callback).toHaveBeenCalledExactlyOnceWith({ accepted: true });
+  });
+
+  it("settles the Pi adapter's reasonless refusal without reporting a completed turn", async () => {
+    const session = { model: { input: ["text"] }, isStreaming: false, prompt: async (_text: string, options?: { preflightResult?: (success: boolean) => void }) => { options?.preflightResult?.(false); } };
+    const runtime = piPromptThread(session);
+    runtime.backend.prompt = (input) => PiThreadRuntimeBackend.prototype.prompt.call({ ...runtime.backend, session } as never, input);
+    const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
+    await adoptThread(host, { threadId: "session", cwd: "/repo", runtime });
+    await expect(host.prompt("follow-up", [], "session")).rejects.toThrow("The prompt was rejected before it started.");
+  });
+
+  it("propagates a real SDK input hook refusal through the adapter", async () => {
+    const session = { model: { input: ["text"] }, isStreaming: false, prompt: (text: string, options?: { preflightResult?: (success: boolean) => void }) => AgentSession.prototype.prompt.call({
+      _extensionRunner: { hasHandlers: () => true, emitInput: async () => { throw new Error("Input hook refused this prompt."); } },
+      isStreaming: false,
+    } as never, text, options) };
+    const runtime = piPromptThread(session);
+    runtime.backend.prompt = (input) => PiThreadRuntimeBackend.prototype.prompt.call({ ...runtime.backend, session } as never, input);
+    const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
+    await adoptThread(host, { threadId: "session", cwd: "/repo", runtime });
+    await expect(host.prompt("follow-up", [], "session")).rejects.toThrow("Input hook refused this prompt.");
+  });
+
+  it("accepts a real SDK input hook's handled prompt without starting an agent run", async () => {
+    const session = { model: { input: ["text"] }, isStreaming: false, prompt: (text: string, options?: { preflightResult?: (success: boolean) => void }) => AgentSession.prototype.prompt.call({
+      _extensionRunner: { hasHandlers: () => true, emitInput: async () => ({ action: "handled" }) },
+      isStreaming: false,
+    } as never, text, options) };
+    const runtime = piPromptThread(session);
+    runtime.backend.prompt = (input) => PiThreadRuntimeBackend.prototype.prompt.call({ ...runtime.backend, session } as never, input);
+    const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
+    await adoptThread(host, { threadId: "session", cwd: "/repo", runtime });
+    const callback = vi.fn();
+    await expect(host.prompt("follow-up", [], "session", callback)).resolves.toBeUndefined();
+    expect(callback).toHaveBeenCalledExactlyOnceWith({ accepted: true });
+  });
+
+  it("a cancelled real SDK refusal cannot label the next accepted user message", async () => {
+    let refuse = true;
+    const runtime = piPromptThread({ model: { input: ["text"] }, isStreaming: false, prompt: (text, options) => {
+      if (refuse) return AgentSession.prototype.prompt.call({ _compactionAbortController: new AbortController() } as never, text, options);
+      options?.preflightResult?.(true);
+      return Promise.resolve();
+    } });
+    // Use the real Pi adapter, preserving the SDK's false-then-throw order.
+    const session = { prompt: (text: string, options?: { preflightResult?: (success: boolean) => void }) => {
+      if (refuse) return AgentSession.prototype.prompt.call({ _compactionAbortController: new AbortController() } as never, text, options);
+      options?.preflightResult?.(true);
+      return new Promise<void>(() => undefined);
+    } };
+    runtime.backend.prompt = (input) => PiThreadRuntimeBackend.prototype.prompt.call({ ...runtime.backend, session } as never, input);
+    const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
+    await adoptThread(host, { threadId: "session", cwd: "/repo", runtime });
+    const internals = host as unknown as {
+      clientTurns: { pendingSize: number };
+      turnsInFlight: { list(): unknown[] };
+      clientMessages: { correlateStart(thread: ThreadRuntime, message: unknown): void };
+      turnObservers: { cancelled: (...args: unknown[]) => Promise<void> };
+    };
+    const cancelled = vi.spyOn(internals.turnObservers, "cancelled");
+    await expect(host.prompt("same follow-up", [], "session", { clientTurnId: "old-turn", clientMessageId: "old-message" })).rejects.toThrow("compaction is in progress");
+    expect(internals.clientTurns.pendingSize).toBe(0);
+    expect(internals.turnsInFlight.list()).toEqual([]);
+    expect(cancelled).toHaveBeenCalledOnce();
+    expect(runtime.pendingClientMessageIds).toEqual([]);
+    refuse = false;
+    await host.prompt("same follow-up", [], "session", { clientTurnId: "next-turn", clientMessageId: "next-message" });
+    const message = { role: "user", content: [{ type: "text", text: "same follow-up" }], timestamp: 1 };
+    internals.clientMessages.correlateStart(runtime, message);
+    expect(message).toMatchObject({ clientTurnId: "next-turn", clientMessageId: "next-message" });
+    expect(internals.clientTurns.pendingSize).toBe(0);
+    expect(runtime.inFlightClientMessageIds).toEqual(new Set(["next-message"]));
+  });
+});
 
 describe("PiHost prompt preflight", () => {
   it("resolves after SDK preflight acceptance and reports later run errors", async () => {

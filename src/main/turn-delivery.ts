@@ -104,7 +104,7 @@ export class TurnDelivery {
     delivery: TurnDeliveryKind,
     identity?: ClientTurnIdentity,
     prepared?: PreparedPrompt,
-    onAdmitted?: (accepted: boolean) => void,
+    onAdmitted?: (accepted: boolean, error?: unknown) => void,
     hidden?: boolean,
   ): Promise<void> {
     if (thread.backend.turnReporting === "awaited") {
@@ -131,18 +131,26 @@ export class TurnDelivery {
     try {
       if (ownTurn && !wasStreaming) await this.port.turnObservers.prepare(thread.threadId, turnId);
       if (identity) this.port.clientTurns.enqueue(thread.threadId, identity, prepared?.sourceFingerprint);
-      await thread.backend.prompt({
+      let rejectRefusal!: (error: unknown) => void;
+      const refusal = new Promise<never>((_resolve, reject) => { rejectRefusal = reject; });
+      let reported = false;
+      const run = Promise.resolve().then(() => thread.backend.prompt({
         text,
         delivery,
         attachments,
         ...(identity ? { identity } : {}),
         ...(prepared ? { prepared } : {}),
         ...(hidden ? { hidden: true } : {}),
-        onAdmitted: (accepted) => {
-          admitted ||= accepted;
-          onAdmitted?.(accepted);
+        onAdmitted: (accepted, error) => {
+          if (reported) return;
+          reported = true;
+          admitted = accepted;
+          if (error === undefined) onAdmitted?.(accepted);
+          else onAdmitted?.(accepted, error);
+          if (!accepted) rejectRefusal(error ?? new Error("The prompt was rejected before it started."));
         },
-      });
+      }));
+      await Promise.race([run, refusal]);
       admitted = true;
       if (ownTurn) {
         this.port.turnsInFlight.clear(thread.threadId, turnId);
