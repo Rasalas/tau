@@ -1,5 +1,5 @@
 import { memo, useEffect, useState, type ReactNode } from "react";
-import { ArchiveRestore, Check, CircleHelp, GitBranch, Monitor, PlugZap, TriangleAlert } from "lucide-react";
+import { ArrowUp, Check, CircleHelp, GitBranch, Monitor, PlugZap, TriangleAlert } from "lucide-react";
 import { displayRuntime, type UiSession } from "../../shared/contracts";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { DEFAULT_RUNTIME, threadOnPlan } from "../runtime-marks";
@@ -142,7 +142,7 @@ export const ThreadRow = memo(function ThreadRow({
             aria-label={`${settled ? "Return" : "Settle"} ${session.title}`}
             onClick={() => onToggleSettled(session.id)}
           >
-            {settled ? <ArchiveRestore size={13} /> : <Check size={13} />}
+            {settled ? <ArrowUp size={13} /> : <Check size={13} />}
           </button> : null}
         </span> : null}
       </article>
