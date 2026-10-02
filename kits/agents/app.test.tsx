@@ -104,8 +104,6 @@ function appWith(
 
 /** Agents is a stage tab, under the strip's More tools. */
 async function openAgentsTab(): Promise<void> {
-  // The header's toggle opens the stage on Files; Agents is under the strip's More tools.
-  fireEvent.click(await screen.findByRole("button", { name: "Show stage" }));
   fireEvent.click(await screen.findByRole("button", { name: "More tools" }));
   fireEvent.click(await screen.findByRole("menuitem", { name: /Agents/ }, { timeout: 3000 }));
 }

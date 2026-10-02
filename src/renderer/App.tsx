@@ -638,7 +638,7 @@ export default function App() {
   const startProjectName = pendingNewThread?.projectName ?? projects.find((project) => project.path === startProjectPath)?.name ?? startProjectPath.split(/[\\/]/u).filter(Boolean).at(-1) ?? startProjectPath;
   const layout = useMemo<WorkbenchLayout>(() => ({
     controlRef: workbenchControlRef,
-    registry, threadStore, settings, layoutProfile, workspaceCwd, stageWorkspace, sidebarContributions, panels, activePanel,
+    registry, threadStore, settings, layoutProfile, workspaceCwd, stageWorkspace, sidebarContributions, panels,
     openPanel, panelLayout, drawer, stageFolded, setStageFolded,
     chatFocused, setChatFocused, maximized, stageMaximized, setStageMaximized, stage, stageTabs, activateStageTab: activateStage,
     pinStageTab: pinStage, unpinStageTab: unpinStage, setStageFileView: setStageView, loadThread: threadCommands.loadThread, takeOverThread, documentState, documentSource, paletteOpen, paletteMenu, closePalette,
@@ -646,7 +646,7 @@ export default function App() {
     closeNewThreadPicker, projects, removeProject: threadCommands.removeProject, createThreadInProject, settingsPage, setSettingsPage,
     setNotice, activeOverlayId, closeOverlay, pages,
   }), [
-    activePanel, activeOverlayId, activateStage, chatFocused, stageMaximized, maximized, closeNewThreadPicker, layoutProfile,
+    activeOverlayId, activateStage, chatFocused, stageMaximized, maximized, closeNewThreadPicker, layoutProfile,
     closeOverlay, closePalette, closeProjectSources, commands, createThreadInProject,
     documentSource, documentState, drawer, panelLayout, setStageFolded, stageFolded, newThreadPick,
     openNewThreadPicker, openPanel,

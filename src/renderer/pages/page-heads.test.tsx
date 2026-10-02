@@ -74,7 +74,7 @@ describe("page heads and bars draw no list markers", () => {
 
   it("the thread's header and the stage's tab strip", () => {
     const { container } = render(<>
-      <ThreadHeader title="Add pagination" details={<div className="thread-details"><span className="thread-detail">feat/pagination</span><span className="thread-detail">turn 2</span></div>} stage={{ shown: false, onToggle: vi.fn() }} />
+      <ThreadHeader title="Add pagination" details={<div className="thread-details"><span className="thread-detail">feat/pagination</span><span className="thread-detail">turn 2</span></div>} />
       <StageTabs
         tabs={[{ id: "a", kind: "file", path: "/work/shop-api/src/orders.ts", view: "source", preview: false }]}
         activeId="a"

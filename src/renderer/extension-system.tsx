@@ -314,9 +314,9 @@ export interface TranscriptRowsHandle {
  * the transcript, before the thread's title, or as the status line at the
  * bottom, Pi's footer. `look-in` sits under the header of a tab that shows a
  * thread of another machine (API 1.15.0); its props carry `lookIn`. `title-bar`
- * is the thread header's end, beside the stage toggle, and stays mounted while
+ * is the thread header's end, beside the tools, and stays mounted while
  * the conversation is folded (API 1.27.0: the window-wide bar is gone);
- * `stage-bar` sits at the right of the stage's tab strip, before its maximize
+ * `stage-bar` sits at the right of the stage's tab strip, before its tools
  * (API 1.27.0). `thread-details` adds items to the thread header's sub-line,
  * before the branch; `thread-branch` draws the branch there instead of core's
  * plain label (both API 1.27.0). `draft-actions` adds pills beside the

@@ -94,15 +94,21 @@ describe("workbench layout", () => {
     expect(view.storage.get("tau:sidebar-width")).toBe("900");
   });
 
-  /** The header's toggle: shows the stage, or opens it on the first tool when nothing is open. */
+  /** Open the first available tool from the header. */
   async function showStage(): Promise<HTMLElement> {
-    fireEvent.click(await screen.findByRole("button", { name: "Show stage" }));
+    const toolbar = await screen.findByRole("toolbar", { name: "Tools" });
+    const button = (await within(toolbar).findAllByRole("button"))[0]!;
+    fireEvent.click(button);
+    if (button.getAttribute("aria-label") === "More tools") {
+      fireEvent.click((await screen.findAllByRole("menuitem"))[0]!);
+    }
     return screen.findByRole("region", { name: "Stage" });
   }
 
-  it("draws no window-wide title bar and no panel rail: the thread header carries the stage toggle", async () => {
+  it("draws the tools in the thread header without a stage toggle or a panel rail", async () => {
     const view = renderApp(undefined, { extensions: [rail, panels] });
-    await screen.findByRole("button", { name: "Show stage" });
+    await screen.findByRole("button", { name: "More tools" });
+    expect(screen.queryByRole("button", { name: "Show stage" })).toBeNull();
     expect(view.container.querySelector(".title-bar")).toBeNull();
     expect(view.container.querySelector(".panel-rail, .instrument-dock")).toBeNull();
     expect(view.container.querySelector(".conversation-column > .thread-header")).not.toBeNull();
@@ -150,7 +156,7 @@ describe("workbench layout", () => {
     } };
     renderApp(undefined, { extensions: [buttons] });
     const stage = await showStage();
-    // The empty stage opened on the first tool that has a button.
+    // The header tool opens its stage tab.
     expect(await within(stage).findByText("shell tab body")).toBeTruthy();
     expect(within(stage).queryByRole("button", { name: "More tools" })).toBeNull();
     expect(within(stage).getByRole("button", { name: "Shell tab" }).getAttribute("aria-pressed")).toBe("true");
@@ -198,7 +204,7 @@ describe("workbench layout", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: /Tree/ }));
     fireEvent.click(await within(stage).findByRole("button", { name: "Pick a.ts" }));
     await waitFor(() => expect(within(stage).getByRole("tab", { name: /a\.ts/ }).getAttribute("aria-selected")).toBe("true"));
-    // The toggle opened the first tool; Tree and the file joined it.
+    // The header opened Browser; Tree and the file joined it.
     expect(within(stage).getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Browser", "Tree", "a.ts"]);
   });
 
@@ -266,7 +272,7 @@ describe("workbench layout", () => {
       plugin.registerCommand({ id: "test.open-shell", label: "Open shell", group: "Test", run: (actions) => { open = actions.openPanel; actions.openPanel("shell"); } });
     } };
     const view = renderApp(undefined, { extensions: [panels, opener] });
-    await screen.findByRole("button", { name: "Show stage" });
+    await screen.findByRole("button", { name: "More tools" });
     await runPaletteCommand("Open shell");
     const drawer = await screen.findByRole("region", { name: "Shell" });
     fireEvent.click(within(drawer).getByRole("button", { name: "Maximize Shell" }));
@@ -296,7 +302,8 @@ describe("workbench layout", () => {
       await runPaletteCommand("Toggle dock");
       await waitFor(() => expect(screen.queryByRole("region", { name: "Stage" })).toBeNull());
       expect(view.container.querySelector(".workbench-center")?.className).not.toContain("stage-open");
-      const stage = await showStage();
+      await runPaletteCommand("Toggle dock");
+      const stage = await screen.findByRole("region", { name: "Stage" });
       expect(within(stage).getByRole("tab", { name: /notes\.txt/ }).getAttribute("aria-selected")).toBe("true");
     });
 
@@ -317,7 +324,7 @@ describe("workbench layout", () => {
       const view = renderApp(undefined, { extensions: [rail, files] });
       const stage = await openFile();
       const center = () => view.container.querySelector(".workbench-center")?.className ?? "";
-      fireEvent.click(screen.getByRole("button", { name: "Collapse conversation" }));
+      await runPaletteCommand("Collapse to spine");
       const spine = await screen.findByRole("complementary", { name: "Thread" });
       expect(center()).toContain("spine");
       expect(center()).toContain("composer-floating");
@@ -336,7 +343,7 @@ describe("workbench layout", () => {
       const storage = createMemoryStorage();
       const first = renderApp(undefined, { extensions: [rail, files], storage });
       await openFile();
-      fireEvent.click(screen.getByRole("button", { name: "Collapse conversation" }));
+      await runPaletteCommand("Collapse to spine");
       await screen.findByRole("complementary", { name: "Thread" });
       expect(storage.get("tau:spine")).toBe("true");
       first.unmount();
@@ -390,8 +397,8 @@ describe("workbench layout", () => {
       expect(view.container.querySelector(".workbench-center")?.className).toContain("conversation-folded");
       fireEvent.click(screen.getByRole("button", { name: "Show chat" }));
       await waitFor(() => expect(screen.queryByRole("region", { name: "Stage" })).toBeNull());
-      // The header's toggle brings the stage back in front of the chat.
-      expect(await showStage()).toBeTruthy();
+      // Opening the file brings the stage back in front of the chat.
+      expect(await openFile()).toBeTruthy();
     });
   });
 });

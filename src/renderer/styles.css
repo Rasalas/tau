@@ -173,7 +173,6 @@ button > svg { pointer-events: none; }
 .thread-header-actions .region-title-bar { flex: 1 1 auto; min-width: 0; }
 .thread-header-tools { flex: none; display: flex; align-items: center; gap: 1px; }
 .thread-header-tools > .workbench-region { flex-direction: row; align-items: center; gap: 1px; }
-.thread-header-separator { flex: none; width: 1px; height: 16px; margin: 0 var(--space-2); background: var(--line); }
 /* Room for the native macOS traffic lights where the sidebar is hidden; they ignore page zoom. */
 .window-controls-inset { width: calc(64px / var(--page-zoom, 1)); flex: none; }
 .title-draft { color: var(--ink); white-space: nowrap; }

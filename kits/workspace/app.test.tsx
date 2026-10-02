@@ -48,10 +48,10 @@ describe("Workspace Kit in the workbench", () => {
     expect(button.getAttribute("data-tooltip")).toMatch(/^Read only/u);
   });
 
-  it("opens Files as a stage tab from the header's toggle: the explorer beside the file it reads", async () => {
+  it("opens Files as a stage tab from the header's Files tool: the explorer beside the file it reads", async () => {
     const view = renderApp(undefined, { extensions: [workspaceExtension] });
     expect(view.container.querySelector(".panel-rail")).toBeNull();
-    fireEvent.click(await screen.findByRole("button", { name: "Show stage" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Files" }));
     const stage = await screen.findByRole("region", { name: "Stage" });
     await waitFor(() => expect(within(stage).getByRole("tab", { name: /Files/ }).getAttribute("aria-selected")).toBe("true"));
     expect(within(stage).getByRole("complementary", { name: "Explorer" })).toBeTruthy();
@@ -79,7 +79,7 @@ describe("Workspace Kit in the workbench", () => {
     renderApp(client, { extensions: [workspaceExtension] });
     await screen.findByRole("heading", { name: /do next\?$/ });
     expect(getFileTree).not.toHaveBeenCalled();
-    fireEvent.click(await screen.findByRole("button", { name: "Show stage" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Files" }));
     const stage = await screen.findByRole("region", { name: "Stage" });
     await waitFor(() => expect(within(stage).getByRole("complementary", { name: "Explorer" })).toBeTruthy());
     await waitFor(() => expect(getFileTree).toHaveBeenCalled());
@@ -1119,7 +1119,7 @@ describe("Workspace Kit in the workbench", () => {
 
     renderApp(client, { extensions: [workspaceExtension] });
     // The kit subscribes to the event when it activates; wait for its own surface first.
-    await screen.findByRole("button", { name: "Show stage" });
+    await screen.findByRole("button", { name: "Files" });
     act(() => client.emit({
       type: "extension-event",
       extensionId: "tau.workspace",

@@ -107,14 +107,14 @@ describe("picking a thread in the rail while only one of chat and stage fits", (
 
     pick("a");
     await waitFor(() => expect(switchSession).toHaveBeenCalledWith("/sessions/a.jsonl"));
-    fireEvent.click(await screen.findByRole("button", { name: "Show stage" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Files" }));
     expect(within(await screen.findByRole("region", { name: "Stage" })).getByRole("tab", { name: /Terminal/ })).toBeTruthy();
   });
 
   it("brings the chat back beside a maximized tool, which stays in its tab", async () => {
     setWindowWidth(1728);
     const { pick, center } = await renderRail();
-    fireEvent.click(await screen.findByRole("button", { name: "Show stage" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Files" }));
     const stage = await screen.findByRole("region", { name: "Stage" });
     fireEvent.click(within(stage).getByRole("button", { name: "More tools" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: /Diffs/ }));
@@ -218,7 +218,7 @@ describe("starting a new thread while only one of chat and stage fits", () => {
   it("starts the draft without the maximized tool; its thread shows the tool beside its chat again", async () => {
     setWindowWidth(1728);
     const { pick, center } = await renderRail();
-    fireEvent.click(await screen.findByRole("button", { name: "Show stage" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Files" }));
     const stage = await screen.findByRole("region", { name: "Stage" });
     fireEvent.click(within(stage).getByRole("button", { name: "More tools" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: /Diffs/ }));

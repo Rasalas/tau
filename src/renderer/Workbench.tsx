@@ -157,7 +157,6 @@ export interface WorkbenchLayout {
   stageWorkspace?: string;
   sidebarContributions: ReturnType<ExtensionRegistry["getSidebarContributions"]>;
   panels: ReturnType<ExtensionRegistry["getPanels"]>;
-  activePanel: string;
   openPanel(id: string): void;
   /** Which panels are on the stage, and the moves between drawer and stage. */
   panelLayout?: PanelLayout;
@@ -298,7 +297,7 @@ export interface WorkbenchModel {
 export const Workbench = memo(function Workbench({ model }: { model: WorkbenchModel }) {
   const { actions, layout, thread, composer, view, toasts } = model;
   const {
-    registry, threadStore, settings, layoutProfile, workspaceCwd, stageWorkspace, sidebarContributions: allSidebarContributions, panels: allPanels, activePanel,
+    registry, threadStore, settings, layoutProfile, workspaceCwd, stageWorkspace, sidebarContributions: allSidebarContributions, panels: allPanels,
     openPanel, panelLayout, drawer, stageFolded, setStageFolded,
     chatFocused, setChatFocused, maximized, setStageMaximized, stage, stageTabs, activateStageTab, pinStageTab, unpinStageTab, setStageFileView,
     loadThread, takeOverThread,
@@ -483,15 +482,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     setChatWidthPreference(bounded);
     clientStorage.set(STORAGE_KEYS.chatWidth, String(bounded));
   };
-  // The header's toggle hides the stage or brings it back; an empty one opens the tool last picked in the project, else Files.
-  const firstTool = panels.find((panel) => panel.id === activePanel && panel.placement !== "drawer")
-    ?? panels.find((panel) => panel.stageButton && panel.placement !== "drawer") ?? panels.find((panel) => panel.placement !== "drawer");
-  const toggleStage = () => {
-    if (stage.tabs.length === 0) { if (firstTool) openPanel(firstTool.id); return; }
-    if (stageExpanded) { setStageFolded(true); return; }
-    setStageFolded(false);
-    setChatFocused(false);
-  };
   // The tools' buttons read as pressed while their tab is in front of a shown stage, or their drawer is open.
   const frontTab = stage.tabs.find((tab) => tab.id === stage.activeId);
   const shownTools = useMemo(() => new Set([
@@ -508,8 +498,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     openPanel(id);
   };
   const stageTools = <>
-    <Suspense fallback={null}><LazyStageTools panels={panels} shown={shownTools} opened={split ? openedTools : undefined} onOpen={openTool} /></Suspense>
     <Region registry={registry} placement="stage-bar" snapshot={snapshot} actions={actions} />
+    <Suspense fallback={null}><LazyStageTools panels={panels} shown={shownTools} opened={split ? openedTools : undefined} onOpen={openTool} /></Suspense>
   </>;
 
   // macOS draws its traffic lights over the window's top left; elsewhere the OS frames the window itself.
@@ -723,8 +713,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       : split ? <StartDetails snapshot={conversationSnapshot} /> : <StartDetails snapshot={conversationSnapshot} slots={detailSlots} />}
     actions={conversationFolded ? null : <PanelSlot host={titleActionsHost} />}
     tools={stageExpanded ? undefined : stageTools}
-    {...(!split && (firstTool || stage.tabs.length > 0) ? { stage: { shown: stageExpanded, shortcut: registry.keybindingLabel?.("workbench.toggle-dock"), onToggle: toggleStage } } : {})}
-    {...(canSplit && !compact ? { onSpine: () => setSpine(true) } : {})}
   />;
   return providers(<>
     {/* Settings covers the shell rather than unmounting it, so threads, terminals and scroll stay as they were. */}

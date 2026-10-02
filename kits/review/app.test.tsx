@@ -79,9 +79,6 @@ function workbench(overrides: Parameters<typeof workspaceHostStub>[0] = {}, revi
  */
 /** Changes is one of the stage strip's More tools; its entry opens the full review. */
 async function openChanges(): Promise<void> {
-  await screen.findByRole("button", { name: /^(Show stage|Collapse conversation)$/ });
-  const show = screen.queryByRole("button", { name: "Show stage" });
-  if (show) fireEvent.click(show);
   fireEvent.click(await screen.findByRole("button", { name: "More tools" }));
   fireEvent.click(await screen.findByRole("menuitem", { name: /Changes/ }, { timeout: 3000 }));
 }
