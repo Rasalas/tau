@@ -1641,6 +1641,18 @@ export class PiHost {
         rejectPreflight(result.error ?? new Error("The prompt was rejected before it started."));
       }
     };
+    const failAcceptedTurn = (error: unknown): void => {
+      const reportFailure = (failure: unknown): void => {
+        if (!thread.deferError(failure)) this.fail(failure, thread.threadId);
+      };
+      if (preparedTurnId) {
+        this.turnsInFlight.clear(thread.threadId, preparedTurnId);
+        // Admission already succeeded. Observe cleanup failure without holding
+        // the reply open for an extension's ended hook or rethrowing its error.
+        void this.turnObservers.ended(thread.threadId, preparedTurnId, "failed").catch(reportFailure);
+      }
+      reportFailure(error);
+    };
     try {
       if (identity) this.clientTurns.enqueue(thread.threadId, identity, resolvedPrepared.sourceFingerprint);
       markerActive = this.clientMessages.appendMarker(thread, clientMessageId, text, resolvedPrepared.sourceFingerprint);
@@ -1662,19 +1674,12 @@ export class PiHost {
         if (this.threads.get(thread.threadId)?.runtime === thread) await this.index.refreshShell(thread, true);
       }).catch((error) => {
         if (preflightState === "pending") reportPreflight({ accepted: false, error });
-        else if (preflightState === "accepted") {
-          if (preparedTurnId) this.turnsInFlight.clear(thread.threadId, preparedTurnId);
-          if (preparedTurnId) void this.turnObservers.ended(thread.threadId, preparedTurnId, "failed");
-          if (!thread.deferError(error)) this.fail(error, thread.threadId);
-        }
+        else if (preflightState === "accepted") failAcceptedTurn(error);
       });
     } catch (error) {
       if (this.threads.get(thread.threadId)?.runtime !== thread) return;
-      if ((preflightState as PromptPreflightState) === "accepted") {
-        if (preparedTurnId) this.turnsInFlight.clear(thread.threadId, preparedTurnId);
-        if (preparedTurnId) void this.turnObservers.ended(thread.threadId, preparedTurnId, "failed");
-        if (!thread.deferError(error)) this.fail(error, thread.threadId);
-      } else reportPreflight({ accepted: false, error });
+      if ((preflightState as PromptPreflightState) === "accepted") failAcceptedTurn(error);
+      else reportPreflight({ accepted: false, error });
     }
     // Reaching here means preflight accepted; a rejection throws out of the await.
     await preflight;

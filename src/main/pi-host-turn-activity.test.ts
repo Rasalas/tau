@@ -12,7 +12,7 @@ import type { ThreadBackendPromptInput } from "./runtime-types.js";
 import { ThreadRuntime } from "./thread-runtime.js";
 import { cleanThreadTitle, lastTurnActivityFromMessages, modelSupportsImageInput, turnActivityHistoryFromMessages } from "./host-messages.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
-import type { HostExtensionContext } from "./host-extensions.js";
+import type { HostExtensionContext, HostTurnObserverSet } from "./host-extensions.js";
 import { loadBundledKitHostHalves } from "./bundled-kits.js";
 import { readBootstrapCache, writeBootstrapCache } from "../workbench/bootstrap-cache.js";
 import { applyTranscriptBundleMerge } from "../workbench/transcript-history-page-state.js";
@@ -292,6 +292,74 @@ describe("PiHost admission settlement contracts", () => {
     const callback = vi.fn();
     await expect(host.prompt("follow-up", [], "session", callback)).rejects.toThrow("synchronous refusal");
     expect(callback).toHaveBeenCalledExactlyOnceWith({ accepted: false, error: expect.any(Error) });
+  });
+
+  it.each(["synchronous", "asynchronous"])("observes rejected failed-turn cleanup after accepted %s failure without blocking admission", async (mode) => {
+    let rejectCleanup!: (error: Error) => void;
+    const cleanup = new Promise<void>((_resolve, reject) => { rejectCleanup = reject; });
+    const runtime = piPromptThread({ model: { input: ["text"] }, isStreaming: false, prompt: async () => undefined });
+    const originalError = new Error(`${mode} accepted run failure`);
+    runtime.backend.prompt = (input) => {
+      input.onAdmitted?.(true);
+      if (mode === "synchronous") throw originalError;
+      return Promise.reject(originalError);
+    };
+    const emit = vi.fn();
+    const host = new PiHost("/repo", emit, {} as never, true, false);
+    await adoptThread(host, { threadId: "session", cwd: "/repo", runtime });
+    const internals = host as unknown as {
+      turnObservers: HostTurnObserverSet;
+      turnsInFlight: { list(): unknown[] };
+    };
+    const ended = vi.fn(() => cleanup);
+    const removeObserver = internals.turnObservers.add({ ended });
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    const callback = vi.fn();
+    try {
+      // Cleanup is still pending: admission and the original thread failure
+      // must not wait for an extension's ended observer.
+      await expect(host.prompt("follow-up", [], "session", callback)).resolves.toBeUndefined();
+      await vi.waitFor(() => {
+        expect(ended).toHaveBeenCalledExactlyOnceWith("session", expect.any(String), "failed");
+        expect(emit).toHaveBeenCalledWith(expect.objectContaining({ type: "error", message: originalError.message, sessionId: "session" }));
+      });
+      expect(internals.turnsInFlight.list()).toEqual([]);
+      rejectCleanup(new Error("failed-turn observer cleanup rejected"));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(unhandled).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(expect.objectContaining({ type: "error", message: "failed-turn observer cleanup rejected", sessionId: "session" })));
+      expect(callback).toHaveBeenCalledExactlyOnceWith({ accepted: true });
+      expect(emit.mock.calls.filter(([event]) => event.type === "error")).toHaveLength(2);
+    } finally {
+      removeObserver();
+      process.off("unhandledRejection", unhandled);
+    }
+  });
+
+  it("defers both accepted-run and cleanup errors through the existing thread barrier", async () => {
+    const originalError = new Error("accepted run failed");
+    const observerError = new Error("failed-turn observer failed");
+    const runtime = piPromptThread({ model: { input: ["text"] }, isStreaming: false, prompt: async () => undefined });
+    runtime.backend.prompt = (input) => { input.onAdmitted?.(true); throw originalError; };
+    const emit = vi.fn();
+    const host = new PiHost("/repo", emit, {} as never, true, false);
+    await adoptThread(host, { threadId: "session", cwd: "/repo", runtime });
+    const internals = host as unknown as { turnObservers: HostTurnObserverSet };
+    const removeObserver = internals.turnObservers.add({ ended: async () => { throw observerError; } });
+    runtime.beginEventBarrier();
+    try {
+      await expect(host.prompt("follow-up", [], "session")).resolves.toBeUndefined();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(emit.mock.calls.filter(([event]) => event.type === "error")).toEqual([]);
+      const dispatch = vi.fn();
+      runtime.releaseEventBarrier(dispatch, vi.fn(), vi.fn());
+      expect(dispatch.mock.calls.map((call) => call[4])).toEqual([originalError, observerError]);
+      expect(dispatch.mock.calls.every((call) => call[2] === "session")).toBe(true);
+    } finally {
+      removeObserver();
+      runtime.cancelEventBarrier();
+    }
   });
 
   it.each([true, false])("accepted-then-synchronous-error is only a thread failure, journal=%s", async (journal) => {
