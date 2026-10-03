@@ -1,5 +1,7 @@
 import { useContext, useSyncExternalStore, type CSSProperties } from "react";
-import { WorkbenchShellContext } from "../workbench-context";
+import { ThreadStoreContext, WorkbenchShellContext } from "../workbench-context";
+import { findProjectForSession } from "../../shared/session-project";
+import type { UiProject } from "../../shared/contracts";
 
 export function projectHue(value: string): number {
   let hash = 0;
@@ -23,15 +25,25 @@ export interface ProjectIconSubject {
 }
 
 const noSubscribe = () => () => undefined;
+const noProjects: readonly UiProject[] = [];
+const getNoProjects = () => noProjects;
 
-function useChosenIcon(project: Pick<ProjectIconSubject, "path" | "workspaceId"> | undefined): string | undefined {
+type IconSubject = Pick<ProjectIconSubject, "path" | "workspaceId" | "icon"> & Partial<Pick<ProjectIconSubject, "name">>;
+
+/** Resolve presentation against the project index even when the caller only has a thread's workspace. */
+function useResolvedIcon(project: IconSubject | undefined, fallback?: string): string | undefined {
   const registry = useContext(WorkbenchShellContext)?.registry;
-  return useSyncExternalStore(registry?.subscribe ?? noSubscribe, () => (project ? registry?.projectIcon(project) : undefined));
+  const store = useContext(ThreadStoreContext);
+  const projects = useSyncExternalStore(store?.subscribeToProjects ?? noSubscribe, store?.getProjects ?? getNoProjects);
+  const owner = project ? findProjectForSession(projects, { projectPath: project.path, workspaceId: project.workspaceId, projectName: project.name }) : undefined;
+  const chosen = useSyncExternalStore(registry?.subscribe ?? noSubscribe, () =>
+    (project ? registry?.projectIcon(project) : undefined) ?? (owner ? registry?.projectIcon(owner) : undefined));
+  return chosen ?? fallback ?? project?.icon ?? owner?.icon;
 }
 
 /** A kit's picture for the project (`setProjectIcons`), else the host's. */
-export function useProjectIcon(project: Pick<ProjectIconSubject, "path" | "workspaceId" | "icon"> | undefined): string | undefined {
-  return useChosenIcon(project) ?? project?.icon;
+export function useProjectIcon(project: IconSubject | undefined): string | undefined {
+  return useResolvedIcon(project);
 }
 
 /**
@@ -46,7 +58,7 @@ export function ProjectIcon({ project, icon, hue, className }: {
   hue?: string | undefined;
   className?: string | undefined;
 }) {
-  const image = useChosenIcon(project) ?? icon ?? project.icon;
+  const image = useResolvedIcon(project, icon);
   return <i
     className={`thread-project-icon${className ? ` ${className}` : ""}${image ? " has-image" : ""}`}
     style={{ "--project-hue": projectHue(hue ?? project.path) } as CSSProperties}

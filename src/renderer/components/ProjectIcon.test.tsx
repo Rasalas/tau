@@ -3,7 +3,8 @@ import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ExtensionRegistry, type DesktopExtensionContext } from "../extension-system";
 import { PreferencesStore } from "../preferences";
-import { WorkbenchShellContext } from "../workbench-context";
+import { ThreadStoreContext, WorkbenchShellContext } from "../workbench-context";
+import { ThreadStore } from "../../workbench/thread-store";
 import { DraftRow } from "./DraftRow";
 import { ProjectIcon } from "./ProjectIcon";
 import { ThreadRow } from "./ThreadRow";
@@ -23,6 +24,27 @@ function setup() {
 afterEach(cleanup);
 
 describe("project icons a kit publishes (setProjectIcons)", () => {
+  it("keeps the project picture when a draft becomes a worktree thread, without caller lookups", () => {
+    const { first, draw } = setup();
+    const store = new ThreadStore();
+    store.applyThreadIndex({ projects: [{ path: "/repos/tau", name: "tau", workspaceId: "root", lastOpenedAt: 1, icon: favicon }], sessions: [] });
+    const session = { id: "t", path: "/t.jsonl", title: "Thread", modifiedAt: 1, projectPath: "/worktrees/feature", projectName: "tau", workspaceId: "worktree", messageCount: 1 };
+    const { container } = draw(<ThreadStoreContext.Provider value={store}>
+      <DraftRow draft={{ draftId: "d", projectName: "tau", projectPath: "/repos/tau", workspaceId: "root", preview: "", attachments: 0, createdAt: 1, active: false }} onOpen={() => {}} />
+      <ThreadRow activity="idle" active={false} age="now" session={session} onSelect={() => {}} />
+      <ThreadRow activity="settled" compact active={false} age="now" session={session} onSelect={() => {}} />
+      <ProjectIcon project={{ path: session.projectPath, name: session.projectName, workspaceId: session.workspaceId }} />
+    </ThreadStoreContext.Provider>);
+    const images = () => [...container.querySelectorAll(".thread-project-icon img")].map((img) => img.getAttribute("src"));
+    expect(images()).toEqual([favicon, favicon, favicon, favicon]);
+    act(() => first.setProjectIcons({ root: rocket }));
+    expect(images()).toEqual([rocket, rocket, rocket, rocket]);
+    act(() => store.applyThreadIndex({ projects: [{ path: "/repos/tau", name: "tau", workspaceId: "root", lastOpenedAt: 1, icon: star }], sessions: [] }));
+    act(() => first.setProjectIcons(undefined));
+    expect(images()).toEqual([star, star, star, star]);
+    act(() => first.setProjectIcons({ root: rocket, worktree: favicon }));
+    expect(images()).toEqual([rocket, favicon, favicon, favicon]);
+  });
   it("answers by workspace id, then path; keeps pictures only; the first extension wins; withdraws on deactivation", () => {
     const { registry, first, second } = setup();
     first.setProjectIcons({ ws1_shop: rocket, "/other": "https://example.test/x.png" });
