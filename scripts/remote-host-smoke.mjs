@@ -172,7 +172,7 @@ async function startHost({ workspace, userData, tokenHome, tls, webClient, kits 
   host.stderr.on("data", (chunk) => { output += String(chunk); });
   host.on("exit", (code) => { if (code !== 0 && code !== null && !host.stopping) fail(`the host exited with ${code}\n${output}`); });
   const listening = tls
-    ? () => /listening on wss:\/\/\S+/u.test(output) && /tls fingerprint: SHA256 (\S+)/u.test(output)
+    ? () => /listening on wss:\/\/\S+/u.test(output) && /tls fingerprint: SHA256 (\S+)/u.test(output) && /tls public key: SHA256 (\S+)/u.test(output)
     : () => /listening on ws:\/\/\S+/u.test(output);
   const ready = proxy ? () => listening() && /proxy listener on http:\/\/\S+/u.test(output) : listening;
   await waitFor(ready, "the host to listen");
