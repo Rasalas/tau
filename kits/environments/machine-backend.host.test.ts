@@ -105,6 +105,7 @@ describe("machine provider in the real host", () => {
   it("keeps remote private threads out of the normal project catalog", async () => {
     const f = await fixture();
     f.remote.projectName = "No project";
+    f.remote.projectless = true;
     f.remote.workspaceId = "ws-remote-private";
     const { host } = await f.open();
     let bootstrap = await host.bootstrap();

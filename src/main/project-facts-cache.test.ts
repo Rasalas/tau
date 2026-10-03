@@ -115,5 +115,6 @@ describe("ProjectFactsCache", () => {
   expect(await facts.projectless("/private/thread")).toBe(false);
   facts.add({ projectless: async (cwd) => cwd === "/private/thread" });
   expect(await facts.projectless("/private/thread")).toBe(true);
+  expect(facts.knownProjectless("/private/thread")).toBe(true);
   expect(await facts.projectless("/project")).toBe(false);
 });

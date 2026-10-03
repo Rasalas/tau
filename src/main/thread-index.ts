@@ -495,6 +495,7 @@ export class ThreadIndex {
       ...session,
       workspaceId,
       projectDisplayPath: displayPath,
+      ...(session.backendKind !== "machine" && this.port.projects.knownProjectless(session.projectPath) ? { projectless: true } : {}),
       ...(this.interrupted.has(session.id) ? { interrupted: true } : {}),
       ...(this.turnErrors.has(session.id) ? { turnError: this.turnErrors.get(session.id) } : {}),
       ...(this.runtimeErrors.has(session.id) ? { runtimeError: this.runtimeErrors.get(session.id) } : {}),

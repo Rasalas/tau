@@ -407,6 +407,8 @@ export interface UiSession {
   workspaceId?: string;
   /** What the user sees for the project; on a local host its absolute path. */
   projectDisplayPath?: string;
+  /** A private thread workspace explicitly classified by its home host. */
+  projectless?: boolean;
   projectName: string;
   /** Short label an extension gives the project, e.g. its Git branch. */
   projectLabel?: string;
