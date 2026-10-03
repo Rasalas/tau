@@ -120,7 +120,9 @@ export function classifyToolRun(tool: UiToolRun, hint: ToolPresentationHint = {}
   const action = toolActionClass(tool.name);
   const path = text(tool.args.path) ?? text(tool.args.file_path);
   const source = hint.source ?? mcpSource(tool.name);
-  const subject = action === "command"
+  // Unknown tools can carry execution code as their argument summary. Name
+  // the tool or its source in the live line; arguments belong in its disclosure.
+  const subject = action === "other" ? undefined : action === "command"
     ? commandProgram(text(tool.args.command)) ?? hint.detail
     : path ?? text(tool.args.pattern) ?? text(tool.args.query) ?? hint.detail;
   return {
