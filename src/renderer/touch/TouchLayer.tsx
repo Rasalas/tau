@@ -8,6 +8,7 @@ import {
 import { pageFromUrl, urlWithPage } from "./page-url";
 import { threadFromUrl, threadUrlStep, urlWithThread } from "./thread-url";
 import { editingFocused, tallestHeight, viewportFit } from "./visual-viewport";
+import { useClientEnvironment } from "../client-environment";
 import "./touch.css";
 
 /** A phone's route and how to go there; see `usePhoneNavigation`. */
@@ -23,6 +24,8 @@ export interface PhoneRouting {
  * screen, where the list is home and back steps out of a chat.
  */
 export function TouchLayer({ syncUrl, openThread, phone }: { syncUrl: boolean; openThread(path: string): Promise<boolean>; phone?: PhoneRouting }) {
+  const { mobileApp } = useClientEnvironment();
+  const floatingToolbar = mobileApp?.platform === "ios" && !phone;
   useThreadUrl(syncUrl && !phone, openThread);
   usePageUrl(syncUrl && !phone);
   usePhoneHistory(syncUrl ? phone : undefined, openThread);
@@ -32,11 +35,14 @@ export function TouchLayer({ syncUrl, openThread, phone }: { syncUrl: boolean; o
     let tallest: { width: number; height: number } | undefined;
     const update = () => {
       tallest = tallestHeight(tallest, window.innerWidth, window.innerHeight);
-      const fit = viewportFit(window.innerHeight, visual, { tallest: tallest.height, editing: editingFocused(document.activeElement) });
+      const fit = viewportFit(window.innerHeight, visual, { tallest: tallest.height, editing: editingFocused(document.activeElement) }, floatingToolbar);
+      const toolbar = floatingToolbar && !fit.keyboard;
+      const inset = Math.max(0, window.innerHeight - (toolbar ? visual?.height ?? window.innerHeight : fit.height + fit.top));
       root.style.setProperty("--tau-viewport-height", `${fit.height}px`);
       root.style.setProperty("--tau-viewport-top", `${fit.top}px`);
-      root.style.setProperty("--tau-keyboard-inset", `${Math.max(0, window.innerHeight - fit.height - fit.top)}px`);
+      root.style.setProperty("--tau-keyboard-inset", `${inset}px`);
       document.body.toggleAttribute("data-keyboard", fit.keyboard);
+      document.body.toggleAttribute("data-floating-toolbar", toolbar && inset > 0);
     };
     update();
     visual?.addEventListener("resize", update);
@@ -54,8 +60,9 @@ export function TouchLayer({ syncUrl, openThread, phone }: { syncUrl: boolean; o
       root.style.removeProperty("--tau-viewport-top");
       root.style.removeProperty("--tau-keyboard-inset");
       document.body.removeAttribute("data-keyboard");
+      document.body.removeAttribute("data-floating-toolbar");
     };
-  }, []);
+  }, [floatingToolbar]);
 
   return null;
 }

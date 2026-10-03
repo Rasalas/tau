@@ -15,6 +15,17 @@ describe("the page beside an on-screen keyboard", () => {
     expect(viewportFit(700, undefined)).toEqual({ height: 700, top: 0, keyboard: false });
   });
 
+  it("keeps the tablet sidebar full height beside the floating iPad shortcut bar", () => {
+    expect(viewportFit(1180, { height: 1125, offsetTop: 0 }, undefined, true))
+      .toEqual({ height: 1180, top: 0, keyboard: false });
+    // A viewport pan must not move the whole sidebar off screen either.
+    expect(viewportFit(1180, { height: 1125, offsetTop: 80 }, undefined, true))
+      .toEqual({ height: 1180, top: 0, keyboard: false });
+    // A full on-screen keyboard still needs the whole app to fit above it.
+    expect(viewportFit(1180, { height: 780, offsetTop: 80 }, undefined, true))
+      .toEqual({ height: 780, top: 80, keyboard: true });
+  });
+
   it("says a keyboard is up where the web view shrinks the whole page while a field is focused", () => {
     // Android resizes the page: the visual viewport is as tall as the layout one.
     expect(viewportFit(500, { height: 500, offsetTop: 0 }, { tallest: 915, editing: true }).keyboard).toBe(true);
