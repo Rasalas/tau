@@ -4588,7 +4588,12 @@ The Machines kit exposes `machine-tools-state` and `machine-tools-update` for
 all reachable machines, with an optional `{ machine }` to retry one. Receiving
 hosts expose `runtime-tools-state` and `runtime-tools-update`. Older hosts,
 disconnected machines and read-only connections are skipped with a reason.
-Automatic-update preferences remain per machine.
+Automatic-update preferences remain per machine. These commands use the long
+command budget. The aggregate publishes `machine-tools-progress` on the topic
+of the same name, with `{ requestId, machine }`, as each machine starts and
+finishes. Clients supply a `requestId` to correlate progress and ignore old
+requests. An ambiguous update failure requires a successful state check before
+another update is sent; the aggregate never automatically replays updates.
 
 API 1.48.0 also adds an optional runtime backend restart capability and the
 optional workbench `restartAgentSession` action, preserving the thread's

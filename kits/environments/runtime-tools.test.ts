@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { HostMachine, HostMachineServices, UiRuntimeToolsState } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { createEnvironmentsHostExtension } from "./host.js";
-import { ENVIRONMENTS_EXTENSION_ID, LOCAL_STATE, LOCAL_UPDATE, MACHINE_TOOLS_STATE, MACHINE_TOOLS_UPDATE } from "./protocol.js";
+import { ENVIRONMENTS_EXTENSION_ID, LOCAL_STATE, LOCAL_UPDATE, MACHINE_TOOLS_PROGRESS, MACHINE_TOOLS_STATE, MACHINE_TOOLS_UPDATE } from "./protocol.js";
 
 const state = (): UiRuntimeToolsState => ({ tools: [
   { kinds: ["codex", "codex@work"], label: "Codex", tool: "codex", installed: "1.0.0", latest: "1.1.0", source: "Homebrew", update: "brew upgrade --cask codex" },
@@ -68,4 +68,32 @@ describe("agent tool updates across machines", () => {
     expect(f.runtimeTools).not.toHaveBeenCalled();
     await expect(registry.invoke(ENVIRONMENTS_EXTENSION_ID, MACHINE_TOOLS_STATE, undefined, caller)).resolves.toMatchObject([{ id: "local" }]);
   });
+  it("uses long command budgets and publishes completed machines before a slow peer", async () => {
+    const f = fixture([{ id: "slow", name: "slow", status: "connected" }]);
+    let finish!: (value: UiRuntimeToolsState) => void;
+    f.call.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    const events: Array<{ name: string; topic?: string; payload?: unknown }> = [];
+    const registry = await activateHostKit(createEnvironmentsHostExtension(), f, (event) => events.push(event));
+    for (const command of [LOCAL_STATE, LOCAL_UPDATE, MACHINE_TOOLS_STATE, MACHINE_TOOLS_UPDATE]) expect(registry.longCommands()).toContain(`${ENVIRONMENTS_EXTENSION_ID}/${command}`);
+    const result = registry.invoke(ENVIRONMENTS_EXTENSION_ID, MACHINE_TOOLS_STATE, { requestId: "test" });
+    await vi.waitFor(() => expect(events).toContainEqual(expect.objectContaining({ topic: MACHINE_TOOLS_PROGRESS, payload: expect.objectContaining({ requestId: "test", machine: expect.objectContaining({ id: "local", state: expect.any(Object) }) }) })));
+    expect(events).toContainEqual(expect.objectContaining({ payload: { requestId: "test", machine: { id: "slow", name: "slow", requesting: true } } }));
+    finish(state());
+    await result;
+    expect(events.at(-1)).toMatchObject({ name: MACHINE_TOOLS_PROGRESS, payload: { machine: { id: "slow", state: { tools: expect.any(Array) } } } });
+  });
+
+  it("does not resend an ambiguous update failure and requires a state check before retry", async () => {
+    const f = fixture([{ id: "rex", name: "rex", status: "connected" }]);
+    f.call.mockRejectedValueOnce(new Error("Request timed out"));
+    const registry = await activateHostKit(createEnvironmentsHostExtension(), f);
+    expect(await registry.invoke(ENVIRONMENTS_EXTENSION_ID, MACHINE_TOOLS_UPDATE)).toMatchObject([{ id: "local" }, { id: "rex", uncertain: true, problem: expect.stringContaining("may still be running") }]);
+    expect(f.call).toHaveBeenCalledOnce();
+    f.call.mockRejectedValueOnce(new Error("Still disconnected"));
+    expect(await registry.invoke(ENVIRONMENTS_EXTENSION_ID, MACHINE_TOOLS_STATE)).toMatchObject([{ id: "local" }, { id: "rex", uncertain: true }]);
+    // Even another update request first checks state, without replaying the change.
+    await registry.invoke(ENVIRONMENTS_EXTENSION_ID, MACHINE_TOOLS_UPDATE, { machine: "rex" });
+    expect(f.call).toHaveBeenLastCalledWith("rex", ENVIRONMENTS_EXTENSION_ID, LOCAL_STATE, undefined, { timeoutMs: 120_000 });
+  });
+
 });

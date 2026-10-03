@@ -131,6 +131,9 @@ export interface ChooseMachineAnswer {
   machines: ChooseMachineVerdict[];
 }
 
+export const MACHINE_TOOLS_PROGRESS = "machine-tools-progress";
+export interface MachineToolsProgress { requestId: string; machine: MachineTools }
+
 export const MACHINE_TOOLS_STATE = "machine-tools-state";
 export const MACHINE_TOOLS_UPDATE = "machine-tools-update";
 export const LOCAL_STATE = "runtime-tools-state";
@@ -142,5 +145,7 @@ export interface MachineTools {
   local?: boolean;
   skipped?: string;
   problem?: string;
+  requesting?: boolean;
+  uncertain?: boolean;
   state?: import("tau").UiRuntimeToolsState;
 }
