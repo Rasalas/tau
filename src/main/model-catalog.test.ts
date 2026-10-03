@@ -134,17 +134,19 @@ describe("SignedModelCatalog", () => {
 });
 
 describe("the catalog in Pi", () => {
-  const catalog: ModelCatalog = parseModelCatalog(catalogText(1, [SOL, { provider: "openai-codex", id: "gpt-6-astra", name: "Not Pi's Astra", price: { input: 99, output: 99 } }]));
+  const futureModel = { ...SOL, id: "tau-test-future-model", name: "Future test model" };
+  const catalog: ModelCatalog = parseModelCatalog(catalogText(1, [futureModel, { provider: "openai-codex", id: "gpt-6-astra", name: "Not Pi's Astra", price: { input: 99, output: 99 } }]));
 
   it("adds a model Pi does not know, built on the one it names, and never replaces Pi's own", async () => {
     const runtime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null, refreshOnCreate: false });
     const codex = runtime.getProvider("openai-codex")!;
     const added = catalogModelsFor(codex, catalog);
-    expect(added.map((model) => model.id)).toEqual(["gpt-6.1-sol"]);
+    expect(added.map((model) => model.id)).toEqual([futureModel.id]);
     const astra = codex.getModels().find((model) => model.id === "gpt-6-astra")!;
-    expect(added[0]).toMatchObject({ api: astra.api, baseUrl: astra.baseUrl, name: "GPT-6.1 Sol", contextWindow: 400_000, maxTokens: astra.maxTokens, cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 0 } });
+    expect(added[0]).toMatchObject({ api: astra.api, baseUrl: astra.baseUrl, name: futureModel.name, contextWindow: 400_000, maxTokens: astra.maxTokens, cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 0 } });
     expect(added[0]!.thinkingLevelMap).toMatchObject({ minimal: null, xhigh: null, max: null, medium: astra.thinkingLevelMap?.medium });
     const wrapped = withModelCatalog(codex, catalog)!;
+    expect(wrapped.getAllModels!()).toEqual([...(codex.getAllModels?.() ?? codex.getModels()), ...added]);
     expect(wrapped.getModels().filter((model) => model.id === "gpt-6-astra")).toEqual([astra]);
     expect(withoutModelCatalog(wrapped)).toBe(codex);
     expect(withModelCatalog(runtime.getProvider("anthropic")!, catalog)).toBeUndefined();
@@ -154,17 +156,17 @@ describe("the catalog in Pi", () => {
     vi.stubEnv("PI_OFFLINE", "1");
     const agentDir = await scratch();
     const before = await createPiModelRuntime(agentDir);
-    expect(before.getModel("openai-codex", "gpt-6.1-sol")).toBeUndefined();
+    expect(before.getModel("openai-codex", futureModel.id)).toBeUndefined();
     useModelCatalog(catalog, agentDir);
-    expect(before.getModel("openai-codex", "gpt-6.1-sol")).toMatchObject({ name: "GPT-6.1 Sol" });
-    expect(modelReleaseDate("gpt-6.1-sol")).toBe("2026-09-29");
+    expect(before.getModel("openai-codex", futureModel.id)).toMatchObject({ name: futureModel.name });
+    expect(modelReleaseDate(futureModel.id)).toBe("2026-09-29");
     const after = await createPiModelRuntime(agentDir);
-    expect(after.getModel("openai-codex", "gpt-6.1-sol")).toMatchObject({ name: "GPT-6.1 Sol" });
+    expect(after.getModel("openai-codex", futureModel.id)).toMatchObject({ name: futureModel.name });
     expect(after.getModel("openai-codex", "gpt-6-astra")?.name).toBe("GPT-6 Astra");
     const configured = await scratch();
     await writeFile(join(configured, "models.json"), JSON.stringify({ providers: { "openai-codex": { modelOverrides: {} } } }));
     const own = await createPiModelRuntime(configured);
-    expect(own.getModel("openai-codex", "gpt-6.1-sol")).toBeUndefined();
+    expect(own.getModel("openai-codex", futureModel.id)).toBeUndefined();
   });
 });
 
