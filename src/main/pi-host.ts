@@ -1,3 +1,4 @@
+import { AgentSessionControl } from "./agent-session-control.js";
 import { rm } from "node:fs/promises";
 import { promptFiles } from "./prompt-attachments.js";
 import { decodeUiPromptAttachments, decodeUiSkillDraft } from "./ipc-input.js";
@@ -98,7 +99,7 @@ import { clientTranscript } from "./client-tool-output.js";
 import { PersistedThreadTranscript, shellTranscriptPage } from "./persisted-transcript.js";
 import { handleRuntimeSessionEvent } from "./session-events.js";
 import { handleBackendRuntimeEvent } from "./backend-events.js";
-import { isUnavailableBackend, UnavailableThreadBackend } from "./unavailable-thread-backend.js";
+import { isUnavailableBackend } from "./unavailable-thread-backend.js";
 import { isSessionHeldElsewhere } from "./session-locks.js";
 import type { ThreadRuntimeEvent } from "./runtime-types.js";
 import type { ClientMessageTracker } from "./client-message-tracker.js";
@@ -650,15 +651,21 @@ export class PiHost {
     return this.threads.active?.runtime;
   }
 
-  private readonly restartingThreads = new Set<string>();
-
-  private assertSessionAvailable(threadId: string | undefined): void {
-    const id = threadId ?? this.active?.threadId;
-    if (id && this.restartingThreads.has(id)) throw new Error("The agent session is restarting. Wait before sending another message or changing this thread.");
-  }
+  private readonly sessionControl = new AgentSessionControl({
+    thread: (id) => id ? this.requireThread(id) : this.requireActive(), active: () => this.active,
+    isAttached: (thread) => this.ownedByPi(thread), pending: (id) => this.turnObservers.pending(id),
+    hasQuestion: (id) => this.extensionUi.hasOpen(id), path: (id) => this.index.byId(id)?.path,
+    publication: () => this.publication, runtimes: () => this.runtimes,
+    prewarm: () => this.prewarm, threads: () => this.threads,
+    activate: (thread, epoch) => this.activateThread(thread, false, epoch),
+    staleResult: () => this.staleActivationResult(), cwd: () => this.cwd,
+    extensionCount: (count) => { this.extensionCount = count; },
+    refreshPackages: async () => { await this.packages?.refresh({ force: true }); },
+    log: (event, detail) => this.log(event, detail), errorMessage: (error) => this.errorMessage(error),
+  });
 
   private requireActive(): ThreadRuntime {
-    this.assertSessionAvailable(undefined);
+    this.sessionControl.assertAvailable(undefined);
     const thread = this.active;
     if (!thread) throw new Error("Pi runtime is not ready");
     return thread;
@@ -676,7 +683,7 @@ export class PiHost {
   }
 
   private requireThread(threadId: string | undefined): ThreadRuntime {
-    this.assertSessionAvailable(threadId);
+    this.sessionControl.assertAvailable(threadId);
     return this.threadFor(threadId) ?? this.noRuntimeFor(threadId);
   }
 
@@ -694,7 +701,7 @@ export class PiHost {
    * belongs to the empty thread this run put on screen.
    */
   private async awaitThread(threadId: string | undefined): Promise<ThreadRuntime> {
-    this.assertSessionAvailable(threadId);
+    this.sessionControl.assertAvailable(threadId);
     const live = this.threadFor(threadId);
     if (live) return live;
     if (!threadId) return this.requireActive();
@@ -1577,7 +1584,7 @@ export class PiHost {
     const promptEpoch = this.activationEpoch;
     // The switch that opened this thread may still be binding its extensions.
     await this.binding.settle(thread);
-    this.assertSessionAvailable(thread.threadId);
+    this.sessionControl.assertAvailable(thread.threadId);
     if (thread.restartGeneration !== restartGeneration) throw new Error("The agent session changed while the message was being prepared. Send it again.");
     // A prompt named for its thread goes there while another one is on screen; it only needs the thread still open.
     if (sessionId !== undefined && thread.threadId === sessionId) {
@@ -1618,7 +1625,7 @@ export class PiHost {
     // resource-registry change cannot cause host and backend to normalize
     // different dialects for one turn.
     const resolvedPrepared = prepared ?? await thread.backend.preparePrompt(text);
-    this.assertSessionAvailable(thread.threadId);
+    this.sessionControl.assertAvailable(thread.threadId);
     if (this.threadFor(thread.threadId) !== thread || thread.restartGeneration !== restartGeneration) throw new Error("The agent session changed while the message was being prepared. Send it again.");
     this.prompts.assertBound(thread, text, resolvedPrepared, this.projection.composerCommands(thread));
     const prompt = resolvedPrepared.runtimeText;
@@ -1823,93 +1830,12 @@ export class PiHost {
   prepareWorkbenchReload(mode: import("../shared/contracts.js").WorkbenchReloadMode): Promise<import("../shared/contracts.js").WorkbenchReloadPreparation> { return this.workbenchReload.prepare(mode); }
   async releaseWorkbenchReload(): Promise<void> { this.workbenchReload.release(); }
 
-  /** Reopens exactly one idle thread; its session and backend remain its owners. */
-  async restartSession(threadId: string): Promise<HostActionResult> {
-    return this.lifecycle.runActivation("restart-session", async (activation) => {
-      const thread = this.requireThread(threadId);
-      if (thread !== this.active) throw new Error("Open this thread on its home machine before restarting its agent session.");
-      if (thread.state.streaming || !thread.state.idle || thread.adapterPending > 0
-        || thread.pendingClientMessageIds.length > 0 || thread.inFlightClientMessageIds.size > 0
-        || [...thread.tools.values()].some((tool) => tool.status === "running")
-        || this.turnObservers.pending(threadId) > 0 || this.extensionUi.hasOpen(threadId)) {
-        throw new Error("Wait for this thread's running work and questions to finish before restarting its agent session.");
-      }
-      const restart = requireCapability(thread.backend, "restart");
-      if (this.ownedByPi(thread)) throw new Error("Restart this attached session in its owning terminal.");
-      this.restartingThreads.add(threadId);
-      thread.restartGeneration += 1;
-      try {
-        if (!isLocalPiRuntime(thread)) {
-          await restart.restart();
-          this.publication.invalidateModels();
-          this.log("runtime.session.restarted", threadId);
-          return this.publication.activeUpdates(activation.epoch);
-        }
-        const messages = await thread.backend.transcript();
-        const entries = thread.entries;
-        const state = thread.state;
-        const path = thread.sessionFile ?? this.index.byId(threadId)?.path
-          ?? (thread.backend.kind !== "pi" ? externalThreadPath(thread.backend.kind, threadId) : undefined);
-        if (!path) throw new Error("This runtime cannot resume its session after a restart.");
-        this.runtimes.invalidateResources();
-        this.publication.invalidateModels();
-        this.prewarm.discardSpare();
-        let replacement: ThreadRuntime;
-        try {
-          await this.threads.release(threadId);
-          replacement = await this.runtimes.openForPath(path, "resume", false, thread.backend.kind);
-        } catch (error) {
-          const why = `Agent restart failed: ${this.errorMessage(error)} Open this thread again to retry.`;
-          replacement = new ThreadRuntime(new UnavailableThreadBackend(thread.backend.kind, thread.runtimeAdapter, {
-            threadId, cwd: thread.cwd, updatedAt: Date.now(), messages,
-            ...(state.title ? { title: state.title } : {}),
-          }, why, { sessionFile: path, entries }));
-          await this.threads.adopt({ threadId, cwd: thread.cwd, runtime: replacement, isolation: "in-process" });
-          await this.activateThread(replacement, false, activation.epoch);
-          await this.publication.activeUpdates(activation.epoch);
-          throw new Error(why, { cause: error });
-        }
-        if (!await this.activateThread(replacement, false, activation.epoch)) return this.staleActivationResult();
-        this.log("runtime.session.restarted", threadId);
-        return this.publication.activeUpdates(activation.epoch);
-      } finally { this.restartingThreads.delete(threadId); }
-    });
+  restartSession(threadId: string): Promise<HostActionResult> {
+    return this.lifecycle.runActivation("restart-session", (activation) => this.sessionControl.restart(threadId, activation.epoch));
   }
 
-  async reloadRuntime(): Promise<void> {
-    return this.lifecycle.run("reload-runtime", async () => {
-      const thread = this.requireActive();
-      const reload = requireCapability(thread.backend, "reload");
-      // A runtime the host does not own reloads in its own process; the caches
-      // below are the host's, and it has none of them for that thread.
-      if (!isLocalPiRuntime(thread)) {
-        await reload.reload();
-        this.log("runtime.reload.requested", "runtime owner");
-        return;
-      }
-      if (thread.state.streaming) throw new Error("Wait for the active run before reloading Pi.");
-      await reload.reload();
-      this.publication.invalidateModels();
-      this.runtimes.invalidateResources();
-      // Other idle runtimes still hold the old resources; they are cheap to
-      // rebuild on demand, so drop them rather than reload each one.
-      this.prewarm.discardSpare();
-      for (const record of this.threads.list()) {
-        if (record.runtime !== thread && isLocalPiRuntime(record.runtime)
-          && record.runtime.state.idle
-          && this.turnObservers.pending(record.threadId) === 0
-          && !this.extensionUi.hasOpen(record.threadId)) {
-          await this.threads.release(record.threadId);
-        }
-      }
-      this.extensionCount = thread.state.extensionCount;
-      // The manual fallback restarts every package, however unchanged it looks.
-      await this.packages?.refresh({ force: true });
-      this.log("runtime.reloaded");
-      await this.publication.publishLifecycle();
-      this.prewarm.scheduleThreads();
-      this.prewarm.scheduleSpare(this.cwd);
-    });
+  reloadRuntime(): Promise<void> {
+    return this.lifecycle.run("reload-runtime", () => this.sessionControl.reload());
   }
 
   async compactContext(): Promise<HostActionResult> {
