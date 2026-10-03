@@ -429,7 +429,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
       };
     },
     loadRuntimeExtension: (packageName) => loadRuntimeExtensionPackage(packageName),
-    loadDependency: (packageName) => loadDependencyModule(packageName),
+    loadDependency: (packageName, options) => loadDependencyModule(packageName, undefined, options),
     mcp: {
       registerTools: (provider) => {
         mcpProviders.add(provider);

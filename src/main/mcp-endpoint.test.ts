@@ -67,6 +67,51 @@ const text = (result: unknown): string =>
   ((result as { content: Array<{ type: string; text?: string }> }).content).map((part) => part.text ?? `[${part.type}]`).join("\n");
 
 describe("the host's MCP endpoint", () => {
+  it("reports asynchronous provider failures and cancels calls while discovery waits", async () => {
+    let release: (() => void) | undefined;
+    let started: (() => void) | undefined;
+    const discovered = new Promise<void>((resolve) => { started = resolve; });
+    const { mcp, logs } = endpoint({ providers: [async () => { throw new Error("native unavailable"); }] });
+    expect((await mcp.call({ sessionId: "a", cwd: "/repo" }, "missing", {})).isError).toBe(true);
+    expect(logs).toContain("mcp.tools-failed native unavailable");
+    const execute = vi.fn();
+    const waiting = endpoint({ providers: [async () => {
+      started!();
+      await new Promise<void>((resolve) => { release = resolve; });
+      return [{ ...echo("tau_wait"), execute }];
+    }] });
+    const call = waiting.mcp.call({ sessionId: "a", cwd: "/repo" }, "tau_wait", { text: "hi" });
+    await discovered;
+    waiting.mcp.revoke("a");
+    expect(text(await call)).toContain("cancelled");
+    release!();
+    await Promise.resolve();
+    expect(execute).not.toHaveBeenCalled();
+  });
+  it("copies backend capabilities, keeps them credential scoped, and resets them on reconnect", async () => {
+    const seen: RuntimeSessionInfo[] = [];
+    const { mcp } = endpoint({ providers: [async (thread) => {
+      seen.push(thread);
+      return thread.nativeCapabilities?.includes("sample") ? [] : [echo("tau_sample")];
+    }] });
+    const capabilities = ["sample"];
+    const connection = (await mcp.connect({ sessionId: "native", cwd: "/repo", nativeCapabilities: capabilities }))!;
+    capabilities.length = 0;
+    const native = await connectClient(connection);
+    expect((await native.listTools({ nativeCapabilities: [] } as never)).tools).toEqual([]);
+    expect((await native.callTool({ name: "tau_sample", arguments: { text: "hi", nativeCapabilities: [] } })).isError).toBe(true);
+    expect(seen[0]?.nativeCapabilities).toEqual(["sample"]);
+    expect(Object.isFrozen(seen[0])).toBe(true);
+    expect(Object.isFrozen(seen[0]?.nativeCapabilities)).toBe(true);
+    const other = await connectClient((await mcp.connect({ sessionId: "other", cwd: "/repo" }))!);
+    expect((await other.listTools()).tools.map((tool) => tool.name)).toEqual(["tau_sample"]);
+    const reconnected = (await mcp.connect({ sessionId: "native", cwd: "/new" }))!;
+    expect(reconnected.token).toBe(connection.token);
+    expect((await native.listTools()).tools.map((tool) => tool.name)).toEqual(["tau_sample"]);
+    expect(text(await native.callTool({ name: "tau_sample", arguments: { text: "hi" } }))).toBe(":hi");
+    expect(seen.at(-1)).toEqual({ sessionId: "native", cwd: "/new" });
+  });
+
   it("tells each thread's runtime the instructions kits registered for it, and none when there are none", async () => {
     const { mcp, logs } = endpoint({
       instructions: [

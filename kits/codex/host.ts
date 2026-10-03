@@ -53,6 +53,7 @@ import { CodexAppServer, type CodexAccount, type CodexLoginCompleted, type Codex
 import { codexHome, readCodexConfiguredModel } from "./config.js";
 import { codexSessionDirs, importCodexSessions, scanCodexSessions } from "./history-import.js";
 import { codexMcpLaunch } from "./mcp.js";
+import { codexNativeCapabilities } from "./native-capabilities.js";
 import { codexToolArgs } from "./tools.js";
 import {
   CODEX_BACKEND_KIND,
@@ -369,16 +370,18 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         const registration = await plan.read(id);
         const credentials = registration ? await plan.credentials(id) : undefined;
         const command = await assertSupported(id);
+        const cliEnv = await sessionEnvironment(id, Boolean(credentials));
+        // Custom launch overrides can disable or replace the configured native plugins.
+        const nativeCapabilities = input.tools || settings.args(id).length ? [] : await codexNativeCapabilities(codexHomeLayout(cliEnv).effective);
         // A thread's session reaches Tau's tools; without the endpoint it still runs, only without them.
         const mcp = input.threadId
-          ? await services.mcp.connect({ sessionId: input.threadId, cwd: input.cwd }, input.tools ? { tools: input.tools } : undefined).catch(() => undefined)
+          ? await services.mcp.connect({ sessionId: input.threadId, cwd: input.cwd, ...(nativeCapabilities.length ? { nativeCapabilities } : {}) }, input.tools ? { tools: input.tools } : undefined).catch(() => undefined)
           : undefined;
         const tau = mcp ? codexMcpLaunch(mcp) : { args: [], env: {} };
         if (input.threadId) {
           const sessionHome = await sessionHomeOf(id, Boolean(credentials));
           await store.setSessionHome(input.threadId, input.cwd, sessionHome);
         }
-        const cliEnv = await sessionEnvironment(id, Boolean(credentials));
         const launch = { args: [...tau.args, ...(input.tools ? codexToolArgs(input.tools) : []), ...settings.args(id), ...(!credentials && codexHomeLayout(instanceEnv(id)).overlay ? ["-c", 'cli_auth_credentials_store="file"'] : []), ...(credentials ? CHATGPT_PLAN_ARGS : [])], env: tau.env };
         const sessionEnv = { ...cliEnv, ...launch.env, ...(credentials ? { ACCESS_TOKEN: credentials.tokens!.accessToken } : {}) };
         const track = (session: CodexSessionLike): CodexSessionLike => {

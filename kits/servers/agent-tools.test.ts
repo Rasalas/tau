@@ -179,8 +179,8 @@ describe.skipIf(!posix)("the agent's server tools", () => {
     expect(SERVER_INSTRUCTIONS).toContain("Only the user uploads");
 
     // Over MCP: a checkout Tau has not asked about yet counts by its own sftp.json.
-    expect(w.mcpTools({ sessionId: "t", cwd: w.other })).toEqual([]);
-    expect(w.mcpTools({ sessionId: "t", cwd: w.local }).map((tool) => tool.name)).toContain(SERVER_TOOLS.exec);
+    expect(await w.mcpTools({ sessionId: "t", cwd: w.other })).toEqual([]);
+    expect((await w.mcpTools({ sessionId: "t", cwd: w.local })).map((tool) => tool.name)).toContain(SERVER_TOOLS.exec);
     expect(w.instructions({ sessionId: "t", cwd: w.local })).toBe(SERVER_INSTRUCTIONS);
     expect(w.instructions({ sessionId: "t", cwd: w.other })).toBeUndefined();
   });

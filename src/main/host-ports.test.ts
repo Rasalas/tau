@@ -15,11 +15,20 @@ describe("loadDependencyModule", () => {
     expect(await loadDependencyModule("esm-only", async () => namespace)).toBe(namespace);
   });
 
+  it("retains named exports beside a default export when a kit requests the namespace", async () => {
+    const namespace = { default: () => undefined, Client: class {} };
+    expect(await loadDependencyModule("driver", async () => namespace, { namespace: true })).toBe(namespace);
+    expect(await loadDependencyModule("driver", async () => namespace)).toBe(namespace.default);
+    expect(await loadDependencyModule("@scope/package/compat", async () => namespace, { namespace: true })).toBe(namespace);
+  });
+
   it("loads by package name only, never by path", async () => {
     const load = vi.fn(async () => ({}));
     await expect(loadDependencyModule("../secrets.js", load)).rejects.toThrow(/not a package name/);
     await expect(importDependency("/etc/passwd")).rejects.toThrow(/not a package name/);
     await expect(importDependency("@scope/../x")).rejects.toThrow(/not a package name/);
+    await expect(importDependency("package/../x")).rejects.toThrow(/not a package name/);
+    await expect(importDependency("package//x")).rejects.toThrow(/not a package name/);
     expect(load).not.toHaveBeenCalled();
   });
 });

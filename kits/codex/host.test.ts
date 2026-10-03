@@ -1,6 +1,6 @@
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TurnActivityStore, findExecutable, type HostExtension, type HostMcpConnection, type HostRuntimeBackendProvider, type RuntimeSessionInfo } from "tau/host-extension";
@@ -140,6 +140,26 @@ describe("Codex host half", () => {
     // The token travels in the environment, never on the command line.
     expect(thread.args.join(" ")).not.toContain("secret");
     expect(thread.env[TAU_MCP_TOKEN_VARIABLE]).toBe("secret");
+  });
+
+  it("reports installed native desktop tools to the thread's MCP credential", async () => {
+    const { provider, connected, root } = await harness({ before: async (fixtureRoot) => {
+      const home = join(fixtureRoot, "home");
+      const plugin = join(home, "plugins", "cache", "openai-bundled", "computer-use", "1.0");
+      const files = [join(plugin, "bin", "computer-use-client-launcher"), join(home, "computer-use", "Codex Computer Use.app", "Contents", "SharedSupport", "SkyComputerUseClient.app", "Contents", "MacOS", "SkyComputerUseClient")];
+      for (const file of files) {
+        await mkdir(dirname(file), { recursive: true });
+        await writeFile(file, "#!/bin/sh\n");
+        await chmod(file, 0o700);
+      }
+      await writeFile(join(home, "config.toml"), '[plugins."computer-use@openai-bundled"]\nenabled = true\n');
+      await writeFile(join(plugin, ".mcp.json"), JSON.stringify({ mcpServers: { "computer-use": { command: "./bin/computer-use-client-launcher", args: ["mcp"] } } }));
+    } });
+    const backend = await provider.open("native-thread", root, { resume: false }, context);
+    try {
+      await backend.prompt({ text: "Reply.", delivery: "prompt", identity: { clientMessageId: "m1", clientTurnId: "t1" } });
+      expect(connected).toEqual([{ sessionId: "native-thread", cwd: root, nativeCapabilities: ["computer-use"] }]);
+    } finally { await backend.dispose(); }
   });
 
   it("starts a thread created with a tool list without the Codex tools it leaves out, also after a resume", async () => {

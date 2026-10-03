@@ -770,6 +770,8 @@ export interface HostExtensionSettings {
 export interface RuntimeSessionInfo {
   sessionId: string;
   cwd: string;
+  /** Capabilities supplied by the runtime backend, used by tool providers to avoid duplicates. */
+  nativeCapabilities?: readonly string[];
   /** The thread that spawned this one (`sessions.start({ parent })`); set for a Pi runtime only. */
   parentThreadId?: string;
 }
@@ -826,7 +828,7 @@ export function runtimeExtensionModes(contributions: readonly RuntimeExtensionCo
 export type HostMcpTool = ToolDefinition<any, any, any>;
 
 /** The tools a thread's runtime is offered; asked on every list and call, with the thread the credential names. */
-export type HostMcpToolProvider = (thread: RuntimeSessionInfo) => readonly HostMcpTool[];
+export type HostMcpToolProvider = (thread: RuntimeSessionInfo) => readonly HostMcpTool[] | Promise<readonly HostMcpTool[]>;
 
 /** A section of what the endpoint tells a thread's runtime when it connects; `undefined` adds nothing. */
 export type HostMcpInstructionsProvider = (thread: RuntimeSessionInfo) => string | undefined;
@@ -1158,8 +1160,10 @@ export interface HostExtensionServices {
    * A module from Tau's own npm dependencies, resolved from the host's modules
    * for the same reason: a native addon finds its binary beside itself only
    * where npm put it. A CommonJS module answers with its `module.exports`.
+   * API 1.49.0: exported subpaths are allowed; `namespace` retains named
+   * exports alongside an ES module's default export.
    */
-  loadDependency(packageName: string): Promise<unknown>;
+  loadDependency(packageName: string, options?: { namespace?: boolean }): Promise<unknown>;
   /**
    * Runs a command in this extension's window half — the part of a kit that
    * needs the process the user's window lives in (ADR 0021). Rejects when the
