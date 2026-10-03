@@ -13,6 +13,10 @@ on:
         description: Publish a GitHub release from a tag ref (otherwise just build and upload artifacts)
         type: boolean
         default: false
+      testflight_only:
+        description: Upload the iOS app without publishing desktop or Android releases
+        type: boolean
+        default: false
       nightly:
         description: Build main and publish it as the nightly prerelease now, even without new commits
         type: boolean
@@ -175,6 +179,7 @@ jobs:
 
   build:
     needs: [gate, preflight]
+    if: inputs.testflight_only != true
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
     # Only the macOS builds sign, so only they enter the environment with Apple's credentials.
@@ -369,7 +374,7 @@ jobs:
   # release carries for sideloading. versionCode comes from the version (build.gradle).
   android:
     needs: [gate, preflight]
-    if: needs.gate.outputs.build == 'true' && needs.gate.outputs.nightly != 'true'
+    if: needs.gate.outputs.build == 'true' && needs.gate.outputs.nightly != 'true' && inputs.testflight_only != true
     runs-on: ubuntu-24.04
     environment: ${{ needs.gate.outputs.environment }}
     timeout-minutes: 30

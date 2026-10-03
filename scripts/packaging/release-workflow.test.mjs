@@ -26,6 +26,14 @@ const needs = (job) => /^ {4}needs: (?:\[(.*)\]|(\S+))$/mu.exec(JOBS[job])?.slic
 const condition = (job) => /^ {4}if: (.*)$/mu.exec(JOBS[job])?.[1] ?? "";
 
 describe("the release workflow", () => {
+  it("keeps a TestFlight-only dispatch out of desktop and Android publishing", () => {
+    expect(condition("build")).toContain("inputs.testflight_only != true");
+    expect(condition("android")).toContain("inputs.testflight_only != true");
+    expect(needs("sign")).toContain("build");
+    expect(needs("release")).toContain("sign");
+    expect(needs("play")).toContain("release");
+    expect(needs("ios")).not.toContain("build");
+  });
   it("publishes signed portable feeds and builds ARM Linux without replacing the desktop installer feed", () => {
     expect(JOBS.build).toContain("runner: ubuntu-24.04-arm");
     expect(JOBS.build).toContain("platform: --linux --arm64 --dir");
