@@ -47,6 +47,17 @@ describe("project starts", () => {
     const result = await promisify(execFile)(git, ["ls-tree", "--name-only", "HEAD"], { cwd: created.path });
     expect(result.stdout.trim().split("\n")).toEqual(["README.md", "project-icon.svg", "t3.json"]);
   });
+  it("keeps the initialized repository when the commit identity is missing", async () => {
+    const root = await fixture();
+    const git = join(root, "git-without-identity");
+    await writeFile(git, '#!/bin/sh\nexec git -c user.name= -c user.email= -c commit.gpgsign=false "$@"\n');
+    await chmod(git, 0o700);
+    const created = await createNamedProject(root, "Uncommitted Project", git);
+    expect(created.warning).toContain("Project created");
+    expect((await stat(join(created.path, ".git"))).isDirectory()).toBe(true);
+    await expect(promisify(execFile)(git, ["rev-parse", "--verify", "HEAD"], { cwd: created.path })).rejects.toThrow();
+    expect(await readFile(join(created.path, "README.md"), "utf8")).toBe("# Uncommitted Project\n");
+  });
   it("keeps a usable project when Git setup fails and never overwrites a collision", async () => {
     const root = await fixture();
     const created = await createNamedProject(root, "Garden Notes", "/missing/git");
