@@ -87,7 +87,7 @@ export class QueuedMessages {
   /** Threads whose queue waits for the user, not for the turn. */
   private readonly held = new Set<string>();
   /** Threads whose head is on its way; nothing else leaves until it is accepted. */
-  private readonly delivering = new Set<string>();
+  private readonly delivering = new Map<string, QueuedMessage>();
   private pending: Promise<void> = Promise.resolve();
   private frozen = false;
 
@@ -203,13 +203,14 @@ export class QueuedMessages {
     if (this.frozen || this.held.has(sessionId) || this.delivering.has(sessionId)) return;
     const [head, ...rest] = this.list(sessionId);
     if (!head || this.port.busy(sessionId)) return;
-    this.delivering.add(sessionId);
+    this.delivering.set(sessionId, head);
     // Out of the list at once, so no client sends it too; the file keeps it until the thread accepted it.
     this.queues.set(sessionId, rest);
     if (rest.length === 0) this.queues.delete(sessionId);
     this.publish(sessionId);
     try {
       await this.port.deliver(sessionId, head);
+      this.delivering.delete(sessionId);
       this.persist();
       this.port.log("queue.delivered", `${sessionId.slice(0, 8)} · ${rest.length} left`);
     } catch (error) {
@@ -238,7 +239,11 @@ export class QueuedMessages {
   private persist(): void {
     const path = this.options.filePath;
     if (!path || this.frozen) return;
-    const threads = Object.fromEntries([...this.queues].filter(([, messages]) => messages.length > 0));
+    // A concurrent add, take or move must retain a head whose admission is
+    // still unresolved, even though it is already hidden from the composer.
+    const durable = new Map(this.queues);
+    for (const [sessionId, head] of this.delivering) durable.set(sessionId, [head, ...this.list(sessionId)]);
+    const threads = Object.fromEntries([...durable].filter(([, messages]) => messages.length > 0));
     this.pending = this.pending
       .catch(() => undefined)
       .then(() => writePersistedJson(path, VERSION, { threads }, this.options.logger ? { logger: this.options.logger } : {}))

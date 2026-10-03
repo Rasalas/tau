@@ -91,9 +91,11 @@ export interface PreviewSurface {
   capture(maxWidth: number, rect?: PreviewRect, jpeg?: boolean): Promise<{ base64: string; width: number; height: number }>;
   /** A webm recording of the view: `take` answers the chunks since the last call, base64. */
   record(action: "start" | "take" | "stop", options?: { frameRate?: number }): Promise<PreviewRecordingChunks>;
-  pressKey(key: string): void;
+  pressKey(key: string): void | Promise<void>;
   /** Trusted input from a device that shows the page; a surface without it cannot be driven remotely. */
   input?(event: PreviewPageInput): Promise<void>;
+  /** Saves to a new file in the window's workspace, without a native dialog or overwrite. */
+  download?(url: string, destination: string): Promise<{ path: string }>;
   destroy(): void;
 }
 
@@ -713,6 +715,12 @@ class PreviewController implements PreviewToolController {
     return { focus: focus === "secret" || focus === "field" ? focus : "none" };
   }
 
+  async download(url: string, destination: string): Promise<{ path: string }> {
+    const surface = await this.surface();
+    if (!surface.download) throw new Error("This preview cannot download to an explicit destination.");
+    return surface.download(url, destination);
+  }
+
   /** The agent's cursor goes where its action landed, in the page, so a recording shows it too. */
   pointAt(kind: "click" | "type" | "key" | "scroll", result: PreviewActionResult | undefined, detail?: { text?: string; key?: string; direction?: "up" | "down" | "left" | "right" }): void {
     const view = this.view;
@@ -1112,6 +1120,7 @@ export function createPreviewHostExtension(
       context.registerCommand("layout", (input, call) => controller.setLayout(input, call));
       // Decision 7: a device that shows the page may drive it; a Read-only one only watches.
       // A page that went away under a tap is the device's answer, not a broken kit.
+      context.registerCommand("download", (input) => controller.download(String(field(input, "url") ?? ""), String(field(input, "destination") ?? "")));
       context.registerCommand("input", (input) => controller.input(input).catch((error: unknown) => {
         throw new HostCommandError(error instanceof Error ? error.message : String(error));
       }));

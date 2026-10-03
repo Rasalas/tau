@@ -1,0 +1,11 @@
+{
+  "id": "tau.scheduling",
+  "name": "Scheduling",
+  "description": "Opt-in one-off and daily UTC prompts that create ordinary threads. Manage jobs through owner-only host commands.",
+  "icon": "CalendarClock",
+  "version": "1.0.0",
+  "engines": { "api": "^1.49.0" },
+  "permissions": ["sessions", "workspace:read"],
+  "isolation": "in-process",
+  "host": "./host.ts"
+}

@@ -36,7 +36,7 @@ export interface PreviewToolPage {
   viewport(): { width: number; height: number };
   evaluate(expression: string): Promise<unknown>;
   capture(maxWidth: number): Promise<{ base64: string; width: number; height: number }>;
-  pressKey(key: string): void;
+  pressKey(key: string): void | Promise<void>;
 }
 
 /** The part of the preview's controller the agent's tools drive. */
@@ -47,6 +47,7 @@ export interface PreviewToolController {
   open(url: unknown): Promise<PreviewState>;
   navigate(input: unknown): Promise<PreviewState>;
   evaluate(expression: string): Promise<unknown>;
+  download?(url: string, destination: string): Promise<{ path: string }>;
   /** Draws the agent's cursor where an action landed. */
   pointAt(kind: "click" | "type" | "key" | "scroll", result: PreviewActionResult | undefined, detail?: { text?: string; key?: string; direction?: "up" | "down" | "left" | "right" }): void;
   resize(viewport: PreviewViewport): Promise<PreviewState>;
@@ -133,6 +134,19 @@ export function previewTools(controller: PreviewToolController, threadId: string
         const state = await controller.open(params.url);
         const page = await controller.page();
         return answer(`Preview opened.\n${describeState(state, page.viewport())}`);
+      }),
+    }),
+    defineTool({
+      name: "preview_download",
+      label: "preview_download",
+      description: "Download an http(s) URL to an explicit new file in the Preview window's workspace. No Save dialog; existing files are never replaced. Use this rather than clicking download links.",
+      promptSnippet: "preview_download: save a URL to an explicit new workspace file",
+      parameters: Type.Object({ url: Type.String(), destination: Type.String({ description: "New file path in the Preview window's workspace; parent directory must exist." }) }),
+      ...sequential,
+      execute: (_id, params, signal) => run(signal, async () => {
+        if (!controller.download) throw new Error("This preview cannot download to an explicit destination.");
+        const result = await controller.download(params.url, params.destination);
+        return answer(`Downloaded: ${result.path}`);
       }),
     }),
     defineTool({
@@ -233,7 +247,7 @@ export function previewTools(controller: PreviewToolController, threadId: string
         const key = params.key.trim();
         if (!key) throw new Error("preview_press needs a key.");
         const page = await controller.page();
-        page.pressKey(key);
+        await page.pressKey(key);
         controller.pointAt("key", { ok: true }, { key });
         return answer(`pressed ${key}`);
       }),

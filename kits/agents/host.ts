@@ -156,9 +156,57 @@ export interface StoredRemoteLink {
  * key on. One on another machine has no thread here: it carries `remote`, and
  * an older Tau, which needs a `threadId`, skips it.
  */
+interface PendingIntent {
+  version: 1;
+  id: string;
+  prompt: string;
+  workspace: AgentWorkspaceMode;
+  definition?: AgentDefinition;
+  machine?: AgentThreadLink["machine"];
+  clientRequestId?: string;
+}
+
+interface CompletionNotice {
+  version: 1;
+  state: "pending" | "sending";
+  status: "completed" | "failed";
+  answer?: string;
+  error?: string;
+}
+
+function decodeIntent(value: unknown): PendingIntent | undefined {
+  const item = record(value);
+  if (item.version !== 1 || typeof item.id !== "string" || typeof item.prompt !== "string" || (item.workspace !== "shared" && item.workspace !== "worktree")) return undefined;
+  const raw = record(item.definition);
+  let definition: AgentDefinition | undefined;
+  if (item.definition !== undefined) {
+    if (typeof raw.name !== "string" || typeof raw.description !== "string" || typeof raw.file !== "string" || typeof raw.systemPrompt !== "string") return undefined;
+    if (["model", "runtime", "machine"].some((key) => raw[key] !== undefined && typeof raw[key] !== "string")) return undefined;
+    if (raw.tools !== undefined && (!Array.isArray(raw.tools) || !raw.tools.every((tool) => typeof tool === "string"))) return undefined;
+    if (raw.access !== undefined && raw.access !== "full" && raw.access !== "ask" && raw.access !== "read-only") return undefined;
+    if (raw.workspace !== undefined && raw.workspace !== "shared" && raw.workspace !== "worktree") return undefined;
+    definition = { name: raw.name, description: raw.description, file: raw.file, systemPrompt: raw.systemPrompt,
+      ...(typeof raw.model === "string" ? { model: raw.model } : {}), ...(typeof raw.runtime === "string" ? { runtime: raw.runtime } : {}),
+      ...(typeof raw.machine === "string" ? { machine: raw.machine } : {}), ...(Array.isArray(raw.tools) ? { tools: raw.tools as string[] } : {}),
+      ...(raw.access ? { access: raw.access } : {}), ...(raw.workspace ? { workspace: raw.workspace } : {}) };
+  }
+  const machine = record(item.machine);
+  if (item.machine !== undefined && (typeof machine.id !== "string" || typeof machine.name !== "string")) return undefined;
+  return { version: 1, id: item.id, prompt: item.prompt, workspace: item.workspace, ...(definition ? { definition } : {}),
+    ...(typeof machine.id === "string" && typeof machine.name === "string" ? { machine: { id: machine.id, name: machine.name } } : {}),
+    ...(typeof item.clientRequestId === "string" ? { clientRequestId: item.clientRequestId } : {}) };
+}
+
+function decodeNotice(value: unknown): CompletionNotice | undefined {
+  const item = record(value);
+  if (item.version !== 1 || (item.state !== "pending" && item.state !== "sending") || (item.status !== "completed" && item.status !== "failed")) return undefined;
+  return { version: 1, state: item.state, status: item.status, ...(typeof item.answer === "string" ? { answer: item.answer } : {}), ...(typeof item.error === "string" ? { error: item.error } : {}) };
+}
+
 export type StoredAgentLink =
-  Pick<AgentThreadLink, "parentThreadId" | "depth" | "spawnedAt" | "projectPath" | "title" | "spawnedBy" | "startedAt" | "endedAt" | "agent" | "turn">
-  & ({ threadId: string; remote?: undefined } | { threadId?: undefined; remote: StoredRemoteLink });
+  Pick<AgentThreadLink, "parentThreadId" | "depth" | "spawnedAt" | "projectPath" | "title" | "spawnedBy" | "startedAt" | "endedAt" | "agent" | "turn" | "model">
+  & { id?: string; notice?: CompletionNotice; pendingTurns?: number; workspace?: Pick<AgentWorkspace, "mode" | "path" | "branch" | "settled"> }
+  & ({ threadId: string; remote?: undefined; pending?: undefined } | { threadId?: undefined; remote: StoredRemoteLink; pending?: undefined } | { threadId?: undefined; remote?: undefined; pending: PendingIntent });
 
 function decodeRemote(value: unknown): StoredRemoteLink | undefined {
   const item = record(value);
@@ -174,10 +222,19 @@ export function decodeStoredLinks(value: unknown): StoredAgentLink[] {
   return links.flatMap((entry) => {
     const item = record(entry);
     const remote = typeof item.threadId === "string" ? undefined : decodeRemote(item.remote);
-    if ((typeof item.threadId !== "string" && !remote) || typeof item.parentThreadId !== "string") return [];
+    const pending = !remote && typeof item.threadId !== "string" ? decodeIntent(item.pending) : undefined;
+    const notice = decodeNotice(item.notice);
+    const workspace = record(item.workspace);
+    const savedWorkspace: StoredAgentLink["workspace"] = workspace.mode === "worktree" && typeof workspace.path === "string" && typeof workspace.branch === "string"
+      ? { mode: "worktree" as const, path: workspace.path, branch: workspace.branch, ...(workspace.settled === "applied" || workspace.settled === "discarded" ? { settled: workspace.settled } : {}) }
+      : undefined;
+    if ((typeof item.threadId !== "string" && !remote && !pending) || typeof item.parentThreadId !== "string") return [];
     if (item.threadId === item.parentThreadId) return [];
     return [{
-      ...(remote ? { remote } : { threadId: item.threadId as string }),
+      ...(remote ? { remote } : pending ? { pending } : { threadId: item.threadId as string }),
+      ...(typeof item.id === "string" ? { id: item.id } : {}),
+      ...(typeof item.model === "string" ? { model: item.model } : {}),
+      ...(notice ? { notice } : {}),
       parentThreadId: item.parentThreadId,
       depth: typeof item.depth === "number" ? item.depth : 1,
       spawnedAt: typeof item.spawnedAt === "number" ? item.spawnedAt : 0,
@@ -188,6 +245,8 @@ export function decodeStoredLinks(value: unknown): StoredAgentLink[] {
       ...(typeof item.endedAt === "number" ? { endedAt: item.endedAt } : {}),
       ...(typeof item.agent === "string" ? { agent: item.agent } : {}),
       ...(typeof item.turn === "number" ? { turn: item.turn } : {}),
+      ...(typeof item.pendingTurns === "number" && Number.isSafeInteger(item.pendingTurns) && item.pendingTurns > 0 ? { pendingTurns: item.pendingTurns } : {}),
+      ...(savedWorkspace ? { workspace: savedWorkspace } : {}),
     }];
   });
 }
@@ -324,9 +383,21 @@ export function createAgentsHostExtension(options: {
       const waiters = new Map<string, Set<() => void>>();
       /** Turns a tool gave each child that have not ended yet; the parent hears once none are left. */
       const expecting = new Map<string, number>();
-      const expect = (id: string) => { expecting.set(id, (expecting.get(id) ?? 0) + 1); };
+      const expect = (id: string) => { expecting.set(id, (expecting.get(id) ?? 0) + 1); save(); };
       /** Children that finished while nobody waited for them, by parent, until the parent hears. */
       const unreported = new Map<string, Set<string>>();
+      const notices = new Map<string, CompletionNotice>();
+      const held = new Set<string>();
+      const uncertainNotices = new Set<string>();
+      const admitting = new Set<string>();
+      const intentKeys = new Map<string, string>();
+      let closed = false;
+      const recovery = (id: string) => held.has(id) ? { state: "held", reason: "Restart interrupted this pending intent; send with auto or queue to release it." }
+        : uncertainNotices.has(id) ? { state: "held", reason: "Parent notification admission is uncertain; read the answer explicitly. It will not be replayed automatically." } : undefined;
+      const state = () => {
+        const current = book.state();
+        return { ...current, links: current.links.map((link) => recovery(link.id) ? { ...link, recovery: recovery(link.id) } : link) };
+      };
       /** Calls made with a `clientRequestId`, by thread and tool, so a retry repeats nothing. */
       const requests = new Map<string, Promise<unknown>>();
       const once = <T>(threadId: string, tool: string, clientRequestId: string | undefined, work: () => Promise<T>): Promise<T> => {
@@ -346,17 +417,22 @@ export function createAgentsHostExtension(options: {
       // state the burst settled on.
       const publish = () => {
         if (publishing) return;
-        publishing = setTimeout(() => { publishing = undefined; context.emit(AGENTS_STATE_EVENT, book.state()); }, 30);
+        publishing = setTimeout(() => { publishing = undefined; context.emit(AGENTS_STATE_EVENT, state()); }, 30);
         publishing.unref?.();
       };
 
       let saving: NodeJS.Timeout | undefined;
-      const save = () => {
-        if (saving) return;
-        saving = setTimeout(() => {
-          saving = undefined;
-          const links = book.state().links.flatMap((link): StoredAgentLink[] => link.threadId || link.machine?.link ? [{
-            ...(link.threadId ? { threadId: link.threadId } : { remote: { id: link.id, machine: { id: link.machine!.id, name: link.machine!.name, link: link.machine!.link! } } }),
+      let pendingSave: Promise<void> = Promise.resolve();
+      const persistLinks = (acknowledged: ReadonlyMap<string, CompletionNotice> = new Map()): Promise<void> => {
+        if (closed) return Promise.resolve();
+        // Build each snapshot when its serialized write starts. An unrelated
+        // save queued during an ACK must see its committed or retained notice.
+        const writing = pendingSave.then(() => {
+          const links = book.state().links.flatMap((link): StoredAgentLink[] => link.threadId || link.machine?.link || prompts.has(link.id) ? [{
+            ...(link.threadId ? { threadId: link.threadId } : link.machine?.link ? { remote: { id: link.id, machine: { id: link.machine.id, name: link.machine.name, link: link.machine.link } } } : { pending: { version: 1, id: link.id, prompt: prompts.get(link.id)!, workspace: wanted.get(link.id) ?? "shared", ...(definitions.has(link.id) ? { definition: definitions.get(link.id)! } : {}), ...(link.machine ? { machine: link.machine } : {}), ...(intentKeys.has(link.id) ? { clientRequestId: intentKeys.get(link.id)! } : {}) } }),
+            id: link.id,
+            ...(link.model ? { model: link.model } : {}),
+            ...(notices.has(link.id) && acknowledged.get(link.id) !== notices.get(link.id) ? { notice: notices.get(link.id)! } : {}),
             parentThreadId: link.parentThreadId,
             depth: link.depth,
             spawnedAt: link.spawnedAt,
@@ -367,10 +443,17 @@ export function createAgentsHostExtension(options: {
             ...(link.endedAt ? { endedAt: link.endedAt } : {}),
             ...(link.agent ? { agent: link.agent } : {}),
             ...(link.turn ? { turn: link.turn } : {}),
+            ...(expecting.has(link.id) ? { pendingTurns: expecting.get(link.id)! } : {}),
+            ...(link.workspace?.mode === "worktree" ? { workspace: { mode: link.workspace.mode, path: link.workspace.path, ...(link.workspace.branch ? { branch: link.workspace.branch } : {}), ...(link.workspace.settled ? { settled: link.workspace.settled } : {}) } } : {}),
           }] : []);
-          void writeAgentLinks(links, linksPath)
-            .catch((error: unknown) => services.log("agents.links-write-failed", error instanceof Error ? error.message : String(error)));
-        }, 50);
+          return writeAgentLinks(links, linksPath);
+        });
+        pendingSave = writing.catch((error: unknown) => services.log("agents.links-write-failed", error instanceof Error ? error.message : String(error)));
+        return writing;
+      };
+      const save = () => {
+        if (saving) return;
+        saving = setTimeout(() => { saving = undefined; void persistLinks().catch(() => undefined); }, 50);
         saving.unref?.();
       };
 
@@ -393,7 +476,7 @@ export function createAgentsHostExtension(options: {
       /** A child's latest answer: its transcript here, or what its machine last sent. */
       const answerOf = async (link: AgentThreadLink): Promise<string | undefined> => {
         const there = link.machine ? remote.answer(link.id) : undefined;
-        return (there ? truncate(there, RESULT_LIMIT) : await lastAssistantMessage(link.threadId)) ?? link.result;
+        return (there ? truncate(there, RESULT_LIMIT) : await lastAssistantMessage(link.threadId)) ?? notices.get(link.id)?.answer ?? link.result;
       };
 
       // Children on other machines: Remote Work's thread service, followed into the same book.
@@ -429,6 +512,7 @@ export function createAgentsHostExtension(options: {
           } : {}),
           ...(link?.title ? { title: link.title } : {}),
           status: link?.status ?? "idle",
+          ...(link && recovery(link.id) ? { recovery: recovery(link.id) } : {}),
           turns: facts.turns,
           ...(message ? { lastAssistantMessage: message } : {}),
           ...(facts.pendingToolPrompt ? { pendingToolPrompt: facts.pendingToolPrompt } : {}),
@@ -535,7 +619,7 @@ export function createAgentsHostExtension(options: {
        */
       const claimSlot = (agentId: string): boolean => {
         const link = book.linkFor(agentId);
-        if (!link || link.status !== "pending") return false;
+        if (closed || !link || link.status !== "pending" || held.has(agentId) || admitting.has(agentId)) return false;
         if (book.busyChildren(link.parentThreadId) >= book.runningBudget) return false;
         // Another machine's slots are its own: as many as it has cores.
         if (!remote.hasRoom(link.machine?.id)) return false;
@@ -647,14 +731,15 @@ export function createAgentsHostExtension(options: {
        */
       const pumps = new Map<string, Promise<void>>();
       const pump = (parentThreadId: string): Promise<void> => {
+        if (closed) return Promise.resolve();
         const running = pumps.get(parentThreadId);
         if (running) return running;
         const work = (async () => {
           for (;;) {
-            const waiting = book.startable(parentThreadId, (agent) => remote.hasRoom(agent.machine?.id));
+            const waiting = book.startable(parentThreadId, (agent) => !held.has(agent.id) && !admitting.has(agent.id) && remote.hasRoom(agent.machine?.id));
             // What else runs on those machines is read before the batch claims their slots.
             for (const machine of new Set(waiting.flatMap((agent) => agent.machine ? [agent.machine.id] : []))) await remote.prepare(machine);
-            const batch = book.startable(parentThreadId, (agent) => remote.hasRoom(agent.machine?.id)).filter((agent) => claimSlot(agent.id));
+            const batch = book.startable(parentThreadId, (agent) => !held.has(agent.id) && !admitting.has(agent.id) && remote.hasRoom(agent.machine?.id)).filter((agent) => claimSlot(agent.id));
             if (batch.length === 0) return;
             await Promise.all(batch.map((agent) => startAgent(agent)));
           }
@@ -736,6 +821,8 @@ export function createAgentsHostExtension(options: {
           : requested === "shared" || !repository ? "shared"
           : requested ?? "worktree";
         wanted.set(id, mode);
+        const clientRequestId = decodeClientRequestId(input);
+        if (clientRequestId) intentKeys.set(id, clientRequestId);
         // Only a tool's spawn wakes its parent; one the user started from the panel does not.
         if (spawnedBy === "tau_spawn_thread") expect(id);
         const turn = promptCount(parent.sessionId);
@@ -755,8 +842,16 @@ export function createAgentsHostExtension(options: {
         publish();
         // A slot free right now belongs to this call, so it comes back with a
         // real thread id; a spawn beyond the budget queues and returns at once.
+        // No capacity pump may claim this intent before its write completes.
+        admitting.add(id);
+        // Never acknowledge a pending handle whose complete intent is only in RAM.
+        try { await persistLinks(); } catch (error) {
+          book.forget(id); prompts.delete(id); definitions.delete(id); wanted.delete(id); expecting.delete(id); intentKeys.delete(id);
+          throw error;
+        } finally { admitting.delete(id); }
         if (claimSlot(id)) await startAgent(book.linkFor(id)!);
         const link = book.linkFor(id)!;
+        if (link.threadId || link.machine?.link) await persistLinks();
         return {
           threadId: link.threadId ?? id,
           title: link.title,
@@ -821,9 +916,44 @@ export function createAgentsHostExtension(options: {
       };
 
       /** The parent read what this child did, so nothing wakes it for that any more. */
+      // Serialize notice transitions with ACKs, but never hold this lock while
+      // waiting for provider admission. A status read need not await a paid turn.
+      const noticeChanges = new Map<string, Promise<unknown>>();
+      const changeNotices = <T>(parentThreadId: string, work: () => Promise<T>): Promise<T> => {
+        const changing = (noticeChanges.get(parentThreadId) ?? Promise.resolve()).catch(() => undefined).then(work);
+        noticeChanges.set(parentThreadId, changing);
+        return changing.finally(() => { if (noticeChanges.get(parentThreadId) === changing) noticeChanges.delete(parentThreadId); });
+      };
+      const consumeNotices = async (parentThreadId: string, observed: ReadonlyMap<string, CompletionNotice>) => {
+        if (observed.size === 0) return;
+        // Exclude only the observed records in the ACK snapshot. Keep memory
+        // intact until the write succeeds, including on a failed ACK.
+        await persistLinks(observed);
+        for (const [id, notice] of observed) if (notices.get(id) === notice) {
+          notices.delete(id);
+          const pending = unreported.get(parentThreadId);
+          if (pending?.delete(id) && pending.size === 0) unreported.delete(parentThreadId);
+          uncertainNotices.delete(id);
+        }
+      };
+      const observedNotices = (id: string): ReadonlyMap<string, CompletionNotice> => {
+        const notice = notices.get(id);
+        return notice ? new Map([[id, notice]]) : new Map();
+      };
       const reported = (parentThreadId: string, id: string) => {
-        const pending = unreported.get(parentThreadId);
-        if (pending?.delete(id) && pending.size === 0) unreported.delete(parentThreadId);
+        const observed = observedNotices(id);
+        return changeNotices(parentThreadId, () => consumeNotices(parentThreadId, observed));
+      };
+      const acknowledgeAdmission = async (parentThreadId: string, observed: ReadonlyMap<string, CompletionNotice>): Promise<{ acknowledgmentWarning?: string }> => {
+        try {
+          await changeNotices(parentThreadId, () => consumeNotices(parentThreadId, observed));
+          return {};
+        } catch {
+          // Admission already succeeded. Rejecting now would invite a paid
+          // retry, and invalidate the caller's successful request key.
+          services.log("agents.result-ack-held", "Admitted message retained its previous result because the ACK write failed.");
+          return { acknowledgmentWarning: "The message was admitted, but its previous result could not be durably acknowledged. The result is retained; do not resend the admitted message." };
+        }
       };
 
       /**
@@ -834,44 +964,89 @@ export function createAgentsHostExtension(options: {
       /** Parents a wake is on its way to: the turn it starts ends with the next flush. */
       const waking = new Set<string>();
       const flushWakes = async (parentThreadId: string, afterTurn = false): Promise<void> => {
+        if (closed) return;
         const parent = services.thread(parentThreadId);
         if (afterTurn) await parent?.waitForIdle().catch(() => undefined);
         if (waking.has(parentThreadId) || (parent && (parent.isStreaming() || !parent.isIdle()))) return;
         const ids = [...(unreported.get(parentThreadId) ?? [])];
-        unreported.delete(parentThreadId);
         const send = services.sessions.send;
         if (ids.length === 0 || !send) return;
         waking.add(parentThreadId);
         let sent = false;
+        let admitted = false;
+        const sending = new Map<string, CompletionNotice>();
         try {
           const children = (await Promise.all(ids.map(async (id) => {
             const link = book.linkFor(id);
             if (!link) return [];
-            const answer = await answerOf(link);
+            const notice = notices.get(id);
+            const answer = notice?.answer ?? await answerOf(link);
+            const error = notice?.error ?? link.error;
             return [{
+              noticeId: id,
+              notice,
               threadId: link.threadId ?? link.id,
               title: link.title,
-              status: link.status,
+              status: notice?.status ?? link.status,
               ...(answer ? { answer } : {}),
-              ...(link.error ? { error: link.error } : {}),
+              ...(error ? { error } : {}),
               ...(link.machine ? { machine: link.machine.name } : {}),
             }];
           }))).flat();
           if (children.length === 0) return;
-          await send(parentThreadId, wakeMessage(children));
+          // Write the uncertain-send boundary before admission. A restart
+          // never replays this state without a receipt.
+          await changeNotices(parentThreadId, async () => {
+            for (const child of children) {
+              const notice = notices.get(child.noticeId);
+              if (notice === child.notice && notice?.state === "pending") {
+                const next: CompletionNotice = { ...notice, state: "sending" };
+                notices.set(child.noticeId, next);
+                sending.set(child.noticeId, next);
+                const pending = unreported.get(parentThreadId);
+                if (pending?.delete(child.noticeId) && pending.size === 0) unreported.delete(parentThreadId);
+              }
+            }
+            await persistLinks();
+          });
+          if (closed) return;
+          // A status ACK may have consumed a child while this flush built its
+          // message or wrote the admission boundary. Do not send it afterwards.
+          const ready = children.filter((child) => sending.has(child.noticeId) && notices.get(child.noticeId) === sending.get(child.noticeId));
+          if (ready.length === 0) return;
+          await send(parentThreadId, wakeMessage(ready));
+          admitted = true;
+          if (closed) return;
+          await changeNotices(parentThreadId, async () => {
+            const delivered = new Map<string, CompletionNotice>();
+            for (const child of ready) { const notice = sending.get(child.noticeId); if (notice) delivered.set(child.noticeId, notice); }
+            await consumeNotices(parentThreadId, delivered);
+          });
           sent = true;
           services.log("agents.parent-woken", `${parentThreadId.slice(0, 8)} · ${children.length}`);
         } catch (error) {
+          if (admitted) {
+            for (const [id, notice] of sending) if (notices.get(id) === notice) uncertainNotices.add(id);
+            services.log("agents.wake-uncertain", `${parentThreadId.slice(0, 8)}: accepted wake has no durable receipt`);
+            publish();
+            return;
+          }
           // A prompt refused because the parent was starting a turn: those children wait for the next flush.
-          const pending = unreported.get(parentThreadId) ?? new Set<string>();
-          for (const id of ids) if (book.has(id)) pending.add(id);
-          unreported.set(parentThreadId, pending);
+          await changeNotices(parentThreadId, async () => {
+            const pending = unreported.get(parentThreadId) ?? new Set<string>();
+            for (const [id, notice] of sending) if (book.has(id) && notices.get(id) === notice) {
+              pending.add(id);
+              notices.set(id, { ...notice, state: "pending" });
+            }
+            if (pending.size > 0) unreported.set(parentThreadId, pending);
+            if (!closed) await persistLinks().catch(() => undefined);
+          });
           services.log("agents.wake-failed", `${parentThreadId.slice(0, 8)}: ${error instanceof Error ? error.message : String(error)}`);
         } finally {
           waking.delete(parentThreadId);
         }
         // What finished while this wake was on its way, or what it could not deliver, goes once the parent is idle.
-        if (unreported.has(parentThreadId)) {
+        if (!closed && unreported.has(parentThreadId)) {
           if (sent) void flushWakes(parentThreadId, true);
           else {
             const retry = setTimeout(() => { void flushWakes(parentThreadId, true); }, WAKE_RETRY_MS);
@@ -884,15 +1059,22 @@ export function createAgentsHostExtension(options: {
       const sendTo = async (parentThreadId: string, input: unknown) => {
         const request = decodeSendRequest(input);
         const link = requireChild(parentThreadId, request.threadId);
-        reported(parentThreadId, link.id);
+        // A fast new turn may finish during admission. Only the result that
+        // existed before this action may be acknowledged by it.
+        const observed = observedNotices(link.id);
         if (!link.threadId && !link.machine?.link) {
           if (link.status === "cancelled") throw new Error(`${link.title} was cancelled before it started; spawn a new thread instead.`);
           if (request.mode === "steer" || request.mode === "restart") {
             throw new Error(`${link.title} has not started yet; send with mode "queue" or "auto", or cancel it.`);
           }
           // Its first prompt has not left yet, so the message rides along with it.
-          prompts.set(link.id, `${prompts.get(link.id) ?? link.title}\n\n${request.message}`);
-          return { threadId: link.id, delivered: "with its first prompt", status: link.status };
+          const previous = prompts.get(link.id) ?? link.title;
+          prompts.set(link.id, `${previous}\n\n${request.message}`);
+          try { await persistLinks(); } catch (error) { prompts.set(link.id, previous); throw error; }
+          const acknowledgment = await acknowledgeAdmission(parentThreadId, observed);
+          held.delete(link.id);
+          await pump(parentThreadId);
+          return { threadId: link.id, delivered: "with its first prompt", status: book.linkFor(link.id)?.status ?? link.status, ...acknowledgment };
         }
         // Past the queue, a child without a thread here is one on another machine.
         if (link.machine || !link.threadId) return sendRemote(parentThreadId, link, request.message, request.mode);
@@ -906,7 +1088,7 @@ export function createAgentsHostExtension(options: {
           : "prompt";
         // Counted before a restart stops the running turn, so that turn's end wakes nobody.
         if (delivery !== "steer") expect(link.id);
-        else if (!expecting.has(link.id)) expecting.set(link.id, 1);
+        else if (!expecting.has(link.id)) expect(link.id);
         if (request.mode === "restart" && running) {
           if (!services.sessions.abort) throw new Error("This Tau cannot stop another thread's turn; it needs extension API 1.11.0.");
           await services.sessions.abort(link.threadId);
@@ -922,13 +1104,15 @@ export function createAgentsHostExtension(options: {
           expect(link.id);
           await send(link.threadId, request.message, { delivery, from: parentThreadId });
         }
+        const acknowledgment = await acknowledgeAdmission(parentThreadId, observed);
         const delivered = request.mode === "restart" ? "restarted" : delivery === "prompt" ? "started" : delivery === "steer" ? "steered" : "queued";
-        return { threadId: link.threadId, delivered, status: book.linkFor(link.id)?.status ?? link.status };
+        return { threadId: link.threadId, delivered, status: book.linkFor(link.id)?.status ?? link.status, ...acknowledgment };
       };
 
       /** `sendTo` for a child on another machine: the same modes, through its link there. */
       const sendRemote = async (parentThreadId: string, link: AgentThreadLink, message: string, mode: AgentSendMode) => {
         const where = link.machine!;
+        const observed = observedNotices(link.id);
         if (!where.link) {
           if (mode === "steer" || mode === "restart") throw new Error(`${link.title} is still on its way to ${where.name}; send with mode "queue" or "auto".`);
           throw new Error(`${link.title} is still on its way to ${where.name}; send again once it runs there.`);
@@ -939,15 +1123,16 @@ export function createAgentsHostExtension(options: {
           : mode === "steer" || (mode === "auto" && running) ? "steer"
           : "prompt";
         if (delivery !== "steer") expect(link.id);
-        else if (!expecting.has(link.id)) expecting.set(link.id, 1);
+        else if (!expecting.has(link.id)) expect(link.id);
         if (mode === "restart" && running) {
           await remote.abort(link.id);
           await remote.settleTurn(link.id, 15_000).catch(() => undefined);
         }
         changed(link.id, book.noteSent(link.id, delivery === "prompt"));
         await remote.send(link.id, message, delivery);
+        const acknowledgment = await acknowledgeAdmission(parentThreadId, observed);
         const delivered = mode === "restart" ? "restarted" : delivery === "prompt" ? "started" : delivery === "steer" ? "steered" : "queued";
-        return { threadId: link.id, machine: where.name, delivered, status: book.linkFor(link.id)?.status ?? link.status };
+        return { threadId: link.id, machine: where.name, delivered, status: book.linkFor(link.id)?.status ?? link.status, ...acknowledgment };
       };
 
       /** Stops a child: a queued one never starts, a running one ends its turn. A finished one stays as it is. */
@@ -955,11 +1140,14 @@ export function createAgentsHostExtension(options: {
         const link = requireChild(parentThreadId, decodeThreadId(input));
         const handle = link.threadId ?? link.id;
         expecting.delete(link.id);
-        reported(parentThreadId, link.id);
+        save();
+        await reported(parentThreadId, link.id);
         if (link.status === "pending") {
           prompts.delete(link.id);
           definitions.delete(link.id);
           wanted.delete(link.id);
+          held.delete(link.id);
+          intentKeys.delete(link.id);
           changed(link.id, book.noteCancelled(link.id, Date.now()));
           return { threadId: handle, status: "cancelled", cancelled: true };
         }
@@ -1050,7 +1238,7 @@ export function createAgentsHostExtension(options: {
             execute: async (_toolCallId, params) => {
               const link = requireChild(threadId, decodeThreadId(params));
               const status = await statusOf(link.id);
-              if (!isBusyStatus(status.status) && status.status !== "pending") reported(threadId, link.id);
+              if (!isBusyStatus(status.status) && status.status !== "pending") await reported(threadId, link.id);
               return toolResult(status);
             },
           },
@@ -1069,7 +1257,7 @@ export function createAgentsHostExtension(options: {
               const timeoutMs = decodeTimeout(params);
               const outcome = await waitFor(link.id, timeoutMs, signal);
               const status = await statusOf(link.id);
-              if (!isBusyStatus(status.status) && status.status !== "pending") reported(threadId, link.id);
+              if (!isBusyStatus(status.status) && status.status !== "pending") await reported(threadId, link.id);
               return toolResult({ ...status, ...(outcome === "timeout" ? { timedOut: true } : {}) });
             },
           },
@@ -1126,6 +1314,7 @@ export function createAgentsHostExtension(options: {
                 title: link.title,
                 status: link.status,
                 spawnedAt: link.spawnedAt,
+                ...(recovery(link.id) ? { recovery: recovery(link.id) } : {}),
                 ...(link.machine ? { machine: link.machine.name } : {}),
               })),
             }),
@@ -1188,15 +1377,19 @@ export function createAgentsHostExtension(options: {
       };
 
       /** A child's turn ended, here or on its machine: note it, wake its parent if nobody waited, free its slot. */
-      const childEnded = async (idOrThreadId: string, outcome: "completed" | "failed"): Promise<void> => {
+      const settlements = new Map<string, Promise<void>>();
+      const childEnded = (idOrThreadId: string, outcome: "completed" | "failed"): Promise<void> => {
+        const id = book.linkFor(idOrThreadId)?.id ?? idOrThreadId;
+        const work = (settlements.get(id) ?? Promise.resolve()).catch(() => undefined).then(() => recordChildEnded(id, outcome));
+        settlements.set(id, work);
+        return work.finally(() => { if (settlements.get(id) === work) settlements.delete(id); });
+      };
+      const recordChildEnded = async (idOrThreadId: string, outcome: "completed" | "failed"): Promise<void> => {
         const link = book.linkFor(idOrThreadId);
         if (!link) return;
         // Read before the end is noted: noting it releases whoever waits.
         const watched = (waiters.get(link.id)?.size ?? 0) > 0;
         changed(link.id, book.noteEnded(link.id, outcome, Date.now()));
-        // The index now carries when the agent ran, so a restart can still
-        // show its duration; that is only known once the turn is over.
-        save();
         if (!link.machine) {
           const answer = await lastAssistantMessage(link.threadId);
           if (answer) changed(link.id, book.noteResult(link.id, truncate(answer, PANEL_RESULT_LIMIT)));
@@ -1207,12 +1400,23 @@ export function createAgentsHostExtension(options: {
         // The last turn a tool gave it, or one that failed, and nobody waited: its parent hears.
         const left = (expecting.get(link.id) ?? 0) - 1;
         if (left > 0 && outcome !== "failed") expecting.set(link.id, left);
-        else if (expecting.delete(link.id) && !watched) {
-          const pending = unreported.get(link.parentThreadId) ?? new Set<string>();
-          pending.add(link.id);
-          unreported.set(link.parentThreadId, pending);
-          void flushWakes(link.parentThreadId);
+        else if (expecting.has(link.id)) {
+          if (!watched) {
+            const answer = await answerOf(link);
+            notices.set(link.id, { version: 1, state: "pending", status: outcome, ...(answer ? { answer } : {}), ...(link.error ? { error: link.error } : {}) });
+            // Store the completed outcome before consuming the last tool-owned turn.
+            await persistLinks();
+            const pending = unreported.get(link.parentThreadId) ?? new Set<string>();
+            pending.add(link.id);
+            unreported.set(link.parentThreadId, pending);
+          }
+          expecting.delete(link.id);
+          await persistLinks();
+          if (!watched) void flushWakes(link.parentThreadId);
         }
+        // Keep the remaining tool-owned turns with the link, so recovery does
+        // not forget the outcome its parent is still owed.
+        save();
         // A finished agent frees one of its parent's slots, and one on its machine.
         if (link.machine) for (const parentThreadId of book.parentsWithQueued()) void pump(parentThreadId);
         else void pump(link.parentThreadId);
@@ -1262,7 +1466,7 @@ export function createAgentsHostExtension(options: {
               }
             }
             unreported.delete(sessionId);
-            if (link) { expecting.delete(link.id); reported(link.parentThreadId, link.id); }
+            if (link) { expecting.delete(link.id); await reported(link.parentThreadId, link.id); }
             if (book.forget(sessionId)) { publish(); save(); }
           },
           beforeOpen: async (session) => {
@@ -1296,7 +1500,7 @@ export function createAgentsHostExtension(options: {
             if (changedState) { publish(); save(); }
           },
         }),
-        context.registerCommand("state", () => book.state(), { access: "read" }),
+        context.registerCommand("state", state, { access: "read" }),
         // The panel's two row actions; the tools do the same from a turn.
         context.registerCommand("apply-changes", (input) => settleWorkspace(requireThreadId(input), "applied"), { long: true }),
         context.registerCommand("discard-changes", (input) => settleWorkspace(requireThreadId(input), "discarded"), { long: true }),
@@ -1339,22 +1543,49 @@ export function createAgentsHostExtension(options: {
       book.setMaxRunning(settings.maxRunning);
       priority = settings.priority;
       const restoring: string[] = [];
-      for (const { remote: there, ...link } of await readAgentLinksWithMigration(linksPath)) {
+      for (const { remote: there, pending: intent, notice, id: savedId, pendingTurns, ...link } of await readAgentLinksWithMigration(linksPath)) {
+        const id = savedId ?? there?.id ?? intent?.id ?? link.threadId;
+        if (id && pendingTurns && !notice) expecting.set(id, pendingTurns);
+        if (intent) {
+          book.add({ ...link, id: intent.id, ...(intent.machine ? { machine: intent.machine } : {}) }, { queued: true });
+          prompts.set(intent.id, intent.prompt);
+          wanted.set(intent.id, intent.workspace);
+          if (intent.definition) definitions.set(intent.id, intent.definition);
+          held.add(intent.id);
+          if (intent.clientRequestId) {
+            intentKeys.set(intent.id, intent.clientRequestId);
+            requests.set(`${link.parentThreadId}\u0000spawn\u0000${intent.clientRequestId}`, Promise.resolve({ threadId: intent.id, title: link.title, status: "pending", workspace: intent.workspace, recovery: recovery(intent.id) }));
+          }
+          continue;
+        }
         if (there) {
           if (book.has(there.id)) continue;
           book.add({ ...link, id: there.id, machine: { ...there.machine } });
           restoring.push(there.id);
-        } else if (link.threadId && !book.has(link.threadId)) book.add({ ...link, id: link.threadId, threadId: link.threadId });
+        } else if (link.threadId && !book.has(link.threadId)) book.add({ ...link, id: id ?? link.threadId, threadId: link.threadId });
+        if (id && notice) {
+          notices.set(id, notice);
+          if (notice.state === "sending") uncertainNotices.add(id);
+          book.noteEnded(id, notice.status, link.endedAt ?? Date.now());
+          if (notice.answer) book.noteResult(id, notice.answer);
+          if (notice.state === "pending") {
+            const pending = unreported.get(link.parentThreadId) ?? new Set<string>();
+            pending.add(id);
+            unreported.set(link.parentThreadId, pending);
+          }
+        }
       }
       publish();
       // Remote Work may activate after this kit: a child there is read back once it answers.
       for (const id of restoring) void remote.restore(id);
 
-      return () => {
+      return async () => {
         remote.close();
         if (publishing) clearTimeout(publishing);
-        if (saving) clearTimeout(saving);
+        if (saving) { clearTimeout(saving); saving = undefined; void persistLinks().catch(() => undefined); }
+        closed = true;
         for (const dispose of [...disposers].reverse()) dispose();
+        await pendingSave;
       };
     },
   };

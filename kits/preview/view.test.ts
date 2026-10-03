@@ -196,6 +196,22 @@ describe("a device's layout", () => {
   });
 });
 
+describe("preview input delivery", () => {
+  it("reports a rejected input and still accepts the next operation", async () => {
+    let refused = false;
+    electron.contents.debugger.sendCommand.mockImplementation(async (method: string) => {
+      if (method === "Input.dispatchKeyEvent" && !refused) {
+        refused = true;
+        throw new Error("fixture refused key");
+      }
+      return {};
+    });
+    const view = surface();
+    await expect(view.pressKey("Enter")).rejects.toThrow("fixture refused key");
+    await expect(view.input!({ kind: "text", text: "next" })).resolves.toBeUndefined();
+  });
+});
+
 describe("cropToView", () => {
   it("cuts the view's rectangle out of an image at the view's pixel density", () => {
     const image = fakeImage(2_560, 1_600, "full");

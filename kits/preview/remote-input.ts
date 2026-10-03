@@ -5,7 +5,7 @@ export type PreviewPageInput =
   | { kind: "click"; x: number; y: number }
   | { kind: "scroll"; x: number; y: number; dx: number; dy: number }
   | { kind: "text"; text: string }
-  | { kind: "key"; key: PreviewInputKey };
+  | { kind: "key"; key: string };
 
 /** A paste of a long token is fine; a novel is not what a phone sends into a login form. */
 export const MAX_INPUT_TEXT = 4_000;
@@ -101,8 +101,9 @@ export function cdpInputCommands(input: PreviewPageInput, options: { touch?: boo
     case "text":
       return [["Input.insertText", { text: input.text }]];
     case "key": {
-      const { code, vk, text } = KEY_CODES[input.key];
-      const key = { key: input.key, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk };
+      const known = KEY_CODES[input.key as PreviewInputKey];
+      const text = known?.text ?? (input.key.length === 1 ? input.key : undefined);
+      const key = { key: input.key, ...(known ? { code: known.code, windowsVirtualKeyCode: known.vk, nativeVirtualKeyCode: known.vk } : {}) };
       return [
         ["Input.dispatchKeyEvent", text ? { type: "keyDown", ...key, text, unmodifiedText: text } : { type: "rawKeyDown", ...key }],
         ["Input.dispatchKeyEvent", { type: "keyUp", ...key }],
