@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiToolRun } from "../../shared/contracts";
 import { ExtensionRegistry, type DesktopExtension } from "../extension-system";
 import { ToolRun } from "./ToolRun";
-import { presentWrite } from "../../../kits/workspace/tool-cards";
 
 /**
  * Shell runs and hidden tool output are extension presentations, and the kits
@@ -34,6 +33,12 @@ function registryWithBundledExtensions(): ExtensionRegistry {
   return registry;
 }
 
+// Core consumes an extension's preview node without depending on that kit's build aliases.
+const editPreview = (tool: UiToolRun) => ({
+  glyph: "±", title: "Edit", tone: "write" as const, detail: String(tool.args.path),
+  body: <div className="tool-diff">{String(tool.args.newText)}</div>,
+});
+
 const command = (partial: Partial<UiToolRun> = {}): UiToolRun => ({
   id: "bash",
   name: "bash",
@@ -53,7 +58,7 @@ describe("tool run output", () => {
   it.each(["running", "done"] as const)("keeps a %s edit diff behind the row in focused mode", (status) => {
     const registry = registryWithBundledExtensions();
     registry.activate({ id: "test.edits", name: "Edits", activate(plugin) {
-      plugin.registerToolRenderer("test.edit", (tool) => tool.name === "edit", presentWrite);
+      plugin.registerToolRenderer("test.edit", (tool) => tool.name === "edit", editPreview);
     } });
     const view = render(<ToolRun tool={{ id: "edit", name: "edit", args: { path: "app.ts", oldText: "const before = 1;", newText: "const after = 2;" }, status, startedAt: Date.now() }} registry={registry} detail="focused" />);
     const row = screen.getByRole("button", { name: /Edit app.ts/u });
@@ -69,7 +74,7 @@ describe("tool run output", () => {
   it.each(["detailed", "everything"] as const)("shows edit previews at %s", (detail) => {
     const registry = registryWithBundledExtensions();
     registry.activate({ id: "test.edits", name: "Edits", activate(plugin) {
-      plugin.registerToolRenderer("test.edit", (tool) => tool.name === "edit", presentWrite);
+      plugin.registerToolRenderer("test.edit", (tool) => tool.name === "edit", editPreview);
     } });
     const view = render(<ToolRun tool={{ id: "edit", name: "edit", args: { path: "app.ts", oldText: "before", newText: "after" }, status: "done", startedAt: 1 }} registry={registry} detail={detail} />);
     expect(view.container.querySelector(".tool-diff")?.textContent).toContain("after");
