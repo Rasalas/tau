@@ -31,29 +31,29 @@ describe("ProviderIconStack", () => {
     ["vertex-ai", "Vertex AI", "vertex-ai"],
     ["opencode-go", "OpenCode Go", "opencode"],
     ["cursor", "Cursor", "cursor"],
-  ])("badges %s's mark with Pi's", (modelProvider, label, family) => {
+  ])("draws Pi before %s's mark", (modelProvider, label, family) => {
     const { getByLabelText } = render(<ProviderIconStack modelProvider={modelProvider} runtimeProvider="pi" />);
     const stack = getByLabelText(`Pi via ${label}`);
     expect(stack.querySelector(`.provider-icon-model.provider-family-${family} .provider-mark`)).toBeTruthy();
-    expect(stack.querySelector(".provider-icon-runtime.provider-family-pi")).toBeTruthy();
+    expect(stack.firstElementChild?.classList).toContain("provider-family-pi");
     expect(stack.classList).toContain("stacked");
   });
 
   it.each([
-    // runtime, provider, plan, drawn families (the access mark, then the runtime's behind it), tooltip
+    // runtime, provider, plan, drawn families (runtime first, then provider or plan), tooltip
     ["codex", "openai", false, ["codex"], "Codex (OpenAI)"],
     ["claude-code", "anthropic", false, ["claude-code"], "Claude Code (Anthropic)"],
     ["grok", "xai", false, ["grok"], "Grok (xAI)"],
     ["antigravity", "google", false, ["antigravity"], "Antigravity (Google Gemini)"],
     ["cursor", "cursor", false, ["cursor"], "Cursor"],
-    ["antigravity", "anthropic", false, ["anthropic", "antigravity"], "Antigravity via Anthropic"],
-    ["opencode", "openai", false, ["openai", "opencode"], "OpenCode via OpenAI"],
-    ["pi", "openai", false, ["openai", "pi"], "Pi via OpenAI"],
-    ["pi", "openrouter", false, ["openrouter", "pi"], "Pi via OpenRouter"],
-    ["pi", "openai-codex", false, ["codex", "pi"], "Pi via ChatGPT plan"],
-    ["pi", "anthropic", true, ["claude-code", "pi"], "Pi via Claude plan"],
-    ["pi", "xai", true, ["grok", "pi"], "Pi via Grok plan"],
-    ["cursor", "anthropic", true, ["anthropic", "cursor"], "Cursor via Anthropic"],
+    ["antigravity", "anthropic", false, ["antigravity", "anthropic"], "Antigravity via Anthropic"],
+    ["opencode", "openai", false, ["opencode", "openai"], "OpenCode via OpenAI"],
+    ["pi", "openai", false, ["pi", "openai"], "Pi via OpenAI"],
+    ["pi", "openrouter", false, ["pi", "openrouter"], "Pi via OpenRouter"],
+    ["pi", "openai-codex", false, ["pi", "codex"], "Pi via ChatGPT plan"],
+    ["pi", "anthropic", true, ["pi", "claude-code"], "Pi via Claude plan"],
+    ["pi", "xai", true, ["pi", "grok"], "Pi via Grok plan"],
+    ["cursor", "anthropic", true, ["cursor", "anthropic"], "Cursor via Anthropic"],
   ] as const)("draws %s with %s (plan: %s)", (runtime, provider, plan, families, tooltip) => {
     const { getByLabelText } = render(<ProviderIconStack modelProvider={provider} runtimeProvider={runtime} plan={plan} />);
     const stack = getByLabelText(tooltip);
@@ -119,13 +119,13 @@ describe("ProviderIconStack", () => {
     expect(render(<ProviderIconStack runtimeProvider="claude-code@second" />).getByLabelText("Claude Code")).toBeTruthy();
   });
 
-  it("badges a provider a runtime does not own with that runtime", () => {
+  it("draws the runtime before a provider it does not own", () => {
     const { getByLabelText } = render(<ProviderIconStack modelProvider="google" runtimeProvider="opencode" />);
     const stack = getByLabelText("OpenCode via Google Gemini");
     expect(stack.querySelectorAll(".provider-mark")).toHaveLength(2);
     expect(stack.classList).toContain("stacked");
-    expect(stack.firstElementChild?.classList).toContain("provider-icon-model");
-    expect(stack.lastElementChild?.classList).toContain("provider-icon-runtime");
+    expect(stack.firstElementChild?.classList).toContain("provider-icon-runtime");
+    expect(stack.lastElementChild?.classList).toContain("provider-icon-model");
   });
 
   it("leaves the runtime's mark out where the runtime is named around it, and names the model and instance", () => {
