@@ -23,6 +23,19 @@ describe("a client with a host in another process", () => {
     return { log, client: createHostClient(host, local) };
   };
 
+  it("routes a restart to the thread host with an explicit identity", async () => {
+    const requested: Array<{ method: string; params: readonly unknown[] }> = [];
+    const host = new HostConnection({ platform: "host", request: async (method, params) => {
+      requested.push({ method, params });
+      return { id: "restart", result: { version: 1, updates: [] } };
+    }, onPush: () => () => undefined });
+    const localCalls: string[] = [];
+    const client = createHostClient(host, new HostConnection(recordingTransport("local", localCalls)));
+    await client.restartSession("remote-thread-1");
+    expect(requested).toEqual([{ method: "restart-session", params: ["remote-thread-1"] }]);
+    expect(localCalls).toEqual([]);
+  });
+
   it("answers the client-side methods on its own machine", async () => {
     const { log, client } = split();
     await client.copyText("x");
