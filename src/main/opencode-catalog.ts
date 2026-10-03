@@ -71,7 +71,11 @@ export function withOpenCodeCatalog(provider: Provider, catalog: unknown): Provi
   }
   if (extra.length === 0) return provider;
   const models = [...provider.getModels(), ...extra];
-  return { ...provider, getModels: () => models };
+  return {
+    ...provider,
+    getModels: () => models,
+    getAllModels: () => [...(provider.getAllModels?.() ?? provider.getModels()), ...extra],
+  };
 }
 
 /**
