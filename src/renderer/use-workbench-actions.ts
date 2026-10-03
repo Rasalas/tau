@@ -158,6 +158,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
           void client?.abort(options.threadStore.getSnapshot().activeThreadId || undefined);
         }
       },
+      restartAgentSession: options.threadCommands.restartAgentSession,
       reloadWorkbench,
       openWorkbenchSource: async () => {
         if (!client) return false;

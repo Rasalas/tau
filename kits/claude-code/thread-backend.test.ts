@@ -113,6 +113,60 @@ function scriptedAdapter(filePath: string, script: Script) {
 }
 
 describe("thread runtime backends", () => {
+  it("restarts a process without losing history and rereads the skill catalog", async () => {
+    const { filePath, store } = await scratchStore();
+    const { adapter, opened, sessions } = scriptedAdapter(filePath, () => turn("hello"));
+    let discovered = commands;
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands: () => discovered, projectName: "repo" });
+    await backend.start("create");
+    await backend.prompt({ text: "Hello.", delivery: "prompt" });
+    const transcript = await backend.transcript();
+    const id = backend.providerSessionId;
+    discovered = [{ name: "new-skill", source: "skill", description: "Newly installed" }];
+    await backend.capabilities.restart!.restart();
+    expect(sessions[0]!.close).toHaveBeenCalledOnce();
+    expect(await backend.transcript()).toEqual(transcript);
+    expect(backend.composerCommands()).toEqual(discovered);
+    await backend.prompt({ text: "Again.", delivery: "prompt" });
+    expect(opened).toHaveLength(2);
+    expect(opened[1]).toMatchObject({ claudeSessionId: id, started: true });
+    await backend.dispose();
+  });
+
+  it("refuses a concurrent send while the old process is closing", async () => {
+    const { filePath, store } = await scratchStore();
+    const { adapter, opened, sessions } = scriptedAdapter(filePath, () => turn("hello"));
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo" });
+    await backend.start("create");
+    await backend.prompt({ text: "Hello.", delivery: "prompt" });
+    const close = sessions[0]!.close.getMockImplementation()!;
+    let release!: () => void;
+    sessions[0]!.close.mockImplementation(async () => { await new Promise<void>((resolve) => { release = resolve; }); await close(); });
+    const restart = backend.capabilities.restart!.restart();
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    await expect(backend.prompt({ text: "Concurrent", delivery: "prompt" })).rejects.toThrow("session is restarting");
+    expect(opened).toHaveLength(1);
+    release();
+    await restart;
+    expect((await backend.transcript()).some((message) => message.text === "Concurrent")).toBe(false);
+    await backend.dispose();
+  });
+
+  it("refuses a restart while a background task still owns work", async () => {
+    const { filePath, store } = await scratchStore();
+    const { adapter, opened, sessions } = scriptedAdapter(filePath, () => turn("hello"));
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo" });
+    await backend.start("create");
+    await backend.prompt({ text: "Hello.", delivery: "prompt" });
+    opened[0]!.onMessage({ type: "system", subtype: "background_tasks_changed", tasks: [{ task_id: "background-1", task_type: "agent", description: "Working", ambient: false }], uuid: "task-state", session_id: backend.providerSessionId } as never);
+    await expect(backend.capabilities.restart!.restart()).rejects.toThrow("background tasks");
+    expect(sessions[0]!.close).not.toHaveBeenCalled();
+    opened[0]!.onMessage({ type: "system", subtype: "background_tasks_changed", tasks: [], uuid: "task-state", session_id: backend.providerSessionId } as never);
+    opened[0]!.onMessage({ type: "system", subtype: "task_started", task_id: "background-1", is_backgrounded: true, uuid: "late-edge", session_id: backend.providerSessionId } as never);
+    await backend.capabilities.restart!.restart();
+    await backend.dispose();
+  });
+
   it("streams a Claude turn as Tau events, persists the exchange and its usage, and restores both", async () => {
     const { filePath, store } = await scratchStore();
     const { adapter, opened, sessions } = scriptedAdapter(filePath, (content) => turn(`Claude: ${String(content)}`));
@@ -177,7 +231,7 @@ describe("thread runtime backends", () => {
     // Beside the model and effort pickers, the plan mode and the word it uses
     // to say a turn was cut short, Claude offers no Pi-shaped capability;
     // every such operation is refused in one place.
-    expect(Object.keys(backend.capabilities)).toEqual(["catalogWrite", "mode", "resume", "compaction"]);
+    expect(Object.keys(backend.capabilities)).toEqual(["catalogWrite", "mode", "resume", "compaction", "restart"]);
     expect(backend.capabilities.resume?.hiddenPrompt).toBe(false);
 
     await backend.dispose();

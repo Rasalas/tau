@@ -347,6 +347,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       decodeOptionalString("set-mode", "expectedSessionId", params[1]),
     ),
     "compact-context": async () => (await host()).compactContext(),
+    "restart-session": async (params) => (await host()).restartSession(decodeString("restart-session", "threadId", params[0])),
     "reload-runtime": async () => (await host()).reloadRuntime(),
     "reload-extensions": async () => (await host()).reloadExtensions(),
     // Answering must never wait for a ready host: the host is blocked on this very

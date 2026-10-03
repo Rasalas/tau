@@ -25,6 +25,7 @@ export class ThreadRuntime implements LiveTurnState {
   adapterStreaming = false;
   adapterPending = 0;
   adapterAbortGeneration = 0;
+  restartGeneration = 0;
   adapterAbortControllers = new Set<AbortController>();
   adapterQueue: Promise<void> = Promise.resolve();
   currentAssistantId?: string;

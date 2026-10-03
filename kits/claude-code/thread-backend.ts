@@ -215,9 +215,20 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
         notice: async (text) => { this.report({ type: "notice", message: text, level: "info" }); },
       },
       compaction: { compact: () => this.compact() },
+      restart: { restart: async () => {
+        if (this.restarting || this.admittingPrompts || this.turns.length || this.backgroundTasks.size) throw new Error("Wait for Claude's running work and background tasks before restarting its session.");
+        this.restarting = true;
+        try { await this.dispose(); await this.skills(); }
+        finally { this.restarting = false; }
+      } },
     };
   }
 
+  private restarting = false;
+  private admittingPrompts = 0;
+  private commandList: UiComposerCommand[] = [];
+  private readonly backgroundTasks = new Set<string>();
+  private backgroundTaskLevels = false;
   private readonly store: ClaudeRuntimeSessionStore;
   private readonly options: ClaudeThreadBackendOptions;
 
@@ -239,6 +250,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       if (this.record.cwd !== this.cwd) throw new Error("Claude session belongs to another workspace.");
     }
     this.restoreRecord(this.record);
+    await this.skills();
   }
 
   private restoreRecord(record: NonNullable<ClaudeThreadRuntimeBackend["record"]>): void {
@@ -268,12 +280,11 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     const commands = this.options.commands;
     if (!commands) return [];
     const value = typeof commands === "function" ? await commands() : commands;
-    return value.map((command) => ({ ...command }));
+    this.commandList = value.map((command) => ({ ...command }));
+    return this.commandList;
   }
   composerCommands(): UiComposerCommand[] {
-    const commands = this.options.commands;
-    if (!commands || typeof commands === "function") return [];
-    return commands.map((command) => ({ ...command }));
+    return this.commandList.map((command) => ({ ...command }));
   }
 
   state(): ThreadBackendState {
@@ -326,6 +337,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   private async setModel(id: string): Promise<void> {
+    if (this.restarting) throw new Error("The Claude session is restarting.");
     this.chosenModel = id;
     this.model = id;
     await this.store.setSelection(this.threadId, this.cwd, { model: id });
@@ -334,6 +346,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   private async setEffort(level: string): Promise<void> {
+    if (this.restarting) throw new Error("The Claude session is restarting.");
     const effort = effortLevel(level);
     if (!effort && !level.startsWith(DEFAULT_EFFORT)) throw new Error(`Claude Code knows no effort "${level}".`);
     this.chosenEffort = effort;
@@ -343,6 +356,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   private async setMode(mode: string): Promise<void> {
+    if (this.restarting) throw new Error("The Claude session is restarting.");
     if (mode !== PLAN_MODE && mode !== DEFAULT_MODE) throw new Error(`Claude Code offers no "${mode}" mode.`);
     this.mode = mode;
     await this.store.setSelection(this.threadId, this.cwd, { mode: mode === DEFAULT_MODE ? undefined : mode });
@@ -375,6 +389,9 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   async prompt(input: ThreadBackendPromptInput): Promise<ThreadBackendPromptResult> {
+    if (this.restarting) throw new Error("The Claude session is restarting. Wait before sending another message.");
+    this.admittingPrompts += 1;
+    try {
     if (input.delivery !== "prompt" && input.delivery !== "steer" && input.delivery !== "followUp") throw new Error("Unsupported Claude delivery.");
     const permissionLevel = this.options.permissionLevel?.() ?? "full";
     const mode = this.mode === PLAN_MODE ? "plan" : runtimePermissionPolicy(permissionLevel).permissionMode;
@@ -469,6 +486,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       }
       return { assistantText: outcome?.texts.join("\n\n") ?? "" };
     }
+    } finally { this.admittingPrompts -= 1; }
   }
 
   /**
@@ -507,6 +525,8 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     // Without the endpoint the thread still runs, only without Tau's tools.
     const mcpServer = await this.options.mcpServer?.(this.tools).catch(() => undefined);
     const live: LiveSession = { session: undefined as unknown as ClaudeSdkSession, mode, network: limit, resumed, confirmed: false, stderr: "" };
+    this.backgroundTasks.clear();
+    this.backgroundTaskLevels = false;
     live.session = this.runtimeAdapter.openSession({
       cwd: this.cwd,
       claudeSessionId: record.claudeSessionId,
@@ -528,6 +548,14 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   private onFrame(frame: Parameters<SdkTurnTranslator["push"]>[0]): void {
+    if (frame.type === "system") {
+      if (frame.subtype === "background_tasks_changed") {
+        this.backgroundTaskLevels = true;
+        this.backgroundTasks.clear();
+        for (const task of frame.tasks) this.backgroundTasks.add(task.task_id);
+      } else if (!this.backgroundTaskLevels && frame.subtype === "task_started" && frame.is_backgrounded !== false) this.backgroundTasks.add(frame.task_id);
+      else if (!this.backgroundTaskLevels && frame.subtype === "task_notification") this.backgroundTasks.delete(frame.task_id);
+    }
     const turn = this.turns[0];
     if (!turn) {
       // Before any turn: remember what the session says about itself.
@@ -595,8 +623,11 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
    * transcript's divider; no prompt or reply joins it.
    */
   private async compact(): Promise<void> {
+    if (this.restarting) throw new Error("The Claude session is restarting.");
     if (this.turns.length > 0) throw new Error("Claude Code is still working on this thread. Compact it once the turn ends.");
     if (!this.record?.started) throw new Error("This thread has nothing to compact yet.");
+    this.admittingPrompts += 1;
+    try {
     const permissionLevel = this.options.permissionLevel?.() ?? "full";
     const mode = this.mode === PLAN_MODE ? "plan" : runtimePermissionPolicy(permissionLevel).permissionMode;
     const live = await this.ensureSession(permissionLevel, mode, false, await this.networkLimit());
@@ -608,6 +639,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     const outcome = turn.translator.outcome;
     if (outcome?.error) throw new Error(`Claude Code could not compact the conversation: ${outcome.error}`);
     if (!outcome?.compacted) throw new Error(outcome?.texts.join("\n").trim() || "Claude Code did not compact the conversation.");
+    } finally { this.admittingPrompts -= 1; }
   }
 
   /** What the session says about itself, once per init frame. */
@@ -620,7 +652,11 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   private onExit(live: LiveSession, error: unknown): void {
-    if (this.live === live) this.live = undefined;
+    if (this.live === live) {
+      this.live = undefined;
+      this.backgroundTasks.clear();
+      this.backgroundTaskLevels = false;
+    }
     const status = error ? "error" : "interrupted";
     if (error) this.report({ type: "notice", message: `Claude Code stopped: ${error instanceof Error ? error.message : String(error)}${live.stderr.trim() ? `\n${live.stderr.trim()}` : ""}`, level: "error" });
     for (const turn of this.turns.splice(0)) this.settleTurn(turn, status);

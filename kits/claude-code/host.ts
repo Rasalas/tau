@@ -311,7 +311,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
               store,
               instance: id,
               // The command catalog is resolved once at the owner boundary.
-              commands: offered(cwd),
+              commands: () => offered(cwd),
               projectName: thread.projectName,
               branch: thread.projectLabel,
               permissionLevel: thread.permissionLevel,

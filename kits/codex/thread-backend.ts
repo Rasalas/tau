@@ -252,6 +252,13 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.store = options.store;
     this.now = options.now ?? Date.now;
     this.capabilities = {
+      restart: { restart: async () => {
+        if (this.turns.length || this.opening || this.switchingAccount || this.admittingPrompts) throw new Error("Wait for Codex to finish before restarting its session.");
+        this.switchingAccount = true;
+        this.strictResume = Boolean(this.codexThreadId);
+        try { await this.dispose(); await this.ensureSession(); }
+        finally { this.strictResume = false; this.switchingAccount = false; }
+      } },
       catalogWrite: {
         setModel: (_provider, id) => this.setModel(id),
         setThinkingLevel: (level) => this.setEffort(level),

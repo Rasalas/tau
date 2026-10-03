@@ -154,6 +154,7 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerCommand({ id: "runtime.thread-tree", label: "Thread tree…", group: "Thread", access: "read", run: (app) => app.openThreadTree("navigate") });
     plugin.registerCommand({ id: "runtime.fork-thread", label: "Fork thread…", group: "Thread", access: "write", run: (app) => app.openThreadTree("fork") });
     plugin.registerCommand({ id: "runtime.duplicate-thread", label: "Duplicate thread", group: "Thread", access: "write", run: async (app) => { await app.duplicateThread(); } });
+    plugin.registerCommand({ id: "runtime.restart-session", label: "Restart agent session", group: "Thread", access: "write", run: async (app) => { await app.restartAgentSession?.(); } });
     plugin.registerCommand({ id: "runtime.reload", label: "Apply changes and reload Tau", group: "Runtime", access: "write", run: async (app) => { await app.reloadWorkbench(); } });
     plugin.registerCommand({ id: "runtime.open-source", label: "Open Tau source", group: "Runtime", access: "write", run: async (app) => { await app.openWorkbenchSource(); } });
     plugin.registerCommand({ id: "workbench.focus-composer", label: "Focus composer", group: "Workbench", access: "read", run: (app) => app.focusComposer() });

@@ -36,6 +36,7 @@ export const HOST_METHOD_ACCESS = {
   "set-thinking": "write",
   "set-mode": "write",
   "compact-context": "write",
+  "restart-session": "write",
   "reload-runtime": "write",
   "reload-extensions": "write",
   "answer-extension-ui": "write",
