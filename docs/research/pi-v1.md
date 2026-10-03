@@ -33,6 +33,8 @@ Keep the embedded SDK pinned and deliver tested SDK updates with Tau releases. T
 
 Automatically detecting new releases and proposing dependency PRs would reduce maintenance delay while keeping those checks. Moving Pi behind its subprocess RPC protocol could allow independent runtime updates, but it would require evaluating the protocol against Tau's session lifecycle and extension integrations. That is a separate change to [ADR 0001](../adr/0001-embed-pi-behind-a-desktop-host.md), not a prerequisite for 1.0. Pi's published [RPC documentation](https://github.com/earendil-works/pi/blob/v1.0.0/packages/coding-agent/docs/rpc.md) describes the subprocess interface.
 
+[Dependabot](../../.github/dependabot.yml) checks the two direct Pi SDK dependencies in the root project and package example on weekdays at 09:00 Europe/Berlin. Updates are grouped as `pi-sdk`, with one open version-update PR at a time, including major releases. Exact version pins remain exact. The existing pull-request CI runs lint, type checks, tests, build, and smoke checks; updates require review and merge before shipping with Tau. This configuration takes effect after it reaches the default branch. Configuration options: [GitHub documentation](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference).
+
 ## Implementation findings
 
 - Updated the Pi SDK and package example to 1.0.0.
