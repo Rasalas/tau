@@ -237,7 +237,7 @@ describe("preview tools over MCP", () => {
         connect: async () => undefined,
       },
     });
-    const tools = providers[0]!({ sessionId: "codex-thread", cwd: "/site" });
+    const tools = await providers[0]!({ sessionId: "codex-thread", cwd: "/site" });
     expect(tools.map((tool) => tool.name)).toContain("preview_navigate");
     const open = tools.find((tool) => tool.name === "preview_open")!;
     const result = await open.execute("call-1", { url: "/site/index.html" } as never, undefined, undefined, undefined as never) as { isError?: boolean };

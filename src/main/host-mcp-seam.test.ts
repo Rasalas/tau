@@ -109,9 +109,9 @@ describe("the MCP seam of the host", () => {
     try {
       const services = internals.seam.services;
       const connection = (await services.mcp.connect({ sessionId: "codex-thread", cwd: "/repo" }))!;
-      expect(internals.seam.mcp.tools({ sessionId: "codex-thread", cwd: "/repo" }).map((tool: { name: string }) => tool.name)).toEqual(["where"]);
+      expect((await internals.seam.mcp.tools({ sessionId: "codex-thread", cwd: "/repo" })).map((tool: { name: string }) => tool.name)).toEqual(["where"]);
       await internals.hostExtensions.deactivate("test.tools");
-      expect(internals.seam.mcp.tools({ sessionId: "codex-thread", cwd: "/repo" })).toEqual([]);
+      expect(await internals.seam.mcp.tools({ sessionId: "codex-thread", cwd: "/repo" })).toEqual([]);
       await expect(status(connection)).resolves.toBe(200);
 
       let denied: unknown;

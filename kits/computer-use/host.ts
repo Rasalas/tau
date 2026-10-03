@@ -18,15 +18,6 @@ interface PackageSettings { packages?: PiPackageSource[] }
 
 type PiApi = Parameters<RuntimeExtensionFactory>[0];
 type PiContext = Parameters<Parameters<PiApi["on"]>[1]>[1];
-interface DriverTool {
-  name: string;
-  execute(callId: string, params: unknown, signal: AbortSignal | undefined, onUpdate: undefined, ctx: PiContext): Promise<{ content?: { type: string; text?: string }[]; details?: unknown; isError?: boolean }>;
-}
-
-const BRING_TO_FRONT = `${COMPUTER_USE_TOOL_PREFIX}bring_to_front`;
-const FRONT_TIMEOUT_MS = 10_000;
-const INPUT_TIMEOUT_MS = 20_000;
-
 function packageSource(entry: PiPackageSource): string {
   return typeof entry === "string" ? entry : entry.source;
 }
@@ -37,59 +28,6 @@ export function settingsIncludeComputerUse(settings: PackageSettings): boolean {
     return source === `npm:${COMPUTER_USE_PACKAGE}`
       || source.startsWith(`npm:${COMPUTER_USE_PACKAGE}@`);
   }) ?? false;
-}
-
-/** The driver's own tools per thread, kept so the screen view's button can raise the window through them. */
-class DriverHandles {
-  private readonly handles = new Map<string, { tools: Map<string, DriverTool>; context?: PiContext }>();
-
-  /** Hands the driver a `pi` that records the tools it registers; everything else passes through. */
-  wrap(factory: RuntimeExtensionFactory): RuntimeExtensionFactory {
-    return (pi, session) => {
-      const tools = new Map<string, DriverTool>();
-      const handle: { tools: Map<string, DriverTool>; context?: PiContext } = { tools };
-      pi.on("session_start", (_event, ctx) => {
-        handle.context = ctx;
-        this.handles.set(session.sessionId, handle);
-      });
-      pi.on("session_shutdown", () => {
-        if (this.handles.get(session.sessionId) === handle) this.handles.delete(session.sessionId);
-      });
-      const recording = new Proxy(pi, {
-        get(target, property) {
-          if (property === "registerTool") {
-            return (tool: DriverTool) => {
-              tools.set(tool.name, tool);
-              return (target.registerTool as (tool: unknown) => void)(tool);
-            };
-          }
-          const value: unknown = Reflect.get(target, property, target);
-          return typeof value === "function" ? value.bind(target) : value;
-        },
-      });
-      return factory(recording, session);
-    };
-  }
-
-  has(threadId: string): boolean {
-    return this.handles.get(threadId)?.tools.has(BRING_TO_FRONT) ?? false;
-  }
-
-  /** One of the thread's own driver tools, called around Pi's hooks: the user's input, not the agent's. */
-  async run(threadId: string, name: string, params: Record<string, unknown>): Promise<ToolRunResult> {
-    const handle = this.handles.get(threadId);
-    const tool = handle?.tools.get(name);
-    if (!handle?.context || !tool) throw new Error("This thread's computer use is not running; open the thread to start it.");
-    return tool.execute(`tau-remote-${name}`, params, AbortSignal.timeout(INPUT_TIMEOUT_MS), undefined, handle.context);
-  }
-
-  async bringToFront(threadId: string, pid: number, windowId: number | undefined): Promise<void> {
-    const handle = this.handles.get(threadId);
-    const tool = handle?.tools.get(BRING_TO_FRONT);
-    if (!handle?.context || !tool) throw new Error("This thread's computer use cannot raise the window.");
-    const result = await tool.execute("tau-screen-front", { pid, ...(windowId !== undefined ? { window_id: windowId } : {}) }, AbortSignal.timeout(FRONT_TIMEOUT_MS), undefined, handle.context);
-    if (result.isError) throw new Error(result.content?.map((entry) => entry.text ?? "").join(" ").trim() || "The window could not be raised.");
-  }
 }
 
 /** Feeds every computer-use call and result of a runtime into the screen feed. */
@@ -147,35 +85,50 @@ function windowCalls(context: HostExtensionContext): WindowCall {
   };
 }
 
-/**
- * Computer Use's host entry: the npm package as a bundled Pi extension, and the
- * screen feed — the window each thread's agent drives, from the driver's own
- * screenshots and the calls it makes. The host loads the package, because its
- * driver binaries live beside the module npm installed. A user-configured Pi
- * package wins, so existing installations do not register the same tools twice;
- * the feed watches either.
- */
+/** The host owns one driver per thread and offers it through Pi and MCP. */
 export function createComputerUseHostExtension(): HostExtension {
   return {
     id: COMPUTER_USE_EXTENSION_ID,
     name: "Computer Use",
-    permissions: ["runtime:extend"],
+    permissions: ["runtime:extend", "sessions", "packages"],
     async activate(context: HostExtensionContext) {
-      const drivers = new DriverHandles();
-      const feed = new ScreenFeed((state) => context.emit(SCREEN_EVENT, state), { canBringToFront: (threadId) => drivers.has(threadId) });
+      let runtime: import("./runtime.js").ComputerUseRuntime | undefined;
+      let loading: Promise<import("./runtime.js").ComputerUseRuntime> | undefined;
+      const feed = new ScreenFeed((state) => context.emit(SCREEN_EVENT, state), { canBringToFront: (threadId) => runtime?.has(threadId) ?? false });
+      const getRuntime = () => loading ??= import("./runtime.js").then(({ loadComputerUseRuntime }) => loadComputerUseRuntime(context, feed)).then((loaded) => runtime = loaded).catch((error: unknown) => { loading = undefined; throw error; });
+      const drivers = {
+        run: async (threadId: string, name: string, args: Record<string, unknown>): Promise<ToolRunResult> => (await getRuntime()).remote(threadId, name, args),
+        bringToFront: async (threadId: string, pid: number, windowId: number | undefined) => {
+          const result = await (await getRuntime()).remote(threadId, `${COMPUTER_USE_TOOL_PREFIX}bring_to_front`, { pid, ...(windowId === undefined ? {} : { window_id: windowId }) });
+          if (result.isError) throw new Error(result.content.map((item) => item.type === "text" ? item.text : "").join(" "));
+        },
+      };
       const callWindow = windowCalls(context);
       const icons = new Map<number, Promise<string | null>>();
 
-      // The package takes a few hundred milliseconds to import; only a runtime waits for it, not the host's start.
-      const loading = context.services.loadRuntimeExtension(COMPUTER_USE_PACKAGE);
-      loading.catch(() => undefined);
-      const factory: RuntimeExtensionFactory = async (pi, session) => (await loading)(pi, session);
-      const releaseDriver = context.services.registerRuntimeExtension(COMPUTER_USE_RUNTIME_EXTENSION, drivers.wrap(factory), {
-        enabledFor: (settings) =>
-          !settingsIncludeComputerUse(settings.global as PackageSettings)
-          && !settingsIncludeComputerUse(settings.project as PackageSettings),
+      const releaseDriver = context.services.registerRuntimeExtension(COMPUTER_USE_RUNTIME_EXTENSION, async (pi, session) => (await getRuntime()).piFactory()(pi, session), {
+        enabledFor: (settings) => !settingsIncludeComputerUse(settings.global as PackageSettings) && !settingsIncludeComputerUse(settings.project as PackageSettings),
       });
-      const releaseObserver = context.services.registerRuntimeExtension(COMPUTER_USE_SCREEN_RUNTIME_EXTENSION, screenObserver(feed));
+      // The shared driver records its own calls; this observer serves configured external Pi packages.
+      const externalObserver = screenObserver(feed);
+      const releaseObserver = context.services.registerRuntimeExtension(COMPUTER_USE_SCREEN_RUNTIME_EXTENSION, (pi, session) => {
+        if (!runtime?.has(session.sessionId)) return externalObserver(pi, session);
+      });
+      const releaseTools = context.services.mcp.registerTools(async (thread) => thread.nativeCapabilities?.includes("computer-use") ? [] : (await getRuntime()).tools(thread));
+      const releaseGate = context.services.mcp.gate(async (call) => {
+        if (!call.toolName.startsWith(COMPUTER_USE_TOOL_PREFIX)) return;
+        try {
+          await (await getRuntime()).approve({ sessionId: call.threadId, cwd: call.cwd }, call.toolName, call.input, call.signal, ({ title, message }) => call.confirm(title, message));
+        } catch (error) {
+          return { block: true, reason: error instanceof Error ? error.message : String(error) };
+        }
+      });
+      const releaseLifecycle = context.services.registerTurnObserver({ closed: async (threadId) => {
+        feed.forget(threadId);
+        // A pending provider resumes first and creates its state; close that state too.
+        const active = runtime ?? await loading?.catch(() => undefined);
+        await active?.closeThread(threadId);
+      } });
 
       // The live view records the window the feed names, never one a client asks for by id.
       const windowOf = (input: unknown): number => {
@@ -239,6 +192,10 @@ export function createComputerUseHostExtension(): HostExtension {
         remote.dispose();
         releaseDriver();
         releaseObserver();
+        releaseTools();
+        releaseGate();
+        releaseLifecycle();
+        void loading?.then((loaded) => loaded.close()).catch(() => undefined);
         void callWindow("live-stop").catch(() => undefined);
       };
     },

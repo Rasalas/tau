@@ -240,8 +240,8 @@ function harness() {
   const state = async (): Promise<AgentsState> => await invoke("state") as AgentsState;
 
   /** The same tools as a runtime that is not Pi reaches them over MCP: no Pi context at all. */
-  const mcpThread = (sessionId: string, cwd = "/project") => {
-    const tools = mcpProviders.flatMap((provider) => provider({ sessionId, cwd }));
+  const mcpThread = async (sessionId: string, cwd = "/project") => {
+    const tools = (await Promise.all(mcpProviders.map((provider) => provider({ sessionId, cwd })))).flat();
     return {
       names: () => tools.map((tool) => tool.name),
       call: async (name: string, params: unknown = {}) =>
@@ -413,7 +413,7 @@ describe("Agents Kit", () => {
     const bench = await activated();
     bench.open("codex-parent");
     bench.noJournal.add("codex-parent");
-    const parent = bench.mcpThread("codex-parent");
+    const parent = await bench.mcpThread("codex-parent");
     expect(parent.names()).toEqual(bench.runtime("parent").names());
 
     // No Pi context: nothing to inherit a model from, and no journal to write the child's link into.
@@ -424,7 +424,7 @@ describe("Agents Kit", () => {
     expect(await parent.call("tau_list_threads")).toEqual({ threads: [expect.objectContaining({ threadId: "child-1" })] });
 
     // Another thread sees none of it and may not touch it.
-    const stranger = bench.mcpThread("parent");
+    const stranger = await bench.mcpThread("parent");
     expect(await stranger.call("tau_list_threads")).toEqual({ threads: [] });
     await expect(stranger.call("tau_get_thread_status", { threadId: "child-1" })).rejects.toThrow("is not a thread this one spawned");
 

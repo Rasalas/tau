@@ -5,10 +5,12 @@
   "icon": "MousePointerClick",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.13.0"
+    "api": "^1.49.0"
   },
   "permissions": [
-    "runtime:extend"
+    "runtime:extend",
+    "sessions",
+    "packages"
   ],
   "isolation": "in-process",
   "desktop": "./desktop.ts",

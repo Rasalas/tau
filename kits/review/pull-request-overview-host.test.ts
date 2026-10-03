@@ -72,9 +72,11 @@ async function harness(options: { remote?: string; remotes?: Record<string, stri
   await registry.activate(createReviewHostExtension({ run }));
   const invoke = <T = unknown>(command: string, input?: unknown) => registry.invoke(REVIEW_HOST_EXTENSION_ID, command, input) as Promise<T>;
   const tool = (name: string, thread = { sessionId: "thread-1", cwd: "/project" }) => {
-    const found = providers.flatMap((provider) => provider(thread)).find((candidate) => candidate.name === name);
-    if (!found) throw new Error(`no tool ${name}`);
-    return (params: unknown) => found.execute("call-1", params, undefined, undefined, undefined as never) as Promise<{ details: unknown }>;
+    return async (params: unknown) => {
+      const found = (await Promise.all(providers.map((provider) => provider(thread)))).flat().find((candidate) => candidate.name === name);
+      if (!found) throw new Error(`no tool ${name}`);
+      return found.execute("call-1", params, undefined, undefined, undefined as never) as Promise<{ details: unknown }>;
+    };
   };
   return { invoke, calls, events, providers, runtime, lifecycles, tool, instructions };
 }

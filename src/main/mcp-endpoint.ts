@@ -90,11 +90,16 @@ export class McpEndpoint {
       this.options.log("mcp.listen-failed", messageOf(error));
       return undefined;
     }
+    const snapshot = Object.freeze({
+      sessionId: thread.sessionId,
+      cwd: thread.cwd,
+      ...(thread.nativeCapabilities ? { nativeCapabilities: Object.freeze([...thread.nativeCapabilities]) } : {}),
+    });
     let credential = this.threads.get(thread.sessionId);
-    if (credential) credential.thread = { sessionId: thread.sessionId, cwd: thread.cwd };
+    if (credential) credential.thread = snapshot;
     else {
       const token = randomBytes(32).toString("base64url");
-      credential = { token, hash: hashOf(token), thread: { sessionId: thread.sessionId, cwd: thread.cwd } };
+      credential = { token, hash: hashOf(token), thread: snapshot };
       this.credentials.set(credential.hash, credential);
       this.threads.set(thread.sessionId, credential);
     }
@@ -129,12 +134,12 @@ export class McpEndpoint {
   }
 
   /** The tools a thread is offered: every provider's, the first of a name wins, narrowed to `only`. */
-  tools(thread: RuntimeSessionInfo, only?: ReadonlySet<string>): HostMcpTool[] {
+  async tools(thread: RuntimeSessionInfo, only?: ReadonlySet<string>): Promise<HostMcpTool[]> {
     const byName = new Map<string, HostMcpTool>();
     for (const provider of this.options.providers()) {
       let tools: readonly HostMcpTool[];
       try {
-        tools = provider(thread);
+        tools = await provider(thread);
       } catch (error) {
         this.options.log("mcp.tools-failed", messageOf(error));
         continue;
@@ -160,8 +165,6 @@ export class McpEndpoint {
 
   /** One tools/call for the thread a credential names: validate, gate, run. */
   async call(thread: RuntimeSessionInfo, name: string, input: unknown, signal?: AbortSignal, only?: ReadonlySet<string>): Promise<McpCallResult> {
-    const tool = this.tools(thread, only).find((candidate) => candidate.name === name);
-    if (!tool) return failure(`Tau has no tool "${name}" for this thread.`);
     const controller = new AbortController();
     const forward = () => controller.abort(signal?.reason);
     if (signal?.aborted) forward();
@@ -169,7 +172,17 @@ export class McpEndpoint {
     const running = this.calls.get(thread.sessionId) ?? new Set<AbortController>();
     this.calls.set(thread.sessionId, running);
     running.add(controller);
+    let cancelDiscovery: (() => void) | undefined;
     try {
+      if (controller.signal.aborted) return failure(`${name} was cancelled.`);
+      const cancelled = new Promise<undefined>((resolve) => {
+        cancelDiscovery = () => resolve(undefined);
+        controller.signal.addEventListener("abort", cancelDiscovery, { once: true });
+      });
+      const tools = await Promise.race([this.tools(thread, only), cancelled]);
+      if (!tools || controller.signal.aborted) return failure(`${name} was cancelled.`);
+      const tool = tools.find((candidate) => candidate.name === name);
+      if (!tool) return failure(`Tau has no tool "${name}" for this thread.`);
       let args: Record<string, unknown>;
       try {
         const raw = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
@@ -184,6 +197,7 @@ export class McpEndpoint {
       const run = () => this.execute(tool, args, controller.signal);
       return tool.executionMode === "sequential" ? await this.inSequence(thread.sessionId, run) : await run();
     } finally {
+      if (cancelDiscovery) controller.signal.removeEventListener("abort", cancelDiscovery);
       signal?.removeEventListener("abort", forward);
       running.delete(controller);
       if (running.size === 0 && this.calls.get(thread.sessionId) === running) this.calls.delete(thread.sessionId);
@@ -302,8 +316,8 @@ export class McpEndpoint {
     ]);
     const instructions = this.instructions(credential.thread);
     const server = new Server({ name: MCP_SERVER_NAME, title: "Tau", version: this.options.version ?? "0.0.0" }, { capabilities: { tools: {} }, ...(instructions ? { instructions } : {}) });
-    server.setRequestHandler(ListToolsRequestSchema, () => ({
-      tools: this.tools(credential.thread, credential.only).map((tool) => ({
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: (await this.tools(credential.thread, credential.only)).map((tool) => ({
         name: tool.name,
         ...(tool.label && tool.label !== tool.name ? { title: tool.label } : {}),
         description: tool.description,

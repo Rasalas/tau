@@ -142,14 +142,20 @@ resolves the package, so it keeps the layout npm gave it and still finds the
 files it ships beside itself — native binaries a driver launches, for instance,
 which a copy bundled into an extension would no longer find. It needs
 `runtime:extend` like `registerRuntimeExtension`, and a worker cannot reach it
-either. Computer Use (`kits/computer-use/`) is the example: it loads
-`@amaster.ai/pi-computer-use` this way and registers what it gets back.
+either. Use it when the dependency itself owns the Pi extension lifecycle.
 
 `context.services.loadDependency(packageName)` is the same resolution for a
 dependency that is not a Pi extension: it answers with the module itself (a
-CommonJS module's `module.exports`, an ES module's namespace). It exists for
+CommonJS module's `module.exports`, an ES module's default export when present,
+or its namespace). Since API 1.49.0, `{ namespace: true }` preserves the full
+namespace, including named exports beside a default export. Exported package
+subpaths such as `@earendil-works/pi-ai/compat` are accepted; filesystem paths
+and traversal are refused. It exists for
 native addons, which find their binary beside themselves only where npm put
-them — Terminal Kit (`kits/terminal/`) loads `node-pty` this way. It needs no
+them — Terminal Kit (`kits/terminal/`) loads `node-pty` this way. Computer Use
+loads the public `CuaDriverClient` from `@amaster.ai/pi-computer-use` the
+same way, keeping its native binary beside the installed package while
+Tau owns the thread lifecycle and both Pi and MCP adapters. It needs no
 permission, because it hands out nothing the host process did not already
 have, but a worker cannot reach it: a module is a live object.
 
@@ -2903,10 +2909,24 @@ credential per thread.
 
 | Member | What it does |
 |---|---|
-| `registerTools(provider)` | `provider(thread)` answers the tools for one thread (`{ sessionId, cwd }`) as Pi `ToolDefinition`s — the very objects the kit registers with `pi.registerTool`. It is asked on every list and every call, with the thread the credential names and no other. Over MCP `execute` gets no `ExtensionContext`: its last argument is `undefined`. Arguments are validated against `parameters` the way Pi validates them, and `executionMode: "sequential"` runs one call of that thread at a time. Returns the disposer. |
+| `registerTools(provider)` | `provider(thread)` answers the tools for one thread (`{ sessionId, cwd, nativeCapabilities? }`), directly or as a Promise, as Pi `ToolDefinition`s — the very objects the kit registers with `pi.registerTool`. It is asked on every list and every call, with the thread the credential names and no other. Over MCP `execute` gets no `ExtensionContext`: its last argument is `undefined`. Arguments are validated against `parameters` the way Pi validates them, and `executionMode: "sequential"` runs one call of that thread at a time. Returns the disposer. |
 | `registerInstructions(provider)` | New in API 1.12.0, so optional on the type (`services.mcp.registerInstructions?.(…)`). `provider(thread)` answers a section of the endpoint's MCP `instructions` for one thread, or `undefined`; the sections join in registration order and reach the runtime in the `initialize` answer; a runtime that honours them puts them into the model's system prompt, as the Agent SDK runtime does. It is the non-Pi half of a system-prompt section: a Pi thread gets the same text from the kit's runtime extension (`pi.on("before_agent_start", …)`). Review Kit asks every runtime to link the requests it works on this way. Returns the disposer. |
 | `gate(gate)` | Runs before each call with `{ threadId, cwd, toolName, input, signal, confirm(title, message) }`; answering `{ block: true, reason }` refuses the call with that text. `confirm` is a yes/no question on the thread's own dialog surface. A gate that throws blocks. Access Kit's gate is the shipped one. |
 | `connect(thread, options?)` | For a runtime backend: `{ name, url, token, headers }`, the server entry to put into the session's own MCP configuration (`name` is `tau`, so a runtime shows `mcp__tau__<tool>`). `options.tools` narrows what the credential lists and calls to those names, for a thread started with `tools`. The credential lives as long as the thread's runtime; a new runtime gets a new one. `undefined` in safe mode or when the endpoint cannot listen — the thread then runs without Tau's tools. |
+
+Since API 1.49.0, tool providers may return a Promise. `connect` also accepts
+`thread.nativeCapabilities`, a list of capability names
+verified by the runtime kit. The endpoint copies and freezes this list into
+the credential; an MCP request cannot change it. Reconnecting replaces it.
+A tool provider can omit its fallback when the runtime already supplies that
+capability. Core treats the names as opaque strings.
+
+Computer Use uses `"computer-use"`. Codex reports it only when its effective
+home contains an enabled Computer Use plugin, its launcher and executable
+helper, with no custom launch arguments, selected profile or restricted tool
+list that could invalidate that evidence. Other runtimes receive Tau's
+`computer_use_*` tools unless they report the same capability. A model's
+vendor or name alone never suppresses the tools.
 
 The runtime kits are the reference: Codex passes the entry as
 `codex app-server -c mcp_servers.tau.…` overrides with the token in the

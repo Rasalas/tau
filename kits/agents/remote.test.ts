@@ -204,9 +204,9 @@ async function bench(options: { setting?: string; cores?: number; rex?: Partial<
   closers.push(() => registry.dispose());
   for (const extension of options.extra ?? []) await registry.activate(extension);
   await registry.activate(createAgentsHostExtension({ settingsPath: join(dir, "none.json"), linksPath, runGit, remotePollMs: 20 }));
-  const tools = (sessionId = "parent") => mcp.flatMap((provider) => provider({ sessionId, cwd: "/project" }));
+  const tools = async (sessionId = "parent") => (await Promise.all(mcp.map((provider) => provider({ sessionId, cwd: "/project" })))).flat();
   const call = async (name: string, params: unknown = {}, sessionId = "parent") => {
-    const tool = tools(sessionId).find((entry) => entry.name === name)!;
+    const tool = (await tools(sessionId)).find((entry) => entry.name === name)!;
     return (await tool.execute("call-1", params as never, undefined, undefined, undefined as never)).details as Record<string, unknown>;
   };
   const state = async () => await registry.invoke(AGENTS_HOST_EXTENSION_ID, "state") as AgentsState;
@@ -403,4 +403,3 @@ describe("Agents Kit: sub-agents on another machine", () => {
     expect(wakeMessage([{ threadId: "h1", title: "Word", status: "completed", answer: "ok", machine: "rex" }])).toContain('— "Word" on rex (threadId h1): completed');
   });
 });
-
