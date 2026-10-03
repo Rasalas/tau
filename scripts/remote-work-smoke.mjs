@@ -419,7 +419,7 @@ export const STEPS = [
       const cwd = ctx.fixture.work;
       const path = join(ctx.a.userData, "attached-spec.txt");
       writeFileSync(path, "attachment from A\n");
-      const data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a0WQAAAAASUVORK5CYII=";
+      const data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
       const attachments = [
         { kind: "image", name: "pixel.png", mimeType: "image/png", data, size: Buffer.from(data, "base64").length },
         { kind: "file", name: "attached-spec.txt", mimeType: "text/plain", path, size: statSync(path).size },
