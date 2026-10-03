@@ -92,6 +92,7 @@ export interface WorkerTurnObserver {
 }
 
 export interface WorkerProjectFacts {
+  projectless?(cwd: string): Promise<boolean> | boolean;
   name?(cwd: string): Promise<string | undefined> | string | undefined;
   label?(cwd: string): Promise<string | undefined> | string | undefined;
   nested?(cwd: string): Promise<boolean> | boolean;

@@ -10,6 +10,7 @@ const execute = promisify(execFile);
 /** A project name is one portable folder name, never a path. */
 export function projectFolderName(value: string): string {
   const name = value.trim();
+  // oxlint-disable-next-line eslint/no-control-regex -- Portable folder names must reject control characters.
   if (!name || name.length > 120 || /[<>:"/\\|?*\x00-\x1f]/u.test(name) || /[. ]$/u.test(name) || name === "." || name === ".." || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu.test(name)) {
     throw new Error("Choose a project name without path separators or reserved characters.");
   }

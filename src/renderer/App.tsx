@@ -532,7 +532,7 @@ export default function App() {
   }, [newThreadController, threadCommands]);
   const submitText = useCallback((text: string) => submitPrompt(text), [submitPrompt]);
   const actions = useWorkbenchActions({
-    client, platform, threadStore, viewStore, toasts: workbenchSession.toasts, composerScopeStore, threadCommands,
+    hasPrivateThreadWorkspace: () => registry.getProjectSources().some((source) => source.createThreadWorkspace), client, platform, threadStore, viewStore, toasts: workbenchSession.toasts, composerScopeStore, threadCommands,
     snapshot, pendingNewThread, workspaceCwd, newThreadDeliveryPending, activeDraftKey,
     composerRef, transcriptRef, openPanel, closePanel: panelLayout.closePanel, togglePanelMaximized: panelLayout.toggleMaximized, openPalette, setSettingsPage, openNewThreadPicker, createThreadInProject,
     switchSession, openDraft, discardDraft, settleActiveThread, isVisibleThreadRunning, reloadWorkbench, openThreadTree,

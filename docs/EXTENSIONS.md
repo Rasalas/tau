@@ -4600,3 +4600,10 @@ optional workbench `restartAgentSession` action, preserving the thread's
 conversation while refreshing the runtime session. Optional
 `HostProjectFacts.projectless(cwd)` identifies private scratch workspaces that
 must stay out of recent-project history.
+
+`ProjectSourceContribution.createThreadWorkspace()` optionally creates a private
+thread workspace for the new-thread picker. Such sources do not appear in Add
+project. Each invocation allocates an independent workspace. Optional
+`UiSession.projectless` marks these sessions explicitly; a remote backend maps
+it to `HostBackendThreadRecord.project.listed: false`. Missing metadata preserves
+legacy project discovery rather than treating an unknown project as private.

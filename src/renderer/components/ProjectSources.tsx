@@ -26,7 +26,7 @@ export function ProjectSourcesModal({
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const activeSource = sources.find((source) => source.id === activeSourceId);
-  const visibleSources = sources.filter((source) => fuzzyMatch(`${source.label} ${source.description}`, query.trim()));
+  const visibleSources = sources.filter((source) => !source.createThreadWorkspace && fuzzyMatch(`${source.label} ${source.description}`, query.trim()));
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
