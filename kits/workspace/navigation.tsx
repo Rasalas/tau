@@ -59,7 +59,7 @@ function ShowMoreThreadRow({ remaining, all = false, onClick }: { remaining: num
   const count = all ? remaining : Math.min(THREAD_PAGE_SIZE, remaining);
   return (
     <article className="thread-row compact thread-pagination-row">
-      <button className="thread-main" onClick={onClick}>+ show {count} more</button>
+      <button className="thread-main" onClick={onClick}><Plus size={14} aria-hidden="true" /><span>Show {count} more</span></button>
     </article>
   );
 }
@@ -1159,7 +1159,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
             onClick={() => toggleShelf(section.id, !open)}
           >
             <span>{heading}</span>
-            <b><ChevronDown size={12} /></b>
+            <i aria-hidden="true" />
+            <b><ChevronDown size={12} aria-hidden="true" /></b>
           </button>
         ) : <div className={`thread-group-label${target}`} data-rail-heading={section.id}>{heading}<i /></div>}
         {rows.map((session, index) => {
@@ -1311,7 +1312,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           else setSelection((selectionNow) => selectionNow.ids.size ? selectionNow : { ids: selectionNow.ids, anchor: orderIds[next]! });
         }}
       >
-        {/* One scroll; the shelves follow the active threads right after the last one, as in the design. */}
+        {/* One scroll; the shelves consume the free space above them on short lists. */}
         <div ref={listRef} className="rail-active">
         <div className="rail-active-rows">
         {shownSections.slice(0, mainIndex).map(renderSection)}
@@ -1368,6 +1369,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           projectFilter
             ? <p className="sidebar-empty">{`No threads in ${projectFilter}`}</p>
             : <div className="sidebar-empty first"><i><MessageSquare size={16} aria-hidden /></i><p>No threads yet.<br />They’ll line up here.</p></div>
+        ) : null}
+
+        {draftCount === 0 && main.threads.length === 0 && shownSections.slice(0, mainIndex).every((section) => section.threads.length === 0) && shownSections.slice(mainIndex + 1).some((section) => section.threads.length > 0) ? (
+          <p className="sidebar-empty active">No active threads</p>
         ) : null}
 
         {(() => {

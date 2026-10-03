@@ -42,7 +42,7 @@ export function shelfRows(section: ThreadRailSection, open: boolean, limit: numb
   return kept ? [...rows, kept] : rows;
 }
 
-/** A shelf names itself and how many it holds, open or folded ("Settled · 41", the design's). */
+/** Settled history needs no count; other shelves name how many threads they hold. */
 export function shelfHeading(section: ThreadRailSection): string {
-  return `${section.label} · ${section.threads.length}`;
+  return section.settled ? section.label ?? section.id : `${section.label} · ${section.threads.length}`;
 }

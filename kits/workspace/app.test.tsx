@@ -114,9 +114,9 @@ describe("Workspace Kit in the workbench", () => {
     });
     renderApp(client, { extensions: [workspaceExtension] });
 
-    const more = await screen.findByRole("button", { name: "+ show 25 more" });
+    const more = await screen.findByRole("button", { name: "Show 25 more" });
     fireEvent.click(more);
-    expect(screen.getByRole("button", { name: "+ show 21 more" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Show 21 more" })).toBeTruthy();
   });
 
   it("marks a failed thread Failed and a limited one Rate limited, with the reason on the badge", async () => {
@@ -205,7 +205,7 @@ describe("Workspace Kit in the workbench", () => {
     expect(busy?.textContent).toMatch(/^Working2:1[45]$/u);
   });
 
-  it("shows settled history open under its count, folds it on a click keeping the open thread, and pages it ten then twenty-five at a time", async () => {
+  it("shows settled history open without a count, folds it on a click keeping the open thread, and pages it ten then twenty-five at a time", async () => {
     const sessions = Array.from({ length: 71 }, (_, index) => ({
       id: `settled-${index}`,
       path: `/sessions/settled-${index}.jsonl`,
@@ -230,9 +230,11 @@ describe("Workspace Kit in the workbench", () => {
       seed: ({ preferences }) => sessions.forEach((session) => preferences.toggleSettled(session.id)),
     });
 
-    const toggle = await screen.findByRole("button", { name: /Settled · 71/u });
+    const toggle = await screen.findByRole("button", { name: "Settled" });
+    expect(screen.getByText("No active threads")).toBeTruthy();
+    expect(screen.queryByText("No threads yet.")).toBeNull();
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(toggle.textContent).toBe("Settled · 71");
+    expect(toggle.textContent).toBe("Settled");
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     // Folded, the shelf still draws the thread on screen.
@@ -242,7 +244,7 @@ describe("Workspace Kit in the workbench", () => {
     fireEvent.click(toggle);
     expect(screen.getByText("Settled thread 9")).toBeTruthy();
     expect(screen.queryByText("Settled thread 10")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "+ show 25 more" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show 25 more" }));
     expect(screen.getByText("Settled thread 34")).toBeTruthy();
     expect(screen.queryByText("Settled thread 35")).toBeNull();
     // The choice is this client's, and outlives the rail.

@@ -165,14 +165,14 @@
 .project-switcher-footer > button > span { flex: 1; }
 .project-switcher-footer kbd { font: 10.5px var(--mono); color: var(--faint); }
 
-/* One scroll: the shelves (snoozed, settled) follow right after the active threads, the design's. */
+/* One scroll: free space above the shelves keeps them at the bottom of short lists. */
 .session-list { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .rail-active {
   flex: 1 1 0; min-height: 0; overflow: auto; display: flex; flex-direction: column;
   padding: calc(10px * var(--density)) calc(10px * var(--density)) var(--space-3);
 }
 .rail-active-rows { flex: 1 0 auto; display: flex; flex-direction: column; gap: var(--space-2); }
-.rail-shelves { display: flex; flex-direction: column; }
+.rail-shelves { display: flex; flex-direction: column; margin-top: auto; flex-shrink: 0; }
 /* The virtual list's cards, 2 px apart (the design's), inside their measured box. */
 .rail-virtual > .rail-row { padding-bottom: 2px; }
 .thread-group-label {
@@ -190,17 +190,19 @@
 @media (hover: none) { .thread-group-new { opacity: 1; } }
 
 .settled-shelf { display: flex; flex-direction: column; gap: 2px; }
-/* The design's quiet "Settled · 41" right after the active rows; it folds on a click, the chevron shows on hover. */
+/* A fine rule separates the shelf label from its persistent right-hand chevron. */
 .settled-shelf-toggle {
-  display: flex; align-items: center; gap: 4px; padding: 14px 10px 4px;
+  display: flex; align-items: center; gap: 8px; padding: 14px 10px 4px;
   border: 0; background: transparent; color: var(--muted); font: var(--text-xs) var(--sans); text-align: left; cursor: pointer;
 }
-.settled-shelf-toggle > b { display: grid; place-items: center; color: var(--faint); opacity: 0; transition: transform var(--motion-fast) ease, opacity var(--motion-fast) ease; }
+.settled-shelf-toggle > i { flex: 1; height: 1px; background: var(--line-soft); }
+.settled-shelf-toggle > b { flex: none; display: grid; place-items: center; color: var(--faint); transition: transform var(--motion-fast) ease; }
 .settled-shelf-toggle[aria-expanded="false"] > b { transform: rotate(-90deg); }
-.settled-shelf-toggle:is(:hover, :focus-visible) > b, .settled-shelf-toggle[aria-expanded="false"] > b { opacity: 1; }
+.settled-shelf-toggle:is(:hover, :focus-visible) > b { color: var(--ink-3); }
 .settled-shelf-toggle:hover { color: var(--ink-3); }
 .rail-section-snoozed > .settled-shelf-toggle { color: var(--info-ink); }
 .sidebar-empty { margin: 18px 10px; color: var(--faint); font-size: var(--text-sm); }
+.sidebar-empty.active { flex: 1; min-height: 96px; margin: 0; display: grid; place-content: center; font: var(--text-xs) var(--sans); text-align: center; }
 /* A rail with no thread at all (2a): a quiet note in its middle. */
 .sidebar-empty.first { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--muted); text-align: center; }
 .sidebar-empty.first > i { width: 36px; height: 36px; display: grid; place-items: center; border-radius: var(--radius-md); background: var(--stage); }
@@ -678,8 +680,9 @@ body[data-profile="compact"] :is(.files-explorer-view, .files-reading-view) > bu
 
 .thread-pagination-row { opacity: 1; }
 .thread-pagination-row .thread-main {
-  color: var(--faint); font: 500 var(--text-xs) var(--mono); text-transform: lowercase;
+  min-height: 32px; color: var(--muted); font: var(--text-xs) var(--sans);
 }
+.thread-pagination-row .thread-main > svg { width: 14px; height: 14px; flex: none; color: var(--faint); }
 .thread-pagination-row:hover .thread-main { color: var(--ink-3); }
 
 .folder-browser { display: flex; flex-direction: column; }

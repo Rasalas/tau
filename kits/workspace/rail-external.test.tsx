@@ -155,22 +155,22 @@ describe("the rail's shelves", () => {
     act(() => { services.preferences.toggleSettled("b"); services.preferences.toggleSettled("c"); });
     const active = rail.querySelector(".rail-active") as HTMLElement;
     const shelves = active.querySelector(".rail-shelves") as HTMLElement;
-    const toggle = within(shelves).getByRole("button", { name: "Settled · 2" });
+    const toggle = within(shelves).getByRole("button", { name: "Settled" });
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(within(shelves).getByText("Thread b")).toBeTruthy();
     expect(titles(rail)).toEqual(["Thread a"]);
     fireEvent.click(toggle);
-    expect(toggle.textContent).toBe("Settled · 2");
+    expect(toggle.textContent).toBe("Settled");
     expect(within(rail).queryByText("Thread b")).toBeNull();
   });
 
-  it("sit right after the active threads, as the design draws them, and scroll with them", () => {
+  it("sit at the bottom of short lists and scroll with the active threads", () => {
     // jsdom lays nothing out, so the rules that do are read from the stylesheet.
     const css = readFileSync(join(import.meta.dirname, "styles.css"), "utf8");
     const rule = (selector: string) => new RegExp(`^${selector.replace(".", "\\.")} \\{([^}]*)\\}`, "mu").exec(css)?.[1] ?? "";
     expect(rule(".rail-active")).toMatch(/overflow: auto;[^}]*display: flex; flex-direction: column/u);
     expect(rule(".rail-active-rows")).toMatch(/flex: 1 0 auto/u);
-    expect(rule(".rail-shelves")).not.toMatch(/margin-top/u);
+    expect(rule(".rail-shelves")).toMatch(/margin-top: auto/u);
     expect(rule(".rail-shelves")).not.toMatch(/overflow|flex: 0 0/u);
   });
 

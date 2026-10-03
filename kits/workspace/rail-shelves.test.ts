@@ -45,7 +45,9 @@ describe("the rail's shelves", () => {
     expect(shelfRows(section, false, 10, "elsewhere")).toEqual([]);
   });
 
-  it("count their threads, open or folded, as the design's heading", () => {
-    expect(shelfHeading(settled(26))).toBe("Settled · 26");
+  it("omit the settled count and retain counts for working and snoozed", () => {
+    expect(shelfHeading(settled(26))).toBe("Settled");
+    expect(shelfHeading({ ...settled(3), id: "working", label: "Working", settled: false })).toBe("Working · 3");
+    expect(shelfHeading({ ...settled(2), id: "snoozed", label: "Snoozed", settled: false })).toBe("Snoozed · 2");
   });
 });
