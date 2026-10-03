@@ -130,8 +130,16 @@ export class ClaudeSdkSession {
     let error: unknown;
     try {
       for await (const message of this.query!) {
-        this.options.onMessage(message);
-        if (message.type === "result") this.settle(message);
+        if (message.type === "result") {
+          const uuids = this.resultSends(message);
+          if (uuids.length === 0) continue;
+          // The backend settles its turn synchronously in onMessage. Validate
+          // first so background results cannot advance its turn queue.
+          this.options.onMessage(message);
+          this.settle(message, uuids);
+        } else {
+          this.options.onMessage(message);
+        }
       }
     } catch (caught) {
       error = this.abortController.signal.aborted ? undefined : caught;
@@ -139,16 +147,23 @@ export class ClaudeSdkSession {
     this.finish(error);
   }
 
-  /** The result names the sends it consumed; older CLIs leave that out, then the oldest send is the one. */
-  private settle(result: ResultMessage): void {
-    const named = result.user_message_uuids ?? (result.user_message_uuid ? [result.user_message_uuid] : []);
-    const uuids = named.filter((uuid) => this.pending.has(uuid));
-    if (uuids.length === 0) {
-      // A resumed session answers with an empty result before any turn.
-      if (result.num_turns === 0 || named.length > 0) return;
-      const oldest = this.pending.keys().next().value;
-      if (oldest !== undefined) uuids.push(oldest);
-    }
+  /** Resolve correlation before publishing a result to the turn owner. */
+  private resultSends(result: ResultMessage): string[] {
+    const named = [...new Set([
+      ...(result.user_message_uuids ?? []),
+      ...(result.user_message_uuid ? [result.user_message_uuid] : []),
+    ])];
+    if (named.length > 0) return named.filter((uuid) => this.pending.has(uuid));
+    // Newer CLIs run turns of their own for background tasks and peer messages.
+    // Only old results without an origin, or human results, may use the fallback.
+    if (result.origin !== undefined && result.origin.kind !== "human") return [];
+    // Resume handshakes have no prompt; a named /compact result may have zero turns.
+    if (result.num_turns === 0 && !result.local_command) return [];
+    const oldest = this.pending.keys().next().value;
+    return oldest === undefined ? [] : [oldest];
+  }
+
+  private settle(result: ResultMessage, uuids: string[]): void {
     for (const uuid of uuids) {
       const send = this.pending.get(uuid);
       this.pending.delete(uuid);

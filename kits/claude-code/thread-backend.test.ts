@@ -1,10 +1,10 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { Options, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BackendPrompt, ExtensionUiAnswer, HostExecutionPolicy, ThreadRuntimeEvent, UiComposerCommand } from "tau/host-extension";
-import { createClaudeCodeRuntimeAdapter, type ClaudeSessionInput } from "./runtime-adapter.js";
+import { createClaudeCodeRuntimeAdapter, type ClaudeSessionInput, type ClaudeQuery } from "./runtime-adapter.js";
 import type { ClaudeSdkSession, ResultMessage, SendPriority, UserContent } from "./sdk-session.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 import { ClaudeThreadRuntimeBackend, promptContent } from "./thread-backend.js";
@@ -193,6 +193,44 @@ describe("thread runtime backends", () => {
     // A resumed thread opens its session with `started` so the CLI resumes the Claude session.
     await restored.prompt({ text: "third", delivery: "prompt" });
     expect(opened[1]).toMatchObject({ started: true, claudeSessionId: opened[0]!.claudeSessionId });
+  });
+
+  it("keeps real SDK user and compaction turns open past background results", async () => {
+    const { filePath, store } = await scratchStore();
+    const query = ((params: { prompt: AsyncIterable<SDKUserMessage>; options?: Options }) => {
+      async function* run(): AsyncGenerator<SDKMessage> {
+        yield init();
+        for await (const message of params.prompt) {
+          const compacting = message.message.content === "/compact";
+          yield result("unrelated", { user_message_uuids: ["other-prompt"] });
+          yield result("background", { origin: { kind: "task-notification" } });
+          if (compacting) {
+            yield frame({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual", pre_tokens: 100, post_tokens: 10 } });
+          }
+          yield result(compacting ? "" : "real reply", {
+            num_turns: compacting ? 0 : 1, user_message_uuids: [message.uuid],
+          });
+        }
+      }
+      return Object.assign(run(), { interrupt: async () => undefined }) as unknown as ReturnType<ClaudeQuery>;
+    }) as ClaudeQuery;
+    const adapter = createClaudeCodeRuntimeAdapter({ command: "unused", storePath: filePath, query });
+    const events: ThreadRuntimeEvent[] = [];
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", {
+      adapter, store, commands, projectName: "repo", onEvent: (event) => events.push(event),
+    });
+    await backend.start("create");
+    await expect(backend.prompt({ text: "hello", delivery: "prompt" })).resolves.toMatchObject({ assistantText: "real reply" });
+    expect(events.filter((event) => event.type === "turn-settled")).toHaveLength(1);
+    expect(backend.state().streaming).toBe(false);
+    events.length = 0;
+    await backend.capabilities.compaction!.compact();
+    expect(events.filter((event) => event.type === "turn-settled")).toHaveLength(1);
+    const compactedIndex = events.findIndex((event) => event.type === "assistant-end" && event.message.compaction !== undefined);
+    expect(compactedIndex).toBeGreaterThanOrEqual(0);
+    expect(compactedIndex).toBeLessThan(events.findIndex((event) => event.type === "turn-settled"));
+    expect(backend.state().streaming).toBe(false);
+    await backend.dispose();
   });
 
   it("compacts between turns with /compact, and keeps the context's size and age across a restart", async () => {
