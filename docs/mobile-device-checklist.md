@@ -56,6 +56,11 @@ Bonjour type, a fake `tailscale` and the iOS Simulator (`docs/agents/testing-the
        line. Detach it (or bring up the on-screen keyboard): Return adds a line again.
 7. [ ] On an iPad: **Files** on the rail, tap a file, then **Edit file**. Type with the
        hardware keyboard, ⌘Z undoes, ⌘F searches, ⌘S saves (the dot on the tab goes).
+8. [ ] On an iPad with a hardware keyboard, focus the composer and show the floating
+       shortcut bar. The sidebar and its footer keep the full app height; the composer
+       stays above the bar. Move the bar upward and back down: the app's header and
+       sidebar footer remain visible. Show the full on-screen keyboard: the whole app
+       fits above it. Dismiss it and check that the sidebar and chat still scroll by touch.
 
 ## 4. Background and reconnect
 

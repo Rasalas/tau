@@ -4,6 +4,7 @@
   "webDir": "dist",
   "ios": {
     "contentInset": "never",
+    "scrollEnabled": false,
     "initialFocus": false
   },
   "android": {
