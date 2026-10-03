@@ -1,6 +1,6 @@
 # Pi 1.0 and Tau
 
-Research note, 2026-10-03. Tau currently pins `@earendil-works/pi-coding-agent` to `0.85.1` in `package.json`.
+Research note, 2026-10-03. Tau pinned `@earendil-works/pi-coding-agent` to `0.85.1` at the start of this investigation. The upgrade is tracked in [issue #26](https://github.com/Rasalas/tau/issues/26) and [PR #27](https://github.com/Rasalas/tau/pull/27).
 
 ## Release and meaning
 
@@ -26,3 +26,17 @@ Tau uses the coding-agent session SDK, including `createAgentSessionServices`, `
 Plan an ordinary dependency upgrade to Pi 1.0, with type checking, focused session and extension tests, and an isolated Tau run. Provider fixes, context handling, and the new tool facilities make staying current worthwhile. The reviewed announcements and release notes impose no migration deadline; they do not establish a support guarantee for 0.85.1 either.
 
 Treat adopting Pi Durable as a separate architecture decision. Its crash recovery and shared conversations could be useful, but it is explicitly experimental and replacing Tau's existing session runtime would need its own evaluation. A 1.0 dependency upgrade does not require that replacement.
+
+## Update policy for Tau
+
+Keep the embedded SDK pinned and deliver tested SDK updates with Tau releases. Tau imports Pi's session, model, and extension APIs directly, so replacing the library independently of Tau would bypass compatibility checks. The prompt admission and mixed-model catalog adaptations in this upgrade are concrete examples.
+
+Automatically detecting new releases and proposing dependency PRs would reduce maintenance delay while keeping those checks. Moving Pi behind its subprocess RPC protocol could allow independent runtime updates, but it would require evaluating the protocol against Tau's session lifecycle and extension integrations. That is a separate change to [ADR 0001](../adr/0001-embed-pi-behind-a-desktop-host.md), not a prerequisite for 1.0. Pi's published [RPC documentation](https://github.com/earendil-works/pi/blob/v1.0.0/packages/coding-agent/docs/rpc.md) describes the subprocess interface.
+
+## Implementation findings
+
+- Updated the Pi SDK and package example to 1.0.0.
+- `AgentSession.prompt()` now calls `preflightResult` with `started`, `queued`, or `handled` after acceptance. Rejections throw without that callback. Tau maps those accepted dispositions onto its existing admission callback and preserves rejection errors. Source: [SDK source](https://github.com/earendil-works/pi/blob/v1.0.0/packages/coding-agent/src/core/agent-session.ts).
+- MCP arguments prepared by host tools are checked as JSON objects before Pi schema validation, gating, or execution.
+- Provider wrappers now augment both `getModels()` and `getAllModels()`. Pi's provider composition reads the mixed model collection when applying `models.json` overrides; overriding only the chat list loses Tau's additions there. Source: [provider composition](https://github.com/earendil-works/pi/blob/v1.0.0/packages/coding-agent/src/core/provider-composer.ts).
+- Model-catalog tests use a fictional future model so a new builtin model does not invalidate their premise.
