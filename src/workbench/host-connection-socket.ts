@@ -158,6 +158,8 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
       request.reject(new Error(message));
     }
     pending.clear();
+    // A caller that saw rejection may retry. Its old queued write must never run later.
+    outbox.length = 0;
   };
 
   const stopTimers = (): void => {
@@ -170,8 +172,9 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
   };
 
   const schedule = (): void => {
-    const delay = delayMs;
-    delayMs = Math.min(delayMs * 2, offline ? RECONNECT_OFFLINE_MAX_MS : RECONNECT_MAX_MS);
+    const cap = offline ? RECONNECT_OFFLINE_MAX_MS : RECONNECT_MAX_MS;
+    const delay = Math.max(RECONNECT_MIN_MS, Math.min(cap, Math.round(delayMs * (0.8 + Math.random() * 0.4))));
+    delayMs = Math.min(delayMs * 2, cap);
     setLink({ phase: offline ? "offline" : "waiting", attempts: link.attempts + 1, retryAt: Date.now() + delay });
     retryTimer = setTimeout(() => { retryTimer = undefined; connect(); }, delay);
   };
@@ -241,6 +244,7 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
     setLink({ phase: "connecting" });
     connectTimer = setTimeout(() => { if (socket === current && current.readyState !== SOCKET_OPEN) abandon(); }, SOCKET_CONNECT_TIMEOUT_MS);
     current.onopen = () => {
+      if (closed || socket !== current) return;
       clearTimeout(connectTimer);
       received = 0;
       // A socket that opened contradicts an `offline` that no `online` followed.
@@ -251,8 +255,11 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
       if (everOpened) for (const listener of openListeners) listener();
       everOpened = true;
     };
-    current.onclose = (event?: { code?: number; reason?: string }) => lost(event?.code, event?.reason);
+    current.onclose = (event?: { code?: number; reason?: string }) => {
+      if (!closed && socket === current) lost(event?.code, event?.reason);
+    };
     current.onmessage = (event) => {
+      if (closed || socket !== current) return;
       received += 1;
       receive(String(event.data));
     };

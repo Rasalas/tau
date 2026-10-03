@@ -58,7 +58,7 @@ import type { ExtensionPackageActivator } from "./extension-package-activation.j
 import type { WorkspaceWatch } from "./workspace-watch.js";
 import { findDanglingToolCalls } from "./dangling-tool-calls.js";
 import { reconcileInFlightTurns, type ReconcilableThread } from "./turn-reconciliation.js";
-import type { TurnsInFlight } from "./turns-in-flight.js";
+import type { InFlightTurn, TurnsInFlight } from "./turns-in-flight.js";
 import type { QueuedMessage, QueuedMessages } from "./queued-messages.js";
 import type { ThreadLimits } from "./thread-limits.js";
 import type { TurnSettlement } from "./turn-settlement.js";
@@ -779,6 +779,9 @@ export class PiHost {
       const activationEpoch = activation.epoch;
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", "bootstrap");
       try {
+        // Recovery belongs to the previous run. Capture its markers before
+        // startup returns and clients can record newly accepted turns.
+        const interruptedTurns = await this.turnsInFlight.load();
         await this.activateHostExtensions();
         // A default backend nobody registered is a configuration error; say so now, not at the first thread.
         if (this.defaultBackendKind !== "pi") this.requireBackend(this.defaultBackendKind);
@@ -813,7 +816,7 @@ export class PiHost {
           this.trash.start();
           // Before anything else is opened for this run: the index is the only
           // way back to a marked thread's session file.
-          await this.reconcileInterruptedTurns();
+          await this.reconcileInterruptedTurns(interruptedTurns);
           this.prewarm.scheduleThreads();
           this.catalogs.start();
           this.toolUpdates.start();
@@ -1110,8 +1113,8 @@ export class PiHost {
    * user's choice (Settings → Defaults); otherwise the thread is repaired,
    * told in its own transcript, and marked for the rail.
    */
-  private async reconcileInterruptedTurns(): Promise<void> {
-    const markers = await this.turnsInFlight.load();
+  private async reconcileInterruptedTurns(previousTurns?: readonly InFlightTurn[]): Promise<void> {
+    const markers = previousTurns ?? await this.turnsInFlight.load();
     const { continued } = markers.length === 0 ? { continued: [] } : await reconcileInFlightTurns({
       markers: () => markers,
       forget: (sessionId) => this.turnsInFlight.clear(sessionId),

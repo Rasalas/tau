@@ -84,8 +84,13 @@ describe("rendererBuild.output.manualChunks, browser client", () => {
     expect(chunk("/repo/src/web/main.tsx")).toBeUndefined();
   });
 
+  it("keeps the nearby-host list with the Settings primitives it already imports", () => {
+    expect(chunk("/repo/src/renderer/settings/NearbyMachineList.tsx")).toBe("settings-controls");
+    expect(readFileSync(new URL("../src/renderer/settings/NearbyMachineList.tsx", import.meta.url), "utf8")).not.toMatch(/\.css["']/u);
+  });
+
   it("keeps lazy surfaces that bring no stylesheet in the common chunk", () => {
-    for (const file of ["renderer/components/Menu.tsx", "renderer/submission-controller.ts", "renderer/settings/settings-search.ts"]) expect(chunk(`/repo/src/${file}`), file).toBe("common");
+    for (const file of ["renderer/components/Menu.tsx", "renderer/submission-controller.ts", "renderer/settings/settings-search.ts", "renderer/host-version-update-controls.tsx"]) expect(chunk(`/repo/src/${file}`), file).toBe("common");
   });
 });
 

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -99,6 +99,7 @@ function harness() {
 
   /** Holds `sessions.start` open, so a test can watch how many run at once. */
   let startGate: (() => Promise<void>) | undefined;
+  let sendGate: (() => Promise<void>) | undefined;
 
   const services: HostExtensionServices = {
     cwd: () => projectCwd,
@@ -163,6 +164,7 @@ function harness() {
         sent.push({ sessionId, text, delivery, ...(sendOptions?.from ? { from: sendOptions.from } : {}) });
         const thread = threads.get(sessionId);
         if (thread && delivery === "prompt") thread.streaming = true;
+        await sendGate?.();
       },
       abort: async (sessionId) => {
         aborted.push(sessionId);
@@ -251,7 +253,7 @@ function harness() {
 
   const holdStarts = (gate: () => Promise<void>) => { startGate = gate; };
 
-  return { activate, runtimeExtensions, services, threads, started, sent, aborted, refuseSteer: () => { steerRefused = true; }, refusePrompts: (count: number) => { promptRefusals = count; }, events, observers, lifecycles, runtime, mcpThread, mcpProviders, noJournal, open, notify, state, holdStarts, invoke: (command: string, input?: unknown) => invoke(command, input), registry: () => registry!, setProject: (dir: string) => { projectCwd = dir; } };
+  return { activate, runtimeExtensions, services, threads, started, sent, aborted, refuseSteer: () => { steerRefused = true; }, refusePrompts: (count: number) => { promptRefusals = count; }, events, observers, lifecycles, runtime, mcpThread, mcpProviders, noJournal, open, notify, state, holdStarts, holdSends: (gate: () => Promise<void>) => { sendGate = gate; }, invoke: (command: string, input?: unknown) => invoke(command, input), registry: () => registry!, setProject: (dir: string) => { projectCwd = dir; } };
 }
 
 async function activated(paths: { settingsPath?: string; linksPath?: string; stateDir?: string; runGit?: AgentGitRunner } = {}) {
@@ -890,7 +892,7 @@ describe("Agents Kit", () => {
       const bench = await activated({ linksPath });
       await bench.runtime("parent").call("tau_spawn_thread", { prompt: "Reply with ALPHA" });
       await vi.waitFor(async () => expect(await readAgentLinks(linksPath)).toEqual([
-        { threadId: "child-1", parentThreadId: "parent", depth: 1, spawnedAt: expect.any(Number), projectPath: "/project", title: "Reply with ALPHA", spawnedBy: "tau_spawn_thread", startedAt: expect.any(Number) },
+        { threadId: "child-1", id: expect.any(String), model: "anthropic/sonnet", parentThreadId: "parent", depth: 1, spawnedAt: expect.any(Number), projectPath: "/project", title: "Reply with ALPHA", spawnedBy: "tau_spawn_thread", startedAt: expect.any(Number), pendingTurns: 1 },
       ]));
     } finally {
       await rm(directory, { recursive: true, force: true });
@@ -912,6 +914,7 @@ describe("Agents Kit", () => {
         expect(stored?.endedAt).toBeGreaterThanOrEqual(stored!.startedAt!);
       });
 
+      await bench.registry().dispose();
       // A file the previous build wrote has no times; every other field reads on.
       await writeFile(linksPath, JSON.stringify({
         version: 1,
@@ -1235,6 +1238,391 @@ async function settingsWith(count: number): Promise<string> {
 }
 
 describe("Agents Kit orchestration", () => {
+  const recoverUncertainNotice = async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-agents-notice-ack-"));
+    const linksPath = join(directory, "links.json");
+    const first = await activated({ linksPath });
+    let release!: () => void;
+    first.holdSends(() => new Promise<void>((resolve) => { release = resolve; }));
+    const child = handleOf(await first.runtime("parent").call("tau_spawn_thread", { prompt: "Retain the complete answer", workspace: "shared" }));
+    first.threads.get(child)!.streaming = false;
+    first.threads.get(child)!.messages = [{ id: "answer", role: "assistant", text: "Complete retained answer: " + "abcdefghijklmnopqrstuvwxyz".repeat(30), timestamp: 1 }];
+    await first.notify("ended", child);
+    await expect.poll(() => first.sent).toHaveLength(1);
+    await first.registry().dispose();
+    const recovered = await activated({ linksPath });
+    return { directory, linksPath, child, recovered, cleanup: async () => {
+      release();
+      await first.registry().dispose();
+      await recovered.registry().dispose();
+      await rm(directory, { recursive: true, force: true });
+    } };
+  };
+
+  it("does not acknowledge a new answer that finishes while a follow-up is being admitted", async () => {
+    const f = await recoverUncertainNotice();
+    let again: Awaited<ReturnType<typeof activated>> | undefined;
+    const answer = "New follow-up result: " + "abcdefghijklmnopqrstuvwxyz".repeat(30);
+    try {
+      f.recovered.open("parent").streaming = true;
+      f.recovered.holdSends(async () => {
+        const child = f.recovered.open(f.child);
+        child.streaming = false;
+        child.messages = [{ id: "new-answer", role: "assistant", text: answer, timestamp: 2 }];
+        await f.recovered.notify("ended", f.child);
+      });
+      await expect(f.recovered.runtime("parent").call("tau_send_to_thread", { threadId: f.child, message: "Finish immediately" })).resolves.toMatchObject({ delivered: "started" });
+      await f.recovered.registry().dispose();
+      again = await activated({ linksPath: f.linksPath });
+      expect(await again.runtime("parent").call("tau_get_thread_status", { threadId: f.child })).toMatchObject({ lastAssistantMessage: answer });
+      expect(again.sent).toEqual([]);
+    } finally {
+      await again?.registry().dispose();
+      await f.cleanup();
+    }
+  });
+
+  it("does not reject or repeat an admitted follow-up when its old notice ACK cannot be written", async () => {
+    const f = await recoverUncertainNotice();
+    const backup = `${f.directory}-retained`;
+    let blocked = false;
+    try {
+      await rename(f.directory, backup);
+      await writeFile(f.directory, "Reject notice ACK, not runtime admission");
+      blocked = true;
+      const parent = f.recovered.runtime("parent");
+      const request = { threadId: f.child, message: "Accepted follow-up", clientRequestId: "accepted-follow-up" };
+      await expect(parent.call("tau_send_to_thread", request)).resolves.toMatchObject({ delivered: "started", acknowledgmentWarning: expect.any(String) });
+      expect(await parent.call("tau_list_threads")).toMatchObject({ threads: [expect.objectContaining({ recovery: expect.objectContaining({ state: "held" }) })] });
+      await rm(f.directory);
+      await rename(backup, f.directory);
+      blocked = false;
+      await expect(parent.call("tau_send_to_thread", request)).resolves.toMatchObject({ delivered: "started" });
+      expect(f.recovered.sent.filter((send) => send.text === "Accepted follow-up")).toHaveLength(1);
+    } finally {
+      if (blocked) { await rm(f.directory, { force: true }); await rename(backup, f.directory); }
+      await f.cleanup();
+    }
+  });
+
+  it("retains a notice when status ACK and an in-flight wake both fail their receipt writes", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-agents-concurrent-notice-ack-"));
+    const linksPath = join(directory, "links.json");
+    const backup = `${directory}-retained`;
+    const first = await activated({ linksPath });
+    let release!: () => void;
+    let blocked = false;
+    let recovered: Awaited<ReturnType<typeof activated>> | undefined;
+    first.holdSends(() => new Promise<void>((resolve) => { release = resolve; }));
+    try {
+      const child = handleOf(await first.runtime("parent").call("tau_spawn_thread", { prompt: "Concurrent ACK and wake", workspace: "shared" }));
+      first.threads.get(child)!.streaming = false;
+      first.threads.get(child)!.messages = [{ id: "answer", role: "assistant", text: "Complete retained answer: " + "abcdefghijklmnopqrstuvwxyz".repeat(30), timestamp: 1 }];
+      await first.notify("ended", child);
+      await expect.poll(() => first.sent).toHaveLength(1);
+      await rename(directory, backup);
+      await writeFile(directory, "Reject both receipt writes");
+      blocked = true;
+      // This ACK must finish with an error without waiting for parent admission.
+      await expect(first.runtime("parent").call("tau_get_thread_status", { threadId: child })).rejects.toThrow();
+      release();
+      await expect.poll(() => first.runtime("parent").call("tau_list_threads")).toMatchObject({ threads: [expect.objectContaining({ recovery: expect.objectContaining({ state: "held", reason: expect.stringContaining("uncertain") }) })] });
+      await rm(directory);
+      await rename(backup, directory);
+      blocked = false;
+      await first.runtime("parent").call("tau_spawn_thread", { prompt: "Unrelated durable save", workspace: "shared" });
+      await first.registry().dispose();
+      recovered = await activated({ linksPath });
+      await recovered.notify("ended", "parent");
+      expect(recovered.sent).toEqual([]);
+      expect(await recovered.runtime("parent").call("tau_get_thread_status", { threadId: child })).toMatchObject({ recovery: { state: "held", reason: expect.stringContaining("uncertain") }, lastAssistantMessage: "Complete retained answer: " + "abcdefghijklmnopqrstuvwxyz".repeat(30) });
+      expect(first.sent).toHaveLength(1);
+    } finally {
+      release?.();
+      if (blocked) { await rm(directory, { force: true }); await rename(backup, directory); }
+      await first.registry().dispose();
+      await recovered?.registry().dispose();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("retains an uncertain answer after a failed status ACK and an unrelated save", async () => {
+    const f = await recoverUncertainNotice();
+    const backup = `${f.directory}-retained`;
+    let blocked = false;
+    let again: Awaited<ReturnType<typeof activated>> | undefined;
+    try {
+      await rename(f.directory, backup);
+      await writeFile(f.directory, "Not a directory: reject the ACK write");
+      blocked = true;
+      const parent = f.recovered.runtime("parent");
+      await expect(parent.call("tau_get_thread_status", { threadId: f.child })).rejects.toThrow();
+      expect(await parent.call("tau_list_threads")).toMatchObject({ threads: [expect.objectContaining({ recovery: expect.objectContaining({ state: "held", reason: expect.stringContaining("uncertain") }) })] });
+      await rm(f.directory);
+      await rename(backup, f.directory);
+      blocked = false;
+      await parent.call("tau_spawn_thread", { prompt: "Unrelated accepted work", workspace: "shared" });
+      await f.recovered.notify("ended", "parent");
+      expect(f.recovered.sent).toEqual([]);
+      await f.recovered.registry().dispose();
+      again = await activated({ linksPath: f.linksPath });
+      expect(await again.runtime("parent").call("tau_get_thread_status", { threadId: f.child })).toMatchObject({ recovery: { state: "held", reason: expect.stringContaining("uncertain") }, lastAssistantMessage: "Complete retained answer: " + "abcdefghijklmnopqrstuvwxyz".repeat(30) });
+      expect(again.sent).toEqual([]);
+    } finally {
+      if (blocked) { await rm(f.directory, { force: true }); await rename(backup, f.directory); }
+      await again?.registry().dispose();
+      await f.cleanup();
+    }
+  });
+
+  it("retains an uncertain answer when an explicit steer of its idle child is rejected", async () => {
+    const f = await recoverUncertainNotice();
+    try {
+      const parent = f.recovered.runtime("parent");
+      await expect(parent.call("tau_send_to_thread", { threadId: f.child, message: "Rejected action", mode: "steer" })).rejects.toThrow("not running");
+      expect(await parent.call("tau_list_threads")).toMatchObject({ threads: [expect.objectContaining({ recovery: expect.objectContaining({ state: "held", reason: expect.stringContaining("uncertain") }) })] });
+      expect(await parent.call("tau_get_thread_status", { threadId: f.child })).toMatchObject({ lastAssistantMessage: "Complete retained answer: " + "abcdefghijklmnopqrstuvwxyz".repeat(30) });
+      expect(f.recovered.sent).toEqual([]);
+    } finally { await f.cleanup(); }
+  });
+
+  it("keeps a child's worktree identity available through status after recovery", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-agents-worktree-recovery-"));
+    const project = join(root, "project");
+    await mkdir(project);
+    const git = (...args: string[]) => execFileSync("git", ["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", ...args], { cwd: project, stdio: "pipe" });
+    git("init", "-q", "-b", "main");
+    git("config", "user.name", "Fixture");
+    git("config", "user.email", "fixture@example.invalid");
+    await writeFile(join(project, "readme.txt"), "fixture\n");
+    git("add", "readme.txt");
+    git("commit", "-qm", "fixture");
+    const linksPath = join(root, "links.json");
+    const first = await activated({ linksPath, runGit: runAgentGit });
+    first.setProject(project);
+    let second: Awaited<ReturnType<typeof activated>> | undefined;
+    try {
+      const spawned = await first.runtime("parent", project).call("tau_spawn_thread", { prompt: "Read the fixture", workspace: "worktree" }) as { threadId: string; branch: string };
+      const workspace = first.started[0]!.cwd;
+      await first.registry().dispose();
+      second = await activated({ linksPath, runGit: runAgentGit });
+      second.setProject(project);
+      expect(await second.runtime("parent", project).call("tau_get_thread_status", { threadId: spawned.threadId })).toMatchObject({ workspace: { branch: spawned.branch, path: workspace } });
+    } finally {
+      await first.registry().dispose();
+      await second?.registry().dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not invent a parent wake for a child restored from a legacy link-only store", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-agents-legacy-no-wake-"));
+    const linksPath = join(directory, "links.json");
+    await writeFile(linksPath, JSON.stringify({ version: 1, links: [{ threadId: "legacy-child", parentThreadId: "parent", depth: 1, spawnedAt: 1, projectPath: "/project", title: "Legacy child", spawnedBy: "tau_spawn_thread" }] }));
+    const recovered = await activated({ linksPath });
+    try {
+      const child = recovered.open("legacy-child");
+      child.messages = [{ id: "answer", role: "assistant", text: "No persisted wake obligation", timestamp: 1 }];
+      await recovered.notify("ended", "legacy-child");
+      await recovered.notify("ended", "parent");
+      expect(await recovered.runtime("parent").call("tau_get_thread_status", { threadId: "legacy-child" })).toMatchObject({ status: "completed", lastAssistantMessage: "No persisted wake obligation" });
+      expect(recovered.sent).toEqual([]);
+    } finally {
+      await recovered.registry().dispose();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("holds a child's ambiguous parent notification after recovery instead of replaying it", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-agents-uncertain-wake-"));
+    const linksPath = join(directory, "links.json");
+    const first = await activated({ linksPath });
+    let second: Awaited<ReturnType<typeof activated>> | undefined;
+    let release!: () => void;
+    first.holdSends(() => new Promise<void>((resolve) => { release = resolve; }));
+    try {
+      const child = handleOf(await first.runtime("parent").call("tau_spawn_thread", { prompt: "Finish before restart", workspace: "shared" }));
+      first.threads.get(child)!.streaming = false;
+      first.threads.get(child)!.messages = [{ id: "answer", role: "assistant", text: "Retain this answer without paying again", timestamp: 1 }];
+      await first.notify("ended", child);
+      await expect.poll(() => first.sent).toHaveLength(1);
+      await first.registry().dispose();
+      second = await activated({ linksPath });
+      const recovered = second.runtime("parent");
+      expect(await recovered.call("tau_list_threads")).toMatchObject({ threads: [expect.objectContaining({ recovery: expect.objectContaining({ state: "held", reason: expect.stringContaining("uncertain") }) })] });
+      await second.notify("ended", "parent");
+      await second.notify("ended", child);
+      expect(second.sent).toEqual([]);
+      expect(await recovered.call("tau_get_thread_status", { threadId: child })).toMatchObject({ lastAssistantMessage: "Retain this answer without paying again", recovery: { state: "held", reason: expect.stringContaining("uncertain") } });
+      await second.notify("ended", "parent");
+      expect(second.sent).toEqual([]);
+    } finally {
+      release?.();
+      await first.registry().dispose();
+      await second?.registry().dispose();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("delivers a completed child's unreported answer after a busy parent recovers", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-agents-inbox-recovery-"));
+    const linksPath = join(directory, "links.json");
+    const first = await activated({ linksPath });
+    let second: Awaited<ReturnType<typeof activated>> | undefined;
+    try {
+      first.threads.get("parent")!.streaming = true;
+      const child = handleOf(await first.runtime("parent").call("tau_spawn_thread", { prompt: "Answer while parent is busy", workspace: "shared" }));
+      const thread = first.threads.get(child)!;
+      thread.streaming = false;
+      thread.messages = [{ id: "answer", role: "assistant", text: "Ready for the recovered parent", timestamp: 1 }];
+      await first.notify("ended", child);
+      expect(first.sent).toEqual([]);
+      await first.registry().dispose();
+      second = await activated({ linksPath });
+      // Recovery has no child transcript: the definitely-unsent outcome itself must be durable.
+      await second.notify("ended", "parent");
+      const recovered = second;
+      await expect.poll(() => recovered.sent.map((entry) => entry.text)).toEqual([expect.stringContaining("Ready for the recovered parent")]);
+    } finally {
+      await first.registry().dispose();
+      await second?.registry().dispose();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["auto", "queue"])("retains an accepted capacity-queued child's handle after recovery and releases with %s", async (mode) => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-agents-pending-recovery-"));
+    const linksPath = join(directory, "links.json");
+    const settingsPath = join(directory, "settings.json");
+    await writeFile(settingsPath, JSON.stringify({ maxRunningAgents: 1 }));
+    const first = await activated({ linksPath, settingsPath });
+    let second: Awaited<ReturnType<typeof activated>> | undefined;
+    try {
+      const parent = first.runtime("parent");
+      await parent.call("tau_spawn_thread", { prompt: "Occupy the slot", workspace: "shared" });
+      const queued = handleOf(await parent.call("tau_spawn_thread", { prompt: "Accepted but not started", workspace: "shared", clientRequestId: "queued-intent" }));
+      expect(await parent.call("tau_get_thread_status", { threadId: queued })).toMatchObject({ status: "pending" });
+      await first.registry().dispose();
+      second = await activated({ linksPath, settingsPath });
+      const recovered = second.runtime("parent");
+      expect(await recovered.call("tau_list_threads")).toMatchObject({
+        threads: expect.arrayContaining([expect.objectContaining({ threadId: queued, recovery: expect.objectContaining({ state: "held" }) })]),
+      });
+      second.open("child-1").streaming = false;
+      await second.notify("ended", "child-1");
+      await second.notify("ended", "parent");
+      expect(second.started).toEqual([]);
+      const retried = await recovered.call("tau_spawn_thread", { prompt: "Accepted but not started", workspace: "shared", clientRequestId: "queued-intent" });
+      expect(handleOf(retried)).toBe(queued);
+      expect(second.started).toEqual([]);
+      const occupant = handleOf(await recovered.call("tau_spawn_thread", { prompt: "Still capacity guarded", workspace: "shared" }));
+      await recovered.call("tau_send_to_thread", { threadId: queued, message: "Explicit release", mode });
+      expect(second.started).toHaveLength(1);
+      second.threads.get(occupant)!.streaming = false;
+      await second.notify("ended", occupant);
+      await expect.poll(() => second!.started).toHaveLength(2);
+      expect(second.started[1]).toMatchObject({ prompt: "Accepted but not started\n\nExplicit release" });
+    } finally {
+      await first.registry().dispose();
+      await second?.registry().dispose();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a spawn before paid admission when its intent cannot be persisted", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-agents-intent-write-failure-"));
+    const blocked = join(directory, "not-a-directory");
+    await writeFile(blocked, "fixture");
+    const bench = await activated({ linksPath: join(blocked, "links.json") });
+    try {
+      await expect(bench.runtime("parent").call("tau_spawn_thread", { prompt: "Do not charge for an undurable request", workspace: "shared" })).rejects.toThrow();
+      expect(bench.started).toEqual([]);
+      expect(await bench.runtime("parent").call("tau_list_threads")).toEqual({ threads: [] });
+    } finally {
+      await bench.registry().dispose();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("persists a pending child's full definition, backend and model before acknowledging its handle", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-agents-full-intent-"));
+    const linksPath = join(directory, "links.json");
+    const settingsPath = join(directory, "settings.json");
+    const definitionsDir = join(directory, ".tau", "agents");
+    await mkdir(definitionsDir, { recursive: true });
+    await writeFile(settingsPath, JSON.stringify({ maxRunningAgents: 1 }));
+    const definition = join(definitionsDir, "reader.md");
+    await writeFile(definition, "---\ndescription: Saved persona\nruntime: codex\nmodel: openai/gpt-5.6-luna\nworkspace: shared\n---\nUse the original saved persona.");
+    const first = await activated({ linksPath, settingsPath });
+    first.setProject(directory);
+    let second: Awaited<ReturnType<typeof activated>> | undefined;
+    try {
+      const parent = first.runtime("parent", directory);
+      await parent.call("tau_spawn_thread", { prompt: "Occupy capacity", workspace: "shared" });
+      const queued = handleOf(await parent.call("tau_spawn_thread", { prompt: "Full original task", agent: "reader" }));
+      // Reopen without a dispose/flush: the ACK itself must imply durable intent.
+      await writeFile(definition, "---\ndescription: Replaced persona\nruntime: pi\n---\nDo not use this replacement.");
+      second = await activated({ linksPath, settingsPath });
+      second.setProject(directory);
+      const recovered = second.runtime("parent", directory);
+      expect(await recovered.call("tau_get_thread_status", { threadId: queued })).toMatchObject({ status: "pending", recovery: { state: "held", reason: expect.any(String) } });
+      expect(second.started).toEqual([]);
+      await first.registry().dispose();
+      await recovered.call("tau_send_to_thread", { threadId: queued, message: "Release original intent", mode: "queue" });
+      expect(second.started).toHaveLength(1);
+      expect(second.started[0]).toMatchObject({ cwd: directory, backend: "codex", model: { provider: "openai", id: "gpt-5.6-luna" }, prompt: expect.stringContaining("Full original task\n\nRelease original intent") });
+      expect(second.started[0]!.prompt).toContain("Use the original saved persona.");
+      expect(second.started[0]!.prompt).not.toContain("Do not use this replacement.");
+    } finally {
+      await first.registry().dispose();
+      await second?.registry().dispose();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("retains an accepted child when the kit closes before its coalesced save", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-agents-close-"));
+    const linksPath = join(directory, "links.json");
+    const first = await activated({ linksPath });
+    let second: Awaited<ReturnType<typeof activated>> | undefined;
+    try {
+      const child = handleOf(await first.runtime("parent").call("tau_spawn_thread", { prompt: "Keep this child", workspace: "shared" }));
+      await first.registry().dispose();
+      second = await activated({ linksPath });
+      expect(await second.runtime("parent").call("tau_list_threads")).toMatchObject({ threads: [{ threadId: child }] });
+    } finally {
+      await first.registry().dispose();
+      await second?.registry().dispose();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("wakes an idle parent for a tool-started child that finishes after kit recovery", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-agents-recovery-"));
+    const linksPath = join(directory, "links.json");
+    const registries: Array<Awaited<ReturnType<typeof activated>>> = [];
+    try {
+      const first = await activated({ linksPath });
+      registries.push(first);
+      const child = handleOf(await first.runtime("parent").call("tau_spawn_thread", { prompt: "Recover this task", workspace: "shared" }));
+      await first.registry().dispose();
+      const recovered = await activated({ linksPath });
+      registries.push(recovered);
+      expect(await recovered.runtime("parent").call("tau_list_threads")).toMatchObject({ threads: [{ threadId: child }] });
+      const restoredChild = recovered.open(child);
+      restoredChild.messages = [{ id: "result", role: "assistant", text: "Recovered answer", timestamp: 1 }];
+      await recovered.notify("ended", child);
+      await expect.poll(() => recovered.sent.filter((entry) => entry.sessionId === "parent").map((entry) => entry.text)).toEqual([
+        expect.stringContaining("Recovered answer"),
+      ]);
+      await recovered.notify("ended", child);
+      expect(recovered.sent.filter((entry) => entry.sessionId === "parent")).toHaveLength(1);
+    } finally {
+      for (const bench of registries) await bench.registry().dispose();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   /** A child that answered and whose turn the host reported over. */
   const finish = async (bench: Awaited<ReturnType<typeof activated>>, threadId: string, answer: string) => {
     const child = bench.threads.get(threadId)!;

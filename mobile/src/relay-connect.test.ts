@@ -35,7 +35,7 @@ function socketBridge() {
   return { bridge, requests, sends, closes, listeners, emit: (event: NativeSocketEvent) => listeners.get(event.id)?.(event) };
 }
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe("phone Connect links", () => {
   it("retains the inner path and query, separates the relay token and pairing code, and retains the host pin", () => {
@@ -102,8 +102,9 @@ describe("saved relay credentials", () => {
 });
 
 describe("relay connection lifecycle", () => {
-  it("reopens with the relay credential, sends only the paired-client token in hello, and stops when revoked", async () => {
+  it.each([0, 0.5, 0.999])("reopens with the relay credential, keeps hello tokens separate and stops when revoked, with jitter sample %s", async (sample) => {
     vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(sample);
     const fixture = socketBridge();
     const revoked: string[] = [];
     const { connection } = connectHost(() => host, "paired-phone-token", { bridge: fixture.bridge, device: { platform: "ios", virtual: false }, connect }, {
@@ -114,7 +115,7 @@ describe("relay connection lifecycle", () => {
     const first = fixture.requests[0]!;
     fixture.emit({ id: first.id, type: "open", publicKey: KEY });
     fixture.emit({ id: first.id, type: "close", code: 1006 });
-    await vi.advanceTimersByTimeAsync(250);
+    await vi.advanceTimersByTimeAsync(300);
     const second = fixture.requests[1]!;
     expect(second.id).not.toBe(first.id);
     expect([first, second].map((request) => request.connect)).toEqual([connectCandidate(connect, host)!.connect, connectCandidate(connect, host)!.connect]);

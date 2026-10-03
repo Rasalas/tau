@@ -37,6 +37,24 @@ describe("QueuedMessages", () => {
     expect(onReorder).toHaveBeenLastCalledWith("second", 0);
   });
 
+  it("moves messages with visible buttons and disables moves past either end", () => {
+    const onReorder = vi.fn();
+    render(<QueuedMessages queue={[queued("first", "first task"), queued("second", "second task"), queued("third", "third task")]} streaming onSteer={vi.fn()} onReturn={vi.fn()} onReorder={onReorder} />);
+    const rows = within(screen.getByRole("list", { name: "Queued messages" })).getAllByRole("listitem");
+    const firstUp = within(rows[0]!).getByRole<HTMLButtonElement>("button", { name: "Move queued message up" });
+    const lastDown = within(rows[2]!).getByRole<HTMLButtonElement>("button", { name: "Move queued message down" });
+    expect(firstUp.disabled).toBe(true);
+    expect(lastDown.disabled).toBe(true);
+    fireEvent.click(firstUp);
+    fireEvent.click(lastDown);
+    expect(onReorder).not.toHaveBeenCalled();
+
+    fireEvent.click(within(rows[1]!).getByRole("button", { name: "Move queued message up" }));
+    expect(onReorder).toHaveBeenLastCalledWith("second", 0);
+    fireEvent.click(within(rows[1]!).getByRole("button", { name: "Move queued message down" }));
+    expect(onReorder).toHaveBeenLastCalledWith("second", 2);
+  });
+
   it("says when a restored or stopped queue waits for the user", () => {
     render(<QueuedMessages queue={[queued("first", "after the restart")]} streaming={false} held onSteer={vi.fn()} onReturn={vi.fn()} onReorder={vi.fn()} />);
     expect(screen.getByRole("listitem").textContent).toContain("Held");

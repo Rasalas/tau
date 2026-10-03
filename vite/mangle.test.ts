@@ -22,6 +22,18 @@ describe("mangleChunk", () => {
     expect(code.length).toBeLessThan(CHUNK.length);
   });
 
+  it("preserves branch results and side-effect order through repeated compression", async () => {
+    const source = "function run(value){let hits=0;function next(){hits++;return value+hits}if(value){capture(next(),next(),hits)}else capture(next(),hits)}run(input)";
+    const { code } = await mangleChunk(source, false);
+    for (const input of [0, 2, -2]) {
+      const original: number[][] = [];
+      const compressed: number[][] = [];
+      new Function("input", "capture", source)(input, (...values: number[]) => original.push(values));
+      new Function("input", "capture", code)(input, (...values: number[]) => compressed.push(values));
+      expect(compressed).toEqual(original);
+    }
+  });
+
   it("keeps legal comments", async () => {
     expect((await mangleChunk(CHUNK, false)).code).toContain("/*! @license widget v1 | MIT */");
   });

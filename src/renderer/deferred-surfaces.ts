@@ -49,6 +49,10 @@ export const DangerZone = deferred(() => controls().then((module) => module.Dang
 export const DangerAction = deferred(() => controls().then((module) => module.DangerAction));
 export const SettingsState = deferred(() => controls().then((module) => module.SettingsState));
 export const Slider = deferred(() => controls().then((module) => module.Slider));
+// Only a version mismatch renders these updater controls.
+const versionUpdates = () => import("./host-version-update-controls");
+export const UpdateHostButton = deferred(() => versionUpdates().then((module) => module.UpdateHostButton));
+export const UpdateWindowButton = deferred(() => versionUpdates().then((module) => module.UpdateWindowButton));
 export const ReloadCurtain = deferred(() => import("./components/ReloadCurtain").then((module) => module.ReloadCurtain));
 // Mounted at start-up, but its first look at pairing requests is 1.5 s later.
 export const PairingRequestWatcher = deferred(() => import("./pairing/PairingRequestWatcher").then((module) => module.PairingRequestWatcher));

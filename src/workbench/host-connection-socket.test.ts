@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostEvent } from "../shared/contracts";
 import { HOST_TRANSPORT_VERSION } from "../shared/host-transport";
 import {
@@ -72,7 +72,10 @@ function answerHello(socket: FakeSocket, reply: ReturnType<typeof helloReply>): 
   return hello!.hello as Record<string, unknown>;
 }
 
+beforeEach(() => { vi.spyOn(Math, "random").mockReturnValue(0.5); });
+
 afterEach(() => {
+  vi.restoreAllMocks();
   FakeSocket.opened.length = 0;
   vi.unstubAllGlobals();
   vi.useRealTimers();
@@ -296,6 +299,79 @@ async function liveClient(options: { heartbeat?: boolean } = {}) {
 }
 
 describe("socket host client on a mobile network", () => {
+  it("ignores late frames and close callbacks from a replaced socket", async () => {
+    const { connection, client, first, wake } = await liveClient();
+    const lateMessage = first.onmessage!;
+    const lateClose = first.onclose!;
+    const events: string[] = [];
+    connection.onEvent((event) => { if (event.type === "event-log") events.push(event.label); });
+    first.drop();
+    wake("online");
+    const second = FakeSocket.opened[1]!;
+    second.accept();
+    await vi.advanceTimersByTimeAsync(0);
+    answerHello(second, helloReply(1));
+    await vi.advanceTimersByTimeAsync(0);
+
+    lateMessage({ data: JSON.stringify({ type: "push", push: { seq: 1, event: logEvent("stale") } }) } as MessageEvent<string>);
+    lateClose();
+    expect(events).toEqual([]);
+    expect(client.getConnectionState()).toBe("connected");
+    expect(client.getConnectionLink()).toMatchObject({ phase: "open" });
+    connection.close();
+  });
+  it("does not deliver a rejected queued prompt after a failed reconnect handshake", async () => {
+    const { connection, client, first, wake } = await liveClient();
+    first.drop();
+    const outcome = client.sendPrompt("send once", [], "thread", "turn-1").then(() => "accepted", () => "rejected");
+    wake("online");
+    const hanging = FakeSocket.opened[1]!;
+    hanging.drop();
+    expect(await outcome).toBe("rejected");
+    wake("online");
+    const next = FakeSocket.opened[2]!;
+    next.accept();
+    await vi.advanceTimersByTimeAsync(0);
+    answerHello(next, helloReply(1));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(next.frames().filter((frame) => frame.type === "request" && (frame.request as { method: string }).method === "prompt")).toEqual([]);
+    connection.close();
+  });
+
+  it("never resends an in-flight prompt when its acknowledgement was lost", async () => {
+    const { connection, client, first, wake } = await liveClient();
+    const outcome = client.sendPrompt("already delivered", [], "thread", "turn-2").catch(() => undefined);
+    expect(first.frames().filter((frame) => frame.type === "request")).toHaveLength(1);
+    first.drop();
+    await outcome;
+    wake("online");
+    const next = FakeSocket.opened[1]!;
+    next.accept();
+    await vi.advanceTimersByTimeAsync(0);
+    answerHello(next, helloReply(1));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(next.frames().filter((frame) => frame.type === "request")).toEqual([]);
+    connection.close();
+  });
+
+  it("spreads reconnect retries with bounded jitter without exceeding the online cap", async () => {
+    const { connection, client, first } = await liveClient();
+    vi.mocked(Math.random).mockReturnValue(0.999);
+    first.drop();
+    expect(client.getConnectionLink()!.retryAt! - Date.now()).toBeGreaterThan(250);
+    expect(client.getConnectionLink()!.retryAt! - Date.now()).toBeLessThanOrEqual(300);
+    for (let index = 0; index < 6; index += 1) {
+      await vi.advanceTimersByTimeAsync(client.getConnectionLink()!.retryAt! - Date.now());
+      FakeSocket.opened.at(-1)!.drop();
+      expect(client.getConnectionLink()!.retryAt! - Date.now()).toBeLessThanOrEqual(3_000);
+    }
+    vi.mocked(Math.random).mockReturnValue(0);
+    await vi.advanceTimersByTimeAsync(3_000);
+    FakeSocket.opened.at(-1)!.drop();
+    expect(client.getConnectionLink()!.retryAt! - Date.now()).toBe(2_400);
+    connection.close();
+  });
+
   it("sends heartbeats to a host that answers them and reports the round trip", async () => {
     const { client, first } = await liveClient();
     expect(client.getConnectionLink()).toMatchObject({ phase: "open", attempts: 0 });

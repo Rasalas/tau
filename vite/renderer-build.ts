@@ -14,6 +14,7 @@ export const COMMON_MODULES = [
   "renderer/runtime-models.ts",
   "renderer/machine-updates.ts",
   "renderer/runtime-update-toasts.ts",
+  "renderer/host-version-update-controls.tsx",
   "renderer/file-mention-expander.ts",
   "renderer/pairing/pairing-format.ts",
   "renderer/touch/sheet-drag.ts",
@@ -98,7 +99,8 @@ export const rendererBuild = {
       if (/\/node_modules\/highlight\.js\//u.test(id) || id.endsWith("/renderer/components/highlight-typescript.ts")) return "syntax-highlighting";
       // Controls and row layout already import each other. Keep the shared
       // Settings primitives together, without pulling in any Settings page.
-      if (/\/renderer\/settings\/(?:controls\.tsx|settings-layout\.tsx)$/u.test(id)) return "settings-controls";
+      // The nearby-host list has no stylesheet and already imports these primitives.
+      if (/\/renderer\/settings\/(?:controls\.tsx|settings-layout\.tsx|NearbyMachineList\.tsx)$/u.test(id)) return "settings-controls";
       // One lazy chunk for what several surfaces share: the dialogs, the icons only
       // lazy code draws and small helpers. One chunk each costs more than it saves.
       if (/\/renderer\/components\/ui\/(?:Dialog|ConfirmDialog)\.tsx$/u.test(id)) return "common";

@@ -1,0 +1,4 @@
+{
+  "extends": "../../tooling/tsconfig.kits.json",
+  "include": ["./**/*.ts"]
+}

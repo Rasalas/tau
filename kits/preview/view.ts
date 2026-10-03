@@ -1,5 +1,6 @@
 import { BrowserWindow, WebContentsView, nativeImage, session, shell, type Debugger, type NativeImage } from "electron";
 import { sep } from "node:path";
+import { downloadPreviewFile } from "./download.js";
 import { EMPTY_PREVIEW_STATE, type PreviewAppearance, type PreviewChord, type PreviewState } from "./protocol.js";
 import type { WindowExtension, WindowExtensionContext } from "tau/host-extension";
 import type { PreviewRect, PreviewSurface, PreviewSurfaceOptions } from "./host.js";
@@ -156,8 +157,7 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
     await tools.sendCommand("Emulation.setDeviceMetricsOverride", deviceOverride(next));
     await tools.sendCommand("Emulation.setTouchEmulationEnabled", next.touch ? { enabled: true, maxTouchPoints: 5 } : { enabled: false });
   };
-  // DevTools-protocol input is trusted and reaches a hidden view without taking the window's focus.
-  const sendInput = async (input: PreviewPageInput): Promise<void> => {
+  const inputTools = async (): Promise<Debugger> => {
     await emulation;
     const tools = devTools();
     if (!focusEmulated) {
@@ -165,7 +165,19 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
       await tools.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true });
       focusEmulated = true;
     }
-    for (const [method, params] of cdpInputCommands(input, { touch: device?.touch === true })) await tools.sendCommand(method, params);
+    return tools;
+  };
+  // DevTools-protocol input is trusted and reaches a hidden view without taking the window's focus.
+  let inputTail: Promise<void> = Promise.resolve();
+  const sendInput = (input: PreviewPageInput): Promise<void> => {
+    const sent = inputTail.then(async () => {
+      if (destroyed) throw new Error("The preview is closed.");
+      const tools = await inputTools();
+      for (const [method, params] of cdpInputCommands(input, { touch: device?.touch === true })) await tools.sendCommand(method, params);
+    });
+    // One rejected input must not poison later input, and a click's down/up stay together.
+    inputTail = sent.catch(() => undefined);
+    return sent;
   };
   const applyAppearance = async (): Promise<void> => {
     const tools = contents.debugger;
@@ -294,9 +306,11 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
       const zoom = contents.isDestroyed() ? 1 : contents.getZoomFactor();
       return { width: Math.round(bounds.width / zoom), height: Math.round(bounds.height / zoom) };
     },
-    evaluate: (expression: string, isolated?: boolean) => isolated
-      ? contents.executeJavaScriptInIsolatedWorld(ISOLATED_WORLD, [{ code: expression }], true)
-      : contents.executeJavaScript(expression, true),
+    async evaluate(expression: string, isolated?: boolean) {
+      if (isolated) return contents.executeJavaScriptInIsolatedWorld(ISOLATED_WORLD, [{ code: expression }], true);
+      await inputTools();
+      return contents.executeJavaScript(expression, true);
+    },
     async capture(maxWidth: number, rect?: PreviewRect, jpeg?: boolean) {
       await emulation;
       // A view on screen shows a device's layout scaled; the protocol's screenshot has it at its own size.
@@ -328,12 +342,10 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
         throw new Error(`The page did not take the input: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
       }
     },
-    pressKey(key: string) {
-      contents.focus();
-      contents.sendInputEvent({ type: "keyDown", keyCode: key });
-      if (key.length === 1) contents.sendInputEvent({ type: "char", keyCode: key });
-      contents.sendInputEvent({ type: "keyUp", keyCode: key });
+    async pressKey(key: string) {
+      await surface.input!({ kind: "key", key });
     },
+    download: (url, destination) => downloadPreviewFile(previewSession, partition, options.workspaceRoot(), url, destination),
     destroy() {
       if (destroyed) return;
       destroyed = true;
@@ -468,6 +480,8 @@ export default function activatePreviewWindowHalf(context: WindowExtensionContex
           return clearPreviewPartition(String(options.target ?? ""));
         case "evaluate":
           return open().evaluate(String(options.expression ?? ""), options.isolated === true).then((result) => snapshot(surface!, result));
+        case "download":
+          return open().download!(String(options.url ?? ""), String(options.destination ?? "")).then((result) => snapshot(surface!, result));
         case "capture":
           return open().capture(Number(options.maxWidth ?? 1_280), readRect(options.rect), options.jpeg === true).then((result) => snapshot(surface!, result));
         case "record": {
@@ -478,8 +492,7 @@ export default function activatePreviewWindowHalf(context: WindowExtensionContex
         case "input":
           return open().input!(options.event as PreviewPageInput).then(() => snapshot(surface!));
         case "press-key":
-          open().pressKey(String(options.key ?? ""));
-          return snapshot(open());
+          return Promise.resolve(open().pressKey(String(options.key ?? ""))).then(() => snapshot(surface!));
         case "destroy": {
           const answer = surface ? snapshot(surface) : undefined;
           surface?.destroy();

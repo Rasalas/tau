@@ -1,12 +1,12 @@
 import { useRef, useState } from "react";
-import { ArrowUp, Clock, GripVertical, X } from "lucide-react";
+import { ArrowUp, ChevronDown, ChevronUp, Clock, GripVertical, X } from "lucide-react";
 import type { UiQueuedMessage } from "../../shared/contracts";
 import { tooltipProps } from "./ui/Tooltip";
 
 /**
  * Messages sent during a run wait at the end of the conversation as dashed
  * bubbles: the arrow sends one now, the X puts it back into
- * the composer. The grip (or ⌥↑/⌥↓ on it) reorders them. The host keeps
+ * the composer. The up/down buttons and grip (or ⌥↑/⌥↓ on it) reorder them. The host keeps
  * the queue, so it survives a restart; a restored one is held for the user.
  */
 export function QueuedMessages({ queue, streaming, held = false, steerShortcut, onSteer, onReturn, onReorder }: {
@@ -71,6 +71,14 @@ export function QueuedMessages({ queue, streaming, held = false, steerShortcut, 
                   onReorder(entry.id, event.key === "ArrowUp" ? index - 1 : index + 1);
                 }}
               ><GripVertical size={13} /></button>
+              {queue.length > 1 ? <>
+                <button type="button" aria-label="Move queued message up" disabled={index === 0} {...tooltipProps("Move earlier in the queue")} onClick={() => onReorder(entry.id, index - 1)}>
+                  <ChevronUp size={14} />
+                </button>
+                <button type="button" aria-label="Move queued message down" disabled={index === queue.length - 1} {...tooltipProps("Move later in the queue")} onClick={() => onReorder(entry.id, index + 1)}>
+                  <ChevronDown size={14} />
+                </button>
+              </> : null}
               <span className="queued-message-status" {...tooltipProps(status)}><Clock size={12} />{held ? "Held" : "Queued"}{entry.fromThreadId ? " · from another thread" : ""}</span>
               <span className="spacer" />
               <button type="button" aria-label="Send now" {...tooltipProps(send, index === 0 && steerShortcut ? { shortcut: steerShortcut } : undefined)} onClick={() => onSteer(entry.id)}>

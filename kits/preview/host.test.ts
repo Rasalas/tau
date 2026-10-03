@@ -171,6 +171,20 @@ describe("preview tools", () => {
     expect((await kit.text("preview_click", { selector: "#gone" })).text).toBe("click failed: No element matched.");
   });
 
+  it("reports an asynchronous key delivery failure instead of claiming it was pressed", async () => {
+    const { surface } = fakeSurface({ pressKey: async () => { throw new Error("key delivery refused"); } });
+    const kit = await activate(async () => surface);
+    const result = await kit.text("preview_press", { key: "Enter" });
+    expect(result).toMatchObject({ text: "key delivery refused", isError: true });
+  });
+
+  it("offers explicit downloads and returns their failures to the agent", async () => {
+    const { surface } = fakeSurface({ download: async () => { throw new Error("destination exists"); } });
+    const kit = await activate(async () => surface);
+    expect(await kit.text("preview_download", { url: "https://example.test/file", destination: "file.txt" }))
+      .toMatchObject({ text: "destination exists", isError: true });
+  });
+
   it("says what is missing when the host has no window", async () => {
     const kit = await activate(async () => undefined);
     for (const tool of ["preview_open", "preview_status", "preview_snapshot", "preview_screenshot"]) {

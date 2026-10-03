@@ -1169,7 +1169,8 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
   width: 24px; height: 24px; display: grid; place-items: center; border: 0; border-radius: var(--radius-sm);
   background: transparent; color: var(--muted); cursor: pointer;
 }
-.queued-message > footer button:hover { background: var(--raised); color: var(--ink); }
+.queued-message > footer button:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
+.queued-message > footer button:disabled { opacity: .35; cursor: default; }
 .queued-message-grip { cursor: grab; color: var(--faint); }
 .queued-message.dragging .queued-message-grip { cursor: grabbing; }
 .queued-message-status { display: inline-flex; align-items: center; gap: 4px; margin-left: 2px; }

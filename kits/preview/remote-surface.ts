@@ -64,8 +64,9 @@ export function createRemotePreviewSurface(
     capture: async (maxWidth: number, rect?: PreviewRect, jpeg?: boolean) =>
       await run("capture", { maxWidth, ...(rect ? { rect } : {}), ...(jpeg ? { jpeg } : {}) }) as { base64: string; width: number; height: number },
     record: async (action, recordOptions) => await run("record", { action, ...(recordOptions?.frameRate ? { frameRate: recordOptions.frameRate } : {}) }) as PreviewRecordingChunks,
-    pressKey: (key: string) => send("press-key", { key }),
+    pressKey: async (key: string) => { await run("press-key", { key }); },
     input: async (event) => { await run("input", { event }); },
+    download: async (url, destination) => await run("download", { url, destination }) as { path: string },
     destroy: () => send("destroy"),
   };
 }

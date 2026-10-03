@@ -76,6 +76,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-method-access.js",   "./host-pairing-terminal.js",   "./host-rate-limit.js",
   "./host-extension-errors.js",   "./host-extension-isolation.js",   "./host-extension-worker-protocol.js",
   "./host-extensions.js",   "./host-idle-compaction.js",   "./host-invocation.js",   "./host-jobs.js",   "./host-lifecycle.js",   "./host-lifecycle-coordinator.js",
+  // Connection-scoped browser resource transport and the host's OS TLS trust store.
+  "./host-browser-resources.js", "./host-system-certificates.js",
   "./host-listen.js",   "./host-local-files.js",   "./host-log.js",   "./host-origin.js",
   "./host-messages.js",   "./host-methods.js",   "./host-ports.js",   "./host-publication.js",
   "./host-process-supervisor.js",   "./host-start.js",

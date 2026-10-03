@@ -6,9 +6,24 @@ your Apple account. Run this once after installing the app through TestFlight
 code, pairing or the app. Each step says what you should see; note the step number of
 anything that does not match and what you saw instead.
 
-Everything an agent can check has already been checked on this Mac, with loopback, the test
-Bonjour type, a fake `tailscale` and the iOS Simulator (`docs/agents/testing-the-app.md`,
-"Remote access"). This list covers the rest.
+Earlier local checks used loopback, the test Bonjour type, a fake `tailscale` and the
+iOS Simulator. See `docs/agents/testing-the-app.md`, "Remote access", for the recipes.
+Those checks do not prove a later build or physical-device behavior. The dated evidence
+and remaining release blockers are in [release readiness, 2026-10-03](research/tau-release-readiness-2026-10-03.md).
+
+## Record the evidence
+
+Do not tick a step because a build compiled, a provider accepted a push, or a fixture passed.
+For each run, record the date, source commit, app version and build number, OS version,
+device model, simulator/emulator or physical device, and the step's observed result.
+For failures, record expected versus actual behavior and a redacted log or screenshot.
+Never include account credentials, pairing links or codes, push tokens, relay handles,
+profile contents or private keys. Keep pending steps pending.
+
+Physical-device runs, signing setup and real provider operations require separate human
+authorization. The 2026-10-03 local audit did none of them. Prefer a disposable host,
+synthetic threads and fake runtimes so this checklist does not require paid prompts,
+real account changes or reset-credit consumption.
 
 ## Before you start
 
@@ -183,6 +198,30 @@ Use a test host and a signed test build. No real push is needed for local dictat
 - [ ] Add Plan limits and Threads on the home screen (each size) and on the lock screen.
       Tinted and clear home-screen modes keep the bars readable. A tap on Plan limits
       opens Usage, a Threads row its thread.
+
+## Android release and device checks
+
+Use a signed test APK or internal-track App Bundle for `de.tbuck.tau`, a disposable host
+and fake runtime. Record Android version, device model and distribution route separately.
+An emulator result does not complete a physical-device step.
+
+- [ ] Release owner verifies APK signature, package name, versionName and versionCode.
+      Confirm the upload certificate and Play signing certificate are checked for their
+      respective distribution routes. Install and upgrade only in the approved test environment.
+- [ ] On Android 13 or newer, deny notifications first. No push registration happens before
+      consent. Grant consent through system settings and confirm registration then works.
+- [ ] Check foreground, background, locked and terminated app delivery and notification taps.
+      Confirm the matching host and thread open. Distinguish provider acceptance from display.
+- [ ] Deny camera permission, then grant it and pair by QR code. Check keyboard, rotation,
+      terminal input, reconnect and read-only behavior from the shared steps above.
+- [ ] During a fake turn, the ongoing activity card changes from running to needs-input to
+      completed. Its tap opens the matching thread. Verify OS notification permission and
+      background restrictions do not silently make the tested state appear successful.
+- [ ] Add each available widget size, resize it, refresh usage and remove/revoke the host.
+      No old host usage or activity remains. Use synthetic account data, not real sign-ins.
+- [ ] Repeat reconnect under Wi-Fi and cellular with the explicitly approved network setup.
+      Report OEM battery restrictions and any required settings instead of treating them as
+      an emulator pass.
 
 ## Remote iOS Live Activity starts
 
