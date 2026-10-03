@@ -15,6 +15,8 @@ export function formatTokens(tokens: number): string {
 export function formatCost(costUsd: number): string | undefined {
   if (!Number.isFinite(costUsd) || costUsd <= 0) return undefined;
   if (costUsd < 0.005) return "<$0.01";
+  if (costUsd >= 1_000_000) return `$${(costUsd / 1_000_000).toFixed(1)}M`;
+  if (costUsd >= 1_000) return `$${(costUsd / 1_000).toFixed(1)}k`;
   return `$${costUsd.toFixed(2)}`;
 }
 

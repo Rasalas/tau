@@ -5,6 +5,7 @@ import { ActivityCalendar, ReadingHistory } from "./activity.js";
 import { jumpTo, PeriodSwitch, RUNTIME_LABELS, UsageFilterButton } from "./controls.js";
 import { dailyFigures, dayStarts, HISTORY_DAYS, ofRuntime, periodFrom, rankUsage, runtimesOf, type RankedUsage } from "./dashboard.js";
 import { createUsageView, type UsageView } from "./filters.js";
+import { UsageForecast } from "./forecast-view.js";
 import { createJuicebarChoices, type JuicebarChoices } from "./juicebar-choices.js";
 import type { LimitsFeed } from "./limits-feed.js";
 import { monthFigures } from "./month.js";
@@ -315,6 +316,7 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
             <div className="usage-overview">
               <UsageStats entries={entries} from={from} weekFrom={last - 7} threads={threadIndex} />
               <UsageHistory series={series} metric={metric} title={chartTitle} />
+              <UsageForecast entries={entries} days={days} now={today} />
               <div className="usage-tables">
                 <UsageTable id="usage-providers" title="By provider" rows={providers} metric={metric} bars empty={`Nothing in ${rangeLabel}.`} />
                 <UsageTable id="usage-projects" title="By project" rows={projects} metric={metric} empty={`Nothing in ${rangeLabel}.`}>

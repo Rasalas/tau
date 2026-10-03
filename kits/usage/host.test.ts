@@ -183,6 +183,31 @@ describe("Usage host half", () => {
     expect(byDay.entries).toEqual([expect.objectContaining({ day: 1, threadId: "s1", billing: "subscription", costUsd: 0, apiValueUsd: 0.12, totalTokens: 110 })]);
   });
 
+  it("prices free and local entries hypothetically without turning them into bills", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-usage-equivalent-"));
+    directories.push(root);
+    const registry = await activateHostKit(createUsageHostExtension({ now: () => NOW, sources: [{ extensionId: "tau.opencode", backend: "opencode", label: "OpenCode" }] }) as unknown as HostExtension, {
+      sessionsDir: join(root, "sessions"), stateDir: join(root, "state"), registerTurnObserver: () => () => undefined,
+      priceUsage: async (tallies: { model: string; billing: string }[]) => tallies.map((tally) => ({
+        billing: tally.billing, costUsd: 0,
+        apiValueUsd: tally.billing === "subscription" && tally.model !== "unknown" ? 2 : 0,
+        source: tally.billing === "subscription" && tally.model !== "unknown" ? "api" : "none",
+      })),
+    } as never);
+    await registry.activate({ id: "tau.opencode", name: "OpenCode", activate(context) {
+      context.registerCommand("usage", () => ({ threads: ["free", "local", "unknown"].map((model) => ({
+        threadId: model, cwd: "/work", updatedAt: NOW, model,
+        turns: [{ ...usage, at: NOW, model, provider: "openrouter", costUsd: 0, billing: model === "local" ? "local" : "free" }],
+      })) }), { callers: ["tau.usage"] });
+    } });
+    const result = await registry.invoke("tau.usage", "summary", { days: [NOW - DAY] }) as UsageSummary;
+    expect(result.totals.costUsd).toBe(0);
+    expect(result.totals.subscription.apiValueUsd).toBe(0);
+    expect(result.entries?.find((entry) => entry.model === "free")).toMatchObject({ billing: "free", costUsd: 0, apiValueUsd: 0, apiEquivalentUsd: 2 });
+    expect(result.entries?.find((entry) => entry.model === "local")).toMatchObject({ billing: "local", costUsd: 0, apiValueUsd: 0, apiEquivalentUsd: 2 });
+    expect(result.entries?.find((entry) => entry.model === "unknown")?.apiEquivalentUsd).toBeUndefined();
+  });
+
   it("passes an account's identity on only as a hash, so an id sent by mistake never reaches the page", () => {
     const base = { id: "codex:account", runtime: "codex", label: "Codex", checkedAt: 1, windows: [] };
     const key = "0123456789abcdef".repeat(4);

@@ -272,7 +272,10 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
         if (summary.rows.length === 0 || !services.priceUsage) return summary;
         const entries = summary.entries ?? [];
         try {
-          const priced = await services.priceUsage([...summary.rows, ...entries].map((row) => ({
+          // Ask core for the token-equivalent of free/local entries as a hypothetical
+          // subscription: that route reads API prices without changing their billing.
+          const hypothetical = entries.filter((entry) => entry.billing === "free" || entry.billing === "local");
+          const priced = await services.priceUsage([...summary.rows, ...entries, ...hypothetical.map((entry) => ({ ...entry, billing: "subscription" as const, costUsd: 0, apiValueUsd: 0 }))].map((row) => ({
             ...(row.provider ? { provider: row.provider } : {}),
             model: row.modelId ?? row.model,
             ...(row.billing ? { billing: row.billing } : {}),
@@ -287,7 +290,15 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
           })));
           const prices = priced.map((entry): RowPrice => ({ ...(entry.billing ? { billing: entry.billing } : {}), costUsd: entry.costUsd, apiValueUsd: entry.apiValueUsd, source: entry.source }));
           const rows = applyPrices(summary, prices.slice(0, summary.rows.length));
-          return summary.entries ? { ...rows, entries: priceEntries(entries.map((entry) => ({ ...entry, costUsd: entry.costUsd + entry.apiValueUsd })), prices.slice(summary.rows.length)) } : rows;
+          if (!summary.entries) return rows;
+          const equivalents = new Map(hypothetical.map((entry, index) => [entry, prices[summary.rows.length + entries.length + index]]));
+          const daily = priceEntries(entries.map((entry) => ({ ...entry, costUsd: entry.costUsd + entry.apiValueUsd })), prices.slice(summary.rows.length));
+          return { ...rows, entries: daily.map((entry, index) => {
+            const equivalent = equivalents.get(entries[index]!);
+            const value = equivalent ? equivalent.apiValueUsd : entry.costUsd + entry.apiValueUsd;
+            const known = equivalent ? equivalent.source !== "none" : entry.priceSource !== "none";
+            return known ? { ...entry, apiEquivalentUsd: value } : entry;
+          }) };
         } catch (error) {
           services.log("usage.price-failed", reason(error));
           return summary;

@@ -109,6 +109,24 @@ function renderPage(invoke: (command: string, input?: unknown) => Promise<unknow
 }
 
 describe("Usage page", () => {
+  it("shows the provider forecast with runtime filters, independently of the chart period", async () => {
+    renderPage(answers(() => summary({ entries: [
+      entry({ day: LAST - 1, backend: "opencode", provider: "openrouter", billing: "free", costUsd: 0, apiEquivalentUsd: 7 }),
+      entry({ day: LAST - 15, backend: "opencode", provider: "openrouter", billing: "free", costUsd: 0, apiEquivalentUsd: 53 }),
+      entry({ day: LAST - 1, backend: "codex", provider: "openai", costUsd: 0, apiValueUsd: 14 }),
+    ] })));
+    const forecast = within(await screen.findByRole("region", { name: "Monthly forecast" }));
+    await forecast.findByText("≈ $30.00");
+    expect(forecast.getByText("≈ $60.00", { selector: "td" })).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Period" })).getByRole("radio", { name: "All time" }));
+    expect(forecast.getByText("≈ $30.00")).toBeTruthy();
+    fireEvent.click(within((await openFilters()).getByRole("radiogroup", { name: "Runtime" })).getByRole("radio", { name: "OpenCode" }));
+    await waitFor(() => expect(forecast.queryByText("OpenAI")).toBeNull());
+    expect(forecast.getByText("≈ $30.00")).toBeTruthy();
+    fireEvent.click(forecast.getByRole("button", { name: "Last 30 days" }));
+    await forecast.findByText("≈ $60.00", { selector: "td" });
+  });
+
   it("asks for its days after one that gathers everything older, and answers the period's four figures", async () => {
     const invoke = answers();
     renderPage(invoke);
@@ -426,7 +444,7 @@ describe("Usage across machines", () => {
 });
 
 describe("Usage kit", () => {
-  it("draws the monthly price before the plan bars in desktop and tablet summaries", () => {
+  it("draws only plan bars in desktop and tablet summaries", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     const { registry } = createKitHarness(answers());
@@ -436,10 +454,9 @@ describe("Usage kit", () => {
     const openPage = vi.fn();
     render(<TestProviders><TestThreadStore threads={[]}><Summary actions={{ openPage } as unknown as WorkbenchActions} /></TestThreadStore></TestProviders>);
     expect(screen.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
-      "This month: $12.40", expect.stringMatching(/^Plan limits/u),
+      expect.stringMatching(/^Plan limits/u),
     ]);
-    fireEvent.click(screen.getByRole("button", { name: "This month: $12.40" }));
-    expect(openPage).toHaveBeenCalledWith(USAGE_PAGE);
+    expect(screen.queryByRole("button", { name: /^This month:/u })).toBeNull();
   });
 
   it("contributes an app page and the command that opens it, and takes both back", () => {

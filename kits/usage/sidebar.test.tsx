@@ -77,7 +77,7 @@ describe("Usage's page sidebar", () => {
     await waitFor(() => expect(within(month).getByText("$2.00")).toBeTruthy());
     expect(month.textContent).toContain("≈ $1.40 plan value");
     expect(month.textContent).toContain("+100% on August by this day");
-    expect(month.textContent).toMatch(/On pace for \$2\.\d\d/u);
+    expect(month.textContent).toMatch(/Month-to-date pace: \$2\.\d\d/u);
     // One set of filters on screen: the sidebar's.
     expect(screen.getAllByRole("radiogroup", { name: "Measure" })).toHaveLength(1);
     const page = screen.getAllByRole("region", { name: "Threads" }).at(-1)!;

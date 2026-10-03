@@ -2,8 +2,9 @@
  * What the Usage kit's two halves agree on, and what it asks of the backend
  * kits. Usage is what a runtime wrote down while Tau ran it, and what the
  * agent CLIs logged on their own outside Tau; limits are what a runtime's
- * login reports about its plan. Money billed per token and the
- * API value of what a subscription covered are never summed into one figure.
+ * login reports about its plan. Billed totals keep money charged per token
+ * apart from a subscription's value. An explicit API equivalent compares
+ * token usage across billing types for the forecast; it is never a bill.
  */
 export const USAGE_EXTENSION_ID = "tau.usage";
 
@@ -319,6 +320,10 @@ export interface UsageEntry extends UsageTokens {
   billing?: UsageBilling;
   requests: number;
   apiValueUsd: number;
+  /** Recorded token prices, or a hypothetical API price for free/local usage. Absent when no price is known. */
+  apiEquivalentUsd?: number;
+  /** Where the entry's normal price came from, including known zero prices. */
+  priceSource?: UsageRow["priceSource"];
   /** Work the CLI logged outside Tau; `threadId` is then its own session id. */
   outside?: boolean;
   /** Set by the page on another machine's entries (its host id); a host never sends it. */

@@ -160,7 +160,7 @@ export function priceEntries(entries: readonly UsageEntry[], prices: ReadonlyArr
   return entries.map((entry, index) => {
     const price = prices[index] ?? runtimePrice(entry);
     const { billing: _billing, ...rest } = entry;
-    return { ...rest, ...(price.billing ? { billing: price.billing } : {}), costUsd: price.costUsd, apiValueUsd: price.apiValueUsd };
+    return { ...rest, ...(price.billing ? { billing: price.billing } : {}), costUsd: price.costUsd, apiValueUsd: price.apiValueUsd, priceSource: price.source };
   });
 }
 

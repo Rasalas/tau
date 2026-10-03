@@ -109,7 +109,7 @@ export function MonthFigure({ month }: { month: MonthFigures | undefined }) {
           {change === undefined || change === 0 ? "Same as" : <><span className="usage-month-change">{change > 0 ? `+${change}%` : `${change}%`}</span> on</>} {previous.name} by this day
         </p>
       ) : null}
-      {projected ? <p className="usage-month-line">On pace for {measure.format(measure.pick(projected))}</p> : null}
+      {projected ? <p className="usage-month-line" {...tooltipProps(`Based on this month's elapsed time; ${measure.unit}. The forecast uses completed recent days instead.`, { side: "right" })}>Month-to-date pace: {measure.format(measure.pick(projected))}</p> : null}
     </section>
   );
 }
@@ -132,6 +132,7 @@ function NavRow({ active, icon, label, onSelect }: { active: boolean; icon?: Rea
 }
 
 const SECTIONS: ReadonlyArray<{ id: string; label: string }> = [
+  { id: "usage-forecast", label: "Forecast" },
   { id: "usage-limits", label: "Limits" }, { id: "usage-activity", label: "Activity" }, { id: "usage-projects", label: "Projects" }, { id: "usage-models", label: "Models" },
 ];
 

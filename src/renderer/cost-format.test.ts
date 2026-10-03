@@ -20,6 +20,13 @@ describe("cost formatting", () => {
     expect(formatCost(0.0000001)).toBe("<$0.01");
   });
 
+  it("abbreviates large amounts", () => {
+    expect(formatCost(999.99)).toBe("$999.99");
+    expect(formatCost(1_000)).toBe("$1.0k");
+    expect(formatCost(1_300)).toBe("$1.3k");
+    expect(formatCost(1_400_000)).toBe("$1.4M");
+  });
+
   it("never shows a zero price; a model without pricing reports its tokens", () => {
     expect(formatCost(0)).toBeUndefined();
     expect(threadCostLabel({ ...usage, costUsd: 0 })).toBe("22.4k tok");

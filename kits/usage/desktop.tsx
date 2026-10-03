@@ -5,7 +5,6 @@ import { createUsageView } from "./filters.js";
 import { JuicebarStrip } from "./juicebar-strip.js";
 import { createJuicebarChoices } from "./juicebar-choices.js";
 import { Juicebars } from "./juicebars-view.js";
-import { MonthCost } from "./month-cost.js";
 import { createLimitsFeed } from "./limits-feed.js";
 import { UsagePage } from "./page.js";
 import { USAGE_EXTENSION_ID, USAGE_PAGE } from "./protocol.js";
@@ -23,15 +22,15 @@ export const usageExtension: DesktopExtension = {
     plugin.registerPage({
       id: USAGE_PAGE,
       label: "Usage",
-      description: "What threads cost, counted from each provider's own usage report. Plan usage shows as tokens, not dollars.",
+      description: "Usage, plan limits and monthly API-cost forecasts from your recent model mix.",
       // A phone draws it as a screen of its own, in one column.
       profiles: ["desktop", "web", "compact"],
       Icon: ChartColumn,
       order: 20,
       layout: "wide",
-      keywords: ["cost", "tokens", "limits", "billing"],
-      // This month's cost, then the plans' bars, before Settings on desktop and tablet.
-      Summary: (props) => <><MonthCost {...props} host={plugin.host} machine={plugin.environments?.shownElsewhere} /><Juicebars {...props} feed={feed} choices={choices} /></>,
+      keywords: ["cost", "tokens", "limits", "billing", "forecast"],
+      // Only the plans' bars stay visible before Settings; money lives on Usage.
+      Summary: (props) => <Juicebars {...props} feed={feed} choices={choices} />,
       Component: (props) => <UsagePage {...props} host={plugin.host} environments={plugin.environments} view={view} feed={feed} choices={choices} />,
       // This month, the filters and the sections, in the thread list's place.
       Sidebar: () => <UsageSidebar view={view} />,
