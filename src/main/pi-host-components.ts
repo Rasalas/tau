@@ -421,6 +421,10 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     admitWorkspace: (path) => deps.admitWorkspace(path),
     projectName: (cwd) => projects.loadName(cwd),
     rememberProjectName: (cwd, name) => { projects.rememberName(cwd, name); },
+    runtimeTools: (action, input) => {
+      if (!toolUpdates) return Promise.reject(new Error("Agent tools are not ready."));
+      return toolUpdates.act(action, input);
+    },
     runtimeOwner: () => deps.ownedByPi(deps.getActive()) ? "pi" : "tau",
     thread: (sessionId) => deps.hostThread(sessionId),
     complete: (request, model) => completions.complete(request, model),

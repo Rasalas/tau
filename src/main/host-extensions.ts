@@ -12,6 +12,7 @@ import type {
   RuntimeToolVersion,
   UiRuntimeBackend,
   UiRuntimeCatalog,
+  UiRuntimeToolsState,
   ThreadBackendKind,
   ThreadIndexSnapshot,
   UiComposerCommand,
@@ -978,6 +979,8 @@ export interface HostProjectTrust {
 }
 
 export interface HostExtensionServices {
+  /** This host's installed agent tools. Updates keep their package manager and wait for busy turns. API 1.48.0. */
+  runtimeTools?(action: "state" | "update", input?: { kind: string }): Promise<UiRuntimeToolsState>;
   /** The workspace the host currently has open. */
   cwd(): string;
   /**

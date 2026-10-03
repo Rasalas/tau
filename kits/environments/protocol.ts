@@ -130,3 +130,17 @@ export interface ChooseMachineAnswer {
   reason: string;
   machines: ChooseMachineVerdict[];
 }
+
+export const MACHINE_TOOLS_STATE = "machine-tools-state";
+export const MACHINE_TOOLS_UPDATE = "machine-tools-update";
+export const LOCAL_STATE = "runtime-tools-state";
+export const LOCAL_UPDATE = "runtime-tools-update";
+
+export interface MachineTools {
+  id: string;
+  name: string;
+  local?: boolean;
+  skipped?: string;
+  problem?: string;
+  state?: import("tau").UiRuntimeToolsState;
+}

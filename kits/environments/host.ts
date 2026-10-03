@@ -3,6 +3,7 @@ import { readWeights } from "./choice.js";
 import { createMachineChooser } from "./chooser.js";
 import { createMachineBackendProvider } from "./machine-backend.js";
 import { machineCommandError, machineMethodError } from "./compatibility.js";
+import { registerRuntimeToolCommands } from "./runtime-tools.js";
 import { registerThreadCommands } from "./thread-commands.js";
 import {
   AGENTS_EVENT,
@@ -119,6 +120,7 @@ export function createEnvironmentsHostExtension(): HostExtension {
         }));
       }, { audit: { label: "started a thread with attachments from another machine" } });
       registerThreadCommands(context);
+      registerRuntimeToolCommands(context);
       context.registerCommand("whoami", (_input, call): MachineIdentity => ({ device: call.device ?? null, owner: call.owner }), { access: "read" });
       context.registerCommand("probe", async (input): Promise<MachineProbe> => {
         const machine = machineOf(input, "probe");

@@ -11,6 +11,7 @@ import type {
   ThreadBackendKind,
   ThreadIndexSnapshot,
   UiModel,
+  UiRuntimeToolsState,
   UiPromptAttachment,
 } from "../shared/contracts.js";
 import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, type HostActionResult, type HostUpdate, type ThreadDetail } from "../shared/host-protocol.js";
@@ -113,6 +114,7 @@ export interface AttachedSessionPort {
 
 /** What the host extension seam may ask of the host. */
 export interface ExtensionServicesPort {
+  runtimeTools?(action: "state" | "update", input?: { kind: string }): Promise<UiRuntimeToolsState>;
   readonly safeMode: boolean;
   readonly platform: HostPlatform;
   /** Root of the per-extension state folders; the registry binds each extension's own under it. */
@@ -457,6 +459,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
       ? port.platform.callClient(extensionId, command, input, options)
       : Promise.reject(new Error("This host has no client process that can answer."))) as unknown as HostExtensionServices["callClient"],
     clientWindow: ((extensionId: string) => port.platform.clientWindow?.(extensionId)) as unknown as HostExtensionServices["clientWindow"],
+    runtimeTools: port.runtimeTools ? (action, input) => port.runtimeTools!(action, input) : undefined,
     setPermissionLevel: (provider) => { permissionLevelProvider = provider; },
     registerRuntimeBackend: (provider) => {
       if (runtimeDriver(provider.kind ?? "") === "pi" || !provider.kind) throw new Error(`Runtime backend kind "${provider.kind}" is reserved.`);
