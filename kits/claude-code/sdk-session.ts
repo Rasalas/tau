@@ -158,7 +158,8 @@ export class ClaudeSdkSession {
     // Only old results without an origin, or human results, may use the fallback.
     if (result.origin !== undefined && result.origin.kind !== "human") return [];
     // Resume handshakes have no prompt; a named /compact result may have zero turns.
-    if (result.num_turns === 0 && !result.local_command) return [];
+    const localCommand = "local_command" in result && typeof result.local_command === "string" && result.local_command.length > 0;
+    if (result.num_turns === 0 && !localCommand) return [];
     const oldest = this.pending.keys().next().value;
     return oldest === undefined ? [] : [oldest];
   }
