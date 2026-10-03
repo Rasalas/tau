@@ -15,3 +15,9 @@ Running turns, tools, questions, pending messages and Claude background tasks pr
 If Pi cannot reopen, its persisted conversation remains visible in a read-only shell with the failure reason. Opening that thread again retries the runtime. A failed external restart retains its backend and conversation so the next prompt can reconnect.
 
 Regression coverage exercises preserved transcripts and provider IDs, a fresh Codex process, changed Claude skills, background-task refusal, pending-message refusal, another thread remaining untouched, stale palette selection, concurrent sends during delayed restart, stale prepared prompts, and recoverable reopen failure.
+
+## Verification on 3 October 2026
+
+An isolated Tau window used its own `.tau-dev/userdata`, workspace, Pi sessions and fake-model agent directory. A real Pi conversation completed before the test. A new `restart-probe` skill was added after the initial catalog had been cached, then **Restart agent session** was clicked in the command palette. The resulting bootstrap retained the same thread/session ID and both original messages, and included `skill:restart-probe`, which was absent beforehand. A second composer message completed successfully in that same thread after restart.
+
+Focused host/backend tests and the split-transport tests verify restart refusal and routing as well as transcript preservation. The Codex process fixture also verifies that restart retains the selected service tier while resuming the same provider thread.
