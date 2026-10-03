@@ -21,16 +21,21 @@ const KEYBOARD_MIN_PX = 120;
  * (Android's): the page is shorter than the tallest it was at this width while
  * a text field has the keyboard. Without it a hardware keyboard would pass for
  * none there, and a return key would send.
+ * A native iPad's floating shortcut bar only needs space below the composer;
+ * `floatingToolbar` leaves the sidebar at full height until a full keyboard opens.
  */
 export function viewportFit(
   layoutHeight: number,
   visual: { height: number; offsetTop: number } | undefined,
   resized?: { tallest: number; editing: boolean },
+  floatingToolbar = false,
 ): ViewportFit {
   const shrunk = Boolean(resized?.editing) && (resized?.tallest ?? 0) - layoutHeight >= KEYBOARD_MIN_PX;
   if (!visual) return { height: layoutHeight, top: 0, keyboard: shrunk };
   const covered = layoutHeight - visual.height - visual.offsetTop;
-  return { height: Math.round(visual.height), top: Math.round(visual.offsetTop), keyboard: covered >= KEYBOARD_MIN_PX || shrunk };
+  const keyboard = covered >= KEYBOARD_MIN_PX || shrunk;
+  if (floatingToolbar && !keyboard) return { height: layoutHeight, top: 0, keyboard };
+  return { height: Math.round(visual.height), top: Math.round(visual.offsetTop), keyboard };
 }
 
 /** The tallest page seen at this width; a rotation or a narrower window starts over. */

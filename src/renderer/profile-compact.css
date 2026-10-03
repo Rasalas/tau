@@ -69,6 +69,10 @@ body[data-profile="compact"] .conversation-composer-host {
   background: var(--stage);
   padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
 }
+/* The iPad shortcut bar floats over the centre; the sidebar keeps its bottom edge. */
+body[data-floating-toolbar] .app-shell.touch-split .conversation-composer-host {
+  padding-bottom: max(var(--safe-bottom), var(--tau-keyboard-inset, 0px));
+}
 /* Opaque edge to edge: a tap on its margin stays with the composer. */
 body[data-profile="compact"] .conversation-column:not(.conversation-start) .conversation-composer-host { pointer-events: auto; background: var(--stage); }
 /* Pi's footer, when an extension puts text in it, sits over the composer as a caption, not a ruled line under it. */
