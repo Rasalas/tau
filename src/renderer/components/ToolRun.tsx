@@ -45,9 +45,12 @@ export const ToolRun = memo(function ToolRun({
 }) {
   const running = tool.status === "running" && !stalled;
   const failed = tool.status === "error";
-  // A running tool shows its live tail, and a failed command what it printed; other
-  // settled output stays hidden until the row itself is opened.
-  const openByDefault = running || (failed && toolActionClass(tool.name) === "command");
+  const view = registry.presentTool(tool);
+  // Rich previews such as edit diffs follow transcript detail. Plain output
+  // opens for running tools and failed commands; settled results need a click.
+  const openByDefault = view.body
+    ? detail !== "focused"
+    : running || (failed && toolActionClass(tool.name) === "command");
   const [outputOpen, setOutputOpen] = useState(openByDefault);
   useEffect(() => {
     setOutputOpen(openByDefault);
@@ -58,7 +61,6 @@ export const ToolRun = memo(function ToolRun({
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [running]);
-  const view = registry.presentTool(tool);
   const deferred = tool.outputDeferred === true && tool.output === undefined;
   const loaded = useDeferredOutput(deferred && outputOpen ? tool : undefined, onLoadOutput);
   const shown = deferred && typeof loaded === "object"
@@ -82,6 +84,7 @@ export const ToolRun = memo(function ToolRun({
     || liveOutputClipped;
   const pending = deferred && typeof loaded !== "object";
   const showOutput = view.output !== "hidden" && !view.body && (Boolean(visibleOutput) || deferred) && outputOpen;
+  const showBody = Boolean(view.body) && outputOpen;
   const size = deferred && tool.outputLength !== undefined ? formatBytes(tool.outputLength) : undefined;
   const [copying, setCopying] = useState(false);
   const copyFullOutput = async () => {
@@ -109,7 +112,7 @@ export const ToolRun = memo(function ToolRun({
       <button
         type="button"
         className="tool-run-line"
-        aria-expanded={showOutput}
+        aria-expanded={showOutput || showBody}
         onClick={() => setOutputOpen((value) => !value)}
       >
         <span className="tool-run-glyph">{view.glyph}</span>
@@ -153,7 +156,7 @@ export const ToolRun = memo(function ToolRun({
         </button>
       ) : null}
       {failure && !showOutput ? <div className="tool-run-reason" title={failure}>{failure}</div> : null}
-      {view.body}
+      {showBody ? view.body : null}
       {showOutput && pending ? (
         // As tall as the output it stands for, which always fills the box, so nothing moves when it arrives.
         <pre className="tool-output tool-output-pending" aria-busy={loaded === "loading"}>

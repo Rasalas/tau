@@ -184,6 +184,36 @@ describe("the web client at 400 px", () => {
     expect(badge?.textContent).toMatch(/^Working2:1[45]$/u);
   });
 
+  it.each(["t-a", "t-b"])("shows Done after %s finishes while the thread list is visible", async (sessionId) => {
+    const client = renderCompactClient();
+    const title = THREADS.find((entry) => entry.id === sessionId)!.title;
+    await screen.findByRole("button", { name: `Open thread ${title}` });
+    act(() => client.emit(running(sessionId)));
+    await waitFor(() => expect(rowNamed(title).querySelector(".thread-status-age")?.textContent).toMatch(/^Working/u));
+    act(() => client.emit({ type: "agent-status", sessionId, running: false }));
+    await waitFor(() => expect(rowNamed(title).querySelector(".thread-status-age")?.textContent).toBe("Done"));
+    expect(rowNamed(title).querySelector(".thread-status-age svg.lucide-check")).toBeTruthy();
+    const mark = async (label: string) => {
+      fireEvent.contextMenu(rowNamed(title).querySelector(".swipe-row")!);
+      fireEvent.click(within(await screen.findByRole("dialog", { name: title })).getByRole("button", { name: label }));
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: title })).toBeNull());
+      expect(rowNamed(title).querySelector(".thread-status-age")?.textContent).toBe("Done");
+    };
+    await mark("Mark as unread");
+    await mark("Mark as read");
+  });
+
+  it.each([
+    [{ turnError: "stream disconnected" }, "failed", "Failed"],
+    [{ limit: { message: "Usage limit reached" } }, "limited", "Rate limited"],
+    [{ interrupted: true }, "interrupted", "Interrupted"],
+  ] as const)("shows the host's %j status in the thread list", async (state, activity, label) => {
+    renderCompactClient({ bootstrap: bootstrapWith([{ ...THREADS[0]!, ...state }]) });
+    const row = await screen.findByRole("button", { name: "Open thread Rename the store" });
+    await waitFor(() => expect(row.querySelector(`.thread-status-age.status-${activity}`)?.textContent).toBe(label));
+    expect(row.querySelector(".thread-status-age svg")).toBeTruthy();
+  });
+
   it("keeps the host's start of a run the host reports as started again, as after an automatic retry", async () => {
     const client = renderHome();
     const list = await screen.findByRole("list", { name: "Threads" });

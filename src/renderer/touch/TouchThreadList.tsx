@@ -30,11 +30,13 @@ import { ActionSheet, type SheetAction } from "./ActionSheet";
 import { SwipeRow, type SwipeAction } from "./SwipeRow";
 import { useThreadListSources } from "./thread-list-sources";
 
-/** The desktop rail's badge where the thread needs a look or runs, else its age; a settled row shows only its age. */
+/** Finished threads keep a Done badge until settled, regardless of whether they have been read. */
 function RowTime({ row }: { row: ThreadSupervisionRow }) {
-  const { state } = row;
+  const state = row.state.activity === "idle" || row.state.activity === "ready"
+    ? { ...row.state, activity: "ready" as const, label: "Done" }
+    : row.state;
   if (!row.settled && showsThreadStatus(state.activity)) {
-    return <ThreadStatus activity={state.activity} label={state.label} {...(state.hint ? { hint: state.hint } : {})} startedAt={state.startedAt ?? row.modifiedAt} />;
+    return <ThreadStatus key={state.activity} activity={state.activity} label={state.label} {...(state.hint ? { hint: state.hint } : {})} startedAt={state.startedAt ?? row.modifiedAt} />;
   }
   return <time dateTime={new Date(row.modifiedAt).toISOString()}>{threadAge(row.modifiedAt, Date.now())}</time>;
 }
