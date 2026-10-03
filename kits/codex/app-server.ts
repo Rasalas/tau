@@ -129,8 +129,9 @@ export class CodexAppServer {
     try {
       server.initialized = await server.connection.request<CodexInitializeResult>("initialize", {
         clientInfo: { name: "tau", title: "Tau", version: options.clientVersion },
-        // Collaboration modes (plan) are behind the experimental API.
-        capabilities: { experimentalApi: true, requestAttestation: false },
+        // Plan mode is experimental. MCP app approvals use OpenAI forms;
+        // keep the legacy opt-in for older supported app-server versions.
+        capabilities: { experimentalApi: true, requestAttestation: false, mcpServerOpenaiFormElicitation: true },
       }, { timeoutMs: server.timeouts.handshakeMs });
       server.connection.notify("initialized");
       return server;

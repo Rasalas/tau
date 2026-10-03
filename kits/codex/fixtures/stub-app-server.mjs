@@ -4,6 +4,7 @@
 // recording; `interrupt` stops at its approval and waits for `turn/interrupt`,
 // `crash` exits mid-turn. `elicitation`, `permissions` and `question` are
 // written from the protocol's schema (codex-cli 0.156.1), not recorded.
+// `computeruse` exercises openai/form negotiation verified with 0.160.0.
 // STUB_LOG names a file every client message is appended to; STUB_THREADS a
 // file of thread ids that survive a restart. Logins are the protocol's own
 // (codex-cli 0.156.1): a ChatGPT login or a device code is completed by
@@ -24,6 +25,7 @@ let nextRequest = 0;
 let turns = 0;
 let waiting;
 let interrupted = false;
+let openaiForms = false;
 
 function send(message) { process.stdout.write(`${JSON.stringify(message)}\n`); }
 function remember(id) {
@@ -43,6 +45,21 @@ function threadInfo(id, cwd) {
 }
 
 async function play(name, ids) {
+  if (name === "computeruse") {
+    // Codex only advertises openai/form to MCP servers after client opt-in.
+    if (openaiForms) {
+      const method = "mcpServer/elicitation/request";
+      const answer = await ask(method, {
+        threadId: ids.thread, turnId: ids.turn, serverName: "computer-use",
+        mode: "openai/form", message: "Allow access to Tau Control Test?",
+        requestedSchema: { type: "object", properties: {} },
+        _meta: { codex_approval_kind: "mcp_tool_call" },
+      });
+      if (log) appendFileSync(log, `${JSON.stringify({ answered: method, result: answer })}\n`);
+    }
+    send({ method: "turn/completed", params: { threadId: ids.thread, turn: { id: ids.turn, items: [], status: "completed", error: null } } });
+    return;
+  }
   for (const frame of fill(fixture.scenarios[name], ids)) {
     if (frame.id !== undefined) {
       const answer = await ask(frame.method, frame.params);
@@ -117,7 +134,9 @@ async function handle(message) {
   const { id, method, params = {} } = message;
   if (id === undefined) return;
   switch (method) {
-    case "initialize": return send({ id, result: { userAgent: "stub", codexHome: process.env.CODEX_HOME ?? "/stub/.codex", platformFamily: "unix", platformOs: "macos" } });
+    case "initialize":
+      openaiForms = params.capabilities?.mcpServerOpenaiFormElicitation === true || params.capabilities?.extensions?.["openai/form"] !== undefined;
+      return send({ id, result: { userAgent: "stub", codexHome: process.env.CODEX_HOME ?? "/stub/.codex", platformFamily: "unix", platformOs: "macos" } });
     // A `signed-out` file in the home stands for a CLI nobody logged in to.
     case "account/read": return send({ id, result: { account: account(), requiresOpenaiAuth: true } });
     case "account/login/start":

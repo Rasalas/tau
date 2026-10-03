@@ -155,6 +155,18 @@ describe("CodexThreadRuntimeBackend against the app-server stub", () => {
     expect(events.find((event) => event.type === "tool-end")).toMatchObject({ tool: { name: "mcp__deploy__release", status: "done", output: "released" } });
   });
 
+  it.each([
+    [{ value: ALLOW }, "accept"],
+    [{ value: "Deny" }, "decline"],
+    [{ cancelled: true }, "decline"],
+  ] as const)("negotiates OpenAI forms and returns %j as %s for Computer Use", async (answer, action) => {
+    const space = await scratch();
+    const { backend, asked } = await open(space, { answer: () => answer });
+    await backend.prompt({ text: "Inspect the test window [scenario:computeruse]", delivery: "prompt" });
+    expect(asked).toEqual([expect.objectContaining({ message: "Allow access to Tau Control Test?", options: [ALLOW, "Deny"] })]);
+    expect((await sent(space)).find((message) => message.answered === "mcpServer/elicitation/request")?.result).toEqual({ action, content: {}, _meta: null });
+  });
+
   it("declines an MCP server's form when a required field is skipped", async () => {
     const space = await scratch();
     const { backend } = await open(space, { answer: () => ({ cancelled: true }) });
