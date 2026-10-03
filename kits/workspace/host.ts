@@ -9,6 +9,7 @@ import {
   gitExecutable,
   HostCommandError,
   isWorkspaceRelativePath,
+  linkedFilePath,
   type DiffLoadOptions,
   type FileNode,
   type HostExtension,
@@ -18,7 +19,6 @@ import {
   type WorkspaceRef,
 } from "tau/host-extension";
 import * as workspaceGit from "./workspace-git.js";
-import { linkedFilePath } from "../../src/shared/linked-file-path.js";
 import { GitCoordinator } from "./git-coordinator.js";
 import { readBoundedFileContent, statFile, writeTextFile } from "./file-content.js";
 import { defaultEditorProbe, editorCommand, FILE_MANAGER_ID, findInstalledEditors, launchEditor } from "./editors.js";

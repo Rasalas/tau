@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { linkedFilePath } from "./linked-file-path";
+import { linkedFilePath } from "./linked-file-path.js";
 
 describe("host filesystem links", () => {
   it.each([

@@ -579,8 +579,11 @@ Since API 1.50.0, a document source can implement
 be absolute or contain `..`; the source resolves them on the thread's host,
 relative to the explicitly named workspace, not on the client or in the
 active project. Workspace Kit uses a separate bounded, read-only host
-command for this. Without the method, core keeps using `loadFile` for
-workspace-relative links and rejects external paths. Writes and Git
+command for this. `linkedFilePath(path)` from `tau/host-extension` validates
+and normalizes a filesystem link without confining it to the workspace;
+it rejects URLs and NUL bytes, and the caller still resolves it on its host.
+Without the method, core keeps using `loadFile` for workspace-relative links
+and rejects external paths. Writes and Git
 operations remain workspace-confined.
 
 A kind's `render` gets the same project as a fourth argument,

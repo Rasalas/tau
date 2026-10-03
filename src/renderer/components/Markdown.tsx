@@ -295,7 +295,7 @@ function CodeBlock({ code, language, phase: givenPhase }: { code: string; langua
 function FileChip({ path, name }: { path: string; name: string }) {
   const openFile = useContext(WorkbenchContext)?.openFile;
   const chip = <code className="md-file-chip" {...tooltipProps(path, { variant: "code" })}><FileKindIcon name={name} size={12} />{name}</code>;
-  if (!openFile || !/[\/\\]/u.test(path)) return chip;
+  if (!openFile || !/[/\\]/u.test(path)) return chip;
   return <button type="button" className="md-file-link" aria-label={`Open ${path}`} onClick={() => openFile(path.replace(/^\.\//u, ""))}>{chip}</button>;
 }
 
