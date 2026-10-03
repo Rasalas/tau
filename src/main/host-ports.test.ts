@@ -121,3 +121,14 @@ describe("sessions.open for a session another process holds", () => {
     own.releaseAll();
   });
 });
+
+describe("runtime tool service", () => {
+  it("is optional and delegates maintenance to the host's updater", async () => {
+    const base = { registerTurnObserver: () => () => undefined, log: () => undefined } as unknown as ExtensionServicesPort;
+    expect(createHostExtensionSeam(base).services.runtimeTools).toBeUndefined();
+    const runtimeTools = vi.fn(async () => ({ tools: [], log: [] }));
+    const seam = createHostExtensionSeam({ ...base, runtimeTools });
+    await seam.services.runtimeTools!("update", { kind: "codex" });
+    expect(runtimeTools).toHaveBeenCalledExactlyOnceWith("update", { kind: "codex" });
+  });
+});

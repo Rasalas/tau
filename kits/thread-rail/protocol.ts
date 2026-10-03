@@ -82,6 +82,8 @@ export interface RailSettings {
   onMerged: boolean;
   /** Settle a thread whose request was closed without merging. */
   onClosed: boolean;
+  /** Separate running active threads from threads needing attention. */
+  workingSection?: boolean;
 }
 
 export interface RailState {
@@ -97,12 +99,13 @@ export interface RailStartRequest {
   siblingGroupId?: string;
 }
 
-export type RailSectionId = "pinned" | "active" | "snoozed" | "settled" | "archived";
+export type RailSectionId = "pinned" | "working" | "active" | "snoozed" | "settled" | "archived";
 
 /** Every section a thread can be in; the rail draws all but `archived`. */
 export interface RailSections {
   pinned: UiSession[];
   active: UiSession[];
+  working: UiSession[];
   snoozed: UiSession[];
   settled: UiSession[];
   archived: UiSession[];
@@ -131,7 +134,7 @@ export interface RailDropTarget {
 export interface RailOrganizer {
   subscribe(listener: () => void): () => void;
   getVersion(): number;
-  sections(threads: readonly UiSession[]): Array<{ id: string; label?: string; threads: readonly UiSession[]; shelf?: boolean; collapsed?: boolean; settled?: boolean }>;
+  sections(threads: readonly UiSession[], activity?: { runningThreadIds: readonly string[]; waitingThreadIds: readonly string[]; failedThreadIds: readonly string[] }): Array<{ id: string; label?: string; threads: readonly UiSession[]; shelf?: boolean; collapsed?: boolean; settled?: boolean }>;
   /** `shortcut` names a command's chord, for an item that runs one. */
   menu(session: UiSession, lookup?: ThreadMenuLookup): MenuSection[];
   runMenu(session: UiSession, itemId: string, actions: WorkbenchActions): void;

@@ -1,6 +1,7 @@
 import type { Options, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { describe, expect, it, vi } from "vitest";
 import type { ClaudeQuery } from "./runtime-adapter.js";
+import { SdkTurnTranslator } from "./sdk-events.js";
 import { ClaudeSdkSession } from "./sdk-session.js";
 
 const SESSION = "123e4567-e89b-42d3-a456-426614174000";
@@ -75,10 +76,52 @@ describe("ClaudeSdkSession", () => {
     expect(steerResult).toBe(turnResult);
   });
 
-  it("ignores the resume handshake and falls back to the oldest send when a result names nothing", async () => {
-    const { query } = sessionQuery(() => [assistant("ok"), frame({ type: "result", subtype: "success", is_error: false, num_turns: 1, result: "" })], [init(), result([], 0)]);
+  it.each([undefined, { kind: "human" }])("ignores the resume handshake and falls back to the oldest send with origin %j", async (origin) => {
+    const { query } = sessionQuery(() => [assistant("ok"), frame({ type: "result", subtype: "success", is_error: false, num_turns: 1, result: "", ...(origin ? { origin } : {}) })], [init(), result([], 0)]);
     const { session } = open(query);
     await expect(session.send("hello", "next")).resolves.toMatchObject({ type: "result", num_turns: 1 });
+  });
+
+  it.each(["user", "compact"])("keeps the %s turn open past unrelated background results", async (kind) => {
+    const translator = new SdkTurnTranslator(() => 42, () => "assistant", kind === "compact");
+    const outcomes: unknown[] = [];
+    const { query } = sessionQuery((message) => [
+      assistant("working"),
+      result(["a-different-prompt"]),
+      frame({ type: "result", subtype: "success", is_error: false, num_turns: 1, result: "background", origin: { kind: "task-notification" } }),
+      ...(kind === "compact" ? [frame({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual", pre_tokens: 100, post_tokens: 10 } })] : []),
+      result([message.uuid!], kind === "compact" ? 0 : 1),
+    ]);
+    const session = new ClaudeSdkSession({ query, options: { cwd: "/repo" }, claudeSessionId: SESSION,
+      onMessage: (message) => {
+        translator.push(message);
+        if (message.type === "result") outcomes.push(translator.outcome);
+      }, onExit: () => undefined });
+    session.start();
+    await session.send(kind === "compact" ? "/compact" : "hello", "next");
+    expect(outcomes).toHaveLength(1);
+    expect(translator.outcome).toMatchObject(kind === "compact" ? { compacted: true } : { texts: ["working"] });
+    await session.close();
+  });
+
+  it("accepts the singular prompt UUID even when the plural list is empty", async () => {
+    const { query } = sessionQuery((message) => [frame({
+      type: "result", subtype: "success", is_error: false, num_turns: 1, result: "done",
+      user_message_uuids: [], user_message_uuid: message.uuid, origin: { kind: "task-notification" },
+    })]);
+    const { session, seen } = open(query);
+    await expect(session.send("hello", "next")).resolves.toMatchObject({ result: "done" });
+    expect(seen).toEqual(["system", "result"]);
+    await session.close();
+  });
+
+  it("preserves legacy local command results with zero turns", async () => {
+    const { query } = sessionQuery(() => [frame({
+      type: "result", subtype: "success", is_error: false, num_turns: 0, result: "", local_command: "compact",
+    })]);
+    const { session } = open(query);
+    await expect(session.send("/compact", "next")).resolves.toMatchObject({ num_turns: 0 });
+    await session.close();
   });
 
   it("rejects pending sends and reports the exit when the session closes or the CLI dies", async () => {

@@ -20,7 +20,9 @@ const esmDirectory = () => join(dirname(createRequire(import.meta.url).resolve("
 export function readLucideIcons(): Record<string, IconNode> {
   const directory = join(esmDirectory(), "icons");
   const icons: Record<string, IconNode> = {};
-  for (const [, , file] of readFileSync(join(directory, "index.mjs"), "utf8").matchAll(EXPORT)) {
+  // Pack in filename order, independent of the generated Lucide export index.
+  const files = [...readFileSync(join(directory, "index.mjs"), "utf8").matchAll(EXPORT)].map(([, , file]) => file!).sort();
+  for (const file of files) {
     const literal = NODE.exec(readFileSync(join(directory, `${file}.mjs`), "utf8"))?.[1];
     if (!literal) throw new Error(`lucide-react changed its icon modules (${file}); revisit vite/icon-set.ts`);
     const elements = new Function(`return ${literal}`)() as IconNode;

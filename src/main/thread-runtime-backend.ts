@@ -146,6 +146,7 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
         runShortcut: (keys, userBindings) => this.runShortcut(keys, userBindings),
       },
       reload: { reload: () => this.session.reload() },
+      restart: { restart: () => this.dispose() },
       resume: {
         hiddenPrompt: true,
         notice: (text) => this.appendNotice(text),

@@ -315,13 +315,14 @@ describe("useWorkbenchActions", () => {
   describe("a new thread nobody named a project for asks", () => {
     const app = { path: "/work/app", workspaceId: "ws1_app", name: "app", lastOpenedAt: 1 };
     const site = { path: "/work/site", workspaceId: "ws1_site", name: "site", lastOpenedAt: 5 };
-    const setup = (screen: { thread?: Partial<HostSnapshot>; draft?: object; covered?: boolean; projects?: object[] }) => {
+    const setup = (screen: { thread?: Partial<HostSnapshot>; draft?: object; covered?: boolean; projects?: object[]; privateWorkspace?: boolean }) => {
       const createThreadInProject = vi.fn();
       const options = createMockOptions({
         threadStore: { getSnapshot: () => ({ activeThreadId: "", threads: [] }), getProjects: () => screen.projects ?? [app, site] } as any,
         viewStore: { getSnapshot: () => screen.thread } as any,
         pendingNewThread: screen.draft as any,
         threadView: () => ({ covered: Boolean(screen.covered) }),
+        hasPrivateThreadWorkspace: () => screen.privateWorkspace === true,
         createThreadInProject,
       });
       renderHook(() => useWorkbenchActions(options)).result.current.newSession();
@@ -343,12 +344,24 @@ describe("useWorkbenchActions", () => {
       expect(setup({ thread: { sessionId: "t", workspaceId: "ws1_app" }, covered: true }).picker).toHaveBeenCalledWith({ preselect: "ws1_site" });
     });
 
-    it("starts in the only project without asking, and goes to Add project without one (/ does not count)", () => {
+    it("starts directly in the sole real project", () => {
       expect(setup({ projects: [app, { path: "/", name: "/", lastOpenedAt: 9 }] }).createThreadInProject).toHaveBeenCalledWith(app);
-      const none = setup({ thread: { sessionId: "t", workspaceId: "ws1_app" }, projects: [{ path: "/", name: "/", lastOpenedAt: 9 }] });
-      expect(none.createThreadInProject).not.toHaveBeenCalled();
-      expect(none.picker).not.toHaveBeenCalled();
-      expect(none.sources).toHaveBeenCalledTimes(1);
+    });
+
+    it("opens project sources when none exist and private workspaces are unavailable", () => {
+      expect(setup({ projects: [] }).sources).toHaveBeenCalledTimes(1);
+    });
+
+    it("offers No project when private workspaces are available without a listed project", () => {
+      const result = setup({ projects: [], privateWorkspace: true });
+      expect(result.picker).toHaveBeenCalledTimes(1);
+      expect(result.sources).not.toHaveBeenCalled();
+    });
+
+    it("asks instead of moving a private thread into the sole unrelated project", () => {
+      const result = setup({ projects: [app], privateWorkspace: true, thread: { sessionId: "t", workspaceId: "ws_private", cwd: "/private/scratch/id" } });
+      expect(result.picker).toHaveBeenCalledTimes(1);
+      expect(result.createThreadInProject).not.toHaveBeenCalled();
     });
   });
 

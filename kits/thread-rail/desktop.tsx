@@ -136,6 +136,7 @@ function inactiveChoices(current: number | undefined): Array<{ value: string; la
 
 /** What the Settings search finds on the Thread rail page; each id is a row's anchor. */
 export const THREAD_RAIL_ROWS = [
+  { id: "setting-thread-rail-workingSection", label: "Separate working threads", keywords: ["working", "running", "attention"] },
   { id: "setting-thread-rail-inactive", label: "After a quiet spell", keywords: ["settle", "inactive", "idle", "days", "auto settle"] },
   { id: "setting-thread-rail-onMerged", label: "When its pull request merges", keywords: ["settle", "merged", "pull request", "merge request", "worktree"] },
   { id: "setting-thread-rail-onClosed", label: "When its pull request is closed", keywords: ["settle", "closed", "pull request", "merge request"] },
@@ -167,18 +168,21 @@ function createSettingsPage(store: RailStore, preferences: PreferencesStore, upd
     const readOnly = useHostCapabilities().readOnly ? READ_ONLY_REASON : undefined;
     const change = (patch: Partial<Record<keyof RailSettings, unknown>>) => { update(patch).catch((error: unknown) => onNotify(errorMessage(error))); };
     // The rules live with the host's sweep (its own state file), not in Tau's config, so these rows have no levels.
-    const toggle = (key: "onMerged" | "onClosed", label: string, hint: string) => (
+    const toggle = (key: "onMerged" | "onClosed" | "workingSection", label: string, hint: string) => (
       <SettingRow
         id={`setting-thread-rail-${key}`}
         title={label}
         description={hint}
         disabledReason={readOnly}
-        control={<Switch label={label} checked={settings[key]} onChange={(next) => change({ [key]: next })} />}
+        control={<Switch label={label} checked={settings[key] === true} onChange={(next) => change({ [key]: next })} />}
       />
     );
     return (
       <div className="settings-page thread-rail-settings">
         <h3>Thread rail</h3>
+        <SettingsSection title="Thread list">
+          {toggle("workingSection", "Separate working threads", "Show running threads in Working until they finish or need your attention.")}
+        </SettingsSection>
         <SettingsSection title="Settle automatically">
           <SettingRow
             id="setting-thread-rail-inactive"

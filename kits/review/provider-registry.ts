@@ -88,7 +88,7 @@ export function createSourceControl(context: HostExtensionContext, options: Sour
   const env = options.env ?? process.env;
   const fetchImpl: HttpFetch = options.fetch ?? ((url, init) => fetch(url, init));
   const gate = new RateLimitGate(now);
-  const cache = new Map<string, { at: number; value: Promise<unknown> }>();
+  const cache = new Map<string, { at: number; value: Promise<unknown>; refreshing: boolean }>();
   const viewers = new Map<string, { at: number; login: Promise<string | undefined> }>();
   const credentials = new Map<string, { at: number; value: Promise<GitCredential | undefined> }>();
   let hostChoices: Promise<Record<string, RequestService>> | undefined;
@@ -185,13 +185,14 @@ export function createSourceControl(context: HostExtensionContext, options: Sour
     cli,
     http,
     credential,
-    cached: <T>(kind: string, ref: PullRequestRef, fresh: boolean, read: () => Promise<T>): Promise<T> => {
+    cached: <T>(kind: string, ref: PullRequestRef, fresh: boolean, read: () => Promise<T>, coalesceFresh = false): Promise<T> => {
       const key = `${kind}\0${ref.url}`;
       const entry = cache.get(key);
-      if (entry && !fresh && now() - entry.at < READ_TTL_MS) return entry.value as Promise<T>;
+      if (entry && now() - entry.at < READ_TTL_MS && (!fresh || (coalesceFresh && entry.refreshing))) return entry.value as Promise<T>;
       const value = read();
-      cache.set(key, { at: now(), value });
-      value.catch(() => { if (cache.get(key)?.value === value) cache.delete(key); });
+      const next = { at: now(), value, refreshing: fresh && coalesceFresh };
+      cache.set(key, next);
+      void value.then(() => { next.refreshing = false; }, () => { if (cache.get(key)?.value === value) cache.delete(key); });
       return value;
     },
     drop: (kind, ref) => { cache.delete(`${kind}\0${ref.url}`); },

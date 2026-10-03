@@ -214,7 +214,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     const extensionId = decodeExtensionId("host-extension", params[0]);
     const command = decodeCommandName("host-extension", params[1]);
     const instance = await host();
-    const route = extensionId === "tau.workspace" && command === "pick-folder" ? undefined : routes.routeOf(extensionId, params[2]);
+    const route = extensionId === "tau.workspace" && ["pick-folder", "create-scratch", "create-project"].includes(command) ? undefined : routes.routeOf(extensionId, params[2]);
     if (route) {
       await instance.authorizeHostExtension(extensionId, command, params[2], context.principal);
       return routes.call(route, extensionId, command, () => instance.invokeHostExtension("tau.terminal", "list", undefined, context.principal));
@@ -347,6 +347,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       decodeOptionalString("set-mode", "expectedSessionId", params[1]),
     ),
     "compact-context": async () => (await host()).compactContext(),
+    "restart-session": async (params) => (await host()).restartSession(decodeString("restart-session", "threadId", params[0])),
     "reload-runtime": async () => (await host()).reloadRuntime(),
     "reload-extensions": async () => (await host()).reloadExtensions(),
     // Answering must never wait for a ready host: the host is blocked on this very

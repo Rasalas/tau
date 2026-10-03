@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Check, ChevronDown, GitBranch, Laptop, Server } from "lucide-react";
-import { Popover, Sheet, Switch, hostHasLocalFiles, tooltipProps, useHostName, useThreadStore, type RegionProps } from "tau";
+import { Popover, Sheet, Switch, hostHasLocalFiles, tooltipProps, useHostName, useThreadStore, type RegionProps, type UiProject, type DraftThread } from "tau";
 import { RefList, ThreadBranch, useWorkspaceState } from "./branch-menu.js";
 import type { BranchNaming, DraftMachineProps, DraftMachineSource } from "./protocol.js";
 
@@ -224,12 +224,19 @@ export function createRunOnControl(touch: boolean) {
   };
 }
 
+/** Names a draft from project or draft metadata before falling back to its folder. */
+export function draftProjectName(projects: readonly Pick<UiProject, "path" | "workspaceId" | "name">[], drafts: readonly Pick<DraftThread, "projectPath" | "workspaceId" | "projectName">[], cwd?: string, workspaceId?: string): string | undefined {
+  const matches = (path: string, id: string | undefined) => path === cwd || (workspaceId !== undefined && id === workspaceId);
+  return projects.find((entry) => matches(entry.path, entry.workspaceId))?.name
+    ?? drafts.find((entry) => matches(entry.projectPath, entry.workspaceId))?.projectName
+    ?? cwd?.split(/[\\/]/u).filter(Boolean).pop();
+}
+
 function DraftSubline({ source, touch, snapshot, actions }: RegionProps & { source: DraftMachineSource; touch: boolean }) {
   const { state } = useWorkspaceState();
   const threads = useThreadStore();
   const machine = source.useMachine({ ...(snapshot ? { snapshot } : {}), actions });
-  const project = threads.getProjects().find((entry) => entry.path === state.cwd || (state.workspaceId !== undefined && entry.workspaceId === state.workspaceId))?.name
-    ?? state.cwd?.split(/[\\/]/u).filter(Boolean).pop();
+  const project = draftProjectName(threads.getProjects(), threads.getDrafts(), state.cwd, state.workspaceId);
   const info = state.workspace;
   const where = touch || !info?.isRepo ? undefined : state.workspaceMode === "worktree" ? "no worktree yet" : info.branch;
   return <>{[project, machine?.name, where].filter(Boolean).map((part) => <span key={part} className="thread-detail draft-detail"><span>{part}</span></span>)}</>;

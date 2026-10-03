@@ -39,7 +39,7 @@ A user-recognizable body of work that can contain threads. A project has a sourc
 
 ## Project source
 
-An extension-provided way to add or resolve a project. Local folder selection and Git cloning are current project sources.
+An extension-provided way to add or resolve a project. Local folder selection, Git cloning and creation from a name are current project sources.
 
 ## Workspace
 
@@ -51,7 +51,11 @@ How a client names a workspace: an opaque `workspaceId` the host mints from its 
 
 ## Thread
 
-A user-facing stream of agent work within a project. A thread contains conversation history and provides the place a user returns to when continuing that work.
+A user-facing stream of agent work, optionally grouped in a project. A thread contains conversation history and provides the place a user returns to when continuing that work.
+
+## Projectless thread
+
+A thread started without choosing a project. It has its own private workspace on its home machine, retained when the thread is reopened and kept out of the project list.
 
 ## Session
 

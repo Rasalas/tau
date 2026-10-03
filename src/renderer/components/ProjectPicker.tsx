@@ -25,6 +25,7 @@ interface ProjectPickerProps {
   /** Opens as a popover at this point instead of over the window. */
   anchor?: RefObject<HTMLElement | null> | { x: number; y: number } | undefined;
   onBrowse: () => void;
+  onNoProject?: () => void;
   onClose: () => void;
   onRemove: (project: UiProject) => void | Promise<void>;
   onSelect: (project: UiProject) => void;
@@ -46,6 +47,7 @@ export function ProjectPicker({
   sheet,
   anchor,
   onBrowse,
+  onNoProject,
   onClose,
   onRemove,
   onSelect,
@@ -67,7 +69,7 @@ export function ProjectPicker({
     );
   }, [ordered, query]);
   // The row after the projects is "Add project…".
-  const last = matches.length;
+  const last = matches.length + (onNoProject ? 1 : 0);
 
   useEffect(() => {
     if (!open) return;
@@ -106,6 +108,7 @@ export function ProjectPicker({
   const activate = (index: number) => {
     const project = matches[index];
     if (project) onSelect(project);
+    else if (onNoProject && index === matches.length) onNoProject();
     else onBrowse();
   };
 
@@ -170,6 +173,7 @@ export function ProjectPicker({
         </button>
       )}
     />
+    {onNoProject ? <button type="button" className={`project-picker-add${selected === matches.length ? " selected" : ""}`} onMouseMove={() => setSelected(matches.length)} onClick={onNoProject}>No project <small>Private scratch folder for this thread</small></button> : null}
     <button
       type="button"
       className={`project-picker-add${selected === last ? " selected" : ""}`}

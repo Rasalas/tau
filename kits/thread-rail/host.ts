@@ -225,7 +225,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
       context.registerCommand("settings", (input) => {
         const fields = record(input);
         const inactiveDays = fields.inactiveDays === null ? undefined : fields.inactiveDays ?? state.settings.inactiveDays;
-        const settings = decodeSettings({ ...state.settings, inactiveDays, ...("onMerged" in fields ? { onMerged: fields.onMerged } : {}), ...("onClosed" in fields ? { onClosed: fields.onClosed } : {}) });
+        const settings = decodeSettings({ ...state.settings, inactiveDays, ...("workingSection" in fields ? { workingSection: fields.workingSection } : {}), ...("onMerged" in fields ? { onMerged: fields.onMerged } : {}), ...("onClosed" in fields ? { onClosed: fields.onClosed } : {}) });
         commit({ ...state, settings });
         return publicState();
       });

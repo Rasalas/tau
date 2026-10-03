@@ -177,6 +177,18 @@ export class ThreadCommands {
     }
   };
 
+  restartAgentSession = async (): Promise<void> => {
+    if (!this.requireWrite("Restarting the agent session")) return;
+    const id = this.sessionId();
+    if (!id) { this.notify("Open a thread before restarting its agent session."); return; }
+    const queued = this.ports.threads.getSnapshot().threads?.find((thread) => thread.id === id)?.queued;
+    if (queued?.length) { this.notify("Send or remove this thread's queued messages before restarting its agent session."); return; }
+    try {
+      this.ports.applyActionResult(await this.client!.restartSession(id));
+      this.notify("Agent session restarted. Conversation preserved; runtime resources rediscovered.");
+    } catch (error) { this.notify(errorMessage(error)); }
+  };
+
   compactContext = async (): Promise<void> => {
     if (!this.requireWrite("Compaction")) return;
     try {

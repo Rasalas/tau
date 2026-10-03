@@ -219,6 +219,25 @@ describe("CodexThreadRuntimeBackend against the app-server stub", () => {
     expect(backend.state().streaming).toBe(false);
   });
 
+  it("restarts only this live process, strictly resumes its session and retains the transcript", async () => {
+    const space = await scratch();
+    await space.store.setSelection("tau-1", space.dir, { serviceTier: "fast" });
+    const { backend } = await open(space);
+    await backend.prompt({ text: "Reply with exactly one word: hello.", delivery: "prompt" });
+    const id = backend.providerSessionId;
+    const transcript = await backend.transcript();
+    await backend.capabilities.restart!.restart();
+    expect(backend.providerSessionId).toBe(id);
+    expect(await backend.transcript()).toEqual(transcript);
+    const requests = await sent(space);
+    expect(requests.filter((entry) => entry.method === "initialize")).toHaveLength(2);
+    expect(requests.filter((entry) => entry.method === "thread/resume").map((entry) => entry.params?.threadId)).toEqual([id]);
+    expect(requests.filter((entry) => entry.method === "thread/start")).toHaveLength(1);
+    expect(requests.find((entry) => entry.method === "thread/resume")?.params?.serviceTier).toBe("fast");
+    await backend.prompt({ text: "Again.", delivery: "prompt" });
+    expect(backend.catalogView().usage?.turns).toBe(2);
+  });
+
   it("resumes the same Codex thread in a new process after a restart", async () => {
     const space = await scratch();
     const first = await open(space);

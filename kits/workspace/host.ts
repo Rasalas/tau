@@ -1,3 +1,4 @@
+import { createNamedProject, createScratchWorkspace, isScratchWorkspace } from "./project-starts.js";
 import { execFile } from "node:child_process";
 import { mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -179,7 +180,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       "runtime:extend",
       "process",
     ],
-    activate(context: HostExtensionContext) {
+    async activate(context: HostExtensionContext) {
       const { services } = context;
       // The kit owns the Git cache; core only learns project facts from it.
       const git = new GitCoordinator({ onSubprocess: () => services.noteSubprocess() });
@@ -264,6 +265,29 @@ export function createWorkspaceHostExtension(): HostExtension {
 
       // `tau app <path>` from a terminal.
       registerAppOpen(context);
+      // Persisted drafts may name an allocation before a session exists.
+      const scratchRoot = join(services.stateDir, "scratch");
+      for (const entry of await readdir(scratchRoot, { withFileTypes: true }).catch(() => [])) {
+        const path = join(scratchRoot, entry.name);
+        if (!entry.isDirectory() || !isScratchWorkspace(services.stateDir, path)) continue;
+        const canonical = await realpath(path);
+        services.admitWorkspace(canonical);
+        services.rememberProjectName(canonical, "No project");
+      }
+      context.registerCommand("is-projectless", async (input) => isScratchWorkspace(services.stateDir, await services.knownWorkspacePath(requiredString(input, "workspace"))), { access: "read", callers: ["tau.environments"] });
+      context.registerCommand("create-scratch", async () => {
+        const path = await createScratchWorkspace(services.stateDir, gitExecutable());
+        services.rememberProjectName(path, "No project");
+        return services.admitWorkspace(path);
+      });
+      context.registerCommand("create-project", async (input) => {
+        const name = requiredString(input, "name");
+        const parent = optionalString(input, "parentPath") ?? await services.pickDirectory();
+        if (!parent) return undefined;
+        const created = await createNamedProject(expandHome(parent), name, gitExecutable());
+        services.rememberProjectName(created.path, name.trim());
+        return { workspace: services.admitWorkspace(created.path), ...(created.warning ? { warning: created.warning } : {}) };
+      }, { long: true });
       // Project sources: browse, pick, clone. Opening the result is core's job.
       context.registerCommand("list-directories", (input) => listDirectories(optionalString(input, "path"), (path) => services.workspaceRef(path)), { access: "read" });
       // The folder dialog waits on the user, well past the ordinary command timeout.
@@ -502,6 +526,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       }, { access: "read", callers: [REVIEW_KIT_ID] });
       context.registerCommand("workspace-info", async (input) => {
         const canonical = await services.knownWorkspacePath(workspaceOf(input));
+        if (isScratchWorkspace(services.stateDir, canonical)) return { root: canonical, isRepo: false, isDirty: false, worktrees: [], refs: [], worktreeParent: canonical };
         const info = await git.getWorkspaceInfo(canonical);
         // What a client shows is what it asks about, so that is what gets watched.
         if (info.isRepo && process.env.TAU_NO_WATCH !== "1") {
@@ -696,13 +721,15 @@ export function createWorkspaceHostExtension(): HostExtension {
       });
       const disposers = [
         services.describeProjects({
-          name: (project) => workspaceGit.repositoryDisplayName(project),
+          projectless: async (project) => isScratchWorkspace(services.stateDir, project),
+          name: (project) => isScratchWorkspace(services.stateDir, project) ? Promise.resolve("No project") : workspaceGit.repositoryDisplayName(project),
           label: async (project) => {
+            if (isScratchWorkspace(services.stateDir, project)) return undefined;
             const branch = await git.getBranch(project);
             labels.set(project, branch);
             return branch;
           },
-          nested: (project) => workspaceGit.isNestedProject(project),
+          nested: (project) => isScratchWorkspace(services.stateDir, project) ? Promise.resolve(true) : workspaceGit.isNestedProject(project),
         }),
         // Edits and Git commands run by the agent stale the cache.
         services.registerTurnObserver({ toolEnded: (_sessionId, tool, project) => invalidateAfterTool(git, tool, project) }),

@@ -223,6 +223,83 @@ describe("pull request commands", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it("shares the conversations and viewed marks during a fresh view refresh", async () => {
+    const graph = await fixture("gh-pr-threads-discussed.json");
+    let finish!: (value: string) => void;
+    const waiting = new Promise<string>((resolve) => { finish = resolve; });
+    const { invoke, calls } = await harness({ answer: (call) =>
+      call.args.includes("graphql") ? waiting : defaultAnswer(call) });
+    const reads = [
+      invoke("pr-view", { url: GITHUB.url, fresh: true }),
+      invoke("pr-comments", { url: GITHUB.url, fresh: true }),
+      invoke("pr-files", { url: GITHUB.url, fresh: true }),
+    ];
+    await vi.waitFor(() => expect(calls.some((call) => call.args[1] === "diff")).toBe(true));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    finish(graph);
+    await Promise.all(reads);
+    expect(calls).toHaveLength(3);
+    await invoke("pr-comments", { url: GITHUB.url, fresh: true });
+    expect(calls.filter((call) => call.args.includes("graphql"))).toHaveLength(2);
+  });
+
+  it("does not join an older ordinary read when a fresh conversation read is requested", async () => {
+    const graph = await fixture("gh-pr-threads-discussed.json");
+    let finish!: (value: string) => void;
+    const waiting = new Promise<string>((resolve) => { finish = resolve; });
+    let graphs = 0;
+    const { invoke } = await harness({ answer: (call) => {
+      if (call.args.includes("graphql")) return ++graphs === 1 ? waiting : graph;
+      return defaultAnswer(call);
+    } });
+    const old = invoke("pr-comments", { url: GITHUB.url });
+    await vi.waitFor(() => expect(graphs).toBe(1));
+    await invoke("pr-comments", { url: GITHUB.url, fresh: true });
+    expect(graphs).toBe(2);
+    finish(graph);
+    await old;
+  });
+
+  it("starts a new conversation read after a mutation while an older refresh is pending", async () => {
+    const graph = await fixture("gh-pr-threads-discussed.json");
+    let finish!: (value: string) => void;
+    const waiting = new Promise<string>((resolve) => { finish = resolve; });
+    let graphs = 0;
+    const { invoke, calls } = await harness({ answer: (call) => {
+      if (call.args.includes("graphql")) return ++graphs === 1 ? waiting : graph;
+      return defaultAnswer(call);
+    } });
+    const old = invoke("pr-comments", { url: GITHUB.url, fresh: true });
+    await vi.waitFor(() => expect(graphs).toBe(1));
+    await invoke("pr-comment", { url: GITHUB.url, body: "New information" });
+    await invoke("pr-comments", { url: GITHUB.url, fresh: true });
+    expect(graphs).toBe(2);
+    finish(graph);
+    await old;
+    await invoke("pr-comments", { url: GITHUB.url });
+    expect(calls.filter((call) => call.args.includes("graphql"))).toHaveLength(2);
+  });
+
+  it("does not share refreshes between GitHub endpoints or keep a failed refresh", async () => {
+    const graph = await fixture("gh-pr-threads-discussed.json");
+    let fail!: (error: Error) => void;
+    const waiting = new Promise<string>((_resolve, reject) => { fail = reject; });
+    let graphs = 0;
+    const { invoke } = await harness({ answer: (call) => {
+      if (call.args.includes("graphql")) return ++graphs <= 2 ? waiting : graph;
+      return defaultAnswer(call);
+    } });
+    const reads = Promise.allSettled([
+      invoke("pr-comments", { url: GITHUB.url, fresh: true }),
+      invoke("pr-comments", { url: "https://github.example.com/acme/tau/pull/7", fresh: true }),
+    ]);
+    await vi.waitFor(() => expect(graphs).toBe(2));
+    fail(new Error("HTTP 401: Bad credentials"));
+    expect((await reads).every((result) => result.status === "rejected")).toBe(true);
+    await invoke("pr-comments", { url: GITHUB.url, fresh: true });
+    expect(graphs).toBe(3);
+  });
+
   it("refuses anything that is not a request URL, and says which CLI is missing", async () => {
     const { invoke } = await harness({ tools: {} });
     await expect(invoke("pr-view", { url: "https://github.com/acme/tau" })).rejects.toThrow(/by its URL/u);

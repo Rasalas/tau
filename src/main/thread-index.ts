@@ -83,7 +83,7 @@ export class ThreadIndex {
   private lineageCacheLoaded?: Promise<void>;
   /** Other runtimes' tallies by shell path, as their last listing gave them, for repricing. */
   private externalTallies = new Map<string, readonly UsageTally[]>();
-  private externalProjects = new Map<string, Pick<UiProject, "name" | "icon">>();
+  private externalProjects = new Map<string, Pick<UiProject, "name" | "icon"> & { listed?: boolean }>();
   /** The parent of a thread this host started or indexed, for its live shell. */
   private readonly parents = new Map<string, string>();
   /** Deletions already announced, so the sweep does not repeat one the host made itself. */
@@ -230,7 +230,7 @@ export class ThreadIndex {
     const external = await this.externalShells();
     const projectsChanged = previousProjects.size !== this.externalProjects.size || [...this.externalProjects].some(([id, project]) => {
       const before = previousProjects.get(id);
-      return before?.name !== project.name || before?.icon !== project.icon;
+      return before?.name !== project.name || before?.icon !== project.icon || before?.listed !== project.listed;
     });
     const byId = new Map(scanned.map((session) => [session.id, session] as const));
     for (const session of external) if (!byId.has(session.id)) byId.set(session.id, session);
@@ -245,7 +245,7 @@ export class ThreadIndex {
 
   private async externalShells(): Promise<UiSession[]> {
     const tallies = new Map<string, readonly UsageTally[]>();
-    const projects = new Map<string, Pick<UiProject, "name" | "icon">>();
+    const projects = new Map<string, Pick<UiProject, "name" | "icon"> & { listed?: boolean }>();
     const shells = await loadExternalSessionShells({
       safeMode: this.port.safeMode, providers: this.port.backends().values(),
       projectName: (cwd) => this.port.projects.name(cwd), projectLabel: (cwd) => this.port.projects.label(cwd),
@@ -495,6 +495,7 @@ export class ThreadIndex {
       ...session,
       workspaceId,
       projectDisplayPath: displayPath,
+      ...(session.backendKind !== "machine" && this.port.projects.knownProjectless(session.projectPath) ? { projectless: true } : {}),
       ...(this.interrupted.has(session.id) ? { interrupted: true } : {}),
       ...(this.turnErrors.has(session.id) ? { turnError: this.turnErrors.get(session.id) } : {}),
       ...(this.runtimeErrors.has(session.id) ? { runtimeError: this.runtimeErrors.get(session.id) } : {}),
@@ -554,10 +555,10 @@ export class ThreadIndex {
     return {
       projects: [
         ...projects.filter((project) => this.port.projects.isRoot(project.path)).map((project) => ({ ...project, ...this.port.workspaces.ref(project.path) })),
-        ...[...new Map(this.sessions.filter((session) => session.backendKind === "machine" && session.workspaceId).map((session) => [session.workspaceId, {
+        ...[...new Map(this.sessions.filter((session) => session.backendKind === "machine" && session.workspaceId && this.externalProjects.get(session.id)?.listed !== false).map((session) => [session.workspaceId, {
           path: session.projectPath, name: session.projectName, lastOpenedAt: session.modifiedAt,
           workspaceId: session.workspaceId, displayPath: session.projectDisplayPath ?? session.projectPath,
-          ...this.externalProjects.get(session.id),
+          ...(this.externalProjects.get(session.id)?.icon ? { icon: this.externalProjects.get(session.id)!.icon } : {}),
         }])).values()],
       ],
       sessions: this.sessions.map((session) => this.withIdentity(session)),

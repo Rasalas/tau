@@ -251,6 +251,8 @@ export interface ReviewRequestContext {
  */
 export interface WorkspaceHostCommands {
   /** Browses folders for the local-folder project source. */
+  "create-scratch": { input: undefined; output: WorkspaceRef };
+  "create-project": { input: { name: string; parentPath?: string }; output: { workspace: WorkspaceRef; warning?: string } | undefined };
   "list-directories": { input: { path?: string } | undefined; output: UiDirectoryListing };
   /** Native folder dialog; `undefined` when cancelled. */
   "pick-folder": { input: undefined; output: WorkspaceRef | undefined };
@@ -348,6 +350,8 @@ export type WorkspaceHostCommand = keyof WorkspaceHostCommands;
 export type HostExtensionInvoke = (command: string, input?: unknown) => Promise<unknown>;
 
 export interface WorkspaceHostClient {
+  createScratch(): Promise<WorkspaceRef>;
+  createProject(name: string, parentPath?: string): Promise<{ workspace: WorkspaceRef; warning?: string } | undefined>;
   listDirectories(path?: string): Promise<UiDirectoryListing>;
   pickFolder(): Promise<WorkspaceRef | undefined>;
   startClone(repositoryUrl: string, parentPath?: string): Promise<CloneSnapshot | undefined>;
@@ -401,6 +405,8 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
   const call = <K extends WorkspaceHostCommand>(command: K, input: WorkspaceHostCommands[K]["input"]) =>
     invoke(command, input) as Promise<WorkspaceHostCommands[K]["output"]>;
   return {
+    createScratch: () => call("create-scratch", undefined),
+    createProject: (name, parentPath) => call("create-project", { name, ...(parentPath ? { parentPath } : {}) }),
     listDirectories: (path) => call("list-directories", path === undefined ? undefined : { path }),
     pickFolder: () => call("pick-folder", undefined),
     startClone: (repositoryUrl, parentPath) => call("clone-start", parentPath === undefined ? { repositoryUrl } : { repositoryUrl, parentPath }),
@@ -559,6 +565,8 @@ export interface RailExternalThread {
   session: UiSession;
   projectIcon?: string;
   running?: boolean;
+  /** A question or approval needs attention on its home machine. */
+  waiting?: boolean;
   /** Set while `open` is under way. */
   opening?: boolean;
   /** Where it runs: an icon just before the cost, the name as tooltip. */
@@ -685,7 +693,7 @@ export interface ThreadRailOrganizer {
   /** Moves whenever `sections` would answer differently for the same threads. */
   getVersion(): number;
   /** `threads` is what the rail would show, searched and newest first. */
-  sections(threads: readonly UiSession[]): ThreadRailSection[];
+  sections(threads: readonly UiSession[], activity?: { runningThreadIds: readonly string[]; waitingThreadIds: readonly string[]; failedThreadIds: readonly string[] }): ThreadRailSection[];
   /** A row's right-click menu; `lookup` gives chords for its hints and the commands offered on a thread. */
   menu(session: UiSession, lookup?: ThreadMenuLookup): MenuSection[];
   runMenu(session: UiSession, itemId: string, actions: WorkbenchActions): void;

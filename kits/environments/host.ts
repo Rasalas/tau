@@ -3,6 +3,7 @@ import { readWeights } from "./choice.js";
 import { createMachineChooser } from "./chooser.js";
 import { createMachineBackendProvider } from "./machine-backend.js";
 import { machineCommandError, machineMethodError } from "./compatibility.js";
+import { registerRuntimeToolCommands } from "./runtime-tools.js";
 import { registerThreadCommands } from "./thread-commands.js";
 import {
   AGENTS_EVENT,
@@ -84,12 +85,19 @@ export function createEnvironmentsHostExtension(): HostExtension {
         const machine = machineOf(input, "start-there");
         if (!machines) throw new Error("This host keeps no machines for its agents.");
         const raw = (input ?? {}) as Record<string, unknown>;
-        if (typeof raw.workspaceId !== "string" || !raw.workspaceId) throw new Error("start-there: name a workspace.");
         if (typeof raw.prompt !== "string") throw new Error("start-there: provide a prompt.");
+        let workspaceId = raw.workspaceId;
+        if (!workspaceId && typeof raw.projectPath === "string") {
+          const projectless = await context.invokeHostExtension("tau.workspace", "is-projectless", { workspace: raw.projectPath });
+          if (!projectless) return undefined;
+          const scratch = await machines.call(machine, "tau.workspace", "create-scratch") as { workspaceId?: string };
+          workspaceId = scratch.workspaceId;
+        }
+        if (typeof workspaceId !== "string" || !workspaceId) throw new Error("start-there: name a workspace.");
         try {
           const attachments = await transferPromptAttachments(machines, machine, raw.attachments);
           const options = {
-            cwd: raw.workspaceId, prompt: raw.prompt,
+            cwd: workspaceId, prompt: raw.prompt,
             ...(typeof raw.backend === "string" ? { backend: raw.backend } : {}),
             ...(raw.model ? { model: raw.model } : {}),
             ...(typeof raw.thinkingLevel === "string" ? { thinkingLevel: raw.thinkingLevel } : {}),
@@ -119,6 +127,7 @@ export function createEnvironmentsHostExtension(): HostExtension {
         }));
       }, { audit: { label: "started a thread with attachments from another machine" } });
       registerThreadCommands(context);
+      registerRuntimeToolCommands(context);
       context.registerCommand("whoami", (_input, call): MachineIdentity => ({ device: call.device ?? null, owner: call.owner }), { access: "read" });
       context.registerCommand("probe", async (input): Promise<MachineProbe> => {
         const machine = machineOf(input, "probe");

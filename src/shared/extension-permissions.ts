@@ -109,6 +109,7 @@ export const HOST_SERVICE_PERMISSIONS: Readonly<Record<string, ExtensionPermissi
   decorateUiPrompt: "runtime:extend",
   setPermissionLevel: "runtime:extend",
   registerRuntimeBackend: "runtime:extend",
+  runtimeTools: "runtime:extend",
   mcp: "runtime:extend",
   modelAuth: "runtime:extend",
   presentUi: "runtime:extend",

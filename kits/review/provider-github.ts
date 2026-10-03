@@ -93,7 +93,7 @@ export function createGitHubProvider(tools: ProviderTools): SourceControlProvide
   const cli = (ref: PullRequestRef, call: Parameters<ProviderTools["cli"]>[1], action: string, maxBuffer?: number) =>
     tools.cli(kind, call, action, { host: ref.host, ...(maxBuffer ? { maxBuffer } : {}) });
 
-  /** Every page of the threads and the viewed marks, each connection read to its end. */
+  /** Conversations and file marks share one pending refresh, including every page of either connection. */
   const threads = (ref: PullRequestRef, fresh: boolean) => tools.cached("threads", ref, fresh, async () => {
     const first = parseGitHubThreads(await cli(ref, pullRequestCalls.threads(ref), `Reading the conversations of ${noun(ref)}`));
     const read = [...first.threads];
@@ -106,7 +106,7 @@ export function createGitHubProvider(tools: ProviderTools): SourceControlProvide
       if (filesAfter) { for (const [path, state] of next.viewed) viewed.set(path, state); filesAfter = next.filesAfter ?? null; }
     }
     return { threads: read, viewed, ...(first.nodeId ? { nodeId: first.nodeId } : {}) };
-  });
+  }, true);
 
   const stacks = createGitHubStacks(tools);
 

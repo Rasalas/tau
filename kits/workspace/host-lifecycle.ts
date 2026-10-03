@@ -1,3 +1,4 @@
+import { isScratchWorkspace } from "./project-starts.js";
 import { randomUUID } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { realpath, rm, stat, utimes } from "node:fs/promises";
@@ -906,6 +907,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
   };
 
   const runtimeExtension: RuntimeExtensionFactory = (pi, session) => {
+    if (isScratchWorkspace(services.stateDir, session.cwd)) return;
     const record = featureFor(session.sessionId, session.cwd);
     return record.feature.createPiExtension({ nextTurnId: randomUUID, findAssistantAnchor: assistantAnchorForMessage })(pi);
   };

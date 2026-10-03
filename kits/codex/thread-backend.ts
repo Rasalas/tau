@@ -231,6 +231,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   private switchingAccount = false;
   private admittingPrompts = 0;
   private strictResume = false;
+  private restartingSession = false;
   private protectContinuation = false;
   private chosenEffort?: string;
   private mode = DEFAULT_MODE;
@@ -252,6 +253,14 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.store = options.store;
     this.now = options.now ?? Date.now;
     this.capabilities = {
+      restart: { restart: async () => {
+        if (this.turns.length || this.opening || this.switchingAccount || this.admittingPrompts) throw new Error("Wait for Codex to finish before restarting its session.");
+        this.switchingAccount = true;
+        this.restartingSession = true;
+        this.strictResume = Boolean(this.codexThreadId);
+        try { await this.dispose(); await this.ensureSession(); }
+        finally { this.strictResume = false; this.restartingSession = false; this.switchingAccount = false; }
+      } },
       catalogWrite: {
         setModel: (_provider, id) => this.setModel(id),
         setThinkingLevel: (level) => this.setEffort(level),
@@ -665,15 +674,15 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       let info: CodexThreadInfo;
       if (this.codexThreadId) {
         try {
-          info = await session.resumeThread({ threadId: this.codexThreadId, cwd: this.cwd, policy, ...(model ? { model } : {}), ...(this.strictResume ? { serviceTier: null } : this.chosenServiceTier ? { serviceTier: this.chosenServiceTier } : {}) });
+          info = await session.resumeThread({ threadId: this.codexThreadId, cwd: this.cwd, policy, ...(model ? { model } : {}), ...(this.strictResume && !this.restartingSession ? { serviceTier: null } : this.chosenServiceTier ? { serviceTier: this.chosenServiceTier } : {}) });
         } catch (error) {
           if (this.strictResume || this.protectContinuation) throw error;
           if (!MISSING_THREAD.test(error instanceof Error ? error.message : String(error))) throw error;
           this.report({ type: "notice", message: "Codex no longer has this conversation; a new one starts here.", level: "warning" });
-          info = await session.startThread({ cwd: this.cwd, policy, ...(model ? { model } : {}), ...(this.strictResume ? { serviceTier: null } : this.chosenServiceTier ? { serviceTier: this.chosenServiceTier } : {}) });
+          info = await session.startThread({ cwd: this.cwd, policy, ...(model ? { model } : {}), ...(this.strictResume && !this.restartingSession ? { serviceTier: null } : this.chosenServiceTier ? { serviceTier: this.chosenServiceTier } : {}) });
         }
       } else {
-        info = await session.startThread({ cwd: this.cwd, policy, ...(model ? { model } : {}), ...(this.strictResume ? { serviceTier: null } : this.chosenServiceTier ? { serviceTier: this.chosenServiceTier } : {}) });
+        info = await session.startThread({ cwd: this.cwd, policy, ...(model ? { model } : {}), ...(this.strictResume && !this.restartingSession ? { serviceTier: null } : this.chosenServiceTier ? { serviceTier: this.chosenServiceTier } : {}) });
       }
       if (this.strictResume && info.thread.id !== this.codexThreadId) throw new Error("The new account did not resume the same Codex session.");
       if (info.thread.id !== this.codexThreadId) {

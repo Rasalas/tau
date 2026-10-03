@@ -72,6 +72,7 @@ export interface WorkbenchActions {
   settleActiveThread(): void;
   abort(): void;
   /** Builds Tau, reloads Pi resources and desktop extensions, then restarts the app when required. */
+  restartAgentSession?(): Promise<void>;
   reloadWorkbench(): Promise<boolean>;
   /** Creates and opens the editable source tree used by an installed Tau. */
   openWorkbenchSource(): Promise<boolean>;
@@ -270,6 +271,8 @@ export interface ProjectSourceProps {
 }
 
 interface ProjectSourceBase extends ProfileScoped {
+  /** A private thread workspace offered directly by the new-thread picker. */
+  createThreadWorkspace?(): Promise<UiProject>;
   id: string;
   label: string;
   description: string;

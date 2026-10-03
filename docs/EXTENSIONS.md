@@ -4576,3 +4576,34 @@ declared on `.thread-project-icon`, not on `:root`, because a custom property's
 `var()` resolves where it is declared; a theme overrides them on that selector. The same goes
 for the handful of layout variables a component sets on itself
 (`--keep-clear-x`, `--composer-inset`, `--used`).
+
+### Agent tool maintenance on machines
+
+API 1.48.0 adds optional `services.runtimeTools("state" | "update", { kind })`,
+under `runtime:extend`. It reads this host's installed tools or queues an update
+through the existing maintenance runner. The runner uses the installed package
+manager and waits for all turns using that program. A kit exposing updates must
+register a write command, so read-only callers cannot change installations.
+The Machines kit exposes `machine-tools-state` and `machine-tools-update` for
+all reachable machines, with an optional `{ machine }` to retry one. Receiving
+hosts expose `runtime-tools-state` and `runtime-tools-update`. Older hosts,
+disconnected machines and read-only connections are skipped with a reason.
+Automatic-update preferences remain per machine. These commands use the long
+command budget. The aggregate publishes `machine-tools-progress` on the topic
+of the same name, with `{ requestId, machine }`, as each machine starts and
+finishes. Clients supply a `requestId` to correlate progress and ignore old
+requests. An ambiguous update failure requires a successful state check before
+another update is sent; the aggregate never automatically replays updates.
+
+API 1.48.0 also adds an optional runtime backend restart capability and the
+optional workbench `restartAgentSession` action, preserving the thread's
+conversation while refreshing the runtime session. Optional
+`HostProjectFacts.projectless(cwd)` identifies private scratch workspaces that
+must stay out of recent-project history.
+
+`ProjectSourceContribution.createThreadWorkspace()` optionally creates a private
+thread workspace for the new-thread picker. Such sources do not appear in Add
+project. Each invocation allocates an independent workspace. Optional
+`UiSession.projectless` marks these sessions explicitly; a remote backend maps
+it to `HostBackendThreadRecord.project.listed: false`. Missing metadata preserves
+legacy project discovery rather than treating an unknown project as private.

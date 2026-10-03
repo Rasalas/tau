@@ -108,6 +108,7 @@ export interface HostClient {
   compactContext(): Promise<HostActionResult>;
 
   // Desktop/host extension lifecycle and the generic host-extension channel.
+  restartSession(threadId: string): Promise<HostActionResult>;
   reloadRuntime(): Promise<void>;
   /** Kits and packages only; every runtime keeps running. */
   reloadExtensions(): Promise<void>;
@@ -379,6 +380,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     setMode: (mode, expectedSessionId) => call<HostActionResult>("set-mode", [mode, expectedSessionId]),
     compactContext: () => call<HostActionResult>("compact-context"),
 
+    restartSession: (threadId) => call<HostActionResult>("restart-session", [threadId]),
     reloadRuntime: () => call<void>("reload-runtime"),
     reloadExtensions: () => call<void>("reload-extensions"),
     answerExtensionUi: (id, answer) => call<void>("answer-extension-ui", [id, answer]),

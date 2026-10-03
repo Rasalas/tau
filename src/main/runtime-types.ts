@@ -295,6 +295,8 @@ export interface ThreadBackendCapabilities {
   completions?: ThreadCompletionCapability;
   extensions?: ThreadExtensionCapability;
   reload?: ThreadReloadCapability;
+  /** Stops runtime resources while retaining the provider session for resume. */
+  restart?: { restart(): Promise<void> };
   resume?: ThreadResumeCapability;
   events?: ThreadEventCapability;
   transcriptPaging?: ThreadTranscriptPagingCapability;
@@ -329,6 +331,7 @@ const CAPABILITY_LABELS: Record<ThreadCapabilityName, string> = {
   completions: "Model completions",
   extensions: "Runtime extensions",
   reload: "Reloading runtime resources",
+  restart: "Restarting the agent session",
   resume: "Continuing an interrupted turn",
   events: "Runtime events",
   transcriptPaging: "Runtime-paged transcripts",

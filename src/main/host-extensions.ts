@@ -12,6 +12,7 @@ import type {
   RuntimeToolVersion,
   UiRuntimeBackend,
   UiRuntimeCatalog,
+  UiRuntimeToolsState,
   ThreadBackendKind,
   ThreadIndexSnapshot,
   UiComposerCommand,
@@ -86,7 +87,7 @@ export interface HostBackendThreadRecord {
   /** The workspace identity supplied by the backend's home host. New in API 1.44.0. */
   workspace?: WorkspaceRef;
   /** Project presentation from the home host, including the root icon for a worktree. */
-  project?: Pick<UiProject, "name" | "icon">;
+  project?: Pick<UiProject, "name" | "icon"> & { listed?: boolean };
   /** The model it last ran on, for its row before it opens; else the row shows `modelProvider` (API 1.24.0). */
   model?: Pick<UiModel, "provider" | "id">;
   /**
@@ -240,6 +241,8 @@ export type HostCatalogModel = UiModel & { apiModelId?: string };
  * the label in the background and publishes changes with the thread index.
  */
 export interface HostProjectFacts {
+  /** True for a private thread workspace, which is never remembered as a project. */
+  projectless?(cwd: string): Promise<boolean>;
   /** Display name of a project; undefined keeps the folder name. */
   name?(cwd: string): Promise<string | undefined>;
   /** Short label shown beside the project (Workspace Kit: the Git branch). */
@@ -978,6 +981,8 @@ export interface HostProjectTrust {
 }
 
 export interface HostExtensionServices {
+  /** This host's installed agent tools. Updates keep their package manager and wait for busy turns. API 1.48.0. */
+  runtimeTools?(action: "state" | "update", input?: { kind: string }): Promise<UiRuntimeToolsState>;
   /** The workspace the host currently has open. */
   cwd(): string;
   /**
@@ -1983,6 +1988,11 @@ export class HostProjectFactsSet {
       if (value !== undefined) return value;
     }
     return undefined;
+  }
+
+  async projectless(cwd: string): Promise<boolean> {
+    for (const facts of [...this.providers]) if (await facts.projectless?.(cwd)) return true;
+    return false;
   }
 
   async nested(cwd: string): Promise<boolean> {

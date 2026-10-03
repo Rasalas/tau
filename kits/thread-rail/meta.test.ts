@@ -43,7 +43,7 @@ describe("thread meta store", () => {
       threads: { a: { pinned: true, pinOrder: 2, settledBy: "nonsense" }, b: { junk: 1 }, c: "no" },
       settings: { inactiveDays: 3, onMerged: false },
     });
-    expect(decoded).toEqual({ threads: { a: { pinned: true, pinOrder: 2 } }, settings: { inactiveDays: 3, onMerged: false, onClosed: false } });
+    expect(decoded).toEqual({ threads: { a: { pinned: true, pinOrder: 2 } }, settings: { inactiveDays: 3, onMerged: false, onClosed: false, workingSection: false } });
     expect(decodeState(undefined)).toEqual(EMPTY_STATE);
   });
 
@@ -280,4 +280,40 @@ describe("archive and undo", () => {
     // A thread the list does not show has no next one.
     expect(nextActiveThread(order, "x", all)).toBeUndefined();
   });
+});
+
+
+describe("working section", () => {
+  it("is opt-in, preserves parking precedence and returns to the saved order after completion", () => {
+    const threads = ["a", "b", "pin", "snooze", "settled", "archive"].map((id) => thread(id));
+    const saved = state({ a: { order: 2 }, b: { order: 1 }, pin: { pinned: true }, snooze: { snoozedUntil: NOW + 100 }, settled: { settledAt: NOW }, archive: { archivedAt: NOW } });
+    const running = new Set(threads.map((entry) => entry.id));
+    expect(ids(railSections(threads, saved, NOW, running).working)).toEqual([]);
+    const opted = { ...saved, settings: { ...saved.settings, workingSection: true } };
+    const during = railSections(threads, opted, NOW, running);
+    expect(ids(during.working)).toEqual(["b", "a"]);
+    expect(ids(during.pinned)).toEqual(["pin"]);
+    expect(ids(during.snoozed)).toEqual(["snooze"]);
+    expect(ids(during.settled)).toEqual(["settled"]);
+    expect(ids(during.archived)).toEqual(["archive"]);
+    expect(ids(railSections(threads, opted, NOW).active)).toEqual(["b", "a"]);
+    expect(decodeState(JSON.parse(JSON.stringify(opted)))).toEqual(opted);
+  });
+
+  it("keeps runtime failures and interrupted or limited turns in attention even with stale running marks", () => {
+    const threads = [ { ...thread("error"), turnError: "failed" }, { ...thread("runtime"), runtimeError: "offline" }, { ...thread("interrupted"), interrupted: true } ];
+    const sections = railSections(threads, state({}, { workingSection: true }), NOW, new Set(threads.map((entry) => entry.id)));
+    expect(sections.working).toEqual([]);
+    expect(ids(sections.active)).toEqual(["error", "runtime", "interrupted"]);
+  });
+});
+
+
+it("keeps working ranks when an attention row is manually reordered", () => {
+  const threads = [thread("a"), thread("busy"), thread("b")];
+  const initial = state({ a: { order: 0 }, busy: { order: 1 }, b: { order: 2 } }, { workingSection: true });
+  const sections = railSections(threads, initial, NOW, new Set(["busy"]));
+  const patches = dropPatches(initial, sections, "b", { sectionId: "active", beforeThreadId: "a" }, NOW)!;
+  const reordered = applyPatches(initial, patches);
+  expect(ids(railSections(threads, reordered, NOW).active)).toEqual(["b", "a", "busy"]);
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { HostMachine, HostMachineServices } from "tau/host-extension";
+import type { HostExtension, HostMachine, HostMachineServices } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { createEnvironmentsHostExtension } from "./host.js";
 import { AGENTS_EVENT, ENVIRONMENTS_EXTENSION_ID } from "./protocol.js";
@@ -30,6 +30,27 @@ describe("Machines Kit on the host", () => {
     await expect(registry.invoke(ENVIRONMENTS_EXTENSION_ID, "start-there", input, { kind: "workbench-client", connection: "c1", pairedClient: "d1", readOnly: true })).rejects.toThrow(/Read.only|read.only/u);
     expect(machines.request).toHaveBeenCalledOnce();
   });
+  it("allocates projectless work on its chosen home and leaves ordinary projects to transfer", async () => {
+    const { machines } = fakeMachines([]);
+    machines.call = vi.fn(async () => ({ workspaceId: "ws-remote-scratch" }));
+    machines.request = vi.fn(async () => ({ sessionId: "scratch-thread", path: "/sessions/scratch" }));
+    const registry = await activateHostKit(createEnvironmentsHostExtension(), { machines });
+    const classify = vi.fn(async (input: unknown) => (input as { workspace: string }).workspace === "ws-local-scratch");
+    const workspace: HostExtension = { id: "tau.workspace", name: "Workspace fixture", activate(context) {
+      context.registerCommand("is-projectless", classify, { access: "read", callers: [ENVIRONMENTS_EXTENSION_ID] });
+    } };
+    await registry.activate(workspace);
+    const input = { machine: "rex", projectPath: "ws-local-scratch", prompt: "Write a note", backend: "codex" };
+    expect(await registry.invoke(ENVIRONMENTS_EXTENSION_ID, "start-there", input)).toMatchObject({ sessionId: "scratch-thread" });
+    expect(machines.call).toHaveBeenCalledExactlyOnceWith("rex", "tau.workspace", "create-scratch");
+    expect(machines.request).toHaveBeenCalledExactlyOnceWith("rex", "start-thread", [{ cwd: "ws-remote-scratch", prompt: "Write a note", backend: "codex" }]);
+    expect(await registry.invoke(ENVIRONMENTS_EXTENSION_ID, "start-there", { ...input, projectPath: "ws-project" })).toBeUndefined();
+    await expect(registry.invoke(ENVIRONMENTS_EXTENSION_ID, "start-there", { ...input, prompt: undefined })).rejects.toThrow("provide a prompt");
+    await expect(registry.invoke(ENVIRONMENTS_EXTENSION_ID, "start-there", input, { kind: "workbench-client", connection: "c1", pairedClient: "d1", readOnly: true })).rejects.toThrow(/Read.only|read.only/u);
+    expect(machines.call).toHaveBeenCalledOnce();
+
+  });
+
   it("rejects an older receiving kit rather than silently dropping images", async () => {
     const { machines } = fakeMachines([{ id: "rex", name: "rex", status: "connected", address: "wss://rex/" }]);
     machines.call = vi.fn(async () => { throw Object.assign(new Error("No thread-start command"), { code: "unknown-command" }); });

@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesktopExtension, UiSession, WorkbenchActions } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { renderApp } from "../../src/renderer/test-support/render-app.js";
 import { workspaceHostStub } from "../../src/renderer/test-support/workspace-host-stub.js";
 import { setClientStorage, setHostClient } from "../../src/renderer/test-support/kit-harness.js";
+import threadRailExtension from "../thread-rail/desktop.js";
 import { workspaceExtension } from "./desktop.js";
 import { WORKSPACE_STORE_SERVICE, type RailExternalThread, type WorkspaceStoreApi } from "./protocol.js";
 import { mergeByTime, outsideThreadItems } from "./rail-external.js";
@@ -44,7 +45,7 @@ function remote(id: string, modifiedAt: number, patch: Partial<RailExternalThrea
   };
 }
 
-async function renderRail(threads: RailExternalThread[], own: UiSession[]) {
+async function renderRail(threads: RailExternalThread[], own: UiSession[], working = false) {
   const outside = source(threads);
   const listing: DesktopExtension = {
     id: "test.machines",
@@ -59,9 +60,9 @@ async function renderRail(threads: RailExternalThread[], own: UiSession[]) {
       catalog: { sessionId: own[0]!.id, models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
       project: { cwd: "/projects/api" },
     }),
-    invokeHostExtension: workspaceHostStub(),
+    invokeHostExtension: working ? async (extension, command, input) => extension === "tau.thread-rail" && command === "state" ? { threads: {}, settings: { onMerged: true, onClosed: false, workingSection: true } } : workspaceHostStub()(extension, command, input) : workspaceHostStub(),
   });
-  const rendered = renderApp(client, { extensions: [workspaceExtension, listing] });
+  const rendered = renderApp(client, { extensions: [workspaceExtension, listing, ...(working ? [threadRailExtension] : [])] });
   const rail = await screen.findByRole("navigation", { name: "Threads" });
   await within(rail).findByText(own[0]!.title);
   return { ...rendered, rail, outside, client };
@@ -193,4 +194,22 @@ describe("merging by time", () => {
     expect(mergeByTime(own, [], "updated")).toEqual(own);
     expect(mergeByTime([session("a", 30, { createdAt: 1 })], [session("x", 10, { createdAt: 5 })], "created").map((entry) => entry.id)).toEqual(["x", "a"]);
   });
+});
+
+
+it("moves remote work back to attention for a question, completion or disconnection", async () => {
+  const { rail, outside } = await renderRail([remote("r1", 40, { running: true })], [session("a", 30)], true);
+  const working = () => rail.querySelector(".rail-section-working");
+  await waitFor(() => expect(working()?.textContent).toContain("Working"));
+  fireEvent.click(within(working() as HTMLElement).getByRole("button", { expanded: false }));
+  await within(working() as HTMLElement).findByText("Remote r1");
+  expect(titles(rail)).toEqual(["Thread a"]);
+  act(() => outside.set([remote("r1", 40, { running: true, waiting: true })]));
+  await waitFor(() => expect(titles(rail)).toEqual(["Remote r1", "Thread a"]));
+  act(() => outside.set([remote("r1", 40, { running: true })]));
+  await waitFor(() => expect(titles(rail)).toEqual(["Thread a"]));
+  act(() => outside.set([remote("r1", 40, { running: false })]));
+  await waitFor(() => expect(titles(rail)).toEqual(["Remote r1", "Thread a"]));
+  act(() => outside.set([remote("r1", 40, { running: true, unavailable: "Disconnected" })]));
+  await waitFor(() => expect(titles(rail)).toEqual(["Remote r1", "Thread a"]));
 });

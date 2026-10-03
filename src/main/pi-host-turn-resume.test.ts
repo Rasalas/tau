@@ -142,3 +142,141 @@ describe("PiHost reloadExtensions", () => {
     bench.thread.release();
   });
 });
+
+
+describe("targeted session restart", () => {
+  function restartable() {
+    const bench = host();
+    const restart = vi.fn<() => Promise<void>>(async () => undefined);
+    bench.thread.runtime.backend.capabilities.restart = { restart };
+    vi.spyOn(bench.internals.publication, "activeUpdates").mockResolvedValue({ version: 1, updates: [] });
+    return { ...bench, restart };
+  }
+
+  it("preserves the active external thread and does not dispose another thread", async () => {
+    const bench = restartable();
+    const state = bench.thread.runtime.backend.state.bind(bench.thread.runtime.backend);
+    bench.thread.runtime.backend.state = () => ({ ...state(), activeTools: ["read", "bash", "write"] });
+    const other = heldThread("other-thread", []);
+    await bench.internals.threads.adopt({ threadId: "other-thread", cwd: "/repo", runtime: other.runtime, isolation: "in-process" });
+    await bench.host.restartSession("thread-1");
+    expect(bench.restart).toHaveBeenCalledOnce();
+    expect(bench.internals.threads.get("thread-1").runtime).toBe(bench.thread.runtime);
+    expect(other.dispose).not.toHaveBeenCalled();
+  });
+
+  it("refuses a stale command instead of restarting the newly selected thread", async () => {
+    const bench = restartable();
+    const other = heldThread("other-thread", []);
+    await bench.internals.threads.adopt({ threadId: "other-thread", cwd: "/repo", runtime: other.runtime, isolation: "in-process" });
+    bench.internals.threads.setActive("other-thread");
+    await expect(bench.host.restartSession("thread-1")).rejects.toThrow("Open this thread");
+    expect(bench.restart).not.toHaveBeenCalled();
+  });
+
+  it("refuses pending messages before stopping the runtime", async () => {
+    const bench = restartable();
+    bench.thread.runtime.pendingClientMessageIds.push("queued-message");
+    await expect(bench.host.restartSession("thread-1")).rejects.toThrow("running work");
+    expect(bench.restart).not.toHaveBeenCalled();
+  });
+
+  it("holds prompt admission until a delayed restart completes", async () => {
+    const bench = restartable();
+    let release!: () => void;
+    bench.restart.mockImplementation(() => new Promise<void>((resolve) => { release = resolve; }));
+    const restarting = bench.host.restartSession("thread-1");
+    await vi.waitFor(() => expect(bench.restart).toHaveBeenCalledOnce());
+    await expect(bench.host.prompt("New work", [], "thread-1")).rejects.toThrow("session is restarting");
+    expect(bench.delivered).toEqual([]);
+    release();
+    await restarting;
+  });
+
+  it("rejects an old prepared prompt even when an external restart has already completed", async () => {
+    const bench = restartable();
+    bench.thread.runtime.backend.capabilities.journal = { entries: () => [], appendCustomEntry: () => {}, appendMessage: () => {} } as never;
+    const original = bench.thread.runtime.backend.preparePrompt;
+    let release!: () => void;
+    bench.thread.runtime.backend.preparePrompt = async (text) => {
+      await new Promise<void>((resolve) => { release = resolve; });
+      return original(text);
+    };
+    const send = bench.host.prompt("Prepared before restart", [], "thread-1");
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    await bench.host.restartSession("thread-1");
+    release();
+    await expect(send).rejects.toThrow("session changed");
+    expect(bench.delivered).toEqual([]);
+  });
+
+  it("refuses to restart during a project shell action even when the agent is idle", async () => {
+    const bench = restartable();
+    let running = false;
+    let release!: () => void;
+    const result = { output: "done", exitCode: 0, cancelled: false, truncated: false };
+    bench.thread.runtime.backend.capabilities.shellAction = {
+      isRunning: () => running,
+      run: async () => {
+        running = true;
+        try { await new Promise<void>((resolve) => { release = resolve; }); return result; }
+        finally { running = false; }
+      },
+    };
+    vi.spyOn(bench.internals.publication, "publishDetail").mockResolvedValue({} as never);
+    const action = bench.host.runShellAction("long project command");
+    await vi.waitFor(() => expect(running).toBe(true));
+    expect(bench.thread.runtime.state.idle).toBe(true);
+    await expect(bench.host.restartSession("thread-1")).rejects.toThrow("running work");
+    expect(bench.restart).not.toHaveBeenCalled();
+    release();
+    expect(await action).toEqual(result);
+  });
+
+  it.each(["during", "after"])("refuses an action prepared %s an external restart", async (when) => {
+    const bench = restartable();
+    const run = vi.fn(async () => ({ output: "", exitCode: 0, cancelled: false, truncated: false }));
+    bench.thread.runtime.backend.capabilities.shellAction = { isRunning: () => false, run };
+    let bind!: () => void;
+    vi.spyOn(bench.internals.binding, "settle").mockImplementation(() => new Promise<void>((resolve) => { bind = resolve; }));
+    const action = bench.host.runShellAction("old project command");
+    await vi.waitFor(() => expect(bind).toBeTypeOf("function"));
+    let finish!: () => void;
+    bench.restart.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+    const restart = bench.host.restartSession("thread-1");
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    if (when === "after") { finish(); await restart; }
+    bind();
+    await expect(action).rejects.toThrow(when === "during" ? "session is restarting" : "session changed");
+    expect(run).not.toHaveBeenCalled();
+    if (when === "during") { finish(); await restart; }
+  });
+
+  it("refuses a shell action if its bound runtime was replaced", async () => {
+    const bench = restartable();
+    const run = vi.fn(async () => ({ output: "", exitCode: 0, cancelled: false, truncated: false }));
+    bench.thread.runtime.backend.capabilities.shellAction = { isRunning: () => false, run };
+    let bind!: () => void;
+    vi.spyOn(bench.internals.binding, "settle").mockImplementation(() => new Promise<void>((resolve) => { bind = resolve; }));
+    const action = bench.host.runShellAction("old project command");
+    await vi.waitFor(() => expect(bind).toBeTypeOf("function"));
+    const replacement = heldThread("thread-1", []);
+    await bench.internals.threads.adopt({ threadId: "thread-1", cwd: "/repo", runtime: replacement.runtime, isolation: "in-process" });
+    bind();
+    await expect(action).rejects.toThrow("session changed");
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("keeps a recoverable transcript shell if the Pi runtime fails to reopen", async () => {
+    const bench = restartable();
+    Object.defineProperty(bench.thread.runtime, "runtime", { value: { session: { abort: async () => undefined }, dispose: async () => undefined } });
+    vi.spyOn(bench.internals.runtimes, "openForPath").mockRejectedValue(new Error("Broken extension"));
+    bench.internals.activateThread = async (thread: ThreadRuntime) => { bench.internals.threads.setActive(thread.threadId); return true; };
+    await expect(bench.host.restartSession("thread-1")).rejects.toThrow("Open this thread again to retry");
+    const kept = bench.internals.threads.get("thread-1").runtime;
+    expect(kept.threadId).toBe("thread-1");
+    expect(kept.backend.kind).toBe("external-test");
+    expect(kept.backend.reason).toContain("Broken extension");
+    expect(bench.internals.threads.active.runtime).toBe(kept);
+  });
+});

@@ -612,6 +612,14 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         sheet={compact}
         anchor={newThreadPick?.anchor}
         {...(newThreadPick?.carry ? { heading: "Project" } : {})}
+        onNoProject={registry.getProjectSources().find((source) => source.createThreadWorkspace) ? () => {
+          const create = registry.getProjectSources().find((source) => source.createThreadWorkspace)?.createThreadWorkspace;
+          if (!create) return;
+          void create().then((project) => {
+            closeNewThreadPicker();
+            createThreadInProject(project, newThreadPick?.carry ? { carry: true } : undefined);
+          }).catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error)));
+        } : undefined}
         onBrowse={() => actions.openProjectSources()}
         onClose={closeNewThreadPicker}
         onRemove={removeProject}

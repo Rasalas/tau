@@ -1,10 +1,10 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { Options, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BackendPrompt, ExtensionUiAnswer, HostExecutionPolicy, ThreadRuntimeEvent, UiComposerCommand } from "tau/host-extension";
-import { createClaudeCodeRuntimeAdapter, type ClaudeSessionInput } from "./runtime-adapter.js";
+import { createClaudeCodeRuntimeAdapter, type ClaudeSessionInput, type ClaudeQuery } from "./runtime-adapter.js";
 import type { ClaudeSdkSession, ResultMessage, SendPriority, UserContent } from "./sdk-session.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 import { ClaudeThreadRuntimeBackend, promptContent } from "./thread-backend.js";
@@ -113,6 +113,60 @@ function scriptedAdapter(filePath: string, script: Script) {
 }
 
 describe("thread runtime backends", () => {
+  it("restarts a process without losing history and rereads the skill catalog", async () => {
+    const { filePath, store } = await scratchStore();
+    const { adapter, opened, sessions } = scriptedAdapter(filePath, () => turn("hello"));
+    let discovered = commands;
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands: () => discovered, projectName: "repo" });
+    await backend.start("create");
+    await backend.prompt({ text: "Hello.", delivery: "prompt" });
+    const transcript = await backend.transcript();
+    const id = backend.providerSessionId;
+    discovered = [{ name: "new-skill", source: "skill", description: "Newly installed" }];
+    await backend.capabilities.restart!.restart();
+    expect(sessions[0]!.close).toHaveBeenCalledOnce();
+    expect(await backend.transcript()).toEqual(transcript);
+    expect(backend.composerCommands()).toEqual(discovered);
+    await backend.prompt({ text: "Again.", delivery: "prompt" });
+    expect(opened).toHaveLength(2);
+    expect(opened[1]).toMatchObject({ claudeSessionId: id, started: true });
+    await backend.dispose();
+  });
+
+  it("refuses a concurrent send while the old process is closing", async () => {
+    const { filePath, store } = await scratchStore();
+    const { adapter, opened, sessions } = scriptedAdapter(filePath, () => turn("hello"));
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo" });
+    await backend.start("create");
+    await backend.prompt({ text: "Hello.", delivery: "prompt" });
+    const close = sessions[0]!.close.getMockImplementation()!;
+    let release!: () => void;
+    sessions[0]!.close.mockImplementation(async () => { await new Promise<void>((resolve) => { release = resolve; }); await close(); });
+    const restart = backend.capabilities.restart!.restart();
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    await expect(backend.prompt({ text: "Concurrent", delivery: "prompt" })).rejects.toThrow("session is restarting");
+    expect(opened).toHaveLength(1);
+    release();
+    await restart;
+    expect((await backend.transcript()).some((message) => message.text === "Concurrent")).toBe(false);
+    await backend.dispose();
+  });
+
+  it("refuses a restart while a background task still owns work", async () => {
+    const { filePath, store } = await scratchStore();
+    const { adapter, opened, sessions } = scriptedAdapter(filePath, () => turn("hello"));
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo" });
+    await backend.start("create");
+    await backend.prompt({ text: "Hello.", delivery: "prompt" });
+    opened[0]!.onMessage({ type: "system", subtype: "background_tasks_changed", tasks: [{ task_id: "background-1", task_type: "agent", description: "Working", ambient: false }], uuid: "task-state", session_id: backend.providerSessionId } as never);
+    await expect(backend.capabilities.restart!.restart()).rejects.toThrow("background tasks");
+    expect(sessions[0]!.close).not.toHaveBeenCalled();
+    opened[0]!.onMessage({ type: "system", subtype: "background_tasks_changed", tasks: [], uuid: "task-state", session_id: backend.providerSessionId } as never);
+    opened[0]!.onMessage({ type: "system", subtype: "task_started", task_id: "background-1", is_backgrounded: true, uuid: "late-edge", session_id: backend.providerSessionId } as never);
+    await backend.capabilities.restart!.restart();
+    await backend.dispose();
+  });
+
   it("streams a Claude turn as Tau events, persists the exchange and its usage, and restores both", async () => {
     const { filePath, store } = await scratchStore();
     const { adapter, opened, sessions } = scriptedAdapter(filePath, (content) => turn(`Claude: ${String(content)}`));
@@ -177,7 +231,7 @@ describe("thread runtime backends", () => {
     // Beside the model and effort pickers, the plan mode and the word it uses
     // to say a turn was cut short, Claude offers no Pi-shaped capability;
     // every such operation is refused in one place.
-    expect(Object.keys(backend.capabilities)).toEqual(["catalogWrite", "mode", "resume", "compaction"]);
+    expect(Object.keys(backend.capabilities)).toEqual(["catalogWrite", "mode", "resume", "compaction", "restart"]);
     expect(backend.capabilities.resume?.hiddenPrompt).toBe(false);
 
     await backend.dispose();
@@ -193,6 +247,44 @@ describe("thread runtime backends", () => {
     // A resumed thread opens its session with `started` so the CLI resumes the Claude session.
     await restored.prompt({ text: "third", delivery: "prompt" });
     expect(opened[1]).toMatchObject({ started: true, claudeSessionId: opened[0]!.claudeSessionId });
+  });
+
+  it("keeps real SDK user and compaction turns open past background results", async () => {
+    const { filePath, store } = await scratchStore();
+    const query = ((params: { prompt: AsyncIterable<SDKUserMessage>; options?: Options }) => {
+      async function* run(): AsyncGenerator<SDKMessage> {
+        yield init();
+        for await (const message of params.prompt) {
+          const compacting = message.message.content === "/compact";
+          yield result("unrelated", { user_message_uuids: ["other-prompt"] });
+          yield result("background", { origin: { kind: "task-notification" } });
+          if (compacting) {
+            yield frame({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual", pre_tokens: 100, post_tokens: 10 } });
+          }
+          yield result(compacting ? "" : "real reply", {
+            num_turns: compacting ? 0 : 1, user_message_uuids: [message.uuid],
+          });
+        }
+      }
+      return Object.assign(run(), { interrupt: async () => undefined }) as unknown as ReturnType<ClaudeQuery>;
+    }) as ClaudeQuery;
+    const adapter = createClaudeCodeRuntimeAdapter({ command: "unused", storePath: filePath, query });
+    const events: ThreadRuntimeEvent[] = [];
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", {
+      adapter, store, commands, projectName: "repo", onEvent: (event) => events.push(event),
+    });
+    await backend.start("create");
+    await expect(backend.prompt({ text: "hello", delivery: "prompt" })).resolves.toMatchObject({ assistantText: "real reply" });
+    expect(events.filter((event) => event.type === "turn-settled")).toHaveLength(1);
+    expect(backend.state().streaming).toBe(false);
+    events.length = 0;
+    await backend.capabilities.compaction!.compact();
+    expect(events.filter((event) => event.type === "turn-settled")).toHaveLength(1);
+    const compactedIndex = events.findIndex((event) => event.type === "assistant-end" && event.message.compaction !== undefined);
+    expect(compactedIndex).toBeGreaterThanOrEqual(0);
+    expect(compactedIndex).toBeLessThan(events.findIndex((event) => event.type === "turn-settled"));
+    expect(backend.state().streaming).toBe(false);
+    await backend.dispose();
   });
 
   it("compacts between turns with /compact, and keeps the context's size and age across a restart", async () => {

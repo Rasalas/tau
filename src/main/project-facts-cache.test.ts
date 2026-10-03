@@ -109,3 +109,12 @@ describe("ProjectFactsCache", () => {
     expect(facts.isRoot("/elsewhere")).toBe(true);
   });
 });
+
+ it("asks extensions whether a workspace belongs only to a thread", async () => {
+  const { facts } = cache();
+  expect(await facts.projectless("/private/thread")).toBe(false);
+  facts.add({ projectless: async (cwd) => cwd === "/private/thread" });
+  expect(await facts.projectless("/private/thread")).toBe(true);
+  expect(facts.knownProjectless("/private/thread")).toBe(true);
+  expect(await facts.projectless("/project")).toBe(false);
+});

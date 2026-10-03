@@ -92,6 +92,7 @@ export interface WorkerTurnObserver {
 }
 
 export interface WorkerProjectFacts {
+  projectless?(cwd: string): Promise<boolean> | boolean;
   name?(cwd: string): Promise<string | undefined> | string | undefined;
   label?(cwd: string): Promise<string | undefined> | string | undefined;
   nested?(cwd: string): Promise<boolean> | boolean;
@@ -99,7 +100,7 @@ export interface WorkerProjectFacts {
 
 export const LIFECYCLE_HOOKS = ["beforeWorkspace", "afterWorkspaceClose", "threadDeleted", "beforeOpen", "afterFork", "beforeActivate", "sweep"] as const;
 export const TURN_HOOKS = ["accepted", "prepare", "cancelled", "ended", "reset", "closed", "toolEnded"] as const;
-export const FACT_HOOKS = ["name", "label", "nested"] as const;
+export const FACT_HOOKS = ["name", "label", "nested", "projectless"] as const;
 export const CLIENT_HOOKS = ["attached", "detached", "devicesChanged"] as const;
 
 /** One attached client as a worker sees it; the same plain data the seam carries. */

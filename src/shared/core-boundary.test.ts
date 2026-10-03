@@ -116,7 +116,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./shared-files.js",   "./shell-environment.js",   "./single-instance.js",   "./skill-invocation.js",   "./small-completion-model.js",
   "./startup-workspace.js",   "./system-prompt-resolver.js",   "./tau-runtime-owner.js",
   "./thread-activation.js",   "./thread-binding.js",   "./thread-index.js",   "./thread-projection.js",
-  "./thread-runtime-backend.js",   "./thread-runtime-lifecycle.js",   "./thread-runtime.js",
+  "./agent-session-control.js",   "./thread-runtime-backend.js",   "./thread-runtime-lifecycle.js",   "./thread-runtime.js",
   "./thread-runtimes.js",   "./thread-trash.js",   "./tool-output-batcher.js",   "./transcript-cursor.js",
   "./turn-delivery.js",   "./turn-reconciliation.js",   "./turns-in-flight.js",   "./unavailable-thread-backend.js",
   "./queued-messages.js",   "./quit-shortcut.js",   "./release-notes.js",   "./thread-limits.js",   "./turn-settlement.js",   "./provider-limits.js",

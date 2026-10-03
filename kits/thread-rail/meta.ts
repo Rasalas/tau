@@ -11,7 +11,7 @@ import type {
 } from "./protocol.js";
 
 export const DAY_MS = 24 * 60 * 60 * 1_000;
-export const DEFAULT_SETTINGS: RailSettings = { onMerged: true, onClosed: false };
+export const DEFAULT_SETTINGS: RailSettings = { onMerged: true, onClosed: false, workingSection: false };
 export const EMPTY_STATE: RailState = { threads: {}, settings: DEFAULT_SETTINGS };
 
 const SETTLED_BY: readonly SettledBy[] = ["user", "inactive", "pr-merged", "pr-closed", "import"];
@@ -44,6 +44,7 @@ export function decodeSettings(value: unknown): RailSettings {
   return {
     ...(days !== undefined && days > 0 ? { inactiveDays: days } : {}),
     onMerged: typeof raw.onMerged === "boolean" ? raw.onMerged : DEFAULT_SETTINGS.onMerged,
+    workingSection: raw.workingSection === true,
     onClosed: typeof raw.onClosed === "boolean" ? raw.onClosed : DEFAULT_SETTINGS.onClosed,
   };
 }
@@ -124,9 +125,12 @@ function withSiblingsTogether(threads: UiSession[], state: RailState): UiSession
  * pins by rank; active threads newest first above the ones the user arranged;
  * snoozed threads by when they wake; settled threads latest first.
  */
-export function railSections(threads: readonly UiSession[], state: RailState, now: number): RailSections {
-  const sections: RailSections = { pinned: [], active: [], snoozed: [], settled: [], archived: [] };
-  for (const thread of threads) sections[sectionOf(state.threads[thread.id], now)].push(thread);
+export function railSections(threads: readonly UiSession[], state: RailState, now: number, working: ReadonlySet<string> = new Set()): RailSections {
+  const sections: RailSections = { pinned: [], active: [], working: [], snoozed: [], settled: [], archived: [] };
+  for (const thread of threads) {
+    const section = sectionOf(state.threads[thread.id], now);
+    sections[section === "active" && state.settings.workingSection && working.has(thread.id) && !thread.turnError && !thread.runtimeError && !thread.interrupted && !thread.limit ? "working" : section].push(thread);
+  }
   const meta = (thread: UiSession): ThreadMeta => state.threads[thread.id] ?? {};
   const rank = (value: number | undefined) => value ?? Number.NEGATIVE_INFINITY;
   const byRecency = (left: UiSession, right: UiSession) => right.modifiedAt - left.modifiedAt;
@@ -135,6 +139,8 @@ export function railSections(threads: readonly UiSession[], state: RailState, no
   sections.pinned.sort((left, right) => rank(meta(left).pinOrder) - rank(meta(right).pinOrder) || 0);
   sections.active.sort((left, right) => rank(meta(left).order) - rank(meta(right).order) || 0);
   sections.active = withSiblingsTogether(sections.active, state);
+  sections.working.sort((left, right) => rank(meta(left).order) - rank(meta(right).order) || 0);
+  sections.working = withSiblingsTogether(sections.working, state);
   sections.snoozed.sort((left, right) => (meta(left).snoozedUntil ?? 0) - (meta(right).snoozedUntil ?? 0));
   sections.settled.sort((left, right) => (meta(right).settledAt ?? 0) - (meta(left).settledAt ?? 0) || byRecency(left, right));
   sections.archived.sort((left, right) => (meta(right).archivedAt ?? 0) - (meta(left).archivedAt ?? 0) || byRecency(left, right));
@@ -230,7 +236,11 @@ export function dropPatches(
   if (!dropLabel(from, drop.sectionId)) return undefined;
   if (drop.sectionId === "settled") return { [threadId]: settlePatch(now, "user") };
   const target = drop.sectionId as "pinned" | "active";
-  const ids = sections[target].map((thread) => thread.id).filter((id) => id !== threadId);
+  // Running rows keep their manual ranks when another active row is reordered.
+  const ordered = target === "active" && sections.working.length > 0
+    ? [...sections.active, ...sections.working].sort((left, right) => (state.threads[left.id]?.order ?? Number.NEGATIVE_INFINITY) - (state.threads[right.id]?.order ?? Number.NEGATIVE_INFINITY) || 0)
+    : sections[target];
+  const ids = ordered.map((thread) => thread.id).filter((id) => id !== threadId);
   const at = drop.beforeThreadId ? ids.indexOf(drop.beforeThreadId) : -1;
   ids.splice(at < 0 ? ids.length : at, 0, threadId);
   const rankKey = target === "pinned" ? "pinOrder" : "order";

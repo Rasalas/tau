@@ -329,7 +329,7 @@ describe("Thread Rail machine ownership", () => {
     const { invoke, events } = await harness({ machines: machines.services });
     await vi.waitFor(async () => expect((await invoke("state")).threads).toEqual({ "rex~t1": { settledAt: 1 } }));
     expect(machines.call).toHaveBeenCalledWith("rex", THREAD_RAIL_EXTENSION_ID, "state", { homeOnly: true });
-    expect((await invoke("state")).settings).toEqual({ onMerged: true, onClosed: false });
+    expect((await invoke("state")).settings).toEqual({ onMerged: true, onClosed: false, workingSection: false });
     meta = { t1: { settledAt: 2 } };
     machines.index("rex");
     await vi.waitFor(async () => expect((await invoke("state")).threads["rex~t1"]).toEqual({ settledAt: 2 }));
@@ -499,5 +499,19 @@ describe("Thread Rail old preference import ownership", () => {
     expect(machines.call).toHaveBeenCalledWith("rex", THREAD_RAIL_EXTENSION_ID, "patch", { patches: { t1: expect.objectContaining({ pinned: null, settledAt: NOW, settledBy: "user" }) } });
     await vi.waitFor(async () => expect(JSON.parse(await readFile(join(stateDir, THREAD_RAIL_EXTENSION_ID, "thread-meta.json"), "utf8"))).toMatchObject({ imported: true, threads: { "rex~local": { pinned: true } } }));
     expect((await invoke("state", { homeOnly: true })).threads).toEqual({ "rex~local": { pinned: true, pinOrder: -1 } });
+  });
+});
+
+
+describe("Working preference persistence", () => {
+  it("defaults off and survives a host restart and other setting changes", async () => {
+    const first = await harness();
+    expect((await first.invoke("state")).settings.workingSection).toBe(false);
+    expect((await first.invoke("settings", { workingSection: true })).settings.workingSection).toBe(true);
+    await first.invoke("settings", { onClosed: true });
+    await first.registry.dispose();
+    const restarted = await harness({ stateDir: first.stateDir });
+    expect((await restarted.invoke("state")).settings).toMatchObject({ workingSection: true, onClosed: true });
+    expect((await restarted.invoke("settings", { workingSection: false })).settings.workingSection).toBe(false);
   });
 });

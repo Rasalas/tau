@@ -1,3 +1,4 @@
+import { AgentSessionControl } from "./agent-session-control.js";
 import { rm } from "node:fs/promises";
 import { promptFiles } from "./prompt-attachments.js";
 import { decodeUiPromptAttachments, decodeUiSkillDraft } from "./ipc-input.js";
@@ -650,7 +651,21 @@ export class PiHost {
     return this.threads.active?.runtime;
   }
 
+  private readonly sessionControl = new AgentSessionControl({
+    thread: (id) => id ? this.requireThread(id) : this.requireActive(), active: () => this.active,
+    isAttached: (thread) => this.ownedByPi(thread), pending: (id) => this.turnObservers.pending(id),
+    hasQuestion: (id) => this.extensionUi.hasOpen(id), path: (id) => this.index.byId(id)?.path,
+    publication: () => this.publication, runtimes: () => this.runtimes,
+    prewarm: () => this.prewarm, threads: () => this.threads,
+    activate: (thread, epoch) => this.activateThread(thread, false, epoch),
+    staleResult: () => this.staleActivationResult(), cwd: () => this.cwd,
+    extensionCount: (count) => { this.extensionCount = count; },
+    refreshPackages: async () => { await this.packages?.refresh({ force: true }); },
+    log: (event, detail) => this.log(event, detail), errorMessage: (error) => this.errorMessage(error),
+  });
+
   private requireActive(): ThreadRuntime {
+    this.sessionControl.assertAvailable(undefined);
     const thread = this.active;
     if (!thread) throw new Error("Pi runtime is not ready");
     return thread;
@@ -668,6 +683,7 @@ export class PiHost {
   }
 
   private requireThread(threadId: string | undefined): ThreadRuntime {
+    this.sessionControl.assertAvailable(threadId);
     return this.threadFor(threadId) ?? this.noRuntimeFor(threadId);
   }
 
@@ -685,6 +701,7 @@ export class PiHost {
    * belongs to the empty thread this run put on screen.
    */
   private async awaitThread(threadId: string | undefined): Promise<ThreadRuntime> {
+    this.sessionControl.assertAvailable(threadId);
     const live = this.threadFor(threadId);
     if (live) return live;
     if (!threadId) return this.requireActive();
@@ -1561,11 +1578,14 @@ export class PiHost {
       : clientIdentityForRequest(clientMessageIdOrPreflight);
     const clientMessageId = identity?.clientMessageId;
     const thread = await this.awaitThread(sessionId);
+    const restartGeneration = thread.restartGeneration;
     // Freeze the epoch after resolving the thread. A concurrent switch changes
     // it, and the prompt must not land on a thread that was superseded.
     const promptEpoch = this.activationEpoch;
     // The switch that opened this thread may still be binding its extensions.
     await this.binding.settle(thread);
+    this.sessionControl.assertAvailable(thread.threadId);
+    if (thread.restartGeneration !== restartGeneration) throw new Error("The agent session changed while the message was being prepared. Send it again.");
     // A prompt named for its thread goes there while another one is on screen; it only needs the thread still open.
     if (sessionId !== undefined && thread.threadId === sessionId) {
       if (this.threadFor(sessionId) !== thread) this.noRuntimeFor(sessionId);
@@ -1605,6 +1625,8 @@ export class PiHost {
     // resource-registry change cannot cause host and backend to normalize
     // different dialects for one turn.
     const resolvedPrepared = prepared ?? await thread.backend.preparePrompt(text);
+    this.sessionControl.assertAvailable(thread.threadId);
+    if (this.threadFor(thread.threadId) !== thread || thread.restartGeneration !== restartGeneration) throw new Error("The agent session changed while the message was being prepared. Send it again.");
     this.prompts.assertBound(thread, text, resolvedPrepared, this.projection.composerCommands(thread));
     const prompt = resolvedPrepared.runtimeText;
     const isExtensionCommand = this.projection.isExtensionCommand(thread, prompt);
@@ -1700,13 +1722,16 @@ export class PiHost {
     this.workbenchReload.assertAvailable();
     const shellCommand = command.trim();
     if (!shellCommand) throw new Error("An action command is required.");
-    const thread = await this.lifecycle.run("shell-action", async () => {
+    const { thread, restartGeneration } = await this.lifecycle.run("shell-action", async () => {
       if (expectedCwd && this.cwd !== expectedCwd) {
         throw new Error("The selected project did not finish loading. Run the action again.");
       }
-      return this.requireActive();
+      const selected = this.requireActive();
+      return { thread: selected, restartGeneration: selected.restartGeneration };
     });
     await this.binding.settle(thread);
+    this.sessionControl.assertAvailable(thread.threadId);
+    if (this.threadFor(thread.threadId) !== thread || thread.restartGeneration !== restartGeneration) throw new Error("The agent session changed while the action was being prepared. Run it again.");
     const shell = requireCapability(thread.backend, "shellAction", "Run project actions in Pi instead.");
     if (shell.isRunning()) throw new Error("Another project action is already running.");
     const result = await shell.run(shellCommand, includeInContext);
@@ -1808,40 +1833,12 @@ export class PiHost {
   prepareWorkbenchReload(mode: import("../shared/contracts.js").WorkbenchReloadMode): Promise<import("../shared/contracts.js").WorkbenchReloadPreparation> { return this.workbenchReload.prepare(mode); }
   async releaseWorkbenchReload(): Promise<void> { this.workbenchReload.release(); }
 
-  async reloadRuntime(): Promise<void> {
-    return this.lifecycle.run("reload-runtime", async () => {
-      const thread = this.requireActive();
-      const reload = requireCapability(thread.backend, "reload");
-      // A runtime the host does not own reloads in its own process; the caches
-      // below are the host's, and it has none of them for that thread.
-      if (!isLocalPiRuntime(thread)) {
-        await reload.reload();
-        this.log("runtime.reload.requested", "runtime owner");
-        return;
-      }
-      if (thread.state.streaming) throw new Error("Wait for the active run before reloading Pi.");
-      await reload.reload();
-      this.publication.invalidateModels();
-      this.runtimes.invalidateResources();
-      // Other idle runtimes still hold the old resources; they are cheap to
-      // rebuild on demand, so drop them rather than reload each one.
-      this.prewarm.discardSpare();
-      for (const record of this.threads.list()) {
-        if (record.runtime !== thread && isLocalPiRuntime(record.runtime)
-          && record.runtime.state.idle
-          && this.turnObservers.pending(record.threadId) === 0
-          && !this.extensionUi.hasOpen(record.threadId)) {
-          await this.threads.release(record.threadId);
-        }
-      }
-      this.extensionCount = thread.state.extensionCount;
-      // The manual fallback restarts every package, however unchanged it looks.
-      await this.packages?.refresh({ force: true });
-      this.log("runtime.reloaded");
-      await this.publication.publishLifecycle();
-      this.prewarm.scheduleThreads();
-      this.prewarm.scheduleSpare(this.cwd);
-    });
+  restartSession(threadId: string): Promise<HostActionResult> {
+    return this.lifecycle.runActivation("restart-session", (activation) => this.sessionControl.restart(threadId, activation.epoch));
+  }
+
+  reloadRuntime(): Promise<void> {
+    return this.lifecycle.run("reload-runtime", () => this.sessionControl.reload());
   }
 
   async compactContext(): Promise<HostActionResult> {
@@ -1920,7 +1917,7 @@ export class PiHost {
 
   private async rememberProject(cwd: string): Promise<void> {
     await this.workspaces.learn(cwd);
-    await this.projectHistory.remember(cwd, await this.projects.loadName(cwd));
+    if (!await this.projects.projectless(cwd)) await this.projectHistory.remember(cwd, await this.projects.loadName(cwd));
   }
 
   private recordBackgroundLifecycle(name: string, startedAt: number): void {

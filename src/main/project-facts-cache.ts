@@ -31,6 +31,7 @@ export class ProjectFactsCache {
   private readonly labelRefreshes = new Map<string, Promise<void>>();
   /** Which known project paths are nested in another project. Unclassified paths stay absent. */
   private readonly nesting = new Map<string, boolean>();
+  private readonly privateWorkspaces = new Map<string, boolean>();
   private readonly classifications = new Map<string, Promise<void>>();
 
   constructor(private readonly port: ProjectFactsCachePort) {}
@@ -64,6 +65,14 @@ export class ProjectFactsCache {
     }).finally(() => { this.nameLoads.delete(cwd); });
     this.nameLoads.set(cwd, pending);
   }
+
+  async projectless(cwd: string): Promise<boolean> {
+    const value = await this.providers.projectless(cwd);
+    this.privateWorkspaces.set(cwd, value);
+    return value;
+  }
+
+  knownProjectless(cwd: string): boolean { return this.privateWorkspaces.get(cwd) === true; }
 
   async loadName(cwd: string): Promise<string> {
     const known = this.names.get(cwd);
@@ -125,7 +134,7 @@ export class ProjectFactsCache {
   classify(cwd: string): void {
     if (this.classifications.has(cwd)) return;
     const startedAt = performance.now();
-    const pending = this.providers.nested(cwd).then((nested) => {
+    const pending = Promise.all([this.providers.nested(cwd), this.projectless(cwd)]).then(([nested]) => {
       if (this.nesting.get(cwd) === nested) return;
       this.nesting.set(cwd, nested);
       this.port.onNesting(cwd);

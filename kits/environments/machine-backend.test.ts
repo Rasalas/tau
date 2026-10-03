@@ -52,6 +52,16 @@ describe("machine backend identities and index", () => {
     expect(await f.provider.listThreads()).toEqual([]);
   });
 
+  it("distinguishes an explicit private workspace from an older host's missing project entry", async () => {
+    const f = fixture();
+    expect((await f.provider.listThreads())[0]?.project).toEqual({ name: session.projectName });
+    f.setSessions([{ ...session, projectName: "No project", projectless: true }]);
+    expect((await f.provider.listThreads())[0]?.project).toEqual({ name: "No project", listed: false });
+    f.setSessions([session]);
+    f.services.index = () => ({ projects: [{ path: session.projectPath, name: session.projectName, lastOpenedAt: 1 }], sessions: [session] });
+    expect((await f.provider.listThreads())[0]?.project).toEqual({ name: session.projectName, listed: true });
+  });
+
   it("refuses creating a machine thread through the runtime picker", async () => {
     const f = fixture();
     await expect(f.provider.open("rex~new", "/remote", { resume: false }, f.context)).rejects.toThrow("Start threads on another machine with Run on.");

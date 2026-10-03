@@ -15,7 +15,7 @@ import { errorMessage } from "../workbench/error-message";
 import type { PreferencesStore } from "./preferences";
 import type { StageTabController } from "./stage-tab-controller";
 import { effectiveNewThreadRuntime } from "./new-thread-runtime";
-import { newThreadProject } from "../workbench/new-thread-project";
+import { newThreadProject, workspaceOnScreen } from "../workbench/new-thread-project";
 import { namesWorkspace } from "../shared/workspace-identity";
 import { isFilesystemRoot } from "../shared/filesystem-root";
 import type { NewThreadPick } from "./use-app-overlays";
@@ -53,6 +53,7 @@ export interface UseWorkbenchActionsOptions {
   openPalette: (options?: { menu?: string }) => void;
   setSettingsPage: (page?: string) => void;
   openNewThreadPicker: (pick?: NewThreadPick) => void;
+  hasPrivateThreadWorkspace?: () => boolean;
   /** Puts a new thread's draft in a project without the picker. */
   createThreadInProject?: (project: UiProject) => void;
   switchSession: WorkbenchActions["switchSession"];
@@ -125,16 +126,28 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
         else if (unlisted) options.openNewThreadPicker();
         return;
       }
-      // Nothing to choose from yet: adding a project comes first (design 2a); with one, only `pick` asks.
       const choices = projects.filter((project) => !isFilesystemRoot(project.path));
-      if (choices.length === 0) { options.openProjectSources(); return; }
-      if (choices.length === 1 && !request?.pick) { options.createThreadInProject?.(choices[0]!); return; }
+      const privateWorkspace = options.hasPrivateThreadWorkspace?.() === true;
+      if (choices.length === 0) {
+        if (privateWorkspace) options.openNewThreadPicker();
+        else options.openProjectSources();
+        return;
+      }
       const draft = pendingNewThreadRef.current;
       const thread = options.viewStore.getSnapshot();
-      // Otherwise it asks, with the project in context first: the named one, else the one on screen.
-      const context = named ?? newThreadProject(projects, options.threadStore.getSnapshot().threads, {
+      const screen = {
         covered: Boolean(options.threadView?.()?.covered), ...(draft ? { draft } : {}), ...(thread ? { thread } : {}),
-      });
+      };
+      const visible = workspaceOnScreen(screen);
+      const unlistedWorkspace = visible && !isFilesystemRoot(draft?.projectPath ?? thread?.cwd ?? "/")
+        && !projects.some((project) => namesWorkspace(visible, project.workspaceId, project.path));
+      // Keep the single-project shortcut, but ask when leaving a private workspace.
+      if (choices.length === 1 && !request?.pick && !(privateWorkspace && unlistedWorkspace)) {
+        options.createThreadInProject?.(choices[0]!);
+        return;
+      }
+      // Otherwise it asks, with the project in context first: the named one, else the one on screen.
+      const context = named ?? newThreadProject(projects, options.threadStore.getSnapshot().threads, screen);
       options.openNewThreadPicker(context ? { preselect: context.workspaceId ?? context.path } : undefined);
     };
     const commandTab = (tab: StageTab | undefined) => actionableStageTab(tab,
@@ -158,6 +171,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
           void client?.abort(options.threadStore.getSnapshot().activeThreadId || undefined);
         }
       },
+      restartAgentSession: options.threadCommands.restartAgentSession,
       reloadWorkbench,
       openWorkbenchSource: async () => {
         if (!client) return false;

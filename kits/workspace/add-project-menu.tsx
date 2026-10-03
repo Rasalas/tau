@@ -57,8 +57,9 @@ export function folderMenu(host: AddProjectHost, path?: string): PaletteMenu {
 export function addProjectMenu(host: AddProjectHost): PaletteMenu {
   return {
     title: "Add project",
-    placeholder: "Browse, choose or clone…",
+    placeholder: "Create, browse or clone…",
     items: () => [
+      { id: "create", label: "New project…", icon: <FolderPlus size={14} aria-hidden />, keywords: ["create", "name"], run: (app) => app.openProjectSources("workspace.new-project") },
       { id: "browse", label: "Browse folders", detail: host.baseDirectory() ?? "~", icon: <FolderOpen size={14} aria-hidden />, keywords: ["local", "folder", "directory"], submenu: folderMenu(host, host.baseDirectory()) },
       {
         id: "pick",

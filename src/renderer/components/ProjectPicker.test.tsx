@@ -93,6 +93,17 @@ describe("ProjectPicker large catalogs", () => {
     expect(onBrowse).toHaveBeenCalledTimes(2);
   });
 
+  it("offers No project without a catalog and supports keyboard selection", () => {
+    const start = vi.fn();
+    const browse = vi.fn();
+    render(<ProjectPicker open projects={[]} onNoProject={start} onBrowse={browse} onClose={() => {}} onRemove={() => {}} onSelect={() => {}} />);
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Search projects" }), { key: "Enter" });
+    expect(start).toHaveBeenCalledOnce();
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Search projects" }), { key: "ArrowDown" });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Search projects" }), { key: "Enter" });
+    expect(browse).toHaveBeenCalledOnce();
+  });
+
   it("closes on Escape without choosing", () => {
     const onClose = vi.fn();
     const onSelect = vi.fn();

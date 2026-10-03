@@ -10,7 +10,7 @@ export async function loadExternalSessionShells(options: {
   providers: Iterable<HostRuntimeBackendProvider>;
   projectName(cwd: string): string;
   projectLabel(cwd: string): string | undefined;
-  onProject?(threadId: string, project: Pick<UiProject, "name" | "icon">): void;
+  onProject?(threadId: string, project: Pick<UiProject, "name" | "icon"> & { listed?: boolean }): void;
   onError(provider: HostRuntimeBackendProvider, error: unknown): void;
   /** Prices a thread's tallies for its shell; without it a shell carries no cost. */
   usage?(path: string, tallies: readonly UsageTally[]): UiThreadUsage | undefined;
@@ -34,6 +34,7 @@ export async function loadExternalSessionShells(options: {
         modifiedAt: record.updatedAt,
         projectPath: record.cwd,
         projectName: record.project?.name ?? options.projectName(record.cwd),
+        ...(record.project?.listed === false ? { projectless: true } : {}),
         projectLabel: options.projectLabel(record.cwd),
         ...(record.workspace ? { workspaceId: record.workspace.workspaceId, projectDisplayPath: record.workspace.displayPath } : {}),
         messageCount: record.messageCount ?? record.messages.length,

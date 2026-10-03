@@ -102,6 +102,20 @@ describe("machine provider in the real host", () => {
     expect(existsSync(f.remote.projectPath)).toBe(false);
   });
 
+  it("keeps remote private threads out of the normal project catalog", async () => {
+    const f = await fixture();
+    f.remote.projectName = "No project";
+    f.remote.projectless = true;
+    f.remote.workspaceId = "ws-remote-private";
+    const { host } = await f.open();
+    let bootstrap = await host.bootstrap();
+    expect(bootstrap.threadIndex.sessions.find((entry) => entry.id === f.proxyId)?.workspaceId).toBe("ws-remote-private");
+    expect(bootstrap.threadIndex.projects.some((project) => project.workspaceId === "ws-remote-private")).toBe(false);
+    await host.switchSession(externalThreadPath("machine", f.proxyId));
+    bootstrap = await host.bootstrap();
+    expect(bootstrap.threadIndex.projects.some((project) => project.workspaceId === "ws-remote-private")).toBe(false);
+  });
+
   it("lists the machine row, hides the backend from new threads, activates without moving rex, and resumes after restart", async () => {
     const f = await fixture();
     const first = await f.open();

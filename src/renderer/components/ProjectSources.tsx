@@ -3,7 +3,7 @@ import { ArrowLeft, Search } from "lucide-react";
 import type { ContributionOwner, ProjectSourceContribution, WorkbenchActions } from "../extension-system";
 
 /** Sources that draw their own search bar, as the list does. */
-const OWN_BAR = new Set(["workspace.local-folder", "workspace.git-clone"]);
+const OWN_BAR = new Set(["workspace.local-folder", "workspace.git-clone", "workspace.new-project"]);
 
 /**
  * The list of project sources extensions registered, and the source's own view
@@ -26,7 +26,7 @@ export function ProjectSourcesModal({
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const activeSource = sources.find((source) => source.id === activeSourceId);
-  const visibleSources = sources.filter((source) => fuzzyMatch(`${source.label} ${source.description}`, query.trim()));
+  const visibleSources = sources.filter((source) => !source.createThreadWorkspace && fuzzyMatch(`${source.label} ${source.description}`, query.trim()));
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

@@ -261,6 +261,38 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
   </div>;
 }
 
+/** A name and the host's parent folder create a ready project. */
+export function NewProjectSource({ actions, onBack, onDone }: ProjectSourceProps) {
+  const store = useWorkspaceStore();
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const base = store.projectBaseDirectory();
+  const submit = async (useBase: boolean) => {
+    if (!name.trim() || busy) return;
+    setBusy(true);
+    try {
+      const created = await store.host.createProject(name, useBase ? base : undefined);
+      if (!created) return;
+      if (created.warning) actions.notify(created.warning);
+      if (await actions.openWorkspace(created.workspace.workspaceId)) {
+        actions.newSession({ workspace: created.workspace.workspaceId });
+        onDone();
+      }
+    } catch (error) { actions.notify(errorMessage(error)); }
+    finally { setBusy(false); }
+  };
+  return <form className="clone-project-form" onSubmit={(event) => { event.preventDefault(); void submit(Boolean(base)); }}>
+    <header className="project-modal-bar">
+      <button type="button" className="project-modal-bar-glyph" onClick={onBack} aria-label="Back to project sources"><ArrowLeft size={15} /></button>
+      <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Project name" aria-label="Project name" disabled={busy} />
+      <button type="submit" className="project-modal-bar-action" disabled={!name.trim() || busy}>{busy ? "Creating…" : base ? "Create" : "Continue"}</button>
+    </header>
+    <div className="project-picker-heading"><span>Create in</span></div>
+    <div className="clone-project-destination"><Folder size={15} />{base ? <code>{homeRelative(base)}/{name.trim() || "…"}</code> : <span>A folder you choose next</span>}</div>
+    <footer className="project-modal-footer">{base ? <button type="button" disabled={!name.trim() || busy} onClick={() => void submit(false)}><FolderOpen size={14} /> Choose parent folder…</button> : null}<small>Starts with a README and Git repository</small></footer>
+  </form>;
+}
+
 export function CloneProjectSource({ actions, onBack, onDone }: ProjectSourceProps) {
   const store = useWorkspaceStore();
   const [repositoryUrl, setRepositoryUrl] = useState("");
@@ -944,11 +976,11 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   ), [threads, lineage.parents, liveKey, projectFilter, order.threadSort]);
   const sections = useMemo(
     () => organizer
-      ? organizer.sections(matching)
+      ? organizer.sections(matching, { ...activityState, waitingThreadIds: [...activityState.waitingThreadIds, ...Object.keys(rowStatuses)] })
       : defaultRailSections(matching, settings.pinnedThreadIds, settings.settledThreadIds, showSettledShelf),
     // The organizer's version says when the same threads would land elsewhere.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-    [matching, organizer, organizerVersion, settings.pinnedThreadIds, settings.settledThreadIds, showSettledShelf],
+    [matching, activityState, rowStatuses, organizer, organizerVersion, settings.pinnedThreadIds, settings.settledThreadIds, showSettledShelf],
   );
   // Other machines' threads join the main list by the same filters and order; the rail's sections stay this machine's.
   const outside = useMemo(() => {
@@ -964,19 +996,28 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const ownMain = sections[mainIndex] ?? { id: "active", threads: [] };
   // A thread settled on its machine goes on the settled shelf, where there is one.
   const shelfIndex = sections.findIndex((section) => section.settled && section.shelf);
-  const [outsideActive, outsideSettled] = useMemo(() => {
+  const workingIndex = sections.findIndex((section) => section.id === "working");
+  const [outsideActive, outsideSettled, outsideWorking] = useMemo(() => {
     const active: UiSession[] = [];
     const settled: UiSession[] = [];
-    for (const thread of outside.values()) (thread.settled && shelfIndex >= 0 ? settled : active).push(thread.session);
-    return [active, settled];
-  }, [outside, shelfIndex]);
+    const working: UiSession[] = [];
+    for (const thread of outside.values()) {
+      const target = thread.settled && shelfIndex >= 0 ? settled
+        : workingIndex >= 0 && thread.running && !thread.waiting && !thread.unavailable && !thread.session.turnError && !thread.session.runtimeError && !thread.session.limit && !thread.session.interrupted ? working : active;
+      target.push(thread.session);
+    }
+    return [active, settled, working];
+  }, [outside, shelfIndex, workingIndex]);
   const main = useMemo(
     () => outsideActive.length === 0 ? ownMain : { ...ownMain, threads: mergeByTime(ownMain.threads, outsideActive, order.threadSort) },
     [order.threadSort, outsideActive, ownMain],
   );
   const shownSections = useMemo(
-    () => outsideSettled.length === 0 ? sections : sections.map((section, index) => index === shelfIndex ? { ...section, threads: mergeByTime(section.threads, outsideSettled, order.threadSort) } : section),
-    [order.threadSort, outsideSettled, sections, shelfIndex],
+    () => sections.map((section, index) => {
+      const extra = index === shelfIndex ? outsideSettled : index === workingIndex ? outsideWorking : [];
+      return extra.length ? { ...section, threads: mergeByTime(section.threads, extra, order.threadSort) } : section;
+    }),
+    [order.threadSort, outsideSettled, outsideWorking, sections, shelfIndex, workingIndex],
   );
   const listedIds = useMemo(() => new Set(matching.map((session) => session.id)), [matching]);
   // A draft on screen is the active row; the thread the host holds behind it is not.
