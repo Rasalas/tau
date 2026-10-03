@@ -70,6 +70,11 @@ export class WorkbenchSession {
       scopes: this.scopes,
       newThread: this.newThread,
       publish: (drafts) => this.threads.setDrafts(drafts),
+      threads: {
+        listed: (sessionId) => (this.threads.getThread(sessionId)?.messageCount ?? 0) > 0,
+        active: (sessionId) => this.threads.getSnapshot().activeThreadId === sessionId,
+        subscribe: this.threads.subscribe,
+      },
     });
     this.stages = new ThreadStages({
       storage,
@@ -98,6 +103,7 @@ export class WorkbenchSession {
           promoteFromUserMessage: this.newThread.promoteFromUserMessage,
         },
         turn: this.turn,
+        retainDraftRow: this.drafts.handoff,
       },
       notification: options.notification ?? { notifyPromptSubmitted: () => true },
     });

@@ -39,7 +39,7 @@ function start(overrides: { newSession?: (...args: unknown[]) => Promise<NewThre
     invokeHostExtension: workspaceHostStub({
       listEditors: async () => [],
       getChanges: async () => ({ files: [], added: 0, removed: 0 }),
-      getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+      getWorkspaceInfo: async () => ({ root: "/project", isRepo: true, branch: "fix/draft-sidebar", isDirty: false, worktrees: [], refs: [] }),
       getFileTree: async () => [],
     }, { "tau.thread-titles": async () => undefined }),
     switchSession,
@@ -69,9 +69,9 @@ describe("draft rows in the rail", () => {
     expect(row.getAttribute("aria-current")).toBe("true");
     // The thread the host holds behind the draft is not the active row.
     expect(rail().querySelectorAll(".thread-row.active:not(.thread-draft-row)")).toHaveLength(0);
-    // The design's quiet "draft" where a thread shows its state; no branch line yet.
-    expect(within(row).getByText("draft").className).toBe("thread-draft-mark");
-    expect(row.querySelector(".thread-meta-line")).toBeNull();
+    expect(within(row).getByText("Draft").className).toBe("thread-draft-mark");
+    expect(row.querySelector(".thread-draft-mark svg")).toBeTruthy();
+    expect(await within(row).findByText("fix/draft-sidebar")).toBeTruthy();
     expect(within(row).getByText("project")).toBeTruthy();
     // At the top of the active threads.
     const cards = rail().querySelectorAll(".thread-row");
@@ -128,7 +128,7 @@ describe("draft rows in the rail", () => {
   it("turns into the thread's own row with the first message, never both and never neither", async () => {
     let resolve!: (result: NewThreadResult) => void;
     let identity: { clientTurnId: string; clientMessageId: string } | undefined;
-    start({
+    const { client } = start({
       newSession: (...args: unknown[]) => {
         identity = args[3] as typeof identity;
         return new Promise<NewThreadResult>((done) => { resolve = done; });
@@ -148,7 +148,6 @@ describe("draft rows in the rail", () => {
       resolve({
         version: 1,
         updates: [
-          { version: 1, type: "thread-shell", update: { sessionId: "created", shell } },
           {
             version: 1,
             type: "thread-detail",
@@ -164,6 +163,9 @@ describe("draft rows in the rail", () => {
         submission: { accepted: true },
       } as NewThreadResult);
     });
+    // The response promotes the composer before the index shell arrives.
+    expect(within(rail()).getAllByText("Count slowly")).toHaveLength(1);
+    act(() => client.emit({ type: "host-update", update: { version: 1, type: "thread-shell", update: { sessionId: "created", shell } } }));
     // The same commit that lists the thread takes the draft away.
     expect(draftRows()).toHaveLength(0);
     expect(within(rail()).getAllByText("Count slowly")).toHaveLength(1);

@@ -420,7 +420,9 @@ button > svg { pointer-events: none; }
 .thread-row-actions > button:hover, .thread-row-actions > button[aria-expanded="true"] { background: var(--chip-hover); color: var(--ink); }
 .thread-row-actions > .thread-settle:hover { background: var(--acid-chip); color: var(--acid-text); }
 /* A new thread's draft: the design's quiet grey "draft" where a thread shows its state, the title muted. */
-.thread-draft-mark { flex: none; font: var(--text-xs) var(--sans); color: var(--muted); }
+.thread-draft-mark { flex: none; display: inline-flex; align-items: center; gap: 4px; font: var(--text-xs) var(--sans); color: var(--warn); }
+.thread-draft-row { background: color-mix(in srgb, var(--warn) 5%, transparent); }
+.thread-draft-row.active { background: color-mix(in srgb, var(--warn) 9%, var(--hover)); }
 .thread-draft-row .thread-title { font-weight: 600; color: var(--muted); }
 .thread-draft-row.active .thread-title { color: var(--ink-3); }
 .thread-row:is(:hover, :has(.thread-row-actions :focus-visible)):has(> .thread-row-actions) .thread-draft-mark { visibility: hidden; }

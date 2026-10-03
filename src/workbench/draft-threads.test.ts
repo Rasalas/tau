@@ -4,12 +4,18 @@ import { ComposerScopeStore, createDraftKey } from "./composer-scope-store";
 import { createNewThreadDraft, draftKey, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
 import { DraftThreads, type DraftThread } from "./draft-threads";
 import { NewThreadController } from "./new-thread-controller";
+import { ThreadStore } from "./thread-store";
 
 function setup(storage: ClientStorage = createMemoryStorage()) {
   const scopes = new ComposerScopeStore();
   const newThread = new NewThreadController(storage);
   let published: readonly DraftThread[] = [];
-  const drafts = new DraftThreads({ storage, scopes, newThread, publish: (rows) => { published = rows; } });
+  const threads = new ThreadStore();
+  const drafts = new DraftThreads({ storage, scopes, newThread, publish: (rows) => { published = rows; }, threads: {
+    listed: (id) => (threads.getThread(id)?.messageCount ?? 0) > 0,
+    active: (id) => threads.getSnapshot().activeThreadId === id,
+    subscribe: threads.subscribe,
+  } });
   /** What the composer does when the user types into the draft on screen. */
   const type = (draft: NewThreadDraft, text: string) => {
     const scope = createDraftKey(draftKey(undefined, draft));
@@ -23,7 +29,7 @@ function setup(storage: ClientStorage = createMemoryStorage()) {
     newThread.set(undefined);
     writeNewThreadDraft(storage);
   };
-  return { storage, scopes, newThread, drafts, rows: () => published, type, leave };
+  return { storage, scopes, threads, newThread, drafts, rows: () => published, type, leave };
 }
 
 const project = { projectPath: "/repos/tau", projectName: "tau" };
@@ -87,6 +93,21 @@ describe("draft rows", () => {
     drafts.discard(older);
     expect(rows().map((row) => row.preview)).toEqual(["newer"]);
     expect(scopes.getSnapshot(createDraftKey(draftKey(undefined, older))).draft).toBe("");
+  });
+
+  it("keeps a promoted draft until a nonempty thread shell arrives", () => {
+    const { newThread, drafts, threads, rows, type } = setup();
+    const draft = createNewThreadDraft(project);
+    newThread.begin(draft);
+    type(draft, "Ship it");
+    newThread.set(undefined);
+    drafts.handoff(draft.draftId, "created");
+    expect(rows()).toMatchObject([{ preview: "Ship it", sessionId: "created" }]);
+    const shell = { id: "created", path: "/created.jsonl", title: "Ship it", modifiedAt: 1, ...project, messageCount: 0 };
+    threads.applyThreadShell("created", shell);
+    expect(rows()).toHaveLength(1);
+    threads.applyThreadShell("created", { ...shell, messageCount: 1 });
+    expect(rows()).toEqual([]);
   });
 
   it("keeps the title while the first message is on its way, and keeps no draft that is being sent", async () => {

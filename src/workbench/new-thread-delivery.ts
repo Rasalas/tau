@@ -35,6 +35,7 @@ export interface NewThreadDeliveryProjection {
   storage: ClientStorage;
   newThread: NewThreadDeliveryDraftPort;
   turn: TranscriptTurnPort;
+  retainDraftRow?(draftId: string, sessionId: string): void;
 }
 
 /** The renderer adapts its extension registry to this one notification. */
@@ -158,6 +159,7 @@ export class NewThreadDeliveryCoordinator {
     }
     recovery.sessionId = sessionId;
     recovery.promoted = true;
+    if (message && !recovery.detached) this.ports.projection.retainDraftRow?.(recovery.pending.draftId, sessionId);
     scopes.moveScope(recovery.scopeRef.scope, createDraftKey(draftKey(sessionId)));
     if (message) {
       retargetOptimisticByClientMessageId(view, clientMessageId, `session:${sessionId}`);

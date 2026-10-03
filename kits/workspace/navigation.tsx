@@ -738,7 +738,20 @@ const DraftRailRow = memo(function DraftRailRow({ draft, onOpen }: { draft: Draf
   const store = useThreadStore();
   const projects = useSyncExternalStore(store.subscribeToProjects, store.getProjects);
   const icon = useProjectIcon(useMemo(() => findProjectForSession(projects, draft), [draft, projects]));
-  return <DraftRow draft={draft} {...(icon ? { projectIcon: icon } : {})} onOpen={onOpen} />;
+  const workspace = useWorkspaceStore();
+  const state = useSyncExternalStore(workspace.subscribe, workspace.getSnapshot);
+  const [checkoutBranch, setCheckoutBranch] = useState<string>();
+  useEffect(() => {
+    let cancelled = false;
+    void workspace.host.getWorkspaceInfo(draft.workspaceId ?? draft.projectPath).then((info) => {
+      if (!cancelled) setCheckoutBranch(info.branch);
+    }).catch(() => { /* A disconnected host leaves the branch unknown. */ });
+    return () => { cancelled = true; };
+  }, [workspace, draft.workspaceId, draft.projectPath]);
+  const branch = draft.active && state.cwd === draft.projectPath
+    ? (state.workspaceMode === "worktree" ? state.draftBranch ?? state.draftBase ?? state.workspace?.branch : state.workspace?.branch) ?? checkoutBranch
+    : checkoutBranch;
+  return <DraftRow draft={draft} {...(icon ? { projectIcon: icon } : {})} {...(branch ? { branch } : {})} onOpen={onOpen} />;
 });
 
 /** Subscribes to the drafts on its own, so typing in a draft repaints these rows and nothing else. */

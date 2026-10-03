@@ -24,6 +24,7 @@ export interface DraftThreadsPorts {
   scopes: ComposerScopeStore;
   newThread: { current(): NewThreadDraft | undefined; subscribe(listener: () => void): () => void };
   publish(drafts: readonly DraftThread[]): void;
+  threads?: { listed(sessionId: string): boolean; active(sessionId: string): boolean; subscribe(listener: () => void): () => void };
 }
 
 const PREVIEW_LENGTH = 160;
@@ -40,6 +41,8 @@ function previewOf(text: string): string {
  */
 export class DraftThreads {
   private kept: NewThreadDraft[];
+  private lastActive: DraftThread | undefined;
+  private readonly handoffs = new Map<string, DraftThread>();
   private drafts: readonly DraftThread[] = [];
   private scope: DraftKey | undefined;
   private releaseScope: (() => void) | undefined;
@@ -52,10 +55,18 @@ export class DraftThreads {
   constructor(private readonly ports: DraftThreadsPorts) {
     this.kept = readKeptDrafts(ports.storage);
     ports.newThread.subscribe(this.follow);
+    ports.threads?.subscribe(this.refresh);
     this.follow();
   }
 
   list = (): readonly DraftThread[] => this.drafts;
+
+  /** The composer is a thread now; its rail row stays until the index catches up. */
+  handoff = (draftId: string, sessionId: string): void => {
+    if (this.lastActive?.draftId !== draftId || this.ports.threads?.listed(sessionId)) return;
+    this.handoffs.set(sessionId, { ...this.lastActive, sessionId });
+    this.refresh();
+  };
 
   /**
    * The draft on screen is being left: kept when it holds text or images,
@@ -145,8 +156,14 @@ export class DraftThreads {
 
   private refresh = (): void => {
     const current = this.ports.newThread.current();
+    for (const sessionId of this.handoffs.keys()) {
+      if (this.ports.threads?.listed(sessionId)) this.handoffs.delete(sessionId);
+    }
+    const active = current ? this.row(current, true) : undefined;
+    if (active) this.lastActive = active;
     const rows = [
-      ...(current ? [this.row(current, true)] : []),
+      ...(active ? [active] : []),
+      ...[...this.handoffs].map(([sessionId, row]) => Object.assign({}, row, { active: !current && Boolean(this.ports.threads?.active(sessionId)) })),
       ...this.kept.filter((draft) => draft.draftId !== current?.draftId).map((draft) => this.row(draft, false)),
     ].sort((left, right) => right.createdAt - left.createdAt);
     if (sameRows(rows, this.drafts)) return;

@@ -1,5 +1,6 @@
 import { memo, type ReactNode } from "react";
-import { X } from "lucide-react";
+import { GitBranch, Pencil, X } from "lucide-react";
+import { MiddleTruncate } from "./ui/MiddleTruncate";
 import type { DraftThread } from "../../workbench/draft-threads";
 import { plainChipText } from "./composer-chip-token";
 import { ProjectIcon } from "./ProjectIcon";
@@ -16,6 +17,7 @@ export function draftTitle(draft: Pick<DraftThread, "preview" | "attachments">):
 export interface DraftRowProps {
   draft: DraftThread;
   projectIcon?: string;
+  branch?: string;
   onOpen(draftId: string): void;
   /** Absent, the row has no Discard button. */
   onDiscard?(draftId: string): void;
@@ -23,12 +25,8 @@ export interface DraftRowProps {
   actions?: ReactNode;
 }
 
-/**
- * A new thread's draft in a thread list: the project line with a quiet grey
- * "draft" where a thread shows its state (the design's), and the draft's first
- * line as its title. Two lines, no branch yet.
- */
-export const DraftRow = memo(function DraftRow({ draft, projectIcon, onOpen, onDiscard, actions }: DraftRowProps) {
+/** A draft's project, status, first line and chosen branch in the thread list. */
+export const DraftRow = memo(function DraftRow({ draft, projectIcon, branch, onOpen, onDiscard, actions }: DraftRowProps) {
   const title = draftTitle(draft);
   return (
     <article className={`thread-row thread-draft-row${draft.active ? " active" : ""}`} data-draft-id={draft.draftId}>
@@ -43,10 +41,11 @@ export const DraftRow = memo(function DraftRow({ draft, projectIcon, onOpen, onD
         <span className="thread-project-line">
           <ProjectIcon project={{ path: draft.projectPath, name: draft.projectName, workspaceId: draft.workspaceId }} icon={projectIcon} />
           <strong>{draft.projectName}</strong>
-          <span className="thread-draft-mark">draft</span>
+          <span className="thread-draft-mark" {...tooltipProps("Unsent draft")}><Pencil size={12} aria-hidden="true" />Draft</span>
         </span>
         {/* A touch list's long press would show a tooltip instead of its sheet. */}
         <span className="thread-title" {...(actions ? {} : tooltipProps(title, { when: "truncated", side: "right" }))}>{title}</span>
+        {branch ? <span className="thread-meta-line"><span className="thread-branch"><GitBranch size={11} aria-hidden="true" /><MiddleTruncate value={branch} /></span></span> : null}
       </button>
       {actions ?? (onDiscard ? <span className="thread-row-actions">
         <button type="button" className="thread-discard" aria-label={`Discard draft ${title}`} {...tooltipProps("Discard draft")} onClick={() => onDiscard(draft.draftId)}>
