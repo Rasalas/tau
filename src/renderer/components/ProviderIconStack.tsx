@@ -154,8 +154,8 @@ export function providerStackLabel(modelProvider: string | undefined, runtimePro
 }
 
 /**
- * The marks `providerMarks` gives a model provider and the runtime that runs it: the provider's (or plan's) mark
- * and the runtime's side by side, or one mark alone. `hint` names them on hover: a native title
+ * The marks `providerMarks` gives a model provider and the runtime that runs it: the runtime's mark first,
+ * then the provider's (or plan's) side by side, or one mark alone. `hint` names them on hover: a native title
  * by default, the tooltip layer's with options, nothing with `false` (inside a control that names itself). `name`
  * replaces the whole name; `runtimeName` only the runtime's (an instance's), and `modelName` leads it. `plan` says
  * the provider is reached through a subscription plan, where its id alone does not tell. `runtimeMark: false` leaves
@@ -179,8 +179,8 @@ export function ProviderIconStack({ modelProvider, runtimeProvider, plan, runtim
   const stacked = Boolean(runtimeMark && model && runtime);
   return (
     <span className={`provider-icon-stack ${stacked ? "stacked" : "single"}${className ? ` ${className}` : ""}`} role="img" aria-label={label} {...(hint === undefined ? { title: label } : hint ? tooltipProps(label, hint) : {})}>
-      {model ? <ProviderIcon identity={model} layer="model" value={marks.model} /> : runtime ? <ProviderIcon identity={runtime} layer="model" value={marks.runtime} /> : null}
       {stacked && runtime ? <ProviderIcon identity={runtime} layer="runtime" value={marks.runtime} /> : null}
+      {model ? <ProviderIcon identity={model} layer="model" value={marks.model} /> : runtime ? <ProviderIcon identity={runtime} layer="model" value={marks.runtime} /> : null}
     </span>
   );
 }
