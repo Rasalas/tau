@@ -2,9 +2,9 @@ import { useEffect, useRef, type RefObject } from "react";
 
 /**
  * Pulling a bottom sheet down to close it, after the user's rules for mobile
- * sheets: the whole surface is a handle except controls, scrolling inside wins
- * while it can still go up, and the same continued pull hands over to the
- * sheet once the content sits at `scrollTop = 0`. Short moves and taps never
+ * sheets: the whole surface is a handle except editable fields, scrolling inside wins
+ * while it can still go up. At the top, a downward pull moves the sheet
+ * while the browser still permits cancelling the scroll gesture. Short moves and taps never
  * close. The thresholds are design values, not measurements; tune them on a
  * real phone.
  */
@@ -18,9 +18,9 @@ export function sheetDragCloses(distance: number, velocity: number): boolean {
   return distance >= SHEET_CLOSE_DISTANCE_PX || (distance >= SHEET_CLOSE_MIN_DISTANCE_PX && velocity >= SHEET_CLOSE_VELOCITY);
 }
 
-const CONTROLS = "input, textarea, select, button, a[href], [contenteditable=''], [contenteditable='true'], [role='slider'], [role='button'], [data-sheet-drag='off']";
+const CONTROLS = "input, textarea, select, [contenteditable=''], [contenteditable='true'], [role='slider'], [data-sheet-drag='off']";
 
-/** A pull that starts on a control, or while text is selected, belongs to that control. */
+/** A pull that starts in an editable field, or while text is selected, stays there. */
 export function sheetDragMayStart(target: Element, selection = typeof window === "undefined" ? null : window.getSelection()): boolean {
   if (target.closest(CONTROLS)) return false;
   return !selection || selection.isCollapsed;
@@ -48,25 +48,31 @@ export function useSheetDrag(sheet: RefObject<HTMLElement | null>, onClose: () =
     const element = sheet.current;
     if (!element) return undefined;
     let pull: { startY: number; lastY: number; lastT: number; velocity: number; origin?: number; scroller?: HTMLElement } | undefined;
+    let suppressClick = false;
     const settle = (offset: number) => {
-      element.style.transition = "transform 180ms ease";
+      element.style.transition = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "none" : "transform 180ms ease";
       element.style.transform = offset === 0 ? "" : `translateY(${offset}px)`;
     };
     const onStart = (event: TouchEvent) => {
       const touch = event.touches[0];
+      if (pull?.origin !== undefined) settle(0);
       pull = undefined;
+      suppressClick = false;
       if (event.touches.length !== 1 || !touch || !(event.target instanceof Element) || !sheetDragMayStart(event.target)) return;
       pull = { startY: touch.clientY, lastY: touch.clientY, lastT: performance.now(), velocity: 0, scroller: scrollerOf(event.target, element) };
     };
     const onMove = (event: TouchEvent) => {
       const touch = event.touches[0];
+      if (event.touches.length !== 1) { onCancel(); return; }
       if (!pull || !touch) return;
       const y = touch.clientY;
       const down = y > pull.lastY;
       if (pull.origin === undefined) {
         const atTop = !pull.scroller || pull.scroller.scrollTop <= 0;
         if (!(down && atTop && y - pull.startY >= SHEET_DRAG_SLOP_PX)) { pull.lastY = y; pull.lastT = performance.now(); return; }
+        if (!event.cancelable) { pull = undefined; return; }
         pull.origin = y;
+        suppressClick = true;
       }
       if (event.cancelable) event.preventDefault();
       const elapsed = Math.max(1, performance.now() - pull.lastT);
@@ -84,15 +90,27 @@ export function useSheetDrag(sheet: RefObject<HTMLElement | null>, onClose: () =
       if (sheetDragCloses(distance, current.velocity)) close.current();
       else settle(0);
     };
+    const onCancel = () => {
+      pull = undefined;
+      settle(0);
+    };
+    const onClick = (event: MouseEvent) => {
+      if (!suppressClick) return;
+      suppressClick = false;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    element.addEventListener("click", onClick, true);
     element.addEventListener("touchstart", onStart, { passive: true });
     element.addEventListener("touchmove", onMove, { passive: false });
     element.addEventListener("touchend", onEnd);
-    element.addEventListener("touchcancel", onEnd);
+    element.addEventListener("touchcancel", onCancel);
     return () => {
+      element.removeEventListener("click", onClick, true);
       element.removeEventListener("touchstart", onStart);
       element.removeEventListener("touchmove", onMove);
       element.removeEventListener("touchend", onEnd);
-      element.removeEventListener("touchcancel", onEnd);
+      element.removeEventListener("touchcancel", onCancel);
     };
   }, [sheet]);
 }

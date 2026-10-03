@@ -22,7 +22,7 @@ export interface SheetAction {
  * Every action on one thing, as a sheet from the bottom edge: what a long
  * press opens where a desktop would open a context menu. Destructive actions
  * come last, apart from the rest. It closes with its X, Escape, the scrim or a
- * pull down on anything but a button.
+ * pull down on the surface, including buttons.
  */
 export function ActionSheet({ title, head, summary, actions, onClose }: {
   title: string;

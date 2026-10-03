@@ -310,3 +310,13 @@ body[data-profile="compact"] :is(.extension-prompt-pick, .extension-option small
 .touch-sidebar-footer button:hover { background: var(--hover-strong); color: var(--ink); }
 .touch-sidebar-back { display: flex; align-items: center; gap: var(--space-4); flex: 1; padding: 0 var(--space-4); font: 500 var(--text-md) var(--sans); }
 .touch-page-summary { padding: 0 8px; font: var(--text-sm) var(--mono); }
+
+/* Keep project search visible while the choices scroll in a compact sheet. */
+.project-filter-sheet { height: min(560px, calc(var(--tau-viewport-height, 100dvh) * .6)); }
+.project-filter-sheet .touch-sheet-content { display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+.project-filter-sheet .touch-search-field { flex: none; }
+.project-filter-results { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.project-filter-results .action-sheet-list > button > span { flex: 1; }
+.project-filter-results .action-sheet-list > button > svg { flex: none; color: var(--muted); }
+.project-filter-results .action-sheet-list > button > .thread-project-icon { width: 24px; height: 24px; font-size: var(--text-xs); color: var(--project-ink); }
+.project-filter-results > p { padding: 12px; color: var(--muted); text-align: center; }

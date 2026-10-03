@@ -12,7 +12,7 @@ import { Popover } from "../components/ui/Dialog";
 import { tooltipProps } from "../components/ui/Tooltip";
 import { useHostCapabilities } from "../use-host-capabilities";
 import { useThreadStore } from "../workbench-context";
-import { ActionSheet } from "./ActionSheet";
+import { Sheet } from "./Sheet";
 import { TouchThreadList, type TouchThreadListProps } from "./TouchThreadList";
 import { useThreadListSources } from "./thread-list-sources";
 import "./touch.css";
@@ -155,24 +155,40 @@ function ProjectFilter({ projects, project, onChange }: {
   onChange(project: UiProject | undefined): void;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const field = useRef<HTMLInputElement>(null);
+  const search = query.trim().toLocaleLowerCase();
+  const matching = rootLast(projects).filter((candidate) => `${candidate.name} ${candidate.displayPath ?? candidate.path}`.toLocaleLowerCase().includes(search));
   if (projects.length < 2 && !project) return null;
   const same = (candidate: UiProject) => candidate.path === project?.path;
   const label = project ? `Filter threads by project: ${project.name}` : "Filter threads by project";
   return <>
-    <button type="button" className="touch-icon-button touch-project-filter" aria-haspopup="dialog" aria-label={label} {...tooltipProps(label, { side: "bottom" })} onClick={() => setOpen(true)}>
+    <button type="button" className="touch-icon-button touch-project-filter" aria-haspopup="dialog" aria-label={label} {...tooltipProps(label, { side: "bottom" })} onClick={() => { setQuery(""); setOpen(true); }}>
       {project
         ? <ProjectIcon project={project} className="touch-project-tile" />
         : <Folder size={19} aria-hidden="true" />}
       <ChevronDown size={14} aria-hidden="true" />
     </button>
-    {open ? <ActionSheet
-      title="Show threads of"
-      actions={[
-        { id: "all", label: "All projects", Icon: project ? undefined : Check, pressed: !project, run: () => onChange(undefined) },
-        ...rootLast(projects).map((candidate) => ({ id: candidate.path, label: candidate.name, detail: candidate.displayPath ?? candidate.path, Icon: same(candidate) ? Check : undefined, pressed: same(candidate), run: () => onChange(candidate) })),
-      ]}
-      onClose={() => setOpen(false)}
-    /> : null}
+    {open ? <Sheet title="Show threads of" className="project-filter-sheet" onClose={() => setOpen(false)}>
+      <label className="touch-search-field">
+        <Search size={16} aria-hidden="true" />
+        <input ref={field} type="search" value={query} placeholder="Name or path" aria-label="Search projects" enterKeyHint="search" onChange={(event) => setQuery(event.target.value)} />
+        {query ? <button type="button" className="touch-icon-button" aria-label="Clear search" onClick={() => { setQuery(""); field.current?.focus(); }}><X size={16} /></button> : null}
+      </label>
+      <div className="project-filter-results">
+        <div className="action-sheet-list">
+          <button type="button" aria-pressed={!project} onClick={() => { setOpen(false); onChange(undefined); }}>
+            <i aria-hidden="true"><Folder size={20} /></i><span>All projects</span>{!project ? <Check size={18} aria-hidden="true" /> : null}
+          </button>
+          {matching.map((candidate) => <button key={candidate.path} type="button" aria-pressed={same(candidate)} onClick={() => { setOpen(false); onChange(candidate); }}>
+            <ProjectIcon project={candidate} />
+            <span>{candidate.name}<small>{candidate.displayPath ?? candidate.path}</small></span>
+            {same(candidate) ? <Check size={18} aria-hidden="true" /> : null}
+          </button>)}
+        </div>
+        {matching.length === 0 ? <p role="status">No projects found</p> : null}
+      </div>
+    </Sheet> : null}
   </>;
 }
 

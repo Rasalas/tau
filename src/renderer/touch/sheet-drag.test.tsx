@@ -18,6 +18,7 @@ function Sheet({ onClose, scrollTop = 0 }: { onClose(): void; scrollTop?: number
       Object.defineProperty(node, "clientHeight", { value: 300, configurable: true });
       node.scrollTop = scrollTop;
     }}>rows</div>
+    <button onClick={onClose}>Choose project</button>
     <input aria-label="field" />
   </section>;
 }
@@ -39,9 +40,9 @@ describe("pulling a sheet down", () => {
     expect(sheetDragCloses(12, 3)).toBe(false);
   });
 
-  it("leaves a pull that starts on a control, or over selected text, to that control", () => {
+  it("leaves a pull that starts on a field, or over selected text, to that control", () => {
     document.body.innerHTML = "<div><button><span id=inner>x</span></button><p id=free>text</p></div>";
-    expect(sheetDragMayStart(document.getElementById("inner")!, null)).toBe(false);
+    expect(sheetDragMayStart(document.getElementById("inner")!, null)).toBe(true);
     expect(sheetDragMayStart(document.getElementById("free")!, null)).toBe(true);
     expect(sheetDragMayStart(document.getElementById("free")!, { isCollapsed: false } as Selection)).toBe(false);
   });
@@ -64,6 +65,29 @@ describe("pulling a sheet down", () => {
     render(<Sheet onClose={onClose} scrollTop={0} />);
     pull(screen.getByTestId("list"), 100, 400);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("pulls from a button without activating it after a short drag", () => {
+    const onClose = vi.fn();
+    render(<Sheet onClose={onClose} />);
+    const button = screen.getByRole("button", { name: "Choose project" });
+    pull(button, 100, 160, 4, 200);
+    fireEvent.click(button);
+    expect(onClose).not.toHaveBeenCalled();
+    pull(button, 100, 400);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels a long pull without closing", () => {
+    const onClose = vi.fn();
+    render(<Sheet onClose={onClose} />);
+    const title = screen.getByText("Title");
+    fireEvent.touchStart(title, { touches: [{ clientY: 100 }] });
+    fireEvent.touchMove(title, { touches: [{ clientY: 120 }] });
+    fireEvent.touchMove(title, { touches: [{ clientY: 300 }] });
+    fireEvent.touchCancel(title);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("sheet").style.transform).toBe("");
   });
 
   it("does not close from a field", () => {

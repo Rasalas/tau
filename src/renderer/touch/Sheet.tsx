@@ -7,7 +7,7 @@ import "./sheet.css";
 /**
  * A modal sheet from the bottom edge of a compact client: grip, title and a
  * close button on top, then `children`, which scroll on their own. It closes
- * with its X, Escape, the scrim or a pull down on anything but a control.
+ * with its X, Escape, the scrim or a pull down on the surface, including buttons.
  */
 export function Sheet({ title, className, onClose, children }: {
   title: string;

@@ -476,6 +476,15 @@ describe("a phone with no thread open", () => {
     expect(home.querySelector(".touch-project-filter-button")).toBeNull();
     fireEvent.click(filter);
     const sheet = await screen.findByRole("dialog", { name: "Show threads of" });
+    const search = within(sheet).getByRole("searchbox", { name: "Search projects" });
+    expect(document.activeElement).not.toBe(search);
+    expect(within(sheet).getByRole("button", { name: /^project/u }).querySelector(".thread-project-icon")).toBeTruthy();
+    fireEvent.change(search, { target: { value: "/OTHER" } });
+    expect(within(sheet).queryByRole("button", { name: /^project/u })).toBeNull();
+    expect(within(sheet).getByRole("button", { name: /^other/u })).toBeTruthy();
+    fireEvent.change(search, { target: { value: "missing-project" } });
+    expect(within(sheet).getByText("No projects found")).toBeTruthy();
+    fireEvent.click(within(sheet).getByRole("button", { name: "Clear search" }));
     expect(within(sheet).getByRole("button", { name: /^All projects/u }).getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(within(sheet).getByRole("button", { name: /^project/u }));
     await waitFor(() => expect(within(home).queryByRole("button", { name: "Open thread Tune the other one" })).toBeNull());
