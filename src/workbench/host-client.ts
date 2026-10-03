@@ -380,7 +380,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     setMode: (mode, expectedSessionId) => call<HostActionResult>("set-mode", [mode, expectedSessionId]),
     compactContext: () => call<HostActionResult>("compact-context"),
 
-    restartSession: (threadId) => call<HostActionResult>("restart-session", threadId),
+    restartSession: (threadId) => call<HostActionResult>("restart-session", [threadId]),
     reloadRuntime: () => call<void>("reload-runtime"),
     reloadExtensions: () => call<void>("reload-extensions"),
     answerExtensionUi: (id, answer) => call<void>("answer-extension-ui", [id, answer]),
