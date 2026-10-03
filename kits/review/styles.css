@@ -38,6 +38,8 @@
   font: var(--text-xs) var(--mono); font-variant-numeric: tabular-nums; color: var(--muted);
 }
 .request-badge > svg { flex: none; }
+/* The mini diff is the fallback when the row has no PR or MR badge. */
+.thread-row:has(.request-badge) .thread-diff-stat { display: none; }
 .request-badge.state-open { color: var(--done); }
 .request-badge.state-merged { color: var(--merged); }
 .request-badge.state-closed { color: var(--danger); }
