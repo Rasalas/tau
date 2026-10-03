@@ -914,7 +914,19 @@ if (primaryInstance) app.whenReady().then(async () => {
   })));
   void readShellConfig();
   updates.start();
-  serveDesktopBundles(desktopBundles, sharedFiles);
+  serveDesktopBundles(desktopBundles, sharedFiles, async (request) => {
+    const source = new URL(request.url);
+    const hostUrl = (shownHost ?? windowHost)?.hostUrl;
+    if (!hostUrl || source.search || !/^\/[0-9a-f]{64}$/u.test(source.pathname) || !["GET", "HEAD"].includes(request.method)) return new Response(null, { status: 404 });
+    const target = new URL(hostUrl);
+    target.protocol = target.protocol === "wss:" ? "https:" : "http:";
+    target.pathname = `/resources${source.pathname}`;
+    target.search = ""; target.hash = ""; target.username = ""; target.password = "";
+    const headers = new Headers();
+    for (const name of ["range", "if-range"]) { const value = request.headers.get(name); if (value) headers.set(name, value); }
+    try { return await net.fetch(target.toString(), { method: request.method, headers, signal: request.signal, cache: "no-store" }); }
+    catch { return new Response(null, { status: 502, headers: { "cache-control": "private, no-store" } }); }
+  });
   // Nothing in the workbench asks for a camera, a microphone or a location, and
   // an extension rendering inside it must not be able to ask on its behalf.
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));

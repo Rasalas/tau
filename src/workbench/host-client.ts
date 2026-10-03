@@ -119,6 +119,8 @@ export interface HostClient {
   /** `held`: the bundle digests the client keeps; the host leaves out their code (`DesktopExtensionBundle.cached`). */
   loadDesktopExtensions(cwd: string, sharedExports: Record<string, string[]>, only?: readonly string[], held?: readonly string[]): Promise<DesktopExtensionLoadResult>;
   invokeHostExtension(extensionId: string, command: string, input?: unknown): Promise<unknown>;
+  /** Resolve a capability path against this client's host, never the device's own host. */
+  resourceUrl?(path: string): string;
   listHostExtensions(): Promise<HostExtensionSummary[]>;
   inspectExtensions(cwd: string): Promise<ExtensionInspection>;
   setHostExtensionActive(id: string, active: boolean): Promise<HostExtensionSummary[]>;
@@ -453,6 +455,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     reconnectNow: () => connection.reconnectNow(),
     watchThread: (sessionId) => connection.watchThread(sessionId),
     watchNewThread: (requestId) => connection.watchNewThread(requestId),
+    resourceUrl: (path) => connection.resourceUrl(path),
     watchHostTopic: (extensionId, topic) => connection.watchTopic(extensionId, topic),
     limitPushesToWatched: () => connection.limitToWatched(),
     getVersions: () => ({ host: connection.getHostVersion(), window: local?.getHostVersion() }),

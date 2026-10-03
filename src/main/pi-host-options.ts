@@ -62,6 +62,8 @@ export interface PiHostOptions {
   clients?: HostClientRegistry;
   /** Network access as packages see it; only a host that opens listeners of its own has it. */
   network?: HostNetworkServices;
+  /** Short-lived browser resource capabilities served by this host's HTTP listener. */
+  browserResources?: import("./host-browser-resources.js").HostBrowserResources;
   /** Other machines this host's agents reach (ADR 0027); only a host of its own process has them. */
   machines?: HostMachineServices;
   /** Files other machines sent here; only a host of its own process takes them. */

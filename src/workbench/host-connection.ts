@@ -28,6 +28,7 @@ export type HostConnectionState = "connected" | "reconnecting" | "resyncing" | "
 /** One way of moving frames to a host. Electron IPC is one, a local socket another. */
 export interface HostTransport {
   readonly platform: string;
+  resourceUrl?(path: string): string;
   request(method: string, params: readonly unknown[]): Promise<HostResponse>;
   onPush(listener: (push: HostPush) => void): () => void;
   /** A link that can drop reports both edges; the in-process transport reports neither. */
@@ -116,6 +117,10 @@ export class HostConnection {
 
   /** The socket's own state; undefined for a transport without one (Electron IPC). */
   getLink = (): HostLink | undefined => this.transport.getLink?.();
+  resourceUrl(path: string): string {
+    if (!this.transport.resourceUrl) throw new Error("This transport does not serve browser resources.");
+    return this.transport.resourceUrl(path);
+  }
 
   onLink(listener: (link: HostLink) => void): () => void {
     return this.transport.onLink?.(listener) ?? (() => undefined);

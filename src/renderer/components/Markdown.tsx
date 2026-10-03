@@ -5,6 +5,7 @@ import { tooltipProps } from "./ui/Tooltip";
 import { FileKindIcon } from "./FileKindIcon";
 import { StreamingMarkdownBlocks } from "./markdown-blocks";
 import { parseMarkdown, renderMarkdown, type MarkdownComponents, type MarkdownHtml } from "./markdown-pipeline";
+export type { MarkdownComponents } from "./markdown-pipeline";
 import { WorkbenchContext } from "../workbench-context";
 import { WorkspaceImage } from "./WorkspaceImage";
 type LanguageDefinition = LanguageFn;
@@ -372,11 +373,11 @@ function StreamingTail({ children }: { children: string }) {
 /** A growing non-code block past this size streams as raw text: parsing it per token would miss the frame. */
 export const LIVE_BLOCK_CHARS = 32 * 1024;
 
-const StreamedBlock = memo(function StreamedBlock({ source, code, language, phase }: { source: string; code?: string; language?: string; phase: CodePhase }) {
+const StreamedBlock = memo(function StreamedBlock({ source, code, language, phase, components }: { source: string; code?: string; language?: string; phase: CodePhase; components?: MarkdownComponents }) {
   // A top-level code block renders what `pre` would, without parsing it per token.
   if (code !== undefined) return <CodeBlock code={code} language={language} phase={phase} />;
   if (phase === "growing" && source.length > LIVE_BLOCK_CHARS) return <StreamingTail>{source}</StreamingTail>;
-  return <StreamedCodePhase.Provider value={phase}><MarkdownTree>{source}</MarkdownTree></StreamedCodePhase.Provider>;
+  return <StreamedCodePhase.Provider value={phase}><MarkdownTree components={components}>{source}</MarkdownTree></StreamedCodePhase.Provider>;
 });
 
 const parseBlocks = parseMarkdown;
@@ -386,12 +387,12 @@ const parseBlocks = parseMarkdown;
  * re-renders only its open blocks. Blocks are joined by the newline a one-document
  * render puts between top-level elements, which keeps the DOM identical to it.
  */
-function StreamedMarkdown({ text, live }: { text: string; live: boolean }) {
+function StreamedMarkdown({ text, live, components }: { text: string; live: boolean; components?: MarkdownComponents }) {
   const [segmenter] = useState(() => new StreamingMarkdownBlocks(parseBlocks));
   const blocks = segmenter.update(text, !live);
   if (!blocks) {
     return <div className="markdown">
-      <StreamedCodePhase.Provider value={live ? "growing" : "final"}><MarkdownTree>{text}</MarkdownTree></StreamedCodePhase.Provider>
+      <StreamedCodePhase.Provider value={live ? "growing" : "final"}><MarkdownTree components={components}>{text}</MarkdownTree></StreamedCodePhase.Provider>
     </div>;
   }
   return <div className="markdown">
@@ -402,6 +403,7 @@ function StreamedMarkdown({ text, live }: { text: string; live: boolean }) {
         code={block.code?.value}
         language={block.code?.language}
         phase={!live || block.settled || block.code?.closed ? "final" : "growing"}
+        components={components}
       />
     </Fragment>)}
   </div>;
@@ -431,14 +433,16 @@ export function isInlineMarkdown(text: string): boolean {
  * A message that streamed parses each completed block once and keeps those blocks after the stream ends.
  * `html` receives the raw HTML of finished text as `raw` nodes and decides what of it renders; without it HTML stays text.
  */
-export const Markdown = memo(function Markdown({ children, streaming = false, inlineStart = false, html }: { children: string; streaming?: boolean; inlineStart?: boolean; html?: MarkdownHtml }) {
+export const Markdown = memo(function Markdown({ children, streaming = false, inlineStart = false, html, components }: { children: string; streaming?: boolean; inlineStart?: boolean; html?: MarkdownHtml; components?: MarkdownComponents }) {
+  const resolved = useMemo(() => components ? { ...COMPONENTS, ...components } : COMPONENTS, [components]);
+  const inline = useMemo(() => components ? { ...INLINE_COMPONENTS, ...components } : INLINE_COMPONENTS, [components]);
   const [streamed, setStreamed] = useState(streaming);
   if (streaming && !streamed) setStreamed(true);
   if (inlineStart && !streaming && isInlineMarkdown(children)) {
-    return <span className="markdown markdown-inline"><MarkdownTree components={INLINE_COMPONENTS}>{children}</MarkdownTree></span>;
+    return <span className="markdown markdown-inline"><MarkdownTree components={inline}>{children}</MarkdownTree></span>;
   }
   if (!streaming && !streamed) {
-    return <div className="markdown"><MarkdownTree html={html}>{children}</MarkdownTree></div>;
+    return <div className="markdown"><MarkdownTree components={resolved} html={html}>{children}</MarkdownTree></div>;
   }
-  return <StreamedMarkdown text={children} live={streaming} />;
+  return <StreamedMarkdown text={children} live={streaming} components={resolved} />;
 });

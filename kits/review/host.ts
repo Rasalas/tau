@@ -1,6 +1,7 @@
 import { HostCommandError, type HostExtension, type HostExtensionContext } from "tau/host-extension";
 import { REVIEW_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, type CommitMessageStyle } from "./protocol.js";
 import { registerPullRequestCommands } from "./pull-request-host.js";
+import { registerRequestMedia } from "./request-media-host.js";
 import { createSourceControl, type SourceControlOptions } from "./provider-registry.js";
 import { registerProviderSettings } from "./provider-settings-host.js";
 import { registerPullRequestListCommands } from "./pull-request-list-host.js";
@@ -62,6 +63,7 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
       const workspace = (command: string, input?: unknown) => context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, command, input);
       let links: ThreadLinks | undefined;
       // A revert opened from a request's view belongs to the thread it was opened from.
+      registerRequestMedia(context, sources);
       const reads = registerPullRequestCommands(context, sources, { ...options, created: (url, threadId) => { if (threadId) void links?.link(threadId, url, "created"); } });
       registerPullRequestListCommands(context, sources, workspace);
       links = registerThreadLinks(context, reads, workspace, sources);

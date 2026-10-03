@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { createServer } from "node:http";
+import { HostBrowserResourceStore } from "./host-browser-resources.js";
+import { useHostSystemCertificates } from "./host-system-certificates.js";
 import { createServer as createNetServer } from "node:net";
 import type { Server as TlsServer } from "node:tls";
 import { dirname, join } from "node:path";
@@ -209,6 +211,7 @@ const kitOptions = { appPath: appRoot, cacheDir: join(userData, "host-extensions
 const unsupported = (what: string) => () => { throw new Error(`${what} needs a desktop window.`); };
 
 async function main(): Promise<void> {
+  useHostSystemCertificates();
   const previous = serviceKind ? await retirePrevious() : undefined;
   const folderLock = await claimOrLeave();
   exposePiSessionLockExtension();
@@ -238,6 +241,7 @@ async function main(): Promise<void> {
   });
   // Files other machines' agents send here; what an earlier run left is gone.
   const blobs = await HostBlobStore.open({ dir: join(userData, "blobs"), logger: hostLog });
+  const browserResources = new HostBrowserResourceStore();
   const started = new HostStart(() => {
     primeOpenCodeCatalog();
     return new PiHost(startupWorkspace, publish, projectHistory, safeMode, false, {
@@ -250,6 +254,7 @@ async function main(): Promise<void> {
       logger: hostLog,
       workspaceIdentity,
       clients,
+      browserResources: browserResources.services,
       network: networkContributions.services,
       machines: machines.services,
       blobs: blobs.services,
@@ -439,6 +444,7 @@ async function main(): Promise<void> {
       clientCalls.dispose();
       machines.close();
       blobs.close();
+      browserResources.close();
       compactor.dispose();
       keepAwake.dispose();
       clearInterval(networkPoll);
@@ -483,6 +489,7 @@ async function main(): Promise<void> {
     : undefined;
   const transportOptions: SocketHostTransportOptions = {
     listen: listenOn,
+    browserResources,
     methods: compactor.observe(methods),
     pushLog,
     beforeReply: () => pushes.flush(),

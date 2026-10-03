@@ -165,6 +165,7 @@ export interface ExtensionServicesPort {
   readonly sessionLocks: SessionLocks;
   /** The clients attached to this host, for the seam's ungated `clients` member. */
   readonly clients: HostClientServices;
+  readonly browserResources?: import("./host-browser-resources.js").HostBrowserResources;
   readonly network?: HostNetworkServices;
   readonly machines?: HostMachineServices;
   readonly blobs?: HostBlobServices;
@@ -406,6 +407,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
       }),
     },
     clients: port.clients,
+    ...(port.browserResources ? { browserResources: port.browserResources } : {}),
     ...(port.network ? { network: port.network } : {}),
     ...(port.machines ? { machines: port.machines } : {}),
     ...(port.blobs ? { blobs: port.blobs } : {}),

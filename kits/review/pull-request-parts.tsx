@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, CircleCheck, CircleDashed, CircleDot, CircleX, LoaderCircle, MessageSquare, Pencil, Send } from "lucide-react";
-import { errorMessage, Markdown, type WorkbenchActions } from "tau";
+import { errorMessage, type WorkbenchActions } from "tau";
+import { RequestMarkdown as Markdown } from "./request-markdown.js";
 import type { ComposerContextChips, PullRequestCheckStatus, PullRequestChip, PullRequestComment, PullRequestThread, ReviewCommentChip } from "./protocol.js";
 import { relativeTime, ROLLUP_TITLES, type ChecksRollup } from "./pull-request-logic.js";
 import { githubHtml } from "./github-html.js";

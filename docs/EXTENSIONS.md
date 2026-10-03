@@ -1757,7 +1757,7 @@ It also exports the renderer's shared state and presentation:
 | `readCachedTurnActivity`, `changesSinceTurn`, `changesTouchedByTools` | what a turn touched, from the cache core writes. |
 | `formatCost` | core's money formatting. `ThreadRow` draws no cost since API 1.26.0; the rail's hover card does. `threadCostLabel(usage)` and `threadCostOrigin(usage)` (API 1.23.0) are the row's own figure ("$0.42", a plan's API value, or tokens) and the sentence that says where it comes from, for a card that repeats it. |
 | `StageTabContribution`, `StageTabHandle`, `StageTab` and its three kinds, `StageState` | the stage-tab seam above, and the shape `actions.stageTabs()` answers with. |
-| `Markdown`, `highlightSource`, `loadHighlightLanguage`, `canonicalHighlightLanguage` | core's Markdown renderer, the one the transcript draws with, and the highlight.js core behind its code blocks (new in API 1.10.0). highlight.js and each language load on first use; `highlightSource(code, language)` answers HTML once `loadHighlightLanguage(language)` resolved, and nothing for a language core does not ship. `html` (new in API 1.33.0, type `MarkdownHtml`) receives the hast tree with the text's raw HTML as `raw` nodes and returns the tree to draw; Review Kit passes its allowlist of GitHub's HTML. Without it HTML stays text. |
+| `Markdown`, `highlightSource`, `loadHighlightLanguage`, `canonicalHighlightLanguage` | core's Markdown renderer, the one the transcript draws with, and the highlight.js core behind its code blocks (new in API 1.10.0). highlight.js and each language load on first use; `highlightSource(code, language)` answers HTML once `loadHighlightLanguage(language)` resolved, and nothing for a language core does not ship. `html` (new in API 1.33.0, type `MarkdownHtml`) receives the hast tree with the text's raw HTML as `raw` nodes and returns the tree to draw; Review Kit passes its allowlist of GitHub's HTML. Without it HTML stays text. `components` (API 1.51.0, type `MarkdownComponents`) overrides selected tag renderers while retaining core's defaults for other tags, including streamed and inline text. A feature can own its media renderer without replacing Markdown parsing. |
 | `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `ThreadRowMachine`, `usePagedWorkspaceFiles`, `ProviderIconStack` | presentation core owns; `ProviderIconStack` (API 1.15.0) draws a runtime's or model provider's mark (`runtimeProvider`, `modelProvider`) with its name as tooltip and accessible name (`name` replaces it), for the same reason as `ThreadRow`. Given both, it follows core's one rule and never draws more than two marks: a runtime with a provider it owns (its declared `homeProviders`, API 1.24.0) shows its own mark alone ("Codex (OpenAI)"); any other pair shows the access mark (provider or plan) and the runtime's side by side, the runtime's a shade quieter ("Pi via OpenAI", "Antigravity via Anthropic"); a subscription plan wears its product's mark ("Pi via ChatGPT plan" for `openai-codex`). The model's maker is never a mark. API 1.22.0 adds `plan` (a provider whose id does not tell, such as Pi's `anthropic` behind a plan login, is reached through a plan), `modelName` (leads the name: "DeepSeek V4 Flash · Pi via OpenCode Go"), `runtimeName` (an instance's name for the runtime) and `runtimeMark: false` (the runtime stays in the name but not on screen, where the UI around already names it). Given only `modelProvider` it draws the provider alone, for a list that is one runtime's; the UI primitives have their own table above. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. Its optional `accessory` node is drawn beside the branch label (and before the age on a compact row): a navigator passes other kits' marks through it. Since API 1.11.0 `actions` are buttons drawn before Settle while the row is hovered or focused (not on a settled row); Workspace Kit's rail passes neither since API 1.27.0, so its rows keep their state on hover, and `showLabel: false` leaves out a label that says nothing — Workspace Kit's rail passes it for `main` and `master`, since the default branch says nothing on a card. `details` (API 1.11.0) is a few lines shown beside the row on hover in place of the title's own tooltip, and the branch is cut in the middle (`MiddleTruncate`). `hoverCard` (API 1.23.0) says a navigator draws its own card for the row, so the row shows neither `details` nor the title's tooltip; `details` stays the plain-text fallback. `providerStackLabel(modelProvider, runtimeProvider, { plan })` (API 1.23.0) is the name `ProviderIconStack` gives its marks ("Pi via OpenAI"), for text beside them, and `useModelName(runtime, modelId, provider?)` answers that model's name from the runtime's catalog, asking for the catalog once, or nothing until it is in. A `UiSession` carries `model` since API 1.23.0: the id of the thread's model, from a Pi session file's last model on its branch or from a live runtime; since API 1.24.0 also from a backend's `listThreads` record (`model: { provider, id }`), so a thread that is not open names the model and provider it last ran on (Antigravity and Cursor do) instead of the backend's `modelProvider`. A `UiSession` carries `createdAt` since API 1.11.0 where the runtime's store knows it (Pi's threads), which the rail's "Order threads by: Created" reads. Since API 1.17.0 `machine` (`ThreadRowMachine`: `{ name, icon }`) marks another machine's thread with that machine's icon just before the provider marks, the name as its tooltip; without `onToggleSettled` the row has no Settle button. Since API 1.26.0 the row draws no cost: the rail's hover card carries it (`threadCostLabel`, `threadCostOrigin`), and `showCost` is ignored. The meta line never runs out of the card: the branch shrinks first, then the agent count and the `accessory` marks drop, while the machine and the provider marks stay. |
 | `threadRowStatus`, `ThreadRowStatus`, `THREAD_QUESTION_LABEL`, `threadLimitHint` | new in API 1.27.0: the one derivation of a thread row's state that the desktop rail and the tablet and phone lists share. `threadRowStatus(id, activity, thread?)` takes the thread store's activity (`useThreadStore().getActivity()`) and the thread's shell and answers `{ activity, label, hint?, startedAt? }` for `ThreadRow`: a question is "Question", a run "Working" with the host's start of the run, then Limited, Failed, Interrupted, Ready and Idle. A navigator that draws its own rows calls it rather than naming the states itself. |
 | `DraftRow`, `draftTitle`, `DraftThread` | new in API 1.21.0: a new thread's draft in the card `ThreadRow` draws: the project line with a quiet grey "draft" where a thread shows its state and the title `draftTitle` gives (the first line typed, chips as their labels, else "N attachments", else "New thread") in muted type, two lines without a branch (the design's, since API 1.27.0; before, a pen, "Draft" and a tint). `onOpen(draftId)` opens it, `onDiscard` adds the hover Discard button, `actions` replaces that button (a touch list's More). A `DraftThread` is `{ draftId, projectName, projectPath, workspaceId?, preview, attachments, createdAt, active, sessionId? }`; `sessionId` is set once the host made the thread, whose row then replaces the draft's. |
@@ -3297,6 +3297,43 @@ written in between is lost. A host or client older than 1.13.0 ignores the
 topic and sends such events to everyone, which is why `watch` is optional on
 `HostExtensionClient`: call it as `host.watch?.(topic)`.
 
+### Browser resources: `services.browserResources` (API 1.51.0)
+
+An in-process host extension with `network` permission can publish one browser
+resource from inside a client command:
+
+```ts
+const path = context.services.browserResources!.publish(async (request) => {
+  // GET or HEAD; forward request.signal and any supported Range/If-Range.
+  return fetch(upstreamUrl, { signal: request.signal });
+});
+return { path };
+```
+
+The client resolves `host.resourceUrl(path)` against its connected host. Desktop
+uses `tau-ext://resources/…`, with the window forwarding to that host; a web or
+mobile client uses the host's HTTP origin. No host token enters a media URL.
+
+The path is a random bearer capability, valid for ten minutes. Share it only
+with the requesting client and never log it. `browserResources.release(path)`
+revokes it from the same extension and connection; disconnecting the client,
+deactivating the extension or stopping the host also revokes it and aborts
+unfinished transfers. GET/HEAD responses stream with backpressure and keep
+Range responses intact. Core applies `private, no-store`, `nosniff`, a sandbox
+CSP and no-referrer, and strips cookies and permissive CORS headers. The handler
+must validate its upstreams and keep credentials out of redirects and errors.
+The packaged host adds OS-trusted certificate authorities to Node's bundled and
+explicitly configured roots at startup; HTTPS certificate and hostname checks
+remain enabled. Older standalone Node runtimes without the TLS trust-store API
+retain their defaults and can use `NODE_EXTRA_CA_CERTS` for private authorities.
+This callback interface is absent in worker-isolated extensions and transports
+without an HTTP listener. On expiry, mint a new capability rather than reusing
+its URL.
+
+Review Kit uses this interface for private forge uploads. Its module owns
+upload parsing, CLI credential discovery, HTTPS API validation, redirect policy
+and media MIME checks; core does not know what a PR or a GitLab upload is.
+
 ### Network access: `services.network` (new in API 1.13.0)
 
 `services.network` is how a package takes part in Settings → Connections →
@@ -3661,7 +3698,7 @@ and is logged as `host-extension.denied` (`guardedServices`, wraps
 `HostExtensionServices`; the same check runs for a worker's calls, dispatched
 into the identical guarded facade from the main side).
 
-`network` gates one facade member, `services.network` (the host's own
+`network` gates `services.browserResources` and `services.network` (the host's own
 listeners); dialling out asks the host for nothing, so for that the worker
 enforces the grant itself instead — see §6. `process` is enforced in
 both places: the facade members are guarded on the main side, and the worker

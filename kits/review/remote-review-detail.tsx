@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Copy, ExternalLink, GitBranch, MessageSquare, RefreshCw, SquarePlus } from "lucide-react";
-import { errorMessage, Markdown, READ_ONLY_REASON, tooltipProps, type WorkbenchActions } from "tau";
+import { errorMessage, READ_ONLY_REASON, tooltipProps, type WorkbenchActions } from "tau";
 import { currentDiffWordWrap } from "./diff-settings.js";
 import { githubHtml } from "./github-html.js";
+import { RequestMarkdown as Markdown, RequestMediaProvider } from "./request-markdown.js";
 import { LinkedThreadsControl, ThreadPicker, useLinkedThreads } from "./linked-threads.js";
 import { providerInfo, REVIEW_HOST_EXTENSION_ID, type ComposerContextChips, type PullRequestComment, type PullRequestDetail, type PullRequestFile, type PullRequestReviewEvent, type PullRequestThread } from "./protocol.js";
 import type { PullRequestClient, PullRequestCommentInput } from "./pull-request-client.js";
@@ -50,7 +51,7 @@ export function RemoteReviewDetail(props: RemoteProps) {
   const pr = usePullRequest(client, params.url);
   const { data, refresh } = pr;
   const noun = shortNoun(params.service);
-  if (data.detail) return <RemoteBody {...props} pr={pr} detail={data.detail} />;
+  if (data.detail) return <RequestMediaProvider client={client} request={data.detail.ref}><RemoteBody {...props} pr={pr} detail={data.detail} /></RequestMediaProvider>;
   return (
     <div className="rvd rvd-loading-page" aria-label={`${noun} #${params.number}`}>
       {data.detailError ? (

@@ -8,7 +8,7 @@ import type { MarkdownHtml } from "tau";
  * can wrap Markdown; each element the parser builds then passes an allowlist.
  */
 
-const TAGS = new Set(("a img details summary p div span em strong b i s del ins blockquote ul ol li code pre h1 h2 h3 h4 h5 h6 "
+const TAGS = new Set(("a img video source details summary p div span em strong b i s del ins blockquote ul ol li code pre h1 h2 h3 h4 h5 h6 "
   + "br hr sub sup kbd dl dt dd table thead tbody tfoot tr th td caption").split(" "));
 /** Dropped with their text; any other tag outside `TAGS` keeps its content. */
 const DROPPED = /^(script|style|textarea|title|iframe|noscript|noembed|noframes|xmp)$/u;
@@ -18,7 +18,8 @@ const ATTRIBUTES: Record<string, RegExp | undefined> = {
   align: /^(left|center|right)$/u,
 };
 // Links open http(s) outside the app; images load only over https.
-const URLS: Record<string, [string, RegExp]> = { a: ["href", /^https?:\/\//iu], img: ["src", /^https:\/\//iu] };
+const MEDIA_URL = /^(?:https:\/\/|\/?uploads\/[a-f\d]{32}\/[^/\\\s]+$)/iu;
+const URLS: Record<string, [string, RegExp]> = { a: ["href", /^https?:\/\//iu], img: ["src", MEDIA_URL], video: ["src", MEDIA_URL], source: ["src", MEDIA_URL] };
 
 const escapeText = (value: string) => value.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;");
 
@@ -61,11 +62,11 @@ function resolveRawHtml(root: HastRoot): HastRoot {
       if (DROPPED.test(tag) || element.namespaceURI !== "http://www.w3.org/1999/xhtml") continue;
       const url = URLS[tag];
       const target = url && element.getAttribute(url[0])?.trim();
-      if (!TAGS.has(tag) || (url && !url[1].test(target ?? ""))) {
+      if (!TAGS.has(tag) || (url && !(tag === "video" && !target) && !url[1].test(target ?? ""))) {
         if (tag !== "img") result.push(...convert(element));
         continue;
       }
-      const properties: Properties = url ? { [url[0]]: target } : {};
+      const properties: Properties = url && target ? { [url[0]]: target } : {};
       for (const [name, pattern] of Object.entries(ATTRIBUTES)) {
         const value = element.getAttribute(name);
         if (value !== null && (!pattern || pattern.test(value))) properties[name.replace("span", "Span")] = value;

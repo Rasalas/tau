@@ -85,8 +85,10 @@ export function registerDesktopBundleScheme(): void {
 }
 
 /** `tau-ext://bundles/…` are kit bundles, `tau-ext://files/…` the workspace files shared with the page. */
-export function serveDesktopBundles(store: DesktopBundleStore, files?: SharedFileStore): void {
-  protocol.handle(TAU_EXT_SCHEME, (request) => files && new URL(request.url).host === "files"
-    ? files.respond(request.url, request.headers.get("range"))
-    : store.respond(request.url));
+export function serveDesktopBundles(store: DesktopBundleStore, files?: SharedFileStore, resource?: (request: Request) => Promise<Response>): void {
+  protocol.handle(TAU_EXT_SCHEME, (request) => {
+    const host = new URL(request.url).host;
+    if (host === "resources" && resource) return resource(request);
+    return files && host === "files" ? files.respond(request.url, request.headers.get("range")) : store.respond(request.url);
+  });
 }

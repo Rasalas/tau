@@ -76,6 +76,8 @@ function tokenOnlyAccess(token: string): SocketAccess {
 export interface SocketHostTransportOptions {
   /** `host:port` as `TAU_HOST_LISTEN` gives it; port 0 picks a free one. */
   listen: string;
+  /** Reserved /resources/ capabilities, on every attached HTTP listener. */
+  browserResources?: Pick<import("./host-browser-resources.js").HostBrowserResourceStore, "serve" | "detach">;
   methods: HostMethodTable;
   pushLog: HostPushLog;
   hostVersion: string;
@@ -194,6 +196,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     const session = authenticated.get(socket);
     authenticated.delete(socket);
     if (session) {
+      options.browserResources?.detach(session.connection);
       options.onClientDetached?.(session.connection);
       sockets.delete(session.connection);
       access.detach(session.connection);
@@ -448,6 +451,13 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   };
 
   const attach = (target: Server, trust: ListenerTrust): (() => void) => {
+    // One HTTP dispatcher, rather than competing listeners that can both write a response.
+    const previous = options.browserResources ? target.rawListeners("request") : [];
+    const dispatch = (request: IncomingMessage, response: ServerResponse): void => {
+      if (request.url?.startsWith("/resources/")) { void options.browserResources!.serve(request, response); return; }
+      for (const listener of previous) listener.call(target, request, response);
+    };
+    if (options.browserResources) { target.removeAllListeners("request"); target.on("request", dispatch); }
     const onUpgrade = (request: IncomingMessage, stream: Parameters<WebSocketServer["handleUpgrade"]>[1], head: Buffer): void => {
       server.handleUpgrade(request, stream, head, (socket) => {
         origins.set(socket, target);
@@ -457,6 +467,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     target.on("upgrade", onUpgrade);
     return () => {
       target.off("upgrade", onUpgrade);
+      if (options.browserResources) { target.off("request", dispatch); for (const listener of previous) target.on("request", listener as (request: IncomingMessage, response: ServerResponse) => void); }
       for (const [socket, origin] of [...origins]) {
         if (origin !== target) continue;
         origins.delete(socket);

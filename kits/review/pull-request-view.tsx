@@ -4,6 +4,7 @@ import { errorMessage, READ_ONLY_REASON, tooltipProps, type PreferencesStore, ty
 import type { PendingReviewStore } from "./pending-review.js";
 import { providerInfo, REVIEW_HOST_EXTENSION_ID, type ComposerContextChips, type PullRequestCheck, type PullRequestComment, type PullRequestDetail, type PullRequestFile, type PullRequestFiles, type PullRequestReviewEvent, type PullRequestThread } from "./protocol.js";
 import { RequestStateIcon } from "./request-state-icon.js";
+import { RequestMediaProvider } from "./request-markdown.js";
 import type { PullRequestClient, PullRequestCommentInput } from "./pull-request-client.js";
 import { LinkedThreadsControl, ThreadPicker, useLinkedThreads } from "./linked-threads.js";
 import { PullRequestCode } from "./pull-request-code.js";
@@ -279,6 +280,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
   ] : [];
 
   return (
+    <RequestMediaProvider client={client} request={detail.ref}>
     <div className="pr-view" aria-label={`${noun} #${detail.ref.number}`}>
       <header className={`pr-head ${condensed ? "condensed" : ""}`}>
         <div className="pr-head-row">
@@ -466,6 +468,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
         </button>
       )}
     </div>
+    </RequestMediaProvider>
   );
 }
 

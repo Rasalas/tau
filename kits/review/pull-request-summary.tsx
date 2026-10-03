@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { ChevronDown, ChevronRight, Pencil, X } from "lucide-react";
-import { errorMessage, Markdown, type WorkbenchActions } from "tau";
+import { errorMessage, type WorkbenchActions } from "tau";
+import { RequestMarkdown as Markdown } from "./request-markdown.js";
 import type { PullRequestCheck, PullRequestComment, PullRequestDetail, PullRequestReviewer, PullRequestThread, ReviewCommentChip } from "./protocol.js";
 import { checksRollup, checksSummary, commentChip, relativeTime } from "./pull-request-logic.js";
 import { CommentCard, MarkdownEditor, RollupIcon } from "./pull-request-parts.js";

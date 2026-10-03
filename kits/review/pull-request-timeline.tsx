@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, CircleCheck, CircleX, GitCommitHorizontal, GitMerge, GitPullRequest, GitPullRequestClosed, MessageSquare } from "lucide-react";
-import { Markdown, type WorkbenchActions } from "tau";
+import { type WorkbenchActions } from "tau";
+import { RequestMarkdown as Markdown } from "./request-markdown.js";
 import { providerInfo, type PullRequestDetail } from "./protocol.js";
 import { buildTimeline, relativeTime, shortNoun, type TimelineItem } from "./pull-request-logic.js";
 import { verdictWord } from "./pull-request-parts.js";

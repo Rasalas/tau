@@ -476,6 +476,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     trashedThreads: async () => { await trash.load(); return trash.list(); },
     sessionLocks,
     clients,
+    ...(options.browserResources ? { browserResources: options.browserResources } : {}),
     ...(options.network ? { network: options.network } : {}),
     ...(options.machines ? { machines: options.machines } : {}),
     ...(options.blobs ? { blobs: options.blobs } : {}),

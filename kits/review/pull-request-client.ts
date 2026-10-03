@@ -1,5 +1,6 @@
 import type { HostExtensionClient } from "tau";
 import type { PipelineFacts } from "./pipeline.js";
+import type { RequestMediaResult } from "./request-media.js";
 import {
   THREAD_LINKS_EVENT,
   type PendingReviewComment,
@@ -34,6 +35,9 @@ export interface PullRequestCommentInput {
 
 /** Review Kit's host commands for one request, typed. */
 export interface PullRequestClient {
+  /** Upload delivery; credentials remain on the request's host. Absent on older hosts. */
+  media?(url: string, source: string): Promise<RequestMediaResult & { url: string }>;
+  releaseMedia?(path: string): Promise<void>;
   view(url: string, fresh?: boolean): Promise<PullRequestDetail>;
   checks(url: string): Promise<PullRequestCheck[]>;
   /** The workflow files and usual durations of the checks' runs; with `names` (run id → workflow), the files on the default branch. */
@@ -67,6 +71,12 @@ export interface PullRequestClient {
 export function pullRequestClient(host: HostExtensionClient): PullRequestClient {
   const read = (fresh?: boolean) => fresh ? { fresh: true } : {};
   return {
+    media: async (url, source) => {
+      if (!host.resourceUrl) throw new Error("This client does not support request uploads.");
+      const result = await host.invoke("pr-media", { url, source }) as RequestMediaResult;
+      return { ...result, url: host.resourceUrl(result.path) };
+    },
+    releaseMedia: async (path) => { await host.invoke("pr-media-release", { path }); },
     view: (url, fresh) => host.invoke("pr-view", { url, ...read(fresh) }) as Promise<PullRequestDetail>,
     checks: (url) => host.invoke("pr-checks", { url }) as Promise<PullRequestCheck[]>,
     pipeline: (url, runs, names) => host.invoke("pr-pipeline", { url, runs, ...(names ? { names } : {}) }) as Promise<PipelineFacts>,

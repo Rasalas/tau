@@ -116,6 +116,7 @@ export const HOST_SERVICE_PERMISSIONS: Readonly<Record<string, ExtensionPermissi
   noteSubprocess: "process",
   findCommand: "process",
   // The host's own listeners: a proxy in front of them and the addresses they publish.
+  browserResources: "network",
   network: "network",
   listPackages: "packages",
   installPackage: "packages",

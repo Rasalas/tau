@@ -350,6 +350,13 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
 
   return {
     platform: "remote",
+    resourceUrl: (path) => {
+      if (!/^\/resources\/[0-9a-f]{64}$/u.test(path)) throw new Error("Invalid host resource path.");
+      const endpoint = new URL(url);
+      endpoint.protocol = endpoint.protocol === "wss:" ? "https:" : "http:";
+      endpoint.username = ""; endpoint.password = ""; endpoint.search = ""; endpoint.hash = "";
+      return new URL(path, endpoint).toString();
+    },
     request: (method, params) => new Promise<HostResponse>((resolve, reject) => {
       counter += 1;
       const id = `c${counter}`;

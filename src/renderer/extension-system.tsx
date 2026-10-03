@@ -1452,6 +1452,8 @@ export const EMPTY_THREAD_LINEAGE: ThreadLineage = { parents: {}, workingChildre
 export interface HostExtensionClient {
   /** Invokes a command the host entry registered with `registerCommand`. */
   invoke(command: string, input?: unknown): Promise<unknown>;
+  /** A browser resource path resolved against the connected host. API 1.51.0. */
+  resourceUrl?(path: string): string;
   /** Events the host entry publishes with `emit`. */
   onEvent(name: string, listener: (payload: unknown) => void): () => void;
   /**
@@ -1466,6 +1468,7 @@ export interface HostExtensionClient {
 /** How the registry reaches host extensions; the desktop API is the default. */
 export interface HostExtensionBridge {
   invoke(extensionId: string, command: string, input?: unknown): Promise<unknown>;
+  resourceUrl?(path: string): string;
   /** Core's own scan of the package folders and the shipped kits; absent without a host. */
   inspect?(cwd: string): Promise<ExtensionInspection>;
   /** Asks the host for a topic's events; absent without a host. */
@@ -1670,6 +1673,7 @@ export function hostExtensionBridge(client: HostClient | undefined): HostExtensi
       ? client.invokeHostExtension(extensionId, command, input)
       : Promise.reject(new HostUnavailableError()),
     inspect: (cwd) => client ? client.inspectExtensions(cwd) : Promise.reject(new HostUnavailableError()),
+    ...(client?.resourceUrl ? { resourceUrl: (path: string) => client.resourceUrl!(path) } : {}),
     ...(client ? { watch: (extensionId: string, topic: string) => client.watchHostTopic(extensionId, topic) } : {}),
   };
 }
@@ -1843,6 +1847,7 @@ export class ExtensionRegistry {
     if (unmountStyles) note("styles");
     const hostClient = (extensionId: string): HostExtensionClient => ({
       invoke: (command, input) => this.hostBridge.invoke(extensionId, command, input),
+      ...(this.hostBridge.resourceUrl ? { resourceUrl: (path: string) => this.hostBridge.resourceUrl!(path) } : {}),
       onEvent: (name, listener) => {
         const byName = this.hostEventListeners.get(extensionId) ?? new Map<string, Set<(payload: unknown) => void>>();
         this.hostEventListeners.set(extensionId, byName);

@@ -43,6 +43,8 @@ import type { PackageScope } from "./extension-sources.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
 import { ExecutionPolicyRegistry, type HostExecutionPolicy, type HostExecutionPolicyServices } from "./host-execution-policy.js";
 import { BIND_NETWORK_EXTENSION } from "./host-network-contributions.js";
+import { BIND_BROWSER_RESOURCES, REMOVE_BROWSER_RESOURCES, type HostBrowserResources } from "./host-browser-resources.js";
+export type { HostBrowserResources, HostBrowserResourceHandler } from "./host-browser-resources.js";
 
 export interface DirectoryPickerOptions {
   buttonLabel?: string;
@@ -983,6 +985,8 @@ export interface HostProjectTrust {
 }
 
 export interface HostExtensionServices {
+  /** Short-lived streaming resources scoped to this extension and the asking connection. API 1.51.0; in-process only. */
+  readonly browserResources?: HostBrowserResources;
   /** This host's installed agent tools. Updates keep their package manager and wait for busy turns. API 1.48.0. */
   runtimeTools?(action: "state" | "update", input?: { kind: string }): Promise<UiRuntimeToolsState>;
   /** The workspace the host currently has open. */
@@ -1376,6 +1380,10 @@ export function extensionServices(services: HostExtensionServices, extension: Pi
         const raw = Reflect.get(target, prop, receiver) as (HostMachineServices & { [BIND_MACHINES_EXTENSION]?: (id: string) => HostMachineServices }) | undefined;
         return raw?.[BIND_MACHINES_EXTENSION]?.(extension.id) ?? raw;
       }
+      if (prop === "browserResources") {
+        const raw = Reflect.get(target, prop, receiver) as (HostBrowserResources & { [BIND_BROWSER_RESOURCES]?: (id: string) => HostBrowserResources }) | undefined;
+        return raw?.[BIND_BROWSER_RESOURCES]?.(extension.id) ?? raw;
+      }
       if (prop === "network") {
         const raw = Reflect.get(target, prop, receiver) as (HostNetworkServices & { [BIND_NETWORK_EXTENSION]?: (id: string) => HostNetworkServices }) | undefined;
         return raw?.[BIND_NETWORK_EXTENSION]?.(extension.id) ?? raw;
@@ -1645,6 +1653,7 @@ export class HostExtensionRegistry {
     const record = this.active.get(id);
     if (!record) return;
     this.active.delete(id);
+    (this.services.browserResources as (HostBrowserResources & { [REMOVE_BROWSER_RESOURCES]?: (id: string) => void }) | undefined)?.[REMOVE_BROWSER_RESOURCES]?.(id);
     this.invocationContexts.delete(record.invocationContextId);
     await this.disposeAll(record.disposers);
   }

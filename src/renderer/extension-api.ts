@@ -94,7 +94,7 @@ export { useModelName } from "./use-runtime-catalog";
 export { usePagedWorkspaceFiles } from "./components/usePagedWorkspaceFiles";
 // Core's own Markdown renderer, and the highlighter behind its code blocks; highlight.js loads on first use.
 export { Markdown, canonicalHighlightLanguage, highlightSource, loadHighlightLanguage } from "./components/Markdown";
-export type { MarkdownHtml } from "./components/markdown-pipeline";
+export type { MarkdownHtml, MarkdownComponents } from "./components/markdown-pipeline";
 /** The full-window review surface, as its own chunk: `lazy(() => loadReviewMode().then((ReviewMode) => ({ default: ReviewMode })))`. */
 export const loadReviewMode = () => import("./components/ReviewMode").then((module) => module.ReviewMode);
 // Runtime instances and version policy (API 1.11.0): the vocabulary, and the

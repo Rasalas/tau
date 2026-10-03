@@ -79,6 +79,14 @@ afterEach(() => {
 });
 
 describe("socket host client", () => {
+  it("resolves browser resources against the home host without exposing connection credentials", () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    const { client, connection } = createSocketHostClient("wss://host.test:7788/socket?token=connection-secret", "host-secret");
+    const path = `/resources/${"a".repeat(64)}`;
+    expect(client.resourceUrl?.(path)).toBe(`https://host.test:7788${path}`);
+    for (const invalid of ["https://evil.test/resource", "/resources/../secret", path + "?token=x", "//evil.test/resource"]) expect(() => client.resourceUrl?.(invalid)).toThrow("Invalid host resource path");
+    connection.close();
+  });
   it("reconnects after a drop and re-hellos with the sequence it last saw", async () => {
     vi.stubGlobal("WebSocket", FakeSocket);
     const { connection } = createSocketHostClient("ws://host.test:7788", "secret-token");
