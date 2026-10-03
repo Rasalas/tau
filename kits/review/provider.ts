@@ -188,8 +188,11 @@ export interface ProviderTools {
   http(kind: RequestService, url: string, init: { method?: string; headers?: Record<string, string>; body?: string; action: string; host: string }): Promise<HttpAnswer>;
   /** The credential Git's own helper holds for `https://<host>`, without prompting; undefined when it has none. */
   credential(host: string): Promise<GitCredential | undefined>;
-  /** A read of one request, reused for a minute unless `fresh`; a failed read is not kept. */
-  cached<T>(kind: string, ref: PullRequestRef, fresh: boolean, read: () => Promise<T>): Promise<T>;
+  /**
+   * A read reused for a minute unless `fresh`; failures are not kept.
+   * `coalesceFresh` joins an unfinished fresh read, never a completed one.
+   */
+  cached<T>(kind: string, ref: PullRequestRef, fresh: boolean, read: () => Promise<T>, coalesceFresh?: boolean): Promise<T>;
   /** Drops one kind of a request's cached reads. */
   drop(kind: string, ref: PullRequestRef): void;
   /** Drops every cached read of a request, after a write. */
