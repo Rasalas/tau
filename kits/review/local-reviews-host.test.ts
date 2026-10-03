@@ -246,6 +246,37 @@ describe("Reviews on the host", () => {
     expect(events.map((event) => event.name)).toContain(LOCAL_REVIEWS_EVENT);
   });
 
+  it("retains a precursor's completion when its squashed integration worktree disappears", async () => {
+    const repo = await fixture();
+    const submitted = join(repo.root, "submitted");
+    repo.git(repo.project, "worktree", "add", "-q", "-b", "fix/submitted", submitted, "main");
+    repo.git(submitted, "cherry-pick", "-x", repo.git(repo.worktree, "rev-parse", "HEAD"));
+    await writeFile(join(submitted, "limit.ts"), "export const limit = 20;\n");
+    repo.git(submitted, "commit", "-qam", "refine limit");
+    repo.git(repo.project, "merge", "--squash", "fix/submitted");
+    repo.git(repo.project, "commit", "-qm", "squashed work");
+    await writeFile(join(repo.project, "limit.ts"), "export const limit = 30;\n");
+    repo.git(repo.project, "commit", "-qam", "later revision");
+
+    const first = await hosts(repo.stateDir);
+    const workspaces = [`ws1_${repo.worktree}`, `ws1_${submitted}`];
+    const done = await first.invoke("local-reviews", { workspaces }) as LocalReviewsAnswer;
+    expect(done.branches).toHaveLength(2);
+    expect(done.branches.every((branch) => branch.merged && branch.conflicts.length === 0)).toBe(true);
+    expect(done.merged).toContainEqual(expect.objectContaining({ branch: "tau/rate-limit", tip: repo.git(repo.worktree, "rev-parse", "HEAD") }));
+
+    repo.git(repo.project, "worktree", "remove", submitted);
+    repo.git(repo.project, "branch", "-D", "fix/submitted");
+    const restarted = await hosts(repo.stateDir);
+    expect((await restarted.invoke("local-reviews", { workspaces: [workspaces[0]] }) as LocalReviewsAnswer).branches[0])
+      .toMatchObject({ merged: true, conflicts: [] });
+    await writeFile(join(repo.worktree, "new.ts"), "new work\n");
+    repo.git(repo.worktree, "add", "-A");
+    repo.git(repo.worktree, "commit", "-qm", "after integration");
+    expect((await restarted.invoke("local-reviews", { workspaces: [workspaces[0]] }) as LocalReviewsAnswer).branches[0])
+      .toMatchObject({ merged: false });
+  });
+
   it("keeps a completed tip across host restarts, and reopens it after a new commit", async () => {
     const repo = await fixture();
     const workspaces = [`ws1_${repo.worktree}`];

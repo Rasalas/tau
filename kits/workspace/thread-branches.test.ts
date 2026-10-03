@@ -206,6 +206,45 @@ describe("a branch the target holds under other commits", () => {
     expect(repo.run(repo.cwd, "rev-parse", "HEAD")).toBe(head);
   });
 
+  it("recognizes a squash after the branch incorporated newer target commits", async () => {
+    const repo = await repository();
+    const dir = repo.worktree("fix/rebased");
+    await repo.commit(dir, "a.txt", "one\nTWO\nthree\n");
+    await repo.commit(repo.cwd, "unrelated.txt", "target moved\n");
+    repo.run(dir, "rebase", "main");
+    await repo.commit(dir, "b.txt", "finished\n");
+    repo.run(repo.cwd, "merge", "--squash", "fix/rebased");
+    repo.run(repo.cwd, "commit", "-qm", "squashed work");
+    await repo.commit(repo.cwd, "a.txt", "one\nrevised\nthree\n");
+
+    expect(await readThreadBranch(dir)).toMatchObject({ merged: true, mergedBy: "squash", conflicts: [] });
+    await repo.commit(dir, "new.txt", "not integrated\n");
+    expect(await readThreadBranch(dir)).toMatchObject({ merged: false });
+  });
+
+  it("recognizes a precursor incorporated into a squashed integration branch", async () => {
+    const repo = await repository();
+    const precursor = repo.worktree("fix/precursor");
+    await repo.commit(precursor, "a.txt", "one\nTWO\nthree\n");
+    const submitted = repo.worktree("fix/submitted");
+    repo.run(submitted, "cherry-pick", "-x", repo.run(precursor, "rev-parse", "HEAD"));
+    await repo.commit(submitted, "a.txt", "one\nfinal revision\nthree\n");
+    await repo.commit(submitted, "b.txt", "additional work\n");
+    repo.run(repo.cwd, "merge", "--squash", "fix/submitted");
+    repo.run(repo.cwd, "commit", "-qm", "squashed integration");
+    await repo.commit(repo.cwd, "a.txt", "one\nlater edit\nthree\n");
+
+    const branches = await readThreadBranches([precursor, submitted]);
+    expect(branches.map(({ merged, conflicts }) => ({ merged, conflicts }))).toEqual([
+      { merged: true, conflicts: [] }, { merged: true, conflicts: [] },
+    ]);
+    repo.run(repo.cwd, "branch", "release");
+    expect((await readThreadBranches([precursor, submitted], undefined, undefined, new Map([[submitted, "release"]])))[0])
+      .toMatchObject({ merged: false });
+    await repo.commit(precursor, "new.txt", "not integrated\n");
+    expect((await readThreadBranches([precursor, submitted]))[0]).toMatchObject({ merged: false });
+  });
+
   it("previews conflicts against the fixed target and refuses picks on another checkout", async () => {
     const repo = await repository();
     const dir = repo.worktree("fix/tablet");
