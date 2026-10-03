@@ -6,6 +6,7 @@ export interface SheetAction {
   id: string;
   label: string;
   Icon?: PanelIconComponent | undefined;
+  icon?: ReactNode;
   destructive?: boolean | undefined;
   /** Why the action cannot run now; set, the row shows it and stays disabled. */
   disabledReason?: string | undefined;
@@ -13,6 +14,7 @@ export interface SheetAction {
   detail?: string | undefined;
   /** The choice in force, where the sheet picks one of several. */
   pressed?: boolean | undefined;
+  keepOpen?: boolean | undefined;
   run(): void;
 }
 
@@ -42,9 +44,9 @@ export function ActionSheet({ title, head, summary, actions, onClose }: {
         className={action.destructive ? "destructive" : undefined}
         disabled={Boolean(action.disabledReason)}
         aria-pressed={action.pressed}
-        onClick={() => { onClose(); action.run(); }}
+        onClick={() => { if (!action.keepOpen) onClose(); action.run(); }}
       >
-        <i aria-hidden="true">{action.Icon ? <action.Icon size={17} /> : null}</i>
+        <i aria-hidden="true">{action.icon ?? (action.Icon ? <action.Icon size={17} /> : null)}</i>
         <span>{action.label}{action.detail ? <small>{action.detail}</small> : null}{action.disabledReason ? <small>{action.disabledReason}</small> : null}</span>
       </button>)}
     </div>

@@ -673,6 +673,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const threadTitle = showStartScreen ? <span className="title-draft">New thread</span> : <>
           <Region registry={registry} placement="thread-title" snapshot={snapshot} actions={actions} />
           <ThreadTitleMenu
+            sheet={phone}
             title={conversationSnapshot?.sessionTitle || "Untitled thread"}
             onRename={renameThread}
             menu={() => {

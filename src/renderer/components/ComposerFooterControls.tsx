@@ -167,7 +167,7 @@ export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = 
             <Ellipsis size={15} />
           </button>
           {open ? (
-            <ComposerMenuPopover anchor={trigger} onClose={() => setOpen(false)}>
+            <ComposerMenuPopover sheet={document.body.dataset.profile === "compact" && window.innerWidth < 700} anchor={trigger} onClose={() => setOpen(false)}>
               {hiddenBlocks.length > 0 ? (
                 <div className="composer-overflow-list">
                   {hiddenBlocks.map((block) => <span key={block.id} className="composer-block" data-composer-block={block.id}>{block.menuNode ?? block.node}</span>)}

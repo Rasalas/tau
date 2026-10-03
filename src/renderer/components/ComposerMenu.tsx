@@ -1,9 +1,10 @@
-import { createContext, useContext, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { lazy, Suspense, createContext, useContext, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { Check, Gauge, Zap } from "lucide-react";
 import type { HostSnapshot, UiModel } from "../../shared/contracts";
 import type { ComposerSpeedState } from "../extension-system";
 import { DEFAULT_THINKING, THINKING_LABELS } from "../thinking-levels";
 import { formatTokens } from "./model-offerings";
+const Sheet = lazy(() => import("../touch/Sheet").then((module) => ({ default: module.Sheet })));
 import { Popover } from "./ui/Dialog";
 import { focusableElements, openedByKeyboard } from "./ui/focus";
 import { useSheetDrag } from "../touch/sheet-drag";
@@ -68,7 +69,8 @@ export function ComposerMenuItem({ icon, label, detail, selected, disabled, disa
 }
 
 /** The composer's "…" menu: the blocks the row had no room for, then the menu controls. The thinking chip's menu too. */
-export function ComposerMenuPopover({ anchor, children, onClose, label = "More composer controls", className = "composer-overflow", footer }: {
+export function ComposerMenuPopover({ anchor, children, onClose, label = "More composer controls", className = "composer-overflow", footer, sheet = false }: {
+  sheet?: boolean;
   anchor: RefObject<HTMLElement | null>;
   children: ReactNode;
   onClose(): void;
@@ -92,6 +94,12 @@ export function ComposerMenuPopover({ anchor, children, onClose, label = "More c
     const step = event.key === "ArrowDown" ? 1 : -1;
     entries[(at + step + entries.length) % entries.length]?.focus({ preventScroll: true });
   };
+  if (sheet) return <Suspense fallback={null}><Sheet title={label} className="composer-controls-sheet" onClose={onClose}>
+    <ComposerMenuContext.Provider value={context}>
+      <div ref={list} className="composer-menu" onKeyDown={onKeyDown}>{children}</div>
+    </ComposerMenuContext.Provider>
+    {footer}
+  </Sheet></Suspense>;
   return (
     <Popover anchor={anchor} side="top" align="start" label={label} className={className} onClose={onClose}>
       <ComposerMenuContext.Provider value={context}>

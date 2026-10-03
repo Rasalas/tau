@@ -22,6 +22,22 @@ function fallback(overrides: Partial<Parameters<typeof coreThreadMenu>[0]> = {})
 const labels = (model: ThreadTitleMenuModel) => model.sections.map((section) => section.items.map((item) => item.label));
 
 describe("ThreadTitleMenu", () => {
+  it("opens a mobile sheet and navigates nested actions before running a pick", async () => {
+    const run = vi.fn();
+    render(<ThreadTitleMenu sheet title="Mobile thread" onRename={vi.fn(async () => true)} menu={() => ({
+      sections: [{ items: [{ id: "snooze", label: "Snooze", submenu: [{ items: [{ id: "hour", label: "For an hour" }] }] }] }], run,
+    })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Mobile thread" }));
+    expect((await screen.findByRole("dialog", { name: "Mobile thread" })).className).toContain("touch-sheet");
+    fireEvent.click(screen.getByRole("button", { name: "Snooze" }));
+    expect(run).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(screen.getByRole("button", { name: "Snooze" }));
+    fireEvent.click(screen.getByRole("button", { name: "For an hour" }));
+    expect(run).toHaveBeenCalledWith("hour");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("opens the menu it is handed, read when it opens, and runs the pick", () => {
     const run = vi.fn();
     const menu = vi.fn((): ThreadTitleMenuModel => ({ sections: [{ items: [{ id: "pin", label: "Pin thread" }] }, { items: [{ id: "delete", label: "Delete", destructive: true }] }], run }));

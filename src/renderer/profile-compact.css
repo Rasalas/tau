@@ -154,3 +154,15 @@ body[data-profile="compact"] .run-on-pill-icon { width: var(--touch-target); hei
 body[data-profile="compact"] .run-on-pill-icon > svg { display: block; flex: none; }
 body[data-profile="compact"] :is(.menu button[role="menuitemcheckbox"], .menu button[role="menuitemradio"], .popover button[role="option"]) { min-height: var(--touch-target); }
 body[data-profile="compact"] .settings-screen.stacked :is(.settings-nav-list button, .settings-back, .settings-about-link, .about-license-toggle) { min-height: var(--touch-target); }
+
+/* The phone title and branch share one edge and a compact vertical rhythm. */
+body[data-profile="compact"] .title-bar .title-heading { gap: 2px; padding: 8px 0; }
+body[data-profile="compact"] .title-bar .thread-title-trigger { min-height: 0; max-width: none; margin-left: 0; padding: 0; gap: 6px; line-height: 1.25; }
+body[data-profile="compact"] .title-bar .thread-title-control { width: 100%; }
+body[data-profile="compact"] .title-bar .thread-title-trigger { width: 100%; }
+body[data-profile="compact"] .title-bar .thread-title-trigger > span { flex: 1; text-align: left; }
+.composer-controls-sheet .composer-menu { width: 100%; max-width: none; padding: 0; }
+.composer-controls-sheet .composer-overflow-list { display: flex; flex-direction: column; gap: 8px; }
+/* The title's touch target includes its branch line. */
+body[data-profile="compact"] .title-bar .thread-title-trigger { position: relative; }
+body[data-profile="compact"] .title-bar .thread-title-trigger::before { content: ""; position: absolute; inset: -8px 0 -20px; }
