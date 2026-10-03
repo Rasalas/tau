@@ -44,6 +44,16 @@ describe("Workspace Kit client encoding", () => {
     for (const call of calls) expect(JSON.stringify(call.input)).not.toContain("/src");
   });
 
+  it("sends external transcript links with an explicit originating workspace", async () => {
+    const { calls, client } = recorder();
+    await client.readLinkedFile("../docs/draft.md", "ws1_thread");
+    await client.readLinkedFile("/host/docs/draft.md", "ws1_thread");
+    expect(calls).toEqual([
+      { command: "read-linked-file", input: { path: "../docs/draft.md", workspace: "ws1_thread" } },
+      { command: "read-linked-file", input: { path: "/host/docs/draft.md", workspace: "ws1_thread" } },
+    ]);
+  });
+
   it("names a workspace by its id, and omits it for the host's own", async () => {
     const { calls, client } = recorder();
     await client.getWorkspaceInfo("ws1_project");

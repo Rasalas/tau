@@ -16,6 +16,7 @@ import { RemoteThreadDocument } from "./components/RemoteThreadDocument";
 import { PlatformProvider } from "./platform-context";
 import type { Platform } from "../workbench/platform";
 import { WorkspaceFileSheet } from "./touch/WorkspaceFileSheet";
+import { Markdown } from "./components/Markdown";
 
 afterEach(cleanup);
 const path = ".scratch/mobile-transcript-images/issues/01-render-workspace-screenshots-on-mobile.md";
@@ -36,13 +37,37 @@ let captured: WorkspaceResources | undefined;
 function Probe() { captured = useWorkspaceResources(); return <button onClick={() => captured?.openFile(path)}>Open resource</button>; }
 
 describe("transcript-bound workspace resource contract", () => {
-  it("normalizes only host paths contained in the transcript's announced root", () => {
+  it("keeps external host links and makes in-workspace links relative", () => {
     expect(transcriptFilePath("/history/src/same.ts", "/history/")).toBe("src/same.ts");
     expect(transcriptFilePath("C:\\history\\src\\same.ts", "C:\\history")).toBe("src/same.ts");
-    for (const [candidate, root] of [["/history-other/src/same.ts", "/history"], ["/active/src/same.ts", "/history"], ["/history/../secret.ts", "/history"], ["/history/src/same.ts", undefined]] as const) {
-      expect(() => transcriptFilePath(candidate, root)).toThrow();
-    }
+    expect(transcriptFilePath("/history-other/src/same.ts", "/history")).toBe("/history-other/src/same.ts");
+    expect(transcriptFilePath("/history/../secret.ts", "/history")).toBe("../secret.ts");
+    expect(transcriptFilePath("/history/src/same.ts", undefined)).toBe("/history/src/same.ts");
+    expect(() => transcriptFilePath("https://example.invalid/file.md", "/history")).toThrow();
     expect(() => resourceRelativePath("/history/src/same.ts")).toThrow();
+  });
+  it("opens external transcript links through the originating host reader", async () => {
+    const linked = "../docs/intern/lena-becker-de/mailentwurf-uebergabe.md";
+    const loadFile = vi.fn(async () => content("workspace file"));
+    const loadLinkedFile = vi.fn(async () => content("external document"));
+    const documents = { ...source(loadFile), loadLinkedFile };
+    const { value, open } = context(documents);
+    const client = createFakeHostClient();
+    render(<HostClientProvider client={client}><WorkbenchContext.Provider value={value}>
+      <WorkspaceResourceProvider sessionId="history" workspace="ws-history" displayPath="/host/project"><Probe /><Markdown>{`\`/host/docs/document.md\` and \`${linked}\``}</Markdown></WorkspaceResourceProvider>
+    </WorkbenchContext.Provider></HostClientProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: `Open ${linked}` }));
+    expect(open).toHaveBeenCalledWith(linked, origin);
+    fireEvent.click(await screen.findByRole("button", { name: "Open /host/docs/document.md" }));
+    expect(open).toHaveBeenLastCalledWith("/host/docs/document.md", origin);
+    for (const path of [linked, "/host/docs/document.md"]) {
+      await expect(captured!.loadFile(path)).resolves.toMatchObject({ text: "external document" });
+      expect(loadLinkedFile).toHaveBeenLastCalledWith(path, { workspace: "ws-history" });
+    }
+    expect(loadFile).not.toHaveBeenCalled();
+    expect(transcriptFilePath("/host/docs/document.md", "/host/project")).toBe("/host/docs/document.md");
+    await expect(bindWorkspaceFileLoader(documents, null)(linked)).rejects.toThrow("unavailable");
+    expect(loadLinkedFile).toHaveBeenCalledTimes(2);
   });
   it("binds same relative path to two distinct opaque workspaces and captures sources", async () => {
     const loadA = vi.fn(async (_path, from) => content(`file in ${from?.workspace}`));

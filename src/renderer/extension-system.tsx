@@ -1374,6 +1374,8 @@ export interface DocumentSourceContribution extends ProfileScoped {
   id: string;
   /** The stage names the project its tabs were stored for, which a draft's may be. */
   loadFile(path: string, from?: DocumentOrigin): Promise<UiFileContent>;
+  /** Read a transcript link on its host, including absolute paths and paths outside the workspace. Requires an explicit origin. */
+  loadLinkedFile?(path: string, from: DocumentOrigin & { workspace: string }): Promise<UiFileContent>;
   loadDiff(path: string, options?: DiffLoadOptions, from?: DocumentOrigin): Promise<UiFileDiff>;
   openInEditor(relPath: string): void;
   getState(): { changes: UiWorkspaceChanges; editor?: UiEditor };

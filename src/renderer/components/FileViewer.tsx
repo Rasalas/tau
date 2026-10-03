@@ -97,7 +97,7 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
           icon={<FileWarning size={20} />}
           title={missingReason(error) ? "File not found" : "Could not open this file"}
           description={<><code>{relativePath}</code><br />{missingReason(error) === "file"
-            ? "It is not in this project any more."
+            ? "There is no file at this path any more."
             : missingReason(error) === "project" ? "Its project is not open in Tau any more." : error}</>}
         >{onClose ? <button type="button" className="text-button" onClick={onClose}>Close</button> : null}</Empty>
         : !content

@@ -18,6 +18,7 @@ import {
   type WorkspaceRef,
 } from "tau/host-extension";
 import * as workspaceGit from "./workspace-git.js";
+import { linkedFilePath } from "../../src/shared/linked-file-path.js";
 import { GitCoordinator } from "./git-coordinator.js";
 import { readBoundedFileContent, statFile, writeTextFile } from "./file-content.js";
 import { defaultEditorProbe, editorCommand, FILE_MANAGER_ID, findInstalledEditors, launchEditor } from "./editors.js";
@@ -362,6 +363,14 @@ export function createWorkspaceHostExtension(): HostExtension {
         await workspaceGit.assertWorkspacePath(project, path);
         return readBoundedFileContent(resolve(project, path));
       }, { access: "read", callers: [FILES_KIT_ID] });
+      // A clicked transcript link is a host filesystem read, not a Git/workspace operation.
+      // Require its origin even for absolute paths; never substitute the active project.
+      context.registerCommand("read-linked-file", async (input) => {
+        const workspace = requiredString(input, "workspace");
+        const project = await services.knownWorkspacePath(workspace);
+        const path = linkedFilePath(requiredString(input, "path"));
+        return readBoundedFileContent(resolve(project, path));
+      }, { access: "read" });
       context.registerCommand("file-stat", async (input) => {
         const project = await shownRoot(input);
         const path = relativePath(input);

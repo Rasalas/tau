@@ -295,20 +295,21 @@ function CodeBlock({ code, language, phase: givenPhase }: { code: string; langua
 function FileChip({ path, name }: { path: string; name: string }) {
   const openFile = useContext(WorkbenchContext)?.openFile;
   const chip = <code className="md-file-chip" {...tooltipProps(path, { variant: "code" })}><FileKindIcon name={name} size={12} />{name}</code>;
-  if (!openFile || !path.includes("/")) return chip;
+  if (!openFile || !/[\/\\]/u.test(path)) return chip;
   return <button type="button" className="md-file-link" aria-label={`Open ${path}`} onClick={() => openFile(path.replace(/^\.\//u, ""))}>{chip}</button>;
 }
 
 type CodeChild = ReactElement<{ className?: string; children?: ReactNode }>;
 
-// A relative path with a directory and an extension, or a bare name of a common source file.
-const PATH_IN_CODE = /^(?:\.{1,2}\/)?(?:[\w@.-]+\/)+[\w@.-]*\w\.[A-Za-z0-9]{1,8}$/u;
+// A host path with a directory and an extension, or a bare common source filename.
+const PATH_IN_CODE = /^(?:(?:[A-Za-z]:)?\/|\.{1,2}\/)?(?:[\w@. -]+\/)+[\w@. -]*\w\.[A-Za-z0-9]{1,8}$/u;
 const FILE_IN_CODE = /^[\w@-][\w@.-]*\.(?:[cm]?[jt]sx?|json|md|css|html|py|rs|go|toml|ya?ml|sh)$/u;
 
 /** The file name an inline code span names, when it reads as a workspace path. */
 export function inlineCodeFile(text: string): string | undefined {
-  if (!PATH_IN_CODE.test(text) && !FILE_IN_CODE.test(text)) return undefined;
-  return text.slice(text.lastIndexOf("/") + 1);
+  const path = text.replace(/\\/gu, "/");
+  if (!PATH_IN_CODE.test(path) && !FILE_IN_CODE.test(path)) return undefined;
+  return path.slice(path.lastIndexOf("/") + 1);
 }
 
 const COMPONENTS: MarkdownComponents = {

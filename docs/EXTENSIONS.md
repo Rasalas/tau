@@ -574,6 +574,15 @@ the argument it reads the project it follows. A file or project that is gone
 shows "File not found" with the path and Close; a raw `ENOENT` or "not a known
 Tau project" from the source is enough for core to tell.
 
+Since API 1.50.0, a document source can implement
+`loadLinkedFile(path, { workspace })` for transcript links. These paths may
+be absolute or contain `..`; the source resolves them on the thread's host,
+relative to the explicitly named workspace, not on the client or in the
+active project. Workspace Kit uses a separate bounded, read-only host
+command for this. Without the method, core keeps using `loadFile` for
+workspace-relative links and rejects external paths. Writes and Git
+operations remain workspace-confined.
+
 A kind's `render` gets the same project as a fourth argument,
 `render(params, handle, actions, from)` with `from: DocumentOrigin` (new in API
 1.26.0), so a tab that reads or writes files does so in the project whose stage

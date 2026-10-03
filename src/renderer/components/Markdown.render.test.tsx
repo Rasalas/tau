@@ -115,7 +115,10 @@ describe("paths in inline code", () => {
     expect(inlineCodeFile("src/main/pi-host.ts")).toBe("pi-host.ts");
     expect(inlineCodeFile("./kits/plan/desktop.tsx")).toBe("desktop.tsx");
     expect(inlineCodeFile("package.json")).toBe("package.json");
-    for (const text of ["npm test", "a.b", "https://example.com/a.js", "/Users/me/file.ts", "src/", "x = y/2.5", "v1.2.3"]) expect(inlineCodeFile(text)).toBeUndefined();
+    expect(inlineCodeFile("/Users/me/file.ts")).toBe("file.ts");
+    expect(inlineCodeFile("/Volumes/disk/project with spaces/file.md")).toBe("file.md");
+    expect(inlineCodeFile("C:\\host\\docs\\file.md")).toBe("file.md");
+    for (const text of ["npm test", "a.b", "https://example.com/a.js", "src/", "x = y/2.5", "v1.2.3"]) expect(inlineCodeFile(text)).toBeUndefined();
   });
 
   it("draws the chip with the name and gives the whole path as its tooltip", () => {

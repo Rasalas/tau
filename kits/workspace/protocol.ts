@@ -276,6 +276,8 @@ export interface WorkspaceHostCommands {
   "stage-all": { input: { workspace?: string } | undefined; output: UiWorkspaceChanges };
   "revert-file": { input: { relPath: string; workspace?: string }; output: UiWorkspaceChanges };
   "read-file": { input: { relPath: string; workspace?: string }; output: UiFileContent };
+  /** A user-opened transcript link on this host, allowed outside its explicitly named workspace. */
+  "read-linked-file": { input: { path: string; workspace: string }; output: UiFileContent };
   "file-stat": { input: { relPath: string; workspace?: string }; output: UiFileStat };
   /** `expectedMtimeMs` is when the caller last saw the file; `null` expects none, absent writes regardless. */
   "write-file": { input: { relPath: string; text: string; expectedMtimeMs?: number | null; workspace?: string }; output: UiFileWriteResult };
@@ -366,6 +368,7 @@ export interface WorkspaceHostClient {
   stageAll(workspace?: string): Promise<UiWorkspaceChanges>;
   revertFile(relPath: string, workspace?: string): Promise<UiWorkspaceChanges>;
   readFile(relPath: string, workspace?: string): Promise<UiFileContent>;
+  readLinkedFile(path: string, workspace: string): Promise<UiFileContent>;
   statFile(relPath: string): Promise<UiFileStat>;
   writeFile(relPath: string, text: string, expectedMtimeMs?: number | null): Promise<UiFileWriteResult>;
   commit(message: string, push: boolean): Promise<CommitResult>;
@@ -421,6 +424,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     stageAll: (workspace) => call("stage-all", workspace ? { workspace } : undefined),
     revertFile: (relPath, workspace) => call("revert-file", workspace ? { relPath, workspace } : { relPath }),
     readFile: (relPath, workspace) => call("read-file", workspace ? { relPath, workspace } : { relPath }),
+    readLinkedFile: (path, workspace) => call("read-linked-file", { path, workspace }),
     statFile: (relPath) => call("file-stat", { relPath }),
     writeFile: (relPath, text, expectedMtimeMs) => call("write-file", expectedMtimeMs === undefined ? { relPath, text } : { relPath, text, expectedMtimeMs }),
     commit: (message, push) => call("commit", { message, push }),

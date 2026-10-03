@@ -90,6 +90,31 @@ describe("Workspace Kit host extension", () => {
     await expect(host.readFile("/etc/passwd", "ws-origin")).rejects.toThrow();
     await expect(host.readFile(".scratch/missing.md", "ws-origin")).rejects.toThrow();
   });
+  it("reads linked files outside the transcript workspace on its host without widening workspace writes", async () => {
+    const root = await workspace();
+    const origin = join(root, "project with spaces");
+    const cwd = join(root, "active", "project with spaces");
+    const linked = "../docs/intern/lena-becker-de/mailentwurf-uebergabe.md";
+    await mkdir(origin, { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    await mkdir(join(root, "docs/intern/lena-becker-de"), { recursive: true });
+    const absolute = join(root, "docs/intern/lena-becker-de/mailentwurf-uebergabe.md");
+    await writeFile(absolute, "outside the project\n");
+    const registry = await activated(cwd, { knownWorkspacePath: async (id) => {
+      if (id !== "ws-origin") throw new Error("Unknown workspace");
+      return origin;
+    } });
+    const read = (path: string, workspace = "ws-origin") => registry.invoke("tau.workspace", "read-linked-file", { path, workspace });
+    for (const path of [linked, absolute]) {
+      await expect(read(path)).resolves.toMatchObject({ kind: "text", text: "outside the project\n" });
+    }
+    await expect(read(linked, "unknown")).rejects.toThrow("Unknown workspace");
+    await expect(read("")).rejects.toThrow();
+    await expect(read("https://example.invalid/file.md")).rejects.toThrow();
+    await expect(registry.invoke("tau.workspace", "read-linked-file", { path: absolute })).rejects.toThrow();
+    await expect(registry.invoke("tau.workspace", "write-file", { relPath: linked, text: "overwritten", workspace: "ws-origin" })).rejects.toThrow("inside the workspace");
+    expect(await readFile(absolute, "utf8")).toBe("outside the project\n");
+  });
   it("stages and changes branches in a named workspace while leaving the active workspace alone", async () => {
     const cwd = await workspace();
     const target = await workspace();

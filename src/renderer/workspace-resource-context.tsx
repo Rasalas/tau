@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
 import type { UiFileContent } from "../shared/workspace-kit-types";
+import { linkedFilePath } from "../shared/linked-file-path";
 import type { WorkspaceResourceOrigin } from "../workbench/stage";
 import type { DocumentSourceContribution } from "./extension-system";
 import { useHostClient } from "./host-client-context";
@@ -31,13 +32,12 @@ export function resourceRelativePath(path: string): string {
   return relative;
 }
 
-/** Legacy tool links may name host paths, but only under this transcript's announced root. */
+/** Keep external links as host paths; in-workspace links keep their relative tab names. */
 export function transcriptFilePath(path: string, displayPath: string | undefined): string {
-  const posix = path.replace(/\\/gu, "/");
-  if (!posix.startsWith("/") && !/^[A-Za-z]:\//u.test(posix)) return resourceRelativePath(path);
+  const posix = linkedFilePath(path);
+  if (!posix.startsWith("/") && !/^[A-Za-z]:\//u.test(posix)) return posix;
   const root = displayPath?.replace(/\\/gu, "/").replace(/\/+$/u, "");
-  if (!root || !posix.startsWith(`${root}/`)) throw new Error(RESOURCE_UNAVAILABLE);
-  return resourceRelativePath(posix.slice(root.length + 1));
+  return root && posix.startsWith(`${root}/`) ? posix.slice(root.length + 1) : posix;
 }
 
 /** Captures the registered source and explicit origin before any asynchronous read. */
@@ -45,12 +45,16 @@ export function bindWorkspaceFileLoader(source: DocumentSourceContribution | und
   const workspace = origin?.workspace;
   const sourceId = origin?.sourceId;
   return async (path) => {
-    const relative = resourceRelativePath(path);
     if (!source || !workspace || source.id !== sourceId) throw new Error(RESOURCE_UNAVAILABLE);
-    try { return await source.loadFile(relative, { workspace }); }
+    const filePath = linkedFilePath(path);
+    try {
+      return source.loadLinkedFile
+        ? await source.loadLinkedFile(filePath, { workspace })
+        : await source.loadFile(resourceRelativePath(path), { workspace });
+    }
     catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (/ENOENT|not a known Tau project/iu.test(message)) throw new Error(`File not found in this thread's workspace. ${message}`, { cause: error });
+      if (/ENOENT|not a known Tau project/iu.test(message)) throw new Error(`File not found on this thread's machine. ${message}`, { cause: error });
       if (/forbidden|denied|EACCES|permission/iu.test(message)) throw new Error("Access to this workspace file was denied.", { cause: error });
       if (/offline|disconnect|not connected|not reachable/iu.test(message)) throw new Error("The file's host is offline. Reconnect and open the file again.", { cause: error });
       if (/unsupported|not supported|Update .*machine/iu.test(message)) throw new Error("This host does not support reading this file. Update the host and try again.", { cause: error });
