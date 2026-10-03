@@ -298,7 +298,7 @@ describe("the web client at 400 px", () => {
     await screen.findByRole("button", { name: "Settled · 1" });
     await openChat();
     fireEvent.click(document.querySelector(".thread-title-trigger")!);
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Look" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Look" }));
     await waitFor(() => expect(seen).toHaveLength(2));
     expect(seen[1]).toEqual({ covered: undefined, order: ["t-a", "t-b", "t-c"] });
   });
