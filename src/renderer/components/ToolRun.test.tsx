@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiToolRun } from "../../shared/contracts";
 import { ExtensionRegistry, type DesktopExtension } from "../extension-system";
 import { ToolRun } from "./ToolRun";
+import { presentWrite } from "../../../kits/workspace/tool-cards";
 
 /**
  * Shell runs and hidden tool output are extension presentations, and the kits
@@ -49,6 +50,32 @@ afterEach(() => {
 });
 
 describe("tool run output", () => {
+  it.each(["running", "done"] as const)("keeps a %s edit diff behind the row in focused mode", (status) => {
+    const registry = registryWithBundledExtensions();
+    registry.activate({ id: "test.edits", name: "Edits", activate(plugin) {
+      plugin.registerToolRenderer("test.edit", (tool) => tool.name === "edit", presentWrite);
+    } });
+    const view = render(<ToolRun tool={{ id: "edit", name: "edit", args: { path: "app.ts", oldText: "const before = 1;", newText: "const after = 2;" }, status, startedAt: Date.now() }} registry={registry} detail="focused" />);
+    const row = screen.getByRole("button", { name: /Edit app.ts/u });
+    expect(view.container.querySelector(".tool-diff")).toBeNull();
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(row);
+    expect(view.container.querySelector(".tool-diff")?.textContent).toContain("const after = 2;");
+    expect(row.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(row);
+    expect(view.container.querySelector(".tool-diff")).toBeNull();
+  });
+
+  it.each(["detailed", "everything"] as const)("shows edit previews at %s", (detail) => {
+    const registry = registryWithBundledExtensions();
+    registry.activate({ id: "test.edits", name: "Edits", activate(plugin) {
+      plugin.registerToolRenderer("test.edit", (tool) => tool.name === "edit", presentWrite);
+    } });
+    const view = render(<ToolRun tool={{ id: "edit", name: "edit", args: { path: "app.ts", oldText: "before", newText: "after" }, status: "done", startedAt: 1 }} registry={registry} detail={detail} />);
+    expect(view.container.querySelector(".tool-diff")?.textContent).toContain("after");
+    expect(screen.getByRole("button", { name: /Edit app.ts/u }).getAttribute("aria-expanded")).toBe("true");
+  });
+
   it("does not print the structured output of a tool whose renderer hides it", () => {
     render(<ToolRun
       tool={{
@@ -178,8 +205,9 @@ describe("tool run output", () => {
     } });
     const view = render(<ToolRun tool={{ id: "e", name: "edit", args: {}, status: "done", output: "Replaced 1 block.", startedAt: 0, endedAt: 400 }} registry={registry} />);
     expect(screen.getByText("+1 −1")).toBeTruthy();
-    expect(view.container.querySelector("pre")?.textContent).toBe("- a\n+ b");
+    expect(view.container.querySelector("pre")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Edit/u }));
+    expect(view.container.querySelector("pre")?.textContent).toBe("- a\n+ b");
     expect(screen.queryByText("Replaced 1 block.")).toBeNull();
     expect(screen.getByText("0.4s")).toBeTruthy();
   });

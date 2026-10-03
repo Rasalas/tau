@@ -96,7 +96,17 @@ function ToolRunList({ tools, context, label }: { tools: readonly UiToolRun[]; c
 
 /** A settled run of tools as one card, a row per call: one fold level, not three (design 1f). */
 function GroupRow({ row, context }: { row: Extract<WorkRow, { kind: "group" }>; context: WorkRowActions }) {
-  return <ToolRunList tools={row.tools} context={context} label={row.summary} />;
+  const [open, setOpen] = useDisclosure(context.disclosures, row.id, row.open, context.turn);
+  // Groups inside an opened turn and detailed groups are already disclosed.
+  if (row.open) return <ToolRunList tools={row.tools} context={context} label={row.summary} />;
+  return <section className="tool-activity">
+    <button type="button" className="tool-activity-summary" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <Hammer size={13} strokeWidth={1.7} aria-hidden="true" />
+      <span>{row.summary}</span>
+      <ChevronRight className="activity-chevron" size={13} />
+    </button>
+    {open ? <ToolRunList tools={row.tools} context={context} label={row.summary} /> : null}
+  </section>;
 }
 
 /** "Worked for 2m 14s": the whole turn, one muted line, expanding in place. */

@@ -122,6 +122,30 @@ describe("a running turn", () => {
     expect(view.container.querySelector(".work-live")).toBe(line);
   });
 
+  it("keeps completed calls collapsed after commentary during a focused turn", () => {
+    const disclosures = new WorkDisclosures();
+    const props = { id: "turn", tools: [run("rg", "rg -n verbosity src")], registry: registryWith(), detail: "focused" as const, status: "running" as const, streaming: false, disclosures };
+    const view = render(<WorkGroup {...props} />);
+    expect(screen.queryByText("rg -n verbosity src")).toBeNull();
+    const summary = screen.getByRole("button", { name: "Ran 1 command" });
+    expect(summary.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(summary);
+    expect(screen.getByText("rg -n verbosity src")).toBeTruthy();
+    view.unmount();
+    render(<WorkGroup {...props} />);
+    expect(screen.getByText("rg -n verbosity src")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Ran 1 command" }));
+    expect(screen.queryByText("rg -n verbosity src")).toBeNull();
+  });
+
+  it("keeps execution code behind the live disclosure", () => {
+    const code = 'text(await tools.exec_command({cmd: "rg -n verbosity src"}));';
+    render(<WorkGroup id="turn" tools={[{ id: "exec", name: "exec", args: { code }, status: "running", startedAt: Date.now() }]} registry={registryWith()} detail="focused" status="running" streaming />);
+    expect(screen.queryByText(code)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Using exec/u }));
+    expect(screen.getByText(code)).toBeTruthy();
+  });
+
   it("counts up without a React commit per tick", () => {
     vi.useFakeTimers();
     vi.setSystemTime(100_000);
