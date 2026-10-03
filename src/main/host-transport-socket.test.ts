@@ -174,7 +174,7 @@ describe("socket host transport", () => {
     const reply = await frame;
     expect(reply.type).toBe("hello-reply");
     if (reply.type !== "hello-reply") return;
-    expect(reply.reply).toMatchObject({ protocol: 1, hostVersion: "test", capabilities: ["jobs", "local-files", "heartbeat", "subscriptions"], resync: false, nextSeq: 1 });
+    expect(reply.reply).toMatchObject({ protocol: 1, hostVersion: "test", capabilities: ["jobs", "heartbeat", "subscriptions"], resync: false, nextSeq: 1 });
   });
 
   it("closes a connection whose token is wrong or missing", async () => {
