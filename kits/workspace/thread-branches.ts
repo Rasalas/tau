@@ -132,6 +132,20 @@ const cherries = new Map<string, boolean>();
 const CHERRIES = 500;
 const squashes = new Map<string, boolean>();
 
+/** Ancestry or every individual patch proves inclusion, including cherry-picked precursors. */
+async function patchesIn(root: string, head: string, tip: string, runGit: AgentGitRunner): Promise<boolean> {
+  const key = `${root}\0${head}\0${tip}`;
+  let same = cherries.get(key);
+  if (same === undefined) {
+    const lines = (await runGit(root, ["cherry", head, tip])).split("\n").filter(Boolean);
+    same = lines.length > 0 ? lines.every((line) => line.startsWith("-"))
+      : await runGit(root, ["merge-base", "--is-ancestor", tip, head]).then(() => true, () => false);
+    if (cherries.size >= CHERRIES) cherries.delete(cherries.keys().next().value!);
+    cherries.set(key, same);
+  }
+  return same;
+}
+
 /**
  * Whether the target holds the branch's changes under other commits: the
  * merge would leave the target's tree as it is, or every commit's patch is
@@ -139,14 +153,7 @@ const squashes = new Map<string, boolean>();
  */
 async function alreadyIn(root: string, head: string, tip: string, start: string, preview: BranchMergePreview, runGit: AgentGitRunner): Promise<ThreadBranch["mergedBy"]> {
   if (preview.conflicts.length === 0 && preview.tree === (await runGit(root, ["rev-parse", `${head}^{tree}`])).trim()) return "tree";
-  const key = `${head}\0${tip}`;
-  let same = cherries.get(key);
-  if (same === undefined) {
-    const lines = (await runGit(root, ["cherry", head, tip]).catch(() => "")).split("\n").filter(Boolean);
-    same = lines.length > 0 && lines.every((line) => line.startsWith("-"));
-    if (cherries.size >= CHERRIES) cherries.delete(cherries.keys().next().value!);
-    cherries.set(key, same);
-  }
+  const same = await patchesIn(root, head, tip, runGit);
   if (same) return "patches";
   // Individual commit patches cannot identify several commits squashed into
   // one. Compare their combined patch with the target's historical patches,
@@ -221,8 +228,9 @@ export async function readThreadBranch(path: string, runGit: AgentGitRunner = ru
   const forkPoint = (await runGit(root, ["merge-base", head, tip])).trim();
   const paths = parseNumstat(await runGit(root, ["diff", "--numstat", "--no-renames", forkPoint, tip]));
   const preview = await previewBranchMerge(root, tip, runGit, head);
-  const start = await ownStart(root, branch, tip, runGit) ?? forkPoint;
-  const mergedBy = preview.merged ? undefined : await alreadyIn(root, head, tip, start, preview, runGit).catch(() => undefined);
+  // A rebase or merge from the target moves the common base; the creation
+  // reflog would include unrelated target changes in the squash patch.
+  const mergedBy = preview.merged ? undefined : await alreadyIn(root, head, tip, forkPoint, preview, runGit).catch(() => undefined);
   const merged = preview.merged || Boolean(mergedBy);
   return {
     ...base,
@@ -250,7 +258,23 @@ export async function readThreadBranches(paths: readonly string[], runGit: Agent
     }
     return readThreadBranch(path, runGit, targets?.get(path)).catch(() => undefined);
   }));
-  return read.filter((entry): entry is ThreadBranch => Boolean(entry));
+  const branches = read.filter((entry): entry is ThreadBranch => Boolean(entry));
+  // A precursor may have been cherry-picked into another worktree and then
+  // squashed with further edits. Its patches need not survive individually
+  // on the target, but the completed integration branch still proves them.
+  // Only use evidence for the same repository and intended target.
+  const completed = branches.filter((entry) => entry.merged && entry.ahead > 0);
+  for (const integrated of completed) {
+    for (const branch of branches) {
+      if (branch.merged || branch.unavailable || branch.ahead === 0 || branch.root !== integrated.root || branch.target !== integrated.target) continue;
+      if (!await patchesIn(branch.root, integrated.tip, branch.tip, runGit).catch(() => false)) continue;
+      branch.merged = true;
+      branch.mergedBy = "patches";
+      branch.conflicts = [];
+      completed.push(branch);
+    }
+  }
+  return branches;
 }
 
 export interface ThreadBranchMerge extends BranchMergeOutcome {
