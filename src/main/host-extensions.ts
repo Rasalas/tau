@@ -87,7 +87,7 @@ export interface HostBackendThreadRecord {
   /** The workspace identity supplied by the backend's home host. New in API 1.44.0. */
   workspace?: WorkspaceRef;
   /** Project presentation from the home host, including the root icon for a worktree. */
-  project?: Pick<UiProject, "name" | "icon">;
+  project?: Pick<UiProject, "name" | "icon"> & { listed?: boolean };
   /** The model it last ran on, for its row before it opens; else the row shows `modelProvider` (API 1.24.0). */
   model?: Pick<UiModel, "provider" | "id">;
   /**
