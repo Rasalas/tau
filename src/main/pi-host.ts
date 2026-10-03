@@ -1722,13 +1722,16 @@ export class PiHost {
     this.workbenchReload.assertAvailable();
     const shellCommand = command.trim();
     if (!shellCommand) throw new Error("An action command is required.");
-    const thread = await this.lifecycle.run("shell-action", async () => {
+    const { thread, restartGeneration } = await this.lifecycle.run("shell-action", async () => {
       if (expectedCwd && this.cwd !== expectedCwd) {
         throw new Error("The selected project did not finish loading. Run the action again.");
       }
-      return this.requireActive();
+      const selected = this.requireActive();
+      return { thread: selected, restartGeneration: selected.restartGeneration };
     });
     await this.binding.settle(thread);
+    this.sessionControl.assertAvailable(thread.threadId);
+    if (this.threadFor(thread.threadId) !== thread || thread.restartGeneration !== restartGeneration) throw new Error("The agent session changed while the action was being prepared. Run it again.");
     const shell = requireCapability(thread.backend, "shellAction", "Run project actions in Pi instead.");
     if (shell.isRunning()) throw new Error("Another project action is already running.");
     const result = await shell.run(shellCommand, includeInContext);

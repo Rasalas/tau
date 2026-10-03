@@ -210,6 +210,63 @@ describe("targeted session restart", () => {
     expect(bench.delivered).toEqual([]);
   });
 
+  it("refuses to restart during a project shell action even when the agent is idle", async () => {
+    const bench = restartable();
+    let running = false;
+    let release!: () => void;
+    const result = { output: "done", exitCode: 0, cancelled: false, truncated: false };
+    bench.thread.runtime.backend.capabilities.shellAction = {
+      isRunning: () => running,
+      run: async () => {
+        running = true;
+        try { await new Promise<void>((resolve) => { release = resolve; }); return result; }
+        finally { running = false; }
+      },
+    };
+    vi.spyOn(bench.internals.publication, "publishDetail").mockResolvedValue({} as never);
+    const action = bench.host.runShellAction("long project command");
+    await vi.waitFor(() => expect(running).toBe(true));
+    expect(bench.thread.runtime.state.idle).toBe(true);
+    await expect(bench.host.restartSession("thread-1")).rejects.toThrow("running work");
+    expect(bench.restart).not.toHaveBeenCalled();
+    release();
+    expect(await action).toEqual(result);
+  });
+
+  it.each(["during", "after"])("refuses an action prepared %s an external restart", async (when) => {
+    const bench = restartable();
+    const run = vi.fn(async () => ({ output: "", exitCode: 0, cancelled: false, truncated: false }));
+    bench.thread.runtime.backend.capabilities.shellAction = { isRunning: () => false, run };
+    let bind!: () => void;
+    vi.spyOn(bench.internals.binding, "settle").mockImplementation(() => new Promise<void>((resolve) => { bind = resolve; }));
+    const action = bench.host.runShellAction("old project command");
+    await vi.waitFor(() => expect(bind).toBeTypeOf("function"));
+    let finish!: () => void;
+    bench.restart.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+    const restart = bench.host.restartSession("thread-1");
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    if (when === "after") { finish(); await restart; }
+    bind();
+    await expect(action).rejects.toThrow(when === "during" ? "session is restarting" : "session changed");
+    expect(run).not.toHaveBeenCalled();
+    if (when === "during") { finish(); await restart; }
+  });
+
+  it("refuses a shell action if its bound runtime was replaced", async () => {
+    const bench = restartable();
+    const run = vi.fn(async () => ({ output: "", exitCode: 0, cancelled: false, truncated: false }));
+    bench.thread.runtime.backend.capabilities.shellAction = { isRunning: () => false, run };
+    let bind!: () => void;
+    vi.spyOn(bench.internals.binding, "settle").mockImplementation(() => new Promise<void>((resolve) => { bind = resolve; }));
+    const action = bench.host.runShellAction("old project command");
+    await vi.waitFor(() => expect(bind).toBeTypeOf("function"));
+    const replacement = heldThread("thread-1", []);
+    await bench.internals.threads.adopt({ threadId: "thread-1", cwd: "/repo", runtime: replacement.runtime, isolation: "in-process" });
+    bind();
+    await expect(action).rejects.toThrow("session changed");
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("keeps a recoverable transcript shell if the Pi runtime fails to reopen", async () => {
     const bench = restartable();
     Object.defineProperty(bench.thread.runtime, "runtime", { value: { session: { abort: async () => undefined }, dispose: async () => undefined } });
