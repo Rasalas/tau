@@ -155,6 +155,8 @@ describe("targeted session restart", () => {
 
   it("preserves the active external thread and does not dispose another thread", async () => {
     const bench = restartable();
+    const state = bench.thread.runtime.backend.state.bind(bench.thread.runtime.backend);
+    bench.thread.runtime.backend.state = () => ({ ...state(), activeTools: ["read", "bash", "write"] });
     const other = heldThread("other-thread", []);
     await bench.internals.threads.adopt({ threadId: "other-thread", cwd: "/repo", runtime: other.runtime, isolation: "in-process" });
     await bench.host.restartSession("thread-1");

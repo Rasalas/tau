@@ -1830,7 +1830,7 @@ export class PiHost {
       if (thread !== this.active) throw new Error("Open this thread on its home machine before restarting its agent session.");
       if (thread.state.streaming || !thread.state.idle || thread.adapterPending > 0
         || thread.pendingClientMessageIds.length > 0 || thread.inFlightClientMessageIds.size > 0
-        || thread.state.activeTools.length > 0
+        || [...thread.tools.values()].some((tool) => tool.status === "running")
         || this.turnObservers.pending(threadId) > 0 || this.extensionUi.hasOpen(threadId)) {
         throw new Error("Wait for this thread's running work and questions to finish before restarting its agent session.");
       }
