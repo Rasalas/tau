@@ -39,7 +39,7 @@ function helloClosingBridge(closes: Array<{ code: number; reason: string }>): So
   };
 }
 
-afterEach(() => { vi.useRealTimers(); });
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 const host: SavedHost = {
   id: "h-1",
@@ -72,8 +72,9 @@ describe("connectHost", () => {
 });
 
 describe("connectHost and the phone's token", () => {
-  it("keeps the token through malformed-frame closes, this host's 4400 and an older host's 4401, and gives it up only when revoked", async () => {
+  it.each([0, 0.5, 0.999])("keeps the token through malformed-frame closes until revoked, with jitter sample %s", async (sample) => {
     vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(sample);
     const bridge = helloClosingBridge([
       { code: 4400, reason: "malformed frame" },
       { code: 4401, reason: "malformed frame" },
@@ -89,10 +90,11 @@ describe("connectHost and the phone's token", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(bridge.hellos).toEqual(["phone-token"]);
     expect(refusals).toEqual([]);
-    await vi.advanceTimersByTimeAsync(250);
+    // First retry is bounded at 300 ms; the next at 600 ms.
+    await vi.advanceTimersByTimeAsync(300);
     expect(bridge.hellos).toEqual(["phone-token", "phone-token"]);
     expect(refusals).toEqual([]);
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(600);
     expect(bridge.hellos).toHaveLength(3);
     expect(refusals).toEqual(["revoked"]);
     await vi.advanceTimersByTimeAsync(10_000);

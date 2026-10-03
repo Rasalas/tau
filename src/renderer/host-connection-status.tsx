@@ -1,6 +1,5 @@
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { versionSkew } from "../shared/app-version";
-import { hostUpdatePending } from "../shared/host-updates";
 import { compareVersions } from "../shared/runtime-version";
 import type { HostConnectionState } from "../workbench/host-connection";
 import type { HostLink } from "../workbench/host-link";
@@ -10,8 +9,7 @@ import { useHostCapabilities } from "./use-host-capabilities";
 import { tooltipProps } from "./components/ui/Tooltip";
 import { chunkRecovery } from "./chunk-reload";
 import { useClientEnvironment } from "./client-environment";
-import { hostUpdateStore } from "../workbench/host-update-store";
-import { useAppUpdate } from "./renderer-services-context";
+import { UpdateHostButton, UpdateWindowButton } from "./deferred-surfaces";
 
 const LABEL = {
   connected: "",
@@ -136,36 +134,6 @@ function VersionSkewNotice() {
     <span>
       <strong>Version mismatch.</strong> This window runs Tau {skew.window}, its host runs {skew.host}.
     </span>
-    {windowBehind ? <UpdateWindow /> : <UpdateHost />}
+    {windowBehind ? <UpdateWindowButton /> : <UpdateHostButton />}
   </div>;
-}
-
-const progress = (phase: string | undefined, percent: number | undefined) => phase === "downloading" ? `Downloading${percent === undefined ? "…" : ` ${percent}%`}`
-  : phase === "waiting" ? "Waiting for turns…" : phase === "installing" ? "Installing…" : phase === "checking" ? "Checking…" : undefined;
-
-/** The window's own Tau: restart into a downloaded release, or ask its updater, which reports what it found. */
-function UpdateWindow() {
-  const client = useHostClient();
-  const update = useAppUpdate();
-  return update
-    ? <button type="button" className="text-button" disabled={Boolean(update.phase)} onClick={() => update.install()}>{progress(update.phase, update.progress) ?? `Restart to update to ${update.version}`}</button>
-    : <button type="button" className="text-button" onClick={() => void client?.windowAction({ kind: "check-for-updates" }).catch(() => undefined)}>Check for updates</button>;
-}
-
-/** The host's own Tau through its updater (K103); a failure comes back as its status. */
-function UpdateHost() {
-  const client = useHostClient();
-  const store = useMemo(() => (client ? hostUpdateStore(client) : undefined), [client]);
-  const status = useSyncExternalStore(store?.subscribe ?? (() => () => undefined), () => store?.getSnapshot().status);
-  if (!status || !store || status.phase === "unsupported") return null;
-  const pending = hostUpdatePending(status);
-  const refused = client?.isReadOnly() || (pending && !client?.isOwner?.() && !status.devicesMayInstall);
-  const busy = progress(status.phase, status.progress);
-  return <button
-    type="button"
-    className="text-button"
-    disabled={Boolean(busy || refused)}
-    {...tooltipProps(refused ? "Only a device with Full access may update this host." : status.phase === "failed" ? status.reason : undefined)}
-    onClick={() => void (pending ? store.install() : store.check()).catch(() => undefined)}
-  >{busy ?? (pending ? "Update host" : "Check for updates")}</button>;
 }

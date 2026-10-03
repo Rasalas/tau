@@ -53,6 +53,12 @@ describe("deferred surfaces", () => {
     expect(leaks).toEqual([]);
   });
 
+  it("loads version update controls only when they are needed", () => {
+    const controls = join(SRC, "renderer/host-version-update-controls.tsx");
+    expect(existsSync(controls)).toBe(true);
+    expect(startupGraph().has(controls)).toBe(false);
+  });
+
   it("leave the kit API to the kits", () => {
     // `loadTauApi` imports it before the first bundle request.
     const api = startupGraph().get(join(SRC, "renderer/extension-api.ts"));

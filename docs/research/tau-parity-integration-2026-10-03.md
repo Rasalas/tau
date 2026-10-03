@@ -15,8 +15,10 @@ This is a worktree checkpoint, not a release-readiness certificate.
 The approved release fix from PR #33, `ffc3d481`, was applied with
 `git cherry-pick --no-commit` to remove the already-repaired Workspace Kit
 boundary violation from this feature checkout. No other local-main commits
-were imported. These nine release-fix files are staged; other integrated work
-remains unstaged or new. No commit, push or new release was made for this checkpoint.
+were imported during that initial checkpoint. Those nine release-fix files
+were then staged; other integrated work remained unstaged or new. The work
+has since been committed, rebased onto current main and pushed in PR #34.
+The duplicate PR #33 fix was skipped during rebase. No new release was made.
 
 ## Parent verification
 
@@ -64,7 +66,7 @@ check or complete application test ran in this parent integration pass. The
 worker's isolated Electron Preview probe is recorded in its report, not
 claimed as independently repeated here.
 
-## Recovery remains separate
+## Recovery
 
 Recovery is now integrated. The worker fixed the two parent review findings
 with red-green tests: rejected steering retains the notice, and failed ACK
@@ -94,8 +96,39 @@ The already-published nightly `0.7.39-nightly.20261003.35` was built by run
 `ffc3d481`. It excludes the new parity, scheduling, Preview and queue-button
 work. Mobile jobs were skipped. Publishing it does not establish that the
 Pi background-subagent host-discovery failure is fixed. That diagnosis and
-real-provider and full-build/release certification remain separate from the
+real-provider and signed-artifact/device certification remain separate from the
 passing targeted integration gates.
+
+## Main integration and CI follow-up
+
+[PR #34](https://github.com/Rasalas/tau/pull/34) targets `main` after rebase onto
+`aa40f7cf`. The initial CI passed build, typecheck, lint, smoke and native Wayland
+checks but rejected two Mobile tests with fixed retry-timer assumptions, three
+unchanged main test expectations, and the desktop startup budget.
+
+A separate detached checkout of unchanged main established that it already
+exceeded the desktop initial-script budget at 800,440 bytes and the browser
+total-JavaScript gzip budget at 510,458 bytes. The feature's initial CI measured
+800,554 desktop startup bytes. No budget was raised or assertion disabled.
+
+The approved follow-up tests Mobile token retention and relay reconnect with
+fixed low, middle and high random samples and the bounded retry windows. The
+host socket fixture now explicitly disables the local-files opt-in when testing
+default capabilities. The Draft label matches the current UI; the two new
+core transport/TLS modules are explicitly allowed by the boundary test.
+
+Versions' update buttons now load only on a mismatch. Their code shares the
+existing lazy common chunk, and the nearby-host list shares the Settings
+primitives it already imports. Three Terser compression passes preserve source
+maps, legal comments and the tested side-effect order. Final production budgets
+pass: desktop startup 795,634 bytes and total JavaScript 498,267 gzip bytes;
+browser startup 810,111 bytes and total JavaScript 509,669 gzip bytes. Browser
+gzip headroom is still only 331 bytes. This is not ample room for future work.
+
+The expanded local run passes 608 tests across 43 files with delayed renders.
+Complete typecheck and repo lint also pass. The PR must pass the fresh full CI
+before merge. These build gates still do not certify paid-provider, physical
+device or signed-artifact installation behavior.
 
 ## Further upstream evidence
 

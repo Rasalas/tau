@@ -611,7 +611,7 @@ describe("a new thread's draft in the phone's list", () => {
     const row = within(home).getByRole("button", { name: "Open draft Sketch the onboarding" });
     const rows = within(within(home).getByRole("list", { name: "Threads" })).getAllByRole("listitem");
     expect(rows[0]?.contains(row)).toBe(true);
-    expect(within(row).getByText("draft")).toBeTruthy();
+    expect(within(row).getByText("Draft")).toBeTruthy();
 
     fireEvent.click(row);
     await screen.findByRole("button", { name: "Back to threads" });
