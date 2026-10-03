@@ -4,6 +4,7 @@ The first builds of Tau set out to prove that Pi can stay the agent runtime whil
 
 - real Pi SDK session with streamed text, thinking and tool events
 - recent Pi threads across projects, including project identity, the Git branch Workspace Kit supplies, live activity, and a settled shelf
+- optional Working section on desktop and web: enable **Separate working threads** in Settings → Thread rail to collect running active threads until they finish, fail or need an answer or approval. It starts off; pinned, snoozed, settled and archived threads keep their sections, and manual order and sibling groups stay saved. Connected machines use their reported activity. The compact phone list keeps its current layout
 - searchable recent-project modal (`Cmd/Ctrl+P`) and extension-provided add-project sources
 - working local-folder and Git-clone project flows, plus thread search (`/`)
 - file index marked with the working tree's changes, and a Signals event stream

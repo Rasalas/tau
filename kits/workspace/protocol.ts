@@ -559,6 +559,8 @@ export interface RailExternalThread {
   session: UiSession;
   projectIcon?: string;
   running?: boolean;
+  /** A question or approval needs attention on its home machine. */
+  waiting?: boolean;
   /** Set while `open` is under way. */
   opening?: boolean;
   /** Where it runs: an icon just before the cost, the name as tooltip. */
@@ -685,7 +687,7 @@ export interface ThreadRailOrganizer {
   /** Moves whenever `sections` would answer differently for the same threads. */
   getVersion(): number;
   /** `threads` is what the rail would show, searched and newest first. */
-  sections(threads: readonly UiSession[]): ThreadRailSection[];
+  sections(threads: readonly UiSession[], activity?: { runningThreadIds: readonly string[]; waitingThreadIds: readonly string[]; failedThreadIds: readonly string[] }): ThreadRailSection[];
   /** A row's right-click menu; `lookup` gives chords for its hints and the commands offered on a thread. */
   menu(session: UiSession, lookup?: ThreadMenuLookup): MenuSection[];
   runMenu(session: UiSession, itemId: string, actions: WorkbenchActions): void;

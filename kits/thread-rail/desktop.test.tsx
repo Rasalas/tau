@@ -842,3 +842,21 @@ describe("parking the thread on screen", () => {
     expect(actions.newSession).not.toHaveBeenCalled();
   });
 });
+
+
+describe("Working transitions", () => {
+  it("follows live start, question, answer, failure and completion without changing saved placement", async () => {
+    const { organizer, current } = setup({ initial: { threads: { a: { order: 2 }, b: { order: 1 } }, settings: { onMerged: true, onClosed: false, workingSection: true } } });
+    await flush();
+    const threads = [thread("a"), thread("b")];
+    const sections = (running: string[], waiting: string[] = [], failed: string[] = []) => organizer().sections(threads, { runningThreadIds: running, waitingThreadIds: waiting, failedThreadIds: failed });
+    const ids = (list: ReturnType<typeof sections>, section: string) => list.find((entry) => entry.id === section)?.threads.map((entry) => entry.id);
+    expect(ids(sections([]), "active")).toEqual(["b", "a"]);
+    expect(ids(sections(["a"]), "working")).toEqual(["a"]);
+    expect(ids(sections(["a"], ["a"]), "active")).toEqual(["b", "a"]);
+    expect(ids(sections(["a"]), "working")).toEqual(["a"]);
+    expect(ids(sections(["a"], [], ["a"]), "active")).toEqual(["b", "a"]);
+    expect(ids(sections([]), "active")).toEqual(["b", "a"]);
+    expect(current().threads).toEqual({ a: { order: 2 }, b: { order: 1 } });
+  });
+});

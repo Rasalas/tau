@@ -42,7 +42,7 @@ export interface RailOrganizerPort {
   confirm?(action: RailQuestionAction, sessions: readonly UiSession[]): Promise<boolean>;
 }
 
-const EMPTY: RailSections = { pinned: [], active: [], snoozed: [], settled: [], archived: [] };
+const EMPTY: RailSections = { pinned: [], active: [], working: [], snoozed: [], settled: [], archived: [] };
 
 /** A menu item's icon; the OS's menu draws the same one by its name. */
 const glyph = (Icon: LucideIcon) => ({ icon: <Icon size={13} /> });
@@ -176,7 +176,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
   const step = (threadId: string, direction: -1 | 1) => {
     const section = sectionOf(meta(threadId), now());
     if (section !== "pinned" && section !== "active") return;
-    const list = last[section].map((thread) => thread.id);
+    const list = (section === "active" && last.working.some((thread) => thread.id === threadId) ? last.working : last[section]).map((thread) => thread.id);
     const index = list.indexOf(threadId);
     const target = index + direction;
     if (index < 0 || target < 0 || target >= list.length) return;
@@ -344,12 +344,15 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     },
     subscribe: store.subscribe,
     getVersion: store.getVersion,
-    sections(threads) {
-      last = railSections(threads, store.getState(), now());
-      store.displayed = [...last.pinned, ...last.active];
+    sections(threads, activity) {
+      const blocked = new Set([...(activity?.waitingThreadIds ?? []), ...(activity?.failedThreadIds ?? [])]);
+      const working = new Set((activity?.runningThreadIds ?? [...store.running]).filter((id) => !blocked.has(id)));
+      last = railSections(threads, store.getState(), now(), working);
+      store.displayed = [...last.pinned, ...last.active, ...last.working];
       return [
         { id: "pinned", label: "Pinned", threads: last.pinned },
         { id: "active", threads: last.active },
+        ...(store.getState().settings.workingSection ? [{ id: "working", label: "Working", shelf: true, collapsed: true, threads: last.working }] : []),
         { id: "snoozed", label: "Snoozed", shelf: true, collapsed: true, threads: last.snoozed },
         { id: "settled", label: "Settled", shelf: true, collapsed: false, settled: true, threads: last.settled },
       ];
