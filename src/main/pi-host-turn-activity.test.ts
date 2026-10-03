@@ -6,7 +6,7 @@ import { decodeHostCursor } from "./transcript-cursor.js";
 import { detailFromSnapshot, type ThreadDetail } from "../shared/host-protocol.js";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import { PiHost } from "./pi-host.js";
-import { AgentSession } from "@earendil-works/pi-coding-agent";
+import { AgentSession, type PromptOptions } from "@earendil-works/pi-coding-agent";
 import { PiThreadRuntimeBackend } from "./thread-runtime-backend.js";
 import type { ThreadBackendPromptInput } from "./runtime-types.js";
 import { ThreadRuntime } from "./thread-runtime.js";
@@ -81,7 +81,7 @@ describe("workspace metadata scope", () => {
 function piPromptThread(session: {
   model: { input?: readonly string[] };
   isStreaming: boolean;
-  prompt(text: string, options?: { preflightResult?: (success: boolean) => void }): Promise<unknown>;
+  prompt(text: string, options?: PromptOptions): Promise<unknown>;
 }, entries: unknown[] = []) {
   const backend = {
     kind: "pi" as const,
@@ -104,10 +104,8 @@ function piPromptThread(session: {
       sourceFingerprint: clientMessageFingerprint(text, []),
     }),
     composerCommands: () => [],
-    prompt: async (input: { text: string; onAdmitted?: (accepted: boolean) => void }) => {
-      await session.prompt(input.text, { preflightResult: input.onAdmitted });
-      return {};
-    },
+    prompt: (input: ThreadBackendPromptInput) =>
+      PiThreadRuntimeBackend.prototype.prompt.call({ ...backend, session } as never, input),
     state: () => ({
       streaming: session.isStreaming,
       idle: !session.isStreaming,
@@ -185,9 +183,9 @@ function makeActivationThread(threadId: string, sessionFile = `/${threadId}.json
 
 describe("issue 13 real SDK refusal reason", () => {
   // Controlled SDK state, not evidence that compaction caused the phone incident.
-  // Calling the installed SDK implementation exercises its false-then-throw order.
+  // The installed SDK rejects without invoking the acceptance callback.
   const reason = "Cannot submit a prompt while compaction is in progress. Wait for compaction to finish and retry.";
-  function compactingSdkPrompt(text: string, options?: { preflightResult?: (success: boolean) => void }) {
+  function compactingSdkPrompt(text: string, options?: PromptOptions) {
     return AgentSession.prototype.prompt.call({ _compactionAbortController: new AbortController() } as never, text, options);
   }
 
@@ -195,7 +193,7 @@ describe("issue 13 real SDK refusal reason", () => {
     const order: unknown[] = [];
     await compactingSdkPrompt("text-only follow-up", { preflightResult: (accepted) => order.push(accepted) })
       .catch((error: Error) => order.push(error.message));
-    expect(order).toEqual([false, reason]);
+    expect(order).toEqual([reason]);
   });
 
   it("admits one retry through the SDK once the controlled compaction gate clears", async () => {
@@ -204,7 +202,11 @@ describe("issue 13 real SDK refusal reason", () => {
       _compactionAbortController: new AbortController() as AbortController | undefined,
       isStreaming: false,
       model: { provider: "fixture", id: "fixture", input: ["text"] },
-      _extensionRunner: { hasHandlers: () => false, emitBeforeAgentStart: async () => undefined },
+      _extensionRunner: { hasHandlers: () => false, emitBeforeAgentStart: async (_text: string, _images: unknown, systemPromptOptions: unknown) => ({ systemPromptOptions, messages: [] }) },
+      _runInputHandlers: async (text: string) => ({ text }),
+      _normalizePromptImages: async () => ({ images: [], hints: [] }),
+      _preparePromptAndToolLoadout: () => undefined,
+      getActiveToolNames: () => [],
       _expandSkillCommand: (text: string) => text,
       promptTemplates: [],
       _flushPendingBashMessages: () => undefined,
@@ -213,10 +215,10 @@ describe("issue 13 real SDK refusal reason", () => {
       _findLastAssistantMessage: () => ({ role: "assistant", stopReason: "stop" }),
       _checkCompaction: async () => undefined,
       _pendingNextTurnMessages: [],
-      _baseSystemPrompt: "fixture",
+      _baseSystemPromptOptions: { selectedTools: [] },
       agent: { state: { systemPrompt: "fixture" } },
       _runAgentPrompt: async (messages: unknown[]) => { delivered.push(...messages); },
-      prompt: (text: string, options?: { preflightResult?: (success: boolean) => void }) =>
+      prompt: (text: string, options?: PromptOptions) =>
         AgentSession.prototype.prompt.call(sdkState as never, text, options),
     };
     const runtime = piPromptThread(sdkState);
@@ -391,8 +393,8 @@ describe("PiHost admission settlement contracts", () => {
     expect(callback).toHaveBeenCalledExactlyOnceWith({ accepted: true });
   });
 
-  it("settles the Pi adapter's reasonless refusal without reporting a completed turn", async () => {
-    const session = { model: { input: ["text"] }, isStreaming: false, prompt: async (_text: string, options?: { preflightResult?: (success: boolean) => void }) => { options?.preflightResult?.(false); } };
+  it("settles the Pi adapter's rejection without reporting a completed turn", async () => {
+    const session = { model: { input: ["text"] }, isStreaming: false, prompt: async () => { throw new Error("The prompt was rejected before it started."); } };
     const runtime = piPromptThread(session);
     runtime.backend.prompt = (input) => PiThreadRuntimeBackend.prototype.prompt.call({ ...runtime.backend, session } as never, input);
     const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
@@ -401,8 +403,8 @@ describe("PiHost admission settlement contracts", () => {
   });
 
   it("propagates a real SDK input hook refusal through the adapter", async () => {
-    const session = { model: { input: ["text"] }, isStreaming: false, prompt: (text: string, options?: { preflightResult?: (success: boolean) => void }) => AgentSession.prototype.prompt.call({
-      _extensionRunner: { hasHandlers: () => true, emitInput: async () => { throw new Error("Input hook refused this prompt."); } },
+    const session = { model: { input: ["text"] }, isStreaming: false, prompt: (text: string, options?: PromptOptions) => AgentSession.prototype.prompt.call({
+      _runInputHandlers: async () => { throw new Error("Input hook refused this prompt."); },
       isStreaming: false,
     } as never, text, options) };
     const runtime = piPromptThread(session);
@@ -413,8 +415,8 @@ describe("PiHost admission settlement contracts", () => {
   });
 
   it("accepts a real SDK input hook's handled prompt without starting an agent run", async () => {
-    const session = { model: { input: ["text"] }, isStreaming: false, prompt: (text: string, options?: { preflightResult?: (success: boolean) => void }) => AgentSession.prototype.prompt.call({
-      _extensionRunner: { hasHandlers: () => true, emitInput: async () => ({ action: "handled" }) },
+    const session = { model: { input: ["text"] }, isStreaming: false, prompt: (text: string, options?: PromptOptions) => AgentSession.prototype.prompt.call({
+      _runInputHandlers: async () => undefined,
       isStreaming: false,
     } as never, text, options) };
     const runtime = piPromptThread(session);
@@ -430,13 +432,13 @@ describe("PiHost admission settlement contracts", () => {
     let refuse = true;
     const runtime = piPromptThread({ model: { input: ["text"] }, isStreaming: false, prompt: (text, options) => {
       if (refuse) return AgentSession.prototype.prompt.call({ _compactionAbortController: new AbortController() } as never, text, options);
-      options?.preflightResult?.(true);
+      options?.preflightResult?.("started");
       return Promise.resolve();
     } });
-    // Use the real Pi adapter, preserving the SDK's false-then-throw order.
-    const session = { prompt: (text: string, options?: { preflightResult?: (success: boolean) => void }) => {
+    // Use the real Pi adapter, preserving the SDK's rejection reason.
+    const session = { prompt: (text: string, options?: PromptOptions) => {
       if (refuse) return AgentSession.prototype.prompt.call({ _compactionAbortController: new AbortController() } as never, text, options);
-      options?.preflightResult?.(true);
+      options?.preflightResult?.("started");
       return new Promise<void>(() => undefined);
     } };
     runtime.backend.prompt = (input) => PiThreadRuntimeBackend.prototype.prompt.call({ ...runtime.backend, session } as never, input);
@@ -465,15 +467,15 @@ describe("PiHost admission settlement contracts", () => {
 });
 
 describe("PiHost prompt preflight", () => {
-  it("resolves after SDK preflight acceptance and reports later run errors", async () => {
+  it.each(["started", "queued", "handled"] as const)("resolves after SDK preflight %s and reports later run errors", async (disposition) => {
     let rejectRun!: (error: Error) => void;
     const run = new Promise<void>((_resolve, reject) => { rejectRun = reject; });
     const session = {
       sessionId: "session",
       model: { input: ["text"] },
       isStreaming: false,
-      prompt: async (_text: string, options?: { preflightResult?: (success: boolean) => void }) => {
-        options?.preflightResult?.(true);
+      prompt: async (_text: string, options?: PromptOptions) => {
+        options?.preflightResult?.(disposition);
         await run;
       },
     };
@@ -491,16 +493,11 @@ describe("PiHost prompt preflight", () => {
   });
 
   it("rejects before acceptance when the SDK preflight is rejected", async () => {
-    let rejectRun!: (error: Error) => void;
-    const run = new Promise<void>((_resolve, reject) => { rejectRun = reject; });
     const session = {
       sessionId: "session",
       model: { input: ["text"] },
       isStreaming: false,
-      prompt: async (_text: string, options?: { preflightResult?: (success: boolean) => void }) => {
-        options?.preflightResult?.(false);
-        await run;
-      },
+      prompt: async () => { throw new Error("The prompt was rejected before it started."); },
     };
     const emit = vi.fn();
     const host = new PiHost("/repo", emit, {} as never, true, false);
@@ -508,10 +505,8 @@ describe("PiHost prompt preflight", () => {
     const preflight = vi.fn();
 
     await expect(host.prompt("hello", [], "session", preflight)).rejects.toThrow("prompt was rejected before it started");
-    expect(preflight).toHaveBeenCalledWith({ accepted: false });
-    rejectRun(new Error("late refusal"));
-    await Promise.resolve();
-    expect(emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: "error", message: "late refusal" }));
+    expect(preflight).toHaveBeenCalledWith(expect.objectContaining({ accepted: false, error: expect.any(Error) }));
+    expect(emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: "error" }));
   });
 
   it("owns synchronous validation rejection without an unhandled promise", async () => {

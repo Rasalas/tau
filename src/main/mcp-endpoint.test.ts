@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { request } from "node:http";
 import { Type } from "typebox";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -176,6 +176,18 @@ describe("the host's MCP endpoint", () => {
     expect(result.isError).toBe(true);
     expect(text(result)).toContain('Validation failed for tool "tau_echo"');
     expect(runs).toEqual([]);
+  });
+
+  it.each([undefined, NaN, Infinity, 1n, () => undefined, new Date(0), new Map()])("rejects non-JSON prepared arguments before gating or executing: %s", async (value) => {
+    const run = vi.fn();
+    const gate = vi.fn();
+    const tool = { ...echo("tau_echo", run), prepareArguments: () => ({ text: "x", nested: [value] }) };
+    const { mcp } = endpoint({ providers: [() => [tool]], gates: [gate] });
+    const result = await mcp.call({ sessionId: "thread-a", cwd: "/project" }, "tau_echo", { text: "x" });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain("must be a JSON-compatible object");
+    expect(gate).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("runs every gate first: a block refuses the call, a confirm asks in the thread", async () => {

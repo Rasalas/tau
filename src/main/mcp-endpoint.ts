@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { validateToolArguments } from "@earendil-works/pi-ai/utils/validation";
+import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
 import type {
   HostMcpConnection,
   HostMcpConnectOptions,
@@ -47,6 +48,20 @@ export interface McpCallResult {
 const hashOf = (token: string): string => createHash("sha256").update(token).digest("hex");
 const failure = (text: string): McpCallResult => ({ content: [{ type: "text", text }], isError: true });
 const messageOf = (error: unknown): string => error instanceof Error ? error.message : String(error);
+
+/** Prepared arguments must keep the same JSON-only contract as the MCP request. */
+function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(isJsonValue);
+  if (typeof value !== "object") return false;
+  const prototype = Object.getPrototypeOf(value);
+  return (prototype === Object.prototype || prototype === null) && Object.values(value).every(isJsonValue);
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return value !== null && typeof value === "object" && !Array.isArray(value) && isJsonValue(value);
+}
 
 /**
  * The host's MCP endpoint (ADR 0022): Streamable HTTP on 127.0.0.1, stateless,
@@ -158,7 +173,8 @@ export class McpEndpoint {
       let args: Record<string, unknown>;
       try {
         const raw = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
-        const prepared = tool.prepareArguments ? tool.prepareArguments(raw) as Record<string, unknown> : raw;
+        const prepared: unknown = tool.prepareArguments ? tool.prepareArguments(raw) : raw;
+        if (!isJsonObject(prepared)) throw new Error(`Arguments for tool "${name}" must be a JSON-compatible object.`);
         args = validateToolArguments(tool, { type: "toolCall", id: randomUUID(), name, arguments: prepared }) as Record<string, unknown>;
       } catch (error) {
         return failure(messageOf(error));
