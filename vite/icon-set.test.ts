@@ -12,6 +12,10 @@ import { iconSetModule, readLucideAliases, readLucideIcons, readSourceIconFiles 
 const render = (icon: ComponentType<{ className?: string }>) => renderToStaticMarkup(createElement(icon, { className: "extra" }));
 
 describe("packIconSet", () => {
+  it("reads icons in deterministic filename order", () => {
+    const names = Object.keys(readLucideIcons());
+    expect(names).toEqual([...names].sort());
+  });
   it("decodes to lucide's icons, name for name and markup for markup", () => {
     // React's development build warns about the keyless list; production does not.
     const warn = vi.spyOn(console, "error").mockImplementation(() => undefined);
