@@ -3,7 +3,7 @@ import { ArrowLeft, Search } from "lucide-react";
 import type { ContributionOwner, ProjectSourceContribution, WorkbenchActions } from "../extension-system";
 
 /** Sources that draw their own search bar, as the list does. */
-const OWN_BAR = new Set(["workspace.local-folder", "workspace.git-clone"]);
+const OWN_BAR = new Set(["workspace.local-folder", "workspace.git-clone", "workspace.new-project"]);
 
 /**
  * The list of project sources extensions registered, and the source's own view

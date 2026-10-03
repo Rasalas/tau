@@ -85,12 +85,19 @@ export function createEnvironmentsHostExtension(): HostExtension {
         const machine = machineOf(input, "start-there");
         if (!machines) throw new Error("This host keeps no machines for its agents.");
         const raw = (input ?? {}) as Record<string, unknown>;
-        if (typeof raw.workspaceId !== "string" || !raw.workspaceId) throw new Error("start-there: name a workspace.");
         if (typeof raw.prompt !== "string") throw new Error("start-there: provide a prompt.");
+        let workspaceId = raw.workspaceId;
+        if (!workspaceId && typeof raw.projectPath === "string") {
+          const projectless = await context.invokeHostExtension("tau.workspace", "is-projectless", { workspace: raw.projectPath });
+          if (!projectless) return undefined;
+          const scratch = await machines.call(machine, "tau.workspace", "create-scratch") as { workspaceId?: string };
+          workspaceId = scratch.workspaceId;
+        }
+        if (typeof workspaceId !== "string" || !workspaceId) throw new Error("start-there: name a workspace.");
         try {
           const attachments = await transferPromptAttachments(machines, machine, raw.attachments);
           const options = {
-            cwd: raw.workspaceId, prompt: raw.prompt,
+            cwd: workspaceId, prompt: raw.prompt,
             ...(typeof raw.backend === "string" ? { backend: raw.backend } : {}),
             ...(raw.model ? { model: raw.model } : {}),
             ...(typeof raw.thinkingLevel === "string" ? { thinkingLevel: raw.thinkingLevel } : {}),

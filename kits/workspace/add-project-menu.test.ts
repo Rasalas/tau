@@ -22,13 +22,13 @@ describe("the add-project levels", () => {
   it("offers browsing from the base folder, the native picker and clone", async () => {
     const host = fixture("~/code");
     const items = await addProjectMenu(host).items("", search);
-    expect(items.map((item) => item.label)).toEqual(["Browse folders", "Choose a folder…", "Clone Git repository"]);
-    expect(items[0]!.submenu?.title).toBe("code");
+    expect(items.map((item) => item.label)).toEqual(["New project…", "Browse folders", "Choose a folder…", "Clone Git repository"]);
+    expect(items[1]!.submenu?.title).toBe("code");
 
     const actions = { openProjectSources: vi.fn(), openWorkspace: vi.fn(async () => true), notify: vi.fn() } as unknown as WorkbenchActions;
-    await items[2]!.run!(actions);
+    await items[3]!.run!(actions);
     expect(actions.openProjectSources).toHaveBeenCalledWith(CLONE_SOURCE);
-    await items[1]!.run!(actions);
+    await items[2]!.run!(actions);
     expect(actions.openWorkspace).toHaveBeenCalledWith("ws:/picked");
   });
 

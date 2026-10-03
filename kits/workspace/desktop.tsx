@@ -30,7 +30,7 @@ import { WorkspaceFollower } from "./dock.js";
 import { WorktreeSuggestionPill } from "./branch-menu.js";
 import { createHeadingBranch, createRunOnControl } from "./run-on.js";
 import { FreshStart } from "./fresh-start.js";
-import { CloneProjectSource, LocalFolderSource, requestProjectSwitcher, WorkspaceSidebar } from "./navigation.js";
+import { CloneProjectSource, LocalFolderSource, NewProjectSource, requestProjectSwitcher, WorkspaceSidebar } from "./navigation.js";
 import { ChangesPanel, FilesPanel, SEARCH_FILES_SERVICE, serviceSlot, type SearchFilesService } from "./panels.js";
 import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, TRACE_TABS_OPTION, WorkspaceStore } from "./store.js";
 import { withWorkspaceStore } from "./store-context.js";
@@ -87,6 +87,18 @@ export const workspaceExtension: DesktopExtension = {
     context.registerSidebar({ id: "workspace.sidebar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceSidebar) });
     // Other machines' threads the rail lists, found by the palette as this machine's are.
     context.registerPaletteSource({ id: "workspace.outside-threads", label: "Threads", order: 25, scope: "threads", search: (query) => outsideThreadItems(store.getSnapshot().railThreadSources, query) });
+    context.registerProjectSource({
+      id: "workspace.no-project", label: "No project", description: "Private scratch folder for this thread", glyph: "·", order: 0, profiles: ["desktop"],
+      createThreadWorkspace: async () => {
+        const workspace = await host.createScratch();
+        return { ...workspace, path: workspace.displayPath, name: "No project", lastOpenedAt: Date.now() };
+      },
+      run: async (actions) => {
+        const workspace = await host.createScratch();
+        return actions.openWorkspace(workspace.workspaceId);
+      },
+    });
+    context.registerProjectSource({ id: "workspace.new-project", label: "New project", profiles: ["desktop"], description: "Start a project from a name in a folder you choose.", glyph: "+", order: 5, Component: bind(NewProjectSource) });
     context.registerProjectSource({
       id: "workspace.local-folder",
       label: "Local folder",

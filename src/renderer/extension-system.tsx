@@ -271,6 +271,8 @@ export interface ProjectSourceProps {
 }
 
 interface ProjectSourceBase extends ProfileScoped {
+  /** A private thread workspace offered directly by the new-thread picker. */
+  createThreadWorkspace?(): Promise<UiProject>;
   id: string;
   label: string;
   description: string;

@@ -343,12 +343,12 @@ describe("useWorkbenchActions", () => {
       expect(setup({ thread: { sessionId: "t", workspaceId: "ws1_app" }, covered: true }).picker).toHaveBeenCalledWith({ preselect: "ws1_site" });
     });
 
-    it("starts in the only project without asking, and goes to Add project without one (/ does not count)", () => {
-      expect(setup({ projects: [app, { path: "/", name: "/", lastOpenedAt: 9 }] }).createThreadInProject).toHaveBeenCalledWith(app);
+    it("offers No project through the picker even with one or zero projects", () => {
+      expect(setup({ projects: [app, { path: "/", name: "/", lastOpenedAt: 9 }] }).picker).toHaveBeenCalledWith({ preselect: "ws1_app" });
       const none = setup({ thread: { sessionId: "t", workspaceId: "ws1_app" }, projects: [{ path: "/", name: "/", lastOpenedAt: 9 }] });
       expect(none.createThreadInProject).not.toHaveBeenCalled();
-      expect(none.picker).not.toHaveBeenCalled();
-      expect(none.sources).toHaveBeenCalledTimes(1);
+      expect(none.picker).toHaveBeenCalledTimes(1);
+      expect(none.sources).not.toHaveBeenCalled();
     });
   });
 

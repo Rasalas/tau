@@ -65,6 +65,8 @@ export class ProjectFactsCache {
     this.nameLoads.set(cwd, pending);
   }
 
+  projectless(cwd: string): Promise<boolean> { return this.providers.projectless(cwd); }
+
   async loadName(cwd: string): Promise<string> {
     const known = this.names.get(cwd);
     if (known) return known;

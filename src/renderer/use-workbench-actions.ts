@@ -125,10 +125,9 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
         else if (unlisted) options.openNewThreadPicker();
         return;
       }
-      // Nothing to choose from yet: adding a project comes first (design 2a); with one, only `pick` asks.
+      // Every new thread can deliberately choose a private workspace.
       const choices = projects.filter((project) => !isFilesystemRoot(project.path));
-      if (choices.length === 0) { options.openProjectSources(); return; }
-      if (choices.length === 1 && !request?.pick) { options.createThreadInProject?.(choices[0]!); return; }
+      if (choices.length === 0) { options.openNewThreadPicker(); return; }
       const draft = pendingNewThreadRef.current;
       const thread = options.viewStore.getSnapshot();
       // Otherwise it asks, with the project in context first: the named one, else the one on screen.

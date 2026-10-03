@@ -251,6 +251,8 @@ export interface ReviewRequestContext {
  */
 export interface WorkspaceHostCommands {
   /** Browses folders for the local-folder project source. */
+  "create-scratch": { input: undefined; output: WorkspaceRef };
+  "create-project": { input: { name: string; parentPath?: string }; output: { workspace: WorkspaceRef; warning?: string } | undefined };
   "list-directories": { input: { path?: string } | undefined; output: UiDirectoryListing };
   /** Native folder dialog; `undefined` when cancelled. */
   "pick-folder": { input: undefined; output: WorkspaceRef | undefined };
@@ -348,6 +350,8 @@ export type WorkspaceHostCommand = keyof WorkspaceHostCommands;
 export type HostExtensionInvoke = (command: string, input?: unknown) => Promise<unknown>;
 
 export interface WorkspaceHostClient {
+  createScratch(): Promise<WorkspaceRef>;
+  createProject(name: string, parentPath?: string): Promise<{ workspace: WorkspaceRef; warning?: string } | undefined>;
   listDirectories(path?: string): Promise<UiDirectoryListing>;
   pickFolder(): Promise<WorkspaceRef | undefined>;
   startClone(repositoryUrl: string, parentPath?: string): Promise<CloneSnapshot | undefined>;
@@ -401,6 +405,8 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
   const call = <K extends WorkspaceHostCommand>(command: K, input: WorkspaceHostCommands[K]["input"]) =>
     invoke(command, input) as Promise<WorkspaceHostCommands[K]["output"]>;
   return {
+    createScratch: () => call("create-scratch", undefined),
+    createProject: (name, parentPath) => call("create-project", { name, ...(parentPath ? { parentPath } : {}) }),
     listDirectories: (path) => call("list-directories", path === undefined ? undefined : { path }),
     pickFolder: () => call("pick-folder", undefined),
     startClone: (repositoryUrl, parentPath) => call("clone-start", parentPath === undefined ? { repositoryUrl } : { repositoryUrl, parentPath }),

@@ -297,6 +297,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
   const factsFor = (handle: number, hooks: readonly string[]): HostProjectFacts => {
     const has = new Set(hooks);
     const facts: HostProjectFacts = {};
+    if (has.has("projectless")) facts.projectless = async (cwd) => Boolean(await hookCall(handle, "projectless", [cwd]));
     if (has.has("name")) facts.name = async (cwd) => await hookCall(handle, "name", [cwd]) as string | undefined;
     if (has.has("label")) facts.label = async (cwd) => await hookCall(handle, "label", [cwd]) as string | undefined;
     if (has.has("nested")) facts.nested = async (cwd) => Boolean(await hookCall(handle, "nested", [cwd]));

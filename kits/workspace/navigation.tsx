@@ -261,6 +261,38 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
   </div>;
 }
 
+/** A name and the host's parent folder create a ready project. */
+export function NewProjectSource({ actions, onBack, onDone }: ProjectSourceProps) {
+  const store = useWorkspaceStore();
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const base = store.projectBaseDirectory();
+  const submit = async (useBase: boolean) => {
+    if (!name.trim() || busy) return;
+    setBusy(true);
+    try {
+      const created = await store.host.createProject(name, useBase ? base : undefined);
+      if (!created) return;
+      if (created.warning) actions.notify(created.warning);
+      if (await actions.openWorkspace(created.workspace.workspaceId)) {
+        actions.newSession({ workspace: created.workspace.workspaceId });
+        onDone();
+      }
+    } catch (error) { actions.notify(errorMessage(error)); }
+    finally { setBusy(false); }
+  };
+  return <form className="clone-project-form" onSubmit={(event) => { event.preventDefault(); void submit(Boolean(base)); }}>
+    <header className="project-modal-bar">
+      <button type="button" className="project-modal-bar-glyph" onClick={onBack} aria-label="Back to project sources"><ArrowLeft size={15} /></button>
+      <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Project name" aria-label="Project name" disabled={busy} />
+      <button type="submit" className="project-modal-bar-action" disabled={!name.trim() || busy}>{busy ? "Creating…" : base ? "Create" : "Continue"}</button>
+    </header>
+    <div className="project-picker-heading"><span>Create in</span></div>
+    <div className="clone-project-destination"><Folder size={15} />{base ? <code>{homeRelative(base)}/{name.trim() || "…"}</code> : <span>A folder you choose next</span>}</div>
+    <footer className="project-modal-footer">{base ? <button type="button" disabled={!name.trim() || busy} onClick={() => void submit(false)}><FolderOpen size={14} /> Choose parent folder…</button> : null}<small>Starts with a README and Git repository</small></footer>
+  </form>;
+}
+
 export function CloneProjectSource({ actions, onBack, onDone }: ProjectSourceProps) {
   const store = useWorkspaceStore();
   const [repositoryUrl, setRepositoryUrl] = useState("");
