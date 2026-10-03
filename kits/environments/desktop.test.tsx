@@ -602,9 +602,9 @@ describe("Run on: a machine without the project", () => {
     // Nothing chosen: the thread starts here as ever.
     await expect(hook.claimNewThread!(event, actions)).resolves.toBe(false);
     choice.set({ machine: "rex", machineName: "rex", projectPath: tauHere });
-    await expect(hook.claimNewThread!({ ...event, attachments: 1 }, actions)).rejects.toThrow(/Attachments cannot go along to rex/u);
-    await expect(hook.claimNewThread!(event, actions)).resolves.toBe(true);
-    expect(remoteWork.invoke).toHaveBeenCalledWith("thread-start", { machine: "rex", cwd: tauHere, prompt: "Fix it", backend: "codex", model: { provider: "openai", id: "gpt" } });
+    const attachments = [{ kind: "image" as const, name: "shot.png", mimeType: "image/png", data: "AA==", size: 1 }];
+    await expect(hook.claimNewThread!({ ...event, attachments: 1, promptAttachments: attachments }, actions)).resolves.toBe(true);
+    expect(remoteWork.invoke).toHaveBeenCalledWith("thread-start", { machine: "rex", cwd: tauHere, prompt: "Fix it", backend: "codex", model: { provider: "openai", id: "gpt" }, attachments });
     expect(event.preparing).toHaveBeenCalledWith("Taking tau to rex…");
     expect(choice.get()).toBeUndefined();
     emit({ id: "l1", machine: "rex", machineName: "rex", status: "starting" });
@@ -1060,8 +1060,9 @@ describe("Run on: Automatic", () => {
     const remoteWork = { invoke: vi.fn(), onEvent: vi.fn(() => () => undefined) } as unknown as HostExtensionClient;
     const hook = createBringProjectHook(choice, remoteWork, environments, host);
     const actions = fakeActions({ switchSession: vi.fn(async () => true) });
-    expect(await createAutoRunOnHook(environments, host, undefined, { choice, hook }).claimNewThread!(claim(), actions)).toBe(true);
-    expect(host.invoke).toHaveBeenCalledWith("start-there", { machine: "studio", workspaceId: "ws-api", prompt: "Fix the parser", backend: "pi", model: luna });
+    const attachments = [{ kind: "image" as const, name: "shot.png", mimeType: "image/png", data: "AA==", size: 1 }];
+    expect(await createAutoRunOnHook(environments, host, undefined, { choice, hook }).claimNewThread!(claim({ attachments: 1, promptAttachments: attachments }), actions)).toBe(true);
+    expect(host.invoke).toHaveBeenCalledWith("start-there", { machine: "studio", workspaceId: "ws-api", prompt: "Fix the parser", backend: "pi", model: luna, attachments });
     expect(actions.switchSession).toHaveBeenCalledWith("tau-thread:machine:studio~t9");
     expect(environments.open).not.toHaveBeenCalled();
     expect(remoteWork.invoke).not.toHaveBeenCalled();
@@ -1081,8 +1082,8 @@ describe("Run on: Automatic", () => {
     const none = chooser();
     expect(await createAutoRunOnHook(environments, none).claimNewThread!(claim({ projectPath: "/work/web" }), fakeActions({ notify }))).toBe(false);
     expect(none.invoke).not.toHaveBeenCalled();
-    expect(await createAutoRunOnHook(environments, chooser()).claimNewThread!(claim({ attachments: 1 }), fakeActions({ notify }))).toBe(false);
-    expect(notify).toHaveBeenLastCalledWith("Attachments stay on this computer, so Automatic starts this thread here.");
+    await expect(createAutoRunOnHook(environments, chooser()).claimNewThread!(claim({ attachments: 1 }), fakeActions({ notify }))).rejects.toThrow("Enable this computer's agents");
+    expect(environments.open).not.toHaveBeenCalled();
     environments.open.mockRejectedValueOnce(new Error("studio is not connected"));
     expect(await createAutoRunOnHook(environments, chooser()).claimNewThread!(claim(), fakeActions({ notify }))).toBe(false);
     expect(notify).toHaveBeenLastCalledWith("Could not move to the chosen machine (studio is not connected); this thread starts here.");

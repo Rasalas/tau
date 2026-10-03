@@ -1144,6 +1144,11 @@ export class PiHost {
 
   async sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string, attachments: UiPromptAttachment[] = []): Promise<void> {
     const thread = await this.reopenThread(sessionId);
+    if (!thread.runtimeAdapter.capabilities.fileAttachments) {
+      const files = promptFiles(attachments);
+      if (files.length) text = `${text}\n\nAttached files:\n${files.map((file) => `- ${file.path}`).join("\n")}`;
+      attachments = attachments.filter((attachment) => attachment.kind === "image");
+    }
     if (delivery === "queue") this.queue.add(thread.threadId, { text, attachments: this.prompts.checked(thread, attachments), ...(from ? { fromThreadId: from } : {}) });
     else await (delivery === "steer" ? this.steer(text, attachments, thread.threadId) : this.prompt(text, attachments, thread.threadId));
   }

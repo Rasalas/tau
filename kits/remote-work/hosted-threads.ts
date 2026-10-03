@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { HostCommandError, type HostExtensionServices, type HostThread, type UiThreadUsage } from "tau/host-extension";
+import { HostCommandError, type HostExtensionServices, type HostThread, type UiPromptAttachment, type UiThreadUsage } from "tau/host-extension";
 import type {
   HostedThreadReport,
   HostedThreadStartInput,
@@ -190,7 +190,7 @@ export class HostedThreads {
    * prompt, or the sending side's Pi session taken over and, with a prompt,
    * continued. It answers once the thread exists, not when it has answered.
    */
-  async start(input: HostedThreadStartInput, worktree: string, device: string | undefined): Promise<HostedThreadReport> {
+  async start(input: HostedThreadStartInput, worktree: string, device: string | undefined, attachments: UiPromptAttachment[] = []): Promise<HostedThreadReport> {
     const { sessions } = this.options.services;
     let thread: string;
     if (input.session) {
@@ -203,10 +203,13 @@ export class HostedThreads {
       });
       thread = imported.sessionId;
     } else {
-      if (!input.prompt) throw new HostCommandError("A thread needs a prompt or a session to start from.");
+      if (!input.prompt && !attachments.length) throw new HostCommandError("A thread needs a prompt or a session to start from.");
       const started = await sessions.start({
         cwd: worktree,
-        prompt: input.prompt,
+        prompt: input.prompt ?? "",
+        ...(attachments.length ? { attachments } : {}),
+        ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
+        ...(input.mode ? { mode: input.mode } : {}),
         ...(input.title ? { title: input.title } : {}),
         ...(input.model ? { model: input.model } : {}),
         ...(input.backend ? { backend: input.backend } : {}),
@@ -224,7 +227,7 @@ export class HostedThreads {
       open: 0,
       ...(input.title ? { title: input.title } : {}),
       ...(input.model ? { model: input.model } : {}),
-      ...(input.prompt && !input.session ? { starting: true } : {}),
+      ...((input.prompt || attachments.length) && !input.session ? { starting: true } : {}),
       ...(input.agentDepth ? { agentDepth: input.agentDepth } : {}),
     };
     this.threads.set(thread, entry);
@@ -233,17 +236,17 @@ export class HostedThreads {
       else await this.noteEnded(entry, event.outcome);
     }
     this.early.delete(thread);
-    if (input.session && input.prompt) await this.send(thread, input.prompt, "prompt", device);
+    if (input.session && (input.prompt || attachments.length)) await this.send(thread, input.prompt ?? "", "prompt", device, attachments);
     this.options.services.log("remote-work.thread-started", `${thread.slice(0, 8)} in ${worktree}`);
     return this.changed(entry);
   }
 
-  async send(thread: string, text: string, delivery: RemoteThreadDelivery, device: string | undefined): Promise<HostedThreadReport> {
+  async send(thread: string, text: string, delivery: RemoteThreadDelivery, device: string | undefined, attachments: UiPromptAttachment[] = []): Promise<HostedThreadReport> {
     const entry = this.entry(thread, device);
     const send = this.options.services.sessions.send;
     if (!send) throw new HostCommandError("This machine's Tau cannot send to a thread; update it here.");
     if (entry.gone) throw new HostCommandError("That thread was deleted on this machine.");
-    await send(thread, text, { delivery });
+    await send(thread, text, { delivery, ...(attachments.length ? { attachments } : {}) });
     entry.aborting = false;
     return this.changed(entry);
   }

@@ -30,6 +30,16 @@ describe("Machines Kit on the host", () => {
     await expect(registry.invoke(ENVIRONMENTS_EXTENSION_ID, "start-there", input, { kind: "workbench-client", connection: "c1", pairedClient: "d1", readOnly: true })).rejects.toThrow(/Read.only|read.only/u);
     expect(machines.request).toHaveBeenCalledOnce();
   });
+  it("rejects an older receiving kit rather than silently dropping images", async () => {
+    const { machines } = fakeMachines([{ id: "rex", name: "rex", status: "connected", address: "wss://rex/" }]);
+    machines.call = vi.fn(async () => { throw Object.assign(new Error("No thread-start command"), { code: "unknown-command" }); });
+    const registry = await activateHostKit(createEnvironmentsHostExtension(), { machines });
+    await expect(registry.invoke(ENVIRONMENTS_EXTENSION_ID, "start-there", {
+      machine: "rex", workspaceId: "ws-rex", prompt: "look", attachments: [{ kind: "image", name: "shot.png", mimeType: "image/png", data: "AA==", size: 1 }],
+    })).rejects.toThrow("Update rex in Settings");
+    expect(machines.request).not.toHaveBeenCalled();
+  });
+
   it("reports the machines this host's agents reach, and again when they change", async () => {
     const list: HostMachine[] = [{ id: "rex-id", name: "rex", status: "connected", roundTripMs: 3, address: "wss://rex/" }];
     const { machines, changed } = fakeMachines(list);

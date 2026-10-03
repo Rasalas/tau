@@ -1,8 +1,8 @@
-import type { HostExtension, HostMachineServices, HostReadiness, HostResources } from "tau/host-extension";
+import { transferPromptAttachments, withReceivedPromptAttachments, type HostExtension, type HostMachineServices, type HostReadiness, type HostResources } from "tau/host-extension";
 import { readWeights } from "./choice.js";
 import { createMachineChooser } from "./chooser.js";
 import { createMachineBackendProvider } from "./machine-backend.js";
-import { machineMethodError } from "./compatibility.js";
+import { machineCommandError, machineMethodError } from "./compatibility.js";
 import { registerThreadCommands } from "./thread-commands.js";
 import {
   AGENTS_EVENT,
@@ -65,7 +65,7 @@ export function createEnvironmentsHostExtension(): HostExtension {
   return {
     id: ENVIRONMENTS_EXTENSION_ID,
     name: "Machines",
-    permissions: ["machines", "runtime:extend", "sessions"],
+    permissions: ["machines", "runtime:extend", "sessions", "workspace:read"],
     isolation: "in-process",
     activate(context) {
       const machines = context.services.machines;
@@ -86,16 +86,38 @@ export function createEnvironmentsHostExtension(): HostExtension {
         const raw = (input ?? {}) as Record<string, unknown>;
         if (typeof raw.workspaceId !== "string" || !raw.workspaceId) throw new Error("start-there: name a workspace.");
         if (typeof raw.prompt !== "string") throw new Error("start-there: provide a prompt.");
-        try { return await machines.request(machine, "start-thread", [{
-          cwd: raw.workspaceId, prompt: raw.prompt,
-          ...(typeof raw.backend === "string" ? { backend: raw.backend } : {}),
-          ...(raw.model ? { model: raw.model } : {}),
-          ...(typeof raw.thinkingLevel === "string" ? { thinkingLevel: raw.thinkingLevel } : {}),
-          ...(typeof raw.mode === "string" ? { mode: raw.mode } : {}),
-        }]); } catch (error) {
+        try {
+          const attachments = await transferPromptAttachments(machines, machine, raw.attachments);
+          const options = {
+            cwd: raw.workspaceId, prompt: raw.prompt,
+            ...(typeof raw.backend === "string" ? { backend: raw.backend } : {}),
+            ...(raw.model ? { model: raw.model } : {}),
+            ...(typeof raw.thinkingLevel === "string" ? { thinkingLevel: raw.thinkingLevel } : {}),
+            ...(typeof raw.mode === "string" ? { mode: raw.mode } : {}),
+            ...(attachments.length ? { attachments } : {}),
+          };
+          if (attachments.length) return await machines.call(machine, ENVIRONMENTS_EXTENSION_ID, "thread-start", options).catch((error: unknown) => {
+            throw machineCommandError(error, machines.list().find((entry) => entry.id === machine)?.name ?? machine, "thread-start", "start threads");
+          });
+          return await machines.request(machine, "start-thread", [options]);
+        } catch (error) {
           throw machineMethodError(error, machines.list().find((entry) => entry.id === machine)?.name ?? machine, "start threads");
         }
       }, { audit: { label: "started a thread on another machine" } });
+      context.registerCommand("thread-start", async (input, call) => {
+        const raw = (input ?? {}) as Record<string, unknown>;
+        if (typeof raw.cwd !== "string" || typeof raw.prompt !== "string") throw new Error("thread-start: provide a workspace and prompt.");
+        const cwd = await context.services.knownWorkspacePath(raw.cwd);
+        const model = raw.model as { provider?: unknown; id?: unknown } | undefined;
+        if (model !== undefined && (!model || typeof model.provider !== "string" || typeof model.id !== "string")) throw new Error("thread-start: provide a model provider and id.");
+        return withReceivedPromptAttachments(context.services, raw.attachments, call, (attachments) => context.services.sessions.start({
+          cwd, prompt: raw.prompt as string, attachments,
+          ...(typeof raw.backend === "string" ? { backend: raw.backend } : {}),
+          ...(raw.model ? { model: raw.model as { provider: string; id: string } } : {}),
+          ...(typeof raw.thinkingLevel === "string" ? { thinkingLevel: raw.thinkingLevel } : {}),
+          ...(typeof raw.mode === "string" ? { mode: raw.mode } : {}),
+        }));
+      }, { audit: { label: "started a thread with attachments from another machine" } });
       registerThreadCommands(context);
       context.registerCommand("whoami", (_input, call): MachineIdentity => ({ device: call.device ?? null, owner: call.owner }), { access: "read" });
       context.registerCommand("probe", async (input): Promise<MachineProbe> => {

@@ -106,10 +106,6 @@ export function createAutoRunOnHook(environments: PlatformEnvironments, host: Ho
       if (!autoRunOn.get() || !autoApplies(environments, list)) return false;
       const targets = threadTargets(list, event.projectPath, identities && ((machine) => identities.match(machine, event.projectPath)));
       if (targets.size === 0) return false;
-      if (event.attachments > 0) {
-        actions.notify("Attachments stay on this computer, so Automatic starts this thread here.");
-        return false;
-      }
       event.preparing("Choosing a machine…");
       let answer: ChooseMachineAnswer;
       try {
@@ -129,6 +125,7 @@ export function createAutoRunOnHook(environments: PlatformEnvironments, host: Ho
           return runOn.hook.claimNewThread?.(event, actions);
         }
       }
+      if (event.attachments > 0) throw new Error("Enable this computer's agents on the chosen machine to send attachments there.");
       try {
         // The page reloads there before this answers; the prompt goes with it and is sent on arrival.
         await environments.open(answer.machine, {

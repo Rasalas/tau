@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { HostCommandError, type HostMachine, type HostMachineServices, type HostMachineStatus } from "tau/host-extension";
+import { HostCommandError, transferPromptAttachments, type HostMachine, type HostMachineServices, type HostMachineStatus } from "tau/host-extension";
 import {
   BUSY_REMOTE_STATUSES,
   DEFAULT_REMOTE_WAIT_MS,
@@ -184,7 +184,7 @@ export class RemoteThreads {
   }
 
   /** Refuses a machine whose Remote Work speaks another protocol, with both versions named. */
-  private async hello(machine: HostMachine): Promise<void> {
+  private async hello(machine: HostMachine, attachments = false): Promise<void> {
     const machines = this.machines();
     const theirs = `${machine.name} has Tau ${machine.hostVersion ?? "of an unknown version"}`;
     let answer: HostedHello;
@@ -199,6 +199,7 @@ export class RemoteThreads {
     const protocol = typeof answer?.protocol === "number" ? answer.protocol : 0;
     if (protocol < REMOTE_WORK_PROTOCOL) throw new HostCommandError(`${theirs}, needs ≥ ${machines.self.version} to run a thread started here; update Tau there.`);
     if (protocol > REMOTE_WORK_PROTOCOL) throw new HostCommandError(`${theirs}, newer than this machine's ${machines.self.version}; update Tau here.`);
+    if (attachments && answer.attachments !== true) throw new HostCommandError(`${machine.name} cannot receive attachments yet; update Tau there.`);
   }
 
   private onMachines(list: readonly HostMachine[]): void {
@@ -286,10 +287,10 @@ export class RemoteThreads {
    */
   async start(input: RemoteThreadStartInput): Promise<RemoteThreadLink> {
     const prompt = input.prompt?.trim();
-    if (!prompt && !input.session) throw new HostCommandError("A thread needs a prompt or a session to start from.");
+    if (!prompt && !input.session && !input.attachments?.length) throw new HostCommandError("A thread needs a prompt or a session to start from.");
     if (prompt && prompt.length > MAX_PROMPT) throw new HostCommandError(`A prompt has at most ${MAX_PROMPT} characters.`);
     const machine = this.machine(input.machine);
-    await this.hello(machine);
+    await this.hello(machine, Boolean(input.attachments?.length));
     const jsonl = input.session ? await this.options.readSession(input.session.threadId) : undefined;
     const root = await this.options.transfers.rootOf(input.cwd);
     const link: RemoteThreadLink = {
@@ -333,6 +334,9 @@ export class RemoteThreads {
         ...(link.backend ? { backend: link.backend } : {}),
         ...(link.model ? { model: link.model } : {}),
         ...(input.agentDepth ? { agentDepth: input.agentDepth } : {}),
+        ...(input.attachments?.length ? { attachments: await transferPromptAttachments(machines, link.machine, input.attachments) } : {}),
+        ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
+        ...(input.mode ? { mode: input.mode } : {}),
       };
       const report = await machines.call(link.machine, REMOTE_WORK_EXTENSION_ID, HOSTED_COMMANDS.start, start) as HostedThreadReport;
       if (typeof report?.thread !== "string") throw new Error(`${link.machineName} answered the start in a way this Tau does not read; update Tau there.`);

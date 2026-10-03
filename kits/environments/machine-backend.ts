@@ -1,4 +1,4 @@
-import { findProjectForSession, clientMessageFingerprint, type AgentRuntimeAdapter, type HostBackendOpenContext, type HostBackendThreadRecord, type HostMachineServices, type HostPushEvent, type HostRuntimeBackendProvider, type HostTranscriptCursor, type PreparedPrompt, type ThreadBackendCapabilities, type ThreadBackendPromptInput, type ThreadBackendPromptResult, type ThreadBackendState, type ThreadCatalogView, type ThreadCatalogWriteCapability, type ThreadRuntimeBackend, type ThreadRuntimeEvent, type ThreadTitleSource, type TranscriptPage, type UiComposerCommand, type UiMessage, type UiModel, type UiPromptImageAttachment, type UiProject, type UiRuntimeCatalog, type UiSession, type UiThreadUsage, type UsageTally } from "tau/host-extension";
+import { findProjectForSession, clientMessageFingerprint, transferPromptAttachments, type AgentRuntimeAdapter, type HostBackendOpenContext, type HostBackendThreadRecord, type HostMachineServices, type HostPushEvent, type HostRuntimeBackendProvider, type HostTranscriptCursor, type PreparedPrompt, type ThreadBackendCapabilities, type ThreadBackendPromptInput, type ThreadBackendPromptResult, type ThreadBackendState, type ThreadCatalogView, type ThreadCatalogWriteCapability, type ThreadRuntimeBackend, type ThreadRuntimeEvent, type ThreadTitleSource, type TranscriptPage, type UiComposerCommand, type UiMessage, type UiModel, type UiProject, type UiRuntimeCatalog, type UiSession, type UiThreadUsage, type UsageTally } from "tau/host-extension";
 import { machineCommandError, machineMethodError, type MachineOperation } from "./compatibility.js";
 import { ENVIRONMENTS_EXTENSION_ID, THREAD_MODEL_COMMAND, THREAD_RENAME_COMMAND, THREAD_SEND_COMMAND } from "./protocol.js";
 
@@ -80,7 +80,7 @@ function delivery(input: { delivery?: string; queued?: boolean }): "prompt" | "s
 
 function adapter(machines: HostMachineServices): AgentRuntimeAdapter {
   return {
-    id: "machine", capabilities: { skillInvocationDialect: "pi", ownsModelSelection: false, interactiveApprovals: true },
+    id: "machine", capabilities: { skillInvocationDialect: "pi", ownsModelSelection: false, interactiveApprovals: true, fileAttachments: true },
     transport: {
       sendPrompt: async (input) => {
         const parsed = parseMachineThreadId(input.tauThreadId);
@@ -231,10 +231,11 @@ export class MachineThreadBackend implements ThreadRuntimeBackend {
   async prompt(input: ThreadBackendPromptInput): Promise<ThreadBackendPromptResult> {
     this.syncRow();
     const attachments = input.attachments ?? [];
-    const images = attachments.filter((attachment): attachment is UiPromptImageAttachment => attachment.kind === "image");
-    if (images.length !== attachments.length) throw new Error(`Files stay on this computer; ${this.name} takes images only. Embed the file in the message.`);
     if (this.machines.list().find((entry) => entry.id === this.machine)?.status !== "connected") throw new Error(`${this.name} is not reachable right now.`);
-    if (images.length) await this.command(THREAD_SEND_COMMAND, { sessionId: this.providerSessionId, text: input.text, delivery: delivery(input), attachments: images }, "take images from here", SEND_TIMEOUT_MS);
+    if (attachments.length) {
+      const content = await transferPromptAttachments(this.machines, this.machine, attachments);
+      await this.command(THREAD_SEND_COMMAND, { sessionId: this.providerSessionId, text: input.text, delivery: delivery(input), attachments: content }, "take images from here", SEND_TIMEOUT_MS);
+    }
     else try { await this.machines.request(this.machine, "send-to-thread", [this.providerSessionId, input.text, delivery(input)]); }
     catch (error) { throw machineMethodError(error, this.name, "take messages from here"); }
     input.onAdmitted?.(true);

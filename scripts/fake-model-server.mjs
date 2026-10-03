@@ -188,7 +188,7 @@ export async function startFakeModelServer({ respond = fakeReply } = {}) {
 }
 
 /** Pi's `models.json` provider for the fake; a price so a thread's cost is above zero. */
-export function fakeModelsJson(baseUrl) {
+export function fakeModelsJson(baseUrl, { images = false } = {}) {
   return {
     providers: {
       [FAKE_PROVIDER]: {
@@ -196,15 +196,15 @@ export function fakeModelsJson(baseUrl) {
         baseUrl,
         api: "openai-completions",
         apiKey: "fake",
-        models: [{ id: FAKE_MODEL, name: "Fake 1", reasoning: false, input: ["text"], contextWindow: 128_000, maxTokens: 4_096, cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 } }],
+        models: [{ id: FAKE_MODEL, name: "Fake 1", reasoning: false, input: images ? ["text", "image"] : ["text"], contextWindow: 128_000, maxTokens: 4_096, cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 } }],
       },
     },
   };
 }
 
 /** A Pi agent dir that knows only the fake and uses it by default; nothing is linked from the real ~/.pi. */
-export function prepareFakePiAgentDir(agentDir, baseUrl) {
+export function prepareFakePiAgentDir(agentDir, baseUrl, options) {
   mkdirSync(agentDir, { recursive: true });
-  writeFileSync(join(agentDir, "models.json"), `${JSON.stringify(fakeModelsJson(baseUrl), null, 2)}\n`);
+  writeFileSync(join(agentDir, "models.json"), `${JSON.stringify(fakeModelsJson(baseUrl, options), null, 2)}\n`);
   writeFileSync(join(agentDir, "settings.json"), `${JSON.stringify({ defaultProvider: FAKE_PROVIDER, defaultModel: FAKE_MODEL }, null, 2)}\n`);
 }

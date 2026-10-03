@@ -265,10 +265,10 @@ describe("a followed machine thread", () => {
     expect(await backend.preparePrompt("  hello\n")).toMatchObject({ tauThreadId: backend.threadId, providerSessionId: "t1", visibleText: "  hello\n", runtimeText: "  hello\n", backendKind: "machine" });
   });
 
-  it("refuses files, and unreachable machines, while preserving the last state", async () => {
+  it("refuses missing files and unreachable machines, while preserving the last state", async () => {
     const f = fixture();
     const backend = await f.open();
-    await expect(backend.prompt({ text: "x", delivery: "prompt", attachments: [{ kind: "file", path: "/Users/me/secret.txt", size: 1, mimeType: "text/plain", name: "secret.txt" }] })).rejects.toThrow("Files stay on this computer; rex takes images only.");
+    await expect(backend.prompt({ text: "x", delivery: "prompt", attachments: [{ kind: "file", path: "/Users/me/secret.txt", size: 1, mimeType: "text/plain", name: "secret.txt" }] })).rejects.toThrow("ENOENT");
     expect(f.services.call).not.toHaveBeenCalled();
     f.setMachines([{ ...rex, status: "offline" }]);
     const before = backend.state();

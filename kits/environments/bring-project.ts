@@ -178,7 +178,8 @@ export function createBringProjectHook(choice: BringChoiceStore, remoteWork: Hos
     async claimNewThread(event: NewThreadClaimEvent, actions: WorkbenchActions) {
       const chosen = choice.get();
       if (!chosen || chosen.projectPath !== event.projectPath) return false;
-      if (event.attachments > 0) throw new Error(`Attachments cannot go along to ${chosen.machineName} yet; start it here to send attachments.`);
+      if (event.attachments > 0 && event.promptAttachments?.length !== event.attachments) throw new Error("The attachment content is missing. Please attach the files again.");
+      const content = event.promptAttachments?.length ? { attachments: event.promptAttachments } : {};
       if (chosen.workspaceId) {
         if (!host) throw new Error("This host cannot start threads on another machine.");
         event.preparing(`Starting on ${chosen.machineName}…`);
@@ -187,6 +188,7 @@ export function createBringProjectHook(choice: BringChoiceStore, remoteWork: Hos
           ...(event.model ? { model: event.model } : {}),
           ...(event.thinkingLevel ? { thinkingLevel: event.thinkingLevel } : {}),
           ...(event.mode ? { mode: event.mode } : {}),
+          ...content,
         }).catch((error: unknown) => { throw machineMethodError(error, chosen.machineName, "start threads"); }) as { sessionId: string; path: string };
         choice.set(undefined);
         const id = `${chosen.machine}~${answer.sessionId}`;
@@ -205,6 +207,9 @@ export function createBringProjectHook(choice: BringChoiceStore, remoteWork: Hos
           prompt: event.prompt,
           backend: event.runtime,
           ...(event.model ? { model: event.model } : {}),
+          ...(event.thinkingLevel ? { thinkingLevel: event.thinkingLevel } : {}),
+          ...(event.mode ? { mode: event.mode } : {}),
+          ...content,
         }) as ThreadLink;
       } catch (error) {
         throw new Error(`Could not start on ${chosen.machineName}: ${errorMessage(error)}`, { cause: error });

@@ -353,7 +353,7 @@ export interface HostThreadSendOptions {
   delivery?: "prompt" | "steer" | "queue";
   /** The thread that sent the message; the queue shows where it came from. */
   from?: string;
-  /** Images for the message, checked as a composer's are; a file is refused. New in API 1.46.0. */
+  /** Attachments checked as a composer's are. Runtimes without native file input receive host-local file paths in the prompt. New in API 1.47.0. */
   attachments?: readonly UiPromptAttachment[];
 }
 

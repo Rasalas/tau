@@ -136,7 +136,7 @@ export const STEPS = [
   {
     title: "host A and rex start on loopback with kits and the fake model",
     async run(ctx) {
-      const fakePi = (env) => prepareFakePiAgentDir(env.PI_CODING_AGENT_DIR, ctx.model.baseUrl);
+      const fakePi = (env) => prepareFakePiAgentDir(env.PI_CODING_AGENT_DIR, ctx.model.baseUrl, { images: true });
       const [a, rex] = await Promise.all([
         startTestHost({ name: A.name, kits: true, fresh: true, login: false, workspace: ctx.fixture.work }, {
           machineName: A.machineName,
@@ -414,10 +414,17 @@ export const STEPS = [
     },
   },
   {
-    title: "A starts a thread on rex with the fake model and follows its status to idle, with a cost",
+    title: "A starts a thread on rex with image and file content and follows it to idle",
     async run(ctx) {
       const cwd = ctx.fixture.work;
-      const started = await ctx.aOwner.request("host-extension", [REMOTE_WORK, "thread-start", { machine: REX.machineName, cwd, prompt: "write rex-note.txt hello", title: "Smoke thread" }]);
+      const path = join(ctx.a.userData, "attached-spec.txt");
+      writeFileSync(path, "attachment from A\n");
+      const data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a0WQAAAAASUVORK5CYII=";
+      const attachments = [
+        { kind: "image", name: "pixel.png", mimeType: "image/png", data, size: Buffer.from(data, "base64").length },
+        { kind: "file", name: "attached-spec.txt", mimeType: "text/plain", path, size: statSync(path).size },
+      ];
+      const started = await ctx.aOwner.request("host-extension", [REMOTE_WORK, "thread-start", { machine: REX.machineName, cwd, prompt: "write rex-note.txt hello", title: "Smoke thread", attachments }]);
       if (started.status !== "sending" || started.machineName !== REX.machineName) throw new Error(`thread-start answered ${JSON.stringify(started)}`);
       const done = await threadWait(ctx, started.id);
       if (done.reason !== "idle") throw new Error(`the thread ended ${done.reason}: ${JSON.stringify(done.link)}`);
@@ -428,6 +435,12 @@ export const STEPS = [
       if (readFileSync(join(link.worktree, "rex-note.txt"), "utf8") !== "hello\n") throw new Error("the thread did not write in its worktree on rex");
       const session = sessionFiles(ctx.rex.sessionsDir).find((file) => file.entries[0].id === link.thread);
       if (session?.entries[0].cwd !== link.worktree) throw new Error(`rex's session for ${link.thread} works in ${session?.entries[0].cwd}`);
+      const user = session.entries.find((entry) => entry.message?.role === "user")?.message;
+      if (!user?.content?.some((part) => part.type === "image" && part.data === data)) throw new Error("The image did not reach rex's session");
+      const text = user.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
+      const receivedPath = text.match(/Attached files:\n- ([^\n]+)/u)?.[1];
+      if (!receivedPath || receivedPath === path || !receivedPath.startsWith(ctx.rex.userData)) throw new Error("rex received no host-local file path");
+      if (readFileSync(receivedPath, "utf8") !== "attachment from A\n") throw new Error("rex's attachment bytes do not match");
       const book = JSON.parse(readFileSync(join(ctx.a.userData, "kit-state", REMOTE_WORK, "remote-links.json"), "utf8"));
       if (book[0]?.id !== link.id || book[0].thread !== link.thread) throw new Error("A's book does not hold the link");
       // rex's rail: the worktree carries A's project name and the thread's title, not the transfer id or the mirror's folder.

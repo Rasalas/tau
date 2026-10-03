@@ -101,10 +101,10 @@ describe("services that name a thread by id", () => {
     expect(blind.calls.prompts).toEqual([]);
   });
 
-  it("refuses a file attachment: its path would be read on this machine", async () => {
+  it("gives a runtime without file input the received host-local path, keeping images", async () => {
     const b = await bench();
-    const file: UiPromptAttachment = { kind: "file", name: "passwd", mimeType: "text/plain", path: "/etc/passwd", size: 1 };
-    await expect(b.services().sessions.send!("saved", "look", { attachments: [file] })).rejects.toThrow("does not take file attachments");
-    expect(b.calls.prompts).toEqual([]);
+    const file: UiPromptAttachment = { kind: "file", name: "spec.txt", mimeType: "text/plain", path: join(tmpdir(), "received-spec.txt"), size: 1 };
+    await b.services().sessions.send!("saved", "look", { attachments: [file, image] });
+    expect(b.calls.prompts).toEqual([{ text: `look\n\nAttached files:\n- ${file.path}`, attachments: 1 }]);
   });
 });

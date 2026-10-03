@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { HostCommandError, type HostCommandCall, type HostExtension, type HostExtensionContext, type HostExtensionServices } from "tau/host-extension";
+import { HostCommandError, decodePromptAttachments, decodeTransferredPromptAttachments, withReceivedPromptAttachments, type HostCommandCall, type HostExtension, type HostExtensionContext, type HostExtensionServices } from "tau/host-extension";
 import { worktreeSetupCommand } from "../workspace/agent-worktrees.js";
 import { HostedThreads } from "./hosted-threads.js";
 import { REPO_KEY } from "./identity.js";
@@ -123,12 +123,13 @@ function decodeThreadStart(input: unknown): RemoteThreadStartInput {
   const raw = fields(input);
   const prompt = optionalText(raw, "prompt");
   const session = raw.session === undefined ? undefined : { threadId: required(fields(raw.session), "threadId") };
-  if (!prompt && !session) throw new HostCommandError("A thread needs a prompt or a session to start from.");
+  const attachments = decodePromptAttachments(raw.attachments);
+  if (!prompt && !session && !attachments.length) throw new HostCommandError("A thread needs a prompt or a session to start from.");
   const ignored = raw.ignored;
   if (ignored !== undefined && (!Array.isArray(ignored) || ignored.some((path) => typeof path !== "string"))) throw new HostCommandError("ignored is a list of paths.");
   const model = decodeModel(raw.model);
   const agentDepth = decodeDepth(raw.agentDepth);
-  const optional = Object.fromEntries((["title", "backend", "parentThreadId", "agent"] as const)
+  const optional = Object.fromEntries((["title", "backend", "parentThreadId", "agent", "thinkingLevel", "mode"] as const)
     .map((key) => [key, optionalText(raw, key)] as const)
     .filter((entry): entry is readonly [typeof entry[0], string] => Boolean(entry[1])));
   return {
@@ -139,6 +140,7 @@ function decodeThreadStart(input: unknown): RemoteThreadStartInput {
     ...(model ? { model } : {}),
     ...(Array.isArray(ignored) ? { ignored: ignored as string[] } : {}),
     ...(agentDepth ? { agentDepth } : {}),
+    ...(attachments.length ? { attachments } : {}),
     ...optional,
   };
 }
@@ -162,7 +164,8 @@ function decodeHostedStart(input: Fields): HostedThreadStartInput {
     jsonl: rawSession.jsonl as string,
     origin: { hostId: required(fields(rawSession.origin), "hostId"), threadId: required(fields(rawSession.origin), "threadId") },
   } : undefined;
-  if (!prompt && !session) throw new HostCommandError("A thread needs a prompt or a session to start from.");
+  const attachments = decodeTransferredPromptAttachments(input.attachments);
+  if (!prompt && !session && !attachments.length) throw new HostCommandError("A thread needs a prompt or a session to start from.");
   const model = decodeModel(input.model);
   const title = optionalText(input, "title");
   const backend = optionalText(input, "backend");
@@ -176,6 +179,9 @@ function decodeHostedStart(input: Fields): HostedThreadStartInput {
     ...(backend ? { backend } : {}),
     ...(model ? { model } : {}),
     ...(agentDepth ? { agentDepth } : {}),
+    ...(attachments.length ? { attachments } : {}),
+    ...(optionalText(input, "thinkingLevel") ? { thinkingLevel: optionalText(input, "thinkingLevel") } : {}),
+    ...(optionalText(input, "mode") ? { mode: optionalText(input, "mode") } : {}),
   };
 }
 
@@ -423,13 +429,13 @@ export function createRemoteWorkHostExtension(options: RemoteWorkHostOptions = {
       }, { long: true, ...withReviews, audit: { label: "settled a thread's work from another machine" } });
 
       // Threads, there: what the sending side's host calls for the threads it starts here.
-      context.registerCommand(HOSTED_COMMANDS.hello, () => ({ protocol: REMOTE_WORK_PROTOCOL }), { access: "read" });
+      context.registerCommand(HOSTED_COMMANDS.hello, () => ({ protocol: REMOTE_WORK_PROTOCOL, attachments: true }), { access: "read" });
       context.registerCommand(HOSTED_COMMANDS.start, async (input, call) => {
         const raw = fields(input);
         checkProtocol(raw);
         const start = decodeHostedStart(raw);
         const entry = await mirrors.get(start.transfer, device(call));
-        return hosted.start(start, entry.worktree, device(call));
+        return withReceivedPromptAttachments(services, start.attachments, call, (attachments) => hosted.start(start, entry.worktree, device(call), attachments));
       }, { audit: { label: "started a thread for another machine" } });
       context.registerCommand(HOSTED_COMMANDS.send, (input, call) => {
         const raw = fields(input);

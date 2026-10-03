@@ -62,8 +62,8 @@ describe("the home machine's thread commands", () => {
   it("never takes a path: a file attachment is refused before anything is sent", async () => {
     const h = await home();
     const file = { kind: "file", name: "passwd", mimeType: "text/plain", path: "/etc/passwd", size: 1 };
-    await expect(h.invoke("thread-send", { sessionId: "saved", text: "x", attachments: [image, file] })).rejects.toThrow("Only images can be sent");
-    await expect(h.invoke("thread-send", { sessionId: "saved", text: "x", attachments: [{ kind: "image", name: "x", path: "/etc/passwd" }] })).rejects.toThrow("needs data, mimeType and size");
+    await expect(h.invoke("thread-send", { sessionId: "saved", text: "x", attachments: [image, file] })).rejects.toThrow("not a sender path");
+    await expect(h.invoke("thread-send", { sessionId: "saved", text: "x", attachments: [{ kind: "image", name: "x", path: "/etc/passwd" }] })).rejects.toThrow("mimeType");
     await expect(h.invoke("thread-send", { sessionId: "saved", text: "x", delivery: "later" })).rejects.toThrow("delivery must be");
     expect(h.send).not.toHaveBeenCalled();
   });

@@ -1,3 +1,5 @@
+import type { TransferredPromptAttachment, UiPromptAttachment } from "tau/host-extension";
+
 /**
  * Remote Work Kit's vocabulary (plan-H §2, ADR 0027): a project's state goes
  * to another machine as a Git bundle, a worktree there picks it up, and what
@@ -348,6 +350,9 @@ export interface RemoteThreadModel {
 
 /** What `thread-start` takes. Either `prompt` or `session`, or both (the prompt then continues the session). */
 export interface RemoteThreadStartInput {
+  attachments?: readonly UiPromptAttachment[];
+  thinkingLevel?: string;
+  mode?: string;
   /** A machine this host holds a key for: its host id, or its name when unique. */
   machine: string;
   /** A folder of the checkout here whose state the thread starts from. */
@@ -457,9 +462,13 @@ export const MAX_REMOTE_WAIT_MS = 30 * 60_000;
 
 export interface HostedHello {
   protocol: number;
+  attachments?: boolean;
 }
 
 export interface HostedThreadStartInput {
+  attachments?: readonly TransferredPromptAttachment[];
+  thinkingLevel?: string;
+  mode?: string;
   protocol: number;
   /** The transfer whose worktree the thread works in; only the device that sent it may start one. */
   transfer: string;

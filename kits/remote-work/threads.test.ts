@@ -57,6 +57,7 @@ interface FakeThread {
   messages: UiMessage[];
   usage?: UiThreadUsage;
   prompts: string[];
+  attachments?: HostThreadStartOptions["attachments"];
   jsonl?: string;
   origin?: { hostId: string; threadId: string; details?: Record<string, unknown> };
   /** Holds transcript reads, as a slow session file would. */
@@ -108,6 +109,7 @@ function fakeSessions() {
       list: async () => [],
       start: async (options: HostThreadStartOptions) => {
         const thread: FakeThread = { id: randomUUID(), cwd: options.cwd, streaming: false, open: false, messages: [], prompts: [] };
+        thread.attachments = options.attachments;
         threads.set(thread.id, thread);
         // The prompt is accepted before `start` answers, as the host delivers it.
         begin(thread, options.prompt);
@@ -156,7 +158,7 @@ function fakeSessions() {
  * `services.machines` reaches rex's registry as A's agents device; `online`
  * cuts the connection both ways (calls refuse, topic events are lost).
  */
-async function twoHosts(options: { hello?: "old" | "missing" } = {}) {
+async function twoHosts(options: { hello?: "old" | "missing" | "no-attachments" } = {}) {
   const dir = await realpath(await mkdtemp(join(tmpdir(), "tau-remote-threads-")));
   made.push(dir);
   const work = join(dir, "work");
@@ -200,7 +202,7 @@ async function twoHosts(options: { hello?: "old" | "missing" } = {}) {
     rex.invoke = (async (extensionId: string, command: string, input?: unknown, principal?: never) => {
       if (command === HOSTED_COMMANDS.hello) {
         if (options.hello === "missing") throw new Error(`Host extension Remote Work has no command "${command}".`);
-        return { protocol: 0 };
+        return { protocol: options.hello === "no-attachments" ? 1 : 0 };
       }
       return original(extensionId, command, input, principal);
     }) as typeof rex.invoke;
@@ -280,6 +282,31 @@ const linkOf = (hosts: Hosts, id: string) => hosts.call<RemoteThreadLink>("threa
 const started = (hosts: Hosts, id: string) => until(() => linkOf(hosts, id), (link) => Boolean(link.thread) || link.status === "failed", "the thread on rex");
 
 describe("Remote Work Kit: a thread started here runs on another machine", () => {
+  it("rejects an older receiver before taking a draft with attachments", async () => {
+    const hosts = await twoHosts({ hello: "no-attachments" });
+    await expect(hosts.call("thread-start", { machine: "rex", cwd: hosts.work, prompt: "look", attachments: [{ kind: "image", name: "shot.png", mimeType: "image/png", data: "AA==", size: 1 }] })).rejects.toThrow("update Tau there");
+    expect(hosts.sessions.threads.size).toBe(0);
+    expect(await hosts.call("threads")).toEqual([]);
+  });
+
+  it("carries images and file bytes to the thread's home machine, without sender paths", async () => {
+    const hosts = await twoHosts();
+    const path = join(hosts.dir, "spec.txt");
+    await writeFile(path, "read me on rex");
+    const image = { kind: "image", name: "shot.png", mimeType: "image/png", data: "AA==", size: 1 };
+    const link = await hosts.call<RemoteThreadLink>("thread-start", {
+      machine: "rex", cwd: hosts.work, prompt: "Read these", attachments: [image, { kind: "file", name: "spec.txt", mimeType: "text/plain", size: 14, path }],
+    });
+    const remote = await started(hosts, link.id);
+    expect(remote.status).not.toBe("failed");
+    const attachments = hosts.sessions.only().attachments!;
+    expect(attachments?.[0]).toEqual(image);
+    const file = attachments?.[1];
+    expect(file?.kind).toBe("file");
+    if (file?.kind !== "file") throw new Error("Missing file on rex");
+    expect(file.path).not.toBe(path);
+    expect(await readFile(file.path, "utf8")).toBe("read me on rex");
+  });
   it("starts in the worktree that holds this checkout's state and follows it from running to idle, with its cost", async () => {
     const hosts = await twoHosts();
     await put(hosts.work, "notes.md", "uncommitted\n");

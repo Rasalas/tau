@@ -35,6 +35,8 @@ export {
 export { ORIGIN_ENTRY, PARENT_LINK_ENTRY, originEntry, parentLinkEntry } from "./session-lineage.js";
 export { DEFAULT_THREAD_MODE, THREAD_MODE_ENTRY, threadModeFromEntries } from "../shared/thread-mode.js";
 export { clientMessageFingerprint } from "../shared/client-message-correlation.js";
+// Prompt content crossing machine connections. New in API 1.47.0.
+export { decodePromptAttachments, decodeTransferredPromptAttachments, transferPromptAttachments, withReceivedPromptAttachments, type TransferredPromptAttachment } from "./machine-prompt-attachments.js";
 export { validatePreparedPrompt } from "../shared/prepared-prompt.js";
 export { knownSkillNames, parseSkillEnvelope, type ParsedSkillEnvelope } from "../shared/skill-envelope.js";
 export type { ExtensionIsolation, ExtensionPermission } from "../shared/extension-permissions.js";

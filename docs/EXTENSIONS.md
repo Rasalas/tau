@@ -2759,14 +2759,25 @@ parent when a child it was not waiting for finished.
 provider, id)` (new in API 1.46.0, `sessions`, in-process only; absent on an
 older host) let a kit act for another device's composer. `attachments` are
 images the thread's model must read, checked as a composer's are (count, size,
-`The active model does not support image input.`); a file attachment is refused
-because its path is a path of the sender. `setModel` changes any thread's
+`The active model does not support image input.`). Since API 1.47.0, files name
+paths on this host. A runtime without native file input receives those paths
+in the prompt. A path on another machine is never accepted as a file reference. `setModel` changes any thread's
 model, on screen or not, and rejects where its runtime has no model selection.
 `setThreadTitle(…, "renamed")` now reopens a released thread off screen, as
 `send` does; `"generated"` still needs the thread to be open. Machines Kit
 builds its `thread-rename`, `thread-send` and `thread-model` commands on these
 three, so another machine's window renames, attaches to and re-models a thread
 that lives here; a proxy thread of a third machine is refused.
+
+API 1.47.0 exports `transferPromptAttachments(machines, machine, attachments)`
+and `withReceivedPromptAttachments(services, input, caller, use)` from
+`tau/host-extension`. The first uploads files through `machines.upload`,
+returning `TransferredPromptAttachment[]` with blob IDs instead of paths.
+The second checks blob ownership against the command caller, copies files to
+the receiving kit's state directory, then passes host-local attachments to
+`use`. Rejected admission removes the copies. Images remain inline content.
+`decodePromptAttachments` and `decodeTransferredPromptAttachments` validate
+the sending and receiving forms; the receiving form refuses sender paths.
 
 `services.sessions.import({ cwd, jsonl, title?, origin })` (new in API 1.15.0,
 `sessions`; absent on an older host) takes over a Pi session another machine
