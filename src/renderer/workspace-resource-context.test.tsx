@@ -60,9 +60,9 @@ describe("transcript-bound workspace resource contract", () => {
     expect(open).toHaveBeenCalledWith(linked, origin);
     fireEvent.click(await screen.findByRole("button", { name: "Open /host/docs/document.md" }));
     expect(open).toHaveBeenLastCalledWith("/host/docs/document.md", origin);
-    for (const path of [linked, "/host/docs/document.md"]) {
-      await expect(captured!.loadFile(path)).resolves.toMatchObject({ text: "external document" });
-      expect(loadLinkedFile).toHaveBeenLastCalledWith(path, { workspace: "ws-history" });
+    for (const filePath of [linked, "/host/docs/document.md"]) {
+      await expect(captured!.loadFile(filePath)).resolves.toMatchObject({ text: "external document" });
+      expect(loadLinkedFile).toHaveBeenLastCalledWith(filePath, { workspace: "ws-history" });
     }
     expect(loadFile).not.toHaveBeenCalled();
     expect(transcriptFilePath("/host/docs/document.md", "/host/project")).toBe("/host/docs/document.md");

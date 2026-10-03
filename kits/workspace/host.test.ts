@@ -104,7 +104,7 @@ describe("Workspace Kit host extension", () => {
       if (id !== "ws-origin") throw new Error("Unknown workspace");
       return origin;
     } });
-    const read = (path: string, workspace = "ws-origin") => registry.invoke("tau.workspace", "read-linked-file", { path, workspace });
+    const read = (path: string, workspaceId = "ws-origin") => registry.invoke("tau.workspace", "read-linked-file", { path, workspace: workspaceId });
     for (const path of [linked, absolute]) {
       await expect(read(path)).resolves.toMatchObject({ kind: "text", text: "outside the project\n" });
     }

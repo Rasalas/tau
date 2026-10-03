@@ -42,6 +42,8 @@ export { knownSkillNames, parseSkillEnvelope, type ParsedSkillEnvelope } from ".
 export type { ExtensionIsolation, ExtensionPermission } from "../shared/extension-permissions.js";
 export type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 export { isWorkspaceRelativePath, type WorkspaceRef } from "../shared/workspace-identity.js";
+// Validates transcript file links for their owning host. New in API 1.50.0.
+export { linkedFilePath } from "../shared/linked-file-path.js";
 export type { HostActionResult, TranscriptPage } from "../shared/host-protocol.js";
 // A machine backend follows pushes and pages its home host. New in API 1.42.0.
 export type { HostPushEvent } from "../shared/host-transport.js";
