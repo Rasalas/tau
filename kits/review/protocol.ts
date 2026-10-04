@@ -68,7 +68,7 @@ export interface ThreadCardSectionProps {
   session: UiSession;
   external: boolean;
   actions: WorkbenchActions;
-  Row: ComponentType<{ icon: ReactNode; children: ReactNode; label?: string; onClick?(): void }>;
+  Row: ComponentType<{ icon: ReactNode; children: ReactNode; label?: string; onClick?(event: import("react").MouseEvent<HTMLButtonElement>): void }>;
 }
 
 /** What Workspace Kit's Changes panel hands the section Review adds to it. */

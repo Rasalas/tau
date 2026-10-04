@@ -34,14 +34,14 @@ describe("a thread's requests on its rail row", () => {
     const older = thread("older", 10);
     const { draw } = setup([older, newest]);
     draw(newest);
-    const badge = screen.getByRole("img", { name: "PR #35 open, checks 1 pending" });
+    const badge = screen.getByRole("link", { name: "PR #35 open, checks 1 pending" });
     expect(badge.textContent).toBe("35");
     expect(badge.classList.contains("state-open")).toBe(true);
     expect(badge.querySelector("svg")).not.toBeNull();
     cleanup();
     // Every thread of a checkout reads its current branch; an older one may have worked on another.
     draw(older);
-    expect(screen.queryByRole("img", { name: /PR #35/u })).toBeNull();
+    expect(screen.queryByRole("link", { name: /PR #35/u })).toBeNull();
   });
 
   it("shows what a thread links on any of its rows, and several as the glyph and +N with the list in the tooltip", () => {
@@ -49,7 +49,7 @@ describe("a thread's requests on its rail row", () => {
     const older = thread("older", 10);
     const { draw } = setup([older, newest], { older: [link(40, { state: "merged" })], newest: [link(41, { state: "merged" }), link(42, { state: "closed" })] });
     draw(older);
-    const single = screen.getByRole("img", { name: "PR #40 merged, linked" });
+    const single = screen.getByRole("link", { name: "PR #40 merged, linked" });
     expect(single.textContent).toBe("40");
     expect(single.classList.contains("state-merged")).toBe(true);
     cleanup();
@@ -77,7 +77,7 @@ describe("a thread's requests on its rail row", () => {
 });
 
 describe("a thread's requests on its hover card", () => {
-  function Row({ icon, children, label, onClick }: { icon: ReactNode; children: ReactNode; label?: string; onClick?(): void }) {
+  function Row({ icon, children, label, onClick }: { icon: ReactNode; children: ReactNode; label?: string; onClick?(event: import("react").MouseEvent<HTMLButtonElement>): void }) {
     return <button type="button" aria-label={label} onClick={onClick}>{icon}{children}</button>;
   }
 
@@ -88,9 +88,10 @@ describe("a thread's requests on its hover card", () => {
     for (const [id, list] of Object.entries(links)) linkRows.set(id, list);
     const Section = createRequestCardSection(rows, linkRows);
     const openStageTab = vi.fn(() => "tab");
-    const actions = { openStageTab } as never;
+    const openExternal = vi.fn();
+    const actions = { openStageTab, openExternal } as never;
     render(<TestThreadStore threads={threads}><Section session={session} external={external} actions={actions} Row={Row} /></TestThreadStore>);
-    return { openStageTab };
+    return { openStageTab, openExternal };
   }
 
   it("lists the branch's request and the linked ones newest first, each with its state", () => {
@@ -107,6 +108,14 @@ describe("a thread's requests on its hover card", () => {
     const { openStageTab } = drawCard(newest, [newest], {});
     fireEvent.click(screen.getByRole("button", { name: "PR #35, open: Rail badges" }));
     expect(openStageTab).toHaveBeenCalledWith(PULL_REQUEST_TAB, expect.objectContaining({ url: REQUEST.url, number: 35, service: "github", workspace: "/project" }), { key: REQUEST.url });
+  });
+
+  it.each(["metaKey", "ctrlKey"])("opens the hover card request in the browser with %s", (modifier) => {
+    const newest = thread("newest", 30);
+    const { openStageTab, openExternal } = drawCard(newest, [newest], {});
+    fireEvent.click(screen.getByRole("button", { name: "PR #35, open: Rail badges" }), { [modifier]: true });
+    expect(openExternal).toHaveBeenCalledWith(REQUEST.url);
+    expect(openStageTab).not.toHaveBeenCalled();
   });
 
   it("draws nothing for a thread without requests or another machine's thread", () => {

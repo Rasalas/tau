@@ -643,7 +643,7 @@ export interface ThreadCardRowProps {
   children: ReactNode;
   tone?: "warning" | "danger" | "working";
   /** Makes the row a button; the card closes before it runs. */
-  onClick?(): void;
+  onClick?(event: import("react").MouseEvent<HTMLButtonElement>): void;
   /** The whole row's accessible name, where its text alone does not say it. */
   label?: string;
 }
