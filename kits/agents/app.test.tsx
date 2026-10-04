@@ -104,6 +104,9 @@ function appWith(
 
 /** Agents is a stage tab, under the strip's More tools. */
 async function openAgentsTab(): Promise<void> {
+  // Bootstrap establishes the workspace and moves its tools out of the chat header.
+  // Query after that data arrives so the click targets the current toolbar.
+  await screen.findByRole("region", { name: "Project workspace" });
   fireEvent.click(await screen.findByRole("button", { name: "More tools" }));
   fireEvent.click(await screen.findByRole("menuitem", { name: /Agents/ }, { timeout: 3000 }));
 }

@@ -7,9 +7,6 @@
 body:not([data-profile="compact"]) .stage-tools { --stage-tool-size: 32px; }
 body:not([data-profile="compact"]) .stage-tool { min-width: 32px; min-height: 32px; }
 body:not([data-profile="compact"]) .thread-header .chrome-button { min-height: 32px; }
-.workspace-summary-narrow { grid-row: workspace; padding: 8px 12px; }
-
-.conversation-column:has(> .workspace-summary-narrow):not(.conversation-start) { grid-template-rows: [head] auto [workspace] auto [connection] auto [header] auto [banner] auto [transcript] minmax(0, 1fr) [controls] auto [footer] auto [above] auto [caption] auto [composer] auto [dock-end below] auto [status] auto; }
 
 .workbench-center > .chat-resizer { background: transparent; border: 0; }
 
