@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { UiToolRun } from "../../shared/contracts";
+import type { UiToolRun, UiTurnActivityEntry } from "../../shared/contracts";
 
 /** A piece of transcript work rendered after the message that owns it. */
 export interface TranscriptActivity {
@@ -16,8 +16,9 @@ export interface TranscriptActivity {
   content: ReactNode;
 }
 
-/** Persistent cards and questions remain outside the completed-work disclosure. */
-export function completedWorkMetadata(tools: readonly UiToolRun[], completed: boolean, hasCard: (tool: UiToolRun) => boolean, keepOpen: boolean) {
+/** Tool errors do not make a successful final answer unfinished. Cards and questions stay outside the fold. */
+export function completedWorkMetadata(tools: readonly UiToolRun[], status: UiTurnActivityEntry["status"], hasCard: (tool: UiToolRun) => boolean, keepOpen: boolean) {
+  const completed = status === "completed" || status === "error";
   return {
     foldWithTurn: completed && tools.every((tool) => tool.status !== "running" && !hasCard(tool)
       && !/ask_user|request_takeover|approval|question/iu.test(tool.name)),

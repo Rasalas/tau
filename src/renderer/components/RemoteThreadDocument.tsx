@@ -91,7 +91,7 @@ export function RemoteThreadDocument({ machine, sessionId, registry, actions }: 
       return {
         id: entry.id,
         afterMessageId: entry.anchorMessageId,
-      ...completedWorkMetadata(entry.tools, entry.status === "completed", (tool) => Boolean(registry.toolCardFor(tool)), disclosures.openedInTurn(entry.tools[0]!.id)),
+      ...completedWorkMetadata(entry.tools, entry.status, (tool) => Boolean(registry.toolCardFor(tool)), disclosures.openedInTurn(entry.tools[0]!.id)),
         fallbackToTail: entry.status === "running",
         content: <WorkGroup
           id={entry.id}
