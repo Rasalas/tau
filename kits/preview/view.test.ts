@@ -57,7 +57,7 @@ vi.mock("electron", async () => {
   };
 });
 
-const { createElectronPreviewSurface, cropToView, deviceOverride } = await import("./view.js");
+const { default: activatePreviewWindowHalf, createElectronPreviewSurface, cropToView, deviceOverride } = await import("./view.js");
 
 const surface = () => createElectronPreviewSurface({ partition: "", onChange: () => undefined, workspaceRoot: () => "", log: () => undefined })!;
 
@@ -72,6 +72,11 @@ beforeEach(() => {
     setWindowOpenHandler: vi.fn(),
     isDestroyed: () => false,
     getZoomFactor: () => 1,
+    getURL: () => "",
+    getTitle: () => "",
+    isLoading: () => false,
+    navigationHistory: { canGoBack: () => false, canGoForward: () => false },
+    close: vi.fn(),
     // What Electron does for a view that never reached the screen.
     capturePage: vi.fn(async () => { throw new Error("Current display surface not available for capture"); }),
     debugger: {
@@ -81,6 +86,29 @@ beforeEach(() => {
     },
   };
   electron.createFromBuffer.mockImplementation(() => fakeImage(2_560, 1_600, "cdp"));
+});
+
+describe("a preview call without a drawable window", () => {
+  it("explains how to enable a host-rendered preview instead of retrying another client's window", () => {
+    electron.window = undefined as unknown as FakeWindow;
+    const half = activatePreviewWindowHalf({ id: "tau.preview", invokeHost: vi.fn(), log: vi.fn() });
+    expect(() => half.handle("open-view")).toThrow(/Open the Tau desktop app on the thread's home machine.*Preview.*phone or browser/u);
+    expect(electron.stages).toHaveLength(0);
+  });
+
+  it("rebuilds the closed window's surface on the next request instead of reusing a destroyed view", () => {
+    const half = activatePreviewWindowHalf({ id: "tau.preview", invokeHost: vi.fn(), log: vi.fn() });
+    half.handle("open-view");
+    const first = electron.window;
+    first.destroy();
+    first.emit("closed");
+    electron.window = undefined as unknown as FakeWindow;
+    expect(() => half.handle("open-view")).toThrow(/Open the Tau desktop app/u);
+    electron.window = fakeWindow();
+    half.handle("open-view");
+    expect(electron.window.contentView.children).toHaveLength(1);
+    half.dispose?.();
+  });
 });
 
 describe("the preview surface's capture", () => {

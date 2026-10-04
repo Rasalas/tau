@@ -43,6 +43,7 @@ import { EVIDENCE_CALLER, previewSecretFocus, type PreviewEvidenceFrame } from "
 import { pickCrop, readAnnotationResult, readPickedElement } from "./picks.js";
 import { probeHttp, scanPorts } from "./ports.js";
 import { PreviewProfileStore, profilePartition } from "./profiles.js";
+import { PREVIEW_WINDOW_UNAVAILABLE, previewWindowUnavailable } from "./window-availability.js";
 import { pageCall, type PreviewActionResult } from "./page-script.js";
 import { POINTER_PATH, previewAgentCursor, previewInputOverlay, previewInputOverlayEnd, previewSecretNote, type PageCursorMark } from "./page-cursor.js";
 import { CURSOR_ACTIVE_MS, LABEL_VISIBLE_MS, cursorMark } from "./agent-cursor-marks.js";
@@ -130,9 +131,7 @@ const LIVE_FRAME_WIDTH = { min: 120, max: 1_600 } as const;
 const LIVE_FRAME_SHARED_MS = 150;
 /** A view nobody placed yet still lays the page out at this size, so a remote device sees something. */
 const UNPLACED_RECT: PreviewRect = { x: 0, y: 0, width: 1_280, height: 800 };
-const NO_DESKTOP = "Preview needs the Tau desktop app on this host";
-/** What core's `callClient` rejects with when no window on the machine has the half. */
-const NO_WINDOW = /No Tau window on this host has the window half/u;
+const NO_DESKTOP = PREVIEW_WINDOW_UNAVAILABLE;
 
 export interface WindowFacts {
   /** The host runs inside the window's own process. */
@@ -300,6 +299,7 @@ class PreviewController implements PreviewToolController {
 
   /** The last window call found no window on this machine; cleared once one is there. */
   private windowCallFoundNone = false;
+  private windowCannotDraw = false;
 
   private readonly profiles: PreviewProfileStore;
 
@@ -377,11 +377,16 @@ class PreviewController implements PreviewToolController {
     try {
       const answer = await this.window.call(command, input);
       this.windowCallFoundNone = false;
+      this.windowCannotDraw = false;
       return answer;
     } catch (error) {
-      if (error instanceof Error && NO_WINDOW.test(error.message) && !this.windowCallFoundNone) {
-        this.windowCallFoundNone = true;
-        this.publish();
+      if (previewWindowUnavailable(error)) {
+        this.windowCannotDraw = error instanceof Error && !error.message.startsWith("No Tau window");
+        if (!this.windowCallFoundNone) {
+          this.windowCallFoundNone = true;
+          this.publish();
+        }
+        throw new Error(PREVIEW_WINDOW_UNAVAILABLE, { cause: error });
       }
       throw error;
     }
@@ -394,6 +399,9 @@ class PreviewController implements PreviewToolController {
     } catch {
       attached = undefined;
     }
+    // A Mac's auxiliary connection can still advertise its half after the window closes.
+    // Only a successful call proves that this connected process can draw again.
+    if (this.windowCannotDraw) attached = false;
     if (attached) this.windowCallFoundNone = false;
     return missingWindow({
       inWindowProcess: process.type === "browser",

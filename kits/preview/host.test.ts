@@ -189,7 +189,7 @@ describe("preview tools", () => {
     const kit = await activate(async () => undefined);
     for (const tool of ["preview_open", "preview_status", "preview_snapshot", "preview_screenshot"]) {
       const answer = await kit.text(tool, { url: "https://example.com" });
-      expect(answer.text).toBe("Preview needs the Tau desktop app on this host");
+      expect(answer.text).toMatch(/Open the Tau desktop app on the thread's home machine/u);
       expect(answer.isError).toBe(true);
     }
     await expect(kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "state", undefined))
@@ -213,13 +213,40 @@ describe("preview tools", () => {
         return undefined;
       },
     }, () => undefined);
-    await expect(registry.invoke(PREVIEW_HOST_EXTENSION_ID, "open", { url: "http://127.0.0.1:1/" })).rejects.toThrow(/No Tau window/u);
+    await expect(registry.invoke(PREVIEW_HOST_EXTENSION_ID, "open", { url: "http://127.0.0.1:1/" })).rejects.toThrow(/Open the Tau desktop app on the thread's home machine/u);
     const missing = await registry.invoke(PREVIEW_HOST_EXTENSION_ID, "state", undefined) as PreviewState;
     // The kind depends on the machine this runs on; that there is none does not.
     expect(missing.noWindow).toBeDefined();
     window = "w1";
     expect(await registry.invoke(PREVIEW_HOST_EXTENSION_ID, "state", undefined)).not.toHaveProperty("noWindow");
     await expect(registry.invoke(PREVIEW_HOST_EXTENSION_ID, "open", { url: "http://127.0.0.1:1/" })).resolves.toMatchObject({ url: "http://127.0.0.1:1/" });
+  });
+
+  it("marks a connected window process without a window unavailable until it can draw again", async () => {
+    let drawable = false;
+    const sent: string[] = [];
+    const registry = await activateHostKit(createPreviewHostExtension(async (options) => {
+      await options.callClient!("open-view");
+      return fakeSurface().surface;
+    }), {
+      stateDir: "/state",
+      registerRuntimeExtension: () => () => undefined,
+      registerTurnObserver: () => () => undefined,
+      clientWindow: () => "closed-mac-window",
+      callClient: async () => {
+        sent.push("open-view");
+        if (!drawable) throw new Error("This window cannot draw a preview.");
+        return undefined;
+      },
+    }, () => undefined);
+    await expect(registry.invoke(PREVIEW_HOST_EXTENSION_ID, "open", { url: "http://127.0.0.1:1/" }))
+      .rejects.toThrow(/Open the Tau desktop app on the thread's home machine/u);
+    expect(await registry.invoke(PREVIEW_HOST_EXTENSION_ID, "state", undefined)).toHaveProperty("noWindow");
+    expect(sent).toEqual(["open-view"]);
+    drawable = true;
+    await expect(registry.invoke(PREVIEW_HOST_EXTENSION_ID, "open", { url: "http://127.0.0.1:1/" }))
+      .resolves.toMatchObject({ url: "http://127.0.0.1:1/" });
+    expect(await registry.invoke(PREVIEW_HOST_EXTENSION_ID, "state", undefined)).not.toHaveProperty("noWindow");
   });
 
   it("stops a tool the runtime cancelled", async () => {
