@@ -73,3 +73,49 @@ it("discards late check results from an earlier request", async () => {
   expect(screen.queryByText("PHP tests")).toBeNull();
   await waitFor(() => expect(screen.getByRole("button", { name: "Pull request checks, Checks" }).getAttribute("aria-expanded")).toBe("false"));
 });
+
+it("refreshes a failed pipeline while another job is still running", async () => {
+  vi.useFakeTimers();
+  try {
+    const checks = vi.fn().mockResolvedValueOnce([{ name: "lint", status: "failed" }, { name: "smoke", status: "pending" }]).mockResolvedValue([{ name: "lint", status: "passed" }, { name: "smoke", status: "passed" }]);
+    const view = render(<WorkspaceRequestChecks request={{ ...request, url: `${request.url}4` }} client={{ checks, pipeline: vi.fn(async () => ({})) } as unknown as PullRequestClient} actions={{} as WorkbenchActions} details={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pull request checks, Checks" }));
+    await act(async () => undefined);
+    expect(checks).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(checks).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: "Pull request checks, All checks passed" })).toBeTruthy();
+    view.unmount();
+  } finally { vi.useRealTimers(); }
+});
+
+it("does not fetch unfinished checks while the window stays hidden", async () => {
+  vi.useFakeTimers();
+  const visibility = vi.spyOn(document, "visibilityState", "get");
+  try {
+    const checks = vi.fn(async () => [{ name: "smoke", status: "pending" }]);
+    const view = render(<WorkspaceRequestChecks request={{ ...request, url: `${request.url}5` }} client={{ checks, pipeline: vi.fn(async () => ({})) } as unknown as PullRequestClient} actions={{} as WorkbenchActions} details={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pull request checks, Checks" }));
+    await act(async () => undefined);
+    visibility.mockReturnValue("hidden");
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(checks).toHaveBeenCalledTimes(1);
+    visibility.mockReturnValue("visible");
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(checks).toHaveBeenCalledTimes(2);
+    view.unmount();
+  } finally { visibility.mockRestore(); vi.useRealTimers(); }
+});
+
+it("uses refreshed request counts after a failed checks popover was closed", async () => {
+  const client = { checks: vi.fn(async () => [{ name: "CI", status: "failed" }]), pipeline: vi.fn(async () => ({})) } as unknown as PullRequestClient;
+  const failed = { ...request, url: `${request.url}6`, checks: { passed: 0, failed: 1, pending: 0, total: 1 } };
+  const view = render(<WorkspaceRequestChecks request={failed} client={client} actions={{} as WorkbenchActions} details={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Pull request checks, 1 failing" }));
+  const trigger = await screen.findByRole("button", { name: "Pull request checks, 1 of 1 failing" });
+  fireEvent.click(trigger);
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  view.rerender(<WorkspaceRequestChecks request={{ ...failed, state: "merged", checks: { passed: 1, failed: 0, pending: 0, total: 1 } }} client={client} actions={{} as WorkbenchActions} details={vi.fn()} />);
+  expect(screen.getByRole("button", { name: "Pull request checks, 1/1 passed" }).classList.contains("checks-passing")).toBe(true);
+  expect(client.checks).toHaveBeenCalledTimes(1);
+});

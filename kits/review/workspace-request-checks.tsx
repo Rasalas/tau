@@ -3,7 +3,7 @@ import { ChevronDown, CircleCheck, CircleDashed, CircleHelp, CircleX, ExternalLi
 import { errorMessage, Popover, type WorkbenchActions } from "tau";
 import { checksPipelines } from "./pipeline.js";
 import { PipelineGraph, usePipelineFacts } from "./pipeline-view.js";
-import { checksRollup, checksSummary } from "./pull-request-logic.js";
+import { checksRollup, checksSummary, checksUnfinished } from "./pull-request-logic.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import type { PullRequestCheck } from "./protocol.js";
 import { checksLabel } from "./requests.js";
@@ -19,8 +19,9 @@ export function WorkspaceRequestChecks({ request, client, actions, details }: {
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const [result, setResult] = useState<{ url: string; checks?: PullRequestCheck[]; error?: string }>();
-  const current = result?.url === request.url ? result : undefined;
+  const revision = JSON.stringify([request.state, request.checks?.passed, request.checks?.failed, request.checks?.pending, request.checks?.total]);
+  const [result, setResult] = useState<{ client: PullRequestClient; url: string; revision: string; checks?: PullRequestCheck[]; error?: string }>();
+  const current = result && result.client === client && result.url === request.url && result.revision === revision ? result : undefined;
   const checks = current?.checks;
   const facts = usePipelineFacts(client, request.url, checks ?? []);
   const pipelines = checksPipelines(checks ?? [], facts);
@@ -33,13 +34,19 @@ export function WorkspaceRequestChecks({ request, client, actions, details }: {
       try {
         const next = await client.checks(request.url);
         if (!live) return;
-        setResult({ url: request.url, checks: next });
-        if (checksRollup(next) === "pending") timer = setTimeout(() => { if (document.visibilityState === "visible") void read(); else timer = setTimeout(() => void read(), 20_000); }, 20_000);
-      } catch (error) { if (live) setResult({ url: request.url, error: errorMessage(error) }); }
+        setResult({ client, url: request.url, revision, checks: next });
+        if (checksUnfinished(next)) schedule();
+      } catch (error) { if (live) setResult({ client, url: request.url, revision, error: errorMessage(error) }); }
+    };
+    const schedule = () => {
+      timer = setTimeout(() => {
+        if (document.visibilityState === "visible") void read();
+        else schedule();
+      }, 20_000);
     };
     void read();
     return () => { live = false; if (timer) clearTimeout(timer); };
-  }, [open, client, request.url, attempt]);
+  }, [open, client, request.url, revision, attempt]);
   const headline = current?.error ? "Checks unavailable" : checks ? checksSummary(checks) : checksLabel(request.checks) ?? "Checks";
   const aggregate = request.checks;
   const rollup = current?.error ? undefined : checks ? checksRollup(checks) : aggregate && aggregate.total > 0 ? aggregate.failed > 0 ? "failing" : aggregate.pending > 0 ? "pending" : aggregate.passed > 0 ? "passing" : undefined : undefined;

@@ -77,7 +77,7 @@ export const reviewExtension: DesktopExtension = {
       return state?.workspaceId ?? state?.cwd;
     });
     const requests = requestClient(plugin.host);
-    const rows = new RowRequests((path) => requests.request(path));
+    const rows = new RowRequests((path, fresh) => requests.request(path, fresh));
     const comments = new ReviewCommentStore(getClientStorage);
     const client = pullRequestClient(plugin.host);
     const links = new ThreadLinkRows(client);
@@ -192,7 +192,7 @@ export const reviewExtension: DesktopExtension = {
       ];
       return () => { if (workspaceStore === store) workspaceStore = undefined; for (const dispose of disposers.reverse()) dispose(); if (summaryAvailable) { releaseStrip(); releaseStrip = registerStrip(false); } };
     });
-    return () => { releaseStore(); releaseStrip(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
+    return () => { releaseStore(); releaseStrip(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
   },
 };
 

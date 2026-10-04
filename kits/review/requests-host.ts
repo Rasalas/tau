@@ -187,15 +187,15 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
   };
 
   /** A rail row's request: any thread's checkout, named by its workspace. */
-  const rowRequest = async (named: string): Promise<ReviewRequest | undefined> => {
+  const rowRequest = async (named: string, fresh: boolean): Promise<ReviewRequest | undefined> => {
     const git = await workspace<ReviewRequestContext>("review-request-context", { workspace: named }).catch(() => undefined);
-    return git ? branchRequest(git, false) : undefined;
+    return git ? branchRequest(git, fresh) : undefined;
   };
 
   context.registerCommand("pr-status", async (input) => {
     const named = text(record(input).workspace);
     // A rail row asks about any thread's checkout and only wants the request.
-    if (named) return { request: await rowRequest(named) };
+    if (named) return { request: await rowRequest(named, record(input).fresh === true) };
     return status(record(input).fresh === true);
   }, { access: "read", callers: [THREAD_RAIL_EXTENSION_ID] }); // a merged or closed request settles a Thread Rail thread
 

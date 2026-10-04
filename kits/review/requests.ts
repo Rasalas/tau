@@ -1,10 +1,11 @@
 import type { HostExtensionClient, UiReviewRequestChecks } from "tau";
+import { RequestRefresh } from "./request-refresh.js";
 import { providerInfo, type MergeMethod, type MergeOutcome, type ReviewRequest, type ReviewRequestDraft, type ReviewRequestStatus } from "./protocol.js";
 
 /** Review Kit's own host commands for the request lifecycle, typed. */
 export interface RequestClient {
   status(fresh?: boolean): Promise<ReviewRequestStatus>;
-  request(workspace: string): Promise<ReviewRequest | undefined>;
+  request(workspace: string, fresh?: boolean): Promise<ReviewRequest | undefined>;
   draft(model?: { provider: string; id: string }, base?: string, writing?: { instructions?: string; template?: boolean }): Promise<ReviewRequestDraft>;
   /** `uploadConfirmed`: the user saw which pictures the body names go where. */
   create(input: { title: string; body: string; base: string; draft: boolean; uploadConfirmed?: boolean }): Promise<{ status: ReviewRequestStatus; url?: string; uploaded?: number; kept?: number }>;
@@ -17,7 +18,7 @@ export interface RequestClient {
 export function requestClient(host: HostExtensionClient): RequestClient {
   return {
     status: (fresh) => host.invoke("pr-status", fresh ? { fresh } : undefined) as Promise<ReviewRequestStatus>,
-    request: async (workspace) => ((await host.invoke("pr-status", { workspace })) as { request?: ReviewRequest }).request,
+    request: async (workspace, fresh) => ((await host.invoke("pr-status", { workspace, ...(fresh ? { fresh: true } : {}) })) as { request?: ReviewRequest }).request,
     draft: (model, base, writing) => host.invoke("pr-draft", {
       ...(model ? { provider: model.provider, modelId: model.id } : {}),
       ...(base ? { base } : {}),
@@ -64,8 +65,11 @@ export class RowRequests {
   private pending = new Set<string>();
   private reread = new Set<string>();
   private listeners = new Set<() => void>();
+  private readonly refresh = new RequestRefresh((workspace) => this.ensure(workspace, true));
 
-  constructor(private readonly load: (workspace: string) => Promise<ReviewRequest | undefined>, private readonly now: () => number = Date.now) {}
+  constructor(private readonly load: (workspace: string, fresh?: boolean) => Promise<ReviewRequest | undefined>, private readonly now: () => number = Date.now) {}
+  watch(workspace: string): () => void { return this.refresh.watch(workspace); }
+  dispose(): void { this.refresh.dispose(); this.reread.clear(); }
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -81,11 +85,14 @@ export class RowRequests {
     if (this.pending.has(workspace)) { if (fresh) this.reread.add(workspace); return; }
     if (!fresh && entry && this.now() - entry.at < ROW_TTL_MS) return;
     this.pending.add(workspace);
-    void this.load(workspace)
-      .catch(() => undefined)
+    void (fresh ? this.load(workspace, true) : this.load(workspace))
       .then((request) => {
-        this.pending.delete(workspace);
         this.set(workspace, request);
+      }, () => {
+        // A failed refresh does not erase a request we already know.
+        if (!this.entries.has(workspace)) this.set(workspace, undefined);
+      }).finally(() => {
+        this.pending.delete(workspace);
         if (this.reread.delete(workspace)) this.ensure(workspace, true);
       });
   }

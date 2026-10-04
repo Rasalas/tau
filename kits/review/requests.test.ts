@@ -5,6 +5,27 @@ import { checksLabel, RowRequests } from "./requests.js";
 const REQUEST: UiReviewRequest = { provider: "github", number: 3, title: "T", url: "https://example.com/3", baseRef: "main", state: "open" };
 
 describe("rail request cache", () => {
+  it("discards a queued refresh when the window's cache is disposed", async () => {
+    let finish!: (request: UiReviewRequest) => void;
+    const load = vi.fn(() => new Promise<UiReviewRequest>((resolve) => { finish = resolve; }));
+    const rows = new RowRequests(load);
+    rows.ensure("ws-a");
+    rows.ensure("ws-a", true);
+    rows.dispose();
+    finish(REQUEST);
+    await vi.waitFor(() => expect(rows.get("ws-a")).toEqual(REQUEST));
+    expect(load).toHaveBeenCalledOnce();
+  });
+  it("retains the known lifecycle state after a transient refresh failure", async () => {
+    const load = vi.fn().mockResolvedValueOnce({ ...REQUEST, state: "merged" }).mockRejectedValueOnce(new Error("offline"));
+    const rows = new RowRequests(load);
+    rows.ensure("ws-a");
+    await vi.waitFor(() => expect(rows.get("ws-a")?.state).toBe("merged"));
+    rows.ensure("ws-a", true);
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+    expect(rows.get("ws-a")?.state).toBe("merged");
+    expect(load).toHaveBeenLastCalledWith("ws-a", true);
+  });
   it("rereads a checkout whose branch changes during an outstanding request", async () => {
     let finish!: (request: UiReviewRequest) => void;
     const next = { ...REQUEST, number: 4, headRef: "new-branch" };

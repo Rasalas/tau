@@ -36,6 +36,11 @@ export const hostName = (service: PullRequestRef["service"]): string => provider
 
 export type ChecksRollup = "failing" | "pending" | "passing";
 
+/** Failure is a display priority, not evidence that every job has finished. */
+export function checksUnfinished(checks: readonly PullRequestCheck[]): boolean {
+  return checks.some((check) => check.status === "pending" || check.status === "action-required");
+}
+
 export function checksRollup(checks: readonly PullRequestCheck[]): ChecksRollup | undefined {
   if (checks.some((check) => check.status === "failed" || check.status === "cancelled")) return "failing";
   if (checks.some((check) => check.status === "pending" || check.status === "action-required")) return "pending";
