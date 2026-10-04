@@ -106,6 +106,19 @@ export async function releaseBody(github, { owner, repo, releaseId }) {
   return data.body ?? "";
 }
 
+/** GitHub's list of merged changes since the moving nightly tag. */
+export async function nightlyBody(github, { owner, repo, target }) {
+  const request = { owner, repo, tag_name: target, target_commitish: target };
+  try {
+    const { data } = await github.rest.repos.generateReleaseNotes({ ...request, previous_tag_name: "nightly" });
+    return data.body ?? "";
+  } catch (error) {
+    if (error.status !== 404 && error.status !== 422) throw error;
+    const { data } = await github.rest.repos.generateReleaseNotes(request);
+    return data.body ?? "";
+  }
+}
+
 /**
  * Deletes every release tagged `nightly`, a draft a failed run left too, and
  * the tag, so the next one points at its own commit and nothing stale stays.

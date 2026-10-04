@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HOST_FEEDS, STABLE_NAMES, publishDraft, releaseBody, releaseProblems, removeNightly, stableCopies } from "./publish-release.mjs";
+import { HOST_FEEDS, STABLE_NAMES, nightlyBody, publishDraft, releaseBody, releaseProblems, removeNightly, stableCopies } from "./publish-release.mjs";
 
 const SCRIPT = new URL("./publish-release.mjs", import.meta.url).pathname;
 const feed = (...urls) => `version: 0.7.15\nfiles:\n${urls.map((url) => `  - url: ${url}\n    sha512: x==\n    size: 1\n`).join("")}path: ${urls[0]}\n`;
@@ -32,11 +32,16 @@ const folders = [];
 afterEach(() => { for (const dir of folders.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
 /** Octokit as github-script hands it in, with the calls it saw. */
-function fakeGithub({ releases = [], assets = [], tagMissing = false } = {}) {
+function fakeGithub({ releases = [], assets = [], tagMissing = false, previousNightlyMissing = false } = {}) {
   const calls = [];
   const rest = {
     repos: {
       getRelease: vi.fn(async (args) => { calls.push(["getRelease", args]); return { data: { body: "## What's Changed\n* one" } }; }),
+      generateReleaseNotes: vi.fn(async (args) => {
+        calls.push(["generateReleaseNotes", args]);
+        if (previousNightlyMissing && args.previous_tag_name) throw Object.assign(new Error("Previous tag does not exist"), { status: 422 });
+        return { data: { body: "## What's Changed\n* useful change" } };
+      }),
       listReleases: vi.fn(),
       deleteRelease: vi.fn(async (args) => { calls.push(["deleteRelease", args]); }),
       listReleaseAssets: vi.fn(),
@@ -147,6 +152,17 @@ describe("publishing on GitHub", () => {
     const { github } = fakeGithub();
     expect(await releaseBody(github, { owner: "Rasalas", repo: "tau", releaseId: 7 })).toBe("## What's Changed\n* one");
     expect(github.rest.repos.getRelease).toHaveBeenCalledWith({ owner: "Rasalas", repo: "tau", release_id: 7 });
+  });
+
+  it("generates a nightly's changes before its moving tag is replaced", async () => {
+    const target = "8fda4c22aa35e706bfed357bc9b82dcec8460717";
+    const nightly = fakeGithub();
+    expect(await nightlyBody(nightly.github, { owner: "Rasalas", repo: "tau", target })).toBe("## What's Changed\n* useful change");
+    expect(nightly.github.rest.repos.generateReleaseNotes).toHaveBeenCalledWith({ owner: "Rasalas", repo: "tau", tag_name: target, target_commitish: target, previous_tag_name: "nightly" });
+
+    const first = fakeGithub({ previousNightlyMissing: true });
+    await expect(nightlyBody(first.github, { owner: "Rasalas", repo: "tau", target })).resolves.toContain("useful change");
+    expect(first.github.rest.repos.generateReleaseNotes).toHaveBeenLastCalledWith({ owner: "Rasalas", repo: "tau", tag_name: target, target_commitish: target });
   });
 
   it("publishes a draft only once every file is uploaded", async () => {

@@ -785,6 +785,16 @@ jobs:
         run: node scripts/packaging/release-signing.mjs check artifacts/latest*.yml
       - name: Require every file the feeds name, their blockmaps and the license
         run: node scripts/packaging/publish-release.mjs check artifacts
+      # Generate this while the old tag still names the previous nightly.
+      - name: List the changes since the previous nightly
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        env:
+          TARGET: ${{ github.sha }}
+        with:
+          script: |
+            const { nightlyBody } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/packaging/publish-release.mjs`);
+            const body = await nightlyBody(github, { ...context.repo, target: process.env.TARGET });
+            require("node:fs").writeFileSync("release-notes.md", body);
       - name: Remove the previous nightly
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
@@ -796,8 +806,7 @@ jobs:
           tag_name: nightly
           target_commitish: ${{ github.sha }}
           name: Nightly ${{ needs.gate.outputs.version }}
-          body: |
-            Built from ${{ github.sha }} on main. Nightly builds are untested; Settings → Defaults → Update track switches an installed Tau between Stable and Nightly.
+          body_path: release-notes.md
           prerelease: true
           make_latest: false
           files: artifacts/*
@@ -826,8 +835,7 @@ jobs:
           token: ${{ steps.token.outputs.token }}
           tag_name: nightly
           name: Nightly ${{ needs.gate.outputs.version }}
-          body: |
-            Built from ${{ github.sha }} on main. Nightly builds are untested; Settings → Defaults → Update track switches an installed Tau between Stable and Nightly.
+          body_path: release-notes.md
           prerelease: true
           draft: true
           files: artifacts/*
