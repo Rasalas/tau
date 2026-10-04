@@ -36,7 +36,7 @@ import { DefaultBranchPuller } from "./default-branch-pull.js";
 import { CloneJobs } from "./clone-jobs.js";
 import { decodeRepoFromTree, repoFromTree } from "./repo-writes.js";
 import { commitFilesToBranch, decodeBranchFiles, mergeBranch } from "./branch-commit.js";
-import { mergeThreadBranch, readThreadBranch, readThreadBranches, readThreadConflicts, removeThreadBranch } from "./thread-branches.js";
+import { mergeThreadBranch, readThreadBranch, readThreadBranches, readThreadConflicts, removeThreadBranch, threadWorkIntegrated } from "./thread-branches.js";
 import { decodePicks } from "./merge-picks.js";
 import { createCheckoutTurns } from "./checkout-turns.js";
 import { countThreadChanges } from "./thread-changes.js";
@@ -560,6 +560,12 @@ export function createWorkspaceHostExtension(): HostExtension {
         }
         return info;
       }, { access: "read" });
+      context.registerCommand("thread-work-integrated", async (input) => {
+        const path = await services.knownWorkspacePath(workspaceOf(input));
+        const info = await git.getWorkspaceInfo(path);
+        // Projectless and non-Git threads have no repository work to integrate.
+        return { integrated: !info.isRepo || (!info.isDirty && await threadWorkIntegrated(path)) };
+      }, { access: "read", long: true, callers: ["tau.thread-rail"] });
       context.registerCommand("worktree-statuses", async (input) => {
         const canonical = await services.knownWorkspacePath(workspaceOf(input));
         const sessions = await services.sessions.list();

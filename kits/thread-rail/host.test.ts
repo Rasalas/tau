@@ -40,6 +40,7 @@ interface Setup {
   sessions?: HostSessionSummary[];
   modified?: Record<string, number>;
   review?: (workspace: string) => unknown;
+  integrated?: (workspace: string) => unknown;
   /** Review Kit's answer about the requests threads link. */
   linked?: (threadIds: string[]) => unknown;
   now?: () => number;
@@ -88,6 +89,14 @@ async function harness(setup: Setup = {}) {
       },
     };
     await registry.activate(review);
+    await registry.activate({
+      id: "tau.workspace", name: "Workspace Kit",
+      activate(context) {
+        context.registerCommand("thread-work-integrated", (input) => setup.integrated
+          ? setup.integrated((input as { workspace: string }).workspace)
+          : { integrated: true }, { access: "read", callers: [THREAD_RAIL_EXTENSION_ID] });
+      },
+    });
   }
   const invoke = (command: string, input?: unknown) => registry.invoke(THREAD_RAIL_EXTENSION_ID, command, input) as Promise<RailState>;
   return { invoke, events, observers, lifecycles, start, stateDir, removed, restored, registry };
@@ -186,6 +195,28 @@ describe("Thread Rail host", () => {
     expect(state.threads.done).toMatchObject({ settledBy: "pr-merged", settledForRequest: "https://example.test/pr/1 https://example.test/pr/2" });
     expect(state.threads.waiting).toBeUndefined();
     expect(state.threads.plain).toBeUndefined();
+  });
+
+  it("does not settle on an old merged PR while the checkout has outstanding work", async () => {
+    let integrated = false;
+    const { invoke } = await harness({
+      sessions: [session("continued", "/worktrees/continued")],
+      review: () => ({ request: { url: "https://example.test/pr/40", state: "merged" } }),
+      linked: () => ({ continued: [{ url: "https://example.test/pr/40", state: "merged" }] }),
+      integrated: () => ({ integrated }),
+    });
+    expect((await invoke("sweep")).threads.continued?.settledAt).toBeUndefined();
+    integrated = true;
+    expect((await invoke("sweep")).threads.continued?.settledBy).toBe("pr-merged");
+  });
+
+  it("does not treat an unavailable integration check as proof that the work landed", async () => {
+    const { invoke } = await harness({
+      sessions: [session("continued", "/worktrees/continued")],
+      review: () => ({ request: { url: "https://example.test/pr/40", state: "merged" } }),
+      integrated: () => { throw new Error("Git unavailable"); },
+    });
+    expect((await invoke("sweep")).threads.continued?.settledAt).toBeUndefined();
   });
 
   it("wakes a snooze that ran out on the next sweep", async () => {

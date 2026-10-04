@@ -187,8 +187,8 @@ export async function isLinkedWorktree(path: string, runGit: AgentGitRunner = ru
   return Boolean(gitDir && commonDir && resolve(gitDir) !== resolve(commonDir));
 }
 
-/** One worktree's branch against its main checkout; undefined for a main checkout or a detached worktree. */
-export async function readThreadBranch(path: string, runGit: AgentGitRunner = runAgentGit, requestedTarget?: string): Promise<ThreadBranch | undefined> {
+/** One worktree's branch against its target; remoteTarget checks origin instead of the local integration branch. */
+export async function readThreadBranch(path: string, runGit: AgentGitRunner = runAgentGit, requestedTarget?: string, remoteTarget = false): Promise<ThreadBranch | undefined> {
   const entries = parseWorktreeList(await runGit(path, ["worktree", "list", "--porcelain"]));
   const main = entries[0];
   const top = await real((await runGit(path, ["rev-parse", "--show-toplevel"])).trim());
@@ -211,8 +211,9 @@ export async function readThreadBranch(path: string, runGit: AgentGitRunner = ru
   if (!target) return { ...base, ...empty, unavailable: "This review has no target branch." };
   if (target === branch) return { ...base, target, ...empty, unavailable: "The review target is its own branch." };
   const into = { target, ...(defaultBranch ? { defaultBranch } : {}) };
-  const head = (await runGit(root, ["rev-parse", "--verify", `refs/heads/${target}^{commit}`]).catch(() => "")).trim();
-  if (!head) return { ...base, ...into, ...empty, unavailable: `The review target ${target} is not available locally.` };
+  const targetRef = remoteTarget ? `refs/remotes/origin/${target}` : `refs/heads/${target}`;
+  const head = (await runGit(root, ["rev-parse", "--verify", `${targetRef}^{commit}`]).catch(() => "")).trim();
+  if (!head) return { ...base, ...into, ...empty, unavailable: `The review target ${remoteTarget ? `origin/${target}` : target} is not available locally.` };
   const mergeBlocked = main.branch !== target
     ? `Check out ${target} in the project's main folder before merging. It currently has ${main.branch ?? "a detached HEAD"}.` : undefined;
   const destination = { ...into, ...(mergeBlocked ? { mergeBlocked } : {}) };
@@ -242,6 +243,24 @@ export async function readThreadBranch(path: string, runGit: AgentGitRunner = ru
     conflicts: mergedBy ? [] : preview.conflicts,
     ...(mergedBy ? { mergedBy } : {}),
   };
+}
+
+/** Auto-settling needs clean files and proof the published target holds all committed work. */
+export async function threadWorkIntegrated(path: string, runGit: AgentGitRunner = runAgentGit): Promise<boolean> {
+  const branch = await readThreadBranch(path, runGit, undefined, true);
+  if (branch) return branch.merged && branch.uncommitted === 0 && !branch.unavailable;
+  // Linked requests also belong to threads in an ordinary shared checkout.
+  if ((await runGit(path, ["status", "--porcelain", "--untracked-files=normal"])).trim()) return false;
+  const current = (await runGit(path, ["symbolic-ref", "--short", "HEAD"])).trim();
+  const saved = (await runGit(path, ["config", "--get", branchReviewTargetConfigKey(current)]).catch(() => "")).trim();
+  const target = saved || await readDefaultBranch(path, (cwd, args) => runGit(cwd, args));
+  const head = (await runGit(path, ["rev-parse", "--verify", `refs/remotes/origin/${target}^{commit}`]).catch(() => "")).trim();
+  if (!head) return false;
+  const tip = (await runGit(path, ["rev-parse", "HEAD"])).trim();
+  if (tip === head || await patchesIn(path, head, tip, runGit)) return true;
+  const forkPoint = (await runGit(path, ["merge-base", head, tip])).trim();
+  const preview = await previewBranchMerge(path, tip, runGit, head);
+  return preview.merged || Boolean(await alreadyIn(path, head, tip, forkPoint, preview, runGit));
 }
 
 /**

@@ -197,7 +197,27 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
                 // An older Review Kit, or none: the branch's request is all there is to go by.
               }
             }
+            // A past PR is not proof that follow-up work in the checkout landed.
+            // Unknown Git state keeps the thread active; the idle rule is independent.
             const patches = sweepPatches(threads, local, running, requests, clock(), linked);
+            const integration = new Map<string, Promise<boolean>>();
+            const keepActive = (id: string) => {
+              const until = local.threads[id]?.snoozedUntil;
+              if (until !== undefined && until <= clock()) patches[id] = { snoozedUntil: null };
+              else delete patches[id];
+            };
+            await Promise.all(Object.entries(patches).map(async ([id, patch]) => {
+              if (patch.settledBy !== "pr-merged") return;
+              const cwd = threads.find((thread) => thread.id === id)?.cwd;
+              if (!cwd) { keepActive(id); return; }
+              let checked = integration.get(cwd);
+              if (!checked) {
+                checked = context.invokeHostExtension("tau.workspace", "thread-work-integrated", { workspace: cwd })
+                  .then((answer) => record(answer).integrated === true, () => false);
+                integration.set(cwd, checked);
+              }
+              if (!await checked) keepActive(id);
+            }));
             for (const [id, patch] of Object.entries(patches)) {
               if (patch.settledBy) services.log("thread-rail.settled", `${id.slice(0, 8)} · ${patch.settledBy}`);
             }
