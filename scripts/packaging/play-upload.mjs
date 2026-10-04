@@ -3,10 +3,10 @@
 // Developer API, with a service account's JSON key from the environment.
 // Plain REST and node:crypto, so the release job needs no npm install.
 //
-//   PLAY_SERVICE_ACCOUNT_JSON='{…}' node scripts/packaging/play-upload.mjs <app.aab> --version <1.2.3> [--track internal] [--package de.tbuck.tau]
+//   PLAY_SERVICE_ACCOUNT_JSON='{…}' node scripts/packaging/play-upload.mjs <app.aab> --version <1.2.3> [--run <n>] [--track internal] [--package de.tbuck.tau]
 import { createSign } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { androidVersionCode } from "./mobile-version.mjs";
+import { androidBuildNumber, androidVersionCode } from "./mobile-version.mjs";
 import { isMain, main } from "./release.mjs";
 
 export const PACKAGE_NAME = "de.tbuck.tau";
@@ -46,8 +46,8 @@ export async function accessToken(account, { fetchUrl = fetch, now } = {}) {
  * holds as a draft takes only draft releases; those are then made instead.
  * Returns what happened, for the job's summary.
  */
-export async function uploadBundle({ account, bundle, version, track = "internal", packageName = PACKAGE_NAME, fetchUrl = fetch, log = console.log, now }) {
-  const versionCode = androidVersionCode(version);
+export async function uploadBundle({ account, bundle, version, run, track = "internal", packageName = PACKAGE_NAME, fetchUrl = fetch, log = console.log, now }) {
+  const versionCode = run === undefined ? androidVersionCode(version) : androidBuildNumber(run);
   const token = await accessToken(account, { fetchUrl, now });
   const auth = { authorization: `Bearer ${token}` };
   const app = `${API}/${encodeURIComponent(packageName)}`;
@@ -89,12 +89,13 @@ export function parseArgs(argv) {
       return next;
     };
     if (arg === "--version") options.version = value();
+    else if (arg === "--run") options.run = Number(value());
     else if (arg === "--track") options.track = value();
     else if (arg === "--package") options.packageName = value();
     else if (!arg.startsWith("--") && !options.bundle) options.bundle = arg;
     else throw new Error(`unknown argument ${JSON.stringify(arg)}`);
   }
-  if (!options.bundle || !options.version) throw new Error("usage: play-upload.mjs <app.aab> --version <1.2.3> [--track internal] [--package de.tbuck.tau]");
+  if (!options.bundle || !options.version) throw new Error("usage: play-upload.mjs <app.aab> --version <1.2.3> [--run <n>] [--track internal] [--package de.tbuck.tau]");
   return options;
 }
 

@@ -27,6 +27,17 @@ describe("the phone apps' build numbers", () => {
     expect(() => androidVersionCode("next")).toThrow(/not a version/u);
   });
 
+  it("allocates a new Android number to every CI run, across stable and nightly versions", () => {
+    const run = (...args) => spawnSync(process.execPath, [SCRIPT, ...args], { encoding: "utf8" });
+    expect(run("android-build", "--run", "37").stdout.trim()).toBe("1000000037");
+    expect(run("android-build", "--run", "38").stdout.trim()).toBe("1000000038");
+    for (const value of ["0", "-1", "NaN", "1100000001"]) {
+      expect(run("android-build", "--run", value).status).toBe(1);
+    }
+    expect(GRADLE).toContain("tauAndroidVersionCode");
+    expect(GRADLE).toContain("2100000000");
+  });
+
   it("uses the formula the Gradle build does", () => {
     expect(GRADLE).toContain("it[0] * 10000 + it[1] * 100 + it[2]");
   });

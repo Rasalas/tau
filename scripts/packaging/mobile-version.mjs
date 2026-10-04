@@ -4,7 +4,8 @@
 // the last one it took.
 //
 //   node scripts/packaging/mobile-version.mjs ios-build --run <n>     → CFBundleVersion
-//   node scripts/packaging/mobile-version.mjs android-code [--version 1.2.3] → versionCode
+//   node scripts/packaging/mobile-version.mjs android-build --run <n> → CI versionCode
+//   node scripts/packaging/mobile-version.mjs android-code [--version 1.2.3] → legacy local versionCode
 import { isMain, main, packageVersion } from "./release.mjs";
 
 /** TestFlight builds 1 to 9 were numbered by hand; the release workflow's start above them. */
@@ -14,6 +15,12 @@ export const IOS_BUILD_BASE = 100;
 export function iosBuildNumber(run) {
   if (!Number.isInteger(run) || run < 1) throw new Error(`The run number must be a positive integer, not ${run}.`);
   return IOS_BUILD_BASE + run;
+}
+
+/** CI uses a separate range above the legacy version-derived codes for both channels. */
+export function androidBuildNumber(run) {
+  if (!Number.isSafeInteger(run) || run < 1 || run > 1_100_000_000) throw new Error(`The Android run number must be 1–1100000000, not ${run}.`);
+  return 1_000_000_000 + run;
 }
 
 /**
@@ -34,7 +41,8 @@ if (isMain(import.meta.url)) {
   main(() => {
     const [command, flag, value] = process.argv.slice(2);
     if (command === "ios-build" && flag === "--run") console.log(iosBuildNumber(Number(value)));
+    else if (command === "android-build" && flag === "--run") console.log(androidBuildNumber(Number(value)));
     else if (command === "android-code" && (flag === undefined || flag === "--version")) console.log(androidVersionCode(value ?? packageVersion()));
-    else throw new Error("usage: mobile-version.mjs ios-build --run <n> | android-code [--version <1.2.3>]");
+    else throw new Error("usage: mobile-version.mjs ios-build --run <n> | android-build --run <n> | android-code [--version <1.2.3>]");
   });
 }

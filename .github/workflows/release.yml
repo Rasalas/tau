@@ -137,9 +137,9 @@ jobs:
             echo "::error::The secrets TAU_RELEASES_APP_ID and TAU_RELEASES_APP_KEY are not both set; installed Tau reads releases from Rasalas/tau-releases only."
             exit 1
           fi
-      # Every stable release carries a signed APK, and TestFlight takes only a signed build.
-      - name: Require the phone apps' signing keys for a stable release
-        if: needs.gate.outputs.nightly != 'true' && (startsWith(github.ref, 'refs/tags/v') || inputs.publish)
+      # Releases and nightlies upload signed phone apps to the test channels.
+      - name: Require the phone apps' signing keys for publishing
+        if: needs.gate.outputs.nightly == 'true' || startsWith(github.ref, 'refs/tags/v') || inputs.publish
         env:
           HAS_ANDROID: ${{ secrets.ANDROID_UPLOAD_KEYSTORE != '' && secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD != '' && secrets.ANDROID_UPLOAD_KEY_ALIAS != '' && secrets.ANDROID_GOOGLE_SERVICES_JSON != '' }}
           HAS_APPLE: ${{ secrets.APPLE_API_KEY_P8 != '' && secrets.APPLE_API_KEY_ID != '' && secrets.APPLE_API_ISSUER != '' }}
@@ -150,6 +150,16 @@ jobs:
           fi
           if [ "$HAS_APPLE" != true ]; then
             echo "::error::APPLE_API_KEY_P8, APPLE_API_KEY_ID and APPLE_API_ISSUER are not all set; the iOS build cannot be signed or uploaded."
+            exit 1
+          fi
+
+      - name: Require Play upload credentials for a nightly
+        if: needs.gate.outputs.nightly == 'true'
+        env:
+          HAS_PLAY: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON != '' }}
+        run: |
+          if [ "$HAS_PLAY" != true ]; then
+            echo "::error::PLAY_SERVICE_ACCOUNT_JSON is required for nightlies to reach internal testing."
             exit 1
           fi
 
@@ -365,11 +375,11 @@ jobs:
           path: diagnostics
           retention-days: 7
 
-  # The Android app for a stable release: a signed App Bundle for Play (the play job) and an APK the
-  # release carries for sideloading. versionCode comes from the version (build.gradle).
+  # The Android app for releases and nightlies: a signed App Bundle for Play and an APK the
+  # release carries for sideloading. Both channels number Android builds from this workflow run.
   android:
     needs: [gate, preflight]
-    if: needs.gate.outputs.build == 'true' && needs.gate.outputs.nightly != 'true'
+    if: needs.gate.outputs.build == 'true'
     runs-on: ubuntu-24.04
     environment: ${{ needs.gate.outputs.environment }}
     timeout-minutes: 30
@@ -406,7 +416,7 @@ jobs:
       - name: Write the Firebase project
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
-          PUBLISHING: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.publish == true }}
+          PUBLISHING: ${{ needs.gate.outputs.nightly == 'true' || startsWith(github.ref, 'refs/tags/v') || inputs.publish == true }}
         run: |
           if [ -z "${GOOGLE_SERVICES_JSON:-}" ]; then
             echo "::warning::ANDROID_GOOGLE_SERVICES_JSON is not set; this Android build cannot take pushes."
@@ -429,6 +439,7 @@ jobs:
           UPLOAD_KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE }}
           TAU_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
           TAU_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
           export JAVA_HOME="$JAVA_HOME_21_X64"
           if [ -n "${UPLOAD_KEYSTORE:-}" ]; then
@@ -440,11 +451,14 @@ jobs:
           fi
           unset UPLOAD_KEYSTORE
           status=0
-          ./gradlew --no-daemon bundleRelease assembleRelease || status=$?
+          code="$(node ../../scripts/packaging/mobile-version.mjs android-build --run "$RUN_NUMBER")"
+          ./gradlew --no-daemon -PtauAndroidVersionCode="$code" bundleRelease assembleRelease || status=$?
           rm -f "$RUNNER_TEMP/upload.p12"
           exit "$status"
       - name: Name and check the files
         shell: bash
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
           version="$(node -p 'require("./package.json").version')"
           out=mobile/android/app/build/outputs
@@ -462,7 +476,7 @@ jobs:
           badging="$("$aapt2" dump badging android/Tau-"$version"*.apk)"
           badging="${badging%%$'\n'*}"
           echo "$badging"
-          grep -q "name='de.tbuck.tau' versionCode='$(node scripts/packaging/mobile-version.mjs android-code)' versionName='$version'" <<< "$badging"
+          grep -q "name='de.tbuck.tau' versionCode='$(node scripts/packaging/mobile-version.mjs android-build --run "$RUN_NUMBER")' versionName='$version'" <<< "$badging"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: tau-android
@@ -482,7 +496,7 @@ jobs:
   # whatever becomes of the desktop release. A dry run archives without uploading.
   ios:
     needs: [gate, preflight, verify]
-    if: ${{ !cancelled() && needs.gate.outputs.build == 'true' && needs.gate.outputs.nightly != 'true' && needs.preflight.result == 'success' && (needs.verify.result == 'success' || needs.verify.result == 'skipped') }}
+    if: ${{ !cancelled() && needs.gate.outputs.build == 'true' && needs.preflight.result == 'success' && (needs.verify.result == 'success' || needs.verify.result == 'skipped') }}
     runs-on: macos-26
     environment: ${{ needs.gate.outputs.environment }}
     timeout-minutes: 45
@@ -551,7 +565,7 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           RUN_NUMBER: ${{ github.run_number }}
-          UPLOAD: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.publish == true }}
+          UPLOAD: ${{ needs.gate.outputs.nightly == 'true' || startsWith(github.ref, 'refs/tags/v') || inputs.publish == true }}
         run: |
           version="$(node -p 'require("./package.json").version')"
           build="$(node scripts/packaging/mobile-version.mjs ios-build --run "$RUN_NUMBER")"
@@ -744,8 +758,8 @@ jobs:
   # reads Rasalas/tau's tag; an installed Tau on the nightly channel reads
   # tau-releases' latest*.yml.
   nightly:
-    needs: [gate, sign]
-    if: ${{ !cancelled() && needs.sign.result == 'success' && needs.gate.outputs.nightly == 'true' }}
+    needs: [gate, sign, ios, play]
+    if: ${{ !cancelled() && needs.sign.result == 'success' && needs.ios.result == 'success' && needs.play.result == 'success' && needs.gate.outputs.nightly == 'true' }}
     runs-on: ubuntu-24.04
     environment: release
     timeout-minutes: 20
@@ -829,11 +843,11 @@ jobs:
             const url = await publishDraft(github, { ...PUBLIC_REPO, releaseId: Number(process.env.RELEASE_ID), names: releaseFiles("artifacts"), latest: false });
             core.notice(`Published ${url}`);
 
-  # The App Bundle of a published release to Play's internal testing track, once the
-  # secret PLAY_SERVICE_ACCOUNT_JSON exists (docs/RELEASE.md, "Phone apps").
+  # Nightlies go directly to internal testing after verification; stable builds
+  # retain the published-release prerequisite. Neither path targets production.
   play:
-    needs: [gate, release]
-    if: ${{ !cancelled() && needs.release.result == 'success' }}
+    needs: [gate, android, verify, release]
+    if: ${{ !cancelled() && needs.android.result == 'success' && (needs.verify.result == 'success' || needs.verify.result == 'skipped') && (needs.gate.outputs.nightly == 'true' || needs.release.result == 'success') }}
     runs-on: ubuntu-24.04
     environment: release
     timeout-minutes: 15
@@ -851,10 +865,11 @@ jobs:
       - name: Upload to Google Play (internal testing)
         env:
           PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
           if [ -z "${PLAY_SERVICE_ACCOUNT_JSON:-}" ]; then
             echo "::notice::PLAY_SERVICE_ACCOUNT_JSON is not set; the App Bundle was not uploaded to Play. It stays in the run's play-bundle artifact for a day."
             exit 0
           fi
           version="$(node -p 'require("./package.json").version')"
-          node scripts/packaging/play-upload.mjs "play/Tau-$version.aab" --version "$version" --track internal
+          node scripts/packaging/play-upload.mjs "play/Tau-$version.aab" --version "$version" --run "$RUN_NUMBER" --track internal

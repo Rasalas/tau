@@ -89,21 +89,34 @@ describe("the release workflow", () => {
     expect(JOBS.android).toContain("name: tau-android");
     expect(JOBS.android).toContain("path: android/*.apk");
     expect(JOBS.android).toContain("name: play-bundle");
-    expect(condition("android")).toContain("needs.gate.outputs.nightly != 'true'");
-    expect(needs("play")).toEqual(["gate", "release"]);
+    expect(condition("android")).toBe("needs.gate.outputs.build == 'true'");
+    expect(needs("play")).toEqual(["gate", "android", "verify", "release"]);
+    expect(condition("play")).toContain("needs.android.result == 'success'");
+    expect(condition("play")).toContain("needs.gate.outputs.nightly == 'true' || needs.release.result == 'success'");
+    expect(condition("play")).toContain("needs.verify.result == 'success' || needs.verify.result == 'skipped'");
+    expect(JOBS.android).toContain('mobile-version.mjs android-build --run "$RUN_NUMBER"');
+    expect(JOBS.play).toContain('--run "$RUN_NUMBER"');
     expect(JOBS.play).toContain("--track internal");
     // No secret, no upload, no failure.
     expect(JOBS.play).toMatch(/if \[ -z "\$\{PLAY_SERVICE_ACCOUNT_JSON:-\}" \]; then\n\s+echo "::notice::[^\n]*"\n\s+exit 0/u);
   });
 
-  it("uploads to TestFlight only for a release, numbered from the run", () => {
-    expect(JOBS.ios).toContain("UPLOAD: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.publish == true }}");
+  it("uploads releases and nightlies to TestFlight, numbered from the run", () => {
+    expect(JOBS.ios).toContain("UPLOAD: ${{ needs.gate.outputs.nightly == 'true' || startsWith(github.ref, 'refs/tags/v') || inputs.publish == true }}");
     expect(JOBS.ios).toContain('mobile-version.mjs ios-build --run "$RUN_NUMBER"');
     expect(JOBS.ios).toMatch(/if \[ "\$UPLOAD" != true \]; then[\s\S]*?exit 0\n\s+fi[\s\S]*-exportArchive/u);
     expect(JOBS.ios).toContain("<key>method</key><string>app-store-connect</string>");
     expect(JOBS.ios).toContain("<key>destination</key><string>upload</string>");
     expect(JOBS.ios).toContain("<key>teamID</key><string>V4MWQ28RZ2</string>");
-    expect(condition("ios")).toContain("needs.gate.outputs.nightly != 'true'");
+    expect(condition("ios")).not.toContain("needs.gate.outputs.nightly != 'true'");
+  });
+
+  it("does not advance the nightly checkpoint before both mobile uploads succeed", () => {
+    expect(needs("nightly")).toEqual(["gate", "sign", "ios", "play"]);
+    expect(condition("nightly")).toContain("needs.ios.result == 'success'");
+    expect(condition("nightly")).toContain("needs.play.result == 'success'");
+    expect(JOBS.preflight).toContain("secrets.PLAY_SERVICE_ACCOUNT_JSON != ''");
+    expect(JOBS.preflight).not.toContain("needs.gate.outputs.nightly != 'true'");
   });
 
   it("selects separate validated manual profiles for the app and widget", () => {

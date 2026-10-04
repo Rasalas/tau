@@ -574,8 +574,9 @@ decides whether anything runs:
 - only once the repository variable `NIGHTLY` is `true`;
 - only when `main` moved since the commit the tag `nightly` points at.
 
-A run that passes builds the same desktop apps as a release, without the phone apps, with
-`package.json`'s version replaced by
+A run that passes builds the desktop apps and signed phone apps. The phones go to
+TestFlight and Google Play's `internal` testing track, never the public stores.
+The desktop jobs replace `package.json`'s version with
 `<next patch>-nightly.<UTC date>.<run number>` (for 0.4.0:
 `0.4.1-nightly.20260922.42`, from `scripts/packaging/nightly-version.mjs`). The
 `nightly` job then deletes the previous release tagged `nightly` (only if it is
@@ -585,7 +586,8 @@ the same tag, never marked latest. It does so in `Rasalas/tau`, whose tag the
 apps read; there the new nightly is a draft until every file is uploaded, and
 its tag sits on the default branch, since the built commit is not in that
 repository (the release text names it). The stable `release` job never runs
-for a nightly.
+for a nightly. The moving tag is published only after both mobile upload jobs
+succeed, so a failed upload does not suppress the next scheduled attempt.
 
 Switch the schedule on (repository admin, once):
 
@@ -603,8 +605,11 @@ gh workflow run release.yml --ref main -f nightly=true
 
 Before switching it on, know what it costs and needs:
 
-- Each nightly builds on four GitHub-hosted runners, which cost nothing on a
-  public repository. Days without commits cost one short gate job.
+- Each nightly builds the desktop/portable hosts plus Android and iOS on
+  GitHub-hosted runners. Days without commits cost one short gate job.
+- Mobile signing, Firebase and App Store Connect credentials are required;
+  `PLAY_SERVICE_ACCOUNT_JSON` is also required for a nightly. Missing credentials
+  fail preflight rather than silently omitting an update.
 - It needs the publishing app's secrets like a release
   ([Where releases are published](#where-releases-are-published)).
 - A nightly is signed like a release and fails without
@@ -615,8 +620,10 @@ Before switching it on, know what it costs and needs:
 
 ## Phone apps
 
-A stable release also builds the app in `mobile/` for both phones. A nightly
-does not.
+Stable releases and nightlies build the app in `mobile/` for both phones.
+Nightlies upload only to TestFlight and Play's internal testing track. Ordinary
+non-publishing dispatches archive/build without uploading. TestFlight still
+needs Apple's processing and configured tester access before a build appears.
 
 | | Android | iOS |
 |---|---|---|
@@ -625,7 +632,7 @@ does not.
 | signed with | the upload key (`ANDROID_UPLOAD_KEYSTORE`) | automatic signing through the App Store Connect key |
 | goes to | the release (APK) and Play's internal testing (App Bundle, `play` job) | TestFlight |
 | version | `package.json`'s | `package.json`'s |
-| build number | `versionCode` = (major·10000 + minor·100 + patch)·100 + revision (0.7.16 → 71600; the revision numbers Android-only rebuilds) | 100 + the run number of `release.yml` |
+| build number | `versionCode` = 1,000,000,000 + the run number of `release.yml`, for stable and nightly alike | 100 + the run number of `release.yml` |
 
 Both build the web layer as a release (`vite build` without the development
 mode) and fail when it holds the automation bridge the simulator scripts use.
@@ -651,17 +658,22 @@ that it says `de.tbuck.tau` with the expected versionCode and versionName.
   user allowed notifications (`firebase_messaging_auto_init_enabled` is off in
   the manifest). The push relay in the same project is not part of a release:
   `push-relay.yml` deploys it on its own ([push.md](push.md)).
-- **versionCode** is computed from the version by `build.gradle` (and
-  `scripts/packaging/mobile-version.mjs android-code`, which the job compares
-  with the APK): major·10000 + minor·100 + patch. It rises with every release as
-  long as minor and patch stay below 100. Play takes each versionCode once, so
-  a version reaches Play once; a re-run finds it there and skips the upload.
+- **versionCode.** CI passes `-PtauAndroidVersionCode` from
+  `mobile-version.mjs android-build --run <n>` and checks the APK against that
+  same number. Both channels use 1,000,000,000 + the release workflow run number,
+  above the previous version-derived codes. Successive builds of unchanged
+  `package.json` and stable builds after a nightly therefore remain upgradable.
+  Play accepts a code once; a rerun of the same workflow run skips an existing
+  bundle. A new dispatch gets a new code. Numbers above Play's 2,100,000,000
+  limit are rejected. Local builds retain the old version/revision default;
+  they cannot update CI-numbered installs. Use the release workflow for Play.
 - **The APK** goes into the release as `Tau-<version>.apk` and, in
   `tau-releases`, also as `Tau-android.apk`, for sideloading
   (`releases/latest/download/Tau-android.apk`). No feed names it; a sideloaded
   app does not update itself.
-- **Play.** `play` runs after `release` has published and uploads the App
-  Bundle to the `internal` track with `scripts/packaging/play-upload.mjs`,
+- **Play.** For stable releases, `play` waits for `release` to publish. For
+  nightlies, it waits for the Android build and verification, without needing
+  a stable release. It uploads the App Bundle to the `internal` track with `scripts/packaging/play-upload.mjs`,
   which talks to the Google Play Developer API directly: a service account's
   JSON key in `PLAY_SERVICE_ACCOUNT_JSON`, a token for the
   `androidpublisher` scope, then one edit that uploads the bundle, sets it on
@@ -674,8 +686,9 @@ that it says `de.tbuck.tau` with the expected versionCode and versionName.
   a developer account, the app `de.tbuck.tau`, the service account invited
   with release rights for the testing tracks.
 
-A signed build on this Mac, for a first upload by hand (the password is read,
-not typed on the command line):
+A signed build on this Mac, for initial bootstrapping before CI-numbered
+uploads (the password is read, not typed on the command line). After CI uploads,
+use the workflow rather than these legacy local version codes:
 
 ```bash
 cd mobile && npx vite build && npx cap sync android && cd android
