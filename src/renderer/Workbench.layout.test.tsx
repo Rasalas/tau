@@ -82,6 +82,13 @@ describe("workbench layout", () => {
     expect(screen.queryByRole("separator", { name: "Resize chat" })).toBeNull();
     expect((await screen.findByRole("button", { name: "Files" })).closest(".workspace-area-tools")).toBeTruthy();
     expect(view.container.querySelector(".thread-header .stage-tools")).toBeNull();
+    const projectActions = screen.getByRole("button", { name: "Project actions" });
+    expect(projectActions.closest(".thread-header")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Collapse stage" }));
+    await waitFor(() => expect(view.container.querySelector(".workspace-area")).toBeNull());
+    expect(screen.getByRole("button", { name: "Project actions" })).toBe(projectActions);
+    fireEvent.click(screen.getByRole("button", { name: "Expand stage" }));
+    await screen.findByText("Project context");
     act(() => setWindowWidth(850));
     await waitFor(() => expect(screen.queryByText("Project context")).toBeNull());
     expect(view.container.querySelector(".workspace-summary-narrow")).toBeNull();
@@ -142,7 +149,7 @@ describe("workbench layout", () => {
   /** Open the first available tool from the header. */
   async function showStage(): Promise<HTMLElement> {
     const toolbar = await screen.findByRole("toolbar", { name: "Tools" });
-    const button = (await within(toolbar).findAllByRole("button"))[0]!;
+    const button = (await within(toolbar).findAllByRole("button")).find((candidate) => candidate.getAttribute("aria-label") !== "Expand stage")!;
     fireEvent.click(button);
     if (button.getAttribute("aria-label") === "More tools") {
       fireEvent.click((await screen.findAllByRole("menuitem"))[0]!);
@@ -150,10 +157,10 @@ describe("workbench layout", () => {
     return screen.findByRole("region", { name: "Stage" });
   }
 
-  it("draws the tools in the thread header without a stage toggle or a panel rail", async () => {
+  it("draws the tools and stage toggle in the thread header without a panel rail", async () => {
     const view = renderApp(undefined, { extensions: [rail, panels] });
     await screen.findByRole("button", { name: "More tools" });
-    expect(screen.queryByRole("button", { name: "Show stage" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Expand stage" }).hasAttribute("disabled")).toBe(true);
     expect(view.container.querySelector(".title-bar")).toBeNull();
     expect(view.container.querySelector(".panel-rail, .instrument-dock")).toBeNull();
     expect(view.container.querySelector(".conversation-column > .thread-header")).not.toBeNull();
@@ -190,7 +197,7 @@ describe("workbench layout", () => {
     fireEvent.click(await within(toolbar).findByRole("button", { name: "Other" }));
     const stage = await screen.findByRole("region", { name: "Stage" });
     expect(await within(stage).findByText("other body")).toBeTruthy();
-    expect(screen.queryByRole("toolbar", { name: "Tools" })).toBeNull();
+    expect(within(screen.getByRole("toolbar", { name: "Tools" })).queryByRole("button", { name: "Other" })).toBeNull();
     expect(within(stage).getByRole("button", { name: "Other" }).getAttribute("aria-pressed")).toBe("true");
   });
 
@@ -339,6 +346,26 @@ describe("workbench layout", () => {
       await runPaletteCommand(label);
       return screen.findByRole("region", { name: "Stage" });
     }
+
+    it("collapses the stage from the chat header and restores its tabs and width", async () => {
+      setWindowWidth(1440);
+      const view = renderApp(undefined, { extensions: [rail, files] });
+      await openFile();
+      fireEvent.keyDown(screen.getByRole("separator", { name: "Resize chat" }), { key: "ArrowRight" });
+      const center = view.container.querySelector(".workbench-center") as HTMLElement;
+      const width = center.style.getPropertyValue("--chat-width");
+      const collapse = screen.getByRole("button", { name: "Collapse stage" });
+      expect(collapse.closest(".thread-header")).toBeTruthy();
+      expect(collapse.getAttribute("aria-expanded")).toBe("true");
+      fireEvent.click(collapse);
+      await waitFor(() => expect(view.container.querySelector(".workspace-area")).toBeNull());
+      const expand = screen.getByRole("button", { name: "Expand stage" });
+      expect(expand.getAttribute("aria-expanded")).toBe("false");
+      fireEvent.click(expand);
+      const stage = await screen.findByRole("region", { name: "Stage" });
+      expect(within(stage).getByRole("tab", { name: /notes\.txt/ }).getAttribute("aria-selected")).toBe("true");
+      expect(center.style.getPropertyValue("--chat-width")).toBe(width);
+    });
 
     it("hides the stage from the dock toggle and brings it back as it was", async () => {
       setWindowWidth(1440);

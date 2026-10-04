@@ -1,7 +1,7 @@
 import "./workspace-area.css";
 import { lazy, memo, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ListTree, MessageSquare } from "lucide-react";
+import { ChevronDown, ListTree, MessageSquare, PanelRightClose, PanelRightOpen } from "lucide-react";
 import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiProject, UiToolOutputPreview, UiToolRun, UiThreadTree } from "../shared/contracts";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { TranscriptPage } from "../shared/host-protocol";
@@ -469,7 +469,13 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const floating = conversationFolded && stageExpanded && !compact && !showStartScreen;
   const workspaceContextAvailable = Boolean(showStartScreen ? startProjectPath : workspaceCwd);
   const workspaceSummaryAvailable = workspaceContextAvailable && registry.getRegions("workspace-summary").length > 0;
-  const workspaceAreaShown = workspaceSummaryAvailable && !phone && (canSplit || stageExpanded);
+  const workspaceAreaShown = workspaceSummaryAvailable && !phone && !stageFolded && (canSplit || stageExpanded);
+  const rightAreaShown = workspaceAreaShown || stageExpanded;
+  const stageToggleLabel = rightAreaShown ? "Collapse stage" : "Expand stage";
+  const toggleStage = () => {
+    setStageFolded(rightAreaShown);
+    if (!rightAreaShown) setChatFocused(false);
+  };
   const sideOpen = stageShown && !stacked;
   const centerWidth = windowWidth - drawnSidebar;
   const chatWidth = shownChatWidth(chatWidthPreference, centerWidth);
@@ -502,7 +508,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     openPanel(id);
   };
   const stageTools = <>
-    <Region registry={registry} placement="stage-bar" snapshot={snapshot} actions={actions} />
     <Suspense fallback={null}><LazyStageTools panels={panels} shown={shownTools} opened={split ? openedTools : undefined} onOpen={openTool} /></Suspense>
   </>;
 
@@ -725,7 +730,21 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     details={!showStartScreen && !split ? <ThreadDetails snapshot={conversationSnapshot} view={view} slots={detailSlots} />
       : split ? <StartDetails snapshot={conversationSnapshot} /> : <StartDetails snapshot={conversationSnapshot} slots={detailSlots} />}
     actions={conversationFolded ? null : <PanelSlot host={titleActionsHost} />}
-    tools={stageExpanded || workspaceAreaShown ? undefined : stageTools}
+    tools={<>
+      <Region registry={registry} placement="stage-bar" snapshot={snapshot} actions={actions} />
+      <button
+        type="button"
+        className="stage-tool"
+        aria-label={stageToggleLabel}
+        aria-expanded={rightAreaShown}
+        disabled={!workspaceSummaryAvailable && stage.tabs.length === 0}
+        {...tooltipProps(stageToggleLabel, { side: "bottom" })}
+        onClick={toggleStage}
+      >
+        {rightAreaShown ? <PanelRightClose size={16} aria-hidden /> : <PanelRightOpen size={16} aria-hidden />}
+      </button>
+      {rightAreaShown ? null : stageTools}
+    </>}
   />;
   return providers(<>
     {/* Settings covers the shell rather than unmounting it, so threads, terminals and scroll stay as they were. */}

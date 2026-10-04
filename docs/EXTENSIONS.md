@@ -377,14 +377,14 @@ with the other placement. `width` is ignored since 1.27.0.
 
 Where a panel is reached from: the right end of the stage's tab strip holds a
 button for each panel with `stageButton: true` (API 1.27.0; Files and Terminal
-in Tau), what kits place in the `stage-bar` region (Workspace Kit's "Open in"),
-then a separator and the maximize. While the stage is hidden the same tools
-sit in the thread header, before its stage toggle (design 1k). Every other
+in Tau), then a separator and the maximize. The `stage-bar` region sits in
+the chat header beside the stage collapse button. While the stage is hidden
+its panel tools also sit in the thread header. Every other
 panel is under "More tools", by label and icon, and every panel stays reachable from
 `actions.openPanel(id)`, a command in the palette and its keybinding. The
 button of a drawer panel opens and closes the drawer. The thread header's stage
-toggle opens an empty stage on the tool last picked in the project, else the
-first with a button. `useBadge` (API 1.27.0) is a hook for a count beside the
+toggle hides or restores the entire right area, including workspace context
+and live frames, without closing its tabs. It is disabled if there is nothing to restore. `useBadge` (API 1.27.0) is a hook for a count beside the
 panel's tab title — Agents Kit counts the thread's agents that still run or ask; nothing is drawn for
 `undefined` or 0. On the stage the tab names the panel, so the panel's own
 `h2` in its `.panel-header` is left out there; keep controls in the header,
@@ -902,9 +902,9 @@ draft; a second click on the pill closes it), then the kits' pills, each a `butt
 popover, or a sheet on a phone or tablet. Machine and branch are no longer
 pills here since K152: they are one `lead` composer control (see below).
 Render nothing for a thread that started; an older core draws no such row.
-`stage-bar` (API 1.27.0) is the right end of the stage's tab strip, after the
-tools and before the maximize, for a control about the stage as a whole, such as
-Workspace Kit's "Open in". The other placements are
+`stage-bar` (introduced in API 1.27.0) sits in the chat header beside the
+stage collapse button, so project actions remain reachable while the right
+area is hidden. The other placements are
 `composer-above`, `composer-controls`, `composer-below`, `transcript-header` and
 `transcript-footer`. `composer-controls` is one centred row on the
 transcript's bottom edge, before `transcript-footer` and everything over the
