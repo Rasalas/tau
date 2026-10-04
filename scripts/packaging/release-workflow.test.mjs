@@ -119,6 +119,16 @@ describe("the release workflow", () => {
     expect(JOBS.preflight).not.toContain("needs.gate.outputs.nightly != 'true'");
   });
 
+  it("shows a nightly's changes since the previous nightly", () => {
+    const generate = JOBS.nightly.indexOf("nightlyBody");
+    const remove = JOBS.nightly.indexOf("Remove the previous nightly");
+    expect(generate).toBeGreaterThan(-1);
+    expect(generate).toBeLessThan(remove);
+    expect(JOBS.nightly).toContain("TARGET: ${{ github.sha }}");
+    expect(JOBS.nightly.match(/body_path: release-notes\.md/gu)).toHaveLength(2);
+    expect(JOBS.nightly).not.toContain("body: |\n            Built from");
+  });
+
   it("selects separate validated manual profiles for the app and widget", () => {
     expect(JOBS.ios).toContain("IOS_WIDGET_PROFILE: ${{ secrets.IOS_WIDGET_PROFILE }}");
     expect(JOBS.ios).toContain('python3 scripts/packaging/ios-profiles.py "$RUNNER_TEMP/tau-profiles"');

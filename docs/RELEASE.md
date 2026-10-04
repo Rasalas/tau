@@ -579,15 +579,16 @@ TestFlight and Google Play's `internal` testing track, never the public stores.
 The desktop jobs replace `package.json`'s version with
 `<next patch>-nightly.<UTC date>.<run number>` (for 0.4.0:
 `0.4.1-nightly.20260922.42`, from `scripts/packaging/nightly-version.mjs`). The
-`nightly` job then deletes the previous release tagged `nightly` (only if it is
-a prerelease) and the tag, and publishes the new build as a prerelease under
-the same tag, never marked latest. It does so in `Rasalas/tau`, whose tag the
-`gate` compares with `main`, and in `Rasalas/tau-releases`, which installed
-apps read; there the new nightly is a draft until every file is uploaded, and
-its tag sits on the default branch, since the built commit is not in that
-repository (the release text names it). The stable `release` job never runs
-for a nightly. The moving tag is published only after both mobile upload jobs
-succeed, so a failed upload does not suppress the next scheduled attempt.
+`nightly` job asks GitHub for the merged changes since the previous `nightly`
+tag, then deletes the previous release (only if it is a prerelease) and the tag.
+It publishes the new build and those notes as a prerelease under the same tag,
+never marked latest. It does so in `Rasalas/tau`, whose tag the `gate` compares
+with `main`, and in `Rasalas/tau-releases`, which installed apps read; there the
+new nightly is a draft until every file is uploaded, and its tag sits on the
+default branch because the built commit is not in that repository. The stable
+`release` job never runs for a nightly. The moving tag is published only after
+both mobile upload jobs succeed, so a failed upload does not suppress the next
+scheduled attempt.
 
 Switch the schedule on (repository admin, once):
 
