@@ -600,7 +600,27 @@ variable, `NIGHTLY` = `true`. Delete the variable to stop the schedule. Publish
 one right away, even without new commits:
 
 ```bash
-gh workflow run release.yml --ref main -f nightly=true
+npm run release:nightly
+```
+
+The command requires the GitHub CLI (`gh`) authenticated with permission to run
+Actions in `Rasalas/tau`. It dispatches `release.yml` with `nightly=true` on the
+remote `main`, even if run from a different local branch. It builds and publishes
+the desktop apps and portable hosts, uploads iOS to TestFlight and Android to
+Google Play's `internal` testing track. It does not build locally or change the
+checkout's version. Dispatch succeeds before the release finishes; follow the
+run in GitHub Actions to check the build and uploads.
+
+Preview the dispatch without starting a release:
+
+```bash
+npm run release:nightly -- --dry-run
+```
+
+The underlying command is:
+
+```bash
+gh workflow run release.yml --repo Rasalas/tau --ref main -f nightly=true
 ```
 
 Before switching it on, know what it costs and needs:
