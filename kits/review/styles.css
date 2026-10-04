@@ -38,6 +38,9 @@
   font: var(--text-xs) var(--mono); font-variant-numeric: tabular-nums; color: var(--muted);
 }
 .request-badge > svg { flex: none; }
+a.request-badge { text-decoration: none; cursor: pointer; }
+a.request-badge:hover, a.request-badge:focus-visible { text-decoration: underline; text-underline-offset: 2px; }
+.request-card-line button:hover b, .request-card-line button:focus-visible b { text-decoration: underline; text-underline-offset: 2px; }
 /* The mini diff is the fallback when the row has no PR or MR badge. */
 .thread-row:has(.request-badge) .thread-diff-stat { display: none; }
 .request-badge.state-open { color: var(--done); }

@@ -106,12 +106,11 @@ export function createRequestBadge(rows: RowRequests, links: ThreadLinkRows) {
       : single
         ? `${first.label} ${first.state}${first.checks ? `, checks ${first.checks}` : ""}${request ? "" : ", linked"}`
         : `${entries.length} requests, ${state}: ${entries.map((entry) => `${entry.label} ${entry.state}`).join(", ")}`;
-    return (
-      <span className={`request-badge state-${state}`} role="img" aria-label={label} {...tooltipProps(entries.map(line).join("\n"), { variant: "lines" })}>
-        <Icon size={12} aria-hidden="true" />
-        {stack ? stack.size : single ? first.number : `+${entries.length}`}
-      </span>
-    );
+    const body = <><Icon size={12} aria-hidden="true" />{stack ? stack.size : single ? first.number : `+${entries.length}`}</>;
+    const props = { className: `request-badge state-${state}`, "aria-label": label, ...tooltipProps(entries.map(line).join("\n"), { variant: "lines" }) };
+    return single && !stack
+      ? <a {...props} href={first.url} data-request-workspace={session.projectPath}>{body}</a>
+      : <span {...props} role="img">{body}</span>;
   };
 }
 
@@ -138,7 +137,7 @@ function RequestCardList({ session, actions, Row, rows, links }: Pick<ThreadCard
         const Icon = ICON[entry.state];
         return (
           <div key={entry.url} role="listitem" className={`request-card-line state-${entry.state}`}>
-            <Row icon={<Icon size={12} />} label={`${entry.label}, ${entry.state}${entry.title ? `: ${entry.title}` : ""}`} onClick={() => open(entry)}>
+            <Row icon={<Icon size={12} />} label={`${entry.label}, ${entry.state}${entry.title ? `: ${entry.title}` : ""}`} onClick={(event) => { if (event?.metaKey || event?.ctrlKey) actions.openExternal(entry.url); else open(entry); }}>
               <b>#{entry.number}</b> {entry.title ?? entry.url}
             </Row>
           </div>

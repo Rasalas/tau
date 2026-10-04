@@ -15,6 +15,13 @@ describe("Review Kit styles", () => {
     expect(await declarations(".thread-diff-stat")).not.toMatch(/display:\s*none\b/u);
   });
 
+  it("underlines request links on hover and keyboard focus", async () => {
+    for (const selector of ["a.request-badge:hover", "a.request-badge:focus-visible", ".request-card-line button:hover b", ".request-card-line button:focus-visible b"]) {
+      expect(await declarations(selector)).toMatch(/text-decoration:\s*underline/u);
+    }
+    expect(await declarations("a.request-badge")).toMatch(/text-decoration:\s*none/u);
+  });
+
   it("uses the same type size and font for the request number and mini diff", async () => {
     const workspaceCss = await readFile(new URL("../workspace/styles.css", import.meta.url), "utf8");
     const diff = /\.thread-diff-stat\s*\{([^}]*)\}/u.exec(workspaceCss)?.[1];

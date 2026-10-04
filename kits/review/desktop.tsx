@@ -22,6 +22,7 @@ import {
 } from "./protocol.js";
 import { workspaceChangesReader } from "./workspace.js";
 import { createRequestBadge, createRequestCardSection } from "./request-badge.js";
+import { RequestLinks } from "./request-links.js";
 import { createRequestSection } from "./request-section.js";
 import { LinkDialogs } from "./link-dialog.js";
 import { PendingReviewStore } from "./pending-review.js";
@@ -163,6 +164,7 @@ export const reviewExtension: DesktopExtension = {
       drafts,
       onEvidence: (listener) => { evidenceListeners.add(listener); return () => { evidenceListeners.delete(listener); }; },
     });
+    const releaseLinks = plugin.registerRegion({ id: "review.request-links", placement: "title-bar", profiles: ["desktop", "web", "compact"], Component: RequestLinks });
     const releaseProactive = plugin.registerRegion({ id: "review.proactive-panels", placement: "title-bar", profiles: ["desktop"], Component: createProactivePanels(plugin, links, () => workspaceStore) });
     // Below the runtime banners, Pi's widgets and quick actions; above Thread Rail's settled note (90), which sits on the composer.
     const Strip = createPullRequestStrip({ rows, links, preferences: plugin.preferences, client });
@@ -192,7 +194,7 @@ export const reviewExtension: DesktopExtension = {
       ];
       return () => { if (workspaceStore === store) workspaceStore = undefined; for (const dispose of disposers.reverse()) dispose(); if (summaryAvailable) { releaseStrip(); releaseStrip = registerStrip(false); } };
     });
-    return () => { releaseStore(); releaseStrip(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
+    return () => { releaseStore(); releaseStrip(); releaseLinks(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
   },
 };
 
