@@ -1,5 +1,6 @@
 import type { ThreadPullRequestLink } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
+import { RequestRefresh } from "./request-refresh.js";
 
 const EMPTY: readonly ThreadPullRequestLink[] = [];
 /** A rail row asks for its thread's links at most this often; a change on the host reloads at once. */
@@ -15,6 +16,8 @@ export class ThreadLinkRows {
   private pending = new Set<string>();
   private listeners = new Set<() => void>();
   private readonly stop: () => void;
+  private readonly refresh = new RequestRefresh((threadId) => { void this.load(threadId, true); });
+  private readonly reread = new Map<string, boolean | "force">();
 
   constructor(private readonly client: Pick<PullRequestClient, "links" | "onLinksChanged">, private readonly now: () => number = Date.now) {
     this.stop = client.onLinksChanged((threadId) => { void this.load(threadId); });
@@ -40,9 +43,14 @@ export class ThreadLinkRows {
     void this.load(threadId);
   }
 
+  watch(threadId: string): () => void { return this.refresh.watch(threadId); }
+
   /** Reads again; `refresh` also asks the host for the state of the links still open. */
   async load(threadId: string, refresh?: boolean | "force"): Promise<void> {
-    if (this.pending.has(threadId) && !refresh) return;
+    if (this.pending.has(threadId)) {
+      if (refresh) this.reread.set(threadId, refresh === "force" || this.reread.get(threadId) === "force" ? "force" : true);
+      return;
+    }
     this.pending.add(threadId);
     try {
       this.set(threadId, await this.client.links(threadId, refresh));
@@ -50,6 +58,9 @@ export class ThreadLinkRows {
       // A thread whose links cannot be read shows none.
     } finally {
       this.pending.delete(threadId);
+      const again = this.reread.get(threadId);
+      this.reread.delete(threadId);
+      if (again) await this.load(threadId, again);
     }
   }
 
@@ -59,6 +70,8 @@ export class ThreadLinkRows {
   }
 
   dispose(): void {
+    this.refresh.dispose();
+    this.reread.clear();
     this.stop();
   }
 }

@@ -44,13 +44,14 @@ function setup({ branch, links = [], draftPending = false, empty = false, live }
   let changed: ((threadId: string) => void) | undefined;
   let current = links;
   const client = { links: vi.fn(async () => current), onLinksChanged: (listener: (threadId: string) => void) => { changed = listener; return () => undefined; } };
-  const load = vi.fn(async () => branch);
+  let currentBranch = branch;
+  const load = vi.fn(async () => currentBranch);
   const parts = { rows: new RowRequests(load), links: new ThreadLinkRows(client), preferences: preferences(), dismissals: new StripDismissals(memoryStorage), ...(live ? { client: live } : {}) };
   const actions = { activeThread: () => ({ sessionId: "t1", cwd: "/work", draftPending }), openStageTab: vi.fn(() => "tab") } as unknown as WorkbenchActions;
   const snapshot = { sessionId: "t1", cwd: "/work", projectLabel: "fix/refresh-apps-without-socket", isStreaming: false, messages: empty ? [] : [{ id: "m1" }] } as unknown as HostSnapshot;
   const view = render(<PullRequestStrip snapshot={snapshot} actions={actions} parts={parts} />);
   const relink = (next: ThreadPullRequestLink[]) => { current = next; act(() => changed?.("t1")); };
-  return { view, parts, actions, load, relink };
+  return { view, parts, actions, load, relink, externalLinks: (next: ThreadPullRequestLink[]) => { current = next; }, externalState: (state: ReviewRequest["state"]) => { if (currentBranch) currentBranch = { ...currentBranch, state }; } };
 }
 
 const strip = () => document.querySelector(".review-pr-strip");
@@ -85,6 +86,39 @@ describe("choosing the thread's request", () => {
 });
 
 describe("the pull-request strip", () => {
+  it("refreshes linked completion without a local event and trusts it over the cached open branch", async () => {
+    vi.useFakeTimers();
+    try {
+      const { externalLinks } = setup({ branch: BRANCH, links: [link(224)] });
+      await act(async () => undefined);
+      externalLinks([link(224, { state: "merged" })]);
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+      expect(strip()?.classList.contains("state-merged")).toBe(true);
+    } finally { cleanup(); vi.useRealTimers(); }
+  });
+  it("reads external completion when the branch cache is explicitly refreshed", async () => {
+    const { externalState, parts } = setup({ branch: BRANCH });
+    await act(async () => undefined);
+    externalState("merged");
+    await act(async () => { parts.rows.ensure("/work", true); });
+    expect(strip()?.classList.contains("state-merged")).toBe(true);
+  });
+  it("refreshes an externally merged request while the same branch remains on screen", async () => {
+    vi.useFakeTimers();
+    try {
+      const { externalState } = setup({ branch: BRANCH });
+      await act(async () => undefined);
+      expect(strip()?.classList.contains("state-open")).toBe(true);
+      externalState("merged");
+      await act(async () => { await vi.advanceTimersByTimeAsync(180_000); });
+      expect(strip()?.classList.contains("state-merged")).toBe(true);
+      expect(screen.queryByRole("button", { name: /, open,/ })).toBeNull();
+    } finally {
+      cleanup();
+      vi.useRealTimers();
+    }
+  });
+
   it("draws the branch's open request with its checks, repository and branch, and opens its tab", async () => {
     const { actions, load } = setup({ branch: BRANCH });
     const open = await screen.findByRole("button", { name: /^Open pull request #224 in acme\/lakebed on GitHub, open, checks 3\/3 passed/u });
@@ -144,11 +178,13 @@ describe("the pull-request strip", () => {
     expect(empty.view.container.innerHTML).toBe("");
     cleanup();
     const draft = setup({ branch: BRANCH, draftPending: true });
-    await waitFor(() => expect(draft.load).toHaveBeenCalled());
+    await act(async () => undefined);
+    expect(draft.load).not.toHaveBeenCalled();
     expect(draft.view.container.innerHTML).toBe("");
     cleanup();
     const fresh = setup({ branch: BRANCH, empty: true });
-    await waitFor(() => expect(fresh.load).toHaveBeenCalled());
+    await act(async () => undefined);
+    expect(fresh.load).not.toHaveBeenCalled();
     expect(fresh.view.container.innerHTML).toBe("");
     cleanup();
     const { parts } = setup({ branch: BRANCH });
@@ -253,4 +289,63 @@ describe("the checks on the chip", () => {
     setup({ branch: request(304, { passed: 1, failed: 0, pending: 2, total: 3 }), live: { checks, pipeline: vi.fn(async () => ({})) } as unknown as PullRequestClient });
     expect(await screen.findByRole("img", { name: "Checks: CI failed" })).toBeTruthy();
   });
+});
+
+describe("live check completion", () => {
+  it("keeps polling when one job failed while another is still running", async () => {
+    vi.useFakeTimers();
+    try {
+      const checks = vi.fn()
+        .mockResolvedValueOnce([{ name: "performance", status: "failed", workflow: "CI" }, { name: "smoke", status: "pending", workflow: "CI" }])
+        .mockResolvedValue([{ name: "performance", status: "passed", workflow: "CI" }, { name: "smoke", status: "passed", workflow: "CI" }]);
+      setup({ branch: { ...BRANCH, url: `${BRANCH.url}05`, checks: { passed: 0, failed: 1, pending: 1, total: 2 } }, live: { checks, pipeline: vi.fn(async () => ({})) } as unknown as PullRequestClient });
+      await act(async () => undefined);
+      expect(screen.getByRole("img", { name: "Checks: CI failed" })).toBeTruthy();
+      await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+      expect(checks).toHaveBeenCalledTimes(2);
+      expect(screen.getByRole("img", { name: "Checks: CI passed" })).toBeTruthy();
+    } finally { cleanup(); vi.useRealTimers(); }
+  });
+});
+
+it("rereads finished checks when the request summary changes within the cache lifetime", async () => {
+  const url = `${BRANCH.url}06`;
+  const checks = vi.fn().mockResolvedValueOnce([{ name: "CI", status: "failed" }]).mockResolvedValue([{ name: "CI", status: "passed" }]);
+  const live = { checks, pipeline: vi.fn(async () => ({})) } as unknown as PullRequestClient;
+  setup({ branch: { ...BRANCH, url, checks: { passed: 0, failed: 1, pending: 0, total: 1 } }, live });
+  await screen.findByRole("img", { name: "Checks: Other checks failed" });
+  cleanup();
+  setup({ branch: { ...BRANCH, url, checks: { passed: 1, failed: 0, pending: 0, total: 1 } }, live });
+  await screen.findByRole("img", { name: "Checks: Other checks passed" });
+  expect(checks).toHaveBeenCalledTimes(2);
+});
+
+it("keeps finished checks scoped to the current host client", async () => {
+  const url = `${BRANCH.url}07`;
+  const branch = { ...BRANCH, url, checks: { passed: 0, failed: 0, pending: 0, total: 0 } };
+  const first = { checks: vi.fn(async () => [{ name: "CI", status: "failed" }]), pipeline: vi.fn(async () => ({})) } as unknown as PullRequestClient;
+  setup({ branch, live: first });
+  await screen.findByRole("img", { name: "Checks: Other checks failed" });
+  cleanup();
+  const second = { checks: vi.fn(async () => [{ name: "CI", status: "passed" }]), pipeline: vi.fn(async () => ({})) } as unknown as PullRequestClient;
+  setup({ branch, live: second });
+  await screen.findByRole("img", { name: "Checks: Other checks passed" });
+  expect(second.checks).toHaveBeenCalledTimes(1);
+});
+
+it("does not let an unmounted checks lookup overwrite a newer finished answer", async () => {
+  let finish!: (checks: PullRequestCheck[]) => void;
+  const checks = vi.fn().mockImplementationOnce(() => new Promise<PullRequestCheck[]>((resolve) => { finish = resolve; })).mockResolvedValue([{ name: "CI", status: "passed" }]);
+  const live = { checks, pipeline: vi.fn(async () => ({})) } as unknown as PullRequestClient;
+  const branch = { ...BRANCH, url: `${BRANCH.url}08`, checks: { passed: 1, failed: 0, pending: 0, total: 1 } };
+  setup({ branch, live });
+  await act(async () => undefined);
+  cleanup();
+  setup({ branch, live });
+  await screen.findByRole("img", { name: "Checks: Other checks passed" });
+  await act(async () => { finish([{ name: "CI", status: "failed" }]); });
+  cleanup();
+  setup({ branch, live });
+  await screen.findByRole("img", { name: "Checks: Other checks passed" });
+  expect(checks).toHaveBeenCalledTimes(2);
 });

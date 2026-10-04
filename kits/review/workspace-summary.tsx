@@ -10,6 +10,7 @@ import { stripRequests, type StripRequest } from "./pull-request-strip-logic.js"
 import type { ThreadLinkRows } from "./thread-links-store.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import { WorkspaceRequestChecks } from "./workspace-request-checks.js";
+import { useRequestLifecycle } from "./request-lifecycle.js";
 
 /** The checkout's request and its thread's links, owned by Review Kit inside the workspace card. */
 export function createWorkspaceRequestSummary(store: WorkspaceStoreApi, rows: RowRequests, links: ThreadLinkRows, client?: PullRequestClient) {
@@ -19,6 +20,7 @@ export function createWorkspaceRequestSummary(store: WorkspaceStoreApi, rows: Ro
     const threadId = actions.activeThread()?.sessionId;
     const workspace = state.workspaceId ?? state.cwd;
     const branch = state.workspace?.branch;
+    useRequestLifecycle(rows, links, branch ? workspace : undefined, threadId);
     const [expanded, setExpanded] = useState(false);
     const followed = useRef<{ workspace: string; branch: string } | undefined>(undefined);
     useEffect(() => {

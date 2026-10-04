@@ -73,10 +73,19 @@ async function harness(fixture: Fixture = {}) {
   });
   await registry.activate(createReviewHostExtension({ run }));
   const invoke = (command: string, input?: unknown) => registry.invoke(REVIEW_HOST_EXTENSION_ID, command, input);
-  return { registry, invoke, calls, pushes, complete };
+  return { registry, invoke, calls, pushes, complete, setRequest: (next: UiReviewRequest | undefined) => { request = next; } };
 }
 
 describe("Review Kit request lifecycle", () => {
+  it("refreshes external completion for the explicitly named workspace without waiting for the host cache", async () => {
+    const { invoke, calls, setRequest } = await harness({ request: OPEN });
+    await expect(invoke("pr-status", { workspace: "ws-a" })).resolves.toMatchObject({ request: { state: "open" } });
+    setRequest({ ...OPEN, state: "merged", draft: false });
+    await expect(invoke("pr-status", { workspace: "ws-a" })).resolves.toMatchObject({ request: { state: "open" } });
+    await expect(invoke("pr-status", { workspace: "ws-a", fresh: true })).resolves.toMatchObject({ request: { state: "merged" } });
+    expect(calls.filter((args) => args[0] === "pr" && args[1] === "view")).toHaveLength(2);
+  });
+
   it("reports the branch's request with its status and nothing missing", async () => {
     const { invoke } = await harness({ request: OPEN });
     await expect(invoke("pr-status")).resolves.toMatchObject({ branch: "feature/pr", base: "main", service: "github", request: { number: 7, draft: true } });

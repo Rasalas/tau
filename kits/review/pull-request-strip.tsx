@@ -5,10 +5,11 @@ import { REVIEW_HOST_EXTENSION_ID, providerInfo, type PullRequestCheck } from ".
 import { checksPipelines } from "./pipeline.js";
 import { PipelineMini, usePipelineFacts } from "./pipeline-view.js";
 import type { PullRequestClient } from "./pull-request-client.js";
-import { checksRollup, checksSummary } from "./pull-request-logic.js";
+import { checksRollup, checksSummary, checksUnfinished } from "./pull-request-logic.js";
 import { RequestStateIcon } from "./request-state-icon.js";
 import { openPullRequest } from "./pull-request-open.js";
 import { STRIP_OPTION, StripDismissals, stripRequests, type StripRequest, type StripState } from "./pull-request-strip-logic.js";
+import { useRequestLifecycle } from "./request-lifecycle.js";
 import { checksLabel, checksTone, type RowRequests } from "./requests.js";
 import { ServiceIcon } from "./service-icon.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
@@ -38,38 +39,46 @@ function ChecksIcon({ tone }: { tone: "passed" | "failed" | "pending" }) {
 
 /** Reads a finished pipeline is shown from, so switching threads asks nothing new. */
 const FINISHED_MS = 5 * 60_000;
-const seen = new Map<string, { at: number; checks: PullRequestCheck[] }>();
+const seen = new WeakMap<PullRequestClient, Map<string, { at: number; revision: string; checks: PullRequestCheck[] }>>();
 
 /** The request's checks: read once, then while the last answer still had some running and the window is visible. */
-function useLiveChecks(client: PullRequestClient | undefined, url: string, pending: boolean): PullRequestCheck[] | undefined {
-  const [read, setRead] = useState<{ url: string; checks: PullRequestCheck[] }>();
+function useLiveChecks(client: PullRequestClient | undefined, request: StripRequest): PullRequestCheck[] | undefined {
+  const { url, checks: counted } = request;
+  const pending = Boolean(counted?.pending);
+  const revision = JSON.stringify([request.state, counted?.passed, counted?.failed, counted?.pending, counted?.total]);
+  const [read, setRead] = useState<{ client: PullRequestClient; url: string; revision: string; checks: PullRequestCheck[] }>();
   useEffect(() => {
     if (!client) return;
-    const known = seen.get(url);
-    if (known) setRead({ url, checks: known.checks });
-    if (known && !pending && checksRollup(known.checks) !== "pending" && Date.now() - known.at < FINISHED_MS) return;
+    let cache = seen.get(client);
+    if (!cache) { cache = new Map(); seen.set(client, cache); }
+    const known = cache.get(url);
+    if (known?.revision === revision) setRead({ client, url, revision, checks: known.checks });
+    if (known?.revision === revision && !pending && !checksUnfinished(known.checks) && Date.now() - known.at < FINISHED_MS) return;
     let live = true;
+    let reading = false;
     let timer = 0;
     const ask = () => {
+      if (reading) return;
+      reading = true;
       client.checks(url).then((checks) => {
-        seen.set(url, { at: Date.now(), checks });
         if (!live) return;
-        setRead({ url, checks });
-        if (checksRollup(checks) !== "pending") window.clearInterval(timer);
-      }, () => undefined);
+        cache.set(url, { at: Date.now(), revision, checks });
+        setRead({ client, url, revision, checks });
+        if (!checksUnfinished(checks)) window.clearInterval(timer);
+      }, () => undefined).finally(() => { reading = false; });
     };
     ask();
     timer = window.setInterval(() => { if (document.visibilityState === "visible") ask(); }, LIVE_MS);
     return () => { live = false; window.clearInterval(timer); };
-  }, [client, url, pending]);
-  return read?.url === url ? read.checks : undefined;
+  }, [client, url, pending, revision]);
+  return read && read.client === client && read.url === url && read.revision === revision ? read.checks : undefined;
 }
 
 const TONES = { failing: "failed", pending: "pending", passing: "passed" } as const;
 
 function StripChecks({ request, client, open }: { request: StripRequest; client: PullRequestClient | undefined; open(): void }) {
   const counted = checksTone(request.checks);
-  const live = useLiveChecks(client, request.url, counted === "pending");
+  const live = useLiveChecks(client, request);
   const facts = usePipelineFacts(client, request.url, live ?? []);
   const rollup = live ? checksRollup(live) : undefined;
   const tone = rollup ? TONES[rollup] : counted;
@@ -96,15 +105,18 @@ export default function PullRequestStrip({ snapshot, actions, parts }: RegionPro
   const cwd = thread?.cwd ?? snapshot?.cwd;
   // Without a branch label the checkout is no Git branch; the rail row skips it too.
   const tracked = Boolean(snapshot?.projectLabel && cwd);
-  useEffect(() => { if (tracked && cwd) rows.ensure(cwd); }, [tracked, cwd, snapshot?.projectLabel]);
-  useEffect(() => { if (threadId) links.ensure(threadId); }, [threadId]);
   const branch = useSyncExternalStore(rows.subscribe, () => (tracked && cwd ? rows.get(cwd) : undefined));
   const linked = useSyncExternalStore(links.subscribe, () => links.get(threadId));
-
-  if (preferences.optionValue(REVIEW_HOST_EXTENSION_ID, STRIP_OPTION, true) === false) return null;
-  if (!threadId || thread?.draftPending || (!snapshot?.isStreaming && (snapshot?.messages?.length ?? 0) === 0)) return null;
+  const eligible = preferences.optionValue(REVIEW_HOST_EXTENSION_ID, STRIP_OPTION, true) !== false
+    && Boolean(threadId && !thread?.draftPending && (snapshot?.isStreaming || (snapshot?.messages?.length ?? 0) > 0));
   const found = stripRequests(branch, linked);
-  if (!found || dismissals.isHidden(threadId, found.primary)) return null;
+  const dismissed = Boolean(found && threadId && dismissals.isHidden(threadId, found.primary));
+  const watching = eligible && !dismissed;
+  useRequestLifecycle(rows, links, watching && tracked ? cwd : undefined, watching ? threadId : undefined);
+  useEffect(() => { if (watching && tracked && cwd) rows.ensure(cwd); }, [watching, tracked, cwd, snapshot?.projectLabel]);
+  useEffect(() => { if (watching && threadId) links.ensure(threadId); }, [watching, threadId]);
+
+  if (!watching || !threadId || !found) return null;
   const { primary, others } = found;
   const info = providerInfo(primary.service);
   const state = STATE_WORDS[primary.state];
