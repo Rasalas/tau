@@ -39,7 +39,7 @@ interface Setup {
   stateDir?: string;
   sessions?: HostSessionSummary[];
   modified?: Record<string, number>;
-  review?: (workspace: string) => unknown;
+  review?: (workspace: string, input: { fresh?: boolean }) => unknown;
   integrated?: (workspace: string) => unknown;
   /** Review Kit's answer about the requests threads link. */
   linked?: (threadIds: string[]) => unknown;
@@ -84,7 +84,7 @@ async function harness(setup: Setup = {}) {
       id: REVIEW_EXTENSION_ID,
       name: "Review Kit",
       activate(context: HostExtensionContext) {
-        context.registerCommand("pr-status", (input) => setup.review!((input as { workspace: string }).workspace), { callers: [THREAD_RAIL_EXTENSION_ID] });
+        context.registerCommand("pr-status", (input) => setup.review!((input as { workspace: string }).workspace, input as { fresh?: boolean }), { callers: [THREAD_RAIL_EXTENSION_ID] });
         if (setup.linked) context.registerCommand("thread-requests", (input) => setup.linked!((input as { threadIds: string[] }).threadIds), { callers: [THREAD_RAIL_EXTENSION_ID] });
       },
     };
@@ -195,6 +195,67 @@ describe("Thread Rail host", () => {
     expect(state.threads.done).toMatchObject({ settledBy: "pr-merged", settledForRequest: "https://example.test/pr/1 https://example.test/pr/2" });
     expect(state.threads.waiting).toBeUndefined();
     expect(state.threads.plain).toBeUndefined();
+  });
+
+  it("refreshes and settles merged work when a turn ends, without waiting for the periodic sweep", async () => {
+    const { invoke, observers } = await harness({
+      sessions: [session("done", "/worktrees/done")],
+      review: (_workspace, input) => ({ request: { url: "https://example.test/pr/42", state: input.fresh ? "merged" : "open" } }),
+    });
+    observers[0]!.accepted?.("done", "turn", { deferBefore: false });
+    expect((await invoke("sweep")).threads.done?.settledAt).toBeUndefined();
+    await observers[0]!.ended?.("done", "turn", {} as never);
+    await vi.waitFor(async () => expect((await invoke("state")).threads.done?.settledBy).toBe("pr-merged"));
+  });
+
+  it("settles after a request notification but leaves shared-checkout siblings alone", async () => {
+    const review = vi.fn(() => ({ request: { url: "https://example.test/pr/unrelated", state: "merged" } }));
+    const { invoke } = await harness({
+      sessions: [session("done", "/project"), session("sibling", "/project")],
+      review,
+      linked: () => ({ done: [{ url: "https://example.test/pr/42", state: "merged" }] }),
+    });
+    await invoke("requests-changed", { threadId: "done" });
+    await vi.waitFor(async () => expect((await invoke("state")).threads.done?.settledBy).toBe("pr-merged"));
+    expect((await invoke("state")).threads.sibling).toBeUndefined();
+    expect(review).not.toHaveBeenCalled();
+  });
+
+  it("does not lose a turn-ending recheck while an earlier sweep is in flight", async () => {
+    let resolveIntegration!: (value: unknown) => void;
+    const integration = new Promise((resolve) => { resolveIntegration = resolve; });
+    const integrated = vi.fn(() => integration);
+    const { invoke, observers } = await harness({
+      sessions: [session("done", "/worktrees/done")],
+      review: () => ({ request: { url: "https://example.test/pr/42", state: "merged" } }),
+      integrated,
+    });
+    // Even same-millisecond activity must invalidate the old integration result.
+    await invoke("patch", { patches: { done: { activityAt: NOW } } });
+    const sweeping = invoke("sweep");
+    await vi.waitFor(() => expect(integrated).toHaveBeenCalled());
+    observers[0]!.accepted?.("done", "turn", { deferBefore: false });
+    await observers[0]!.ended?.("done", "turn", {} as never);
+    resolveIntegration({ integrated: true });
+    expect((await sweeping).threads.done?.settledAt).toBeUndefined();
+    await vi.waitFor(async () => expect((await invoke("state")).threads.done?.settledBy).toBe("pr-merged"));
+  });
+
+  it("does not settle a new turn accepted while an integration read is in flight", async () => {
+    let resolveIntegration!: (value: unknown) => void;
+    const integration = new Promise((resolve) => { resolveIntegration = resolve; });
+    const integrated = vi.fn(() => integration);
+    const { invoke, observers } = await harness({
+      sessions: [session("continued", "/worktrees/continued")],
+      review: () => ({ request: { url: "https://example.test/pr/42", state: "merged" } }),
+      integrated,
+    });
+    const sweeping = invoke("sweep");
+    // Wait until the sweep reaches the integration read before accepting more work.
+    await vi.waitFor(() => expect(integrated).toHaveBeenCalled());
+    observers[0]!.accepted?.("continued", "next", { deferBefore: false });
+    resolveIntegration({ integrated: true });
+    expect((await sweeping).threads.continued?.settledAt).toBeUndefined();
   });
 
   it("does not settle on an old merged PR while the checkout has outstanding work", async () => {

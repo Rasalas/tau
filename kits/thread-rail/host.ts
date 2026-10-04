@@ -40,7 +40,7 @@ import {
 } from "./protocol.js";
 
 const STATE_VERSION = 1;
-const DEFAULT_SWEEP_MS = 5 * 60_000;
+const DEFAULT_SWEEP_MS = 60_000;
 /** The first sweep waits for the index and Review Kit, but not a whole period. */
 const FIRST_SWEEP_MS = 30_000;
 const MAX_TIMER_MS = 2 ** 31 - 1;
@@ -92,9 +92,13 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
       });
       let state: StoredState = read?.data ?? { ...EMPTY_STATE };
       const running = new Set<string>();
+      const turnVersions = new Map<string, number>();
       let wakeTimer: ReturnType<typeof setTimeout> | undefined;
       let sweeping: Promise<void> | undefined;
       let saving: Promise<void> = Promise.resolve();
+      let recheckTimer: ReturnType<typeof setTimeout> | undefined;
+      const rechecks = new Map<string, boolean>();
+      let disposed = false;
 
       let sessions = new Map<string, HostSessionSummary>();
       let localTrashIds = new Set<string>();
@@ -159,22 +163,25 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         }));
       };
 
-      const sweep = (): Promise<void> => {
+      const sweep = (threadIds?: ReadonlySet<string>, fresh = false): Promise<void> => {
         sweeping ??= (async () => {
           try {
             await readOwnership();
             const localSessions = [...sessions.values()].filter((session) => !session.parentThreadId && !owner(session.sessionId));
             const local = homeState();
-            const threads: SweepThread[] = await Promise.all(localSessions.map(async (session) => {
+            const turnsAtRead = new Map(turnVersions);
+            const allThreads: SweepThread[] = await Promise.all(localSessions.map(async (session) => {
               const at = await modifiedAt(session.path);
               return { id: session.sessionId, cwd: session.cwd, ...(at === undefined ? {} : { modifiedAt: at }) };
             }));
+            const threads = threadIds ? allThreads.filter((thread) => threadIds.has(thread.id)) : allThreads;
+            const checkouts = new Set(threads.map((thread) => thread.cwd));
             const requests = new Map<string, SweepRequest>();
-            for (const cwd of requestCheckouts(threads, local, running, clock())) {
+            for (const cwd of requestCheckouts(allThreads, local, running, clock()).filter((checkout) => checkouts.has(checkout))) {
               try {
                 // Sequential on purpose: each answer may run `gh` or `glab`.
                 // oxlint-disable-next-line no-await-in-loop
-                const answer = record(await context.invokeHostExtension(REVIEW_EXTENSION_ID, "pr-status", { workspace: cwd }));
+                const answer = record(await context.invokeHostExtension(REVIEW_EXTENSION_ID, "pr-status", { workspace: cwd, ...(fresh ? { fresh: true } : {}) }));
                 const request = record(answer.request);
                 if (typeof request.url === "string") requests.set(cwd, { url: request.url, ...(typeof request.state === "string" ? { state: request.state as SweepRequest["state"] } : {}) });
               } catch {
@@ -186,7 +193,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
             const asked = linkedRequestThreads(threads, local, running, clock());
             if (asked.length > 0) {
               try {
-                const answer = record(await context.invokeHostExtension(REVIEW_EXTENSION_ID, "thread-requests", { threadIds: asked }));
+                const answer = record(await context.invokeHostExtension(REVIEW_EXTENSION_ID, "thread-requests", { threadIds: asked, ...(fresh ? { refresh: true } : {}) }));
                 for (const [id, links] of Object.entries(answer)) {
                   const known = (Array.isArray(links) ? links : []).map(record).flatMap((link): SweepRequest[] => typeof link.url === "string"
                     ? [{ url: link.url, ...(link.state === "open" || link.state === "closed" || link.state === "merged" ? { state: link.state } : {}) }]
@@ -218,10 +225,15 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
               }
               if (!await checked) keepActive(id);
             }));
+            // Provider and Git reads may outlive the snapshot: new work always wins.
             for (const [id, patch] of Object.entries(patches)) {
+              if (patch.settledBy && (running.has(id) || turnVersions.get(id) !== turnsAtRead.get(id) || state.threads[id] !== local.threads[id])) {
+                delete patches[id];
+                continue;
+              }
               if (patch.settledBy) services.log("thread-rail.settled", `${id.slice(0, 8)} · ${patch.settledBy}`);
             }
-            change(patches);
+            if (!disposed) change(patches);
           } catch (error) {
             services.log("thread-rail.sweep-failed", error instanceof Error ? error.message : String(error));
           } finally {
@@ -230,6 +242,38 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         })();
         return sweeping;
       };
+
+      // Coalesce notifications, then recheck after any read already in flight.
+      // Do not hold the turn-ending callback up on provider or Git subprocesses.
+      const queueRecheck = (id: string, fresh = false) => {
+        if (disposed) return;
+        rechecks.set(id, fresh || rechecks.get(id) === true);
+        if (recheckTimer) return;
+        recheckTimer = setTimeout(() => {
+          void (async () => {
+            try {
+              for (;;) {
+                const active = sweeping;
+                if (!active) break;
+                await active;
+              }
+              if (disposed) return;
+              const pending = new Map(rechecks);
+              rechecks.clear();
+              if (pending.size > 0) await sweep(new Set(pending.keys()), [...pending.values()].some(Boolean));
+            } finally {
+              recheckTimer = undefined;
+              const next = rechecks.entries().next().value;
+              if (next) queueRecheck(next[0], next[1]);
+            }
+          })();
+        }, 0);
+        recheckTimer.unref?.();
+      };
+      context.registerCommand("requests-changed", (input) => {
+        const id = record(input).threadId;
+        if (typeof id === "string" && id) queueRecheck(id);
+      }, { callers: [REVIEW_EXTENSION_ID] });
 
       context.registerCommand("state", (input) => record(input).homeOnly === true ? homeState() : publicState(), { access: "read" });
       context.registerCommand("patch", async (input) => {
@@ -362,6 +406,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
           accepted: (sessionId) => {
             if (owner(sessionId)) return;
             running.add(sessionId);
+            turnVersions.set(sessionId, (turnVersions.get(sessionId) ?? 0) + 1);
             const meta = state.threads[sessionId];
             const now = clock();
             // New work takes a thread off the shelf, out of a snooze and out of the archive.
@@ -374,14 +419,15 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
               },
             });
           },
-          cancelled: async (sessionId) => { running.delete(sessionId); },
+          cancelled: async (sessionId) => { running.delete(sessionId); queueRecheck(sessionId, true); },
           ended: async (sessionId) => {
             if (owner(sessionId)) return;
             running.delete(sessionId);
             change({ [sessionId]: { activityAt: clock() } });
+            queueRecheck(sessionId, true);
           },
-          reset: async (sessionId) => { running.delete(sessionId); },
-          closed: async (sessionId) => { running.delete(sessionId); },
+          reset: async (sessionId) => { running.delete(sessionId); queueRecheck(sessionId, true); },
+          closed: async (sessionId) => { running.delete(sessionId); queueRecheck(sessionId, true); },
         }),
         services.registerThreadLifecycle({
           sweep: async (snapshot) => {
@@ -391,6 +437,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
           },
           threadDeleted: async (sessionId) => {
             if (owner(sessionId)) return;
+            turnVersions.delete(sessionId);
             change({ [sessionId]: null });
             // A purge by the host's own timer: the Archived page's list moved too.
             await publishTrash().catch(() => undefined);
@@ -406,6 +453,9 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
       interval.unref?.();
 
       return async () => {
+        disposed = true;
+        if (recheckTimer) clearTimeout(recheckTimer);
+        rechecks.clear();
         clearTimeout(first);
         clearInterval(interval);
         if (wakeTimer) clearTimeout(wakeTimer);
