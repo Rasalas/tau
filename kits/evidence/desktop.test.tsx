@@ -9,6 +9,7 @@ import { EvidenceClient } from "./client.js";
 import evidence from "./desktop.js";
 import { EVIDENCE_CHANGED_EVENT, EVIDENCE_EXTENSION_ID, EVIDENCE_SERVICE, REVIEW_ATTACH_SERVICE, type EvidenceCaptureService, type EvidenceFrame, type EvidenceThread, type ReviewAttachService } from "./protocol.js";
 import { EvidenceViewer } from "./viewer.js";
+import { EvidenceCard } from "./card.js";
 
 afterEach(() => { cleanup(); setHostClient(undefined); vi.useRealTimers(); });
 
@@ -41,6 +42,28 @@ function host(overrides: Record<string, (input: never) => unknown> = {}) {
 }
 
 describe("Evidence rows", () => {
+  it("keeps saved screenshots collapsed while running and preserves expansion when the turn completes", async () => {
+    const image = vi.fn(async () => "data:image/jpeg;base64,picture");
+    const client = { image } as unknown as EvidenceClient;
+    const onOpen = vi.fn();
+    const turn = thread.turns[1]!;
+    const props = { client, threadId: "s1", turn, running: true, onOpen, notify: vi.fn() };
+    const view = render(<EvidenceCard {...props} />);
+    const disclosure = screen.getByRole("button", { name: /Screenshots · 1 picture/u });
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    expect(image).not.toHaveBeenCalled();
+    expect(screen.queryByRole("list", { name: "Pictures" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Play the pictures" }));
+    expect(onOpen).toHaveBeenCalledWith(0, true);
+    fireEvent.click(disclosure);
+    await waitFor(() => expect(view.container.querySelectorAll("img")).toHaveLength(1));
+    view.rerender(<EvidenceCard {...props} running={false} turn={{ ...turn, endedAt: 12000 }} />);
+    expect(screen.getByRole("button", { name: /Screenshots/u }).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("button", { name: "Save video" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Screenshots/u }));
+    expect(screen.queryByRole("list", { name: "Pictures" })).toBeNull();
+  });
+
   it("puts each turn's pictures under its last reply, and a running turn's at the tail", async () => {
     setHostClient(createFakeHostClient());
     const { invoke } = host();
@@ -69,6 +92,8 @@ describe("Evidence rows", () => {
     const card = render(<>{settled!.content}</>);
     expect(card.getByText("· 3 pictures · 0:04")).toBeTruthy();
     expect(card.getByRole("button", { name: "Save video" })).toBeTruthy();
+    expect(card.queryByRole("list", { name: "Pictures" })).toBeNull();
+    fireEvent.click(card.getByRole("button", { name: /Screenshots/u }));
     await waitFor(() => expect(card.container.querySelectorAll("img")).toHaveLength(3));
     // Each picture says when in the turn it was taken.
     expect([...card.container.querySelectorAll(".evidence-mark")].map((mark) => mark.textContent)).toEqual(["0:00", "0:01", "0:02"]);

@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Check, GitCommitHorizontal, GitMerge, MessageSquare, Pencil, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
 import {
+  useDiffPresentation,
   errorMessage,
   formatCost,
   Markdown,
@@ -122,7 +123,7 @@ export function LocalReviewDetail({ review, parts, detail, act, actions, back, f
 }) {
   const [summary, setSummary] = useState<{ summary?: string; turns?: number; prompts?: string[] }>();
   const [tab, setTab] = useState<Tab>(focus ?? "changes");
-  const [layout, setLayout] = useState<"unified" | "split">("unified");
+  const { layout, setLayout, wrap, setWrap } = useDiffPresentation();
   const [noting, setNoting] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [draft, setDraft] = useState<Draft>();
@@ -434,7 +435,7 @@ export function LocalReviewDetail({ review, parts, detail, act, actions, back, f
       tabs={picking ? [] : tabs}
       tab={tab}
       onTab={setTab}
-      toolbar={tab === "changes" && !picking ? <LayoutToggle layout={layout} onChange={setLayout} /> : null}
+      toolbar={tab === "changes" && !picking ? <LayoutToggle layout={layout} onChange={setLayout} wrap={wrap} onWrapChange={setWrap} /> : null}
       scrollRef={scroll}
     >
       {tab === "changes" || picking ? (
@@ -442,7 +443,7 @@ export function LocalReviewDetail({ review, parts, detail, act, actions, back, f
           <ReviewDiffStack
             files={files}
             layout={layout}
-            wrap
+            wrap={wrap}
             read={readDiff}
             version={review.tip ?? ""}
             lines={slots}

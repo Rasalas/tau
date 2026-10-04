@@ -7,7 +7,7 @@ import type { HostExtension, HostExtensionServices } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { createWorkspaceHostExtension } from "../workspace/host.js";
 import { noteThreads, registerLocalReviewCommands, summaryFromEntries } from "./local-reviews-host.js";
-import { LOCAL_REVIEWS_EVENT, reviewKey, type ConflictFile, type LocalReviewsAnswer, type NoteThread, type ThreadBranchMerge } from "./local-reviews.js";
+import { countReviews, deriveReviews, LOCAL_REVIEWS_EVENT, reviewKey, type ConflictFile, type LocalReviewsAnswer, type NoteThread, type ThreadBranchMerge } from "./local-reviews.js";
 import type { BranchReviewRequest } from "./protocol.js";
 
 const created: string[] = [];
@@ -121,6 +121,52 @@ function remoteWorkStub() {
 }
 
 describe("Reviews on the host", () => {
+  it.each(["merge", "squash"])("keeps %s completion out of open rows after reload and target movement, while reopening new work", async (method) => {
+    const repo = await fixture();
+    const workspace = `ws1_${repo.worktree}`;
+    const workspaces = [workspace];
+    const rows = (answer: LocalReviewsAnswer) => deriveReviews({
+      answer: { ...answer, remote: [] }, busy: new Set(),
+      threads: [{ id: "t1", path: "/sessions/t1.jsonl", projectPath: repo.worktree, projectName: "shop-api", messageCount: 1, workspaceId: workspace, title: "Rate limit", modifiedAt: 1 }],
+    });
+    const read = async (host: Awaited<ReturnType<typeof hosts>>) => rows(await host.invoke("local-reviews", { workspaces }) as LocalReviewsAnswer);
+    const first = await hosts(repo.stateDir);
+    expect(countReviews(await read(first))).toMatchObject({ ready: 1, merged: 0 });
+    repo.git(repo.project, "merge", method === "squash" ? "--squash" : "--no-ff", "tau/rate-limit", "-m", "integrate rate limit");
+    if (method === "squash") repo.git(repo.project, "commit", "-qm", "integrate rate limit");
+    expect(countReviews(await read(first))).toMatchObject({ ready: 0, conflicts: 0, merged: 1 });
+
+    await writeFile(join(repo.project, "limit.ts"), "export const limit = 99;\n");
+    repo.git(repo.project, "commit", "-qam", "later target work");
+    repo.git(repo.project, "switch", "-q", "-c", "other-work");
+    const restarted = await hosts(repo.stateDir);
+    for (let refresh = 0; refresh < 3; refresh++) {
+      const completed = await read(restarted);
+      expect(completed).toHaveLength(1);
+      expect(completed[0]).toMatchObject({ state: "merged", target: "main" });
+      expect(countReviews(completed)).toMatchObject({ ready: 0, conflicts: 0, merged: 1 });
+    }
+
+    // A completed commit does not hide pending files on the same branch.
+    await writeFile(join(repo.worktree, "new.ts"), "new work\n");
+    expect(await read(restarted)).toEqual([expect.objectContaining({ state: "ready", uncommitted: 1 })]);
+    await rm(join(repo.worktree, "new.ts"));
+    expect(countReviews(await read(restarted))).toMatchObject({ ready: 0, merged: 1 });
+
+    // Cleanup preserves completed history even when the next read has no branch.
+    await restarted.invoke("local-review-remove", { workspace, threadId: "t1", title: "Rate limit" });
+    const afterCleanup = await hosts(repo.stateDir);
+    expect(await read(afterCleanup)).toEqual([expect.objectContaining({ state: "merged", title: "Rate limit" })]);
+
+    // Reusing a branch name for actual new work must reopen the review.
+    repo.git(repo.project, "worktree", "add", "-q", "-b", "tau/rate-limit", repo.worktree, "main");
+    await writeFile(join(repo.worktree, "new.ts"), "new work\n");
+    repo.git(repo.worktree, "add", "-A");
+    repo.git(repo.worktree, "commit", "-qm", "new branch work");
+    const afterReuse = await hosts(repo.stateDir);
+    expect(await read(afterReuse)).toEqual([expect.objectContaining({ state: "ready", target: "main" })]);
+  });
+
   it("lists a thread's worktree branch against the main checkout's, and merges it with a merge commit", async () => {
     const repo = await fixture();
     const { invoke, events } = await hosts(repo.stateDir);

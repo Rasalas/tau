@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
 
 interface Layer {
   /** When it opened; a parent renders before its child, so the child is higher. */
@@ -13,6 +13,7 @@ interface Layer {
  */
 const layers: Layer[] = [];
 let opened = 0;
+const pointerLayers = new WeakMap<Event, number>();
 
 function onKeyDown(event: KeyboardEvent): void {
   if (event.key !== "Escape" || event.defaultPrevented) return;
@@ -24,7 +25,7 @@ function onKeyDown(event: KeyboardEvent): void {
 }
 
 /** Closes this overlay on Escape while it is `active` and the topmost one. */
-export function useEscapeLayer(onClose: () => void, active = true): void {
+export function useEscapeLayer(onClose: () => void, active = true): (event?: Event) => boolean {
   const close = useRef(onClose);
   close.current = onClose;
   // Taken while rendering, when it opens: a parent renders before its child.
@@ -42,4 +43,14 @@ export function useEscapeLayer(onClose: () => void, active = true): void {
       if (layers.length === 0) window.removeEventListener("keydown", onKeyDown, true);
     };
   }, [active]);
+  return useCallback((event?: Event) => {
+    let top = event ? pointerLayers.get(event) : undefined;
+    if (top === undefined) {
+      top = layers.reduce((highest, layer) => Math.max(highest, layer.order), 0);
+      if (event) pointerLayers.set(event, top);
+    }
+    // A pointer event belongs to the layer it started in, even if a handler
+    // closes that layer before another outside listener receives the event.
+    return wasActive.current && top === order.current;
+  }, []);
 }

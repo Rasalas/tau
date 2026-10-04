@@ -12,7 +12,9 @@ export type { WorkspaceResourceOrigin } from "../workbench/stage";
 export interface WorkspaceResources {
   readonly origin?: WorkspaceResourceOrigin;
   readonly available: boolean;
+  readonly displayPath?: string;
   loadFile(relativePath: string): Promise<UiFileContent>;
+  loadVisualization?(relativePath: string, theme: "light" | "dark"): Promise<{ url: string; release?: () => void }>;
   openFile(relativePath: string): void;
 }
 
@@ -73,7 +75,13 @@ export function WorkspaceResourceProvider({ sessionId, workspace, displayPath, c
     const lease = { active: true };
     const load = bindWorkspaceFileLoader(source, origin);
     const value: WorkspaceResources = {
-      origin, available: Boolean(origin),
+      origin, available: Boolean(origin), displayPath,
+      loadVisualization: async (path, theme) => {
+        if (!lease.active || !origin || !source?.loadVisualization) throw new Error("This host does not support inline visualizations.");
+        const result = await source.loadVisualization(resourceRelativePath(path), { workspace: origin.workspace }, theme);
+        if (!lease.active) { result.release?.(); throw new Error(RESOURCE_UNAVAILABLE); }
+        return result;
+      },
       loadFile: async (path) => {
         if (!lease.active) throw new Error(RESOURCE_UNAVAILABLE);
         const file = await load(path);
@@ -87,7 +95,7 @@ export function WorkspaceResourceProvider({ sessionId, workspace, displayPath, c
       },
     };
     return { value, lease };
-  }, [client, sessionId, source, workspace, workbench?.openWorkspaceFile]);
+  }, [client, displayPath, sessionId, source, workspace, workbench?.openWorkspaceFile]);
   useEffect(() => {
     resources.lease.active = true;
     return () => { resources.lease.active = false; };

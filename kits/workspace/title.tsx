@@ -1,25 +1,66 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
-import { ChevronDown, ChevronRight, Download, Ellipsis, GitCommitHorizontal, GitCompare, SquarePen, Upload } from "lucide-react";
-import { hostAvailable, Menu, tooltipProps, useHostCapabilities, usePreferences, type MenuSection, type RegionProps } from "tau";
+import { ChevronDown, ChevronRight, Download, Ellipsis, GitCommitHorizontal, GitCompare, GitBranch, FolderGit2, SquareMenu, SquarePen, Upload } from "lucide-react";
+import { hostAvailable, Menu, Popover, tooltipProps, useHostCapabilities, usePreferences, type MenuSection, type RegionProps } from "tau";
+import { ThreadBranch } from "./branch-menu.js";
 import { EditorIcon } from "./EditorIcon.js";
 import { pickProjectAction, ProjectActionEditor, ProjectActionsControl, projectActionItems, useProjectActions } from "./project-actions.js";
 import { resolveGitQuickAction, type GitQuickActionKind } from "./actions.js";
 import { useWorkspaceKit, useWorkspaceStore } from "./store-context.js";
-import { titleCollapse, useTitleCollapse, type TitleCollapse } from "./title-collapse.js";
+import { type TitleCollapse } from "./title-collapse.js";
 import type { ThreadChangesCount } from "./thread-changes.js";
 
-/**
- * The thread header's controls Workspace Kit owns, as in the workbench design:
- * the project actions, "N files changed ›", which opens the review, and the Git
- * quick action. Core's header only lends the place; the row collapses itself
- * to the room it gets. A draft's header shows none of them. "Open in" is the stage strip's (`WorkspaceEditorButton`).
- */
-export function WorkspaceTitleActions(props: RegionProps) {
-  const row = useRef<HTMLDivElement>(null);
-  const level = useTitleCollapse(row);
-  // A new thread has nothing of its own to run or commit yet (design 1k).
-  if (useWorkspaceKit().draftPending) return null;
-  return <TitleActionsRow {...props} row={row} collapse={titleCollapse(level)} />;
+/** Workspace Kit context and actions, placed by core beside the conversation. */
+export function WorkspaceTitleActions(props: RegionProps & { hideChanges?: boolean }) {
+  const state = useWorkspaceKit();
+  const workspaceStore = useWorkspaceStore();
+  const { readOnly } = useHostCapabilities();
+  const projectActions = useProjectActions(state.workspaceId ?? state.cwd, (command, includeInContext, name) => void workspaceStore.runShellAction(command, includeInContext, name));
+  const changed = state.changes.fileCount ?? state.changes.files.length;
+  if (!state.cwd) return null;
+  const worktree = state.workspace?.worktrees.find((entry) => entry.isCurrent && !entry.isMain);
+  return <section className="workspace-summary-card" aria-label="Project workspace">
+    {worktree ? <header className="workspace-card-row workspace-card-identity"><FolderGit2 aria-hidden /><span className="workspace-card-label" title={worktree.path}>{worktree.name}</span><span className="workspace-card-accessory">Worktree</span></header> : null}
+    <div className="workspace-card-tools" role="group" aria-label="Project tools">
+      <WorkspaceEditorButton {...props} />
+      {!state.draftPending && !readOnly ? <ProjectActionsControl state={projectActions} card /> : null}
+    </div>
+    <div className="workspace-card-checkout" role="group" aria-label="Checkout">
+      <div className="workspace-summary-branch">{state.draftPending ? <span className="workspace-card-row"><GitBranch aria-hidden /><span className="workspace-card-label">{state.workspace?.branch || "New worktree"}</span></span> : <ThreadBranch {...props} card />}</div>
+      {!state.draftPending ? <TitleActionsRow {...props} hideActions hideChanges collapse={{ actions: "label", changes: "label", git: "label" }} /> : null}
+    </div>
+    {!state.draftPending ? (state.workspaceSummarySections ?? []).map((Section, index) => <Section key={index} {...props} />) : null}
+    {!state.draftPending && !props.hideChanges ? <button type="button" className="workspace-changes-link workspace-card-row workspace-card-changes" {...tooltipProps("Review working-tree changes")} aria-label={`${changed} ${changed === 1 ? "file" : "files"} changed`} onClick={() => workspaceStore.showChangedFiles()}>
+      <GitCompare aria-hidden /><span className="workspace-card-label">Changes</span><span className="workspace-card-deltas" aria-label={`Working tree: ${state.changes.added} additions, ${state.changes.removed} deletions`}><span className="added">+{state.changes.added}</span><span className="removed">−{state.changes.removed}</span></span><span className="workspace-card-tail"><ChevronRight size={16} /></span>
+    </button> : null}
+  </section>;
+}
+
+/** Project context stays in the stage's existing strip while documents are open. */
+export function WorkspaceStageContext(props: RegionProps) {
+  const state = useWorkspaceKit();
+  const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLButtonElement>(null);
+  useEffect(() => setOpen(false), [state.cwd]);
+  useEffect(() => {
+    const trigger = anchor.current;
+    if (!open || !trigger) return undefined;
+    const closeHidden = () => { if (trigger.getBoundingClientRect().width === 0) setOpen(false); };
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(closeHidden);
+    observer?.observe(trigger);
+    window.addEventListener("resize", closeHidden);
+    return () => { observer?.disconnect(); window.removeEventListener("resize", closeHidden); };
+  }, [open]);
+  if (!state.cwd) return null;
+  const active = props.actions.activeStageTab?.();
+  const diffActive = active?.kind === "panel" && active.panelId === "review.diff";
+  return <div className="workspace-stage-context">
+    <button ref={anchor} type="button" className="stage-tool workspace-project-trigger" aria-label="Project actions" {...tooltipProps("Project actions", { side: "bottom" })} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+      <SquareMenu size={16} aria-hidden />
+    </button>
+    {open ? <Popover anchor={anchor} align="end" label="Project actions" className="workspace-project-menu" onClose={() => setOpen(false)}>
+      <WorkspaceTitleActions {...props} hideChanges={diffActive} />
+    </Popover> : null}
+  </div>;
 }
 
 const EDITOR_PREFIX = "editor:";
@@ -61,7 +102,7 @@ export function WorkspaceEditorButton(_props: RegionProps) {
       aria-label="Open"
       {...tooltipProps(label, { side: "bottom", ...(activeEditor ? { shortcut: mac ? "⌘O" : "Ctrl+O" } : {}) })}
       onClick={() => activeEditor && void workspaceStore.openInEditor(undefined, activeEditor.id)}
-    >{activeEditor ? <EditorIcon editorId={activeEditor.id} className="editor-icon" /> : <SquarePen size={16} />}</button>
+    >{activeEditor ? <EditorIcon editorId={activeEditor.id} className="editor-icon" /> : <SquarePen size={16} />}<span>{activeEditor ? `Open in ${activeEditor.name}` : "Open in editor"}</span></button>
     <button
       type="button"
       className="stage-tool workspace-editor-choose"
@@ -107,7 +148,7 @@ function useThreadChanges(sessionId: string | undefined): ThreadChangesCount | u
   return count?.sessionId === sessionId ? count?.value : undefined;
 }
 
-export function TitleActionsRow({ collapse, row, snapshot }: RegionProps & { collapse: TitleCollapse; row?: RefObject<HTMLDivElement | null> }) {
+export function TitleActionsRow({ collapse, row, snapshot, hideChanges = false, hideActions = false }: RegionProps & { hideChanges?: boolean; hideActions?: boolean; collapse: TitleCollapse; row?: RefObject<HTMLDivElement | null> }) {
   const workspaceStore = useWorkspaceStore();
   const state = useWorkspaceKit();
   const threadChanges = useThreadChanges(snapshot?.sessionId);
@@ -127,7 +168,7 @@ export function TitleActionsRow({ collapse, row, snapshot }: RegionProps & { col
   };
 
   // A Read-only device runs nothing and changes no branch (ADR 0024); both are left out.
-  const showActions = !readOnly;
+  const showActions = !readOnly && !hideActions;
   const gitItems = [
     {
       id: "review",
@@ -186,7 +227,7 @@ export function TitleActionsRow({ collapse, row, snapshot }: RegionProps & { col
 
       {gitInMenu ? null : more}
 
-      {changed > 0 ? <button
+      {!hideChanges && changed > 0 ? <button
         type="button"
         className="workspace-changes-link"
         {...tooltipProps(others > 0 ? `Review the changes; ${others} more uncommitted ${others === 1 ? "file is" : "files are"} not this thread's` : threadChanges?.scope === "branch" ? "Review the changes; committed ones on this branch count too" : "Review the changes", { side: "bottom" })}

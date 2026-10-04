@@ -1,4 +1,4 @@
-import { createContext, useContext, useSyncExternalStore, type ReactNode } from "react";
+import { createContext, useContext, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { AppUpdate } from "./app-update";
 import type { RendererServices } from "./renderer-services";
 import type { PreferencesStore } from "./preferences";
@@ -26,4 +26,20 @@ const noSubscription = () => () => {};
 export function useAppUpdate(): AppUpdate | undefined {
   const store = useContext(RendererServicesReactContext)?.appUpdate;
   return useSyncExternalStore(store?.subscribe ?? noSubscription, store?.getSnapshot ?? noUpdate);
+}
+
+/** Diff presentation follows the same preferences in file tabs and review pages. */
+export function useDiffPresentation() {
+  const preferences = useContext(RendererServicesReactContext)?.preferences;
+  useSyncExternalStore(preferences?.subscribe ?? noSubscription, preferences?.getSnapshot ?? noUpdate);
+  const [localLayout, setLocalLayout] = useState<"unified" | "split">("unified");
+  const [localWrap, setLocalWrap] = useState(true);
+  const layout = preferences ? preferences.optionValue("tau.review", "split-diff", false) ? "split" : "unified" : localLayout;
+  const wrap = preferences ? preferences.optionValue("tau.review", "diff-word-wrap", true) : localWrap;
+  return {
+    layout,
+    wrap,
+    setLayout: (next: "unified" | "split") => { if (preferences) preferences.setOption("tau.review", "split-diff", next === "split"); else setLocalLayout(next); },
+    setWrap: (next: boolean) => { if (preferences) preferences.setOption("tau.review", "diff-word-wrap", next); else setLocalWrap(next); },
+  };
 }

@@ -1,6 +1,7 @@
 import { Suspense, lazy } from "react";
 import { GitCompare } from "lucide-react";
 import { THREAD_PULL_REQUESTS_SERVICE, getClientStorage, type DesktopExtension, type PanelProps, type RegionProps } from "tau";
+import { createWorkspaceRequestSummary } from "./workspace-summary.js";
 import { threadPullRequestsService } from "./pull-requests-service.js";
 import { COMMIT_MESSAGE_OPTIONS, registerCommitMessages } from "./commit-messages.js";
 import { ReviewCommentStore } from "./comments.js";
@@ -12,6 +13,7 @@ import {
   REVIEW_COMPACT_PANEL,
   REVIEW_HOST_EXTENSION_ID,
   REVIEW_OVERLAY,
+  REVIEW_DIFF_PANEL,
   WORKSPACE_HOST_EXTENSION_ID,
   WORKSPACE_CHANGES_PANEL,
   WORKSPACE_STORE_SERVICE,
@@ -163,10 +165,16 @@ export const reviewExtension: DesktopExtension = {
     });
     const releaseProactive = plugin.registerRegion({ id: "review.proactive-panels", placement: "title-bar", profiles: ["desktop"], Component: createProactivePanels(plugin, links, () => workspaceStore) });
     // Below the runtime banners, Pi's widgets and quick actions; above Thread Rail's settled note (90), which sits on the composer.
-    const releaseStrip = plugin.registerRegion({ id: "review.pull-request-strip", placement: "composer-above", order: 80, profiles: ["desktop", "web"], Component: createPullRequestStrip({ rows, links, preferences: plugin.preferences, client }) });
+    const Strip = createPullRequestStrip({ rows, links, preferences: plugin.preferences, client });
+    const registerStrip = (summaryAvailable: boolean) => plugin.registerRegion({ id: "review.pull-request-strip", placement: "composer-above", order: 80, profiles: summaryAvailable ? ["web"] : ["desktop", "web"], Component: Strip });
+    let releaseStrip = registerStrip(false);
     const releaseStore = plugin.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => {
       workspaceStore = store;
+      const summaryAvailable = Boolean(store.registerWorkspaceSummarySection);
+      if (summaryAvailable) { releaseStrip(); releaseStrip = registerStrip(true); }
+      const StageReview = createReviewOverlay(plugin, workspace, store, comments, () => chips, true);
       const disposers = [
+        plugin.registerPanel({ id: REVIEW_DIFF_PANEL, label: "Diff", Icon: GitCompare, order: 20, stageButton: true, maximizable: true, profiles: ["desktop"], Component: ({ actions }) => <StageReview actions={actions} onClose={() => actions.closePanel?.(REVIEW_DIFF_PANEL)} /> }),
         plugin.registerOverlay({ id: REVIEW_OVERLAY, profiles: ["desktop"], Component: createReviewOverlay(plugin, workspace, store, comments, () => chips) }),
         // The Changes rail entry opens this review, which carries the panel's commit, staging and sections.
         store.registerReviewView?.() ?? (() => undefined),
@@ -178,10 +186,11 @@ export const reviewExtension: DesktopExtension = {
         plugin.registerKeybinding({ keys: "mod+d", commandId: "review.toggle", when: "!terminalFocus" }),
         registerCommitMessages(plugin, store),
         store.registerChangesSection(createRequestSection(plugin, store, requests, rows, { rows: links, client, dialogs: shared.dialogs })),
+        store.registerWorkspaceSummarySection?.(createWorkspaceRequestSummary(store, rows, links, client)) ?? (() => undefined),
         store.registerThreadRowAccessory(createRequestBadge(rows, links)),
         store.registerThreadCardSection?.({ place: "section", order: 10, Component: createRequestCardSection(rows, links) }) ?? (() => undefined),
       ];
-      return () => { if (workspaceStore === store) workspaceStore = undefined; for (const dispose of disposers.reverse()) dispose(); };
+      return () => { if (workspaceStore === store) workspaceStore = undefined; for (const dispose of disposers.reverse()) dispose(); if (summaryAvailable) { releaseStrip(); releaseStrip = registerStrip(false); } };
     });
     return () => { releaseStore(); releaseStrip(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
   },

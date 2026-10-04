@@ -86,10 +86,10 @@ describe("ReviewMode", () => {
     expect(screen.getByText("1/1 viewed")).toBeTruthy();
     expect(JSON.parse(storage.get("tau.review.v1:/repo:worktree") ?? "{}")).toEqual({ readPaths: ["src/a.ts"] });
 
-    fireEvent.click(screen.getByRole("button", { name: "Branch changes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Branch vs target" }));
     await waitFor(() => expect(loadChanges).toHaveBeenCalledWith({ scope: "branch" }));
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith("src/b.ts"));
-    expect(await screen.findByText("from main")).toBeTruthy();
+    expect(await screen.findByText("feat/review → main")).toBeTruthy();
     expect(screen.getByRole("link", { name: "PR #42" }).getAttribute("href")).toBe("https://github.com/acme/tau/pull/42");
   });
 

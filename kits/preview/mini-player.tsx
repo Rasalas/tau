@@ -1,19 +1,17 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AppWindow, ArrowUpToLine, Bot, Globe, PanelRight, X } from "lucide-react";
-import { errorMessage, READ_ONLY_REASON, tooltipProps, useClientStorage, useCommandAllowed, useThreadStore, type PreferencesStore, type RegionProps, type WorkbenchActions } from "tau";
+import { errorMessage, READ_ONLY_REASON, tooltipProps, useCommandAllowed, useThreadStore, type PreferencesStore, type RegionProps, type WorkbenchActions } from "tau";
 import { AgentCursorLayer } from "./agent-cursor.js";
-import { PREVIEW_HOST_EXTENSION_ID, type PreviewDriver, type PreviewMiniCorner, type PreviewMiniPrefs, type PreviewState } from "./protocol.js";
+import { PREVIEW_HOST_EXTENSION_ID, type PreviewDriver, type PreviewMiniCorner, type PreviewState } from "./protocol.js";
 import type { ComputerUseScreenService, ScreenState } from "./screen-protocol.js";
 import { previewView, screenService } from "./screen-store.js";
 import { PREVIEW_PANEL, drawsFrames, panelShown, previewKit, usePreviewState } from "./store.js";
 import { floatingEnabled } from "./settings.js";
 import { useLiveFrames, type LiveFrameAnswer, type LiveFrameSource } from "./live-frames.js";
 import { screenFrameSource } from "./screen-frames.js";
-import { loadDeviceMiniPrefs, saveDeviceMiniPrefs } from "./mini-prefs.js";
 
 /** How much a hover enlarges the player, before the room around it caps it. */
 const HOVER_SCALE = 2.5;
-const EDGE = 12;
 const HEADER = 26;
 const TALLEST = 3 / 4;
 export const MINI_WIDTH = { min: 160, max: 560 } as const;
@@ -48,43 +46,6 @@ export function enlargedWidth(width: number, aspect: number, insets: MiniInsets,
   return Math.max(width, Math.round(Math.min(width * HOVER_SCALE, room, tall)));
 }
 
-/**
- * Where the player may go: the chat column, above the composer. The region's
- * next sibling is the composer, which grows while a turn runs.
- */
-function useInsets(anchor: React.RefObject<HTMLElement | null>): MiniInsets | undefined {
-  const [insets, setInsets] = useState<MiniInsets | undefined>();
-  useLayoutEffect(() => {
-    const element = anchor.current;
-    const slot = element?.parentElement;
-    const column = element?.closest(".conversation-column") ?? document.body;
-    if (!element || !slot) return undefined;
-    const measure = () => {
-      const area = column.getBoundingClientRect();
-      const composerTop = (slot.nextElementSibling ?? slot).getBoundingClientRect().top;
-      const next = {
-        top: Math.round(area.top + EDGE),
-        left: Math.round(area.left + EDGE),
-        right: Math.round(window.innerWidth - area.right + EDGE),
-        bottom: Math.round(window.innerHeight - Math.min(area.bottom, composerTop) + EDGE),
-      };
-      setInsets((current) => current && JSON.stringify(current) === JSON.stringify(next) ? current : next);
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(column);
-    observer.observe(slot);
-    if (slot.nextElementSibling) observer.observe(slot.nextElementSibling);
-    if (slot.parentElement) observer.observe(slot.parentElement);
-    window.addEventListener("resize", measure);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", measure);
-    };
-  }, [anchor]);
-  return insets;
-}
-
 /** A frame of the page from the host, at the width the player draws. */
 const pageFrames: LiveFrameSource = async (maxWidth, since) =>
   await previewKit["live-frame"]({ maxWidth, ...(since ? { since } : {}) }) as LiveFrameAnswer;
@@ -106,34 +67,35 @@ function useScreenState(service: ComputerUseScreenService | undefined, threadId:
   return state?.threadId === threadId ? state : undefined;
 }
 
-type Gesture = { kind: "move" | "resize"; pointerId: number; x: number; y: number; width: number };
 
-/**
- * The floating preview: a picture of the page or window an agent drives
- * while the Preview panel is out of sight. It only shows: a click on the
- * picture opens the Preview, never the page under it. Hover enlarges it;
- * dragging the header moves it to another corner, its inner edge resizes
- * it, and this device remembers both for itself (a phone and a laptop have
- * different room for it).
- */
-function MiniPlayer({ driver, state, screenState, insets, actions }: { driver: PreviewDriver; state: PreviewState; screenState?: ScreenState; insets: MiniInsets; actions: WorkbenchActions }) {
+/** A frame of the agent-driven browser or window in the workbench preview region. */
+function MiniPlayer({ driver, state, screenState, actions }: { driver: PreviewDriver; state: PreviewState; screenState?: ScreenState; actions: WorkbenchActions }) {
   const service = screenService.use();
   const screen = driver.source === "screen";
-  const storage = useClientStorage();
-  // A device that never moved the player starts where the host kept it for every client before.
-  const [prefs, setPrefs] = useState<PreviewMiniPrefs>(() => loadDeviceMiniPrefs(storage, state.mini));
-  const keep = (next: PreviewMiniPrefs) => {
-    setPrefs(next);
-    saveDeviceMiniPrefs(storage, next);
-  };
   const mayDismiss = useCommandAllowed(PREVIEW_HOST_EXTENSION_ID, "mini-dismiss");
-  const [drag, setDrag] = useState<{ dx: number; dy: number } | undefined>();
-  const [resizing, setResizing] = useState(false);
   const [error, setError] = useState("");
-  const gesture = useRef<Gesture | undefined>(undefined);
 
+  const [touch, setTouch] = useState(() => typeof window.matchMedia === "function" && window.matchMedia("(hover: none), (pointer: coarse)").matches);
+  const [controlsShown, setControlsShown] = useState(false);
+  const [keyboardFocus, setKeyboardFocus] = useState(false);
+  const hideControls = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const lastPointer = useRef("");
+  const revealControls = () => {
+    setControlsShown(true);
+    if (hideControls.current) clearTimeout(hideControls.current);
+    hideControls.current = setTimeout(() => { setControlsShown(false); hideControls.current = undefined; }, 4_000);
+  };
+  useEffect(() => {
+    const query = typeof window.matchMedia === "function" ? window.matchMedia("(hover: none), (pointer: coarse)") : undefined;
+    const update = () => setTouch(Boolean(query?.matches));
+    query?.addEventListener?.("change", update);
+    return () => {
+      query?.removeEventListener?.("change", update);
+      if (hideControls.current) clearTimeout(hideControls.current);
+    };
+  }, []);
   const body = useRef<HTMLButtonElement>(null);
-  // Sized to what the player draws, so the hover's larger picture asks for a larger frame.
+  // Ask for frames at the width the dock draws.
   const source = useMemo(() => screen
     ? service ? screenFrameSource(service, driver.threadId) : undefined
     : pageFrames, [screen, service, driver.threadId, screenState?.window?.pid, screenState?.window?.windowId]);
@@ -160,64 +122,30 @@ function MiniPlayer({ driver, state, screenState, insets, actions }: { driver: P
   const natural = picture ? picture.width / Math.max(1, picture.height) : 16 / 10;
   const cropped = !screen && natural < TALLEST;
   const aspect = cropped ? TALLEST : natural;
-  const large = enlargedWidth(prefs.width, aspect, insets, { width: window.innerWidth, height: window.innerHeight });
-  const [vertical, horizontal] = prefs.corner.split("-") as ["top" | "bottom", "left" | "right"];
-
-  const begin = (kind: Gesture["kind"]) => (event: ReactPointerEvent<HTMLElement>) => {
-    if (event.button !== 0 || (kind === "move" && (event.target as Element).closest("button"))) return;
-    gesture.current = { kind, pointerId: event.pointerId, x: event.clientX, y: event.clientY, width: prefs.width };
-    if (kind === "resize") setResizing(true);
-    event.currentTarget.setPointerCapture(event.pointerId);
-    event.preventDefault();
-  };
-  const move = (event: ReactPointerEvent<HTMLElement>) => {
-    const current = gesture.current;
-    if (!current || current.pointerId !== event.pointerId) return;
-    const dx = event.clientX - current.x;
-    const dy = event.clientY - current.y;
-    if (current.kind === "move") setDrag({ dx, dy });
-    else {
-      const grown = current.width + (horizontal === "right" ? -dx : dx);
-      setPrefs((value) => ({ ...value, width: Math.round(Math.min(MINI_WIDTH.max, Math.max(MINI_WIDTH.min, grown))) }));
-    }
-  };
-  const end = (event: ReactPointerEvent<HTMLElement>) => {
-    const current = gesture.current;
-    if (!current || current.pointerId !== event.pointerId) return;
-    gesture.current = undefined;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    setResizing(false);
-    if (current.kind === "move") {
-      // Where the header is let go says the corner; a tall card's centre barely moves.
-      const corner = nearestCorner({ x: event.clientX, y: event.clientY }, { ...insets, width: window.innerWidth, height: window.innerHeight });
-      setDrag(undefined);
-      keep({ ...prefs, corner });
-    } else {
-      keep(prefs);
-    }
-  };
-
-  const style: React.CSSProperties & Record<`--${string}`, string> = {
-    [vertical]: `${insets[vertical]}px`,
-    [horizontal]: `${insets[horizontal]}px`,
-    // CSS enlarges it on hover and focus; while dragged it keeps the width being set.
-    "--mini-width": `${prefs.width}px`,
-    "--mini-large": `${large}px`,
-    "--mini-aspect": `${aspect}`,
-    ...(drag ? { transform: `translate(${drag.dx}px, ${drag.dy}px)` } : {}),
-  };
+  const style = { "--mini-aspect": `${aspect}` } as React.CSSProperties;
 
   return <section
-    className={`preview-mini ${prefs.corner}${drag || resizing ? " dragging" : ""}`}
+    className="preview-mini preview-docked"
     style={style}
-    aria-label="Floating preview"
+    aria-label="Agent preview"
     data-preview-mini={driver.source}
+    data-touch-preview={touch || undefined}
+    data-touch-controls={controlsShown || keyboardFocus || undefined}
+    onPointerDownCapture={(event) => {
+      lastPointer.current = event.pointerType;
+      setKeyboardFocus(false);
+      if (event.pointerType === "mouse" && typeof window.matchMedia === "function" && !window.matchMedia("(hover: none), (pointer: coarse)").matches) { setTouch(false); return; }
+      if (touch || event.pointerType === "touch") { setTouch(true); revealControls(); }
+    }}
+    onKeyDownCapture={() => { lastPointer.current = ""; setKeyboardFocus(true); }}
+    onFocusCapture={(event) => { if (lastPointer.current !== "touch" || event.target.matches(":focus-visible")) setKeyboardFocus(true); }}
+    onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setKeyboardFocus(false); }}
     onPointerEnter={() => frames.poke()}
     onFocus={() => frames.poke()}
   >
-    <header className="preview-mini-head" onPointerDown={begin("move")} onPointerMove={move} onPointerUp={end} onPointerCancel={end}>
+    <header className="preview-mini-head">
       <span className="preview-mini-source" aria-label={sourceTitle} {...tooltipProps(sourceTitle, { side: "bottom" })}>
-        {screen ? <AppWindow size={12} /> : <Globe size={12} />}
+        {screen ? <AppWindow size={12} /> : <Globe size={12} />}<span>{sourceTitle}</span>
       </span>
       <button
         type="button"
@@ -238,31 +166,20 @@ function MiniPlayer({ driver, state, screenState, insets, actions }: { driver: P
         onClick={() => run(async () => { await service?.bringToFront(driver.threadId); })}
       ><ArrowUpToLine size={12} /></button> : null}
       <button type="button" className="icon-button compact" aria-label="Open in Preview" {...tooltipProps("Open in Preview", { side: "bottom" })} onClick={openInPreview}><PanelRight size={12} /></button>
-      <button type="button" className="icon-button compact" aria-label="Hide the floating preview" disabled={!mayDismiss} {...tooltipProps(mayDismiss ? "Hide until an agent drives again" : READ_ONLY_REASON, { side: "bottom" })} onClick={() => run(() => previewKit["mini-dismiss"]())}><X size={12} /></button>
+      <button type="button" className="icon-button compact" aria-label="Hide the agent preview" disabled={!mayDismiss} {...tooltipProps(mayDismiss ? "Hide until an agent drives again" : READ_ONLY_REASON, { side: "bottom" })} onClick={() => run(() => previewKit["mini-dismiss"]())}><X size={12} /></button>
     </header>
-    <button ref={body} type="button" className={cropped ? "preview-mini-body cropped" : "preview-mini-body"} aria-label={`Open in Preview: ${sourceTitle}`} onClick={openInPreview}>
+    <button ref={body} type="button" className={cropped ? "preview-mini-body cropped" : "preview-mini-body"} aria-label={`${touch ? "Show preview controls" : "Open in Preview"}: ${sourceTitle}`} onClick={() => { if (touch || lastPointer.current === "touch") revealControls(); else openInPreview(); }}>
       {picture ? <img src={picture.url} alt="" draggable={false} /> : <span className="preview-mini-waiting">Waiting for a picture…</span>}
       {screen && screenState ? <AgentCursorLayer actions={screenState.actions} {...(screenState.frame ? { space: { width: screenState.frame.width, height: screenState.frame.height } } : {})} /> : null}
     </button>
     {error ? <div className="preview-mini-error" role="status">{error}</div> : null}
-    <span
-      className={`preview-mini-resize ${horizontal === "left" ? "right" : "left"}`}
-      role="presentation"
-      onPointerDown={begin("resize")}
-      onPointerMove={move}
-      onPointerUp={end}
-      onPointerCancel={end}
-    />
+
   </section>;
 }
 
-/**
- * The region that holds the floating preview. It sits above the composer,
- * where it measures the chat column, and draws the player fixed over it.
- */
+/** Watches the host driver without opening or switching the user's stage. */
 export function createMiniPlayerRegion(preferences: PreferencesStore) {
   return function PreviewMiniPlayer({ actions }: RegionProps) {
-    const anchor = useRef<HTMLSpanElement>(null);
     const state = usePreviewState();
     const shown = panelShown.use();
     const screen = screenService.use();
@@ -270,10 +187,8 @@ export function createMiniPlayerRegion(preferences: PreferencesStore) {
     const driver = miniPlayerShown(state, { enabled, panelShown: shown, screen: Boolean(screen) });
     const screenState = useScreenState(screen, driver?.source === "screen" ? driver.threadId : undefined);
     const ready = driver && (driver.source === "browser" || screenState?.window);
-    const insets = useInsets(anchor);
     return <>
-      <span ref={anchor} className="preview-mini-anchor" aria-hidden="true" />
-      {ready && driver && insets ? <MiniPlayer screenState={screenState} key={`${driver.threadId}:${driver.source}`} driver={driver} state={state} insets={insets} actions={actions} /> : null}
+      {ready && driver ? <MiniPlayer screenState={screenState} key={`${driver.threadId}:${driver.source}`} driver={driver} state={state} actions={actions} /> : null}
     </>;
   };
 }

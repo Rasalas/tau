@@ -13,7 +13,7 @@ import { VirtualTranscript } from "./VirtualTranscript";
 import { LiveStatus } from "./ComposerHost";
 import { WorkGroup } from "./WorkRows";
 import { WorkDisclosures } from "./work-disclosures";
-import type { TranscriptActivity } from "./transcript-activity";
+import { completedWorkMetadata, type TranscriptActivity } from "./transcript-activity";
 import { WorkspaceResourceProvider } from "../workspace-resource-context";
 
 /** How often a streaming thread's tab re-reads its transcript. An idle tab polls nothing. */
@@ -93,6 +93,7 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver, registry }: 
     .map((entry) => ({
       id: entry.id,
       afterMessageId: entry.anchorMessageId,
+      ...completedWorkMetadata(entry.tools, entry.status === "completed", (tool) => Boolean(registry.toolCardFor(tool)), disclosures.openedInTurn(entry.tools[0]!.id)),
       fallbackToTail: entry.status === "running",
       content: <WorkGroup
         id={entry.id}

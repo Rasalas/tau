@@ -27,7 +27,8 @@ export function createElectronHostClient(api: TauDesktopApi): { client: HostClie
 }
 
 /**
- * In Electron the clipboard is the host's, because the host is this machine.
+ * In Electron clipboard commands are answered by the window's own process,
+ * even while a thread runs on another machine.
  * The main process turns a window-open request into `shell.openExternal`, so
  * `window.open` is how the renderer reaches the browser.
  */
@@ -39,8 +40,12 @@ export function createElectronPlatform(ports: ClientPlatformPorts): Platform {
   };
   return {
     clipboard: {
-      writeText: async (text) => { await ports.client?.copyText(text); },
-      writeImage: async (dataUrl) => { await ports.client?.copyImage(dataUrl); },
+      writeText: async (text) => {
+        if (client) { await client.copyText(text); return; }
+        if (!globalThis.navigator?.clipboard) throw new Error("This client cannot write to the clipboard.");
+        await navigator.clipboard.writeText(text);
+      },
+      ...(client ? { writeImage: async (dataUrl: string) => { await client.copyImage(dataUrl); } } : {}),
     },
     openExternal: (url) => { window.open(url, "_blank", "noopener,noreferrer"); },
     // A getter, not a field: the capability settles with the hello, which is

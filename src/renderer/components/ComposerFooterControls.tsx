@@ -28,8 +28,8 @@ const NO_SHORTCUTS: readonly string[] = [];
 
 const px = (value: string) => Number.parseFloat(value) || 0;
 
-/** A chip reduced to its icon: 8 px padding either side of a 13 px icon. Once drawn so, the real width counts. */
-const ICON_CHIP = 29;
+/** A chip reduced to its icon: a 32 px desktop target. Once drawn so, the real width counts. */
+const ICON_CHIP = 32;
 
 /** Width of the block with its chips reduced to their icons; a chip without an icon keeps its text. */
 function iconWidth(block: HTMLElement, natural: number): number {
@@ -164,7 +164,7 @@ export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = 
             {...(shortcuts.length > 0 ? { "data-composer-shortcut": shortcuts.join(" ") } : {})}
             onClick={() => setOpen((current) => !current)}
           >
-            <Ellipsis size={15} />
+            <Ellipsis size={16} />
           </button>
           {open ? (
             <ComposerMenuPopover sheet={document.body.dataset.profile === "compact" && window.innerWidth < 700} anchor={trigger} onClose={() => setOpen(false)}>

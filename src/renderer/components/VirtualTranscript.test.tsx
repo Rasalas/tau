@@ -9,6 +9,9 @@ import { TranscriptViewport } from "./TranscriptViewport";
 import { VirtualTranscript } from "./VirtualTranscript";
 import type { TranscriptActivity } from "./transcript-activity";
 import type { TranscriptDetail } from "../../workbench/transcript-folding";
+import { PlatformProvider } from "../platform-context";
+import { createMemoryStorage } from "../../workbench/client-storage";
+import type { Platform } from "../../workbench/platform";
 
 afterEach(async () => {
   cleanup();
@@ -185,6 +188,29 @@ function ActivityViewportFixture() {
 }
 
 describe("virtual transcript", () => {
+  it("places completed commentary and tools behind one disclosure, with the final answer prominent", async () => {
+    const messages: UiMessage[] = [
+      { id: "prompt", role: "user", text: "Check the parser", timestamp: 0 },
+      { id: "progress", sourceEntryId: "entry", role: "assistant", text: "I will read the parser", thinking: "Follow the input", timestamp: 1000 },
+      { id: "final", role: "assistant", text: "The parser handles escaped quotes", timestamp: 5000 },
+    ];
+    const activities = [{ id: "tools", afterMessageId: "entry", foldWithTurn: true, content: <div>Read parser.ts</div> }];
+    const view = render(<Fixture messages={messages} activities={activities} />);
+    await screen.findByText("The parser handles escaped quotes");
+    expect(screen.queryByText("I will read the parser")).toBeNull();
+    expect(screen.queryByText("Read parser.ts")).toBeNull();
+    expect(view.container.querySelectorAll(".work-fold-summary")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Worked for 5s" }));
+    await screen.findByText("I will read the parser");
+    await screen.findByText("Follow the input");
+    expect(screen.getByText("Read parser.ts")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Worked for 5s" }));
+    view.rerender(<Fixture messages={messages} activities={activities} detail="detailed" />);
+    await screen.findByText("I will read the parser");
+    view.rerender(<Fixture messages={messages} activities={activities} />);
+    expect(screen.getByRole("button", { name: "Worked for 5s" }).getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("draws a runtime's automatic retries as one failed row that retries the prompt", async () => {
     const failed = (id: string, error: string, timestamp: number): UiMessage => ({ id, role: "assistant", text: "", error, timestamp });
     const messages: UiMessage[] = [
@@ -764,18 +790,20 @@ describe("virtual transcript", () => {
       const messages: UiMessage[] = [
         { id: "msg-0", role: "assistant", text: "Some code answer\n```js\nconsole.log(123);\n```", timestamp: 1 },
       ];
-      const onCopyMessage = vi.fn();
+      const nativeCopy = vi.fn().mockResolvedValue(undefined);
+      const platform: Platform = { clipboard: { writeText: nativeCopy }, storage: createMemoryStorage(), importModule: vi.fn(), openExternal: vi.fn() };
+      const onCopyMessage = vi.fn((message: UiMessage) => { void platform.clipboard.writeText(message.text); });
       const writeText = vi.fn().mockResolvedValue(undefined);
       Object.assign(navigator, { clipboard: { writeText } });
 
-      const view = render(<Fixture messages={messages} onCopyMessage={onCopyMessage} />);
+      const view = render(<PlatformProvider platform={platform}><Fixture messages={messages} onCopyMessage={onCopyMessage} /></PlatformProvider>);
       const transcript = view.container.querySelector<HTMLElement>(".virtual-transcript")!;
 
       fireEvent.keyDown(transcript, { key: "j" });
       fireEvent.keyDown(transcript, { key: "y" });
 
-      expect(onCopyMessage).toHaveBeenCalledWith(messages[0]);
-      expect(writeText).toHaveBeenCalled();
+      expect(nativeCopy).toHaveBeenCalledExactlyOnceWith("console.log(123);");
+      expect(writeText).not.toHaveBeenCalled();
       view.unmount();
     });
 

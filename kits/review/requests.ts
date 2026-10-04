@@ -62,6 +62,7 @@ const ROW_TTL_MS = 60_000;
 export class RowRequests {
   private entries = new Map<string, { at: number; request?: ReviewRequest }>();
   private pending = new Set<string>();
+  private reread = new Set<string>();
   private listeners = new Set<() => void>();
 
   constructor(private readonly load: (workspace: string) => Promise<ReviewRequest | undefined>, private readonly now: () => number = Date.now) {}
@@ -75,15 +76,17 @@ export class RowRequests {
     return this.entries.get(workspace)?.request;
   }
 
-  ensure(workspace: string): void {
+  ensure(workspace: string, fresh = false): void {
     const entry = this.entries.get(workspace);
-    if (this.pending.has(workspace) || (entry && this.now() - entry.at < ROW_TTL_MS)) return;
+    if (this.pending.has(workspace)) { if (fresh) this.reread.add(workspace); return; }
+    if (!fresh && entry && this.now() - entry.at < ROW_TTL_MS) return;
     this.pending.add(workspace);
     void this.load(workspace)
       .catch(() => undefined)
       .then((request) => {
         this.pending.delete(workspace);
         this.set(workspace, request);
+        if (this.reread.delete(workspace)) this.ensure(workspace, true);
       });
   }
 

@@ -83,6 +83,8 @@ describe("a settled turn", () => {
     fireEvent.click(screen.getByRole("button", { name: /Worked for/u }));
     expect(screen.getByText("npm run broken")).toBeTruthy();
     expect(screen.getByRole("img", { name: "Failed: Exit code 1: npm error Missing script: broken" }).textContent).toBe("exit 1 · 1.0s");
+    expect(screen.getByText(/npm error Missing script: broken/u).closest(".tool-run-reason")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /npm run broken/u }));
     expect(screen.getByText(/npm error Missing script: broken/u).closest(".tool-output")).toBeTruthy();
   });
 

@@ -1086,30 +1086,6 @@ body[data-profile="compact"] .pr-verdict { min-height: var(--touch-target); padd
 .rvd-layout > button { padding: 2px 8px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font: var(--text-sm) var(--sans); cursor: pointer; }
 .rvd-layout > button.active { background: var(--rail); color: var(--ink); font-weight: 600; }
 .rvd-body { flex: 1; min-height: 0; overflow: auto; margin-left: var(--rv-gutter); border-radius: var(--radius-lg) 0 0 0; background: var(--rail); }
-.rvd-stack { display: flex; flex-direction: column; }
-/* Room under the last file, so a jump from the sidebar can put it at the top. */
-.rvd-stack::after { content: ""; display: block; height: 40vh; }
-.rvd-file { display: block; }
-.rvd-file + .rvd-file { margin-top: var(--space-5); }
-.rvd-file-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: var(--space-5); min-height: 36px; padding: 0 var(--space-7) 0 var(--space-3); background: var(--rail); color: var(--muted); font: var(--text-sm) var(--sans); border-bottom: 1px solid var(--line-soft); }
-.rvd-fold { min-width: 0; flex: 0 1 auto; display: inline-flex; align-items: center; gap: var(--space-3); height: 28px; padding: 0 var(--space-3); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink-2); cursor: pointer; }
-.rvd-fold:hover { background: var(--hover-strong); color: var(--ink); }
-.rvd-fold > svg { flex: none; color: var(--faint); }
-.rvd-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; font: var(--text-sm) var(--mono); }
-.rvd-from { color: var(--faint); font: var(--text-xs) var(--mono); white-space: nowrap; }
-.rvd-conflict { display: inline-flex; color: var(--warn); }
-.rvd-count { display: inline-flex; gap: 5px; margin-left: auto; font-variant-numeric: tabular-nums; }
-.rvd-count .stat-add, .rvd-count .stat-del { font: 600 var(--text-xs) var(--sans); }
-.rvd-open, .rvd-viewed { display: inline-flex; align-items: center; gap: 5px; border: 0; padding: 2px 6px; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font: var(--text-xs) var(--sans); white-space: nowrap; cursor: pointer; }
-.rvd-open:hover, .rvd-viewed:hover { background: var(--hover-strong); color: var(--ink); }
-.rvd-viewed.dismissed { color: var(--warn); }
-.rvd-diff { background: var(--stage); }
-/* A long file scrolls inside its card, where the diff view draws only the rows in view. */
-.rvd-diff.bounded { display: flex; flex-direction: column; height: min(70vh, 640px); }
-.rvd-file.folded .rvd-file-head { border-bottom-color: transparent; }
-.rvd-loading { min-height: 96px; background: var(--stage); }
-.rvd-note-line { margin: 0; padding: var(--space-5) var(--space-7); background: var(--stage); color: var(--muted); }
-.rvd-error { color: var(--danger); }
 .rvd-line-slot { padding: 2px var(--space-7) var(--space-3) 58px; }
 .rvd-note { display: flex; flex-direction: column; gap: var(--space-3); margin: 6px 0; padding: 10px 12px; border-radius: var(--radius-md); background: var(--rail); font: var(--text-md) var(--sans); color: var(--ink-2); }
 .rvd-note-body { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -1193,3 +1169,20 @@ body[data-profile="compact"] .pr-verdict { min-height: var(--touch-target); padd
 /* The foot reaches the screen's edge itself: no room under it for the diff to show through. */
 .rv-page.compact .rv-scroll:has(> .rv-detail) { padding-bottom: 0; }
 .rv-page.compact .rv-compose { margin-bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
+.workspace-request-summary { display: grid; min-width: 0; }
+.workspace-request-title { appearance: none; border: 0; background: transparent; color: inherit; font: inherit; display: flex; align-items: center; gap: 10px; min-height: 36px; min-width: 0; flex: 1; padding: 0 0 0 10px; text-align: left; cursor: pointer; }
+.workspace-request-checks-trigger { appearance: none; border: 0; background: transparent; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; gap: 0; min-height: 36px; padding: 0; cursor: pointer; }
+.workspace-request-checks-trigger:hover, .workspace-request-title:hover { color: var(--ink); }
+.workspace-request-checks-trigger.checks-passing { color: var(--ready); }
+.workspace-request-checks-trigger.checks-failing { color: var(--danger); }
+.workspace-request-checks-trigger.checks-error { color: var(--danger); }
+.workspace-request-checks-popover { width: min(380px, calc(100vw - 24px)); }
+.workspace-request-checks-popover > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.workspace-request-checks-popover .pl-vertical { max-height: 256px; overflow-y: auto; }
+.pl-vertical .pl-head { font: 500 var(--text-sm) var(--sans); }
+.pl-vertical-stage { display: grid; gap: 4px; }
+.pl-vertical-job { display: flex; align-items: center; gap: 8px; min-height: 32px; font: 500 var(--text-sm) var(--sans); }
+.pl-vertical-job .pl-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-vertical-state { color: var(--muted); }
+.workspace-check-details, .pl-vertical .pl-log { appearance: none; border: 0; background: transparent; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 4px; font: 500 var(--text-sm) var(--sans); cursor: pointer; }
+@media (pointer: coarse) { .workspace-request-title, .workspace-request-checks-trigger, .workspace-check-details, .pl-vertical .pl-log { min-height: 44px; } }

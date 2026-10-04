@@ -8,6 +8,9 @@ import { parseMarkdown, renderMarkdown, type MarkdownComponents, type MarkdownHt
 export type { MarkdownComponents } from "./markdown-pipeline";
 import { WorkbenchContext } from "../workbench-context";
 import { WorkspaceImage } from "./WorkspaceImage";
+import { InlineVisualization } from "./InlineVisualization";
+import { splitVisualizationMarkers } from "./visualization-markers";
+import { usePlatform } from "../platform-context";
 type LanguageDefinition = LanguageFn;
 
 // The core arrives with the first grammar: nothing highlights before one is loaded anyway.
@@ -221,6 +224,7 @@ function useDeferredHighlight(code: string, language: string | undefined, enable
 }
 
 function CodeBlock({ code, language, phase: givenPhase }: { code: string; language?: string; phase?: CodePhase }) {
+  const platform = usePlatform();
   const contextPhase = useContext(StreamedCodePhase);
   const phase = givenPhase ?? contextPhase;
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
@@ -266,9 +270,7 @@ function CodeBlock({ code, language, phase: givenPhase }: { code: string; langua
       setCopyState(state);
       window.setTimeout(() => setCopyState("idle"), 1400);
     };
-    const write = navigator.clipboard?.writeText(code);
-    if (!write) { settle("failed"); return; }
-    void write.then(() => settle("copied"), () => settle("failed"));
+    void platform.clipboard.writeText(code).then(() => settle("copied"), () => settle("failed"));
   };
 
   const wrapLabel = wrapped ? "Disable line wrap" : "Wrap lines";
@@ -433,7 +435,7 @@ export function isInlineMarkdown(text: string): boolean {
  * A message that streamed parses each completed block once and keeps those blocks after the stream ends.
  * `html` receives the raw HTML of finished text as `raw` nodes and decides what of it renders; without it HTML stays text.
  */
-export const Markdown = memo(function Markdown({ children, streaming = false, inlineStart = false, html, components }: { children: string; streaming?: boolean; inlineStart?: boolean; html?: MarkdownHtml; components?: MarkdownComponents }) {
+const MarkdownContent = memo(function MarkdownContent({ children, streaming = false, inlineStart = false, html, components }: { children: string; streaming?: boolean; inlineStart?: boolean; html?: MarkdownHtml; components?: MarkdownComponents }) {
   const resolved = useMemo(() => components ? { ...COMPONENTS, ...components } : COMPONENTS, [components]);
   const inline = useMemo(() => components ? { ...INLINE_COMPONENTS, ...components } : INLINE_COMPONENTS, [components]);
   const [streamed, setStreamed] = useState(streaming);
@@ -445,4 +447,14 @@ export const Markdown = memo(function Markdown({ children, streaming = false, in
     return <div className="markdown"><MarkdownTree components={resolved} html={html}>{children}</MarkdownTree></div>;
   }
   return <StreamedMarkdown text={children} live={streaming} components={resolved} />;
+});
+
+/** Content references render as independent block surfaces, never raw HTML in a paragraph. */
+export const Markdown = memo(function Markdown(props: { children: string; streaming?: boolean; inlineStart?: boolean; html?: MarkdownHtml; components?: MarkdownComponents }) {
+  const parts = useMemo(() => splitVisualizationMarkers(props.children, props.streaming), [props.children, props.streaming]);
+  if (parts.length === 1 && parts[0]?.type === "markdown") return <MarkdownContent {...props} />;
+  return <>{parts.map((part, index) => part.type === "markdown"
+    ? <MarkdownContent key={index} {...props} inlineStart={false}>{part.source}</MarkdownContent>
+    : part.type === "visualization" ? <InlineVisualization key={index} reference={part.reference} />
+      : <div key={index} role="status">Preparing visualization…</div>)}</>;
 });

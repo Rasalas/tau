@@ -6,6 +6,7 @@ import { setHostClient } from "./host-client-context";
 import { createMemoryStorage, setClientStorage } from "../workbench/client-storage";
 import type { DesktopExtension, PanelProps } from "./extension-system";
 import { runPaletteCommand } from "./test-support/palette";
+import { createFakeHostClient } from "./test-support/fake-host-client";
 import { renderApp } from "./test-support/render-app";
 
 /** jsdom's window is 1024 wide unless a test says otherwise. */
@@ -63,6 +64,50 @@ const rail: DesktopExtension = { id: "test.rail", name: "Rail probe", activate(p
 const shell = (container: HTMLElement) => container.querySelector(".app-shell") as HTMLElement;
 
 describe("workbench layout", () => {
+  it("places workspace context and agent frames beside chat without opening a stage tab", async () => {
+    const workspace: DesktopExtension = { id: "test.workspace-area", name: "Workspace area", activate(plugin) {
+      plugin.registerRegion({ id: "summary", placement: "workspace-summary", Component: () => <span>Project context</span> });
+      plugin.registerRegion({ id: "preview", placement: "workspace-preview", Component: () => <span>Agent frame</span> });
+      plugin.registerPanel({ id: "files", label: "Files", stageButton: true, Component: () => <span>File contents</span> });
+      plugin.registerRegion({ id: "context-trigger", placement: "stage-bar", Component: () => <button>Project actions</button> });
+    } };
+    const view = renderApp(undefined, { extensions: [workspace, rail] });
+    const summary = await screen.findByText("Project context");
+    const preview = await screen.findByText("Agent frame");
+    expect(summary.closest(".workspace-area")).toBeTruthy();
+    expect(preview.closest(".workspace-area")).toBe(summary.closest(".workspace-area"));
+    expect(preview.closest(".conversation-column")).toBeNull();
+    expect(view.container.querySelector(".stage")).toBeNull();
+    expect(view.container.querySelector(".workbench-center.stage-open")).toBeNull();
+    expect(screen.queryByRole("separator", { name: "Resize chat" })).toBeNull();
+    expect((await screen.findByRole("button", { name: "Files" })).closest(".workspace-area-tools")).toBeTruthy();
+    expect(view.container.querySelector(".thread-header .stage-tools")).toBeNull();
+    act(() => setWindowWidth(850));
+    await waitFor(() => expect(screen.queryByText("Project context")).toBeNull());
+    expect(view.container.querySelector(".workspace-summary-narrow")).toBeNull();
+    expect(screen.getByRole("button", { name: "Project actions" }).closest(".thread-header")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Files" }));
+    await screen.findByText("File contents");
+    await waitFor(() => expect(screen.queryByText("Project context")).toBeNull());
+    expect(screen.getAllByRole("button", { name: "Files" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Files" }).closest(".stage-strip")).toBeTruthy();
+  });
+
+  it("leaves a projectless draft and a workspace without a contributing kit at full chat width", async () => {
+    const contribution: DesktopExtension = { id: "test.empty-workspace", name: "Empty workspace", activate(plugin) {
+      plugin.registerRegion({ id: "summary", placement: "workspace-summary", Component: () => <span>Workspace controls</span> });
+    } };
+    const view = renderApp(createFakeHostClient(), { extensions: [contribution] });
+    await waitFor(() => expect(view.container.querySelector(".conversation-start")).toBeTruthy());
+    expect(view.container.querySelector(".workspace-area")).toBeNull();
+    expect(view.container.querySelector(".workspace-summary-narrow")).toBeNull();
+    expect(screen.queryByText("Workspace controls")).toBeNull();
+    view.unmount();
+    const withoutKit = renderApp(undefined, { extensions: [] });
+    await screen.findByRole("button", { name: "Split host snapshots & virtualize the thread list" });
+    expect(withoutKit.container.querySelector(".workspace-area")).toBeNull();
+  });
+
   it("resizes the sidebar by keyboard within its bounds and keeps the width for this client", async () => {
     const view = renderApp(undefined, { extensions: [rail] });
     const handle = await screen.findByRole("separator", { name: "Resize sidebar" });
@@ -376,6 +421,17 @@ describe("workbench layout", () => {
       await waitFor(() => expect(center()).toContain("conversation-folded"));
       pressMod("b", { altKey: true, shiftKey: true });
       await waitFor(() => expect(center()).not.toContain("conversation-folded"));
+    });
+
+    it("restores chat with one click after a maximized stage becomes narrow", async () => {
+      setWindowWidth(1440);
+      const view = renderApp(undefined, { extensions: [rail, files] });
+      const stage = await openFile();
+      fireEvent.click(within(stage).getByRole("button", { name: "Maximize stage" }));
+      act(() => setWindowWidth(900));
+      fireEvent.click(within(stage).getByRole("button", { name: "Show chat beside the stage" }));
+      await waitFor(() => expect(view.container.querySelector(".workbench-center")?.className).not.toContain("conversation-folded"));
+      expect(screen.queryByRole("region", { name: "Stage" })).toBeNull();
     });
 
     it("keeps chat and stage side by side in a window short of the chat's 380 px, the chat narrower", async () => {

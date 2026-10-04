@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ClientStorage, HostSnapshot, PreferencesStore, WorkbenchActions } from "tau";
+import type { ClientStorage, DesktopExtension, HostSnapshot, PreferencesStore, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { reviewExtension } from "./desktop.js";
 import type { PullRequestCheck, ReviewRequest, ThreadPullRequestLink } from "./protocol.js";
@@ -163,6 +163,35 @@ describe("the pull-request strip", () => {
     const region = registry.getRegions("composer-above").find((entry) => entry.id === "review.pull-request-strip")!;
     expect(region.order).toBe(80);
     registry.deactivate(reviewExtension.id);
+  });
+
+  it.each(["desktop", "web"] as const)("consolidates supported desktop cards while keeping the %s fallback and older services", (profile) => {
+    const { registry } = createKitHarness(undefined, profile);
+    const register = vi.fn(() => () => undefined);
+    let summarySupported = true;
+    const workspace: DesktopExtension = { id: "test.workspace-summary", name: "Workspace summary", activate(context) {
+      return context.provideService("tau.workspace/store", {
+        ...(summarySupported ? { registerWorkspaceSummarySection: register } : {}),
+        registerReviewView: register,
+        registerCommitMessageSuggester: register,
+        registerChangesSection: register,
+        registerThreadRowAccessory: register,
+      });
+    } };
+    registry.activate(reviewExtension);
+    const stripRegion = () => registry.getRegions("composer-above").find((entry) => entry.id === "review.pull-request-strip");
+    expect(stripRegion()).toBeTruthy();
+    registry.activate(workspace);
+    if (profile === "desktop") expect(stripRegion()).toBeUndefined();
+    else expect(stripRegion()).toBeTruthy();
+    registry.deactivate(workspace.id);
+    expect(stripRegion()).toBeTruthy();
+    summarySupported = false;
+    registry.activate(workspace);
+    expect(stripRegion()).toBeTruthy();
+    registry.deactivate(workspace.id);
+    registry.deactivate(reviewExtension.id);
+    expect(stripRegion()).toBeUndefined();
   });
 });
 

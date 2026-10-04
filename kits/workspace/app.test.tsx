@@ -1290,7 +1290,7 @@ describe("Workspace Kit in the workbench", () => {
     await waitFor(() => expect(newSession).toHaveBeenCalled());
     if (!clientMessageId) throw new Error("newSession did not receive a client message id");
     // A draft's header has no project controls (design 1k); they come with the thread.
-    expect(screen.queryByRole("button", { name: "Add action" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add project script" })).toBeNull();
 
     // The host reports the missing user turn from prompt(), then commits the
     // detached delivery. Both arrive in that order over one channel.
@@ -1302,7 +1302,7 @@ describe("Workspace Kit in the workbench", () => {
       accepted: true,
     });
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Add action" }).hasAttribute("disabled")).toBe(false));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add project script" }).hasAttribute("disabled")).toBe(false));
     expect(getClientStorage()?.get("tau.active-new-thread.v1")).toBeNull();
     // No user turn was persisted, so the optimistic prompt must not linger.
     expect(screen.queryByText("/extension-command")).toBeNull();
@@ -1373,7 +1373,7 @@ describe("Workspace Kit in the workbench", () => {
     expect(screen.getAllByText("start in the detached runtime").length).toBeGreaterThan(0);
     // The persisted prompt is the delivery commit. The agent run continues, but
     // the draft no longer holds the workspace or thread navigation.
-    await waitFor(() => expect(screen.getByRole("button", { name: "Add action" }).hasAttribute("disabled")).toBe(false));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add project script" }).hasAttribute("disabled")).toBe(false));
     pressNewThreadInShortcut();
     const picker = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(picker).getByRole("option", { name: /other/u }));
@@ -1442,7 +1442,7 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     await waitFor(() => expect(screen.queryByRole("heading", { name: /do next\?$/ })).toBeNull());
-    await waitFor(() => expect(screen.getByRole("button", { name: "Add action" }).hasAttribute("disabled")).toBe(false));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add project script" }).hasAttribute("disabled")).toBe(false));
     expect(getClientStorage()?.get("tau.active-new-thread.v1")).toBeNull();
   });
 
@@ -1519,7 +1519,7 @@ describe("Workspace Kit in the workbench", () => {
     ));
   });
 
-  it("refreshes the header's branch after opening another worktree from its menu", async () => {
+  it("refreshes the workspace card's branch after opening another worktree from its menu", async () => {
     let cwd = "/project";
     const getWorkspaceInfo = vi.fn(async () => ({
       root: cwd,
@@ -1576,7 +1576,7 @@ describe("Workspace Kit in the workbench", () => {
     expect(getWorkspaceInfo).toHaveBeenLastCalledWith("/project-worktrees/feat-worktree-label");
   });
 
-  it("moves the checkout row into the header's branch menu once the conversation has begun", async () => {
+  it("opens the checkout menu from the workspace card once the conversation has begun", async () => {
     const moved: HostActionResult = { version: 1, updates: [] };
     const switchRef = vi.fn(async () => moved);
     let running: Array<{ sessionId: string; title: string }> = [];
@@ -1683,8 +1683,11 @@ describe("Workspace Kit in the workbench", () => {
     expect(within(header).queryByRole("button", { name: "Add action" })).toBeNull();
     const pill = await screen.findByRole("button", { name: /^Run on .+, branch main$/u });
     expect(pill.closest(".composer-toolbar")).toBeTruthy();
-    // The heading's sub-line: project · machine · the checkout's branch.
-    await waitFor(() => expect([...header.querySelectorAll(".thread-detail")].map((detail) => detail.textContent)).toEqual(["shop-api", expect.any(String), "main"]));
+    // The composer chooses the future thread workspace; the card identifies the current checkout.
+    const card = await screen.findByRole("region", { name: "Project workspace" });
+    await within(card).findByText("main");
+    expect(card.querySelector("header > strong")).toBeNull();
+    expect(header.querySelector(".thread-detail")).toBeNull();
 
     fireEvent.click(pill);
     const popover = await screen.findByRole("dialog", { name: "Run on" });
@@ -1693,7 +1696,8 @@ describe("Workspace Kit in the workbench", () => {
     fireEvent.click(within(popover).getByText("New worktree"));
     expect(within(popover).getByRole("switch", { name: "Run in a new worktree" }).getAttribute("aria-checked")).toBe("true");
     expect(await screen.findByRole("button", { name: /, branch tau\/…$/u })).toBeTruthy();
-    await waitFor(() => expect([...header.querySelectorAll(".thread-detail")].at(-1)?.textContent).toBe("no worktree yet"));
+    expect(within(card).getByText("main")).toBeTruthy();
+    expect(header.querySelector(".thread-detail")).toBeNull();
     // Based on: the default with its fetch age, then origin's other branches.
     const bases = await within(popover).findByRole("group", { name: "Based on" });
     await waitFor(() => expect(within(bases).getAllByRole("button").map((row) => row.textContent)).toEqual(["origin/maindefault · fetched 2m ago", "origin/develop", "Other branch…"]));

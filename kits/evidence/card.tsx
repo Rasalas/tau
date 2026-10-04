@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Image, Play, Video } from "lucide-react";
+import { useEffect, useId, useState } from "react";
+import { ChevronRight, Image, Play, Video } from "lucide-react";
 import { errorMessage, tooltipProps } from "tau";
 import type { EvidenceClient } from "./client.js";
 import { saveTurnVideo } from "./export.js";
@@ -110,13 +110,17 @@ export function EvidenceCard({ client, threadId, turn, running, paused, onOpen, 
   notify(message: string): void;
 }) {
   const frames = turn.frames;
+  const [expanded, setExpanded] = useState(false);
+  const stripId = useId();
   return (
     <section className="evidence-card" aria-label={`Pictures of this turn: ${countLabel(frames.length)}`} data-turn-id={turn.turnId}>
       <header className="evidence-card-head">
-        <Image size={12} aria-hidden="true" />
-        <span className="evidence-card-title">Evidence</span>
-        <span className="evidence-card-meta">· {turnSummary(turn)}</span>
-        <span className="evidence-card-meta compact">· {turnSummary(turn, true)}</span>
+        <button type="button" className="evidence-disclosure" aria-expanded={expanded} aria-controls={stripId} onClick={() => setExpanded(!expanded)}>
+          <Image size={12} aria-hidden="true" />
+          <span className="evidence-card-title">Screenshots</span>
+          <span className="evidence-card-meta">· {turnSummary(turn)}</span>
+          <ChevronRight size={12} aria-hidden="true" />
+        </button>
         {paused ? <span className="evidence-card-paused">Paused: {paused}</span> : null}
         <span className="evidence-card-actions">
           <button type="button" className="evidence-text-button evidence-play-text" aria-label="Play the pictures" onClick={() => onOpen(0, true)}>
@@ -125,11 +129,11 @@ export function EvidenceCard({ client, threadId, turn, running, paused, onOpen, 
           {running ? null : <SaveVideoButton client={client} threadId={threadId} turn={turn} notify={notify} />}
         </span>
       </header>
-      <div className="evidence-strip" role="list" aria-label="Pictures">
+      {expanded ? <div id={stripId} className="evidence-strip" role="list" aria-label="Pictures">
         {frames.map((frame, index) => (
           <EvidenceThumb key={frame.id} client={client} threadId={threadId} frame={frame} index={index} total={frames.length} mark={frameMark(frame, turn)} onOpen={() => onOpen(index)} />
         ))}
-      </div>
+      </div> : null}
     </section>
   );
 }

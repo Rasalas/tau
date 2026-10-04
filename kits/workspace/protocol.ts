@@ -2,6 +2,7 @@
 // (esbuild, through `tau/host-extension`), by the desktop half (`tau`) and by
 // other kits. Both bundlers erase `import type` without resolving it.
 import type {
+  RegionProps,
   CommitResult,
   DiffLoadOptions,
   FileNode,
@@ -275,6 +276,9 @@ export interface WorkspaceHostCommands {
   "unstage-file": { input: { relPath: string; workspace?: string }; output: UiWorkspaceChanges };
   "stage-all": { input: { workspace?: string } | undefined; output: UiWorkspaceChanges };
   "revert-file": { input: { relPath: string; workspace?: string }; output: UiWorkspaceChanges };
+  "read-visualization": { input: { relPath: string; workspace: string }; output: { html: string } };
+  "publish-visualization": { input: { html: string; theme: "light" | "dark" }; output: { path: string } };
+  "release-visualization": { input: { path: string }; output: void };
   "read-file": { input: { relPath: string; workspace?: string }; output: UiFileContent };
   /** A user-opened transcript link on this host, allowed outside its explicitly named workspace. */
   "read-linked-file": { input: { path: string; workspace: string }; output: UiFileContent };
@@ -367,6 +371,9 @@ export interface WorkspaceHostClient {
   unstageFile(relPath: string, workspace?: string): Promise<UiWorkspaceChanges>;
   stageAll(workspace?: string): Promise<UiWorkspaceChanges>;
   revertFile(relPath: string, workspace?: string): Promise<UiWorkspaceChanges>;
+  readVisualization(relPath: string, workspace: string): Promise<{ html: string }>;
+  publishVisualization(html: string, theme: "light" | "dark"): Promise<{ path: string }>;
+  releaseVisualization(path: string): Promise<void>;
   readFile(relPath: string, workspace?: string): Promise<UiFileContent>;
   readLinkedFile(path: string, workspace: string): Promise<UiFileContent>;
   statFile(relPath: string): Promise<UiFileStat>;
@@ -423,6 +430,9 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     unstageFile: (relPath, workspace) => call("unstage-file", workspace ? { relPath, workspace } : { relPath }),
     stageAll: (workspace) => call("stage-all", workspace ? { workspace } : undefined),
     revertFile: (relPath, workspace) => call("revert-file", workspace ? { relPath, workspace } : { relPath }),
+    readVisualization: (relPath, workspace) => call("read-visualization", { relPath, workspace }),
+    publishVisualization: (html, theme) => call("publish-visualization", { html, theme }),
+    releaseVisualization: (path) => call("release-visualization", { path }),
     readFile: (relPath, workspace) => call("read-file", workspace ? { relPath, workspace } : { relPath }),
     readLinkedFile: (path, workspace) => call("read-linked-file", { path, workspace }),
     statFile: (relPath) => call("file-stat", { relPath }),
@@ -511,6 +521,8 @@ export interface WorkspaceKitState {
   draftMachine?: DraftMachineSource;
   /** Sections other kits add to the Changes panel. */
   changesSections: ReadonlyArray<ComponentType<ChangesSectionProps>>;
+  /** Feature-owned sections of the compact workspace card. */
+  workspaceSummarySections?: readonly ComponentType<RegionProps>[];
   /** Marks other kits add to rail rows. */
   threadRowAccessories: ReadonlyArray<ComponentType<ThreadRowAccessoryProps>>;
   /** Other kits' states for some threads, by thread id, drawn in place of the row's own. */
@@ -767,6 +779,7 @@ export interface WorkspaceStoreApi {
   registerFileEditor(editor: WorkspaceFileEditor): () => void;
   /** A section drawn at the top of the Changes panel, clean worktree or not. */
   registerChangesSection(section: ComponentType<ChangesSectionProps>): () => void;
+  registerWorkspaceSummarySection?(section: ComponentType<RegionProps>): () => void;
   /** An extension draws the review overlay: the Changes rail entry opens the review instead of its panel. */
   registerReviewView(): () => void;
   stageFile(path: string): Promise<void>;

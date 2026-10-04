@@ -1,5 +1,30 @@
-import type { MenuItemConstructorOptions, NativeImage } from "electron";
+import type { ContextMenuParams, MenuItemConstructorOptions, NativeImage, WebContents } from "electron";
 import type { MenuPoint, NativeMenuEntry } from "../shared/context-menu.js";
+
+/** Default editing menu for text in the workbench. Custom DOM menus prevent the native event. */
+export function installWorkbenchEditingMenu(contents: Pick<WebContents, "on">, popup: (items: MenuItemConstructorOptions[], point: MenuPoint) => void): void {
+  contents.on("context-menu", (event, params) => {
+    if (event.defaultPrevented) return;
+    const items = editingMenuItems(params);
+    if (!items.length) return;
+    popup(items, { x: params.x, y: params.y });
+  });
+}
+
+/** Electron roles copy locally and target the focused document, without browser clipboard permission. */
+export function editingMenuItems(params: Pick<ContextMenuParams, "isEditable" | "selectionText" | "editFlags">): MenuItemConstructorOptions[] {
+  if (params.isEditable) return [
+    { role: "undo", enabled: params.editFlags.canUndo },
+    { role: "redo", enabled: params.editFlags.canRedo },
+    { type: "separator" },
+    { role: "cut", enabled: params.editFlags.canCut },
+    { role: "copy", enabled: params.editFlags.canCopy },
+    { role: "paste", enabled: params.editFlags.canPaste },
+    { type: "separator" },
+    { role: "selectAll", enabled: params.editFlags.canSelectAll },
+  ];
+  return params.selectionText ? [{ role: "copy", enabled: params.editFlags.canCopy }] : [];
+}
 
 export interface ContextMenuPorts {
   /** `Menu.buildFromTemplate(template).popup(...)` over the workbench window; `closed` runs when it goes. */

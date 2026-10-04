@@ -1023,6 +1023,7 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 .work-fold-summary > .activity-chevron { flex: none; opacity: .6; transition: transform 120ms ease; }
 .work-fold.expanded > .work-fold-summary > .activity-chevron { transform: rotate(90deg); }
 .work-fold-body { margin-left: 20px; padding-left: 8px; border-left: 1px solid var(--line); }
+.work-fold-body > [data-message-id] { padding-block: 8px; }
 
 /* The one line a running turn shows; its key never changes, so it morphs. */
 .work-live { color: var(--muted); }

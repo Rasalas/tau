@@ -13,11 +13,11 @@ afterEach(() => {
 });
 
 describe("useScreenFollower", () => {
-  it("brings the Screen view forward once per window the active thread's agent drives", () => {
+  it.each([true, false])("follows each driven window with workspace preview available=%s", (workspacePreviewAvailable) => {
     const listeners = new Set<(next: ScreenState) => void>();
     const release = holdScreenService({ subscribe: (listener: (next: ScreenState) => void) => { listeners.add(listener); return () => listeners.delete(listener); } } as unknown as ComputerUseScreenService);
     const actions = { openPanel: vi.fn(), activeThread: () => ({ sessionId: "active", draftPending: false }) };
-    renderHook(() => useScreenFollower(actions, "preview"));
+    renderHook(() => useScreenFollower(actions, "preview", workspacePreviewAvailable));
     const push = (next: ScreenState) => act(() => { listeners.forEach((listener) => listener(next)); });
 
     push(state("other", 1, 1));
@@ -25,7 +25,7 @@ describe("useScreenFollower", () => {
     expect(actions.openPanel).not.toHaveBeenCalled();
 
     push(state("active", 1, 1));
-    expect(actions.openPanel).toHaveBeenCalledWith("preview");
+    expect(actions.openPanel).toHaveBeenCalledTimes(workspacePreviewAvailable ? 0 : 1);
     expect(previewView.get()).toBe("screen");
 
     // The user went back to the browser; more steps in the same window leave it there.
@@ -34,7 +34,7 @@ describe("useScreenFollower", () => {
     expect(previewView.get()).toBe("browser");
     push(state("active", 2, 5));
     expect(previewView.get()).toBe("screen");
-    expect(actions.openPanel).toHaveBeenCalledTimes(2);
+    expect(actions.openPanel).toHaveBeenCalledTimes(workspacePreviewAvailable ? 0 : 2);
     release();
   });
 });

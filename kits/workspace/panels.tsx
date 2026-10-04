@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ChevronDown, ChevronRight, FileDiff, PanelTop, RotateCw, Search, SquarePen } from "lucide-react";
-import { ChangesTree, DiffView, FileKindIcon, tooltipProps, useHostCapabilities, useWorkbench, VirtualList, type FileNode, type PanelProps, type UiFileDiff } from "tau";
+import { ChevronDown, ChevronLeft, ChevronRight, FileDiff, PanelTop, RotateCw, Search, SquarePen, WrapText } from "lucide-react";
+import { ChangesTree, DiffStack, FileKindIcon, tooltipProps, useHostCapabilities, useDiffPresentation, useWorkbench, VirtualList, type FileNode, type PanelProps, type UiFileDiff } from "tau";
 import { FileReader } from "./file-reader.js";
 import { relativeHostPath } from "./host-paths.js";
 import { useWorkspaceKit, useWorkspaceStore } from "./store-context.js";
@@ -119,7 +119,8 @@ function useCompactLayout(): boolean {
 }
 
 /** A changed file's working-tree diff in the Files tab, the design's "Diff" beside "Source". */
-function FileDiffPane({ path, load }: { path: string; load(path: string): Promise<UiFileDiff> }) {
+function FileDiffPane({ path, load, layout = "unified", wrap = true }: { path: string; load(path: string): Promise<UiFileDiff>; layout?: "unified" | "split"; wrap?: boolean }) {
+  const scroll = useRef<HTMLDivElement>(null);
   const [diff, setDiff] = useState<UiFileDiff>();
   useEffect(() => {
     let live = true;
@@ -127,7 +128,7 @@ function FileDiffPane({ path, load }: { path: string; load(path: string): Promis
     load(path).then((next) => { if (live) setDiff(next); }, () => { if (live) setDiff({ path, added: 0, removed: 0, hunks: [], note: "The diff could not be read." }); });
     return () => { live = false; };
   }, [load, path]);
-  return <div className="files-diff"><DiffView diff={diff} mode="unified" path={path} /></div>;
+  return <div className="files-diff stage-diff-cards" ref={scroll}><DiffStack files={[{ path, added: diff?.added ?? 0, removed: diff?.removed ?? 0 }]} diffs={diff ? new Map([[path, diff]]) : undefined} layout={layout} wrap={wrap} scroll={scroll} /></div>;
 }
 
 const statusLetter = (status: string) => status === "added" || status === "untracked" ? "A" : status === "deleted" ? "D" : status === "renamed" ? "R" : "M";
@@ -220,6 +221,7 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
   const setView = (next: "changed" | "all") => { picked.current = true; setViewState(next); };
   const anyChanges = changes.files.length > 0;
   useEffect(() => { if (!picked.current) setViewState(anyChanges ? "changed" : "all"); }, [anyChanges]);
+  const { layout: diffLayout, setLayout: setDiffLayout, wrap: diffWrap, setWrap: setDiffWrap } = useDiffPresentation();
   const [fileView, setFileView] = useState<"diff" | "source">("diff");
   const { filesFocus } = useWorkspaceKit();
   // "N files changed" asked for the Changed view and its first file.
@@ -276,6 +278,11 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
   if (onStage) {
     const project = cwd?.split(/[\\/]/u).filter(Boolean).at(-1);
     const readingStatus = reading ? changes.files.find((file) => file.path === reading)?.status : undefined;
+    const navigateChange = (offset: -1 | 1) => {
+      if (changes.files.length === 0) return;
+      const index = changes.files.findIndex((file) => file.path === reading);
+      setReading(changes.files[(index + offset + changes.files.length) % changes.files.length]?.path);
+    };
     return <section className="panel-body files-panel files-stage">
       <aside className="files-explorer" aria-label="Explorer">
         <header className="files-explorer-head">
@@ -297,6 +304,17 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
           <strong title={reading}>{reading}</strong>
           {readingStatus ? <em className={`files-status-${statusLetter(readingStatus)}`}>{statusWord(readingStatus)}</em> : null}
           <span className="spacer" />
+          {view === "changed" ? <div className="files-reading-navigation">
+            <button type="button" className="icon-button" aria-label="Previous changed file" disabled={changes.files.length === 0} onClick={() => navigateChange(-1)}><ChevronLeft size={14} /></button>
+            <button type="button" className="icon-button" aria-label="Next changed file" disabled={changes.files.length === 0} onClick={() => navigateChange(1)}><ChevronRight size={14} /></button>
+          </div> : null}
+          {changedPaths.has(reading) && fileView === "diff" ? <>
+            <button type="button" className={`icon-button ${diffWrap ? "active" : ""}`} aria-pressed={diffWrap} aria-label={diffWrap ? "Disable line wrapping" : "Enable line wrapping"} onClick={() => setDiffWrap(!diffWrap)}><WrapText size={14} /></button>
+            <div className="toggle-group" aria-label="Diff layout">
+              <button type="button" className={diffLayout === "unified" ? "active" : ""} aria-pressed={diffLayout === "unified"} onClick={() => setDiffLayout("unified")}>Unified</button>
+              <button type="button" className={diffLayout === "split" ? "active" : ""} aria-pressed={diffLayout === "split"} onClick={() => setDiffLayout("split")}>Split</button>
+            </div>
+          </> : null}
           {changedPaths.has(reading) ? <div className="files-reading-view" role="group" aria-label="View">
             <button type="button" className={fileView === "diff" ? "active" : ""} aria-pressed={fileView === "diff"} onClick={() => setFileView("diff")}>Diff</button>
             <button type="button" className={fileView === "source" ? "active" : ""} aria-pressed={fileView === "source"} onClick={() => setFileView("source")}>Source</button>
@@ -305,7 +323,7 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
           <button type="button" className="files-reading-edit" aria-label="Edit file" {...tooltipProps("Edit file", { side: "bottom" })} onClick={() => pin(reading)}><SquarePen size={11} aria-hidden="true" /><span>Edit</span></button>
         </header>
         {changedPaths.has(reading) && fileView === "diff"
-          ? <FileDiffPane path={reading} load={readDiff} />
+          ? <FileDiffPane path={reading} load={readDiff} layout={diffLayout} wrap={diffWrap} />
           : <FileReader key={reading} path={reading} load={readFile} />}
       </div> : <div className="files-stage-empty"><p className="empty-copy">Pick a file to read it here; a double-click opens it as a tab of its own.</p></div>}
     </section>;

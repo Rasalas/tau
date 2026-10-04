@@ -42,6 +42,8 @@
 .menu [role="menuitem"]:is(:hover, :focus-visible) > svg.menu-editor-icon { color: var(--editor-brand, currentColor); }
 .project-actions-control { -webkit-app-region: no-drag; }
 .project-action-editor { width: 320px; padding: 10px; gap: 10px; }
+.project-action-editor-shell { padding: 0; max-width: calc(100vw - 24px); }
+.project-action-editor-shell > .project-action-editor { position: static; width: 100%; border: 0; box-shadow: none; }
 .project-action-editor label { display: flex; flex-direction: column; gap: 5px; }
 .project-action-editor label > span { color: var(--muted); font: var(--label-size) var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case); }
 .project-action-editor input {
@@ -534,6 +536,7 @@
 .files-panel-search { display: inline-grid; place-items: center; }
 /* The stage's Files tab (design 1l): the explorer beside the file it shows. */
 .files-stage { flex-direction: row; }
+.files-stage > .files-explorer { order: 2; border-right: 0; border-left: 1px solid var(--line); }
 /* The explorer as design 1l draws it: 224 px, quiet head, a tree of short mono rows, the editor link at its foot. */
 .files-explorer { flex: none; width: min(224px, 45%); display: flex; flex-direction: column; min-height: 0; padding: 6px 4px; border-right: 1px solid var(--line); }
 .files-explorer-head { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; padding: 4px 6px 8px 10px; color: var(--muted); font-size: var(--text-xs); }
@@ -871,3 +874,63 @@ body[data-profile="compact"] .turn-actions > button { min-height: 44px; padding:
 .fork-dialog-task textarea:focus-visible { outline: 2px solid var(--acid); outline-offset: 1px; }
 .fork-dialog-stay { display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); }
 .fork-dialog-stay input { accent-color: var(--acid); }
+
+.files-reading-navigation { display: flex; align-items: center; gap: 2px; }
+
+/* One row rhythm for project tools, checkout, review and changes. */
+.workspace-summary-card { width: min(324px, 100%); margin-left: auto; padding: 8px; display: flex; flex-direction: column; gap: 0; border: 1px solid var(--line); border-radius: 24px; background: var(--stage); color: var(--ink-3); max-height: calc(100dvh - 112px); overflow-y: auto; overscroll-behavior: contain; }
+.workspace-card-tools, .workspace-card-checkout { display: flex; flex-direction: column; min-width: 0; }
+.workspace-card-checkout { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.workspace-summary-card .workspace-card-row,
+.workspace-summary-card .stage-tool,
+.workspace-summary-card .chrome-button { display: flex; align-items: center; height: 36px; min-height: 36px; min-width: 0; gap: 10px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; box-shadow: none; color: var(--ink-3); font: 500 var(--text-sm)/1 var(--sans); text-align: left; }
+.workspace-summary-card button:hover:not(:disabled), .workspace-summary-card button[aria-expanded="true"] { background: var(--hover); }
+.workspace-summary-card .workspace-card-row > svg,
+.workspace-summary-card .stage-tool > svg,
+.workspace-summary-card .chrome-button > svg,
+.workspace-summary-card .editor-icon,
+.workspace-card-icon { width: 16px; height: 16px; flex: 0 0 16px; color: var(--muted); }
+.workspace-card-tail { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 36px; flex: 0 0 32px; }
+.workspace-card-tail > svg, .workspace-card-icon > svg { width: 16px; height: 16px; }
+.workspace-card-icon { display: inline-flex; align-items: center; justify-content: center; }
+.workspace-summary-card .workspace-card-row:has(> .workspace-card-tail) { padding-right: 0; }
+.workspace-summary-card .workspace-card-split { padding: 0; gap: 0; }
+.workspace-card-split > .workspace-card-split-main { padding-left: 10px; }
+.workspace-card-split > .workspace-card-split-accessory { padding: 0; gap: 0; }
+.workspace-card-status { display: inline-flex; align-items: center; justify-content: center; width: 24px; flex: 0 0 24px; }
+.workspace-card-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-card-accessory { flex: none; color: var(--muted); }
+.workspace-summary-card .workspace-card-row > .chev, .workspace-card-chevron { opacity: 1; }
+.workspace-summary-card .workspace-editor-button,
+.workspace-summary-card .project-actions-control,
+.workspace-summary-card .chrome-group { display: flex; width: 100%; gap: 0; }
+.workspace-summary-card .project-actions-control { flex-direction: column; }
+.workspace-summary-card .project-actions-control .chrome-button { max-width: none; }
+.workspace-summary-card .workspace-editor-button > .stage-tool:first-child,
+.workspace-summary-card .chrome-group > .split-main { flex: 1; justify-content: flex-start; }
+.workspace-summary-card .workspace-editor-button > .stage-tool:first-child > span,
+.workspace-summary-card .split-main > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: inherit; }
+.workspace-summary-card .workspace-editor-choose,
+.workspace-summary-card .chrome-group > .split-trigger { position: relative; width: 32px; flex: 0 0 32px; padding: 0; justify-content: center; }
+.workspace-summary-card .workspace-editor-choose::before,
+.workspace-summary-card .chrome-group > .split-trigger::before { content: ""; position: absolute; left: 0; height: 16px; width: 1px; background: var(--line); }
+.workspace-summary-branch, .workspace-summary-branch .thread-detail { display: flex; width: 100%; min-width: 0; }
+.workspace-summary-branch .thread-branch-trigger { width: 100%; max-width: none; margin: 0; }
+.workspace-summary-card .workspace-title-actions { width: 100%; flex: none; gap: 0; }
+.workspace-summary-card .workspace-title-actions > .menu-anchor { width: 100%; margin: 0; }
+.workspace-summary-card .workspace-card-changes { width: 100%; font-weight: 500; }
+.workspace-card-deltas { display: flex; flex: none; gap: 6px; font: inherit; }
+.workspace-card-deltas > .added { color: var(--diff-add-ink); }
+.workspace-card-deltas > .removed { color: var(--danger); }
+
+/* Project context joins the existing stage strip, never a second header row. */
+.workspace-stage-context { display: none; }
+.stage .workspace-stage-context, .thread-header .workspace-stage-context { display: flex; flex: 0 1 auto; min-width: 0; }
+.workspace-project-trigger { display: inline-flex; align-items: center; padding: 0 6px; }
+.workspace-project-trigger > svg { flex: none; }
+.workspace-project-menu { width: 324px; max-width: calc(100vw - 24px); padding: 0; border: 0; background: transparent; }
+@media (pointer: coarse) {
+  .workspace-summary-card .workspace-card-row, .workspace-summary-card .stage-tool, .workspace-summary-card .chrome-button { height: 44px; min-height: 44px; }
+  .workspace-card-tail { width: 44px; flex-basis: 44px; height: 44px; }
+  .workspace-summary-card .workspace-editor-choose, .workspace-summary-card .chrome-group > .split-trigger { width: 44px; flex-basis: 44px; }
+}

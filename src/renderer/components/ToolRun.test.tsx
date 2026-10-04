@@ -188,19 +188,31 @@ describe("tool run output", () => {
     expect(view.container.querySelector(".tool-output")?.textContent).toContain("found it");
   });
 
-  it("shows a failed command's output with its exit status and time, and its reason once closed (design 1f)", () => {
+  it("keeps a failed command compact with its reason, and discloses its full output on request", () => {
     const view = render(<ToolRun
       tool={command({ args: { command: "ls missing" }, status: "error", output: "Exit code 1\nls: missing: No such file or directory", startedAt: 0, endedAt: 2_300 })}
       registry={registryWithBundledExtensions()}
     />);
     const reason = "Exit code 1: ls: missing: No such file or directory";
     expect(screen.getByRole("img", { name: `Failed: ${reason}` }).textContent).toBe("exit 1 · 2.3s");
-    expect(view.container.querySelector(".tool-run.failed > .tool-output")?.textContent).toContain("No such file or directory");
-    expect(screen.queryByText(reason)).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: /ls missing/u }));
     expect(view.container.querySelector(".tool-output")).toBeNull();
     expect(screen.getByText(reason)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /ls missing/u }));
+    expect(view.container.querySelector(".tool-run.failed > .tool-output")?.textContent).toContain("No such file or directory");
+    expect(screen.queryByText(reason)).toBeNull();
+  });
+
+  it("keeps explicit output choices when a running command fails or settles", () => {
+    const registry = registryWithBundledExtensions();
+    const active = command({ status: "running", output: "Starting the build", endedAt: undefined });
+    const view = render(<ToolRun tool={active} registry={registry} />);
+    fireEvent.click(screen.getByRole("button", { name: /verbose/u }));
+    view.rerender(<ToolRun tool={{ ...active, status: "error", output: "Exit code 1\nBuild failed", endedAt: 1000 }} registry={registry} />);
+    expect(view.container.querySelector(".tool-output")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /verbose/u }));
+    view.rerender(<ToolRun tool={{ ...active, status: "done", output: "Build passed", endedAt: 2000 }} registry={registry} />);
+    expect(view.container.querySelector(".tool-output")?.textContent).toContain("Build passed");
   });
 
   it("draws what a kit puts at the row's end and under it instead of the output", () => {

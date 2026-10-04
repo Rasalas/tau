@@ -11,6 +11,14 @@ const ports = (client?: Partial<HostClient>) => ({
 });
 
 describe("Electron's attention", () => {
+  it("writes text through the window client without a browser clipboard request", async () => {
+    const copyText = vi.fn(async () => undefined);
+    await createElectronPlatform(ports({ copyText })).clipboard.writeText("local clipboard");
+    expect(copyText).toHaveBeenCalledWith("local clipboard");
+  });
+  it("reports unavailable clipboard instead of resolving an absent client write", async () => {
+    await expect(createElectronPlatform(ports()).clipboard.writeText("unavailable")).rejects.toThrow("cannot write");
+  });
   it("asks the window's own process to notify and to set the badge", async () => {
     const showNotification = vi.fn(async () => "clicked" as const);
     const setBadge = vi.fn(async () => undefined);

@@ -57,7 +57,7 @@ export const previewExtension: DesktopExtension = {
     // A tab that looks in on another machine's thread shows that machine's page, small and view only.
     plugin.registerRegion({ id: "preview.look-in", placement: "look-in", order: 40, profiles: ["desktop"], Component: LookInPreview });
     plugin.registerRegion({ id: "preview.follower", placement: "composer-above", order: 60, profiles: ["desktop"], Component: PreviewFollower });
-    plugin.registerRegion({ id: "preview.mini-player", placement: "composer-above", order: 61, profiles: ["desktop", "web"], Component: createMiniPlayerRegion(plugin.preferences) });
+    plugin.registerRegion({ id: "preview.mini-player", placement: "workspace-preview", order: 61, profiles: ["desktop", "web"], Component: createMiniPlayerRegion(plugin.preferences) });
     plugin.registerRegion({ id: "preview.mini-bar", placement: "composer-above", order: 61, profiles: ["compact"], Component: createMiniBarRegion(plugin.preferences) });
     plugin.registerSettingsPage({
       id: "preview.settings",

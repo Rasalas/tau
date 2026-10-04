@@ -1,0 +1,27 @@
+.rvd-stack { display: flex; flex-direction: column; }
+/* Room under the last file, so a jump from the sidebar can put it at the top. */
+.rvd-stack::after { content: ""; display: block; height: 40vh; }
+.rvd-file { display: block; }
+.rvd-file + .rvd-file { margin-top: var(--space-5); }
+.rvd-file-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: var(--space-5); min-height: 36px; padding: 0 var(--space-7) 0 var(--space-3); background: var(--rail); color: var(--muted); font: var(--text-sm) var(--sans); border-bottom: 1px solid var(--line-soft); }
+.rvd-fold { min-width: 0; flex: 0 1 auto; display: inline-flex; align-items: center; gap: var(--space-3); height: 28px; padding: 0 var(--space-3); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink-2); cursor: pointer; }
+.rvd-fold:hover { background: var(--hover-strong); color: var(--ink); }
+.rvd-fold > svg { flex: none; color: var(--faint); }
+.rvd-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; font: var(--text-sm) var(--mono); }
+.rvd-from { color: var(--faint); font: var(--text-xs) var(--mono); white-space: nowrap; }
+.rvd-conflict { display: inline-flex; color: var(--warn); }
+.rvd-count { display: inline-flex; gap: 5px; margin-left: auto; font-variant-numeric: tabular-nums; }
+.rvd-count .stat-add, .rvd-count .stat-del { font: 600 var(--text-xs) var(--sans); }
+.rvd-open, .rvd-viewed { display: inline-flex; align-items: center; gap: 5px; border: 0; padding: 2px 6px; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font: var(--text-xs) var(--sans); white-space: nowrap; cursor: pointer; }
+.rvd-open:hover, .rvd-viewed:hover { background: var(--hover-strong); color: var(--ink); }
+.rvd-viewed.dismissed { color: var(--warn); }
+.rvd-diff { background: var(--stage); }
+/* A long file scrolls inside its card, where the diff view draws only the rows in view. */
+.rvd-diff.bounded { display: flex; flex-direction: column; height: min(70vh, 640px); }
+.rvd-file.folded .rvd-file-head { border-bottom-color: transparent; }
+.rvd-loading { min-height: 96px; background: var(--stage); }
+.rvd-note-line { margin: 0; padding: var(--space-5) var(--space-7); background: var(--stage); color: var(--muted); }
+.rvd-error { color: var(--danger); }
+
+.stage-diff-cards { flex: 1; min-height: 0; overflow: auto; padding: var(--space-5); background: var(--stage); }
+.stage-diff-cards .rvd-stack::after { height: var(--space-5); }

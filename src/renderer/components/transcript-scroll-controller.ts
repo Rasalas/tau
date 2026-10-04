@@ -382,7 +382,9 @@ export class TranscriptScrollController {
   /** Seek to an estimated offset so the virtualizer mounts the wanted window. */
   private seekEstimated(node: HTMLDivElement, messageId: string, minimumRowHeight = 0): boolean {
     const count = this.deps.getMessages().length;
-    const index = this.indexOfMessage(messageId);
+    const aliases = node.querySelector<HTMLElement>(".virtual-transcript")?.dataset.messageAnchors;
+    const anchorId = aliases ? new Map<string, string>(JSON.parse(aliases)).get(messageId) : undefined;
+    const index = this.indexOfMessage(anchorId ?? messageId);
     const estimatedRowHeight = count > 0 ? Math.max(minimumRowHeight, node.scrollHeight / count) : 0;
     if (index < 0 || estimatedRowHeight <= 0) return false;
     setScrollTopClamped(node, index * estimatedRowHeight - elementPaddingTop(node));
@@ -392,6 +394,15 @@ export class TranscriptScrollController {
   private placeMessage(node: HTMLDivElement, messageId: string): boolean {
     const message = findMessageElement(node, messageId);
     if (!message) {
+      // Search can target commentary inside completed work. Open its stable
+      // prompt disclosure, then place the actual message on the next frame.
+      const fold = [...node.querySelectorAll<HTMLElement>("[data-folded-message-ids]")]
+        .find((element) => (JSON.parse(element.dataset.foldedMessageIds ?? "[]") as string[]).includes(messageId));
+      const disclosure = fold?.querySelector<HTMLButtonElement>(".work-fold-summary");
+      if (disclosure && disclosure.getAttribute("aria-expanded") !== "true") {
+        disclosure.click();
+        return false;
+      }
       // TanStack Virtual may not have mounted a distant row yet. Seeking to
       // its estimated position mounts the relevant window; a later frame then
       // uses the real row geometry without inventing transcript content.

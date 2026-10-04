@@ -36,6 +36,23 @@ function createControl(preferences: PreferencesStore, choose: (level: string) =>
   };
 }
 
+/** Restricted access stays visible while its choices remain in the menu. */
+function createAccessStatus(preferences: PreferencesStore) {
+  return function AccessStatus() {
+    const readLevel = () => storedLevel(preferences);
+    const level = useSyncExternalStore(preferences.subscribe, readLevel, readLevel);
+    if (level === "full") return null;
+    return (
+      <button type="button" className="runtime-chip composer-access-status" aria-label={`Access: ${level === "read-only" ? "Read only" : "Ask before edits"}`} onClick={(event) => {
+        event.currentTarget.closest(".composer-chips")?.querySelector<HTMLElement>('[data-composer-menu]')?.click();
+      }}>
+        <Lock size={16} aria-hidden="true" />
+        {level === "read-only" ? "Read only" : "Ask before edits"}
+      </button>
+    );
+  };
+}
+
 /**
  * The person's choice on this client: stored, and told to the host at once so
  * the next turn runs at it. Nothing is sent on load; the host reads its level
@@ -61,6 +78,7 @@ export const accessKitExtension: DesktopExtension = {
   activate(plugin) {
     const choose = chooser(plugin.host, plugin.preferences);
     plugin.registerComposerControl({ id: "access.level", placement: "menu", shortcuts: ["composer.mode"], order: 30, profiles: ["desktop", "web", "compact"], Component: createControl(plugin.preferences, choose) });
+    plugin.registerComposerControl({ id: "access.status", placement: "lead", order: 30, profiles: ["desktop", "web", "compact"], Component: createAccessStatus(plugin.preferences) });
     plugin.registerSettingsSection({
       id: "access.permissions",
       page: "runtimes",

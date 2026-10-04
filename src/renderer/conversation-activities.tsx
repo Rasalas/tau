@@ -4,7 +4,7 @@ import { answerTimestampAfter, type TranscriptDetail } from "../workbench/transc
 import { TaskProgress } from "./components/TaskProgress";
 import { WorkGroup } from "./components/WorkRows";
 import { WorkDisclosures } from "./components/work-disclosures";
-import type { TranscriptActivity } from "./components/transcript-activity";
+import { completedWorkMetadata, type TranscriptActivity } from "./components/transcript-activity";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
 
@@ -78,6 +78,7 @@ export function useConversationActivities(input: ConversationActivityInput) {
       return splitActivityTools(entry.tools.filter(isActivityTool), messages ?? [], entry.anchorMessageId).map((segment, index) => ({
         id: index === 0 ? entry.id : `${entry.id}:${segment.tools[0].id}`,
         afterMessageId: segment.anchorMessageId,
+        ...completedWorkMetadata(segment.tools, entry.status === "completed", (tool) => Boolean(registry.toolCardFor(tool)), disclosures.openedInTurn(entry.tools[0]!.id)),
         content: <WorkGroup
           id={`${entry.id}:${segment.tools[0].id}`}
           tools={segment.tools}
@@ -131,6 +132,7 @@ export function useConversationActivities(input: ConversationActivityInput) {
     ...splitActivityTools(conversationActivityTools, messages ?? [], visibleToolAnchorId).map((segment, index, segments) => ({
       id: index === 0 ? "turn-activity" : `turn-activity:${segment.tools[0].id}`,
       afterMessageId: segment.anchorMessageId,
+      ...completedWorkMetadata(segment.tools, !conversationSnapshot?.isStreaming && prompts.length === 0, (tool) => Boolean(registry.toolCardFor(tool)), disclosures.openedInTurn(conversationActivityTools[0]!.id)),
       fallbackToTail: true,
       content: <WorkGroup
         // Each batch keeps its disclosure when later messages or calls arrive.

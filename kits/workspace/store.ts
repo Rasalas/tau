@@ -10,6 +10,7 @@ import {
   type FileNode,
   type HostActionResult,
   type PreferencesStore,
+  type RegionProps,
   type UiProject,
   type UiSession,
   type UiEditor,
@@ -71,6 +72,7 @@ const INITIAL: WorkspaceKitState = {
   workspaceMode: "current",
   preparingWorktree: false,
   changesSections: [],
+  workspaceSummarySections: [],
   threadRowAccessories: [],
   threadRowStatuses: {},
   threadCardSections: [],
@@ -525,7 +527,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     const token = (this.state.filesFocus?.token ?? 0) + 1;
     const path = this.state.changes.files[0]?.path;
     this.update({ filesFocus: { token, ...(path ? { path } : {}) } });
-    this.actions?.openPanel(WORKSPACE_FILES_PANEL);
+    this.actions?.openPanel(this.reviewViews > 0 ? "review.diff" : WORKSPACE_FILES_PANEL);
   }
 
   private async mutate(what: string, run: () => Promise<UiWorkspaceChanges>): Promise<void> {
@@ -739,6 +741,11 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     return () => this.update({ changesSections: this.state.changesSections.filter((entry) => entry !== section) });
   }
 
+  registerWorkspaceSummarySection(section: ComponentType<RegionProps>): () => void {
+    this.update({ workspaceSummarySections: [...(this.state.workspaceSummarySections ?? []), section] });
+    return () => this.update({ workspaceSummarySections: this.state.workspaceSummarySections?.filter((entry) => entry !== section) });
+  }
+
   registerReviewView(): () => void {
     this.reviewViews += 1;
     let registered = true;
@@ -748,7 +755,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   /** The review in place of the Changes panel, while a kit draws it; false leaves the panel to open. */
   openChangesView(): boolean {
     if (this.reviewViews === 0) return false;
-    this.openReview();
+    void this.refreshChanges();
+    this.actions?.openPanel("review.diff");
     return true;
   }
 

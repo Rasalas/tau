@@ -30,11 +30,11 @@ export {
   splitPromptTitle,
 } from "../shared/extension-prompt-options";
 export type { OptionParts, OptionPreview } from "../shared/extension-prompt-options";
-export { DiffView, ReviewMode } from "./extension-components";
+export { DiffView, DiffStack, ReviewMode } from "./extension-components";
 export { ChangesTree } from "./deferred-surfaces";
 // A text file with line numbers and highlighting, as a file tab shows it (API 1.20.0).
 export { FileSource } from "./deferred-surfaces";
-export { useAppUpdate, usePreferences } from "./renderer-services-context";
+export { useAppUpdate, usePreferences, useDiffPresentation } from "./renderer-services-context";
 export type { AppUpdate } from "./app-update";
 // The rows a Settings page is built from, and one config key read across the levels.
 export { SettingRow, SettingsSection } from "./deferred-surfaces";
@@ -267,3 +267,6 @@ export type * from "../shared/contracts";
 export { displayRuntime } from "../shared/contracts";
 
 export { findProjectForSession } from "../shared/session-project";
+
+export { BOUNDED_LINES } from "./components/diff-stack-constants";
+export type { StackFile } from "./components/DiffStack";

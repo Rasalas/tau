@@ -32,24 +32,25 @@ import { STORAGE_KEYS } from "../../workbench/storage-keys";
 import { DiffStream, diffLanguage, fileDiffRows, type DiffLineSlot, type DiffStreamHandle, type DiffStreamRow } from "./DiffView";
 import { FileKindIcon } from "./FileKindIcon";
 import { ReviewFileTree, type ReviewFileActions } from "./ReviewFileTree";
+import "./review-embedded.css";
 import { WindowControlsInset } from "./WindowControlsInset";
 import { usePagedWorkspaceFiles } from "./usePagedWorkspaceFiles";
 import { useHostCapabilities } from "../use-host-capabilities";
 
 const SIDEBAR_WIDTH_KEY = STORAGE_KEYS.reviewSidebarWidth;
 const SIDEBAR_OPEN_KEY = STORAGE_KEYS.reviewSidebarOpen;
-const MIN_SIDEBAR_WIDTH = 200;
+const MIN_SIDEBAR_WIDTH = 160;
 const MAX_SIDEBAR_WIDTH = 480;
 const COLLAPSED_CONTEXT_LINES = 3;
 const EXPANDED_CONTEXT_LINES = 100_000;
 
-function storedSidebarWidth(storage: ClientStorage): number {
+function storedSidebarWidth(storage: ClientStorage, fallback = 280): number {
   const stored = storage.get(SIDEBAR_WIDTH_KEY);
-  if (stored === null) return 280;
+  if (stored === null) return fallback;
   const value = Number(stored);
   return Number.isFinite(value)
     ? Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value))
-    : 280;
+    : fallback;
 }
 
 function storedSidebarOpen(storage: ClientStorage): boolean {
@@ -126,7 +127,10 @@ export function ReviewMode({
   fileActions,
   listHeader,
   onRefresh,
+  embedded = false,
 }: {
+  /** The stage owns the tab and window chrome. */
+  embedded?: boolean;
   changes: UiWorkspaceChanges;
   selectedPath?: string;
   editor?: UiEditor;
@@ -185,7 +189,7 @@ export function ReviewMode({
   const [filter, setFilter] = useState("");
   const clientStorage = useClientStorage();
   const [sidebarOpen, setSidebarOpenState] = useState(() => storedSidebarOpen(clientStorage));
-  const [sidebarWidth, setSidebarWidthState] = useState(() => storedSidebarWidth(clientStorage));
+  const [sidebarWidth, setSidebarWidthState] = useState(() => storedSidebarWidth(clientStorage, embedded ? 190 : 280));
   const [splitAvailable, setSplitAvailable] = useState(true);
   const [generatingMessage, setGeneratingMessage] = useState(false);
   const [messageError, setMessageError] = useState<string>();
@@ -347,6 +351,8 @@ export function ReviewMode({
       setScopeError(undefined);
       setScope(nextScope);
       setVisibleChanges(next);
+      setDiffs(new Map());
+      setDiffErrors(new Map());
       setReviewState(readReviewState(workspaceKey, nextScope));
       setToggledFiles(new Set());
       setFilter("");
@@ -387,7 +393,7 @@ export function ReviewMode({
 
   const scopeTitle = readOnly
     ? checkpointTitle ?? "Turn changes"
-    : scope === "branch" ? "Branch changes" : "Changes";
+    : scope === "branch" ? "Branch changes" : "Working tree";
   const effectiveMode = splitAvailable ? mode : "unified";
   // One flat row model over every file, so the review renders a single window
   // instead of every line of every diff.
@@ -440,14 +446,90 @@ export function ReviewMode({
   };
   const suggestionFingerprint = `${scope}:${visibleChanges.baseCommit ?? ""}:${paged.files.map((file) => `${file.path}:${file.added}:${file.removed}`).join("|")}`;
   useEffect(() => {
-    if (noCommit || !autoSuggestCommitMessage || !suggestCommitMessage || paged.files.length === 0 || diffs.size + diffErrors.size < paged.files.length) return;
+    if (embedded || noCommit || !autoSuggestCommitMessage || !suggestCommitMessage || paged.files.length === 0 || diffs.size + diffErrors.size < paged.files.length) return;
     if (suggestedFingerprintRef.current === suggestionFingerprint) return;
     suggestedFingerprintRef.current = suggestionFingerprint;
     void generateCommitMessage();
-  }, [autoSuggestCommitMessage, diffErrors.size, diffs.size, paged.files.length, noCommit, suggestionFingerprint, suggestCommitMessage]);
+  }, [embedded, autoSuggestCommitMessage, diffErrors.size, diffs.size, paged.files.length, noCommit, suggestionFingerprint, suggestCommitMessage]);
 
-  return <div className="review-shell">
-    <header className="title-bar">
+  const scopeControls = !readOnly && loadChanges ? <div className="review-scope toggle-group" aria-label="Review scope">
+        <button className={scope === "worktree" ? "active" : ""} disabled={loadingScope} onClick={() => void switchScope("worktree")}>Working tree</button>
+        <button className={scope === "branch" ? "active" : ""} disabled={loadingScope} onClick={() => void switchScope("branch")}>Branch vs target</button>
+        {scopeError ? <div className="review-scope-popover" role="alert">
+          <span>{scopeError}</span>
+          <button className="icon-button compact" aria-label="Dismiss comparison error" onClick={() => setScopeError(undefined)}><X size={12} /></button>
+        </div> : null}
+      </div> : null;
+
+  const reviewToolbar = <header className="review-toolbar">
+          {embedded ? scopeControls : null}
+          <span className="review-scope-summary">
+            {!embedded ? <strong>{scopeTitle}</strong> : null}
+            {!embedded || scope === "branch" ? <small>{readOnly ? "Before turn → after turn" : visibleChanges.baseRef ? `${visibleChanges.branch ?? "Branch"} → ${visibleChanges.baseRef}` : `${visibleChanges.branch ?? "Detached HEAD"} · uncommitted`}</small> : null}
+            {visibleChanges.request ? (
+              <a
+                className="review-request"
+                href={visibleChanges.request.url}
+                target="_blank"
+                rel="noreferrer"
+                title={`${visibleChanges.request.title} · opens in the browser`}
+              >
+                {visibleChanges.request.provider === "github" ? "PR" : "MR"} #{visibleChanges.request.number}
+              </a>
+            ) : null}
+            <span className="stat-add">+{visibleChanges.added}</span>
+            <span className="stat-del">−{visibleChanges.removed}</span>
+          </span>
+          <div className="review-file-navigation">
+            <button className="icon-button" aria-label="Previous changed file" disabled={filteredFiles.length === 0} onClick={() => cycleFile(-1)}><ChevronLeft size={15} /></button>
+            <button className="icon-button" aria-label="Next changed file" disabled={filteredFiles.length === 0} onClick={() => cycleFile(1)}><ChevronRight size={15} /></button>
+          </div>
+          <span className="spacer" />
+          {toolbar}
+          {!embedded ? <button
+            className="icon-button review-fold-all"
+            aria-label={allCollapsed ? "Expand all files" : "Collapse all files"}
+            title={allCollapsed ? "Expand all files" : "Collapse all files"}
+            disabled={paged.files.length === 0}
+            onClick={() => setAllCollapsed(!allCollapsed)}
+          >{allCollapsed ? <ChevronsUpDown size={14} /> : <ChevronsDownUp size={14} />}</button> : null}
+          {onWordWrapChange ? <button
+            className={`icon-button review-wrap-action ${wordWrap ? "active" : ""}`}
+            aria-pressed={wordWrap}
+            aria-label={wordWrap ? "Disable line wrapping" : "Enable line wrapping"}
+            title={wordWrap ? "Disable line wrapping" : "Enable line wrapping"}
+            disabled={paged.files.length === 0}
+            onClick={() => onWordWrapChange(!wordWrap)}
+          ><WrapText size={14} /></button> : null}
+          {!embedded && onIgnoreWhitespaceChange ? <button
+            className={`text-button review-whitespace-action ${ignoreWhitespace ? "active" : ""}`}
+            aria-pressed={ignoreWhitespace}
+            title={ignoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"}
+            disabled={paged.files.length === 0}
+            onClick={() => onIgnoreWhitespaceChange(!ignoreWhitespace)}
+          >Ignore whitespace</button> : null}
+          {!embedded ? <div className="toggle-group" aria-label="Diff context">
+            <button disabled={paged.files.length === 0} className={contextMode === "collapse" ? "active" : ""} onClick={() => setContextMode("collapse")}>Diff only</button>
+            <button disabled={paged.files.length === 0} className={contextMode === "expand" ? "active" : ""} onClick={() => setContextMode("expand")}>All lines</button>
+          </div> : null}
+          <div className="toggle-group" aria-label="Diff layout">
+            <button disabled={paged.files.length === 0} className={effectiveMode === "unified" ? "active" : ""} onClick={() => setMode("unified")}>Unified</button>
+            <button className={effectiveMode === "split" ? "active" : ""} disabled={paged.files.length === 0 || !splitAvailable} title={!splitAvailable ? "Split view needs more width" : undefined} onClick={() => setMode("split")}>Split</button>
+          </div>
+          {!embedded && editor && selectedPath ? <button className="text-button review-editor-action" onClick={() => onOpenInEditor(selectedPath)}>
+            Open in {editor.name} <ExternalLink size={11} />
+          </button> : null}
+          <button
+            className={`icon-button review-sidebar-toggle ${sidebarOpen ? "active" : ""}`}
+            title="Toggle file tree"
+            aria-label="Toggle file tree"
+            aria-expanded={sidebarOpen}
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+          >{sidebarOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}</button>
+        </header>;
+
+  return <div className={`review-shell${embedded ? " review-embedded" : ""}`}>
+    {embedded ? null : <header className="title-bar">
       <WindowControlsInset />
       <button className="chrome-button" onClick={onBack}><ArrowLeft size={13} /> Back to thread</button>
       <span className="review-title-divider" />
@@ -455,23 +537,16 @@ export function ReviewMode({
         <strong>{visibleChanges.branch ?? "review"}</strong>
         <span>review · {paged.fileCount} {paged.fileCount === 1 ? "file" : "files"}</span>
       </div>
-      {!readOnly && loadChanges ? <div className="review-scope toggle-group" aria-label="Review scope">
-        <button className={scope === "worktree" ? "active" : ""} disabled={loadingScope} onClick={() => void switchScope("worktree")}>Worktree</button>
-        <button className={scope === "branch" ? "active" : ""} disabled={loadingScope} onClick={() => void switchScope("branch")}>Branch changes</button>
-        {scopeError ? <div className="review-scope-popover" role="alert">
-          <span>{scopeError}</span>
-          <button className="icon-button compact" aria-label="Dismiss comparison error" onClick={() => setScopeError(undefined)}><X size={12} /></button>
-        </div> : null}
-      </div> : null}
+      {scopeControls}
       <div className="title-spacer" />
       {!noCommit && scope === "worktree" ? null : deviceReadOnly && !readOnly && scope === "worktree"
         ? <span className="review-read-only">Read only</span>
         : readOnly
         ? <span className="review-read-only">Historical turn</span>
         : <span className="review-read-only">Committed branch diff</span>}
-    </header>
+    </header>}
 
-    {paged.fileCount > 0 && !noCommit && scope === "worktree" ? <section className="commit-bar" aria-label="Commit">
+    {!embedded && paged.fileCount > 0 && !noCommit && scope === "worktree" ? <section className="commit-bar" aria-label="Commit">
       <div className="commit-bar-message">
         <textarea
           aria-label="Commit message"
@@ -494,73 +569,10 @@ export function ReviewMode({
       </div>
     </section> : null}
 
+    {embedded ? reviewToolbar : null}
     <div className="review-body">
       <main className="review-stage" ref={stageRef}>
-        <header className="review-toolbar">
-          <span className="review-scope-summary">
-            <strong>{scopeTitle}</strong>
-            <small>{visibleChanges.baseRef ? `from ${visibleChanges.baseRef}` : visibleChanges.branch ?? "detached"}</small>
-            {visibleChanges.request ? (
-              <a
-                className="review-request"
-                href={visibleChanges.request.url}
-                target="_blank"
-                rel="noreferrer"
-                title={`${visibleChanges.request.title} · opens in the browser`}
-              >
-                {visibleChanges.request.provider === "github" ? "PR" : "MR"} #{visibleChanges.request.number}
-              </a>
-            ) : null}
-            <span className="stat-add">+{visibleChanges.added}</span>
-            <span className="stat-del">−{visibleChanges.removed}</span>
-          </span>
-          <div className="review-file-navigation">
-            <button className="icon-button" aria-label="Previous changed file" disabled={filteredFiles.length === 0} onClick={() => cycleFile(-1)}><ChevronLeft size={15} /></button>
-            <button className="icon-button" aria-label="Next changed file" disabled={filteredFiles.length === 0} onClick={() => cycleFile(1)}><ChevronRight size={15} /></button>
-          </div>
-          <span className="spacer" />
-          {toolbar}
-          <button
-            className="icon-button review-fold-all"
-            aria-label={allCollapsed ? "Expand all files" : "Collapse all files"}
-            title={allCollapsed ? "Expand all files" : "Collapse all files"}
-            disabled={paged.files.length === 0}
-            onClick={() => setAllCollapsed(!allCollapsed)}
-          >{allCollapsed ? <ChevronsUpDown size={14} /> : <ChevronsDownUp size={14} />}</button>
-          {onWordWrapChange ? <button
-            className={`icon-button review-wrap-action ${wordWrap ? "active" : ""}`}
-            aria-pressed={wordWrap}
-            aria-label={wordWrap ? "Disable line wrapping" : "Enable line wrapping"}
-            title={wordWrap ? "Disable line wrapping" : "Enable line wrapping"}
-            disabled={paged.files.length === 0}
-            onClick={() => onWordWrapChange(!wordWrap)}
-          ><WrapText size={14} /></button> : null}
-          {onIgnoreWhitespaceChange ? <button
-            className={`text-button review-whitespace-action ${ignoreWhitespace ? "active" : ""}`}
-            aria-pressed={ignoreWhitespace}
-            title={ignoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"}
-            disabled={paged.files.length === 0}
-            onClick={() => onIgnoreWhitespaceChange(!ignoreWhitespace)}
-          >Ignore whitespace</button> : null}
-          <div className="toggle-group" aria-label="Diff context">
-            <button disabled={paged.files.length === 0} className={contextMode === "collapse" ? "active" : ""} onClick={() => setContextMode("collapse")}>Diff only</button>
-            <button disabled={paged.files.length === 0} className={contextMode === "expand" ? "active" : ""} onClick={() => setContextMode("expand")}>All lines</button>
-          </div>
-          <div className="toggle-group" aria-label="Diff layout">
-            <button disabled={paged.files.length === 0} className={effectiveMode === "unified" ? "active" : ""} onClick={() => setMode("unified")}>Unified</button>
-            <button className={effectiveMode === "split" ? "active" : ""} disabled={paged.files.length === 0 || !splitAvailable} title={!splitAvailable ? "Split view needs more width" : undefined} onClick={() => setMode("split")}>Split</button>
-          </div>
-          {editor && selectedPath ? <button className="text-button review-editor-action" onClick={() => onOpenInEditor(selectedPath)}>
-            Open in {editor.name} <ExternalLink size={11} />
-          </button> : null}
-          <button
-            className={`icon-button review-sidebar-toggle ${sidebarOpen ? "active" : ""}`}
-            title="Toggle file tree"
-            aria-label="Toggle file tree"
-            aria-expanded={sidebarOpen}
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-          >{sidebarOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}</button>
-        </header>
+        {embedded ? null : reviewToolbar}
 
         <div className="review-stage-content">
           <div className="review-diff-stream" ref={diffScrollRef}>
@@ -585,7 +597,7 @@ export function ReviewMode({
 
       {sidebarOpen ? <aside className="review-list" style={{ width: sidebarWidth }}>
         <div className="review-sidebar-resizer" role="separator" aria-orientation="vertical" onPointerDown={startSidebarResize} />
-        {listHeader && !readOnly ? <div className="review-list-header">{listHeader({ message, committed: () => setMessage("") })}</div> : null}
+        {!embedded && listHeader && !readOnly ? <div className="review-list-header">{listHeader({ message, committed: () => setMessage("") })}</div> : null}
         <label className="review-filter">
           <Search size={13} />
           <input

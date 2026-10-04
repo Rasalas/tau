@@ -69,6 +69,20 @@ async function client(cwd: string, overrides: Partial<HostExtensionServices> = {
 }
 
 describe("Workspace Kit host extension", () => {
+  it("reads visualization fragments from the named workspace and refuses unknown origins", async () => {
+    const active = await workspace();
+    const origin = await workspace();
+    await writeFile(join(active, "chart.html"), "wrong active workspace");
+    await writeFile(join(origin, "chart.html"), "<svg>thread origin</svg>");
+    const host = await client(active, { knownWorkspacePath: async (id) => {
+      if (id !== "thread-workspace") throw new Error("Unknown workspace");
+      return origin;
+    } });
+    expect(await host.readVisualization("chart.html", "thread-workspace")).toEqual({ html: "<svg>thread origin</svg>" });
+    await expect(host.readVisualization("chart.html", "unknown")).rejects.toThrow("Unknown workspace");
+    await expect(host.readVisualization(join(origin, "chart.html"), "thread-workspace")).rejects.toThrow("inside the workspace");
+  });
+
   it("issue 12 reads dot-directory images and Markdown from the named workspace, not active cwd", async () => {
     const cwd = await workspace();
     const origin = await workspace();

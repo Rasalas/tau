@@ -283,6 +283,31 @@ describe("TranscriptScrollController", () => {
     }
   });
 
+  it("opens completed work when search targets its commentary, then places the original message", async () => {
+    const test = harness(state(), 1000, 200);
+    try {
+      const row = addRow(test.node, "a", 100, 50);
+      const fold = document.createElement("section");
+      fold.dataset.foldedMessageIds = JSON.stringify(["b"]);
+      const button = document.createElement("button");
+      button.className = "work-fold-summary";
+      button.setAttribute("aria-expanded", "false");
+      button.onclick = () => {
+        button.setAttribute("aria-expanded", "true");
+        addRow(test.node, "b", 240, 80);
+      };
+      fold.append(button);
+      row.append(fold);
+      test.controller.jumpToMessage("b");
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+      await test.frame();
+      expect(test.node.scrollTop).toBe(240);
+      expect(test.controller.mode).toBe("free");
+    } finally {
+      test.dispose();
+    }
+  });
+
   it("ignores a layout scroll event that carries no user intent", () => {
     const test = harness(state());
     try {

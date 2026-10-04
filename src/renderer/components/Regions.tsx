@@ -4,6 +4,7 @@ import type { HostSnapshot } from "../../shared/contracts";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./LazyFeature";
 
 interface RegionHostProps {
+  workspacePreviewAvailable?: boolean;
   registry: ExtensionRegistry;
   placement: RegionPlacement;
   snapshot?: HostSnapshot;
@@ -16,7 +17,7 @@ interface RegionHostProps {
  * Renders whatever extensions registered for one placement; nothing when empty.
  * `lead` and `children` are core's own controls, drawn before and after the contributions.
  */
-export function Region({ registry, placement, snapshot, actions, lookIn, turn, lead, children, bare }: RegionHostProps & { lead?: ReactNode; children?: ReactNode; bare?: boolean }) {
+export function Region({ registry, placement, snapshot, actions, lookIn, turn, workspacePreviewAvailable, lead, children, bare }: RegionHostProps & { lead?: ReactNode; children?: ReactNode; bare?: boolean }) {
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const regions = registry.getRegions(placement);
   if (regions.length === 0 && children === undefined && !lead) return null;
@@ -32,7 +33,7 @@ export function Region({ registry, placement, snapshot, actions, lookIn, turn, l
         onNotify={actions.notify}
       >
         <Suspense fallback={<LazyFeatureFallback label={region.id} />}>
-          <region.Component snapshot={snapshot} actions={actions} {...(lookIn ? { lookIn } : {})} {...(turn ? { turn } : {})} />
+          <region.Component snapshot={snapshot} actions={actions} {...(workspacePreviewAvailable !== undefined ? { workspacePreviewAvailable } : {})} {...(lookIn ? { lookIn } : {})} {...(turn ? { turn } : {})} />
         </Suspense>
       </LazyFeatureBoundary>
     ))}

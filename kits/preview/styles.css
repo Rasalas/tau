@@ -320,3 +320,25 @@ body[data-keyboard] .preview-remote.compact .preview-remote-keys { padding-botto
 .preview-remote.held.compact .preview-remote-status-text { visibility: hidden; }
 .preview-remote.held.compact { box-shadow: none; }
 .preview-remote.held .preview-remote-bar { padding: 8px 12px; border-bottom: 0; }
+
+.region-workspace-preview .preview-docked { position: relative; inset: auto; width: min(420px, 100%); max-width: 100%; margin-left: auto; transform: none; border: 0; border-radius: 0; background: transparent; box-shadow: none; overflow: visible; z-index: auto; }
+.region-workspace-preview .preview-docked:hover, .region-workspace-preview .preview-docked:focus-within { width: min(420px, 100%); }
+.region-workspace-preview .preview-docked .preview-mini-head { cursor: default; height: 32px; border: 0; padding: 0; background: transparent; }
+.region-workspace-preview .preview-docked .preview-mini-body { max-height: 260px; border-radius: 6px; background: transparent; }
+.region-workspace-preview .preview-mini-source { flex: 1; min-width: 0; gap: 6px; }
+.region-workspace-preview .preview-mini-source > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); }
+.region-workspace-preview .preview-docked .preview-mini-head button { width: 32px; height: 32px; border: 0; border-radius: 6px; }
+.region-workspace-preview .preview-docked .preview-mini-head button > svg { width: 16px; height: 16px; }
+/* The frame title stays visible; desktop controls appear when the frame is used. */
+@media (hover: hover) and (pointer: fine) {
+  .region-workspace-preview .preview-docked .preview-mini-head button { opacity: 0; pointer-events: none; transition: opacity 120ms ease; }
+  .region-workspace-preview .preview-docked:is(:hover, :focus-within) .preview-mini-head button { opacity: 1; pointer-events: auto; }
+}
+
+/* A touch opens the controls first; their space stays reserved while hidden. */
+.region-workspace-preview .preview-docked[data-touch-preview] .preview-mini-head button { opacity: 0; pointer-events: none; }
+.region-workspace-preview .preview-docked[data-touch-preview][data-touch-controls] .preview-mini-head button { opacity: 1; pointer-events: auto; }
+@media (pointer: coarse) {
+  .region-workspace-preview .preview-docked .preview-mini-head { height: 44px; }
+  .region-workspace-preview .preview-docked .preview-mini-head button { width: 44px; height: 44px; }
+}
