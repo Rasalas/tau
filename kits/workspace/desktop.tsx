@@ -102,8 +102,8 @@ export const workspaceExtension: DesktopExtension = {
     context.registerProjectSource({
       id: "workspace.local-folder",
       label: "Local folder",
-      profiles: ["desktop"],
-      description: "Open an existing checkout or any folder on this Mac.",
+      profiles: ["desktop", "web", "compact"],
+      description: "Open an existing checkout or any folder on the host.",
       glyph: "▱",
       order: 10,
       Component: bind(LocalFolderSource),

@@ -170,3 +170,21 @@ body[data-profile="compact"] .title-bar .thread-title-trigger > span { flex: 1; 
 /* The title's touch target includes its branch line. */
 body[data-profile="compact"] .title-bar .thread-title-trigger { position: relative; }
 body[data-profile="compact"] .title-bar .thread-title-trigger::before { content: ""; position: absolute; inset: -8px 0 -20px; }
+
+/* Host folders stay reachable while a phone's keyboard is open. */
+body[data-profile="compact"] .project-modal {
+  top: calc(var(--tau-viewport-top, 0px) + 16px + env(safe-area-inset-top, 0px));
+  max-height: calc(var(--tau-viewport-height, 100dvh) - 32px - env(safe-area-inset-top, 0px));
+  overflow-y: auto;
+}
+body[data-profile="compact"] .project-modal-close {
+  align-self: flex-end; flex: none; display: grid; place-items: center;
+  min-width: var(--touch-target); min-height: var(--touch-target); margin: 4px 4px 0;
+  border: 0; border-radius: 8px; background: transparent; color: var(--ink); cursor: pointer;
+}
+body[data-profile="compact"] .project-source-list > button,
+body[data-profile="compact"] .folder-browser-results > button,
+body[data-profile="compact"] .project-modal-bar-glyph,
+body[data-profile="compact"] .project-modal-bar-action { min-height: var(--touch-target); }
+body[data-profile="compact"] .project-modal-bar-glyph { min-width: var(--touch-target); }
+body[data-profile="compact"] .folder-browser-results { max-height: min(340px, 45dvh); }

@@ -37,3 +37,21 @@
 .lightbox-thumb > img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .lightbox-foot > span { margin-left: 10px; color: var(--media-muted); font-size: 11px; }
 .palette-backdrop:has(> .attachment-lightbox) { z-index: 92; }
+
+body[data-profile="compact"] .attachment-lightbox {
+  top: var(--tau-viewport-top, 0px); bottom: auto; height: var(--tau-viewport-height, 100dvh);
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  box-sizing: border-box;
+}
+body[data-profile="compact"] .lightbox-head { gap: 4px; padding: 4px 8px; }
+body[data-profile="compact"] .lightbox-head > strong { flex: 1; min-width: 0; }
+body[data-profile="compact"] .lightbox-head > span { display: none; }
+body[data-profile="compact"] .lightbox-close,
+body[data-profile="compact"] .lightbox-action,
+body[data-profile="compact"] .lightbox-nav { min-width: var(--touch-target); min-height: var(--touch-target); }
+body[data-profile="compact"] .lightbox-stage { padding: 8px 12px; }
+body[data-profile="compact"] .lightbox-stage > img { touch-action: none; }
+body[data-profile="compact"] .lightbox-nav { left: 12px; }
+body[data-profile="compact"] .lightbox-nav.next { left: auto; right: 12px; }
+body[data-profile="compact"] .lightbox-foot { flex-wrap: wrap; padding: 8px 12px; }
+body[data-profile="compact"] .lightbox-foot > span { width: 100%; margin: 0; text-align: center; }

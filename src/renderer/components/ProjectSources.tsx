@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, Search } from "lucide-react";
+import { ArrowLeft, Search, X } from "lucide-react";
+import { useClientEnvironment } from "../client-environment";
 import type { ContributionOwner, ProjectSourceContribution, WorkbenchActions } from "../extension-system";
 
 /** Sources that draw their own search bar, as the list does. */
@@ -21,6 +22,7 @@ export function ProjectSourcesModal({
   /** A source with its own view to open on, instead of the list. */
   initialSource?: string;
 }) {
+  const { profile } = useClientEnvironment();
   const [activeSourceId, setActiveSourceId] = useState<string | undefined>(() => sources.find((source) => source.id === initialSource && source.Component)?.id);
   const [busySourceId, setBusySourceId] = useState<string>();
   const [query, setQuery] = useState("");
@@ -57,6 +59,7 @@ export function ProjectSourcesModal({
     <>
       <button className="project-modal-scrim" aria-label="Close add project" onClick={onClose} />
       <section className="project-modal" role="dialog" aria-modal="true" aria-label="Add project">
+        {profile === "compact" ? <button type="button" className="project-modal-close" aria-label="Close add project" onClick={onClose}><X size={20} /></button> : null}
         {activeSource && OWN_BAR.has(activeSource.id) ? null : <header className="project-modal-bar">
           {SourceComponent ? <>
             <button type="button" className="project-modal-bar-glyph" aria-label="Back to project sources" onClick={() => setActiveSourceId(undefined)}><ArrowLeft size={15} /></button>
@@ -64,7 +67,7 @@ export function ProjectSourcesModal({
           </> : <>
             <span className="project-modal-bar-glyph"><Search size={15} /></span>
             <input
-              autoFocus
+              autoFocus={profile !== "compact"}
               value={query}
               onChange={(event) => { setQuery(event.target.value); setSelected(0); }}
               onKeyDown={(event) => {

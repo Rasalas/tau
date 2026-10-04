@@ -148,6 +148,7 @@ const MOD_LABEL = typeof navigator !== "undefined" && /mac|iphone|ipad/iu.test(n
 export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProps) {
   const store = useWorkspaceStore();
   const host = store.host;
+  const { localFiles } = useHostCapabilities();
   const [listing, setListing] = useState<UiDirectoryListing>();
   const [text, setText] = useState("");
   const [selected, setSelected] = useState(-1);
@@ -174,11 +175,11 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
       setMissing(false);
       setSelected(-1);
       if (!options.keepText) setText(withSeparator(homeRelative(next.path)));
-      inputRef.current?.focus();
+      if (localFiles || document.activeElement === inputRef.current) inputRef.current?.focus();
     } catch {
       if (ticket === request.current) setMissing(true);
     }
-  }, [host]);
+  }, [host, localFiles]);
   useEffect(() => {
     const base = store.projectBaseDirectory();
     void load(base, { fallBack: base !== undefined });
@@ -255,7 +256,7 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
       {missing ? <p>No folder at {folder}</p> : current && directories.length === 0 ? <p>{leaf ? `Enter adds ${folder} — no folder here matches “${leaf}”` : "No folders in here"}</p> : null}
     </div>
     <footer className="project-modal-footer">
-      <button type="button" onClick={() => void choose()}><FolderOpen size={14} /> Choose a folder…</button>
+      {localFiles ? <button type="button" onClick={() => void choose()}><FolderOpen size={14} /> Choose a folder…</button> : null}
       <small className="keyboard-hint"><kbd>↑↓</kbd> select <kbd>⇥</kbd> complete</small>
     </footer>
   </div>;
