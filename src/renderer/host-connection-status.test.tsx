@@ -149,7 +149,13 @@ describe("host connection status", () => {
     act(() => { screen.getByRole("button", { name: "Retry now" }).click(); });
     expect(link.reconnectNow).toHaveBeenCalledTimes(1);
 
+    const retry = screen.getByRole("button", { name: "Retry now" });
+    link.setLink({ phase: "connecting", attempts: 2 });
+    expect(screen.getByRole("button", { name: "Retry now" })).toBe(retry);
+    expect(retry).toHaveProperty("disabled", true);
+
     link.setLink({ phase: "offline", attempts: 3, retryAt: 0 });
+    expect(retry).toHaveProperty("disabled", false);
     expect(screen.getByRole("status").textContent).toContain("Offline. Tau reconnects when the network is back.");
   });
 });

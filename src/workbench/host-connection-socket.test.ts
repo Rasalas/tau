@@ -299,6 +299,29 @@ async function liveClient(options: { heartbeat?: boolean } = {}) {
 }
 
 describe("socket host client on a mobile network", () => {
+  it.each(["close", "timeout"])("recovers when the host becomes reachable after the initial connection failed by %s", async (failure) => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    vi.useFakeTimers();
+    const { connection, client } = createSocketHostClient("ws://host.test:7788", "saved-token");
+    const started = connection.start("compact").catch((error: Error) => error.message);
+    if (failure === "close") FakeSocket.opened[0]!.drop();
+    else await vi.advanceTimersByTimeAsync(SOCKET_CONNECT_TIMEOUT_MS);
+    expect(await started).toBe("The host connection dropped.");
+    await vi.advanceTimersByTimeAsync(250);
+    const reachable = FakeSocket.opened[1]!;
+    reachable.accept();
+    await vi.advanceTimersByTimeAsync(0);
+    try {
+      expect(answerHello(reachable, helloReply(1))).toMatchObject({ token: "saved-token", profile: "compact" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(connection.getState()).toBe("connected");
+      client.reconnectNow();
+      expect(connection.getState()).toBe("connected");
+    } finally {
+      connection.close();
+    }
+  });
+
   it("ignores late frames and close callbacks from a replaced socket", async () => {
     const { connection, client, first, wake } = await liveClient();
     const lateMessage = first.onmessage!;

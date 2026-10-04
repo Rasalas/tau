@@ -47,7 +47,7 @@ import { usePanelLayout } from "./use-panel-layout";
 import type { SubmissionControllerPorts } from "./submission-controller";
 import { deferredSubmission } from "./deferred-submission";
 import { followTurnActivity } from "../workbench/turn-activity";
-import { followShownThread } from "../workbench/shown-thread";
+import { followWorkbenchBootstrap } from "../workbench/workbench-bootstrap";
 import { followOpenPrompts } from "../workbench/open-prompts";
 import { returnToComposer, useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
 import { usePreparedThreadCapability } from "./use-prepared-thread-capability";
@@ -400,7 +400,7 @@ export default function App() {
 
   useEffect(() => {
     let unsubscribe = () => {};
-    let stopFollowing = () => {};
+    let stopBootstrap = () => {};
     let stopPrompts = () => {};
     if (client) {
       // A page showing another machine looks as the window's own machine does.
@@ -410,20 +410,13 @@ export default function App() {
       // A question raised while nobody was listening would otherwise stall the
       // host forever, including during bootstrap itself.
       stopPrompts = followOpenPrompts(client, viewStore);
-      const bootstrapRequest = transcriptHistory.beginBootstrap();
-      client.bootstrap().then((bootstrap) => {
-        workbenchSession.applyBootstrap(bootstrap, bootstrapRequest);
-        stopFollowing();
-        stopFollowing = followShownThread(client, threadStore);
-      }).catch((error) => {
-        if (transcriptHistory.isCurrentBootstrap(bootstrapRequest)) setNotice(errorMessage(error));
-      });
+      stopBootstrap = followWorkbenchBootstrap(client, workbenchSession, setNotice);
     } else {
       applyThreadIndex(mockThreadIndex);
       applySnapshot(mockSnapshot);
       addEvent("preview.mode", "Electron host unavailable; showing fixture state");
     }
-    return () => { unsubscribe(); stopFollowing(); stopPrompts(); };
+    return () => { unsubscribe(); stopBootstrap(); stopPrompts(); };
   }, [addEvent, applySnapshot, applyThreadIndex, client, handleHostEvent, threadStore, transcriptHistory, viewStore, workbenchSession]);
 
   const activeThreadIdForEvents = snapshot?.sessionId;

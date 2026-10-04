@@ -90,7 +90,7 @@ export function HostConnectionStatus() {
     const waiting = state === "reconnecting" && (link?.phase === "waiting" || link?.phase === "offline");
     return <div className={`host-connection-status ${state}`} role="status" aria-live="polite">
       <span>{link?.phase === "offline" && state === "reconnecting" ? "Offline. Tau reconnects when the network is back." : LABEL[state]}</span>
-      {waiting ? <button type="button" className="text-button" onClick={() => client?.reconnectNow()}>Retry now</button> : null}
+      {state === "reconnecting" && link ? <button type="button" className="text-button" disabled={!waiting} onClick={() => client?.reconnectNow()}>Retry now</button> : null}
     </div>;
   }
   return <VersionSkewNotice />;
