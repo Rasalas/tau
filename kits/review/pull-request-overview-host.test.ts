@@ -78,7 +78,7 @@ async function harness(options: { remote?: string; remotes?: Record<string, stri
       return found.execute("call-1", params, undefined, undefined, undefined as never) as Promise<{ details: unknown }>;
     };
   };
-  return { invoke, calls, events, providers, runtime, lifecycles, tool, instructions };
+  return { invoke, calls, events, providers, runtime, lifecycles, tool, instructions, registry };
 }
 
 async function defaultAnswer({ args }: Call): Promise<string> {
@@ -185,6 +185,29 @@ describe("linked pull requests", () => {
       t1: [{ url: GITHUB_URL, state: "open" }],
       t2: [{ url: "https://github.com/ACME/tau/pull/7", state: "open" }, { url: GITLAB_URL, state: "open" }],
     });
+  });
+
+  it("freshly reads a recently linked PR for turn-end settlement and notifies Thread Rail", async () => {
+    let merged = false;
+    const detail = JSON.parse(await fixture("gh-pr-view-discussed.json"));
+    const { invoke, registry } = await harness({
+      answer: ({ args }) => args[0] === "pr" && args[1] === "view"
+        ? JSON.stringify({ ...detail, state: merged ? "MERGED" : "OPEN" })
+        : undefined,
+    });
+    const changed = vi.fn();
+    await registry.activate({ id: "tau.thread-rail", name: "Thread Rail probe", activate(context) {
+      context.registerCommand("requests-changed", (input) => changed(input), { callers: [REVIEW_HOST_EXTENSION_ID] });
+    } });
+    await invoke("link-pr", { threadId: "t1", reference: GITHUB_URL });
+    await vi.waitFor(() => expect(changed).toHaveBeenCalledWith({ threadId: "t1" }));
+    changed.mockClear();
+    merged = true;
+    // The normal read still uses its recent snapshot.
+    expect(await invoke("thread-requests", { threadIds: ["t1"] })).toEqual({ t1: [{ url: GITHUB_URL, state: "open" }] });
+    expect(await invoke("thread-requests", { threadIds: ["t1"], refresh: true })).toEqual({ t1: [{ url: GITHUB_URL, state: "merged" }] });
+    await vi.waitFor(() => expect(changed).toHaveBeenCalledWith({ threadId: "t1" }));
+    await registry.dispose();
   });
 
   it("keeps links to requests of every provider", async () => {

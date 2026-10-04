@@ -9,7 +9,7 @@ import { parseRequestUrl } from "./pull-request-json.js";
 import { linkKey, ThreadLinkStore } from "./thread-links.js";
 
 /** An open linked request's state is asked again at most this often; a merged one only on request. */
-const REFRESH_MS = 5 * 60_000;
+const REFRESH_MS = 60_000;
 /** A closed one is asked about now and then, so reopening it on the host is noticed. */
 const CLOSED_REFRESH_MS = 30 * 60_000;
 /** Linked requests read at once when Thread Rail asks about many threads. */
@@ -51,6 +51,8 @@ export function registerThreadLinks(
   const changed = (threadId: string) => {
     context.emit(THREAD_LINKS_EVENT, { threadId });
     context.emit(LOCAL_REVIEWS_EVENT, {});
+    // Host-side settlement also works with no window watching these events.
+    void context.invokeHostExtension(THREAD_RAIL_EXTENSION_ID, "requests-changed", { threadId }).catch(() => undefined);
   };
 
   /** A URL names its own repository; a bare number means the thread's project's. */
@@ -151,7 +153,7 @@ export function registerThreadLinks(
     const worker = async () => {
       for (let threadId = queue.shift(); threadId !== undefined; threadId = queue.shift()) {
         // oxlint-disable-next-line no-await-in-loop -- a few at a time: each may ask a host
-        await refresh(threadId, false).catch(() => undefined);
+        await refresh(threadId, record(input).refresh === true).catch(() => undefined);
         // oxlint-disable-next-line no-await-in-loop
         const links = await store.list(threadId);
         if (links.length > 0) answer[threadId] = links.map((entry) => ({ url: entry.url, ...(entry.state ? { state: entry.state } : {}) }));
