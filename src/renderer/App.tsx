@@ -402,6 +402,8 @@ export default function App() {
     let unsubscribe = () => {};
     let stopFollowing = () => {};
     let stopPrompts = () => {};
+    let stopRecovery = () => {};
+    let disposed = false;
     if (client) {
       // A page showing another machine looks as the window's own machine does.
       const personPreferences = getPlatform()?.environments?.shownElsewhere ? client.personPreferences?.bind(client) : undefined;
@@ -410,20 +412,31 @@ export default function App() {
       // A question raised while nobody was listening would otherwise stall the
       // host forever, including during bootstrap itself.
       stopPrompts = followOpenPrompts(client, viewStore);
-      const bootstrapRequest = transcriptHistory.beginBootstrap();
-      client.bootstrap().then((bootstrap) => {
-        workbenchSession.applyBootstrap(bootstrap, bootstrapRequest);
-        stopFollowing();
-        stopFollowing = followShownThread(client, threadStore);
-      }).catch((error) => {
-        if (transcriptHistory.isCurrentBootstrap(bootstrapRequest)) setNotice(errorMessage(error));
-      });
+      let loaded = false;
+      let loading = false;
+      const load = () => {
+        if (disposed || loaded || loading) return;
+        loading = true;
+        const bootstrapRequest = transcriptHistory.beginBootstrap();
+        client.bootstrap().then((bootstrap) => {
+          if (disposed) return;
+          loaded = true;
+          workbenchSession.applyBootstrap(bootstrap, bootstrapRequest);
+          stopFollowing();
+          stopFollowing = followShownThread(client, threadStore);
+        }).catch((error) => {
+          if (!disposed && transcriptHistory.isCurrentBootstrap(bootstrapRequest)) setNotice(errorMessage(error));
+        }).finally(() => { loading = false; });
+      };
+      // Replay restores later changes, but cannot replace an initial snapshot that never arrived.
+      stopRecovery = client.onConnectionState((state) => { if (state === "connected") load(); });
+      load();
     } else {
       applyThreadIndex(mockThreadIndex);
       applySnapshot(mockSnapshot);
       addEvent("preview.mode", "Electron host unavailable; showing fixture state");
     }
-    return () => { unsubscribe(); stopFollowing(); stopPrompts(); };
+    return () => { disposed = true; unsubscribe(); stopFollowing(); stopPrompts(); stopRecovery(); };
   }, [addEvent, applySnapshot, applyThreadIndex, client, handleHostEvent, threadStore, transcriptHistory, viewStore, workbenchSession]);
 
   const activeThreadIdForEvents = snapshot?.sessionId;

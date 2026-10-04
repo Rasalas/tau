@@ -92,7 +92,7 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
   const outbox: Array<{ text: string; hello: boolean }> = [];
   let socket: HostSocket | undefined;
   let counter = 0;
-  let everOpened = false;
+  let needsRecovery = false;
   let closed = false;
   let delayMs = RECONNECT_MIN_MS;
   let offline = false;
@@ -183,6 +183,7 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
   const lost = (code?: number, reason?: string): void => {
     stopTimers();
     socket = undefined;
+    needsRecovery = true;
     failPending("The host connection dropped.");
     for (const listener of closeListeners) listener();
     if (closed) return;
@@ -251,9 +252,12 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
       offline = false;
       setLink({ phase: "open", attempts: 0 });
       flush();
-      // The first open is the caller's own hello; later ones need recovery.
-      if (everOpened) for (const listener of openListeners) listener();
-      everOpened = true;
+      // A failed attempt rejects the caller's hello even if no socket has opened yet.
+      // The next open must recover that hello as well as an established connection.
+      if (needsRecovery) {
+        needsRecovery = false;
+        for (const listener of openListeners) listener();
+      }
     };
     current.onclose = (event?: { code?: number; reason?: string }) => {
       if (!closed && socket === current) lost(event?.code, event?.reason);

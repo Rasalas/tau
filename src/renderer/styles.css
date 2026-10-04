@@ -522,16 +522,15 @@ body:not([data-profile="compact"]) .conversation-start .composer-zone { padding-
 .conversation-column:not(.conversation-start) {
   display: grid; grid-template-columns: minmax(0, 1fr);
   grid-template-rows:
-    [head] auto [connection] auto [header] auto [banner] auto [transcript] minmax(0, 1fr)
+    [head] auto [header] auto [banner] auto [transcript] minmax(0, 1fr)
     [controls] auto [footer] auto [above] auto [caption] auto [composer] auto [dock-end below] auto [status] auto;
 }
 .conversation-column:not(.conversation-start) :is(.conversation-start-screen, .conversation-start-content, .conversation-thread) { display: contents; }
 /* One column for all: an item with only a row would be auto-placed beside the transcript, not over it. */
 .conversation-column:not(.conversation-start) :is(
-  .host-connection-status, .region-transcript-header, .thread-runtime-banner, .transcript-viewport, .composer-reserve-probe,
+  .region-transcript-header, .thread-runtime-banner, .transcript-viewport, .composer-reserve-probe,
   .region-composer-controls, .region-transcript-footer, .region-composer-above, .conversation-composer-host, .region-composer-below, .status-line
 ) { grid-column: 1 / -1; }
-.conversation-column:not(.conversation-start) > .host-connection-status { grid-row: connection / span 1; }
 .conversation-column:not(.conversation-start) .region-transcript-header { grid-row: header / span 1; }
 .conversation-column:not(.conversation-start) .thread-runtime-banner { grid-row: banner / span 1; }
 .conversation-column:not(.conversation-start) .transcript-viewport { grid-row: transcript / dock-end; }
@@ -2217,6 +2216,11 @@ button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--i
   background: color-mix(in srgb, var(--warn) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
   border-radius: var(--radius-sm);
+  pointer-events: auto;
+}
+.conversation-start .host-connection-status { max-width: 680px; margin-inline: auto; width: calc(100% - 64px); }
+@media (max-width: 700px) {
+  .conversation-start .host-connection-status { width: calc(100% - 24px); }
 }
 .host-connection-status.reconnecting {
   display: flex;

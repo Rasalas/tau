@@ -851,11 +851,13 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                 </button>} />
               </div> : null}
               <Region registry={registry} placement="composer-above" snapshot={snapshot} actions={actions} workspacePreviewAvailable={(workspaceAreaShown || stageExpanded) && registry.getRegions("workspace-preview").length > 0} />
-              <ComposerHost start={showStartScreen}>{conversationComposer}</ComposerHost>
+              <ComposerHost start={showStartScreen}>
+                <HostConnectionStatus />
+                {conversationComposer}
+              </ComposerHost>
               <Region registry={registry} placement="composer-below" snapshot={snapshot} actions={actions} />
             </div>
           </section>
-          <HostConnectionStatus />
           <StatusLine registry={registry} snapshot={snapshot} actions={actions} />
         </main>
         {sideOpen ? <ResizeHandle
