@@ -62,6 +62,7 @@ export interface EntryGraph {
   icons: Set<string> | undefined;
 }
 
+const lazySurfaces = new WeakMap<ManualChunkMeta["getModuleInfo"], Set<string>>();
 const graphs = new WeakMap<ManualChunkMeta["getModuleInfo"], EntryGraph>();
 
 /** The entry's static graph. Icons are read from the imports: lucide's barrel reaches every icon. */
@@ -97,6 +98,25 @@ export const rendererBuild = {
       // Every first highlight needs the core and a grammar. Keep their common
       // grammar code in one lazy chunk, with registration still per language.
       if (/\/node_modules\/highlight\.js\//u.test(id) || id.endsWith("/renderer/components/highlight-typescript.ts")) return "syntax-highlighting";
+      if (!graphs.has(meta.getModuleInfo)) graphs.set(meta.getModuleInfo, entryGraph(meta));
+      const entry = graphs.get(meta.getModuleInfo)!;
+      // Keep the complete static dependency graph of lazy document and picker
+      // surfaces together, including their styles; splitting an intermediate
+      // helper back out can create a chunk cycle and reorder the cascade.
+      if (!lazySurfaces.has(meta.getModuleInfo)) {
+        const documents = new Set<string>();
+        const pending = [...meta.getModuleIds()].filter((module) => /\/renderer\/components\/(?:Markdown|Stage|ReviewMode|DiffStack|DiffView|FileViewer|AttachmentLightbox|ComposerMenu|ComposerChipLayer|ComposerNotice|ModelPicker|ProjectPicker|CommandPalette|ThreadTreeModal)\.tsx$/u.test(module) || COMMON.has(module.slice(module.lastIndexOf("/src/"))));
+        while (pending.length) {
+          const module = pending.pop()!;
+          if (documents.has(module) || entry.modules.has(module) || module.includes("/node_modules/")) continue;
+          documents.add(module);
+          pending.push(...(meta.getModuleInfo(module)?.importedIds ?? []));
+        }
+        lazySurfaces.set(meta.getModuleInfo, documents);
+      }
+      if (lazySurfaces.get(meta.getModuleInfo)!.has(id)) return "common";
+      // Parser packages serve only the deferred Markdown surfaces.
+      if (/\/node_modules\/(?:micromark(?:-[^/]+)?|mdast-util-[^/]+|unist-util-[^/]+)\//u.test(id)) return "common";
       // Controls and row layout already import each other. Keep the shared
       // Settings primitives together, without pulling in any Settings page.
       // The nearby-host list has no stylesheet and already imports these primitives.
@@ -108,7 +128,6 @@ export const rendererBuild = {
       const common = COMMON.has(id.slice(id.lastIndexOf("/src/")));
       if (icon || common) {
         if (!graphs.has(meta.getModuleInfo)) graphs.set(meta.getModuleInfo, entryGraph(meta));
-        const entry = graphs.get(meta.getModuleInfo)!;
         // Never what the entry imports itself, which would load the chunk at start-up.
         if (icon) return entry.icons && !entry.icons.has(icon) ? "common" : undefined;
         return entry.modules.has(id) ? undefined : "common";

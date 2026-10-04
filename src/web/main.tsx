@@ -1,4 +1,4 @@
-import { StrictMode } from "react";
+import { StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { createLocalStorageAdapter } from "../renderer/browser-storage";
 import { setHostClient } from "../renderer/host-client-context";
@@ -10,7 +10,7 @@ import { setClientStorage } from "../workbench/client-storage";
 import { browserClientProfile } from "../workbench/client-profile";
 import { createSocketHostClient } from "../workbench/host-connection-socket";
 import { browserWakeSource } from "../renderer/browser-wakes";
-import { PairingWait, TokenGate } from "./TokenGate";
+import { LazyFeatureBoundary, LazyFeatureFallback, retryableLazy } from "../renderer/components/LazyFeature";
 import { accessRefusal } from "../workbench/access-refusal";
 import { watchChunkLoadErrors } from "../renderer/chunk-reload";
 import { pairWithHost } from "../workbench/host-pairing";
@@ -18,13 +18,17 @@ import { WebWorkbench, webClientEnvironment } from "./WebWorkbench";
 import { WEB_TOKEN_KEY, hostSocketUrl, pairingNotice, takePairingCode } from "./host-token";
 import "../renderer/styles.css";
 import "../renderer/profile-compact.css";
-import "./web.css";
+
 import type { BrowserConnectSession } from "./connect/offer";
 
 /**
  * The browser client pairs with its serving host, or with a host identified
  * by a pinned Tau Connect offer. Neither route takes credentials from a query.
  */
+// Pairing chrome and its stylesheet are needed only before connecting.
+const TokenGate = retryableLazy(() => import("./TokenGate").then((module) => ({ default: module.TokenGate })));
+const PairingWait = retryableLazy(() => import("./TokenGate").then((module) => ({ default: module.PairingWait })));
+
 // A host update removes this page's chunks; one reload fetches the new build.
 watchChunkLoadErrors();
 const storage = createLocalStorageAdapter();
@@ -44,18 +48,22 @@ applyTypeScale(device, device === "desktop" ? undefined : appleDynamicType());
 
 function showGate(notice?: string): void {
   root.render(<StrictMode>
+    <LazyFeatureBoundary label="connection"><Suspense fallback={<LazyFeatureFallback label="connection" />}>
     <TokenGate
       {...(notice ? { notice } : {})}
       onSubmit={(token) => { currentPairing?.abort(); attempt++; connectSession = undefined; storage.set(WEB_TOKEN_KEY, token); connect(token); }}
       onAsk={() => pair()}
       onConnect={(link) => { void pairConnect(link); }}
     />
+    </Suspense></LazyFeatureBoundary>
   </StrictMode>);
 }
 
 function showPairingWait(verification: string | undefined, onCancel: () => void): void {
   root.render(<StrictMode>
+    <LazyFeatureBoundary label="pairing"><Suspense fallback={<LazyFeatureFallback label="pairing" />}>
     <PairingWait {...(verification ? { verification } : {})} onCancel={onCancel} />
+    </Suspense></LazyFeatureBoundary>
   </StrictMode>);
 }
 

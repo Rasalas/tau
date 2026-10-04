@@ -5,6 +5,22 @@ import { checksLabel, RowRequests } from "./requests.js";
 const REQUEST: UiReviewRequest = { provider: "github", number: 3, title: "T", url: "https://example.com/3", baseRef: "main", state: "open" };
 
 describe("rail request cache", () => {
+  it("rereads a checkout whose branch changes during an outstanding request", async () => {
+    let finish!: (request: UiReviewRequest) => void;
+    const next = { ...REQUEST, number: 4, headRef: "new-branch" };
+    const load = vi.fn().mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; })).mockResolvedValue(next);
+    const rows = new RowRequests(load, () => 0);
+    rows.ensure("ws-a");
+    rows.ensure("ws-a", true);
+    rows.ensure("ws-a", true);
+    expect(load).toHaveBeenCalledTimes(1);
+    finish(REQUEST);
+    await vi.waitFor(() => expect(rows.get("ws-a")).toEqual(next));
+    expect(load).toHaveBeenCalledTimes(2);
+    rows.ensure("ws-a");
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
   it("asks once per checkout and minute, however many rows share it", async () => {
     let clock = 0;
     const load = vi.fn(async () => REQUEST);

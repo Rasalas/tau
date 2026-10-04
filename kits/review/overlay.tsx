@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
   HostUnavailableError,
   ReviewMode,
@@ -31,6 +31,7 @@ export function createReviewOverlay(
   store: WorkspaceStoreApi,
   comments: ReviewCommentStore,
   chips: () => ComposerContextChips | undefined,
+  embedded = false,
 ) {
   const { stageFile, unstageFile, stageAll, revertFile } = store;
   const fileActions = stageFile && unstageFile && revertFile ? {
@@ -47,9 +48,12 @@ export function createReviewOverlay(
     const workspaceKey = state.workspaceId ?? state.cwd;
     useEffect(() => { comments.open(workspaceKey ?? "workspace"); }, [workspaceKey]);
     const lines = useCommentLines(comments, commentState);
-    const review = state.review ?? { primaryPush: false };
-    const selectPath = useCallback((path: string) => store.selectReviewPath(path), []);
-    const closeReview = useCallback(() => { store.closeReview(); onClose(); }, [onClose]);
+    const [stageSelection, setStageSelection] = useState<{ workspace?: string; path: string }>();
+    const stagePath = stageSelection?.workspace === workspaceKey ? stageSelection?.path : undefined;
+    const review = state.review ?? { primaryPush: embedded && Boolean(state.workspace?.upstream) };
+    useEffect(() => { if (embedded) void store.refresh(); }, [workspaceKey]);
+    const selectPath = useCallback((path: string) => { if (embedded) setStageSelection({ workspace: workspaceKey, path }); else store.selectReviewPath(path); }, [workspaceKey]);
+    const closeReview = useCallback(() => { if (!embedded) store.closeReview(); onClose(); }, [onClose]);
     const commit = useCallback(async (message: string, push: boolean) => {
       if (await store.commit(message, push)) closeReview();
     }, [closeReview]);
@@ -86,8 +90,10 @@ export function createReviewOverlay(
     }, [actions, closeReview]);
     return (
       <ReviewMode
+        key={workspaceKey ?? "workspace"}
         changes={state.changes}
-        selectedPath={review.path ?? state.changes.files[0]?.path}
+        embedded={embedded}
+        selectedPath={(embedded ? stagePath : review.path) ?? state.changes.files[0]?.path}
         editor={store.activeEditor()}
         busy={state.committing}
         primaryPush={review.primaryPush}

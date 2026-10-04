@@ -1,7 +1,8 @@
 import type { MenuItemConstructorOptions } from "electron";
 import { describe, expect, it } from "vitest";
 import { decodeNativeMenu } from "../shared/context-menu.js";
-import { acceleratorOf, showWindowContextMenu } from "./window-context-menu.js";
+import { acceleratorOf, editingMenuItems, installWorkbenchEditingMenu, showWindowContextMenu } from "./window-context-menu.js";
+import type { ContextMenuParams, WebContents } from "electron";
 
 function fakePopup(platform: NodeJS.Platform = "darwin", icon?: (name: string) => never) {
   const shown: { template?: MenuItemConstructorOptions[]; point?: { x: number; y: number }; closed?: () => void } = {};
@@ -27,6 +28,22 @@ const ENTRIES = decodeNativeMenu("test", [
 ]);
 
 describe("the window's context menu", () => {
+  it("opens a native local Copy menu for selected transcript text", () => {
+    let listener!: (event: { defaultPrevented: boolean }, params: ContextMenuParams) => void;
+    const contents = { on: (_name: string, handle: typeof listener) => { listener = handle; } } as unknown as Pick<WebContents, "on">;
+    const menus: Array<{ items: MenuItemConstructorOptions[]; point: unknown }> = [];
+    installWorkbenchEditingMenu(contents, (items, point) => menus.push({ items, point }));
+    const params = { x: 25, y: 45, isEditable: false, selectionText: "selected answer", editFlags: { canCopy: true } } as ContextMenuParams;
+    listener({ defaultPrevented: false }, params);
+    expect(menus).toEqual([{ items: [{ role: "copy", enabled: true }], point: { x: 25, y: 45 } }]);
+    listener({ defaultPrevented: true }, params);
+    expect(menus).toHaveLength(1);
+  });
+  it("offers native editing roles on editable fields and no empty transcript menu", () => {
+    const editFlags = { canUndo: true, canRedo: false, canCut: true, canCopy: true, canPaste: true, canDelete: true, canSelectAll: true, canEditRichly: false };
+    expect(editingMenuItems({ isEditable: true, selectionText: "input", editFlags }).map((item) => item.role || item.type)).toEqual(["undo", "redo", "separator", "cut", "copy", "paste", "separator", "selectAll"]);
+    expect(editingMenuItems({ isEditable: false, selectionText: "", editFlags })).toEqual([]);
+  });
   it("builds the native template and answers the item clicked, even when the close is reported first", async () => {
     const popup = fakePopup();
     const answer = showWindowContextMenu(popup.ports, ENTRIES, { x: 5, y: 6 });

@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { ExternalLink, FileWarning } from "lucide-react";
+import { ExternalLink, FileWarning, WrapText } from "lucide-react";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff } from "../../shared/workspace-kit-types";
 import type { StageFileTab, StageView } from "../../workbench/stage";
 import type { CommandContribution, WorkbenchActions } from "../extension-system";
+import { useDiffPresentation } from "../renderer-services-context";
 import { errorMessage } from "../../workbench/error-message";
 import { FileSource, lineCount } from "./FileSource";
 import { DiffPane } from "./DiffPane";
@@ -36,7 +37,7 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
 }) {
   const [content, setContent] = useState<UiFileContent>();
   const [error, setError] = useState<string>();
-  const [mode, setMode] = useState<"unified" | "split">("unified");
+  const { layout: mode, setLayout: setMode, wrap, setWrap } = useDiffPresentation();
   const { readOnly } = useHostCapabilities();
   const view: StageView = tab.view === "diff" && !changed ? "source" : tab.view;
 
@@ -68,6 +69,7 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
         </div>
       ) : null}
       {changed && stat && Number.isFinite(stat.added) && Number.isFinite(stat.removed) ? <small className="stage-pane-stat"><span className="stat-add">+{stat.added}</span> <span className="stat-del">−{stat.removed}</span></small> : null}
+      {view === "diff" ? <button className={`icon-button ${wrap ? "active" : ""}`} aria-pressed={wrap} aria-label={wrap ? "Disable line wrapping" : "Enable line wrapping"} onClick={() => setWrap(!wrap)}><WrapText size={14} /></button> : null}
       {view === "diff" ? (
         <div className="toggle-group" aria-label="Diff layout">
           <button className={mode === "unified" ? "active" : ""} onClick={() => setMode("unified")}>Unified</button>
@@ -91,7 +93,7 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
       ) : null}
     </header>
     {view === "diff"
-      ? <DiffPane path={relativePath} mode={mode} loadDiff={loadDiff} />
+      ? <DiffPane path={relativePath} mode={mode} wrap={wrap} loadDiff={loadDiff} />
       : error
         ? <Empty
           icon={<FileWarning size={20} />}

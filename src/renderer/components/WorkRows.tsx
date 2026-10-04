@@ -1,5 +1,6 @@
 import { ChevronRight, CircleAlert, Clock, Hammer } from "lucide-react";
-import { memo, useEffect, useMemo, useRef } from "react";
+import { memo, useContext, useEffect, useMemo, useRef } from "react";
+import { CompletedWorkContext } from "./CompletedWork";
 import type { UiToolOutputPreview, UiToolRun, UiTurnActivityEntry } from "../../shared/contracts";
 import {
   deriveWorkRows,
@@ -60,6 +61,8 @@ function toolRun(tool: UiToolRun, context: WorkRowActions) {
     onStop={context.stalled ? context.onRecover : context.onStop}
     onCopyOutput={context.onCopyOutput}
     onLoadOutput={context.onLoadOutput}
+    disclosures={context.disclosures}
+    turn={context.turn}
   />;
 }
 
@@ -198,7 +201,7 @@ export const WorkGroup = memo(function WorkGroup({
   answerAt,
   registry,
   actions,
-  detail,
+  detail: requestedDetail,
   disclosures,
   waiting,
   waitingFor,
@@ -207,6 +210,8 @@ export const WorkGroup = memo(function WorkGroup({
   onCopyOutput,
   onLoadOutput,
 }: WorkGroupProps) {
+  const insideCompletedWork = useContext(CompletedWorkContext);
+  const detail = insideCompletedWork ? "detailed" : requestedDetail;
   // Only claim interruption when the caller actually knows no run is in flight
   // and a call is still open; an unknown streaming state must not turn live
   // tools into "interrupted", and a settled turn is not an interrupted one.

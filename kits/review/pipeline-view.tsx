@@ -75,11 +75,22 @@ function headline(jobs: readonly PipelineJob[]): string {
  * time; a click picks it, with its log one more click away. A phone draws
  * the circles alone, each a 44 px target.
  */
-export function PipelineGraph({ pipelines, actions, empty = "No checks reported." }: { pipelines: readonly Pipeline[]; actions: WorkbenchActions; empty?: string }) {
+export function PipelineGraph({ pipelines, actions, empty = "No checks reported.", variant = "graph" }: { pipelines: readonly Pipeline[]; actions: WorkbenchActions; empty?: string; variant?: "graph" | "vertical" }) {
   const phone = useCompactProfile();
   const now = useNow(pipelines.some((pipeline) => pipeline.stages.some((stage) => stage.some(isActive))));
   const [picked, setPicked] = useState<string>();
   if (pipelines.length === 0) return <p className="pr-empty">{empty}</p>;
+  if (variant === "vertical") return <div className="pl pl-vertical">
+    {pipelines.map((pipeline) => <section key={pipeline.name} className="pl-pipeline" aria-label={pipeline.name}>
+      <header className="pl-head"><strong>{pipeline.name}</strong><span>{headline(pipeline.stages.flat())}</span></header>
+      {pipeline.stages.map((stage, index) => <div key={index} className="pl-vertical-stage" role="group" aria-label={`Stage ${index + 1}`}>
+        {stage.map((job, jobIndex) => <div key={`${job.name}-${jobIndex}`} className="pl-vertical-job">
+          <JobCircle job={job} now={now} size={16} /><span className="pl-name" title={job.name}>{job.name}</span><span className="pl-vertical-state" title={jobTiming(job, now)} aria-label={jobTiming(job, now)}>{STATE_WORDS[job.state]}</span>
+          {job.url ? <button type="button" className="pl-log" onClick={() => actions.openExternal(job.url!)} aria-label={`Details for ${job.name}`}>Details<ExternalLink size={16} aria-hidden /></button> : null}
+        </div>)}
+      </div>)}
+    </section>)}
+  </div>;
   return (
     <div className={`pl${phone ? " phone" : ""}`}>
       {pipelines.map((pipeline) => {

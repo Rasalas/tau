@@ -1,7 +1,8 @@
 import { FileSymlink, Square } from "lucide-react";
 import { memo, useContext, useEffect, useState } from "react";
 import type { UiToolOutputPreview, UiToolRun } from "../../shared/contracts";
-import { exitCode, formatWorkDuration, toolActionClass, toolFailureReason, type TranscriptDetail } from "../../workbench/transcript-folding";
+import { exitCode, formatWorkDuration, toolFailureReason, type TranscriptDetail } from "../../workbench/transcript-folding";
+import { useDisclosure, type WorkDisclosures } from "./work-disclosures";
 import type { ExtensionRegistry } from "../extension-system";
 import { ACTIVE_TOOL_OUTPUT_LIMIT, SETTLED_TOOL_OUTPUT_LIMIT, boundToolOutput } from "../tool-output";
 import { formatBytes } from "../format-bytes";
@@ -27,6 +28,8 @@ export const ToolRun = memo(function ToolRun({
   onStop,
   onCopyOutput,
   onLoadOutput,
+  disclosures,
+  turn,
 }: {
   tool: UiToolRun;
   registry: ExtensionRegistry;
@@ -42,19 +45,18 @@ export const ToolRun = memo(function ToolRun({
   onCopyOutput?(tool: UiToolRun): Promise<void> | void;
   /** Loads the output the host held back (`outputDeferred`) when the row opens. */
   onLoadOutput?(tool: UiToolRun): Promise<UiToolOutputPreview | undefined>;
+  disclosures?: WorkDisclosures;
+  turn?: string;
 }) {
   const running = tool.status === "running" && !stalled;
   const failed = tool.status === "error";
   const view = registry.presentTool(tool);
   // Rich previews such as edit diffs follow transcript detail. Plain output
-  // opens for running tools and failed commands; settled results need a click.
+  // opens while tools run; settled results and failure traces need a click.
   const openByDefault = view.body
     ? detail !== "focused"
-    : running || (failed && toolActionClass(tool.name) === "command");
-  const [outputOpen, setOutputOpen] = useState(openByDefault);
-  useEffect(() => {
-    setOutputOpen(openByDefault);
-  }, [openByDefault]);
+    : running;
+  const [outputOpen, setOutputOpen] = useDisclosure(disclosures, `tool:${tool.id}`, openByDefault, turn);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!running) return;
@@ -113,7 +115,7 @@ export const ToolRun = memo(function ToolRun({
         type="button"
         className="tool-run-line"
         aria-expanded={showOutput || showBody}
-        onClick={() => setOutputOpen((value) => !value)}
+        onClick={() => setOutputOpen(!outputOpen)}
       >
         <span className="tool-run-glyph">{view.glyph}</span>
         <span className="tool-run-name">{view.title}</span>

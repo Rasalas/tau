@@ -4,7 +4,7 @@ import type { UiMessage } from "../../shared/contracts";
 import { WorkbenchContext, WorkbenchShellContext } from "../workbench-context";
 import { LazyFeatureBoundary } from "./LazyFeature";
 import { drawsBlocksFor, splitMessageBlocks } from "./message-blocks";
-import { Markdown } from "./Markdown";
+import { Markdown } from "./LazyMarkdown";
 import { MessageActions } from "./MessageActions";
 import { MessageImages, PersistedMessageImages } from "./MessageImages";
 import { copyableMessage, embeddedFileContexts, localImagePaths, visibleUserMessageText } from "./MessageText";

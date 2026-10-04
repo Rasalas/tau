@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Copy, ExternalLink, GitBranch, MessageSquare, RefreshCw, SquarePlus } from "lucide-react";
-import { errorMessage, READ_ONLY_REASON, tooltipProps, type WorkbenchActions } from "tau";
-import { currentDiffWordWrap } from "./diff-settings.js";
+import { useDiffPresentation, errorMessage, READ_ONLY_REASON, tooltipProps, type WorkbenchActions } from "tau";
 import { githubHtml } from "./github-html.js";
 import { RequestMarkdown as Markdown, RequestMediaProvider } from "./request-markdown.js";
 import { LinkedThreadsControl, ThreadPicker, useLinkedThreads } from "./linked-threads.js";
@@ -77,7 +76,7 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
   const thread = actions.activeThread();
   const threadId = thread?.sessionId;
   const [tab, setTab] = useState<Tab>(params.focus ?? "changes");
-  const [layout, setLayout] = useState<"unified" | "split">("unified");
+  const { layout, setLayout, wrap, setWrap } = useDiffPresentation();
   const [oldestFirst, setOldestFirst] = useState(false);
   const [composing, setComposing] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -211,7 +210,7 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
       <label className="rvd-whitespace" title="Show lines that changed only in whitespace as unchanged">
         <input type="checkbox" checked={ignoreWhitespace} onChange={(event) => shared.preferences.setOption(REVIEW_HOST_EXTENSION_ID, WHITESPACE_OPTION_ID, event.target.checked)} /> Hide whitespace
       </label>
-      <LayoutToggle layout={layout} onChange={setLayout} />
+      <LayoutToggle layout={layout} onChange={setLayout} wrap={wrap} onWrapChange={setWrap} />
     </>
   ) : shownTab === "timeline" ? (
     <button type="button" className="text-button" onClick={() => setOldestFirst(!oldestFirst)}>{oldestFirst ? "Oldest first" : "Newest first"}</button>
@@ -242,7 +241,7 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
             <ReviewDiffStack
               files={stackFiles}
               layout={layout}
-              wrap={currentDiffWordWrap()}
+              wrap={wrap}
               diffs={diffByPath}
               lines={lines.slotFor}
               extra={(file) => {

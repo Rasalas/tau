@@ -6,7 +6,7 @@ import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptDetail } from "../../workbench/transcript-folding";
 import { MessageActions } from "./MessageActions";
 import { UserMessage, useMessageBlocks } from "./UserMessage";
-import { Markdown } from "./Markdown";
+import { Markdown } from "./LazyMarkdown";
 import { compactTimestamp, fullTimestamp } from "./message-timestamp";
 import { TurnErrorLine } from "./TurnError";
 import { CompactionDivider } from "./CompactionDivider";

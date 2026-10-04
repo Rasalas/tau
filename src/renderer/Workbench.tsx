@@ -1,3 +1,4 @@
+import "./workspace-area.css";
 import { lazy, memo, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, ListTree, MessageSquare } from "lucide-react";
@@ -466,6 +467,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   }, [stageShown]);
   // Where the conversation is out of sight, its composer floats over the stage (design 1b).
   const floating = conversationFolded && stageExpanded && !compact && !showStartScreen;
+  const workspaceContextAvailable = Boolean(showStartScreen ? startProjectPath : workspaceCwd);
+  const workspaceSummaryAvailable = workspaceContextAvailable && registry.getRegions("workspace-summary").length > 0;
+  const workspaceAreaShown = workspaceSummaryAvailable && !phone && (canSplit || stageExpanded);
   const sideOpen = stageShown && !stacked;
   const centerWidth = windowWidth - drawnSidebar;
   const chatWidth = shownChatWidth(chatWidthPreference, centerWidth);
@@ -721,7 +725,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     details={!showStartScreen && !split ? <ThreadDetails snapshot={conversationSnapshot} view={view} slots={detailSlots} />
       : split ? <StartDetails snapshot={conversationSnapshot} /> : <StartDetails snapshot={conversationSnapshot} slots={detailSlots} />}
     actions={conversationFolded ? null : <PanelSlot host={titleActionsHost} />}
-    tools={stageExpanded ? undefined : stageTools}
+    tools={stageExpanded || workspaceAreaShown ? undefined : stageTools}
   />;
   return providers(<>
     {/* Settings covers the shell rather than unmounting it, so threads, terminals and scroll stay as they were. */}
@@ -846,7 +850,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                   <span>{startProjectName}</span><ChevronDown size={12} />
                 </button>} />
               </div> : null}
-              <Region registry={registry} placement="composer-above" snapshot={snapshot} actions={actions} />
+              <Region registry={registry} placement="composer-above" snapshot={snapshot} actions={actions} workspacePreviewAvailable={(workspaceAreaShown || stageExpanded) && registry.getRegions("workspace-preview").length > 0} />
               <ComposerHost start={showStartScreen}>{conversationComposer}</ComposerHost>
               <Region registry={registry} placement="composer-below" snapshot={snapshot} actions={actions} />
             </div>
@@ -865,6 +869,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           defaultValue={defaultChatWidth(centerWidth)}
           onChange={setChatWidth}
         /> : null}
+        {workspaceAreaShown || stageExpanded ? <aside className={`workspace-area${stageExpanded ? " has-stage" : ""}`} aria-label="Workspace">
+          {!stageExpanded ? <>
+            {!compact ? <div className="workspace-area-tools">{stageTools}</div> : null}
+            <Region registry={registry} placement="workspace-summary" snapshot={snapshot} actions={actions} />
+          </> : null}
         {stageExpanded ? <LazyFeatureBoundary label="stage" title="The stage failed to load." frame={stageFrame}>
           <Suspense fallback={stageFrame(<LazyFeatureFallback label="stage" />)}>
             <LazyStage
@@ -875,7 +884,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               changes={documentState.changes}
               editor={documentState.editor}
               maximize={spine ? { maximized: true, label: "Show conversation", onToggle: () => setSpine(false) } : panelLayout && (canSplit || maximized) ? { maximized, onToggle: () => {
-                setChatFocused(false);
+                setChatFocused(maximized && !canSplit);
                 if (maximized) panelLayout.restore();
                 else panelLayout.maximizeStage();
               } } : stacked ? { maximized: true, label: "Show chat", onToggle: () => setChatFocused(true) } : undefined}
@@ -902,6 +911,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
             />
           </Suspense>
         </LazyFeatureBoundary> : null}
+          <div className="workspace-preview-bottom"><Region registry={registry} placement="workspace-preview" snapshot={snapshot} actions={actions} /></div>
+        </aside> : null}
       </div>
       {drawerPanel ? <section className="workbench-drawer" aria-label={drawerPanel.label} style={{ height: shownDrawerHeight(drawerHeight, windowHeight) }}>
         <ResizeHandle

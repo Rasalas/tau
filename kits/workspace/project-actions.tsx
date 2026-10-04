@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { ChevronDown, Play, Plus, TerminalSquare, Trash2 } from "lucide-react";
-import { Menu, tooltipProps, useClientStorage, useKeepClear, type ClientStorage, type MenuItem } from "tau";
+import { Menu, Popover, tooltipProps, useClientStorage, useKeepClear, type ClientStorage, type MenuItem } from "tau";
 import { parseShellActionDraft } from "./actions.js";
 
 /** `tau.project-actions:<workspace>`, scoped per project by its workspace id. */
@@ -89,17 +89,14 @@ export function pickProjectAction(state: ProjectActionsState, id: string): boole
 }
 
 /** The form that adds an action, hung below whichever anchor opened it. */
-export function ProjectActionEditor({ state }: { state: ProjectActionsState }) {
+export function ProjectActionEditor({ state, anchor }: { state: ProjectActionsState; anchor?: RefObject<HTMLDivElement | null> }) {
   const [name, setName] = useState("");
   const [commandDraft, setCommandDraft] = useState("");
   // Reuses .menu without the Menu component, so it needs the same clearance.
   const editor = useRef<HTMLFormElement>(null);
-  useKeepClear(editor, true);
+  useKeepClear(editor, !anchor);
   const { actions, save, closeEditor } = state;
-  return (
-    <>
-      <button className="menu-scrim" aria-label="Close action editor" onClick={closeEditor} />
-      <form
+  const form = <form
         ref={editor}
         className="menu below right project-action-editor"
         onSubmit={(event) => {
@@ -128,19 +125,19 @@ export function ProjectActionEditor({ state }: { state: ProjectActionsState }) {
           <button type="button" onClick={closeEditor}>Cancel</button>
           <button type="submit" className="primary" disabled={!name.trim() || !parseShellActionDraft(commandDraft).command}>Add</button>
         </div>
-      </form>
-    </>
-  );
+      </form>;
+  return anchor ? <Popover anchor={anchor} align="end" label="Add project script" className="project-action-editor-shell" onClose={closeEditor}>{form}</Popover> : <><button className="menu-scrim" aria-label="Close action editor" onClick={closeEditor} />{form}</>;
 }
 
 /** The project's actions as a split button (run the first, the rest in its menu), or "Add action"; `iconOnly` drops the label. */
-export function ProjectActionsControl({ state, iconOnly = false }: { state: ProjectActionsState; iconOnly?: boolean }) {
+export function ProjectActionsControl({ state, iconOnly = false, card = false }: { state: ProjectActionsState; iconOnly?: boolean; card?: boolean }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const primary = state.actions[0];
+  const anchor = useRef<HTMLDivElement>(null);
   const tip = (label: string) => tooltipProps(label, { side: "bottom" });
 
   return (
-    <div className="menu-anchor project-actions-control">
+    <div ref={anchor} className={`menu-anchor project-actions-control${card ? " workspace-card-script-control" : ""}`}>
       {primary ? (
         <div className="chrome-group" aria-label="Project actions">
           <button className="chrome-button split-main" aria-label={primary.name} {...tip(`Run ${primary.name}`)} onClick={() => state.run(primary)}>
@@ -151,8 +148,8 @@ export function ProjectActionsControl({ state, iconOnly = false }: { state: Proj
           </button>
         </div>
       ) : (
-        <button className="chrome-button" aria-label="Add action" {...(iconOnly ? tip("Add action") : {})} onClick={state.openEditor}>
-          <Plus size={14} />{iconOnly ? null : <span>Add action</span>}
+        <button className="chrome-button" aria-label={card ? "Add project script" : "Add action"} {...(iconOnly ? tip("Add action") : {})} onClick={state.openEditor}>
+          <Plus size={14} />{iconOnly ? null : <span>{card ? "Add project script" : "Add action"}</span>}
         </button>
       )}
 
@@ -166,7 +163,7 @@ export function ProjectActionsControl({ state, iconOnly = false }: { state: Proj
         />
       ) : null}
 
-      {state.editing ? <ProjectActionEditor state={state} /> : null}
+      {state.editing ? <ProjectActionEditor state={state} anchor={card ? anchor : undefined} /> : null}
     </div>
   );
 }

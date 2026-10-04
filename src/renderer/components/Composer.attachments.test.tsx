@@ -66,10 +66,18 @@ describe("Composer attachments", () => {
     expect((screen.getByLabelText("Choose attachment files") as HTMLInputElement).tabIndex).toBe(-1);
   });
 
+  it("opens the file chooser directly from the footer", () => {
+    renderComposer();
+    const input = screen.getByLabelText("Choose attachment files") as HTMLInputElement;
+    const choose = vi.spyOn(input, "click");
+    fireEvent.click(screen.getByRole("button", { name: "Attach files" }));
+    expect(choose).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog", { name: "More composer controls" })).toBeNull();
+  });
+
   it("shows a selected image above the text line, opens it large, and submits its bytes", async () => {
     const onSubmit = renderComposer();
-    // Attach is an entry of the "…" menu; drag and paste take files too.
-    fireEvent.click(screen.getByLabelText("More composer controls"));
+    // Attach stays directly available; drag and paste take files too.
     expect(await screen.findByRole("button", { name: "Attach files" })).toBeTruthy();
     const input = screen.getByLabelText("Choose attachment files") as HTMLInputElement;
     const image = new File([new Uint8Array([137, 80, 78, 71])], "diagram.png", { type: "image/png" });

@@ -57,7 +57,7 @@ const windowKey = (state: ScreenState): string | undefined => state.window ? `${
  * driving a window, once per window, so a user who went back to the browser
  * is not pulled away on every click.
  */
-export function useScreenFollower(actions: Pick<WorkbenchActions, "openPanel" | "activeThread">, panel: string): void {
+export function useScreenFollower(actions: Pick<WorkbenchActions, "openPanel" | "activeThread">, panel: string, workspacePreviewAvailable = false): void {
   const service = screenService.use();
   const followed = useRef(new Map<string, string>());
   useEffect(() => {
@@ -68,9 +68,9 @@ export function useScreenFollower(actions: Pick<WorkbenchActions, "openPanel" | 
       if (!key || state.threadId !== threadId || followed.current.get(state.threadId) === key) return;
       followed.current.set(state.threadId, key);
       previewView.set("screen");
-      actions.openPanel(panel);
+      if (!workspacePreviewAvailable) actions.openPanel(panel);
     });
-  }, [actions, panel, service]);
+  }, [actions, panel, service, workspacePreviewAvailable]);
 }
 
 /** The window `threadId`'s agent drives, as Computer Use last reported it. */

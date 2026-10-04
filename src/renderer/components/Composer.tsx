@@ -1,3 +1,4 @@
+import "./composer-controls.css";
 import { useClientEnvironment } from "../client-environment";
 import { lazy, Suspense, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { ArrowUp, ChevronDown, Lock, Paperclip, Shrink, Sparkles, Terminal, Undo2, Zap } from "lucide-react";
@@ -834,9 +835,8 @@ export function Composer({
   const thinkingSummary = <>{thinkingWords}{fastOn ? <Zap size={12} fill="currentColor" className="composer-fast" aria-label="Fast" /> : null}</>;
   const menuControls = composerControls.filter((control) => control.placement === "menu");
   const leadControls = composerControls.filter((control) => control.placement === "lead");
-  const menuShortcuts = menuControls.flatMap((control) => control.shortcuts ?? []);
-  // The row is the design's: model, reasoning, the "…" menu, the context meter, the queue, send.
-  // Kits' chips fold into the menu first; attach lives there (and in drag and paste).
+  const menuShortcuts = composerControls.filter((control) => control.placement !== "lead").flatMap((control) => control.shortcuts ?? []);
+  // Attachment, model and thinking stay visible; optional controls live in the menu.
   const contextPercent = contextUsage ? Math.round(Math.min(100, Math.max(0, contextUsage.percent))) : 0;
   const footerBlocks: FooterBlock[] = [
     ...(thinkingWords ? [{ id: "reasoning", pinned: true, node: (
@@ -857,7 +857,7 @@ export function Composer({
         <span className="composer-thinking-words">{thinkingSummary}{thinkingChoosable ? <ChevronDown size={12} className="chev" /> : null}</span>
       </button>
     ) }] : []),
-    ...composerControls.filter((control) => control.placement === undefined || control.placement === "toolbar").map((control) => ({ id: control.id, node: (
+    ...composerControls.filter((control) => control.placement === undefined || control.placement === "toolbar").map((control) => ({ id: control.id, menuOnly: true, node: (
       <LazyFeatureBoundary
         label={control.id}
         extensionId={control.extensionId}
@@ -881,17 +881,6 @@ export function Composer({
       />,
     }] : []),
     ...(queue.length > 0 && !newThread ? [{ id: "queued", end: true, rank: 2, node: <span className="composer-queued">{queue.length} queued</span> }] : []),
-    {
-      id: "attach",
-      menuOnly: true,
-      node: <ComposerMenuItem
-        icon={<Paperclip size={13} />}
-        label="Attach files"
-        disabled={!attachAvailable}
-        disabledReason={IMAGE_INPUT_UNAVAILABLE_MESSAGE}
-        onSelect={() => fileInputRef.current?.click()}
-      />,
-    },
   ];
 
   // The host refuses every send and change from a Read-only device (ADR 0024); say so instead of offering them.
@@ -1142,6 +1131,16 @@ export function Composer({
           <ComposerFooterControls
             revision={`${text.trimStart().startsWith("!!") ? "silent-shell" : text.trimStart().startsWith("!") ? "shell" : ""}|${snapshot?.model?.name ?? ""}|${snapshot?.thinkingLevel ?? ""}`}
             leading={<>
+              <button
+                type="button"
+                className="runtime-chip composer-attach-chip"
+                aria-label="Attach files"
+                disabled={!attachAvailable}
+                {...tooltipProps(attachAvailable ? "Attach files" : IMAGE_INPUT_UNAVAILABLE_MESSAGE)}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Paperclip size={16} aria-hidden="true" />
+              </button>
               {leadControls.map((control) => (
                 <LazyFeatureBoundary key={control.id} label={control.id} extensionId={control.extensionId} extensionName={control.extensionName} registry={registry} onNotify={onNotify}>
                   <control.Component snapshot={snapshot} actions={shellContext?.actions} />

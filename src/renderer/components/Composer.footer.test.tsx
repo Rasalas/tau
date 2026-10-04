@@ -80,7 +80,7 @@ describe("the composer's slim footer", () => {
     renderFooter(vi.fn(), <button type="button">Project</button>);
     const row = screen.getByText("Machine").closest(".composer-chips") as HTMLElement;
     const labels = [...row.querySelectorAll("button, .composer-lead-rule")].map((node) => node.classList.contains("composer-lead-rule") ? "|" : node.textContent);
-    expect(labels.slice(0, 4)).toEqual(["Machine", "Project", "|", "GPT-5.6 Luna"]);
+    expect(labels.slice(0, 5)).toEqual(["", "Machine", "Project", "|", "GPT-5.6 Luna"]);
   });
 
   it("draws the model with its marks, the thinking level as text, and a round send", () => {
@@ -96,14 +96,15 @@ describe("the composer's slim footer", () => {
     expect(screen.queryByLabelText(/^Thread cost/u)).toBeNull();
   });
 
-  it("keeps a kit's toolbar chip in the row and its menu controls behind one menu", () => {
+  it("keeps optional kit controls behind one menu", () => {
     const { onSelectAccess } = renderFooter();
-    expect(screen.getByRole("button", { name: "Kit chip" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Kit chip" })).toBeNull();
     expect(screen.queryByRole("group", { name: "Access" })).toBeNull();
     const trigger = screen.getByLabelText("More composer controls");
     expect(trigger.dataset.composerShortcut?.split(" ")).toContain("composer.mode");
     fireEvent.click(trigger);
     const menu = screen.getByRole("dialog", { name: "More composer controls" });
+    expect(within(menu).getByRole("button", { name: "Kit chip" })).toBeTruthy();
     const access = within(menu).getByRole("group", { name: "Access" });
     expect(within(access).getByRole("radio", { name: "Full access" }).getAttribute("aria-checked")).toBe("true");
     fireEvent.click(within(access).getByRole("radio", { name: "Ask before edits" }));
@@ -123,16 +124,16 @@ describe("the composer's slim footer", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Select model" })).toBeNull());
   });
 
-  it("draws the design's row: model, reasoning, the menu, the context meter and send; attach waits in the menu", () => {
+  it("keeps attachment, model, thinking and send directly available", () => {
     renderFooter();
     const row = screen.getByLabelText("Select model: GPT-5.6 Luna").closest(".composer-toolbar") as HTMLElement;
     const labels = [...row.querySelectorAll("button")].map((button) => button.getAttribute("aria-label") ?? button.textContent);
-    expect(labels).toEqual(["Machine", "Select model: GPT-5.6 Luna", "Thinking: Medium", "Kit chip", "More composer controls", "Context 20 percent used", "Send"]);
+    expect(labels).toEqual(["Attach files", "Machine", "Select model: GPT-5.6 Luna", "Thinking: Medium", "More composer controls", "Context 20 percent used", "Send"]);
     // The ring keeps its percentage in the accessible label and the details.
     expect(screen.getByLabelText("Context 20 percent used").textContent).toBe("");
     fireEvent.click(screen.getByLabelText("More composer controls"));
     const menu = screen.getByRole("dialog", { name: "More composer controls" });
-    expect(within(menu).getByRole("button", { name: /Attach files/u })).toBeTruthy();
+    expect(within(menu).queryByRole("button", { name: /Attach files/u })).toBeNull();
   });
 
   it("says how many follow-ups wait, at the row's end before send", () => {

@@ -359,6 +359,10 @@ export const TranscriptViewport = memo(function TranscriptViewport({
       return;
     }
 
+    // Plain navigation keys must leave workbench chords to the window.
+    // Ctrl+D and Ctrl+U remain the transcript's page-scroll shortcuts.
+    if (event.metaKey || event.altKey || (event.ctrlKey && event.key !== "d" && event.key !== "u")) return;
+
     if (event.key === "Escape" || event.key === "i" || (event.key === "Enter" && !event.shiftKey)) {
       event.preventDefault();
       onFocusComposer?.();

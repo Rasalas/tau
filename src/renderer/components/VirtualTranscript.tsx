@@ -4,6 +4,9 @@ import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptDetail } from "../../workbench/transcript-folding";
 import { collapseRetriedErrors } from "../../workbench/transcript-state";
 import { Message } from "./Message";
+import { CompletedWork } from "./CompletedWork";
+import { projectCompletedTurnWork } from "./completed-turn-work";
+import { WorkDisclosures } from "./work-disclosures";
 import {
   groupTranscriptActivitiesForMessageIds,
   unanchoredTranscriptActivitiesForMessageCount,
@@ -17,6 +20,7 @@ import { LazyFeatureBoundary } from "./LazyFeature";
 import { composerReserve } from "./ComposerReserve";
 import { startsTurn, turnNumberOf } from "../../shared/message-turns";
 import type { TranscriptTurn } from "../extension-system";
+import { usePlatform } from "../platform-context";
 
 export interface VirtualTranscriptProps {
   messages: UiMessage[];
@@ -128,13 +132,22 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   onRetryMessage,
   onFocusComposer,
 }: VirtualTranscriptProps) {
+  const platform = usePlatform();
+  const [copyError, setCopyError] = useState<string>();
   // A runtime's automatic retries read as one failed answer that counts them.
   const { messages: collapsed, retried } = useMemo(() => collapseRetriedErrors(transcriptMessages), [transcriptMessages]);
-  const messages = collapsed as UiMessage[];
-  const pendingActivities = useMemo<TranscriptActivity[]>(() => [
+  const allActivities = useMemo<TranscriptActivity[]>(() => [
     ...activities,
     ...(activity ? [{ id: "turn-activity", afterMessageId: activityAfterMessageId, fallbackToTail: true, content: activity }] : []),
   ], [activities, activity, activityAfterMessageId]);
+  const completed = useMemo(() => detail === undefined || detail === "focused"
+    ? projectCompletedTurnWork(collapsed, allActivities, isStreaming)
+    : { messages: collapsed, activities: allActivities, work: new Map(), aliases: new Map() },
+  [collapsed, allActivities, detail, isStreaming]);
+  const messages = completed.messages as UiMessage[];
+  const sourcePositions = useMemo(() => new Map(transcriptMessages.map((message, index) => [message.id, index])), [transcriptMessages]);
+  const pendingActivities = completed.activities;
+  const completedDisclosures = useMemo(() => new WorkDisclosures(), [sessionKey]);
   const firstId = messages[0]?.id;
   const lastId = messages.at(-1)?.id;
   // Rebuilt only when the ordered ID set changes, never for streaming deltas.
@@ -154,7 +167,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   const turns = useMemo(() => {
     const byPrompt = new Map<string, TranscriptTurn>();
     let turn: { number: number; messages: UiMessage[]; last: boolean } | undefined;
-    for (const message of messages) {
+    for (const message of collapsed) {
       if (startsTurn(message)) {
         if (turn) turn.last = false;
         turn = { number: turnNumberOf(turn?.number ?? 0, message), messages: [], last: true };
@@ -164,7 +177,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     }
     return byPrompt;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messageIndex]);
+  }, [messageIndex, collapsed]);
   const normalizedActivities = useMemo(() => pendingActivities.map((entry) => ({
     ...entry,
     ...(entry.afterMessageId && messageIndex.references.has(entry.afterMessageId)
@@ -185,7 +198,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   );
 
   const [rowSizes] = useState(() => new TranscriptRowSizes());
-  const rowKind = (message: UiMessage) => transcriptRowKind(message, (activitiesByMessage.get(message.id)?.length ?? 0) > 0, detail);
+  const rowKind = (message: UiMessage) => transcriptRowKind(message, completed.work.has(message.id) || (activitiesByMessage.get(message.id)?.length ?? 0) > 0, detail);
   const [expandedState, setExpandedState] = useState<{ sessionKey: string; ids: ReadonlySet<string> }>(() => ({ sessionKey, ids: new Set() }));
   const expandedMessageIds = expandedState.sessionKey === sessionKey ? expandedState.ids : EMPTY_MESSAGE_IDS;
   // The transcript index already owns this mapping. Reusing it avoids a second
@@ -290,6 +303,8 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   }, [sessionKey]);
 
   const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    // Message navigation leaves modified chords to the viewport or workbench.
+    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
     const target = event.target as HTMLElement | null;
     // A row stops above the dock over the transcript's end; the last one goes to the true end.
     const revealRow = (index: number) => {
@@ -427,12 +442,9 @@ export const VirtualTranscript = memo(function VirtualTranscript({
           const rowEl = transcriptRef.current?.querySelector<HTMLElement>(`[data-index="${focusedIndex}"]`);
           const codeEl = rowEl?.querySelector(".md-code pre code") ?? rowEl?.querySelector("pre code");
           const textToCopy = codeEl?.textContent || msg.text;
-          try {
-            void navigator.clipboard?.writeText(textToCopy);
-          } catch {
-            // Ignore clipboard errors
-          }
-          onCopyMessage?.(msg);
+          setCopyError(undefined);
+          if (onCopyMessage) onCopyMessage(textToCopy === msg.text ? msg : { ...msg, text: textToCopy });
+          else void platform.clipboard.writeText(textToCopy).catch(() => setCopyError("Copy failed. Select the text and use the system Copy command."));
         }
       }
       return;
@@ -482,14 +494,14 @@ export const VirtualTranscript = memo(function VirtualTranscript({
       }
       return;
     }
-  }, [expandedMessageIds, focusedIndex, messages, onCopyMessage, onForkMessage, onFocusComposer, scrollRef, turns, updateExpandedMessage, virtualizer]);
+  }, [expandedMessageIds, focusedIndex, messages, onCopyMessage, onForkMessage, onFocusComposer, platform, scrollRef, turns, updateExpandedMessage, virtualizer]);
 
   const measuredRows = virtualizer.getVirtualItems();
   const rows = measuredRows.length > 0
     ? measuredRows
     : messages.slice(0, 12).map((message, index) => ({ index, key: message.id, start: index * 180 }));
-  const visibleRangeStart = virtualizer.range?.startIndex;
-  const visibleRangeEnd = virtualizer.range?.endIndex;
+  const visibleRangeStart = virtualizer.range ? sourcePositions.get(messages[virtualizer.range.startIndex]!.id) : undefined;
+  const visibleRangeEnd = virtualizer.range ? sourcePositions.get(messages[virtualizer.range.endIndex]!.id) : undefined;
 
   if (messages.length === 0 && unanchoredActivities.length > 0) {
     return <div ref={transcriptRef} className="virtual-transcript static-activity-transcript" tabIndex={0} role="region" aria-label="Transcript content">
@@ -519,7 +531,9 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     data-visible-start-index={visibleRangeStart}
     data-visible-end-index={visibleRangeEnd}
     data-focused-index={focusedIndex}
+    data-message-anchors={JSON.stringify([...completed.aliases])}
   >
+    {copyError ? <div role="alert">{copyError}</div> : null}
     {rows.map((row) => {
       const message = messages[row.index];
       const anchoredActivities = activitiesByMessage.get(message.id) ?? [];
@@ -560,6 +574,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
           onToggleExpanded={onMessageToggleExpanded}
           expanded={expandedMessageIds.has(message.id)}
         />
+        {completed.work.has(message.id) ? <div onClickCapture={captureActivityViewport}><CompletedWork work={completed.work.get(message.id)!} disclosures={completedDisclosures} onCopy={onCopyMessage} /></div> : null}
         {anchoredActivities.map((entry) => (
           <div
             className="inline-transcript-activity"

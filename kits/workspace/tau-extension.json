@@ -12,7 +12,8 @@
     "workspace:switch",
     "sessions",
     "runtime:extend",
-    "process"
+    "process",
+    "network"
   ],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",

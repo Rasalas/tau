@@ -330,9 +330,11 @@ export interface TranscriptRowsHandle {
  * (API 1.30.0). `thread-list-title` adds compact controls beside a phone's header title;
  * a tablet's sidebar has a foot for them (`PageContribution.Summary`). `turn-divider` sits in
  * the prompt's metadata without a numbered separator; its props carry `turn` (API 1.39.0).
+ * `workspace-summary` groups workspace context above the stage; `workspace-preview`
+ * reserves space beneath it for extension-owned live frames without covering chat.
  * `spine` fills the narrow column the conversation collapses to (design 1b), under the title.
  */
-export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in" | "thread-list-head" | "thread-list-title" | "turn-divider" | "spine";
+export type RegionPlacement = "workspace-summary" | "workspace-preview" | "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in" | "thread-list-head" | "thread-list-title" | "turn-divider" | "spine";
 
 /** Where a thread of a list source runs: its mark and name on the row's project line. */
 export interface ThreadListPlace {
@@ -393,6 +395,8 @@ export interface TranscriptTurn {
 }
 
 export interface RegionProps {
+  /** Core currently reserves an in-flow workspace preview beside the conversation. */
+  workspacePreviewAvailable?: boolean;
   snapshot?: HostSnapshot;
   actions: WorkbenchActions;
   /** Set only in the `look-in` placement. */
@@ -465,7 +469,7 @@ export interface ComposerControlContribution extends ProfileScoped {
   id: string;
   order?: number;
   /**
-   * `toolbar` sits beside model and thinking; `lead` before the model chip
+   * `toolbar` adds optional controls to the overflow menu; `lead` before the model chip
    * (API 1.27.0: a new thread's machine); `menu` is drawn inside the
    * composer's "…" menu, built from `ComposerMenuSection`/`ComposerMenuItem`;
    * `footer` spans the row below the editor.
@@ -1376,6 +1380,8 @@ export interface DocumentSourceContribution extends ProfileScoped {
   id: string;
   /** The stage names the project its tabs were stored for, which a draft's may be. */
   loadFile(path: string, from?: DocumentOrigin): Promise<UiFileContent>;
+  /** Publish a workspace fragment as an opaque sandbox on this connection; release when unmounted. */
+  loadVisualization?(path: string, from: DocumentOrigin & { workspace: string }, theme?: "light" | "dark"): Promise<{ url: string; release?: () => void }>;
   /** Read a transcript link on its host, including absolute paths and paths outside the workspace. Requires an explicit origin. */
   loadLinkedFile?(path: string, from: DocumentOrigin & { workspace: string }): Promise<UiFileContent>;
   loadDiff(path: string, options?: DiffLoadOptions, from?: DocumentOrigin): Promise<UiFileDiff>;

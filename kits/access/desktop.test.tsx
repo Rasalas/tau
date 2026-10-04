@@ -65,6 +65,23 @@ describe("Access Kit desktop extension", () => {
     expect(openSettings).toHaveBeenCalledWith("runtimes#runtime-permissions");
   });
 
+  it("keeps restricted access visible and opens its choices without duplicating the shortcut", () => {
+    const { registry, preferences } = activate();
+    const control = registry.getComposerControls().find((entry) => entry.id === "access.status")!;
+    const opened = vi.fn();
+    render(<><button type="button" data-composer-menu="" onClick={() => { throw new Error("Unrelated composer opened"); }}>Other composer</button><div className="composer-chips"><button type="button" data-composer-menu="" onClick={opened}>More</button><control.Component /></div></>);
+    expect(screen.queryByLabelText(/^Access:/u)).toBeNull();
+    act(() => { preferences.setValue(ACCESS_HOST_EXTENSION_ID, "level", "read-only"); });
+    const status = screen.getByRole("button", { name: "Access: Read only" });
+    expect(status.hasAttribute("data-composer-shortcut")).toBe(false);
+    fireEvent.click(status);
+    expect(opened).toHaveBeenCalledOnce();
+    act(() => { preferences.setValue(ACCESS_HOST_EXTENSION_ID, "level", "ask"); });
+    expect(screen.getByRole("button", { name: "Access: Ask before edits" })).toBeTruthy();
+    act(() => { preferences.setValue(ACCESS_HOST_EXTENSION_ID, "level", "full"); });
+    expect(screen.queryByLabelText(/^Access:/u)).toBeNull();
+  });
+
   it("offers one palette command per level", () => {
     const { registry, preferences } = activate();
     const commands = registry.getCommands().filter((command) => command.id.startsWith("access."));

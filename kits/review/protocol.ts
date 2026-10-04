@@ -5,6 +5,7 @@ export const REVIEW_HOST_EXTENSION_ID = "tau.review";
 export const WORKSPACE_HOST_EXTENSION_ID = "tau.workspace";
 export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
 export const WORKSPACE_CHANGES_PANEL = "changes";
+export const REVIEW_DIFF_PANEL = "review.diff";
 export const REVIEW_OVERLAY = "review.workspace";
 /** The review sheet a compact client opens from its title bar. */
 export const REVIEW_COMPACT_PANEL = "review";
@@ -50,6 +51,7 @@ export interface WorkspaceStoreApi {
   }) => Promise<string>): () => void;
   refresh(): Promise<void>;
   registerChangesSection(section: ComponentType<ChangesSectionProps>): () => void;
+  registerWorkspaceSummarySection?(section: ComponentType<import("tau").RegionProps>): () => void;
   /** Absent on a Workspace Kit that keeps its Changes panel whatever draws the review. */
   registerReviewView?(): () => void;
   stageFile?(path: string): Promise<void>;

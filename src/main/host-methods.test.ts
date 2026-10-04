@@ -163,3 +163,25 @@ describe("off-screen core thread methods", () => {
     expect(sendToThread).not.toHaveBeenCalled();
   });
 });
+
+it("reads visualization artifacts on their home host and publishes/releases on the client host", async () => {
+  const route = { machine: "remote", input: { workspace: "remote-workspace", relPath: "chart.html" } };
+  const routes = { routeOf: vi.fn(() => route), call: vi.fn(async () => ({ html: "chart" })), localResult: (_extension: string, _command: string, result: unknown) => result };
+  const invoke = vi.fn(async (_extension: string, command: string) => command === "publish-visualization" ? { path: "/resources/capability" } : undefined);
+  const fake = { invokeHostExtension: invoke, authorizeHostExtension: vi.fn(async () => undefined) } as unknown as PiHost;
+  const unsupported = (): never => { throw new Error("not in this test"); };
+  const methods = createHostMethods({
+    bootstrap: unsupported, requireHost: async () => fake, host: () => fake,
+    machineRoutes: routes as never, jobs: new HostJobRunner(() => undefined),
+    platform: { copyText: unsupported, copyImage: unsupported, readImagePreview: unsupported,
+      inspectExtensions: unsupported, loadDesktopExtensions: unsupported, rebuildWorkbench: unsupported,
+      workbenchSource: unsupported, relaunchWorkbench: unsupported, installUpdate: unsupported,
+      notify: unsupported, setBadge: unsupported },
+  });
+  expect(await invokeHostMethod(methods, "host-extension", ["tau.workspace", "read-visualization", route.input])).toEqual({ html: "chart" });
+  expect(routes.call).toHaveBeenCalledTimes(1);
+  await invokeHostMethod(methods, "host-extension", ["tau.workspace", "publish-visualization", { html: "chart", theme: "light" }]);
+  await invokeHostMethod(methods, "host-extension", ["tau.workspace", "release-visualization", { path: "/resources/capability" }]);
+  expect(routes.routeOf).toHaveBeenCalledTimes(1);
+  expect(invoke.mock.calls.map((call) => call[1])).toEqual(["publish-visualization", "release-visualization"]);
+});

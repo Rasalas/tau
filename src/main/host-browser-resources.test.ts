@@ -83,3 +83,26 @@ describe("host browser resource capabilities", () => {
     store.close();
   });
 });
+
+it("allows scripts only in immutable visualization capabilities with no ambient authority", async () => {
+  const store = new HostBrowserResourceStore();
+  const resources = store.services[BIND_BROWSER_RESOURCES]("workspace");
+  expect(() => resources.publishVisualization("<script>run()</script>")).toThrow(/client command/);
+  const path = await as("client", async () => resources.publishVisualization("<script>run()</script>"));
+  const result = await store.respond(request(path));
+  expect(result.headers.get("content-type")).toBe("text/html; charset=utf-8");
+  const csp = result.headers.get("content-security-policy")!;
+  expect(csp).toContain("sandbox allow-scripts;");
+  expect(csp).not.toContain("allow-same-origin");
+  for (const directive of ["connect-src 'none'", "frame-src 'none'", "form-action 'none'", "base-uri 'none'", "object-src 'none'"]) expect(csp).toContain(directive);
+  expect(await result.text()).toContain("<script>run()</script>");
+  const generic = await as("client", async () => resources.publish(async () => new Response("<script>run()</script>", { headers: { "content-security-policy": "sandbox allow-scripts", "content-type": "text/html" } })));
+  expect((await store.respond(request(generic))).headers.get("content-security-policy")).toBe("sandbox; default-src 'none'");
+  expect((await store.respond(request(path + "?token=secret"))).status).toBe(404);
+  expect((await store.respond(request(path, { method: "POST" }))).status).toBe(405);
+  await as("other-client", async () => resources.release(path));
+  expect((await store.respond(request(path))).status).toBe(200);
+  await as("client", async () => resources.release(path));
+  expect((await store.respond(request(path))).status).toBe(404);
+  store.close();
+});

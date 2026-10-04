@@ -30,13 +30,13 @@ export const PREVIEW_SETTINGS_ROWS = [
   { id: "setting-preview-frame-rate", label: "Frame rate", keywords: ["recording", "fps", "video"] },
   { id: "setting-preview-clicks", label: "Show clicks", keywords: ["recording", "pointer", "ring"] },
   { id: "setting-preview-keys", label: "Show key presses", keywords: ["recording", "keys", "keystrokes"] },
-  { id: "setting-preview-floating", label: "Float what an agent drives", keywords: ["floating", "picture in picture", "mini player"] },
+  { id: "setting-preview-floating", label: "Show what an agent drives", keywords: ["floating", "picture in picture", "mini player"] },
 ];
 
 /**
  * Settings → Preview: what a page opens
  * with, where links from a thread go, what a recording shows, and the
- * floating preview. Every row takes a project override.
+ * agent preview. Every row takes a project override.
  */
 export function PreviewSettingsPage() {
   const viewport = useSetting<string>(value(KEYS.viewport), {
@@ -77,10 +77,10 @@ export function PreviewSettingsPage() {
       <SettingRow id="setting-preview-clicks" title="Show clicks" description="A ring where the pointer presses." setting={clicks} control={toggle("Show clicks", clicks)} />
       <SettingRow id="setting-preview-keys" title="Show key presses" description="Keys and chords at the bottom of the page, never while a password field has focus." setting={keys} control={toggle("Show key presses", keys)} />
     </SettingsSection>
-    <SettingsSection title="Floating preview">
-      <SettingRow id="setting-preview-floating" title="Float what an agent drives" description="While the Preview panel is out of sight, a picture of the page or window an agent uses stays in a corner of the chat."
+    <SettingsSection title="Agent preview">
+      <SettingRow id="setting-preview-floating" title="Show what an agent drives" description="While the Preview panel is out of sight, a picture of the page or window an agent uses stays beside the conversation, below the workspace card or stage."
         help="It only shows; a click opens the Preview." setting={floating}
-        control={toggle("Float what an agent drives", floating)} />
+        control={toggle("Show what an agent drives", floating)} />
     </SettingsSection>
   </div>;
 }

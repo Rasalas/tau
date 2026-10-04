@@ -98,9 +98,14 @@ describe("composer keys an extension and the preferences decide", () => {
       actions,
       extend: (context) => context.registerComposerControl({
         id: "probe",
+        shortcuts: ["probe.open"],
         Component: ({ actions: given }) => <button type="button" onClick={() => given?.notify("hi")}>probe</button>,
       }),
     });
+    expect(screen.queryByRole("button", { name: "probe" })).toBeNull();
+    const menu = screen.getByRole("button", { name: "More composer controls" });
+    expect(menu.dataset.composerShortcut?.split(" ")).toContain("probe.open");
+    fireEvent.click(menu);
     fireEvent.click(screen.getByRole("button", { name: "probe" }));
     expect(actions.notify).toHaveBeenCalledWith("hi");
   });

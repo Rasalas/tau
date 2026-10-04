@@ -214,7 +214,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     const extensionId = decodeExtensionId("host-extension", params[0]);
     const command = decodeCommandName("host-extension", params[1]);
     const instance = await host();
-    const route = extensionId === "tau.workspace" && ["pick-folder", "create-scratch", "create-project"].includes(command) ? undefined : routes.routeOf(extensionId, params[2]);
+    const route = extensionId === "tau.workspace" && ["pick-folder", "create-scratch", "create-project", "publish-visualization", "release-visualization"].includes(command) ? undefined : routes.routeOf(extensionId, params[2]);
     if (route) {
       await instance.authorizeHostExtension(extensionId, command, params[2], context.principal);
       return routes.call(route, extensionId, command, () => instance.invokeHostExtension("tau.terminal", "list", undefined, context.principal));

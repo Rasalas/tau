@@ -156,7 +156,6 @@ describe("composer inline contributions", () => {
     expect(fireEvent.paste(frame, { clipboardData: { files: [], getData: () => "y".repeat(41) } })).toBe(true);
     expect(fireEvent.paste(frame, { clipboardData: { files: [], getData: () => "y".repeat(41) } })).toBe(false);
 
-    fireEvent.click(screen.getByLabelText("More composer controls"));
     const attach = await screen.findByRole("button", { name: "Attach files" }) as HTMLButtonElement;
     expect(attach.disabled).toBe(false);
     const input = screen.getByLabelText("Choose attachment files") as HTMLInputElement;

@@ -405,9 +405,9 @@ describe("Workspace Kit branch after a checkout outside Tau", () => {
 });
 
 describe("Workspace Kit's Changes entry", () => {
-  it("opens the review while a kit draws it, and leaves the panel to open otherwise", () => {
+  it("opens the Diff stage while a kit draws it, and leaves the panel to open otherwise", () => {
     const workspaceStore = storeOver({});
-    const actions = { openOverlay: vi.fn(), notify: vi.fn() } as unknown as WorkbenchActions;
+    const actions = { openOverlay: vi.fn(), openPanel: vi.fn(), notify: vi.fn() } as unknown as WorkbenchActions;
     workspaceStore.bind(actions);
 
     expect(workspaceStore.openChangesView()).toBe(false);
@@ -415,8 +415,9 @@ describe("Workspace Kit's Changes entry", () => {
 
     const release = workspaceStore.registerReviewView();
     expect(workspaceStore.openChangesView()).toBe(true);
-    expect(actions.openOverlay).toHaveBeenCalledTimes(1);
-    expect(workspaceStore.getSnapshot().review).toBeDefined();
+    expect(actions.openPanel).toHaveBeenCalledWith("review.diff");
+    expect(actions.openOverlay).not.toHaveBeenCalled();
+    expect(workspaceStore.getSnapshot().review).toBeUndefined();
 
     release();
     release();

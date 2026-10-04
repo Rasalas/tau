@@ -76,6 +76,26 @@ describe("rendererBuild.output.manualChunks", () => {
   });
 });
 
+describe("lazy surface dependency graph", () => {
+  it("keeps intermediate helpers and styles together while retaining eager entry dependencies", () => {
+    const graph = meta({
+      "/repo/src/renderer/main.tsx": { isEntry: true, importedIds: ["/repo/src/renderer/workbench-context.tsx"] },
+      "/repo/src/renderer/workbench-context.tsx": {},
+      "/repo/src/renderer/components/Stage.tsx": { importedIds: ["/repo/src/renderer/components/ReviewMode.tsx"] },
+      "/repo/src/renderer/components/ReviewMode.tsx": { importedIds: ["/repo/src/renderer/review-state.ts"] },
+      "/repo/src/renderer/review-state.ts": { importedIds: ["/repo/src/renderer/components/DiffStack.tsx"] },
+      "/repo/src/renderer/components/DiffStack.tsx": { importedIds: ["/repo/src/renderer/components/diff-stack.css", "/repo/src/renderer/workbench-context.tsx"] },
+      "/repo/src/renderer/components/diff-stack.css": {},
+      "/repo/src/renderer/settings/SettingsScreen.tsx": {},
+    });
+    for (const file of ["components/Stage.tsx", "components/ReviewMode.tsx", "review-state.ts", "components/DiffStack.tsx", "components/diff-stack.css"]) {
+      expect(rendererBuild.output.manualChunks(`/repo/src/renderer/${file}`, graph)).toBe("common");
+    }
+    expect(rendererBuild.output.manualChunks("/repo/src/renderer/workbench-context.tsx", graph)).toBeUndefined();
+    expect(rendererBuild.output.manualChunks("/repo/src/renderer/settings/SettingsScreen.tsx", graph)).toBeUndefined();
+  });
+});
+
 describe("rendererBuild.output.manualChunks, browser client", () => {
   const chunk = (id: string) => rendererBuild.output.manualChunks(id, meta({ "/repo/src/web/main.tsx": { isEntry: true } }));
 

@@ -170,26 +170,26 @@ function NewWorktree({ base, onCreate }: { base: string; onCreate(name: string):
  * The branch in the thread header's sub-line (`thread-branch`): a menu over
  * the thread's checkout. Core draws the plain label while no kit takes the slot.
  */
-export function ThreadBranch({ snapshot }: RegionProps) {
+export function ThreadBranch({ snapshot, card = false }: RegionProps & { card?: boolean }) {
   const { state } = useWorkspaceState();
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const info = state.workspace;
   const label = info?.branch ?? snapshot?.projectLabel;
   if (!label) return null;
-  if (info && !info.isRepo) return <span className="thread-detail"><GitBranch size={12} aria-hidden /><span>{label}</span></span>;
+  if (info && !info.isRepo) return <span className={`thread-detail${card ? " workspace-card-row" : ""}`}><GitBranch size={card ? 16 : 12} aria-hidden /><span className={card ? "workspace-card-label" : undefined}>{label}</span></span>;
   return <span className="thread-detail">
     <button
       ref={anchor}
       type="button"
-      className="thread-branch-trigger"
+      className={`thread-branch-trigger${card ? " workspace-card-row" : ""}`}
       aria-haspopup="dialog"
       aria-expanded={open}
       aria-label={`Branch ${label}`}
       disabled={state.workspaceBusy}
       onClick={() => setOpen((value) => !value)}
     >
-      <span>{label}</span><ChevronDown size={11} className="chev" />
+      {card ? <GitBranch aria-hidden /> : null}<span className={card ? "workspace-card-label" : undefined}>{label}</span>{card ? <span className="workspace-card-tail"><ChevronDown size={16} /></span> : <ChevronDown size={11} className="chev" />}
     </button>
     {open ? <Popover anchor={anchor} label="Branch" className="branch-popover" onClose={() => setOpen(false)}>
       <CheckoutMenu sessionId={snapshot?.sessionId} onDone={() => setOpen(false)} />

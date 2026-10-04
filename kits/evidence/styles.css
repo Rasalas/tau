@@ -1,14 +1,17 @@
 /* Evidence Kit: a turn's pictures under its answer, and the viewer. */
 
 .evidence-card {
-  width: 100%; display: flex; flex-direction: column; gap: 6px; padding: 8px;
-  border-radius: 10px; background: var(--chrome);
+  width: 100%; display: flex; flex-direction: column; gap: 6px; padding: 0;
 }
 .evidence-card-head {
   display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0 0 0 4px;
   color: var(--muted); font: 12px var(--sans);
 }
 .evidence-card-head > svg { flex: none; }
+.evidence-disclosure { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 4px 0; border: 0; background: transparent; color: var(--muted); font: var(--text-xs) var(--sans); cursor: pointer; }
+.evidence-disclosure:hover { color: var(--ink); }
+.evidence-disclosure:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+.evidence-disclosure[aria-expanded="true"] > svg:last-child { transform: rotate(90deg); }
 .evidence-card-title { flex: none; color: var(--ink-2); }
 .evidence-card-meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .evidence-card-meta.compact { display: none; }
@@ -109,7 +112,7 @@
 
 /* A phone: the card as in the design, Play as the one action; the viewer full screen with touch-sized controls. */
 body[data-profile="compact"] .evidence-card { gap: 8px; }
-body[data-profile="compact"] .evidence-card-meta { display: none; }
+body[data-profile="compact"] .evidence-disclosure { min-height: 44px; }
 body[data-profile="compact"] .evidence-card-meta.compact { display: inline; }
 body[data-profile="compact"] .evidence-save-video,
 body[data-profile="compact"] .evidence-attach,

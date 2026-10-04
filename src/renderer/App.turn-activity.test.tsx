@@ -174,7 +174,14 @@ describe("last-turn activity", () => {
       expect(reply.compareDocumentPosition(activities[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
     act(() => client.emit({ type: "agent-status", sessionId: "session", running: false }));
-    await waitFor(() => expect(view.container.querySelectorAll(".inline-transcript-activity")).toHaveLength(2));
+    // Completed work above the answer now shares the prompt's disclosure;
+    // work that arrived after this answer keeps its own visible activity.
+    await waitFor(() => expect(view.container.querySelectorAll(".inline-transcript-activity")).toHaveLength(1));
+    const completed = view.container.querySelector('.virtual-transcript-row[data-message-id="u"] .work-fold-summary') as HTMLButtonElement;
+    expect(completed.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(completed);
+    const readFiles = await screen.findByText("first.ts, another.ts");
+    expect(readFiles.compareDocumentPosition(screen.getByText("Found the issue")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("says Thinking whenever the running turn has no live tool row, as T3 Code does", async () => {
@@ -666,14 +673,17 @@ describe("last-turn activity", () => {
 
     const view = renderApp(client);
     await screen.findByText("second reply");
-    const activityRows = view.container.querySelectorAll(".inline-transcript-activity");
-    expect(activityRows).toHaveLength(2);
-    expect(activityRows[0]?.textContent).not.toContain("Completed");
-    expect(activityRows[1]?.textContent).not.toContain("1 failed");
-    expect(activityRows[0]?.textContent).toContain("Worked for");
+    const firstTurn = view.container.querySelector('.virtual-transcript-row[data-message-id="user-one"]')!;
+    const secondTurn = view.container.querySelector('.virtual-transcript-row[data-message-id="user-two"]')!;
+    expect(firstTurn.textContent).not.toContain("Completed");
+    expect(secondTurn.textContent).not.toContain("1 failed");
+    expect(firstTurn.textContent).toContain("Worked for");
+    fireEvent.click(firstTurn.querySelector<HTMLButtonElement>(".work-fold-summary")!);
+    await screen.findByText("first-tool.ts");
+    expect(firstTurn.contains(screen.getByText("first-tool.ts"))).toBe(true);
     // A turn that failed folds like any other and says on its fold that it failed.
-    expect(activityRows[1]?.textContent).toContain("Worked for");
-    expect(activityRows[1]?.querySelector('[aria-label="Turn failed"]')).toBeTruthy();
+    expect(secondTurn.textContent).toContain("Worked for");
+    expect(secondTurn.querySelector('[aria-label="Turn failed"]')).toBeTruthy();
   });
 
   it("restores tool batches on either side of an intermediate reply", async () => {
@@ -691,15 +701,18 @@ describe("last-turn activity", () => {
         }],
       } };
     };
-    const view = renderApp(client);
+    renderApp(client);
+    await screen.findByText("Finished");
+    expect(screen.queryByText("Intermediate reply")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: /Worked for/u }));
     await screen.findByText("Intermediate reply");
     await waitFor(() => {
-      const activities = view.container.querySelectorAll(".inline-transcript-activity");
-      expect(activities).toHaveLength(2);
+      const before = screen.getByText("before.ts");
+      const after = screen.getByText("after.ts");
       const reply = screen.getByText("Intermediate reply");
-      expect(activities[0].compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      expect(reply.compareDocumentPosition(activities[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      expect(activities[1].compareDocumentPosition(screen.getByText("Finished")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(before.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(reply.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(after.compareDocumentPosition(screen.getByText("Finished")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
   });
 

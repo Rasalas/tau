@@ -57,7 +57,7 @@ export function Popover({ anchor, side = "bottom", align = "start", label, class
   const close = useRef(onClose);
   close.current = onClose;
   useFocusReturn(true, surface);
-  useEscapeLayer(onClose);
+  const isTopLayer = useEscapeLayer(onClose);
 
   useLayoutEffect(() => {
     const element = surface.current;
@@ -71,12 +71,19 @@ export function Popover({ anchor, side = "bottom", align = "start", label, class
       element.dataset.side = placed.side;
     };
     place();
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(place);
+    observer?.observe(element);
+    if ("current" in anchor && anchor.current) observer?.observe(anchor.current);
     window.addEventListener("resize", place);
-    return () => window.removeEventListener("resize", place);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", place);
+    };
   }, [align, anchor, side]);
 
   useEffect(() => {
     const onDown = (event: PointerEvent) => {
+      if (!isTopLayer(event)) return;
       const target = event.target as Node;
       if (surface.current?.contains(target)) return;
       if ("current" in anchor && anchor.current?.contains(target)) return;
@@ -84,7 +91,7 @@ export function Popover({ anchor, side = "bottom", align = "start", label, class
     };
     document.addEventListener("pointerdown", onDown, true);
     return () => document.removeEventListener("pointerdown", onDown, true);
-  }, [anchor]);
+  }, [anchor, isTopLayer]);
 
   return createPortal(
     <div ref={surface} className={`popover${className ? ` ${className}` : ""}`} role="dialog" aria-label={label} tabIndex={-1}>

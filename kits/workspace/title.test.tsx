@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkbenchActions, WorkspaceInfo } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
@@ -14,7 +14,7 @@ import {
 } from "../../src/renderer/test-support/kit-harness.js";
 import { createWorkspaceHostClient } from "./protocol.js";
 import { withWorkspaceStore } from "./store-context.js";
-import { TitleActionsRow, WorkspaceEditorButton, WorkspaceTitleActions } from "./title.js";
+import { TitleActionsRow, WorkspaceEditorButton, WorkspaceTitleActions, WorkspaceStageContext } from "./title.js";
 import { MAX_TITLE_COLLAPSE, titleCollapse, TITLE_COLLAPSE_STEPS } from "./title-collapse.js";
 import { WorkspaceStore } from "./store.js";
 
@@ -28,15 +28,15 @@ function workspace(patch: Partial<WorkspaceInfo> = {}): WorkspaceInfo {
   return { root: "/project", isRepo: true, isDirty: true, branch: "main", worktrees: [], refs: [], worktreeParent: "/worktrees", ...patch };
 }
 
-function setup(info = workspace(), draftPending = false, localFiles = true, level?: number, invoke: (command: string, input: unknown) => Promise<unknown> = async () => undefined) {
+function setup(info = workspace(), draftPending = false, localFiles = true, level?: number, invoke: (command: string, input: unknown) => Promise<unknown> = async () => undefined, stageContext = false) {
   const preferences = new PreferencesStore();
   const workspaceStore = new WorkspaceStore(preferences, createWorkspaceHostClient(invoke));
   const Header = level === undefined
-    ? withWorkspaceStore(workspaceStore, WorkspaceTitleActions)
+    ? withWorkspaceStore(workspaceStore, stageContext ? WorkspaceStageContext : WorkspaceTitleActions)
     : withWorkspaceStore(workspaceStore, (props: { actions: WorkbenchActions }) => <TitleActionsRow {...props} collapse={titleCollapse(level)} />);
   const Editor = withWorkspaceStore(workspaceStore, WorkspaceEditorButton);
   // The header's row and the stage strip's editor button, side by side as the workbench draws them.
-  const TitleActions = (props: { actions: WorkbenchActions }) => <><Header {...props} /><Editor {...props} /></>;
+  const TitleActions = (props: { actions: WorkbenchActions }) => <><Header {...props} />{level === undefined ? null : <Editor {...props} />}</>;
   workspaceStore.update({
     cwd: "/project",
     draftPending,
@@ -57,12 +57,12 @@ function setup(info = workspace(), draftPending = false, localFiles = true, leve
     <HostClientProvider client={client}>
       <ClientStorageProvider storage={createMemoryStorage()}>
         <RendererServicesProvider services={{ preferences }}>
-          <TitleActions actions={{} as WorkbenchActions} />
+          <TitleActions actions={{ activeStageTab: () => ({ id: "panel:review.diff", kind: "panel", panelId: "review.diff", preview: false }) } as WorkbenchActions} />
         </RendererServicesProvider>
       </ClientStorageProvider>
     </HostClientProvider>,
   );
-  return { openInEditor, openTerminal, openReview, showChangedFiles, pull, runShellAction };
+  return { workspaceStore, openInEditor, openTerminal, openReview, showChangedFiles, pull, runShellAction };
 }
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -75,6 +75,31 @@ describe("Workspace Kit title actions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Choose editor" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Zed" }));
     expect(openInEditor).toHaveBeenCalledWith(undefined, "zed");
+  });
+
+  it("names the real editor and reports working-tree additions and deletions", () => {
+    setup();
+    expect(screen.getByRole("button", { name: "Open" }).textContent).toBe("Open in VS Code");
+    expect(screen.getByLabelText("Working tree: 1 additions, 0 deletions").textContent).toBe("+1−0");
+  });
+
+  it("identifies a distinct worktree without adding a project heading to the main checkout", () => {
+    setup(workspace({ worktrees: [{ path: "/project", name: "project-feature", isCurrent: true, isMain: false, branch: "feature" }] }));
+    const card = screen.getByRole("region", { name: "Project workspace" });
+    expect(within(card).getByText("project-feature")).toBeTruthy();
+    expect(within(card).getByText("Worktree")).toBeTruthy();
+    cleanup();
+    setup();
+    expect(screen.getByRole("region", { name: "Project workspace" }).querySelector(".workspace-card-identity")).toBeNull();
+  });
+
+  it("mounts and removes feature-owned workspace sections with their contribution", () => {
+    const { workspaceStore } = setup();
+    let dispose: () => void;
+    act(() => { dispose = workspaceStore.registerWorkspaceSummarySection(() => <button>Linked request</button>); });
+    expect(within(screen.getByRole("region", { name: "Project workspace" })).getByRole("button", { name: "Linked request" })).toBeTruthy();
+    act(() => dispose());
+    expect(screen.queryByRole("button", { name: "Linked request" })).toBeNull();
   });
 
   it("keeps editor actions available for a draft whose project is known", () => {
@@ -141,21 +166,12 @@ describe("Workspace Kit title actions", () => {
     expect(screen.getByPlaceholderText("!! npm test")).toBeTruthy();
   });
 
-  it("folds one step at a time until its row fits the room the header gives it", () => {
-    // jsdom lays nothing out: every control is 120 px wide, More 30, and the row gets 200 (jsdom has no gap).
-    vi.spyOn(HTMLElement.prototype, "offsetParent", "get").mockReturnValue(document.body);
-    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
-      if (this.classList.contains("workspace-changes-link")) return 0;
-      return this.querySelector(".title-more") ? 30 : 120;
-    });
-    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) {
-      return this.classList.contains("workspace-title-actions") ? 200 : 0;
-    });
+  it("groups project context and actions in the workspace card", () => {
     setup();
-    // Actions and Commit (240 px) do not fit; More and Commit (150 px) do, and the Git action keeps its word.
-    expect(screen.queryByRole("button", { name: "Add action" })).toBeNull();
-    expect(screen.getByRole("button", { name: "More actions" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Commit" }).textContent).toBe("Commit");
+    const card = screen.getByRole("region", { name: "Project workspace" });
+    expect(within(card).getByRole("button", { name: "Add project script" })).toBeTruthy();
+    expect(within(card).getByRole("button", { name: "Commit" }).textContent).toBe("Commit");
+    expect(within(card).getByRole("button", { name: "Open" })).toBeTruthy();
   });
 
   it("drops the project actions' labels before anything leaves the header", () => {
@@ -172,12 +188,12 @@ describe("Workspace Kit title actions", () => {
     expect(showChangedFiles).toHaveBeenCalledOnce();
   });
 
-  it("counts what the host says is this thread's, and names the rest in the tooltip", async () => {
+  it("keeps the workspace count and line totals in the working-tree scope", async () => {
     const invoke = vi.fn(async (command: string) => command === "thread-changes" ? { files: 2, scope: "thread", uncommitted: 5 } : undefined);
     setHostClient(createFakeHostClient());
     try {
       setup(workspace(), false, true, undefined, invoke);
-      expect((await screen.findByRole("button", { name: /2 files changed/u })).textContent).toBe("2 files changed");
+      expect((await screen.findByRole("button", { name: /1 file changed/u })).querySelector(".workspace-card-label")?.textContent).toBe("Changes");
       expect(invoke).toHaveBeenCalledWith("thread-changes", { sessionId: undefined, workspace: undefined });
     } finally {
       setHostClient(undefined);
@@ -212,11 +228,29 @@ describe("Workspace Kit title actions", () => {
 
   it("adds and runs a hidden Pi shell action", () => {
     const { runShellAction } = setup();
-    fireEvent.click(screen.getByRole("button", { name: "Add action" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add project script" }));
     fireEvent.change(screen.getByPlaceholderText("Test"), { target: { value: "Tests" } });
     fireEvent.change(screen.getByPlaceholderText("!! npm test"), { target: { value: "!! npm test" } });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     fireEvent.click(screen.getByRole("button", { name: "Tests" }));
     expect(runShellAction).toHaveBeenCalledWith("npm test", false, "Tests");
   });
+});
+
+it("keeps project actions reachable through a quiet stage icon without duplicating changed files", async () => {
+  const { openInEditor, openReview } = setup(workspace(), false, true, undefined, async () => undefined, true);
+  const trigger = screen.getByRole("button", { name: "Project actions" });
+  expect(trigger.textContent).toBe("");
+  expect(screen.queryByRole("region", { name: "Project workspace" })).toBeNull();
+  expect(screen.queryByRole("dialog", { name: "Project actions" })).toBeNull();
+  fireEvent.click(trigger);
+  const menu = await screen.findByRole("dialog", { name: "Project actions" });
+  fireEvent.click(await within(menu).findByRole("button", { name: "Open" }));
+  expect(openInEditor).toHaveBeenCalledWith(undefined, "code");
+  expect(menu.querySelector(".workspace-changes-link")).toBeNull();
+  fireEvent.click(within(menu).getByRole("button", { name: "Choose Git action" }));
+  const commit = await screen.findByRole("menuitem", { name: "Commit" });
+  fireEvent.pointerDown(commit);
+  fireEvent.click(commit);
+  expect(openReview).toHaveBeenCalledWith(undefined, false);
 });

@@ -43,7 +43,7 @@ import { resolveHostTls } from "./host-tls.js";
 import { parseListen } from "./host-listen.js";
 import { WINDOW_SERVICES_ID } from "./window-extensions.js";
 import { createWindowAttention, OVERLAY_BADGE_SIZE, overlayBadgeBitmap } from "./window-attention.js";
-import { showWindowContextMenu } from "./window-context-menu.js";
+import { installWorkbenchEditingMenu, showWindowContextMenu } from "./window-context-menu.js";
 import { menuIconImage } from "./menu-icons.js";
 import type { MenuPoint, NativeMenuEntry } from "../shared/context-menu.js";
 import { defaultHostConfigManager } from "./host-config.js";
@@ -443,6 +443,10 @@ function openWindow(): BrowserWindow {
   });
   if (backgroundMode) mainWindow.showInactive();
   mainWindow.webContents.on("before-input-event", quitShortcut);
+  installWorkbenchEditingMenu(mainWindow.webContents, (items, point) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    Menu.buildFromTemplate(items).popup({ window: mainWindow, x: point.x, y: point.y });
+  });
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
     hostLog.error("renderer.render-process-gone", details);
     const now = Date.now();

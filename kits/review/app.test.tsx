@@ -77,10 +77,20 @@ function workbench(overrides: Parameters<typeof workspaceHostStub>[0] = {}, revi
  * an overlay slot; the diff and the commit message the kit's own host entry
  * writes belong to Review Kit, the Changes panel to Workspace Kit.
  */
-/** Changes is one of the stage strip's More tools; its entry opens the full review. */
+/** Changes opens the same Diff stage tab as the primary stage action. */
 async function openChanges(): Promise<void> {
-  fireEvent.click(await screen.findByRole("button", { name: "More tools" }));
-  fireEvent.click(await screen.findByRole("menuitem", { name: /Changes/ }, { timeout: 3000 }));
+  await screen.findByRole("button", { name: "Branch feat/review" });
+  fireEvent.click(await screen.findByRole("button", { name: "Diff" }));
+}
+
+async function openFullReview(): Promise<void> {
+  let card = document.querySelector(".workspace-area:not(.has-stage) .workspace-summary-card") as HTMLElement | null;
+  if (!card) {
+    fireEvent.click(await screen.findByRole("button", { name: "Project actions" }));
+    const menu = await screen.findByRole("dialog", { name: "Project actions" });
+    card = await within(menu).findByRole("region", { name: "Project workspace" });
+  }
+  fireEvent.click(await within(card).findByRole("button", { name: /^Commit/u }));
 }
 
 describe("Review Kit in the workbench", () => {
@@ -105,23 +115,35 @@ describe("Review Kit in the workbench", () => {
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Commit message" })).toHaveProperty("value", "fix: review from another package"));
   });
 
-  it("opens the review from the Changes entry, stages a file there and commits it", async () => {
+  it("opens Diff, stages a file, then commits through full review", async () => {
     const commit = vi.fn(async () => ({ changes: { files: [], added: 0, removed: 0 }, pushed: true, detail: "Committed and pushed." }));
-    const stage = vi.fn(async () => ({ files: [{ path: "src/a.ts", name: "a.ts", directory: "src", status: "modified", added: 1, removed: 0, staged: true }], added: 1, removed: 0, branch: "feat/review" }));
-    renderApp(workbench({ commit, stageFile: stage }), { extensions: [workspaceExtension, reviewExtension] });
+    let hostChanges = CHANGES;
+    const stage = vi.fn(async () => (hostChanges = { files: [{ path: "src/a.ts", name: "a.ts", directory: "src", status: "modified", added: 1, removed: 0, staged: true }], added: 1, removed: 0, branch: "feat/review" }));
+    renderApp(workbench({ commit, stageFile: stage, getChanges: async () => hostChanges }), { extensions: [workspaceExtension, reviewExtension] });
 
     await openChanges();
-    expect(await screen.findByRole("button", { name: "Back to thread" })).toBeTruthy();
-    // No second, narrow list: the review is the Changes view.
-    expect(document.querySelector(".panel-stage")).toBeNull();
+    await screen.findByRole("button", { name: "Branch vs target" });
+    expect(document.querySelector(".review-embedded")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Back to thread" })).toBeNull();
     fireEvent.click(await screen.findByRole("button", { name: "Stage src/a.ts" }));
     await waitFor(() => expect(stage).toHaveBeenCalled());
+    expect(screen.queryByRole("region", { name: "Commit" })).toBeNull();
+    await openFullReview();
     const bar = await screen.findByRole("region", { name: "Commit" });
     await waitFor(() => expect(bar.textContent).toContain("Commits the 1 staged file on feat/review"));
 
     const message = within(bar).getByRole("textbox", { name: "Commit message" });
+    await waitFor(() => {
+      expect(document.querySelector(".diff-code")?.textContent).toContain("const reviewed = true;");
+      expect(message).toHaveProperty("disabled", false);
+    });
     fireEvent.change(message, { target: { value: "feat(review): commit from the review" } });
-    fireEvent.click(within(bar).getByRole("button", { name: /Commit & push/u }));
+    const commitButton = within(bar).getByRole("button", { name: /Commit & push/u });
+    await waitFor(() => {
+      expect(message).toHaveProperty("value", "feat(review): commit from the review");
+      expect(commitButton).toHaveProperty("disabled", false);
+    });
+    fireEvent.click(commitButton);
     await waitFor(() => expect(commit).toHaveBeenCalledWith("feat(review): commit from the review", true));
   });
 
@@ -129,7 +151,7 @@ describe("Review Kit in the workbench", () => {
     const suggest = vi.fn(async () => ({ message: "feat(review): describe the change" }));
     renderApp(workbench({}, suggest), { extensions: [workspaceExtension, reviewExtension] });
 
-    await openChanges();
+    await openFullReview();
 
     await waitFor(() => expect(document.querySelector(".diff-code")?.textContent).toContain("const reviewed = true;"));
     await waitFor(() => expect(suggest).toHaveBeenCalledWith("suggest-commit-message", expect.objectContaining({
@@ -149,7 +171,7 @@ describe("Review Kit in the workbench", () => {
     });
     renderApp(workbench({}, suggest), { extensions: [workspaceExtension, reviewExtension] });
 
-    await openChanges();
+    await openFullReview();
 
     const hint = await waitFor(() => {
       const found = document.querySelector(".commit-bar .commit-message-error");
@@ -164,7 +186,7 @@ describe("Review Kit in the workbench", () => {
   it("comments on a line and hands the comment to the composer as a chip", async () => {
     renderApp(workbench(), { extensions: [workspaceExtension, reviewExtension, composerContext] });
 
-    await openChanges();
+    await openFullReview();
     fireEvent.click(await screen.findByRole("button", { name: "Comment on line 1" }));
     fireEvent.change(await screen.findByRole("textbox", { name: "Comment" }), { target: { value: "Name it after what it checks." } });
     fireEvent.click(screen.getByRole("button", { name: "Comment" }));
@@ -181,7 +203,7 @@ describe("Review Kit in the workbench", () => {
     expect((await screen.findByRole("dialog", { name: "a.ts:1" })).textContent).toContain("Name it after what it checks.");
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
 
-    await openChanges();
+    await openFullReview();
     expect(await screen.findByRole("button", { name: "0 comments" })).toBeTruthy();
   });
 
@@ -190,7 +212,7 @@ describe("Review Kit in the workbench", () => {
     const suggest = vi.fn(async () => ({ message: "fix(review): restore commit flow" }));
     renderApp(workbench({ commit }, suggest), { extensions: [workspaceExtension, reviewExtension] });
 
-    await openChanges();
+    await openFullReview();
     const bar = await screen.findByRole("region", { name: "Commit" });
     await waitFor(() => expect((within(bar).getByRole("textbox", { name: "Commit message" }) as HTMLTextAreaElement).value).toBe("fix(review): restore commit flow"));
     expect(bar.textContent).toContain("Commits all 1 changed file on feat/review, then pushes feat/review.");
@@ -224,7 +246,7 @@ describe("Review Kit request lifecycle in the workbench", () => {
     });
     renderApp(workbench({ commit }, review), { extensions: [workspaceExtension, reviewExtension] });
 
-    await openChanges();
+    await openFullReview();
     expect(await screen.findByText("No PR for feat/review")).toBeTruthy();
     // The button waits for the drafted commit message.
     const create = await screen.findByRole("button", { name: "Commit & create PR…" }) as HTMLButtonElement;
@@ -254,7 +276,7 @@ describe("Review Kit request lifecycle in the workbench", () => {
     });
     renderApp(workbench({}, review), { extensions: [workspaceExtension, reviewExtension] });
 
-    await openChanges();
+    await openFullReview();
     fireEvent.click(await screen.findByRole("button", { name: "PR #7" }));
 
     expect(await screen.findByRole("heading", { name: "Add the output helper" })).toBeTruthy();
@@ -276,7 +298,7 @@ describe("Review Kit request lifecycle in the workbench", () => {
     });
     renderApp(workbench({}, review), { extensions: [workspaceExtension, reviewExtension] });
 
-    await openChanges();
+    await openFullReview();
     fireEvent.click(await screen.findByRole("button", { name: "Merge…" }));
     expect(screen.getByText(/Merge PR #7 into/u)).toBeTruthy();
     expect(review).not.toHaveBeenCalledWith("pr-merge", expect.anything());
@@ -304,7 +326,7 @@ describe("Review Kit request lifecycle in the workbench", () => {
     });
     renderApp(workbench({}, review), { extensions: [workspaceExtension, reviewExtension] });
 
-    await openChanges();
+    await openFullReview();
     fireEvent.click(await screen.findByRole("button", { name: "Merge…" }));
     fireEvent.click(screen.getByRole("checkbox", { name: /Delete feature\/pr after merging/u }));
     fireEvent.click(screen.getByRole("button", { name: "Enable auto-merge" }));
@@ -324,7 +346,7 @@ describe("Review Kit request lifecycle in the workbench", () => {
     });
     renderApp(workbench({}, review), { extensions: [workspaceExtension, reviewExtension] });
 
-    await openChanges();
+    await openFullReview();
     fireEvent.click(await screen.findByRole("button", { name: "Edit…" }));
     fireEvent.change(screen.getByRole("textbox", { name: "PR title" }), { target: { value: "Review it all" } });
     fireEvent.click(screen.getByRole("checkbox"));
@@ -339,7 +361,7 @@ describe("Review Kit request lifecycle in the workbench", () => {
       : undefined));
     renderApp(workbench({}, review), { extensions: [workspaceExtension, reviewExtension] });
 
-    await openChanges();
+    await openFullReview();
     expect(await screen.findByText("GitHub CLI (gh) is not installed or not on your PATH.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /create PR/u })).toBeNull();
   });

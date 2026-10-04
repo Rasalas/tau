@@ -1,0 +1,18 @@
+/* Core places contributions in the working column; kits own their contents. */
+.workbench-center { background: var(--stage); }
+.workbench-center > .workspace-area { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 12px; background: transparent; border-left: 0; overflow: auto; }
+.workspace-area > .stage { flex: 1; min-height: 240px; border: 0; border-radius: 8px; overflow: hidden; }
+.workspace-area > .workbench-region { flex: none; min-width: 0; padding: 0; }
+/* Desktop chrome keeps a dependable target without enlarging document type. */
+body:not([data-profile="compact"]) .stage-tools { --stage-tool-size: 32px; }
+body:not([data-profile="compact"]) .stage-tool { min-width: 32px; min-height: 32px; }
+body:not([data-profile="compact"]) .thread-header .chrome-button { min-height: 32px; }
+
+.workbench-center > .chat-resizer { background: transparent; border: 0; }
+
+/* With no document open, context stays compact and conversation uses the remaining space. */
+.workbench-center > .workspace-area:not(.has-stage) { flex: 0 0 340px; width: 340px; max-width: 45%; }
+.workspace-area-tools { display: flex; align-items: center; justify-content: flex-end; flex: none; min-height: 40px; }
+.workspace-area-tools > .workbench-region:empty { display: none; }
+.workspace-preview-bottom { margin-top: auto; min-width: 0; flex: none; }
+.workspace-preview-bottom > .workbench-region { padding: 0; }

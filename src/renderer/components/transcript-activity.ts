@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { UiToolRun } from "../../shared/contracts";
 
 /** A piece of transcript work rendered after the message that owns it. */
 export interface TranscriptActivity {
@@ -6,7 +7,24 @@ export interface TranscriptActivity {
   afterMessageId?: string;
   /** Keep transient activity visible at the current tail when its anchor races. */
   fallbackToTail?: boolean;
+  /** Completed core work may share the turn's disclosure; extension rows opt out by default. */
+  foldWithTurn?: boolean;
+  /** An explicit work disclosure was opened while this turn ran. */
+  keepTurnOpen?: boolean;
+  failedTools?: number;
+  preventTurnFold?: boolean;
   content: ReactNode;
+}
+
+/** Persistent cards and questions remain outside the completed-work disclosure. */
+export function completedWorkMetadata(tools: readonly UiToolRun[], completed: boolean, hasCard: (tool: UiToolRun) => boolean, keepOpen: boolean) {
+  return {
+    foldWithTurn: completed && tools.every((tool) => tool.status !== "running" && !hasCard(tool)
+      && !/ask_user|request_takeover|approval|question/iu.test(tool.name)),
+    keepTurnOpen: keepOpen,
+    preventTurnFold: !completed || tools.some((tool) => tool.status === "running"),
+    failedTools: tools.filter((tool) => tool.status === "error").length,
+  };
 }
 
 /** Resolves activity anchors once for the transcript window, so every render path agrees. */

@@ -10,7 +10,9 @@ import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import { OLDER_TRANSCRIPT_TURN_LIMIT, TranscriptPager, type TranscriptCursorPolicy } from "../shared/transcript-pager.js";
 import { completeToolOutputRead, TOOL_OUTPUT_READ_PAGE_CHARACTERS } from "../shared/tool-output.js";
 import { decodeHostCursor, hostCursorAtLocalIndex } from "./transcript-cursor.js";
-import { textFromContent } from "./host-messages.js";
+import { firstSentence, safeSessionTitle, textFromContent, visibleTitleText } from "./host-messages.js";
+import { formatChatTranscript } from "../shared/chat-transcript.js";
+import type { ThreadRuntime } from "./thread-runtime.js";
 
 export const localTranscriptCursorPolicy: TranscriptCursorPolicy<HostTranscriptCursor> = {
   cursorAtIndex: hostCursorAtLocalIndex,
@@ -107,4 +109,21 @@ function parseToolOutputPage(value: unknown, toolCallId: string, offset: number)
     throw new Error("Pi returned an invalid tool output page.");
   }
   return { toolCallId, offset, output, totalBytes, ...(nextOffset !== undefined ? { nextOffset } : {}) };
+}
+
+/** Exports the full transcript using the runtime's normalized messages when provided. */
+export async function exportThreadMarkdown(thread: ThreadRuntime): Promise<string> {
+  // A runtime that normalizes its own transcript owns the export: re-parsing
+  // here could reinterpret a visible `$skill ...` instruction as a wrapper.
+  const exported = await thread.backend.capabilities.markdownExport?.exportTranscript();
+  const messages = exported?.messages
+    ?? (await thread.backend.transcript()).map((message) => ({ role: message.role, content: [{ type: "text", text: message.text }] }));
+  const firstUserMessage = messages.find((message) => message.role === "user");
+  return formatChatTranscript({
+    title: safeSessionTitle(exported?.title) || safeSessionTitle(thread.state.title) || safeSessionTitle(thread.adapterTitle)
+      || firstSentence(visibleTitleText(textFromContent(firstUserMessage?.content))),
+    cwd: exported?.cwd ?? thread.cwd,
+    threadId: exported?.threadId ?? thread.threadId,
+    messages,
+  });
 }

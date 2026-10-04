@@ -19,6 +19,7 @@ import {
   type WorkspaceRef,
 } from "tau/host-extension";
 import * as workspaceGit from "./workspace-git.js";
+import { readVisualizationFragment } from "./visualization-content.js";
 import { GitCoordinator } from "./git-coordinator.js";
 import { readBoundedFileContent, statFile, writeTextFile } from "./file-content.js";
 import { defaultEditorProbe, editorCommand, FILE_MANAGER_ID, findInstalledEditors, launchEditor } from "./editors.js";
@@ -180,6 +181,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       "sessions",
       "runtime:extend",
       "process",
+      "network",
     ],
     async activate(context: HostExtensionContext) {
       const { services } = context;
@@ -363,6 +365,20 @@ export function createWorkspaceHostExtension(): HostExtension {
         await workspaceGit.assertWorkspacePath(project, path);
         return readBoundedFileContent(resolve(project, path));
       }, { access: "read", callers: [FILES_KIT_ID] });
+      context.registerCommand("read-visualization", async (input) => {
+        const project = await services.knownWorkspacePath(requiredString(input, "workspace"));
+        return { html: await readVisualizationFragment(project, requiredString(input, "relPath")) };
+      }, { access: "read" });
+      context.registerCommand("publish-visualization", (input) => {
+        if (!services.browserResources) throw new Error("This host does not support visualization resources.");
+        const html = requiredString(input, "html");
+        if (Buffer.byteLength(html, "utf8") > 1024 * 1024) throw new Error("Visualization fragment is too large.");
+        const theme = record(input).theme === "dark" ? "dark" : "light";
+        return { path: services.browserResources.publishVisualization(html, theme) };
+      }, { access: "read" });
+      context.registerCommand("release-visualization", (input) => {
+        services.browserResources?.release(requiredString(input, "path"));
+      }, { access: "read" });
       // A clicked transcript link is a host filesystem read, not a Git/workspace operation.
       // Require its origin even for absolute paths; never substitute the active project.
       context.registerCommand("read-linked-file", async (input) => {

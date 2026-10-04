@@ -36,7 +36,7 @@ import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, TRACE_TABS_OPTION, 
 import { withWorkspaceStore } from "./store-context.js";
 import { RAIL_ORDER_OPTIONS } from "./rail-order.js";
 import { publishProjectIcons } from "./project-icons.js";
-import { WorkspaceEditorButton, WorkspaceTitleActions } from "./title.js";
+import { WorkspaceStageContext, WorkspaceTitleActions } from "./title.js";
 import { TraceTabs } from "./trace-tabs.js";
 import { createStoragePage, STORAGE_SETTINGS_ROWS } from "./storage-page.js";
 import { OPEN_REQUEST_EVENT, OPEN_REQUEST_WAITING_COMMAND, STORAGE_CHANGED_EVENT, TAKE_OPEN_REQUEST_COMMAND, type WorktreeStorageHostCommands } from "./storage-protocol.js";
@@ -137,8 +137,9 @@ export const workspaceExtension: DesktopExtension = {
     // The kit owns its workspace state; these keep it following the workbench
     // and place its controls where core lends room.
     // A phone or tablet follows too: its Files panel and documents read the thread's project.
-    context.registerRegion({ id: "workspace.follower", placement: "composer-above", order: 0, profiles: ["desktop", "compact"], Component: bind(WorkspaceFollower) });
-    context.registerRegion({ id: "workspace.title-actions", placement: "title-bar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceTitleActions) });
+    context.registerRegion({ id: "workspace.follower", placement: "composer-above", order: 0, profiles: ["desktop", "web", "compact"], Component: bind(WorkspaceFollower) });
+    context.registerRegion({ id: "workspace.stage-context", placement: "stage-bar", order: 5, profiles: ["desktop", "web"], Component: bind(WorkspaceStageContext) });
+    context.registerRegion({ id: "workspace.title-actions", placement: "workspace-summary", order: 10, profiles: ["desktop", "web"], Component: bind(WorkspaceTitleActions) });
     context.registerRegion({ id: "workspace.trace-tabs", placement: "title-bar", profiles: ["desktop"], Component: () => <TraceTabs enabled={() => context.preferences.optionValue(WORKSPACE_HOST_EXTENSION_ID, TRACE_TABS_OPTION, true)} /> });
     context.registerSettingsSection({ id: "workspace.new-threads", page: "general", card: "new-threads", order: 20, profiles: ["desktop"], Component: bind(NewThreadRows),
       rows: [{ id: "setting-new-thread-workspace", label: "New threads run in" }, { id: "setting-branch-name", label: "Branch name", keywords: ["worktree", "from prompt", "random"] }] });
@@ -147,9 +148,8 @@ export const workspaceExtension: DesktopExtension = {
     context.registerSettingsSection({ id: "workspace.trace-tabs", page: "general", card: "threads", profiles: ["desktop"], Component: TraceTabsRow,
       rows: [{ id: "setting-trace-tabs", label: "Trace tabs", keywords: ["files the agent touches", "tabs"] }] });
     // The design's Editor button at the stage strip's right end.
-    context.registerRegion({ id: "workspace.open-in", placement: "stage-bar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceEditorButton) });
+
     // The header's branch: a menu over the checkout; for a new thread "project · machine · no worktree yet".
-    context.registerRegion({ id: "workspace.branch", placement: "thread-branch", order: 10, profiles: ["desktop"], Component: bind(createHeadingBranch(false)) });
     context.registerRegion({ id: "workspace.branch-touch", placement: "thread-branch", order: 10, profiles: ["compact"], Component: bind(createHeadingBranch(true)) });
     // A new thread's machine and branch: one pill before the model (design 1k), a sheet on touch (1o).
     context.registerComposerControl({ id: "workspace.run-on", placement: "lead", order: 5, profiles: ["desktop"], Component: bind(createRunOnControl(false)) });
@@ -164,6 +164,17 @@ export const workspaceExtension: DesktopExtension = {
       id: "workspace.documents",
       // The stage names the project its tabs belong to; a caller that does not means the followed one.
       loadFile: (relPath, from) => host.readFile(relPath, from?.workspace ?? store.workspace()),
+      loadVisualization: async (path, from, theme = "light") => {
+        if (!context.host.resourceUrl) throw new Error("This client does not support visualization resources.");
+        const { html } = await host.readVisualization(path, from.workspace);
+        const resource = await host.publishVisualization(html, theme);
+        try {
+          return { url: context.host.resourceUrl(resource.path), release: () => { void host.releaseVisualization(resource.path).catch(() => undefined); } };
+        } catch (error) {
+          await host.releaseVisualization(resource.path).catch(() => undefined);
+          throw error;
+        }
+      },
       loadLinkedFile: (path, from) => host.readLinkedFile(path, from.workspace),
       loadDiff: (relPath, options, from) => host.getFileDiff(relPath, options, from?.workspace ?? store.workspace()),
       openInEditor: (relPath) => void store.openInEditor(relPath),

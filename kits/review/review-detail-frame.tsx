@@ -1,3 +1,4 @@
+import { WrapText } from "lucide-react";
 import { useEffect, type ReactNode, type RefObject } from "react";
 
 export interface FrameTab<Id extends string = string> {
@@ -23,12 +24,13 @@ export function useBackKeys(back: () => void): void {
 }
 
 /** Unified or Split, at the right of the tabs. */
-export function LayoutToggle({ layout, onChange }: { layout: "unified" | "split"; onChange(layout: "unified" | "split"): void }) {
+export function LayoutToggle({ layout, onChange, wrap, onWrapChange }: { layout: "unified" | "split"; onChange(layout: "unified" | "split"): void; wrap?: boolean; onWrapChange?(wrap: boolean): void }) {
   return (
     <div className="rvd-layout" role="group" aria-label="Diff layout">
       {(["unified", "split"] as const).map((entry) => (
         <button key={entry} type="button" className={layout === entry ? "active" : undefined} aria-pressed={layout === entry} onClick={() => onChange(entry)}>{entry === "unified" ? "Unified" : "Split"}</button>
       ))}
+      {onWrapChange ? <button type="button" className={wrap ? "active" : undefined} aria-pressed={wrap} aria-label={wrap ? "Disable line wrapping" : "Enable line wrapping"} onClick={() => onWrapChange(!wrap)}><WrapText size={13} /></button> : null}
     </div>
   );
 }

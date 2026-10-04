@@ -19,3 +19,10 @@ const LazyDiffView = lazy(() => import("./components/DiffView").then((module) =>
 export function DiffView(props: ComponentProps<typeof LazyDiffView>) {
   return <Suspense fallback={<LazyFeatureFallback label="diff" />}><LazyDiffView {...props} /></Suspense>;
 }
+
+const LazyDiffStack = lazy(() => import("./components/DiffStack").then((module) => ({ default: module.DiffStack })));
+
+/** File cards shared by stage diffs and review pages, with optional line and header actions. */
+export function DiffStack(props: ComponentProps<typeof LazyDiffStack>) {
+  return <Suspense fallback={<LazyFeatureFallback label="diff" />}><LazyDiffStack {...props} /></Suspense>;
+}

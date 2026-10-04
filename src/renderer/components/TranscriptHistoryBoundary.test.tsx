@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { useCallback, useRef, useState } from "react";
-import { act, fireEvent, render, screen, waitFor, cleanup } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, cleanup, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, UiMessage } from "../../shared/contracts";
 import type { ThreadDetail, TranscriptPage } from "../../shared/host-protocol";
@@ -186,7 +186,7 @@ describe("TranscriptHistoryBoundary integration", () => {
     expect(loadPage).toHaveBeenCalledWith("thread", asHostTranscriptCursor("opaque:0"));
     // The line sits in the scroller, before the rows.
     expect(scrollNode.firstElementChild?.getAttribute("data-older-turns")).toBe("loading");
-    expect(screen.getByRole("status").textContent).toContain("Loading older turns");
+    expect(within(scrollNode.firstElementChild as HTMLElement).getByRole("status").textContent).toContain("Loading older turns");
 
     ids.unshift("older-a", "older-b");
     measuredHeights.set("older-a", 180);
