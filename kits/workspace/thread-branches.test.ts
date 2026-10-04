@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { mergeThreadBranch, readThreadBranch, readThreadBranches, readThreadConflicts, removeThreadBranch } from "./thread-branches.js";
+import { mergeThreadBranch, readThreadBranch, readThreadBranches, readThreadConflicts, removeThreadBranch, threadWorkIntegrated } from "./thread-branches.js";
 import { applyPicks, parseConflictText } from "./merge-picks.js";
 
 const created: string[] = [];
@@ -43,6 +43,52 @@ async function repository() {
 }
 
 describe("a thread's worktree branch", () => {
+  it("allows auto-settling only when origin holds the work and the checkout stays clean", async () => {
+    const repo = await repository();
+    const dir = repo.worktree("tau/continued");
+    repo.run(repo.cwd, "update-ref", "refs/remotes/origin/main", "main");
+    await repo.commit(dir, "b.txt", "first change\n");
+    repo.run(repo.cwd, "merge", "--squash", "tau/continued");
+    repo.run(repo.cwd, "commit", "-qm", "squashed PR");
+    // A local merge is not a published merge.
+    expect(await threadWorkIntegrated(dir)).toBe(false);
+    repo.run(repo.cwd, "update-ref", "refs/remotes/origin/main", "main");
+    expect(await threadWorkIntegrated(dir)).toBe(true);
+    await writeFile(join(dir, "untracked.txt"), "follow-up\n");
+    expect(await threadWorkIntegrated(dir)).toBe(false);
+    repo.run(dir, "add", "-A");
+    expect(await threadWorkIntegrated(dir)).toBe(false);
+    repo.run(dir, "commit", "-qm", "new follow-up");
+    expect(await threadWorkIntegrated(dir)).toBe(false);
+    repo.run(repo.cwd, "merge", "--squash", "tau/continued");
+    repo.run(repo.cwd, "commit", "-qm", "follow-up PR");
+    repo.run(repo.cwd, "update-ref", "refs/remotes/origin/main", "main");
+    expect(await threadWorkIntegrated(dir)).toBe(true);
+  });
+
+  it("checks new work in a shared checkout against origin too", async () => {
+    const repo = await repository();
+    repo.run(repo.cwd, "update-ref", "refs/remotes/origin/main", "main");
+    expect(await threadWorkIntegrated(repo.cwd)).toBe(true);
+    await writeFile(join(repo.cwd, "a.txt"), "dirty\n");
+    expect(await threadWorkIntegrated(repo.cwd)).toBe(false);
+    repo.run(repo.cwd, "checkout", "--", "a.txt");
+    repo.run(repo.cwd, "checkout", "-qb", "feature");
+    await repo.commit(repo.cwd, "b.txt", "new work\n");
+    expect(await threadWorkIntegrated(repo.cwd)).toBe(false);
+    repo.run(repo.cwd, "update-ref", "refs/remotes/origin/main", "HEAD");
+    expect(await threadWorkIntegrated(repo.cwd)).toBe(true);
+  });
+
+  it("keeps a thread active when the published target cannot be verified", async () => {
+    const repo = await repository();
+    const dir = repo.worktree("tau/unverified");
+    await repo.commit(dir, "b.txt", "change\n");
+    repo.run(repo.cwd, "merge", "--no-ff", "-q", "-m", "local only", "tau/unverified");
+    expect(await threadWorkIntegrated(dir)).toBe(false);
+    expect(await threadWorkIntegrated(repo.cwd)).toBe(false);
+  });
+
   it("reads what the branch carries against the main checkout's branch, without touching either", async () => {
     const repo = await repository();
     const dir = repo.worktree("tau/fix-flake");
