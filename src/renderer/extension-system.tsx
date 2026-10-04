@@ -321,8 +321,8 @@ export interface TranscriptRowsHandle {
  * thread of another machine (API 1.15.0); its props carry `lookIn`. `title-bar`
  * is the thread header's end, beside the tools, and stays mounted while
  * the conversation is folded (API 1.27.0: the window-wide bar is gone);
- * `stage-bar` sits at the right of the stage's tab strip, before its tools
- * (API 1.27.0). `thread-details` adds items to the thread header's sub-line,
+ * `stage-bar` sits above the conversation, beside the stage collapse control
+ * (introduced in API 1.27.0). `thread-details` adds items to the thread header's sub-line,
  * before the branch; `thread-branch` draws the branch there instead of core's
  * plain label (both API 1.27.0). `draft-actions` adds pills beside the
  * project under a new thread's heading, each opening its own popover.
