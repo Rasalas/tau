@@ -113,6 +113,11 @@ export interface HostActionResult {
   updates: HostUpdate[];
 }
 
+export interface ForkThreadResult extends HostActionResult {
+  /** The newly created thread, including when it stays in the background. */
+  forkedSessionId?: string;
+}
+
 export interface NewThreadResult extends HostActionResult {
   submission: SubmissionResult;
   /** Correlates a bridge replacement with the originating composer request. */

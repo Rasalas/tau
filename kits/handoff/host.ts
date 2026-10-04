@@ -17,6 +17,7 @@ import {
   handoffRequest,
   mergeBackRequest,
   messagesAfter,
+  messagesFromEntries,
   modelName,
   summaryBody,
   titleOf,
@@ -299,13 +300,17 @@ export function createHandoffHostExtension(options: HandoffHostOptions = {}): Ho
         const known = state.threads[thread.sessionId];
         const parentThreadId = known?.parentThreadId ?? thread.parentThreadId;
         if (!parentThreadId) throw new HostCommandError("This thread was not continued or spawned from another thread.");
-        const messages = await thread.transcript();
+        // Native forks record a persisted entry id. Runtime transcripts may
+        // use presentation ids, so compare against the saved branch itself.
+        const messages = known?.strategy === "native" && thread.sessionFile
+          ? messagesFromEntries(services.sessions.open(thread.sessionFile).entries())
+          : await thread.transcript();
         // The handoff the fork started from is the parent's own context; it does not go back.
         const delta = messagesAfter(messages, known?.mergedThrough)
           .map((message) => ({ ...message, text: message.role === "user" ? withoutBlocks(message.text) : message.text }))
           .filter((message) => message.text.trim());
         if (!delta.some((message) => message.role === "assistant")) {
-          throw new HostCommandError(known?.mergedThrough ? "Nothing new since it was last brought back." : "The thread has no answer to bring back yet.");
+          throw new HostCommandError(known?.mergedAt ? "Nothing new since it was last brought back." : known?.mergedThrough ? "Nothing new since this thread was forked." : "The thread has no answer to bring back yet.");
         }
         const files = known?.files ?? [];
         const title = titleOf(thread.sessionName(), messages);
@@ -319,7 +324,7 @@ export function createHandoffHostExtension(options: HandoffHostOptions = {}): Ho
         );
         services.log("handoff.merge-back", written.model ?? `excerpt: ${written.fallback ?? ""}`);
         const what = known?.strategy ? "the fork" : "the sub-agent";
-        const since = known?.mergedThrough ? "since it was last brought back" : "since it started";
+        const since = known?.mergedAt ? "since it was last brought back" : "since it started";
         const header = `Brought back from ${what} ${source}, ${delta.length} messages ${since}:`;
         const through = messages.at(-1)?.id ?? "";
         // Kept here rather than in a window: the parent may be sent to from another client, or after a reload.
@@ -363,6 +368,20 @@ export function createHandoffHostExtension(options: HandoffHostOptions = {}): Ho
               .filter((transfer) => transfer.strategy === "native" && transfer.sourceThreadId === source.sessionId && now() - transfer.createdAt < NATIVE_BIND_MS)
               .sort((left, right) => right.createdAt - left.createdAt)[0];
             if (pending) bind(pending, target.sessionId, source.backendKind);
+            else {
+              state.threads[target.sessionId] = {
+                parentThreadId: source.sessionId,
+                strategy: "native",
+                sourceBackend: source.backendKind,
+                targetBackend: source.backendKind,
+                createdAt: now(),
+                files: [],
+              };
+            }
+            // A bring-back includes only work after the selected fork point.
+            const through = messagesFromEntries(target.entries()).at(-1)?.id;
+            if (through) state.threads[target.sessionId]!.mergedThrough = through;
+            changed();
           },
           threadDeleted: async (sessionId) => {
             if (!state.threads[sessionId]) return;

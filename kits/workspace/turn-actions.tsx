@@ -41,10 +41,18 @@ export function createForkAsker(asks: ForkAsks, checkpoints: CheckpointStore, wo
     const info = workspace.getSnapshot().workspace;
     const [name, setName] = useState("");
     const [busy, setBusy] = useState(false);
+    const [prompt, setPrompt] = useState("");
+    const [stayInSource, setStayInSource] = useState(true);
     // The pills verify only turns that changed files; any other turn's checkpoint is asked about here.
     const [asked, setAsked] = useState<{ id: string; ok: boolean }>();
-    useEffect(() => { setName(nextForkBranch(info?.branch, info?.refs.map((ref) => ref.name) ?? [])); setBusy(false); }, [ask]);
+    useEffect(() => { setName(nextForkBranch(info?.branch, info?.refs.map((ref) => ref.name) ?? [])); setBusy(false); setPrompt(""); setStayInSource(true); }, [ask]);
     const sessionId = snapshot?.sessionId;
+    const sourceSession = useRef(sessionId);
+    useEffect(() => {
+      if (busy) return;
+      if (sourceSession.current !== sessionId) asks.set();
+      sourceSession.current = sessionId;
+    }, [sessionId, busy]);
     const turn = ask?.turn;
     const entry = ask?.entryId;
     const ids = new Set(turn ? turn.messages.flatMap((m) => [m.id, m.sourceEntryId]) : [entry]);
@@ -62,7 +70,7 @@ export function createForkAsker(asks: ForkAsks, checkpoints: CheckpointStore, wo
     }, [pending, sessionId]);
     if (!ask) return null;
 
-    const close = () => asks.set();
+    const close = () => { if (!busy) asks.set(); };
     const through = entry ?? stored(snapshot?.messages);
     const repo = info?.isRepo;
     const project = snapshot?.workspaceId ?? workspace.workspace();
@@ -79,7 +87,7 @@ export function createForkAsker(asks: ForkAsks, checkpoints: CheckpointStore, wo
       let made: ForkWorktree | undefined;
       try {
         if (repo) made = await workspace.host.forkWorktree({ branch: name.trim(), ...(!entry ? { now: true } : verified ? { sessionId, checkpointId: checkpoint!.id } : {}) }, project);
-        if (await actions.forkFrom?.({ sourceEntryId: through }, made ? { workspace: made.workspaceId } : {})) { close(); return; }
+        if (await actions.forkFrom?.({ sourceEntryId: through }, { expectedSessionId: sessionId, ...(made ? { workspace: made.workspaceId } : {}), ...(prompt.trim() ? { prompt: prompt.trim(), stayInSource } : {}) })) { asks.set(); return; }
       } catch (error) {
         actions.notify(errorMessage(error));
       }
@@ -91,11 +99,16 @@ export function createForkAsker(asks: ForkAsks, checkpoints: CheckpointStore, wo
       <p>A new thread starts with {turn ? turn.number === 1 ? "turn 1" : `turns 1–${turn.number}` : entry ? "the conversation up to here" : "the whole conversation"}{files}. This thread stays as it is.</p>
       {repo ? <label className="confirm-dialog-type">
         <span>Branch</span>
-        <span className="fork-dialog-branch"><GitBranch size={12} /><input value={name} onChange={(event) => setName(event.target.value)} spellCheck={false} autoFocus aria-label="Branch" /></span>
+        <span className="fork-dialog-branch"><GitBranch size={12} /><input disabled={busy} value={name} onChange={(event) => setName(event.target.value)} spellCheck={false} autoFocus aria-label="Branch" /></span>
       </label> : null}
+      <label className="fork-dialog-task">
+        <span>Task for the new thread <small>optional</small></span>
+        <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} disabled={busy} rows={3} placeholder="For example: Fix the unrelated validation bug mentioned above." />
+      </label>
+      {prompt.trim() ? <label className="fork-dialog-stay"><input type="checkbox" checked={stayInSource} onChange={(event) => setStayInSource(event.target.checked)} disabled={busy} />Stay in this thread</label> : null}
       <footer>
-        <button type="button" onClick={close}>Cancel</button>
-        <button type="submit" className="primary" disabled={busy || !!pending || (repo && !name.trim())}><GitFork size={12} />{busy ? "Forking…" : "Fork"}</button>
+        <button type="button" onClick={close} disabled={busy}>Cancel</button>
+        <button type="submit" className="primary" disabled={busy || !!pending || (repo && !name.trim())}><GitFork size={12} />{busy ? "Forking…" : prompt.trim() ? "Fork and start" : "Fork"}</button>
       </footer>
     </form>;
     // A sheet on touch, as the mobile rules ask, out of the row's transform; beside the line elsewhere (design 2d).

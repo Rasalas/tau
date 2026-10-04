@@ -50,7 +50,7 @@ function setUp({ streaming = false, repo = true, restorable = true, forkFrom = v
   const Actions = registry.getRegions("turn-divider")[0]!.Component;
   const snapshot = { sessionId: "s1", workspaceId: "ws-source", isStreaming: streaming, messages: [prompt, answer] } as unknown as HostSnapshot;
   const notify = vi.fn();
-  const actions = new Proxy({ forkFrom, notify }, { get: (target, key) => key in target ? target[key as keyof typeof target] : () => undefined }) as unknown as WorkbenchActions;
+  const actions = new Proxy({ forkFrom, notify, activeThread: () => ({ sessionId: "s1" }) }, { get: (target, key) => key in target ? target[key as keyof typeof target] : () => undefined }) as unknown as WorkbenchActions;
   const view = (drawn: TranscriptTurn) => (
     <WorkbenchContext.Provider value={{ snapshot, tools: [], events: [], registry, openFile: () => undefined, applySnapshot: () => undefined, handleHostEvent: () => undefined } as never}>
       <Controller snapshot={snapshot} actions={actions} />
@@ -82,9 +82,23 @@ describe("forking from a turn (design 2d)", () => {
     expect(forkFrom).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Fork" }));
-    await waitFor(() => expect(forkFrom).toHaveBeenCalledWith({ sourceEntryId: "e-a2" }, { workspace: "ws-fork" }));
+    await waitFor(() => expect(forkFrom).toHaveBeenCalledWith({ sourceEntryId: "e-a2" }, { expectedSessionId: "s1", workspace: "ws-fork" }));
     expect(host.forkWorktree).toHaveBeenCalledWith({ branch: "fix/pairing-flake-alt", sessionId: "s1", checkpointId: "c3" }, "ws-source");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Fork from turn 3?" })).toBeNull());
+    expect(host.removeWorktree).not.toHaveBeenCalled();
+  });
+
+  it("starts an unrelated task in the fork while keeping the source on screen", async () => {
+    const { forkFrom, host, view } = setUp();
+    render(view(turn));
+    fireEvent.click(screen.getByRole("button", { name: /Fork here/u }));
+    fireEvent.change(await screen.findByRole("textbox", { name: /Task for the new thread/u }), { target: { value: "  Fix the validation bug.  " } });
+    const start = await screen.findByRole("button", { name: "Fork and start" });
+    await waitFor(() => expect((start as HTMLButtonElement).disabled).toBe(false));
+    expect((screen.getByRole("checkbox", { name: "Stay in this thread" }) as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(start);
+    await waitFor(() => expect(forkFrom).toHaveBeenCalledWith({ sourceEntryId: "e-a2" }, { expectedSessionId: "s1", workspace: "ws-fork", prompt: "Fix the validation bug.", stayInSource: true }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(host.removeWorktree).not.toHaveBeenCalled();
   });
 
@@ -115,7 +129,7 @@ describe("forking from a turn (design 2d)", () => {
     await screen.findByRole("dialog", { name: "Fork from turn 3?" });
     expect(screen.queryByRole("textbox", { name: "Branch" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Fork" }));
-    await waitFor(() => expect(forkFrom).toHaveBeenCalledWith({ sourceEntryId: "e-a2" }, {}));
+    await waitFor(() => expect(forkFrom).toHaveBeenCalledWith({ sourceEntryId: "e-a2" }, { expectedSessionId: "s1" }));
     expect(host.forkWorktree).not.toHaveBeenCalled();
   });
 
@@ -131,7 +145,7 @@ describe("forking from a turn (design 2d)", () => {
     const dialog = await screen.findByRole("dialog", { name: "Duplicate this thread?" });
     expect(dialog.textContent).toContain("the whole conversation and a copy of the worktree as it is now");
     fireEvent.click(screen.getByRole("button", { name: "Fork" }));
-    await waitFor(() => expect(forkFrom).toHaveBeenCalledWith({ sourceEntryId: "e-a2" }, { workspace: "ws-fork" }));
+    await waitFor(() => expect(forkFrom).toHaveBeenCalledWith({ sourceEntryId: "e-a2" }, { expectedSessionId: "s1", workspace: "ws-fork" }));
     expect(host.forkWorktree).toHaveBeenCalledWith({ branch: "fix/pairing-flake-2", now: true }, "ws-source");
   });
 

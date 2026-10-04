@@ -29,3 +29,22 @@ The first builds of Tau set out to prove that Pi can stay the agent runtime whil
 - extension-provided tool renderers for reads, writes and shell commands
 - thread title generation on a small model (the one the settings name, else one close to the thread's), automatic after the first prompt and manual on demand
 - extension-free safe mode with empty layout slots collapsed
+
+## Work on a side task
+
+In a saved Pi thread, choose **Fork here** on a completed turn, or Fork on a
+message. Enter an optional **Task for the new thread** and choose **Fork and
+start**. **Stay in this thread** is checked by default, so the side task starts
+while you keep working in the source. Leave the task empty for an ordinary fork.
+
+The fork carries the conversation through the selected turn. In a Git project
+it gets a separate branch and worktree; the dialog says whether the files come
+from that turn's checkpoint or the branch's last commit. Outside Git it shares
+the source folder. The task's first line becomes its title. If sending fails,
+the fork and worktree remain, with the task saved in the fork's composer to retry.
+
+The source's **Forks** menu opens its forks, and each fork links back to the
+source beside its title. These links survive a restart and do not make a fork
+a delegated agent. **Bring back to parent** puts a summary of work after the
+fork point into the source's composer for review. It does not merge Git changes;
+use the existing review and merge flow for those.

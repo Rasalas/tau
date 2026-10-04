@@ -41,6 +41,7 @@ import { createNewThreadRequestId } from "../shared/contracts.js";
 import {
   HOST_PROTOCOL_VERSION,
   type HostActionResult,
+  type ForkThreadResult,
   type HostUpdate,
   type NewThreadResult,
   type ThreadDetail,
@@ -1389,7 +1390,7 @@ export class PiHost {
     });
   }
 
-  async forkThread(entryId: string, expectedSessionId?: string, cwd?: string): Promise<HostActionResult> {
+  async forkThread(entryId: string, expectedSessionId?: string, cwd?: string, background?: boolean): Promise<ForkThreadResult> {
     return this.lifecycle.runActivation("fork-thread", async (activation) => {
       const activationEpoch = activation.epoch;
       if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
@@ -1400,6 +1401,7 @@ export class PiHost {
       const fork = requireCapability(thread.backend, "fork");
       // A runtime that forks itself reports the result through its own events.
       if (fork.runtimeOwned) {
+        if (background !== undefined) throw new Error("This runtime cannot start a task in a fork.");
         if (cwd && cwd !== thread.cwd) throw new Error("A fork into another folder needs Tau to own this thread's runtime.");
         await fork.requestFork?.(entryId);
         return this.isCurrentActivation(activationEpoch) ? this.publication.actionResult([]) : this.staleActivationResult();
@@ -1422,10 +1424,20 @@ export class PiHost {
       const forked = await this.runtimes.open(
         forkedManager,
         { type: "session_start", reason: "fork", previousSessionFile: sourceFile },
+        background ? { adopt: false, prepared: true } : {},
       );
+      if (background) {
+        await this.adoptThread(forked);
+        await this.index.refreshShell(forked, true);
+        forked.releaseEventBarrier((event, owner, sessionId, eventCwd, error) => {
+          if (error) this.fail(error, sessionId);
+          else this.handleSessionEvent(event, owner, sessionId, eventCwd);
+        }, (event) => this.emit(event), () => undefined);
+        return { ...this.publication.actionResult([]), forkedSessionId: forked.threadId };
+      }
       if (!await this.activateThread(forked, true, activationEpoch)) return this.staleActivationResult();
       this.logReplacement("fork", startedAt);
-      return this.publication.activeUpdates(activationEpoch);
+      return { ...await this.publication.activeUpdates(activationEpoch), forkedSessionId: forked.threadId };
     });
   }
 

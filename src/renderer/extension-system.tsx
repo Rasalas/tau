@@ -83,8 +83,10 @@ export interface WorkbenchActions {
   /**
    * Forks the thread on screen through `message`: a new thread with the conversation up to it (API 1.39.0).
    * With `workspace`, the fork runs in that project; false when nothing was forked.
+   * `prompt` starts a task there; `stayInSource` keeps this thread on screen.
+   * A rejected task stays as the fork's draft and still returns true.
    */
-  forkFrom?(message: Pick<UiMessage, "sourceEntryId">, options?: { workspace?: string }): Promise<boolean>;
+  forkFrom?(message: Pick<UiMessage, "sourceEntryId">, options?: { workspace?: string; prompt?: string; stayInSource?: boolean; expectedSessionId?: string }): Promise<boolean>;
   focusComposer(seed?: string): void;
   focusTranscript(): void;
   focusStage(): void;

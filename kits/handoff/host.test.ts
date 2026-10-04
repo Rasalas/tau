@@ -124,14 +124,34 @@ describe("Handoff Kit host half", () => {
     const registry = await activate();
     const created = await invoke(registry, "create-transfer", { threadId: "parent", target: "pi" }) as CreateTransferResult;
     expect(created.native).toBe(true);
-    await lifecycle!.afterFork!(threads.get("parent")!, { sessionId: "clone" } as never);
+    await lifecycle!.afterFork!(threads.get("parent")!, { sessionId: "clone", entries: () => [] } as never);
     expect(complete).not.toHaveBeenCalled();
     expect((await invoke(registry, "state") as LineageState).links).toEqual([
       expect.objectContaining({ threadId: "clone", parentThreadId: "parent", strategy: "native" }),
     ]);
     // An ordinary fork later is not claimed by a continuation that was used up.
-    await lifecycle!.afterFork!(threads.get("parent")!, { sessionId: "other" } as never);
-    expect((await invoke(registry, "state") as LineageState).links).toHaveLength(1);
+    await lifecycle!.afterFork!(threads.get("parent")!, { sessionId: "other", entries: () => [] } as never);
+    expect((await invoke(registry, "state") as LineageState).links).toHaveLength(2);
+  });
+
+  it("retains ordinary fork links across restart and brings back only work after the fork point", async () => {
+    const history = [message("u1", "user", "Original task"), message("a1", "assistant", "Original answer")];
+    const source = thread("parent", history);
+    threads.set("parent", source);
+    const registry = await activate();
+    await lifecycle!.afterFork!(source, { sessionId: "fork", entries: () => history.map((m) => ({ type: "message", id: m.id, message: { role: m.role, content: m.text } })) } as never);
+    threads.set("fork", thread("fork", [...history]));
+    await expect(invoke(registry, "prepare-merge-back", { threadId: "fork" })).rejects.toThrow("Nothing new");
+    await registry.dispose();
+    registries.splice(registries.indexOf(registry), 1);
+    const branch = [...history, message("u2", "user", "Fix validation"), message("a2", "assistant", "Fixed validation")];
+    const restarted = await activate({ sessions: { open: () => ({ entries: () => branch.map((m) => ({ type: "message", id: m.id, message: { role: m.role, content: m.text } })) }) } as never });
+    expect((await invoke(restarted, "state") as LineageState).links).toEqual([expect.objectContaining({ threadId: "fork", parentThreadId: "parent" })]);
+    threads.set("fork", thread("fork", branch.map((m) => ({ ...m, id: `presentation-${m.id}` })), { sessionFile: "/sessions/fork.jsonl" }));
+    const result = await invoke(restarted, "prepare-merge-back", { threadId: "fork" }) as PrepareMergeBackResult;
+    expect(result.parentThreadId).toBe("parent");
+    expect(complete.mock.calls[0]![0].prompt).toContain("Fixed validation");
+    expect(complete.mock.calls[0]![0].prompt).not.toContain("Original answer");
   });
 
   it("refuses a thread that is running or has nothing to hand over", async () => {

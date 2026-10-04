@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PiHost } from "./pi-host.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
 import { ThreadRuntime } from "./thread-runtime.js";
@@ -44,6 +44,21 @@ describe("forking a thread", () => {
     expect(fork?.getSessionId()).not.toBe(threadId);
     expect(fork?.getSessionDir()).toBe(sessions);
     expect(fork?.getBranch().map((entry) => entry.type === "message" ? entry.message.role : entry.type)).toEqual(["user", "assistant"]);
+  });
+
+  it("registers a background fork without changing the active thread", async () => {
+    const { host, internals, answer, threadId } = await bench();
+    const fork = { threadId: "fork", releaseEventBarrier: vi.fn() };
+    internals.runtimes.open = vi.fn(async () => fork);
+    internals.adoptThread = vi.fn(async () => undefined);
+    internals.index.refreshShell = vi.fn(async () => undefined);
+    internals.activateThread = vi.fn();
+    const result = await host.forkThread(answer, threadId, "/repo-worktrees/side-task", true);
+    expect(result.forkedSessionId).toBe("fork");
+    expect(internals.adoptThread).toHaveBeenCalledWith(fork);
+    expect(internals.index.refreshShell).toHaveBeenCalledWith(fork, true);
+    expect(internals.activateThread).not.toHaveBeenCalled();
+    expect(fork.releaseEventBarrier).toHaveBeenCalledOnce();
   });
 
   it("keeps the source's folder when none is named", async () => {

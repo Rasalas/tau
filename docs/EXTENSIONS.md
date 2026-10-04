@@ -937,7 +937,7 @@ never draws the placement. `turn-divider` (API 1.39.0, a retained placement name
 sits beside the prompt's metadata, without a numbered line or separator; its props
 carry `turn: { number, messages, last }` — the turn's prompt and everything that
 answered it, `last` while it may still run. Workspace Kit puts Fork here (a
-question first, then `actions.forkFrom(message, { workspace })` through the turn's last saved
+question first, then `actions.forkFrom(message, { workspace, prompt?, stayInSource? })` through the turn's last saved
 message, in a worktree on a branch of the fork's own) and Restore files (the turn's checkpoint, when it verified) there,
 shown on hover and always available on touch.
 `thread-list-head` (API 1.30.0) tops a phone's or a tablet's thread list,

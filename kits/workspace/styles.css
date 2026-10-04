@@ -830,7 +830,7 @@ body[data-profile="compact"] .title-bar .draft-detail:not(:last-child)::after { 
 body[data-profile="compact"] .message-user-meta { flex-wrap: wrap; }
 body[data-profile="compact"] .turn-actions { display: inline-flex; gap: 8px; }
 body[data-profile="compact"] .turn-actions > button { min-height: 44px; padding: 0 12px; }
-.popover.fork-dialog { width: 300px; padding: 14px 16px 12px; border: 0; }
+.popover.fork-dialog { width: min(380px, calc(100vw - 32px)); padding: 14px 16px 12px; border: 0; }
 .fork-dialog > h2 { font-size: 15px; }
 .fork-dialog-branch { display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; background: var(--field); color: var(--muted); }
 .fork-dialog-branch > input { flex: 1; min-width: 0; padding: 7px 0; border: 0; outline: none; background: none; color: var(--ink); font: var(--text-sm) var(--mono); }
@@ -864,3 +864,10 @@ body[data-profile="compact"] .turn-actions > button { min-height: 44px; padding:
 }
 .files-sheet-preview-head > span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .files-sheet-preview > .files-diff { overflow: auto; }
+
+.fork-dialog-task { display: flex; flex-direction: column; gap: 6px; font-size: var(--text-sm); }
+.fork-dialog-task small { color: var(--muted); margin-left: 4px; font-weight: normal; }
+.fork-dialog-task textarea { width: 100%; min-height: 76px; resize: vertical; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--field); color: var(--ink); font: inherit; line-height: 1.5; }
+.fork-dialog-task textarea:focus-visible { outline: 2px solid var(--acid); outline-offset: 1px; }
+.fork-dialog-stay { display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); }
+.fork-dialog-stay input { accent-color: var(--acid); }

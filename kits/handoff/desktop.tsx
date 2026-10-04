@@ -348,7 +348,7 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
                   className="handoff-forks"
                   aria-expanded={forksOpen}
                   aria-label={`${forks.length} ${forks.length === 1 ? "fork" : "forks"}`}
-                  {...tooltipProps("Continued in")}
+                  {...tooltipProps("Forks")}
                   onClick={() => setForksOpen((value) => !value)}
                 >
                   <GitFork size={12} aria-hidden="true" />
@@ -357,7 +357,7 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
                 {forksOpen ? (
                   <Menu
                     align="left"
-                    heading="Continued in"
+                    heading="Forks"
                     items={forks.map(({ link: fork, thread }) => ({ id: thread.id, label: thread.title, hint: runtimeLabel(fork.targetBackend, runtimes) }))}
                     onSelect={(id) => {
                       const thread = forks.find((fork) => fork.thread.id === id)?.thread;

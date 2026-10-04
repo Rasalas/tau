@@ -1136,3 +1136,13 @@ them and both are edited by hand as often as by Tau:
 `environments-extension-invoke [machine, extensionId, command, input?, options?]` forwards an explicit kit action to another connected host over the window's authenticated connection. It is classified as `write` on the originating host; the destination applies the kit command's own access policy again. `PlatformEnvironments.invokeExtension` exposes this route to desktop kits. Read-only clients cannot use it. Use `readExtension` for look-ins, which continue to require an explicitly read-only command. `options.timeoutMs` extends the default 30-second wait for a long command, up to ten minutes.
 
 `environments-extension-follow [machine, extensionId, on]` registers or removes interest in a machine's kit events. While any interest remains, the window forwards that kit's events from its existing monitor connection as `environment-extension-event`, with `{ machine, extensionId, name, payload }`. `PlatformEnvironments.onExtensionEvent` shares one registration among listeners of the same machine and kit and removes it when the last listener leaves. It does not subscribe to kit topics.
+
+### Forking with a background task
+
+`fork-thread [entryId, expectedSessionId?, workspaceId?, background?]` returns
+the normal action updates plus `forkedSessionId` when Tau creates the fork.
+With `background: true`, Tau registers the new thread without selecting it.
+A runtime that owns its own fork flow refuses background forking. The client
+can prepare and send a prompt addressed to `forkedSessionId`; a failed prompt
+does not undo the fork. Workspace Kit saves that prompt as the fork's composer
+draft before sending it, and removes the draft only after admission.

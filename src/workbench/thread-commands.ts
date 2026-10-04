@@ -10,6 +10,7 @@ import type {
 import type { HostActionResult, TranscriptPage } from "../shared/host-protocol";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import type { ClientStorage } from "./client-storage";
+import { draftKey, writeComposerDraft } from "./draft-store";
 import { errorMessage } from "./error-message";
 import type { HostClient } from "./host-client";
 import type { Platform } from "./platform";
@@ -284,16 +285,41 @@ export class ThreadCommands {
   };
 
   /** Forks without asking; `workspace` is where the fork runs. False when nothing was forked. */
-  forkMessage = async (message: Pick<UiMessage, "sourceEntryId">, options: { workspace?: string } = {}): Promise<boolean> => {
+  forkMessage = async (message: Pick<UiMessage, "sourceEntryId">, options: { workspace?: string; prompt?: string; stayInSource?: boolean; expectedSessionId?: string } = {}): Promise<boolean> => {
     const sessionId = this.sessionId();
     if (!message.sourceEntryId || !sessionId || !this.requireWrite("Fork thread")) return false;
+    if (options.expectedSessionId && options.expectedSessionId !== sessionId) {
+      this.notify("The selected thread changed before it could be forked.");
+      return false;
+    }
+    let created = false;
     try {
       this.notify("Forking thread…");
-      this.ports.applyActionResult(await this.client!.forkThread(message.sourceEntryId, sessionId, options.workspace));
+      const client = this.client!;
+      const result = options.prompt?.trim()
+        ? await client.forkThread(message.sourceEntryId, sessionId, options.workspace, options.stayInSource === true)
+        : await client.forkThread(message.sourceEntryId, sessionId, options.workspace);
+      created = true;
+      const prompt = options.prompt?.trim();
+      // The fork exists now. A rejected prompt must never remove its worktree.
+      if (prompt && result.forkedSessionId) {
+        const scope = draftKey(result.forkedSessionId);
+        writeComposerDraft(this.ports.storage, scope, prompt);
+        try {
+          await client.renameThread(prompt.split("\n")[0]!.slice(0, 100), result.forkedSessionId);
+          const prepared = await client.preparePrompt(prompt, result.forkedSessionId);
+          await client.sendPrompt(prompt, [], result.forkedSessionId, undefined, prepared);
+          writeComposerDraft(this.ports.storage, scope, "");
+          this.notify(options.stayInSource ? "Started the fork. Find it in this thread's Forks menu." : "Started the fork.");
+        } catch (error) {
+          this.notify(`The fork was created, but its task could not start: ${errorMessage(error)}. Open the fork to retry the saved draft.`);
+        }
+      }
+      this.ports.applyActionResult(result);
       return true;
     } catch (error) {
       this.notify(errorMessage(error));
-      return false;
+      return created;
     }
   };
 

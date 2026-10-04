@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createFakeHostClient } from "../renderer/test-support/fake-host-client";
+import { createMemoryStorage } from "./client-storage";
+import { draftKey, readComposerDraft, writeComposerDraft } from "./draft-store";
 import { ThreadCommands, type ThreadCommandPorts } from "./thread-commands";
 
 function commands(readOnly: boolean) {
@@ -79,6 +81,32 @@ describe("forking", () => {
   const prompt = { id: "u1", sourceEntryId: "e-u1", role: "user" as const, text: "Go", timestamp: 1 };
   const answer = { id: "a1", sourceEntryId: "e-a1", role: "assistant" as const, text: "Done", timestamp: 2 };
   const turn = { number: 1, messages: [prompt, answer], last: false };
+
+  it.each([false, true])("sends only to the fork and preserves a rejected task as its draft (rejected=%s)", async (rejected) => {
+    const storage = createMemoryStorage();
+    writeComposerDraft(storage, draftKey("s1"), "Keep my original draft");
+    const forkThread = vi.fn(async () => ({ version: 1, updates: [], forkedSessionId: "child" }));
+    const sendPrompt = vi.fn(async () => { if (rejected) throw new Error("Offline"); });
+    const client = createFakeHostClient({ isReadOnly: () => false, forkThread, sendPrompt });
+    const setNotice = vi.fn();
+    const taskCommands = new ThreadCommands({
+      client: () => client, storage,
+      view: { setNotice, getSnapshot: () => ({ sessionId: "s1" }) },
+      applyActionResult: () => true,
+    } as unknown as ThreadCommandPorts);
+    expect(await taskCommands.forkMessage(answer, { workspace: "ws-side", prompt: "Fix validation", stayInSource: true })).toBe(true);
+    expect(forkThread).toHaveBeenCalledWith("e-a1", "s1", "ws-side", true);
+    expect(sendPrompt).toHaveBeenCalledWith("Fix validation", [], "child", undefined, undefined);
+    expect(readComposerDraft(storage, draftKey("s1"))).toBe("Keep my original draft");
+    expect(readComposerDraft(storage, draftKey("child"))).toBe(rejected ? "Fix validation" : "");
+    if (rejected) expect(setNotice).toHaveBeenLastCalledWith(expect.stringContaining("saved draft"));
+  });
+
+  it("refuses an old dialog after navigation without creating a fork", async () => {
+    const { thread, forkThread } = forking();
+    expect(await thread.forkMessage(answer, { expectedSessionId: "another-thread", prompt: "Fix validation" })).toBe(false);
+    expect(forkThread).not.toHaveBeenCalled();
+  });
 
   it("hands `f` and Duplicate to the kit that asks for the fork's branch, through the end of the message's turn", async () => {
     const ask = vi.fn();
