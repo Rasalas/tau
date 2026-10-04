@@ -10,6 +10,7 @@ import { previewChord } from "./viewport.js";
 import { cdpInputCommands, type PreviewPageInput } from "./remote-input.js";
 import { placePreviewView } from "./view-placement.js";
 import type { PreviewDeviceMetrics } from "./device-layout.js";
+import { PREVIEW_WINDOW_UNAVAILABLE } from "./window-availability.js";
 
 /** Cookies and storage of previewed sites stay out of the workbench's own session. */
 const DEFAULT_PARTITION = "persist:tau-preview";
@@ -77,8 +78,7 @@ export function fileUrlAllowed(url: string, workspaceRoot: string): boolean {
  * session, with no Node, no device permissions and no way out of the
  * workspace on `file://`.
  */
-export function createElectronPreviewSurface(options: PreviewSurfaceOptions): PreviewSurface | undefined {
-  const window = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+export function createElectronPreviewSurface(options: PreviewSurfaceOptions, window = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]): PreviewSurface | undefined {
   if (!window || window.isDestroyed()) return undefined;
 
   // A profile is a partition: its own cookies, storage and cache.
@@ -419,9 +419,17 @@ export default function activatePreviewWindowHalf(context: WindowExtensionContex
   let surface: PreviewSurface | undefined;
   let partition = DEFAULT_PARTITION;
   let workspaceRoot = "";
+  let owner: BrowserWindow | undefined;
 
   const open = (): PreviewSurface => {
+    // On macOS the window process and its host connection outlive the window.
+    // Its old surface was destroyed by `closed`; do not return that cached object.
+    if (owner?.isDestroyed()) {
+      surface = undefined;
+      owner = undefined;
+    }
     if (surface) return surface;
+    const window = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
     const created = createElectronPreviewSurface({
       partition,
       onChange: () => {
@@ -430,8 +438,9 @@ export default function activatePreviewWindowHalf(context: WindowExtensionContex
       onChord: (chord: PreviewChord) => { void context.invokeHost("view-chord", { chord }).catch(() => undefined); },
       workspaceRoot: () => workspaceRoot,
       log: (label, detail) => context.log(label, detail),
-    });
-    if (!created) throw new Error("This window cannot draw a preview.");
+    }, window);
+    if (!created) throw new Error(PREVIEW_WINDOW_UNAVAILABLE);
+    owner = window;
     surface = created;
     return created;
   };

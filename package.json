@@ -38,6 +38,7 @@
     "smoke:window-host": "node scripts/window-host-smoke.mjs",
     "smoke:remote-work": "node scripts/remote-work-smoke.mjs",
     "smoke:display": "node scripts/display-smoke.mjs",
+    "smoke:preview-window": "node scripts/preview-window-smoke.mjs",
     "smoke:extension-install": "node scripts/extension-install-smoke.mjs",
     "smoke:attached": "node scripts/attached-smoke.mjs",
     "smoke:cli-app": "node scripts/cli-app-smoke.mjs",
