@@ -47,7 +47,7 @@ import { usePanelLayout } from "./use-panel-layout";
 import type { SubmissionControllerPorts } from "./submission-controller";
 import { deferredSubmission } from "./deferred-submission";
 import { followTurnActivity } from "../workbench/turn-activity";
-import { followShownThread } from "../workbench/shown-thread";
+import { followWorkbenchBootstrap } from "../workbench/workbench-bootstrap";
 import { followOpenPrompts } from "../workbench/open-prompts";
 import { returnToComposer, useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
 import { usePreparedThreadCapability } from "./use-prepared-thread-capability";
@@ -400,10 +400,8 @@ export default function App() {
 
   useEffect(() => {
     let unsubscribe = () => {};
-    let stopFollowing = () => {};
+    let stopBootstrap = () => {};
     let stopPrompts = () => {};
-    let stopRecovery = () => {};
-    let disposed = false;
     if (client) {
       // A page showing another machine looks as the window's own machine does.
       const personPreferences = getPlatform()?.environments?.shownElsewhere ? client.personPreferences?.bind(client) : undefined;
@@ -412,31 +410,13 @@ export default function App() {
       // A question raised while nobody was listening would otherwise stall the
       // host forever, including during bootstrap itself.
       stopPrompts = followOpenPrompts(client, viewStore);
-      let loaded = false;
-      let loading = false;
-      const load = () => {
-        if (disposed || loaded || loading) return;
-        loading = true;
-        const bootstrapRequest = transcriptHistory.beginBootstrap();
-        client.bootstrap().then((bootstrap) => {
-          if (disposed) return;
-          loaded = true;
-          workbenchSession.applyBootstrap(bootstrap, bootstrapRequest);
-          stopFollowing();
-          stopFollowing = followShownThread(client, threadStore);
-        }).catch((error) => {
-          if (!disposed && transcriptHistory.isCurrentBootstrap(bootstrapRequest)) setNotice(errorMessage(error));
-        }).finally(() => { loading = false; });
-      };
-      // Replay restores later changes, but cannot replace an initial snapshot that never arrived.
-      stopRecovery = client.onConnectionState((state) => { if (state === "connected") load(); });
-      load();
+      stopBootstrap = followWorkbenchBootstrap(client, workbenchSession, setNotice);
     } else {
       applyThreadIndex(mockThreadIndex);
       applySnapshot(mockSnapshot);
       addEvent("preview.mode", "Electron host unavailable; showing fixture state");
     }
-    return () => { disposed = true; unsubscribe(); stopFollowing(); stopPrompts(); stopRecovery(); };
+    return () => { unsubscribe(); stopBootstrap(); stopPrompts(); };
   }, [addEvent, applySnapshot, applyThreadIndex, client, handleHostEvent, threadStore, transcriptHistory, viewStore, workbenchSession]);
 
   const activeThreadIdForEvents = snapshot?.sessionId;
