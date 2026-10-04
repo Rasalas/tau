@@ -47,7 +47,6 @@ import {
   type ThreadDetail,
   type TranscriptPage,
 } from "../shared/host-protocol.js";
-import { formatChatTranscript } from "../shared/chat-transcript.js";
 import { taskProgressHistoryFromMessages } from "../shared/task-progress.js";
 import type { HostLifecycleInstrumentation } from "./host-lifecycle.js";
 import type { HostReport } from "./host-report.js";
@@ -95,7 +94,7 @@ import { findPiBridge } from "./pi-bridge-client.js";
 import type { LiveTurnState } from "./live-turn-state.js";
 import { ThreadRuntime, isLocalPiRuntime, isPiBackend, threadBackendKind } from "./thread-runtime.js";
 import { requireCapability } from "./runtime-types.js";
-import { localTranscriptPage, readLocalToolOutput } from "./host-transcript.js";
+import { exportThreadMarkdown, localTranscriptPage, readLocalToolOutput } from "./host-transcript.js";
 import { clientTranscript } from "./client-tool-output.js";
 import { PersistedThreadTranscript, shellTranscriptPage } from "./persisted-transcript.js";
 import { handleRuntimeSessionEvent } from "./session-events.js";
@@ -119,11 +118,9 @@ import { skillMessagePresentation } from "./skill-invocation.js";
 import type { WorkbenchReloadCoordinator } from "./workbench-reload-coordinator.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
 import {
-  textFromContent,
   turnActivityHistoryFromMessages,
   firstSentence,
   visibleTitleText,
-  safeSessionTitle,
   boundedToolOutput,
 } from "./host-messages.js";
 type Emit = (event: HostEvent) => void;
@@ -1472,20 +1469,7 @@ export class PiHost {
   }
 
   async exportThreadMarkdown(expectedSessionId?: string): Promise<string> {
-    const thread = this.requireThread(expectedSessionId);
-    // A runtime that normalizes its own transcript owns the export: re-parsing
-    // here could reinterpret a visible `$skill ...` instruction as a wrapper.
-    const exported = await thread.backend.capabilities.markdownExport?.exportTranscript();
-    const messages = exported?.messages
-      ?? (await thread.backend.transcript()).map((message) => ({ role: message.role, content: [{ type: "text", text: message.text }] }));
-    const firstUserMessage = messages.find((message) => message.role === "user");
-    return formatChatTranscript({
-      title: safeSessionTitle(exported?.title) || safeSessionTitle(thread.state.title) || safeSessionTitle(thread.adapterTitle)
-        || firstSentence(visibleTitleText(textFromContent(firstUserMessage?.content))),
-      cwd: exported?.cwd ?? thread.cwd,
-      threadId: exported?.threadId ?? thread.threadId,
-      messages,
-    });
+    return exportThreadMarkdown(this.requireThread(expectedSessionId));
   }
 
   /**
