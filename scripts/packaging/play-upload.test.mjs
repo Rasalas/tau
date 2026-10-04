@@ -71,6 +71,21 @@ describe("an upload to Play", () => {
     expect(JSON.parse(play.calls[4].init.body)).toEqual({ track: "internal", releases: [{ name: "0.7.16", versionCodes: ["71600"], status: "completed" }] });
   });
 
+  it("uploads successive CI builds of the same version with distinct codes", async () => {
+    for (const run of [37, 38]) {
+      const code = 1_000_000_000 + run;
+      const play = fakePlay({ uploadedCode: code, bundles: [{ versionCode: code - 1 }] });
+      expect(await uploadBundle({ account: ACCOUNT, bundle: Buffer.from("aab"), version: "0.7.38", run, fetchUrl: play.fetchUrl, log: quiet })).toEqual({ uploaded: true, versionCode: code, status: "completed" });
+      expect(JSON.parse(play.calls[4].init.body)).toMatchObject({ track: "internal", releases: [{ versionCodes: [String(code)] }] });
+    }
+  });
+
+  it("rejects an invalid CI number before requesting credentials or opening an edit", async () => {
+    const play = fakePlay();
+    await expect(uploadBundle({ account: ACCOUNT, bundle: Buffer.from("aab"), version: "0.7.38", run: 0, fetchUrl: play.fetchUrl })).rejects.toThrow(/run number/u);
+    expect(play.calls).toEqual([]);
+  });
+
   it("leaves a versionCode Play already has alone", async () => {
     const play = fakePlay({ bundles: [{ versionCode: 71600 }] });
     expect(await uploadBundle({ account: ACCOUNT, bundle: Buffer.from("aab"), version: "0.7.16", fetchUrl: play.fetchUrl, log: quiet })).toEqual({ uploaded: false, versionCode: 71600 });
@@ -95,6 +110,7 @@ describe("an upload to Play", () => {
   it("reads its arguments", () => {
     expect(parseArgs(["play/Tau-0.7.16.aab", "--version", "0.7.16"])).toEqual({ bundle: "play/Tau-0.7.16.aab", version: "0.7.16", track: "internal", packageName: "de.tbuck.tau" });
     expect(parseArgs(["x.aab", "--version", "1.0.0", "--track", "beta"]).track).toBe("beta");
+    expect(parseArgs(["x.aab", "--version", "0.7.38", "--run", "37"]).run).toBe(37);
     expect(() => parseArgs(["x.aab"])).toThrow(/usage/u);
     expect(() => parseArgs(["x.aab", "--version"])).toThrow(/needs a value/u);
   });
