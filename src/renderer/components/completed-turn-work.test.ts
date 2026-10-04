@@ -46,9 +46,13 @@ describe("completed turn projection", () => {
 
   it("leaves persistent cards, approvals, questions and interrupted tools out of folding", () => {
     const run = { id: "t", name: "read", args: {}, status: "done" as const, startedAt: 0 };
-    expect(completedWorkMetadata([run], true, () => true, false).foldWithTurn).toBe(false);
-    expect(completedWorkMetadata([{ ...run, name: "ask_user_question" }], true, () => false, false).foldWithTurn).toBe(false);
-    expect(completedWorkMetadata([{ ...run, status: "running" }], true, () => false, false).preventTurnFold).toBe(true);
-    expect(completedWorkMetadata([run], false, () => false, false).preventTurnFold).toBe(true);
+    expect(completedWorkMetadata([run], "completed", () => true, false).foldWithTurn).toBe(false);
+    expect(completedWorkMetadata([{ ...run, name: "ask_user_question" }], "completed", () => false, false).foldWithTurn).toBe(false);
+    expect(completedWorkMetadata([{ ...run, status: "running" }], "completed", () => false, false).preventTurnFold).toBe(true);
+    expect(completedWorkMetadata([run], "running", () => false, false).preventTurnFold).toBe(true);
+    expect(completedWorkMetadata([run], "interrupted", () => false, false).preventTurnFold).toBe(true);
+    expect(completedWorkMetadata([{ ...run, status: "error" }], "error", () => false, false)).toMatchObject({
+      foldWithTurn: true, preventTurnFold: false, failedTools: 1,
+    });
   });
 });

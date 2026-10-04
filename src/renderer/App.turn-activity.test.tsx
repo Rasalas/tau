@@ -676,14 +676,14 @@ describe("last-turn activity", () => {
     const firstTurn = view.container.querySelector('.virtual-transcript-row[data-message-id="user-one"]')!;
     const secondTurn = view.container.querySelector('.virtual-transcript-row[data-message-id="user-two"]')!;
     expect(firstTurn.textContent).not.toContain("Completed");
-    expect(secondTurn.textContent).not.toContain("1 failed");
+    expect(secondTurn.textContent).toContain("1 failed call");
     expect(firstTurn.textContent).toContain("Worked for");
     fireEvent.click(firstTurn.querySelector<HTMLButtonElement>(".work-fold-summary")!);
     await screen.findByText("first-tool.ts");
     expect(firstTurn.contains(screen.getByText("first-tool.ts"))).toBe(true);
-    // A turn that failed folds like any other and says on its fold that it failed.
+    // The successful final answer folds failed calls with the rest of its work.
     expect(secondTurn.textContent).toContain("Worked for");
-    expect(secondTurn.querySelector('[aria-label="Turn failed"]')).toBeTruthy();
+    expect(secondTurn.querySelector('.work-fold-summary[aria-expanded="false"]')).toBeTruthy();
   });
 
   it("restores tool batches on either side of an intermediate reply", async () => {
@@ -714,6 +714,31 @@ describe("last-turn activity", () => {
       expect(reply.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(after.compareDocumentPosition(screen.getByText("Finished")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
+  });
+
+  it("folds intermediate replies after a final answer despite recovered tool errors", async () => {
+    const originalBootstrap = client.bootstrap;
+    client.bootstrap = async () => {
+      const bootstrap = await originalBootstrap();
+      return { ...bootstrap, detail: { ...bootstrap.detail,
+        messages: [
+          { id: "u", role: "user" as const, text: "Inspect", timestamp: 1 },
+          { id: "a", role: "assistant" as const, text: "The first command failed, retrying", timestamp: 3 },
+          { id: "final", role: "assistant" as const, text: "Finished successfully", timestamp: 6 },
+        ],
+        turnActivityHistory: [{ id: "history", anchorMessageId: "u", status: "error" as const,
+          tools: [{ ...tool("before"), status: "error" as const }, { ...tool("after"), startedAt: 4, endedAt: 5 }],
+        }],
+      } };
+    };
+    renderApp(client);
+    await screen.findByText("Finished successfully");
+    await waitFor(() => expect(screen.queryByText("The first command failed, retrying")).toBeNull());
+    const fold = await screen.findByRole("button", { name: /Worked for.*1 failed call/u });
+    fireEvent.click(fold);
+    expect(await screen.findByText("The first command failed, retrying")).toBeTruthy();
+    expect(await screen.findByText("before.ts")).toBeTruthy();
+    expect(await screen.findByText("after.ts")).toBeTruthy();
   });
 
   it("does not duplicate the live group when its anchor is an assistant message", async () => {
