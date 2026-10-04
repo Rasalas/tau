@@ -29,10 +29,11 @@ function renderWith(message: UiMessage, roles?: readonly ("user" | "assistant")[
 const prompt: UiMessage = { id: "u1", role: "user", text: "<context_note>\nWhat the other thread did.\n</context_note>\n\nNow continue.", timestamp: 1 };
 
 describe("message blocks in a user message", () => {
-  it("draws a block that asks for user messages above the bubble and keeps it out of the text", () => {
+  it("draws a block that asks for user messages above the bubble and keeps it out of the text", async () => {
     const view = renderWith(prompt, ["user"]);
     expect(screen.getByRole("region", { name: "Context card" }).textContent).toBe("What the other thread did.");
     expect(view.container.querySelector(".message-user-blocks")).not.toBeNull();
+    expect(await screen.findByText("Now continue.")).toBeTruthy();
     expect(view.container.querySelector(".message-text-content")?.textContent).toBe("Now continue.");
   });
 

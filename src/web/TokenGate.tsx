@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { formatVerification } from "../shared/pairing";
+import "./web.css";
 
 /**
  * The way in when no pairing link brought a token: ask the host's owner to

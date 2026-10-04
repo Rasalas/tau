@@ -1,7 +1,7 @@
 import { Shrink } from "lucide-react";
 import { useId, useState } from "react";
 import type { UiCompaction } from "../../shared/contracts";
-import { Markdown } from "./Markdown";
+import { Markdown } from "./LazyMarkdown";
 
 /** 142000 → 142k, 3800 → 3.8k, 950 → 950. */
 export function compactTokens(tokens: number): string {
