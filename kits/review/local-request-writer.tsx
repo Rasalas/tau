@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ArrowRight, GitBranch, ImagePlus, Sparkles } from "lucide-react";
-import { errorMessage, Markdown, READ_ONLY_REASON, tooltipProps, useCommandAllowed, type PreferencesStore, type WorkbenchActions } from "tau";
+import { Button, errorMessage, Markdown, READ_ONLY_REASON, tooltipProps, useCommandAllowed, type PreferencesStore, type WorkbenchActions } from "tau";
 import { chosenWritingModel, followRequestTemplate, writingInstructions } from "./commit-messages.js";
 import { EvidenceThumb } from "./local-request-evidence.js";
 import type { LocalRequestClient } from "./local-request-client.js";
@@ -136,11 +136,11 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
         {busy ? <p className="request-busy">{busy}</p> : null}
         <div className="commit-actions">
           {step.action === "create" ? (
-            <button className="primary" disabled={!plan || Boolean(busy)} onClick={() => void create(true)}>
+            <Button variant="primary" disabled={!plan || Boolean(busy)} onClick={() => void create(true)}>
               {going ? `Upload and create ${short}` : `Create ${short} without pictures`}
-            </button>
+            </Button>
           ) : (
-            <button className="primary" disabled={!going || Boolean(busy) || !open} onClick={() => { if (open) void attach(open); }}>Upload and comment</button>
+            <Button variant="primary" disabled={!going || Boolean(busy) || !open} onClick={() => { if (open) void attach(open); }}>Upload and comment</Button>
           )}
           <button disabled={Boolean(busy)} onClick={() => { setStep({ kind: "edit" }); setError(undefined); }}>Back</button>
         </div>
@@ -190,13 +190,13 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
         {inBody.length > 0 ? <small className="lpr-note">{count(inBody.length)} in the description</small> : null}
         {open ? (
           <>
-            <button onClick={() => openPullRequest(actions, open, root)}>Open {short} #{open.number}</button>
-            {media.length > 0 ? <button className="primary" disabled={Boolean(busy) || !mayAttach} {...tooltipProps(mayAttach ? undefined : READ_ONLY_REASON)} onClick={() => confirm("attach")}>Attach {count(media.length)}…</button> : null}
+            <Button onClick={() => openPullRequest(actions, open, root)}>Open {short} #{open.number}</Button>
+            {media.length > 0 ? <Button variant="primary" disabled={Boolean(busy) || !mayAttach} {...tooltipProps(mayAttach ? undefined : READ_ONLY_REASON)} onClick={() => confirm("attach")}>Attach {count(media.length)}…</Button> : null}
           </>
         ) : capabilities.create ? (
-          <button className="primary" disabled={!form.title.trim() || Boolean(busy) || Boolean(blocked) || !mayCreate} {...tooltipProps(mayCreate ? blocked : READ_ONLY_REASON)} onClick={() => confirm("create")}>
+          <Button variant="primary" disabled={!form.title.trim() || Boolean(busy) || Boolean(blocked) || !mayCreate} {...tooltipProps(mayCreate ? blocked : READ_ONLY_REASON)} onClick={() => confirm("create")}>
             {form.draft ? `Create draft ${short}…` : `Create ${short}…`}
-          </button>
+          </Button>
         ) : null}
       </div>
       {blocked && !open ? <p className="request-problem" role="note">{blocked}</p> : null}

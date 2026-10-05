@@ -650,7 +650,6 @@ body[data-profile="compact"] .pr-row-line.meta .pr-row-time { margin-left: auto;
 .lpr-writer-bar .mini-button { display: inline-flex; align-items: center; gap: 5px; min-height: 28px; padding: 3px 6px; border: 0; background: none; color: var(--muted); }
 .lpr-writer-bar .mini-button:hover { color: var(--ink); background: var(--raised); }
 .lpr-writer-foot { justify-content: flex-end; }
-.lpr-writer-foot > button { min-height: 34px; border-radius: 6px; padding: 6px 12px; }
 .lpr-writer-foot .request-draft { display: flex; align-items: center; gap: 6px; color: var(--muted); font: var(--text-sm) var(--sans); }
 .lpr-note { color: var(--faint); font: var(--text-xs) var(--sans); }
 .lpr-preview { min-height: 140px; padding: 10px 12px; }
