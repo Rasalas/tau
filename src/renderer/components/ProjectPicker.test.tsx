@@ -113,12 +113,14 @@ describe("ProjectPicker large catalogs", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it("is a bottom sheet on touch, whose search waits for a tap", async () => {
+  it("is a page on touch, whose search opens on request", async () => {
     const onSelect = vi.fn();
     render(<ProjectPicker open sheet projects={projects.slice(0, 2)} preselect="/projects/1" onBrowse={() => {}} onClose={() => {}} onRemove={() => {}} onSelect={onSelect} />);
-    const sheet = await screen.findByRole("dialog", { name: "New thread in" });
+    const sheet = await screen.findByRole("dialog", { name: "Choose project" });
     expect(sheet.className).toContain("touch-sheet");
-    expect(document.activeElement).not.toBe(screen.getByRole("textbox", { name: "Search projects" }));
+    expect(document.activeElement).not.toBe(screen.queryByRole("textbox", { name: "Search projects" }));
+    fireEvent.click(screen.getByRole("button", { name: "Search projects" }));
+    expect(screen.getByRole("textbox", { name: "Search projects" })).toBeTruthy();
     fireEvent.click(screen.getAllByRole("option")[0]!);
     expect(onSelect).toHaveBeenCalledWith(projects[1]);
   });

@@ -1,7 +1,9 @@
 import "./composer-controls.css";
+import { useCompactForm } from "../use-layout-profile";
+
 import { useClientEnvironment } from "../client-environment";
 import { lazy, Suspense, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import { ArrowUp, ChevronDown, Lock, Paperclip, Shrink, Sparkles, Terminal, Undo2, Zap } from "lucide-react";
+import { ArrowUp, ChevronDown, Lock, Plus, Image, Folder, Paperclip, Shrink, Sparkles, Terminal, Undo2, Zap } from "lucide-react";
 import type {
   ExtensionUiPrompt,
   HostSnapshot,
@@ -16,7 +18,7 @@ import type {
 } from "../../shared/contracts";
 import { WorkbenchShellContext } from "../workbench-context";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
-import { AttachmentLightbox, ComposerMenuItem, ExtensionPrompt, ThinkingMenu } from "../deferred-surfaces";
+import { Popover, AttachmentLightbox, ComposerMenuItem, ExtensionPrompt, ThinkingMenu } from "../deferred-surfaces";
 import { tooltipProps } from "./ui/Tooltip";
 import { contextChoices, formatTokens, modelFamily, modelKey, offeringKey } from "./model-offerings";
 import { ProviderIconStack } from "./ProviderIconStack";
@@ -204,6 +206,10 @@ export function Composer({
   const { readOnly } = useHostCapabilities();
   const dictation = useClientEnvironment().dictation;
   const DictationControl = dictation?.Control;
+  const mobileComposer = useCompactForm("compact") === "single";
+  const [attachmentMenu, setAttachmentMenu] = useState(false);
+  const attachmentButton = useRef<HTMLButtonElement>(null);
+  const photoInput = useRef<HTMLInputElement>(null);
   const [dictating, setDictating] = useState(false);
   const clientStorage = useClientStorage();
   const attachmentScope = createDraftKey(draftStorageKey);
@@ -839,7 +845,7 @@ export function Composer({
   // Attachment, model and thinking stay visible; optional controls live in the menu.
   const contextPercent = contextUsage ? Math.round(Math.min(100, Math.max(0, contextUsage.percent))) : 0;
   const footerBlocks: FooterBlock[] = [
-    ...(thinkingWords ? [{ id: "reasoning", pinned: true, node: (
+    ...(thinkingWords ? [{ id: "reasoning", pinned: !mobileComposer, menuOnly: mobileComposer, node: (
       <button
         ref={thinkingChipRef}
         className="runtime-chip composer-thinking-chip"
@@ -1108,7 +1114,7 @@ export function Composer({
               : isVimEnabled && vim.vimMode === "normal"
                 ? "Vim NORMAL mode — press 'i' to insert, ↵ to send"
                 // Short, as in the design; the chords are in the send button's tooltip.
-                : floating ? "Say something to the thread…" : streaming ? "Steer, or queue a follow-up…" : "Ask anything, or hand it work…"
+                : floating ? "Say something to the thread…" : streaming ? "Steer, or queue a follow-up…" : mobileComposer ? "Ask anything…" : "Ask anything, or hand it work…"
           }
         />
         <Suspense fallback={null}>
@@ -1133,13 +1139,16 @@ export function Composer({
             leading={<>
               <button
                 type="button"
+                ref={attachmentButton}
                 className="runtime-chip composer-attach-chip"
+                aria-expanded={mobileComposer ? attachmentMenu : undefined}
+                aria-haspopup={mobileComposer ? "dialog" : undefined}
                 aria-label="Attach files"
-                disabled={!attachAvailable}
+                disabled={!attachAvailable && !mobileComposer}
                 {...tooltipProps(attachAvailable ? "Attach files" : IMAGE_INPUT_UNAVAILABLE_MESSAGE)}
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => mobileComposer ? setAttachmentMenu((open) => !open) : fileInputRef.current?.click()}
               >
-                <Paperclip size={16} aria-hidden="true" />
+                {mobileComposer ? <Plus size={22} aria-hidden /> : <Paperclip size={16} aria-hidden="true" />}
               </button>
               {leadControls.map((control) => (
                 <LazyFeatureBoundary key={control.id} label={control.id} extensionId={control.extensionId} extensionName={control.extensionName} registry={registry} onNotify={onNotify}>
@@ -1180,8 +1189,8 @@ export function Composer({
                 {modelPickerAvailable ? <ChevronDown size={12} className="chev" /> : null}
               </button>
             </>}
-            blocks={footerBlocks}
-            menu={menuControls.length > 0 ? menuControls.map((control) => (
+            blocks={mobileComposer ? [] : footerBlocks}
+            menu={!mobileComposer && menuControls.length > 0 ? menuControls.map((control) => (
               <LazyFeatureBoundary
                 key={control.id}
                 label={control.id}
@@ -1202,6 +1211,11 @@ export function Composer({
             </span>
           ) : null}
 
+          {attachmentMenu ? <Popover anchor={attachmentButton} side="top" align="start" label="Add attachments" onClose={() => setAttachmentMenu(false)} className="mobile-attachment-menu">
+            <button disabled={!attachAvailable} onClick={() => { setAttachmentMenu(false); photoInput.current?.click(); }}><Image size={22} />Photo Library</button>
+            <button disabled={!attachAvailable} onClick={() => { setAttachmentMenu(false); fileInputRef.current?.click(); }}><Folder size={22} />Choose Files</button>
+          </Popover> : null}
+          <input ref={photoInput} className="attachment-input" type="file" tabIndex={-1} aria-label="Choose photos" accept={IMAGE_ACCEPT} multiple onChange={(event) => { if (event.target.files) void addFiles(event.target.files); event.target.value = ""; }} />
           <input
             ref={fileInputRef}
             className="attachment-input"
@@ -1275,6 +1289,10 @@ export function Composer({
             runtimeActions={runtimeActions}
             badges={registry?.getModelBadges?.()}
             multiSelect={gatedModelSet}
+            extraSettings={mobileComposer ? <>
+            {footerBlocks.filter((block) => block.id !== "reasoning").map((block) => <div key={block.id}>{block.menuNode ?? block.node}</div>)}
+            {menuControls.map((control) => <LazyFeatureBoundary key={control.id} label={control.id} extensionId={control.extensionId} extensionName={control.extensionName} registry={registry} onNotify={onNotify}><control.Component snapshot={snapshot} actions={shellContext?.actions} /></LazyFeatureBoundary>)}
+            </> : undefined}
             {...(thinkingChoosable ? { thinkingSummary, onOpenThinking: () => { setModelPickerOpen(false); setThinkingOpen(true); } } : {})}
             anchor={modelChipRef}
             placeAgainst={frameRef}

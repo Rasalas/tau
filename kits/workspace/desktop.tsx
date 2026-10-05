@@ -1,3 +1,4 @@
+import { MobileDraftCheckout, MobileDraftMachine } from "./mobile-draft.js";
 import { useEffect } from "react";
 import { Folder, GitBranch, GitCompare, HardDrive } from "lucide-react";
 import {
@@ -88,7 +89,7 @@ export const workspaceExtension: DesktopExtension = {
     // Other machines' threads the rail lists, found by the palette as this machine's are.
     context.registerPaletteSource({ id: "workspace.outside-threads", label: "Threads", order: 25, scope: "threads", search: (query) => outsideThreadItems(store.getSnapshot().railThreadSources, query) });
     context.registerProjectSource({
-      id: "workspace.no-project", label: "No project", description: "Private scratch folder for this thread", glyph: "·", order: 0, profiles: ["desktop"],
+      id: "workspace.no-project", label: "No project", description: "Private scratch folder for this thread", glyph: "·", order: 0, profiles: ["desktop", "compact"],
       createThreadWorkspace: async () => {
         const workspace = await host.createScratch();
         return { ...workspace, path: workspace.displayPath, name: "No project", lastOpenedAt: Date.now() };
@@ -153,7 +154,8 @@ export const workspaceExtension: DesktopExtension = {
     context.registerRegion({ id: "workspace.branch-touch", placement: "thread-branch", order: 10, profiles: ["compact"], Component: bind(createHeadingBranch(true)) });
     // A new thread's machine and branch: one pill before the model (design 1k), a sheet on touch (1o).
     context.registerComposerControl({ id: "workspace.run-on", placement: "lead", order: 5, profiles: ["desktop"], Component: bind(createRunOnControl(false)) });
-    context.registerComposerControl({ id: "workspace.run-on-sheet", placement: "lead", order: 5, profiles: ["compact"], Component: bind(createRunOnControl(true)) });
+    context.registerRegion({ id: "workspace.mobile-machine", placement: "draft-actions", order: 5, profiles: ["compact"], Component: bind(MobileDraftMachine) });
+    context.registerRegion({ id: "workspace.mobile-checkout", placement: "composer-above", order: 5, profiles: ["compact"], Component: bind(MobileDraftCheckout) });
     // A fresh install's first screen (2a), in place of the draft until a thread exists.
     context.registerRegion({ id: "workspace.fresh-start", placement: "draft-actions", order: 0, profiles: ["desktop"], Component: bind(FreshStart) });
     // Offered while another thread's turn runs in the draft's folder; the phone gets it too.

@@ -35,7 +35,7 @@ export const hostMachine: DraftMachineSource = {
   },
 };
 
-function useMachineSource(): DraftMachineSource {
+export function useMachineSource(): DraftMachineSource {
   return useWorkspaceState().state.draftMachine ?? hostMachine;
 }
 

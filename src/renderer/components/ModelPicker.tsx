@@ -1,3 +1,4 @@
+import { MobileModelPicker } from "./MobileModelPicker";
 import { lazy, Suspense, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { ChevronDown, ChevronRight, ChevronUp, CornerDownRight, History, Search, SlidersHorizontal, Star } from "lucide-react";
 import type { ThreadBackendKind, UiModel, UiRuntimeBackend } from "../../shared/contracts";
@@ -165,6 +166,7 @@ export function ModelPicker({
   multiSelect,
   onOpenSettings: openSettings,
   thinkingSummary,
+  extraSettings,
   onOpenThinking,
   anchor,
   placeAgainst,
@@ -201,6 +203,7 @@ export function ModelPicker({
   onOpenSettings?(kind: ThreadBackendKind, part: "runtime" | "models"): void;
   /** The phone sheet's last row ("Thinking and speed"): what the thinking chip says, and opening its sheet. */
   thinkingSummary?: ReactNode;
+  extraSettings?: ReactNode;
   onOpenThinking?(): void;
   /** The control that opens the picker; the picker opens at it. */
   anchor: RefObject<HTMLElement | null>;
@@ -898,6 +901,26 @@ export function ModelPicker({
   }, [adding, placeAgainst, side]);
 
   // A press in the form would count as outside the popover, so the form takes the popover's place.
+  if (asSheet) return <MobileModelPicker
+    offerings={visible}
+    activeKey={activeOffering}
+    onChoose={choose}
+    onFavourite={(key) => preferences.toggleFavouriteModel(key)}
+    onClose={onClose}
+    unavailable={runtimes.filter((entry) => !entry.listed).map((entry) => (
+      <div key={entry.backend.kind} className="mobile-model-unavailable">
+        <strong>{entry.backend.label}</strong>
+        <p>{RUNTIME_STATUS_LABELS[entry.status]}</p>
+        {!BLOCKED.has(entry.status) && onSelectRuntime ? (
+          <button onClick={() => { onSelectRuntime(entry.backend.kind); onClose(); }}>Use {entry.backend.label}</button>
+        ) : null}
+        {!BLOCKED.has(entry.status) && onNewThreadOnRuntime ? (
+          <button onClick={() => { onNewThreadOnRuntime(entry.backend.kind); onClose(); }}>New thread on {entry.backend.label}</button>
+        ) : null}
+      </div>
+    ))}
+    thinking={<>{onOpenThinking ? <button className="mobile-thinking" onClick={onOpenThinking}>Thinking and speed <span>{thinkingSummary}</span></button> : null}{extraSettings ? <div className="mobile-thread-options">{extraSettings}</div> : null}</>}
+  />;
   return addProvider ?? (
     <Popover anchor={anchor} side={side} align="start" label="Select model" className={`model-picker${asSheet ? " model-picker-sheet" : ""}`} onClose={dismiss}>
       {content}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { Check, Plus, Search, Trash2 } from "lucide-react";
+import { Check, ChevronRight, MessageSquare, Plus, Search, Trash2 } from "lucide-react";
 import type { UiProject, UiSession } from "../../shared/contracts";
 import { pickerOrder } from "../../workbench/new-thread-project";
 import { namesWorkspace } from "../../shared/workspace-identity";
@@ -52,6 +52,7 @@ export function ProjectPicker({
   onRemove,
   onSelect,
 }: ProjectPickerProps) {
+  const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const [contextMenu, setContextMenu] = useState<{ project: UiProject; x: number; y: number }>();
@@ -113,7 +114,7 @@ export function ProjectPicker({
   };
 
   const body = <>
-    <label className="project-picker-search">
+    {!sheet || searchOpen ? <label className="project-picker-search">
       <Search size={15} />
       <input
         ref={inputRef}
@@ -136,11 +137,12 @@ export function ProjectPicker({
         aria-label="Search projects"
       />
       {sheet ? null : <kbd className="keyboard-hint">esc</kbd>}
-    </label>
+    </label> : null}
     {sheet ? null : <div className="project-picker-heading">{heading}</div>}
+    {sheet && onNoProject ? <button type="button" className="mobile-no-project" onClick={onNoProject}><MessageSquare size={22} /><span>No project<small>Start a task without a project</small></span><ChevronRight size={18} /></button> : null}
     <VirtualList
       items={matches}
-      itemHeight={sheet ? 56 : 50}
+      itemHeight={sheet ? 96 : 50}
       overscan={6}
       className="project-picker-results"
       role="listbox"
@@ -169,22 +171,22 @@ export function ProjectPicker({
             <strong>{project.name}</strong>
             <small>{machine ? `${machine} · ` : ""}{compactPath(project.displayPath ?? project.path)}</small>
           </span>
-          {preselect !== undefined && namesWorkspace(preselect, project.workspaceId, project.path) ? <Check size={14} aria-label="current" /> : null}
+          {sheet ? <ChevronRight size={18} /> : preselect !== undefined && namesWorkspace(preselect, project.workspaceId, project.path) ? <Check size={14} aria-label="current" /> : null}
         </button>
       )}
     />
-    {onNoProject ? <button type="button" className={`project-picker-add${selected === matches.length ? " selected" : ""}`} onMouseMove={() => setSelected(matches.length)} onClick={onNoProject}>No project <small>Private scratch folder for this thread</small></button> : null}
-    <button
+    {!sheet && onNoProject ? <button type="button" className={`project-picker-add${selected === matches.length ? " selected" : ""}`} onMouseMove={() => setSelected(matches.length)} onClick={onNoProject}>No project <small>Private scratch folder for this thread</small></button> : null}
+    {sheet ? null : <button
       type="button"
       className={`project-picker-add${selected === last ? " selected" : ""}`}
       onMouseMove={() => setSelected(last)}
       onClick={onBrowse}
-    ><Plus size={15} /> Add project…</button>
+    ><Plus size={15} /> Add project…</button>}
     {sheet ? null : <footer className="keyboard-hint"><kbd>↑↓</kbd> select <kbd>↵</kbd> start</footer>}
   </>;
 
   let surface: ReactNode;
-  if (sheet) surface = <Sheet title={heading} className="project-picker-sheet" onClose={onClose}>{body}</Sheet>;
+  if (sheet) surface = <Sheet presentation="page" title="Choose project" className="project-picker-sheet" headerActions={<><button type="button" aria-label="Search projects" aria-expanded={searchOpen} onClick={() => { setSearchOpen((value) => !value); setQuery(""); }}><Search size={22} /></button><button type="button" aria-label="Add project" onClick={onBrowse}><Plus size={24} /></button></>} onClose={onClose}>{body}</Sheet>;
   else if (anchor) surface = <Popover anchor={anchor} label="Search projects" className="project-picker anchored" onClose={onClose}>{body}</Popover>;
   else surface = <>
     <button className="project-picker-scrim" aria-label="Close project picker" onClick={onClose} />

@@ -274,14 +274,15 @@ describe("ModelPicker (K142 B: model first)", () => {
 });
 
 describe("where the picker opens", () => {
-  it("keeps the tablet picker as a popover and switches to a sheet in a narrow window, with Done and the thinking row", () => {
+  it("keeps the tablet picker as a popover and switches to a sheet in a narrow window, with Back and the thinking row", () => {
     const width = Object.getOwnPropertyDescriptor(window, "innerWidth");
     const profile = document.body.dataset.profile;
     document.body.dataset.profile = "compact";
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 820 });
     const onOpenThinking = vi.fn();
+    const onSelect = vi.fn();
     try {
-      renderPicker({ onOpenThinking });
+      renderPicker({ onOpenThinking, onSelect });
       const picker = screen.getByRole("dialog", { name: "Select model" });
       expect(picker.classList.contains("model-picker-sheet")).toBe(false);
       expect(within(picker).queryByRole("button", { name: "Done" })).toBeNull();
@@ -289,9 +290,16 @@ describe("where the picker opens", () => {
         Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
         window.dispatchEvent(new Event("resize"));
       });
-      expect(picker.classList.contains("model-picker-sheet")).toBe(true);
-      expect(within(picker).getByRole("button", { name: "Done" })).toBeTruthy();
-      fireEvent.click(within(picker).getByRole("button", { name: /^Thinking and speed/u }));
+      const page = screen.getByRole("dialog", { name: "Thread settings" });
+      expect(page.classList.contains("mobile-page")).toBe(true);
+      expect(within(page).getByRole("button", { name: "Back" })).toBeTruthy();
+      fireEvent.change(within(page).getByRole("textbox", { name: "Find a model" }), { target: { value: "Fable" } });
+      expect(within(page).getAllByRole("radio")).toHaveLength(1);
+      fireEvent.click(within(page).getByRole("button", { name: "Favourite Claude Fable 5.1" }));
+      fireEvent.click(within(page).getByRole("button", { name: "Show favourite models" }));
+      fireEvent.click(within(page).getByRole("radio", { name: "Claude Fable 5.1" }));
+      expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "claude-fable-5-1" }));
+      fireEvent.click(within(page).getByRole("button", { name: /^Thinking and speed/u }));
       expect(onOpenThinking).toHaveBeenCalled();
     } finally {
       cleanup();

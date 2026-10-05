@@ -176,3 +176,27 @@ describe("the composer's slim footer", () => {
     expect(screen.queryByLabelText(/^Thinking/u)).toBeNull();
   });
 });
+
+it("keeps the phone's plus menu for attachments and puts other controls in Thread settings", async () => {
+  const width = Object.getOwnPropertyDescriptor(window, "innerWidth");
+  const profile = document.body.dataset.profile;
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+  document.body.dataset.profile = "compact";
+  try {
+    renderFooter();
+    expect(screen.queryByRole("button", { name: "More composer controls" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Attach files" }));
+    const attachments = await screen.findByRole("dialog", { name: "Add attachments" });
+    expect(within(attachments).getAllByRole("button").map((button) => button.textContent)).toEqual(["Photo Library", "Choose Files"]);
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Select model: GPT-5.6 Luna" }));
+    const settings = await screen.findByRole("dialog", { name: "Thread settings" });
+    expect(within(settings).getByText("Full access")).toBeTruthy();
+    expect(within(settings).getByRole("button", { name: /^Thinking and speed/u })).toBeTruthy();
+  } finally {
+    cleanup();
+    if (width) Object.defineProperty(window, "innerWidth", width);
+    if (profile === undefined) delete document.body.dataset.profile;
+    else document.body.dataset.profile = profile;
+  }
+});
