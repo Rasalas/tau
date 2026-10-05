@@ -11,8 +11,8 @@ import { AGENTS_HOST_EXTENSION_ID, type AgentThreadLink, type AgentThreadStatus,
 
 /**
  * jsdom gives a scroll rail no height, so the real virtualizer would render no
- * row at all. A fixed window of eight instead proves the panel hands the whole
- * list to the virtualizer and mounts only what it gets back.
+ * row at all. A fixed window of eight lets these integration tests inspect the
+ * sidebar and transcript rows through the same virtualizer contract.
  */
 const VIRTUAL_WINDOW = 8;
 vi.mock("@tanstack/react-virtual", () => ({
@@ -102,83 +102,51 @@ function appWith(
   });
 }
 
-/** Agents is a stage tab, under the strip's More tools. */
-async function openAgentsTab(): Promise<void> {
-  // Bootstrap establishes the workspace and moves its tools out of the chat header.
-  // Query after that data arrives so the click targets the current toolbar.
-  await screen.findByRole("region", { name: "Project workspace" });
-  fireEvent.click(await screen.findByRole("button", { name: "More tools" }));
-  fireEvent.click(await screen.findByRole("menuitem", { name: /Agents/ }, { timeout: 3000 }));
-}
-
-describe("the Agents panel", () => {
-  it("lists sixty agents without mounting sixty rows", async () => {
-    const many: AgentsState = {
-      maxRunning: 8,
-      links: Array.from({ length: 60 }, (_, index) =>
-        link(`agent-${index}`, "parent", index < 8 ? "running" : "pending", index, { startedAt: Date.now() - 5_000 })),
-    };
-    const sessions = [session("parent", "Parent thread", 100), ...many.links.map((entry, index) => session(entry.id, `Agent ${index}`, 60 - index))];
-    renderApp(appWith(many, sessions, "parent"), { extensions: [workspaceExtension, agentsExtension] });
-
-    await openAgentsTab();
-    const heading = await screen.findByRole("heading", { name: "Agents" });
-    const panel = heading.closest(".agents-panel") as HTMLElement;
-    await waitFor(() => expect(panel.querySelectorAll(".agent-row").length).toBeGreaterThan(0));
-
-    expect(panel.querySelectorAll(".agent-row")).toHaveLength(VIRTUAL_WINDOW);
-    // Queued agents count as running work until they are done.
-    expect(within(panel).getByRole("tab", { name: "Running 60", selected: true })).toBeTruthy();
-    expect(within(panel).getByRole("tab", { name: "Questions 0" })).toBeTruthy();
-    expect(within(panel).getByRole("tab", { name: "Done 0" })).toBeTruthy();
-    expect(within(panel).getByRole("button", { name: "Sort: status" })).toBeTruthy();
-    expect(panel.querySelector(".agents-note")!.textContent).toContain("Questions from agents always arrive on the parent conversation's composer.");
-    // The stage tab counts the open ones: "Agents 60".
-    expect(screen.getByRole("tab", { name: /Agents/u }).textContent).toContain("60");
+describe("agents in the project card", () => {
+  it("keeps running rows visible and completed rows collapsed, without an Agents stage entry", async () => {
+    renderApp(appWith(state, [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2), session("beta", "Beta reply", 1)], "parent"), { extensions: [workspaceExtension, agentsExtension] });
+    const row = await screen.findByRole("button", { name: "Alpha reply, Running" });
+    const section = row.closest(".agent-lineage") as HTMLElement;
+    expect(within(section).queryByRole("button", { name: "Beta reply, Completed" })).toBeNull();
+    fireEvent.click(within(section).getByRole("button", { name: "Completed (1)" }));
+    expect(await within(section).findByRole("button", { name: "Beta reply, Completed" })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "More tools" }));
+    expect(screen.queryByRole("menuitem", { name: /Agents/ })).toBeNull();
   });
 
-  it("shows running, asks and done as in the design, with the question in the rail's word", async () => {
-    const agents: AgentsState = {
-      maxRunning: 8,
-      links: [
-        link("envelope", "parent", "completed", 1, { turn: 1, startedAt: 1_000, endedAt: 185_000, workspace: { mode: "worktree", path: "/w", branch: "tau/envelope", changes: { files: 1, added: 48, removed: 0, commits: 1, uncommitted: 0 } } }),
-        link("products", "parent", "running", 2, { turn: 2, startedAt: Date.now() - 5_000, model: "openai/gpt-5.6-luna", lastTool: "edit src/routes/products.ts" }),
-        link("orders", "parent", "waiting", 3, { turn: 2, pendingToolPrompt: "add the index, or paginate by id?" }),
-      ],
-    };
-    const sessions = [session("parent", "Parent thread", 9), session("envelope", "Shared response envelope", 1), session("products", "GET /products", 2), session("orders", "GET /orders", 3)];
-    renderApp(appWith(agents, sessions, "parent"), { extensions: [workspaceExtension, agentsExtension] });
-    await openAgentsTab();
-
-    const running = await screen.findByRole("tab", { name: "Running 1", selected: true });
-    const panel = running.closest(".agents-panel") as HTMLElement;
-    // Title and its line; the state, the model and the cost have columns of their own (design 1c).
-    const rows = () => [...panel.querySelectorAll(".agent-row-main, .agent-section-label")].map((row) => row.textContent);
-    await waitFor(() => expect(rows()).toHaveLength(4));
-    const [orders, products, section, envelope] = rows();
-    expect(orders).toBe("GET /ordersAsks: add the index, or paginate by id?");
-    expect(panel.querySelector(".agent-row-sub.question")).toBeTruthy();
-    expect(products).toBe("GET /productsedit src/routes/products.ts");
-    const productsRow = within(panel).getByRole("button", { name: "GET /products, running" });
-    expect(productsRow.querySelector(".agent-row-status")!.textContent).toMatch(/^\d+:\d\d$/u);
-    expect(within(productsRow).getByRole("img", { name: "gpt-5.6-luna" })).toBeTruthy();
-    expect(section).toBe("Done · 1 — from turn 1");
-    // The branch is in the tooltip; the line says what changed.
-    expect(envelope).toBe("Shared response envelope+48 −0 · 1 fileApplyDiscard");
-    const envelopeRow = within(panel).getByRole("button", { name: "Shared response envelope, completed" });
-    expect(envelopeRow.getAttribute("title")).toContain("tau/envelope");
-    expect(envelopeRow.querySelector(".agent-row-status")!.textContent).toBe("3:04");
-    // The stage tab counts what still runs or asks.
-    expect(screen.getByRole("tab", { name: /Agents/u }).textContent).toContain("2");
-
-    fireEvent.click(within(panel).getByRole("tab", { name: "Questions 1" }));
-    await waitFor(() => expect(rows()).toEqual(["GET /ordersAsks: add the index, or paginate by id?"]));
-    fireEvent.keyDown(within(panel).getByRole("tab", { name: "Questions 1" }), { key: "ArrowRight" });
-    await waitFor(() => expect(rows()).toEqual(["Done · 1 — from turn 1", expect.stringContaining("Shared response envelope")]));
-    expect(within(panel).getByRole("tab", { name: "Done 1", selected: true })).toBeTruthy();
-    expect(screen.queryByText(/Needs you/u)).toBeNull();
+  it("navigates into an agent chat and back to its parent without adding stage tabs", async () => {
+    const client = appWith(state, [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2), session("beta", "Beta reply", 1)], "parent");
+    client.switchSession = vi.fn(async (path: string) => ({ version: 1 as const, updates: [{ version: 1 as const, type: "thread-detail" as const, detail: { sessionId: path.includes("alpha") ? "alpha" : "parent", messages: [{ id: path, role: "assistant" as const, text: path.includes("alpha") ? "Alpha finished the job." : "Back in parent.", timestamp: 1 }], isStreaming: false, activeTools: [] } }] }));
+    renderApp(client, { extensions: [workspaceExtension, agentsExtension] });
+    fireEvent.click(await screen.findByRole("button", { name: "Alpha reply, Running" }));
+    await screen.findByText("Alpha finished the job.");
+    expect(screen.queryByRole("tab", { name: /Alpha reply/ })).toBeNull();
+    const rail = screen.getByRole("navigation", { name: "Threads" });
+    expect(within(rail).queryByText("Alpha reply")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Back to Parent thread" }));
+    await screen.findByText("Back in parent.");
+    expect(client.switchSession).toHaveBeenLastCalledWith("/sessions/parent.jsonl");
   });
 
+  it("opens an agent on another machine through that machine's transcript", async () => {
+    const agents: AgentsState = { maxRunning: 8, links: [link("remote", "parent", "completed", 1, {
+      threadId: undefined, title: "Word on rex",
+      machine: { id: "rex-id", name: "rex", link: "link-1", thread: "rex-thread" },
+    })] };
+    renderApp(appWith(agents, [session("parent", "Parent thread", 3)], "parent"), { extensions: [workspaceExtension, agentsExtension] });
+    fireEvent.click(await screen.findByRole("button", { name: "Completed (1)" }));
+    const row = await screen.findByRole("button", { name: "Word on rex, Completed" });
+    expect(row.title).toContain("rex");
+    fireEvent.click(row);
+    expect(await screen.findByRole("region", { name: "Thread Thread on rex-id" })).toBeTruthy();
+  });
+
+  it("does not show another parent's agents", async () => {
+    renderApp(appWith(state, [session("unrelated", "Unrelated thread", 4), session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2)], "unrelated"), { extensions: [workspaceExtension, agentsExtension] });
+    await screen.findByText("Unrelated thread");
+    await waitFor(() => expect(document.querySelector('.thread-row')?.textContent).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Alpha reply, Running" })).toBeNull();
+  });
   it("brings an agent's question to its parent's composer, named after the agent, and marks the parent waiting", async () => {
     const agents: AgentsState = { maxRunning: 8, links: [link("orders", "parent", "waiting", 1, { pendingToolPrompt: "Index or id?" })] };
     const sessions = [session("parent", "Parent thread", 9), session("orders", "GET /orders", 3, undefined, "parent"), session("other", "Other thread", 1)];
@@ -199,66 +167,9 @@ describe("the Agents panel", () => {
     expect(screen.queryByRole("region", { name: "Wants to run" })).toBeNull();
   });
 
-  it("does not advertise agents running in other threads in the panel footer", async () => {
-    const sessions = [
-      session("unrelated", "Unrelated thread", 4),
-      session("parent", "Parent thread", 3),
-      session("alpha", "Alpha reply", 2),
-      session("beta", "Beta reply", 1),
-    ];
-    renderApp(appWith(state, sessions, "unrelated"), { extensions: [workspaceExtension, agentsExtension] });
-
-    await openAgentsTab();
-    expect(await screen.findByText("No agents yet")).toBeTruthy();
-    expect(screen.queryByText(/tau_spawn_thread|\.tau\/agents/u)).toBeNull();
-    expect(screen.queryByText(/agents? in other threads/u)).toBeNull();
-    expect(screen.queryByRole("button", { name: /Go to Parent thread/u })).toBeNull();
-  });
-
-  it("opens the agent's chat as a stage tab and leaves the active thread alone", async () => {
-    const switchSession = vi.fn(async () => ({ version: 1 as const, updates: [] }));
-    const client = appWith(state, [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2), session("beta", "Beta reply", 1)], "parent");
-    client.switchSession = switchSession;
-    client.loadTranscript = async (sessionId: string) => ({
-      sessionId, hasMore: false,
-      messages: [{ id: "a1", role: "assistant" as const, text: "Alpha finished the job.", timestamp: 1 }],
-    });
-    renderApp(client, { extensions: [workspaceExtension, agentsExtension] });
-
-    await openAgentsTab();
-    fireEvent.click(await screen.findByRole("button", { name: "Alpha reply, running" }));
-
-    expect(await screen.findByRole("tab", { name: /Alpha reply/u })).toBeTruthy();
-    expect(await screen.findByText("Alpha finished the job.")).toBeTruthy();
-    expect(switchSession).not.toHaveBeenCalled();
-    // The rail still shows the parent only: the child is not the active thread.
-    const rail = screen.getByRole("navigation", { name: "Threads" });
-    expect(within(rail).queryByText("Alpha reply")).toBeNull();
-    expect(within(rail).getByText("Parent thread")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Take over" }));
-    await waitFor(() => expect(switchSession).toHaveBeenCalledWith("/sessions/alpha.jsonl"));
-  });
-
-  it("opens a second agent in a second tab", async () => {
-    const client = appWith(state, [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2), session("beta", "Beta reply", 1)], "parent");
-    renderApp(client, { extensions: [workspaceExtension, agentsExtension] });
-
-    await openAgentsTab();
-    fireEvent.click(await screen.findByRole("button", { name: "Alpha reply, running" }));
-    await screen.findByRole("tab", { name: /Alpha reply/u });
-    // A preview tab is replaced, so the first has to be pinned to keep both.
-    fireEvent.doubleClick(screen.getByRole("tab", { name: /Alpha reply/u }));
-    // The panel went into the tabs behind the thread it opened.
-    fireEvent.click(screen.getByRole("tab", { name: /Agents/u }));
-    fireEvent.click(await screen.findByRole("button", { name: "Beta reply, completed" }));
-
-    expect(await screen.findByRole("tab", { name: /Beta reply/u })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: /Alpha reply/u })).toBeTruthy();
-  });
 });
 
-describe("agent definitions in the Agents panel", () => {
+describe("agent definitions in the project card", () => {
   it("lists the project's definitions and starts one from the thread on screen", async () => {
     const commands: Array<{ command: string; input?: unknown }> = [];
     const agents: AgentsState = { maxRunning: 8, links: [link("alpha", "parent", "running", 1, { agent: "reviewer" })] };
@@ -280,13 +191,11 @@ describe("agent definitions in the Agents panel", () => {
       { extensions: [workspaceExtension, agentsExtension] },
     );
 
-    await openAgentsTab();
+    fireEvent.click(await screen.findByRole("button", { name: "Agent definitions" }));
     const section = await screen.findByRole("region", { name: "Agent definitions" });
     expect(within(section).getByText("Reviews the change")).toBeTruthy();
     expect(within(section).getByText("1 open")).toBeTruthy();
     expect(within(section).getByText(/1 file in .tau\/agents could not be used/u)).toBeTruthy();
-    // The running agent names the definition it came from.
-    expect(screen.getByText("reviewer", { selector: ".agent-row-definition" })).toBeTruthy();
 
     const writer = within(section).getByText("writer").closest("li") as HTMLElement;
     fireEvent.click(within(writer).getByRole("button", { name: "Start" }));
@@ -298,79 +207,13 @@ describe("agent definitions in the Agents panel", () => {
   });
 });
 
-describe("a spawned thread's worktree", () => {
-  it("shows the branch it worked in and takes its changes back", async () => {
-    const worktree = {
-      mode: "worktree" as const,
-      path: "/project-worktrees/tau-agent-alpha",
-      branch: "tau/agent-alpha",
-      changes: { files: 2, added: 7, removed: 1, commits: 0, uncommitted: 2 },
-    };
-    const agents: AgentsState = {
-      maxRunning: 8,
-      links: [link("alpha", "parent", "completed", 1, { result: "done", workspace: worktree })],
-    };
-    const commands: Array<{ command: string; input?: unknown }> = [];
-    renderApp(
-      appWith(agents, [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2)], "parent", [], (command, input) => {
-        if (command === "definitions") return undefined;
-        commands.push({ command, input });
-        return { detail: "Applied 2 files, +7 −1 from tau/agent-alpha." };
-      }),
-      { extensions: [workspaceExtension, agentsExtension] },
-    );
-
-    await openAgentsTab();
-    expect(await screen.findByText("+7 −1 · 2 files")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Alpha reply,/u }).getAttribute("title")).toContain("tau/agent-alpha");
-
-    fireEvent.click(screen.getByRole("button", { name: "Apply changes of Alpha reply" }));
-    await waitFor(() => expect(commands).toEqual([{ command: "apply-changes", input: { threadId: "alpha" } }]));
-    expect(await screen.findByText("Applied 2 files, +7 −1 from tau/agent-alpha.")).toBeTruthy();
-  });
-});
-
-describe("an agent on another machine", () => {
-  it("carries the machine's chip, its cost there, and takes its work back by its handle", async () => {
-    const agents: AgentsState = {
-      maxRunning: 8,
-      links: [link("h-1", "parent", "completed", 1, {
-        threadId: undefined,
-        title: "Word on rex",
-        result: "apple",
-        machine: { id: "rex-id", name: "rex", link: "link-1", thread: "rex-thread", costUsd: 0.25 },
-        workspace: { mode: "worktree", path: "/rex/worktrees/work/task-1", branch: "tau/mini/task-1" },
-      })],
-    };
-    const commands: Array<{ command: string; input?: unknown }> = [];
-    renderApp(
-      appWith(agents, [session("parent", "Parent thread", 3)], "parent", [], (command, input) => {
-        if (command === "definitions") return undefined;
-        commands.push({ command, input });
-        return { detail: "Merged tau/rex/word. The worktree on rex is removed." };
-      }),
-      { extensions: [workspaceExtension, agentsExtension] },
-    );
-
-    await openAgentsTab();
-    const row = await screen.findByRole("button", { name: "Word on rex, completed" });
-    expect(within(row).getByLabelText("Runs on rex.").textContent).toBe("rex");
-    expect(within(row).getByText(/\$0\.25/u)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Apply changes of Word on rex" }));
-    await waitFor(() => expect(commands).toEqual([{ command: "apply-changes", input: { threadId: "h-1" } }]));
-    // The row reads its thread there in a stage tab, over the window's connection to rex.
-    fireEvent.click(row);
-    expect(await screen.findByRole("region", { name: "Thread Thread on rex-id" })).toBeTruthy();
-  });
-});
-
 describe("the navigator with agent threads", () => {
   it("offers the way back from a child the index alone knows", async () => {
     const sessions = [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2, undefined, "parent")];
     renderApp(appWith({ maxRunning: 8, links: [] }, sessions, "alpha", [
       { id: "m1", role: "user", text: "Reply with A", timestamp: 1 },
     ]), { extensions: [workspaceExtension, agentsExtension] });
-    expect(await screen.findByText(/spawned by Parent thread/)).toBeTruthy();
+    expect(await screen.findByText(/Back to Parent thread/)).toBeTruthy();
   });
 
   it("keeps agents out of the rail and marks the parent Working instead", async () => {
@@ -386,19 +229,19 @@ describe("the navigator with agent threads", () => {
 
   });
 
-  it("keeps an agent thread out of the rail after Take over makes it the active one", async () => {
+  it("keeps an agent thread out of the rail while it is the active thread", async () => {
     const sessions = [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2, undefined, "parent")];
     renderApp(appWith({ maxRunning: 8, links: [] }, sessions, "alpha", [
       { id: "m1", role: "user", text: "Reply with A", timestamp: 1 },
     ]), { extensions: [workspaceExtension, agentsExtension] });
     const rail = await screen.findByRole("navigation", { name: "Threads" });
 
-    expect(await screen.findByText(/spawned by Parent thread/)).toBeTruthy();
+    expect(await screen.findByText(/Back to Parent thread/)).toBeTruthy();
     expect(within(rail).queryByText("Alpha reply")).toBeNull();
   });
 
   // Pi names the tool itself; every other runtime reaches it over MCP.
-  it.each(["tau_spawn_thread", "mcp__tau__tau_spawn_thread"])("draws one card for a %s batch that opens the Agents tab", async (name) => {
+  it.each(["tau_spawn_thread", "mcp__tau__tau_spawn_thread"])("draws one card for a %s batch that expands inline", async (name) => {
     const spawn = (id: string, threadId: string) => ({
       id,
       name,
@@ -434,9 +277,9 @@ describe("the navigator with agent threads", () => {
     expect(screen.getByRole("button", { name: /Worked for/u })).toBeTruthy();
 
     fireEvent.click(card);
-    expect(await screen.findByRole("tab", { name: "Running 1", selected: true })).toBeTruthy();
-    fireEvent.click(await screen.findByRole("button", { name: "Alpha reply, running" }));
-    expect(await screen.findByRole("tab", { name: /Alpha reply/u })).toBeTruthy();
+    const batch = card.parentElement!;
+    fireEvent.click(await within(batch).findByRole("button", { name: "Alpha reply, Running" }));
+    await waitFor(() => expect(client.calls.some((call) => call.method === "switchSession" && call.args[0] === "/sessions/alpha.jsonl")).toBe(true));
     expect(await screen.findByText("Alpha finished the job.")).toBeTruthy();
   });
 });

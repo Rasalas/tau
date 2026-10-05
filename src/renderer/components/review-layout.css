@@ -1,0 +1,156 @@
+.review-shell { width: 100vw; height: 100vh; display: flex; flex-direction: column; background: var(--chrome); color: var(--ink); }
+.review-title-divider { width: 1px; height: 16px; background: var(--line); }
+.review-scope { position: relative; margin-left: 18px; overflow: visible; }
+.review-scope-popover {
+  position: absolute; z-index: 40; top: 34px; left: 0; width: 260px; display: flex; align-items: flex-start; gap: 8px;
+  padding: 9px 10px; border: 1px solid var(--line-float); border-radius: 8px; background: var(--overlay); box-shadow: var(--elevation-2);
+  color: var(--removed); font: 10px/1.4 var(--mono);
+}
+.review-scope-popover > span { flex: 1; }
+.review-body { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.review-list { position: relative; min-width: 200px; max-width: 480px; min-height: 0; flex: none; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--chrome); }
+.review-stage > header {
+  height: 46px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--line);
+}
+.review-stage > header .spacer { flex: 1; }
+.review-filter {
+  height: 34px; flex: none; display: flex; align-items: center; gap: 7px; margin: 8px 8px 4px; padding: 0 9px;
+  border: 1px solid var(--line-control); border-radius: 7px; background: var(--sunken); color: var(--faint);
+}
+.review-filter:focus-within { border-color: var(--line-float); color: var(--muted); }
+.review-filter input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--ink-2); font: var(--text-xs) var(--sans); }
+.review-filter input::placeholder { color: var(--fainter); }
+.review-filter > button { width: 22px; height: 22px; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--faint); cursor: pointer; }
+.review-progress { flex: none; display: flex; align-items: center; gap: 9px; padding: 7px 12px 2px; color: var(--faint); font: 9.5px var(--mono); }
+.review-progress > i { height: 3px; flex: 1; overflow: hidden; border-radius: 2px; background: var(--line); }
+.review-progress > i > b { display: block; height: 100%; background: var(--acid); }
+.review-list .review-files { min-height: 0; overflow: hidden; padding: 5px 6px 6px; }
+.review-sidebar-meta { height: 27px; flex: none; display: flex; align-items: center; gap: 7px; padding: 0 12px; color: var(--faint); }
+.review-sidebar-meta strong { color: var(--muted); font: 500 9.5px var(--mono); }
+.review-sidebar-meta .spacer { flex: 1; }
+.review-sidebar-meta .stat-add, .review-sidebar-meta .stat-del { font-size: 9px; }
+.review-stale { color: var(--muted); font: 9.5px var(--mono); }
+/* What a kit adds above the file list (the branch's pull request); it scrolls before it crowds the files out. */
+.review-list-header { flex: none; min-width: 0; max-height: 50%; overflow: auto; border-bottom: 1px solid var(--line); }
+.review-staging { flex: none; display: flex; align-items: center; gap: 8px; min-height: 22px; padding: 0 12px; color: var(--faint); font: 9.5px var(--mono); }
+.review-staging .text-button { font-size: 10px; }
+.review-tree-file:hover .changes-tree-actions, .review-tree-file:focus-within .changes-tree-actions { opacity: 1; }
+/* The commit is confirmed where it is read: the message and the one button, under the title bar. */
+.commit-bar {
+  flex: none; display: flex; align-items: flex-start; gap: 16px;
+  padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--chrome);
+}
+.commit-bar-message { flex: 1; min-width: 0; display: flex; align-items: flex-start; gap: 6px; }
+.commit-bar-message textarea {
+  flex: 1; min-width: 0; field-sizing: content; min-height: 38px; max-height: 180px; resize: none;
+  border: 1px solid var(--line-control); border-radius: 7px; background: var(--sunken); color: var(--ink);
+  padding: 8px 10px; font: var(--text-sm)/1.5 var(--mono);
+}
+.commit-bar-message textarea:focus { outline: none; border-color: var(--line-float); }
+.commit-bar-actions { flex: none; display: grid; justify-items: end; gap: 6px; max-width: 300px; }
+.commit-bar-actions > small { color: var(--faint); font: var(--text-xs)/1.4 var(--sans); text-align: right; }
+.commit-bar .commit-actions { margin-top: 0; }
+.commit-bar .commit-actions button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: var(--text-sm); }
+.commit-message-error { display: block; margin-top: 6px; color: var(--muted); }
+.spinning { animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.review-sidebar-resizer { position: absolute; z-index: 20; top: 0; left: -4px; bottom: 0; width: 8px; cursor: col-resize; }
+.review-sidebar-resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: transparent; }
+.review-sidebar-resizer:hover::after, body.review-resizing .review-sidebar-resizer::after { background: var(--line-float); }
+body.review-resizing { cursor: col-resize; user-select: none; }
+.review-stage { position: relative; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; background: var(--stage); }
+.review-stage > header > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--text-xs) var(--mono); font-weight: 400; }
+.review-stage > header .text-button { display: inline-flex; align-items: center; gap: 4px; }
+.review-toolbar > .text-button { white-space: nowrap; }
+/* Beside the file list at 1280 px its controls outgrow the column: they scroll rather than run under the list. */
+.review-toolbar { overflow-x: auto; scrollbar-width: none; }
+.review-toolbar > :not(.review-scope-summary) { flex-shrink: 0; }
+.review-shell .icon-button, .panel-host .icon-button, .panel-maximize {
+  width: 28px; height: 28px; display: grid; place-items: center; flex: none; padding: 0;
+  border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--faint); cursor: pointer;
+}
+.review-shell .icon-button:hover:not(:disabled), .panel-host .icon-button:hover:not(:disabled), .panel-maximize:hover { border-color: var(--line-control); background: var(--raised); color: var(--ink-2); }
+.review-shell .icon-button.compact, .panel-host .icon-button.compact { width: 24px; height: 24px; }
+.review-toolbar { padding: 0 8px !important; gap: 6px !important; }
+.review-sidebar-toggle { width: 30px; height: 28px; flex: none; }
+.review-sidebar-toggle.active { background: var(--raised); color: var(--ink); }
+.review-scope-summary { min-width: 0; display: flex; align-items: center; gap: 7px; padding: 0 4px; }
+.review-scope-summary strong { flex: none; color: var(--ink-2); font-size: var(--text-xs); }
+.review-scope-summary small { min-width: 0; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fainter); font: 9.5px var(--mono); }
+.review-scope-summary .review-request { flex: none; padding: 1px 6px; border: 1px solid var(--line); border-radius: 999px; color: var(--ink-2); font: 9.5px var(--mono); text-decoration: none; }
+.review-scope-summary .review-request:hover { border-color: var(--acid-line); color: var(--acid-ink); }
+.review-scope-summary .stat-add, .review-scope-summary .stat-del { font: 10.5px var(--mono); }
+.review-file-navigation { display: flex; align-items: center; }
+.review-file-navigation .icon-button { width: 29px; height: 28px; border-radius: 5px; }
+.review-file-navigation .icon-button:disabled { opacity: .35; cursor: default; }
+.review-toolbar .toggle-group > button { padding: 4px 8px; font-size: 10px; }
+.review-file-header {
+  position: sticky; z-index: 5; top: 0; height: 40px; flex: none; display: flex; align-items: center; gap: 7px; padding: 0 12px;
+  border-bottom: 1px solid var(--line); background: var(--stage);
+}
+.review-file-header > svg { flex: none; }
+.review-file-header > strong { flex: none; color: var(--ink); font: 500 var(--text-sm) var(--mono); white-space: nowrap; }
+.review-file-header > span:not(.spacer, .stat-add, .stat-del, .review-file-status) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font: var(--text-xs) var(--mono); }
+.review-file-header > .spacer { flex: 1; }
+.review-file-status { width: 16px; flex: none; color: var(--working); font: 600 10px var(--mono); text-align: center; }
+.review-file-status.added, .review-file-status.untracked { color: var(--ready); }
+.review-file-status.deleted { color: var(--removed); }
+.review-file-status.renamed { color: var(--acid-text); }
+.review-stage-content { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.review-diff-stream { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 12px 12px 80px; scroll-padding-top: 12px; font: var(--text-sm)/26px var(--mono); }
+.review-diff-stream .diff-stream-row { border-left: 1px solid var(--line-control); border-right: 1px solid var(--line-control); background: var(--stage); }
+.review-diff-stream .diff-stream-row.file-start { border-top: 1px solid var(--line-control); border-radius: 8px 8px 0 0; }
+.review-diff-stream .diff-stream-row.file-end { border-bottom: 1px solid var(--line-control); border-radius: 0 0 8px 8px; }
+.review-diff-stream .diff-stream-row.active { border-left-color: var(--line-float); border-right-color: var(--line-float); }
+.review-diff-stream .diff-stream-row.active.file-start { border-top-color: var(--line-float); }
+.review-diff-stream .diff-stream-row.active.file-end { border-bottom-color: var(--line-float); }
+.review-diff-stream .diff-stream-row.separator { border: 0; background: transparent; }
+.review-diff-stream .diff-stream-row > .diff-empty { min-height: 76px; }
+.review-diff-stream .diff-stream-row > .review-file-header { position: static; }
+.diff-row { position: relative; min-height: 26px; }
+.diff-row.selected { box-shadow: inset 2px 0 var(--acid-line); }
+.diff-line-slot { font-family: var(--sans); line-height: 1.45; }
+.review-toolbar > .review-whitespace-action.active { color: var(--ink); }
+.diff-annotate { position: absolute; z-index: 2; top: 2px; left: 3px; min-width: 19px; height: 19px; display: none; align-items: center; justify-content: center; gap: 2px; padding: 0 3px; border: 1px solid var(--line-control); border-radius: 4px; background: var(--overlay); color: var(--muted); cursor: pointer; }
+.diff-row:hover .diff-annotate, .diff-annotate.has-comments { display: flex; }
+.diff-annotate.has-comments { color: var(--acid-text); }
+.diff-annotate span { font: 8px var(--mono); }
+.diff-error { display: flex; flex-direction: column; gap: 5px; }
+.diff-error strong { color: var(--removed); font-size: var(--text-sm); }
+.diff-error span { color: var(--faint); }
+@media (max-width: 900px) {
+  .review-list { max-width: 42vw; }
+  .review-scope { margin-left: 6px; }
+}
+@media (max-width: 1200px) {
+  .review-toolbar > .review-editor-action { font-size: 0; gap: 0; }
+  .review-toolbar > .review-editor-action svg { width: 13px; height: 13px; }
+}
+
+.commit-selection .text-button { font-size: 10px; }
+.review-files { flex: 1; overflow: auto; padding: 8px; display: flex; flex-direction: column; gap: 3px; }
+.review-tree { flex: 1; min-height: 0; overflow: auto; padding: 1px 0 7px; }
+.review-tree-group { display: contents; }
+.review-tree-directory {
+  width: 100%; height: 27px; display: flex; align-items: center; gap: 6px; border: 0; border-radius: 5px;
+  background: transparent; color: var(--muted); font: 10.5px var(--mono); cursor: pointer; text-align: left;
+}
+.review-tree-directory:hover { background: var(--raised); color: var(--ink-2); }
+.review-tree-directory > svg { flex: none; }
+.review-tree-directory > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-tree-directory > small { margin-left: auto; padding-right: 8px; color: var(--fainter); font: 9px var(--mono); }
+.review-tree-file { min-width: 0; height: 32px; display: flex; align-items: center; padding-right: 3px; border-radius: 5px; color: var(--ink-3); }
+.review-tree-file:hover { background: var(--raised); }
+.review-tree-file.active { background: var(--raised); box-shadow: inset 0 0 0 1px var(--acid-line); }
+.review-tree-file.viewed { opacity: .55; }
+.review-tree-open { min-width: 0; flex: 1; align-self: stretch; display: flex; align-items: center; gap: 6px; border: 0; background: transparent; color: inherit; cursor: pointer; text-align: left; }
+.review-tree-open > svg { flex: none; color: var(--faint); }
+.review-tree-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font: 10.5px var(--mono); }
+.review-tree-open > i { width: 15px; height: 15px; flex: none; display: grid; place-items: center; margin: 0 2px 0 5px; border: 1px solid var(--working); border-radius: 3px; color: var(--working); font: 8px var(--mono); font-style: normal; text-align: center; }
+.review-tree-open > i.added, .review-tree-open > i.untracked { border-color: var(--ready); color: var(--ready); }
+.review-tree-open > i.deleted { border-color: var(--removed); color: var(--removed); }
+.review-tree-open > i.renamed { border-color: var(--acid-text); color: var(--acid-text); }
+.review-tree-open .stat-add, .review-tree-open .stat-del { font-size: 8.5px; }
+.review-tree-viewed { width: 22px; height: 22px; flex: none; display: grid; place-items: center; margin: 0; border: 1px solid transparent; border-radius: 5px; background: transparent; color: transparent; cursor: pointer; }
+.review-tree-file:hover .review-tree-viewed, .review-tree-viewed:focus-visible { color: var(--fainter); }
+.review-tree-file.viewed .review-tree-viewed { border-color: var(--acid-line); background: var(--acid-chip); color: var(--acid-text); }

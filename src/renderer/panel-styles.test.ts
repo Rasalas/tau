@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 async function declarations(selector: string): Promise<string> {
-  const css = (await readFile(new URL("./styles.css", import.meta.url), "utf8")).replace(/\/\*[\s\S]*?\*\//gu, "");
+  const css = (await Promise.all(["./styles.css", "./components/review-layout.css"].map((path) => readFile(new URL(path, import.meta.url), "utf8")))).join("\n").replace(/\/\*[\s\S]*?\*\//gu, "");
   return [...css.matchAll(/([^{}]+)\{([^{}]*)\}/gu)]
     .filter(([, selectors]) => selectors!.split(",").some((part) => part.trim() === selector))
     .map(([, , body]) => body)
