@@ -241,13 +241,14 @@ export class WorkbenchStore {
 
   prepareActionResult = (result: HostActionResult, expectedTransition?: TransitionToken): boolean => {
     const { history } = this.ports;
-    if (expectedTransition !== undefined && !history.isCurrentThreadTransition(expectedTransition)) return false;
     const detail = result.updates.find((update) => update.type === "thread-detail");
     if (detail?.type === "thread-detail") {
       const prepared = expectedTransition === undefined
         ? history.prepareActionDetail(detail.detail.sessionId)
         : history.confirmThreadTransition(expectedTransition, detail.detail.sessionId);
       if (!prepared) return false;
+    } else if (expectedTransition !== undefined && !history.isCurrentThreadTransition(expectedTransition)) {
+      return false;
     }
     return true;
   };

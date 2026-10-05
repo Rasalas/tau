@@ -15,12 +15,14 @@ export class TranscriptHistoryCoordinator {
   private pendingSessionId?: string;
   private switching = false;
   private bootstrapped = false;
+  private settledTransition?: { token: TransitionToken; sessionId: string };
 
   constructor(initialSessionId = "") {
     this.activeSessionId = initialSessionId;
   }
 
   beginBootstrap(): TranscriptBootstrapRequest {
+    this.settledTransition = undefined;
     this.generation += 1;
     return { generation: this.generation };
   }
@@ -30,6 +32,7 @@ export class TranscriptHistoryCoordinator {
   }
 
   beginThreadSwitch(sessionId?: string): TransitionToken {
+    this.settledTransition = undefined;
     this.generation += 1;
     this.switching = true;
     this.pendingSessionId = sessionId;
@@ -41,6 +44,9 @@ export class TranscriptHistoryCoordinator {
   }
 
   confirmThreadTransition(generation: TransitionToken, sessionId: string): boolean {
+    // A watched detail can paint the target before the switch RPC returns.
+    // That paint settles paging, but does not supersede this navigation.
+    if (this.settledTransition?.token === generation && this.settledTransition.sessionId === sessionId) return true;
     if (!this.isCurrentThreadTransition(generation)) return false;
     if (this.pendingSessionId && this.pendingSessionId !== sessionId) return false;
     this.pendingSessionId = sessionId;
@@ -89,6 +95,9 @@ export class TranscriptHistoryCoordinator {
   /** Commit a visible thread after bootstrap or a same-thread detail refresh. */
   activateSession(sessionId: string): void {
     if (this.bootstrapped && !this.switching && this.activeSessionId === sessionId) return;
+    this.settledTransition = this.switching && this.pendingSessionId === sessionId
+      ? { token: this.generation as TransitionToken, sessionId }
+      : undefined;
     this.generation += 1;
     this.activeSessionId = sessionId;
     this.pendingSessionId = undefined;
