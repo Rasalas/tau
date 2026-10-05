@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import { useClientEnvironment } from "../../client-environment";
+import { useWorkspaceFileHistory } from "../../touch/use-workspace-file-history";
 import { useEscapeLayer } from "./escape-layers";
 import { focusableElements, useFocusReturn, useFocusTrap } from "./focus";
 import { placeFloating, pointRect, viewportSize, type FloatingAlign, type FloatingSide } from "./floating";
@@ -9,23 +11,27 @@ import { placeFloating, pointRect, viewportSize, type FloatingAlign, type Floati
  * close it, and focus goes back to whatever had it when it opened. The first
  * field that asks for `autoFocus` gets focus, else the first control.
  */
-export function Dialog({ label, className, onClose, children }: {
+export function Dialog({ label, className, onClose, children, historyManaged = false }: {
   label: string;
+  /** A composite dialog may coordinate its own close buttons through the same hook. */
+  historyManaged?: boolean;
   className?: string;
   onClose(): void;
   children: ReactNode;
 }) {
+  const { profile } = useClientEnvironment();
+  const close = useWorkspaceFileHistory(label, onClose, profile === "compact" && !historyManaged);
   const surface = useRef<HTMLElement>(null);
   useFocusReturn(true, surface);
   useFocusTrap(surface);
-  useEscapeLayer(onClose);
+  useEscapeLayer(close);
   useLayoutEffect(() => {
     const element = surface.current;
     if (!element || element.contains(document.activeElement)) return;
     (focusableElements(element)[0] ?? element).focus({ preventScroll: true });
   }, []);
   return (
-    <div className="palette-backdrop dialog-backdrop" onMouseDown={onClose}>
+    <div className="palette-backdrop dialog-backdrop" onMouseDown={close}>
       <section
         ref={surface}
         className={className}
@@ -53,11 +59,13 @@ export function Popover({ anchor, side = "bottom", align = "start", label, class
   onClose(): void;
   children: ReactNode;
 }) {
+  const { profile } = useClientEnvironment();
+  const dismiss = useWorkspaceFileHistory(label ?? "popover", onClose, profile === "compact");
   const surface = useRef<HTMLDivElement>(null);
-  const close = useRef(onClose);
-  close.current = onClose;
+  const close = useRef(dismiss);
+  close.current = dismiss;
   useFocusReturn(true, surface);
-  const isTopLayer = useEscapeLayer(onClose);
+  const isTopLayer = useEscapeLayer(dismiss);
 
   useLayoutEffect(() => {
     const element = surface.current;

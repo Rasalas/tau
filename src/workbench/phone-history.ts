@@ -45,14 +45,14 @@ export interface HistorySteps {
   push: PhoneRoute[];
 }
 
-export function historySteps(from: PhoneRoute, to: PhoneRoute, readerRoute?: PhoneRoute): HistorySteps {
+export function historySteps(from: PhoneRoute, to: PhoneRoute, readerRoute?: PhoneRoute, readerDepth = 1): HistorySteps {
   const before = routePath(from);
   const after = routePath(to);
   let shared = 0;
   while (shared < before.length && shared < after.length && sameRoute(before[shared]!, after[shared]!)) shared += 1;
   const pops = before.length - shared;
   const rest = after.slice(shared);
-  const modal = readerRoute && sameRoute(readerRoute, from) ? 1 : 0;
+  const modal = readerRoute && sameRoute(readerRoute, from) ? readerDepth : 0;
   if (pops === 0) return { back: modal, push: rest };
   if (rest.length === 0) return { back: pops + modal, push: [] };
   return { back: pops - 1 + modal, replace: rest[0]!, push: rest.slice(1) };
@@ -112,7 +112,7 @@ export function stateWithRoute(state: unknown, route: PhoneRoute): Record<string
 }
 
 const READER_KEY = "tau.workspace-file-reader";
-export interface PhoneReaderEntry { key: string; route: PhoneRoute }
+export interface PhoneReaderEntry { key: string; route: PhoneRoute; depth?: number }
 
 /** The modal belongs to a route, not just a component's surviving marker. */
 export function phoneReaderFromState(state: unknown): PhoneReaderEntry | undefined {
@@ -126,42 +126,70 @@ export function phoneReaderFromState(state: unknown): PhoneReaderEntry | undefin
   if (!candidate || typeof candidate !== "object") return undefined;
   const record = candidate as Record<string, unknown>;
   const route = routeFromState({ [STATE_KEY]: record.route });
-  return typeof record.key === "string" && route ? { key: record.key, route } : undefined;
+  return typeof record.key === "string" && route ? { key: record.key, route, ...(typeof record.depth === "number" && Number.isInteger(record.depth) && record.depth > 1 ? { depth: record.depth } : {}) } : undefined;
 }
 
 export function stateWithPhoneReader(state: unknown, reader: PhoneReaderEntry): Record<string, unknown> {
   return { ...(state && typeof state === "object" ? state as Record<string, unknown> : {}), [READER_KEY]: reader };
 }
 
-// One browser history, owned by TouchLayer. Sheets register their lifetime;
+// One browser history, owned by TouchLayer. Compact dialogs register their lifetime;
 // they never navigate from a teardown callback themselves. Nothing here is SDK API.
-interface ReaderRegistration { key: string; hostingRoute?: PhoneRoute; close(): void }
+interface ReaderRegistration { order: number; key: string; hostingRoute?: PhoneRoute; close(): void }
 interface ReaderCoordinator { changed(): void; dismiss(key: string): boolean }
-let registration: ReaderRegistration | undefined;
+const registrations: ReaderRegistration[] = [];
 let coordinator: ReaderCoordinator | undefined;
-
-export function currentPhoneReader(): Readonly<ReaderRegistration> | undefined { return registration; }
-export function registerPhoneReader(key: string, close: () => void): () => void {
-  const hostingRoute = registration?.key === key ? registration.hostingRoute : undefined;
-  registration = { key, close, hostingRoute };
-  coordinator?.changed();
-  return () => {
-    if (registration?.key !== key) return;
-    registration = undefined;
+// Batch effect cleanup and registration so replacing a dialog keeps one step.
+let changeQueued = false;
+function readersChanged(): void {
+  if (changeQueued) return;
+  changeQueued = true;
+  queueMicrotask(() => {
+    changeQueued = false;
     coordinator?.changed();
+  });
+}
+
+export function currentPhoneReaders(): readonly Readonly<ReaderRegistration>[] { return registrations; }
+export function currentPhoneReader(): Readonly<ReaderRegistration> | undefined { return registrations.at(-1); }
+export function registerPhoneReader(key: string, close: () => void, order: number): () => void {
+  const existing = registrations.find((item) => item.key === key);
+  if (existing) existing.close = close;
+  else {
+    registrations.push({ key, close, order });
+    registrations.sort((a, b) => a.order - b.order);
+  }
+  readersChanged();
+  return () => {
+    const index = registrations.findIndex((item) => item.key === key);
+    if (index < 0) return;
+    registrations.splice(index, 1);
+    readersChanged();
   };
+}
+export function phoneReaderDepth(key: string): number {
+  return registrations.findIndex((item) => item.key === key) + 1;
+}
+/** Back closes only layers above the entry it reached; route changes close all. */
+export function closePhoneReadersAbove(key?: string): void {
+  let top = currentPhoneReader();
+  while (top && top.key !== key) {
+    closePhoneReader(top.key);
+    top = currentPhoneReader();
+  }
 }
 /** Bind once after the route settles; a live reader cannot migrate to another route. */
 export function claimPhoneReaderRoute(key: string, route: PhoneRoute): boolean {
-  if (registration?.key !== key) return false;
+  const registration = registrations.find((item) => item.key === key);
+  if (!registration) return false;
   registration.hostingRoute ??= route;
   return sameRoute(registration.hostingRoute, route);
 }
 export function closePhoneReader(key: string): void {
-  if (registration?.key !== key) return;
-  const close = registration.close;
-  registration = undefined;
-  close();
+  const index = registrations.findIndex((item) => item.key === key);
+  if (index < 0) return;
+  const [registration] = registrations.splice(index, 1);
+  registration!.close();
 }
 export function coordinatePhoneReaderHistory(owner: ReaderCoordinator): () => void {
   coordinator = owner;

@@ -67,7 +67,7 @@ export function AttachmentLightbox({ images, index: start, origin, onClose }: {
   const nav = count > 1;
 
   return createPortal(
-    <Dialog label={image.label ?? (video ? "Video preview" : "Image preview")} className="attachment-lightbox" onClose={close}>
+    <Dialog historyManaged label={image.label ?? (video ? "Video preview" : "Image preview")} className="attachment-lightbox" onClose={close}>
       <div className="lightbox-body" onKeyDown={onKeyDown}>
         <header className="lightbox-head">
           <strong>{name}</strong>
