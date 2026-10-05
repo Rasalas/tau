@@ -71,6 +71,17 @@ async function renderRail(threads: RailExternalThread[], own: UiSession[], worki
 const titles = (rail: HTMLElement) => [...rail.querySelectorAll(".rail-active .thread-title")].filter((title) => !title.closest(".rail-shelves")).map((title) => title.textContent);
 
 describe("other machines' threads in the rail", () => {
+  it("hides externally supplied subagent threads in every rail section", async () => {
+    const children = [
+      remote("agent-active", 31, {}, { parentThreadId: "parent" }),
+      remote("agent-running", 32, { running: true }, { parentThreadId: "parent" }),
+      remote("agent-settled", 33, { settled: true }, { parentThreadId: "parent" }),
+    ];
+    const { rail } = await renderRail([remote("ordinary", 29), ...children], [session("a", 30)], true);
+    await within(rail).findByText("Remote ordinary");
+    for (const child of children) expect(within(rail).queryByText(child.session.title)).toBeNull();
+  });
+
   it("shows an own-index machine proxy as an ordinary selectable row with its home runtime", async () => {
     const proxy = session("rex~t1", 25, {
       backendKind: "machine", modelProvider: "anthropic",

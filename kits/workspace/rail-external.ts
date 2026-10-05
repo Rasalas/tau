@@ -46,7 +46,7 @@ export function outsideThreadItems(sources: readonly RailThreadSource[], query: 
   const words = query.toLowerCase().split(/\s+/u).filter(Boolean);
   if (!words.length) return [];
   return sources.flatMap((source) => source.threads())
-    .filter(({ session, machine, unavailable }) => !unavailable && words.every((word) => `${session.projectName} ${session.title} ${machine.name}`.toLowerCase().includes(word)))
+    .filter(({ session, machine, unavailable }) => !session.parentThreadId && !unavailable && words.every((word) => `${session.projectName} ${session.title} ${machine.name}`.toLowerCase().includes(word)))
     .slice(0, 8)
     .map((thread) => ({
       id: thread.key,

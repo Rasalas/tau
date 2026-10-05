@@ -25,6 +25,7 @@ function setup(id = "parent") {
 it("opens the child chat and provides the return trip in the same card", () => {
   agentsStore.set({ maxRunning: 8, links: [link] });
   const { actions, switchTo } = setup();
+  fireEvent.click(screen.getByRole("button", { name: "Completed (1)" }));
   const row = screen.getByRole("button", { name: "Review layout, Completed" });
   expect(row.textContent).toBe("Review layout0:56");
   expect(row.querySelector(".agent-lineage-status svg")).toBeTruthy();
@@ -32,6 +33,8 @@ it("opens the child chat and provides the return trip in the same card", () => {
   expect(actions.switchSession).toHaveBeenCalledWith("/sessions/child");
   expect(actions.openThread).not.toHaveBeenCalled();
   switchTo("child");
+  expect(screen.queryByRole("button", { name: "Review layout, Completed" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Completed (1)" }));
   expect(screen.getByRole("button", { name: "Review layout, Completed" }).getAttribute("aria-current")).toBe("page");
   fireEvent.click(screen.getByRole("button", { name: "Back to Build the app" }));
   expect(actions.switchSession).toHaveBeenLastCalledWith("/sessions/parent");
@@ -40,12 +43,13 @@ it("retains navigation from indexed lineage without the live agents state", () =
   const { actions } = setup("child");
   fireEvent.click(screen.getByRole("button", { name: "Back to Build the app" }));
   expect(actions.switchSession).toHaveBeenCalledWith("/sessions/parent");
+  fireEvent.click(screen.getByRole("button", { name: "Completed (1)" }));
   expect(screen.getByRole("button", { name: "Review layout, Idle" })).toBeTruthy();
 });
 it("folds previous agents and keeps a resumed agent visible with its new status", () => {
   agentsStore.set({ maxRunning: 8, links: [link] });
   setup();
-  fireEvent.click(screen.getByRole("button", { name: "Previous agents" }));
+  expect(screen.getByRole("button", { name: "Completed (1)" }).getAttribute("aria-expanded")).toBe("false");
   expect(screen.queryByRole("button", { name: "Review layout, Completed" })).toBeNull();
   act(() => agentsStore.set({ maxRunning: 8, links: [{ ...link, status: "waiting" }] }));
   expect(screen.getByRole("button", { name: "Review layout, Needs your answer" })).toBeTruthy();
@@ -54,6 +58,7 @@ it("disables a queued child without a thread and retains remote transcript acces
   agentsStore.set({ maxRunning: 8, links: [{ ...link, id: "queued", threadId: undefined, title: "Queued", status: "pending" }, { ...link, id: "remote", threadId: undefined, title: "Remote", machine: { id: "rex", name: "Rex", thread: "remote-id" } }] });
   const { actions } = setup();
   expect(screen.getByRole("button", { name: "Queued, Queued" }).hasAttribute("disabled")).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Completed (2)" }));
   fireEvent.click(screen.getByRole("button", { name: "Remote, Completed" }));
   expect(actions.openThread).toHaveBeenCalledWith("remote-id", { machine: "rex" });
 });
@@ -78,4 +83,15 @@ it("expands the spawn card into chat links without opening the removed panel", (
   fireEvent.click(screen.getByRole("button", { name: "Review layout, Completed" }));
   expect(actions.switchSession).toHaveBeenCalledWith("/sessions/child");
   expect(actions.openPanel).not.toHaveBeenCalled();
+});
+
+it("moves a finished agent into the collapsed completed group while keeping a manual expansion", () => {
+  agentsStore.set({ maxRunning: 8, links: [{ ...link, status: "running" }] });
+  setup();
+  expect(screen.getByRole("button", { name: "Review layout, Running" })).toBeTruthy();
+  act(() => agentsStore.set({ maxRunning: 8, links: [link] }));
+  expect(screen.queryByRole("button", { name: "Review layout, Completed" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Completed (1)" }));
+  act(() => agentsStore.set({ maxRunning: 8, links: [{ ...link, status: "failed" }] }));
+  expect(screen.getByRole("button", { name: "Review layout, Failed" })).toBeTruthy();
 });

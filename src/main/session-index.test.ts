@@ -142,6 +142,13 @@ describe("session index reconciliation", () => {
     expect(updates[2]).toMatchObject({ update: { sessionId: "deleted", removed: true } });
   });
 
+  it("keeps a scanned parent link when a live shell was created before lineage loaded", () => {
+    const scanned = { ...shell("child", 90, "saved"), parentThreadId: "parent" };
+    const live = shell("child", 110, "live title");
+    const merged = mergeSessionIndexScan([scanned], [live], 100, new Set(["child"]));
+    expect(merged).toEqual([{ ...live, parentThreadId: "parent" }]);
+  });
+
   it("does not let a slow startup scan overwrite or drop newer shell updates", () => {
     const startedAt = 100;
     const merged = mergeSessionIndexScan(

@@ -1001,6 +1001,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     const byKey = new Map<string, RailExternalThread>();
     for (const thread of externalThreads) {
       const { session } = thread;
+      if (session.parentThreadId) continue;
       if (projectFilter && session.projectName !== projectFilter) continue;
       byKey.set(thread.key, thread);
     }

@@ -282,9 +282,9 @@ seams (`services.sessions.send` and `services.sessions.abort`, API
 
 ## Amendment, 2026-10-05: lineage belongs in the project card
 
-The project card now lists the current thread's agents below Changes. Its rows
+The project card now lists the current thread's agents below Changes under Agents. Its rows
 use the same icon size and spacing as the workspace controls. Completed agents
-remain available in a collapsible Previous agents group; status is an icon with
+remain available in a Completed group that starts collapsed, with its count shown; status is an icon with
 an accessible name rather than a repeated Done label.
 
 Choosing a local agent switches to its chat. The same card then links back to

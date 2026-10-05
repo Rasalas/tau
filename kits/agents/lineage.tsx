@@ -39,7 +39,7 @@ export function AgentLineageRow({ row, actions, current = false }: { row: AgentR
     <span className="workspace-card-icon agent-lineage-provider" aria-hidden>{provider ? <ProviderIconStack modelProvider={provider} runtimeMark={false} hint={false} /> : <Bot />}</span>
     <span className="workspace-card-label">{row.title}</span>
     <Elapsed row={row} />
-    <span className="workspace-card-status agent-lineage-status" {...tooltipProps(status)} aria-hidden>{icon}</span>
+    <span className="workspace-card-tail agent-lineage-status" {...tooltipProps(status)} aria-hidden>{icon}</span>
   </button>;
 }
 
@@ -60,29 +60,29 @@ export function AgentLineage({ snapshot, actions }: RegionProps) {
   const model = useMemo(() => agentsPanelModel(state, id, navigation.threads, { ids: siblings, running: activity.runningThreadIds }), [state, id, navigation.threads, siblings, activity.runningThreadIds]);
   const parentId = state?.links.find((link) => link.threadId === id)?.parentThreadId ?? navigation.threads.find((thread) => thread.id === id)?.parentThreadId;
   const parent = navigation.threads.find((thread) => thread.id === parentId);
-  const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
-  useEffect(() => setFolded(new Set()), [id]);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => setExpanded(new Set()), [id]);
   if (!id || (!parentId && !model.groups.length && !hasDefinitions)) return null;
   const enriched = (row: AgentRow): AgentRow => {
     const thread = navigation.threads.find((entry) => entry.id === row.threadId);
     return row.model || !thread?.modelProvider ? row : { ...row, model: `${thread.modelProvider}/` };
   };
   const rows = (items: AgentRow[]) => items.map((row) => <AgentLineageRow key={row.id} row={enriched(row)} actions={actions} current={row.threadId === id} />);
-  return <section className="agent-lineage" aria-label="Lineage">
-    <div className="agent-lineage-heading"><span>Lineage</span>{hasDefinitions ? <button ref={definitionsAnchor} type="button" aria-label="Agent definitions" aria-haspopup="dialog" aria-expanded={definitionsOpen} onClick={() => setDefinitionsOpen((open) => !open)}><Ellipsis size={16} /></button> : null}</div>
+  return <section className="agent-lineage" aria-label="Agents">
+    <div className="agent-lineage-heading"><span>Agents</span>{hasDefinitions ? <button ref={definitionsAnchor} type="button" aria-label="Agent definitions" aria-haspopup="dialog" aria-expanded={definitionsOpen} onClick={() => setDefinitionsOpen((open) => !open)}><Ellipsis size={16} /></button> : null}</div>
     {definitionsOpen ? <Popover anchor={definitionsAnchor} label="Agent definitions" onClose={() => setDefinitionsOpen(false)}><DefinitionsSection state={state} activeThreadId={id} actions={actions} /></Popover> : null}
     {parentId ? <button type="button" className="workspace-card-row agent-lineage-parent" aria-label={`Back to ${parent?.title ?? "parent thread"}`} disabled={!parent?.path} onClick={() => { if (parent?.path) void actions.switchSession(parent.path); }}>
-      <CornerUpLeft aria-hidden /><span className="workspace-card-label">{parent?.title ?? "Parent thread unavailable"}</span>
+      <CornerUpLeft aria-hidden /><span className="workspace-card-label">Back to {parent?.title ?? "parent thread"}</span>
     </button> : null}
     {model.groups.map((group) => {
-      const previousOpen = !folded.has(group.parentThreadId);
+      const previousOpen = expanded.has(group.parentThreadId);
       const active = group.rows.filter((row) => (isBusyStatus(row.status) || row.status === "pending"));
       const previous = group.rows.filter((row) => !(isBusyStatus(row.status) || row.status === "pending"));
       return <div key={group.parentThreadId}>
         {model.groups.length > 1 ? <div className="agent-lineage-group">{group.parentTitle}</div> : null}
         {rows(active)}
         {previous.length ? <>
-          <button type="button" className="workspace-card-row agent-lineage-toggle" aria-expanded={previousOpen} onClick={() => setFolded((current) => { const next = new Set(current); if (previousOpen) next.add(group.parentThreadId); else next.delete(group.parentThreadId); return next; })}><span className="workspace-card-label">Previous agents</span>{previousOpen ? <ChevronUp aria-hidden /> : <ChevronDown aria-hidden />}</button>
+          <button type="button" className="workspace-card-row agent-lineage-toggle" aria-expanded={previousOpen} onClick={() => setExpanded((current) => { const next = new Set(current); if (previousOpen) next.delete(group.parentThreadId); else next.add(group.parentThreadId); return next; })}><span className="workspace-card-label">Completed{previousOpen ? "" : ` (${previous.length})`}</span><span className="workspace-card-tail">{previousOpen ? <ChevronUp aria-hidden /> : <ChevronDown aria-hidden />}</span></button>
           {previousOpen ? rows(previous) : null}
         </> : null}
       </div>;
@@ -100,7 +100,7 @@ export function CompactLineage(props: RegionProps) {
   const id = props.snapshot?.sessionId;
   useEffect(() => setOpen(false), [id]);
   if (!id || !(state?.links.some((link) => link.threadId === id || link.parentThreadId === id) || navigation.threads.some((thread) => thread.id === id && thread.parentThreadId || thread.parentThreadId === id))) return null;
-  return <span className="menu-anchor"><button ref={anchor} type="button" className="thread-detail" aria-label="Thread lineage" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((value) => !value)}><Bot size={16} /> Agents</button>
-    {open ? <Popover anchor={anchor} label="Thread lineage" onClose={() => setOpen(false)}><div className="workspace-summary-card"><AgentLineage {...props} /></div></Popover> : null}
+  return <span className="menu-anchor"><button ref={anchor} type="button" className="thread-detail" aria-label="Thread agents" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((value) => !value)}><Bot size={16} /> Agents</button>
+    {open ? <Popover anchor={anchor} label="Thread agents" onClose={() => setOpen(false)}><div className="workspace-summary-card"><AgentLineage {...props} /></div></Popover> : null}
   </span>;
 }

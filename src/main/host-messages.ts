@@ -654,7 +654,15 @@ export function mergeSessionIndexScan(
   const newer = new Map(current
     .filter((session) => session.modifiedAt >= scanStartedAt || keepIds.has(session.id))
     .map((session) => [session.id, session]));
-  const merged = scanned.map((session) => newer.get(session.id) ?? session);
+  const merged = scanned.map((session) => {
+    const live = newer.get(session.id);
+    if (!live) return session;
+    // A runtime can publish its shell before the startup scan reads lineage.
+    // Keep its fresh activity without dropping the persisted parent link.
+    return session.parentThreadId && !live.parentThreadId
+      ? { ...live, parentThreadId: session.parentThreadId }
+      : live;
+  });
   const scannedIds = new Set(merged.map((session) => session.id));
   for (const session of newer.values()) {
     if (!scannedIds.has(session.id)) merged.push(session);
