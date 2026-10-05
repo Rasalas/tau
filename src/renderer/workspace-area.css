@@ -16,3 +16,16 @@ body:not([data-profile="compact"]) .thread-header .chrome-button { min-height: 3
 .workspace-area-tools > .workbench-region:empty { display: none; }
 .workspace-preview-bottom { margin-top: auto; min-width: 0; flex: none; }
 .workspace-preview-bottom > .workbench-region { padding: 0; }
+
+/* Keep the native transcript scrollbar at the workbench edge, beyond its context.
+ * Only the scroll box grows; its right padding preserves the chat's text column.
+ * The workspace paints above that padding and leaves the scrollbar lane free. */
+body:not([data-profile="compact"]) .workbench-center:has(> .workspace-area):not(.conversation-folded) .transcript {
+  width: var(--workbench-width);
+  flex-shrink: 0;
+  padding-right: calc(var(--workbench-width) - 100% + var(--space-8));
+}
+body:not([data-profile="compact"]) .workbench-center:not(.conversation-folded) > .workspace-area {
+  position: relative;
+  margin-right: 8px;
+}

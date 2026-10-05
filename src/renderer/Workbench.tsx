@@ -795,7 +795,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         onChange={setSidebarWidth}
       /> : null}
       <div className="workbench-main" inert={Boolean(openPage) && !pageScreen}>
-      <div className={centerClassName} style={{ "--chat-width": `${chatWidth}px` } as CSSProperties}>
+      <div className={centerClassName} style={{ "--chat-width": `${chatWidth}px`, "--workbench-width": `${centerWidth}px` } as CSSProperties}>
         {spine ? <aside className="thread-spine" aria-label="Thread">
           <h2>{conversationSnapshot?.sessionTitle || "Untitled thread"}</h2>
           <p className="thread-spine-state">{conversationSnapshot?.isStreaming
