@@ -28,17 +28,21 @@ const referenceSamplesMs = reference ? measureReference() : [];
 const started = performance.now();
 // `npm run typecheck` checks every target separately, including in CI. Build emits
 // the host as the editable-source build already does, without repeating that check.
+// The renderer reads source files only. Start it alongside the host, while kits
+// still wait for the compiled host modules they import.
 await parallel([
-  run("typescript/bin/tsc", ["-p", "tooling/tsconfig.electron.json", "--noCheck"]),
-  run("../scripts/build-preload.mjs", []),
-  run("../scripts/build-host-worker.mjs", []),
-  // This copies source inputs only, so it can overlap compilation instead of
-  // extending the critical path after the renderer and kits are finished.
-  run("../scripts/prepare-customization-source.mjs", []),
+  run("vite/bin/vite.js", ["build"]),
+  (async () => {
+    await parallel([
+      run("typescript/bin/tsc", ["-p", "tooling/tsconfig.electron.json", "--noCheck"]),
+      run("../scripts/build-preload.mjs", []),
+      run("../scripts/build-host-worker.mjs", []),
+      run("../scripts/prepare-customization-source.mjs", []),
+    ]);
+    await run("../scripts/verify-sandboxed-preload.mjs", ["dist-electron/preload/bundle.cjs"]);
+    await run("../scripts/build-kits.mjs", []);
+  })(),
 ]);
-// The runtime loads prebuilt kits; an installed app keeps editable sources and build tools outside its archive.
-await run("../scripts/verify-sandboxed-preload.mjs", ["dist-electron/preload/bundle.cjs"]);
-await parallel([run("../scripts/build-kits.mjs", []), run("vite/bin/vite.js", ["build"])]);
 const buildTimeMs = Math.round(performance.now() - started);
 if (reference) referenceSamplesMs.push(...measureReference());
 const report = await collectBuildReport(join(ROOT, "dist"), { buildTimeMs, referenceSamplesMs, kitsDirectory: join(ROOT, "dist-kits") });
