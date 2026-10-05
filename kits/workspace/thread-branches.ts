@@ -275,7 +275,13 @@ export async function readThreadBranches(paths: readonly string[], runGit: Agent
       plain?.add(path);
       return undefined;
     }
-    return readThreadBranch(path, runGit, targets?.get(path)).catch(() => undefined);
+    const branch = await readThreadBranch(path, runGit, targets?.get(path)).catch(() => undefined);
+    if (!branch || branch.merged || !branch.target) return branch;
+    // Published completion counts even when the local target has not caught up.
+    // Keep the local diff and pending files; merge commands still read the local target.
+    const published = await readThreadBranch(path, runGit, branch.target, true).catch(() => undefined);
+    if (!published?.merged || published.tip !== branch.tip) return branch;
+    return { ...branch, merged: true, mergedBy: published.mergedBy, conflicts: [] };
   }));
   const branches = read.filter((entry): entry is ThreadBranch => Boolean(entry));
   // A precursor may have been cherry-picked into another worktree and then

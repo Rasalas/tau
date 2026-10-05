@@ -44,6 +44,53 @@ async function repository() {
 }
 
 describe("a thread's worktree branch", () => {
+  it("completes reviews published on origin while the local target stays behind", async () => {
+    const repo = await repository();
+    const dir = repo.worktree("tau/published");
+    const localHead = repo.run(repo.cwd, "rev-parse", "main");
+    await repo.commit(dir, "b.txt", "published work\n");
+    repo.run(repo.cwd, "update-ref", "refs/remotes/origin/main", "tau/published");
+
+    expect((await readThreadBranches([dir]))[0]).toMatchObject({ target: "main", merged: true, uncommitted: 0, conflicts: [] });
+    // Local merge operations still compare against the checkout they would change.
+    expect(await readThreadBranch(dir)).toMatchObject({ merged: false });
+    expect(repo.run(repo.cwd, "rev-parse", "main")).toBe(localHead);
+
+    await writeFile(join(dir, "follow-up.txt"), "new work\n");
+    expect((await readThreadBranches([dir]))[0]).toMatchObject({ merged: true, uncommitted: 1 });
+    repo.run(dir, "add", "-A");
+    repo.run(dir, "commit", "-qm", "follow-up");
+    expect((await readThreadBranches([dir]))[0]).toMatchObject({ merged: false, uncommitted: 0 });
+  });
+
+  it("recognizes a historical squash on origin without advancing the local target", async () => {
+    const repo = await repository();
+    const dir = repo.worktree("tau/squashed-remotely");
+    const published = repo.worktree("published");
+    await repo.commit(dir, "a.txt", "changed\n");
+    await repo.commit(dir, "b.txt", "finished\n");
+    repo.run(published, "merge", "--squash", "tau/squashed-remotely");
+    repo.run(published, "commit", "-qm", "squashed work");
+    await repo.commit(published, "a.txt", "later target edit\n");
+    repo.run(repo.cwd, "update-ref", "refs/remotes/origin/main", "published");
+
+    expect((await readThreadBranches([dir]))[0]).toMatchObject({ merged: true, mergedBy: "squash", conflicts: [] });
+    // Evidence on main must not complete a review targeting another branch.
+    repo.run(repo.cwd, "branch", "release", "main");
+    expect((await readThreadBranches([dir], undefined, undefined, new Map([[dir, "release"]])))[0])
+      .toMatchObject({ target: "release", merged: false });
+  });
+
+  it("retains local completion when origin has not received the merge", async () => {
+    const repo = await repository();
+    const dir = repo.worktree("tau/local-merge");
+    repo.run(repo.cwd, "update-ref", "refs/remotes/origin/main", "main");
+    await repo.commit(dir, "b.txt", "local work\n");
+    repo.run(repo.cwd, "merge", "--ff-only", "tau/local-merge");
+    expect((await readThreadBranches([dir]))[0]).toMatchObject({ merged: true });
+    expect(await threadWorkIntegrated(dir)).toBe(false);
+  });
+
   it("allows auto-settling only when origin holds the work and the checkout stays clean", async () => {
     const repo = await repository();
     const dir = repo.worktree("tau/continued");
