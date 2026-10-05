@@ -47,5 +47,5 @@ it("resets a stage branch comparison and selected file when its workspace change
   await waitFor(() => expect(reads.slice(beforeSwitch)).toContainEqual({ workspace: "workspace-b", path: "b.ts", scope: "worktree", baseCommit: undefined }));
   expect(reads.slice(beforeSwitch).some((read) => read.workspace === "workspace-b" && (read.path === "a-branch.ts" || read.baseCommit === "a-base"))).toBe(false);
   expect(screen.queryByRole("button", { name: "Back to thread" })).toBeNull();
-  expect(screen.queryByRole("region", { name: "Commit" })).toBeNull();
+  expect(screen.getByRole("region", { name: "Commit" })).toBeTruthy();
 });

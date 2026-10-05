@@ -395,6 +395,8 @@ export interface TranscriptTurn {
 }
 
 export interface RegionProps {
+  /** In `stage-bar`, controls the in-flow summary when the layout has room for it. */
+  workspaceSummary?: { shown: boolean; toggle(): void };
   /** Core currently reserves an in-flow workspace preview beside the conversation. */
   workspacePreviewAvailable?: boolean;
   snapshot?: HostSnapshot;

@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { ReactElement } from "react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useEffect, type ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UiFileDiff, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
 import { createMemoryStorage, setClientStorage, type ClientStorage } from "../../workbench/client-storage";
 import { ClientStorageProvider } from "../client-storage-context";
-import { ReviewMode } from "./ReviewMode";
+import { ReviewMode, type ReviewCommitSlot } from "./ReviewMode";
 
 let storage: ClientStorage;
 
@@ -59,6 +59,13 @@ function stubDiffLayout(): void {
       this.dispatchEvent(new Event("scroll"));
     },
   });
+}
+
+/** A kit's section: it offers a step after the commit while it is mounted. */
+function NextStep({ commit, run }: { commit: ReviewCommitSlot; run(): void }) {
+  const { offer } = commit;
+  useEffect(() => offer({ id: "next", label: "Commit & create PR…", description: "Then write its title and description", run }), [offer, run]);
+  return <p>{commit.composing ? "Bar is on screen" : "No bar"}</p>;
 }
 
 describe("ReviewMode", () => {
@@ -120,7 +127,7 @@ describe("ReviewMode", () => {
 
     expect(screen.getByText("Section sees “Update a”")).toBeTruthy();
     expect(screen.getByText("1/2 staged")).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Commit" }).textContent).toContain("Commits the 1 staged file on feat/review. Nothing is pushed.");
+    expect(within(screen.getByRole("region", { name: "Commit" })).getByRole("button", { name: "Commit" }).getAttribute("title")).toBe("Commits the 1 staged file on feat/review; 1 other stays uncommitted. Nothing is pushed.");
     fireEvent.click(screen.getByRole("button", { name: "Stage src/a.ts" }));
     expect(stage).toHaveBeenCalledWith("src/a.ts");
     expect(screen.getByRole("button", { name: "Unstage src/c.ts" })).toBeTruthy();
@@ -132,6 +139,77 @@ describe("ReviewMode", () => {
 
     act(() => committed.at(-1)?.());
     expect(screen.getByText("Section sees “”")).toBeTruthy();
+  });
+
+  const baseProps = {
+    changes: worktree,
+    busy: false,
+    primaryPush: false,
+    onSelect: () => undefined,
+    onBack: () => undefined,
+    onOpenInEditor: () => undefined,
+    loadDiff: async (path: string) => ({ path, added: 1, removed: 0, hunks: [] }),
+  };
+
+  it("commits with one button, and keeps the push and a kit's next step in its menu", async () => {
+    const onCommit = vi.fn();
+    const run = vi.fn();
+    render(withStorage(<ReviewMode
+      {...baseProps}
+      primaryPush
+      onCommit={onCommit}
+      listHeader={(commit) => <NextStep commit={commit} run={run} />}
+    />));
+
+    const bar = screen.getByRole("region", { name: "Commit" });
+    expect(screen.getByText("Bar is on screen")).toBeTruthy();
+    expect(within(bar).getAllByRole("button", { name: /^Commit/u })).toHaveLength(1);
+    expect(within(bar).getByRole("button", { name: "Commit & push" }).getAttribute("title")).toBe("Commits all 1 changed file on feat/review, then pushes feat/review.");
+
+    fireEvent.click(within(bar).getByRole("button", { name: "Commit & push" }));
+    expect(onCommit).toHaveBeenLastCalledWith("Update a", true);
+
+    fireEvent.click(within(bar).getByRole("button", { name: "More ways to commit" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Commit\b(?! &)/u }));
+    expect(onCommit).toHaveBeenLastCalledWith("Update a", false);
+
+    // Folding the sidebar hides the commit controls; reopening it preserves the offered actions.
+    fireEvent.click(screen.getByRole("button", { name: "Toggle file tree" }));
+    expect(screen.queryByRole("searchbox", { name: "Filter changed files" })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Commit message" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Toggle file tree" }));
+    fireEvent.click(within(bar).getByRole("button", { name: "More ways to commit" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Commit & create PR…/u }));
+    expect(screen.getByRole("searchbox", { name: "Filter changed files" })).toBeTruthy();
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers no menu without a push or a kit step, and commits with the keyboard", () => {
+    const onCommit = vi.fn();
+    render(withStorage(<ReviewMode {...baseProps} onCommit={onCommit} />));
+
+    expect(screen.queryByRole("button", { name: "More ways to commit" })).toBeNull();
+    const field = screen.getByRole("textbox", { name: "Commit message" });
+    fireEvent.change(field, { target: { value: "" } });
+    expect((screen.getByRole("button", { name: "Commit" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.keyDown(field, { key: "Enter", metaKey: true });
+    expect(onCommit).not.toHaveBeenCalled();
+    fireEvent.change(field, { target: { value: "Fix a" } });
+    fireEvent.keyDown(field, { key: "Enter", ctrlKey: true });
+    expect(onCommit).toHaveBeenCalledWith("Fix a", false);
+  });
+
+  it("hides the commit bar for a read-only device, a branch comparison and a historical turn", async () => {
+    const loadChanges = vi.fn(async () => branch);
+    const view = render(withStorage(<ReviewMode {...baseProps} onCommit={() => undefined} loadChanges={loadChanges} listHeader={({ composing }) => <p>{composing ? "composing" : "not composing"}</p>} />));
+    expect(screen.getByRole("region", { name: "Commit" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Branch vs target" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Commit" })).toBeNull());
+    expect(screen.getByText("not composing")).toBeTruthy();
+
+    view.rerender(withStorage(<ReviewMode {...baseProps} onCommit={() => undefined} readOnly />));
+    expect(screen.queryByRole("region", { name: "Commit" })).toBeNull();
   });
 
   it("lends its lines, layout, whitespace and folds to the caller", async () => {

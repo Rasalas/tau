@@ -8,7 +8,6 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   ExternalLink,
-  GitCommitHorizontal,
   PanelRightClose,
   PanelRightOpen,
   RefreshCw,
@@ -32,6 +31,7 @@ import type { ClientStorage } from "../../workbench/client-storage";
 import { STORAGE_KEYS } from "../../workbench/storage-keys";
 import { DiffStream, diffLanguage, fileDiffRows, type DiffLineSlot, type DiffStreamHandle, type DiffStreamRow } from "./DiffView";
 import { FileKindIcon } from "./FileKindIcon";
+import { ReviewCommitBar, type ReviewCommitAction } from "./ReviewCommitBar";
 import { ReviewFileTree, type ReviewFileActions } from "./ReviewFileTree";
 import "./review-embedded.css";
 import { WindowControlsInset } from "./WindowControlsInset";
@@ -88,13 +88,24 @@ function sameDiff(left: UiFileDiff | undefined, right: UiFileDiff): boolean {
   });
 }
 
-/** What the confirm button does, in words: which files, on which branch, and whether it pushes. */
-export function commitSummary(files: number, branch: string | undefined, push: boolean, staged = 0): string {
-  const what = staged > 0
-    ? `Commits the ${staged} staged ${staged === 1 ? "file" : "files"}`
-    : `Commits all ${files} changed ${files === 1 ? "file" : "files"}`;
-  const where = branch ? ` on ${branch}` : "";
-  return push ? `${what}${where}, then pushes ${branch ?? "the branch"}.` : `${what}${where}. Nothing is pushed.`;
+/** Why no message was suggested, short enough for the line under the field. */
+function suggestionNote(error: unknown): string {
+  const reason = error instanceof Error ? error.message.trim().replace(/\.$/u, "") : "";
+  const provider = /^Provider is not configured: (.+)$/u.exec(reason)?.[1];
+  if (provider) return `Could not write a message from the diff: ${provider} is not set up.`;
+  return reason ? `Could not write a message from the diff: ${reason}.` : "Could not write a message from the diff.";
+}
+
+/** What a section in the file list may do with the commit above it. */
+export interface ReviewCommitSlot {
+  /** The commit message the bar holds. */
+  message: string;
+  /** Clears the message after a commit went through. */
+  committed(): void;
+  /** The commit bar is on screen, so what a section offers is reachable there. */
+  composing: boolean;
+  /** Adds a step after the commit to the commit button's menu; the returned function takes it back. */
+  offer(action: ReviewCommitAction): () => void;
 }
 
 export function ReviewMode({
@@ -169,7 +180,7 @@ export function ReviewMode({
   /** Staging and reverting in the worktree, from the file list. */
   fileActions?: ReviewFileActions & { stageAll?(): Promise<void> | void };
   /** Drawn at the top of the file list, handed the commit message the bar holds. */
-  listHeader?(commit: { message: string; committed(): void }): ReactNode;
+  listHeader?(commit: ReviewCommitSlot): ReactNode;
   /** Reads the worktree's changes again. */
   onRefresh?(): void;
 }) {
@@ -190,10 +201,11 @@ export function ReviewMode({
   const [filter, setFilter] = useState("");
   const clientStorage = useClientStorage();
   const [sidebarOpen, setSidebarOpenState] = useState(() => storedSidebarOpen(clientStorage));
-  const [sidebarWidth, setSidebarWidthState] = useState(() => storedSidebarWidth(clientStorage, embedded ? 190 : 280));
+  const [sidebarWidth, setSidebarWidthState] = useState(() => storedSidebarWidth(clientStorage, 280));
   const [splitAvailable, setSplitAvailable] = useState(true);
   const [generatingMessage, setGeneratingMessage] = useState(false);
   const [messageError, setMessageError] = useState<string>();
+  const [offered, setOffered] = useState<ReadonlyMap<string, ReviewCommitAction>>(() => new Map());
   const stageRef = useRef<HTMLElement>(null);
   const diffScrollRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<DiffStreamHandle>(null);
@@ -368,6 +380,9 @@ export function ReviewMode({
   const readPaths = useMemo(() => new Set(reviewState.readPaths), [reviewState.readPaths]);
   const worktreeActions = fileActions && !noCommit && scope === "worktree" ? fileActions : undefined;
   const stagedCount = scope === "worktree" ? paged.files.filter((file) => file.staged).length : 0;
+  // Folded away, the list header stays mounted: what it offers the commit button and a form it has open live there.
+  const withSections = Boolean(listHeader) && !readOnly;
+  const composing = paged.fileCount > 0 && !noCommit && scope === "worktree";
   const visibleReadCount = paged.files.filter((file) => readPaths.has(file.path)).length;
 
   const toggleRead = (path: string) => updateReviewState((current) => ({
@@ -439,15 +454,29 @@ export function ReviewMode({
       const next = await suggestCommitMessage(visibleChanges, [...diffs.values()]);
       if (next) setMessage(next);
     } catch (error) {
-      setMessageError(`No suggestion: ${error instanceof Error ? error.message : "the model did not answer."}`);
+      setMessageError(suggestionNote(error));
       setMessage((current) => current || visibleChanges.proposedMessage || "");
     } finally {
       setGeneratingMessage(false);
     }
   };
+  const offer = useCallback((action: ReviewCommitAction) => {
+    setOffered((current) => new Map(current).set(action.id, action));
+    return () => setOffered((current) => {
+      if (current.get(action.id) !== action) return current;
+      const next = new Map(current);
+      next.delete(action.id);
+      return next;
+    });
+  }, []);
+  const runOffered = (action: ReviewCommitAction) => {
+    // What follows a commit is a form in the file list.
+    setSidebarOpen(true);
+    void action.run();
+  };
   const suggestionFingerprint = `${scope}:${visibleChanges.baseCommit ?? ""}:${paged.files.map((file) => `${file.path}:${file.added}:${file.removed}`).join("|")}`;
   useEffect(() => {
-    if (embedded || noCommit || !autoSuggestCommitMessage || !suggestCommitMessage || paged.files.length === 0 || diffs.size + diffErrors.size < paged.files.length) return;
+    if (noCommit || !autoSuggestCommitMessage || !suggestCommitMessage || paged.files.length === 0 || diffs.size + diffErrors.size < paged.files.length) return;
     if (suggestedFingerprintRef.current === suggestionFingerprint) return;
     suggestedFingerprintRef.current = suggestionFingerprint;
     void generateCommitMessage();
@@ -547,28 +576,6 @@ export function ReviewMode({
         : <span className="review-read-only">Committed branch diff</span>}
     </header>}
 
-    {!embedded && paged.fileCount > 0 && !noCommit && scope === "worktree" ? <section className="commit-bar" aria-label="Commit">
-      <div className="commit-bar-message">
-        <textarea
-          aria-label="Commit message"
-          placeholder={generatingMessage ? "Writing from the diff…" : "Commit message"}
-          value={generatingMessage ? "" : message}
-          disabled={generatingMessage}
-          onChange={(event) => setMessage(event.target.value)}
-        />
-        {suggestCommitMessage ? <button className="icon-button compact" aria-label="Generate commit message" title="Write a new message from the diff" disabled={generatingMessage} onClick={() => void generateCommitMessage()}><RefreshCw className={generatingMessage ? "spinning" : ""} size={12} /></button> : null}
-      </div>
-      <div className="commit-bar-actions">
-        <div className="commit-actions">
-          {primaryPush ? <button disabled={busy || generatingMessage || message.trim().length === 0} onClick={() => onCommit(message, false)}>Commit only</button> : null}
-          <button className="primary" disabled={busy || generatingMessage || message.trim().length === 0} onClick={() => onCommit(message, primaryPush)}>
-            <GitCommitHorizontal size={13} /> {busy ? "Working…" : primaryPush ? "Commit & push" : "Commit"}
-          </button>
-        </div>
-        <small>{commitSummary(paged.fileCount, visibleChanges.branch, primaryPush, stagedCount)}</small>
-        {messageError ? <small className="commit-message-error">{messageError}</small> : null}
-      </div>
-    </section> : null}
 
     {embedded ? reviewToolbar : null}
     <div className="review-body">
@@ -596,9 +603,25 @@ export function ReviewMode({
         </div>
       </main>
 
-      {sidebarOpen ? <aside className="review-list" style={{ width: sidebarWidth }}>
-        <div className="review-sidebar-resizer" role="separator" aria-orientation="vertical" onPointerDown={startSidebarResize} />
-        {!embedded && listHeader && !readOnly ? <div className="review-list-header">{listHeader({ message, committed: () => setMessage("") })}</div> : null}
+      {sidebarOpen || withSections || composing ? <aside className="review-list" style={{ width: sidebarWidth, ...sidebarOpen ? {} : { display: "none" } }}>
+        {sidebarOpen ? <div className="review-sidebar-resizer" role="separator" aria-orientation="vertical" onPointerDown={startSidebarResize} /> : null}
+        {composing ? <ReviewCommitBar
+          message={message}
+          onMessageChange={setMessage}
+          generating={generatingMessage}
+          note={messageError}
+          onGenerate={suggestCommitMessage ? () => void generateCommitMessage() : undefined}
+          busy={busy}
+          primaryPush={primaryPush}
+          branch={visibleChanges.branch}
+          fileCount={paged.fileCount}
+          stagedCount={stagedCount}
+          actions={[...offered.values()]}
+          onCommit={onCommit}
+          onAction={runOffered}
+        /> : null}
+        {withSections && listHeader ? <div className="review-list-header">{listHeader({ message, committed: () => setMessage(""), composing, offer })}</div> : null}
+        {sidebarOpen ? <>
         <label className="review-filter">
           <Search size={13} />
           <input
@@ -646,6 +669,7 @@ export function ReviewMode({
             {paged.error ? <small className="file-tree-error">{paged.error}</small> : null}
           </div> : null}
         </div>
+        </> : null}
       </aside> : null}
     </div>
   </div>;

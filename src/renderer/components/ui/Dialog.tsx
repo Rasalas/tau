@@ -50,12 +50,14 @@ export function Dialog({ label, className, onClose, children, historyManaged = f
  * the other side when this one has no room and slides along the edge. A press
  * outside it or Escape closes it, and focus goes back where it was.
  */
-export function Popover({ anchor, side = "bottom", align = "start", label, className, onClose, children }: {
+export function Popover({ anchor, side = "bottom", align = "start", label, className, dismissOnFocusOutside = false, onClose, children }: {
   anchor: RefObject<HTMLElement | null> | { x: number; y: number };
   side?: FloatingSide;
   align?: FloatingAlign;
   label?: string;
   className?: string;
+  /** Close when focus moves to another control, in addition to outside presses. */
+  dismissOnFocusOutside?: boolean;
   onClose(): void;
   children: ReactNode;
 }) {
@@ -90,16 +92,20 @@ export function Popover({ anchor, side = "bottom", align = "start", label, class
   }, [align, anchor, side]);
 
   useEffect(() => {
-    const onDown = (event: PointerEvent) => {
+    const onOutside = (event: Event) => {
       if (!isTopLayer(event)) return;
       const target = event.target as Node;
       if (surface.current?.contains(target)) return;
       if ("current" in anchor && anchor.current?.contains(target)) return;
       close.current();
     };
-    document.addEventListener("pointerdown", onDown, true);
-    return () => document.removeEventListener("pointerdown", onDown, true);
-  }, [anchor, isTopLayer]);
+    document.addEventListener("pointerdown", onOutside, true);
+    if (dismissOnFocusOutside) document.addEventListener("focusin", onOutside, true);
+    return () => {
+      document.removeEventListener("pointerdown", onOutside, true);
+      document.removeEventListener("focusin", onOutside, true);
+    };
+  }, [anchor, isTopLayer, dismissOnFocusOutside]);
 
   return createPortal(
     <div ref={surface} className={`popover${className ? ` ${className}` : ""}`} role="dialog" aria-label={label} tabIndex={-1}>

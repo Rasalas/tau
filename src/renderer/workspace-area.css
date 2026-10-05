@@ -1,7 +1,7 @@
 /* Core places contributions in the working column; kits own their contents. */
 .workbench-center { background: var(--stage); }
 .workbench-center > .workspace-area { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 12px; background: transparent; border-left: 0; overflow: auto; }
-.workspace-area > .stage { flex: 1; min-height: 240px; border: 0; border-radius: 8px; overflow: hidden; }
+.workspace-area > .stage { flex: 1; min-height: 240px; border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; }
 .workspace-area > .workbench-region { flex: none; min-width: 0; padding: 0; }
 /* Desktop chrome keeps a dependable target without enlarging document type. */
 body:not([data-profile="compact"]) .stage-tools { --stage-tool-size: 32px; }
@@ -16,6 +16,7 @@ body:not([data-profile="compact"]) .thread-header .chrome-button { min-height: 3
 .workspace-area-tools > .workbench-region:empty { display: none; }
 .workspace-preview-bottom { margin-top: auto; min-width: 0; flex: none; }
 .workspace-preview-bottom > .workbench-region { padding: 0; }
+.workspace-preview-bottom:not(:has(> .workbench-region > *)) { display: none; }
 
 /* Keep the native transcript scrollbar at the workbench edge, beyond its context.
  * Only the scroll box grows; its right padding preserves the chat's text column.
@@ -28,4 +29,6 @@ body:not([data-profile="compact"]) .workbench-center:has(> .workspace-area):not(
 body:not([data-profile="compact"]) .workbench-center:not(.conversation-folded) > .workspace-area {
   position: relative;
   margin-right: 8px;
+  /* The scrollbar lane is part of the 12px outer gutter. */
+  padding-right: 4px;
 }

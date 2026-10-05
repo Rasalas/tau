@@ -69,7 +69,7 @@ describe("workbench layout", () => {
       plugin.registerRegion({ id: "summary", placement: "workspace-summary", Component: () => <span>Project context</span> });
       plugin.registerRegion({ id: "preview", placement: "workspace-preview", Component: () => <span>Agent frame</span> });
       plugin.registerPanel({ id: "files", label: "Files", stageButton: true, Component: () => <span>File contents</span> });
-      plugin.registerRegion({ id: "context-trigger", placement: "stage-bar", Component: () => <button>Project actions</button> });
+      plugin.registerRegion({ id: "context-trigger", placement: "stage-bar", Component: ({ workspaceSummary }) => <button aria-expanded={workspaceSummary?.shown} aria-haspopup={workspaceSummary ? undefined : "dialog"} onClick={workspaceSummary?.toggle}>Project actions</button> });
     } };
     const view = renderApp(undefined, { extensions: [workspace, rail] });
     const summary = await screen.findByText("Project context");
@@ -82,22 +82,34 @@ describe("workbench layout", () => {
     expect(screen.queryByRole("separator", { name: "Resize chat" })).toBeNull();
     expect((await screen.findByRole("button", { name: "Files" })).closest(".workspace-area-tools")).toBeTruthy();
     expect(view.container.querySelector(".thread-header .stage-tools")).toBeNull();
-    const projectActions = screen.getByRole("button", { name: "Project actions" });
-    expect(projectActions.closest(".thread-header")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Collapse stage" }));
+    const projectActions = () => screen.getByRole("button", { name: "Project actions" });
+    expect(projectActions().closest(".workspace-area-tools")).toBeTruthy();
+    expect(projectActions().getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(projectActions());
+    await waitFor(() => expect(screen.queryByText("Project context")).toBeNull());
+    expect(projectActions().getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(projectActions());
+    await screen.findByText("Project context");
+    const collapse = screen.getByRole("button", { name: "Collapse stage" });
+    expect(collapse.closest(".workspace-area-tools")?.lastElementChild).toBe(collapse);
+    expect(collapse.closest(".thread-header")).toBeNull();
+    fireEvent.click(collapse);
     await waitFor(() => expect(view.container.querySelector(".workspace-area")).toBeNull());
-    expect(screen.getByRole("button", { name: "Project actions" })).toBe(projectActions);
+    expect(projectActions().closest(".thread-header")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Expand stage" }));
     await screen.findByText("Project context");
     act(() => setWindowWidth(850));
     await waitFor(() => expect(screen.queryByText("Project context")).toBeNull());
     expect(view.container.querySelector(".workspace-summary-narrow")).toBeNull();
+    expect(projectActions().getAttribute("aria-haspopup")).toBe("dialog");
     expect(screen.getByRole("button", { name: "Project actions" }).closest(".thread-header")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Files" }));
     await screen.findByText("File contents");
     await waitFor(() => expect(screen.queryByText("Project context")).toBeNull());
     expect(screen.getAllByRole("button", { name: "Files" })).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Files" }).closest(".stage-strip")).toBeTruthy();
+    act(() => setWindowWidth(1440));
+    await waitFor(() => expect(projectActions().getAttribute("aria-haspopup")).toBe("dialog"));
   });
 
   it("leaves a projectless draft and a workspace without a contributing kit at full chat width", async () => {
@@ -347,7 +359,7 @@ describe("workbench layout", () => {
       return screen.findByRole("region", { name: "Stage" });
     }
 
-    it("collapses the stage from the chat header and restores its tabs and width", async () => {
+    it("collapses the stage from the right of its toolbar and restores its tabs and width", async () => {
       setWindowWidth(1440);
       const view = renderApp(undefined, { extensions: [rail, files] });
       await openFile();
@@ -355,7 +367,9 @@ describe("workbench layout", () => {
       const center = view.container.querySelector(".workbench-center") as HTMLElement;
       const width = center.style.getPropertyValue("--chat-width");
       const collapse = screen.getByRole("button", { name: "Collapse stage" });
-      expect(collapse.closest(".thread-header")).toBeTruthy();
+      expect(collapse.closest(".thread-header")).toBeNull();
+      expect(collapse.closest(".stage-strip-actions")?.lastElementChild).toBe(collapse);
+      expect(collapse.previousElementSibling?.getAttribute("aria-label")).toBe("Maximize stage");
       expect(collapse.getAttribute("aria-expanded")).toBe("true");
       fireEvent.click(collapse);
       await waitFor(() => expect(view.container.querySelector(".workspace-area")).toBeNull());

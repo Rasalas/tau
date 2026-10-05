@@ -37,7 +37,7 @@ const METHODS: Array<{ value: MergeMethod; label: string }> = [
  * nothing reaches the hosting service before the user confirms it there.
  */
 export function createRequestSection(plugin: DesktopExtensionContext, store: WorkspaceStoreApi, client: RequestClient, rows: RowRequests, links: LinkedParts) {
-  return function RequestSection({ actions, message, committed }: ChangesSectionProps) {
+  return function RequestSection({ actions, message, committed, composing, offer }: ChangesSectionProps) {
     const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
     const cwd = snapshot.cwd;
     const branch = snapshot.workspace?.branch;
@@ -95,6 +95,25 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
       setMode("create");
       await generate();
     });
+
+    // With the review's commit bar on screen, "Commit & create" lives in its menu; elsewhere the commit
+    // button sits beside this section, so only one of the two is the lead action.
+    const inMenu = Boolean(composing && offer);
+    const competes = composing ?? hasChanges;
+    const offerable = inMenu && hasChanges && !open && capabilities.create && mode === "idle" && Boolean(status) && !status?.problem && !readOnly;
+    const startRef = useRef(startCreate);
+    startRef.current = startCreate;
+    const working = Boolean(busy);
+    useEffect(() => {
+      if (!offer || !offerable) return undefined;
+      return offer({
+        id: "create-request",
+        label: `Commit & create ${short}…`,
+        description: "Then write its title and description",
+        disabled: working,
+        run: () => startRef.current(),
+      });
+    }, [offer, offerable, short, working]);
 
     const generate = async () => {
       const model = commitMessageModel(actions.activeThread()?.model, plugin.preferences);
@@ -164,26 +183,28 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
         {busy ? <p className="request-busy">{busy}</p> : null}
 
         {mode === "idle" && status && !status.problem && !busy && !readOnly ? (
-          <div className="commit-actions request-actions">
-            {!open ? (
-              capabilities.create ? (
-                <button className="primary" disabled={hasChanges && !message.trim()} onClick={() => void startCreate()}>
-                  {hasChanges ? `Commit & create ${short}…` : `Create ${short}…`}
-                </button>
-              ) : null
-            ) : (
-              <>
-                {capabilities.edit || capabilities.draft ? <button onClick={() => { setForm({ title: open.title, body: open.body ?? "", base: open.baseRef, draft: Boolean(open.draft) }); setMode("edit"); }}>Edit…</button> : null}
-                {open.autoMerge && capabilities.autoMerge ? <button onClick={() => void autoMerge(false)}>Disable auto-merge</button> : null}
-                {methods.length > 0 ? <button className="primary" onClick={() => { setDeleteBranch(deleteBranchByDefault(plugin.preferences)); setMode("merge"); }}>Merge…</button> : null}
-              </>
-            )}
-          </div>
+          !open && offerable ? null : (
+            <div className="commit-actions request-actions">
+              {!open ? (
+                capabilities.create ? (
+                  <button className={competes ? "" : "primary"} disabled={hasChanges && !message.trim()} onClick={() => void startCreate()}>
+                    {hasChanges ? `Commit & create ${short}…` : `Create ${short}…`}
+                  </button>
+                ) : null
+              ) : (
+                <>
+                  {capabilities.edit || capabilities.draft ? <button onClick={() => { setForm({ title: open.title, body: open.body ?? "", base: open.baseRef, draft: Boolean(open.draft) }); setMode("edit"); }}>Edit…</button> : null}
+                  {open.autoMerge && capabilities.autoMerge ? <button onClick={() => void autoMerge(false)}>Disable auto-merge</button> : null}
+                  {methods.length > 0 ? <button className={competes ? "" : "primary"} onClick={() => { setDeleteBranch(deleteBranchByDefault(plugin.preferences)); setMode("merge"); }}>Merge…</button> : null}
+                </>
+              )}
+            </div>
+          )
         ) : null}
 
         {mode === "idle" && status && !status.remote && status.branch && !busy && !readOnly ? (
           <div className="commit-actions request-actions">
-            <button className="primary" onClick={() => setMode("publish")}>Publish repository…</button>
+            <button className={competes ? "" : "primary"} onClick={() => setMode("publish")}>Publish repository…</button>
           </div>
         ) : null}
         {mode === "publish" ? (

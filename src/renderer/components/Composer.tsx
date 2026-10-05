@@ -889,6 +889,22 @@ export function Composer({
     ...(queue.length > 0 && !newThread ? [{ id: "queued", end: true, rank: 2, node: <span className="composer-queued">{queue.length} queued</span> }] : []),
   ];
 
+  const attachmentControl = (
+    <button
+      type="button"
+      ref={attachmentButton}
+      className="runtime-chip composer-attach-chip"
+      aria-expanded={mobileComposer ? attachmentMenu : undefined}
+      aria-haspopup={mobileComposer ? "dialog" : undefined}
+      aria-label="Attach files"
+      disabled={!attachAvailable && !mobileComposer}
+      {...tooltipProps(attachAvailable ? "Attach files" : IMAGE_INPUT_UNAVAILABLE_MESSAGE)}
+      onClick={() => mobileComposer ? setAttachmentMenu((open) => !open) : fileInputRef.current?.click()}
+    >
+      {mobileComposer ? <Plus size={22} aria-hidden /> : <Paperclip size={16} aria-hidden="true" />}
+    </button>
+  );
+
   // The host refuses every send and change from a Read-only device (ADR 0024); say so instead of offering them.
   if (readOnly) {
     return (
@@ -1137,19 +1153,7 @@ export function Composer({
           <ComposerFooterControls
             revision={`${text.trimStart().startsWith("!!") ? "silent-shell" : text.trimStart().startsWith("!") ? "shell" : ""}|${snapshot?.model?.name ?? ""}|${snapshot?.thinkingLevel ?? ""}`}
             leading={<>
-              <button
-                type="button"
-                ref={attachmentButton}
-                className="runtime-chip composer-attach-chip"
-                aria-expanded={mobileComposer ? attachmentMenu : undefined}
-                aria-haspopup={mobileComposer ? "dialog" : undefined}
-                aria-label="Attach files"
-                disabled={!attachAvailable && !mobileComposer}
-                {...tooltipProps(attachAvailable ? "Attach files" : IMAGE_INPUT_UNAVAILABLE_MESSAGE)}
-                onClick={() => mobileComposer ? setAttachmentMenu((open) => !open) : fileInputRef.current?.click()}
-              >
-                {mobileComposer ? <Plus size={22} aria-hidden /> : <Paperclip size={16} aria-hidden="true" />}
-              </button>
+              {mobileComposer ? attachmentControl : null}
               {leadControls.map((control) => (
                 <LazyFeatureBoundary key={control.id} label={control.id} extensionId={control.extensionId} extensionName={control.extensionName} registry={registry} onNotify={onNotify}>
                   <control.Component snapshot={snapshot} actions={shellContext?.actions} />
@@ -1232,6 +1236,8 @@ export function Composer({
           />
 
           {dictation && DictationControl ? <DictationControl key={attachmentScope} port={dictation.port} text={text} inputRef={textareaRef} updateDraft={updateDraft} onActiveChange={setDictating} /> : null}
+
+          {!mobileComposer ? attachmentControl : null}
 
           {/* Send is the row's one round button (design 1a); Stop is a quiet word before it, never in its place. */}
           {streaming ? (

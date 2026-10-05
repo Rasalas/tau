@@ -1322,10 +1322,10 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 .composer-chips > :not(.end) + .composer-block.end, .composer-chips > .composer-block.end:first-child { margin-left: auto; }
 .composer-block[data-icon-only] .runtime-chip:has(> svg) { gap: 0; font-size: 0; }
 .composer-block[data-icon-only] .runtime-chip .chev { display: none; }
-/* The model is a filled pill with its marks inside (design 1a). */
+/* The model shares the quiet treatment of the other footer controls. */
 .composer-model-chip { flex: 0 1 auto; min-width: 64px; }
-.runtime-chip.composer-model-chip { border-radius: 6px; background: var(--raised); }
-.runtime-chip.composer-model-chip:hover { background: var(--raised-hover); }
+.runtime-chip.composer-model-chip { border-radius: 6px; background: transparent; }
+.runtime-chip.composer-model-chip:hover { background: var(--raised); }
 /* The marks are drawn at 80 %; their box keeps the full width, so the name comes closer. */
 .composer-model-chip > .chip-icon { margin-right: -5px; }
 .runtime-chip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -1353,26 +1353,27 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 }
 .composer-adjusted > button:hover { background: var(--hover); }
 .composer-menu-trigger { padding: 4px 6px; color: var(--muted); }
-.popover.composer-overflow { padding: 4px; }
-.composer-menu { display: flex; flex-direction: column; gap: 2px; min-width: 220px; max-width: 300px; }
+.popover.composer-overflow { padding: 6px; }
+.composer-menu { display: flex; flex-direction: column; gap: 2px; min-width: 260px; max-width: 340px; }
 .composer-overflow-list { display: flex; flex-direction: column; gap: 2px; }
 .composer-overflow-list .runtime-chip { width: 100%; }
-.composer-overflow-list + .composer-menu-section, .composer-menu-section + .composer-menu-section { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--line-soft); }
+.composer-overflow-list + .composer-menu-section, .composer-menu-section + .composer-menu-section { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line-soft); }
 .composer-menu-section > .menu-heading {
-  padding: 6px 10px 4px; color: var(--faint); font-weight: 500;
-  font-family: var(--label-font); font-size: var(--label-size); letter-spacing: var(--label-tracking); text-transform: var(--label-case);
+  padding: 8px 10px 5px; color: var(--muted);
+  font: 500 var(--text-sm)/1.4 var(--sans); letter-spacing: normal; text-transform: none;
 }
 .composer-menu-item {
-  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 32px; text-align: left;
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; text-align: left;
   border: 0; border-radius: 7px; background: transparent; color: var(--ink-2);
-  font: 400 12.5px var(--sans); padding: 6px 10px; cursor: pointer;
+  font: 400 var(--text-md)/1.4 var(--sans); padding: 8px 10px; cursor: pointer;
 }
 .composer-menu-item:hover:not(:disabled), .composer-menu-item:focus-visible { outline: none; background: var(--raised); color: var(--ink); }
 .composer-menu-item:disabled { opacity: .45; cursor: default; }
-.composer-menu-icon { flex: none; display: grid; place-items: center; width: 14px; color: var(--muted); }
+.composer-menu-icon { flex: none; display: grid; place-items: center; width: 16px; color: var(--muted); }
+.composer-menu-icon > svg { width: 16px; height: 16px; }
 .composer-menu-label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .composer-menu-label > em { font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.composer-menu-label > small { font: 11px/1.35 var(--sans); color: var(--faint); }
+.composer-menu-label > small { font: var(--text-sm)/1.4 var(--sans); color: var(--muted); }
 .composer-menu-check { flex: none; color: var(--acid-text); }
 .runtime-chip {
   display: flex; align-items: center; gap: 6px; border: 0; border-radius: var(--radius-sm); white-space: nowrap;

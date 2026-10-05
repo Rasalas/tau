@@ -469,13 +469,30 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const floating = conversationFolded && stageExpanded && !compact && !showStartScreen;
   const workspaceContextAvailable = Boolean(showStartScreen ? startProjectPath : workspaceCwd);
   const workspaceSummaryAvailable = workspaceContextAvailable && registry.getRegions("workspace-summary").length > 0;
-  const workspaceAreaShown = workspaceSummaryAvailable && !phone && !stageFolded && (canSplit || stageExpanded);
+  const [workspaceSummaryHidden, setWorkspaceSummaryHidden] = useState(stageFolded);
+  const workspaceAreaShown = workspaceSummaryAvailable && !phone && !workspaceSummaryHidden && (canSplit || stageExpanded);
+  const workspaceSummaryControl = workspaceSummaryAvailable && canSplit && !stageExpanded && !compact
+    ? { shown: workspaceAreaShown, toggle: () => setWorkspaceSummaryHidden((hidden) => !hidden) } : undefined;
   const rightAreaShown = workspaceAreaShown || stageExpanded;
   const stageToggleLabel = rightAreaShown ? "Collapse stage" : "Expand stage";
   const toggleStage = () => {
+    setWorkspaceSummaryHidden(rightAreaShown);
     setStageFolded(rightAreaShown);
     if (!rightAreaShown) setChatFocused(false);
   };
+  const stageVisibilityControl = (
+    <button
+      type="button"
+      className="stage-tool"
+      aria-label={stageToggleLabel}
+      aria-expanded={rightAreaShown}
+      disabled={!workspaceSummaryAvailable && stage.tabs.length === 0}
+      {...tooltipProps(stageToggleLabel, { side: "bottom" })}
+      onClick={toggleStage}
+    >
+      {rightAreaShown ? <PanelRightClose size={16} aria-hidden /> : <PanelRightOpen size={16} aria-hidden />}
+    </button>
+  );
   const sideOpen = stageShown && !stacked;
   const centerWidth = windowWidth - drawnSidebar;
   const chatWidth = shownChatWidth(chatWidthPreference, centerWidth);
@@ -720,6 +737,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
             }}
           />
         </>;
+  const projectControls = <Region registry={registry} placement="stage-bar" snapshot={snapshot} actions={actions} workspaceSummary={workspaceSummaryControl} />;
+  const projectControlsInWorkspace = !compact && rightAreaShown && !stageExpanded;
   // The conversation's head replaces the window-wide bar everywhere but on a phone, whose bar is its own.
   const conversationHeader = phone ? null : <ThreadHeader
     lead={<>
@@ -731,19 +750,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       : split ? <StartDetails snapshot={conversationSnapshot} /> : <StartDetails snapshot={conversationSnapshot} slots={detailSlots} />}
     actions={conversationFolded ? null : <PanelSlot host={titleActionsHost} />}
     tools={<>
-      <Region registry={registry} placement="stage-bar" snapshot={snapshot} actions={actions} />
-      <button
-        type="button"
-        className="stage-tool"
-        aria-label={stageToggleLabel}
-        aria-expanded={rightAreaShown}
-        disabled={!workspaceSummaryAvailable && stage.tabs.length === 0}
-        {...tooltipProps(stageToggleLabel, { side: "bottom" })}
-        onClick={toggleStage}
-      >
-        {rightAreaShown ? <PanelRightClose size={16} aria-hidden /> : <PanelRightOpen size={16} aria-hidden />}
-      </button>
+      {projectControlsInWorkspace ? null : projectControls}
       {rightAreaShown ? null : stageTools}
+      {!rightAreaShown || compact ? stageVisibilityControl : null}
     </>}
   />;
   return providers(<>
@@ -892,7 +901,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         /> : null}
         {workspaceAreaShown || stageExpanded ? <aside className={`workspace-area${stageExpanded ? " has-stage" : ""}`} aria-label="Workspace">
           {!stageExpanded ? <>
-            {!compact ? <div className="workspace-area-tools">{stageTools}</div> : null}
+            {!compact ? <div className="workspace-area-tools">{projectControls}{stageTools}{stageVisibilityControl}</div> : null}
             <Region registry={registry} placement="workspace-summary" snapshot={snapshot} actions={actions} />
           </> : null}
         {stageExpanded ? <LazyFeatureBoundary label="stage" title="The stage failed to load." frame={stageFrame}>
@@ -910,6 +919,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                 else panelLayout.maximizeStage();
               } } : stacked ? { maximized: true, label: "Show chat", onToggle: () => setChatFocused(true) } : undefined}
               tools={stageTools}
+              trailingActions={!compact ? stageVisibilityControl : undefined}
               registry={registry}
               stageTabs={stageTabs}
               actions={actions}

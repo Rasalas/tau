@@ -68,7 +68,7 @@ function OriginFileViewer({ registry, workspace, ...props }: ComponentProps<type
 }
 
 export function Stage({
-  stage, cwd, workspace, changes, editor, maximize, tools, focusRef, registry, stageTabs, actions,
+  stage, cwd, workspace, changes, editor, maximize, tools, trailingActions, focusRef, registry, stageTabs, actions,
   loadFile, loadDiff, loadThread,
   onActivate, onClose, onPin, onUnpin, onCloseOthers, onCloseToRight, onChangeView, onOpenInEditor, onTakeOverThread, renderPanel,
 }: {
@@ -86,6 +86,8 @@ export function Stage({
   maximize?: { maximized: boolean; label?: string; onToggle(): void };
   /** The strip's own buttons before the maximize: the tools, and what kits place in `stage-bar`. */
   tools?: ReactNode;
+  /** Workbench controls at the far right, after maximize when it is available. */
+  trailingActions?: ReactNode;
   /** Who offers the stage tab kinds, and who holds their handles. */
   registry?: ExtensionRegistry;
   stageTabs?: StageTabController;
@@ -222,6 +224,7 @@ export function Stage({
             onClick={maximize.onToggle}
           >{maximize.maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</button>
         </> : null}
+        {trailingActions}
       </div>
     </div>
     {beside ? <div className="stage-split">{pane(current)}{pane(beside)}</div> : pane(current)}

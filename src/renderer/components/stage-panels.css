@@ -1,28 +1,27 @@
 /*
- * The stage's tab strip, as in the workbench design: tabs on the side surface,
- * the one in front on the document's ground and joined to it, the tools and
- * the maximize at the strip's right end. Loaded with the stage's chunk.
+ * The stage's tab strip: tabs on the chrome band above a hairline; the one in front is outlined,
+ * on the pane's ground and open into it, so tab and content read as one sheet. Loaded with the stage's chunk.
  */
-.stage-strip { position: relative; flex: none; display: flex; align-items: stretch; min-width: 0; height: 40px; background: var(--rail); -webkit-app-region: drag; }
-/* The document's ground meets the strip with a rounded top-left corner (design 1l), whatever the tab draws. */
-.stage-strip::after {
-  content: ""; position: absolute; z-index: 1; left: 0; top: 100%; width: var(--radius-md); height: var(--radius-md); pointer-events: none;
-  background: radial-gradient(circle at 100% 100%, transparent calc(var(--radius-md) - .5px), var(--rail) var(--radius-md));
+.stage-strip {
+  position: relative; flex: none; display: flex; align-items: stretch; min-width: 0; height: 48px;
+  background: var(--chrome); box-shadow: inset 0 -1px var(--line); -webkit-app-region: drag;
 }
 .stage-tabs-frame { flex: 1 1 auto; min-width: 0; display: flex; align-items: stretch; }
 .stage-tabs {
-  flex: 0 1 auto; min-width: 0; display: flex; align-items: flex-end; gap: 2px; padding: 6px 8px 0;
+  flex: 0 1 auto; min-width: 0; display: flex; align-items: flex-end; gap: 2px; padding: 8px 8px 0;
   overflow-x: auto; scrollbar-width: none;
 }
 .stage-tabs::-webkit-scrollbar { display: none; }
 .stage-tab {
   position: relative; flex: none; display: flex; align-items: center; gap: 6px;
-  max-width: 220px; height: 34px; padding: 0 10px;
+  max-width: 220px; height: 40px; padding: 0 10px;
+  border: 1px solid transparent; border-bottom: 0;
   border-radius: var(--radius-row) var(--radius-row) 0 0; color: var(--ink-3);
   font: var(--text-sm) var(--sans); white-space: nowrap; cursor: pointer; user-select: none; -webkit-app-region: no-drag;
 }
-.stage-tab:hover { background: color-mix(in srgb, var(--ink) 5%, var(--rail)); color: var(--ink-2); }
-.stage-tab.active { background: var(--stage); color: var(--ink); font-weight: 600; }
+.stage-tab:hover { background: color-mix(in srgb, var(--ink) 5%, var(--chrome)); color: var(--ink-2); }
+/* Panes paint --stage; the tab's fill covers the strip's hairline beneath it. */
+.stage-tab.active { background: var(--stage); border-color: var(--line); color: var(--ink); font-weight: 600; }
 .stage-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .stage-tab.preview .stage-tab-label { font-style: italic; }
 .stage-tab.trace:not(.active) { color: var(--muted); }
@@ -43,9 +42,9 @@
 .stage-tab:hover .stage-tab-close, .stage-tab:focus-visible .stage-tab-close { opacity: 1; }
 .stage-tab-close:hover { color: var(--ink); }
 .stage-tabs-overflow { align-self: center; margin-left: 2px; }
-.stage-strip-actions { flex: none; display: flex; align-items: center; gap: 1px; padding: 6px 8px 0 6px; }
+.stage-strip-actions { flex: none; display: flex; align-items: center; gap: 1px; padding: 8px; }
 .stage-strip-actions > .workbench-region { flex-direction: row; align-items: center; gap: 1px; }
-.stage-strip-separator { width: 1px; height: 28px; margin: 0 4px; background: var(--line); }
+.stage-strip-separator { width: 1px; height: 24px; margin: 0 4px; background: var(--line); }
 .stage-strip :is(button, [role="tab"], .menu-anchor, .workbench-region) { -webkit-app-region: no-drag; }
 .stage-pane-stat { font: var(--text-xs) var(--mono); white-space: nowrap; }
 /* The tab strip scrolls, so its context menu hangs off a fixed point instead. */
@@ -61,11 +60,11 @@ body[data-profile="compact"] .stage-strip-actions .stage-tool { width: 44px; hei
 /* On the stage the tab names the panel: its own header keeps only its controls. */
 .panel-pane .panel-header > h2 { display: none; }
 
-body[data-profile="compact"] .stage-strip-actions { flex: 0 1 auto; min-width: 44px; max-width: 65%; }
+body[data-profile="compact"] .stage-strip-actions { padding: 4px 8px; flex: 0 1 auto; min-width: 44px; max-width: 65%; }
 /* Design 2f: a tab dragged below the strip tints the half it splits into. */
 .stage { position: relative; }
 .stage-split-drop {
-  position: absolute; z-index: 3; inset: 40px 0 0 50%; pointer-events: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  position: absolute; z-index: 3; inset: 48px 0 0 50%; pointer-events: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
   border-left: 2px dashed var(--acid); background: color-mix(in srgb, var(--acid-bg) 85%, transparent); color: var(--acid-text); font: 600 12.5px var(--sans);
 }
 .stage-split { flex: 1; min-height: 0; display: grid; grid: minmax(0, 1fr) / repeat(2, minmax(0, 1fr)); }

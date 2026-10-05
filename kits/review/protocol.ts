@@ -76,6 +76,19 @@ export interface ChangesSectionProps {
   actions: WorkbenchActions;
   message: string;
   committed(): void;
+  /** The full review's commit bar is on screen and takes `offer`; the Changes panel passes neither. */
+  composing?: boolean;
+  /** Add a step after the commit to the commit button's menu; call the result to take it back. */
+  offer?(action: ChangesCommitAction): () => void;
+}
+
+/** A step a section offers after a commit, as the full review's commit button lists it. */
+export interface ChangesCommitAction {
+  id: string;
+  label: string;
+  description?: string;
+  disabled?: boolean;
+  run(): void | Promise<void>;
 }
 
 /** The slice of Workspace Kit's `review-request-context` answer Review reads. */

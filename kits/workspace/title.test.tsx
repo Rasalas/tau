@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { WorkbenchActions, WorkspaceInfo } from "tau";
+import type { RegionProps, WorkbenchActions, WorkspaceInfo } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import {
   ClientStorageProvider,
@@ -28,7 +28,7 @@ function workspace(patch: Partial<WorkspaceInfo> = {}): WorkspaceInfo {
   return { root: "/project", isRepo: true, isDirty: true, branch: "main", worktrees: [], refs: [], worktreeParent: "/worktrees", ...patch };
 }
 
-function setup(info = workspace(), draftPending = false, localFiles = true, level?: number, invoke: (command: string, input: unknown) => Promise<unknown> = async () => undefined, stageContext = false) {
+function setup(info = workspace(), draftPending = false, localFiles = true, level?: number, invoke: (command: string, input: unknown) => Promise<unknown> = async () => undefined, stageContext = false, workspaceSummary?: RegionProps["workspaceSummary"]) {
   const preferences = new PreferencesStore();
   const workspaceStore = new WorkspaceStore(preferences, createWorkspaceHostClient(invoke));
   const Header = level === undefined
@@ -36,7 +36,7 @@ function setup(info = workspace(), draftPending = false, localFiles = true, leve
     : withWorkspaceStore(workspaceStore, (props: { actions: WorkbenchActions }) => <TitleActionsRow {...props} collapse={titleCollapse(level)} />);
   const Editor = withWorkspaceStore(workspaceStore, WorkspaceEditorButton);
   // The header's row and the stage strip's editor button, side by side as the workbench draws them.
-  const TitleActions = (props: { actions: WorkbenchActions }) => <><Header {...props} />{level === undefined ? null : <Editor {...props} />}</>;
+  const TitleActions = (props: { actions: WorkbenchActions }) => <><Header {...props} workspaceSummary={workspaceSummary} />{level === undefined ? null : <Editor {...props} />}</>;
   workspaceStore.update({
     cwd: "/project",
     draftPending,
@@ -264,4 +264,34 @@ it("keeps project actions reachable through a quiet stage icon without duplicati
   fireEvent.pointerDown(commit);
   fireEvent.click(commit);
   expect(openReview).toHaveBeenCalledWith(undefined, false);
+});
+
+
+it("toggles the in-flow summary without opening a duplicate popover", () => {
+  const toggle = vi.fn();
+  setup(workspace(), false, true, undefined, async () => undefined, true, { shown: true, toggle });
+  const trigger = screen.getByRole("button", { name: "Project actions" });
+  expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  expect(trigger.hasAttribute("aria-haspopup")).toBe(false);
+  fireEvent.click(trigger);
+  expect(toggle).toHaveBeenCalledOnce();
+  expect(screen.queryByRole("dialog", { name: "Project actions" })).toBeNull();
+});
+
+it("dismisses project actions on an outside press or focus change", async () => {
+  setup(workspace(), false, true, undefined, async () => undefined, true);
+  const trigger = screen.getByRole("button", { name: "Project actions" });
+  fireEvent.click(trigger);
+  await screen.findByRole("dialog", { name: "Project actions" });
+  fireEvent.pointerDown(document.body);
+  expect(screen.queryByRole("dialog", { name: "Project actions" })).toBeNull();
+  fireEvent.click(trigger);
+  await screen.findByRole("dialog", { name: "Project actions" });
+  const outside = document.createElement("button");
+  document.body.append(outside);
+  try {
+    act(() => outside.focus());
+    expect(screen.queryByRole("dialog", { name: "Project actions" })).toBeNull();
+    expect(document.activeElement).toBe(outside);
+  } finally { outside.remove(); }
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import {
   HostUnavailableError,
   ReviewMode,
@@ -14,17 +14,12 @@ import { automaticCommitMessages } from "./commit-messages.js";
 import { COLLAPSED_OPTION, diffWordWrap, SPLIT_OPTION, WHITESPACE_OPTION, WRAP_OPTION } from "./diff-settings.js";
 import { CommentsPanel, CommentsToolbar, handOffComments, useCommentLines } from "./comment-views.js";
 import type { ReviewCommentStore } from "./comments.js";
-import { REVIEW_HOST_EXTENSION_ID, type ComposerContextChips, type WorkspaceStoreApi } from "./protocol.js";
+import { REVIEW_HOST_EXTENSION_ID, type ChangesSectionProps, type ComposerContextChips, type WorkspaceStoreApi } from "./protocol.js";
 import type { WorkspaceChangesReader } from "./workspace.js";
 
 export { COLLAPSED_OPTION, SPLIT_OPTION, WHITESPACE_OPTION } from "./diff-settings.js";
 
-/**
- * Review Kit's full-workbench review of the live worktree, over Workspace Kit's
- * state. The Changes rail entry opens it, so it carries what that panel did:
- * staging, and every Changes section (the branch's pull request, the linked
- * ones, a server's drift) above the file list.
- */
+/** Review of the live worktree, with commit, staging and request controls in its sidebar. */
 export function createReviewOverlay(
   plugin: DesktopExtensionContext,
   workspace: WorkspaceChangesReader,
@@ -48,12 +43,10 @@ export function createReviewOverlay(
     const workspaceKey = state.workspaceId ?? state.cwd;
     useEffect(() => { comments.open(workspaceKey ?? "workspace"); }, [workspaceKey]);
     const lines = useCommentLines(comments, commentState);
-    const [stageSelection, setStageSelection] = useState<{ workspace?: string; path: string }>();
-    const stagePath = stageSelection?.workspace === workspaceKey ? stageSelection?.path : undefined;
     const review = state.review ?? { primaryPush: embedded && Boolean(state.workspace?.upstream) };
     useEffect(() => { if (embedded) void store.refresh(); }, [workspaceKey]);
-    const selectPath = useCallback((path: string) => { if (embedded) setStageSelection({ workspace: workspaceKey, path }); else store.selectReviewPath(path); }, [workspaceKey]);
-    const closeReview = useCallback(() => { if (!embedded) store.closeReview(); onClose(); }, [onClose]);
+    const selectPath = useCallback((path: string) => store.selectReviewPath(path), []);
+    const closeReview = useCallback(() => { store.closeReview(); onClose(); }, [onClose]);
     const commit = useCallback(async (message: string, push: boolean) => {
       if (await store.commit(message, push)) closeReview();
     }, [closeReview]);
@@ -75,13 +68,13 @@ export function createReviewOverlay(
         return { path, added: 0, removed: 0, hunks: [], note: "Diffs require the Electron host." };
       }
     }, []);
-    // The review covers the composer; the comments follow once it is back.
+    // Request controls share the review sidebar.
     const sections = state.changesSections;
-    // A request opened from the list is a stage tab: the review steps aside for it.
+    // A request opened from the list becomes the active stage tab.
     const listHeader = useMemo(() => {
       if (!sections?.length) return undefined;
       const tabActions: WorkbenchActions = { ...actions, openStageTab: (...open) => { closeReview(); return actions.openStageTab(...open); } };
-      return ({ message, committed }: { message: string; committed(): void }) => sections.map((Section, index) => <Section key={index} actions={tabActions} message={message} committed={committed} />);
+      return ({ message, committed, composing, offer }: { message: string; committed(): void; composing: boolean; offer: ChangesSectionProps["offer"] }) => sections.map((Section, index) => <Section key={index} actions={tabActions} message={message} committed={committed} composing={composing} {...offer ? { offer } : {}} />);
     }, [actions, closeReview, sections]);
     const send = useCallback(() => {
       const handed = comments.getSnapshot().comments;
@@ -93,7 +86,7 @@ export function createReviewOverlay(
         key={workspaceKey ?? "workspace"}
         changes={state.changes}
         embedded={embedded}
-        selectedPath={(embedded ? stagePath : review.path) ?? state.changes.files[0]?.path}
+        selectedPath={review.path ?? state.changes.files[0]?.path}
         editor={store.activeEditor()}
         busy={state.committing}
         primaryPush={review.primaryPush}

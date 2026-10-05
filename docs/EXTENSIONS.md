@@ -1732,7 +1732,7 @@ them. What a caller may add, all optional:
 | `wordWrap`, `onWordWrapChange` (new in API 1.11.0) | Long lines wrap unless `wordWrap` is `false`; unwrapped, every row is as wide as the longest line and the stream scrolls sideways. The toolbar offers the toggle only with a handler. |
 | `toolbar`, `aside` | A node in the toolbar, before core's own controls, and a panel beside the diffs. |
 | `fileActions` (new in API 1.18.0) | `{ stage, unstage, revert, stageAll? }`: each file row of the list gets stage or unstage and revert (asked first), and a line above the files says how many are staged, with "Stage all". Only for the worktree scope and a device that may write. With files staged, the commit bar says it commits those. |
-| `listHeader` (new) | `({ message, committed }) => node`, drawn at the top of the file list and handed the commit bar's message; `committed()` clears it. Review Kit draws the branch's pull request and the linked ones there. |
+| `listHeader` (new) | `({ message, committed, composing, offer }) => node`, drawn at the top of the file list and handed the commit bar's message; `committed()` clears it. `composing` says the commit bar is on screen. `offer({ id, label, description?, disabled?, run })` adds a step after the commit to the menu beside the Commit button and returns a function that takes it back, so a kit never draws a second commit button. Review Kit draws the branch's pull request and the linked ones there, and offers "Commit & create PR…". The list header stays mounted while the list is folded away. |
 | `onRefresh` (new) | A rescan button beside the file count; a failed refresh marks the list "stale". |
 
 Review Kit fills all of them: line comments under the lines, their list in

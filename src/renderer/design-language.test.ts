@@ -32,9 +32,10 @@ describe("the workbench design language", () => {
     expect(rule(STYLES, ".send-button.stop")).toMatch(/background: transparent/u);
   });
 
-  it("draws the model as a filled pill", () => {
+  it("keeps the model quiet until hovered", () => {
     const pill = rule(STYLES, ".runtime-chip.composer-model-chip");
-    expect(pill).toMatch(/background: var\(--raised\)/u);
+    expect(pill).toMatch(/background: transparent/u);
+    expect(rule(STYLES, ".runtime-chip.composer-model-chip:hover")).toMatch(/background: var\(--raised\)/u);
     expect(pill).toMatch(/border-radius: 6px/u);
   });
 

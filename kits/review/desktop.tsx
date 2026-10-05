@@ -108,7 +108,7 @@ export const reviewExtension: DesktopExtension = {
       chips = service;
       return () => { if (chips === service) chips = undefined; };
     });
-    plugin.registerCommand({ id: "review.changes", label: "Inspect Git changes", group: "Project", access: "read", run: (app) => app.openPanel(WORKSPACE_CHANGES_PANEL) });
+    plugin.registerCommand({ id: "review.changes", label: "Inspect Git changes", group: "Project", access: "read", run: (app) => workspaceStore ? workspaceStore.openReview() : app.openPanel(WORKSPACE_CHANGES_PANEL) });
     // A phone or a tablet reads diffs in a sheet from the title bar; the desktop's overlay and Changes panel are not drawn there.
     const compactStore = new CompactReviewStore();
     const workspaceHost = plugin.hostExtension(WORKSPACE_HOST_EXTENSION_ID);
@@ -181,10 +181,10 @@ export const reviewExtension: DesktopExtension = {
         // The Changes rail entry opens this review, which carries the panel's commit, staging and sections.
         store.registerReviewView?.() ?? (() => undefined),
         plugin.registerCommand({ id: "review.open", label: "Review changes", group: "Project", access: "read", run: () => store.openReview() }),
-        plugin.registerSlashCommand({ name: "review", description: "Open the full Git review overlay", run: () => { store.openReview(); return undefined; } }),
+        plugin.registerSlashCommand({ name: "review", description: "Open Git review in the stage", run: () => { store.openReview(); return undefined; } }),
         plugin.registerKeybinding({ keys: "mod+shift+d", commandId: "review.open" }),
         // The diff toggle; in a terminal `mod+d` splits it.
-        plugin.registerCommand({ id: "review.toggle", label: "Toggle the review", group: "Project", access: "read", run: () => { if (store.getSnapshot().review) store.closeReview(); else store.openReview(); } }),
+        plugin.registerCommand({ id: "review.toggle", label: "Toggle the review", group: "Project", access: "read", run: (app) => { const tab = app.activeStageTab?.(); if (tab?.kind === "panel" && tab.panelId === REVIEW_DIFF_PANEL) store.closeReview(); else store.openReview(); } }),
         plugin.registerKeybinding({ keys: "mod+d", commandId: "review.toggle", when: "!terminalFocus" }),
         registerCommitMessages(plugin, store),
         store.registerChangesSection(createRequestSection(plugin, store, requests, rows, { rows: links, client, dialogs: shared.dialogs })),

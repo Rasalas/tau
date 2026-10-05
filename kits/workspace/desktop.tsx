@@ -307,7 +307,7 @@ export const workspaceExtension: DesktopExtension = {
       { id: "sources", kind: "chips", label: "Add-project sources", values: ["local folder", "git clone"] },
     ]);
     context.registerCommand({ id: "workspace.files", label: "Open file index", group: "Project", access: "read", run: (app) => app.openPanel(WORKSPACE_FILES_PANEL) });
-    context.registerCommand({ id: "workspace.changes", label: "Inspect Git changes", group: "Project", access: "read", run: (app) => app.openPanel(WORKSPACE_CHANGES_PANEL) });
+    context.registerCommand({ id: "workspace.changes", label: "Inspect Git changes", group: "Project", access: "read", run: () => store.showChangedFiles() });
     context.registerCommand({ id: "workspace.open-project", label: "Open project…", group: "Project", access: "write", run: async (app) => {
       try {
         const picked = await host.pickFolder();
@@ -436,7 +436,7 @@ export const workspaceExtension: DesktopExtension = {
     context.registerSlashCommand({
       name: "diff",
       description: "Inspect Git changes in stage",
-      run: (_args, app) => { app.openPanel(WORKSPACE_CHANGES_PANEL); return undefined; },
+      run: () => { store.showChangedFiles(); return undefined; },
     });
     context.registerSlashCommand({
       name: "files",

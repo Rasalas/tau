@@ -36,11 +36,13 @@ export function WorkspaceTitleActions(props: RegionProps & { hideChanges?: boole
   </section>;
 }
 
-/** Project context stays in the stage's existing strip while documents are open. */
+/** Toggle the in-flow project summary where it fits; otherwise open it beside the trigger. */
 export function WorkspaceStageContext(props: RegionProps) {
   const state = useWorkspaceKit();
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
+  const inline = props.workspaceSummary;
+  useEffect(() => { if (inline) setOpen(false); }, [Boolean(inline)]);
   useEffect(() => setOpen(false), [state.cwd, props.snapshot?.sessionId]);
   useEffect(() => {
     const trigger = anchor.current;
@@ -55,10 +57,10 @@ export function WorkspaceStageContext(props: RegionProps) {
   const active = props.actions.activeStageTab?.();
   const diffActive = active?.kind === "panel" && active.panelId === "review.diff";
   return <div className="workspace-stage-context">
-    <button ref={anchor} type="button" className="stage-tool workspace-project-trigger" aria-label="Project actions" {...tooltipProps("Project actions", { side: "bottom" })} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+    <button ref={anchor} type="button" className="stage-tool workspace-project-trigger" aria-label="Project actions" {...tooltipProps("Project actions", { side: "bottom" })} aria-haspopup={inline ? undefined : "dialog"} aria-expanded={inline?.shown ?? open} onClick={() => inline ? inline.toggle() : setOpen((value) => !value)}>
       <SquareMenu size={16} aria-hidden />
     </button>
-    {open ? <Popover anchor={anchor} align="end" label="Project actions" className="workspace-project-menu" onClose={() => setOpen(false)}>
+    {open && !inline ? <Popover anchor={anchor} align="end" label="Project actions" className="workspace-project-menu" dismissOnFocusOutside onClose={() => setOpen(false)}>
       <WorkspaceTitleActions {...props} hideChanges={diffActive} />
     </Popover> : null}
   </div>;

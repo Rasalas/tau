@@ -27,7 +27,6 @@ import {
   isWorktreeSubmodules,
   WORKSPACE_HOST_EXTENSION_ID,
   WORKSPACE_FILES_PANEL,
-  WORKSPACE_REVIEW_OVERLAY,
   type ChangesSectionProps,
   type CommitMessageSuggester,
   type EditorPosition,
@@ -507,17 +506,17 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   openReview(path?: string, pushPrimary = Boolean(this.state.workspace?.upstream)): void {
     void this.refreshChanges();
     this.update({ pushPrimary, review: { path: path ?? this.state.changes.files[0]?.path, primaryPush: pushPrimary } });
-    // Review Kit fills this overlay (it imports the id from here); without that kit the request is simply unanswered.
-    this.actions?.openOverlay(WORKSPACE_REVIEW_OVERLAY);
+    // The review shares the stage with Files and Terminal.
+    this.actions?.openPanel("review.diff");
   }
 
   selectReviewPath(path: string): void {
-    if (this.state.review) this.update({ review: { ...this.state.review, path } });
+    this.update({ review: { primaryPush: Boolean(this.state.workspace?.upstream), ...this.state.review, path } });
   }
 
   closeReview(): void {
     this.update({ review: undefined });
-    this.actions?.closeOverlay();
+    this.actions?.closePanel?.("review.diff");
   }
 
   focusCommit(): void { this.update({ commitFocusToken: this.state.commitFocusToken + 1 }); }
