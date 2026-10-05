@@ -226,7 +226,7 @@ describe("agents on another machine", () => {
   it("names the machine on the spawn card and opens nothing here", () => {
     const tool = { id: "call-1", name: "tau_spawn_thread", args: { prompt: "x", machine: "rex" }, status: "done", output: JSON.stringify({ threadId: "h1" }), startedAt: 0, endedAt: 1 } as unknown as UiToolRun;
     const card = spawnCardModel([tool], { maxRunning: 8, links: [remote] }, []);
-    expect(card.rows[0]).toMatchObject({ id: "h1", machine: "rex", costUsd: 0.5 });
+    expect(card.rows[0]).toMatchObject({ id: "h1", machine: { id: "rex-id", name: "rex", thread: "rex-t1" }, costUsd: 0.5 });
     expect(card.rows[0]!.threadId).toBeUndefined();
   });
 

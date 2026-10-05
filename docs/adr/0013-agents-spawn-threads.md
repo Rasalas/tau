@@ -278,3 +278,21 @@ seams (`services.sessions.send` and `services.sessions.abort`, API
   `tau_get_thread_status` is not woken for it, and a turn the user started in a
   child is not reported. The follow-up on completion is automatic rather than
   a notice the user confirms; a child started from the panel wakes nobody.
+
+
+## Amendment, 2026-10-05: lineage belongs in the project card
+
+The project card now lists the current thread's agents below Changes. Its rows
+use the same icon size and spacing as the workspace controls. Completed agents
+remain available in a collapsible Previous agents group; status is an icon with
+an accessible name rather than a repeated Done label.
+
+Choosing a local agent switches to its chat. The same card then links back to
+the parent and lists siblings, with the current chat marked. This supersedes
+the earlier decision to make every agent click open a read-only stage tab.
+Remote agents without a local thread retain the existing remote transcript
+route. Persisted parent links still provide navigation after a restart.
+
+The standalone Agents panel and its command are removed. Spawn cards expand
+linked rows inline. Compact clients expose the same lineage from the thread
+header. Agent definitions remain accessible from the lineage heading.

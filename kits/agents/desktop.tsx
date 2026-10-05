@@ -1,40 +1,14 @@
-import { useSyncExternalStore } from "react";
-import { Bot, CornerUpLeft } from "lucide-react";
-import { HostUnavailableError, useThreadStore, useWorkbenchShell, type DesktopExtension, type PanelProps, type RegionProps } from "tau";
-import { AGENTS_HOST_EXTENSION_ID, AGENTS_STATE_EVENT, REMOTE_AGENT_THREADS_SERVICE, SPAWN_TOOL, THREAD_SIBLINGS_SERVICE, isBusyStatus, tauToolName, type ThreadSiblingsService } from "./protocol.js";
-import { AgentsPanel } from "./panel.js";
+import { Bot } from "lucide-react";
+import { HostUnavailableError, type DesktopExtension } from "tau";
+import { AGENTS_HOST_EXTENSION_ID, AGENTS_STATE_EVENT, REMOTE_AGENT_THREADS_SERVICE, SPAWN_TOOL, THREAD_SIBLINGS_SERVICE, tauToolName, type ThreadSiblingsService } from "./protocol.js";
+import { AgentLineage, CompactLineage, type WorkspaceSummaryService } from "./lineage.js";
 import { AGENTS_SETTINGS_PAGE, createAgentsSettingsPage } from "./settings.js";
 import { SpawnCard } from "./spawn-card.js";
 import { AgentsSpine } from "./spine.js";
 import { agentsHost, agentsStore, definitionsStore, lineageOf, remoteAgentThreads, siblingsSource } from "./store.js";
 
-/** The way back from an agent's thread to the thread that started it. */
-export function SpawnedBy({ snapshot, actions }: RegionProps) {
-  const store = useThreadStore();
-  const state = useSyncExternalStore(agentsStore.subscribe, agentsStore.getSnapshot);
-  const navigation = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const link = state?.links.find((entry) => entry.threadId === snapshot?.sessionId);
-  // The thread index carries the link too, so the way back survives a run in
-  // which nothing told this kit about the spawn.
-  const indexed = navigation.threads.find((thread) => thread.id === snapshot?.sessionId)?.parentThreadId;
-  const parentThreadId = link?.parentThreadId ?? indexed;
-  if (!parentThreadId) return null;
-  const parent = navigation.threads.find((thread) => thread.id === parentThreadId);
-  return (
-    <button
-      type="button"
-      className="agent-parent-link"
-      disabled={!parent}
-      onClick={() => { if (parent) void actions.switchSession(parent.path); }}
-    >
-      <CornerUpLeft size={12} aria-hidden="true" />
-      spawned by {parent?.title ?? "another thread"}
-    </button>
-  );
-}
-
 /**
- * Agents Kit's desktop half. The spawned threads live in the Agents stage tab; the navigator only learns which threads are agents,
+ * Agents Kit's desktop half. The spawned threads live in the project card; the navigator only learns which threads are agents,
  * so it can keep them out of the rail and count the working ones (ADR 0013).
  */
 export const agentsExtension: DesktopExtension = {
@@ -65,19 +39,9 @@ export const agentsExtension: DesktopExtension = {
     };
     loadDefinitions(definitionsStore.refresh());
     const offWorkspace = context.events.on("workspace-changed", () => loadDefinitions(definitionsStore.refresh()));
-    const canLookIn = () => Boolean(context.environments?.watchThread);
-    context.registerPanel({
-      id: "agents", label: "Agents", Icon: Bot, order: 40, width: "wide", maximizable: true, threadActions: true, profiles: ["desktop", "web", "compact"],
-      // "Agents 6": the thread on screen's agents that still run or ask, as in the workbench design.
-      useBadge: function useAgentCount() {
-        const threadId = useWorkbenchShell().snapshot?.sessionId;
-        const state = useSyncExternalStore(agentsStore.subscribe, agentsStore.getSnapshot);
-        const open = threadId ? state?.links.filter((link) => link.parentThreadId === threadId && (isBusyStatus(link.status) || link.status === "pending")).length : 0;
-        return open || undefined;
-      },
-      Component: function Agents(props: PanelProps) { return <AgentsPanel {...props} canLookIn={canLookIn} />; },
-    });
-    context.registerRegion({ id: "agents.parent-link", placement: "transcript-header", order: 20, profiles: ["desktop", "web", "compact"], Component: SpawnedBy });
+    context.useService<WorkspaceSummaryService>("tau.workspace/store", (workspace) =>
+      workspace.registerWorkspaceSummarySection?.(AgentLineage, "footer"));
+    context.registerRegion({ id: "agents.lineage-touch", placement: "thread-details", order: 30, profiles: ["compact"], Component: CompactLineage });
     context.registerRegion({ id: "agents.spine", placement: "spine", profiles: ["desktop", "web"], Component: AgentsSpine });
     // A spawn is not a tool call to skim past: the card is the way into the
     // threads it started, so it never folds with the rest of the turn.
@@ -104,13 +68,6 @@ export const agentsExtension: DesktopExtension = {
     context.useService<ThreadSiblingsService>(THREAD_SIBLINGS_SERVICE, (service) => {
       siblingsSource.set(service);
       return () => siblingsSource.set(undefined);
-    });
-    context.registerCommand({
-      id: "agents.open",
-      label: "Show spawned agents",
-      group: "Extensions",
-      access: "read",
-      run: (app) => app.openPanel("agents"),
     });
     context.registerCommand({
       id: "agents.definitions.reload",

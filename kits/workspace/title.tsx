@@ -32,6 +32,7 @@ export function WorkspaceTitleActions(props: RegionProps & { hideChanges?: boole
     {!state.draftPending && !props.hideChanges ? <button type="button" className="workspace-changes-link workspace-card-row workspace-card-changes" {...tooltipProps("Review working-tree changes")} aria-label={`${changed} ${changed === 1 ? "file" : "files"} changed`} onClick={() => workspaceStore.showChangedFiles()}>
       <GitCompare aria-hidden /><span className="workspace-card-label">Changes</span><span className="workspace-card-deltas" aria-label={`Working tree: ${state.changes.added} additions, ${state.changes.removed} deletions`}><span className="added">+{state.changes.added}</span><span className="removed">−{state.changes.removed}</span></span><span className="workspace-card-tail"><ChevronRight size={16} /></span>
     </button> : null}
+    {!state.draftPending ? (state.workspaceSummaryFooterSections ?? []).map((Section, index) => <Section key={index} {...props} />) : null}
   </section>;
 }
 
@@ -40,7 +41,7 @@ export function WorkspaceStageContext(props: RegionProps) {
   const state = useWorkspaceKit();
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
-  useEffect(() => setOpen(false), [state.cwd]);
+  useEffect(() => setOpen(false), [state.cwd, props.snapshot?.sessionId]);
   useEffect(() => {
     const trigger = anchor.current;
     if (!open || !trigger) return undefined;

@@ -331,19 +331,7 @@ export function viewRows(rows: readonly AgentRow[], view: AgentsView, byStatus =
  * thread id comes from the tool's own result, so the card still names its
  * agents after a restart that lost the kit's live state.
  */
-export interface SpawnCardRow {
-  id: string;
-  threadId?: string;
-  /** The session file, present once the thread index knows the thread. */
-  path?: string;
-  title: string;
-  status: AgentThreadStatus;
-  /** The agent definition the call named. */
-  agent?: string;
-  costUsd?: number;
-  /** The machine it runs on, when that is not this computer; it has no thread here to open. */
-  machine?: string;
-}
+export type SpawnCardRow = AgentRow;
 
 /** One count the card shows after its headline. */
 export interface SpawnCardPart {
@@ -423,7 +411,7 @@ export function spawnCardModel(
   const rows = tools.map((tool) => {
     const link = linkFor(tool, links, taken);
     if (link) taken.add(link.id);
-    const machine = link?.machine?.name;
+    const machine = link?.machine;
     const threadId = link?.machine ? undefined : link?.threadId ?? spawnedThreadId(tool);
     const session = threadId ? sessions.get(threadId) : undefined;
     const cost = link?.machine ? link.machine.costUsd : session?.usage?.costUsd;
@@ -435,6 +423,7 @@ export function spawnCardModel(
       ...(threadId ? { threadId } : {}),
       ...(session?.path ? { path: session.path } : {}),
       title: spawnTitle(tool, link, session),
+      ...(link?.model ? { model: link.model } : session?.modelProvider ? { model: `${session.modelProvider}/${session.model ?? ""}` } : {}),
       status,
       ...(agent ? { agent } : {}),
       ...(cost === undefined ? {} : { costUsd: cost }),

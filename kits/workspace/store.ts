@@ -741,9 +741,10 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     return () => this.update({ changesSections: this.state.changesSections.filter((entry) => entry !== section) });
   }
 
-  registerWorkspaceSummarySection(section: ComponentType<RegionProps>): () => void {
-    this.update({ workspaceSummarySections: [...(this.state.workspaceSummarySections ?? []), section] });
-    return () => this.update({ workspaceSummarySections: this.state.workspaceSummarySections?.filter((entry) => entry !== section) });
+  registerWorkspaceSummarySection(section: ComponentType<RegionProps>, position?: "footer"): () => void {
+    const key = position === "footer" ? "workspaceSummaryFooterSections" : "workspaceSummarySections";
+    this.update({ [key]: [...(this.state[key] ?? []), section] });
+    return () => this.update({ [key]: this.state[key]?.filter((entry) => entry !== section) });
   }
 
   registerReviewView(): () => void {

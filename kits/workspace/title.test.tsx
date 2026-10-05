@@ -102,6 +102,17 @@ describe("Workspace Kit title actions", () => {
     expect(screen.queryByRole("button", { name: "Linked request" })).toBeNull();
   });
 
+  it("places lineage contributions after changes and removes them cleanly", () => {
+    const { workspaceStore } = setup();
+    let dispose: () => void;
+    act(() => { dispose = workspaceStore.registerWorkspaceSummarySection(() => <button>Lineage fixture</button>, "footer"); });
+    const card = screen.getByRole("region", { name: "Project workspace" });
+    const lineage = within(card).getByRole("button", { name: "Lineage fixture" });
+    expect(card.querySelector(".workspace-card-changes")!.compareDocumentPosition(lineage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    act(() => dispose());
+    expect(screen.queryByRole("button", { name: "Lineage fixture" })).toBeNull();
+  });
+
   it("keeps editor actions available for a draft whose project is known", () => {
     const { openInEditor } = setup(workspace(), true);
     const open = screen.getByRole("button", { name: "Open" });

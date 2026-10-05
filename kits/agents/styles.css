@@ -154,3 +154,26 @@
 .agents-spine-steps > li.running { color: var(--ink); }
 .agents-spine-agents { margin: 0; }
 .agents-spine-agents > b { font-weight: 400; color: var(--warn); }
+
+/* Lineage shares the project card's 36px rows, 16px icons and 10px gutters. */
+.agent-lineage { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); min-width: 0; }
+.agent-lineage-heading, .agent-lineage-group { padding: 8px 10px; font: 500 var(--text-xs)/1.4 var(--sans); color: var(--muted); }
+.agent-lineage-group { color: var(--faint); }
+.agent-lineage .workspace-card-row { width: 100%; }
+.workspace-summary-card .agent-lineage-row[aria-current="page"] { background: var(--wash); }
+.agent-lineage-row:disabled, .agent-lineage-parent:disabled { opacity: .55; cursor: default; }
+.agent-lineage-provider .provider-icon-stack, .agent-lineage-provider .provider-icon-stack > .provider-icon { width: 16px; height: 16px; }
+.agent-lineage-time { font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.agent-lineage-status > svg, .agent-lineage-status > .spinner { width: 16px; height: 16px; }
+.agent-lineage-status { color: var(--muted); }
+.status-running .agent-lineage-status { color: var(--info); }
+.status-waiting .agent-lineage-status { color: var(--warn); }
+.status-failed .agent-lineage-status { color: var(--danger); }
+.workspace-summary-card .agent-lineage-toggle { color: var(--muted); font-size: var(--text-xs); font-weight: 400; }
+.agent-spawn-list { margin-top: 4px; }
+.agent-spawn-list .agent-lineage-row { display: flex; align-items: center; width: 100%; min-height: 36px; gap: 10px; padding: 0 10px; border: 0; border-radius: 8px; background: none; color: var(--ink-3); font: inherit; text-align: left; }
+.agent-spawn-list .agent-lineage-row:hover { background: var(--hover); }
+
+.agent-lineage-heading { display: flex; align-items: center; justify-content: space-between; min-height: 36px; }
+.agent-lineage-heading > button { display: grid; place-items: center; width: 28px; height: 28px; margin: -6px -4px -6px 0; border: 0; border-radius: 6px; background: none; color: var(--muted); }
+.workspace-summary-card .agent-lineage-toggle[aria-expanded="true"]:not(:hover) { background: transparent; }

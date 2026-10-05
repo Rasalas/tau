@@ -523,6 +523,7 @@ export interface WorkspaceKitState {
   changesSections: ReadonlyArray<ComponentType<ChangesSectionProps>>;
   /** Feature-owned sections of the compact workspace card. */
   workspaceSummarySections?: readonly ComponentType<RegionProps>[];
+  workspaceSummaryFooterSections?: readonly ComponentType<RegionProps>[];
   /** Marks other kits add to rail rows. */
   threadRowAccessories: ReadonlyArray<ComponentType<ThreadRowAccessoryProps>>;
   /** Other kits' states for some threads, by thread id, drawn in place of the row's own. */
@@ -779,7 +780,7 @@ export interface WorkspaceStoreApi {
   registerFileEditor(editor: WorkspaceFileEditor): () => void;
   /** A section drawn at the top of the Changes panel, clean worktree or not. */
   registerChangesSection(section: ComponentType<ChangesSectionProps>): () => void;
-  registerWorkspaceSummarySection?(section: ComponentType<RegionProps>): () => void;
+  registerWorkspaceSummarySection?(section: ComponentType<RegionProps>, position?: "footer"): () => void;
   /** An extension draws the review overlay: the Changes rail entry opens the review instead of its panel. */
   registerReviewView(): () => void;
   stageFile(path: string): Promise<void>;
