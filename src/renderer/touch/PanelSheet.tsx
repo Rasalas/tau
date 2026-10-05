@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { X } from "lucide-react";
 import { PanelSlot } from "../components/PanelHosts";
 import { useFocusReturn } from "../components/ui/focus";
+import { useWorkspaceFileHistory } from "./use-workspace-file-history";
 import { useSheetDrag } from "./sheet-drag";
 
 /**
@@ -11,15 +12,16 @@ import { useSheetDrag } from "./sheet-drag";
  * panel's own scroll is at the top.
  */
 export function PanelSheet({ label, detail, host, onClose }: { label: string; detail?: string | undefined; host: HTMLElement; onClose(): void }) {
+  const close = useWorkspaceFileHistory(label, onClose);
   const surface = useRef<HTMLElement>(null);
   useFocusReturn(true, surface);
-  useSheetDrag(surface, onClose);
+  useSheetDrag(surface, close);
   return <section ref={surface} className="touch-panel-sheet" role="dialog" aria-label={label} tabIndex={-1}>
     <header className="touch-sheet-header">
       <span className="touch-sheet-grip" aria-hidden="true" />
       {/* The thread it is about, under its name (design 2m). */}
       <strong>{label}{detail ? <small>{detail}</small> : null}</strong>
-      <button type="button" className="touch-icon-button" aria-label={`Close ${label}`} onClick={onClose}><X size={18} /></button>
+      <button type="button" className="touch-icon-button" aria-label={`Close ${label}`} onClick={close}><X size={18} /></button>
     </header>
     <PanelSlot host={host} />
   </section>;

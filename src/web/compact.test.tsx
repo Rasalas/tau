@@ -9,6 +9,7 @@ import { setHostClient } from "../renderer/host-client-context";
 import { createFakeHostClient, type FakeHostClient } from "../renderer/test-support/fake-host-client";
 import { createRendererServices } from "../renderer/renderer-services";
 import { createMemoryStorage, getClientStorage, setClientStorage } from "../workbench/client-storage";
+import { phoneReaderFromState, routeFromState } from "../workbench/phone-history";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { WebWorkbench, webClientEnvironment } from "./WebWorkbench";
 
@@ -253,6 +254,25 @@ describe("the web client at 400 px", () => {
     const settings = await screen.findByRole("dialog", { name: "Thread settings" });
     expect(within(settings).getByRole("button", { name: /Thinking.*Medium/ })).toBeTruthy();
     expect(within(footer).queryByText(/\$/u)).toBeNull();
+  });
+
+  it("Back dismisses thread settings before leaving the chat", async () => {
+    const base = bootstrapWith(THREADS);
+    const luna = { provider: "openai-codex", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" };
+    renderCompactClient({ bootstrap: async () => {
+      const boot = await base();
+      return { ...boot, catalog: { ...boot.catalog, models: [luna], model: luna } };
+    } });
+    await openChat();
+    await waitFor(() => expect(routeFromState(window.history.state)).toEqual({ kind: "chat", thread: "t-a" }));
+    fireEvent.click(await screen.findByLabelText("Select model: GPT-5.6 Luna"));
+    await screen.findByRole("dialog", { name: "Thread settings" });
+    await waitFor(() => expect(phoneReaderFromState(window.history.state)?.route).toEqual({ kind: "chat", thread: "t-a" }));
+    window.history.back();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Thread settings" })).toBeNull());
+    expect(screen.getByRole("button", { name: "Back to threads" })).toBeTruthy();
+    window.history.back();
+    await screen.findByRole("region", { name: "Threads" });
   });
 
   it("sends a prompt from the composer at the bottom", async () => {

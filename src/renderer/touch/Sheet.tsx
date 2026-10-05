@@ -2,6 +2,8 @@ import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ArrowLeft, X } from "lucide-react";
 import { Dialog } from "../components/ui/Dialog";
+import { useClientEnvironment } from "../client-environment";
+import { useWorkspaceFileHistory } from "./use-workspace-file-history";
 import { useSheetDrag } from "./sheet-drag";
 import "./sheet.css";
 
@@ -18,8 +20,10 @@ export function Sheet({ title, className, onClose, children, headerActions, pres
   children: ReactNode;
   headerActions?: ReactNode;
 }) {
-  const content = <Dialog label={title} className={`touch-sheet${presentation === "page" ? " mobile-page" : ""}${className ? ` ${className}` : ""}`} onClose={onClose}>
-    <SheetBody headerActions={headerActions} page={presentation === "page"} title={title} onClose={onClose}>{children}</SheetBody>
+  const { profile } = useClientEnvironment();
+  const close = useWorkspaceFileHistory(title, onClose, profile === "compact");
+  const content = <Dialog historyManaged label={title} className={`touch-sheet${presentation === "page" ? " mobile-page" : ""}${className ? ` ${className}` : ""}`} onClose={close}>
+    <SheetBody headerActions={headerActions} page={presentation === "page"} title={title} onClose={close}>{children}</SheetBody>
   </Dialog>;
   return presentation === "page" ? createPortal(content, document.body) : content;
 }

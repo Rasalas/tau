@@ -3,7 +3,7 @@ import { useThreadStore } from "../workbench-context";
 import { useAppPageStore } from "../app-page-context";
 import { PHONE_HOME, type PhoneRoute } from "../../workbench/phone-route";
 import {
-  claimPhoneReaderRoute, closePhoneReader, coordinatePhoneReaderHistory, currentPhoneReader, phoneReaderFromState, stateWithPhoneReader, historySteps, routeFromState, routeFromUrl, routeKey, routePath, sameRoute, stateWithRoute, urlWithRoute, type HistorySteps,
+  currentPhoneReaders, closePhoneReadersAbove, phoneReaderDepth, claimPhoneReaderRoute, closePhoneReader, coordinatePhoneReaderHistory, currentPhoneReader, phoneReaderFromState, stateWithPhoneReader, historySteps, routeFromState, routeFromUrl, routeKey, routePath, sameRoute, stateWithRoute, urlWithRoute, type HistorySteps,
 } from "../../workbench/phone-history";
 import { pageFromUrl, urlWithPage } from "./page-url";
 import { threadFromUrl, threadUrlStep, urlWithThread } from "./thread-url";
@@ -172,15 +172,27 @@ function usePhoneHistory(phone: PhoneRouting | undefined, openThread: (path: str
       const reader = phoneReaderFromState(window.history.state);
       const active = currentPhoneReader();
       if (active) {
-        if (!claimPhoneReaderRoute(active.key, route)) { closePhoneReader(active.key); return; }
+        if (!claimPhoneReaderRoute(active.key, route)) { closePhoneReadersAbove(); reconcileReader(); return; }
         if (reader?.key === active.key && sameRoute(reader.route, route)) { readerShown = active.key; return; }
-        const next = stateWithPhoneReader(window.history.state, { key: active.key, route });
-        if (reader && sameRoute(reader.route, route)) window.history.replaceState(next, "");
-        else window.history.pushState(next, "");
+        const depth = phoneReaderDepth(active.key);
+        if (reader && sameRoute(reader.route, route) && (reader.depth ?? 1) > depth) {
+          pending.current = { back: (reader.depth ?? 1) - depth, push: [] };
+          window.history.go(-pending.current.back);
+          return;
+        }
+        const existingDepth = reader && sameRoute(reader.route, route) ? phoneReaderDepth(reader.key) : 0;
+        for (const [index, layer] of currentPhoneReaders().entries()) {
+          if (index < existingDepth) continue;
+          if (!claimPhoneReaderRoute(layer.key, route)) { closePhoneReadersAbove(); return; }
+          const layerDepth = index + 1;
+          const next = stateWithPhoneReader(window.history.state, { key: layer.key, route, ...(layerDepth > 1 ? { depth: layerDepth } : {}) });
+          if (index === 0 && reader && sameRoute(reader.route, route)) window.history.replaceState(next, "");
+          else window.history.pushState(next, "");
+        }
         readerShown = active.key;
       } else if (reader && sameRoute(reader.route, route)) {
-        pending.current = { back: 1, push: [] };
-        window.history.go(-1);
+        pending.current = { back: reader.depth ?? 1, push: [] };
+        window.history.go(-pending.current.back);
       }
     };
     sync.current = () => {
@@ -189,7 +201,7 @@ function usePhoneHistory(phone: PhoneRouting | undefined, openThread: (path: str
       if (!to || !from || pending.current) return;
       if (sameRoute(from, to)) { reconcileReader(); return; }
       const reader = phoneReaderFromState(window.history.state);
-      const steps = historySteps(from, to, reader?.route);
+      const steps = historySteps(from, to, reader?.route, reader?.depth);
       shown.current = to;
       if (steps.back === 0) { write(steps); reconcileReader(); return; }
       pending.current = steps;
@@ -240,8 +252,8 @@ function usePhoneHistory(phone: PhoneRouting | undefined, openThread: (path: str
       const stampedRoute = routeFromState(event.state);
       const route = stampedRoute ?? routeFromUrl(window.location.href);
       if (!stampedRoute) window.history.replaceState(stateWithRoute(event.state, route), "", urlWithRoute(window.location.href, route));
-      if (readerShown && phoneReaderFromState(event.state)?.key !== readerShown) closePhoneReader(readerShown);
-      readerShown = undefined;
+      if (readerShown && phoneReaderFromState(event.state)?.key !== readerShown) closePhoneReadersAbove(phoneReaderFromState(event.state)?.key);
+      readerShown = currentPhoneReader()?.key;
       shown.current = route;
       apply(route);
     };
