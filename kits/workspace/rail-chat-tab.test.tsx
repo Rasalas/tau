@@ -252,7 +252,7 @@ describe("starting a new thread on a phone", () => {
     const [fab] = await screen.findAllByRole("button", { name: "New thread" });
     fireEvent.click(fab!);
     expect(screen.queryByRole("dialog", { name: "Notes" })).toBeNull();
-    expect(startScreenShown()).toBe(true);
+    expect(await screen.findByRole("heading", { name: /What should we build/ })).toBeTruthy();
     expect(composerFocused()).toBe(true);
   });
 });

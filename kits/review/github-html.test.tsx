@@ -80,6 +80,7 @@ describe("Markdown with GitHub's HTML", () => {
     "forms": "<form action=\"https://e.com\"><input name=\"q\" autofocus onfocus=\"window.xss=1\"><button formaction=\"javascript:alert(1)\">go</button></form>",
     "style and objects": "<style>*{display:none}</style><object data=\"x.swf\"></object><embed src=\"x\"><meta http-equiv=\"refresh\" content=\"0;url=https://e.com\">",
     "details handler": "<details ontoggle=\"window.xss=1\" open><summary onclick=\"window.xss=1\">s</summary>b</details>",
+    "lightbox button spoof": '<button type="button" class="md-image-link" onclick="window.xss=1">spoof</button>',
     "marker spoof": "<tau-md-abc data-i=\"0\" onclick=\"window.xss=1\">t</tau-md-abc>",
     "broken markup": "<a href=\"https://e.com\"><img src=x onerror=window.xss=1 <b>unclosed",
     "comment breakout": "<!-- --><img src=x onerror=window.xss=1> <!-- <script>alert(1)</script> -->",
@@ -89,9 +90,17 @@ describe("Markdown with GitHub's HTML", () => {
     it(`renders ${name} without script, handlers or unsafe URLs`, () => {
       const root = html(`before\n\n${source}\n\ntrailing`);
       // Handler-shaped text is fine; attributes and tags are what must not survive.
-      expect(root.innerHTML).not.toMatch(/javascript:|data:|<script|<svg|<math|<iframe|<form|<input|<button|<style|<object|<embed|<meta|style="position/iu);
+      expect(root.innerHTML).not.toMatch(/javascript:|data:|<script|<svg|<math|<iframe|<form|<input|<button(?! type="button" class="md-image-link")|<style|<object|<embed|<meta|style="position/iu);
       for (const element of root.querySelectorAll("*")) {
-        for (const attribute of element.attributes) expect(attribute.name).toMatch(/^(href|target|rel|src|alt|title|width|height|class|style|colspan|rowspan|start|aria-[a-z]+|data-[a-z-]+|id)$/u);
+        if (element.tagName === "BUTTON") {
+          expect(element.className).toBe("md-image-link");
+          expect(element.getAttribute("type")).toBe("button");
+          expect(element.querySelector(":scope > img")).not.toBeNull();
+        }
+        for (const attribute of element.attributes) {
+          if (attribute.name === "type" && element.matches("button.md-image-link")) continue;
+          expect(attribute.name).toMatch(/^(href|target|rel|src|alt|title|width|height|class|style|colspan|rowspan|start|aria-[a-z]+|data-[a-z-]+|id)$/u);
+        }
       }
       for (const link of root.querySelectorAll("a")) expect(link.getAttribute("href")).toMatch(/^https?:\/\//u);
       for (const image of root.querySelectorAll("img")) expect(image.getAttribute("src")).toMatch(/^https:\/\//u);

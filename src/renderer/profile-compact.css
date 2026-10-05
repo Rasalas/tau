@@ -212,11 +212,6 @@ body[data-profile="compact"] .composer-overflow-anchor { order: -1; }
 .mobile-attachment-menu button { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 52px; border: 0; background: none; color: var(--ink); padding: 10px; font: inherit; text-align: left; }
 
 /* Selection pages fill the phone and retain a visible back action. */
-.touch-sheet.mobile-page { position: fixed; inset: 0; width: 100%; max-width: none; height: var(--tau-viewport-height, 100dvh); max-height: none; border: 0; border-radius: 0; padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px); box-shadow: none; }
-.mobile-page .touch-sheet-body { gap: 0; }
-.mobile-page .touch-sheet-header { display: flex; justify-content: flex-start; gap: 12px; min-height: 68px; padding: 8px 14px; }
-.mobile-page .touch-sheet-header strong { font-size: 22px; font-weight: 500; }
-.mobile-page .touch-sheet-content { padding: 16px; border-radius: 28px 28px 0 0; background: var(--stage); }
 .mobile-page-search, .mobile-model-search { display: flex; align-items: center; width: 100%; min-height: 52px; gap: 12px; margin-bottom: 16px; padding: 0 16px; border: 1px solid var(--line); border-radius: 28px; background: var(--chrome); color: var(--ink); }
 .mobile-model-search input { min-width: 0; width: 100%; border: 0; outline: none; background: none; color: inherit; }
 .mobile-model-search button { display: grid; place-items: center; flex: none; width: 48px; height: 48px; border: 0; background: none; color: var(--muted); }
@@ -249,9 +244,5 @@ body[data-profile="compact"] .app-shell:not(.touch-split):has(.conversation-star
 body[data-profile="compact"] .app-shell:not(.touch-split):has(.conversation-start) .title-bar { box-shadow: none; }
 body[data-profile="compact"] .app-shell:not(.touch-split):has(.conversation-start) .conversation-start-screen { border-radius: 28px 28px 0 0; }
 .mobile-model-unavailable { padding: 14px; color: var(--muted); }
-.mobile-page-actions { display: flex; margin-left: auto; }
-.mobile-page-actions > button { display: grid; place-items: center; width: 48px; height: 48px; border: 0; background: none; color: var(--ink); }
-.touch-sheet.mobile-page .touch-sheet-header > strong { flex: 1; font-size: 22px; font-weight: 500; }
-.touch-sheet.mobile-page .touch-sheet-content { font-size: 16px; }
 .mobile-thread-options { margin-top: 16px; padding: 12px; border-radius: 20px; background: var(--raised); }
 .mobile-thread-options .composer-menu-item { width: 100%; }

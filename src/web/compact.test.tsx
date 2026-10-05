@@ -238,7 +238,7 @@ describe("the web client at 400 px", () => {
     expect(answer?.args).toEqual(["q7", { confirmed: true }]);
   });
 
-  it("keeps the model and its thinking level in the phone's footer, the rest behind its menu", async () => {
+  it("keeps the model in the footer and thinking in thread settings", async () => {
     const base = bootstrapWith(THREADS);
     const luna = { provider: "openai-codex", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" };
     renderCompactClient({ bootstrap: async () => {
@@ -248,7 +248,10 @@ describe("the web client at 400 px", () => {
     await openChat();
     const footer = document.querySelector<HTMLElement>(".composer-toolbar")!;
     expect(within(footer).getByLabelText("Select model: GPT-5.6 Luna").textContent).toContain("GPT-5.6 Luna");
-    expect(within(footer).getByLabelText("Thinking: Medium").textContent).toBe("Medium");
+    expect(within(footer).queryByLabelText("Thinking: Medium")).toBeNull();
+    fireEvent.click(within(footer).getByLabelText("Select model: GPT-5.6 Luna"));
+    const settings = await screen.findByRole("dialog", { name: "Thread settings" });
+    expect(within(settings).getByRole("button", { name: /Thinking.*Medium/ })).toBeTruthy();
     expect(within(footer).queryByText(/\$/u)).toBeNull();
   });
 
@@ -448,9 +451,9 @@ describe("the web client at 400 px", () => {
   });
 });
 
-/** The new thread's sheet (K98): the project in context leads it; a tap starts the draft there. */
+/** The project in context leads the picker; a tap starts the draft there. */
 async function pickFirstProject(expected: string): Promise<HTMLElement> {
-  const sheet = await screen.findByRole("dialog", { name: "New thread in" });
+  const sheet = await screen.findByRole("dialog", { name: "Choose project" });
   const options = within(sheet).getAllByRole("option");
   expect(options[0]!.querySelector("strong")?.textContent).toBe(expected);
   expect(options[0]!.getAttribute("aria-selected")).toBe("true");
@@ -471,15 +474,15 @@ describe("a phone with no thread open", () => {
     expect(document.querySelector(".app-shell")?.hasAttribute("inert")).toBe(true);
   });
 
-  it("asks for the project in a sheet, the one the host last worked in first and / last", async () => {
+  it("offers the current project first in Choose project, with / last", async () => {
     renderHome([], TWO_PROJECTS);
     fireEvent.click(within(await screen.findByRole("region", { name: "Threads" })).getByRole("button", { name: "New thread" }));
-    const sheet = await screen.findByRole("dialog", { name: "New thread in" });
+    const sheet = await screen.findByRole("dialog", { name: "Choose project" });
     expect(sheet.className).toContain("touch-sheet");
     expect(within(sheet).getAllByRole("option").map((option) => option.querySelector("strong")?.textContent)).toEqual(["project", "other", "/"]);
     // The search waits for a tap: a keyboard would cover the list.
-    expect(document.activeElement).not.toBe(within(sheet).getByRole("textbox", { name: "Search projects" }));
-    await pickFirstProject("project");
+    expect(within(sheet).queryByRole("textbox", { name: "Search projects" })).toBeNull();
+    fireEvent.click(within(sheet).getAllByRole("option")[0]!);
     expect(await screen.findByRole("button", { name: "Change project, current project project" })).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Threads" })).toBeNull();
     expect(document.querySelector(".app-shell")?.hasAttribute("inert")).toBe(false);
@@ -491,7 +494,7 @@ describe("a phone with no thread open", () => {
     expect(within(home).getByText("No threads yet")).toBeTruthy();
     fireEvent.click(within(home).getByRole("button", { name: "New thread" }));
     expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();
-    expect(screen.queryByRole("dialog", { name: "New thread in" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Choose project" })).toBeNull();
     // No draft until a project is chosen: the start page stays.
     expect(screen.getByRole("region", { name: "Threads" })).toBeTruthy();
   });
@@ -771,7 +774,7 @@ describe("the compact client on a tablet", () => {
     fireEvent.click(within(sidebar).getByRole("button", { name: "New thread" }));
     await pickFirstProject("project");
     expect(await screen.findByRole("button", { name: "Change project, current project project" })).toBeTruthy();
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "New thread in" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Choose project" })).toBeNull());
 
     fireEvent.click(within(sidebar).getByRole("button", { name: "Filter threads by project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Show threads of" })).getByRole("button", { name: /^other/u }));
@@ -897,7 +900,7 @@ describe("a touch keyboard", () => {
       const client = renderCompactClient();
       await openChat();
       const textarea = await screen.findByRole("textbox");
-      expect(textarea.getAttribute("placeholder")).toBe("Ask anything, or hand it work…");
+      expect(textarea.getAttribute("placeholder")).toBe("Ask anything…");
       // The on-screen keyboard is up (TouchLayer marks it from the visual viewport).
       document.body.setAttribute("data-keyboard", "");
       fireEvent.change(textarea, { target: { value: "ship it", selectionStart: 7 } });

@@ -13,3 +13,14 @@
 @media (prefers-reduced-motion: reduce) { .touch-sheet { animation: none; } }
 .touch-sheet-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
 .touch-sheet-content { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+
+/* Full-page selection on touch clients. */
+.touch-sheet.mobile-page { position: fixed; inset: 0; width: 100%; max-width: none; height: var(--tau-viewport-height, 100dvh); max-height: none; border: 0; border-radius: 0; padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px); box-shadow: none; }
+.mobile-page .touch-sheet-body { gap: 0; }
+.mobile-page .touch-sheet-header { display: flex; justify-content: flex-start; gap: 12px; min-height: 68px; padding: 8px 14px; }
+.mobile-page .touch-sheet-header strong { font-size: 22px; font-weight: 500; }
+.mobile-page .touch-sheet-content { padding: 16px; border-radius: 28px 28px 0 0; background: var(--stage); }
+.mobile-page-actions { display: flex; margin-left: auto; }
+.mobile-page-actions > button { display: grid; place-items: center; width: 48px; height: 48px; border: 0; background: none; color: var(--ink); }
+.touch-sheet.mobile-page .touch-sheet-header > strong { flex: 1; font-size: 22px; font-weight: 500; }
+.touch-sheet.mobile-page .touch-sheet-content { font-size: 16px; }

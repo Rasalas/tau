@@ -37,7 +37,8 @@ it.each(["compact", "web"])("opens host folders from New thread → Add project 
   });
   renderApp(client, { extensions: [workspaceExtension] });
   fireEvent.click(await screen.findByRole("button", { name: "New thread" }));
-  fireEvent.click(await screen.findByRole("button", { name: "Add project…" }));
+  fireEvent.click(await screen.findByRole("button", { name: /^Change project/ }));
+  fireEvent.click(await screen.findByRole("button", { name: "Add project" }));
   fireEvent.click(await screen.findByRole("button", { name: /Local folder/u }));
   await screen.findByRole("option", { name: "tau" });
   expect(screen.queryByRole("button", { name: /Choose a folder/u })).toBeNull();
