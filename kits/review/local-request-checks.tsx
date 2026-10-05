@@ -78,11 +78,11 @@ export function LocalChecks({ scripts, scope }: { scripts: HostExtensionClient; 
   if (error && !state) return <p className="pr-empty">Project Scripts could not list the checks: {error}</p>;
   if (!state) return <p className="pr-empty" role="status">Reading the project's scripts…</p>;
   if (state.scripts.length === 0) {
-    return <p className="pr-empty">No project scripts. Scripts in <code>.tau/project.json</code> show here as the branch's checks.</p>;
+    return <details className="lpr-empty-detail"><summary>Checks <span>Not configured</span></summary><p className="pr-empty">Add project scripts to <code>.tau/project.json</code> to run them here.</p></details>;
   }
   const latest = latestRuns(runs, state.directory);
   return (
-    <div className="lpr-checks" role="list" aria-label="Checks">
+    <><h2>Checks</h2><div className="lpr-checks" role="list" aria-label="Checks">
       {state.scripts.map((script) => {
         const run = latest.get(script.id);
         return (
@@ -104,6 +104,6 @@ export function LocalChecks({ scripts, scope }: { scripts: HostExtensionClient; 
         );
       })}
       {error ? <p className="pr-error" role="alert">{error}</p> : null}
-    </div>
+    </div></>
   );
 }

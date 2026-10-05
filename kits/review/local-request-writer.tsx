@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ImagePlus, Sparkles } from "lucide-react";
+import { ArrowRight, GitBranch, ImagePlus, Sparkles } from "lucide-react";
 import { errorMessage, Markdown, READ_ONLY_REASON, tooltipProps, useCommandAllowed, type PreferencesStore, type WorkbenchActions } from "tau";
 import { chosenWritingModel, followRequestTemplate, writingInstructions } from "./commit-messages.js";
 import { EvidenceThumb } from "./local-request-evidence.js";
@@ -49,7 +49,7 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
   const [writtenBy, setWrittenBy] = useState<string>();
-  const { short, capabilities, noun } = providerInfo(status?.service ?? "github");
+  const { short, capabilities } = providerInfo(status?.service ?? "github");
   const request = status?.request;
   const open: ReviewRequest | undefined = request && (request.state === undefined || request.state === "open") ? request : undefined;
   const media = selected.map((frame): EvidenceMedia => ({ threadId: frame.threadId, source: frame.source, id: frame.id, caption: frame.caption }));
@@ -150,44 +150,48 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
 
   return (
     <div className="lpr-writer">
-      <input className="lpr-title" aria-label={`${short} title`} placeholder="Title" value={form.title} onChange={(event) => onForm({ title: event.target.value })} />
-      <div className="lpr-writer-bar">
-        <button className="mini-button" disabled={Boolean(busy) || !mayWrite} onClick={() => void write()} {...tooltipProps(mayWrite ? `A small model writes the title and description from the commits${media.length ? " and the chosen pictures" : ""}` : READ_ONLY_REASON)}>
-          <Sparkles size={12} aria-hidden="true" /> {form.body.trim() ? "Rewrite description" : "Write description"}
-        </button>
-        <button className="mini-button" disabled={media.length === 0 || Boolean(busy)} onClick={() => onForm({ body: insertEvidence(form.body, media) })} title="Adds the chosen pictures under Screenshots">
-          <ImagePlus size={12} aria-hidden="true" /> Insert {count(media.length)}
-        </button>
-        <span className="spacer" />
-        {writtenBy ? <small className="lpr-note">Written by {writtenBy}</small> : null}
-        <div className="toggle-group" role="tablist" aria-label="Description">
-          <button role="tab" aria-selected={!preview} className={preview ? "" : "active"} onClick={() => setPreview(false)}>Write</button>
-          <button role="tab" aria-selected={preview} className={preview ? "active" : ""} onClick={() => setPreview(true)}>Preview</button>
-        </div>
+      <div className="lpr-target">
+        <GitBranch size={14} aria-hidden /><code title={branch}>{branch ?? "HEAD"}</code><ArrowRight size={14} aria-hidden />
+        <label className="request-base"><span>into</span><input aria-label="Base branch" value={form.base} placeholder={status?.base ?? "main"} onChange={(event) => onForm({ base: event.target.value })} /></label>
       </div>
-      {preview ? (
-        <div className="lpr-preview" aria-label="Description preview">
-          {form.body.trim() ? splitBody(form.body).map((segment, index) => segment.kind === "text"
-            ? <Markdown key={index}>{segment.text}</Markdown>
-            : <figure key={index} className="lpr-figure">
-                {frames.get(evidenceKey(segment.media))
-                  ? <EvidenceThumb frame={frames.get(evidenceKey(segment.media))!} client={client} />
-                  : <span className="lpr-missing">Gone</span>}
-                <figcaption>{segment.media.caption}</figcaption>
-              </figure>) : <p className="pr-empty">Nothing written yet.</p>}
+      <label className="lpr-field-label">Title
+        <input className="lpr-title" aria-label={`${short} title`} placeholder="Title" value={form.title} onChange={(event) => onForm({ title: event.target.value })} /></label>
+      <div className="lpr-description-editor">
+        <div className="lpr-writer-bar">
+          <span className="lpr-description-label">Description</span>
+          <span className="spacer" />
+          <button className="mini-button" disabled={Boolean(busy) || !mayWrite} onClick={() => void write()} {...tooltipProps(mayWrite ? `A small model writes the title and description from the commits${media.length ? " and the chosen pictures" : ""}` : READ_ONLY_REASON)}>
+            <Sparkles size={12} aria-hidden="true" /> {form.body.trim() ? "Rewrite description" : "Write description"}
+          </button>
+          {media.length > 0 ? <button className="mini-button" disabled={Boolean(busy)} onClick={() => onForm({ body: insertEvidence(form.body, media) })} title="Adds the chosen pictures under Screenshots">
+            <ImagePlus size={12} aria-hidden="true" /> Insert {count(media.length)}
+          </button> : null}
+          {form.body.trim() ? <button type="button" className="mini-button" aria-pressed={preview} onClick={() => setPreview((value) => !value)}>{preview ? "Edit" : "Preview"}</button> : null}
         </div>
-      ) : (
-        <textarea className="lpr-body" aria-label={`${short} description`} placeholder={`Describe the ${noun}, or let a small model write it`} value={form.body} onChange={(event) => onForm({ body: event.target.value })} />
-      )}
+        {preview ? (
+          <div className="lpr-preview" aria-label="Description preview">
+            {form.body.trim() ? splitBody(form.body).map((segment, index) => segment.kind === "text"
+              ? <Markdown key={index}>{segment.text}</Markdown>
+              : <figure key={index} className="lpr-figure">
+                  {frames.get(evidenceKey(segment.media))
+                    ? <EvidenceThumb frame={frames.get(evidenceKey(segment.media))!} client={client} />
+                    : <span className="lpr-missing">Gone</span>}
+                  <figcaption>{segment.media.caption}</figcaption>
+                </figure>) : <p className="pr-empty">Nothing written yet.</p>}
+          </div>
+        ) : (
+          <textarea className="lpr-body" aria-label={`${short} description`} placeholder="What changed, and why?" value={form.body} onChange={(event) => onForm({ body: event.target.value })} />
+        )}
+      </div>
+      {writtenBy ? <small className="lpr-note">Written by {writtenBy}</small> : null}
       <div className="lpr-writer-foot">
-        <label className="request-base">into <input aria-label="Base branch" value={form.base} placeholder={status?.base ?? "main"} onChange={(event) => onForm({ base: event.target.value })} /></label>
         {capabilities.draft ? <label className="request-draft"><input type="checkbox" checked={form.draft} onChange={(event) => onForm({ draft: event.target.checked })} /> Draft</label> : null}
         <span className="spacer" />
         {inBody.length > 0 ? <small className="lpr-note">{count(inBody.length)} in the description</small> : null}
         {open ? (
           <>
             <button onClick={() => openPullRequest(actions, open, root)}>Open {short} #{open.number}</button>
-            <button className="primary" disabled={media.length === 0 || Boolean(busy) || !mayAttach} {...tooltipProps(mayAttach ? undefined : READ_ONLY_REASON)} onClick={() => confirm("attach")}>Attach {count(media.length)}…</button>
+            {media.length > 0 ? <button className="primary" disabled={Boolean(busy) || !mayAttach} {...tooltipProps(mayAttach ? undefined : READ_ONLY_REASON)} onClick={() => confirm("attach")}>Attach {count(media.length)}…</button> : null}
           </>
         ) : capabilities.create ? (
           <button className="primary" disabled={!form.title.trim() || Boolean(busy) || Boolean(blocked) || !mayCreate} {...tooltipProps(mayCreate ? blocked : READ_ONLY_REASON)} onClick={() => confirm("create")}>

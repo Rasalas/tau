@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { ChevronLeft, ChevronRight, GitBranch, RefreshCw } from "lucide-react";
+import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { DiffView, errorMessage, useThreadStore, type HostExtensionClient, type PreferencesStore, type StageTabHandle, type UiFileDiff, type UiWorkspaceChanges, type WorkbenchActions } from "tau";
 import { LocalChecks, type ScriptScope } from "./local-request-checks.js";
 import type { LocalRequestClient } from "./local-request-client.js";
@@ -98,7 +98,7 @@ export default function LocalRequestView({ handle, actions, parts }: { handle: S
 
   useEffect(() => { void load(false); }, [load, branchName]);
   useEffect(() => parts.onEvidence(() => { void loadEvidence(); }), [loadEvidence, parts]);
-  useEffect(() => { handle.setTitle(branchName ? `Local PR · ${branchName}` : "Local PR"); }, [branchName, handle]);
+  useEffect(() => { handle.setTitle("Local PR"); }, [handle]);
 
   // The draft of this branch: the text being written and the chosen pictures, kept per checkout and branch.
   const [form, setForm] = useState<LocalForm>({ title: "", body: "", base: "", draft: false });
@@ -132,7 +132,7 @@ export default function LocalRequestView({ handle, actions, parts }: { handle: S
   if (!root) return <div className="stage-empty" role="status">Open a thread in a project to see its branch as a pull request.</div>;
 
   const service = data.status?.service ?? "github";
-  const { short } = providerInfo(service);
+  const { short, noun } = providerInfo(service);
   const commits = data.branch?.commits ?? [];
   const base = form.base.trim() || data.status?.base || data.branch?.base || "";
   const scope: ScriptScope | undefined = actions.activeThread()?.cwd === root && actions.activeThread()?.sessionId ? { sessionId: actions.activeThread()!.sessionId! } : workspaceId ? { workspaceId } : undefined;
@@ -142,24 +142,16 @@ export default function LocalRequestView({ handle, actions, parts }: { handle: S
     <div className="pr-view lpr-view" aria-label={`Local ${short} for ${branchName ?? "this checkout"}`}>
       <header className="pr-head">
         <div className="pr-head-row">
-          <span className="pr-state state-local" title="Nothing of this exists on the host yet">local</span>
-          <span data-tooltip={providerInfo(service).name} aria-label={providerInfo(service).name}><ServiceIcon service={service} width={13} height={13} /></span>
+          <span className="lpr-service"><ServiceIcon service={service} width={14} height={14} />{providerInfo(service).name}</span>
+          <span className="lpr-note">{data.status?.request ? `#${data.status.request.number}` : "Not published"}</span>
           <span className="spacer" />
           <button className="icon-button compact" aria-label="Refresh the local pull request" title="Refresh" disabled={loading} onClick={() => { void store.refresh(); void load(true); }}>
             <RefreshCw size={13} />
           </button>
         </div>
         <div className="pr-fold">
-          <h1 className="pr-title">{form.title.trim() || branchName || "Detached HEAD"}</h1>
-          <div className="pr-branches">
-            <GitBranch size={12} aria-hidden="true" />
-            <span className="pr-ref">{base || "base"}</span>
-            <span aria-hidden="true">←</span>
-            <span className="pr-ref">{branchName ?? "HEAD"}</span>
-            <span className="spacer" />
-            <span>{commits.length} {commits.length === 1 ? "commit" : "commits"}</span>
-            {data.changes ? <><span>{data.changes.files.length} {data.changes.files.length === 1 ? "file" : "files"}</span><span className="stat-add">+{data.changes.added}</span><span className="stat-del">−{data.changes.removed}</span></> : null}
-          </div>
+          <h1 className="pr-title">{data.status?.request ? "Local changes" : `New ${noun}`}</h1>
+
         </div>
       </header>
 
@@ -167,7 +159,7 @@ export default function LocalRequestView({ handle, actions, parts }: { handle: S
         <div className="toggle-group" role="tablist" aria-label="Local pull request sections">
           {(["summary", "commits", "code"] as const).map((entry) => (
             <button key={entry} role="tab" aria-selected={tab === entry} className={tab === entry ? "active" : ""} onClick={() => setTab(entry)}>
-              {entry === "summary" ? "Summary" : entry === "commits" ? `Commits ${commits.length}` : "Code"}
+              {entry === "summary" ? "Summary" : entry === "commits" ? `Commits${commits.length ? ` ${commits.length}` : ""}` : `Code${data.changes?.files.length ? ` ${data.changes.files.length}` : ""}`}
             </button>
           ))}
         </div>
@@ -180,9 +172,9 @@ export default function LocalRequestView({ handle, actions, parts }: { handle: S
         {tab === "summary" ? (
           <div className="lpr-summary">
             {uncommitted > 0 ? (
-              <p className="request-problem" role="note">
-                {uncommitted} {uncommitted === 1 ? "file is" : "files are"} not committed; a {short} takes only commits.{" "}
-                <button className="text-button" onClick={() => actions.openPanel("changes")}>Open Changes</button>
+              <p className="lpr-uncommitted" role="note">
+                <span>{uncommitted} uncommitted {uncommitted === 1 ? "file" : "files"}</span>{" "}
+                <button className="text-button" title={`Only committed changes go into the ${short}`} onClick={() => actions.openPanel("changes")}>Open Changes</button>
               </p>
             ) : null}
             <section className="lpr-section" aria-label="Description">
@@ -191,15 +183,17 @@ export default function LocalRequestView({ handle, actions, parts }: { handle: S
                 onCreated={(status) => { setData((current) => ({ ...current, status })); parts.rows.set(root, status.request); parts.drafts.clear(root, branchName); }} />
             </section>
             <section className="lpr-section" aria-label="Checks">
-              <h2>Checks</h2>
               <LocalChecks scripts={parts.scripts} scope={scope} />
             </section>
             <section className="lpr-section" aria-label="Pictures">
-              <h2>Pictures{frameCount > 0 ? <small> · choose the ones the description shows</small> : null}</h2>
-              {data.evidenceAvailable === false ? <p className="pr-empty">Turn pictures are not available: Evidence Kit is off.</p>
-                : !data.evidence ? <p className="pr-empty" role="status">Looking for pictures…</p>
-                : groups.length === 0 ? <p className="pr-empty">No pictures of this branch's turns. Evidence Kit takes them while an agent works in the Preview or drives a window.</p>
-                : <EvidenceGroups groups={groups} titles={threads} client={parts.client} selected={selected} onToggle={toggle} onOpen={(list, index) => setViewer({ frames: list, index })} />}
+              {groups.length > 0 ? <>
+                <h2>Pictures <small>{frameCount} available · {selected.size} selected</small></h2>
+                <EvidenceGroups groups={groups} titles={threads} client={parts.client} selected={selected} onToggle={toggle} onOpen={(list, index) => setViewer({ frames: list, index })} />
+              </> : <details className="lpr-empty-detail">
+                <summary>Pictures <span>{!data.evidence ? "Loading…" : "None yet"}</span></summary>
+                <p className="pr-empty">{data.evidenceAvailable === false ? "Turn pictures are unavailable because Evidence Kit is off." : "Screenshots from this branch’s turns will appear here."}</p>
+              </details>}
+
             </section>
           </div>
         ) : null}

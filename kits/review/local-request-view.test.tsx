@@ -74,7 +74,7 @@ describe("the local pull request view", () => {
     expect(screen.getAllByRole("button", { name: /^Open picture:/u })).toHaveLength(2);
     expect(await screen.findByText(/Failed \(exit 1\)/u)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Run Test" })).toBeTruthy();
-    expect(handle.setTitle).toHaveBeenCalledWith("Local PR · feature/pr");
+    expect(handle.setTitle).toHaveBeenCalledWith("Local PR");
   });
 
   it("writes the description only on a click, with the chosen pictures, and keeps it as the branch's draft", async () => {
