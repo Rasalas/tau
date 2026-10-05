@@ -12,9 +12,13 @@ export function WorkspaceFileSheet({ tab, source, onClose }: { tab: StageFileTab
   const client = useHostClient();
   const close = useWorkspaceFileHistory(tab.id, onClose);
   const loadFile = useMemo(() => bindWorkspaceFileLoader(source, tab.resourceOrigin), [client, source, tab.resourceOrigin]);
+  const loadMedia = useMemo(() => {
+    const origin = tab.resourceOrigin;
+    return origin && source?.id === origin.sourceId && source.loadMedia ? (path: string) => source.loadMedia!(path, { workspace: origin.workspace }) : undefined;
+  }, [client, source, tab.resourceOrigin]);
   return <Sheet title={tab.path.split("/").at(-1) || "Workspace file"} onClose={close}>
     <FileViewer tab={{ ...tab, view: "source" }} relativePath={tab.path} changed={false}
-      loadFile={loadFile} loadDiff={async () => { throw new Error("This reader shows source only."); }}
+      loadFile={loadFile} loadMedia={loadMedia} loadDiff={async () => { throw new Error("This reader shows source only."); }}
       onChangeView={() => undefined} onOpenInEditor={() => undefined} onClose={close} />
   </Sheet>;
 }

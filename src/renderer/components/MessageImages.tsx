@@ -1,4 +1,7 @@
-import { useEffect, useState } from "react";
+import { useMediaGallery } from "./MediaGallery";
+import { Play } from "lucide-react";
+import { MediaLinkContext } from "./media-link-context";
+import { useContext, useEffect, useState } from "react";
 import type { UiImagePreview, UiMessageImage } from "../../shared/contracts";
 import type { HostClient } from "../../workbench/host-client";
 import { useHostClient } from "../host-client-context";
@@ -7,6 +10,7 @@ import { AttachmentLightbox, Menu } from "../deferred-surfaces";
 import { localImagePaths } from "./MessageText";
 
 export interface AttachmentImage {
+  kind?: "image" | "video";
   key: string;
   src: string;
   alt: string;
@@ -27,11 +31,14 @@ function cachedImagePreview(client: HostClient, path: string): Promise<UiImagePr
   return request;
 }
 
-function MessageImageGallery({ images }: { images: readonly AttachmentImage[] }) {
+export function MessageImageGallery({ images, origin = "from your message" }: { images: readonly AttachmentImage[]; origin?: string }) {
   const platform = usePlatform();
+  const linked = useContext(MediaLinkContext);
   const [contextMenu, setContextMenu] = useState<{ image: AttachmentImage; x: number; y: number }>();
+  const gallery = useMediaGallery(images, !linked);
   const [shown, setShown] = useState<number>();
   if (images.length === 0) return null;
+  if (linked) return <>{images.map((image) => image.kind === "video" ? <video key={image.key} src={image.src} muted playsInline preload="metadata" aria-label={image.alt} /> : <img key={image.key} src={image.src} alt={image.alt} />)}</>;
 
   // The menu gives focus back to the button it was opened from.
   const openContextMenu = (button: HTMLButtonElement, image: AttachmentImage, x: number, y: number) => {
@@ -39,16 +46,18 @@ function MessageImageGallery({ images }: { images: readonly AttachmentImage[] })
     setContextMenu({ image, x, y });
   };
   return (
-    <div className="message-images" data-image-count={images.length}>
+    <span ref={gallery.ref} className="message-images" data-image-count={images.length} data-origin={origin === "from your message" ? "user" : "conversation"}>
       {images.map((image, index) => (
         <button
           className="message-image-button"
+          data-kind={image.kind || "image"}
           key={image.key}
           type="button"
-          aria-label={`Open image ${index + 1}`}
+          aria-label={`Open ${image.kind === "video" ? "video" : "image"} ${index + 1}`}
           aria-haspopup="menu"
-          onClick={() => setShown(index)}
+          onClick={() => gallery.open ? gallery.open(index) : setShown(index)}
           onContextMenu={(event) => {
+            if (image.kind === "video") return;
             event.preventDefault();
             event.stopPropagation();
             openContextMenu(event.currentTarget, image, event.clientX, event.clientY);
@@ -60,7 +69,7 @@ function MessageImageGallery({ images }: { images: readonly AttachmentImage[] })
             openContextMenu(event.currentTarget, image, rect.right, rect.bottom);
           }}
         >
-          <img src={image.src} alt={image.alt} />
+          {image.kind === "video" ? <><video src={image.src} preload="metadata" muted playsInline aria-label={image.alt} /><span className="media-preview-play"><Play size={22} fill="currentColor" /></span></> : <img src={image.src} alt={image.alt} />}
         </button>
       ))}
       {contextMenu ? <Menu
@@ -70,8 +79,8 @@ function MessageImageGallery({ images }: { images: readonly AttachmentImage[] })
         onSelect={() => { void platform.clipboard.writeImage?.(contextMenu.image.src)?.catch(() => undefined); }}
         onClose={() => setContextMenu(undefined)}
       /> : null}
-      {shown !== undefined && images[shown] ? <AttachmentLightbox images={images} index={shown} origin="from your message" onClose={() => setShown(undefined)} /> : null}
-    </div>
+      {shown !== undefined && images[shown] ? <AttachmentLightbox images={images} index={shown} origin={origin} onClose={() => setShown(undefined)} /> : null}
+    </span>
   );
 }
 

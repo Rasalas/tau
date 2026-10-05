@@ -21,7 +21,7 @@ function fixture(load = vi.fn().mockResolvedValue(image())) {
     <HostClientProvider client={host}><WorkbenchContext.Provider value={workbench}>
       <WorkspaceResourceProvider sessionId="thread" workspace={workspace}><Markdown streaming={streaming} html={html}>{text}</Markdown></WorkspaceResourceProvider>
     </WorkbenchContext.Provider></HostClientProvider>;
-  return { load, draw, client };
+  return { load, draw, client, workbench };
 }
 
 function deferred() {
@@ -203,4 +203,47 @@ describe("workspace Markdown images", () => {
     const { getByRole } = render(<Markdown>{"![](.tau-dev/missing.png)"}</Markdown>);
     expect(getByRole("img", { name: /missing.png: .*unavailable/ })).toBeTruthy();
   });
+});
+
+describe("transcript file links", () => {
+  it.each([".tau-dev/screenshot.png", "/repo/screenshot.png", "clips/demo.mp4", "audio/demo.wav", "docs/report.pdf"])("opens %s on the transcript workspace", (path) => {
+    const { draw, workbench } = fixture();
+    const { getByRole } = render(draw(`[Open artifact](${path})`));
+    fireEvent.click(getByRole("link", { name: "Open artifact" }));
+    expect(workbench.openWorkspaceFile).toHaveBeenCalledWith(path, { sessionId: "thread", workspace: "ws-A", sourceId: "workspace" });
+  });
+});
+
+it("opens an embedded image in the lightbox and leaves its file link for the stage", async () => {
+  const { draw, workbench } = fixture();
+  const { getByRole, findByRole } = render(draw("![Screenshot](a.png)\n\n[File](a.png)"));
+  fireEvent.click(await findByRole("button", { name: "Open Screenshot" }));
+  expect(await findByRole("dialog")).toBeTruthy();
+  expect(workbench.openWorkspaceFile).not.toHaveBeenCalled();
+  fireEvent.click(getByRole("button", { name: "Close preview" }));
+  fireEvent.click(getByRole("link", { name: "File" }));
+  expect(workbench.openWorkspaceFile).toHaveBeenCalledOnce();
+});
+
+it("keeps a linked thumbnail a single interactive file link", async () => {
+  const { draw, workbench } = fixture();
+  const { container, getByRole } = render(draw("[![Screenshot](a.png)](a.png)"));
+  await hasImage(container);
+  expect(container.querySelector("a button")).toBeNull();
+  fireEvent.click(getByRole("link", { name: "Screenshot" }));
+  expect(workbench.openWorkspaceFile).toHaveBeenCalledOnce();
+});
+
+it("navigates between an inline video and image in the same message", async () => {
+  const { draw } = fixture();
+  const { findByRole, getByRole } = render(draw("![Recording](https://example.com/clip.mp4)\n\n![Screenshot](a.png)"));
+  await findByRole("button", { name: "Open Screenshot" });
+  fireEvent.click(getByRole("button", { name: "Open video 1" }));
+  const dialog = await findByRole("dialog");
+  expect(dialog.querySelector("video")?.getAttribute("src")).toBe("https://example.com/clip.mp4");
+  fireEvent.click(getByRole("button", { name: "Next media" }));
+  expect(dialog.querySelector(".lightbox-stage img")?.getAttribute("alt")).toBe("Screenshot");
+  expect(dialog.querySelector("video")).toBeNull();
+  fireEvent.click(getByRole("button", { name: "Previous media" }));
+  expect(dialog.querySelector("video")).toBeTruthy();
 });

@@ -59,8 +59,12 @@ function OriginFileViewer({ registry, workspace, ...props }: ComponentProps<type
     if (!origin || source?.id !== origin.sourceId) throw new Error("This thread's workspace files are unavailable on this connection.");
     return source.loadDiff(path, options, { workspace: origin.workspace });
   }, [client, source, origin, props.loadDiff]);
+  const loadMedia = useMemo(() => {
+    const from = origin === undefined ? workspace : origin && origin.sourceId === source?.id ? origin.workspace : undefined;
+    return from && source?.loadMedia ? (path: string) => source.loadMedia!(path, { workspace: from }) : undefined;
+  }, [client, source, origin, workspace]);
   const foreign = origin !== undefined && !actionableStageTab(props.tab, workspace, source?.id);
-  return <FileViewer {...props} loadFile={loadFile} loadDiff={loadDiff} {...(origin !== undefined ? { relativePath: props.tab.path } : {})} {...(foreign ? { changed: false, editor: undefined, commands: [] } : {})} />;
+  return <FileViewer {...props} loadFile={loadFile} loadMedia={loadMedia} loadDiff={loadDiff} {...(origin !== undefined ? { relativePath: props.tab.path } : {})} {...(foreign ? { changed: false, editor: undefined, commands: [] } : {})} />;
 }
 
 export function Stage({

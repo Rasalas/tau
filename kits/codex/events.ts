@@ -149,6 +149,24 @@ function outputOf(item: Item, streamed: string): string {
   }
 }
 
+/** Preserve rich results, including orchestration outputs, instead of keeping only text. */
+function mediaOf(item: Item): NonNullable<UiToolRun["media"]> {
+  if (item.type === "imageView" && typeof item.path === "string") return [{ type: "image", url: item.path }];
+  const content = item.type === "mcpToolCall" ? (item.result as { content?: unknown[] } | undefined)?.content : item.contentItems;
+  if (!Array.isArray(content)) return [];
+  return content.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const value = entry as Record<string, unknown>;
+    const type = value.type === "inputImage" || value.type === "image_url" ? "image" : value.type;
+    if (type !== "image" && type !== "audio" && type !== "video") return [];
+    const url = value.imageUrl ?? value.image_url ?? value.url;
+    const direct = typeof url === "string" ? url : url && typeof url === "object" ? (url as { url?: unknown }).url : undefined;
+    if (typeof direct === "string") return [{ type, url: direct }];
+    if (typeof value.data === "string" && typeof value.mimeType === "string") return [{ type, url: `data:${value.mimeType};base64,${value.data}` }];
+    return [];
+  });
+}
+
 function failed(item: Item): boolean {
   if (item.status === "failed" || item.status === "declined") return true;
   if (item.type === "dynamicToolCall" && item.success === false) return true;
@@ -245,7 +263,8 @@ export class CodexTurnTranslator {
     this.running.delete(item.id);
     const output = bounded(outputOf(item, this.streamed.get(item.id) ?? ""));
     this.streamed.delete(item.id);
-    const ended: UiToolRun = { ...tool, status: failed(item) ? "error" : "done", ...(output ? { output } : {}), endedAt: this.now() };
+    const media = mediaOf(item);
+    const ended: UiToolRun = { ...tool, ...(media.length ? { media } : {}), status: failed(item) ? "error" : "done", ...(output ? { output } : {}), endedAt: this.now() };
     return [...(started ? [] : [...this.closeSegment(), { type: "tool-start" as const, tool }]), { type: "tool-end", tool: ended }];
   }
 

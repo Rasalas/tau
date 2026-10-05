@@ -1,3 +1,4 @@
+import { ToolMedia } from "./ToolMedia";
 import { ChevronRight, CircleAlert, Clock, Hammer } from "lucide-react";
 import { memo, useContext, useEffect, useMemo, useRef } from "react";
 import { CompletedWorkContext } from "./CompletedWork";
@@ -253,5 +254,5 @@ export const WorkGroup = memo(function WorkGroup({
     ...(onCopyOutput ? { onCopyOutput } : {}),
     ...(onLoadOutput ? { onLoadOutput } : {}),
   };
-  return <>{rows.map((row) => <WorkRowView key={row.id} row={row} context={context} />)}</>;
+  return <>{rows.map((row) => <WorkRowView key={row.id} row={row} context={context} />)}{tools.filter((tool) => tool.media?.length).map((tool) => <ToolMedia key={tool.id} tool={tool} />)}</>;
 });

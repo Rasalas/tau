@@ -470,9 +470,11 @@ export function turnActivityHistoryFromMessages(messages: unknown[]): UiTurnActi
       const tool = active.tools[toolIndex];
       const output = textFromContent(message.content);
       const preview = boundedToolOutput(output);
+      const images = imagesFromContent(message.content);
       active.tools[toolIndex] = {
         ...tool,
         name: message.toolName ?? tool.name,
+        ...(images.length ? { media: images.map((image) => ({ type: "image" as const, url: `data:${image.mimeType};base64,${image.data}` })) } : {}),
         status: message.isError ? "error" : "done",
         output: preview,
         ...(preview !== output ? { outputTruncated: true, fullOutputAvailable: true } : {}),

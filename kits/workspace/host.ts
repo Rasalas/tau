@@ -10,6 +10,8 @@ import {
   HostCommandError,
   isWorkspaceRelativePath,
   linkedFilePath,
+  shareableType,
+  respondSharedFile,
   type DiffLoadOptions,
   type FileNode,
   type HostExtension,
@@ -381,6 +383,15 @@ export function createWorkspaceHostExtension(): HostExtension {
       }, { access: "read" });
       // A clicked transcript link is a host filesystem read, not a Git/workspace operation.
       // Require its origin even for absolute paths; never substitute the active project.
+      context.registerCommand("publish-linked-media", async (input) => {
+        if (!services.browserResources) throw new Error("This host does not support media resources.");
+        const project = await services.knownWorkspacePath(requiredString(input, "workspace"));
+        const path = await realpath(resolve(project, linkedFilePath(requiredString(input, "path"))));
+        const mimeType = shareableType(path);
+        if (!mimeType) throw new Error("This file has no supported media preview.");
+        if (!(await stat(path)).isFile()) throw new Error("Not a file.");
+        return { path: services.browserResources.publish((request) => respondSharedFile(path, mimeType, request.headers.get("range"))), mimeType };
+      }, { access: "read" });
       context.registerCommand("read-linked-file", async (input) => {
         const workspace = requiredString(input, "workspace");
         const project = await services.knownWorkspacePath(workspace);

@@ -5,7 +5,7 @@ import { withClientTurnIdentity } from "./client-turn-ledger.js";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
 import type { MessageMappingOptions } from "./host-messages.js";
-import { assistantError, boundedToolOutput, mapMessage, nextVisibleMessageId, resultText } from "./host-messages.js";
+import { imagesFromContent, assistantError, boundedToolOutput, mapMessage, nextVisibleMessageId, resultText } from "./host-messages.js";
 import { assistantAnchorForBranch } from "./session-entries.js";
 import { isThreadRuntime, ThreadRuntime } from "./thread-runtime.js";
 import type { LiveTurnState } from "./live-turn-state.js";
@@ -211,6 +211,7 @@ function finishTool(event: any, thread: LiveTurnState, sessionId: string, cwd: s
     args: (previous?.args ?? {}) as Record<string, unknown>,
     status: event.isError ? "error" : "done",
     output: preview,
+    ...toolImageResult(event.result?.content),
     ...(preview !== output ? { outputTruncated: true, fullOutputAvailable: true } : {}),
     startedAt: previous?.startedAt ?? Date.now(),
     endedAt: Date.now(),
@@ -220,4 +221,9 @@ function finishTool(event: any, thread: LiveTurnState, sessionId: string, cwd: s
   thread.tools.delete(tool.id);
   services.releaseTool(tool.id);
   services.log("tool.ended", `${event.toolName}:${tool.status}`);
+}
+
+function toolImageResult(content: unknown): Pick<UiToolRun, "media"> {
+  const images = imagesFromContent(content);
+  return images.length ? { media: images.map((image) => ({ type: "image", url: `data:${image.mimeType};base64,${image.data}` })) } : {};
 }

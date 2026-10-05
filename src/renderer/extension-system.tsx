@@ -1380,6 +1380,8 @@ export interface DocumentSourceContribution extends ProfileScoped {
   id: string;
   /** The stage names the project its tabs were stored for, which a draft's may be. */
   loadFile(path: string, from?: DocumentOrigin): Promise<UiFileContent>;
+  /** Stream media of an explicit originating workspace. Release when its viewer closes. API 1.52.0. */
+  loadMedia?(path: string, from: DocumentOrigin & { workspace: string }): Promise<{ url: string; mimeType: string; release?: () => void }>;
   /** Publish a workspace fragment as an opaque sandbox on this connection; release when unmounted. */
   loadVisualization?(path: string, from: DocumentOrigin & { workspace: string }, theme?: "light" | "dark"): Promise<{ url: string; release?: () => void }>;
   /** Read a transcript link on its host, including absolute paths and paths outside the workspace. Requires an explicit origin. */

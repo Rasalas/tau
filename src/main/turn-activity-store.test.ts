@@ -111,3 +111,9 @@ describe("TurnActivityStore", () => {
     expect(await store.load("../evil")).toHaveLength(1);
   });
 });
+
+it("keeps tool images after restarting", async () => {
+  const media = [{ type: "image" as const, url: "data:image/png;base64,AQ==" }];
+  await new TurnActivityStore({ directory }).save("media", turn("turn", "completed", [run("image", "done", { media })]));
+  expect((await new TurnActivityStore({ directory }).load("media"))[0]?.tools[0]?.media).toEqual(media);
+});

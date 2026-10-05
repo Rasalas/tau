@@ -385,3 +385,19 @@ describe("Workspace Kit host extension", () => {
     expect(listing.workspace.displayPath).toBe(listing.path);
   });
 });
+
+it("streams linked video from its named workspace with seek ranges", async () => {
+  const active = await workspace();
+  const origin = await workspace();
+  await writeFile(join(origin, "clip.mp4"), "0123456789");
+  const handlers: Array<(request: Request) => Promise<Response>> = [];
+  const registry = await activated(active, {
+    knownWorkspacePath: async (id) => { if (id !== "origin") throw new Error("Unknown workspace"); return origin; },
+    browserResources: { publish: (handler) => { handlers.push(handler); return "/resources/clip"; }, release: () => undefined, publishVisualization: () => "" },
+  });
+  expect(await registry.invoke("tau.workspace", "publish-linked-media", { path: "clip.mp4", workspace: "origin" })).toEqual({ path: "/resources/clip", mimeType: "video/mp4" });
+  const response = await handlers[0]!(new Request("https://host/resources/clip", { headers: { Range: "bytes=2-5" } }));
+  expect(response.status).toBe(206);
+  expect(await response.text()).toBe("2345");
+  await expect(registry.invoke("tau.workspace", "publish-linked-media", { path: "clip.mp4", workspace: "unknown" })).rejects.toThrow("Unknown workspace");
+});

@@ -153,7 +153,14 @@ export interface UiTaskProgressEntry {
   progress: UiTaskProgress;
 }
 
+export interface UiToolMedia {
+  type: "image" | "audio" | "video";
+  /** Safe data/HTTP URL, or a file on the thread's home machine. */
+  url: string;
+}
+
 export interface UiToolRun {
+  media?: readonly UiToolMedia[];
   id: string;
   name: string;
   args: Record<string, unknown>;

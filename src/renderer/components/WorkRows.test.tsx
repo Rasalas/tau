@@ -1,3 +1,4 @@
+import { TestProviders } from "../test-support/test-providers";
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -337,4 +338,12 @@ describe("when the turn ends", () => {
     view.rerender(turn({ id: "turn-b", tools: [run("3", "ls")], disclosures }));
     expect(screen.getByRole("button", { name: /Worked for/u }).getAttribute("aria-expanded")).toBe("false");
   });
+});
+
+it("keeps a tool image visible outside the collapsed work log and opens its lightbox", async () => {
+  const media = [{ type: "image" as const, url: "data:image/png;base64,AQ==" }];
+  render(<TestProviders><WorkGroup id="image-turn" tools={[run("image", "capture", { media })]} registry={registryWith()} detail="focused" /></TestProviders>);
+  expect(screen.getByRole("button", { name: /Worked for/u }).getAttribute("aria-expanded")).toBe("false");
+  fireEvent.click(screen.getByRole("button", { name: "Open image 1" }));
+  expect(await screen.findByRole("dialog")).toBeTruthy();
 });

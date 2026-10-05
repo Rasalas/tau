@@ -1,3 +1,4 @@
+import { FileMedia, isPlayableFile, type MediaLoader } from "./FileMedia";
 import { useEffect, useState } from "react";
 import { ExternalLink, FileWarning, WrapText } from "lucide-react";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff } from "../../shared/workspace-kit-types";
@@ -18,7 +19,7 @@ export function missingReason(message: string): "project" | "file" | undefined {
   return /\bENOENT\b/u.test(message) ? "file" : undefined;
 }
 
-export function FileViewer({ tab, relativePath, changed, stat, editor, commands = [], actions, loadFile, loadDiff, onChangeView, onOpenInEditor, onClose }: {
+export function FileViewer({ tab, relativePath, changed, stat, editor, commands = [], actions, loadFile, loadMedia, loadDiff, onChangeView, onOpenInEditor, onClose }: {
   tab: StageFileTab;
   relativePath: string;
   /** The working tree differs from HEAD for this file, so a diff exists. */
@@ -29,6 +30,7 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
   /** Commands an extension offers on the `file-tab` surface; they read the tab from `actions.activeStageTab()`. */
   commands?: readonly CommandContribution[];
   actions?: WorkbenchActions;
+  loadMedia?: MediaLoader;
   loadFile(path: string): Promise<UiFileContent>;
   loadDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
   onChangeView(view: StageView): void;
@@ -45,6 +47,7 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
     let cancelled = false;
     setContent(undefined);
     setError(undefined);
+    if (isPlayableFile(relativePath)) return;
     // The source reads paths inside the project; a tab opened by its absolute path is one too.
     loadFile(relativePath).then(
       (next) => { if (!cancelled) setContent(next); },
@@ -94,6 +97,7 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
     </header>
     {view === "diff"
       ? <DiffPane path={relativePath} mode={mode} wrap={wrap} loadDiff={loadDiff} />
+      : isPlayableFile(relativePath) ? <FileMedia path={relativePath} load={loadMedia} />
       : error
         ? <Empty
           icon={<FileWarning size={20} />}

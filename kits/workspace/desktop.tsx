@@ -177,6 +177,16 @@ export const workspaceExtension: DesktopExtension = {
           throw error;
         }
       },
+      loadMedia: async (path, from) => {
+        if (!context.host.resourceUrl) throw new Error("This client does not support media resources.");
+        const resource = await context.host.invoke("publish-linked-media", { path, workspace: from.workspace }) as { path: string; mimeType: string };
+        try {
+          return { url: context.host.resourceUrl(resource.path), mimeType: resource.mimeType, release: () => { void host.releaseVisualization(resource.path).catch(() => undefined); } };
+        } catch (error) {
+          await host.releaseVisualization(resource.path).catch(() => undefined);
+          throw error;
+        }
+      },
       loadLinkedFile: (path, from) => host.readLinkedFile(path, from.workspace),
       loadDiff: (relPath, options, from) => host.getFileDiff(relPath, options, from?.workspace ?? store.workspace()),
       openInEditor: (relPath) => void store.openInEditor(relPath),

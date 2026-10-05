@@ -4676,3 +4676,11 @@ project. Each invocation allocates an independent workspace. Optional
 `UiSession.projectless` marks these sessions explicitly; a remote backend maps
 it to `HostBackendThreadRecord.project.listed: false`. Missing metadata preserves
 legacy project discovery rather than treating an unknown project as private.
+
+### Transcript media (API 1.52.0)
+
+`UiToolRun.media` retains image, audio and video results as `{ type, url }` entries. The transcript shows these outside the collapsed work log. Image previews open the existing lightbox. Runtime adapters retain these entries when translating tool results; persisted turn activity retains them across restarts.
+
+A document source may implement `loadMedia(path, { workspace })`, returning `{ url, mimeType, release? }`. File links in a transcript use its workspace identity, including when the selected project differs. The stage and compact file reader call `release` when the preview closes or changes. Workspace Kit serves audio, video and PDFs over connection-scoped browser resources, including byte ranges for seeking.
+
+Host extensions can reuse `shareableType(path)` and `respondSharedFile(path, mimeType, rangeHeader)` from `tau/host-extension`. The latter streams an **already authorized** file: callers must resolve and authorize the originating workspace and path before publishing a resource. It performs no authorization itself.

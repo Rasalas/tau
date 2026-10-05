@@ -146,3 +146,13 @@ describe("a usage limit", () => {
     expect(codexLimitReset(undefined, now)).toBeUndefined();
   });
 });
+
+describe("tool media", () => {
+  it.each([
+    { type: "dynamicToolCall", tool: "exec", contentItems: [{ type: "image", imageUrl: "data:image/png;base64,AQ==" }] },
+    { type: "mcpToolCall", server: "screen", tool: "capture", result: { content: [{ type: "image", mimeType: "image/png", data: "AQ==" }] } },
+  ])("preserves images from $type", (item) => {
+    const events = new CodexTurnTranslator().push("item/completed", { item: { ...item, id: "image", status: "completed" } });
+    expect(events.at(-1)).toMatchObject({ type: "tool-end", tool: { media: [{ type: "image", url: "data:image/png;base64,AQ==" }] } });
+  });
+});

@@ -7,6 +7,10 @@ import { StreamingMarkdownBlocks } from "./markdown-blocks";
 import { parseMarkdown, renderMarkdown, type MarkdownComponents, type MarkdownHtml } from "./markdown-pipeline";
 export type { MarkdownComponents } from "./markdown-pipeline";
 import { WorkbenchContext } from "../workbench-context";
+import { useWorkspaceResources, transcriptFilePath } from "../workspace-resource-context";
+import { MediaLinkContext } from "./media-link-context";
+import { WorkspaceVideo, isVideoPath } from "./WorkspaceVideo";
+import { MediaGallery } from "./MediaGallery";
 import { WorkspaceImage } from "./WorkspaceImage";
 import { InlineVisualization } from "./InlineVisualization";
 import { splitVisualizationMarkers } from "./visualization-markers";
@@ -302,6 +306,18 @@ function FileChip({ path, name }: { path: string; name: string }) {
   return <button type="button" className="md-file-link" aria-label={`Open ${path}`} onClick={() => openFile(path.replace(/^\.\//u, ""))}>{chip}</button>;
 }
 
+function FileLink({ href, children }: { href?: string; children?: ReactNode }) {
+  const resources = useWorkspaceResources();
+  const local = href && !/^(?:[A-Za-z][A-Za-z0-9+.-]*:|\/\/|#|\?)/u.test(href);
+  return <a href={href} target={local ? undefined : "_blank"} rel="noreferrer noopener" onClick={local && resources ? (event) => {
+    event.preventDefault();
+    let path = href;
+    try { path = decodeURIComponent(href); } catch { /* Keep malformed paths readable in the file error. */ }
+    try { resources.openFile(transcriptFilePath(path, resources.displayPath)); }
+    catch { resources.openFile(path); }
+  } : undefined}><MediaLinkContext.Provider value>{children}</MediaLinkContext.Provider></a>;
+}
+
 type CodeChild = ReactElement<{ className?: string; children?: ReactNode }>;
 
 // A host path with a directory and an extension, or a bare common source filename.
@@ -317,6 +333,7 @@ export function inlineCodeFile(text: string): string | undefined {
 
 const COMPONENTS: MarkdownComponents = {
   img({ src, alt, title, width, height }) {
+    if (typeof src === "string" && isVideoPath(src)) return <WorkspaceVideo src={src} alt={alt} />;
     return <WorkspaceImage src={typeof src === "string" ? src : undefined} alt={alt} title={title} width={width} height={height} />;
   },
   // `pre` owns fenced blocks; the nested `code` is read for its text and language
@@ -335,7 +352,7 @@ const COMPONENTS: MarkdownComponents = {
     return <FileChip path={children as string} name={name} />;
   },
   a({ href, children }) {
-    return <a href={href} target="_blank" rel="noreferrer noopener">{children}</a>;
+    return <FileLink href={href}>{children}</FileLink>;
   },
   table({ children }) {
     return <div className="md-table-scroll"><table>{children}</table></div>;
@@ -452,9 +469,9 @@ const MarkdownContent = memo(function MarkdownContent({ children, streaming = fa
 /** Content references render as independent block surfaces, never raw HTML in a paragraph. */
 export const Markdown = memo(function Markdown(props: { children: string; streaming?: boolean; inlineStart?: boolean; html?: MarkdownHtml; components?: MarkdownComponents }) {
   const parts = useMemo(() => splitVisualizationMarkers(props.children, props.streaming), [props.children, props.streaming]);
-  if (parts.length === 1 && parts[0]?.type === "markdown") return <MarkdownContent {...props} />;
-  return <>{parts.map((part, index) => part.type === "markdown"
+  if (parts.length === 1 && parts[0]?.type === "markdown") return <MediaGallery><MarkdownContent {...props} /></MediaGallery>;
+  return <MediaGallery>{parts.map((part, index) => part.type === "markdown"
     ? <MarkdownContent key={index} {...props} inlineStart={false}>{part.source}</MarkdownContent>
     : part.type === "visualization" ? <InlineVisualization key={index} reference={part.reference} />
-      : <div key={index} role="status">Preparing visualization…</div>)}</>;
+      : <div key={index} role="status">Preparing visualization…</div>)}</MediaGallery>;
 });

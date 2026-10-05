@@ -129,3 +129,5 @@ export async function tryProcessLock(path: string, owner: import("./process-lock
 }
 
 export { findProjectForSession } from "../shared/session-project.js";
+
+export { shareableType, respondSharedFile } from "./shared-files.js";

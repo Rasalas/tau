@@ -20,7 +20,7 @@ export interface TranscriptActivity {
 export function completedWorkMetadata(tools: readonly UiToolRun[], status: UiTurnActivityEntry["status"], hasCard: (tool: UiToolRun) => boolean, keepOpen: boolean) {
   const completed = status === "completed" || status === "error";
   return {
-    foldWithTurn: completed && tools.every((tool) => tool.status !== "running" && !hasCard(tool)
+    foldWithTurn: completed && tools.every((tool) => tool.status !== "running" && !hasCard(tool) && !tool.media?.length
       && !/ask_user|request_takeover|approval|question/iu.test(tool.name)),
     keepTurnOpen: keepOpen,
     preventTurnFold: !completed || tools.some((tool) => tool.status === "running"),

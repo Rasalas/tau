@@ -55,3 +55,18 @@ body[data-profile="compact"] .lightbox-nav { left: 12px; }
 body[data-profile="compact"] .lightbox-nav.next { left: auto; right: 12px; }
 body[data-profile="compact"] .lightbox-foot { flex-wrap: wrap; padding: 8px 12px; }
 body[data-profile="compact"] .lightbox-foot > span { width: 100%; margin: 0; text-align: center; }
+
+.lightbox-stage > video { display: block; max-width: 100%; max-height: 100%; border-radius: 10px; background: var(--media-well); }
+.lightbox-thumb:has(svg) { display: grid; place-items: center; color: var(--media-ink); }
+
+.lightbox-head { background: linear-gradient(var(--scrim-deep), transparent); }
+.lightbox-action { width: 28px; height: 28px; padding: 0; justify-content: center; border-radius: 8px; }
+.lightbox-action:disabled { opacity: .35; cursor: default; }
+.lightbox-zoom-controls { display: flex; align-items: center; gap: 2px; }
+.lightbox-zoom-value { width: 42px; text-align: center; color: var(--media-muted); font-variant-numeric: tabular-nums; font-size: 11px; }
+.lightbox-stage { padding-inline: 72px; }
+.lightbox-action:focus-visible, .lightbox-close:focus-visible, .lightbox-thumb:focus-visible { outline: 2px solid var(--media-ink); outline-offset: 2px; }
+body[data-profile="compact"] .lightbox-zoom-controls,
+body[data-profile="compact"] .lightbox-copy { display: none; }
+body[data-profile="compact"] .lightbox-stage { padding-inline: 12px; }
+@media (prefers-reduced-motion: reduce) { .lightbox-stage > img { transition: none; } }

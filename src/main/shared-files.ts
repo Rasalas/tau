@@ -92,28 +92,33 @@ export class SharedFileStore {
     const match = parsed.host === "files" ? TOKEN_PATH.exec(parsed.pathname) : null;
     const entry = match ? this.entries.get(match[1]!) : undefined;
     if (!entry) return notFound();
-    let size: number;
-    try { size = (await stat(entry.path)).size; } catch { return notFound(); }
-    const headers: Record<string, string> = {
-      "Content-Type": entry.mimeType,
-      "Accept-Ranges": "bytes",
-      "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff",
-    };
-    // An SVG opened as a document runs no script and reaches nothing.
-    if (entry.mimeType === "image/svg+xml") headers["Content-Security-Policy"] = "sandbox; default-src 'none'; style-src 'unsafe-inline'";
-    const range = parseRange(rangeHeader, size);
-    if (range === "invalid") {
-      return new Response(null, { status: 416, headers: { ...headers, "Content-Range": `bytes */${size}` } });
-    }
-    if (!range) {
-      return new Response(size === 0 ? null : body(entry.path, 0, size - 1), { status: 200, headers: { ...headers, "Content-Length": String(size) } });
-    }
-    return new Response(body(entry.path, range.start, range.end), {
-      status: 206,
-      headers: { ...headers, "Content-Length": String(range.end - range.start + 1), "Content-Range": `bytes ${range.start}-${range.end}/${size}` },
-    });
+    return respondSharedFile(entry.path, entry.mimeType, rangeHeader);
   }
+}
+
+/** Streams an already authorized host file, including media seek ranges. */
+export async function respondSharedFile(path: string, mimeType: string, rangeHeader?: string | null): Promise<Response> {
+  let size: number;
+  try { size = (await stat(path)).size; } catch { return notFound(); }
+  const headers: Record<string, string> = {
+    "Content-Type": mimeType,
+    "Accept-Ranges": "bytes",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+  };
+  // An SVG opened as a document runs no script and reaches nothing.
+  if (mimeType === "image/svg+xml") headers["Content-Security-Policy"] = "sandbox; default-src 'none'; style-src 'unsafe-inline'";
+  const range = parseRange(rangeHeader, size);
+  if (range === "invalid") {
+    return new Response(null, { status: 416, headers: { ...headers, "Content-Range": `bytes */${size}` } });
+  }
+  if (!range) {
+    return new Response(size === 0 ? null : body(path, 0, size - 1), { status: 200, headers: { ...headers, "Content-Length": String(size) } });
+  }
+  return new Response(body(path, range.start, range.end), {
+    status: 206,
+    headers: { ...headers, "Content-Length": String(range.end - range.start + 1), "Content-Range": `bytes ${range.start}-${range.end}/${size}` },
+  });
 }
 
 function notFound(): Response {
