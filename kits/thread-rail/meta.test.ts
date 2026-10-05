@@ -15,7 +15,6 @@ import {
   pinPatch,
   railSections,
   linkedRequestThreads,
-  requestCheckouts,
   settlePatch,
   snoozePatch,
   snoozePresets,
@@ -148,15 +147,15 @@ describe("the sweep", () => {
 
   it("wakes snoozes that ran out and knows when the next one does", () => {
     const meta = state({ due: { snoozedUntil: NOW - 1 }, later: { snoozedUntil: NOW + 500 } });
-    expect(sweepPatches([], meta, new Set(), new Map(), NOW)).toEqual({ due: { snoozedUntil: null } });
+    expect(sweepPatches([], meta, new Set(), NOW)).toEqual({ due: { snoozedUntil: null } });
     expect(nextWake(meta, NOW)).toBe(NOW + 500);
     expect(applyPatches(meta, { later: snoozePatch(NOW + 100) }).threads.later).toEqual({ snoozedUntil: NOW + 100 });
   });
 
   it("settles a thread quiet for longer than the setting allows, and nothing while the setting is off", () => {
     const threads = [quiet("old", 4), quiet("fresh", 1)];
-    expect(sweepPatches(threads, state({}), new Set(), new Map(), NOW)).toEqual({});
-    const patches = sweepPatches(threads, state({}, { inactiveDays: 3 }), new Set(), new Map(), NOW);
+    expect(sweepPatches(threads, state({}), new Set(), NOW)).toEqual({});
+    const patches = sweepPatches(threads, state({}, { inactiveDays: 3 }), new Set(), NOW);
     expect(Object.keys(patches)).toEqual(["old"]);
     expect(patches.old).toMatchObject({ settledAt: NOW, settledBy: "inactive" });
   });
@@ -169,7 +168,7 @@ describe("the sweep", () => {
       kept: { keptAt: NOW - DAY_MS },
       worked: { keptAt: NOW - 20 * DAY_MS, activityAt: NOW - 10 * DAY_MS },
     }, { inactiveDays: 3 });
-    expect(Object.keys(sweepPatches(threads, meta, new Set(["running"]), new Map(), NOW))).toEqual(["worked"]);
+    expect(Object.keys(sweepPatches(threads, meta, new Set(["running"]), NOW))).toEqual(["worked"]);
   });
 
   it("settles on a merged request by default, on a closed one only when asked, and never twice for the same request", () => {
@@ -179,37 +178,34 @@ describe("the sweep", () => {
       ["/checkouts/closed", { state: "closed" as const, url: "https://example.test/pr/2" }],
       ["/checkouts/open", { state: "open" as const, url: "https://example.test/pr/3" }],
     ]);
-    const defaults = sweepPatches(threads, state({}), new Set(), requests, NOW);
+    const links = new Map([...requests].map(([path, request]) => [path.split("/").at(-1)!, [request]]));
+    expect(sweepPatches(threads, state({}), new Set(), NOW)).toEqual({});
+    const defaults = sweepPatches(threads, state({}), new Set(), NOW, links);
     expect(defaults).toEqual({ merged: { ...settlePatch(NOW, "pr-merged"), settledForRequest: "https://example.test/pr/1" } });
-    expect(Object.keys(sweepPatches(threads, state({}, { onClosed: true }), new Set(), requests, NOW))).toEqual(["merged", "closed"]);
+    expect(Object.keys(sweepPatches(threads, state({}, { onClosed: true }), new Set(), NOW, links))).toEqual(["merged", "closed"]);
     const again = state({ merged: { keptAt: NOW - 5, activityAt: NOW, settledForRequest: "https://example.test/pr/1" } });
-    expect(sweepPatches(threads, again, new Set(), requests, NOW)).toEqual({});
+    expect(sweepPatches(threads, again, new Set(), NOW, links)).toEqual({});
   });
 
-  it("counts a thread's linked requests beside its branch's, and waits for the last one", () => {
+  it("waits for every linked request and never falls back to an unlinked branch", () => {
     const threads = [quiet("linked", 0, "/project"), quiet("mixed", 0, "/worktrees/mixed"), quiet("closed", 0, "/project")];
-    const requests = new Map([["/worktrees/mixed", { state: "merged" as const, url: "https://example.test/pr/1" }]]);
     const linked = new Map([
       ["linked", [{ state: "merged" as const, url: "https://example.test/pr/5" }]],
       ["mixed", [{ state: "open" as const, url: "https://example.test/pr/2" }]],
       ["closed", [{ state: "closed" as const, url: "https://example.test/pr/3" }, { url: "https://example.test/pr/4" }]],
     ]);
-    expect(sweepPatches(threads, state({}, { onClosed: true }), new Set(), requests, NOW, linked)).toEqual({
+    expect(sweepPatches(threads, state({}, { onClosed: true }), new Set(), NOW, linked)).toEqual({
       linked: { ...settlePatch(NOW, "pr-merged"), settledForRequest: "https://example.test/pr/5" },
     });
     const allClosed = new Map([["closed", [{ state: "closed" as const, url: "https://example.test/pr/3" }]]]);
-    // Without its open link, "mixed" goes by its branch's merged request alone.
-    expect(Object.keys(sweepPatches(threads, state({}), new Set(), requests, NOW, allClosed))).toEqual(["mixed"]);
-    expect(Object.keys(sweepPatches(threads, state({}, { onClosed: true }), new Set(), requests, NOW, allClosed))).toEqual(["mixed", "closed"]);
+    // An unlinked branch request must never settle a thread.
+    expect(Object.keys(sweepPatches(threads, state({}), new Set(), NOW, allClosed))).toEqual([]);
+    expect(Object.keys(sweepPatches(threads, state({}, { onClosed: true }), new Set(), NOW, allClosed))).toEqual(["closed"]);
     expect(linkedRequestThreads(threads, state({}), new Set(["mixed"]), NOW)).toEqual(["linked", "closed"]);
     expect(linkedRequestThreads(threads, state({}, { onMerged: false }), new Set(), NOW)).toEqual([]);
   });
 
-  it("asks about the request only of a thread that has its checkout to itself", () => {
-    const threads = [quiet("a", 0, "/project"), quiet("b", 0, "/project"), quiet("tree", 0, "/worktrees/tree"), quiet("busy", 0, "/worktrees/busy")];
-    expect(requestCheckouts(threads, state({}), new Set(["busy"]), NOW)).toEqual(["/worktrees/tree"]);
-    expect(requestCheckouts(threads, state({}, { onMerged: false }), new Set(), NOW)).toEqual([]);
-  });
+
 });
 
 describe("snooze presets", () => {
@@ -247,7 +243,7 @@ describe("archive and undo", () => {
   });
 
   it("never settles an archived thread by a rule", () => {
-    const patches = sweepPatches([{ id: "old", cwd: "/old", modifiedAt: NOW - 9 * DAY_MS }], state({ old: { archivedAt: NOW - DAY_MS } }, { inactiveDays: 1 }), new Set(), new Map(), NOW);
+    const patches = sweepPatches([{ id: "old", cwd: "/old", modifiedAt: NOW - 9 * DAY_MS }], state({ old: { archivedAt: NOW - DAY_MS } }, { inactiveDays: 1 }), new Set(), NOW);
     expect(patches).toEqual({});
   });
 

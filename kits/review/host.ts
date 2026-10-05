@@ -61,6 +61,25 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
       context.registerCommand("file-diff", (input) => context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, "file-diff", input), { access: "read" });
       const sources = createSourceControl(context, options);
       const workspace = (command: string, input?: unknown) => context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, command, input);
+      context.registerCommand("thread-publication", async (input) => {
+        const id = text(record(input).threadId);
+        const thread = (await services.sessions.list()).find((entry) => entry.sessionId === id);
+        if (!thread) return null;
+        const publication = await workspace("published-head", { workspace: thread.cwd }) as { commit: string; target: string; remote: string } | null;
+        if (!publication) return null;
+        const provider = sources.get(await sources.detect(publication.remote));
+        const repo = provider.repository(publication.remote);
+        let url: string | undefined;
+        if (repo) {
+          const root = `https://${repo.host}/${repo.repo}`;
+          const sha = encodeURIComponent(publication.commit);
+          if (provider.kind === "gitlab") url = `${root}/-/commit/${sha}`;
+          else if (provider.kind === "bitbucket") url = `${root}/commits/${sha}`;
+          else if (provider.kind === "azure-devops") url = provider.requestUrl(repo, 1).replace(/\/pullrequest\/1$/u, `/commit/${sha}`);
+          else if (provider.kind === "github" || provider.kind === "forgejo") url = `${root}/commit/${sha}`;
+        }
+        return { commit: publication.commit, target: publication.target, ...(url ? { url } : {}) };
+      }, { access: "read", long: true });
       let links: ThreadLinks | undefined;
       // A revert opened from a request's view belongs to the thread it was opened from.
       registerRequestMedia(context, sources);

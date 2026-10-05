@@ -171,12 +171,13 @@ describe("Thread Rail host", () => {
       sessions,
       modified: { "/sessions/quiet.jsonl": NOW - 10 * DAY_MS, "/sessions/shared.jsonl": NOW, "/sessions/merged.jsonl": NOW, "/sessions/busy.jsonl": NOW - 10 * DAY_MS },
       review,
+      linked: () => ({ merged: [{ url: "https://example.test//worktrees/merged", state: "merged" }] }),
     });
     await invoke("settings", { inactiveDays: 3 });
     observers[0]!.accepted?.("busy", "turn", { deferBefore: false });
 
     const state = await invoke("sweep");
-    expect(review.mock.calls.map((call) => call[0])).toEqual(["/worktrees/merged"]);
+    expect(review).not.toHaveBeenCalled();
     expect(state.threads.quiet).toMatchObject({ settledBy: "inactive" });
     expect(state.threads.merged).toMatchObject({ settledBy: "pr-merged", settledForRequest: "https://example.test//worktrees/merged" });
     expect(state.threads.shared).toBeUndefined();
@@ -200,7 +201,8 @@ describe("Thread Rail host", () => {
   it("refreshes and settles merged work when a turn ends, without waiting for the periodic sweep", async () => {
     const { invoke, observers } = await harness({
       sessions: [session("done", "/worktrees/done")],
-      review: (_workspace, input) => ({ request: { url: "https://example.test/pr/42", state: input.fresh ? "merged" : "open" } }),
+      review: () => ({}),
+      linked: () => ({ done: [{ url: "https://example.test/pr/42", state: "merged" }] }),
     });
     observers[0]!.accepted?.("done", "turn", { deferBefore: false });
     expect((await invoke("sweep")).threads.done?.settledAt).toBeUndefined();
@@ -227,7 +229,8 @@ describe("Thread Rail host", () => {
     const integrated = vi.fn(() => integration);
     const { invoke, observers } = await harness({
       sessions: [session("done", "/worktrees/done")],
-      review: () => ({ request: { url: "https://example.test/pr/42", state: "merged" } }),
+      review: () => ({}),
+      linked: () => ({ done: [{ url: "https://example.test/pr/42", state: "merged" }], continued: [{ url: "https://example.test/pr/42", state: "merged" }] }),
       integrated,
     });
     // Even same-millisecond activity must invalidate the old integration result.
@@ -247,7 +250,8 @@ describe("Thread Rail host", () => {
     const integrated = vi.fn(() => integration);
     const { invoke, observers } = await harness({
       sessions: [session("continued", "/worktrees/continued")],
-      review: () => ({ request: { url: "https://example.test/pr/42", state: "merged" } }),
+      review: () => ({}),
+      linked: () => ({ done: [{ url: "https://example.test/pr/42", state: "merged" }], continued: [{ url: "https://example.test/pr/42", state: "merged" }] }),
       integrated,
     });
     const sweeping = invoke("sweep");

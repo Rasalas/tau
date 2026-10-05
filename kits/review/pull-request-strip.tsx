@@ -1,6 +1,9 @@
+import { SettlementStrip } from "./settlement-strip.js";
+import type { SettlementSource } from "./settlement.js";
+import { PublicationStrip } from "./publication-strip.js";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { CircleCheck, CircleDashed, CircleX, X } from "lucide-react";
-import { MiddleTruncate, getClientStorage, tooltipProps, type DesktopExtensionContext, type RegionProps } from "tau";
+import { getClientStorage, tooltipProps, type DesktopExtensionContext, type RegionProps } from "tau";
 import { REVIEW_HOST_EXTENSION_ID, providerInfo, type PullRequestCheck } from "./protocol.js";
 import { checksPipelines } from "./pipeline.js";
 import { PipelineMini, usePipelineFacts } from "./pipeline-view.js";
@@ -15,12 +18,14 @@ import { ServiceIcon } from "./service-icon.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
 
 export interface StripParts {
+  settlement?: SettlementSource;
   rows: RowRequests;
   links: ThreadLinkRows;
   preferences: DesktopExtensionContext["preferences"];
   dismissals?: StripDismissals;
   /** Reads the checks for the mini pipeline; without it the chip shows the row's counts. */
   client?: PullRequestClient;
+  host?: DesktopExtensionContext["host"];
 }
 
 /** As often as the open request's view asks while checks run. */
@@ -109,14 +114,16 @@ export default function PullRequestStrip({ snapshot, actions, parts }: RegionPro
   const linked = useSyncExternalStore(links.subscribe, () => links.get(threadId));
   const eligible = preferences.optionValue(REVIEW_HOST_EXTENSION_ID, STRIP_OPTION, true) !== false
     && Boolean(threadId && !thread?.draftPending && (snapshot?.isStreaming || (snapshot?.messages?.length ?? 0) > 0));
-  const found = stripRequests(branch, linked);
+  const found = stripRequests(linked.some((entry) => entry.url === branch?.url) ? branch : undefined, linked);
   const dismissed = Boolean(found && threadId && dismissals.isHidden(threadId, found.primary));
   const watching = eligible && !dismissed;
   useRequestLifecycle(rows, links, watching && tracked ? cwd : undefined, watching ? threadId : undefined);
   useEffect(() => { if (watching && tracked && cwd) rows.ensure(cwd); }, [watching, tracked, cwd, snapshot?.projectLabel]);
   useEffect(() => { if (watching && threadId) links.ensure(threadId); }, [watching, threadId]);
 
-  if (!watching || !threadId || !found) return null;
+  const settledNote = threadId ? <SettlementStrip source={parts.settlement} threadId={threadId} /> : null;
+  if (!watching || !threadId) return settledNote;
+  if (!found) return <div className="review-thread-outcome"><PublicationStrip host={parts.host} threadId={threadId} streaming={Boolean(snapshot?.isStreaming)} />{settledNote}</div>;
   const { primary, others } = found;
   const info = providerInfo(primary.service);
   const state = STATE_WORDS[primary.state];
@@ -131,13 +138,13 @@ export default function PullRequestStrip({ snapshot, actions, parts }: RegionPro
   ].filter(Boolean).join(", ");
   const open = (focus?: "checks") => openPullRequest(actions, { url: primary.url, number: primary.number, provider: primary.service }, cwd, focus);
   return (
-    <div className={`review-pr-strip state-${primary.state}`}>
+    <div className="review-thread-outcome"><div className={`review-pr-strip state-${primary.state}`}>
       <button type="button" className="review-pr-strip-open" aria-label={label} onClick={() => open()}>
         <RequestStateIcon state={primary.state} size={14} className="review-pr-strip-glyph" />
         <span className="review-pr-strip-number" {...tooltipProps(primary.title)}>#{primary.number}</span>
         <span className="review-pr-strip-service" {...tooltipProps(where ? `${info.name} · ${where}` : info.name)}><ServiceIcon service={primary.service} /></span>
-        {primary.repo ? <span className="review-pr-strip-repo">{primary.repo.split("/").at(-1)}</span> : null}
-        {primary.headRef ? <MiddleTruncate className="review-pr-strip-branch" value={primary.headRef} {...tooltipProps(primary.headRef, { variant: "code" })} /> : null}
+        <span className="review-pr-strip-title">{primary.title ?? primary.repo}</span>
+        <span className="review-pr-strip-state">{state}</span>
         <span className="review-pr-strip-fill" />
         {others.length > 0 ? <span className="review-pr-strip-more" {...tooltipProps(others.map(otherLine).join("\n"), { variant: "lines" })}>+{others.length}</span> : null}
         {primary.state === "open" ? <StripChecks request={primary} client={parts.client} open={() => open("checks")} /> : null}
@@ -146,6 +153,6 @@ export default function PullRequestStrip({ snapshot, actions, parts }: RegionPro
         onClick={() => dismissals.hide(threadId, primary)}>
         <X size={14} aria-hidden="true" />
       </button>
-    </div>
+    </div>{settledNote}</div>
   );
 }

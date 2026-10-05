@@ -12,7 +12,7 @@ import type { PullRequestDetail, ThreadPullRequestLink } from "./protocol.js";
 const directories: string[] = [];
 afterEach(async () => { for (const path of directories.splice(0)) await rm(path, { recursive: true, force: true }); });
 
-async function fixture() {
+async function fixture(discovery?: { sessions: unknown[]; branch: string; state: "open" | "merged" }) {
   const directory = await mkdtemp(join(tmpdir(), "tau-review-links-"));
   directories.push(directory);
   const url = "https://github.com/acme/shop-api/pull/5";
@@ -24,8 +24,11 @@ async function fixture() {
     let links!: ThreadLinks;
     const registry = await activateHostKit({
       id: "tau.review", name: "Review", permissions: ["sessions", "runtime:extend"],
-      activate(context) { links = registerThreadLinks(context, reads, async () => undefined, {} as SourceControl); },
-    }, { stateDir: directory });
+      activate(context) { links = registerThreadLinks(context, reads, async () => discovery ? { root: "/work", branch: discovery.branch, base: "main", remote: { url: "https://github.com/acme/shop-api.git" } } : undefined, {
+        detect: async () => "github",
+        get: () => ({ repository: () => ({ host: "github.com", repo: "acme/shop-api" }), missing: () => undefined, current: async () => ({ url, number: 5, state: discovery?.state, headRef: discovery?.branch, baseRef: "main", title: "Tablet" }) }),
+      } as unknown as SourceControl); },
+    }, { stateDir: directory, ...(discovery ? { sessions: { list: async () => discovery.sessions } as never } : {}) });
     return { links, registry };
   };
   return { directory, url, detail, reads, start };
@@ -65,4 +68,27 @@ describe("a local review's linked request", () => {
     expect((await restarted.links.review(["thread"], "fix/tablet", "new-tip"))?.tip).toBe("submitted-tip");
     restarted.links.dispose();
   });
+});
+
+
+it("persists a discovered open PR and respects unlinking across restarts", async () => {
+  const fixtureData = await fixture({ sessions: [{ sessionId: "thread", cwd: "/work" }], branch: "feature/tablet", state: "open" });
+  const first = await fixtureData.start();
+  expect(await first.registry.invoke("tau.review", "thread-links", { threadId: "thread" })).toEqual([expect.objectContaining({ source: "discovered", state: "open", url: fixtureData.url })]);
+  await first.registry.invoke("tau.review", "unlink-pr", { threadId: "thread", url: fixtureData.url });
+  first.links.dispose();
+  const second = await fixtureData.start();
+  expect(await second.registry.invoke("tau.review", "thread-links", { threadId: "thread" })).toEqual([]);
+  second.links.dispose();
+});
+
+it.each([
+  { branch: "feature/tablet", state: "merged" as const, sessions: [{ sessionId: "thread", cwd: "/work" }] },
+  { branch: "main", state: "open" as const, sessions: [{ sessionId: "thread", cwd: "/work" }] },
+  { branch: "feature/tablet", state: "open" as const, sessions: [{ sessionId: "thread", cwd: "/work" }, { sessionId: "other", cwd: "/work" }] },
+])("does not infer ownership from old PRs, default branches or shared checkouts: %j", async (discovery) => {
+  const data = await fixture(discovery);
+  const started = await data.start();
+  expect(await started.registry.invoke("tau.review", "thread-links", { threadId: "thread" })).toEqual([]);
+  started.links.dispose();
 });

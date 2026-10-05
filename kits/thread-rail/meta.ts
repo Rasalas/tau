@@ -270,18 +270,6 @@ export interface SweepRequest {
   url: string;
 }
 
-/**
- * The checkouts whose request the sweep has to ask about: only a thread that
- * has its checkout to itself (a worktree thread), because a shared checkout's
- * branch says nothing about which of its threads the request belongs to.
- */
-export function requestCheckouts(threads: readonly SweepThread[], state: RailState, running: ReadonlySet<string>, now: number): string[] {
-  if (!state.settings.onMerged && !state.settings.onClosed) return [];
-  const count = new Map<string, number>();
-  for (const thread of threads) count.set(thread.cwd, (count.get(thread.cwd) ?? 0) + 1);
-  return [...new Set(threads.filter((thread) => count.get(thread.cwd) === 1 && eligible(thread, state, running, now)).map((thread) => thread.cwd))];
-}
-
 function lastActivity(thread: SweepThread, meta: ThreadMeta | undefined): number | undefined {
   const times = [thread.modifiedAt, meta?.activityAt].filter((value): value is number => value !== undefined);
   return times.length > 0 ? Math.max(...times) : undefined;
@@ -302,8 +290,8 @@ export function linkedRequestThreads(threads: readonly SweepThread[], state: Rai
 }
 
 /**
- * Whether a thread's requests all ended, and how: its branch's request and
- * every request it links. One still open, or one whose state is unknown,
+ * Whether a thread's stored requests all ended, and how.
+ * One still open, or one whose state is unknown,
  * keeps the thread active.
  */
 function requestsEnded(requests: readonly SweepRequest[], onMerged: boolean, onClosed: boolean): { reason: "pr-merged" | "pr-closed"; key: string } | undefined {
@@ -322,7 +310,6 @@ export function sweepPatches(
   threads: readonly SweepThread[],
   state: RailState,
   running: ReadonlySet<string>,
-  requests: ReadonlyMap<string, SweepRequest>,
   now: number,
   linked: ReadonlyMap<string, readonly SweepRequest[]> = new Map(),
 ): Record<string, ThreadMetaPatch> {
@@ -335,8 +322,7 @@ export function sweepPatches(
   for (const thread of threads) {
     if (!eligible(thread, woken, running, now)) continue;
     const meta = woken.threads[thread.id];
-    const own = requests.get(thread.cwd);
-    const ended = requestsEnded([...(own ? [own] : []), ...linked.get(thread.id) ?? []], Boolean(onMerged), Boolean(onClosed));
+    const ended = requestsEnded(linked.get(thread.id) ?? [], Boolean(onMerged), Boolean(onClosed));
     if (ended && ended.key !== meta?.settledForRequest) {
       patches[thread.id] = { ...patches[thread.id], ...settlePatch(now, ended.reason), settledForRequest: ended.key };
       continue;

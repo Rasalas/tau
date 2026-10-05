@@ -33,6 +33,14 @@ export class RailStore implements ThreadSiblingsService {
       ?? this.displayed.find((thread) => thread.id === threadId);
   }
 
+  private noteClaims = new Map<string, number>();
+  noteClaimed(threadId: string): boolean { return (this.noteClaims.get(threadId) ?? 0) > 0; }
+  claimNote = (threadId: string): (() => void) => {
+    this.noteClaims.set(threadId, (this.noteClaims.get(threadId) ?? 0) + 1);
+    this.changed();
+    return () => { const count = (this.noteClaims.get(threadId) ?? 1) - 1; if (count) this.noteClaims.set(threadId, count); else this.noteClaims.delete(threadId); this.changed(); };
+  };
+
   getState = (): RailState => this.state;
   getVersion = (): number => this.version;
   subscribe = (listener: () => void): (() => void) => {

@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import { HostCommandError, type HostExtensionContext, type HostMcpTool, type RuntimeSessionInfo } from "tau/host-extension";
-import { THREAD_LINKS_EVENT, THREAD_RAIL_EXTENSION_ID, type BranchReviewRequest, type PullRequestRef, type ThreadPullRequestLink } from "./protocol.js";
+import { THREAD_LINKS_EVENT, THREAD_RAIL_EXTENSION_ID, type BranchReviewRequest, type PullRequestRef, type ThreadPullRequestLink, type ReviewRequestContext } from "./protocol.js";
 import { LOCAL_REVIEWS_EVENT } from "./local-reviews.js";
 import type { SourceControl } from "./provider-registry.js";
 import type { PullRequestReads } from "./pull-request-host.js";
@@ -105,12 +105,40 @@ export function registerThreadLinks(
     return result;
   };
 
+  const discoveredAt = new Map<string, number>();
+  const discover = async (threadId: string, force = false) => {
+    if (!force && Date.now() - (discoveredAt.get(threadId) ?? 0) < REFRESH_MS) return;
+    discoveredAt.set(threadId, Date.now());
+    try {
+      const sessions = await services.sessions.list();
+      const thread = sessions.find((entry) => entry.sessionId === threadId);
+      // A shared checkout does not tell us which conversation owns its PR.
+      if (!thread || thread.parentThreadId || sessions.filter((entry) => !entry.parentThreadId && entry.cwd === thread.cwd).length !== 1) return;
+      const git = await workspace("review-request-context", { workspace: thread.cwd }) as ReviewRequestContext;
+      if (!git?.branch || !git.remote || git.branch === git.base) return;
+      const provider = sources.get(await sources.detect(git.remote.url));
+      const target = provider.repository(git.remote.url);
+      if (!target || provider.missing()) return;
+      const request = await provider.current({ ...target, cwd: git.root, branch: git.branch, fresh: force });
+      // Never adopt an old merged request merely because its branch name was reused.
+      if (!request || request.state !== "open" || request.headRef !== git.branch) return;
+      const ref = parseRequestUrl(request.url);
+      if (!ref || !await store.allowsDiscovery(threadId, ref)) return;
+      const result = await store.link(threadId, ref, "discovered", {
+        title: request.title, state: request.state, draft: request.draft, headRef: request.headRef,
+        baseRef: request.baseRef, refreshedAt: Date.now(),
+      });
+      if (!result.alreadyLinked) changed(threadId);
+    } catch { /* Discovery is optional; explicit links remain available offline. */ }
+  };
+
   const stale = (entry: ThreadPullRequestLink) => {
     if (entry.state === "merged" && entry.headSha) return false;
     return Date.now() - (entry.refreshedAt ?? 0) > (entry.state === "closed" ? CLOSED_REFRESH_MS : REFRESH_MS);
   };
 
   const refresh = async (threadId: string, force: boolean) => {
+    await discover(threadId, force);
     const links = await store.list(threadId);
     const due = links.filter((entry) => force || stale(entry));
     const results = await Promise.all(due.map(async (entry) => {
@@ -129,6 +157,7 @@ export function registerThreadLinks(
 
   context.registerCommand("thread-links", async (input) => {
     const threadId = threadOf(input);
+    await discover(threadId);
     const mode = record(input).refresh;
     if (mode === true || mode === "force") await refresh(threadId, mode === "force");
     return store.list(threadId);

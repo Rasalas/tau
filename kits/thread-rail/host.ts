@@ -21,7 +21,6 @@ import {
   linkedRequestThreads,
   nextWake,
   pinPatch,
-  requestCheckouts,
   settlePatch,
   sweepPatches,
   unsettlePatch,
@@ -128,7 +127,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         wakeTimer = undefined;
         const next = nextWake(homeState(), clock());
         if (next === undefined) return;
-        wakeTimer = setTimeout(() => change(sweepPatches([], homeState(), running, new Map(), clock())), Math.min(MAX_TIMER_MS, Math.max(0, next - clock())));
+        wakeTimer = setTimeout(() => change(sweepPatches([], homeState(), running, clock())), Math.min(MAX_TIMER_MS, Math.max(0, next - clock())));
         wakeTimer.unref?.();
       };
       const commit = (next: StoredState) => {
@@ -175,20 +174,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
               return { id: session.sessionId, cwd: session.cwd, ...(at === undefined ? {} : { modifiedAt: at }) };
             }));
             const threads = threadIds ? allThreads.filter((thread) => threadIds.has(thread.id)) : allThreads;
-            const checkouts = new Set(threads.map((thread) => thread.cwd));
-            const requests = new Map<string, SweepRequest>();
-            for (const cwd of requestCheckouts(allThreads, local, running, clock()).filter((checkout) => checkouts.has(checkout))) {
-              try {
-                // Sequential on purpose: each answer may run `gh` or `glab`.
-                // oxlint-disable-next-line no-await-in-loop
-                const answer = record(await context.invokeHostExtension(REVIEW_EXTENSION_ID, "pr-status", { workspace: cwd, ...(fresh ? { fresh: true } : {}) }));
-                const request = record(answer.request);
-                if (typeof request.url === "string") requests.set(cwd, { url: request.url, ...(typeof request.state === "string" ? { state: request.state as SweepRequest["state"] } : {}) });
-              } catch {
-                // No Review Kit, no CLI, no remote: that checkout has no request to go by.
-              }
-            }
-            // Every thread's linked requests too; one still open keeps its thread active.
+            // Only stored thread links can settle work; discovery persists links before returning them.
             const linked = new Map<string, SweepRequest[]>();
             const asked = linkedRequestThreads(threads, local, running, clock());
             if (asked.length > 0) {
@@ -201,12 +187,12 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
                   if (known.length > 0) linked.set(id, known);
                 }
               } catch {
-                // An older Review Kit, or none: the branch's request is all there is to go by.
+                // No readable links means no evidence for PR-based settlement.
               }
             }
             // A past PR is not proof that follow-up work in the checkout landed.
             // Unknown Git state keeps the thread active; the idle rule is independent.
-            const patches = sweepPatches(threads, local, running, requests, clock(), linked);
+            const patches = sweepPatches(threads, local, running, clock(), linked);
             const integration = new Map<string, Promise<boolean>>();
             const keepActive = (id: string) => {
               const until = local.threads[id]?.snoozedUntil;

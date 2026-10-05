@@ -383,7 +383,7 @@ describe("Thread Rail on the desktop", () => {
     expect(view.container.textContent).toBe("");
     act(() => push({ threads: { b: { settledAt: 3, settledBy: "user" } }, settings: { onMerged: true, onClosed: false } }));
     expect(view.getByRole("status").textContent).toContain("This thread is settled");
-    act(() => view.getByRole("button", { name: "Un-settle" }).click());
+    act(() => view.getByRole("button", { name: "Reopen" }).click());
     expect(calls("patch").at(-1)).toEqual({ patches: { b: expect.objectContaining({ settledAt: null, settledBy: null }) } });
     expect(view.container.textContent).toBe("");
   });

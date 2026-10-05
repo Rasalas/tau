@@ -1,3 +1,4 @@
+import { publishedHead } from "./published-head.js";
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -422,4 +423,25 @@ describe("picking a side per conflicting hunk", () => {
     expect(parseConflictText("no markers\n")).toBeUndefined();
     expect(parseConflictText("<<<<<<< ours\nopen")).toBeUndefined();
   });
+});
+
+
+it("proves a direct push against the actual remote and hides dirty or unpublished work", async () => {
+  const repo = await repository();
+  const origin = join(repo.root, "origin.git");
+  repo.run(repo.root, "init", "--bare", "-q", origin);
+  repo.run(repo.cwd, "remote", "add", "origin", origin);
+  repo.run(repo.cwd, "push", "origin", "main");
+  const original = repo.run(repo.cwd, "rev-parse", "HEAD");
+  const dir = repo.worktree("feature/publication");
+  await repo.commit(dir, "b.txt", "published work");
+  expect(await publishedHead(dir)).toBeUndefined();
+  repo.run(dir, "push", "origin", "HEAD:main");
+  expect(await publishedHead(dir)).toEqual({ commit: repo.run(dir, "rev-parse", "HEAD"), target: "origin/main", remote: origin });
+  await writeFile(join(dir, "dirty.txt"), "pending");
+  expect(await publishedHead(dir)).toBeUndefined();
+  await rm(join(dir, "dirty.txt"));
+  // Simulate a remote rollback without updating this checkout's tracking ref.
+  repo.run(origin, "update-ref", "refs/heads/main", original);
+  expect(await publishedHead(dir)).toBeUndefined();
 });

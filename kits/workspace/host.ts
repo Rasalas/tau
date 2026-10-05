@@ -1,3 +1,4 @@
+import { publishedHead } from "./published-head.js";
 import { createNamedProject, createScratchWorkspace, isScratchWorkspace } from "./project-starts.js";
 import { execFile } from "node:child_process";
 import { mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
@@ -571,6 +572,10 @@ export function createWorkspaceHostExtension(): HostExtension {
         }
         return info;
       }, { access: "read" });
+      context.registerCommand("published-head", async (input) => {
+        const path = await services.knownWorkspacePath(workspaceOf(input));
+        return await publishedHead(path).catch(() => undefined) ?? null;
+      }, { access: "read", long: true, callers: [REVIEW_KIT_ID] });
       context.registerCommand("thread-work-integrated", async (input) => {
         const path = await services.knownWorkspacePath(workspaceOf(input));
         const info = await git.getWorkspaceInfo(path);

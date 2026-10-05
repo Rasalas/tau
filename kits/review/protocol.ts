@@ -536,7 +536,7 @@ export interface ThreadPullRequestLink {
   repo: string;
   number: number;
   /** Who linked it: the user, the agent's tool, or creating it from the Changes panel. */
-  source: "user" | "agent" | "created";
+  source: "user" | "agent" | "created" | "discovered";
   linkedAt: number;
   title?: string;
   state?: "open" | "closed" | "merged";

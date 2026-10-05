@@ -115,11 +115,14 @@ function createSettledNote(store: RailStore, unsettle: (threadId: string) => voi
   return function SettledNote({ snapshot, actions }: RegionProps) {
     useSyncExternalStore(store.subscribe, store.getVersion);
     const threadId = snapshot?.sessionId;
-    if (!threadId || actions.activeThread()?.draftPending || store.getState().threads[threadId]?.settledAt === undefined) return null;
+    if (!threadId || store.noteClaimed(threadId) || actions.activeThread()?.draftPending || store.getState().threads[threadId]?.settledAt === undefined) return null;
+    const meta = store.getState().threads[threadId]!;
+    const reason = meta.settledBy === "pr-merged" ? "merged" : meta.settledBy === "pr-closed" ? "closed" : undefined;
+    const requests = reason ? (meta.settledForRequest ?? "").split(" ").filter((url) => /^https?:\/\//u.test(url)) : [];
     return (
       <div className="thread-rail-settled-note" role="status">
-        <span>This thread is settled</span>
-        <button type="button" onClick={() => unsettle(threadId)}>Un-settle</button>
+        <span>{requests.length ? <>Settled · {requests.map((url, index) => <span key={url}>{index ? ", " : ""}<a href={url} target="_blank" rel="noreferrer noopener">PR #{url.split("/").at(-1)}</a> {reason}</span>)}</> : meta.settledBy === "inactive" ? "Settled after inactivity" : "This thread is settled"}</span>
+        <button type="button" onClick={() => unsettle(threadId)}>Reopen</button>
       </div>
     );
   };
@@ -439,6 +442,7 @@ export const threadRailExtension: DesktopExtension = {
       () => undo.dispose(),
       () => store.dispose(),
       stopBridge,
+      context.provideService("tau.thread-rail/settlement", { get: (id: string) => store.getState().threads[id], subscribe: store.subscribe, reopen: organizer.toggleSettledById, claimNote: store.claimNote }),
       context.provideService(SIBLINGS_SERVICE, { siblingsOf: store.siblingsOf, subscribe: store.subscribe }),
       context.useService<WorkspaceStoreSlice>(WORKSPACE_STORE_SERVICE, (value) => {
         workspace = value;
@@ -453,7 +457,7 @@ export const threadRailExtension: DesktopExtension = {
         return () => { if (titles === value) titles = undefined; };
       }),
       context.registerModelSelection(selection),
-      context.registerRegion({ id: "thread-rail.settled-note", placement: "composer-above", order: 90, profiles: ["desktop", "web"], Component: createSettledNote(store, organizer.toggleSettledById) }),
+      context.registerRegion({ id: "thread-rail.settled-note", placement: "composer-above", order: 90, profiles: ["desktop", "web", "compact"], Component: createSettledNote(store, organizer.toggleSettledById) }),
       // The rail's dialogs and undo offer; on the desktop the workspace sidebar mounts them, elsewhere this does.
       context.registerRegion({ id: "thread-rail.layer", placement: "composer-below", order: 99, profiles: ["web", "compact"], Component: ({ actions }: RegionProps) => (organizer.Layer ? <organizer.Layer actions={actions} /> : null) }),
       context.registerComposerControl({ id: "thread-rail.fan-out", placement: "toolbar", order: 30, profiles: ["desktop"], Component: createFanOutChip(selection, () => workspace) }),

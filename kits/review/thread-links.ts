@@ -27,7 +27,7 @@ function decodeLink(value: unknown): ThreadPullRequestLink | undefined {
   const number = typeof raw.number === "number" && Number.isInteger(raw.number) && raw.number > 0 ? raw.number : undefined;
   if (!url || !host || !repo || !service || number === undefined) return undefined;
   const state = raw.state === "open" || raw.state === "closed" || raw.state === "merged" ? raw.state : undefined;
-  const source = raw.source === "agent" || raw.source === "created" ? raw.source : "user";
+  const source = raw.source === "agent" || raw.source === "created" || raw.source === "discovered" ? raw.source : "user";
   return {
     url, service, host, repo, number, source,
     linkedAt: time(raw.linkedAt) ?? 0,
@@ -51,6 +51,7 @@ export const linkKey = (link: Pick<PullRequestRef, "host" | "repo" | "number">):
  * Writes are queued, so two links in a row never lose one another.
  */
 export class ThreadLinkStore {
+  private excluded: Record<string, string[]> = {};
   private threads: Map<string, ThreadPullRequestLink[]> | undefined;
   private loading: Promise<Map<string, ThreadPullRequestLink[]>> | undefined;
   private writing: Promise<void> = Promise.resolve();
@@ -62,6 +63,9 @@ export class ThreadLinkStore {
     this.loading ??= readFile(join(this.stateDir, FILE), "utf8").then(
       (raw) => {
         const threads = new Map<string, ThreadPullRequestLink[]>();
+        for (const [id, keys] of Object.entries(record(record(JSON.parse(raw)).excluded))) {
+          if (Array.isArray(keys)) this.excluded[id] = keys.filter((key): key is string => typeof key === "string");
+        }
         for (const [threadId, links] of Object.entries(record(record(JSON.parse(raw)).threads))) {
           const decoded = (Array.isArray(links) ? links : []).map(decodeLink).filter((link): link is ThreadPullRequestLink => Boolean(link));
           if (decoded.length > 0) threads.set(threadId, decoded);
@@ -75,7 +79,7 @@ export class ThreadLinkStore {
   }
 
   private save(): Promise<void> {
-    const snapshot = JSON.stringify({ version: 1, threads: Object.fromEntries(this.threads ?? []) }, null, 2);
+    const snapshot = JSON.stringify({ version: 1, excluded: this.excluded, threads: Object.fromEntries(this.threads ?? []) }, null, 2);
     this.writing = this.writing.then(async () => {
       await mkdir(this.stateDir, { recursive: true });
       const temporary = join(this.stateDir, `${FILE}.${process.pid}.tmp`);
@@ -83,6 +87,11 @@ export class ThreadLinkStore {
       await rename(temporary, join(this.stateDir, FILE));
     }).catch(() => undefined);
     return this.writing;
+  }
+
+  async allowsDiscovery(threadId: string, ref: PullRequestRef): Promise<boolean> {
+    await this.load();
+    return !this.excluded[threadId]?.includes(linkKey(ref));
   }
 
   async list(threadId: string): Promise<ThreadPullRequestLink[]> {
@@ -95,6 +104,7 @@ export class ThreadLinkStore {
     const links = threads.get(threadId) ?? [];
     const known = links.find((link) => linkKey(link) === linkKey(ref));
     if (known) return { link: known, alreadyLinked: true };
+    if (source !== "discovered") this.excluded[threadId] = (this.excluded[threadId] ?? []).filter((key) => key !== linkKey(ref));
     const link: ThreadPullRequestLink = { ...snapshot, url: ref.url, service: ref.service, host: ref.host, repo: ref.repo, number: ref.number, source, linkedAt: this.now() };
     threads.set(threadId, [...links, link].slice(-MAX_LINKS));
     await this.save();
@@ -105,7 +115,8 @@ export class ThreadLinkStore {
     const threads = await this.load();
     const links = threads.get(threadId) ?? [];
     const kept = links.filter((link) => linkKey(link) !== linkKey(ref));
-    if (kept.length === links.length) return false;
+    this.excluded[threadId] = [...new Set([...(this.excluded[threadId] ?? []), linkKey(ref)])];
+    if (kept.length === links.length) { await this.save(); return false; }
     if (kept.length > 0) threads.set(threadId, kept); else threads.delete(threadId);
     await this.save();
     return true;
@@ -136,7 +147,9 @@ export class ThreadLinkStore {
 
   async forget(threadId: string): Promise<boolean> {
     const threads = await this.load();
-    if (!threads.delete(threadId)) return false;
+    const removed = threads.delete(threadId);
+    delete this.excluded[threadId];
+    if (!removed) { await this.save(); return false; }
     await this.save();
     return true;
   }

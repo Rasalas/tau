@@ -40,9 +40,9 @@ const link = (number: number, extra: Partial<ThreadPullRequestLink> = {}): Threa
   source: "agent", linkedAt: number, title: `Change ${number}`, state: "open", ...extra,
 });
 
-function setup({ branch, links = [], draftPending = false, empty = false, live }: { branch?: ReviewRequest; links?: ThreadPullRequestLink[]; draftPending?: boolean; empty?: boolean; live?: PullRequestClient } = {}) {
+function setup({ branch, links = [], draftPending = false, empty = false, live, unlinked = false }: { branch?: ReviewRequest; links?: ThreadPullRequestLink[]; draftPending?: boolean; empty?: boolean; live?: PullRequestClient; unlinked?: boolean } = {}) {
   let changed: ((threadId: string) => void) | undefined;
-  let current = links;
+  let current = unlinked ? [] : links.length ? links : branch ? [link(branch.number, { ...branch })] : [];
   const client = { links: vi.fn(async () => current), onLinksChanged: (listener: (threadId: string) => void) => { changed = listener; return () => undefined; } };
   let currentBranch = branch;
   const load = vi.fn(async () => currentBranch);
@@ -51,7 +51,7 @@ function setup({ branch, links = [], draftPending = false, empty = false, live }
   const snapshot = { sessionId: "t1", cwd: "/work", projectLabel: "fix/refresh-apps-without-socket", isStreaming: false, messages: empty ? [] : [{ id: "m1" }] } as unknown as HostSnapshot;
   const view = render(<PullRequestStrip snapshot={snapshot} actions={actions} parts={parts} />);
   const relink = (next: ThreadPullRequestLink[]) => { current = next; act(() => changed?.("t1")); };
-  return { view, parts, actions, load, relink, externalLinks: (next: ThreadPullRequestLink[]) => { current = next; }, externalState: (state: ReviewRequest["state"]) => { if (currentBranch) currentBranch = { ...currentBranch, state }; } };
+  return { view, parts, actions, load, relink, externalLinks: (next: ThreadPullRequestLink[]) => { current = next; }, externalState: (state: ReviewRequest["state"]) => { if (currentBranch) { currentBranch = { ...currentBranch, state }; current = current.map((entry) => entry.url === currentBranch!.url ? { ...entry, state } : entry); } } };
 }
 
 const strip = () => document.querySelector(".review-pr-strip");
@@ -124,7 +124,7 @@ describe("the pull-request strip", () => {
     const open = await screen.findByRole("button", { name: /^Open pull request #224 in acme\/lakebed on GitHub, open, checks 3\/3 passed/u });
     expect(load).toHaveBeenCalledWith("/work");
     expect(strip()!.className).toBe("review-pr-strip state-open");
-    expect(open.textContent).toBe("#224lakebedfix/refresh-apps-without-socket");
+    expect(open.textContent).toBe("#224Refresh apps without a socketOpen");
     // The state is its glyph, named in the tooltip.
     expect(within(open).getByRole("img", { name: "Open" }).getAttribute("data-tooltip")).toBe("Open");
     expect(open.querySelector(".review-pr-strip-checks.passed")!.getAttribute("data-tooltip")).toBe("Checks: 3/3 passed");
@@ -175,7 +175,7 @@ describe("the pull-request strip", () => {
   it("draws nothing without a request, for a draft or a thread without messages, or with the setting off", async () => {
     const empty = setup();
     await waitFor(() => expect(empty.load).toHaveBeenCalled());
-    expect(empty.view.container.innerHTML).toBe("");
+    expect(empty.view.container.textContent).toBe("");
     cleanup();
     const draft = setup({ branch: BRANCH, draftPending: true });
     await act(async () => undefined);
@@ -218,8 +218,7 @@ describe("the pull-request strip", () => {
     const stripRegion = () => registry.getRegions("composer-above").find((entry) => entry.id === "review.pull-request-strip");
     expect(stripRegion()).toBeTruthy();
     registry.activate(workspace);
-    if (profile === "desktop") expect(stripRegion()).toBeUndefined();
-    else expect(stripRegion()).toBeTruthy();
+    expect(stripRegion()).toBeTruthy();
     registry.deactivate(workspace.id);
     expect(stripRegion()).toBeTruthy();
     summarySupported = false;
@@ -348,4 +347,11 @@ it("does not let an unmounted checks lookup overwrite a newer finished answer", 
   setup({ branch, live });
   await screen.findByRole("img", { name: "Checks: Other checks passed" });
   expect(checks).toHaveBeenCalledTimes(2);
+});
+
+
+it("does not present an unlinked branch PR as this thread's association", async () => {
+  const { load } = setup({ branch: { ...BRANCH, state: "merged" }, unlinked: true });
+  await waitFor(() => expect(load).toHaveBeenCalled());
+  expect(screen.queryByRole("button", { name: /Open pull request/ })).toBeNull();
 });

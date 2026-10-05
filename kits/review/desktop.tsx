@@ -1,3 +1,4 @@
+import { SETTLEMENT_SERVICE, SettlementSource, type SettlementService } from "./settlement.js";
 import { Suspense, lazy } from "react";
 import { GitCompare } from "lucide-react";
 import { THREAD_PULL_REQUESTS_SERVICE, getClientStorage, type DesktopExtension, type PanelProps, type RegionProps } from "tau";
@@ -167,13 +168,12 @@ export const reviewExtension: DesktopExtension = {
     const releaseLinks = plugin.registerRegion({ id: "review.request-links", placement: "title-bar", profiles: ["desktop", "web", "compact"], Component: RequestLinks });
     const releaseProactive = plugin.registerRegion({ id: "review.proactive-panels", placement: "title-bar", profiles: ["desktop"], Component: createProactivePanels(plugin, links, () => workspaceStore) });
     // Below the runtime banners, Pi's widgets and quick actions; above Thread Rail's settled note (90), which sits on the composer.
-    const Strip = createPullRequestStrip({ rows, links, preferences: plugin.preferences, client });
-    const registerStrip = (summaryAvailable: boolean) => plugin.registerRegion({ id: "review.pull-request-strip", placement: "composer-above", order: 80, profiles: summaryAvailable ? ["web"] : ["desktop", "web"], Component: Strip });
-    let releaseStrip = registerStrip(false);
+    const settlement = new SettlementSource();
+    const releaseSettlement = plugin.useService<SettlementService>(SETTLEMENT_SERVICE, (service) => { settlement.set(service); return () => settlement.set(undefined); });
+    const Strip = createPullRequestStrip({ rows, links, preferences: plugin.preferences, client, host: plugin.host, settlement });
+    const releaseStrip = plugin.registerRegion({ id: "review.pull-request-strip", placement: "composer-above", order: 80, profiles: ["desktop", "web", "compact"], Component: Strip });
     const releaseStore = plugin.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => {
       workspaceStore = store;
-      const summaryAvailable = Boolean(store.registerWorkspaceSummarySection);
-      if (summaryAvailable) { releaseStrip(); releaseStrip = registerStrip(true); }
       const StageReview = createReviewOverlay(plugin, workspace, store, comments, () => chips, true);
       const disposers = [
         plugin.registerPanel({ id: REVIEW_DIFF_PANEL, label: "Diff", Icon: GitCompare, order: 20, stageButton: true, maximizable: true, profiles: ["desktop"], Component: ({ actions }) => <StageReview actions={actions} onClose={() => actions.closePanel?.(REVIEW_DIFF_PANEL)} /> }),
@@ -192,9 +192,9 @@ export const reviewExtension: DesktopExtension = {
         store.registerThreadRowAccessory(createRequestBadge(rows, links)),
         store.registerThreadCardSection?.({ place: "section", order: 10, Component: createRequestCardSection(rows, links) }) ?? (() => undefined),
       ];
-      return () => { if (workspaceStore === store) workspaceStore = undefined; for (const dispose of disposers.reverse()) dispose(); if (summaryAvailable) { releaseStrip(); releaseStrip = registerStrip(false); } };
+      return () => { if (workspaceStore === store) workspaceStore = undefined; for (const dispose of disposers.reverse()) dispose(); };
     });
-    return () => { releaseStore(); releaseStrip(); releaseLinks(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
+    return () => { releaseSettlement(); releaseStore(); releaseStrip(); releaseLinks(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
   },
 };
 
