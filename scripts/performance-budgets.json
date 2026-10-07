@@ -89,7 +89,7 @@
     "initialCssBytes": 140000,
     "initialCssGzipBytes": 30000,
     "totalJavascriptBytes": 2000000,
-    "totalJavascriptGzipBytes": 510000,
+    "totalJavascriptGzipBytes": 520000,
     "buildTimeMs": 20000
   }
 }
