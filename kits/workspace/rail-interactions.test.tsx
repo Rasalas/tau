@@ -188,6 +188,20 @@ describe("the rest of the rail", () => {
     expect(screen.queryByText("Thread a")).toBeNull();
   });
 
+  it("hides the sidebar from its head and shows it again from the title bar", async () => {
+    await renderRail([shell("a", 0)]);
+    fireEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
+    // A closed rail stays mounted, hidden by the shell's class.
+    await waitFor(() => expect(document.querySelector(".app-shell.sidebar-closed")).toBeTruthy());
+    // Search and "+" come along, so neither needs the sidebar.
+    const controls = within(document.querySelector(".sidebar-closed-controls") as HTMLElement);
+    expect(controls.getByRole("button", { name: "Search" })).toBeTruthy();
+    expect(controls.getByRole("button", { name: "New thread" })).toBeTruthy();
+    fireEvent.click(controls.getByRole("button", { name: "Show sidebar" }));
+    await waitFor(() => expect(document.querySelector(".app-shell.sidebar-closed")).toBeNull());
+    expect(document.querySelector(".sidebar-closed-controls")).toBeNull();
+  });
+
   it("lists each project with the rail's thread count and its path, and manages projects in Settings", async () => {
     await renderRail([
       shell("a", 0),

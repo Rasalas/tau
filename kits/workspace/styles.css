@@ -76,6 +76,11 @@
 .rail-head-actions > .sidebar-action { width: 28px; height: 28px; }
 /* The traffic lights are centred 26 px down; so are these, out of the list's way. */
 .window-inset .rail-head-actions { position: absolute; z-index: 3; top: 12px; right: calc(10px * var(--density)); -webkit-app-region: no-drag; }
+.rail-head > .sidebar-toggle { width: 28px; height: 28px; margin-left: -6px; }
+/* The traffic lights ignore page zoom, so the room after them does too. */
+.rail-head > .sidebar-toggle + .project-filter { margin-left: 0; }
+.window-inset .rail-head > .sidebar-toggle + .project-filter { margin-left: -6px; }
+.window-inset .rail-head > .sidebar-toggle { position: absolute; z-index: 3; top: 12px; left: calc(82px / var(--page-zoom, 1)); margin: 0; -webkit-app-region: no-drag; }
 
 .sidebar-action.project-filter {
   width: auto; min-width: 0; height: 28px; margin-left: -6px; padding: 0 6px;

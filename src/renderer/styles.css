@@ -64,8 +64,8 @@ button > svg { pointer-events: none; }
 /* macOS draws its traffic lights over the sidebar's top: that strip is room for them and the window's handle. */
 .app-shell.window-inset { --window-top: 40px; }
 .sidebar-top { grid-area: 1 / 1 / 2 / 2; align-self: start; z-index: 2; height: var(--window-top, 0px); -webkit-app-region: drag; }
-/* Past the traffic lights, centred on them (26 px down). */
-.sidebar-brand { display: flex; align-items: center; gap: 6px; height: 28px; margin: 12px 0 0 calc(92px / var(--page-zoom, 1)); }
+/* Past the traffic lights and the sidebar toggle, centred on them (26 px down). */
+.sidebar-brand { display: flex; align-items: center; gap: 6px; height: 28px; margin: 12px 0 0 calc(114px / var(--page-zoom, 1)); }
 .sidebar-brand-mark { width: 16px; height: 16px; flex: none; }
 .sidebar-brand-mark rect { fill: var(--brand); }
 .sidebar-brand-mark path { fill: none; stroke: var(--brand-on); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
@@ -181,6 +181,10 @@ button > svg { pointer-events: none; }
 .thread-header-tools > .workbench-region { flex-direction: row; align-items: center; gap: 1px; }
 /* Room for the native macOS traffic lights where the sidebar is hidden; they ignore page zoom. */
 .window-controls-inset { width: calc(64px / var(--page-zoom, 1)); flex: none; }
+/* Exactly where the open rail has its toggle, search and "+": 82 px in, centred 26 px down like the traffic lights. */
+.sidebar-closed-controls { flex: none; align-self: flex-start; display: flex; align-items: center; gap: 2px; margin-left: -6px; -webkit-app-region: no-drag; }
+.thread-header .sidebar-closed-controls > .stage-tool { width: 28px; height: 28px; min-width: 28px; min-height: 28px; }
+.app-shell:not(.window-inset) .sidebar-closed-controls { margin-left: 0; }
 .title-draft { color: var(--ink); white-space: nowrap; }
 /* A bar of its own: a phone's over its chat, and the review's. */
 .title-bar {
