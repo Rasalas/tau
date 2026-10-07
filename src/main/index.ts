@@ -319,6 +319,7 @@ const appShell = createAppShell({
   showWindow: () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setOpacity(1); },
   checkForUpdates: () => void updates?.checkForUpdates(),
   updateReady: () => updates?.downloaded(),
+  devBuild: appIdentity().flavor === "dev",
   releaseNotes: {
     pending: async () => releaseNotes?.pending(),
     seen: async (version) => releaseNotes?.seen(version),

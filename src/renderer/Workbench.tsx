@@ -47,6 +47,7 @@ import { StartDetails, ThreadDetails, ThreadHeader } from "./components/ThreadHe
 import { ProjectIcon } from "./components/ProjectIcon";
 import { WindowControlsInset } from "./components/WindowControlsInset";
 import { useHostClient } from "./host-client-context";
+import { SidebarBrand } from "./components/SidebarBrand";
 import { ResizeHandle } from "./components/ResizeHandle";
 import type { PanelLayout } from "./use-panel-layout";
 import type { NewThreadPick } from "./use-app-overlays";
@@ -776,7 +777,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           onToggle: () => setPanelSheet((open) => (open === panel.id ? undefined : panel.id)),
         }))}
       /> : null}
-      {macInset && sidebarShown ? <div className="sidebar-top" aria-hidden /> : null}
+      {macInset && sidebarShown ? <div className="sidebar-top" aria-hidden><SidebarBrand /></div> : null}
       {split ? <div className={pageSidebar ? "sidebar-slot covered" : "sidebar-slot"}>
         <Suspense fallback={<aside className="touch-browser sidebar" />}><LazyTouchThreadBrowser variant="sidebar" {...threadBrowserProps} /></Suspense>
       </div> : null}

@@ -64,6 +64,12 @@ button > svg { pointer-events: none; }
 /* macOS draws its traffic lights over the sidebar's top: that strip is room for them and the window's handle. */
 .app-shell.window-inset { --window-top: 40px; }
 .sidebar-top { grid-area: 1 / 1 / 2 / 2; align-self: start; z-index: 2; height: var(--window-top, 0px); -webkit-app-region: drag; }
+/* Past the traffic lights, centred on them (26 px down). */
+.sidebar-brand { display: flex; align-items: center; gap: 6px; height: 28px; margin: 12px 0 0 calc(92px / var(--page-zoom, 1)); }
+.sidebar-brand-mark { width: 16px; height: 16px; flex: none; }
+.sidebar-brand-mark rect { fill: var(--brand); }
+.sidebar-brand-mark path { fill: none; stroke: var(--brand-on); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+.sidebar-brand-dev { padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, var(--brand) 18%, transparent); color: var(--brand-ink); font: 600 var(--text-xs) var(--mono); text-transform: uppercase; }
 /* The centre cell: conversation and stage, and a drawer panel below both. */
 .workbench-main { grid-area: 1 / 2 / -1 / 3; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 /* Conversation, then the stage; --chat-width comes from the divider. The minimums mirror center-layout.ts. */

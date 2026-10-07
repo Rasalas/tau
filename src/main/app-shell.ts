@@ -13,6 +13,7 @@ export interface AppShellPorts {
   showWindow?(): void;
   checkForUpdates(): void;
   updateReady(): string | undefined;
+  devBuild?: boolean;
   releaseNotes?: { pending(): Promise<ReleaseNotes | undefined>; seen(version: string): Promise<void> };
   schedule?(run: () => void, ms: number): () => void;
 }
@@ -70,7 +71,7 @@ export function createAppShell(ports: AppShellPorts) {
         case "status": {
           const updateReady = ports.updateReady();
           const releaseNotes = await ports.releaseNotes?.pending().catch(() => undefined);
-          return { ...(updateReady ? { updateReady } : {}), ...(releaseNotes ? { releaseNotes } : {}) } satisfies WindowShellStatus;
+          return { ...(updateReady ? { updateReady } : {}), ...(releaseNotes ? { releaseNotes } : {}), ...(ports.devBuild ? { devBuild: true } : {}) } satisfies WindowShellStatus;
         }
         case "release-notes-seen":
           await ports.releaseNotes?.seen(action.version);

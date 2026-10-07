@@ -59,6 +59,8 @@ export interface ReleaseNotes {
 /** What the page asks when it loads: a downloaded update and notes it has not shown yet. */
 export interface WindowShellStatus {
   updateReady?: string;
+  /** Tau Dev, a checkout's build installed beside the released app (K132). */
+  devBuild?: true;
   releaseNotes?: ReleaseNotes;
 }
 

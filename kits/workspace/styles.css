@@ -67,38 +67,25 @@
   display: flex; flex-direction: column; min-height: 0;
   background: var(--rail);
 }
-.sidebar-controls { padding: calc(12px * var(--density)) calc(12px * var(--density)) var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); }
-.thread-search-row { display: flex; align-items: center; gap: var(--space-2); }
+.sidebar-controls { padding: calc(10px * var(--density)) calc(12px * var(--density)) var(--space-2); display: flex; flex-direction: column; gap: var(--space-2); }
+.window-inset .sidebar-controls { padding-top: 2px; }
 
-/* Design 1a: the search is a filled field with ⌘K that opens the palette; "+" beside it starts a thread. */
-.thread-search {
-  flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
-  height: var(--control-size); padding: 0 var(--space-4); border: 0; border-radius: var(--radius-row);
-  background: var(--stage); color: var(--muted); font: var(--text-control) var(--sans); text-align: left; cursor: pointer;
-}
-.thread-search > svg, .sidebar-action > svg:first-child { width: var(--icon-size); height: var(--icon-size); }
-.thread-search:hover { color: var(--ink-2); }
-.thread-search > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.thread-search > kbd { font: var(--text-xs) var(--mono); color: var(--muted); }
-/* A chosen project's name takes the room ⌘K had, as design 2b drops it. */
-.thread-search { container-type: inline-size; }
-@container (width < 150px) { .thread-search > kbd { display: none; } }
-.thread-search-row > .sidebar-action.new-thread {
-  width: var(--control-size); height: var(--control-size);
-  background: var(--stage); color: var(--ink);
-}
-.thread-search-row > .sidebar-action:is(.new-thread, .project-filter):hover { background: var(--chip); color: var(--ink); }
+/* The project filter says what the list shows; search and "+" are quiet icons beside it. */
+.rail-head { display: flex; align-items: center; gap: var(--space-2); min-height: 30px; }
+.rail-head-actions { margin-left: auto; display: flex; gap: 2px; }
+.rail-head-actions > .sidebar-action { width: 28px; height: 28px; }
+/* The traffic lights are centred 26 px down; so are these, out of the list's way. */
+.window-inset .rail-head-actions { position: absolute; z-index: 3; top: 12px; right: calc(10px * var(--density)); -webkit-app-region: no-drag; }
 
-/* The project filter between the search and "+": a folder and a chevron, or the shown project's tile and name in the accent. */
-.thread-search-row > .sidebar-action.project-filter {
-  width: auto; max-width: 42%; height: var(--control-size); padding: 0 8px;
-  display: flex; gap: 6px; background: var(--stage); color: var(--ink-2); font: 600 var(--text-control) var(--sans);
+.sidebar-action.project-filter {
+  width: auto; min-width: 0; height: 28px; margin-left: -6px; padding: 0 6px;
+  display: flex; gap: 7px; color: var(--ink); font: 600 var(--text-control) var(--sans);
 }
+.project-filter:not(.filtered) { color: var(--ink-2); }
 .project-filter > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project-filter > svg:last-child { flex: none; opacity: .7; }
-.thread-search-row > .sidebar-action.project-filter.filtered { background: var(--acid-bg); color: var(--acid-text); }
-.thread-search-row > .sidebar-action.project-filter[aria-expanded="true"] { background: var(--raised); color: var(--ink); }
-.project-filter-tile.thread-project-icon { width: 14px; height: 14px; flex: none; font-size: 8px; }
+.project-filter > svg:last-child { flex: none; color: var(--muted); }
+.sidebar-action.project-filter[aria-expanded="true"] { background: var(--raised); }
+.project-filter-tile.thread-project-icon { width: 16px; height: 16px; flex: none; font-size: 9px; }
 
 .sidebar-action {
   width: 30px; height: 30px; flex: none; display: grid; place-items: center;
@@ -109,7 +96,7 @@
 .project-switcher-scrim { position: fixed; inset: 0; z-index: 54; border: 0; background: transparent; cursor: default; }
 /* Design 1u's popover: rows 7/10 px at 7 px radius, a name over "N threads · ~/path". */
 .project-switcher-popover {
-  position: fixed; z-index: 55; top: calc(var(--window-top, 0px) + 50px); left: 12px; width: min(260px, calc(100vw - 24px));
+  position: fixed; z-index: 55; top: calc(var(--window-top, 0px) + 40px); left: 12px; width: min(260px, calc(100vw - 24px));
   display: flex; flex-direction: column; gap: 1px; padding: 6px;
   border: 1px solid var(--line-float); border-radius: var(--radius-md);
   background: var(--float); box-shadow: var(--elevation-2); animation: fade-up .12s ease;

@@ -171,10 +171,12 @@ describe("the rest of the rail", () => {
     act(() => workspace.setRailProjectFilter("other"));
     expect(screen.queryByText("Thread a")).toBeNull();
     expect(screen.getByText("Thread b")).toBeTruthy();
-    // The filter is an icon between the search and "+", not a row under them.
+    // The filter heads the rail beside search and "+", and names what the list shows.
     const filter = screen.getByRole("button", { name: "Filter threads by project: other" });
-    expect(filter.previousElementSibling?.classList.contains("thread-search")).toBe(true);
-    expect(filter.nextElementSibling?.getAttribute("aria-label")).toBe("New thread");
+    expect(filter.textContent).toMatch(/other$/u);
+    const head = within(filter.closest(".rail-head") as HTMLElement);
+    expect(head.getByRole("button", { name: "Search" })).toBeTruthy();
+    expect(head.getByRole("button", { name: "New thread" })).toBeTruthy();
     expect(document.querySelector(".project-scope-row")).toBeNull();
     fireEvent.click(filter);
     const list = await screen.findByRole("dialog", { name: "Filter by project" });
