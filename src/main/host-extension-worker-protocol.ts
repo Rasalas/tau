@@ -3,6 +3,7 @@ import type { PricedUsage, UsageTally } from "./usage-pricing.js";
 export type { PricedUsage, UsageTally, UsageTurn } from "./usage-pricing.js";
 import type { ThreadBackendKind, UiMessage, UiThreadUsage, UiToolRun } from "../shared/contracts.js";
 import type { HostActionResult } from "../shared/host-protocol.js";
+import { hostErrorDiagnostic, type HostErrorDiagnostic } from "./host-extension-errors.js";
 import type { UiHostEndpoint, UiNetworkAccess } from "../shared/connections.js";
 import type { DirectoryPickerOptions, HostExtensionEmitOptions, HostExtensionSettings, HostSessionSummary, HostSkill, HostImportedThread, HostStartedThread, HostThreadImportOptions, HostThreadStartOptions, HostTrashedThread } from "./host-extensions.js";
 
@@ -227,11 +228,7 @@ export interface WorkerHostExtension {
   activate(context: WorkerHostExtensionContext): void | (() => void | Promise<void>) | Promise<void | (() => void | Promise<void>)>;
 }
 
-export interface SerializedError {
-  message: string;
-  stack?: string;
-  name?: string;
-  code?: string;
+export interface SerializedError extends HostErrorDiagnostic {
   details?: unknown;
   /** Set for a `HostCommandError`: bad input, not a broken command. */
   expected?: true;
@@ -261,17 +258,13 @@ export type WorkerToHostMessage =
 export function serializeError(error: unknown): SerializedError {
   if (error instanceof Error) {
     const expected = (error as { expected?: unknown }).expected === true;
-    const code = (error as { code?: unknown }).code;
     const details = (error as { details?: unknown }).details;
     let plainDetails: unknown;
     if (details !== undefined) {
       try { plainDetails = toPlain(details); } catch { plainDetails = undefined; }
     }
     return {
-      message: error.message,
-      ...(error.stack ? { stack: error.stack } : {}),
-      ...(error.name !== "Error" ? { name: error.name } : {}),
-      ...(typeof code === "string" ? { code } : {}),
+      ...hostErrorDiagnostic(error),
       ...(plainDetails === undefined ? {} : { details: plainDetails }),
       ...(expected ? { expected: true } : {}),
     };
@@ -280,7 +273,7 @@ export function serializeError(error: unknown): SerializedError {
 }
 
 export function reviveError(error: SerializedError): Error {
-  const revived = new Error(error.message);
+  const revived = new Error(error.message, error.cause ? { cause: reviveError(error.cause) } : undefined);
   if (error.stack) revived.stack = error.stack;
   if (error.name) revived.name = error.name;
   if (error.code) Object.defineProperty(revived, "code", { value: error.code, enumerable: true });

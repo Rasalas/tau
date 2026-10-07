@@ -36,7 +36,7 @@ import type { CompletionRequest, ThreadRuntimeBackend, ThreadRuntimeEvent } from
 import type { HostModelAuthServices } from "./model-auth.js";
 import { HOST_SERVICE_PERMISSIONS, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
-import { HostAuthorizationError, HostCommandError, isExpectedCommandError } from "./host-extension-errors.js";
+import { HostAuthorizationError, HostCommandError, hostErrorDiagnostic, isExpectedCommandError } from "./host-extension-errors.js";
 import { HOST_CORE_PRINCIPAL, isHostOwner, runAsCaller, type AuditedCall, type HostInvocationPrincipal } from "./host-invocation.js";
 import { ownerRefusal, readOnlyRefusal } from "./host-method-access.js";
 import type { InstalledExtension as InstalledPackage, RemovalResult as PackageRemoval } from "./extension-installer.js";
@@ -1601,6 +1601,7 @@ export class HostExtensionRegistry {
       this.invocationContexts.delete(invocationContextId);
       await this.disposeAll(record.disposers).catch(() => undefined);
       this.services.log("host-extension.failed", `${extension.name}: ${message}`);
+      this.services.log("host-extension.activation-failed", JSON.stringify({ extensionId: extension.id, error: hostErrorDiagnostic(error) }));
       return false;
     }
   }
@@ -1786,12 +1787,15 @@ export class HostExtensionRegistry {
       const isTimeout = error instanceof Error && error.message.includes(`timed out after ${timeoutMs}ms`);
       const failures = (this.consecutiveFailures.get(commandKey) ?? 0) + 1;
       this.consecutiveFailures.set(commandKey, failures);
+      this.services.log("host-extension.command-failed", JSON.stringify({
+        extensionId, command, attempt: failures, error: hostErrorDiagnostic(error),
+      }));
 
       if (isTimeout || failures >= 3) {
         // The reason names no extension: it is read beside the name, in a
         // summary row and in the client's toast.
         const reason = isTimeout
-          ? `command "${command}" timed out after ${timeoutMs}ms`
+          ? `command "${command}" timed out after ${timeoutMs}ms. Check the host log for the last operation`
           : `failed three times in a row — ${error instanceof Error ? error.message : String(error)}`;
         this.failures.set(extensionId, reason);
         this.services.log("host-extension.failed", `${record.extension.name}: ${reason}`);

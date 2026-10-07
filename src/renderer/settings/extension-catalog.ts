@@ -4,7 +4,7 @@ import type { ExtensionSummary } from "../extension-system";
 /**
  * Every extension Settings → Extensions lists, from the three places that know
  * one: the window's registry (running desktop halves), the host (its halves,
- * and why one failed to start) and core's scan of the package folders (what a
+ * and why one failed) and core's scan of the package folders (what a
  * manifest says, and the folders that did not load). Pure, so the states are
  * tested without a host.
  */
@@ -151,7 +151,7 @@ const STATE_LABELS: Record<ExtensionState, string> = {
   on: "On",
   off: "Off",
   waiting: "Waiting for approval",
-  failed: "Failed to start",
+  failed: "Failed",
   incompatible: "Incompatible",
   skipped: "Skipped: project not trusted",
 };

@@ -37,3 +37,25 @@ export class HostAuthorizationError extends HostCommandError {
 export function isExpectedCommandError(error: unknown): boolean {
   return error instanceof Error && (error as { expected?: unknown }).expected === true;
 }
+
+/** Diagnostic fields only: never includes command input or arbitrary error properties. */
+export interface HostErrorDiagnostic {
+  message: string;
+  stack?: string;
+  name?: string;
+  code?: string;
+  cause?: HostErrorDiagnostic;
+}
+
+/** Bounded so a circular cause cannot break error reporting. */
+export function hostErrorDiagnostic(error: unknown, depth = 0): HostErrorDiagnostic {
+  if (!(error instanceof Error)) return { message: String(error) };
+  const code = (error as { code?: unknown }).code;
+  return {
+    message: error.message,
+    ...(error.stack ? { stack: error.stack } : {}),
+    ...(error.name !== "Error" ? { name: error.name } : {}),
+    ...(typeof code === "string" ? { code } : {}),
+    ...(error.cause !== undefined && depth < 4 ? { cause: hostErrorDiagnostic(error.cause, depth + 1) } : {}),
+  };
+}

@@ -127,11 +127,32 @@ export function createOnboardingHostExtension(options: OnboardingHostOptions = {
     activate(context: WorkerHostExtensionContext) {
       const services = context.services;
       const stateFile = join(services.stateDir, "welcome.json");
-      const completed = () => readFile(stateFile, "utf8").then((text) => Boolean((JSON.parse(text) as { completedAt?: unknown }).completedAt), () => false);
+      const completed = async () => {
+        try {
+          const text = await readFile(stateFile, "utf8");
+          return Boolean((JSON.parse(text) as { completedAt?: unknown }).completedAt);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+          throw error;
+        }
+      };
+      const stateStep = async <T>(step: string, work: () => Promise<T>): Promise<T> => {
+        const startedAt = Date.now();
+        services.log("onboarding.state.started", step);
+        try {
+          const result = await work();
+          services.log("onboarding.state.finished", `${step} · ${Date.now() - startedAt}ms`);
+          return result;
+        } catch (cause) {
+          const error = new Error(`Could not check setup status while ${step.toLowerCase()}: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+          services.log("onboarding.state.failed", error.message);
+          throw error;
+        }
+      };
 
       context.registerCommand("state", async (): Promise<WelcomeState> => {
-        const done = await completed();
-        return { completed: done, firstStart: !done && (await services.sessions.list()).length === 0 };
+        const done = await stateStep("Reading saved setup status", completed);
+        return { completed: done, firstStart: !done && (await stateStep("Listing saved conversations", () => services.sessions.list())).length === 0 };
       }, { access: "read" });
       context.registerCommand("complete", async () => {
         await mkdir(services.stateDir, { recursive: true });

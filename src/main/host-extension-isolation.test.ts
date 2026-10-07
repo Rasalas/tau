@@ -27,6 +27,10 @@ export default {
   activate(context) {
     const { services } = context;
     context.registerCommand("bad-input", () => { throw new HostCommandError("that is not a folder"); });
+    context.registerCommand("failed-state", () => {
+      const cause = Object.assign(new Error("storage unavailable"), { code: "EIO" });
+      throw new Error("Could not list conversations", { cause });
+    });
     context.registerCommand("hello", async (input) => {
       const cwd = await services.cwd();
       context.emit("greeted", { input });
@@ -468,6 +472,24 @@ describe("isolated host extensions", () => {
         await expect(registry.invoke("acme.worker", "bad-input")).rejects.toMatchObject({ message: "that is not a folder", name: "HostCommandError", expected: true });
       }
       expect(registry.isActive("acme.worker")).toBe(true);
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("logs a real worker command failure with the original cause and stack", async () => {
+    const { registry, extension, recorder } = harness();
+    await registry.activate(extension);
+    try {
+      await expect(registry.invoke("acme.worker", "failed-state")).rejects.toMatchObject({
+        message: "Could not list conversations", cause: { message: "storage unavailable", code: "EIO" },
+      });
+      const log = recorder.logs.find((line) => line.startsWith("host-extension.command-failed "));
+      expect(log).toBeDefined();
+      expect(JSON.parse(log!.slice("host-extension.command-failed ".length))).toMatchObject({
+        extensionId: "acme.worker", command: "failed-state", attempt: 1,
+        error: { stack: expect.stringContaining("Could not list conversations"), cause: { code: "EIO", stack: expect.stringContaining("storage unavailable") } },
+      });
     } finally {
       await registry.dispose();
     }

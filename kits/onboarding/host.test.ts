@@ -29,23 +29,25 @@ function backendKit(id: string, sessions: unknown[], grant = true): HostExtensio
   };
 }
 
-async function harness(options: { piSessions?: Array<{ sessionId: string; path: string; cwd: string }>; grantCodex?: boolean; claudeSessions?: (root: string) => Promise<unknown[]>; withRail?: boolean } = {}) {
+async function harness(options: { piSessions?: Array<{ sessionId: string; path: string; cwd: string }>; listSessions?: () => Promise<unknown[]>; grantCodex?: boolean; claudeSessions?: (root: string) => Promise<unknown[]>; withRail?: boolean } = {}) {
   const root = await mkdtemp(join(tmpdir(), "tau-onboarding-"));
   directories.push(root);
   const alpha = join(root, "alpha");
   await mkdir(join(alpha, ".git"), { recursive: true });
   const events: PublishedKitEvent[] = [];
+  const logs: Array<{ label: string; detail?: string }> = [];
   const registry = await activateHostKit(createOnboardingHostExtension({
     platform: "darwin",
     home: root,
     run: async (_command, args) => ({ ok: args[0] !== "auth", stdout: "gh version 2.81.0 (2026-09-01)" }),
   }) as unknown as HostExtension, {
     stateDir: join(root, "state"),
+    log: (label: string, detail?: string) => { logs.push({ label, detail }); },
     findCommand: (name: string) => name === "gh" ? "/opt/homebrew/bin/gh" : undefined,
     noteSubprocess: () => undefined,
     workspaceRef: (path: string) => ({ workspaceId: `ws:${path}`, displayPath: path }),
     admitWorkspace: (path: string) => ({ workspaceId: `ws:${path}`, displayPath: path }),
-    sessions: { list: async () => options.piSessions ?? [] } as never,
+    sessions: { list: options.listSessions ?? (async () => options.piSessions ?? []) } as never,
   } as never, (event) => events.push(event));
   const claude = backendKit("tau.claude-code", options.claudeSessions ? await options.claudeSessions(root) : [
     { path: "/h/a.jsonl", sessionId: "a", cwd: alpha, title: "Fix it", updatedAt: 200, imported: false },
@@ -65,10 +67,38 @@ async function harness(options: { piSessions?: Array<{ sessionId: string; path: 
   await registry.activate(claude);
   await registry.activate(codex);
   const invoke = <T>(command: string, input?: unknown) => registry.invoke("tau.onboarding", command, input) as Promise<T>;
-  return { root, alpha, invoke, events, claude, codex, settled };
+  return { root, alpha, invoke, events, logs, claude, codex, settled };
 }
 
 describe("Onboarding host half", () => {
+  it("records the pending state operation before a session listing hangs", async () => {
+    let finish!: (sessions: unknown[]) => void;
+    let started!: () => void;
+    const listing = new Promise<void>((resolve) => { started = resolve; });
+    const { invoke, logs } = await harness({ listSessions: () => { started(); return new Promise((resolve) => { finish = resolve; }); } });
+    const state = invoke<WelcomeState>("state");
+    await listing;
+    try {
+      expect(logs).toContainEqual({ label: "onboarding.state.started", detail: "Listing saved conversations" });
+      expect(logs).not.toContainEqual({ label: "onboarding.state.finished", detail: expect.stringContaining("Listing saved conversations") });
+    } finally {
+      finish([]);
+      await state;
+    }
+  });
+
+  it("names a failed state operation and keeps its cause", async () => {
+    const cause = Object.assign(new Error("session storage is unavailable"), { code: "EIO" });
+    const { invoke } = await harness({ listSessions: async () => { throw cause; } });
+    await expect(invoke("state")).rejects.toMatchObject({ message: "Could not check setup status while listing saved conversations: session storage is unavailable", cause });
+  });
+
+  it("reports unreadable setup state instead of treating it as a first start", async () => {
+    const { root, invoke } = await harness();
+    await mkdir(join(root, "state", "tau.onboarding", "welcome.json"), { recursive: true });
+    await expect(invoke("state")).rejects.toThrow("Could not check setup status while reading saved setup status");
+  });
+
   it("opens by itself only until it is completed, and only without threads", async () => {
     const fresh = await harness();
     await expect(fresh.invoke<WelcomeState>("state")).resolves.toEqual({ completed: false, firstStart: true });

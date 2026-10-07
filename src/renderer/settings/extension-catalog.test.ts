@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ExtensionPackageSummary } from "../../shared/contracts";
-import { extensionBlurb, extensionCatalog, filterCounts, matchesFilter, matchesQuery } from "./extension-catalog";
+import { extensionBlurb, extensionCatalog, filterCounts, matchesFilter, matchesQuery, stateLabel } from "./extension-catalog";
 
 const pkg = (id: string, overrides: Partial<ExtensionPackageSummary> = {}): ExtensionPackageSummary => ({
   id, name: id, scope: "bundled", directory: `/kits/${id}`, desktop: true, host: false, granted: true, permissions: [], ...overrides,
@@ -45,6 +45,17 @@ describe("the extension catalog", () => {
     });
     expect(skipped).toEqual([expect.objectContaining({ id: "me.kit", name: "My kit", state: "skipped", origin: "installed", problem: expect.stringContaining("/p") })]);
     expect(matchesFilter(skipped[0]!, "attention")).toBe(true);
+  });
+
+  it("reports a command timeout as a failure without claiming startup failed", () => {
+    const reason = 'command "state" timed out after 30000ms';
+    const [entry] = extensionCatalog({
+      summaries: [{ id: "tau.onboarding", name: "Onboarding", active: true, contributes: "welcome", options: [] }],
+      hostHalves: [{ id: "tau.onboarding", name: "Onboarding", active: false, commands: [], error: reason }],
+    });
+    expect(entry).toMatchObject({ state: "failed", problem: reason });
+    expect(matchesFilter(entry!, "attention")).toBe(true);
+    expect(stateLabel(entry!.state)).toBe("Failed");
   });
 
   it("filters and counts by source, by off and by what needs attention", () => {

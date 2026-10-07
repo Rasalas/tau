@@ -523,12 +523,30 @@ describe("HostExtensionRegistry", () => {
     await expect(r.invoke("slow.kit", "hang")).rejects.toThrow("timed out after 50ms");
     releaseHang(); // let the dangling promise settle cleanly
     expect(r.isActive("slow.kit")).toBe(false);
-    expect(r.summaries().find((e) => e.id === "slow.kit")?.error).toBe('command "hang" timed out after 50ms');
+    expect(r.summaries().find((e) => e.id === "slow.kit")?.error).toBe('command "hang" timed out after 50ms. Check the host log for the last operation');
     expect(s.logs.some((line) => line.includes("host-extension.failed") && line.includes("timed out"))).toBe(true);
     // One announcement, so the client raises exactly one toast for it.
     expect(events.filter((event) => event.type === "extension-deactivated")).toEqual([
       { type: "extension-deactivated", extensionId: "slow.kit", name: "Slow Kit", reason: expect.stringContaining("timed out after 50ms") },
     ]);
+  });
+
+  it("logs a command's first unexpected failure with its stack and cause, without its input", async () => {
+    const { registry: r, services: s } = registry();
+    const cause = Object.assign(new Error("storage unavailable"), { code: "EIO" });
+    const error = new Error("Could not list conversations", { cause });
+    await r.activate({ id: "broken.kit", name: "Broken", activate(ctx) {
+      ctx.registerCommand("state", () => { throw error; });
+    } });
+    await expect(r.invoke("broken.kit", "state", { token: "private-input" })).rejects.toBe(error);
+    const log = s.logs.find((line) => line.startsWith("host-extension.command-failed "));
+    expect(log).toBeDefined();
+    expect(JSON.parse(log!.slice("host-extension.command-failed ".length))).toMatchObject({
+      extensionId: "broken.kit", command: "state", attempt: 1,
+      error: { message: error.message, stack: error.stack, cause: { message: cause.message, code: "EIO", stack: cause.stack } },
+    });
+    expect(s.logs.join("\n")).not.toContain("private-input");
+    expect(r.isActive("broken.kit")).toBe(true);
   });
 
   it("deactivates an extension after 3 consecutive failures", async () => {
@@ -563,7 +581,7 @@ describe("HostExtensionRegistry", () => {
   });
 
   it("does not count an expected error toward the three failures", async () => {
-    const { registry: r, events } = registry();
+    const { registry: r, events, services: s } = registry();
     await r.activate({
       id: "picky.kit",
       name: "Picky Kit",
@@ -579,6 +597,7 @@ describe("HostExtensionRegistry", () => {
       await expect(r.invoke("picky.kit", "check", "bad")).rejects.toThrow("not a folder");
     }
     expect(r.isActive("picky.kit")).toBe(true);
+    expect(s.logs.some((line) => line.startsWith("host-extension.command-failed"))).toBe(false);
     // Expected errors neither reset the counter: two crashes around them still add up.
     await expect(r.invoke("picky.kit", "check", "crash")).rejects.toThrow("crash");
     await expect(r.invoke("picky.kit", "check", "bad")).rejects.toThrow("not a folder");
