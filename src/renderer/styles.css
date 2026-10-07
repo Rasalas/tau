@@ -1575,7 +1575,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .extension-prompt {
   max-width: 780px; margin: 0 auto; padding: 10px 10px 8px; display: flex; flex-direction: column; gap: 6px;
   border: 1px solid transparent; border-bottom: 0;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--field); font-size: var(--text-xs);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--field); font-size: var(--text-md);
 }
 .extension-prompt.is-approval { padding: 10px 12px 8px; line-height: 1.45; }
 /* Under a permission the composer does not tuck under the bar: a straight hairline, the bar's 8 px kept (design 1a). */
@@ -1588,7 +1588,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .extension-prompt-from { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .extension-prompt > header > small { flex: none; font: 10px var(--mono); color: var(--faint); }
 .extension-prompt > header .spacer { flex: 1; }
-.extension-prompt-pick { flex: none; color: var(--muted); font-size: calc(var(--text-xs) - 1px); white-space: nowrap; }
+.extension-prompt-pick { flex: none; color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
 .extension-prompt-title, .extension-prompt-message { margin: 0; padding: 0 2px; line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
 .extension-prompt-message { color: var(--ink-3); }
 .extension-prompt-subject {
@@ -1616,7 +1616,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .extension-option.chosen .extension-option-indicator.is-radio { background: radial-gradient(circle, var(--acid) 3.5px, transparent 4px); }
 .extension-option > span { min-width: 0; display: flex; flex-direction: column; }
 .extension-option strong { font-weight: 400; line-height: 1.45; }
-.extension-option small { font-size: calc(var(--text-xs) - 1px); line-height: 1.45; color: var(--muted); }
+.extension-option small { font-size: var(--text-sm); line-height: 1.45; color: var(--muted); }
 .extension-option-preview {
   margin: 4px 0 2px; padding: 7px 9px; max-height: 180px; overflow: auto;
   background: var(--code-bg); border-radius: 6px;
@@ -1628,7 +1628,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 
 .extension-prompt > footer { display: flex; align-items: center; gap: 2px; padding: 2px 2px 0; }
 .is-approval > footer { padding: 0; }
-.extension-prompt > footer > span { font-size: calc(var(--text-xs) - 1px); color: var(--muted); }
+.extension-prompt > footer > span { font-size: var(--text-sm); color: var(--muted); }
 .extension-prompt > footer .spacer { flex: 1; }
 .extension-prompt > footer > button {
   display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--ink-3);
