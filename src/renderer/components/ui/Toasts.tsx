@@ -28,16 +28,17 @@ export function toastSwipeDismisses(dx: number, width: number, velocity: number)
 interface Placed { toast: Toast; index: number; style: CSSProperties }
 
 /**
- * Where each visible toast sits, from the stack's bottom edge: the newest
- * there, and the others peeking above it or, expanded, laid out apart.
+ * Where each visible toast sits, from the stack's anchored edge: the newest
+ * there, and the others peeking out past it or, expanded, laid out apart.
  */
-export function layoutToasts(visible: readonly Toast[], heights: ReadonlyMap<string, number>, expanded: boolean): Placed[] {
+export function layoutToasts(visible: readonly Toast[], heights: ReadonlyMap<string, number>, expanded: boolean, anchored: "top" | "bottom"): Placed[] {
   const front = heights.get(visible[0]?.id ?? "") ?? 0;
+  const away = anchored === "top" ? 1 : -1;
   let offset = 0;
   return visible.map((toast, index) => {
     const scale = expanded ? 1 : 1 - index * SHRINK;
-    // Anchored at the bottom, so the front toast stays put as the others fan out.
-    const y = expanded ? -offset : -index * PEEK - (1 - scale) * front;
+    // Held at the anchored edge, so the front toast stays put as the others fan out.
+    const y = away * (expanded ? offset : index * PEEK + (1 - scale) * front) || 0;
     offset += (heights.get(toast.id) ?? front) + GAP;
     const style: CSSProperties = {
       zIndex: visible.length - index,
@@ -103,10 +104,10 @@ function ToastCard({ toast, store }: { toast: Toast; store: ToastStore }) {
 }
 
 /**
- * The toast stack in the bottom-right corner of the conversation, beside the
- * stage and over the docked composer where the two would meet: the newest in
- * front, up to `maxVisible` peeking behind it, all of them laid out apart
- * while the pointer or focus is on the stack. F6 moves focus into it.
+ * The toast stack at the top right, under the workspace card, an open stage's
+ * tab strip or the conversation's header: the newest in front, up to
+ * `maxVisible` peeking behind it, all of them laid out apart while the pointer
+ * or focus is on the stack. F6 moves focus into it.
  *
  * On a touch layout the stack sits above the docked composer, under every
  * sheet and dialog, so it never takes a tap meant for one; a toast a sheet
@@ -190,7 +191,7 @@ export function ToastViewport({ store, touch = false }: { store: ToastStore; tou
       onFocus={() => setFocused(true)}
       onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false); }}
     >
-      {layoutToasts(visible, heights.current, expanded).map(({ toast, index, style }) => (
+      {layoutToasts(visible, heights.current, expanded, touch ? "bottom" : "top").map(({ toast, index, style }) => (
         <div
           key={toast.id}
           className="toast-item"
@@ -221,51 +222,92 @@ export function ToastViewport({ store, touch = false }: { store: ToastStore; tou
 }
 
 /**
- * Places the stack. Desktop: the conversation's bottom right, clear of the
- * stage, lifted over the docked composer where the two would overlap. Touch:
- * over the docked composer, else the stylesheet's insets apply.
+ * Places the stack. Desktop: under the first anchor on screen. Touch: over the
+ * docked composer, else the stylesheet's insets apply.
  */
 function useStackPlace(stack: RefObject<HTMLElement | null>, touch: boolean, count: number): void {
   useLayoutEffect(() => {
     const style = stack.current?.style;
     if (!style || !count) return undefined;
-    const composer = document.querySelector<HTMLElement>(".conversation-composer-host");
-    const column = document.querySelector<HTMLElement>(".conversation-column");
-    const measure = () => {
-      // A draft's composer is "start", not "docked", yet on the desktop it sits at the bottom all the same.
-      const surface = touch ? composer?.classList.contains("docked") ? composer : undefined : composer?.querySelector(".composer-surface") ?? composer;
-      const dock = surface?.getBoundingClientRect();
-      const lift = dock && dock.height ? innerHeight - dock.top + GAP : 0;
-      if (touch) { style.bottom = lift ? `${lift}px` : ""; return; }
-      // Without a conversation on screen (a maximized stage), the window's corner.
-      const box = column?.getBoundingClientRect();
-      const area = box?.width ? box : new DOMRect(0, 0, innerWidth, innerHeight);
-      const edge = area.right - 12;
-      const width = Math.min(360, area.width - 24);
-      const floor = innerHeight - area.bottom + 12;
-      Object.assign(style, {
-        right: `${innerWidth - edge}px`,
-        width: `${width}px`,
-        bottom: `${dock && dock.bottom > innerHeight - floor - 80 && dock.right > edge - width && dock.left < edge ? Math.max(floor, lift) : floor}px`,
-      });
-    };
-    measure();
-    const resized = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
-    const moved = new MutationObserver(measure);
-    for (const element of [composer, column]) if (element) resized?.observe(element);
-    // `style`: the move between start and docked is a transform, measured again once it is cleared.
-    if (composer) moved.observe(composer, { attributes: true, attributeFilter: ["class", "style"] });
-    // The column and the composer resize with the window; the keyboard only moves the visual viewport.
-    const viewport = window.visualViewport;
-    viewport?.addEventListener("resize", measure);
-    viewport?.addEventListener("scroll", measure);
-    return () => {
-      resized?.disconnect();
-      moved.disconnect();
-      viewport?.removeEventListener("resize", measure);
-      viewport?.removeEventListener("scroll", measure);
-    };
+    return touch ? placeOverComposer(style) : placeUnderAnchor(style);
   }, [stack, touch, count]);
+}
+
+/**
+ * What the desktop stack hangs under, the first one drawn wins. Each sits at
+ * the top right of its side, so toasts keep one place as the layout changes.
+ */
+const ANCHORS = [
+  { selector: ".workbench-center > .workspace-area:not(.has-stage) > .region-workspace-summary", inset: 0 },
+  { selector: ".workbench-center > .workspace-area > .stage > .stage-strip", inset: 12 },
+  { selector: ".workbench-center > .conversation-column > .thread-header", inset: 12 },
+] as const;
+/** Room kept at the window's bottom for one toast, however tall the anchor grows. */
+const MIN_ROOM = 80;
+
+function placeUnderAnchor(style: CSSStyleDeclaration): () => void {
+  let anchor: { element: HTMLElement; inset: number } | undefined;
+  const measure = () => {
+    // Without an anchor (an overlay covers the workbench), the window's corner.
+    const box = anchor?.element.getBoundingClientRect() ?? new DOMRect(0, 0, innerWidth, 0);
+    const inset = anchor?.inset ?? 12;
+    Object.assign(style, {
+      top: `${Math.max(12, Math.min(box.bottom + 12, innerHeight - MIN_ROOM))}px`,
+      right: `${innerWidth - box.right + inset}px`,
+      width: `${Math.min(360, box.width - 2 * inset)}px`,
+    });
+  };
+  const resized = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
+  // The anchor changes as the stage and the workspace column open and close, both direct children here.
+  const rearranged = new MutationObserver(() => find());
+  const find = () => {
+    resized?.disconnect();
+    rearranged.disconnect();
+    const center = document.querySelector<HTMLElement>(".workbench-center");
+    for (const element of [center, center?.querySelector(":scope > .workspace-area")]) {
+      if (element) rearranged.observe(element, { childList: true, attributes: true, attributeFilter: ["class"] });
+    }
+    anchor = undefined;
+    for (const { selector, inset } of ANCHORS) {
+      const element = document.querySelector<HTMLElement>(selector);
+      if (element && element.getBoundingClientRect().width > 0) { anchor = { element, inset }; break; }
+    }
+    if (anchor) resized?.observe(anchor.element);
+    measure();
+  };
+  find();
+  window.addEventListener("resize", find);
+  return () => {
+    resized?.disconnect();
+    rearranged.disconnect();
+    window.removeEventListener("resize", find);
+  };
+}
+
+function placeOverComposer(style: CSSStyleDeclaration): () => void {
+  const composer = document.querySelector<HTMLElement>(".conversation-composer-host");
+  const measure = () => {
+    const dock = composer?.classList.contains("docked") ? composer.getBoundingClientRect() : undefined;
+    style.bottom = dock?.height ? `${innerHeight - dock.top + GAP}px` : "";
+  };
+  measure();
+  const resized = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
+  const moved = new MutationObserver(measure);
+  if (composer) {
+    resized?.observe(composer);
+    // `style`: the move between start and docked is a transform, measured again once it is cleared.
+    moved.observe(composer, { attributes: true, attributeFilter: ["class", "style"] });
+  }
+  // The keyboard only moves the visual viewport.
+  const viewport = window.visualViewport;
+  viewport?.addEventListener("resize", measure);
+  viewport?.addEventListener("scroll", measure);
+  return () => {
+    resized?.disconnect();
+    moved.disconnect();
+    viewport?.removeEventListener("resize", measure);
+    viewport?.removeEventListener("scroll", measure);
+  };
 }
 
 /** Whether something is drawn over the toast's middle: a sheet, a dialog, Settings. */

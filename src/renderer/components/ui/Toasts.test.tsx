@@ -80,79 +80,118 @@ describe("ToastViewport", () => {
 });
 
 describe("ToastViewport's place", () => {
+  type Box = [number, number, number, number];
   const box = (left: number, top: number, right: number, bottom: number) => () => ({ left, top, right, bottom, width: right - left, height: bottom - top, x: left, y: top, toJSON: () => ({}) });
-  /** A conversation column and its docked composer, as the workbench draws them. */
-  function workbench(column: [number, number, number, number], surface: [number, number, number, number], state = "docked") {
-    const columnElement = document.createElement("div");
-    columnElement.className = "conversation-column";
-    columnElement.getBoundingClientRect = box(...column);
-    const host = document.createElement("div");
-    host.className = `conversation-composer-host ${state}`;
-    host.getBoundingClientRect = box(column[0], surface[1] - 14, column[2], column[3]);
-    const composer = document.createElement("div");
-    composer.className = "composer-surface";
-    composer.getBoundingClientRect = box(...surface);
-    host.append(composer);
-    columnElement.append(host);
-    document.body.append(columnElement);
-    return () => columnElement.remove();
+  function element(className: string, rect: Box, parent: HTMLElement = document.body) {
+    const node = document.createElement("div");
+    node.className = className;
+    node.getBoundingClientRect = box(...rect);
+    parent.append(node);
+    return node;
+  }
+  /** The workbench's centre: a conversation with its header, and the right side as given. */
+  function workbench() {
+    const center = element("workbench-center", [248, 0, 1920, 1000]);
+    const column = element("conversation-column", [248, 0, 1560, 1000], center);
+    element("thread-header", [248, 0, 1560, 52], column);
+    return { center, remove: () => center.remove() };
   }
   const stackStyle = () => screen.getByRole("region", { name: "Notifications" }).style;
+  const place = () => [stackStyle().top, stackStyle().right, stackStyle().width];
+  afterEach(() => { vi.unstubAllGlobals(); });
+  const window1920 = () => { vi.stubGlobal("innerWidth", 1920); vi.stubGlobal("innerHeight", 1000); };
 
-  it("sits in the conversation's bottom-right corner where the composer leaves room", () => {
-    vi.stubGlobal("innerWidth", 1920);
-    vi.stubGlobal("innerHeight", 1000);
-    const remove = workbench([248, 0, 1920, 1000], [694, 890, 1474, 980]);
+  it("hangs under the workspace card, its edge and width", () => {
+    window1920();
+    const { center, remove } = workbench();
+    const area = element("workspace-area", [1572, 0, 1912, 1000], center);
+    element("workbench-region region-workspace-summary", [1584, 52, 1908, 196], area);
     try {
       const { store } = setup();
       act(() => { store.show({ description: "Saved" }); });
-      expect([stackStyle().right, stackStyle().bottom, stackStyle().width]).toEqual(["12px", "12px", "360px"]);
-    } finally { remove(); vi.unstubAllGlobals(); }
+      expect(place()).toEqual(["208px", "12px", "324px"]);
+    } finally { remove(); }
   });
 
-  it("lifts over the composer it would cover, and keeps left of an open stage", () => {
-    vi.stubGlobal("innerWidth", 1540);
-    vi.stubGlobal("innerHeight", 980);
-    // The stage takes the window's right from x 628; the column is narrower than a toast.
-    const remove = workbench([248, 0, 628, 980], [280, 884, 596, 964]);
+  it("hangs under an open stage's tabs, inside its right edge", () => {
+    window1920();
+    const { center, remove } = workbench();
+    const area = element("workspace-area has-stage", [1000, 0, 1912, 1000], center);
+    const stage = element("stage", [1012, 12, 1908, 988], area);
+    element("stage-strip", [1013, 13, 1907, 53], stage);
     try {
       const { store } = setup();
       act(() => { store.show({ description: "Saved" }); });
-      expect([stackStyle().right, stackStyle().bottom, stackStyle().width]).toEqual(["924px", "104px", "356px"]);
-    } finally { remove(); vi.unstubAllGlobals(); }
+      expect(place()).toEqual(["65px", "25px", "360px"]);
+    } finally { remove(); }
   });
 
-  it("lifts over a new thread's composer too, which is at the bottom though not docked", () => {
-    vi.stubGlobal("innerWidth", 1540);
-    vi.stubGlobal("innerHeight", 980);
-    const remove = workbench([248, 0, 1540, 980], [555, 876, 1234, 956], "start");
+  it("hangs under the conversation's header while the right side is closed", () => {
+    window1920();
+    const { remove } = workbench();
     try {
       const { store } = setup();
       act(() => { store.show({ description: "Saved" }); });
-      expect([stackStyle().right, stackStyle().bottom]).toEqual(["12px", "112px"]);
-    } finally { remove(); vi.unstubAllGlobals(); }
+      expect(place()).toEqual(["64px", "372px", "360px"]);
+    } finally { remove(); }
   });
 
-  it("stays in the corner when the composer sits higher up", () => {
-    vi.stubGlobal("innerWidth", 1540);
-    vi.stubGlobal("innerHeight", 980);
-    const remove = workbench([248, 0, 1540, 980], [555, 520, 1234, 600], "start");
+  it("moves to the new anchor when the right side opens", async () => {
+    window1920();
+    const { center, remove } = workbench();
     try {
       const { store } = setup();
       act(() => { store.show({ description: "Saved" }); });
-      expect(stackStyle().bottom).toBe("12px");
-    } finally { remove(); vi.unstubAllGlobals(); }
+      expect(stackStyle().top).toBe("64px");
+      const area = element("workspace-area", [1572, 0, 1912, 1000], center);
+      element("workbench-region region-workspace-summary", [1584, 52, 1908, 196], area);
+      await act(async () => { await Promise.resolve(); });
+      expect(place()).toEqual(["208px", "12px", "324px"]);
+    } finally { remove(); }
+  });
+
+  it("keeps room for a toast under a card as tall as the window", () => {
+    window1920();
+    const { center, remove } = workbench();
+    const area = element("workspace-area", [1572, 0, 1912, 1000], center);
+    element("workbench-region region-workspace-summary", [1584, 52, 1908, 960], area);
+    try {
+      const { store } = setup();
+      act(() => { store.show({ description: "Saved" }); });
+      expect(stackStyle().top).toBe("920px");
+    } finally { remove(); }
+  });
+
+  it("takes the window's top right with no workbench drawn", () => {
+    window1920();
+    const { store } = setup();
+    act(() => { store.show({ description: "Saved" }); });
+    expect(place()).toEqual(["12px", "12px", "360px"]);
   });
 
   it("on a touch layout, keeps over the docked composer and leaves its width to the stylesheet", () => {
     vi.stubGlobal("innerWidth", 390);
     vi.stubGlobal("innerHeight", 844);
-    const remove = workbench([0, 0, 390, 844], [8, 760, 382, 836]);
+    const host = element("conversation-composer-host docked", [0, 746, 390, 844]);
     try {
       const { store } = setup(undefined, true);
       act(() => { store.show({ description: "Saved" }); });
-      expect([stackStyle().right, stackStyle().bottom, stackStyle().width]).toEqual(["", "106px", ""]);
-    } finally { remove(); vi.unstubAllGlobals(); }
+      expect([stackStyle().top, stackStyle().right, stackStyle().bottom, stackStyle().width]).toEqual(["", "", "106px", ""]);
+    } finally { host.remove(); }
+  });
+});
+
+describe("ToastViewport's stacking", () => {
+  it("on a desktop, stacks from the top, the older ones peeking below the newest", () => {
+    const toasts = [{ id: "new", type: "info" as const }, { id: "old", type: "info" as const }];
+    const heights = new Map([["new", 60], ["old", 80]]);
+    const collapsed = layoutToasts(toasts, heights, false, "top");
+    expect(collapsed[0]!.style.transform).toContain("translateY(0px) scale(1)");
+    expect(collapsed[1]!.style.transform).toMatch(/translateY\(11(\.0+\d*)?px\) scale\(0\.95\)/u);
+    expect(layoutToasts(toasts, heights, true, "top").map((item) => item.style.transform)).toEqual([
+      "translateX(var(--toast-swipe-x, 0px)) translateY(0px) scale(1)",
+      "translateX(var(--toast-swipe-x, 0px)) translateY(68px) scale(1)",
+    ]);
   });
 });
 
@@ -160,12 +199,12 @@ describe("ToastViewport on a touch layout", () => {
   it("stacks from the bottom, the newest nearest the edge and the older ones peeking above it", () => {
     const toasts = [{ id: "new", type: "info" as const }, { id: "old", type: "info" as const }];
     const heights = new Map([["new", 60], ["old", 80]]);
-    const collapsed = layoutToasts(toasts, heights, false);
+    const collapsed = layoutToasts(toasts, heights, false, "bottom");
     expect(collapsed[0]!.style.transform).toContain("translateY(0px) scale(1)");
     // The older one's top edge peeks 8 px above the newest: 8 px up, and 3 px for its smaller scale.
     expect(collapsed[1]!.style.transform).toMatch(/translateY\(-11(\.0+\d*)?px\) scale\(0\.95\)/u);
     expect(collapsed[1]!.style.height).toBe(60);
-    expect(layoutToasts(toasts, heights, true).map((item) => item.style.transform)).toEqual([
+    expect(layoutToasts(toasts, heights, true, "bottom").map((item) => item.style.transform)).toEqual([
       "translateX(var(--toast-swipe-x, 0px)) translateY(0px) scale(1)",
       "translateX(var(--toast-swipe-x, 0px)) translateY(-68px) scale(1)",
     ]);
