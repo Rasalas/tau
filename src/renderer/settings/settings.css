@@ -26,7 +26,7 @@
 .settings-nav-search > input::placeholder { color: var(--muted); }
 .settings-nav-search > input::-webkit-search-cancel-button { display: none; }
 .settings-nav-search > kbd {
-  font: 10px var(--mono); line-height: 16px; color: var(--faint);
+  font: var(--text-xs) var(--mono); line-height: 16px; color: var(--faint);
   border: 1px solid var(--line-control); border-radius: var(--radius-xs); padding: 0 5px;
 }
 .settings-nav-search-clear {
@@ -47,7 +47,7 @@
 }
 .settings-nav-list button:hover, .settings-back:hover { background: var(--hover-strong); color: var(--ink-2); }
 .settings-nav-list button.active { background: var(--thread-active); color: var(--ink); font-weight: 600; }
-.settings-nav-list button > svg, .settings-back > svg { color: var(--faint); }
+.settings-nav-list button > svg, .settings-back > svg { width: var(--icon-size); height: var(--icon-size); color: var(--faint); }
 .settings-nav-list button.active > svg { color: var(--ink-2); }
 .settings-nav-list button > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-nav-group { display: flex; flex-direction: column; gap: 1px; }
@@ -132,7 +132,7 @@
 .settings-content > .settings-page > h3:first-child + * { margin-top: 0; }
 
 .settings-page { min-width: 0; }
-.settings-page h3 { margin: 0; font-size: 15px; font-weight: 700; }
+.settings-page h3 { margin: 0; font-size: var(--text-lg); font-weight: 700; }
 .settings-page > p.lede, .settings-content p.lede { margin: 0; max-width: 640px; font-size: var(--text-md); line-height: 1.5; color: var(--muted); }
 .settings-page > * + .settings-section, .settings-page > .settings-section + * { margin-top: var(--space-8); }
 .settings-page > p.lede + .settings-section, .settings-page > p.lede + .settings-filter { margin-top: var(--space-7); }
@@ -165,7 +165,7 @@
 .settings-card .settings-row-text { gap: 0; }
 .settings-card .settings-row-text > p { font-size: var(--text-sm); color: var(--muted); }
 .settings-card .tau-segmented { height: auto; padding: 0; border: 0; background: transparent; }
-.settings-card .tau-segmented > button { height: 24px; padding: 0 9px; font-size: var(--text-sm); color: var(--ink-3); }
+.settings-card .tau-segmented > button { min-height: var(--control-h); padding: 0 9px; font-size: var(--text-control); color: var(--ink-3); }
 .settings-card .tau-segmented > button[aria-checked="true"] { background: var(--stage); color: var(--ink); font-weight: 600; box-shadow: none; }
 .settings-row { padding: var(--space-5) var(--space-6); outline: none; }
 .settings-group > .settings-row:first-child { border-top-left-radius: var(--radius-md); border-top-right-radius: var(--radius-md); }
@@ -197,9 +197,10 @@
 
 .setting-origin { position: relative; display: inline-flex; }
 .setting-origin-trigger, .setting-reset {
-  width: 20px; height: 20px; display: grid; place-items: center; padding: 0;
+  flex: none; width: var(--control-size-small); height: var(--control-size-small); display: grid; place-items: center; padding: 0;
   border: 0; border-radius: var(--radius-xs); background: transparent; color: var(--fainter); cursor: pointer;
 }
+.setting-origin-trigger > svg, .setting-reset > svg { width: var(--icon-size-small); height: var(--icon-size-small); }
 .setting-origin-trigger:hover, .setting-reset:hover, .setting-origin-trigger[aria-expanded="true"] { background: var(--hover-strong); color: var(--ink); }
 .setting-origin-trigger[data-origin="host"] { color: var(--muted); }
 .setting-origin-trigger[data-origin="project"], .setting-origin-trigger[data-overridden] { color: var(--acid-text); }
@@ -263,7 +264,7 @@
 .settings-field > span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left; }
 .settings-field > .provider-icon-stack { flex: none; margin-left: 0; }
 .settings-field strong { font-size: calc(var(--text-sm) + .5px); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.settings-field small { font: 10px var(--mono); color: var(--faint); }
+.settings-field small { font: var(--text-xs) var(--mono); color: var(--faint); }
 .settings-field > b { display: grid; place-items: center; color: var(--faint); }
 
 .settings-note {
@@ -271,7 +272,7 @@
   border-left: 2px solid var(--line-strong); background: var(--inset);
   color: var(--muted); font-size: calc(var(--text-xs) + .5px); line-height: 1.55;
 }
-.settings-note code { font: 10.5px var(--mono); }
+.settings-note code { font: var(--text-xs) var(--mono); }
 .settings-note[data-level="error"] { border-left-color: var(--removed); color: var(--ink-2); }
 .settings-note + .settings-note { margin-top: 8px; }
 
@@ -350,8 +351,8 @@
 .inspector-table th { text-align: left; padding: 0 8px 6px 0; font-weight: 500; color: var(--faint); }
 .inspector-table td { padding: 7px 8px 7px 0; border-top: 1px solid var(--line-soft); color: var(--ink-2); vertical-align: top; word-break: break-word; }
 .inspector-table td strong { display: block; font-weight: 500; }
-.inspector-table td small { display: block; font: 10px var(--mono); color: var(--faint); }
-.inspector-table td code { font: 10.5px var(--mono); }
+.inspector-table td small { display: block; font: var(--text-xs) var(--mono); color: var(--faint); }
+.inspector-table td code { font: var(--text-xs) var(--mono); }
 .inspector-table td[data-host-status="failed"] { color: var(--removed); }
 .inspector-table td[data-host-status] { min-width: 120px; }
 .inspector-table td[data-isolation] { white-space: nowrap; }
@@ -391,7 +392,7 @@
 .settings-field-row { display: flex; align-items: center; gap: 12px; max-width: 460px; padding: 7px 0; }
 .settings-field-label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .settings-field-row strong { font-size: calc(var(--text-sm) + .5px); font-weight: 600; color: var(--ink-2); }
-.settings-field-row small { font: 10px var(--mono); color: var(--faint); }
+.settings-field-row small { font: var(--text-xs) var(--mono); color: var(--faint); }
 .settings-field-row .settings-search-input { max-width: 230px; }
 /* Keybindings (design 2g): a row per command, each key a cap, a pen that records; a draft opens a strip under its row. */
 .keybinding-row { display: flex; align-items: center; gap: var(--space-3); min-height: 44px; padding: var(--space-2) 14px; font-size: var(--text-md); color: var(--ink); }

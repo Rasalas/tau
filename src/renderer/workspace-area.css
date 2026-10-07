@@ -4,9 +4,10 @@
 .workspace-area > .stage { flex: 1; min-height: 240px; border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; }
 .workspace-area > .workbench-region { flex: none; min-width: 0; padding: 0; }
 /* Desktop chrome keeps a dependable target without enlarging document type. */
-body:not([data-profile="compact"]) .stage-tools { --stage-tool-size: 32px; }
-body:not([data-profile="compact"]) .stage-tool { min-width: 32px; min-height: 32px; }
-body:not([data-profile="compact"]) .thread-header .chrome-button { min-height: 32px; }
+body:not([data-profile="compact"]) .stage-tools { --stage-tool-size: var(--control-size); }
+body:not([data-profile="compact"]) .stage-tool { min-width: var(--control-size); min-height: var(--control-size); }
+body:not([data-profile="compact"]) .stage-tool > svg { width: var(--icon-size); height: var(--icon-size); }
+body:not([data-profile="compact"]) .thread-header .chrome-button { min-height: var(--control-size); }
 
 .workbench-center > .chat-resizer { background: transparent; border: 0; }
 

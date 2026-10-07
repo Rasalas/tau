@@ -73,25 +73,26 @@
 /* Design 1a: the search is a filled field with ⌘K that opens the palette; "+" beside it starts a thread. */
 .thread-search {
   flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
-  height: calc(30px * var(--density)); padding: 0 10px; border: 0; border-radius: var(--radius-row);
-  background: var(--stage); color: var(--muted); font: calc(var(--text-sm) - 1px) var(--sans); text-align: left; cursor: pointer;
+  height: var(--control-size); padding: 0 var(--space-4); border: 0; border-radius: var(--radius-row);
+  background: var(--stage); color: var(--muted); font: var(--text-control) var(--sans); text-align: left; cursor: pointer;
 }
+.thread-search > svg, .sidebar-action > svg:first-child { width: var(--icon-size); height: var(--icon-size); }
 .thread-search:hover { color: var(--ink-2); }
 .thread-search > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.thread-search > kbd { font: 10.5px var(--mono); color: var(--muted); }
+.thread-search > kbd { font: var(--text-xs) var(--mono); color: var(--muted); }
 /* A chosen project's name takes the room ⌘K had, as design 2b drops it. */
 .thread-search { container-type: inline-size; }
-@container (width < 120px) { .thread-search > kbd { display: none; } }
+@container (width < 150px) { .thread-search > kbd { display: none; } }
 .thread-search-row > .sidebar-action.new-thread {
-  width: calc(30px * var(--density)); height: calc(30px * var(--density));
+  width: var(--control-size); height: var(--control-size);
   background: var(--stage); color: var(--ink);
 }
 .thread-search-row > .sidebar-action:is(.new-thread, .project-filter):hover { background: var(--chip); color: var(--ink); }
 
 /* The project filter between the search and "+": a folder and a chevron, or the shown project's tile and name in the accent. */
 .thread-search-row > .sidebar-action.project-filter {
-  width: auto; max-width: 42%; height: calc(30px * var(--density)); padding: 0 8px;
-  display: flex; gap: 6px; background: var(--stage); color: var(--ink-2); font: 600 calc(var(--text-sm) - 1px) var(--sans);
+  width: auto; max-width: 42%; height: var(--control-size); padding: 0 8px;
+  display: flex; gap: 6px; background: var(--stage); color: var(--ink-2); font: 600 var(--text-control) var(--sans);
 }
 .project-filter > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-filter > svg:last-child { flex: none; opacity: .7; }
@@ -269,10 +270,11 @@
   display: flex; align-items: center; gap: var(--space-1);
 }
 .sidebar-footer button {
-  position: relative; flex: none; width: 30px; height: 30px; display: grid; place-items: center;
+  position: relative; flex: none; width: var(--control-size-large); height: var(--control-size-large); display: grid; place-items: center; padding: 0;
   border: 0; border-radius: var(--radius-row);
   background: transparent; color: var(--ink-3); cursor: pointer;
 }
+.sidebar-footer button > svg { width: var(--icon-size-large); height: var(--icon-size-large); }
 .sidebar-footer button:hover { background: var(--hover-strong); color: var(--ink); }
 /* A page's count (open pull requests): a small accent figure on the icon's corner. */
 .sidebar-footer .page-badge {
@@ -289,7 +291,7 @@
 }
 /* On an app page the foot is Back alone, as it ends Settings' column. */
 .sidebar-footer button.sidebar-back {
-  width: auto; height: 32px; flex: 1; justify-content: start; display: flex; align-items: center; gap: var(--space-4);
+  width: auto; flex: 1; justify-content: start; display: flex; align-items: center; gap: var(--space-4);
   padding: 0 var(--space-4); color: var(--ink-3); font: 500 var(--text-md) var(--sans);
 }
 .sidebar-footer button.sidebar-back > svg { color: var(--faint); }
@@ -883,15 +885,15 @@ body[data-profile="compact"] .turn-actions > button { min-height: 44px; padding:
 .workspace-card-checkout { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
 .workspace-summary-card .workspace-card-row,
 .workspace-summary-card .stage-tool,
-.workspace-summary-card .chrome-button { display: flex; align-items: center; height: 36px; min-height: 36px; min-width: 0; gap: 10px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; box-shadow: none; color: var(--ink-3); font: 500 var(--text-sm)/1 var(--sans); text-align: left; }
+.workspace-summary-card .chrome-button { display: flex; align-items: center; height: var(--control-size-large); min-height: var(--control-size-large); min-width: 0; gap: 10px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; box-shadow: none; color: var(--ink-3); font: 500 var(--text-control)/1 var(--sans); text-align: left; }
 .workspace-summary-card button:hover:not(:disabled), .workspace-summary-card button[aria-expanded="true"] { background: var(--hover); }
 .workspace-summary-card .workspace-card-row > svg,
 .workspace-summary-card .stage-tool > svg,
 .workspace-summary-card .chrome-button > svg,
 .workspace-summary-card .editor-icon,
-.workspace-card-icon { width: 16px; height: 16px; flex: 0 0 16px; color: var(--muted); }
-.workspace-card-tail { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 36px; flex: 0 0 32px; }
-.workspace-card-tail > svg, .workspace-card-icon > svg { width: 16px; height: 16px; }
+.workspace-card-icon { width: var(--icon-size); height: var(--icon-size); flex: 0 0 16px; color: var(--muted); }
+.workspace-card-tail { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: var(--control-size-large); flex: 0 0 32px; }
+.workspace-card-tail > svg, .workspace-card-icon > svg { width: var(--icon-size); height: var(--icon-size); }
 .workspace-card-icon { display: inline-flex; align-items: center; justify-content: center; }
 .workspace-summary-card .workspace-card-row:has(> .workspace-card-tail) { padding-right: 0; }
 .workspace-summary-card .workspace-card-split { padding: 0; gap: 0; }

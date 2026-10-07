@@ -189,9 +189,9 @@ button > svg { pointer-events: none; }
 .title-identity > strong { font-weight: 700; font-size: var(--text-md); }
 .title-identity > span { font: var(--text-xs) var(--mono); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .title-spacer { flex: 1; }
-/* The stage's and the header's glyph buttons, the design's 28 px squares. */
+/* The stage and header glyph buttons share the control size. */
 .stage-tool {
-  flex: none; width: 28px; height: 28px; display: grid; place-items: center; padding: 0;
+  flex: none; width: var(--control-size); height: var(--control-size); display: grid; place-items: center; padding: 0;
   border: 0; border-radius: var(--radius-row); background: transparent; color: var(--ink-3); cursor: pointer;
 }
 .stage-tool:hover, .stage-tool[aria-expanded="true"] { background: var(--hover); color: var(--ink); }
@@ -199,10 +199,10 @@ button > svg { pointer-events: none; }
 .stage-tool[aria-pressed="true"], .stage-tool.current { color: var(--ink); }
 
 .chrome-button {
-  min-height: 31px; display: flex; align-items: center; gap: 7px; flex: none;
+  min-height: var(--control-size); display: flex; align-items: center; gap: 7px; flex: none;
   border: 1px solid var(--line-control); border-radius: 9px;
   background: var(--well); color: var(--ink-2);
-  font: 550 var(--text-sm) var(--sans); padding: 6px 11px; cursor: pointer;
+  font: 550 var(--text-control) var(--sans); padding: 6px 11px; cursor: pointer;
   box-shadow: inset 0 1px 0 var(--edge-highlight);
 }
 .chrome-button:hover:not(:disabled) { background: var(--raised); border-color: var(--line-strong); color: var(--ink); }
@@ -270,7 +270,7 @@ button > svg { pointer-events: none; }
 .menu button {
   display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
   border: 0; border-radius: 7px; background: transparent;
-  color: var(--ink-2); font: 400 var(--text-sm) var(--sans);
+  color: var(--ink-2); font: 400 var(--text-control) var(--sans);
   padding: 7px 10px; cursor: pointer;
 }
 .menu button:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
@@ -278,12 +278,12 @@ button > svg { pointer-events: none; }
 .menu button:disabled { opacity: .45; cursor: default; }
 .menu button.destructive, .menu button.destructive > svg { color: var(--danger); }
 .menu button.destructive:hover:not(:disabled) { background: var(--danger-bg); color: var(--danger); }
-.menu button > svg { color: var(--faint); }
+.menu button > svg { width: var(--icon-size); height: var(--icon-size); color: var(--faint); }
 .menu button.selected > svg { color: var(--acid-text); }
 
 /* Plain rows: a single line of text that may need truncating. */
 .menu button > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.menu button > small { font: 10px var(--mono); color: var(--faint); flex: none; }
+.menu button > small { font: var(--text-xs) var(--mono); color: var(--faint); flex: none; }
 
 /* Rich rows: label with optional badge, and an optional second line under it. */
 .menu-label {
@@ -518,8 +518,8 @@ button > svg { pointer-events: none; }
 /* Project, machine and branch as pills after the text, the page's actions; each opens its popover. */
 .workbench-region.region-draft-actions { flex-flow: row wrap; justify-content: center; max-width: none; margin-top: var(--space-5); }
 .draft-pill {
-  height: 30px; display: inline-flex; align-items: center; gap: 6px; max-width: 260px; padding: 0 10px;
-  border: 0; border-radius: 8px; background: var(--raised); color: var(--ink-2); font: 500 var(--text-sm) var(--sans); cursor: pointer;
+  min-height: var(--control-size); display: inline-flex; align-items: center; gap: 6px; max-width: 260px; padding: 0 10px;
+  border: 0; border-radius: 8px; background: var(--raised); color: var(--ink-2); font: 500 var(--text-control) var(--sans); cursor: pointer;
 }
 .draft-pill:hover, .draft-pill[aria-expanded="true"] { background: var(--raised-hover); color: var(--ink); }
 .draft-pill > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1426,7 +1426,7 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 .runtime-chip {
   display: flex; align-items: center; gap: 6px; border: 0; border-radius: var(--radius-sm); white-space: nowrap;
   background: transparent; color: var(--ink-2);
-  font: 400 var(--text-sm) var(--sans); padding: 4px 8px; cursor: pointer;
+  font: 400 var(--text-control) var(--sans); padding: 4px 8px; cursor: pointer;
 }
 .runtime-chip:hover { background: var(--raised); color: var(--ink); }
 .attachment-input { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
@@ -1531,7 +1531,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .panel-header > h2 { margin: 0; font-size: var(--text-md); font-weight: 700; }
 .panel-header > small { font: 10px var(--mono); color: var(--faint); }
 .panel-header .spacer { flex: 1; }
-.text-button { border: 0; background: transparent; color: var(--muted); font: var(--text-xs) var(--mono); cursor: pointer; }
+.text-button { border: 0; background: transparent; color: var(--muted); font: var(--text-control) var(--sans); cursor: pointer; }
 .text-button:hover { color: var(--ink); }
 .empty-copy { margin: 16px; color: var(--faint); font-size: var(--text-sm); }
 
@@ -2174,7 +2174,7 @@ button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--i
 }
 .remote-thread-document > .region-look-in { flex: none; padding: 8px 16px; border-bottom: 1px solid var(--line); }
 
-.stage-tools { --stage-tool-size: 28px; display: flex; flex: 0 1 auto; align-items: center; gap: 1px; min-width: 0; }
+.stage-tools { --stage-tool-size: var(--control-size); display: flex; flex: 0 1 auto; align-items: center; gap: 1px; min-width: 0; }
 .stage-tools > .stage-tool, .stage-tools > .menu-anchor { flex: none; }
 .stage-tool { position: relative; }
 .stage-tool-activity { position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; border-radius: 50%; background: var(--info); }

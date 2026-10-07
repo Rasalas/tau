@@ -4623,6 +4623,8 @@ A provider's own colour, for its share in a chart or a limit bar; never a state.
 
 **Type, size, motion**
 
+[Control sizes](design/control-sizes.md) defines the shared label, field, button and icon roles. Choose a role by purpose, including for icons contributed by kits; density changes targets and spacing, not font or icon sizes.
+
 Figtree (400–700, a variable face under the SIL Open Font License, `src/renderer/assets/fonts/figtree/`) ships with Tau and loads from its own files, never from a font server; the system stack is its fallback. Code and the terminal keep `--mono`.
 
 The type scale is one size per text role and device class ([ADR 0029](adr/0029-type-scale-per-device-class.md)): the values below are a desktop's, the design's; `data-device="tablet"` and `"phone"` on `<html>` set the `--type-*` bases larger (the ADR has the table). Each `--text-*` is its base times `--text-scale`, the system's text size on a touch device, plus `--text-step`, Tau's own Text size; a kit reads the `--text-*` tokens and never a pixel size, and sizes a row that holds text with `min-height` or `em` so a larger text size never cuts it.
@@ -4640,7 +4642,8 @@ The type scale is one size per text role and device class ([ADR 0029](adr/0029-t
 | `--label-tracking` | its letter-spacing | `normal` |
 | `--label-size` | its size | `var(--text-xs)` |
 | `--text-xs` | meta: a branch, an age, a status | `12px` (tablet 12, phone 13) |
-| `--text-sm` | a control, a chip, a menu | `13px` (tablet 13, phone 14) |
+| `--text-sm` | secondary text and descriptions | `13px` (tablet 13, phone 14) |
+| `--text-control` | a button, choice or menu label; aliases the body role | `var(--text-md)` |
 | `--text-md` | body and a thread's title | `14px` (tablet 15, phone 16) |
 | `--text-lg` | a row that leads a sheet or a menu | `15px` (tablet 16, phone 17) |
 | `--text-title` | a thread's heading | `17px` |
@@ -4649,6 +4652,12 @@ The type scale is one size per text role and device class ([ADR 0029](adr/0029-t
 | `--text-input` | what the user types; never under 16px on a touch device, where iOS would zoom | `14px` (tablet and phone 16) |
 | `--text-scale` | the system's text size on a touch device, 1–1.5 (`type-scale.ts`) | `1` |
 | `--text-step` | Tau's own Text size (Appearance Kit): `-1px`, `0px`, `1px` | `0px` |
+| `--control-size` | regular desktop fields, buttons and toolbars | `calc(32px * var(--density))` |
+| `--control-size-large` | sidebar navigation and context card rows | `calc(36px * var(--density))` |
+| `--control-size-small` | inline helpers and close buttons | `calc(24px * var(--density))` |
+| `--icon-size` | a regular control's main icon | `16px` |
+| `--icon-size-large` | sidebar navigation icons | `18px` |
+| `--icon-size-small` | inline helper icons | `14px` |
 | `--touch-target` | the least a finger needs, grown with `--text-scale` | `calc(44px * var(--text-scale))` |
 | `--radius-xs` | a tag | `4px` |
 | `--radius-sm` | a button or a chip | `6px` |

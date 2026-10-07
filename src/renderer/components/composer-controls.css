@@ -1,25 +1,26 @@
 /* Desktop footer controls share a target; touch profiles retain their larger targets. */
 html:not([data-device="phone"]):not([data-device="tablet"]) .composer-toolbar .runtime-chip {
-  min-height: 32px;
+  min-height: var(--control-size);
+  font-size: var(--text-control);
 }
 html:not([data-device="phone"]):not([data-device="tablet"]) .composer-toolbar :is(.composer-attach-chip, .composer-menu-trigger) {
-  width: 32px;
-  min-width: 32px;
+  width: var(--control-size);
+  min-width: var(--control-size);
   padding: 0;
   justify-content: center;
 }
 html:not([data-device="phone"]):not([data-device="tablet"]) .composer-toolbar .send-button {
-  min-width: 32px;
-  height: 32px;
+  min-width: var(--control-size);
+  height: var(--control-size);
 }
 .composer-toolbar .composer-attach-chip { flex: none; }
 .composer-toolbar .composer-attach-chip:disabled { color: var(--faint); cursor: default; }
 .composer-toolbar .composer-attach-chip:disabled:hover { background: transparent; }
 html:not([data-device="phone"]):not([data-device="tablet"]) .composer-toolbar .send-button.stop {
-  font-size: var(--text-sm);
+  font-size: var(--text-control);
 }
 html:not([data-device="phone"]):not([data-device="tablet"]) .composer-toolbar .runtime-chip > svg:not(.chev):not(.composer-fast) {
-  width: 16px;
-  height: 16px;
+  width: var(--icon-size);
+  height: var(--icon-size);
 }
 .composer-chips > .composer-attach-chip + .composer-lead-rule { display: none; }

@@ -5,19 +5,19 @@
   width: 600px; max-width: calc(100vw - 48px); margin-top: 56px;
   border: 1px solid var(--line-float); border-radius: 12px;
   background: var(--overlay); box-shadow: var(--elevation-3);
-  overflow: hidden; color: var(--ink); font-size: calc(var(--text-sm) + 1px); animation: fade-up .14s ease;
+  overflow: hidden; color: var(--ink); font-size: var(--text-control); animation: fade-up .14s ease;
 }
 .command-palette .palette-input-wrap { height: 46px; gap: 10px; color: var(--muted); }
-.command-palette .palette-input-wrap input { font-size: 14px; }
+.command-palette .palette-input-wrap input { font-size: var(--text-input); }
 .palette-scopes { display: flex; gap: 2px; flex: none; }
 .palette-scopes button {
-  padding: 2px 8px; border: 0; border-radius: 6px; background: transparent;
-  color: var(--muted); font: 11px var(--sans); cursor: pointer;
+  min-height: var(--control-size); padding: 2px 8px; border: 0; border-radius: 6px; background: transparent;
+  color: var(--muted); font: var(--text-control) var(--sans); cursor: pointer;
 }
 .palette-scopes button:hover { color: var(--ink); }
 .palette-scopes button[aria-pressed="true"] { background: var(--raised); color: var(--ink); font-weight: 600; }
 .palette-results { padding: 6px; max-height: min(460px, calc(100vh - 240px)); overflow: auto; }
-.palette-head { height: 24px; margin: 0; padding: 8px 10px 2px; box-sizing: border-box; font: 400 11px var(--sans); color: var(--muted); }
+.palette-head { min-height: 24px; margin: 0; padding: 8px 10px 2px; box-sizing: border-box; font: 400 var(--text-xs) var(--sans); color: var(--muted); }
 .palette-results button {
   width: 100%; height: 32px; margin-bottom: 1px; display: flex; align-items: center; gap: 10px;
   border: 0; border-radius: 7px; background: transparent;
@@ -26,14 +26,14 @@
 .palette-results button > span {
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.palette-results button > span > em { margin-left: 8px; font-size: 11px; font-style: normal; color: var(--muted); }
-.palette-results button > kbd { font: 10.5px var(--mono); color: var(--faint); flex: none; }
+.palette-results button > span > em { margin-left: 8px; font-size: var(--text-xs); font-style: normal; color: var(--muted); }
+.palette-results button > kbd { font: var(--text-xs) var(--mono); color: var(--faint); flex: none; }
 .palette-results button.selected { background: color-mix(in srgb, var(--ink) 7%, transparent); }
 .palette-results button.selected > span { color: var(--ink); font-weight: 600; }
 .palette-results button.selected > span > em { font-weight: 400; }
 .command-palette > footer {
   display: flex; align-items: center; gap: 14px; padding: 8px 14px;
-  border-top: 1px solid var(--line); font-size: 11px; color: var(--muted);
+  border-top: 1px solid var(--line); font-size: var(--text-xs); color: var(--muted);
 }
 .command-palette > footer .spacer { flex: 1; }
 /* Levels: the trail above the field, a back button in place of the prompt mark. */
@@ -58,10 +58,10 @@
   display: grid; place-items: center; min-width: 14px; height: 14px; flex: none;
   font-style: normal; color: var(--muted);
 }
-.palette-results button > .palette-current { font: 10.5px var(--sans); color: var(--muted); }
+.palette-results button > .palette-current { font: var(--text-xs) var(--sans); color: var(--muted); }
 .palette-results .palette-chevron { flex: none; color: var(--faint); }
 .palette-loading { display: flex; align-items: center; gap: 8px; }
 /* A row a Read-only device may not run: it stays in its group, dimmed, and says why. */
 .palette-results button[aria-disabled="true"] { cursor: default; }
 .palette-results button[aria-disabled="true"] > span { color: var(--faint); }
-.palette-results button > .palette-locked { font: 10.5px var(--sans); color: var(--muted); }
+.palette-results button > .palette-locked { font: var(--text-xs) var(--sans); color: var(--muted); }

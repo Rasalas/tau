@@ -20,14 +20,15 @@
 .model-search:focus-within { border-color: var(--line-focus); }
 .model-search > svg { color: var(--faint); flex: none; }
 .model-search > input { font-size: var(--text-md); }
-.model-search > .model-keys { flex: none; font: 10.5px var(--mono); color: var(--faint); letter-spacing: .12em; }
+.model-search > .model-keys { flex: none; font: var(--text-xs) var(--mono); color: var(--faint); letter-spacing: .12em; }
 .model-tool { position: relative; flex: none; }
 .model-tool-button {
-  height: 28px; min-width: 28px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 0 6px;
+  min-height: var(--control-size); min-width: var(--control-size); display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 0 6px;
   border: 0; border-radius: 7px; background: transparent;
-  color: var(--muted); font: var(--text-xs) var(--sans); cursor: pointer;
+  color: var(--muted); font: var(--text-control) var(--sans); cursor: pointer;
 }
 .model-tool-button:hover, .model-tool-button[aria-expanded="true"] { background: var(--hover-strong); color: var(--ink); }
+.model-tool-button > svg { width: var(--icon-size); height: var(--icon-size); }
 .model-tool-button.on { color: var(--acid-text); }
 .model-menu {
   position: absolute; right: 0; top: 32px; z-index: 2; min-width: 190px; padding: 4px;
@@ -35,12 +36,12 @@
   background: var(--overlay); box-shadow: var(--elevation-1);
 }
 .model-menu > hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
-.model-menu-heading { padding: 6px 8px 2px; font: 10px var(--mono); color: var(--faint); text-transform: uppercase; letter-spacing: .04em; }
+.model-menu-heading { padding: 6px 8px 2px; font: var(--text-xs) var(--mono); color: var(--faint); text-transform: uppercase; letter-spacing: .04em; }
 .model-menu > button {
-  display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px 0 24px; position: relative;
-  border: 0; border-radius: 6px; background: transparent; color: var(--ink-2); font: var(--text-sm) var(--sans); text-align: left; cursor: pointer;
+  display: flex; align-items: center; gap: 8px; min-height: var(--control-size); padding: 0 8px 0 24px; position: relative;
+  border: 0; border-radius: 6px; background: transparent; color: var(--ink-2); font: var(--text-control) var(--sans); text-align: left; cursor: pointer;
 }
-.model-menu > button > small { margin-left: auto; color: var(--faint); font-size: 10.5px; }
+.model-menu > button > small { margin-left: auto; color: var(--faint); font-size: var(--text-xs); }
 .model-menu > button:hover { background: var(--hover-strong); color: var(--ink); }
 .model-menu > button[aria-checked="true"]::before {
   content: "✓"; position: absolute; left: 8px; color: var(--acid-text); font-size: var(--text-xs);
@@ -119,17 +120,17 @@
 .model-runtimes { flex: none; display: inline-flex; align-items: center; gap: 4px; opacity: .75; }
 .model-runtimes .sub-icon { margin-left: 0; }
 .model-line > em {
-  flex: none; font: 9.5px var(--mono); font-style: normal; color: var(--acid-text);
+  flex: none; font: var(--text-xs)/1 var(--mono); font-style: normal; color: var(--acid-text);
   border: 1px solid var(--acid-line); border-radius: 4px; padding: 1px 5px;
 }
 /* A model a Shift-click added to a new thread's set. */
 .model-line > em.model-chosen { background: var(--acid-chip); }
 .model-kbd {
-  flex: none; font: 10px var(--mono); color: var(--muted);
+  flex: none; font: var(--text-xs)/1 var(--mono); color: var(--muted);
   background: var(--inset); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px;
 }
 .model-badge {
-  flex: none; font: 500 9.5px var(--mono); letter-spacing: .02em; color: var(--muted);
+  flex: none; font: 500 var(--text-xs)/1 var(--mono); letter-spacing: .02em; color: var(--muted);
   border: 1px solid var(--line-strong); border-radius: 4px; padding: 1px 5px;
 }
 .model-badge-new { color: var(--acid-text); border-color: var(--acid-line); background: var(--acid-bg); font-weight: 700; }
@@ -150,7 +151,7 @@
 .model-fold { color: var(--muted); font-size: var(--text-sm); }
 .model-fold[aria-label^="Show all"] { color: var(--info-ink); }
 .model-fold .model-line { gap: 6px; }
-.model-fold .model-line > small { color: var(--faint); font: 10.5px var(--mono); }
+.model-fold .model-line > small { color: var(--faint); font: var(--text-xs) var(--mono); }
 .model-chevron { flex: none; display: grid; place-items: center; color: var(--faint); padding: 0 6px; }
 /* A runtime whose models are not on hand: why, and what to do. */
 .model-runtime-pane {
@@ -185,8 +186,8 @@
 .model-ways-label { flex: none; font-size: var(--text-xs); color: var(--muted); }
 .model-ways { min-width: 0; display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--well); overflow-x: auto; scrollbar-width: none; }
 .model-way {
-  flex: none; height: 26px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px;
-  border: 0; border-radius: 6px; background: transparent; color: var(--ink-3); font: var(--text-sm) var(--sans); white-space: nowrap; cursor: pointer;
+  flex: none; min-height: var(--control-size); display: inline-flex; align-items: center; gap: 6px; padding: 0 10px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--ink-3); font: var(--text-control) var(--sans); white-space: nowrap; cursor: pointer;
 }
 .model-way:hover:not(:disabled) { color: var(--ink); background: var(--hover); }
 .model-way:focus-visible { outline: 1px solid var(--focus); outline-offset: -1px; }
@@ -196,7 +197,7 @@
 .model-way.cannot .way-icon { opacity: .5; filter: grayscale(1); }
 .model-way .way-icon { margin-left: 0; }
 .way-star { color: var(--acid-text); }
-.model-ways-row > .model-keys { margin-left: auto; flex: none; font: 10.5px var(--mono); color: var(--faint); }
+.model-ways-row > .model-keys { margin-left: auto; flex: none; font: var(--text-xs) var(--mono); color: var(--faint); }
 .model-ways-note {
   display: flex; align-items: flex-start; gap: 6px; margin: 6px 0 0 calc(var(--text-xs) * 5.2);
   min-height: 1.5em; font-size: var(--text-xs); line-height: 1.5; color: var(--muted);

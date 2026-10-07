@@ -10,6 +10,12 @@ The user found the 13 px desktop text too small on their screen. Meta,
 secondary, lead rows and code also increase by 1 px; headings and touch
 device sizes keep their existing values.
 
+Revised 2026-10-07: control labels use `--text-control`, an alias of the
+body role, while `--text-sm` remains secondary text. Settings fields use the
+input role and follow Text size. Geometry and icon roles are documented in
+[Control sizes](../design/control-sizes.md), with a
+[T3 Code field comparison](../research/t3code-control-sizes-2026-10-07.md).
+
 ## Context
 
 The workbench design (`.scratch/design/tau-workbench-2026-09-29/`) draws a
@@ -83,7 +89,8 @@ revision above; the design remains the layout reference.
 | Role | Token | Desktop | Tablet | Phone | Why |
 |---|---|---|---|---|---|
 | Meta: age, branch, counts, section labels | `--text-xs` | 12 | 12 | 13 | never under 12 on a touch device; HIG Footnote 13, M3 Body Small 12 |
-| Secondary: sub-lines, controls, chips | `--text-sm` | 13 | 13 | 14 | M3 Body Medium 14; one step under body, as in the design |
+| Secondary: descriptions and sub-lines | `--text-sm` | 13 | 13 | 14 | M3 Body Medium 14; one step under body, as in the design |
+| Control labels: buttons, choices, menus | `--text-control` | 14 | 15 | 16 | aliases the body role; density does not shrink labels |
 | Body: chat, rows, titles in a list | `--text-md` | 14 | 15 | 16 | HIG Callout 16, M3 Body Large 16; a tablet sits between |
 | Lead row of a sheet or menu | `--text-lg` | 15 | 16 | 17 | the design draws sheet rows one step over body; HIG Body 17 |
 | A thread's heading, a sheet's title | `--text-title` | 17 | 17 | 17 | HIG Headline 17; already the desktop's |

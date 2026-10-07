@@ -310,7 +310,7 @@ body[data-profile="compact"] .usage-show-in-sidebar > button { min-height: var(-
  * between accounts. Low is the warn colour, spent the fail colour, an old
  * reading faint.
  */
-.sidebar-footer button.usage-juicebars { min-width: 30px; }
+.sidebar-footer button.usage-juicebars { min-width: var(--control-size-large); }
 :is(.sidebar-footer, .touch-sidebar-footer) button.usage-juicebars { width: auto; display: flex; align-items: center; gap: 8px; padding: 0 7px; }
 /* A tablet's sidebar foot: the icon as large as the foot's others. */
 .touch-sidebar-footer .usage-juice-icon > svg { width: 19px; height: 19px; }
