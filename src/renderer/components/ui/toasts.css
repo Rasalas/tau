@@ -1,24 +1,26 @@
 /*
- * The toast stack, bottom right beside the composer: the newest in front,
- * the others peeking above it until the pointer or focus opens the stack.
+ * The toast stack, top right under the workspace card, the stage's tabs or the
+ * conversation's header: the newest in front, the others peeking below it
+ * until the pointer or focus opens the stack.
  * Place and positions come from `ToastViewport`; these rules draw the frame.
  * Loaded with the stack's own chunk on the first toast, so it costs the first
  * paint nothing.
  */
 .toast-stack {
-  position: fixed; right: 12px; bottom: 12px; z-index: 90;
+  position: fixed; right: 12px; top: 12px; z-index: 90;
   width: min(360px, calc(100vw - 24px)); pointer-events: none;
 }
 .toast-item {
-  position: absolute; bottom: 0; left: 0; right: 0; overflow: hidden; pointer-events: auto;
+  position: absolute; top: 0; left: 0; right: 0; overflow: hidden; pointer-events: auto;
   border: 1px solid var(--line-float); border-radius: var(--radius-md);
   background: var(--float); color: var(--ink); box-shadow: var(--elevation-2);
-  transform-origin: bottom center; outline: none;
+  transform-origin: top center; outline: none;
   transition: transform var(--motion) var(--ease), height var(--motion) var(--ease), opacity var(--motion) var(--ease);
   animation: toast-enter var(--motion) var(--ease);
 }
 .toast-item:focus-visible { border-color: var(--focus); }
-@keyframes toast-enter { from { opacity: 0; translate: 0 8px; } }
+@keyframes toast-enter { from { opacity: 0; translate: 0 -8px; } }
+@keyframes toast-rise { from { opacity: 0; translate: 0 8px; } }
 @media (prefers-reduced-motion: reduce) { .toast-item { animation: none; transition: none; } }
 /* One row, as in the design: icon, text, action, dismiss, all on the first line's 28px. */
 .toast-card { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px 10px 14px; }
@@ -53,11 +55,11 @@
  * takes a tap meant for one. Swiped sideways, it goes.
  */
 .toast-stack[data-touch] {
-  z-index: 45; margin-inline: auto; width: auto; max-width: 480px;
+  z-index: 45; margin-inline: auto; width: auto; max-width: 480px; top: auto;
   left: max(12px, env(safe-area-inset-left, 0px)); right: max(12px, env(safe-area-inset-right, 0px));
   bottom: calc(var(--tau-keyboard-inset, 0px) + env(safe-area-inset-bottom, 0px) + 12px);
 }
-.toast-stack[data-touch] .toast-item { touch-action: pan-y; }
+.toast-stack[data-touch] .toast-item { top: auto; bottom: 0; transform-origin: bottom center; animation-name: toast-rise; touch-action: pan-y; }
 .toast-stack[data-touch] .toast-card { padding: 4px 4px 4px 14px; }
 .toast-stack[data-touch] .toast-type { height: 44px; }
 .toast-stack[data-touch] .toast-body { padding-block: 12px; font-size: var(--text-md); line-height: 20px; }
