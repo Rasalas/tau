@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, expect, it, vi } from "vitest";
-import type { HostSessionServices, HostTurnObserver } from "tau/host-extension";
+import type { HostMcpInstructionsProvider, HostSessionServices, HostTurnObserver } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import type { SourceControl } from "./provider-registry.js";
 import { parseRequestUrl } from "./pull-request-json.js";
@@ -17,6 +17,8 @@ async function harness(directory?: string, current = initial) {
   const stateDir = directory ?? await mkdtemp(join(tmpdir(), "tau-pr-watch-"));
   if (!directory) cleanups.push(() => rm(stateDir, { recursive: true, force: true }));
   let snapshot = current, time = Date.now(), failure = false, observer: HostTurnObserver | undefined;
+  const instructions: HostMcpInstructionsProvider[] = [];
+  const promptHooks: ((event: { systemPrompt: string }) => { systemPrompt: string })[] = [];
   const read = vi.fn(async () => { if (failure) throw new Error("GitHub unavailable"); return structuredClone(snapshot); });
   const send = vi.fn(async (_id: string, _text: string, _options: unknown) => {
     // The durable fingerprint precedes the visible queue admission.
@@ -24,12 +26,17 @@ async function harness(directory?: string, current = initial) {
     expect(JSON.stringify(stored)).toContain(snapshot.comments);
   });
   const registry = await activateHostKit({ id: "tau.review", name: "Review", permissions: ["sessions", "runtime:extend"], activate: (context) => registerPullRequestWatches(context, { tools: {}, forUrl: (url: string) => ({ ref: parseRequestUrl(url) }) } as unknown as SourceControl, { link: async () => undefined, review: async () => undefined, dispose: () => undefined }, { period: 15, read, now: () => time }) }, {
-    stateDir, sessions: { list: async () => [{ sessionId: "a" }, { sessionId: "b" }], send } as unknown as HostSessionServices,
+    stateDir, sessions: { list: async () => [{ sessionId: "a" }, { sessionId: "b" }], refreshIndex: async () => ({ type: "thread-index", index: { projects: [], sessions: ["a", "b", "claude-1"].map((id) => ({ id })) } }), send } as unknown as HostSessionServices,
     registerTurnObserver: (value) => { observer = value; return () => { observer = undefined; }; },
+    mcp: { registerTools: () => () => undefined, gate: () => () => undefined, registerInstructions: (provider) => { instructions.push(provider); return () => undefined; }, connect: async () => undefined },
+    registerRuntimeExtension: (_name, setup) => {
+      (setup as (pi: unknown, session: unknown) => void)({ registerTool: () => undefined, on: (event: string, hook: (typeof promptHooks)[number]) => { if (event === "before_agent_start") promptHooks.push(hook); } }, { sessionId: "a", cwd: "/project" });
+      return () => undefined;
+    },
   });
   cleanups.push(() => registry.deactivate("tau.review"));
   const call = (command: string, input?: unknown) => registry.invoke("tau.review", command, input);
-  return { stateDir, registry, call, send, read, stop: (id: string) => observer?.stopped?.(id), list: () => call("watch-list") as Promise<WatchState>, change: (value: Partial<WatchSnapshot>) => { snapshot = { ...snapshot, ...value }; }, unavailable: () => { failure = true; time += 16 * 60_000; } };
+  return { stateDir, registry, call, instructions, promptHooks, send, read, stop: (id: string) => observer?.stopped?.(id), list: () => call("watch-list") as Promise<WatchState>, change: (value: Partial<WatchSnapshot>) => { snapshot = { ...snapshot, ...value }; }, unavailable: () => { failure = true; time += 16 * 60_000; } };
 }
 it("detects checks finishing on a new head, comments, new conflicts and terminal state without waking on ordinary polling", () => {
   expect(watchChanges(initial, initial)).toEqual([]);
@@ -94,4 +101,20 @@ it("ends after ten consecutive comment wakes and sends the stopping reason with 
   }
   expect((await h.list()).watches[0]).toMatchObject({ status: "ended", wakes: 10, commentStreak: 10 });
   expect(h.send.mock.calls[9]?.[1]).toContain("watch ended after ten comment wakes");
+});
+it("tells every runtime to wait on a pull request with a watch rather than a polling loop", async () => {
+  const h = await harness();
+  const mcp = h.instructions.map((provider) => provider({ sessionId: "a", cwd: "/project" })).join("\n");
+  const pi = h.promptHooks.reduce((event, hook) => hook(event), { systemPrompt: "base" }).systemPrompt;
+  for (const text of [mcp, pi]) {
+    expect(text).toContain("<pull_request_watching>");
+    expect(text).toMatch(/watch_pull_request/u);
+  }
+  expect(pi.startsWith("base\n\n")).toBe(true);
+});
+it("watches a thread of any runtime, not only Pi's, and refuses one the host does not know", async () => {
+  const h = await harness();
+  await h.call("watch-start", { threadId: "claude-1", url: URL });
+  expect((await h.list()).watches.map((watch) => watch.threadId)).toEqual(["claude-1"]);
+  await expect(h.call("watch-start", { threadId: "gone", url: URL })).rejects.toThrow("The thread no longer exists.");
 });

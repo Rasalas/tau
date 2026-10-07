@@ -7,6 +7,11 @@ count; click it for the last successful read, end conditions and Stop watching.
 Devices paired with Full access can start or stop a watch. Read-only devices
 can inspect its state.
 
+Every runtime's system prompt carries a `pull_request_watching` section (Pi's
+`before_agent_start`, the MCP endpoint's `instructions` elsewhere): an agent
+whose next step waits on a PR starts a watch and ends its turn instead of
+polling with `gh pr checks --watch`, `sleep` or a background loop.
+
 The host checks once a minute using one compact GraphQL read per PR. Threads
 watching the same PR share that read. Checks finishing, new comments or reviews,
 a new branch conflict, and merge or close produce a marked visible queue
