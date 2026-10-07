@@ -185,4 +185,3 @@ export const GoalPill = memo(function GoalPill({ goal, runtime, readOnly, onActi
     </Popover> : null}
   </>;
 });
-

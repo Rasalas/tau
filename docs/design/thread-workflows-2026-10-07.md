@@ -195,3 +195,9 @@ PR-Watches unterstützen GitHub mit vollständiger Abdeckung bis zu 100 Checks
 und 100 Review-Threads. Webhook-Schlüssel benötigen einen unterstützten
 OS-Speicher; externe Sender erreichen den lokalen Endpunkt über eine separat
 konfigurierte Weiterleitung.
+
+## Abschließende Prüfung auf dem PR-Stand
+
+Am 7. Oktober wurden Resume und End goal mit Codex 0.160.1 und GPT-5.6-Luna in einem isolierten Tau-Fenster geprüft. Resume startete ohne Nutzernachricht und zeigte „Goal resumed · turn 2“. End goal entfernte die Pille sofort. Der schon laufende Turn schrieb noch eine Zeile in die Testdatei und endete; danach startete kein weiterer Goal-Turn. Die Herkunftszeile blieb im Verlauf erhalten.
+
+Nach dem Abgleich mit main nutzen die Transcript-Paddings auch bei einem bis zum äußeren Workbench-Rand reichenden Scrollbereich den gemeinsamen Content-Inset. Goal-Controls und ihre Styles laden erst für Threads mit Goal.
