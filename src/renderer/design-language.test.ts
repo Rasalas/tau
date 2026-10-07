@@ -45,9 +45,9 @@ describe("the workbench design language", () => {
     expect(bubble).toMatch(/color: var\(--user-bubble-ink\)/u);
   });
 
-  it("gives the rail a filled search field and a plus beside it", () => {
-    expect(rule(WORKSPACE, ".thread-search")).toMatch(/background: var\(--stage\)/u);
-    expect(rule(WORKSPACE, ".thread-search-row > .sidebar-action.new-thread")).toMatch(/background: var\(--stage\)/u);
+  it("heads the rail with the project filter and quiet search and plus icons", () => {
+    expect(rule(WORKSPACE, ".sidebar-action")).toMatch(/background: transparent/u);
+    expect(rule(WORKSPACE, ".window-inset .rail-head-actions")).toMatch(/-webkit-app-region: no-drag/u);
     expect(rule(WORKSPACE, ".session-rail")).not.toMatch(/border/u);
   });
 

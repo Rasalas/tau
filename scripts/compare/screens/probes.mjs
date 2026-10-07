@@ -5,7 +5,7 @@ export const CHROME = {
   tau: {
     header: "header.title-bar",
     sidebar: "aside.session-rail",
-    search: "label.thread-search",
+    search: "button.rail-search",
     composer: ".composer-surface",
     composerInput: "textarea",
     sendButton: "button.send-button:not(.stop)",

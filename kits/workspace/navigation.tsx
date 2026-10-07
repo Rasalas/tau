@@ -562,9 +562,9 @@ function ProjectFilterButton({ actions }: { actions: WorkbenchActions }) {
       {...tooltipProps(open ? undefined : label, { side: "bottom" })}
       onClick={() => setOpen((value) => !value)}
     >
-      {shown ? <ProjectIcon project={shown} className="project-filter-tile" /> : <Folder size={13} />}
-      {filter ? <span>{filter}</span> : null}
-      <ChevronDown size={10} />
+      {shown ? <ProjectIcon project={shown} className="project-filter-tile" /> : null}
+      <span>{filter ?? "All projects"}</span>
+      <ChevronDown size={12} />
     </button>
     <ProjectSwitcherPopover
       label="Filter by project"
@@ -1245,27 +1245,35 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   return (
     <aside className="session-rail">
       <div className="sidebar-controls">
-        <div className="thread-search-row">
-          {/* Design 1a: the field is the palette's door, ⌘K from anywhere. */}
-          <button type="button" className="thread-search" onClick={() => actions.openCommandPalette()}>
-            <Search size={13} />
-            <span>Search threads</span>
-            {paletteKeys ? <kbd className="keyboard-hint">{paletteKeys}</kbd> : null}
-          </button>
+        <div className="rail-head">
           <ProjectFilterButton actions={actions} />
-          <button
-            className="sidebar-action new-thread"
-            {...tooltipProps(readOnlyDevice ? READ_ONLY_REASON : "New thread", { side: "bottom", ...(readOnlyDevice ? {} : { shortcut: registry.keybindingLabel("runtime.new-session") }) })}
-            aria-label="New thread"
-            disabled={readOnlyDevice}
-            // A filtered rail offers its project first; the picker still asks.
-            onClick={() => {
-              const shown = projectFilter ? projects.find((project) => project.name === projectFilter) : undefined;
-              actions.newSession(shown ? { workspace: shown.workspaceId ?? shown.path, pick: true } : undefined);
-            }}
-          >
-            <Plus size={15} />
-          </button>
+          {/* On macOS these sit in the title bar strip beside the traffic lights. */}
+          <div className="rail-head-actions">
+            {/* Design 1a: the palette's door, ⌘K from anywhere. */}
+            <button
+              type="button"
+              className="sidebar-action rail-search"
+              aria-label="Search"
+              {...tooltipProps("Search", { side: "bottom", ...(paletteKeys ? { shortcut: paletteKeys } : {}) })}
+              onClick={() => actions.openCommandPalette()}
+            >
+              <Search size={15} />
+            </button>
+            <button
+              type="button"
+              className="sidebar-action new-thread"
+              {...tooltipProps(readOnlyDevice ? READ_ONLY_REASON : "New thread", { side: "bottom", ...(readOnlyDevice ? {} : { shortcut: registry.keybindingLabel("runtime.new-session") }) })}
+              aria-label="New thread"
+              disabled={readOnlyDevice}
+              // A filtered rail offers its project first; the picker still asks.
+              onClick={() => {
+                const shown = projectFilter ? projects.find((project) => project.name === projectFilter) : undefined;
+                actions.newSession(shown ? { workspace: shown.workspaceId ?? shown.path, pick: true } : undefined);
+              }}
+            >
+              <Plus size={16} />
+            </button>
+          </div>
         </div>
         <ProjectSwitcher actions={actions} />
       </div>
