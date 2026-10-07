@@ -183,7 +183,7 @@ function makeActivationThread(threadId: string, sessionFile = `/${threadId}.json
 
 describe("issue 13 real SDK refusal reason", () => {
   // Controlled SDK state, not evidence that compaction caused the phone incident.
-  // The SDK reports refusal before rejecting with the specific reason.
+  // The installed SDK rejects without invoking the acceptance callback.
   const reason = "Cannot submit a prompt while compaction is in progress. Wait for compaction to finish and retry.";
   function compactingSdkPrompt(text: string, options?: PromptOptions) {
     return AgentSession.prototype.prompt.call({ _compactionAbortController: new AbortController() } as never, text, options);
@@ -193,7 +193,7 @@ describe("issue 13 real SDK refusal reason", () => {
     const order: unknown[] = [];
     await compactingSdkPrompt("text-only follow-up", { preflightResult: (accepted) => order.push(accepted) })
       .catch((error: Error) => order.push(error.message));
-    expect(order).toEqual([false, reason]);
+    expect(order).toEqual([reason]);
   });
 
   it("admits one retry through the SDK once the controlled compaction gate clears", async () => {
@@ -404,7 +404,7 @@ describe("PiHost admission settlement contracts", () => {
 
   it("propagates a real SDK input hook refusal through the adapter", async () => {
     const session = { model: { input: ["text"] }, isStreaming: false, prompt: (text: string, options?: PromptOptions) => AgentSession.prototype.prompt.call({
-      _extensionRunner: { hasHandlers: () => true, emitInput: async () => { throw new Error("Input hook refused this prompt."); } },
+      _runInputHandlers: async () => { throw new Error("Input hook refused this prompt."); },
       isStreaming: false,
     } as never, text, options) };
     const runtime = piPromptThread(session);
@@ -416,7 +416,7 @@ describe("PiHost admission settlement contracts", () => {
 
   it("accepts a real SDK input hook's handled prompt without starting an agent run", async () => {
     const session = { model: { input: ["text"] }, isStreaming: false, prompt: (text: string, options?: PromptOptions) => AgentSession.prototype.prompt.call({
-      _extensionRunner: { hasHandlers: () => true, emitInput: async () => ({ action: "handled" }) },
+      _runInputHandlers: async () => undefined,
       isStreaming: false,
     } as never, text, options) };
     const runtime = piPromptThread(session);
@@ -432,13 +432,13 @@ describe("PiHost admission settlement contracts", () => {
     let refuse = true;
     const runtime = piPromptThread({ model: { input: ["text"] }, isStreaming: false, prompt: (text, options) => {
       if (refuse) return AgentSession.prototype.prompt.call({ _compactionAbortController: new AbortController() } as never, text, options);
-      options?.preflightResult?.(true);
+      options?.preflightResult?.("started");
       return Promise.resolve();
     } });
     // Use the real Pi adapter, preserving the SDK's rejection reason.
     const session = { prompt: (text: string, options?: PromptOptions) => {
       if (refuse) return AgentSession.prototype.prompt.call({ _compactionAbortController: new AbortController() } as never, text, options);
-      options?.preflightResult?.(true);
+      options?.preflightResult?.("started");
       return new Promise<void>(() => undefined);
     } };
     runtime.backend.prompt = (input) => PiThreadRuntimeBackend.prototype.prompt.call({ ...runtime.backend, session } as never, input);
@@ -467,7 +467,7 @@ describe("PiHost admission settlement contracts", () => {
 });
 
 describe("PiHost prompt preflight", () => {
-  it("resolves after successful SDK preflight and reports later run errors", async () => {
+  it.each(["started", "queued", "handled"] as const)("resolves after SDK preflight %s and reports later run errors", async (disposition) => {
     let rejectRun!: (error: Error) => void;
     const run = new Promise<void>((_resolve, reject) => { rejectRun = reject; });
     const session = {
@@ -475,7 +475,7 @@ describe("PiHost prompt preflight", () => {
       model: { input: ["text"] },
       isStreaming: false,
       prompt: async (_text: string, options?: PromptOptions) => {
-        options?.preflightResult?.(true);
+        options?.preflightResult?.(disposition);
         await run;
       },
     };
@@ -497,7 +497,7 @@ describe("PiHost prompt preflight", () => {
       sessionId: "session",
       model: { input: ["text"] },
       isStreaming: false,
-      prompt: async (_text: string, options?: PromptOptions) => { options?.preflightResult?.(false); throw new Error("The prompt was rejected before it started."); },
+      prompt: async () => { throw new Error("The prompt was rejected before it started."); },
     };
     const emit = vi.fn();
     const host = new PiHost("/repo", emit, {} as never, true, false);

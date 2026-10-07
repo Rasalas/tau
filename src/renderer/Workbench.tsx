@@ -38,7 +38,7 @@ import { TranscriptHistoryBoundary } from "./components/TranscriptHistoryBoundar
 import { TranscriptViewport } from "./components/TranscriptViewport";
 import { JumpToLatestButton, JumpToLatestStore } from "./components/JumpToLatest";
 import { TaskPill } from "./components/TaskProgress";
-import { ActiveGoalPill } from "./components/GoalPill";
+import { ActiveGoalPill } from "./components/ActiveGoalPill";
 import { useConversationActivities } from "./conversation-activities";
 import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
 import type { ExtensionRegistry, TranscriptTurn, WorkbenchActions } from "./extension-system";

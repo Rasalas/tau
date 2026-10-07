@@ -1,4 +1,4 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useRef, useSyncExternalStore } from "react";
 import type { UiPromptAttachment, UiPromptImageAttachment, UiQueuedMessage, UiQueuedPrompt, UiSkillDraft } from "../shared/contracts";
 import type { WorkbenchActions } from "./extension-system";
 import type { SubmitResult } from "./components/Composer";
@@ -77,5 +77,14 @@ export function useFollowUpQueue({ client, threads, sessionId, isRunning, submit
     }
   }, [actions, isRunning, setNotice, submit, takeQueued]);
 
-  return { queue, held, cancelQueued, reorderQueue, steerQueued, takeQueued };
+  const returnQueued = useCallback((id?: string) => { void takeQueued(id).then((items) => returnToComposer(actions(), items)); }, [actions, takeQueued]);
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
+  const steerQueuedMessage = useCallback(() => {
+    // A wake never steers: the oldest of the user's own goes.
+    const head = queueRef.current.find((entry) => !entry.wake);
+    if (head) void steerQueued(head.id);
+    return Boolean(head);
+  }, [steerQueued]);
+  return { queue, held, cancelQueued, reorderQueue, steerQueued, takeQueued, returnQueued, steerQueuedMessage };
 }

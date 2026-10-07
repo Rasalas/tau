@@ -24,7 +24,7 @@ body:not([data-profile="compact"]) .thread-header .chrome-button { min-height: 3
 body:not([data-profile="compact"]) .workbench-center:has(> .workspace-area):not(.conversation-folded) .transcript {
   width: var(--workbench-width);
   flex-shrink: 0;
-  padding-right: calc(var(--workbench-width) - 100% + var(--space-8));
+  padding-right: calc(var(--workbench-width) - 100% + max(0px, var(--content-inset) - var(--scrollbar-lane)));
 }
 body:not([data-profile="compact"]) .workbench-center:not(.conversation-folded) > .workspace-area {
   position: relative;

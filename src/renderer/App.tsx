@@ -49,7 +49,7 @@ import { deferredSubmission } from "./deferred-submission";
 import { followTurnActivity } from "../workbench/turn-activity";
 import { followWorkbenchBootstrap } from "../workbench/workbench-bootstrap";
 import { followOpenPrompts } from "../workbench/open-prompts";
-import { returnToComposer, useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
+import { useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
 import { usePreparedThreadCapability } from "./use-prepared-thread-capability";
 import { useThreadDropController } from "./use-thread-drop-controller";
 import { usePendingAttachments } from "./use-pending-attachments";
@@ -298,9 +298,8 @@ export default function App() {
     [submission],
   );
   const isVisibleThreadRunning = useCallback(() => threadStore.getActivity().isStreaming, [threadStore]);
-  // Follow-ups typed during a run wait in the host's queue, not in the runtime.
   const currentActions = useCallback(() => actionsRef.current, []);
-  const { queue, cancelQueued, steerQueued, reorderQueue, takeQueued } = useFollowUpQueue({
+  const { queue, cancelQueued, steerQueued, reorderQueue, returnQueued, steerQueuedMessage } = useFollowUpQueue({
     client,
     threads: threadStore,
     sessionId: pendingNewThread ? undefined : snapshot?.sessionId,
@@ -309,15 +308,6 @@ export default function App() {
     setNotice,
     actions: currentActions,
   });
-  const returnQueued = useCallback((id?: string) => { void takeQueued(id).then((items) => returnToComposer(actionsRef.current, items)); }, [takeQueued]);
-  const queueRef = useRef(queue);
-  queueRef.current = queue;
-  const steerQueuedMessage = useCallback(() => {
-    // A wake never steers: the oldest of the user's own goes.
-    const head = queueRef.current.find((entry) => !entry.wake);
-    if (head) void steerQueued(head.id);
-    return Boolean(head);
-  }, [steerQueued]);
   useEffect(() => {
     const reconciled = reconcileOptimisticMessages(optimisticMessages, viewStore.getTranscript().messages);
     if (reconciled.length === optimisticMessages.length) return;

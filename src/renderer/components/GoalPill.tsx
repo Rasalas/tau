@@ -3,8 +3,8 @@ import { memo, useEffect, useLayoutEffect, useRef, useState, type PointerEvent a
 import type { UiGoalStatus, UiThreadGoal } from "../../shared/contracts";
 import { Popover } from "../deferred-surfaces";
 import { errorMessage } from "../../workbench/error-message";
-import { goalResumable, showGoal } from "../goal-state";
-import { useThreadShell } from "../use-thread-shell";
+import { goalResumable } from "../goal-state";
+import "./GoalPill.css";
 import { TASK_PILL_CLOSE_DELAY_MS, TASK_PILL_OPEN_DELAY_MS } from "./TaskProgress";
 
 export const READ_ONLY_GOAL = "This paired device is read-only. Change it on the host's own window.";
@@ -186,16 +186,3 @@ export const GoalPill = memo(function GoalPill({ goal, runtime, readOnly, onActi
   </>;
 });
 
-/** The thread on screen's goal, from the thread index; nothing while it has none. */
-export function ActiveGoalPill({ sessionId, supported, runtime, readOnly, onAction }: {
-  sessionId: string | undefined;
-  supported: boolean;
-  runtime: string;
-  readOnly: boolean;
-  onAction(action: GoalAction): Promise<void>;
-}) {
-  const goal = useThreadShell(sessionId ?? "")?.goal;
-  useEffect(() => { showGoal(sessionId, goal, supported); }, [sessionId, goal, supported]);
-  useEffect(() => () => showGoal(undefined, undefined, false), []);
-  return sessionId && goal ? <GoalPill goal={goal} runtime={runtime} readOnly={readOnly} onAction={onAction} /> : null;
-}

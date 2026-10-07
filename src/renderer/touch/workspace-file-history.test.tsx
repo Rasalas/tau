@@ -7,6 +7,7 @@ import { phoneReaderFromState, routeFromState } from "../../workbench/phone-hist
 import { ThreadStore } from "../../workbench/thread-store";
 import { ThreadStoreContext } from "../workbench-context";
 import type { DocumentSourceContribution } from "../extension-system";
+import { ClientEnvironmentProvider, electronClientEnvironment } from "../client-environment";
 import { TestProviders } from "../test-support/test-providers";
 import { TouchLayer } from "./TouchLayer";
 import { WorkspaceFileSheet } from "./WorkspaceFileSheet";
@@ -32,7 +33,7 @@ function fixture({ restore = false, strict = false }: { restore?: boolean; stric
       {reader ? <WorkspaceFileSheet key={reader} tab={{ id: reader, path: reader, kind: "file", preview: true, view: "source", resourceOrigin: { sessionId: "A", workspace: "opaque-A", sourceId: "documents" } }} source={source} onClose={() => setReader(undefined)} /> : null}
     </>;
   }
-  const tree = <TestProviders><ThreadStoreContext.Provider value={store}><Harness /></ThreadStoreContext.Provider></TestProviders>;
+  const tree = <ClientEnvironmentProvider environment={electronClientEnvironment(new URLSearchParams("profile=compact"))}><TestProviders><ThreadStoreContext.Provider value={store}><Harness /></ThreadStoreContext.Provider></TestProviders></ClientEnvironmentProvider>;
   return { ...render(strict ? <StrictMode>{tree}</StrictMode> : tree), loads, openThread };
 }
 
