@@ -432,6 +432,24 @@ describe("SubmissionController", () => {
     expect(noPlan.client.calls.find((call) => call.method === "newSession")?.args[5]).toBeUndefined();
   });
 
+  it("keeps the submitted workspace and request identity after navigating during setup", async () => {
+    let finish!: (gate: { workspace: { workspaceId: string; displayPath: string } }) => void;
+    const gate = new Promise<{ workspace: { workspaceId: string; displayPath: string } }>((resolve) => { finish = resolve; });
+    const entered = vi.fn(() => gate);
+    const newSession = vi.fn(async (..._args: Parameters<HostClient["newSession"]>) => ({ version: 1 as const, submission: { accepted: true as const }, updates: [] }));
+    const { submission: controller, state } = harness({ pending: DRAFT, prepareNewThread: entered, client: { newSession } });
+    const originalRequest = state.requestId;
+    const submission = controller.submit({ text: "fix it" });
+    await vi.waitFor(() => expect(entered).toHaveBeenCalledOnce());
+    state.pending = { ...DRAFT, draftId: "draft-2" };
+    state.requestId = createNewThreadRequestId("request-2");
+    finish({ workspace: { workspaceId: "worktree", displayPath: "/worktree" } });
+    await submission;
+    expect(newSession.mock.calls[0]?.[2]).toBe("worktree");
+    expect(newSession.mock.calls[0]?.[3]).toMatchObject({ newThreadRequestId: originalRequest });
+    expect(state.pending?.draftId).toBe("draft-2");
+  });
+
   it("sends a new thread's first prompt to the workspace a gate named, and stays put when none does", async () => {
     const prepared: string[] = [];
     const prepareNewThread = vi.fn(async (event: { prompt: string; preparing(message: string): void }) => {

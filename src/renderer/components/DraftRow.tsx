@@ -1,5 +1,5 @@
 import { memo, type ReactNode } from "react";
-import { GitBranch, Pencil, X } from "lucide-react";
+import { GitBranch, LoaderCircle, Pencil, X } from "lucide-react";
 import { MiddleTruncate } from "./ui/MiddleTruncate";
 import type { DraftThread } from "../../workbench/draft-threads";
 import { plainChipText } from "./composer-chip-token";
@@ -34,20 +34,23 @@ export const DraftRow = memo(function DraftRow({ draft, projectIcon, branch, onO
         type="button"
         className="thread-main"
         aria-label={`Open draft ${title}`}
-        aria-description={`Unsent draft in ${draft.projectName}`}
+        aria-description={`${draft.submitting ? "Starting thread" : "Unsent draft"} in ${draft.projectName}`}
         aria-current={draft.active ? "true" : undefined}
         onClick={() => onOpen(draft.draftId)}
       >
         <span className="thread-project-line">
           <ProjectIcon project={{ path: draft.projectPath, name: draft.projectName, workspaceId: draft.workspaceId }} icon={projectIcon} />
           <strong>{draft.projectName}</strong>
-          <span className="thread-draft-mark" {...tooltipProps("Unsent draft")}><Pencil size={12} aria-hidden="true" />Draft</span>
+          <span className="thread-draft-mark" {...tooltipProps(draft.submitting ? "Starting thread" : "Unsent draft")}>
+            {draft.submitting ? <LoaderCircle size={12} aria-hidden="true" /> : <Pencil size={12} aria-hidden="true" />}
+            {draft.submitting ? "Starting" : "Draft"}
+          </span>
         </span>
         {/* A touch list's long press would show a tooltip instead of its sheet. */}
         <span className="thread-title" {...(actions ? {} : tooltipProps(title, { when: "truncated", side: "right" }))}>{title}</span>
         {branch ? <span className="thread-meta-line"><span className="thread-branch"><GitBranch size={11} aria-hidden="true" /><MiddleTruncate value={branch} /></span></span> : null}
       </button>
-      {actions ?? (onDiscard ? <span className="thread-row-actions">
+      {actions ?? (onDiscard && !draft.submitting ? <span className="thread-row-actions">
         <button type="button" className="thread-discard" aria-label={`Discard draft ${title}`} {...tooltipProps("Discard draft")} onClick={() => onDiscard(draft.draftId)}>
           <X size={13} />
         </button>

@@ -34,6 +34,7 @@ function fixture(options: {
   threads.setActiveThread("old");
   const scopes = new ComposerScopeStore();
   const storage = createMemoryStorage();
+  const retainDraftRow = vi.fn();
   const draftScope = createDraftKey(draftKey(undefined, pending));
   scopes.setDraft(draftScope, "first message");
   const state: { pending: NewThreadDraft | undefined; turn: TranscriptTurnStart | undefined } = { pending, turn: undefined };
@@ -62,7 +63,7 @@ function fixture(options: {
     return options.notify?.(event) ?? true;
   });
   delivery = new NewThreadDeliveryCoordinator({
-    projection: { view, threads, scopes, storage, newThread, turn },
+    projection: { view, threads, scopes, storage, newThread, turn, retainDraftRow },
     notification: { notifyPromptSubmitted: notifications },
   });
   const recovery: NewThreadSubmissionRecovery = {
@@ -83,10 +84,28 @@ function fixture(options: {
     clientMessageId: message.clientMessageId,
     text: message.text,
   };
-  return { delivery, draftScope, notifications, order, recovery, scopes, state, threads, turn, view };
+  return { delivery, draftScope, notifications, order, recovery, scopes, state, threads, turn, view, retainDraftRow };
 }
 
 describe("NewThreadDeliveryCoordinator", () => {
+  it("hands off a detached draft without switching away from another thread", () => {
+    const harness = fixture({ detached: true });
+    harness.state.pending = undefined;
+    const promotion = harness.delivery.promoteRecovery(message.clientMessageId!, "created", message);
+    expect(promotion.promoted).toBe(true);
+    expect(harness.retainDraftRow).toHaveBeenCalledWith(pending.draftId, "created");
+    expect(harness.threads.getSnapshot().activeThreadId).toBe("old");
+  });
+
+  it("promotes a submitted draft reopened while its workspace was being prepared", () => {
+    const harness = fixture({ detached: true });
+    harness.recovery.pending = { ...pending, projectPath: "/worktree" };
+    const promotion = harness.delivery.promoteRecovery(message.clientMessageId!, "created", message);
+    expect(promotion.promoted).toBe(true);
+    expect(promotion.detail?.type).toBe("thread-detail");
+    expect(harness.state.pending).toBeUndefined();
+  });
+
   it("returns a detail plan and promotes the turn with its project scope", () => {
     const harness = fixture();
 

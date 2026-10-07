@@ -9,6 +9,33 @@ const shell = (id: string, title = id) => ({
 afterEach(() => vi.useRealTimers());
 
 describe("ThreadStore selective navigation subscriptions", () => {
+  it("keeps live run state through navigation and stale snapshot hints in both directions", () => {
+    const store = new ThreadStore();
+    store.setThreadRunning("one", true, 1_000);
+    store.setActiveThread("two");
+    store.setActiveThread("one", false);
+    expect(store.getActivity().isStreaming).toBe(true);
+    expect(store.getActivity().runningStartedAt.one).toBe(1_000);
+    store.setThreadRunning("one", false);
+    store.setActiveThread("one", true);
+    expect(store.getActivity().isStreaming).toBe(false);
+  });
+
+  it("uses bootstrap runs over stale details after reconnecting", () => {
+    const store = new ThreadStore();
+    store.applyThreadIndex({ projects: [], sessions: [shell("one"), shell("two")], runs: { one: 1_000 } });
+    store.setActiveThread("one", false);
+    expect(store.getActivity().runningStartedAt.one).toBe(1_000);
+    store.applyThreadIndex({ projects: [], sessions: [shell("one"), shell("two")], runs: {} });
+    store.setActiveThread("one", true);
+    expect(store.getActivity().isStreaming).toBe(false);
+  });
+  it("keeps a nonempty thread visible when an older full index reports zero messages", () => {
+    const store = new ThreadStore();
+    store.applyThreadShell("one", shell("one"));
+    store.applyThreadIndex({ projects: [], sessions: [{ ...shell("one"), messageCount: 0 }] });
+    expect(store.getThread("one")?.messageCount).toBe(1);
+  });
   it("publishes a proxy workspace identity revision even when its host path is unchanged", () => {
     const store = new ThreadStore();
     const proxy = { ...shell("rex~one"), backendKind: "machine", workspaceId: "ws1_before", projectDisplayPath: "/home/dev/repo" };

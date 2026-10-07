@@ -7,6 +7,7 @@ import { HostSessionState } from "./host-session-state";
 import { transcriptNavigationScopeKey, type NewThreadSubmissionRecovery } from "./app-state";
 import { draftKey, type NewThreadDraft } from "./draft-store";
 import { ThreadStore } from "./thread-store";
+import { threadRowStatus } from "./thread-row-status";
 import { ThreadViewStore } from "./thread-view-store";
 import { TranscriptHistoryController } from "./transcript-history";
 import { WorkbenchSession } from "./workbench-session";
@@ -56,6 +57,21 @@ function build(cached?: { snapshot?: HostSnapshot; threadIndex?: ThreadIndexSnap
 }
 
 describe("WorkbenchStore", () => {
+  it("keeps Working when a delayed idle detail follows a live run-start event", () => {
+    const { store, threads } = build();
+    store.applySnapshot(snapshot);
+    store.applyHostUpdate({ version: 1, type: "run", sessionId: "one", event: "started" });
+    const startedAt = threads.getActivity().runningStartedAt.one;
+    store.applyActionResult({ version: 1, updates: [{ version: 1, type: "thread-detail", detail: {
+      sessionId: "one", messages: snapshot.messages, isStreaming: false, activeTools: [],
+    } }] });
+    expect(threads.getActivity().runningThreadIds).toContain("one");
+    expect(threads.getActivity().runningStartedAt.one).toBe(startedAt);
+    expect(threadRowStatus("one", threads.getActivity()).activity).toBe("working");
+    store.applyHostUpdate({ version: 1, type: "run", sessionId: "one", event: "settled" });
+    expect(threads.getActivity().runningThreadIds).not.toContain("one");
+  });
+
   it("applies a snapshot to the thread on screen and the thread store", () => {
     const { hostSession, store, threads, view } = build();
     let markedBeforeSnapshotNotify: string | undefined;

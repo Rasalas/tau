@@ -150,19 +150,6 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
     moveDraftToProject(project);
   }, [activeDraftKey, detachPendingDelivery, inheritSelection, leavePendingNewThread, moveDraftToProject, newThread, scopes, showThread]);
 
-  /** A draft from the list becomes the draft on screen again; the one it replaces is left. */
-  const openDraft = useCallback((draftId: string) => {
-    showThread({ focusComposer: true });
-    const current = newThread.current();
-    if (current?.draftId === draftId) return;
-    const draft = drafts.find(draftId);
-    if (!draft) return;
-    if (current) leavePendingNewThread(current, detachPendingDelivery());
-    drafts.take(draftId);
-    newThread.begin(draft);
-    closeNewThreadPicker();
-  }, [closeNewThreadPicker, detachPendingDelivery, drafts, leavePendingNewThread, newThread, showThread]);
-
   /** Throws a draft away; the draft on screen closes onto the thread the host has open. */
   const discardDraft = useCallback((draftId: string) => {
     const current = newThread.current();
@@ -226,6 +213,22 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
       releaseTarget?.();
     }
   }, [applyActionResult, applySnapshot, client, detachPendingDelivery, history, leavePendingNewThread, notify, requireHost, showThread, threads, view]);
+
+  /** A draft from the list becomes the draft on screen again; the one it replaces is left. */
+  const openDraft = useCallback((draftId: string) => {
+    showThread({ focusComposer: true });
+    const current = newThread.current();
+    if (current?.draftId === draftId) return;
+    const row = threads.getDrafts().find((entry) => entry.draftId === draftId);
+    const thread = row?.sessionId ? threads.getThread(row.sessionId) : undefined;
+    if (thread) { void switchSession(thread.path); return; }
+    const draft = drafts.find(draftId);
+    if (!draft) return;
+    if (current) leavePendingNewThread(current, detachPendingDelivery());
+    drafts.take(draftId);
+    newThread.begin(draft);
+    closeNewThreadPicker();
+  }, [closeNewThreadPicker, detachPendingDelivery, drafts, leavePendingNewThread, newThread, showThread, switchSession, threads]);
 
   /** The one way out of a read-only thread tab: make it the thread on screen. */
   const takeOverThread = useCallback((sessionId: string) => {

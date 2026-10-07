@@ -35,7 +35,7 @@ export interface NewThreadDeliveryProjection {
   storage: ClientStorage;
   newThread: NewThreadDeliveryDraftPort;
   turn: TranscriptTurnPort;
-  retainDraftRow?(draftId: string, sessionId: string): void;
+  retainDraftRow?(draftId: string, sessionId: string, withUserTurn?: boolean): void;
 }
 
 /** The renderer adapts its extension registry to this one notification. */
@@ -151,15 +151,18 @@ export class NewThreadDeliveryCoordinator {
     if (recovery.sessionId && recovery.sessionId !== sessionId) {
       return { status: "rejected", promoted: false, clientMessageId };
     }
-    const keepInBackground = recovery.detached && threads.getSnapshot().activeThreadId !== sessionId;
-    // A detached delivery must not reclaim the visible new-thread controller.
-    const promotedScope = recovery.detached ? undefined : newThread.promoteFromUserMessage(sessionId, recovery.pending.projectPath);
+    const reopened = recovery.detached && newThread.current()?.draftId === recovery.pending.draftId;
+    const keepInBackground = recovery.detached && !reopened && threads.getSnapshot().activeThreadId !== sessionId;
+    if (reopened) newThread.set({ ...newThread.current()!, ...recovery.pending });
+    // Only returning to this same draft lets a detached delivery close it.
+    const promotedScope = recovery.detached && !reopened ? undefined : newThread.promoteFromUserMessage(sessionId, recovery.pending.projectPath);
     if (!promotedScope && !recovery.detached && recovery.sessionId !== sessionId) {
       return { status: "rejected", promoted: false, clientMessageId };
     }
     recovery.sessionId = sessionId;
     recovery.promoted = true;
-    if (message && !recovery.detached) this.ports.projection.retainDraftRow?.(recovery.pending.draftId, sessionId);
+    if (message) this.ports.projection.retainDraftRow?.(recovery.pending.draftId, sessionId);
+    else this.ports.projection.retainDraftRow?.(recovery.pending.draftId, sessionId, false);
     scopes.moveScope(recovery.scopeRef.scope, createDraftKey(draftKey(sessionId)));
     if (message) {
       retargetOptimisticByClientMessageId(view, clientMessageId, `session:${sessionId}`);
@@ -180,9 +183,9 @@ export class NewThreadDeliveryCoordinator {
     if (keepInBackground) {
       if (message) {
         view.details.set(backgroundNewThreadDetail(view.details.get(sessionId), sessionId, message));
-        threads.setThreadRunning(sessionId, true);
+        threads.setThreadRunningHint(sessionId, true);
       } else {
-        threads.setThreadRunning(sessionId, false);
+        threads.setThreadRunningHint(sessionId, false);
       }
     } else if (!message) {
       // An extension command answered the prompt without a user turn and
@@ -321,6 +324,7 @@ export class NewThreadDeliveryCoordinator {
   /** Bind a detached delivery to its runtime thread once the host names it. */
   rehomeDetached = (clientMessageId: string, recovery: NewThreadSubmissionRecovery, sessionId: string): void => {
     recovery.sessionId = sessionId;
+    this.ports.projection.retainDraftRow?.(recovery.pending.draftId, sessionId);
     this.ports.projection.scopes.moveScope(recovery.scopeRef.scope, createDraftKey(draftKey(sessionId)));
     retargetOptimisticByClientMessageId(this.ports.projection.view, clientMessageId, `session:${sessionId}`);
   };

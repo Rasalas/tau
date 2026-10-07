@@ -15,6 +15,8 @@ export interface DraftThread {
   createdAt: number;
   /** The draft on screen, the one a new thread opened. */
   active: boolean;
+  /** The first send is preparing its workspace or awaiting its runtime. */
+  submitting?: boolean;
   /** Set once the host made a thread for it; that thread's row replaces this one. */
   sessionId?: string;
 }
@@ -36,13 +38,15 @@ function previewOf(text: string): string {
 /**
  * The drafts the thread list shows: the one on screen from the moment it
  * opens, and every draft the user left with something in it. An empty draft
- * that is left is gone; one with text or images stays until it is sent,
- * opened again or discarded. Kept drafts live in this client's storage.
+ * that is left is gone; a submitted draft stays through workspace preparation
+ * and promotion until its nonempty thread shell replaces it. Unsent and failed
+ * drafts live in this client's storage until opened again or discarded.
  */
 export class DraftThreads {
   private kept: NewThreadDraft[];
   private lastActive: DraftThread | undefined;
   private readonly handoffs = new Map<string, DraftThread>();
+  private readonly submissions = new Map<string, { draft: NewThreadDraft; row: DraftThread; scope: DraftKey; release(): void }>();
   private drafts: readonly DraftThread[] = [];
   private scope: DraftKey | undefined;
   private releaseScope: (() => void) | undefined;
@@ -56,15 +60,29 @@ export class DraftThreads {
     this.kept = readKeptDrafts(ports.storage);
     ports.newThread.subscribe(this.follow);
     ports.threads?.subscribe(this.refresh);
+    ports.scopes.onMove((from, to) => {
+      for (const [draftId, submission] of this.submissions) {
+        if (submission.scope !== from) continue;
+        submission.release();
+        submission.scope = to;
+        submission.release = ports.scopes.subscribe(to, () => this.settleSubmission(draftId));
+      }
+    });
     this.follow();
   }
 
   list = (): readonly DraftThread[] => this.drafts;
 
   /** The composer is a thread now; its rail row stays until the index catches up. */
-  handoff = (draftId: string, sessionId: string): void => {
-    if (this.lastActive?.draftId !== draftId || this.ports.threads?.listed(sessionId)) return;
-    this.handoffs.set(sessionId, { ...this.lastActive, sessionId });
+  handoff = (draftId: string, sessionId: string, withUserTurn = true): void => {
+    const row = this.submissions.get(draftId)?.row ?? (this.lastActive?.draftId === draftId ? this.lastActive : undefined);
+    this.submissions.get(draftId)?.release();
+    this.submissions.delete(draftId);
+    const before = this.kept.length;
+    this.kept = this.kept.filter((draft) => draft.draftId !== draftId);
+    if (this.kept.length !== before) writeKeptDrafts(this.ports.storage, this.kept);
+    if (row && withUserTurn && !this.ports.threads?.listed(sessionId)) this.handoffs.set(sessionId, { ...row, sessionId, submitting: true });
+    if (!withUserTurn) this.handoffs.delete(sessionId);
     this.refresh();
   };
 
@@ -99,6 +117,7 @@ export class DraftThreads {
 
   /** Throws a draft away with what its composer held. */
   discard = (draft: NewThreadDraft): void => {
+    if (this.submissions.has(draft.draftId)) return;
     const scope = draftKey(undefined, draft);
     if (scope) {
       this.ports.scopes.setDraft(scope, "");
@@ -111,7 +130,7 @@ export class DraftThreads {
   };
 
   find = (draftId: string): NewThreadDraft | undefined =>
-    this.kept.find((entry) => entry.draftId === draftId);
+    this.submissions.get(draftId)?.draft ?? this.kept.find((entry) => entry.draftId === draftId);
 
   private follow = (): void => {
     const current = this.ports.newThread.current();
@@ -150,8 +169,25 @@ export class DraftThreads {
       attachments: composer?.attachments.length ?? 0,
       createdAt: this.startOf(draft),
       active,
+      ...(composer?.submissionPending ? { submitting: true } : {}),
       ...(draft.sessionId ? { sessionId: draft.sessionId } : {}),
     };
+  }
+
+  /** A failed setup stays an ordinary recoverable draft, including after reload. */
+  private settleSubmission(draftId: string): void {
+    const submission = this.submissions.get(draftId);
+    if (!submission) return;
+    const composer = this.ports.scopes.getSnapshot(submission.scope);
+    if (composer.submissionPending) return;
+    if (composer.error) {
+      submission.release();
+      this.submissions.delete(draftId);
+      const draft = { ...submission.draft, draft: composer.draft };
+      this.kept = [draft, ...this.kept.filter((entry) => entry.draftId !== draftId)];
+      writeKeptDrafts(this.ports.storage, this.kept);
+      this.refresh();
+    }
   }
 
   private refresh = (): void => {
@@ -160,9 +196,18 @@ export class DraftThreads {
       if (this.ports.threads?.listed(sessionId)) this.handoffs.delete(sessionId);
     }
     const active = current ? this.row(current, true) : undefined;
-    if (active) this.lastActive = active;
+    if (active) {
+      this.lastActive = active;
+      if (active.submitting && !this.submissions.has(active.draftId)) {
+        const scope = createDraftKey(draftKey(undefined, current));
+        this.submissions.set(active.draftId, { draft: current!, row: active, scope,
+          release: this.ports.scopes.subscribe(scope, () => this.settleSubmission(active.draftId)),
+        });
+      }
+    }
     const rows = [
       ...(active ? [active] : []),
+      ...[...this.submissions.values()].filter(({ row }) => row.draftId !== current?.draftId).map(({ row }) => Object.assign({}, row, { active: false })),
       ...[...this.handoffs].map(([sessionId, row]) => Object.assign({}, row, { active: !current && Boolean(this.ports.threads?.active(sessionId)) })),
       ...this.kept.filter((draft) => draft.draftId !== current?.draftId).map((draft) => this.row(draft, false)),
     ].sort((left, right) => right.createdAt - left.createdAt);
@@ -176,7 +221,7 @@ function sameRows(left: readonly DraftThread[], right: readonly DraftThread[]): 
   return left.length === right.length && left.every((row, index) => {
     const other = right[index]!;
     return row.draftId === other.draftId && row.preview === other.preview && row.attachments === other.attachments
-      && row.active === other.active && row.sessionId === other.sessionId && row.projectPath === other.projectPath
+      && row.active === other.active && row.submitting === other.submitting && row.sessionId === other.sessionId && row.projectPath === other.projectPath
       && row.projectName === other.projectName && row.workspaceId === other.workspaceId && row.createdAt === other.createdAt;
   });
 }

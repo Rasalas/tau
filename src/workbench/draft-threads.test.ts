@@ -35,6 +35,40 @@ function setup(storage: ClientStorage = createMemoryStorage()) {
 const project = { projectPath: "/repos/tau", projectName: "tau" };
 
 describe("draft rows", () => {
+  it("keeps a submitted thread visible when navigation leaves before worktree creation", async () => {
+    const { scopes, newThread, drafts, rows, type, leave } = setup();
+    const draft = createNewThreadDraft(project);
+    newThread.begin(draft);
+    type(draft, "Fix the disappearing threads");
+    const handle = await scopes.beginSubmission(createDraftKey(draftKey(undefined, draft)));
+    leave();
+    expect(rows()).toMatchObject([{ draftId: draft.draftId, preview: "Fix the disappearing threads", active: false }]);
+    newThread.begin(createNewThreadDraft(project));
+    drafts.handoff(draft.draftId, "created");
+    expect(rows()).toEqual(expect.arrayContaining([expect.objectContaining({ draftId: draft.draftId, sessionId: "created", active: false })]));
+    if ("settle" in handle) handle.settle({ accepted: true });
+  });
+
+  it("restores a detached failed setup as a persisted draft", async () => {
+    const { storage, scopes, newThread, drafts, rows, type, leave } = setup();
+    const draft = createNewThreadDraft(project);
+    newThread.begin(draft);
+    type(draft, "Keep the failed prompt");
+    const handle = await scopes.beginSubmission(createDraftKey(draftKey(undefined, draft)));
+    leave();
+    if ("settle" in handle) handle.settle({ accepted: false, message: "setup failed" });
+    expect(rows()).toMatchObject([{ draftId: draft.draftId, preview: "Keep the failed prompt", active: false }]);
+    expect(rows()[0]?.submitting).toBeUndefined();
+    expect(drafts.find(draft.draftId)).toBeDefined();
+    expect(setup(storage).rows()).toMatchObject([{ draftId: draft.draftId, preview: "Keep the failed prompt" }]);
+    const retry = await scopes.beginSubmission(createDraftKey(draftKey(undefined, draft)));
+    newThread.set(undefined);
+    drafts.handoff(draft.draftId, "retried");
+    if ("settle" in retry) retry.settle({ accepted: true });
+    expect(rows()).toMatchObject([{ draftId: draft.draftId, sessionId: "retried" }]);
+    expect(setup(storage).drafts.find(draft.draftId)).toBeUndefined();
+  });
+
   it("shows a new thread's draft from the moment it opens, titled by its first line as it is typed", () => {
     const { newThread, rows, type } = setup();
     const draft = createNewThreadDraft(project);

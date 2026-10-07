@@ -174,14 +174,15 @@ export class SubmissionController {
       );
       const moved = gate?.workspace;
       // The user may have left this draft while the gate worked.
-      if (!moved || newThread.current()?.draftId !== pending.draftId) return pending;
+      if (!moved) return pending;
       const next: NewThreadDraft = {
         ...pending,
         workspaceId: moved.workspaceId,
         projectPath: moved.displayPath,
         ...(moved.name ? { projectName: moved.name } : {}),
       };
-      newThread.set(next);
+      this.ports.scopes.moveScope(createDraftKey(scope), createDraftKey(draftKey(undefined, next)));
+      if (newThread.current()?.draftId === pending.draftId) newThread.set(next);
       return next;
     } finally {
       clear();
@@ -231,6 +232,7 @@ export class SubmissionController {
     }
     const client = getClient();
     let pendingNewThread = newThread.current();
+    const newThreadRequestId = newThread.requestId();
     try {
       if (pendingNewThread && !pendingNewThread.sessionId && await this.claimNewThread(pendingNewThread, text, alternate, attachments, skillDraft)) {
         return { accepted: true };
@@ -272,7 +274,6 @@ export class SubmissionController {
     if (pendingNewThread && !pendingNewThread.sessionId) {
       pendingNewThread = await this.prepareNewThreadWorkspace(pendingNewThread, text);
     }
-    const newThreadRequestId = newThread.requestId();
     const {
       optimistic,
       clientTurn,

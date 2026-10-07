@@ -129,7 +129,7 @@ function stabilizeThreads(
   const previousById = new Map(previous.map((thread) => [thread.id, thread] as const));
   const next = incoming.map((incomingThread) => {
     const old = previousById.get(incomingThread.id);
-    const thread = preserveObservedModelProvider(incomingThread, old);
+    const thread = preserveObservedModelProvider(preserveNonemptyThread(incomingThread, old), old);
     return old && threadEqual(old, thread) ? old : thread;
   });
   return next.length === previous.length && next.every((thread, index) => thread === previous[index])
@@ -137,7 +137,16 @@ function stabilizeThreads(
     : next;
 }
 
+/** A delayed shell must not hide a thread whose first prompt was already observed. */
+function preserveNonemptyThread(shell: UiSession, existing?: UiSession): UiSession {
+  return shell.messageCount === 0 && (existing?.messageCount ?? 0) > 0
+    ? { ...shell, messageCount: existing!.messageCount }
+    : shell;
+}
+
 export class ThreadStore {
+  /** Live lifecycle events and bootstrap runs outrank delayed transcript details. */
+  private readonly observedRunIds = new Set<string>();
   private snapshot: ThreadStoreSnapshot = EMPTY_SNAPSHOT;
   private threadIds: readonly string[] = [];
   private listeners = new Set<() => void>();
@@ -205,10 +214,15 @@ export class ThreadStore {
   applyHostSnapshot(snapshot: HostSnapshot): void {
     this.runningTools.clear();
     this.publish({ ...this.snapshot, activeThreadId: snapshot.sessionId, runningToolName: undefined });
-    this.setThreadRunning(snapshot.sessionId, snapshot.isStreaming);
+    this.setThreadRunningHint(snapshot.sessionId, snapshot.isStreaming);
   }
 
   applyThreadIndex(threadIndex: ThreadIndexSnapshot): void {
+    if (threadIndex.runs) {
+      this.observedRunIds.clear();
+      for (const thread of threadIndex.sessions) this.observedRunIds.add(thread.id);
+      for (const id of Object.keys(threadIndex.runs)) this.observedRunIds.add(id);
+    }
     this.publish({
       ...this.snapshot,
       projects: stabilizeProjects(this.snapshot.projects, threadIndex.projects),
@@ -241,11 +255,12 @@ export class ThreadStore {
     const existingIndex = current.findIndex((thread) => thread.id === sessionId);
     let threads: readonly UiSession[] = current;
     if (removed) {
+      this.observedRunIds.delete(sessionId);
       if (existingIndex >= 0) threads = current.filter((thread) => thread.id !== sessionId);
     } else if (shell) {
       const existing = current[existingIndex];
       // A shell read before the first prompt was written says 0; one the thread outgrew never takes it back.
-      const counted = shell.messageCount === 0 && (existing?.messageCount ?? 0) > 0 ? { ...shell, messageCount: existing!.messageCount } : shell;
+      const counted = preserveNonemptyThread(shell, existing);
       const mergedShell = preserveObservedModelProvider(counted, existing);
       if (existingIndex < 0) threads = [mergedShell, ...current];
       else if (!threadEqual(current[existingIndex], mergedShell)) {
@@ -262,6 +277,20 @@ export class ThreadStore {
    * `startedAt` is the host's start of the run and wins over this client's clock.
    */
   setThreadRunning(threadId: string, running: boolean, startedAt?: number): void {
+    if (!threadId) return;
+    const finishedInBackground = !running && this.snapshot.runningThreadIds.includes(threadId)
+      && this.snapshot.activeThreadId !== threadId;
+    this.observedRunIds.add(threadId);
+    this.updateThreadRunning(threadId, running, startedAt);
+    if (finishedInBackground) this.markUnread(threadId);
+  }
+
+  /** A transcript or optimistic delivery can seed activity before any live report, never replace one. */
+  setThreadRunningHint(threadId: string, running: boolean): void {
+    if (!this.observedRunIds.has(threadId)) this.updateThreadRunning(threadId, running);
+  }
+
+  private updateThreadRunning(threadId: string, running: boolean, startedAt?: number): void {
     if (!threadId) return;
     const current = this.snapshot.runningThreadIds;
     const alreadyRunning = current.includes(threadId);
@@ -285,9 +314,9 @@ export class ThreadStore {
     });
   }
 
-  setActiveThread(activeThreadId: string, isStreaming = false): void {
+  setActiveThread(activeThreadId: string, isStreaming?: boolean): void {
     this.publish({ ...this.snapshot, activeThreadId, runningToolName: undefined });
-    this.setThreadRunning(activeThreadId, isStreaming);
+    if (isStreaming !== undefined) this.setThreadRunningHint(activeThreadId, isStreaming);
   }
 
   toolStarted(id: string, name: string): void {

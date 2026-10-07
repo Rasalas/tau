@@ -389,7 +389,8 @@ describe("Workspace Kit in the workbench", () => {
       },
     });
     expect(screen.getByText("Target content")).toBeTruthy();
-    expect(screen.queryByText("background request")).toBeNull();
+    expect(screen.getByRole("button", { name: "Open draft background request" })).toBeTruthy();
+    expect(document.querySelector(".message.user")?.textContent ?? "").not.toContain("background request");
 
     fireEvent.change(composer, { target: { value: "continue target" } });
     fireEvent.keyDown(composer, { key: "Enter" });
@@ -581,7 +582,8 @@ describe("Workspace Kit in the workbench", () => {
     });
     // The delivery lands in its own thread without pulling the view back.
     expect(screen.getByText("Other content")).toBeTruthy();
-    expect(screen.queryByText("background request")).toBeNull();
+    expect(screen.getByRole("button", { name: "Open draft background request" })).toBeTruthy();
+    expect(document.querySelector(".message.user")?.textContent ?? "").not.toContain("background request");
 
     const otherComposer = await screen.findByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     fireEvent.change(otherComposer, { target: { value: "continue other" } });
@@ -655,7 +657,8 @@ describe("Workspace Kit in the workbench", () => {
       message: { id: "created-message", clientMessageId: createdClientMessageId, role: "user", text: "first request", timestamp: Date.now() },
     });
     expect(screen.getByRole("heading", { name: /do next\?$/ })).toBeTruthy();
-    expect(screen.queryByText("first request")).toBeNull();
+    expect(screen.getByRole("button", { name: "Open draft first request" })).toBeTruthy();
+    expect(document.querySelector(".message.user")?.textContent ?? "").not.toContain("first request");
 
     fireEvent.change(freshComposer, { target: { value: "second request" } });
     fireEvent.keyDown(freshComposer, { key: "Enter" });

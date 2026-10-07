@@ -36,6 +36,13 @@ function fixture() {
 }
 
 describe("applyHostEvent", () => {
+  it("marks a background run Ready when it actually ends", () => {
+    const { targets, threadStore } = fixture();
+    applyHostEvent({ type: "agent-status", sessionId: "background", running: true, startedAt: 1_000 }, targets);
+    applyHostEvent({ type: "agent-status", sessionId: "background", running: false }, targets);
+    expect(threadStore.getActivity().unreadThreadIds).toContain("background");
+    expect(threadStore.getActivity().runningThreadIds).not.toContain("background");
+  });
   it("re-reads the desktop halves when the host's package set moves", () => {
     const { targets } = fixture();
 

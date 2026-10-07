@@ -200,6 +200,8 @@ describe("the web client at 400 px", () => {
       await waitFor(() => expect(screen.queryByRole("dialog", { name: title })).toBeNull());
       expect(rowNamed(title).querySelector(".thread-status-age")?.textContent).toBe("Done");
     };
+    // A background completion is already unread; its Done badge survives reading it too.
+    if (sessionId === "t-b") await mark("Mark as read");
     await mark("Mark as unread");
     await mark("Mark as read");
   });
