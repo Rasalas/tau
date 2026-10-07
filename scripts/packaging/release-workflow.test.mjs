@@ -119,6 +119,12 @@ describe("the release workflow", () => {
     expect(JOBS.preflight).not.toContain("needs.gate.outputs.nightly != 'true'");
   });
 
+  it("skips a scheduled nightly when main moved by nothing the app ships", () => {
+    expect(JOBS.gate).toContain('git fetch --quiet --depth=1 origin "$last"');
+    expect(JOBS.gate).toContain('[ "$(node .github/scripts/nightly-changes.mjs "$last" "$head")" = "changed=false" ]');
+    expect(JOBS.gate).toMatch(/\[ "\$EVENT" = schedule \] && \[ -n "\$last" \] && git fetch/u);
+  });
+
   it("shows a nightly's changes since the previous nightly", () => {
     const generate = JOBS.nightly.indexOf("nightlyBody");
     const remove = JOBS.nightly.indexOf("Remove the previous nightly");

@@ -572,7 +572,11 @@ decides whether anything runs:
 
 - only on `Rasalas/tau` (a fork's schedule stops there);
 - only once the repository variable `NIGHTLY` is `true`;
-- only when `main` moved since the commit the tag `nightly` points at.
+- only when `main` moved since the commit the tag `nightly` points at by
+  something the app ships (`.github/scripts/nightly-changes.mjs`). A release's
+  version bump, `docs/`, Markdown, tests and `.github/` alone would build the
+  same app again as the next patch's nightly. `npm run release:nightly` builds
+  either way.
 
 A run that passes builds the desktop apps and signed phone apps. The phones go to
 TestFlight and Google Play's `internal` testing track, never the public stores.
