@@ -26,7 +26,7 @@ async function harness(directory?: string, current = initial) {
     expect(JSON.stringify(stored)).toContain(snapshot.comments);
   });
   const registry = await activateHostKit({ id: "tau.review", name: "Review", permissions: ["sessions", "runtime:extend"], activate: (context) => registerPullRequestWatches(context, { tools: {}, forUrl: (url: string) => ({ ref: parseRequestUrl(url) }) } as unknown as SourceControl, { link: async () => undefined, review: async () => undefined, dispose: () => undefined }, { period: 15, read, now: () => time }) }, {
-    stateDir, sessions: { list: async () => [{ sessionId: "a" }, { sessionId: "b" }], send } as unknown as HostSessionServices,
+    stateDir, sessions: { list: async () => [{ sessionId: "a" }, { sessionId: "b" }], refreshIndex: async () => ({ type: "thread-index", index: { projects: [], sessions: ["a", "b", "claude-1"].map((id) => ({ id })) } }), send } as unknown as HostSessionServices,
     registerTurnObserver: (value) => { observer = value; return () => { observer = undefined; }; },
     mcp: { registerTools: () => () => undefined, gate: () => () => undefined, registerInstructions: (provider) => { instructions.push(provider); return () => undefined; }, connect: async () => undefined },
     registerRuntimeExtension: (_name, setup) => {
@@ -111,4 +111,10 @@ it("tells every runtime to wait on a pull request with a watch rather than a pol
     expect(text).toMatch(/watch_pull_request/u);
   }
   expect(pi.startsWith("base\n\n")).toBe(true);
+});
+it("watches a thread of any runtime, not only Pi's, and refuses one the host does not know", async () => {
+  const h = await harness();
+  await h.call("watch-start", { threadId: "claude-1", url: URL });
+  expect((await h.list()).watches.map((watch) => watch.threadId)).toEqual(["claude-1"]);
+  await expect(h.call("watch-start", { threadId: "gone", url: URL })).rejects.toThrow("The thread no longer exists.");
 });

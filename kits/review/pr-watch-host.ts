@@ -55,7 +55,9 @@ export async function registerPullRequestWatches(context: HostExtensionContext, 
     if (disposed) throw new HostCommandError("PR watching is unavailable.");
     const ref = sources.forUrl(url)?.ref;
     if (!ref || ref.service !== "github") throw new HostCommandError("Watching is available for GitHub pull requests.");
-    if (!(await services.sessions.list()).some((session) => session.sessionId === threadId)) throw new HostCommandError("The thread no longer exists.");
+    // `sessions.list` holds only Pi's own threads; the index has every runtime's.
+    const index = await services.sessions.refreshIndex();
+    if (index.type !== "thread-index" || !index.index.sessions.some((thread) => thread.id === threadId)) throw new HostCommandError("The thread no longer exists.");
     await links.link(threadId, ref.url, "user");
     const id = key({ threadId, ref });
     if (watches.get(id)?.status !== "ended" && watches.has(id)) return structuredClone(watches.get(id));
