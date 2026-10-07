@@ -4,7 +4,7 @@ import { ChevronRight } from "lucide-react";
 import { useKeepClear } from "../reserved-region";
 import { useEscapeLayer } from "./ui/escape-layers";
 import { openedByKeyboard, useFocusReturn } from "./ui/focus";
-import { placeFloating, pointRect, viewportSize } from "./ui/floating";
+import { placeFloating, pointRect, viewportSize, type Rect } from "./ui/floating";
 import { firstEnabled, isTypeaheadKey, lastEnabled, stepEnabled, typeahead, type TypeaheadState } from "./ui/menu-navigation";
 
 export interface MenuItem {
@@ -31,6 +31,18 @@ export interface MenuSection {
 
 const EDGE = 8;
 
+/** Whether a scrolling or clipping box around the menu would cut it off. */
+function cutOff(menu: HTMLElement): boolean {
+  const rect = menu.getBoundingClientRect();
+  for (let box = menu.parentElement?.parentElement; box && box !== document.body; box = box.parentElement) {
+    const style = getComputedStyle(box);
+    if (style.overflowX === "visible" && style.overflowY === "visible") continue;
+    const bounds = box.getBoundingClientRect();
+    if (rect.top < bounds.top || rect.bottom > bounds.bottom || rect.left < bounds.left || rect.right > bounds.right) return true;
+  }
+  return false;
+}
+
 interface LevelProps {
   groups: MenuSection[];
   onPick(id: string): void;
@@ -39,6 +51,8 @@ interface LevelProps {
   onBack?(): void;
   /** Focus the first entry on mount; a submenu opened by hover leaves focus where it is. */
   focusFirst: boolean;
+  /** Changes when the entries are drawn anew elsewhere, so focus follows them. */
+  mount?: unknown;
 }
 
 /**
@@ -46,7 +60,7 @@ interface LevelProps {
  * End, typeahead, ArrowRight into a submenu and ArrowLeft out of it. The
  * caller puts `onKeyDown` on the element that holds `entries`.
  */
-function useMenuLevel({ groups, onPick, onCloseAll, onBack, focusFirst }: LevelProps) {
+function useMenuLevel({ groups, onPick, onCloseAll, onBack, focusFirst, mount }: LevelProps) {
   const items = groups.flatMap((group) => group.items);
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
   const typed = useRef<TypeaheadState | undefined>(undefined);
@@ -58,7 +72,7 @@ function useMenuLevel({ groups, onPick, onCloseAll, onBack, focusFirst }: LevelP
     const selected = items.findIndex((item) => item.selected && !item.disabled);
     buttons.current[selected >= 0 ? selected : firstEnabled(disabled)]?.focus({ preventScroll: true });
     // Only on mount: later renders must not pull focus back to the top.
-  }, []);
+  }, [mount]);
 
   const focusAt = (index: number) => { if (index >= 0) buttons.current[index]?.focus({ preventScroll: true }); };
   const current = () => buttons.current.findIndex((button) => button === document.activeElement);
@@ -175,7 +189,8 @@ function Submenu(props: LevelProps) {
  *
  * The title bar spans the dock too, so a right-aligned menu from it drops over
  * the panel; `useKeepClear` slides such a menu back when the host has a native
- * view there, and the menu flips or shifts to stay inside the window.
+ * view there, and the menu flips or shifts to stay inside the window. Where a
+ * scrolling box would cut it off, it draws over the window beside its trigger.
  */
 export function Menu({
   placement = "below",
@@ -205,6 +220,9 @@ export function Menu({
   const menu = useRef<HTMLDivElement>(null);
   const [side, setSide] = useState(placement);
   const [point, setPoint] = useState(at);
+  // The trigger's rectangle once the menu has left a box that cut it off.
+  const [lifted, setLifted] = useState<Rect>();
+  const fixed = Boolean(at || lifted);
   const [byKeyboard] = useState(openedByKeyboard);
   useFocusReturn(true, menu);
 
@@ -214,11 +232,19 @@ export function Menu({
   useLayoutEffect(() => {
     const element = menu.current;
     if (!element) return;
-    if (at) {
+    if (at || lifted) {
       const rect = element.getBoundingClientRect();
-      const placed = placeFloating(pointRect(at.x, at.y), { width: rect.width, height: rect.height }, viewportSize(), { side: "bottom", align: "start", offset: 2 });
+      const placed = at
+        ? placeFloating(pointRect(at.x, at.y), { width: rect.width, height: rect.height }, viewportSize(), { side: "bottom", align: "start", offset: 2 })
+        : placeFloating(lifted!, { width: rect.width, height: rect.height }, viewportSize(), side === "below"
+          ? { side: "bottom", align: align === "left" ? "start" : "end", offset: 7 }
+          : { side: "top", align: align === "right" ? "end" : "start", offset: 9 });
       setPoint({ x: placed.left, y: placed.top });
       return;
+    }
+    if (cutOff(element)) {
+      const anchor = element.parentElement?.getBoundingClientRect();
+      if (anchor) { setLifted({ left: anchor.left, top: anchor.top, width: anchor.width, height: anchor.height }); return; }
     }
     element.style.setProperty("--menu-shift-x", "0px");
     element.style.maxHeight = "";
@@ -235,24 +261,24 @@ export function Menu({
     }
     const shift = rect.left < EDGE ? EDGE - rect.left : rect.right > window.innerWidth - EDGE ? window.innerWidth - EDGE - rect.right : 0;
     if (shift) element.style.setProperty("--menu-shift-x", `${Math.round(shift)}px`);
-  }, [at, side]);
+  }, [at, lifted, side]);
 
   useKeepClear(menu);
 
   const groups = sections ?? [{ heading, items: items ?? [] }];
   const pick = (id: string) => { onSelect(id); onClose(); };
-  const level = useMenuLevel({ groups, onPick: pick, onCloseAll: onClose, focusFirst: byKeyboard });
+  const level = useMenuLevel({ groups, onPick: pick, onCloseAll: onClose, focusFirst: byKeyboard, mount: fixed });
   const body = (
     <>
       <button className="menu-scrim" tabIndex={-1} aria-label="Close menu" onClick={onClose} onContextMenu={(event) => { event.preventDefault(); onClose(); }} />
       <div
-        className={at ? "menu at-point" : `menu ${side} ${align ?? ""}`}
+        className={fixed ? "menu at-point" : `menu ${side} ${align ?? ""}`}
         role="menu"
         aria-orientation="vertical"
         aria-label={label ?? heading ?? groups[0]?.heading}
         tabIndex={-1}
         ref={menu}
-        style={at && point ? { left: point.x, top: point.y } : undefined}
+        style={fixed && point ? { left: point.x, top: point.y } : undefined}
         onKeyDown={level.onKeyDown}
       >
         {level.entries}
@@ -263,6 +289,6 @@ export function Menu({
   useLayoutEffect(() => {
     // Opened by a click: the list itself takes focus so the arrows work at once.
     if (!byKeyboard && !menu.current?.contains(document.activeElement)) menu.current?.focus({ preventScroll: true });
-  }, [byKeyboard]);
-  return at ? createPortal(body, document.body) : body;
+  }, [byKeyboard, fixed]);
+  return fixed ? createPortal(body, document.body) : body;
 }

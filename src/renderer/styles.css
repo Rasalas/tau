@@ -228,7 +228,8 @@ button > svg { pointer-events: none; }
 /* ------------------------------------------------------- floating menus */
 
 .menu-anchor { position: relative; display: flex; }
-.menu-scrim { position: fixed; inset: 0; z-index: 60; border: 0; background: transparent; cursor: default; }
+/* Never paints: a container's `button:hover` rule would otherwise grey the whole window under an open menu. */
+.menu-scrim { position: fixed; inset: 0; z-index: 60; border: 0; background: transparent !important; cursor: default; }
 /* Slid aside by useKeepClear when the host owns a rectangle of the window. */
 .keeps-clear { translate: var(--keep-clear-x, 0px) 0; }
 .menu {
