@@ -28,3 +28,48 @@ it("replaces child streaming deltas with the final message rather than repeating
   const final = agents.push({ type: "assistant", parent_tool_use_id: "call", message: { id: "reply", content: [{ type: "text", text: "Hello" }] } });
   expect(final.at(-1)).toMatchObject({ tool: { output: "Hello" } });
 });
+
+it("takes a long command's heartbeat for the command it is, not a subagent", () => {
+  const agents = new ClaudeNativeAgents();
+  // The CLI sends one every few seconds once a foreground command has run for 30 s.
+  const frames = [
+    { type: "assistant", message: { content: [{ type: "tool_use", id: "bash", name: "Bash", input: { command: "npm run build" } }] } },
+    { type: "system", subtype: "task_started", task_id: "shell", tool_use_id: "bash", task_type: "local_bash", description: "Build" },
+    { type: "tool_progress", tool_use_id: "beat-0", tool_name: "Bash", parent_tool_use_id: "bash", elapsed_time_seconds: 30 },
+    { type: "system", subtype: "task_notification", task_id: "shell", tool_use_id: "bash", status: "completed" },
+    { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "bash", content: "built" }] } },
+  ];
+  expect(frames.flatMap((frame) => agents.push(frame))).toEqual([]);
+  expect(agents.owns("bash")).toBe(false);
+});
+
+it("shows a subagent's tool progress as its last tool", () => {
+  const agents = new ClaudeNativeAgents();
+  agents.push({ type: "assistant", message: { content: [{ type: "tool_use", id: "call", name: "Agent", input: { description: "Review" } }] } });
+  const progress = agents.push({ type: "tool_progress", tool_use_id: "read", tool_name: "Read", parent_tool_use_id: "call", elapsed_time_seconds: 31 });
+  expect(progress.at(-1)).toMatchObject({ tool: { args: { title: "Review", lastTool: "Read" } } });
+});
+
+it("keeps one row for an agent SendMessage resumes", () => {
+  const agents = new ClaudeNativeAgents();
+  agents.push({ type: "assistant", message: { content: [{ type: "tool_use", id: "launch", name: "Agent", input: { description: "Agent A", run_in_background: true } }] } });
+  agents.push({ type: "system", subtype: "task_started", task_id: "a", tool_use_id: "launch", task_type: "local_agent", description: "Agent A" });
+  agents.push({ type: "system", subtype: "task_notification", task_id: "a", tool_use_id: "launch", status: "completed" });
+
+  agents.push({ type: "assistant", message: { content: [{ type: "tool_use", id: "resume", name: "SendMessage", input: { to: "a", message: "Again" } }] } });
+  const resumed = agents.push({ type: "system", subtype: "task_started", task_id: "a", tool_use_id: "resume", task_type: "local_agent", description: "Agent A" });
+  expect(resumed.at(-1)).toMatchObject({ tool: { id: "native-agent:claude-code:launch", status: "running" } });
+  const reply = agents.push({ type: "assistant", parent_tool_use_id: "resume", message: { id: "second", content: [{ type: "text", text: "A_SECOND" }] } });
+  expect(reply.at(-1)).toMatchObject({ tool: { id: "native-agent:claude-code:launch" } });
+  // SendMessage's own answer belongs to the main loop.
+  expect(agents.push({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "resume", content: "Resuming agent a" }] } })).toEqual([]);
+  const done = agents.push({ type: "system", subtype: "task_notification", task_id: "a", tool_use_id: "resume", status: "completed" });
+  expect(done.at(-1)).toMatchObject({ tool: { id: "native-agent:claude-code:launch", status: "done" } });
+  expect(agents.owns("resume")).toBe(false);
+});
+
+it("names a subagent whose launch it missed by the task its frames carry", () => {
+  const agents = new ClaudeNativeAgents();
+  const child = agents.push({ type: "assistant", parent_tool_use_id: "earlier", subagent_type: "Explore", task_description: "Find the parser", message: { id: "reply", content: [{ type: "text", text: "Found it" }] } });
+  expect(child.at(-1)).toMatchObject({ tool: { args: { title: "Find the parser" }, output: "Found it" } });
+});

@@ -12,9 +12,12 @@ function contentText(value: unknown): string {
 export class ClaudeNativeAgents {
   readonly tracker = new NativeAgentTracker("claude-code");
   private readonly tasks = new Map<string, string>();
+  /** A SendMessage that resumed an agent, to the row the agent already has. */
+  private readonly resumedBy = new Map<string, string>();
   private readonly background = new Set<string>();
   private readonly streamingMessage = new Map<string, string>();
   owns(id: string): boolean { return this.tracker.has(id); }
+  private row(toolUseId: string | undefined): string | undefined { return toolUseId ? this.resumedBy.get(toolUseId) ?? toolUseId : undefined; }
 
   push(raw: unknown): ThreadRuntimeEvent[] {
     const frame = object(raw);
@@ -31,9 +34,16 @@ export class ClaudeNativeAgents {
         events.push(...this.tracker.update(id, { title: string(input.description) ?? string(input.subagent_type) ?? "Subagent", ...(string(input.model) ? { model: string(input.model) } : {}) }));
       }
     }
-    const parent = string(frame.parent_tool_use_id);
+    const parent = this.row(string(frame.parent_tool_use_id));
+    if (frame.type === "tool_progress") {
+      // A foreground command past 30 s sends heartbeats under its own id; only an agent's tools count.
+      if (parent && this.owns(parent) && frame.heartbeat !== true) events.push(...this.tracker.update(parent, { lastTool: string(frame.tool_name) }));
+      return events;
+    }
     if (parent) {
-      if (!this.owns(parent)) events.push(...this.tracker.update(parent, { title: "Subagent" }));
+      // A launch Tau did not see, such as one from before a restart: the frames name its task.
+      if (!this.owns(parent) && frame.type === "assistant") events.push(...this.tracker.update(parent, { title: string(frame.task_description) ?? string(frame.subagent_type) ?? "Subagent" }));
+      if (!this.owns(parent)) return events;
       if (frame.type === "assistant") {
         if (string(message.model)) events.push(...this.tracker.update(parent, { model: string(message.model) }));
         const text = contentText(content);
@@ -53,14 +63,18 @@ export class ClaudeNativeAgents {
       return events;
     }
     if (frame.type === "system" && typeof frame.task_id === "string") {
-      const id = string(frame.tool_use_id) ?? this.tasks.get(frame.task_id);
+      const id = this.row(string(frame.tool_use_id)) ?? this.tasks.get(frame.task_id);
       if (frame.subtype === "task_started") {
         // Background shells and housekeeping are not subagents.
         if (frame.ambient || frame.skip_transcript || (frame.task_type !== "local_agent" && !frame.subagent_type && !(id && this.owns(id)))) return events;
-        const handle = id ?? frame.task_id;
+        // SendMessage resumes an agent under its own tool id; the agent keeps its row.
+        const known = this.tasks.get(frame.task_id);
+        const toolUseId = string(frame.tool_use_id);
+        if (known && toolUseId && toolUseId !== known) this.resumedBy.set(toolUseId, known);
+        const handle = known ?? id ?? frame.task_id;
         this.tasks.set(frame.task_id, handle);
         if (frame.is_backgrounded !== false) this.background.add(handle);
-        events.push(...this.tracker.update(handle, { title: string(frame.description) ?? "Subagent" }));
+        events.push(...this.tracker.update(handle, { title: string(frame.description) ?? "Subagent", ...(known ? { status: "running" as const } : {}) }));
       } else if (id && this.owns(id)) {
         if (frame.subtype === "task_notification") {
           this.background.delete(id);
