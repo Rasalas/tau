@@ -48,6 +48,7 @@ import { ProjectIcon } from "./components/ProjectIcon";
 import { WindowControlsInset } from "./components/WindowControlsInset";
 import { useHostClient } from "./host-client-context";
 import { SidebarBrand } from "./components/SidebarBrand";
+import { SidebarClosedControls } from "./components/SidebarClosedControls";
 import { ResizeHandle } from "./components/ResizeHandle";
 import type { PanelLayout } from "./use-panel-layout";
 import type { NewThreadPick } from "./use-app-overlays";
@@ -745,6 +746,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const conversationHeader = phone ? null : <ThreadHeader
     lead={<>
       {sidebarShown && !split ? null : <WindowControlsInset />}
+      {!sidebarShown && !split && !compact && sidebarContributions.length > 0 ? <SidebarClosedControls actions={actions} registry={registry} readOnly={hostCapabilities.readOnly} /> : null}
       {split ? <button type="button" className="stage-tool" aria-label="Threads" {...tooltipProps("Threads", { side: "bottom" })} onClick={() => setTouchSidebarOpen((open) => !open)}><ListTree size={16} /></button> : null}
     </>}
     title={threadTitle}

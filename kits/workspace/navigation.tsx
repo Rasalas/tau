@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArchiveRestore, ArrowLeft, Check, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, GitBranch, MessageSquare, Plus, Search, Server, Settings, SlidersHorizontal, SquarePen, Trash2 } from "lucide-react";
+import { ArchiveRestore, ArrowLeft, Check, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, GitBranch, MessageSquare, PanelLeft, Plus, Search, Server, Settings, SlidersHorizontal, SquarePen, Trash2 } from "lucide-react";
 import {
   DraftRow,
   errorMessage,
@@ -1246,6 +1246,16 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     <aside className="session-rail">
       <div className="sidebar-controls">
         <div className="rail-head">
+          {/* On macOS it sits right of the traffic lights, where the closed sidebar's title bar has it too. */}
+          {actions.toggleSidebar ? <button
+            type="button"
+            className="sidebar-action sidebar-toggle"
+            aria-label="Hide sidebar"
+            {...tooltipProps("Hide sidebar", { side: "bottom", shortcut: registry.keybindingLabel("workbench.toggle-sidebar") })}
+            onClick={actions.toggleSidebar}
+          >
+            <PanelLeft size={16} />
+          </button> : null}
           <ProjectFilterButton actions={actions} />
           {/* On macOS these sit in the title bar strip beside the traffic lights. */}
           <div className="rail-head-actions">
