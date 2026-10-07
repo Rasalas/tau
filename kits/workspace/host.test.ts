@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostExtensionServices } from "tau/host-extension";
+import type { HostExtensionServices, HostThread, HostTurnObserver } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { WORKSPACE_HEAD_TOPIC, createWorkspaceHostClient } from "./protocol.js";
 import { createWorkspaceHostExtension } from "./host.js";
@@ -69,6 +70,37 @@ async function client(cwd: string, overrides: Partial<HostExtensionServices> = {
 }
 
 describe("Workspace Kit host extension", () => {
+  it.each(["pi", "claude-code", "machine"])("restores the recorded worktree before a %s turn only when the thread runs locally", async (backendKind) => {
+    const root = await workspace();
+    const repo = join(root, "repo");
+    const active = join(root, "other-project");
+    await mkdir(repo);
+    await mkdir(active);
+    const git = (...args: string[]) => execFileSync("git", ["-C", repo, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", ...args], { encoding: "utf8", stdio: "pipe" });
+    git("init", "-q", "-b", "main");
+    git("commit", "-qm", "initial", "--allow-empty");
+    const observers: HostTurnObserver[] = [];
+    let path = "";
+    const registry = await activated(active, {
+      stateDir: join(root, "state"),
+      thread: () => ({ sessionId: "old-thread", cwd: path, backendKind } as HostThread),
+      registerTurnObserver: (observer) => { observers.push(observer); return () => undefined; },
+    });
+    try {
+      const created = await registry.invoke("tau.workspace", "create-worktree", { workspace: repo, branch: "saved-thread", startFromOrigin: false }) as { path: string };
+      path = created.path;
+      await rm(path, { recursive: true });
+      for (const observer of observers) await observer.prepare?.("old-thread", "next-turn");
+      expect(existsSync(join(path, ".git"))).toBe(backendKind !== "machine");
+      if (backendKind !== "machine") {
+        expect(execFileSync("git", ["-C", path, "branch", "--show-current"], { encoding: "utf8" }).trim()).toBe("saved-thread");
+      }
+      expect(git("branch", "--show-current").trim()).toBe("main");
+    } finally {
+      await registry.deactivate("tau.workspace");
+    }
+  });
+
   it("reads visualization fragments from the named workspace and refuses unknown origins", async () => {
     const active = await workspace();
     const origin = await workspace();

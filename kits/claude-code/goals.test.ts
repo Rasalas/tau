@@ -56,10 +56,10 @@ async function open(script: (text: string) => SDKMessage[]) {
     return session as unknown as ClaudeSdkSession;
   });
   const events: ThreadRuntimeEvent[] = [];
-  const backend = new ClaudeThreadRuntimeBackend("tau-1", "/repo", { adapter, store, projectName: "repo", onEvent: (event) => events.push(event) });
+  const backend = new ClaudeThreadRuntimeBackend("tau-1", dir, { adapter, store, projectName: "repo", onEvent: (event) => events.push(event) });
   backends.push(backend);
   await backend.start("create");
-  return { backend, events, sent, store };
+  return { backend, events, sent, store, dir };
 }
 
 describe("Claude Code goals", () => {
@@ -105,11 +105,11 @@ describe("Claude Code goals", () => {
   });
 
   it("shows a goal active before a restart as not confirmed: Tau cannot tell whether Claude still holds it", async () => {
-    const { store } = await open(() => []);
-    await store.setGoal("tau-1", "/repo", { condition: "ship", status: "active", iterations: 4, updatedAt: 1 });
+    const { store, dir } = await open(() => []);
+    await store.setGoal("tau-1", dir, { condition: "ship", status: "active", iterations: 4, updatedAt: 1 });
     const adapter = createClaudeCodeRuntimeAdapter({ command: "unused", storePath: "unused" });
     const events: ThreadRuntimeEvent[] = [];
-    const restarted = new ClaudeThreadRuntimeBackend("tau-1", "/repo", { adapter, store, projectName: "repo", onEvent: (event) => events.push(event) });
+    const restarted = new ClaudeThreadRuntimeBackend("tau-1", dir, { adapter, store, projectName: "repo", onEvent: (event) => events.push(event) });
     backends.push(restarted);
     await restarted.start("resume");
     expect(restarted.capabilities.goals!.current()).toMatchObject({ status: "unconfirmed", turns: 4, reason: expect.stringContaining("/goal clear") });

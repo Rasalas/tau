@@ -1,11 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createWorktree } from "./workspace-git.js";
-import { WorktreeStorage, storageGit, type WorktreeStorageThread } from "./worktree-storage.js";
+import { WorktreeStorage, storageGit, type WorktreeStorageOptions, type WorktreeStorageThread } from "./worktree-storage.js";
 
 const made: string[] = [];
 afterEach(async () => { await Promise.all(made.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
@@ -28,7 +28,7 @@ async function fixture(requestState?: (path: string) => Promise<"open" | "closed
   const threads: WorktreeStorageThread[] = [];
   const open = new Set<string>();
   const removed: string[] = [];
-  const storage = new WorktreeStorage({
+  const storageOptions: WorktreeStorageOptions = {
     stateDir: join(root, "state"),
     runGit: storageGit,
     sessions: async () => threads,
@@ -38,19 +38,67 @@ async function fixture(requestState?: (path: string) => Promise<"open" | "closed
     removed: (repository) => { removed.push(repository); },
     measure: async () => 1024,
     ...(requestState ? { requestState } : {}),
-  });
+  };
+  const storage = new WorktreeStorage(storageOptions);
   /** A worktree the way Workspace Kit makes one, recorded like `create-worktree` does. */
   const tauWorktree = async (branch: string) => {
     const path = await createWorktree(repo, branch);
     await storage.remember(path, repo, branch);
     return path;
   };
-  return { root, repo, storage, threads, open, removed, tauWorktree };
+  return { root, repo, storage, threads, open, removed, tauWorktree, reopen: () => new WorktreeStorage(storageOptions) };
 }
 
 const listed = (repo: string) => git(repo, "worktree", "list", "--porcelain");
 
 describe("worktree storage", () => {
+  it("restores a missing worktree from its recorded branch after restart, once for concurrent turns", async () => {
+    const { repo, tauWorktree, reopen } = await fixture();
+    const path = await tauWorktree("saved-thread");
+    await writeFile(join(path, "work.txt"), "thread work\n");
+    git(path, "add", "work.txt");
+    git(path, "commit", "-qm", "thread work");
+    const tip = git(path, "rev-parse", "HEAD").trim();
+    await rm(path, { recursive: true });
+    const restarted = reopen();
+    const results = await Promise.all([restarted.restoreMissing(path), restarted.restoreMissing(path)]);
+    expect(results).toEqual([expect.objectContaining({ path, repository: repo, branch: "saved-thread" }), expect.objectContaining({ path })]);
+    expect(git(path, "rev-parse", "HEAD").trim()).toBe(tip);
+    expect(await readFile(join(path, "work.txt"), "utf8")).toBe("thread work\n");
+    expect(git(repo, "branch", "--show-current").trim()).toBe("main");
+    await writeFile(join(path, "draft.txt"), "keep my uncommitted work\n");
+    expect(await restarted.restoreMissing(path)).toBeUndefined();
+    expect(await readFile(join(path, "draft.txt"), "utf8")).toBe("keep my uncommitted work\n");
+  });
+
+  it("refuses to guess a deleted branch and can retry once that branch is restored", async () => {
+    const { repo, storage, tauWorktree } = await fixture();
+    const path = await tauWorktree("deleted-branch");
+    git(repo, "worktree", "remove", path);
+    git(repo, "branch", "-D", "deleted-branch");
+    await expect(storage.restoreMissing(path)).rejects.toThrow(/restore.*deleted-branch/u);
+    expect(existsSync(path)).toBe(false);
+    git(repo, "branch", "deleted-branch", "main");
+    expect(await storage.restoreMissing(path)).toMatchObject({ path, branch: "deleted-branch" });
+  });
+
+  it("restores a worktree removed by cleanup and clears its removal record", async () => {
+    const { storage, tauWorktree } = await fixture();
+    const path = await tauWorktree("cleaned-thread");
+    await storage.setPolicy({ rules: { unchanged: true } });
+    expect((await storage.sweep()).removed).toContain(path);
+    expect((await storage.list())[0]?.removedAt).toBeTypeOf("number");
+    expect(await storage.restoreMissing(path)).toMatchObject({ path });
+    expect((await storage.list())[0]?.removedAt).toBeUndefined();
+  });
+
+  it("leaves a missing folder alone when it is not a recorded worktree", async () => {
+    const { root, storage } = await fixture();
+    const path = join(root, "unrecorded");
+    expect(await storage.restoreMissing(path)).toBeUndefined();
+    expect(existsSync(path)).toBe(false);
+  });
+
   it("reports what the rules would remove and removes exactly that", async () => {
     const { repo, storage, tauWorktree } = await fixture();
     const idle = await tauWorktree("idle");

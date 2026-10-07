@@ -1,4 +1,5 @@
 import { ClaudeNativeAgents } from "./native-agents.js";
+import { stat } from "node:fs/promises";
 import type { ModelInfo, PermissionMode, PermissionResult, PermissionUpdate, UserDialogRequest, UserDialogResult } from "@anthropic-ai/claude-agent-sdk";
 import {
   executionPolicyRefusal,
@@ -422,6 +423,13 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.admittingPrompts += 1;
     try {
     if (input.delivery !== "prompt" && input.delivery !== "steer" && input.delivery !== "followUp") throw new Error("Unsupported Claude delivery.");
+    const folder = await stat(this.cwd).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT" || error.code === "ENOTDIR") {
+        throw new Error(`This thread's working folder is missing: ${this.cwd}. Restore the folder before retrying, or start a new thread in an existing project.`, { cause: error });
+      }
+      throw error;
+    });
+    if (!folder.isDirectory()) throw new Error(`This thread's working folder is not a directory: ${this.cwd}. Restore the folder before retrying, or start a new thread in an existing project.`);
     const permissionLevel = this.options.permissionLevel?.() ?? "full";
     const mode = this.mode === PLAN_MODE ? "plan" : runtimePermissionPolicy(permissionLevel).permissionMode;
     assertClaudePermissionPolicySupported({ permissionMode: mode }, { canAsk: this.options.ask !== undefined });

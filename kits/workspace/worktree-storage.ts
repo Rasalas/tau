@@ -4,7 +4,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { promisify } from "node:util";
 import { HostCommandError, gitExecutable, readPersistedJson, writePersistedJson } from "tau/host-extension";
 import { readBranchBase, worktreeParentOf } from "./agent-worktrees.js";
-import { resolveDefaultBaseRef, type GitRunner } from "./workspace-git.js";
+import { ensureWorktree, resolveDefaultBaseRef, type GitRunner } from "./workspace-git.js";
 import {
   EMPTY_POLICY,
   anyRule,
@@ -146,6 +146,7 @@ export class WorktreeStorage {
   private loaded: Promise<void> | undefined;
   private saving: Promise<void> = Promise.resolve();
   private sweeping: Promise<UiCleanupResult> | undefined;
+  private readonly restoring = new Map<string, Promise<WorktreeRecord | undefined>>();
   private readonly deletedThreads: string[] = [];
   private readonly fetched = new Map<string, number>();
   private lastSweep: { at: number; removed: string[] } | undefined;
@@ -190,6 +191,36 @@ export class WorktreeStorage {
   async list(): Promise<WorktreeRecord[]> {
     await this.load();
     return this.records.map((entry) => ({ ...entry }));
+  }
+
+  /** Restores only a recorded worktree, on its own branch, before a thread runs there again. */
+  async restoreMissing(path: string): Promise<WorktreeRecord | undefined> {
+    const target = resolve(path);
+    const pending = this.restoring.get(target);
+    if (pending) return pending;
+    const recovery = (async () => {
+      const folder = await stat(target).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT" || error.code === "ENOTDIR") return undefined;
+        throw error;
+      });
+      if (folder) return undefined;
+      await this.load();
+      const entry = this.records.find((candidate) => candidate.path === target);
+      if (!entry) return undefined;
+      try {
+        if (!await ensureWorktree(entry.repository, target, entry.branch, this.options.runGit)) return undefined;
+      } catch (error) {
+        throw new Error(`Could not restore this thread's worktree at ${target} from branch "${entry.branch ?? "unknown"}". Restore the branch or folder before retrying. ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+      }
+      await this.restored(target);
+      return { ...entry };
+    })();
+    this.restoring.set(target, recovery);
+    try {
+      return await recovery;
+    } finally {
+      this.restoring.delete(target);
+    }
   }
 
   /** Writes down a worktree Tau just made. */

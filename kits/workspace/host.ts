@@ -206,6 +206,13 @@ export function createWorkspaceHostExtension(): HostExtension {
         removed: (repository) => git.invalidate(repository, ["branch", "status", "workspace"]),
         requestState: async (path) => (await branchRequest(path))?.state,
       });
+      const restoreWorktree = async (path: string): Promise<void> => {
+        const restored = await worktrees.storage.restoreMissing(path);
+        if (!restored) return;
+        git.invalidate(restored.repository, ["branch", "status", "workspace"]);
+        git.invalidate(restored.path, ["branch", "status", "workspace"]);
+        services.log("git.worktree.recreated", restored.path);
+      };
       const noteFailure = (label: string) => (error: unknown) => services.log(label, error instanceof Error ? error.message : String(error));
       const cwd = () => services.cwd();
       // A command may name another workspace by id; without one it means the host's.
@@ -780,6 +787,12 @@ export function createWorkspaceHostExtension(): HostExtension {
         }),
         // Edits and Git commands run by the agent stale the cache.
         services.registerTurnObserver({ toolEnded: (_sessionId, tool, project) => invalidateAfterTool(git, tool, project) }),
+        // Recreate before checkpoints or a runtime can use the thread's missing folder.
+        services.registerThreadLifecycle({ beforeOpen: (session) => restoreWorktree(session.cwd) }),
+        services.registerTurnObserver({ prepare: async (sessionId) => {
+          const thread = services.thread(sessionId);
+          if (thread && thread.backendKind !== "machine") await restoreWorktree(thread.cwd);
+        } }),
         services.registerThreadLifecycle(checkpoints.lifecycle),
         services.registerTurnObserver(checkpoints.turns),
         services.registerTurnObserver(checkoutTurns.observer),

@@ -60,12 +60,12 @@ describe("Claude Code host half", () => {
       registerRuntimeBackend: (provider) => { backends.push(provider); return () => undefined; },
       mcp: { registerTools: () => () => undefined, gate: () => () => undefined, connect: async (thread) => { connected.push(thread); return mcpServer; } },
     });
-    const backend = await backends[0]!.open("tau-thread", "/repo", { resume: false }, {
+    const backend = await backends[0]!.open("tau-thread", agentDir, { resume: false }, {
       projectName: "repo", permissionLevel: () => "full", onMessage: () => undefined, onEvent: () => undefined, ask: async () => ({ cancelled: true }),
     });
     void backend.prompt({ text: "hi", delivery: "prompt" }).catch(() => undefined);
     expect((await openedInput).mcpServer).toEqual(mcpServer);
-    expect(connected).toEqual([{ sessionId: "tau-thread", cwd: "/repo" }]);
+    expect(connected).toEqual([{ sessionId: "tau-thread", cwd: agentDir }]);
     await backend.dispose();
   });
 

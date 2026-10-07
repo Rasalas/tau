@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Options, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -10,6 +10,7 @@ import { ClaudeRuntimeSessionStore } from "./session-store.js";
 import { ClaudeThreadRuntimeBackend, promptContent } from "./thread-backend.js";
 
 const directories: string[] = [];
+const WORKSPACE = process.cwd();
 const commands: UiComposerCommand[] = [{ name: "skill:tdd", source: "skill", description: "Test first" }];
 const SESSION = "123e4567-e89b-42d3-a456-426614174000";
 const frame = <T extends object>(value: T): SDKMessage => ({ uuid: "u", session_id: SESSION, ...value }) as unknown as SDKMessage;
@@ -113,11 +114,46 @@ function scriptedAdapter(filePath: string, script: Script) {
 }
 
 describe("thread runtime backends", () => {
+  it.each(["missing", "file"])("refuses a resumed thread whose working folder is %s before saving another message, and resumes after restoration", async (condition) => {
+    const { filePath, store } = await scratchStore();
+    const cwd = join(filePath, "..", "workspace");
+    await mkdir(cwd);
+    const { adapter, opened } = scriptedAdapter(filePath, () => turn("hello"));
+    const original = new ClaudeThreadRuntimeBackend("tau-thread", cwd, { adapter, store, commands, projectName: "workspace" });
+    await original.start("create");
+    await original.prompt({ text: "Original", delivery: "prompt" });
+    await original.dispose();
+
+    const resumed = new ClaudeThreadRuntimeBackend("tau-thread", cwd, { adapter, store, commands, projectName: "workspace" });
+    await resumed.start("resume");
+    const prepared = await resumed.preparePrompt("Again");
+    const transcript = await resumed.transcript();
+    const record = await store.get("tau-thread");
+    await rm(cwd, { recursive: true });
+    if (condition === "file") await writeFile(cwd, "not a folder");
+    try {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        await expect(resumed.prompt({ text: "Again", delivery: "prompt", prepared })).rejects.toThrow(`working folder`);
+      }
+      expect(opened).toHaveLength(1);
+      expect(await resumed.transcript()).toEqual(transcript);
+      expect(await store.get("tau-thread")).toEqual(record);
+      await rm(cwd, { force: true });
+      await mkdir(cwd);
+      await resumed.prompt({ text: "Again", delivery: "prompt", prepared });
+      expect(opened).toHaveLength(2);
+      expect(opened[1]).toMatchObject({ cwd, started: true, claudeSessionId: record?.claudeSessionId });
+      expect((await resumed.transcript()).filter((message) => message.text === "Again")).toHaveLength(1);
+    } finally {
+      await resumed.dispose();
+    }
+  });
+
   it("restarts a process without losing history and rereads the skill catalog", async () => {
     const { filePath, store } = await scratchStore();
     const { adapter, opened, sessions } = scriptedAdapter(filePath, () => turn("hello"));
     let discovered = commands;
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands: () => discovered, projectName: "repo" });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands: () => discovered, projectName: "repo" });
     await backend.start("create");
     await backend.prompt({ text: "Hello.", delivery: "prompt" });
     const transcript = await backend.transcript();
@@ -136,7 +172,7 @@ describe("thread runtime backends", () => {
   it("refuses a concurrent send while the old process is closing", async () => {
     const { filePath, store } = await scratchStore();
     const { adapter, opened, sessions } = scriptedAdapter(filePath, () => turn("hello"));
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo" });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo" });
     await backend.start("create");
     await backend.prompt({ text: "Hello.", delivery: "prompt" });
     const close = sessions[0]!.close.getMockImplementation()!;
@@ -155,7 +191,7 @@ describe("thread runtime backends", () => {
   it("refuses a restart while a background task still owns work", async () => {
     const { filePath, store } = await scratchStore();
     const { adapter, opened, sessions } = scriptedAdapter(filePath, () => turn("hello"));
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo" });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo" });
     await backend.start("create");
     await backend.prompt({ text: "Hello.", delivery: "prompt" });
     opened[0]!.onMessage({ type: "system", subtype: "background_tasks_changed", tasks: [{ task_id: "background-1", task_type: "agent", description: "Working", ambient: false }], uuid: "task-state", session_id: backend.providerSessionId } as never);
@@ -172,7 +208,7 @@ describe("thread runtime backends", () => {
     const { adapter, opened, sessions } = scriptedAdapter(filePath, (content) => turn(`Claude: ${String(content)}`));
     const events: ThreadRuntimeEvent[] = [];
     let streamingWhileLive: boolean | undefined;
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", {
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, {
       adapter,
       store,
       commands,
@@ -192,7 +228,7 @@ describe("thread runtime backends", () => {
     const admitted = vi.fn();
     const first = await backend.prompt({ text: "$tdd\n    preserve this", identity: { clientTurnId: "turn-1", clientMessageId: "request-1" }, delivery: "prompt", prepared, onAdmitted: admitted });
     expect(sessions[0]?.send).toHaveBeenCalledWith("/tdd \n    preserve this", "next");
-    expect(opened[0]).toMatchObject({ cwd: "/repo", started: false, permissionLevel: "full" });
+    expect(opened[0]).toMatchObject({ cwd: WORKSPACE, started: false, permissionLevel: "full" });
     expect(admitted).toHaveBeenCalledWith(true);
     expect(first).toEqual({ assistantText: "Claude: /tdd \n    preserve this" });
     expect(streamingWhileLive).toBe(true);
@@ -236,7 +272,7 @@ describe("thread runtime backends", () => {
 
     await backend.dispose();
     expect(sessions[0]?.close).toHaveBeenCalled();
-    const restored = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store: new ClaudeRuntimeSessionStore({ filePath }), commands, projectName: "repo" });
+    const restored = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store: new ClaudeRuntimeSessionStore({ filePath }), commands, projectName: "repo" });
     await restored.start("resume");
     expect((await restored.transcript()).map((message) => message.text)).toEqual(["\n    preserve this", "Claude: /tdd \n    preserve this", "again", "Claude: again"]);
     expect(restored.catalogView().usage).toMatchObject({ totalTokens: 220, costUsd: expect.closeTo(0.2, 10) as number, turns: 2 });
@@ -270,7 +306,7 @@ describe("thread runtime backends", () => {
     }) as ClaudeQuery;
     const adapter = createClaudeCodeRuntimeAdapter({ command: "unused", storePath: filePath, query });
     const events: ThreadRuntimeEvent[] = [];
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", {
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, {
       adapter, store, commands, projectName: "repo", onEvent: (event) => events.push(event),
     });
     await backend.start("create");
@@ -297,7 +333,7 @@ describe("thread runtime backends", () => {
       : [...turn("long").slice(0, -1), big]);
     const events: ThreadRuntimeEvent[] = [];
     let clock = 1_000;
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", now: () => clock, onEvent: (event) => events.push(event) });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", now: () => clock, onEvent: (event) => events.push(event) });
     await backend.start("create");
     await expect(backend.capabilities.compaction!.compact()).rejects.toThrow("nothing to compact");
 
@@ -305,7 +341,7 @@ describe("thread runtime backends", () => {
     // Dated and marked as held in the one-hour prompt cache, which is what the resume offer reads.
     expect(backend.catalogView().contextUsage).toEqual({ tokens: 153_000, contextWindow: 200_000, percent: 76.5, updatedAt: 1_000, promptCacheTtlMs: 3_600_000 });
     await vi.waitFor(async () => expect((await new ClaudeRuntimeSessionStore({ filePath }).get("tau-thread"))?.contextUsage?.tokens).toBe(153_000));
-    const reopened = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store: new ClaudeRuntimeSessionStore({ filePath }), commands, projectName: "repo" });
+    const reopened = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store: new ClaudeRuntimeSessionStore({ filePath }), commands, projectName: "repo" });
     await reopened.start("resume");
     expect(reopened.catalogView().contextUsage).toMatchObject({ tokens: 153_000, updatedAt: 1_000 });
 
@@ -324,7 +360,7 @@ describe("thread runtime backends", () => {
       { type: "queue", steering: [], followUp: [] },
     ]);
     await vi.waitFor(async () => expect((await new ClaudeRuntimeSessionStore({ filePath }).get("tau-thread"))?.contextUsage).toMatchObject({ tokens: 4_000, updatedAt: 5_000_000 }));
-    const afterRestart = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store: new ClaudeRuntimeSessionStore({ filePath }), commands, projectName: "repo" });
+    const afterRestart = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store: new ClaudeRuntimeSessionStore({ filePath }), commands, projectName: "repo" });
     await afterRestart.start("resume");
     expect((await afterRestart.transcript()).at(-1)).toMatchObject({ role: "notice", compaction: divider.compaction });
   });
@@ -334,7 +370,7 @@ describe("thread runtime backends", () => {
     const { adapter } = scriptedAdapter(filePath, (content) => String(content) === "/compact"
       ? [result("Not enough messages to compact.", { num_turns: 0 })]
       : turn("ok"));
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", onEvent: () => undefined });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", onEvent: () => undefined });
     await backend.start("create");
     await backend.prompt({ text: "hi", delivery: "prompt" });
     await expect(backend.capabilities.compaction!.compact()).rejects.toThrow("Not enough messages to compact.");
@@ -353,7 +389,7 @@ describe("thread runtime backends", () => {
         : turn("ok");
     });
     const onResumeQuestionOff = vi.fn();
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", ask, onEvent: () => undefined, onResumeQuestionOff });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", ask, onEvent: () => undefined, onResumeQuestionOff });
     await backend.start("create");
     await backend.prompt({ text: "go", delivery: "prompt" });
     expect(dialogs).toEqual([{ behavior: "completed", result: "never" }]);
@@ -374,7 +410,7 @@ describe("thread runtime backends", () => {
       return turn("two");
     });
     const events: ThreadRuntimeEvent[] = [];
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", onEvent: (event) => { events.push(event); } });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", onEvent: (event) => { events.push(event); } });
     await backend.start("create");
     const first = backend.prompt({ text: "first", delivery: "prompt" });
     await until(() => backend.state().streaming);
@@ -402,7 +438,7 @@ describe("thread runtime backends", () => {
     const { filePath, store } = await scratchStore();
     const { adapter, sessions } = scriptedAdapter(filePath, () => new Promise(() => undefined));
     const events: ThreadRuntimeEvent[] = [];
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", interruptGraceMs: 50, onEvent: (event) => { events.push(event); } });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", interruptGraceMs: 50, onEvent: (event) => { events.push(event); } });
     await backend.start("create");
     const pending = backend.prompt({ text: "hang", delivery: "prompt" });
     await until(() => backend.state().streaming && (sessions[0]?.send.mock.calls.length ?? 0) === 1);
@@ -426,7 +462,7 @@ describe("thread runtime backends", () => {
       frame({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 1, errors: ["[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=tool_use"], terminal_reason: "aborted_tools", total_cost_usd: 0.02, usage: {} }),
     ]);
     const events: ThreadRuntimeEvent[] = [];
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", onEvent: (event) => { events.push(event); } });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", onEvent: (event) => { events.push(event); } });
     await backend.start("create");
     await expect(backend.prompt({ text: "long job", delivery: "prompt" })).resolves.toEqual({});
     expect(events.filter((event) => event.type === "notice")).toEqual([]);
@@ -440,7 +476,7 @@ describe("thread runtime backends", () => {
     const { adapter, opened } = scriptedAdapter(filePath, () => turn("ok"));
     const mcpServer = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
     const connect = vi.fn(async () => mcpServer);
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", mcpServer: connect, onEvent: () => undefined });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", mcpServer: connect, onEvent: () => undefined });
     await backend.start("create");
     expect(connect).not.toHaveBeenCalled();
     await backend.prompt({ text: "hi", delivery: "prompt" });
@@ -449,7 +485,7 @@ describe("thread runtime backends", () => {
 
     // Without an endpoint the thread still runs, only without Tau's tools.
     const { adapter: bare, opened: bareOpened } = scriptedAdapter(filePath, () => turn("ok"));
-    const offline = new ClaudeThreadRuntimeBackend("tau-other", "/repo", { adapter: bare, store, commands, projectName: "repo", mcpServer: async () => { throw new Error("no endpoint"); }, onEvent: () => undefined });
+    const offline = new ClaudeThreadRuntimeBackend("tau-other", WORKSPACE, { adapter: bare, store, commands, projectName: "repo", mcpServer: async () => { throw new Error("no endpoint"); }, onEvent: () => undefined });
     await offline.start("create");
     await offline.prompt({ text: "hi", delivery: "prompt" });
     expect(bareOpened[0]).not.toHaveProperty("mcpServer");
@@ -462,7 +498,7 @@ describe("thread runtime backends", () => {
     const { adapter, opened } = scriptedAdapter(filePath, () => turn("ok"));
     const connect = vi.fn(async () => undefined);
     const tools = ["read", "grep", "tau_spawn_thread"];
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", mcpServer: connect, tools, onEvent: () => undefined });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", mcpServer: connect, tools, onEvent: () => undefined });
     await backend.start("create");
     await backend.prompt({ text: "hi", delivery: "prompt" });
     expect(opened[0]!.tools).toEqual(tools);
@@ -470,7 +506,7 @@ describe("thread runtime backends", () => {
     await backend.dispose();
 
     // A resumed thread reads the list from its record; nobody passes it again.
-    const again = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", mcpServer: connect, onEvent: () => undefined });
+    const again = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", mcpServer: connect, onEvent: () => undefined });
     await again.start("resume");
     await again.prompt({ text: "again", delivery: "prompt" });
     expect(opened[1]!.tools).toEqual(tools);
@@ -482,7 +518,7 @@ describe("thread runtime backends", () => {
     const { filePath, store } = await scratchStore();
     const { adapter, opened, sessions } = scriptedAdapter(filePath, () => turn("ok"));
     let policy: HostExecutionPolicy = { network: "loopback", allowHosts: ["pypi.org"], reasons: ["Limited."], sources: ["tau.servers"] };
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", executionPolicy: async () => policy, onEvent: () => undefined });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", executionPolicy: async () => policy, onEvent: () => undefined });
     await backend.start("create");
     await backend.prompt({ text: "hi", delivery: "prompt" });
     await backend.prompt({ text: "again", delivery: "prompt" });
@@ -501,7 +537,7 @@ describe("thread runtime backends", () => {
     const { filePath, store } = await scratchStore();
     const { adapter, opened } = scriptedAdapter(filePath, () => turn("ok"));
     const policy: HostExecutionPolicy = { network: "loopback", allowHosts: [], reasons: ["Limited."], sources: ["tau.servers"] };
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", executionPolicy: async () => policy, platform: "win32", onEvent: () => undefined });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", executionPolicy: async () => policy, platform: "win32", onEvent: () => undefined });
     await backend.start("create");
     await expect(backend.prompt({ text: "hi", delivery: "prompt" })).rejects.toThrow(/^Limited\. The Agent SDK runtime on Windows cannot enforce that limit/u);
     expect(opened).toEqual([]);
@@ -513,7 +549,7 @@ describe("thread runtime backends", () => {
     const { filePath, store } = await scratchStore();
     const { adapter, sessions } = scriptedAdapter(filePath, () => [init(), frame({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 1, errors: ["not logged in"], total_cost_usd: 0, usage: {} })]);
     const events: ThreadRuntimeEvent[] = [];
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", onEvent: (event) => { events.push(event); } });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", onEvent: (event) => { events.push(event); } });
     await backend.start("create");
     await expect(backend.prompt({ text: "break", delivery: "prompt" })).rejects.toThrow("not logged in");
     expect(events.filter((event) => event.type === "notice" || event.type === "turn-settled")).toEqual([
@@ -541,12 +577,12 @@ describe("thread runtime backends", () => {
 
   it("recovers a resumed session Claude no longer has by creating it once under the same id", async () => {
     const { filePath, store } = await scratchStore();
-    await store.ensure("tau-thread", "/repo");
-    await store.markStarted("tau-thread", "/repo");
+    await store.ensure("tau-thread", WORKSPACE);
+    await store.markStarted("tau-thread", WORKSPACE);
     const { adapter, opened } = scriptedAdapter(filePath, (_content, _priority, input) => input.started
       ? [frame({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 1, errors: [`No conversation found with session ID: ${input.claudeSessionId}`], total_cost_usd: 0, usage: {} })]
       : turn("fresh"));
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", onEvent: () => undefined });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", onEvent: () => undefined });
     await backend.start("resume");
     await expect(backend.prompt({ text: "hello", delivery: "prompt" })).resolves.toEqual({ assistantText: "fresh" });
     expect(opened.map((input) => input.started)).toEqual([true, false]);
@@ -557,7 +593,7 @@ describe("thread runtime backends", () => {
     const { filePath, store } = await scratchStore();
     const { adapter, sessions } = scriptedAdapter(filePath, () => turn("seen"));
     const events: ThreadRuntimeEvent[] = [];
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", onEvent: (event) => { events.push(event); } });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", onEvent: (event) => { events.push(event); } });
     await backend.start("create");
     const attachment = { kind: "image" as const, name: "shot.png", mimeType: "image/png", data: "AAAA", size: 4 };
     await backend.prompt({ text: "what is this?", delivery: "prompt", attachments: [attachment] });
@@ -574,7 +610,7 @@ describe("thread runtime backends", () => {
     const { adapter, opened, sessions } = scriptedAdapter(filePath, () => turn("ok"));
     const infos = [{ value: "opus", displayName: "Opus", description: "", supportedEffortLevels: ["low", "high", "max"] as Array<"low" | "high" | "max"> }, { value: "sonnet", displayName: "Sonnet", description: "" }];
     adapter.probe = vi.fn(async () => ({ models: infos.map((info) => ({ provider: "anthropic", id: info.value, name: info.displayName })), modelInfos: infos, probedAt: 1 }));
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", onEvent: () => undefined });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", onEvent: () => undefined });
     await backend.start("create");
     // Idle: the shared probe answers; the picker starts at the CLI's default.
     expect(await backend.models()).toEqual([{ provider: "anthropic", id: "opus", name: "Opus" }, { provider: "anthropic", id: "sonnet", name: "Sonnet" }]);
@@ -594,7 +630,7 @@ describe("thread runtime backends", () => {
 
     // The choice is persisted and opens the next session.
     await backend.dispose();
-    const restored = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store: new ClaudeRuntimeSessionStore({ filePath }), commands, projectName: "repo", onEvent: () => undefined });
+    const restored = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store: new ClaudeRuntimeSessionStore({ filePath }), commands, projectName: "repo", onEvent: () => undefined });
     await restored.start("resume");
     expect(restored.catalogView()).toMatchObject({ model: { id: "opus" }, thinkingLevel: "high" });
     await restored.prompt({ text: "again", delivery: "prompt" });
@@ -604,7 +640,7 @@ describe("thread runtime backends", () => {
   it("rejects manual approvals without a dialog surface, before a session is opened", async () => {
     const { filePath, store } = await scratchStore();
     const { adapter, opened } = scriptedAdapter(filePath, () => turn("x"));
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", permissionLevel: () => "ask" });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", permissionLevel: () => "ask" });
     await backend.start("create");
     await expect(backend.preparePrompt("$tdd inspect", { source: "skill", name: "tdd", command: "/tdd", visibleText: "inspect" })).rejects.toThrow("manual approvals are unsupported");
     expect(opened).toEqual([]);
@@ -636,7 +672,7 @@ describe("thread runtime backends", () => {
       return turn("ok");
     });
     let level: "ask" | "read-only" = "ask";
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", permissionLevel: () => level, ask, onEvent: () => undefined });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", permissionLevel: () => level, ask, onEvent: () => undefined });
     await backend.start("create");
     await backend.prompt({ text: "go", delivery: "prompt" });
     expect(opened[0]).toMatchObject({ permissionLevel: "ask" });
@@ -675,7 +711,7 @@ describe("plan mode", () => {
     });
     const events: ThreadRuntimeEvent[] = [];
     const ask = vi.fn(async (): Promise<ExtensionUiAnswer> => ({ confirmed: true }));
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", permissionLevel: () => "full", ask, now: () => 7, onEvent: (event) => events.push(event) });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", permissionLevel: () => "full", ask, now: () => 7, onEvent: (event) => events.push(event) });
     await backend.start("create");
     expect(backend.capabilities.mode!.modes()).toEqual(["plan"]);
     await backend.capabilities.mode!.set("plan");
@@ -706,7 +742,7 @@ describe("the current model's name", () => {
       { value: "haiku", displayName: "Haiku", description: "", resolvedModel: "claude-haiku-4-5-20251001" },
     ];
     adapter.probe = vi.fn(async () => ({ models: infos.map((info) => ({ provider: "anthropic", id: info.value, name: info.displayName })), modelInfos: infos, probedAt: 1 }));
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", onEvent: () => undefined });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", onEvent: () => undefined });
     await backend.start("create");
     const internals = backend as unknown as { modelInfos?: typeof infos; model?: string };
     internals.modelInfos = infos;
@@ -728,7 +764,7 @@ it("keeps native child frames out of parent messages and reports background comp
     result("Parent answer"),
   ]);
   const events: ThreadRuntimeEvent[] = [];
-  const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, projectName: "repo", onEvent: (event) => events.push(event) });
+  const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, projectName: "repo", onEvent: (event) => events.push(event) });
   await backend.start("create");
   await backend.prompt({ text: "Delegate", delivery: "prompt" });
   expect((await backend.transcript()).map((message) => message.text)).toEqual(["Delegate", "Parent answer"]);
