@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dismissalKey, formatContextTokens, offerDueAt, offersResumeCompaction, readList, withKept, RESUME_COMPACTION_IDLE_MS } from "./rule.js";
+import { formatContextTokens, offerDueAt, offersResumeCompaction, readList, RESUME_COMPACTION_IDLE_MS } from "./rule.js";
 
 const HOUR = 60 * 60_000;
 const context = (tokens: number, updatedAt?: number, promptCacheTtlMs: number | null = HOUR) => ({
@@ -30,11 +30,6 @@ describe("the resume compaction rule", () => {
     expect(offerDueAt(context(153_000, at, null))).toBeUndefined();
   });
 
-  it("keys a dismissal by thread and measurement", () => {
-    expect(dismissalKey("t1", context(153_000, at))).toBe(`t1@${at}`);
-    expect(dismissalKey("t1", context(153_000, at + 1))).not.toBe(dismissalKey("t1", context(153_000, at)));
-  });
-
   it("writes sizes in compact thousands", () => {
     expect(formatContextTokens(153_412)).toBe("153k");
     expect(formatContextTokens(4_000)).toBe("4k");
@@ -42,12 +37,7 @@ describe("the resume compaction rule", () => {
     expect(formatContextTokens(1_200_000)).toBe("1.2m");
   });
 
-  it("keeps the latest twenty dismissals and reads anything else as none", () => {
-    let kept: string[] = [];
-    for (let index = 0; index < 25; index += 1) kept = withKept(kept, `t${index}@1`);
-    expect(kept).toHaveLength(20);
-    expect(kept[0]).toBe("t5@1");
-    expect(withKept(["a", "b"], "a")).toEqual(["b", "a"]);
+  it("reads a stored list, and anything else as none", () => {
     expect(readList("not json")).toEqual([]);
     expect(readList(JSON.stringify(["a", 3]))).toEqual(["a"]);
   });

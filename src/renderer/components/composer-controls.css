@@ -16,6 +16,9 @@ html:not([data-device="phone"]):not([data-device="tablet"]) .composer-toolbar .s
 .composer-toolbar .composer-attach-chip { flex: none; }
 .composer-toolbar .composer-attach-chip:disabled { color: var(--faint); cursor: default; }
 .composer-toolbar .composer-attach-chip:disabled:hover { background: transparent; }
+html:not([data-device="phone"]):not([data-device="tablet"]) .composer-toolbar .send-button.send-mode-options {
+  min-width: 28px;
+}
 html:not([data-device="phone"]):not([data-device="tablet"]) .composer-toolbar .send-button.stop {
   font-size: var(--text-control);
 }

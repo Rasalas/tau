@@ -13,8 +13,6 @@ export interface ResumeCompactionOptOut {
 
 /** `values.tau.resume-compaction.off`: the runtimes the offer is off for, as a JSON array. */
 export const OFF_KEY = "off";
-/** `values.tau.resume-compaction.kept`: the latest "Keep full history" answers, as a JSON array of dismissal keys. */
-export const KEPT_KEY = "kept";
 
 /** `values.tau.resume-compaction.compact-at`: past which share of its context a Pi thread compacts when its turn ends (design 2i). */
 export const COMPACT_AT_KEY = "compact-at";

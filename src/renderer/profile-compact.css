@@ -88,6 +88,9 @@ body[data-profile="compact"] .draft-pill { min-height: var(--touch-target); padd
 body[data-profile="compact"] :is(textarea, select, input:not([type="checkbox"], [type="radio"], [type="range"])) { font-size: max(16px, var(--text-input)); }
 /* 48 px to tap, 36 px to see; stop keeps its distance from send. */
 body[data-profile="compact"] .send-button { width: var(--touch-target); height: var(--touch-target); border: 4px solid transparent; background-clip: padding-box; }
+body[data-profile="compact"] .send-button.send-mode { width: auto; padding: 0 14px; border-radius: 999px; }
+body[data-profile="compact"] .send-split.with-options > .send-mode { padding-right: 10px; border-radius: 999px 0 0 999px; }
+body[data-profile="compact"] .send-button.send-mode-options { width: 36px; border-radius: 0 999px 999px 0; }
 /* A finger gets the ring and the square, not the desktop's word. */
 body[data-profile="compact"] .send-button.stop { margin-right: 8px; padding: 0; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line-control); }
 body[data-profile="compact"] .send-button.stop > span { display: none; }

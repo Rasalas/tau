@@ -69,8 +69,9 @@ export function ComposerMenuItem({ icon, label, detail, selected, disabled, disa
 }
 
 /** The composer's "…" menu: the blocks the row had no room for, then the menu controls. The thinking chip's menu too. */
-export function ComposerMenuPopover({ anchor, children, onClose, label = "More composer controls", className = "composer-overflow", footer, sheet = false }: {
+export function ComposerMenuPopover({ anchor, children, onClose, label = "More composer controls", className = "composer-overflow", footer, sheet = false, align = "start" }: {
   sheet?: boolean;
+  align?: "start" | "end";
   anchor: RefObject<HTMLElement | null>;
   children: ReactNode;
   onClose(): void;
@@ -101,7 +102,7 @@ export function ComposerMenuPopover({ anchor, children, onClose, label = "More c
     {footer}
   </Sheet></Suspense>;
   return (
-    <Popover anchor={anchor} side="top" align="start" label={label} className={className} onClose={onClose}>
+    <Popover anchor={anchor} side="top" align={align} label={label} className={className} onClose={onClose}>
       <ComposerMenuContext.Provider value={context}>
         <div ref={list} className="composer-menu" onKeyDown={onKeyDown}>
           {children}

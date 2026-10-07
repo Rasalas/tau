@@ -18,7 +18,7 @@ import type {
 } from "../../shared/contracts";
 import { WorkbenchShellContext } from "../workbench-context";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
-import { Popover, AttachmentLightbox, ComposerMenuItem, ExtensionPrompt, ThinkingMenu } from "../deferred-surfaces";
+import { Popover, AttachmentLightbox, ComposerMenuItem, ComposerMenuPopover, ExtensionPrompt, ThinkingMenu } from "../deferred-surfaces";
 import { tooltipProps } from "./ui/Tooltip";
 import { contextChoices, formatTokens, modelFamily, modelKey, offeringKey } from "./model-offerings";
 import { ProviderIconStack } from "./ProviderIconStack";
@@ -27,6 +27,7 @@ import { usePreferences } from "../renderer-services-context";
 import { useRuntimeCatalog, useRuntimeCatalogs } from "../use-runtime-catalog";
 import { catalogLevels } from "../../workbench/runtime-catalog-store";
 import { useComposerSpeed } from "./composer-speed";
+import { useComposerSendMode } from "./composer-send-mode";
 import { PromptSubmitContext, type PromptSubmitAction } from "./prompt-submit";
 import { usePromptArrival } from "./use-prompt-arrival";
 import { LazyFeatureBoundary } from "./LazyFeature";
@@ -68,7 +69,7 @@ import { composerEnter, sendHint, sendShortcutFor } from "./composer-send-keys";
 import { onScreenKeyboardShown, primaryPointerIsTouch } from "../touch-input";
 import { takePasteAsText } from "../paste-as-text";
 import { THINKING_LABELS, carriedLevel } from "../thinking-levels";
-import type { ComposerGateContext, ComposerGateContribution, ComposerInlineContext, ComposerTriggerItem, ModelSelectionContribution } from "../extension-system";
+import type { ComposerGateContext, ComposerGateContribution, ComposerInlineContext, ComposerSendMode, ComposerTriggerItem, ModelSelectionContribution } from "../extension-system";
 
 export {
   type ComposerTrigger,
@@ -649,6 +650,15 @@ export function Composer({
   const composerControls = registry?.getComposerControls() ?? [];
   const runtimeLabel = runtimeChoice?.backends.find((backend) => backend.kind === runtimeChoice.kind)?.label ?? runtimeChoice?.kind ?? "";
   const speed = useComposerSpeed(registry?.getComposerSpeeds?.(), draftOnOtherRuntime ? undefined : snapshot);
+  // A new thread's draft still carries the snapshot of the thread it was opened from.
+  const sendMode = useComposerSendMode(registry?.getComposerSendModes?.(), newThread || draftOnOtherRuntime || streaming ? undefined : snapshot);
+  // Held per draft: the prompt waits in its own thread while `beforeSend` runs.
+  const [sendModeBusy, setSendModeBusy] = useState<{ scope: string; label: string; Icon?: ComposerSendMode["Icon"] }>();
+  const sendModeBusyHere = sendModeBusy?.scope === attachmentScope ? sendModeBusy : undefined;
+  const [sendOptionsOpen, setSendOptionsOpen] = useState(false);
+  const sendOptionsAnchor = useRef<HTMLDivElement>(null);
+  const scopeRef = useRef(attachmentScope);
+  scopeRef.current = attachmentScope;
   // The context windows of the model in use: its `[1m]` twin and the like, with the catalog's sizes once asked.
   const inUse = modelSelectionAvailable ? snapshot?.model : undefined;
   const twins = inUse ? snapshot!.models.filter((model) => model.provider === inUse.provider && modelFamily(model) === modelFamily(inUse)) : [];
@@ -699,9 +709,12 @@ export function Composer({
   const answerable = prompt && arrival.armed;
   // A question that takes typed text takes the files waiting in the composer with it.
   const answerHasFiles = Boolean(answerable && prompt && promptTakesFiles(prompt) && (attachments.length > 0 || inlineHasContent));
-  const submitRef = useRef<(delivery?: ComposerDelivery, gated?: boolean) => void>(() => {});
-  const submitCurrent = useCallback((delivery?: ComposerDelivery, gated = false) => {
-    if (held || arrival.waiting || dictating) return;
+  const submitPromptRef = useRef(submitPrompt);
+  submitPromptRef.current = submitPrompt;
+  const submitRef = useRef<(delivery?: ComposerDelivery, gated?: boolean, plain?: boolean) => void>(() => {});
+  // `plain` sends as usual, past a kit's send mode.
+  const submitCurrent = useCallback((delivery?: ComposerDelivery, gated = false, plain = false) => {
+    if (held || arrival.waiting || dictating || sendModeBusyHere) return;
     // An answer's chips go along as its files; its text is the user's own words.
     const intent = classifyComposerInput({
       text: plainChipText(text, Boolean(answerable)),
@@ -738,14 +751,26 @@ export function Composer({
       case "prompt": {
         if (gated) {
           chipLayer.current?.dropOrphans(text);
-          submitPrompt(intent.delivery);
+          const mode = plain ? undefined : sendMode;
+          if (!mode) {
+            submitPrompt(intent.delivery);
+            return;
+          }
+          const scope = attachmentScope;
+          setSendModeBusy({ scope, label: mode.busyLabel ?? mode.label, ...(mode.Icon ? { Icon: mode.Icon } : {}) });
+          void mode.beforeSend(shellContext?.actions)
+            .then(() => {
+              // The thread changed meanwhile: its draft stays there rather than going to this one.
+              if (scopeRef.current === scope) submitPromptRef.current(intent.delivery);
+            }, (error: unknown) => onNotify?.(errorMessage(error)))
+            .finally(() => setSendModeBusy((busy) => busy?.scope === scope ? undefined : busy));
           return;
         }
         const runtime = runtimeChoice?.kind ?? snapshot?.backendKind;
         const model = draftOnOtherRuntime ? undefined : snapshot?.model;
         passGates(
           { action: "prompt", ...(model ? { model } : {}), ...(runtime ? { runtime } : {}), ...(newThread ? { newThread: true } : {}), ...(snapshot ? { snapshot } : {}) },
-          () => submitRef.current(delivery, true),
+          () => submitRef.current(delivery, true, plain),
         );
         return;
       }
@@ -767,6 +792,10 @@ export function Composer({
     recordPrompt,
     dictating,
     runtimeChoice?.kind,
+    sendMode,
+    sendModeBusyHere,
+    shellContext?.actions,
+    attachmentScope,
     snapshot,
     submitPrompt,
     text,
@@ -1247,6 +1276,42 @@ export function Composer({
             <button className={`send-button stop${answerable ? " answering" : ""}`} {...tooltipProps(stopHint ?? "Stop the run", { shortcut: registry?.keybindingLabel?.("runtime.abort") })} aria-label={stopHint ?? "Stop the run"} onClick={onAbort}><i /><span>Stop</span></button>
           ) : null}
           {(() => {
+            // A kit's send mode words the button and offers the plain send beside it.
+            if (answerable || !(sendMode || sendModeBusyHere)) return null;
+            const Icon = sendModeBusyHere?.Icon ?? sendMode?.Icon;
+            const label = sendModeBusyHere?.label ?? sendMode?.label ?? "";
+            const blocked = held || dictating || arrival.waiting || activeScopeSnapshot.submissionPending || !hasDraft;
+            const options = sendModeBusyHere ? [] : sendMode?.options ?? [];
+            return (
+              <div ref={sendOptionsAnchor} className={`send-split${options.length > 0 ? " with-options" : ""}`}>
+                <button
+                  className="send-button send-mode"
+                  {...tooltipProps(sendMode?.title ?? label)}
+                  aria-busy={Boolean(sendModeBusyHere) || activeScopeSnapshot.submissionPending}
+                  disabled={blocked || Boolean(sendModeBusyHere)}
+                  onClick={() => submitCurrent()}
+                >
+                  {Icon ? <Icon size={14} aria-hidden="true" /> : null}
+                  <span>{label}</span>
+                </button>
+                {options.length > 0 ? (
+                  <button
+                    className="send-button send-mode-options"
+                    aria-label="Send options"
+                    aria-haspopup="menu"
+                    aria-expanded={sendOptionsOpen}
+                    {...tooltipProps("Send options")}
+                    disabled={blocked}
+                    onClick={() => setSendOptionsOpen((open) => !open)}
+                  >
+                    <ChevronDown size={14} />
+                  </button>
+                ) : null}
+              </div>
+            );
+          })()}
+          {(() => {
+            if (!answerable && (sendMode || sendModeBusyHere)) return null;
             // One send button, always there: it answers, steers or queues, or sends; with nothing to send it rests.
             const typedAnswer = answerable && (Boolean(plainChipText(text, true).trim()) || (answerHasFiles && !(promptSubmit && !promptSubmit.disabled)));
             const { label, hint } = answerable
@@ -1327,6 +1392,22 @@ export function Composer({
           keys={{ open: registry?.keybindingLabel?.("composer.effort"), cycle: registry?.keybindingLabel?.("runtime.cycle-thinking") }}
           onClose={() => setThinkingOpen(false)}
         />
+      ) : null}
+      {sendOptionsOpen && sendMode?.options?.length && !sendModeBusyHere ? (
+        <ComposerMenuPopover anchor={sendOptionsAnchor} label="Send options" className="composer-overflow composer-send-options" align="end" onClose={() => setSendOptionsOpen(false)}>
+          {sendMode.options.map((option) => (
+            <ComposerMenuItem
+              key={option.id}
+              label={option.label}
+              {...(option.detail ? { detail: option.detail } : {})}
+              disabled={option.send === true && (held || dictating || arrival.waiting || activeScopeSnapshot.submissionPending || !hasDraft)}
+              onSelect={() => {
+                option.run?.();
+                if (option.send) submitCurrent(undefined, false, true);
+              }}
+            />
+          ))}
+        </ComposerMenuPopover>
       ) : null}
       {openGate ? (
         <div className="palette-backdrop composer-gate" onMouseDown={cancelGate} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); cancelGate(); } }}>

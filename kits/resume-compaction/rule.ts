@@ -3,11 +3,9 @@ import type { UiContextUsage } from "tau";
 /** Thresholds: a context this large, idle this long, has fallen out of any prompt cache. */
 export const RESUME_COMPACTION_TOKENS = 100_000;
 export const RESUME_COMPACTION_IDLE_MS = 70 * 60_000;
-/** How many "Keep full history" answers are remembered; older threads have moved on by then. */
-const KEPT_LIMIT = 20;
 
 /**
- * Whether to offer compaction before the next turn. Only a runtime that names
+ * Whether to compact before the next prompt. Only a runtime that names
  * its prompt cache and dates its context takes part; the rest never see it.
  */
 export function offersResumeCompaction(usage: UiContextUsage | undefined, now: number): boolean {
@@ -19,11 +17,6 @@ export function offersResumeCompaction(usage: UiContextUsage | undefined, now: n
 export function offerDueAt(usage: UiContextUsage | undefined): number | undefined {
   if (!usage || usage.promptCacheTtlMs === undefined || usage.updatedAt === undefined || usage.tokens < RESUME_COMPACTION_TOKENS) return undefined;
   return usage.updatedAt + RESUME_COMPACTION_IDLE_MS;
-}
-
-/** A dismissal holds for one thread and one measurement: the next turn asks again. */
-export function dismissalKey(threadId: string, usage: UiContextUsage): string {
-  return `${threadId}@${usage.updatedAt ?? 0}`;
 }
 
 /** A context's size as "153k". */
@@ -43,9 +36,4 @@ export function readList(raw: string | undefined): string[] {
   } catch {
     return [];
   }
-}
-
-/** The kept answers with `key` added last, the oldest dropped beyond the limit. */
-export function withKept(kept: readonly string[], key: string): string[] {
-  return [...kept.filter((entry) => entry !== key), key].slice(-KEPT_LIMIT);
 }

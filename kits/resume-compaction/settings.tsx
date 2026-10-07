@@ -7,7 +7,7 @@ type Preferences = Pick<PreferencesStore, "subscribe" | "getSnapshot" | "value" 
 
 /** What the Settings search finds on the page; each id is a row's anchor. */
 export const RESUME_COMPACTION_ROWS = [
-  { id: "setting-resume-compaction-runtimes", label: "Offer to compact old threads", keywords: ["compact", "context", "resume", "prompt cache", "don't ask again", "keep full history"] },
+  { id: "setting-resume-compaction-runtimes", label: "Offer to compact old threads", keywords: ["compact", "context", "resume", "prompt cache", "don't ask again", "full history", "compact and send"] },
 ];
 
 export function readOff(preferences: Preferences): string[] {
@@ -34,13 +34,13 @@ export function createSettingsPage(preferences: Preferences) {
             <SettingsState
               kind="empty"
               title="Offered on every runtime"
-              description={"Choose “Don’t ask again” when a runtime asks whether to compact, and it shows here to turn the offer back on."}
+              description={"Choose “Always send with full history” beside the send button, or “Don’t ask again” when a runtime asks whether to compact, and it shows here to turn the offer back on."}
             />
           ) : off.map((runtime) => (
             <SettingRow
               key={runtime}
               title={label(runtime)}
-              description="Turned off with “Don’t ask again”."
+              description="Turned off with “Always send with full history” or “Don’t ask again”."
               control={<Switch label={`Offer to compact ${label(runtime)} threads`} checked={false} onChange={(next) => setOff(preferences, runtime, !next)} />}
             />
           ))}

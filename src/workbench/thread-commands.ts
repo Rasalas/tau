@@ -190,13 +190,16 @@ export class ThreadCommands {
     } catch (error) { this.notify(errorMessage(error)); }
   };
 
-  compactContext = async (): Promise<void> => {
-    if (!this.requireWrite("Compaction")) return;
+  /** False when it did not compact; the reason is already shown. */
+  compactContext = async (): Promise<boolean> => {
+    if (!this.requireWrite("Compaction")) return false;
     try {
       // The transcript draws the compaction where it happened.
       this.ports.applyActionResult(await this.client!.compactContext());
+      return true;
     } catch (error) {
       this.notify(errorMessage(error));
+      return false;
     }
   };
 

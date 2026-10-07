@@ -278,7 +278,7 @@ export interface WorkbenchComposer {
   /** The next draft starts on this runtime, and on its `model` when given. */
   carryModel?(runtime: string, model?: import("../shared/contracts").UiModel): void;
   answerUiPrompt(id: string, answer: import("../shared/contracts").ExtensionUiAnswer): void;
-  compactContext(): Promise<void>;
+  compactContext(): Promise<boolean | void>;
 }
 
 export interface WorkbenchModel {

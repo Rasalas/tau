@@ -198,8 +198,8 @@ export interface WorkbenchActions {
   openPage?(id: string, params?: Record<string, unknown>): void;
   /** Closes the open page, back to the thread. */
   closePage?(): void;
-  /** Manually compact the active thread's context window. */
-  compactContext?(): Promise<void>;
+  /** Manually compact the active thread's context window. Resolves `false` when it did not (API 1.53.0); the user was told why. */
+  compactContext?(): Promise<boolean | void>;
   /** Opens the model picker modal for selecting a model. */
   openModelPicker?(): void;
   /** Sets the model for the active thread or pending new thread. Accepts (provider, id) or query string. */
@@ -672,6 +672,48 @@ export interface ComposerSpeedContribution extends ProfileScoped {
   read(snapshot: HostSnapshot | undefined): ComposerSpeedState | undefined;
   subscribe(listener: () => void): () => void;
   set(fast: boolean, snapshot: HostSnapshot | undefined): void | Promise<void>;
+}
+
+/** An entry in the menu beside a send mode's button. */
+export interface ComposerSendOption {
+  id: string;
+  label: string;
+  /** A second line: what the choice costs or does. */
+  detail?: string;
+  /** Runs when picked, before the prompt goes. */
+  run?(): void;
+  /** Sends the draft as usual, without `beforeSend`; otherwise the pick sends nothing. */
+  send?: boolean;
+}
+
+/** What the send button does for a thread instead of sending at once (API 1.53.0). */
+export interface ComposerSendMode {
+  /** The button's words, drawn in place of the arrow: "Compact and send". */
+  label: string;
+  /** What hovering the button says. */
+  title?: string;
+  /** The button's words while `beforeSend` runs. */
+  busyLabel?: string;
+  /** Drawn before the words. */
+  Icon?: PanelIconComponent;
+  /** Runs once the prompt has passed every gate; the prompt goes when it resolves. A rejection keeps the draft. */
+  beforeSend(actions: WorkbenchActions | undefined): Promise<void>;
+  /** The menu beside the button. */
+  options?: readonly ComposerSendOption[];
+}
+
+/**
+ * Changes the composer's send button for a thread (API 1.53.0): Enter and the
+ * button run `beforeSend` first. `read` answers like a speed's: the same object
+ * until something changes, `undefined` to send as usual, and `subscribe`'s
+ * listener once the answer may differ. Core asks only for a thread's own
+ * composer at rest, never while it streams, answers a question or drafts a new thread.
+ */
+export interface ComposerSendModeContribution extends ProfileScoped {
+  id: string;
+  order?: number;
+  read(snapshot: HostSnapshot): ComposerSendMode | undefined;
+  subscribe(listener: () => void): () => void;
 }
 
 /** A mark on a model's row in the model picker, and optionally a line under "Runs with". */
@@ -1552,6 +1594,8 @@ export interface DesktopExtensionContext {
   registerModelBadge(badge: ModelBadgeContribution): () => void;
   /** A faster tier for threads of this kit's runtime, shown in the composer's thinking chip and menu. */
   registerComposerSpeed(speed: ComposerSpeedContribution): () => void;
+  /** Changes what the send button does for a thread, such as compacting first. */
+  registerComposerSendMode(mode: ComposerSendModeContribution): () => void;
   /** Rows this extension shows in the transcript; `order` sorts rows sharing an anchor. */
   registerTranscriptRows(id: string, order?: number, options?: ProfileScoped): TranscriptRowsHandle;
   /** Replaces the transcript's waiting label for a thread while the label is set; `undefined` clears it. */
@@ -1743,6 +1787,7 @@ export class ExtensionRegistry {
   private composerGates = new Map<string, Owned<ComposerGateContribution>>();
   private modelBadges = new Map<string, Owned<ModelBadgeContribution>>();
   private composerSpeeds = new Map<string, Owned<ComposerSpeedContribution>>();
+  private composerSendModes = new Map<string, Owned<ComposerSendModeContribution>>();
   private regions = new Map<string, Owned<RegionContribution>>();
   private statusItems = new Map<string, Owned<StatusItemContribution>>();
   private overlays = new Map<string, Owned<OverlayContribution>>();
@@ -2042,6 +2087,11 @@ export class ExtensionRegistry {
         if (!this.scopeToProfile(owner, "composer speed", speed.id, undefined, speed)) return noContribution;
         note("composer speed");
         return this.register(this.composerSpeeds, speed.id, { ...speed, ...owner }, disposers);
+      },
+      registerComposerSendMode: (mode) => {
+        if (!this.scopeToProfile(owner, "composer send mode", mode.id, undefined, mode)) return noContribution;
+        note("composer send mode");
+        return this.register(this.composerSendModes, mode.id, { ...mode, ...owner }, disposers);
       },
       provideService: (id, value) => {
         const held = this.extensionServices.get(id);
@@ -2394,6 +2444,10 @@ export class ExtensionRegistry {
 
   getComposerSpeeds(): Array<Owned<ComposerSpeedContribution>> {
     return this.sorted("composer-speeds", this.composerSpeeds);
+  }
+
+  getComposerSendModes(): Array<Owned<ComposerSendModeContribution>> {
+    return this.sorted("composer-send-modes", this.composerSendModes);
   }
 
   getSidebarContributions(): Array<Owned<SidebarContribution>> {
