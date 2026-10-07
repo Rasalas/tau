@@ -184,9 +184,9 @@ describe("Codex native goals", () => {
     expect(events.some((event) => event.type === "user-message" && event.message.role === "user")).toBe(false);
     await goals.clear();
     session().complete("turn-1");
-    await tick();
+    // The run settles after the turn's completion is handled, not within a fixed tick.
+    await until(() => backend.state().idle);
     expect(goals.current()).toBeUndefined();
-    expect(backend.state().idle).toBe(true);
   });
 
   it("pauses an active goal it finds after a restart before showing it, and keeps it in the record", async () => {
