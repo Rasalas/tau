@@ -177,3 +177,7 @@
 .agent-lineage-heading { display: flex; align-items: center; justify-content: space-between; min-height: 36px; }
 .agent-lineage-heading > button { display: grid; place-items: center; width: 28px; height: 28px; margin: -6px -4px -6px 0; border: 0; border-radius: 6px; background: none; color: var(--muted); }
 .workspace-summary-card .agent-lineage-toggle[aria-expanded="true"]:not(:hover) { background: transparent; }
+
+.agent-native-transcript { margin: 4px 10px 12px; padding: 12px; border-left: 2px solid var(--line); color: var(--ink-3); }
+.agent-native-transcript small { color: var(--muted); }
+.agent-native-transcript pre { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }

@@ -417,3 +417,14 @@ describe("Codex external credential renewal", () => {
     expect(requests.filter((entry) => entry.method === "turn/start")).toHaveLength(2);
   });
 });
+
+it("receives native children on the app-server without creating indexed Tau threads or parent messages", async () => {
+  const space = await scratch();
+  const { backend, events } = await open(space);
+  const response = await backend.prompt({ text: "Delegate [scenario:native]", delivery: "prompt" });
+  expect(response.assistantText).toBe("hello");
+  expect((await backend.transcript()).map((message) => message.text)).toEqual(["Delegate [scenario:native]", "hello"]);
+  const native = events.flatMap((event) => event.type === "tool-end" && event.tool.kind === "subagent" ? [event.tool] : []);
+  expect(native.at(-1)).toMatchObject({ status: "done", args: { agentId: "native-child", title: "Reviewer", agentStatus: "idle" }, output: "Child answer" });
+  expect(await space.store.list()).toHaveLength(1);
+});

@@ -331,13 +331,15 @@ export function ModelPicker({
   const recentRank = useMemo(() => new Map(settings.recentModels.map((key, index) => [key, index] as const)), [settings.recentModels]);
   const runtimeOrder = useMemo(() => new Map(runtimes.map((entry, index) => [entry.backend.kind, index] as const)), [runtimes]);
 
-  /** The way a row offers first: the model in use, the thread's runtime, a pinned way, the last one used, a plan. */
+  /** Explicit choices win; otherwise a new conversation uses its model maker's native runtime. */
   const bestWay = (entry: ModelEntry): Offering => {
+    const nativeRuntime = entry.maker === "openai" ? "codex" : entry.maker === "anthropic" ? "claude-code" : undefined;
     const score = (way: Offering) => way.key === activeOffering ? 0
       : !draft && way.runtime === threadRuntime ? 1
       : way.favourite ? 2
       : recentRank.has(way.key) ? 3 + recentRank.get(way.key)! / 100
-      : 4 + (billingOf(way) === "subscription" ? 0 : 1) + (way.runtime === threadRuntime ? 0 : 0.5);
+      : draft && way.runtime.split("@")[0] === nativeRuntime ? 4 + (billingOf(way) === "subscription" ? 0 : 0.1)
+      : 5 + (billingOf(way) === "subscription" ? 0 : 1) + (way.runtime === threadRuntime ? 0 : 0.5);
     return [...entry.ways].sort((a, b) => score(a) - score(b))[0]!;
   };
   const wayOf = (row: Extract<Row, { kind: "entry" }>): Offering => {

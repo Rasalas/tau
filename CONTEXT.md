@@ -53,6 +53,10 @@ How a client names a workspace: an opaque `workspaceId` the host mints from its 
 
 A user-facing stream of agent work, optionally grouped in a project. A thread contains conversation history and provides the place a user returns to when continuing that work.
 
+## Subagent
+
+Delegated agent work belonging to a parent thread. A subagent has its own execution context and visible activity, but is not a conversation the person selects in the thread rail. A runtime without native delegation may back a subagent with a hidden Tau thread.
+
 ## Projectless thread
 
 A thread started without choosing a project. It has its own private workspace on its home machine, retained when the thread is reopened and kept out of the project list.

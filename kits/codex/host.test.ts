@@ -8,7 +8,7 @@ import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-sup
 import { CodexAppServer, spawnInput } from "./app-server.js";
 import createCodexHostExtension, { codexNewThreadCatalog, codexSignInAccount } from "./host.js";
 import { codexMcpLaunch, TAU_MCP_TOKEN_VARIABLE } from "./mcp.js";
-import { codexToolArgs } from "./tools.js";
+import { NATIVE_AGENT_ARGS, codexToolArgs } from "./tools.js";
 import { spawnRpcProcess } from "./rpc.js";
 import { ChatGPTPlanStore } from "./chatgpt-plan-store.js";
 import { CHATGPT_PLAN_ARGS } from "./chatgpt-plan.js";
@@ -123,7 +123,7 @@ describe("Codex host half", () => {
   it("starts a thread's app-server with Tau's MCP server and its credential, and a probe without", async () => {
     const { provider, registry, launches, connected, root } = await harness();
     await registry.invoke("tau.codex", "status");
-    expect(launches).toEqual([expect.objectContaining({ args: [] })]);
+    expect(launches).toEqual([expect.objectContaining({ args: [...NATIVE_AGENT_ARGS] })]);
     expect(launches[0]!.env[TAU_MCP_TOKEN_VARIABLE]).toBeUndefined();
 
     const backend = await provider.open("tau-thread", root, { resume: false }, context);
@@ -135,7 +135,7 @@ describe("Codex host half", () => {
     expect(connected).toEqual([{ sessionId: "tau-thread", cwd: root }]);
     const thread = launches[1]!;
     expect(thread.threadId).toBe("tau-thread");
-    expect(thread.args).toEqual(codexMcpLaunch(TAU_SERVER).args);
+    expect(thread.args).toEqual([...codexMcpLaunch(TAU_SERVER).args, ...NATIVE_AGENT_ARGS]);
     expect(thread.args).toContain('mcp_servers.tau.url="http://127.0.0.1:4100/mcp"');
     // The token travels in the environment, never on the command line.
     expect(thread.args.join(" ")).not.toContain("secret");
@@ -174,7 +174,7 @@ describe("Codex host half", () => {
     await resumed.dispose();
 
     for (const launch of launches) {
-      expect(launch.args).toEqual([...codexMcpLaunch(TAU_SERVER).args, ...codexToolArgs(tools)]);
+      expect(launch.args).toEqual([...codexMcpLaunch(TAU_SERVER).args, ...NATIVE_AGENT_ARGS, ...codexToolArgs(tools)]);
       // Reading keeps Codex's shell; what the list leaves out is switched off.
       expect(launch.args).not.toContain("features.shell_tool=false");
       expect(launch.args).toContain('web_search="disabled"');
@@ -638,7 +638,7 @@ describe("Codex ChatGPT plan instances", () => {
     expect(catalog!.thinkingLevels["gpt-6-astra"]).toContain("high");
     expect(launches[0]!.env.ACCESS_TOKEN).toBe("fixture-access");
     expect(launches[0]!.env.CODEX_HOME).toBe(join(root, "state", "tau.codex", "chatgpt-plan-homes", "default"));
-    expect(launches[0]!.args).toEqual(CHATGPT_PLAN_ARGS);
+    expect(launches[0]!.args).toEqual([...NATIVE_AGENT_ARGS, ...CHATGPT_PLAN_ARGS]);
     expect(await registry.invoke("tau.codex", "chatgpt-plan-account")).toMatchObject({ signedIn: true, label: "fixture@example.test" });
     expect((await registry.invoke("tau.codex", "sign-in-state") as { methods: unknown[] }).methods).toHaveLength(1);
   });

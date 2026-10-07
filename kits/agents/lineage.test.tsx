@@ -2,6 +2,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { HostSnapshot, UiSession, UiToolRun, WorkbenchActions } from "tau";
+import { WorkbenchContext } from "../../src/renderer/workbench-context.js";
 import { TestProviders, TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { SpawnCard } from "./spawn-card.js";
@@ -18,11 +19,11 @@ const link: AgentThreadLink = { id: "child", threadId: "child", parentThreadId: 
 afterEach(() => agentsStore.clear());
 function setup(id = "parent") {
   const actions = { switchSession: vi.fn(async () => true), openThread: vi.fn() } as unknown as WorkbenchActions;
-  const view = (thread: string) => <TestProviders><TestThreadStore threads={sessions}><AgentLineage snapshot={{ sessionId: thread } as HostSnapshot} actions={actions} /></TestThreadStore></TestProviders>;
+  const view = (thread: string) => <TestProviders><TestThreadStore threads={sessions}><WorkbenchContext.Provider value={{ tools: [] } as never}><AgentLineage snapshot={{ sessionId: thread } as HostSnapshot} actions={actions} /></WorkbenchContext.Provider></TestThreadStore></TestProviders>;
   const result = render(view(id));
   return { actions, switchTo: (nextId: string) => result.rerender(view(nextId)) };
 }
-it("opens the child chat and provides the return trip in the same card", () => {
+it("previews the child chat without switching the active thread", () => {
   agentsStore.set({ maxRunning: 8, links: [link] });
   const { actions, switchTo } = setup();
   fireEvent.click(screen.getByRole("button", { name: "Completed (1)" }));
@@ -30,8 +31,8 @@ it("opens the child chat and provides the return trip in the same card", () => {
   expect(row.textContent).toBe("Review layout0:56");
   expect(row.querySelector(".agent-lineage-status svg")).toBeTruthy();
   fireEvent.click(row);
-  expect(actions.switchSession).toHaveBeenCalledWith("/sessions/child");
-  expect(actions.openThread).not.toHaveBeenCalled();
+  expect(actions.switchSession).not.toHaveBeenCalled();
+  expect(actions.openThread).toHaveBeenCalledWith("child");
   switchTo("child");
   expect(screen.queryByRole("button", { name: "Review layout, Completed" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Completed (1)" }));
@@ -76,12 +77,13 @@ it("contributes lineage after Changes and no longer registers an Agents panel", 
 
 it("expands the spawn card into chat links without opening the removed panel", () => {
   agentsStore.set({ maxRunning: 8, links: [link] });
-  const actions = { switchSession: vi.fn(async () => true), openPanel: vi.fn() } as unknown as WorkbenchActions;
+  const actions = { switchSession: vi.fn(async () => true), openThread: vi.fn(), openPanel: vi.fn() } as unknown as WorkbenchActions;
   const tool = { id: "call", name: "tau_spawn_thread", args: {}, status: "done", output: JSON.stringify({ threadId: "child" }), startedAt: 1000, endedAt: 2000 } as UiToolRun;
   render(<TestProviders><TestThreadStore threads={sessions}><SpawnCard tools={[tool]} actions={actions} /></TestThreadStore></TestProviders>);
   fireEvent.click(screen.getByRole("button", { name: /Show agents/ }));
   fireEvent.click(screen.getByRole("button", { name: "Review layout, Completed" }));
-  expect(actions.switchSession).toHaveBeenCalledWith("/sessions/child");
+  expect(actions.switchSession).not.toHaveBeenCalled();
+  expect(actions.openThread).toHaveBeenCalledWith("child");
   expect(actions.openPanel).not.toHaveBeenCalled();
 });
 
@@ -94,4 +96,14 @@ it("moves a finished agent into the collapsed completed group while keeping a ma
   fireEvent.click(screen.getByRole("button", { name: "Completed (1)" }));
   act(() => agentsStore.set({ maxRunning: 8, links: [{ ...link, status: "failed" }] }));
   expect(screen.getByRole("button", { name: "Review layout, Failed" })).toBeTruthy();
+});
+
+it("expands a native child's transcript inside the parent, without any thread navigation", () => {
+  const actions = { switchSession: vi.fn(), openThread: vi.fn() } as unknown as WorkbenchActions;
+  const tool = { id: "native-agent:codex:child", kind: "subagent", name: "tau_native_subagent", args: { agentId: "child", runtime: "codex", title: "Native reviewer", model: "gpt-5.6-luna", agentStatus: "completed" }, status: "done", output: "Native answer", startedAt: 1000, endedAt: 2000 } as UiToolRun;
+  render(<TestProviders><TestThreadStore threads={sessions}><WorkbenchContext.Provider value={{ tools: [tool] } as never}><AgentLineage snapshot={{ sessionId: "parent" } as HostSnapshot} actions={actions} /></WorkbenchContext.Provider></TestThreadStore></TestProviders>);
+  fireEvent.click(screen.getByRole("button", { name: "Native reviewer, Completed" }));
+  expect(screen.getByRole("region", { name: "Native reviewer transcript" }).textContent).toContain("Native answer");
+  expect(actions.switchSession).not.toHaveBeenCalled();
+  expect(actions.openThread).not.toHaveBeenCalled();
 });

@@ -161,6 +161,7 @@ interface PendingIntent {
   id: string;
   prompt: string;
   workspace: AgentWorkspaceMode;
+  runtime?: string;
   definition?: AgentDefinition;
   machine?: AgentThreadLink["machine"];
   clientRequestId?: string;
@@ -177,6 +178,7 @@ interface CompletionNotice {
 function decodeIntent(value: unknown): PendingIntent | undefined {
   const item = record(value);
   if (item.version !== 1 || typeof item.id !== "string" || typeof item.prompt !== "string" || (item.workspace !== "shared" && item.workspace !== "worktree")) return undefined;
+  if (item.runtime !== undefined && (typeof item.runtime !== "string" || !item.runtime)) return undefined;
   const raw = record(item.definition);
   let definition: AgentDefinition | undefined;
   if (item.definition !== undefined) {
@@ -192,7 +194,7 @@ function decodeIntent(value: unknown): PendingIntent | undefined {
   }
   const machine = record(item.machine);
   if (item.machine !== undefined && (typeof machine.id !== "string" || typeof machine.name !== "string")) return undefined;
-  return { version: 1, id: item.id, prompt: item.prompt, workspace: item.workspace, ...(definition ? { definition } : {}),
+  return { version: 1, id: item.id, prompt: item.prompt, workspace: item.workspace, ...(typeof item.runtime === "string" ? { runtime: item.runtime } : {}), ...(definition ? { definition } : {}),
     ...(typeof machine.id === "string" && typeof machine.name === "string" ? { machine: { id: machine.id, name: machine.name } } : {}),
     ...(typeof item.clientRequestId === "string" ? { clientRequestId: item.clientRequestId } : {}) };
 }
@@ -294,6 +296,11 @@ export async function readAgentsSettings(path = agentsSettingsPath()): Promise<A
   let value: unknown;
   try { value = JSON.parse(await readFile(path, "utf8")) as unknown; } catch { value = undefined; }
   return { maxRunning: readMaxRunningAgents(value), priority: readAgentPriority(value) };
+}
+
+/** These runtimes own delegation inside their own session. */
+function nativeDelegation(runtime: string): boolean {
+  return /^(?:codex|claude-code)(?:@|$)/u.test(runtime);
 }
 
 /** A title the panel can show before the thread has said anything. */
@@ -429,7 +436,7 @@ export function createAgentsHostExtension(options: {
         // save queued during an ACK must see its committed or retained notice.
         const writing = pendingSave.then(() => {
           const links = book.state().links.flatMap((link): StoredAgentLink[] => link.threadId || link.machine?.link || prompts.has(link.id) ? [{
-            ...(link.threadId ? { threadId: link.threadId } : link.machine?.link ? { remote: { id: link.id, machine: { id: link.machine.id, name: link.machine.name, link: link.machine.link } } } : { pending: { version: 1, id: link.id, prompt: prompts.get(link.id)!, workspace: wanted.get(link.id) ?? "shared", ...(definitions.has(link.id) ? { definition: definitions.get(link.id)! } : {}), ...(link.machine ? { machine: link.machine } : {}), ...(intentKeys.has(link.id) ? { clientRequestId: intentKeys.get(link.id)! } : {}) } }),
+            ...(link.threadId ? { threadId: link.threadId } : link.machine?.link ? { remote: { id: link.id, machine: { id: link.machine.id, name: link.machine.name, link: link.machine.link } } } : { pending: { version: 1, id: link.id, prompt: prompts.get(link.id)!, workspace: wanted.get(link.id) ?? "shared", runtime: runtimes.get(link.id) ?? "pi", ...(definitions.has(link.id) ? { definition: definitions.get(link.id)! } : {}), ...(link.machine ? { machine: link.machine } : {}), ...(intentKeys.has(link.id) ? { clientRequestId: intentKeys.get(link.id)! } : {}) } }),
             id: link.id,
             ...(link.model ? { model: link.model } : {}),
             ...(notices.has(link.id) && acknowledged.get(link.id) !== notices.get(link.id) ? { notice: notices.get(link.id)! } : {}),
@@ -576,6 +583,7 @@ export function createAgentsHostExtension(options: {
       const prompts = new Map<string, string>();
       /** The definition each queued agent was spawned with, until its thread is built. */
       const definitions = new Map<string, AgentDefinition>();
+      const runtimes = new Map<string, string>();
       /** What each queued agent asked for, until its thread is built. */
       const wanted = new Map<string, AgentWorkspaceMode>();
       const runGit: AgentGitRunner = (cwd, args, gitOptions) => {
@@ -647,13 +655,14 @@ export function createAgentsHostExtension(options: {
           const prompt = prompts.get(agent.id) ?? agent.title;
           // Tau's own Pi extension puts a persona into the system prompt; a
           // runtime it cannot extend reads it at the head of the first message.
-          const piRuntime = (definition?.runtime ?? "pi") === "pi";
+          const runtime = runtimes.get(agent.id) ?? definition?.runtime ?? "pi";
+          const piRuntime = runtime === "pi";
           const started = await services.sessions.start({
             cwd: workspace?.path ?? agent.projectPath,
             prompt: definition && !piRuntime ? firstMessageWithPersona(definition, prompt) : prompt,
             title: agent.title,
             ...(agent.model ? { model: parseModel(agent.model) } : {}),
-            ...(definition?.runtime ? { backend: definition.runtime } : {}),
+            backend: runtimes.get(agent.id) ?? definition?.runtime ?? "pi",
             // Pi's tools are narrowed by this kit's runtime extension; another runtime narrows its own or refuses.
             ...(definition?.tools && !piRuntime ? { tools: definition.tools } : {}),
             parent: {
@@ -684,6 +693,7 @@ export function createAgentsHostExtension(options: {
         } finally {
           wanted.delete(agent.id);
           definitions.delete(agent.id);
+          runtimes.delete(agent.id);
           if (--starting === 0) acceptedEarly.clear();
         }
       };
@@ -705,7 +715,7 @@ export function createAgentsHostExtension(options: {
             prompt: definition ? firstMessageWithPersona(definition, prompt) : prompt,
             title: agent.title,
             ...(agent.model ? { model: parseModel(agent.model) } : {}),
-            ...(definition?.runtime ? { backend: definition.runtime } : {}),
+            backend: runtimes.get(agent.id) ?? definition?.runtime ?? "pi",
             parentThreadId: agent.parentThreadId,
             ...(definition ? { agent: definition.name } : {}),
             agentDepth: agent.depth,
@@ -719,6 +729,7 @@ export function createAgentsHostExtension(options: {
         } finally {
           wanted.delete(agent.id);
           definitions.delete(agent.id);
+          runtimes.delete(agent.id);
           if (--starting === 0) acceptedEarly.clear();
         }
       };
@@ -766,7 +777,7 @@ export function createAgentsHostExtension(options: {
       };
 
       /** Where a spawn runs: the tool's machine, the definition's, else the user's setting; this computer by default. */
-      const chooseMachine = async (request: { machine?: string }, definition: AgentDefinition | undefined, projectPath: string, model: string | undefined): Promise<MachineChoice> => {
+      const chooseMachine = async (request: { machine?: string }, definition: AgentDefinition | undefined, projectPath: string, model: string | undefined, runtime: string): Promise<MachineChoice> => {
         let setting: string | undefined;
         if (!request.machine && !definition?.machine) {
           setting = machineSetting(await services.settings?.(projectPath).then((read) => read.values, () => undefined));
@@ -777,7 +788,7 @@ export function createAgentsHostExtension(options: {
           auto: async () => {
             try {
               const answer = await context.invokeHostExtension(MACHINES_KIT_ID, CHOOSE_MACHINE_COMMAND, {
-                purpose: "sub-agent", cwd: projectPath, ...(definition?.runtime ? { backend: definition.runtime } : {}), ...(model ? { model } : {}),
+                purpose: "sub-agent", cwd: projectPath, backend: runtime, ...(model ? { model } : {}),
               }) as ChooseMachineAnswer | undefined;
               return answer && typeof answer.reason === "string" ? answer : undefined;
             } catch (error) {
@@ -796,10 +807,19 @@ export function createAgentsHostExtension(options: {
         // An unknown or broken definition fails this spawn only; the others go on.
         const definition = request.agent ? findAgentDefinition(await definitionReader.read(projectPath), request.agent) : undefined;
         // The parent's model belongs to the parent's runtime; another one picks its own.
-        const sameRuntime = (definition?.runtime ?? "pi") === "pi";
-        const model = request.model ?? definition?.model ?? (sameRuntime ? inheritedModel : undefined);
+        const parentThread = services.thread(parent.sessionId);
+        const parentRuntime = parentThread?.backendKind ?? "pi";
+        const runtime = definition?.runtime ?? parentRuntime;
+        if (nativeDelegation(runtime)) throw new Error("This runtime supports native subagents. Delegate with its native tools instead of creating a Tau thread.");
+        if (runtime !== "pi" && definition?.access) {
+          throw new Error(`"access" only applies on the pi runtime; the ${runtime} runtime cannot honour it.`);
+        }
+        const parentModel = parentThread?.model;
+        const model = request.model ?? definition?.model ?? (runtime === parentRuntime
+          ? inheritedModel ?? (parentModel ? `${parentModel.provider}/${parentModel.id}` : undefined)
+          : undefined);
         if (model) parseModel(model);
-        const choice = await chooseMachine(request, definition, projectPath, model);
+        const choice = await chooseMachine(request, definition, projectPath, model, runtime);
         const requested = request.workspace ?? definition?.workspace;
         const repository = await isRepository(projectPath);
         if (choice.machine) {
@@ -814,6 +834,7 @@ export function createAgentsHostExtension(options: {
         }
         const id = randomUUID();
         prompts.set(id, request.prompt);
+        runtimes.set(id, runtime);
         if (definition) definitions.set(id, definition);
         // A child writes by default, and two writers in one checkout collide;
         // a project that is not a repository has nowhere else to go.
@@ -846,7 +867,7 @@ export function createAgentsHostExtension(options: {
         admitting.add(id);
         // Never acknowledge a pending handle whose complete intent is only in RAM.
         try { await persistLinks(); } catch (error) {
-          book.forget(id); prompts.delete(id); definitions.delete(id); wanted.delete(id); expecting.delete(id); intentKeys.delete(id);
+          book.forget(id); prompts.delete(id); definitions.delete(id); runtimes.delete(id); wanted.delete(id); expecting.delete(id); intentKeys.delete(id);
           throw error;
         } finally { admitting.delete(id); }
         if (claimSlot(id)) await startAgent(book.linkFor(id)!);
@@ -1145,6 +1166,7 @@ export function createAgentsHostExtension(options: {
         if (link.status === "pending") {
           prompts.delete(link.id);
           definitions.delete(link.id);
+          runtimes.delete(link.id);
           wanted.delete(link.id);
           held.delete(link.id);
           intentKeys.delete(link.id);
@@ -1201,11 +1223,35 @@ export function createAgentsHostExtension(options: {
        */
       const agentTools = (session: RuntimeSessionInfo): HostMcpTool[] => {
         const threadId = session.sessionId;
+        if (nativeDelegation(services.thread(threadId)?.backendKind ?? "")) return [{
+          name: "tau_create_thread",
+          label: "Create Tau thread",
+          description: "Create an independent Tau conversation only when the user explicitly asks for a new Tau thread. Use your runtime's native subagents for delegation; they stay within this conversation.",
+          parameters: Type.Object({
+            userRequest: Type.String({ description: "The user's explicit request to create a separate Tau conversation. Delegating a task is not such a request." }),
+            prompt: Type.String({ description: "First message of the independent conversation." }),
+            title: Type.Optional(Type.String()),
+            projectPath: Type.Optional(Type.String()),
+            model: Type.Optional(Type.String({ description: "Model as provider/model-id; this thread's model by default." })),
+          }),
+          execute: async (_id, params) => {
+            requireText(params, "userRequest");
+            const request = decodeSpawnRequest(params);
+            const parent = services.thread(threadId);
+            if (!parent) throw new Error("The calling thread is no longer open.");
+            return toolResult(await services.sessions.start({
+              cwd: await resolveProject(request.projectPath, session.cwd),
+              prompt: request.prompt, title: request.title ?? titleFromPrompt(request.prompt),
+              backend: parent.backendKind,
+              ...(request.model ? { model: parseModel(request.model) } : parent.model ? { model: parent.model } : {}),
+            }));
+          },
+        }];
         return [
           {
             name: "tau_spawn_thread",
             label: "Spawn thread",
-            description: "Delegate an independent task to a background Tau thread, locally or on another machine. Uses an isolated Git worktree by default in Git projects. Results arrive automatically; changes require separate application.",
+            description: "Fallback delegation for runtimes without native subagents: start a background Tau thread, locally or on another machine. Uses an isolated Git worktree by default in Git projects. Results arrive automatically; changes require separate application.",
             promptSnippet: "tau_spawn_thread: delegate an independent task to a background thread",
             parameters: Type.Object({
               prompt: Type.String({ description: "The first message for the new thread. Say what it should do and what to report back." }),
@@ -1221,7 +1267,7 @@ export function createAgentsHostExtension(options: {
               })),
               clientRequestId: Type.Optional(Type.String({ description: "Your own id for this spawn; a retry with the same id returns the thread the first call started." })),
             }),
-            // Over MCP there is no Pi context, and a model of another runtime is not one to inherit.
+            // Pi supplies its current context; MCP callers inherit from the host thread.
             execute: async (_toolCallId, params, _signal, _onUpdate, ctx: ExtensionContext | undefined) => {
               const inherited = ctx?.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
               return toolResult(await once(threadId, "spawn", decodeClientRequestId(params), () => spawn(session, params, inherited)));
@@ -1429,6 +1475,10 @@ export function createAgentsHostExtension(options: {
           shellCommandPrefix: (session) => session.parentThreadId ? priorityPrefix(priority) : undefined,
         }),
         services.mcp.registerTools(agentTools),
+        ...(services.mcp.registerInstructions ? [services.mcp.registerInstructions((session) =>
+          nativeDelegation(services.thread(session.sessionId)?.backendKind ?? "")
+            ? "Delegate with your runtime's native subagents. Subagents belong to this conversation. tau_create_thread is only for an explicit user request to create a separate Tau conversation; never use it for delegation."
+            : undefined)] : []),
         services.registerTurnObserver({
           accepted: (sessionId) => {
             if (book.has(sessionId)) changed(sessionId, book.noteAccepted(sessionId));
@@ -1533,6 +1583,18 @@ export function createAgentsHostExtension(options: {
           const prompt = requireText(input, "prompt");
           const parent = services.thread(parentThreadId);
           if (!parent) throw new HostCommandError("Open the thread this agent should belong to, then start it again.");
+          if (nativeDelegation(parent.backendKind)) {
+            const definition = findAgentDefinition(await definitionReader.read(parent.cwd), agent);
+            if (definition.runtime && definition.runtime !== parent.backendKind.split("@")[0]) {
+              throw new HostCommandError("This definition chooses another runtime. Open a conversation on that runtime to use its native subagents.");
+            }
+            if (definition.tools || definition.access || definition.machine || definition.workspace) {
+              throw new HostCommandError("Configure this agent’s tools, access and workspace in the runtime’s native agent configuration. Tau thread restrictions cannot be enforced on a native subagent.");
+            }
+            if (!services.sessions.send) throw new HostCommandError("This host cannot send a task to the parent conversation.");
+            await services.sessions.send(parent.sessionId, `Delegate this task to a native subagent.\n${firstMessageWithPersona(definition, prompt)}${definition.model ? `\nUse model ${definition.model}.` : ""}`);
+            return { threadId: parent.sessionId, title: definition.name, status: "running" };
+          }
           return spawn({ sessionId: parent.sessionId, cwd: parent.cwd }, { prompt, agent }, undefined, "agents-panel");
         }, { long: true }),
       ];
@@ -1549,6 +1611,7 @@ export function createAgentsHostExtension(options: {
         if (intent) {
           book.add({ ...link, id: intent.id, ...(intent.machine ? { machine: intent.machine } : {}) }, { queued: true });
           prompts.set(intent.id, intent.prompt);
+          runtimes.set(intent.id, intent.runtime ?? intent.definition?.runtime ?? "pi");
           wanted.set(intent.id, intent.workspace);
           if (intent.definition) definitions.set(intent.id, intent.definition);
           held.add(intent.id);

@@ -285,8 +285,14 @@ export function reduceHostEvent(state: ThreadViewState, event: HostEvent): Threa
         : tool);
       return tools.every((tool, index) => tool === state.tools[index]) ? state : { ...state, tools };
     }
-    case "tool-end":
-      return { ...state, tools: state.tools.map((tool) => tool.id === event.tool.id ? event.tool : tool) };
+    case "tool-end": {
+      const tools = state.tools.map((tool) => tool.id === event.tool.id ? event.tool : tool);
+      if (event.tool.kind !== "subagent") return { ...state, tools };
+      const turnActivityHistory = state.turnActivityHistory.map((entry) => entry.tools.some((tool) => tool.id === event.tool.id)
+        ? { ...entry, tools: entry.tools.map((tool) => tool.id === event.tool.id ? event.tool : tool) } : entry);
+      return { ...state, tools, turnActivityHistory,
+        ...(state.snapshot ? { snapshot: { ...state.snapshot, turnActivityHistory: [...turnActivityHistory] } } : {}) };
+    }
     case "event-log":
       return withEvent(state, event.label, event.detail, event.timestamp);
     case "error":

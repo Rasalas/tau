@@ -716,3 +716,28 @@ describe("the current model's name", () => {
     expect(backend.catalogView().model).toEqual({ provider: "anthropic", id: "haiku", name: "Haiku 4.5" });
   });
 });
+
+it("keeps native child frames out of parent messages and reports background completion after the parent turn", async () => {
+  const { filePath, store } = await scratchStore();
+  const { adapter, opened } = scriptedAdapter(filePath, () => [
+    frame({ type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "tool_use", id: "agent-call", name: "Agent", input: { description: "Native reviewer", run_in_background: true } }] } }),
+    frame({ type: "system", subtype: "task_started", task_id: "task", tool_use_id: "agent-call", task_type: "local_agent" }),
+    frame({ type: "assistant", parent_tool_use_id: "agent-call", message: { id: "child-answer", model: "claude-haiku", content: [{ type: "text", text: "Child answer" }] } }),
+    frame({ type: "user", parent_tool_use_id: null, message: { content: [{ type: "tool_result", tool_use_id: "agent-call", content: "Task running" }] } }),
+    frame({ type: "assistant", parent_tool_use_id: null, message: { id: "parent-answer", content: [{ type: "text", text: "Parent answer" }] } }),
+    result("Parent answer"),
+  ]);
+  const events: ThreadRuntimeEvent[] = [];
+  const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, projectName: "repo", onEvent: (event) => events.push(event) });
+  await backend.start("create");
+  await backend.prompt({ text: "Delegate", delivery: "prompt" });
+  expect((await backend.transcript()).map((message) => message.text)).toEqual(["Delegate", "Parent answer"]);
+  expect(backend.state().idle).toBe(false);
+  expect(events.some((event) => event.type === "tool-start" && event.tool.name === "Agent")).toBe(false);
+  opened[0]!.onMessage(frame({ type: "system", subtype: "background_tasks_changed", tasks: [{ task_id: "task", task_type: "agent", ambient: false }] }));
+  expect(backend.state().idle).toBe(false);
+  opened[0]!.onMessage(frame({ type: "system", subtype: "task_notification", task_id: "task", status: "completed", summary: "Reviewed" }));
+  expect(events.at(-1)).toMatchObject({ type: "tool-end", tool: { kind: "subagent", status: "done", args: { agentStatus: "completed" } } });
+  expect(backend.state().idle).toBe(true);
+  await backend.dispose();
+});

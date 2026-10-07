@@ -68,6 +68,8 @@ function harness() {
   let promptRefusals = 0;
   /** Threads of a runtime without a journal, as a Codex parent is. */
   const noJournal = new Set<string>();
+  const backends = new Map<string, string>();
+  const models = new Map<string, { provider: string; id: string }>();
   let nextThread = 0;
   let projectCwd = "/project";
 
@@ -83,7 +85,8 @@ function harness() {
     return {
       sessionId: threadId,
       cwd: projectCwd,
-      backendKind: "pi",
+      backendKind: backends.get(threadId) ?? "pi",
+      model: models.get(threadId),
       sessionFile: `/sessions/${threadId}.jsonl`,
       isStreaming: () => found.streaming,
       isIdle: () => found.idle && !found.streaming,
@@ -253,7 +256,7 @@ function harness() {
 
   const holdStarts = (gate: () => Promise<void>) => { startGate = gate; };
 
-  return { activate, runtimeExtensions, services, threads, started, sent, aborted, refuseSteer: () => { steerRefused = true; }, refusePrompts: (count: number) => { promptRefusals = count; }, events, observers, lifecycles, runtime, mcpThread, mcpProviders, noJournal, open, notify, state, holdStarts, holdSends: (gate: () => Promise<void>) => { sendGate = gate; }, invoke: (command: string, input?: unknown) => invoke(command, input), registry: () => registry!, setProject: (dir: string) => { projectCwd = dir; } };
+  return { backends, models, activate, runtimeExtensions, services, threads, started, sent, aborted, refuseSteer: () => { steerRefused = true; }, refusePrompts: (count: number) => { promptRefusals = count; }, events, observers, lifecycles, runtime, mcpThread, mcpProviders, noJournal, open, notify, state, holdStarts, holdSends: (gate: () => Promise<void>) => { sendGate = gate; }, invoke: (command: string, input?: unknown) => invoke(command, input), registry: () => registry!, setProject: (dir: string) => { projectCwd = dir; } };
 }
 
 async function activated(paths: { settingsPath?: string; linksPath?: string; stateDir?: string; runGit?: AgentGitRunner } = {}) {
@@ -434,6 +437,53 @@ describe("Agents Kit", () => {
     expect(bench.mcpProviders).toEqual([]);
   });
 
+  it.each(["codex", "codex@work", "claude-code"])("offers native delegation on %s and creates an independent thread only on explicit request", async (backend) => {
+    const bench = await activated();
+    bench.backends.set("parent", backend);
+    bench.models.set("parent", { provider: "openai", id: "parent-model" });
+    const parent = await bench.mcpThread("parent");
+    expect(parent.names()).toEqual(["tau_create_thread"]);
+    expect(bench.started).toEqual([]);
+    await expect(parent.call("tau_create_thread", { prompt: "New conversation" })).rejects.toThrow("userRequest");
+    await parent.call("tau_create_thread", { prompt: "New conversation", userRequest: "Open another Tau thread" });
+    expect(bench.started[0]).toMatchObject({ backend, model: { provider: "openai", id: "parent-model" } });
+    expect(bench.started[0]).not.toHaveProperty("parent");
+  });
+
+  it.each(["opencode", "opencode@work", "grok"])("inherits the %s parent's runtime and model over MCP", async (backend) => {
+    const bench = await activated();
+    bench.backends.set("parent", backend);
+    bench.models.set("parent", { provider: "openai", id: "parent-model" });
+    const parent = await bench.mcpThread("parent");
+    await parent.call("tau_spawn_thread", { prompt: "Reply with BETA" });
+    expect(bench.started[0]).toMatchObject({ backend, model: { provider: "openai", id: "parent-model" } });
+  });
+
+  it("preserves an inherited runtime and model when a queued spawn is recovered", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-agents-inherited-runtime-"));
+    const linksPath = join(directory, "links.json");
+    const settingsPath = join(directory, "settings.json");
+    await writeFile(settingsPath, JSON.stringify({ maxRunningAgents: 1 }));
+    const first = await activated({ linksPath, settingsPath });
+    let second: Awaited<ReturnType<typeof activated>> | undefined;
+    try {
+      first.backends.set("parent", "opencode@work");
+      first.models.set("parent", { provider: "openai", id: "original-model" });
+      const parent = await first.mcpThread("parent");
+      await parent.call("tau_spawn_thread", { prompt: "Occupy capacity" });
+      const queued = handleOf(await parent.call("tau_spawn_thread", { prompt: "Queued task" }));
+      first.backends.set("parent", "pi");
+      second = await activated({ linksPath, settingsPath });
+      const recovered = await second.mcpThread("parent");
+      await recovered.call("tau_send_to_thread", { threadId: queued, message: "Continue", mode: "queue" });
+      expect(second.started[0]).toMatchObject({ backend: "opencode@work", model: { provider: "openai", id: "original-model" }, prompt: "Queued task\n\nContinue" });
+    } finally {
+      await first.registry().dispose();
+      await second?.registry().dispose();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("spawns a thread in the caller's project and records the link on both sessions", async () => {
     const bench = await activated();
     const parent = bench.runtime("parent");
@@ -443,6 +493,7 @@ describe("Agents Kit", () => {
     expect(spawned).toEqual({ threadId: "child-1", title: "Reply with ALPHA", status: "running", workspace: "shared" });
     expect(bench.started).toEqual([{
       cwd: "/project",
+      backend: "pi",
       prompt: "Reply with ALPHA",
       title: "Reply with ALPHA",
       model: { provider: "anthropic", id: "sonnet" },
@@ -1054,6 +1105,23 @@ describe("Agents Kit definitions", () => {
     return { dir, bench, cleanup: () => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) };
   };
 
+  it.each(["codex", "claude-code"])("delegates panel definitions natively on %s and refuses unenforceable thread restrictions", async (backend) => {
+    const { bench, cleanup } = await withProject({
+      "simple.md": "---\ndescription: Reviews natively\nmodel: openai/gpt-5.6-luna\n---\nReport concrete findings.",
+      "restricted.md": REVIEWER,
+    });
+    try {
+      bench.backends.set("parent", backend);
+      await bench.invoke("start", { parentThreadId: "parent", agent: "simple", prompt: "Check the diff" });
+      expect(bench.started).toEqual([]);
+      expect(bench.sent).toEqual([expect.objectContaining({ sessionId: "parent", text: expect.stringContaining("Delegate this task to a native subagent.") })]);
+      expect(bench.sent[0]?.text).toContain("Use model openai/gpt-5.6-luna.");
+      await expect(bench.invoke("start", { parentThreadId: "parent", agent: "restricted", prompt: "Check it" })).rejects.toThrow("native agent configuration");
+      expect(bench.started).toEqual([]);
+      expect(bench.sent).toHaveLength(1);
+    } finally { await cleanup(); }
+  });
+
   /** What Pi hands an extension handler: the session's own entries, and a cwd. */
   const piContext = (entries: unknown[], cwd: string) => ({ cwd, sessionManager: { getEntries: () => entries } });
 
@@ -1081,7 +1149,7 @@ describe("Agents Kit definitions", () => {
           }),
         },
       })]);
-      expect(bench.started[0]!.backend).toBeUndefined();
+      expect(bench.started[0]!.backend).toBe("pi");
       // The child's session carries the persona, and the parent's names the definition.
       const childEntries = bench.threads.get("child-1")!.entries;
       expect(childEntries[0]!.data).toMatchObject({ persona: { systemPrompt: "Answer every task with the single word PERSONA." } });
@@ -1178,14 +1246,38 @@ describe("Agents Kit definitions", () => {
     }
   });
 
+  it("inherits a runtime for a persona and honours an explicit runtime override", async () => {
+    const { dir, bench, cleanup } = await withProject({
+      "reader.md": "---\ndescription: Reads here\ntools: [read]\n---\nRead carefully.",
+      "pi-reader.md": "---\ndescription: Reads with Pi\nruntime: pi\n---\nRead with Pi.",
+      "limited.md": "---\ndescription: Restricted\naccess: read-only\n---\nRead only.",
+    });
+    try {
+      bench.backends.set("parent", "opencode");
+      bench.models.set("parent", { provider: "openai", id: "parent-model" });
+      const parent = await bench.mcpThread("parent", dir);
+      await parent.call("tau_spawn_thread", { prompt: "Look", agent: "reader" });
+      expect(bench.started[0]).toMatchObject({ backend: "opencode", tools: ["read"], model: { provider: "openai", id: "parent-model" }, prompt: expect.stringContaining("Read carefully.") });
+      expect(bench.started[0]!.parent!.details).not.toHaveProperty("persona");
+      await parent.call("tau_spawn_thread", { prompt: "Look", agent: "pi-reader" });
+      expect(bench.started[1]).toMatchObject({ backend: "pi", prompt: "Look" });
+      expect(bench.started[1]!.model).toBeUndefined();
+      expect(bench.started[1]!.parent!.details).toHaveProperty("persona");
+      await expect(parent.call("tau_spawn_thread", { prompt: "Look", agent: "limited" })).rejects.toThrow('"access" only applies on the pi runtime');
+      expect(bench.started).toHaveLength(2);
+    } finally {
+      await cleanup();
+    }
+  });
+
   it("starts a definition on another runtime with the persona at the head of its first message", async () => {
     const { dir, bench, cleanup } = await withProject({
-      "coder.md": "---\ndescription: Codes elsewhere\nruntime: claude-code\n---\nWrite tests first.",
+      "coder.md": "---\ndescription: Codes elsewhere\nruntime: opencode\n---\nWrite tests first.",
     });
     try {
       await bench.runtime("parent", dir).call("tau_spawn_thread", { prompt: "Fix it", agent: "coder" });
       const start = bench.started[0]!;
-      expect(start.backend).toBe("claude-code");
+      expect(start.backend).toBe("opencode");
       // The parent's own model belongs to Pi; the other runtime picks its own.
       expect(start.model).toBeUndefined();
       expect(start.prompt).toMatch(/^You are working as the agent "coder"\./u);
@@ -1199,12 +1291,12 @@ describe("Agents Kit definitions", () => {
 
   it("hands another runtime the definition's tools, and records its refusal as the spawn's error", async () => {
     const { dir, bench, cleanup } = await withProject({
-      "scout.md": "---\ndescription: Reads elsewhere\nruntime: codex\ntools: [read, grep]\n---\nOnly read.",
+      "scout.md": "---\ndescription: Reads elsewhere\nruntime: opencode\ntools: [read, grep]\n---\nOnly read.",
     });
     try {
       const parent = bench.runtime("parent", dir);
       await parent.call("tau_spawn_thread", { prompt: "Look", agent: "scout" });
-      expect(bench.started[0]).toMatchObject({ backend: "codex", tools: ["read", "grep"] });
+      expect(bench.started[0]).toMatchObject({ backend: "opencode", tools: ["read", "grep"] });
       expect(bench.started[0]!.parent!.details).not.toHaveProperty("persona");
 
       bench.holdStarts(async () => { throw new Error("The Antigravity runtime cannot restrict its tools."); });
@@ -1552,7 +1644,7 @@ describe("Agents Kit orchestration", () => {
     await mkdir(definitionsDir, { recursive: true });
     await writeFile(settingsPath, JSON.stringify({ maxRunningAgents: 1 }));
     const definition = join(definitionsDir, "reader.md");
-    await writeFile(definition, "---\ndescription: Saved persona\nruntime: codex\nmodel: openai/gpt-5.6-luna\nworkspace: shared\n---\nUse the original saved persona.");
+    await writeFile(definition, "---\ndescription: Saved persona\nruntime: opencode\nmodel: openai/gpt-5.6-luna\nworkspace: shared\n---\nUse the original saved persona.");
     const first = await activated({ linksPath, settingsPath });
     first.setProject(directory);
     let second: Awaited<ReturnType<typeof activated>> | undefined;
@@ -1570,7 +1662,7 @@ describe("Agents Kit orchestration", () => {
       await first.registry().dispose();
       await recovered.call("tau_send_to_thread", { threadId: queued, message: "Release original intent", mode: "queue" });
       expect(second.started).toHaveLength(1);
-      expect(second.started[0]).toMatchObject({ cwd: directory, backend: "codex", model: { provider: "openai", id: "gpt-5.6-luna" }, prompt: expect.stringContaining("Full original task\n\nRelease original intent") });
+      expect(second.started[0]).toMatchObject({ cwd: directory, backend: "opencode", model: { provider: "openai", id: "gpt-5.6-luna" }, prompt: expect.stringContaining("Full original task\n\nRelease original intent") });
       expect(second.started[0]!.prompt).toContain("Use the original saved persona.");
       expect(second.started[0]!.prompt).not.toContain("Do not use this replacement.");
     } finally {

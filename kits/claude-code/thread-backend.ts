@@ -1,3 +1,4 @@
+import { ClaudeNativeAgents } from "./native-agents.js";
 import type { ModelInfo, PermissionMode, PermissionResult, PermissionUpdate, UserDialogRequest, UserDialogResult } from "@anthropic-ai/claude-agent-sdk";
 import {
   executionPolicyRefusal,
@@ -291,7 +292,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     const running = this.turns[0];
     return {
       streaming: running !== undefined,
-      idle: running === undefined,
+      idle: running === undefined && !this.nativeAgents.tracker.busy,
       hasMessages: this.messages.length > 0,
       ...(this.title ? { title: this.title } : {}),
       ...(this.titleSource ? { titleSource: this.titleSource } : {}),
@@ -547,6 +548,8 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     return live;
   }
 
+  private readonly nativeAgents = new ClaudeNativeAgents();
+
   private onFrame(frame: Parameters<SdkTurnTranslator["push"]>[0]): void {
     if (frame.type === "system") {
       if (frame.subtype === "background_tasks_changed") {
@@ -555,6 +558,15 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
         for (const task of frame.tasks) this.backgroundTasks.add(task.task_id);
       } else if (!this.backgroundTaskLevels && frame.subtype === "task_started" && frame.is_backgrounded !== false) this.backgroundTasks.add(frame.task_id);
       else if (!this.backgroundTaskLevels && frame.subtype === "task_notification") this.backgroundTasks.delete(frame.task_id);
+    }
+    for (const event of this.nativeAgents.push(frame)) this.handleEvent(event);
+    if ("parent_tool_use_id" in frame && frame.parent_tool_use_id) return;
+    if ((frame.type === "assistant" || frame.type === "user") && Array.isArray(frame.message.content)) {
+      frame = { ...frame, message: { ...frame.message, content: frame.message.content.filter((block) => {
+        if (block.type === "tool_use") return block.name !== "Agent" && block.name !== "Task";
+        if (block.type === "tool_result") return !this.nativeAgents.owns(block.tool_use_id);
+        return true;
+      }) } } as typeof frame;
     }
     const turn = this.turns[0];
     if (!turn) {
@@ -654,6 +666,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   private onExit(live: LiveSession, error: unknown): void {
     if (this.live === live) {
       this.live = undefined;
+      for (const event of this.nativeAgents.tracker.interrupt()) this.handleEvent(event);
       this.backgroundTasks.clear();
       this.backgroundTaskLevels = false;
     }
@@ -799,6 +812,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     const live = this.live;
     this.live = undefined;
     if (live && !live.session.closed) await live.session.close();
+    for (const event of this.nativeAgents.tracker.interrupt()) this.handleEvent(event);
   }
 
   private assertPreparedPrompt(

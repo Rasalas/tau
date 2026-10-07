@@ -5,6 +5,8 @@
 Accepted, 2026-09-06. Amended 2026-09-06: a released thread's transcript is read
 from its session file (see below).
 
+The amendment of 2026-10-07 supersedes the ordinary-thread and selectable-child decisions below. Earlier sections record the historical design.
+
 ## Context
 
 Delegation is the one thing an agent cannot do inside Tau today. Pi can nest a
@@ -296,3 +298,36 @@ route. Persisted parent links still provide navigation after a restart.
 The standalone Agents panel and its command are removed. Spawn cards expand
 linked rows inline. Compact clients expose the same lineage from the thread
 header. Agent definitions remain accessible from the lineage heading.
+
+
+## Amendment, 2026-10-07: native delegation belongs inside the parent
+
+Subagents are delegated work within their parent conversation. Codex and Claude
+Code use their native delegation tools, as T3 Code does. Tau reads their child
+lifecycle and activity events and displays a shared Agents row and expandable
+transcript in the parent's conversation and project card. Native children never
+enter Tau's thread index or rail, and never take over the composer. Background
+completion updates the activity of the turn that created the child, even after
+the parent has completed that turn. Saved activity remains readable after a
+restart; a detached child is shown as idle rather than still running.
+
+A hidden Tau child thread is only a fallback for a runtime without native
+delegation. Its runtime and model inherit from the parent unless a definition or
+explicit call chooses otherwise. Clicking a fallback or legacy child opens a
+read-only transcript preview; takeover is unavailable. This replaces the
+2026-10-05 decision to switch to the child's chat.
+
+Native runtimes receive `tau_create_thread` instead of the fallback delegation
+tools. This creates an independent conversation only on the user's explicit
+request, which the tool requires as `userRequest`. Delegating a task is not a
+request for another Tau conversation. Native delegation settings belong to the
+runtime's own configuration; explicit launch configuration overrides Tau's
+native feature defaults. New conversations prefer Codex for OpenAI models and
+Claude Code for Anthropic models when available. An explicit selection,
+favourite, recent choice, and an existing thread's runtime take precedence.
+
+Starting a simple `.tau/agents` definition in a native conversation sends its
+persona, task and model request to the parent for native delegation. Definitions
+with Tau thread-specific tool, access, machine or workspace restrictions must
+be configured in the native runtime instead; merely describing these limits in
+a prompt would not enforce them.

@@ -1,7 +1,7 @@
 /**
  * Agents Kit: what its host half, its desktop half and its tools agree on.
- * A sub-agent is an ordinary Tau thread in the same project (ADR 0013), so
- * everything here describes a link between two threads, never a nested run.
+ * Native subagents live inside parent activity. The link protocol below
+ * describes the hidden Tau-thread fallback for runtimes without native delegation.
  */
 
 export const AGENTS_HOST_EXTENSION_ID = "tau.agents";
@@ -58,7 +58,7 @@ export interface AgentDefinitionSummary {
   file: string;
   /** `provider/model-id`. */
   model?: string;
-  /** Runtime backend kind; the kit starts Pi threads when it is absent. */
+  /** Runtime backend kind; inherited from the parent when absent. */
   runtime?: string;
   /** The only tools its thread keeps; Pi only. */
   tools?: string[];

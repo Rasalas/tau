@@ -23,8 +23,8 @@ Saved as `.tau/agents/reviewer.md`, this is the agent `reviewer`.
 |---|---|---|
 | `name` | the file name without `.md` | Lowercase letters, digits, `-` and `_`, at most 64. Two files may not share one; the first in alphabetical order keeps it. |
 | `description` | required | When to use it. The Agents panel shows it, and a thread that may spawn is told it. |
-| `model` | the parent's model on Pi, the runtime's default elsewhere | `provider/model-id`, as the model picker spells it. |
-| `runtime` | `pi` | The runtime backend the thread runs on: `pi` or the kind a runtime kit registered (`claude-code`, …). The thread fails to start when no kit registered that kind. |
+| `model` | the parent's model | `provider/model-id`, as the model picker spells it. |
+| `runtime` | the parent's runtime | The runtime backend the thread runs on: `pi` or the kind a runtime kit registered (`claude-code`, …). The thread fails to start when no kit registered that kind. |
 | `tools` | every tool | The only tools the thread keeps, as Pi names them (`read`, `grep`, `find`, `ls`, `bash`, `edit`, `write`, the `tau_*` tools — `mcp__tau__tau_*` reads the same — an extension's tools). A name the runtime does not have is ignored. See below for other runtimes. |
 | `access` | the workbench's level | `read-only`, `ask` or `full`. It can narrow the level Access Kit gives the thread, never widen it. Pi only. |
 | `workspace` | `worktree` in a Git repository | `worktree` for a checkout of its own, branched from the parent's state; `shared` to work in the parent's checkout — for an agent that only reads. |
@@ -61,6 +61,27 @@ that cannot refuses the spawn with that reason:
 - **Antigravity** cannot narrow its tools; such a definition fails to spawn.
 
 On every runtime Tau's own tools over MCP are only the `tau_*` names listed.
+
+## Native delegation
+
+Codex and Claude Code delegate natively inside the parent conversation. Configure
+native agent roles, models and limits in Codex's agent configuration or Claude
+Code's `.claude/agents/` definitions. Tau preserves the runtime's user and project
+configuration; explicit launch options override Tau's feature defaults.
+
+The definition picker can send a simple `.tau/agents/` persona and requested
+model to the native parent for delegation. A definition with `tools`, `access`,
+`workspace` or `machine` is rejected there: configure those restrictions natively
+so the runtime enforces them. A definition choosing a different runtime requires
+a conversation on that runtime. It does not create another Tau thread.
+
+Native child activity appears in the parent's Agents rows and cards. Clicking
+expands the transcript inside that conversation. A separate Tau conversation is
+created only on an explicit user request through `tau_create_thread`.
+
+The remaining sections describe the hidden Tau-thread fallback used when the
+parent runtime has no native delegation. Fallback and older child transcripts
+open as read-only previews, without changing the active conversation.
 
 ## Using one
 

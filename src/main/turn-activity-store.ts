@@ -39,6 +39,7 @@ function tool(value: unknown): UiToolRun | undefined {
   return {
     id: item.id,
     name: item.name,
+    ...(item.kind === "subagent" ? { kind: item.kind } : {}),
     args,
     ...(Array.isArray(item.media) ? { media: item.media.filter((media) => media && ["image", "audio", "video"].includes(media.type) && typeof media.url === "string") } : {}),
     status: item.status,
@@ -87,7 +88,7 @@ function fold(lines: readonly Line[]): UiTurnActivityEntry[] {
     id,
     ...(turn.anchor ? { anchorMessageId: turn.anchor } : {}),
     status: turn.status,
-    tools: [...turn.tools.values()],
+    tools: [...turn.tools.values()].map((run) => run.kind === "subagent" && run.status === "running" ? { ...run, status: "done", args: { ...run.args, agentStatus: "idle" } } : run),
   })]);
 }
 
@@ -168,7 +169,8 @@ export class TurnActivityStore {
       }
       for (const run of entry.tools) {
         const kept = this.clipped(run);
-        const signature = `${kept.status}:${kept.endedAt ?? ""}:${kept.output?.length ?? 0}:${Object.keys(kept.args).length}:${kept.media?.length ? createHash("sha256").update(JSON.stringify(kept.media)).digest("hex") : ""}`;
+        const signature = kept.kind === "subagent" ? createHash("sha256").update(JSON.stringify(kept)).digest("hex")
+          : `${kept.status}:${kept.endedAt ?? ""}:${kept.output?.length ?? 0}:${Object.keys(kept.args).length}:${kept.media?.length ? createHash("sha256").update(JSON.stringify(kept.media)).digest("hex") : ""}`;
         if (known.tools.get(run.id) === signature) continue;
         lines.push({ turn: key, tool: kept });
         known.tools.set(run.id, signature);
@@ -192,6 +194,7 @@ export class TurnActivityStore {
     return {
       id: run.id,
       name: run.name,
+      ...(run.kind ? { kind: run.kind } : {}),
       args,
       ...(run.media?.length ? { media: run.media } : {}),
       status: run.status,

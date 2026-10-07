@@ -45,6 +45,13 @@ function threadInfo(id, cwd) {
 }
 
 async function play(name, ids) {
+  if (name === "native") {
+    const child = "native-child";
+    send({ method: "thread/started", params: { thread: { id: child, source: { subAgent: { thread_spawn: { parent_thread_id: ids.thread, agent_nickname: "Reviewer" } } } } } });
+    send({ method: "item/agentMessage/delta", params: { threadId: child, turnId: "child-turn", itemId: "child-message", delta: "Child answer" } });
+    send({ method: "turn/completed", params: { threadId: child, turn: { id: "child-turn", status: "completed" } } });
+    name = "plain";
+  }
   if (name === "computeruse") {
     // Codex only advertises openai/form to MCP servers after client opt-in.
     if (openaiForms) {

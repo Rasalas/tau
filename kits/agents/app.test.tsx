@@ -114,18 +114,17 @@ describe("agents in the project card", () => {
     expect(screen.queryByRole("menuitem", { name: /Agents/ })).toBeNull();
   });
 
-  it("navigates into an agent chat and back to its parent without adding stage tabs", async () => {
-    const client = appWith(state, [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2), session("beta", "Beta reply", 1)], "parent");
-    client.switchSession = vi.fn(async (path: string) => ({ version: 1 as const, updates: [{ version: 1 as const, type: "thread-detail" as const, detail: { sessionId: path.includes("alpha") ? "alpha" : "parent", messages: [{ id: path, role: "assistant" as const, text: path.includes("alpha") ? "Alpha finished the job." : "Back in parent.", timestamp: 1 }], isStreaming: false, activeTools: [] } }] }));
+  it("previews an agent while keeping its parent active and out of the rail", async () => {
+    const client = appWith(state, [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2, undefined, "parent")], "parent");
+    client.loadTranscript = vi.fn(async (sessionId) => ({ sessionId, hasMore: false, messages: [{ id: "reply", role: "assistant" as const, text: "Alpha finished the job.", timestamp: 1 }] }));
     renderApp(client, { extensions: [workspaceExtension, agentsExtension] });
     fireEvent.click(await screen.findByRole("button", { name: "Alpha reply, Running" }));
     await screen.findByText("Alpha finished the job.");
-    expect(screen.queryByRole("tab", { name: /Alpha reply/ })).toBeNull();
+    expect(client.loadTranscript).toHaveBeenCalledWith("alpha");
+    expect(client.calls.some((call) => call.method === "switchSession")).toBe(false);
     const rail = screen.getByRole("navigation", { name: "Threads" });
     expect(within(rail).queryByText("Alpha reply")).toBeNull();
-    fireEvent.click(await screen.findByRole("button", { name: "Back to Parent thread" }));
-    await screen.findByText("Back in parent.");
-    expect(client.switchSession).toHaveBeenLastCalledWith("/sessions/parent.jsonl");
+    expect(screen.queryByRole("button", { name: "Take over" })).toBeNull();
   });
 
   it("opens an agent on another machine through that machine's transcript", async () => {
@@ -279,7 +278,7 @@ describe("the navigator with agent threads", () => {
     fireEvent.click(card);
     const batch = card.parentElement!;
     fireEvent.click(await within(batch).findByRole("button", { name: "Alpha reply, Running" }));
-    await waitFor(() => expect(client.calls.some((call) => call.method === "switchSession" && call.args[0] === "/sessions/alpha.jsonl")).toBe(true));
+    expect(client.calls.some((call) => call.method === "switchSession")).toBe(false);
     expect(await screen.findByText("Alpha finished the job.")).toBeTruthy();
   });
 });

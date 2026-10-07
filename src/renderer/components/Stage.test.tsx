@@ -558,3 +558,11 @@ describe("a thread of another machine", () => {
     expect(screen.getByText(/This client reaches no other machine/u)).toBeTruthy();
   });
 });
+
+it("keeps a fallback child read-only without a takeover action", async () => {
+  const takeover = vi.fn();
+  render(<Harness initial={openThreadTab(EMPTY_STAGE, CHILD)} threads={storeWith(agentSession({ parentThreadId: "parent" }))} loadThread={async () => reply("Child result")} onTakeOverThread={takeover} />);
+  await screen.findByText("Child result");
+  expect(screen.queryByRole("button", { name: "Take over" })).toBeNull();
+  expect(takeover).not.toHaveBeenCalled();
+});

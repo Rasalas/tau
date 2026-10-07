@@ -54,7 +54,7 @@ import { codexHome, readCodexConfiguredModel } from "./config.js";
 import { codexSessionDirs, importCodexSessions, scanCodexSessions } from "./history-import.js";
 import { codexMcpLaunch } from "./mcp.js";
 import { codexNativeCapabilities } from "./native-capabilities.js";
-import { codexToolArgs } from "./tools.js";
+import { NATIVE_AGENT_ARGS, codexToolArgs } from "./tools.js";
 import {
   CODEX_BACKEND_KIND,
   CODEX_HOME_VARIABLE,
@@ -382,7 +382,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           const sessionHome = await sessionHomeOf(id, Boolean(credentials));
           await store.setSessionHome(input.threadId, input.cwd, sessionHome);
         }
-        const launch = { args: [...tau.args, ...(input.tools ? codexToolArgs(input.tools) : []), ...settings.args(id), ...(!credentials && codexHomeLayout(instanceEnv(id)).overlay ? ["-c", 'cli_auth_credentials_store="file"'] : []), ...(credentials ? CHATGPT_PLAN_ARGS : [])], env: tau.env };
+        const launch = { args: [...tau.args, ...NATIVE_AGENT_ARGS, ...(input.tools ? codexToolArgs(input.tools) : []), ...settings.args(id), ...(!credentials && codexHomeLayout(instanceEnv(id)).overlay ? ["-c", 'cli_auth_credentials_store="file"'] : []), ...(credentials ? CHATGPT_PLAN_ARGS : [])], env: tau.env };
         const sessionEnv = { ...cliEnv, ...launch.env, ...(credentials ? { ACCESS_TOKEN: credentials.tokens!.accessToken } : {}) };
         const track = (session: CodexSessionLike): CodexSessionLike => {
           const held = sessions.get(id) ?? new Set<CodexSessionLike>();

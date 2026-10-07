@@ -4,6 +4,9 @@
  * Tau's cards give Codex's calls: its shell reads as `read` or `bash`, its
  * patches as `edit` or `write`.
  */
+/** Native delegation by default; restrictive tools and explicit launch arguments override it. */
+export const NATIVE_AGENT_ARGS = ["-c", "features.multi_agent=true", "-c", "features.multi_agent_v2=true"] as const;
+
 const SHELL = ["bash", "read", "grep", "find", "ls"];
 const WRITING = ["bash", "edit", "write"];
 

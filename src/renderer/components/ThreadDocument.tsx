@@ -123,12 +123,12 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver, registry }: 
       <small>{status}</small>
       {streaming ? <span className="spinner small" aria-label="Agent is working" /> : null}
       <span className="spacer" />
-      <button
+      {!session?.parentThreadId && !registry?.getThreadLineage().parents[sessionId] ? <button
         className="text-button"
         disabled={!session}
         title="Make this the thread the composer talks to"
         onClick={() => onTakeOver(sessionId)}
-      ><span>Take over</span></button>
+      ><span>Take over</span></button> : null}
     </header>
     {!session
       ? <div className="stage-empty" role="status">This thread is not in the index any more. It may have been deleted or pruned.</div>

@@ -200,3 +200,24 @@ describe("handleBackendRuntimeEvent", () => {
     expect(logs).toContain("activity.save.failed");
   });
 });
+
+it("keeps native subagents alive after the parent settles and updates their original activity", async () => {
+  const save = vi.fn(async () => undefined);
+  const thread = makeThread({ activityHistory: { save } });
+  const { services, events } = makeServices();
+  const agent: UiToolRun = { id: "native", name: "tau_native_subagent", kind: "subagent", args: { agentStatus: "running" }, status: "running", startedAt: 1 };
+  handleBackendRuntimeEvent({ type: "turn-started" }, thread, services);
+  handleBackendRuntimeEvent({ type: "tool-end", tool: agent }, thread, services);
+  expect(events.at(-1)).toMatchObject({ type: "tool-start", tool: agent });
+  handleBackendRuntimeEvent({ type: "turn-settled", status: "completed" }, thread, services);
+  expect(thread.adapterActivity[0]?.tools[0]?.status).toBe("running");
+  handleBackendRuntimeEvent({ type: "turn-started" }, thread, services);
+  const done = { ...agent, args: { agentStatus: "completed" }, status: "done" as const, output: "Done" };
+  handleBackendRuntimeEvent({ type: "tool-end", tool: done }, thread, services);
+  expect(thread.adapterActivity[0]?.tools).toEqual([done]);
+  expect(thread.adapterActivity[1]?.tools).toEqual([]);
+  expect(services.toolEnded).not.toHaveBeenCalled();
+  expect(services.ownTool).not.toHaveBeenCalled();
+  await Promise.resolve();
+  expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ id: thread.adapterActivity[0]?.id, tools: [done] }));
+});

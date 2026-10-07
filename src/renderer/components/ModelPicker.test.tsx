@@ -87,7 +87,7 @@ describe("ModelPicker (K142 B: model first)", () => {
     expect(rail()).toEqual(["Favourites", "Recent", "OpenAI", "Anthropic", "Claude Code, not installed", "Antigravity, models listed once a thread runs"]);
     fireEvent.click(railButton("OpenAI"));
     // GPT-5.6 Sol is one row though Pi reaches it two ways and Codex a third.
-    expect(optionNames()).toEqual(["GPT-5.6 Sol, Pi, Plan", "GPT-5.6 Luna, Codex, Plan"]);
+    expect(optionNames()).toEqual(["GPT-5.6 Sol, Codex, Plan", "GPT-5.6 Luna, Codex, Plan"]);
     const sol = screen.getAllByRole("option")[0]!;
     expect(within(sol).getAllByRole("img").map((mark) => mark.getAttribute("aria-label"))).toEqual(["Pi", "Codex"]);
     expect(sol.textContent).toMatch(/272k · API \$5\/\$30/u);
@@ -96,14 +96,12 @@ describe("ModelPicker (K142 B: model first)", () => {
   it("offers every way to run the highlighted model under the list; Tab and the arrows pick one, Enter takes both", () => {
     const onSelect = renderPicker({ runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady()]) });
     fireEvent.click(railButton("OpenAI"));
-    expect(ways()).toEqual(["Pi, Plan ✓", "Pi, API key", "Codex, Plan"]);
-    expect(note()).toMatch(/^Pi via ChatGPT plan · in the plan/u);
+    expect(ways()).toEqual(["Pi, Plan", "Pi, API key", "Codex, Plan ✓"]);
+    expect(note()).toMatch(/^Codex \(OpenAI\) · 272k context/u);
     const input = search();
     input.focus();
     fireEvent.keyDown(input, { key: "Tab" });
-    expect(document.activeElement?.getAttribute("aria-label")).toBe("Pi, Plan");
-    fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" });
-    fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" });
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Codex, Plan");
     expect(ways()).toEqual(["Pi, Plan", "Pi, API key", "Codex, Plan ✓"]);
     expect(note()).toMatch(/^Codex \(OpenAI\) · 272k context/u);
     fireEvent.keyDown(document.activeElement!, { key: "Enter" });
@@ -136,11 +134,11 @@ describe("ModelPicker (K142 B: model first)", () => {
     renderPicker({ runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady()]) });
     fireEvent.change(search(), { target: { value: "sol" } });
     expect(screen.getByText("Every provider · 1 match")).toBeTruthy();
-    expect(optionNames()).toEqual(["GPT-5.6 Sol, Pi, Plan"]);
-    expect(ways()).toEqual(["Pi, Plan ✓", "Pi, API key", "Codex, Plan"]);
+    expect(optionNames()).toEqual(["GPT-5.6 Sol, Codex, Plan"]);
+    expect(ways()).toEqual(["Pi, Plan", "Pi, API key", "Codex, Plan ✓"]);
     // A runtime's name narrows the ways to it (Pi's ChatGPT plan goes through "openai-codex").
     fireEvent.change(search(), { target: { value: "sol codex" } });
-    expect(ways()).toEqual(["Pi, Plan ✓", "Codex, Plan"]);
+    expect(ways()).toEqual(["Pi, Plan", "Codex, Plan ✓"]);
   });
 
   it("pins a model with its way: ⌘n reaches it, Favourites lists it with that way, the row's star is the way's", () => {
@@ -263,7 +261,7 @@ describe("ModelPicker (K142 B: model first)", () => {
       fireEvent.mouseEnter(lunaRow!);
       fireEvent.mouseLeave(lunaRow!);
       act(() => { vi.advanceTimersByTime(300); });
-      expect(ways()[0]).toBe("Pi, Plan ✓");
+      expect(ways()[2]).toBe("Codex, Plan ✓");
       fireEvent.mouseEnter(lunaRow!);
       act(() => { vi.advanceTimersByTime(300); });
       expect(ways()).toEqual(["Codex, Plan ✓"]);
@@ -345,4 +343,19 @@ describe("where the picker opens", () => {
       setHostClient(undefined);
     }
   });
+});
+
+it("prefers Claude Code for new Anthropic conversations while keeping an explicitly pinned Pi way", () => {
+  const catalog = cached([["claude-code", { status: "ready", catalog: { kind: "claude-code", models: [models[0]!], thinkingLevels: {} } }]]);
+  const preferences = new PreferencesStore();
+  const picked = renderPicker({ runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: catalog, preferences });
+  fireEvent.click(railButton("Anthropic"));
+  expect(ways()).toEqual(["Pi, Plan", "Claude Code, Plan ✓"]);
+  fireEvent.keyDown(search(), { key: "Enter" });
+  expect(picked).toHaveBeenCalledWith(models[0], "claude-code");
+  cleanup();
+  preferences.toggleFavouriteModel("anthropic/claude-fable-5-1");
+  renderPicker({ runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: catalog, preferences });
+  fireEvent.click(railButton("Anthropic"));
+  expect(ways()).toEqual(["Pi, Plan ✓", "Claude Code, Plan"]);
 });

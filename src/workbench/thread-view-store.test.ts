@@ -345,3 +345,12 @@ describe("ThreadViewStore", () => {
     expect(store.getTranscript().messages).toEqual([{ id: "a", sourceEntryId: "entry-1", role: "assistant", text: "", timestamp: 5 }]);
   });
 });
+
+it("updates a background subagent in its original transcript turn", () => {
+  const native = tool({ kind: "subagent", name: "tau_native_subagent" });
+  const completed = tool({ ...native, status: "done", output: "Done" });
+  const initial = state({ tools: [], turnActivityHistory: [{ id: "earlier", status: "completed", tools: [native] }] });
+  const next = reduceHostEvent(initial, { type: "tool-end", sessionId: SESSION, tool: completed });
+  expect(next.tools).toEqual([]);
+  expect(next.turnActivityHistory[0]?.tools).toEqual([completed]);
+});

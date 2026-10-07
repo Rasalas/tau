@@ -1,3 +1,4 @@
+import { CodexNativeAgents } from "./native-agents.js";
 import {
   DEFAULT_THREAD_MODE as DEFAULT_MODE,
   askElicitation,
@@ -321,7 +322,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     const running = this.turns[0];
     return {
       streaming: running !== undefined,
-      idle: running === undefined,
+      idle: running === undefined && !this.nativeAgents.tracker.busy,
       hasMessages: this.messages.length > 0,
       ...(this.title ? { title: this.title } : {}),
       ...(this.titleSource ? { titleSource: this.titleSource } : {}),
@@ -708,8 +709,13 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     return session;
   }
 
+  private readonly nativeAgents = new CodexNativeAgents();
+
   private onNotification(method: string, raw: unknown): void {
     const params = (raw ?? {}) as Record<string, unknown>;
+    const native = this.nativeAgents.push(method, params, this.codexThreadId);
+    for (const event of native.events) this.handleEvent(event);
+    if (native.handled) return;
     if (typeof params.threadId === "string" && this.codexThreadId && params.threadId !== this.codexThreadId) return;
     if (method === "thread/tokenUsage/updated") {
       const usage = params.tokenUsage as CodexTokenUsage | undefined;
@@ -771,6 +777,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   private onExit(session: CodexSessionLike | undefined, error: Error | undefined): void {
     if (!session || this.live !== session) return;
     this.live = undefined;
+    for (const event of this.nativeAgents.tracker.interrupt()) this.handleEvent(event);
     const turn = this.turns[0];
     if (!error && !turn) return;
     if (error) this.report({ type: "notice", message: error.message, level: "error" });
@@ -848,6 +855,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     const live = this.live;
     this.live = undefined;
     if (live && !live.closed) await live.close();
+    for (const event of this.nativeAgents.tracker.interrupt()) this.handleEvent(event);
     await this.persisting;
   }
 }

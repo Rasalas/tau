@@ -160,6 +160,8 @@ export interface UiToolMedia {
 }
 
 export interface UiToolRun {
+  /** Runtime-owned delegation activity, which may continue after its parent's turn. */
+  kind?: "subagent";
   media?: readonly UiToolMedia[];
   id: string;
   name: string;

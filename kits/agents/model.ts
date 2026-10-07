@@ -12,6 +12,8 @@ import {
 
 /** One row of the Agents panel: a spawned thread plus what the index knows about it. */
 export interface AgentRow {
+  /** A runtime-owned child has no independently selectable Tau thread. */
+  native?: { transcript: string; runtime: string };
   id: string;
   threadId?: string;
   /** The thread's session file, present only once the thread index knows it. */
@@ -400,6 +402,18 @@ function plural(count: number, one: string, many: string): string {
 }
 
 /** What the card says about a batch: its rows, its headline and its dot. */
+export function nativeAgentRow(tool: UiToolRun): AgentRow | undefined {
+  if (tool.kind !== "subagent") return undefined;
+  const state = tool.args.agentStatus;
+  const status: AgentThreadStatus = state === "running" || state === "waiting" || state === "idle" || state === "completed" || state === "failed" || state === "cancelled"
+    ? state : tool.status === "error" ? "failed" : tool.status === "running" ? "running" : "completed";
+  return { id: tool.id, title: typeof tool.args.title === "string" ? tool.args.title : "Subagent", status,
+    startedAt: tool.startedAt, ...(tool.endedAt ? { endedAt: tool.endedAt } : {}),
+    ...(typeof tool.args.model === "string" ? { model: tool.args.model } : {}),
+    ...(typeof tool.args.lastTool === "string" ? { lastTool: tool.args.lastTool } : {}),
+    native: { transcript: tool.output ?? "", runtime: String(tool.args.runtime ?? "") } };
+}
+
 export function spawnCardModel(
   tools: readonly UiToolRun[],
   state: AgentsState | undefined,
@@ -408,7 +422,9 @@ export function spawnCardModel(
   const links = state?.links ?? [];
   const sessions = new Map(threads.map((session) => [session.id, session] as const));
   const taken = new Set<string>();
-  const rows = tools.map((tool) => {
+  const rows: AgentRow[] = tools.map((tool) => {
+    const native = nativeAgentRow(tool);
+    if (native) return native;
     const link = linkFor(tool, links, taken);
     if (link) taken.add(link.id);
     const machine = link?.machine;

@@ -47,7 +47,7 @@ export const agentsExtension: DesktopExtension = {
     // threads it started, so it never folds with the rest of the turn.
     context.registerToolCard({
       id: "agents.spawn",
-      match: (tool) => tauToolName(tool.name) === SPAWN_TOOL,
+      match: (tool) => tauToolName(tool.name) === SPAWN_TOOL || tool.kind === "subagent",
       profiles: ["desktop", "web", "compact"],
       Component: SpawnCard,
     });

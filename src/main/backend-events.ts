@@ -86,7 +86,16 @@ export function handleBackendRuntimeEvent(event: ThreadRuntimeEvent, thread: Thr
       break;
     }
     case "tool-end":
-      finishTool(event.tool, thread, services);
+      if (event.tool.kind === "subagent") {
+        const entry = thread.adapterActivity.find((activity) => activity.tools.some((tool) => tool.id === event.tool.id)) ?? currentActivity(thread);
+        const at = entry.tools.findIndex((tool) => tool.id === event.tool.id);
+        if (at === -1) {
+          entry.anchorMessageId ??= thread.adapterMessages.at(-1)?.id;
+          entry.tools.push(event.tool);
+        } else entry.tools[at] = event.tool;
+        saveActivity(thread, services, entry);
+        services.emit({ type: at === -1 ? "tool-start" : "tool-end", sessionId, tool: event.tool });
+      } else finishTool(event.tool, thread, services);
       break;
     case "queue":
       services.emit({ type: "queue", sessionId, steering: [...event.steering], followUp: [...event.followUp] });
@@ -134,9 +143,8 @@ function recordTool(thread: ThreadRuntime, tool: UiToolRun): void {
 }
 
 /** Hands the turn's activity to a runtime that keeps it across restarts. */
-function saveActivity(thread: ThreadRuntime, services: BackendEventServices): void {
+function saveActivity(thread: ThreadRuntime, services: BackendEventServices, entry = thread.adapterActivity.at(-1)): void {
   const history = thread.backend.capabilities.activityHistory;
-  const entry = thread.adapterActivity.at(-1);
   if (!history || !entry) return;
   const copy = { ...entry, tools: entry.tools.map((tool) => ({ ...tool })) };
   Promise.resolve().then(() => history.save(copy))
