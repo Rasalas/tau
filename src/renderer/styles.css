@@ -1448,9 +1448,6 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 .send-button.send-mode { width: auto; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 999px; font: 500 var(--text-sm) var(--sans); white-space: nowrap; }
 .send-split.with-options > .send-mode { padding-right: 10px; border-radius: 999px 0 0 999px; }
 .send-button.send-mode-options { width: 26px; padding-right: 2px; border-radius: 0 999px 999px 0; box-shadow: inset 1px 0 0 color-mix(in srgb, var(--acid-ink) 18%, transparent); }
-.send-button.send-mode[aria-busy="true"] > svg { animation: send-mode-busy 1.4s ease-in-out infinite; }
-@keyframes send-mode-busy { 50% { transform: scale(0.72); opacity: 0.6; } }
-@media (prefers-reduced-motion: reduce) { .send-button.send-mode[aria-busy="true"] > svg { animation: none; } }
 
 .worktree-list .menu-label > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
