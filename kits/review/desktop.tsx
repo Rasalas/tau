@@ -190,7 +190,7 @@ export const reviewExtension: DesktopExtension = {
         plugin.registerKeybinding({ keys: "mod+d", commandId: "review.toggle", when: "!terminalFocus" }),
         registerCommitMessages(plugin, store),
         store.registerChangesSection(createRequestSection(plugin, store, requests, rows, { rows: links, client, dialogs: shared.dialogs })),
-        store.registerWorkspaceSummarySection?.(createWorkspaceRequestSummary(store, rows, links, client, watches)) ?? (() => undefined),
+        store.registerWorkspaceSummarySection?.(createWorkspaceRequestSummary(store, rows, links, client)) ?? (() => undefined),
         store.registerThreadRowAccessory(createRequestBadge(rows, links)),
         store.registerThreadCardSection?.({ place: "section", order: 10, Component: createRequestCardSection(rows, links) }) ?? (() => undefined),
       ];

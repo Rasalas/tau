@@ -1,5 +1,3 @@
-import { PullRequestWatchControl } from "./pr-watch-control.js";
-import type { PullRequestWatchFeed } from "./pr-watch-client.js";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronRight, Plus } from "lucide-react";
 import { useHostCapabilities, type RegionProps } from "tau";
@@ -15,7 +13,7 @@ import { WorkspaceRequestChecks } from "./workspace-request-checks.js";
 import { useRequestLifecycle } from "./request-lifecycle.js";
 
 /** The checkout's request and its thread's links, owned by Review Kit inside the workspace card. */
-export function createWorkspaceRequestSummary(store: WorkspaceStoreApi, rows: RowRequests, links: ThreadLinkRows, client?: PullRequestClient, watches?: PullRequestWatchFeed) {
+export function createWorkspaceRequestSummary(store: WorkspaceStoreApi, rows: RowRequests, links: ThreadLinkRows, client?: PullRequestClient) {
   return function WorkspaceRequestSummary({ actions }: RegionProps) {
     const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
     const { readOnly } = useHostCapabilities();
@@ -50,7 +48,6 @@ export function createWorkspaceRequestSummary(store: WorkspaceStoreApi, rows: Ro
             <span className="workspace-card-icon"><RequestStateIcon state={found.primary.state} size={16} /></span>
             <span className="workspace-card-label">{providerInfo(found.primary.service).short} #{found.primary.number}{found.primary.title ? ` · ${found.primary.title}` : ""}</span>
           </button>
-          {watches && threadId ? <PullRequestWatchControl feed={watches} threadId={threadId} request={found.primary} /> : null}
           <WorkspaceRequestChecks key={`${workspace}:${found.primary.url}`} request={found.primary} client={client} actions={actions} details={() => open(found.primary, "checks")} />
         </div>
         {found.others.length > 0 ? <>
