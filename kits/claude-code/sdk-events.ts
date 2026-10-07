@@ -137,9 +137,16 @@ export function resultTallies(message: ResultMessage, sessionModel: string | und
   });
 }
 
-function resultContextUsage(message: ResultMessage): UiContextUsage | undefined {
-  const usage = message.usage as { input_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | undefined;
-  const tokens = (usage?.input_tokens ?? 0) + (usage?.cache_read_input_tokens ?? 0) + (usage?.cache_creation_input_tokens ?? 0);
+type CallUsage = { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
+
+/** What one call read and wrote: the context the next call starts from. */
+function callTokens(usage: CallUsage | undefined): number {
+  return (usage?.input_tokens ?? 0) + (usage?.cache_read_input_tokens ?? 0) + (usage?.cache_creation_input_tokens ?? 0) + (usage?.output_tokens ?? 0);
+}
+
+/** The result's usage sums every call of the turn, so it measures the context only when no call reported its own. */
+function resultContextUsage(message: ResultMessage, lastCallTokens: number | undefined): UiContextUsage | undefined {
+  const tokens = lastCallTokens ?? callTokens(message.usage as CallUsage | undefined);
   const windows = Object.values((message as { modelUsage?: Record<string, { contextWindow?: number }> }).modelUsage ?? {}).map((model) => model.contextWindow ?? 0);
   const contextWindow = Math.max(0, ...windows);
   if (!tokens || !contextWindow) return undefined;
@@ -192,6 +199,8 @@ export class SdkTurnTranslator {
   /** The tokens a compaction left, from its boundary; cleared once a reply measures the context again. */
   private compaction?: { postTokens?: number };
   private compactionError?: string;
+  /** The context the main loop's latest call left; a compaction clears it. */
+  private lastCallTokens?: number;
 
   constructor(
     private readonly now: () => number = Date.now,
@@ -251,6 +260,8 @@ export class SdkTurnTranslator {
     if (message.parent_tool_use_id) return events;
     this.sawAssistant = true;
     this.compaction = undefined;
+    const tokens = callTokens((message.message as { usage?: CallUsage }).usage);
+    if (tokens > 0) this.lastCallTokens = tokens;
     const text = content.filter((block) => block.type === "text").map((block) => (block as { text: string }).text).join("\n\n").trim();
     const thinking = content.filter((block) => block.type === "thinking").map((block) => (block as { thinking: string }).thinking).join("\n\n").trim();
     const id = this.assistantId ?? this.nextId();
@@ -305,7 +316,7 @@ export class SdkTurnTranslator {
     if (message.num_turns === 0 && !this.sawAssistant && !(this.compacting && (this.compaction || message.result))) return [];
     const compaction = this.compaction;
     // The result of a compaction still counts the tokens it summarised.
-    const contextUsage = compaction ? compactedContextUsage(message, compaction.postTokens) : resultContextUsage(message);
+    const contextUsage = compaction ? compactedContextUsage(message, compaction.postTokens) : resultContextUsage(message, this.lastCallTokens);
     const texts = this.compacting && compaction ? [] : this.texts.length > 0 ? this.texts : message.result ? [message.result] : [];
     this.outcome = {
       texts,
@@ -329,6 +340,7 @@ export class SdkTurnTranslator {
     }
     if (subtype === "compact_boundary") {
       const metadata = (message as { compact_metadata?: { pre_tokens?: number; post_tokens?: number } }).compact_metadata;
+      this.lastCallTokens = undefined;
       this.compaction = { ...(typeof metadata?.post_tokens === "number" ? { postTokens: metadata.post_tokens } : {}) };
       // A divider in the transcript; the backend adds the turns it summarised.
       const timestamp = this.now();

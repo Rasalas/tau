@@ -221,7 +221,7 @@ describe("thread runtime backends", () => {
     expect(backend.catalogView()).toMatchObject({
       model: { provider: "anthropic", id: "claude-opus-5" },
       usage: { inputTokens: 200, outputTokens: 20, totalTokens: 220, costUsd: expect.closeTo(0.2, 10) as number, turns: 2 },
-      contextUsage: { tokens: 100, contextWindow: 200000 },
+      contextUsage: { tokens: 110, contextWindow: 200000 },
     });
     // Each turn is kept on its own, dated, per model.
     expect((await store.get("tau-thread"))?.usageTurns).toEqual([
@@ -290,7 +290,7 @@ describe("thread runtime backends", () => {
   it("compacts between turns with /compact, and keeps the context's size and age across a restart", async () => {
     const { filePath, store } = await scratchStore();
     const boundary = frame({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual", pre_tokens: 153_000, post_tokens: 4_000 } });
-    const big = result("long", { usage: { input_tokens: 3_000, output_tokens: 10, cache_read_input_tokens: 150_000, cache_creation_input_tokens: 0 } });
+    const big = result("long", { usage: { input_tokens: 2_990, output_tokens: 10, cache_read_input_tokens: 150_000, cache_creation_input_tokens: 0 } });
     const { adapter, sessions } = scriptedAdapter(filePath, (content) => String(content) === "/compact"
       // The compaction's own result still counts the tokens it summarised.
       ? [boundary, result("", { num_turns: 0, usage: { input_tokens: 153_000, output_tokens: 900, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } })]
