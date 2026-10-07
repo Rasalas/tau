@@ -310,12 +310,13 @@ button > svg { pointer-events: none; }
 /* -------------------------------------------------------------- sidebar */
 
 .thread-row {
+  --row-bg: var(--rail);
   position: relative; display: flex;
   border: 1px solid transparent; border-radius: var(--radius-row);
 }
-.thread-row:hover { background: var(--hover); }
+.thread-row:hover { --row-bg: var(--hover); background: var(--row-bg); }
 /* The open thread: the document area's ground, lifted out of the rail, no edge. */
-.thread-row.active { background: var(--thread-active); }
+.thread-row.active { --row-bg: var(--thread-active); background: var(--row-bg); }
 /* 70 px at the default density, the design's card: 16 px project line, 18 px title, 16 px meta line, 2 px between. */
 .thread-main {
   flex: 1; min-width: 0; display: flex; flex-direction: column;
@@ -410,6 +411,8 @@ button > svg { pointer-events: none; }
 .thread-row-actions {
   position: absolute; top: calc(7px * var(--density) - 1px); right: var(--space-4);
   height: 20px; display: flex; gap: 2px; opacity: 0; pointer-events: none;
+  /* Covers the project name it sits on, fading in from the left. */
+  padding-left: 16px; background: linear-gradient(to right, transparent, var(--row-bg) 14px);
 }
 .thread-row:is(:hover, :has(:focus-visible, [aria-expanded="true"])) .thread-row-actions { opacity: 1; pointer-events: auto; }
 /* Only a row with actions gives up its state: a tap leaves :hover on a touch list's open row. */
@@ -423,7 +426,7 @@ button > svg { pointer-events: none; }
 /* A new thread's draft: the design's quiet grey "draft" where a thread shows its state, the title muted. */
 .thread-draft-mark { flex: none; display: inline-flex; align-items: center; gap: 4px; font: var(--text-xs) var(--sans); color: var(--warn); }
 .thread-draft-row { background: color-mix(in srgb, var(--warn) 5%, transparent); }
-.thread-draft-row.active { background: color-mix(in srgb, var(--warn) 9%, var(--hover)); }
+.thread-draft-row.active { --row-bg: color-mix(in srgb, var(--warn) 9%, var(--hover)); background: var(--row-bg); }
 .thread-draft-row .thread-title { font-weight: 600; color: var(--muted); }
 .thread-draft-row.active .thread-title { color: var(--ink-3); }
 .thread-row:is(:hover, :has(.thread-row-actions :focus-visible)):has(> .thread-row-actions) .thread-draft-mark { visibility: hidden; }
