@@ -56,6 +56,18 @@ describe("Claude runtime session store", () => {
     expect(await reloaded.list()).toHaveLength(1);
   });
 
+  it("forgets a stored context size larger than its window", async () => {
+    const { filePath } = await temporaryStore();
+    const store = new ClaudeRuntimeSessionStore({ filePath });
+    await store.ensure("summed", "/repo");
+    await store.setContextUsage("summed", "/repo", { tokens: 4_100_000, contextWindow: 1_000_000, percent: 100, updatedAt: 5 });
+    await store.ensure("measured", "/repo");
+    await store.setContextUsage("measured", "/repo", { tokens: 150_000, contextWindow: 1_000_000, percent: 15, updatedAt: 5 });
+    const reloaded = new ClaudeRuntimeSessionStore({ filePath });
+    expect((await reloaded.get("summed"))?.contextUsage).toBeUndefined();
+    expect((await reloaded.get("measured"))?.contextUsage).toEqual({ tokens: 150_000, contextWindow: 1_000_000, percent: 15, updatedAt: 5 });
+  });
+
   it("normalizes a Tau-authorized runtime wrapper once before persisting it", async () => {
     const { filePath } = await temporaryStore();
     const raw = '<skill name="tdd" location="/private/SKILL.md">\nSECRET BODY\n</skill>\n\nVisible request';

@@ -1,17 +1,16 @@
 {
   "id": "tau.resume-compaction",
   "name": "Resume Compaction",
-  "description": "Compacts a Pi thread past the share of its context you choose, and offers to compact a long thread before it resumes with a cold prompt cache.",
+  "description": "Compacts a Pi thread past the share of its context you choose, and compacts a long thread before it resumes with a cold prompt cache, unless you send with the full history.",
   "icon": "Minimize2",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.21.0"
+    "api": "^1.53.0"
   },
   "permissions": [
     "runtime:extend"
   ],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",
-  "styles": "./styles.css",
   "host": "./host.ts"
 }

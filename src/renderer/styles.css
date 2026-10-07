@@ -1443,6 +1443,11 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 .send-button.stop { width: auto; margin-right: 2px; padding: 0 8px; border-radius: 6px; background: transparent; color: var(--muted); font: 11px var(--sans); }
 .send-button.stop:hover { background: var(--hover); color: var(--stop); }
 .send-button.stop > i { display: none; }
+/* A kit's send mode: its words in the accent pill, the plain send in a menu behind the chevron. */
+.send-split { display: inline-flex; flex: none; align-items: stretch; }
+.send-button.send-mode { width: auto; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 999px; font: 500 var(--text-sm) var(--sans); white-space: nowrap; }
+.send-split.with-options > .send-mode { padding-right: 10px; border-radius: 999px 0 0 999px; }
+.send-button.send-mode-options { width: 26px; padding-right: 2px; border-radius: 0 999px 999px 0; box-shadow: inset 1px 0 0 color-mix(in srgb, var(--acid-ink) 18%, transparent); }
 
 .worktree-list .menu-label > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

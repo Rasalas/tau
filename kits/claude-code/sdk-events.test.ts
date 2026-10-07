@@ -72,9 +72,22 @@ describe("SdkTurnTranslator", () => {
       // Per-model totals cover sub-agents and compaction too; the SDK's own cost estimate wins.
       usage: { inputTokens: 1200, outputTokens: 300, cacheReadTokens: 30000, cacheWriteTokens: 900, totalTokens: 32400, costUsd: 0.25, turns: 1 },
       tallies: [{ provider: "anthropic", model: "claude-opus-5", inputTokens: 1200, outputTokens: 300, cacheReadTokens: 30000, cacheWriteTokens: 900, totalTokens: 32400, costUsd: 0.25, turns: 1 }],
-      // The context window holds what the main loop's last call read.
-      contextUsage: { tokens: 16500, contextWindow: 200000, percent: 8.3 },
+      // Without a call's own usage, the result's stands in for the context.
+      contextUsage: { tokens: 16700, contextWindow: 200000, percent: 8.4 },
     });
+  });
+
+  it("measures the context by the main loop's last call, not the turn's sum or a sub-agent's call", () => {
+    const call = (content: unknown[], usage: object, parent: string | null = null) => frame({ type: "assistant", parent_tool_use_id: parent, message: { role: "assistant", content, usage } });
+    const { translator } = run([
+      call([{ type: "tool_use", id: "tool-1", name: "Bash", input: { command: "ls" } }], { input_tokens: 10, cache_read_input_tokens: 120_000, cache_creation_input_tokens: 2_000, output_tokens: 300 }),
+      toolResult("tool-1", "ok"),
+      call([{ type: "text", text: "Done." }], { input_tokens: 5, cache_read_input_tokens: 122_300, cache_creation_input_tokens: 400, output_tokens: 95 }),
+      call([{ type: "text", text: "sub-agent" }], { input_tokens: 5, cache_read_input_tokens: 900_000, output_tokens: 1 }, "task-1"),
+      // The result sums every call of the turn: 4.1m here, past any window.
+      success({ usage: { input_tokens: 40, output_tokens: 9_000, cache_read_input_tokens: 4_000_000, cache_creation_input_tokens: 100_000 }, modelUsage: { "claude-opus-5": { inputTokens: 40, outputTokens: 9_000, cacheReadInputTokens: 4_000_000, cacheCreationInputTokens: 100_000, costUSD: 1, contextWindow: 1_000_000, webSearchRequests: 0, maxOutputTokens: 64000 } } }),
+    ]);
+    expect(translator.outcome?.contextUsage).toEqual({ tokens: 122_800, contextWindow: 1_000_000, percent: 12.3 });
   });
 
   it("keeps sub-agent narration out but shows their tool calls, and opens no row for a tool-only message", () => {

@@ -275,6 +275,8 @@ function storedContextUsage(value: unknown): UiContextUsage | undefined {
   const item = value as Record<string, unknown>;
   const finite = (field: unknown): field is number => typeof field === "number" && Number.isFinite(field) && field >= 0;
   if (!finite(item.tokens) || !finite(item.contextWindow) || !finite(item.percent)) return undefined;
+  // Older versions summed a turn's calls, past the window; such a size measures nothing.
+  if (item.tokens > item.contextWindow) return undefined;
   return {
     tokens: item.tokens,
     contextWindow: item.contextWindow,

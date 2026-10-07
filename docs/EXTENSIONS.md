@@ -887,6 +887,21 @@ Where no kit answers, the menu shows Fast greyed with "<runtime> offers no Fast
 tier". Service Tier Kit (Pi) and Codex Kit use it; neither puts Fast in the "…"
 menu any more.
 
+`registerComposerSendMode({ id, order?, read, subscribe })` (API 1.53.0)
+changes what the send button does for a thread. `read(snapshot)` answers like
+a speed's: the same object until something changes, `undefined` to send as
+usual, and the `subscribe` listener once the answer may differ. Its answer is
+`{ label, title?, busyLabel?, Icon?, beforeSend(actions), options? }`: core
+draws `label` in the accent pill in place of the arrow, and Enter or a click
+runs `beforeSend` once the prompt has passed every gate, showing `busyLabel`
+until it resolves; then the prompt goes. A rejection keeps the draft and
+shows its message; a prompt whose thread changed meanwhile stays in that
+thread's draft. `options` fill a menu behind a chevron beside the pill: each
+`{ id, label, detail?, run?, send? }` runs `run`, and with `send: true` then
+sends the draft as usual, past `beforeSend`. Core asks only for a thread's own
+composer at rest: never while it streams, answers a question or drafts a new
+thread. Resume Compaction uses it for "Compact and send".
+
 `registerRegion({ placement: "thread-title", … })` draws before the thread's
 title in the conversation header — a mark about the thread on screen, which
 reads the `snapshot` it is given. `title-bar` is the thread header's end,
@@ -2389,14 +2404,17 @@ Codex, Antigravity, OpenCode, Cursor and Grok keep theirs beside their session s
 (`codex-activity/`, `antigravity-activity/`, `opencode-activity/`, `cursor-activity/`,
 `grok-activity/`).
 
-`catalogView().contextUsage` is how full the thread's context window is. Since
+`catalogView().contextUsage` is how full the thread's context window is: the
+tokens the last model call read and wrote, never a sum over a turn's calls. Since
 API 1.21.0 it may also say when it was measured, `updatedAt` (ms since the
 epoch, the end of the turn it describes), and `promptCacheTtlMs`, how long the
 provider keeps that context in its prompt cache. A runtime that names the cache
 takes part in Resume Compaction (`kits/resume-compaction/`): once the context
-holds 100k tokens and has been idle for 70 minutes, a banner above the composer
-offers to compact the thread before the next turn writes all of it into the
-cache again. It calls `actions.compactContext()`, so a runtime that names the
+holds 100k tokens and has been idle for 70 minutes, the send button reads
+"Compact and send" (a `registerComposerSendMode`), so the next prompt compacts
+the thread first instead of writing all of it into the cache again; "Send with
+full history" in the menu beside it sends without. It calls
+`actions.compactContext()`, so a runtime that names the
 cache also offers the `compaction` capability group (`compact()`). Pi names it
 for a Claude model (five minutes, an hour with `PI_CACHE_RETENTION=long`) and
 dates the context by its last reply; the Agent SDK runtime names the CLI's one
@@ -2405,10 +2423,10 @@ restart still has it, and compacts by sending `/compact` as a turn of its own,
 whose `compact_boundary` gives the size it left. Resume Compaction's desktop
 half publishes `tau.resume-compaction/opt-out` (`turnOff(runtime)`, a backend
 kind with its instance): the Agent SDK runtime's desktop half calls it when
-the user answers the CLI's own resume question with "Don't ask again", and
-Settings → Resume compaction turns it back on. Both that list and "Keep full
-history" live in Tau's config (`values.tau.resume-compaction.off` and
-`.kept`), so they hold on every device.
+the user answers the CLI's own resume question with "Don't ask again", as
+does "Always send with full history" in the send button's menu, and Settings →
+Resume compaction turns it back on. That list lives in Tau's config
+(`values.tau.resume-compaction.off`), so it holds on every device.
 
 A compaction shows in the transcript as a divider (new in API 1.27.0): a
 `UiMessage` with role `notice`, a short text ("Context compacted") and
