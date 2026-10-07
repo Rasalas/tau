@@ -3,7 +3,8 @@ import type { UiSession } from "../shared/contracts";
 import { createMemoryStorage } from "./client-storage";
 import { createDraftKey } from "./composer-scope-store";
 import { createNewThreadDraft, draftKey, draftKeyOwner } from "./draft-store";
-import { EMPTY_STAGE, openFileTab } from "./stage";
+import { EMPTY_STAGE, closeTab, openFileTab, rememberClosedTab } from "./stage";
+import { decodeStageState } from "./workbench-layout-state";
 import { dockStateKey, stageStateKey, threadStageKey } from "./storage-keys";
 import { MAX_THREAD_STAGES, SETTLED_STAGE_AGE_MS, stageOwner, ThreadStages, type ThreadStage } from "./thread-stages";
 import { WorkbenchSession } from "./workbench-session";
@@ -151,5 +152,42 @@ describe("WorkbenchSession and stages", () => {
     session.stages.write("thread:t1", withTab);
     session.applyHostUpdate({ version: 1, type: "thread-shell", update: { sessionId: "t1", removed: true } });
     expect(session.stages.read("thread:t1")).toBeUndefined();
+  });
+});
+
+describe("recently closed tabs", () => {
+  it("keeps a thread's history after its last tab closed, and gives it back after switching away", () => {
+    const { stages } = store();
+    const open = openFileTab(EMPTY_STAGE, "src/a.ts", { pin: true });
+    const closed = rememberClosedTab(closeTab(open, "file:src/a.ts"), open.tabs[0]!, 5);
+    stages.write("thread:t1", { stage: closed, maximized: false, dock: { open: false } });
+    stages.read("thread:t2");
+    const back = stages.read("thread:t1");
+    expect(back?.stage.tabs).toEqual([]);
+    expect(back?.stage.closed).toEqual([{ tab: { ...open.tabs[0]!, preview: false }, closedAt: 5 }]);
+  });
+
+  it("is each thread's own", () => {
+    const { stages } = store();
+    const open = openFileTab(EMPTY_STAGE, "src/a.ts", { pin: true });
+    stages.write("thread:t1", { stage: rememberClosedTab(closeTab(open, "file:src/a.ts"), open.tabs[0]!, 1), maximized: false, dock: { open: false } });
+    expect(stages.read("thread:t2")).toBeUndefined();
+  });
+});
+
+describe("decodeStageState", () => {
+  it("drops a remembered panel, a broken entry and anything past twenty", () => {
+    const file = (index: number) => ({ tab: { id: `file:f${index}.ts`, kind: "file", path: `f${index}.ts`, view: "source", preview: true }, closedAt: index });
+    const decoded = decodeStageState({
+      tabs: [],
+      closed: [
+        { tab: { id: "panel:terminal", kind: "panel", panelId: "terminal", preview: false }, closedAt: 1 },
+        { tab: { id: "x" }, closedAt: 2 },
+        { tab: file(0).tab, closedAt: "yesterday" },
+        ...Array.from({ length: 25 }, (_, index) => file(index)),
+      ],
+    });
+    expect(decoded.closed).toHaveLength(20);
+    expect(decoded.closed?.every((entry) => entry.tab.kind === "file" && !entry.tab.preview)).toBe(true);
   });
 });

@@ -131,3 +131,8 @@ export async function tryProcessLock(path: string, owner: import("./process-lock
 export { findProjectForSession } from "../shared/session-project.js";
 
 export { shareableType, respondSharedFile } from "./shared-files.js";
+// OS secret stores keep values out of argv, files and runtime tool output.
+export { SecurityKeychain, SecretToolStore, runProcess, parseSecurityPassword, parseKeychainAccounts, securityWord, type ProcessResult, type RunOptions, type ProcessRunner, type SecretItem, type LabelledSecretItem, type SecretStore } from "./secret-store.js";
+
+// The transcript representation of a wake. New in API 1.52.0.
+export { wakeMessageText } from "../shared/message-turns.js";

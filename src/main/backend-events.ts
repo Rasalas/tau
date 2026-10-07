@@ -18,6 +18,8 @@ export interface BackendEventServices {
   toolEnded(sessionId: string, tool: UiToolRun, cwd: string): void;
   /** Republishes the thread's shell in the index: title, count, usage. */
   refreshShell(thread: ThreadRuntime, touch: boolean): Promise<void>;
+  /** Republishes the goal `capabilities.goals` holds now. */
+  refreshGoal(thread: ThreadRuntime): void;
   /** How the turn ended: why it failed, or undefined, and whether a provider limit stopped it. */
   turnSettled(sessionId: string, error: string | undefined, limit?: { resetsAt?: number }): void;
 }
@@ -107,6 +109,9 @@ export function handleBackendRuntimeEvent(event: ThreadRuntimeEvent, thread: Thr
       break;
     case "usage":
       services.refreshShell(thread, false).catch((error) => services.fail(error, sessionId));
+      break;
+    case "goal":
+      services.refreshGoal(thread);
       break;
     default: {
       const unhandled: never = event;

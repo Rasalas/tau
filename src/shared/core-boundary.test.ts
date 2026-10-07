@@ -106,6 +106,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./managed-workbench-source.js",   "./mcp-endpoint.js",   "./model-attribution.js",   "./model-login.js",   "./model-price-book.js",   "./models-config.js",   "./packaged-app.js",
   "./opencode-catalog.js",
   "./persisted-json.js",   "./persisted-transcript.js",   "./pi-bridge-client.js",
+  "./secret-store.js", // OS-store leaf shared by host kits; no runtime access to values.
   "./pi-host-components.js",   "./pi-host-options.js",   "./pi-host-support.js",   "./pi-host.js",
   "./pi-kit-extensions.js",   "./pi-model-runtime.js",   "./pi-session-dir.js",   "./platform-process.js",   "./process-lock.js",
   "./project-facts-cache.js",   "./project-history.js",   "./project-icon.js",   "./remote-host-trust.js",
@@ -121,7 +122,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./agent-session-control.js",   "./thread-runtime-backend.js",   "./thread-runtime-lifecycle.js",   "./thread-runtime.js",
   "./thread-runtimes.js",   "./thread-trash.js",   "./tool-output-batcher.js",   "./transcript-cursor.js",
   "./turn-delivery.js",   "./turn-reconciliation.js",   "./turns-in-flight.js",   "./unavailable-thread-backend.js",
-  "./queued-messages.js",   "./quit-shortcut.js",   "./release-notes.js",   "./thread-limits.js",   "./turn-settlement.js",   "./provider-limits.js",
+  "./queued-messages.js",   "./thread-stop.js",   "./quit-shortcut.js",   "./release-notes.js",   "./thread-limits.js",   "./turn-settlement.js",   "./provider-limits.js",
   "./user-themes.js",   "./workbench-build.js",
   "./workbench-reload-coordinator.js",   "./workbench-reloader.js",   "./workbench-source.js",
   // Lucide icons drawn as template images for native menus (K136).

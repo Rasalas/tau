@@ -71,7 +71,27 @@ The document area of the workbench beside the conversation. It shows workspace f
 
 ## Stage tab
 
-One open document in the stage. A preview tab comes from a single click and is replaced by the next preview; a pinned tab stays until closed.
+One open document in the stage. A preview tab comes from a single click and is replaced by the next preview; a pinned tab stays until closed. Each stage remembers the last twenty tabs closed on it; reopening one brings back a file or thread as it was, and a terminal as a new shell in the thread's folder, never the process it showed.
+
+## Wake
+
+A turn something other than the user started: a pull request event, a goal's next turn, a schedule. An external event waits in the thread's queue and never interrupts a turn; the transcript shows it as a wake line, not as the user's message. Stop drops the wakes that still wait and ends what would send more; the user's own queued messages stay.
+
+## Goal
+
+An objective a thread's runtime pursues across turns of its own until a check says it is met. The runtime keeps it; Tau shows it and offers pause, resume and end where the runtime can. A goal is met only when the runtime said so; one whose run ended without a verdict is not confirmed. Stop pauses it before the run stops where the runtime supports pausing; otherwise the goal stays set until ended.
+
+## Automation
+
+Saved work for a project, started at a configured time or by a signed webhook. Each run creates an ordinary thread that the user can inspect, steer or stop. Uncertain starts require a decision before repeating the work.
+
+## Pull request watch
+
+A thread's ongoing observation of a pull request. Changes to checks, comments, reviews or branch conflicts can wake the thread; closing or merging ends the watch. Watching does not grant permission to merge.
+
+## Private secret request
+
+A request for a value needed by a specific host tool in a project. The user supplies it privately; the agent receives a reference to the tool's binding, never the value itself.
 
 ## App page
 

@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { SessionManager, type SessionInfo } from "@earendil-works/pi-coding-agent";
-import type { HostEvent, ThreadIndexSnapshot, UiProject, UiQueuedMessage, UiSession, UiThreadLimit, UiThreadUsage } from "../shared/contracts.js";
+import type { HostEvent, ThreadIndexSnapshot, UiProject, UiQueuedMessage, UiSession, UiThreadGoal, UiThreadLimit, UiThreadUsage } from "../shared/contracts.js";
 import { HOST_PROTOCOL_VERSION, type HostUpdate } from "../shared/host-protocol.js";
 import type { HostLogger } from "./host-log.js";
 import {
@@ -96,6 +96,7 @@ export class ThreadIndex {
   private readonly runtimeErrors = new Map<string, string>();
   /** Threads a provider limit stopped, until they run again. */
   private readonly limits = new Map<string, UiThreadLimit>();
+  private readonly goals = new Map<string, UiThreadGoal>();
   /** The host's queue of each thread that has one. */
   private readonly queues = new Map<string, { messages: UiQueuedMessage[]; held: boolean }>();
   private scan?: Promise<{ previous: readonly UiSession[]; next: UiSession[]; projectsChanged: boolean }>;
@@ -474,6 +475,11 @@ export class ThreadIndex {
     this.setMark(this.limits, sessionId, limit);
   }
 
+  /** The goal the thread's runtime pursues, or none (undefined). */
+  setGoal(sessionId: string, goal: UiThreadGoal | undefined): void {
+    this.setMark(this.goals, sessionId, goal);
+  }
+
   /** What waits in the thread's queue, or nothing (undefined). */
   setQueue(sessionId: string, queue: { messages: UiQueuedMessage[]; held: boolean } | undefined): void {
     this.setMark(this.queues, sessionId, queue);
@@ -500,6 +506,7 @@ export class ThreadIndex {
       ...(this.turnErrors.has(session.id) ? { turnError: this.turnErrors.get(session.id) } : {}),
       ...(this.runtimeErrors.has(session.id) ? { runtimeError: this.runtimeErrors.get(session.id) } : {}),
       ...(this.limits.has(session.id) ? { limit: this.limits.get(session.id) } : {}),
+      ...(this.goals.has(session.id) ? { goal: this.goals.get(session.id) } : {}),
       ...(this.queues.has(session.id) ? { queued: this.queues.get(session.id)!.messages, ...(this.queues.get(session.id)!.held ? { queueHeld: true } : {}) } : {}),
     };
   }

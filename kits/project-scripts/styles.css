@@ -18,7 +18,7 @@
 /* The worktree setup of a new thread, step by step, under its transcript. */
 .project-scripts-setups { flex: none; padding: 0 32px 8px; background: var(--stage); }
 .project-scripts-setup {
-  max-width: 780px; margin: 0 auto; padding: 8px 10px 6px;
+  max-width: var(--content-max, 780px); margin: 0 auto; padding: 8px 10px 6px;
   border: 1px solid var(--line-card); border-radius: var(--radius-md); background: var(--raised);
   font-size: calc(var(--text-sm) + .5px); color: var(--ink-3);
 }

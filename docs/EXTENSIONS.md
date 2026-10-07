@@ -543,6 +543,19 @@ front on the document's ground and joined to what it shows, each tab its glyph
 and title, a file with uncommitted changes marked "M", a tab with unsaved work
 a dot (`setDirty`), a panel its count (`useBadge`). Tabs keep their width and
 the strip scrolls; once some are out of view, "All tabs" lists them.
+
+Each thread's stage keeps the last 20 tabs the user closed there, with its
+tabs, and `mod+shift+t` ("Reopen closed tab", `workbench.reopen-stage-tab`)
+or "All tabs" → "Recently closed" brings one back (new in API 1.52.0). A file
+or thread tab comes back as it was, pinned; a panel is never listed, since
+closing its tab only puts it back into the dock. A tab of your kind is listed
+only when the kind answers `reopenParams(params)`: plain JSON of at most
+4 KiB to open a fresh tab with, never a process, connection or session handle
+(core checks the round trip and drops anything else). `reopen(params,
+actions)` opens that fresh tab where your kind needs more than
+`openStageTab(kind, params)`, and `reopenHint` is the line "Recently closed"
+shows under it. Terminal Kit keeps only the tab's name and starts a new shell
+in the thread's folder; Review Kit keeps a request's address.
 The tab strip's own gestures are core's: double-click pins a preview, the
 middle button and Escape close, `mod+w` closes the active tab, `ctrl+tab` and
 `ctrl+shift+tab` move through them, and the right-click menu offers close,
@@ -2769,7 +2782,20 @@ thread's turn ends. `from` names the thread that sent it, so the queue can say
 where a message came from. A thread whose runtime the host released is
 reopened off screen first. `services.sessions.abort(sessionId)` stops a
 thread's running turn, as the stop button does; what the thread had queued
-then waits for the user. Agents Kit's `tau_send_to_thread` and
+then waits for the user.
+
+`wake: { source, label }` in `send`'s options (new in API 1.52.0) marks a
+message that something other than the user sent: a pull request event, a
+schedule. It needs `delivery: "queue"` — a wake never steers and never
+interrupts a turn — and is delivered with its line in front
+(`wakeMessageText`, exported from `tau/host-extension`), which the transcript
+draws as a wake line instead of the user's bubble and which starts no
+numbered turn. `source` picks the icon (`pull-request`, `goal`, `automation`);
+`label` is the line ("Woken by PR #42 · check smoke failed"), at most 160
+characters. Stop drops every wake that still waits, synchronously, before the
+run is aborted; the user's own queued messages stay. A wake the thread
+refused is not queued again: the kit wakes the thread again if it still
+should. Agents Kit's `tau_send_to_thread` and
 `tau_cancel_thread` are built on these two, and so is the message that wakes a
 parent when a child it was not waiting for finished.
 
@@ -3147,6 +3173,40 @@ that way.
 `HostTurnObserver` brackets the turns of every thread the host drives:
 `accepted`, `prepare`, `cancelled`, `ended`, `pending`, `reset`, `closed` and
 `toolEnded`. `closed` is a released runtime, not a deleted thread.
+
+`stopped(sessionId)` (new in API 1.52.0) hears the user's Stop and a kit's
+`sessions.abort`, never a shutdown, a reload or the host's own repairs. By
+then the thread's waiting wakes are gone; the run is aborted right after the
+thread's goal paused, while the observers answer (two seconds at most each).
+End what would wake the thread again — a watch, a pending request — and
+answer short phrases of what you ended (`["stopped watching PR #42"]`), or
+`{ stopped, continues }` where work of yours goes on and may still wake it
+(`continues: ["2 sub-agents keep running and report back when they finish"]`).
+The host joins every answer into one status line under the stopped turn:
+"Stopped · goal paused · stopped watching PR #42. Nothing wakes this thread
+until you start it again." — that last sentence only when nothing continues.
+
+### A runtime's native goal: `capabilities.goals` (new in API 1.52.0)
+
+A runtime backend that pursues a goal across turns of its own offers
+`ThreadGoalCapability`: `current()`, `set(objective)`, `pause()`, `resume()`,
+`clear()` and optionally `dismiss()`. The runtime keeps the goal and starts its
+turns; Tau never loops prompts for it. `set` and `resume` may answer
+`{ prompt }`, the text the host sends as the goal's first turn (Claude Code's
+`/goal …`); otherwise the host sends the objective. Report every change as a
+`{ type: "goal" }` runtime event; the host publishes `current()` as
+`UiSession.goal` and the catalog's `goals` flag. `UiThreadGoal.status` is
+`active`, `paused`, `blocked`, `usage-limited`, `budget-limited`, `complete`
+or `unconfirmed`; `actions` says whether the runtime can pause or resume at
+all. Answer `complete` only for a verdict the runtime gave, and `unconfirmed`
+when the run ended without one. Stop pauses an active goal before the run is
+aborted, where `actions.pause` allows it. The workbench draws the goal as a
+pill over the composer and offers `/goal <objective> | pause | resume | end`;
+the host method is `thread-goal` (write access). Codex Kit maps
+`thread/goal/*` (codex-cli 0.160, `features.goals`) and keeps one run across
+Codex's own goal turns; a CLI without the methods, or a thread restricted to
+some tools, offers no goals. Claude Code Kit sends `/goal …` and `/goal
+clear`, follows the SDK's `active_goal` frames, and has no pause.
 
 ### Who is attached: `services.clients`
 

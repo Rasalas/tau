@@ -171,6 +171,11 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
           void client?.abort(options.threadStore.getSnapshot().activeThreadId || undefined);
         }
       },
+      threadGoal: async (action, objective) => {
+        const sessionId = options.threadStore.getSnapshot().activeThreadId;
+        if (!client || !sessionId) throw new Error("Open a thread first.");
+        await client.threadGoal(sessionId, action, objective);
+      },
       restartAgentSession: options.threadCommands.restartAgentSession,
       reloadWorkbench,
       openWorkbenchSource: async () => {
@@ -205,6 +210,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       openProjectSources: options.openProjectSources,
       applyHostResult,
       closeActiveStageTab: stageTabs.closeActive,
+      reopenStageTab: stageTabs.reopen,
       cycleStageTab,
       splitStage: stageTabs.split,
       openStageTab: stageTabs.open,

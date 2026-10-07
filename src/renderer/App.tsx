@@ -197,7 +197,7 @@ export default function App() {
   // Stage tabs a kit drew: their handles, and the one door that closes a tab.
   // A document opened beside the chat takes the tool that filled that space into the tabs.
   const revealDocuments = useRef(() => {});
-  const stageTabs = useStageTabs({ registry, registryVersion, stage, setStage, onOpen: () => revealDocuments.current() });
+  const stageTabs = useStageTabs({ registry, registryVersion, stage, setStage, onOpen: () => revealDocuments.current(), actions: () => actionsRef.current });
   // Where the centre is too narrow for chat and stage side by side, the one in front.
   const [chatFocused, setChatFocused] = useState(false);
   // Another thread's chat is what was asked for, beside its stage even if that was maximized; a restart keeps it.
@@ -313,7 +313,8 @@ export default function App() {
   const queueRef = useRef(queue);
   queueRef.current = queue;
   const steerQueuedMessage = useCallback(() => {
-    const head = queueRef.current[0];
+    // A wake never steers: the oldest of the user's own goes.
+    const head = queueRef.current.find((entry) => !entry.wake);
     if (head) void steerQueued(head.id);
     return Boolean(head);
   }, [steerQueued]);

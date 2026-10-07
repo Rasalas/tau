@@ -132,6 +132,9 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
       };
       const commit = (next: StoredState) => {
         if (next === state) return;
+        const settled = Object.entries(next.threads).filter(([id, meta]) => !owner(id) && meta.settledAt && !state.threads[id]?.settledAt).map(([id]) => id);
+        const restored = Object.entries(state.threads).filter(([id, meta]) => !owner(id) && meta.settledAt && !next.threads[id]?.settledAt).map(([id]) => id);
+        if (settled.length || restored.length) void context.invokeHostExtension(REVIEW_EXTENSION_ID, "watch-shelf", { settled, restored }).catch(() => undefined);
         state = next;
         persist();
         context.emit(META_EVENT, publicState());

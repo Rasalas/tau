@@ -39,6 +39,7 @@ function makeServices() {
     pushToolOutput: vi.fn(),
     toolEnded: vi.fn(),
     refreshShell: vi.fn(async () => undefined),
+    refreshGoal: vi.fn(),
     turnSettled: vi.fn(),
   };
   return { services, events, updates, logs, setStreaming: (value: boolean) => { snapshotStreaming = value; } };

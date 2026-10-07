@@ -38,6 +38,7 @@ import { TranscriptHistoryBoundary } from "./components/TranscriptHistoryBoundar
 import { TranscriptViewport } from "./components/TranscriptViewport";
 import { JumpToLatestButton, JumpToLatestStore } from "./components/JumpToLatest";
 import { TaskPill } from "./components/TaskProgress";
+import { ActiveGoalPill } from "./components/GoalPill";
 import { useConversationActivities } from "./conversation-activities";
 import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
 import type { ExtensionRegistry, TranscriptTurn, WorkbenchActions } from "./extension-system";
@@ -847,7 +848,16 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                 placement="composer-controls"
                 snapshot={snapshot}
                 actions={actions}
-                lead={conversationSnapshot?.taskProgress ? <TaskPill progress={conversationSnapshot.taskProgress} /> : undefined}
+                lead={<>
+                  {conversationSnapshot?.taskProgress ? <TaskPill progress={conversationSnapshot.taskProgress} /> : null}
+                  <ActiveGoalPill
+                    sessionId={conversationSnapshot?.sessionId}
+                    supported={Boolean(conversationSnapshot?.goals)}
+                    runtime={snapshot?.runtimeBackends?.find((backend) => backend.kind === conversationSnapshot?.backendKind)?.label ?? "The runtime"}
+                    readOnly={hostCapabilities.readOnly}
+                    onAction={(action) => actions.threadGoal?.(action) ?? Promise.resolve()}
+                  />
+                </>}
               >
                 <JumpToLatestButton store={jumpToLatest} onKeyboardJump={() => actions.focusComposer()} />
               </Region>
@@ -928,6 +938,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               loadThread={loadThread}
               onActivate={activateStageTab}
               onClose={stageTabs.close}
+              onReopen={(id) => { stageTabs.reopen(id); }}
               onPin={pinStageTab}
               onUnpin={unpinStageTab}
               onCloseOthers={stageTabs.closeOthers}
@@ -1160,6 +1171,9 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
   const settled = !pendingNewThread && !conversationSnapshot?.isStreaming;
   const limit = settled ? shell?.limit : undefined;
   const error = settled ? shell?.turnError : undefined;
+  // Stop says what it ends besides the turn; the status line afterwards names the rest.
+  const goal = shell?.goal;
+  const stopHint = goal?.status === "active" ? goal.actions.pause ? "Stop the run and pause the goal" : "Stop the run; the goal stays set" : undefined;
   const notice = conversationSnapshot && (limit || error) ? <Suspense fallback={null}><LazyComposerNotice
     sessionId={conversationSnapshot.sessionId}
     limit={limit}
@@ -1209,6 +1223,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     newThread={pendingNewThread}
     lead={lead}
     notice={notice}
+    stopHint={stopHint}
     prompt={prompts[0]}
     promptsPending={Math.max(0, prompts.length - 1)}
     onAnswerPrompt={(value, typed, attachments) => {

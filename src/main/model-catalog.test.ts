@@ -146,7 +146,7 @@ describe("the catalog in Pi", () => {
     expect(added[0]).toMatchObject({ api: astra.api, baseUrl: astra.baseUrl, name: futureModel.name, contextWindow: 400_000, maxTokens: astra.maxTokens, cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 0 } });
     expect(added[0]!.thinkingLevelMap).toMatchObject({ minimal: null, xhigh: null, max: null, medium: astra.thinkingLevelMap?.medium });
     const wrapped = withModelCatalog(codex, catalog)!;
-    expect(wrapped.getAllModels!()).toEqual([...(codex.getAllModels?.() ?? codex.getModels()), ...added]);
+    expect(wrapped.getModels()).toEqual([...codex.getModels(), ...added]);
     expect(wrapped.getModels().filter((model) => model.id === "gpt-6-astra")).toEqual([astra]);
     expect(withoutModelCatalog(wrapped)).toBe(codex);
     expect(withModelCatalog(runtime.getProvider("anthropic")!, catalog)).toBeUndefined();
@@ -181,4 +181,3 @@ describe("catalog/models.json", () => {
     }
   });
 });
-

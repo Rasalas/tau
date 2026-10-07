@@ -1,5 +1,5 @@
 import type { ClientStorage } from "./client-storage";
-import { EMPTY_STAGE, type StageState, type StageTab } from "./stage";
+import { EMPTY_STAGE, MAX_CLOSED_TABS, type ClosedStageTab, type StageState, type StageTab } from "./stage";
 import { dockStateKey, stageStateKey } from "./storage-keys";
 
 /**
@@ -88,14 +88,26 @@ function decodeTab(value: unknown): StageTab | undefined {
 }
 
 export function decodeStageState(value: unknown): StageState {
-  const stored = value as { tabs?: unknown; activeId?: unknown; splitId?: unknown } | undefined;
-  if (!Array.isArray(stored?.tabs)) return EMPTY_STAGE;
-  const tabs = stored.tabs.flatMap((entry) => { const tab = decodeTab(entry); return tab ? [tab] : []; });
-  if (tabs.length === 0) return EMPTY_STAGE;
-  const activeId = typeof stored.activeId === "string" && tabs.some((tab) => tab.id === stored.activeId)
+  const stored = value as { tabs?: unknown; activeId?: unknown; splitId?: unknown; closed?: unknown } | undefined;
+  const closed = decodeClosedTabs(stored?.closed);
+  const history = closed.length > 0 ? { closed } : {};
+  const tabs = Array.isArray(stored?.tabs) ? stored.tabs.flatMap((entry) => { const tab = decodeTab(entry); return tab ? [tab] : []; }) : [];
+  if (tabs.length === 0) return closed.length > 0 ? { tabs: [], ...history } : EMPTY_STAGE;
+  const activeId = typeof stored?.activeId === "string" && tabs.some((tab) => tab.id === stored.activeId)
     ? stored.activeId
     : tabs[0].id;
-  return { tabs, activeId, splitId: tabs.find((tab) => tab.id === stored.splitId && tab.id !== activeId)?.id };
+  return { tabs, activeId, splitId: tabs.find((tab) => tab.id === stored?.splitId && tab.id !== activeId)?.id, ...history };
+}
+
+/** "Recently closed": panels never, and at most the newest twenty. */
+function decodeClosedTabs(value: unknown): ClosedStageTab[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry): ClosedStageTab[] => {
+    const item = entry as { tab?: unknown; closedAt?: unknown } | undefined;
+    const tab = decodeTab(item?.tab);
+    if (!tab || tab.kind === "panel" || typeof item?.closedAt !== "number" || !Number.isFinite(item.closedAt)) return [];
+    return [{ tab: { ...tab, preview: false }, closedAt: item.closedAt }];
+  }).slice(0, MAX_CLOSED_TABS);
 }
 
 /** The stage a project kept before stages were per thread (`tau.stage.v1`). */

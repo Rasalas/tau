@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { QueuedMessages, type QueuedMessage, type QueuedMessagesView } from "./queued-messages.js";
+import { QueuedMessages, markWake, type QueuedMessage, type QueuedMessagesView } from "./queued-messages.js";
 
 const dirs: string[] = [];
 afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
@@ -130,5 +130,63 @@ describe("QueuedMessages", () => {
     queue.freeze();
     await settle("t");
     expect(delivered).toEqual([]);
+  });
+
+  describe("wakes", () => {
+    const wake = (label: string) => ({ ...markWake(`Check ${label} failed.`, { source: "pull-request", label }), attachments: [] });
+
+    it("delivers a wake with its line in front and keeps its mark in the view and the file", async () => {
+      const file = await tempFile();
+      const { queue, busy, delivered, published, settle } = bench(file);
+      busy.add("t");
+      queue.add("t", wake("Woken by PR #42 · check smoke failed"));
+      expect(published.get("t")?.messages[0]?.wake).toEqual({ source: "pull-request", label: "Woken by PR #42 · check smoke failed" });
+      await queue.flush();
+      expect(JSON.parse(await readFile(file, "utf8")).threads.t[0].wake.source).toBe("pull-request");
+      await settle("t");
+      expect(delivered[0]?.text).toBe("[Tau wake: pull-request] Woken by PR #42 · check smoke failed\n\nCheck Woken by PR #42 · check smoke failed failed.");
+      // The delivery writes the file again; the directory goes only once it has.
+      await queue.flush();
+    });
+
+    it("drops waiting wakes at once and leaves the user's messages in their order", () => {
+      const { queue, busy, published } = bench();
+      busy.add("t");
+      queue.add("t", text("mine"));
+      queue.add("t", wake("PR #1"));
+      queue.add("t", text("also mine"));
+      const dropped = queue.dropWakes("t");
+      expect(dropped.map((message) => message.wake?.label)).toEqual(["PR #1"]);
+      expect(published.get("t")?.messages.map((message) => message.text)).toEqual(["mine", "also mine"]);
+    });
+
+    it("hands the user's messages back without the wakes, so Stop still finds them", () => {
+      const { queue, busy } = bench();
+      busy.add("t");
+      queue.add("t", text("mine"));
+      queue.add("t", wake("PR #1"));
+      expect(queue.take("t").map((message) => message.text)).toEqual(["mine"]);
+      expect(queue.dropWakes("t")).toHaveLength(1);
+      expect(queue.list("t")).toEqual([]);
+    });
+
+    it("never queues a refused wake again; a refused message of the user's is held", async () => {
+      const { queue, published, refuseWith } = bench();
+      refuseWith("busy starting");
+      queue.add("t", wake("PR #1"));
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(published.get("t")).toBeUndefined();
+      queue.add("t", text("mine"));
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(published.get("t")).toEqual({ messages: [expect.objectContaining({ text: "mine" })], held: true });
+    });
+
+    it("bounds what a kit names a wake", () => {
+      const marked = markWake("body", { source: "a-very-long-source-name-that-goes-on-and-on", label: `  two\nlines ${"x".repeat(300)}` });
+      expect(marked.wake?.source.length).toBeLessThanOrEqual(32);
+      expect(marked.wake?.label.startsWith("two lines")).toBe(true);
+      expect(marked.wake!.label.length).toBeLessThanOrEqual(160);
+      expect(markWake("plain", undefined)).toEqual({ text: "plain" });
+    });
   });
 });

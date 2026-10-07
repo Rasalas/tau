@@ -280,7 +280,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "take-queued": async (params) => (await host()).queue.take(
       decodeString("take-queued", "sessionId", params[0]),
       decodeOptionalString("take-queued", "id", params[1]),
-    ).map(({ id, text, attachments, skillDraft }) => ({ id, text, attachments, ...(skillDraft ? { skillDraft } : {}) })),
+    ).map(({ id, text, attachments, skillDraft, wake }) => ({ id, text, attachments, ...(skillDraft ? { skillDraft } : {}), ...(wake ? { wake } : {}) })),
     "move-queued": async (params) => (await host()).queue.move(
       decodeString("move-queued", "sessionId", params[0]),
       decodeString("move-queued", "id", params[1]),
@@ -295,6 +295,14 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       if (when === "reset") return void limits.resumeAtReset(sessionId);
       if (when === "cancel") return limits.cancelResume(sessionId);
       throw new Error('resume-limited: "when" must be "now", "reset" or "cancel".');
+    },
+    // A thread's native goal: set it, pause, resume, end it, or forget one that ended.
+    "thread-goal": async (params) => {
+      const sessionId = decodeString("thread-goal", "sessionId", params[0]);
+      const action = decodeString("thread-goal", "action", params[1]);
+      if (!["set", "pause", "resume", "clear", "dismiss"].includes(action)) throw new Error('thread-goal: "action" must be set, pause, resume, clear or dismiss.');
+      const objective = decodeOptionalText("thread-goal", "objective", params[2]);
+      return (await host()).threadGoal(sessionId, action as "set" | "pause" | "resume" | "clear" | "dismiss", objective);
     },
     // Stopping must not queue behind host readiness: a thread stuck on a question
     // is exactly what the user is trying to get out of.

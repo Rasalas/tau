@@ -311,15 +311,17 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
       );
       input.onAdmitted?.(true);
     } else {
-      // Pi reports started, queued, or handled only after acceptance. A
-      // refusal throws without calling the hook; preserve that error for
-      // the host. Acceptance does not wait for the agent run to finish.
+      // Pi reports successful preflight for started, queued or handled work.
+      // A failed preflight precedes its exception; preserve that reason for
+      // the host instead of reporting acceptance. Admission does not wait
+      // for the agent run to finish.
       let admitted = false;
       try {
         await this.session.prompt(prepared.runtimeText, {
           images,
           streamingBehavior: input.queued ? "followUp" : undefined,
-          ...(input.onAdmitted ? { preflightResult: () => {
+          ...(input.onAdmitted ? { preflightResult: (success) => {
+            if (!success) return;
             admitted = true;
             input.onAdmitted?.(true);
           } } : {}),

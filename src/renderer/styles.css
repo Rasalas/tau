@@ -447,6 +447,19 @@ button > svg { pointer-events: none; }
 .conversation-column {
   display: flex; flex-direction: column; min-width: 0; min-height: 0;
   position: relative; background: var(--stage);
+  /* One content frame for transcript, dock regions and composer. Percentages resolve on the box that uses them,
+     which is the column's width for each region: 32 px beside it, 12 px once the column is 560 px or narrower. */
+  --content-max: 780px;
+  --content-inset: clamp(12px, (100% - 560px) * 1000, 32px);
+  --composer-inset: max(var(--content-inset), calc((100% - var(--content-max)) / 2));
+  /* The transcript's scrollbar lane, kept on both sides so its text stays centred over the composer. */
+  --scrollbar-lane: 8px;
+}
+/* Touch scrolls without a bar: none is drawn or reserved, so the transcript keeps the composer's edges there too. */
+@media (pointer: coarse) {
+  .conversation-column { --scrollbar-lane: 0px; }
+  .conversation-column .transcript { scrollbar-gutter: auto; scrollbar-width: none; }
+  .conversation-column .transcript::-webkit-scrollbar { width: 0; height: 0; }
 }
 .conversation-thread {
   order: 1; display: flex; flex: 1; min-width: 0; min-height: 0;
@@ -549,7 +562,7 @@ body:not([data-profile="compact"]) .conversation-start .composer-zone { padding-
  */
 .conversation-column:not(.conversation-start) .conversation-composer-host {
   pointer-events: none;
-  background: linear-gradient(to bottom, transparent, var(--stage) 14px) center bottom / min(calc(100% - 24px), 812px) 100% no-repeat;
+  background: linear-gradient(to bottom, transparent, var(--stage) 14px) center bottom / min(calc(100% - 24px), calc(var(--content-max) + 32px)) 100% no-repeat;
 }
 .conversation-column:not(.conversation-start) .conversation-composer-host .composer-surface { pointer-events: auto; }
 .conversation-column:not(.conversation-start) .region-composer-below { grid-row: below / span 1; }
@@ -595,7 +608,8 @@ body:not([data-profile="compact"]) .conversation-start .composer-zone { padding-
 .transcript {
   position: relative; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
   overflow-anchor: none; overscroll-behavior-x: none; overscroll-behavior-y: contain;
-  padding: calc(26px * var(--density)) var(--space-8) var(--space-5); outline: none;
+  padding: calc(26px * var(--density)) max(0px, var(--content-inset) - var(--scrollbar-lane)) var(--space-5); outline: none;
+  scrollbar-gutter: stable both-edges;
 }
 /* Fade before the complete dock, including its pills. Keep the scrollbar lane visible,
  * as T3 Code's virtualized scroll masks do. The end spacer alone cannot hide text while scrolling. */
@@ -629,7 +643,7 @@ body:not([data-profile="compact"]) .conversation-start .composer-zone { padding-
   background: var(--raised); color: var(--ink);
 }
 .transcript:focus-visible { box-shadow: inset 0 0 0 1px var(--line-strong); }
-.transcript-inner { max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; }
+.transcript-inner { max-width: var(--content-max); margin: 0 auto; display: flex; flex-direction: column; }
 /* The dock lies over the transcript's end; this keeps the last line above it (ComposerReserve). */
 .transcript-inner::after { content: ""; flex: none; height: var(--composer-reserve, 0px); }
 /* The older turns' line lives in the scroller's top padding and takes no height, so nothing moves when it comes or goes. */
@@ -924,6 +938,28 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
   color: var(--muted); font: var(--text-xs)/1.35 var(--mono); white-space: pre-wrap; word-break: break-word;
 }
 
+/* A turn something other than the user started (a PR event, a goal's next turn): a centred line between hairlines. */
+.wake-line { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 6px 0; color: var(--muted); }
+.wake-line-row { display: flex; align-items: center; gap: 8px; }
+.wake-line-row::before, .wake-line-row::after { content: ""; flex: 1 1 24px; height: 1px; background: var(--line); }
+.wake-line-row > :is(button, .wake-line-label) {
+  flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 7px; padding: 2px 6px;
+  border: 0; border-radius: 6px; background: none; color: inherit; font: 500 var(--text-xs) var(--sans);
+}
+.wake-line-row > button { cursor: pointer; }
+.wake-line-row > button:hover { background: var(--raised); color: var(--ink-2); }
+.wake-line-row > button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.wake-line-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wake-line-row time { flex: none; color: var(--faint); font-variant-numeric: tabular-nums; }
+.wake-icon { flex: none; color: var(--ink-3); }
+.wake-chevron { flex: none; color: var(--faint); transition: transform 120ms ease; }
+[aria-expanded="true"] > .wake-chevron { transform: rotate(90deg); }
+.wake-line-detail {
+  margin: 0 auto; width: min(100%, 560px); box-sizing: border-box; padding: 10px 12px; max-height: 240px; overflow: auto;
+  border-left: 2px solid var(--line-strong); background: var(--chrome);
+  color: var(--muted); font: var(--text-xs)/1.4 var(--mono); white-space: pre-wrap; word-break: break-word;
+}
+@media (prefers-reduced-motion: reduce) { .wake-chevron { transition: none; } }
 
 /* ------------------------------------------------------------- markdown */
 
@@ -1176,6 +1212,19 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 .queued-message-grip { cursor: grab; color: var(--faint); }
 .queued-message.dragging .queued-message-grip { cursor: grabbing; }
 .queued-message-status { display: inline-flex; align-items: center; gap: 4px; margin-left: 2px; }
+/* A wake waits as one quiet row, never a bubble of the user's. */
+.queued-message.queued-wake {
+  min-width: 0; max-width: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px;
+  border-radius: 10px; font-size: var(--text-sm); line-height: 1.3;
+}
+.queued-wake-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); }
+.queued-wake > .queued-message-status { flex: none; color: var(--faint); font-size: var(--text-xs); }
+.queued-wake > button {
+  flex: none; display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.queued-wake > button:hover { background: var(--raised); color: var(--ink); }
+@media (pointer: coarse) { .queued-wake > button { width: var(--touch-target); height: var(--touch-target); } }
 
 /* --------------------------------------------------------------- tasks */
 
@@ -1209,6 +1258,37 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 }
 /* The pill's list: a card like the turn's changes beside it. */
 .popover.task-progress-popover { width: min(560px, calc(100vw - 32px)); padding: 0; overflow: hidden; }
+/* A goal's pill: blue only while it runs, amber when it waits on the user, green only when the runtime confirmed it. */
+.control-pill.goal-pill.running > svg { color: var(--info); }
+.control-pill.goal-pill.waiting { color: var(--warn); border-color: var(--warn-line); }
+.control-pill.goal-pill.waiting > svg { color: var(--warn); }
+.control-pill.goal-pill.done > svg { color: var(--done); }
+.goal-pill-tokens { color: var(--muted); font-variant-numeric: tabular-nums; }
+.popover.goal-popover { width: min(400px, calc(100vw - 32px)); padding: 0; }
+.goal-popover-body { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; outline: none; }
+.goal-popover-head { display: flex; align-items: center; gap: 7px; }
+.goal-popover-head > svg { flex: none; width: 15px; height: 15px; color: var(--ink-3); }
+.goal-popover-body.running .goal-popover-head > svg { color: var(--info); }
+.goal-popover-body.waiting .goal-popover-head > svg { color: var(--warn); }
+.goal-popover-body.done .goal-popover-head > svg { color: var(--done); }
+.goal-popover-head > strong { font-size: var(--text-sm); font-weight: 700; color: var(--ink); }
+.goal-objective { margin: 0; color: var(--ink-2); font: var(--text-md)/1.45 var(--sans); overflow-wrap: anywhere; max-height: 7.5em; overflow: auto; }
+.goal-facts { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: var(--text-sm); }
+.goal-facts > dt { color: var(--muted); }
+.goal-facts > dd { margin: 0; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.goal-explanation, .goal-reason, .goal-read-only { margin: 0; color: var(--muted); font: var(--text-sm)/1.45 var(--sans); }
+.goal-reason { padding-left: 8px; border-left: 2px solid var(--line-strong); overflow-wrap: anywhere; }
+.goal-error { margin: 0; color: var(--danger); font: var(--text-sm)/1.45 var(--sans); }
+.goal-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+.goal-actions > button {
+  height: 28px; padding: 0 12px; border: 1px solid var(--line-control); border-radius: 99px;
+  background: transparent; color: var(--ink-2); font: 500 var(--text-sm) var(--sans); cursor: pointer;
+}
+.goal-actions > button:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
+.goal-actions > button.primary { border-color: transparent; background: var(--acid); color: var(--acid-ink); }
+.goal-actions > button:disabled { opacity: .55; cursor: default; }
+.goal-actions > button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+@media (pointer: coarse) { .goal-actions > button { height: var(--touch-target); padding: 0 16px; } }
 .task-progress-head {
   display: flex; align-items: center; gap: 9px; min-height: 42px; padding: 0 13px;
   border-bottom: 1px solid var(--line-inset);
@@ -1228,9 +1308,8 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 
 /* ------------------------------------------------------------- composer */
 
-.conversation-column { --composer-inset: max(32px, calc((100% - 780px) / 2)); }
-.composer-zone { flex: none; padding: 14px 32px 16px; }
-.composer-surface { width: 100%; max-width: 780px; margin: 0 auto; }
+.composer-zone { flex: none; padding: 14px var(--content-inset) 16px; }
+.composer-surface { width: 100%; max-width: var(--content-max); margin: 0 auto; }
 .composer-read-only {
   display: flex; align-items: center; gap: 8px; padding: 10px 14px;
   border: 1px dashed var(--line-strong); border-radius: var(--radius-lg); color: var(--muted); font-size: 12.5px; line-height: 1.45;
@@ -1239,7 +1318,7 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 
 /* Filled and edgeless, as the design draws it; an edge shows only while answering a question. */
 .composer-frame {
-  max-width: 780px; margin: 0 auto; position: relative;
+  max-width: var(--content-max); margin: 0 auto; position: relative;
   border: 1px solid transparent; border-radius: var(--radius-lg);
   background: var(--field);
 }
@@ -1570,10 +1649,10 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .prompt-arrival { display: contents; }
 .prompt-arrival.waiting > * { opacity: .55; transition: opacity .2s var(--ease); }
 /* Part of the card: the composer's frame tucks 9 px under whatever sits above it. */
-.prompt-arrival-note { max-width: 780px; margin: 0 auto; padding: 0 14px 14px; background: var(--field); color: var(--muted); font: 12px/1.4 var(--sans); }
+.prompt-arrival-note { max-width: var(--content-max); margin: 0 auto; padding: 0 14px 14px; background: var(--field); color: var(--muted); font: 12px/1.4 var(--sans); }
 /* The question and the composer under it read as one filled card, a hairline between them (design 1c/1n). */
 .extension-prompt {
-  max-width: 780px; margin: 0 auto; padding: 10px 10px 8px; display: flex; flex-direction: column; gap: 6px;
+  max-width: var(--content-max); margin: 0 auto; padding: 10px 10px 8px; display: flex; flex-direction: column; gap: 6px;
   border: 1px solid transparent; border-bottom: 0;
   border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--field); font-size: var(--text-md);
 }
@@ -1759,7 +1838,9 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
 .stage-pane-header .text-button { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 /* Narrow panes keep the editor link as its glyph; the title still names the editor. */
 @container (max-width: 560px) { .stage-pane-header .text-button > span { display: none; } }
-.stage-empty { padding: 26px 20px; color: var(--faint); font: 12px var(--sans); }
+.stage-empty { padding: 26px 20px; color: var(--faint); font: 12px var(--sans); display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.stage-empty > .text-button { display: inline-flex; align-items: center; gap: 8px; }
+.stage-empty > .text-button > kbd { color: var(--faint); font: var(--text-xs) var(--sans); }
 .stage-image { flex: 1; min-height: 0; display: grid; place-items: center; overflow: auto; padding: 24px; }
 .stage-image img { max-width: 100%; max-height: 100%; }
 /* A thread read in the stage: core's transcript, in a column that narrow. */
@@ -2008,14 +2089,11 @@ button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--i
 }
 
 @media (max-width: 700px) {
-  .conversation-column { --composer-inset: max(12px, calc((100% - 780px) / 2)); }
-  .composer-zone { padding-inline: 12px; }
   .composer-toolbar { gap: 4px; padding-inline: 8px; }
 }
 
 @media (max-width: 560px), (pointer: coarse) {
   .transcript-turn-navigation { display: none; }
-  .transcript { padding-inline: 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

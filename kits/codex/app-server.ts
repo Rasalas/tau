@@ -76,6 +76,19 @@ export interface CodexThreadInfo {
   reasoningEffort: string | null;
 }
 
+/** `thread/goal/*` (codex-cli 0.160: `features.goals`, stable). Timestamps are the CLI's. */
+export type CodexGoalStatus = "active" | "paused" | "blocked" | "usageLimited" | "budgetLimited" | "complete";
+export interface CodexGoal {
+  threadId: string;
+  objective: string;
+  status: CodexGoalStatus;
+  tokenBudget: number | null;
+  tokensUsed: number;
+  timeUsedSeconds: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface CodexInitializeResult {
   userAgent: string;
   codexHome: string;
@@ -234,6 +247,22 @@ export class CodexAppServer {
   /** Adds input to the running turn; the CLI refuses when that turn is no longer the one expected. */
   async steerTurn(params: { threadId: string; turnId: string; input: CodexUserInput[] }): Promise<void> {
     await this.connection.request("turn/steer", { threadId: params.threadId, input: params.input, expectedTurnId: params.turnId }, { timeoutMs: this.timeouts.requestMs });
+  }
+
+  async goalGet(threadId: string): Promise<CodexGoal | undefined> {
+    const result = await this.connection.request<{ goal: CodexGoal | null }>("thread/goal/get", { threadId }, { timeoutMs: this.timeouts.requestMs });
+    return result.goal ?? undefined;
+  }
+
+  /** Sets what is named: a new objective, a status, or both. */
+  async goalSet(params: { threadId: string; objective?: string; status?: CodexGoalStatus }): Promise<CodexGoal> {
+    const result = await this.connection.request<{ goal: CodexGoal }>("thread/goal/set", params, { timeoutMs: this.timeouts.requestMs });
+    return result.goal;
+  }
+
+  async goalClear(threadId: string): Promise<boolean> {
+    const result = await this.connection.request<{ cleared: boolean }>("thread/goal/clear", { threadId }, { timeoutMs: this.timeouts.requestMs });
+    return result.cleared;
   }
 
   async interruptTurn(threadId: string, turnId: string): Promise<void> {

@@ -199,7 +199,6 @@ export function withModelCatalog(provider: Provider, catalog: ModelCatalog | und
       const own = base.getModels();
       return [...own, ...catalogModelsFor(base, catalog, own)];
     },
-    getAllModels: () => [...(base.getAllModels?.() ?? base.getModels()), ...catalogModelsFor(base, catalog)],
   };
   originals.set(wrapped, base);
   return wrapped;

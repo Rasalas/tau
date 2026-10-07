@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import {
   activeTab,
+  activateTab,
   closeTab,
+  forgetClosedTab,
+  recentlyClosed,
+  rememberClosedTab,
+  reopenClosedTab,
   extensionTabId,
   openExtensionTab,
   otherTabIds,
@@ -14,7 +19,23 @@ import {
   type StageState,
   type StageTab,
 } from "../workbench/stage";
-import type { ExtensionRegistry, StageTabHandle } from "./extension-system";
+import type { ExtensionRegistry, StageTabHandle, WorkbenchActions } from "./extension-system";
+
+/** What a kind's `reopenParams` may keep: plain JSON, small. */
+const MAX_REOPEN_PARAMS = 4_096;
+
+function plainParams(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  try {
+    const json = JSON.stringify(value);
+    if (json.length > MAX_REOPEN_PARAMS) return undefined;
+    const copy = JSON.parse(json) as Record<string, unknown>;
+    // A function, a class instance or `undefined` would not survive the trip unchanged.
+    return JSON.stringify(copy) === json && stageParamsKey(copy) === stageParamsKey(value as Record<string, unknown>) ? copy : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export interface StageTabPorts {
   registry: ExtensionRegistry;
@@ -25,6 +46,9 @@ export interface StageTabPorts {
   confirmDiscard(title: string): boolean;
   /** A tab was opened, so the stage comes forward. */
   onOpen?(): void;
+  /** What a kind's `reopen` is handed. */
+  actions?(): WorkbenchActions | undefined;
+  now?(): number;
 }
 
 interface HeldHandle {
@@ -122,9 +146,66 @@ export class StageTabController {
       .filter((tab) => force || this.mayClose(tab));
     if (closing.length === 0) return;
     closing.forEach((tab) => this.release(tab.id));
+    const closedAt = this.ports.now?.() ?? Date.now();
+    // A tab nobody can save any more is not offered again; nor is one its kind keeps nothing of.
+    const remembered = force ? [] : closing.flatMap((tab) => { const kept = this.reopenable(tab); return kept ? [kept] : []; });
     const closed = closing.map((tab) => tab.id);
-    this.ports.setStage((current) => closed.reduce((state, id) => closeTab(state, id), current));
+    this.ports.setStage((current) => remembered.reduce(
+      (state, tab) => rememberClosedTab(state, tab, closedAt),
+      closed.reduce((state, id) => closeTab(state, id), current),
+    ));
   }
+
+  /** What history keeps of a closed tab, pinned; a panel goes back to its dock and is not closed at all. */
+  private reopenable(tab: StageTab): StageTab | undefined {
+    if (tab.kind === "panel") return undefined;
+    if (tab.kind === "thread") return { ...tab, preview: false };
+    if (tab.kind === "file") {
+      const { line: _line, reveal: _reveal, trace: _trace, ...file } = tab;
+      return { ...file, preview: false };
+    }
+    const kind = this.ports.registry.getStageTabKind(tab.tabKind);
+    const params = plainParams(kind?.reopenParams?.(tab.params));
+    if (!kind || !params) return undefined;
+    // Id and title of the params it was opened with may name a process; the kept ones derive from what was kept.
+    return { id: extensionTabId(tab.tabKind, stageParamsKey(params)), kind: "extension", tabKind: tab.tabKind, params, title: kind.title(params), preview: false };
+  }
+
+  /** What "Recently closed" lists, newest first. */
+  closedTabs = (): readonly StageTab[] => recentlyClosed(this.ports.stage()).map((entry) => entry.tab);
+
+  /**
+   * Brings back the tab closed last, or the one `id` names: a file or thread
+   * as it was, an extension tab through its kind (a terminal as a new shell).
+   */
+  reopen = (id?: string): boolean => {
+    const entries = recentlyClosed(this.ports.stage());
+    const entry = id === undefined ? entries[0] : entries.find((candidate) => candidate.tab.id === id);
+    if (!entry) {
+      // Listed but open again: only brought forward.
+      if (id !== undefined && this.ports.stage().tabs.some((tab) => tab.id === id)) {
+        this.ports.setStage((current) => activateTab(forgetClosedTab(current, id), id));
+        return true;
+      }
+      return false;
+    }
+    const { tab } = entry;
+    if (tab.kind !== "extension") {
+      this.ports.setStage((current) => reopenClosedTab(current, tab));
+      this.ports.onOpen?.();
+      return true;
+    }
+    const contribution = this.ports.registry.getStageTabKind(tab.tabKind);
+    this.ports.setStage((current) => forgetClosedTab(current, tab.id));
+    if (!contribution) return false;
+    const actions = this.ports.actions?.();
+    if (contribution.reopen && actions) {
+      void Promise.resolve(contribution.reopen(tab.params, actions)).catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error)));
+      return true;
+    }
+    this.open(tab.tabKind, tab.params);
+    return true;
+  };
 
   private mayClose(tab: StageTab): boolean {
     if (tab.kind !== "extension" || !tab.dirty) return true;
@@ -177,6 +258,7 @@ export function useStageTabs(ports: {
   setStage: Dispatch<SetStateAction<StageState>>;
   confirmDiscard?: (title: string) => boolean;
   onOpen?: () => void;
+  actions?: () => WorkbenchActions | undefined;
 }): StageTabController {
   const stage = useRef(ports.stage);
   stage.current = ports.stage;
@@ -190,6 +272,7 @@ export function useStageTabs(ports: {
     setStage: ports.setStage,
     confirmDiscard: (title) => (confirm.current ?? confirmDiscard)(title),
     onOpen: () => opened.current?.(),
+    ...(ports.actions ? { actions: ports.actions } : {}),
   }));
   useEffect(() => { controller.syncKinds(); }, [controller, ports.registryVersion, ports.stage]);
   return controller;

@@ -70,6 +70,7 @@ export const filesExtension: DesktopExtension = {
       title: (params) => fileName(fileEditorParams(params).path),
       Icon: FilePen,
       restore: (params) => Boolean(fileEditorParams(params).path),
+      reopenParams: (params) => { const { path } = fileEditorParams(params); return path ? { path } : undefined; },
       // The tab reads and saves in the project whose stage it is on, never in the one the host has open.
       render: (raw, handle, actions, from) => {
         const params = fileEditorParams(raw);

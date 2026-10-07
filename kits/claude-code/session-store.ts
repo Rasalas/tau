@@ -17,7 +17,7 @@ const SKILL_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/u;
 export type ClaudeTitleSource = ThreadTitleSource;
 
 export interface ClaudeStoredMessage {
-  /** A `notice` is a compaction's divider and always carries `compaction`. */
+  /** A `notice` is a compaction's divider with `compaction`, or a line Tau wrote itself (a stop, a goal's end). */
   role: "user" | "assistant" | "notice";
   text: string;
   timestamp: number;
@@ -60,6 +60,16 @@ export interface ClaudeRuntimeSessionRecord {
   observedModel?: string;
   /** The only tools the thread keeps, as Pi names them; set when it was created. */
   tools?: string[];
+  /** The `/goal` Claude reported last, so it shows before a session runs. */
+  goal?: ClaudeStoredGoal;
+  updatedAt: number;
+}
+
+export interface ClaudeStoredGoal {
+  condition: string;
+  status: "active" | "unconfirmed";
+  iterations: number;
+  reason?: string;
   updatedAt: number;
 }
 
@@ -208,7 +218,6 @@ function storedMessage(value: unknown): ClaudeStoredMessage | undefined {
   const item = value as Record<string, unknown>;
   if (item.role !== "user" && item.role !== "assistant" && item.role !== "notice") return undefined;
   const compaction = item.role === "notice" ? storedCompaction(item.compaction) : undefined;
-  if (item.role === "notice" && !compaction) return undefined;
   const rawText = typeof item.text === "string"
     ? item.text
     : Array.isArray(item.textChunks) && item.textChunks.every((chunk) => typeof chunk === "string")
@@ -326,6 +335,7 @@ function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
     ...(boundedString(item.mode, 16) ? { mode: boundedString(item.mode, 16) } : {}),
     ...(boundedString(item.observedModel, MAX_ID_LENGTH) ? { observedModel: boundedString(item.observedModel, MAX_ID_LENGTH) } : {}),
     ...(storedTools(item.tools) ? { tools: storedTools(item.tools) } : {}),
+    ...(storedGoal(item.goal) ? { goal: storedGoal(item.goal) } : {}),
     updatedAt,
   };
 }
@@ -338,6 +348,17 @@ function cloneMessage(message: ClaudeStoredMessage): ClaudeStoredMessage {
   };
 }
 
+function storedGoal(value: unknown): ClaudeStoredGoal | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const item = value as Record<string, unknown>;
+  const condition = boundedString(item.condition, 16_384);
+  const iterations = typeof item.iterations === "number" && Number.isFinite(item.iterations) && item.iterations >= 0 ? item.iterations : undefined;
+  const updatedAt = typeof item.updatedAt === "number" && Number.isFinite(item.updatedAt) ? item.updatedAt : undefined;
+  if (!condition || (item.status !== "active" && item.status !== "unconfirmed") || iterations === undefined || updatedAt === undefined) return undefined;
+  const reason = boundedString(item.reason, 2_000);
+  return { condition, status: item.status, iterations, ...(reason ? { reason } : {}), updatedAt };
+}
+
 function cloneRecord(record: ClaudeRuntimeSessionRecord): ClaudeRuntimeSessionRecord {
   return {
     ...record,
@@ -346,6 +367,7 @@ function cloneRecord(record: ClaudeRuntimeSessionRecord): ClaudeRuntimeSessionRe
     ...(record.usageTurns ? { usageTurns: record.usageTurns.map((turn) => ({ ...turn })) } : {}),
     ...(record.contextUsage ? { contextUsage: { ...record.contextUsage } } : {}),
     ...(record.tools ? { tools: [...record.tools] } : {}),
+    ...(record.goal ? { goal: { ...record.goal } } : {}),
   };
 }
 
@@ -597,6 +619,16 @@ export class ClaudeRuntimeSessionStore {
     await this.persist();
   }
 
+  async setGoal(tauThreadId: string, cwd: string, goal: ClaudeStoredGoal | undefined): Promise<void> {
+    await this.ensure(tauThreadId, cwd);
+    const record = this.records.get(tauThreadId);
+    if (!record) return;
+    if (goal) record.goal = { ...goal };
+    else delete record.goal;
+    record.updatedAt = this.now();
+    await this.persist();
+  }
+
   async markCreateFallbackUsed(tauThreadId: string, cwd: string): Promise<void> {
     await this.ensure(tauThreadId, cwd);
     const record = this.records.get(tauThreadId);
@@ -619,7 +651,7 @@ export class ClaudeRuntimeSessionStore {
     const additions: ClaudeStoredMessage[] = [];
     for (const message of messages) {
       const compaction = message.role === "notice" ? storedCompaction(message.compaction) : undefined;
-      if (message.role !== "user" && message.role !== "assistant" && !compaction) continue;
+      if (message.role !== "user" && message.role !== "assistant" && message.role !== "notice") continue;
       const parsedSkill = message.role === "user" && message.skill
         ? storedSkill(message.skill)
         : undefined;

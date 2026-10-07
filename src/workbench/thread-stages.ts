@@ -45,7 +45,7 @@ export interface ThreadStagesPorts {
 }
 
 function isEmpty(layout: ThreadStage): boolean {
-  return layout.stage.tabs.length === 0 && !layout.dock.open && !layout.dock.drawer;
+  return layout.stage.tabs.length === 0 && !layout.stage.closed?.length && !layout.dock.open && !layout.dock.drawer;
 }
 
 function parse(raw: string | null): Record<string, unknown> | undefined {
@@ -132,6 +132,7 @@ export class ThreadStages {
         // Undefined members are left out.
         activeId: layout.stage.activeId,
         splitId: layout.stage.splitId,
+        closed: layout.stage.closed?.length ? layout.stage.closed : undefined,
         ...(layout.maximized && layout.stage.tabs.length > 0 ? { maximized: true } : {}),
         ...(layout.folded && layout.stage.tabs.length > 0 ? { folded: true } : {}),
         dock: layout.dock,

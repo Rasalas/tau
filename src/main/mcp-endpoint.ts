@@ -2,7 +2,8 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { validateToolArguments } from "@earendil-works/pi-ai/utils/validation";
-import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
+import type { JsonValue } from "@earendil-works/pi-ai";
+
 import type {
   HostMcpConnection,
   HostMcpConnectOptions,
@@ -12,6 +13,8 @@ import type {
   HostMcpToolProvider,
   RuntimeSessionInfo,
 } from "./host-extensions.js";
+
+type JsonObject = { [key: string]: JsonValue };
 
 /** The server name every runtime puts in front of Tau's tools. */
 export const MCP_SERVER_NAME = "tau";

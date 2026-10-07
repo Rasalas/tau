@@ -71,6 +71,8 @@ export interface WorkbenchActions {
   discardDraft?(draftId: string): void;
   settleActiveThread(): void;
   abort(): void;
+  /** The thread on screen's native goal (API 1.52.0); rejects where its runtime keeps none. `set` needs the objective. */
+  threadGoal?(action: "set" | "pause" | "resume" | "clear" | "dismiss", objective?: string): Promise<void>;
   /** Builds Tau, reloads Pi resources and desktop extensions, then restarts the app when required. */
   restartAgentSession?(): Promise<void>;
   reloadWorkbench(): Promise<boolean>;
@@ -172,6 +174,8 @@ export interface WorkbenchActions {
   applyHostResult(result: HostActionResult): void;
   /** Closes the stage tab currently on screen. */
   closeActiveStageTab?(): void;
+  /** Brings back the tab closed last on this stage, or the closed tab `id` names (API 1.52.0); false when there is none. */
+  reopenStageTab?(id?: string): boolean;
   /** Moves forward or backward through stage tabs. */
   cycleStageTab?(direction: 1 | -1): void;
   /** Shows a stage tab beside the active one; without an id, splits off the active tab or joins the panes again. */
@@ -785,6 +789,16 @@ export interface StageTabContribution<Params extends Record<string, unknown> = R
   render(params: Params, handle: StageTabHandle, actions: WorkbenchActions, from?: DocumentOrigin): ReactNode;
   /** False drops a tab restored from storage whose params name nothing any more. */
   restore?(params: Params): boolean;
+  /**
+   * What "Reopen closed tab" keeps of a closed tab: plain JSON to open a fresh
+   * one with, never a process, connection or session handle. Without it a
+   * closed tab of this kind is not offered again (API 1.52.0).
+   */
+  reopenParams?(params: Params): Record<string, unknown> | undefined;
+  /** Opens a fresh tab from what `reopenParams` kept; by default the kind opens with those params. */
+  reopen?(params: Record<string, unknown>, actions: WorkbenchActions): void | Promise<void>;
+  /** A line under the tab in "Recently closed" when reopening differs from what was closed ("Opens a new shell"). */
+  reopenHint?: string;
   /** One tab for the whole kind, whatever params it is opened with. */
   singleton?: boolean;
 }

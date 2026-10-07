@@ -33,8 +33,7 @@ body[data-profile="compact"] .chat-resizer { left: calc(var(--chat-width) - 12px
 body[data-profile="compact"] .resize-handle[aria-orientation="vertical"]::after { left: 11px; }
 body[data-profile="compact"] .panel-maximize { width: var(--touch-target); height: var(--touch-target); top: 4px; right: 4px; }
 /* Beside the stage the chat is a phone's width: the composer keeps a phone's margins. */
-body[data-profile="compact"] .workbench-center.stage-open .composer-zone { padding-inline: 12px; }
-body[data-profile="compact"] .workbench-center.stage-open .conversation-column { --composer-inset: max(12px, calc((100% - 780px) / 2)); }
+body[data-profile="compact"] .workbench-center.stage-open .conversation-column { --content-inset: 12px; }
 
 /* A document's header on a tablet (a file, the editor): its view switches and actions at a finger's size. */
 body[data-profile="compact"] .stage-pane-header { height: 56px; gap: 6px; padding: 0 8px 0 16px; }

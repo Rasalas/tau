@@ -115,7 +115,7 @@ describe("App stage restore across a restart", () => {
     expect(screen.getAllByText("src/only-in-b.ts").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByText("File not found")).toBeNull());
-    await waitFor(() => expect(storage.get(key)).toBeNull());
+    await waitFor(() => expect(JSON.parse(storage.get(key) ?? "{}")).toMatchObject({ tabs: [], closed: [{ tab: { kind: "file", path: "src/only-in-b.ts" } }] }));
   });
 });
 

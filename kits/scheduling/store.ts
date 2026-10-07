@@ -23,13 +23,21 @@ export async function readState(file: string): Promise<SchedulingState> {
   if (value.version !== 1 || typeof value.enabled !== "boolean" || !Array.isArray(value.jobs) || value.jobs.length > 100) throw new HostCommandError("Unsupported scheduling state. It was not changed.");
   const ids = new Set<string>();
   const jobs = value.jobs.map((input): Job => {
-    const v = object(input, ["id", "config", "workspaceId", "detail", "enabled", "status", "nextAt", "lastRun"]);
+    const v = object(input, ["id", "config", "workspaceId", "detail", "enabled", "status", "nextAt", "lastRun", "secretRef", "deliveries"]);
     const id = text(v.id, "Job ID", 36);
     if (!/^[a-f0-9-]{36}$/u.test(id) || ids.has(id) || typeof v.enabled !== "boolean" || !["ready", "held", "starting", "running", "completed", "failed", "uncertain"].includes(v.status as string)) throw new HostCommandError("Invalid persisted scheduling job.");
     ids.add(id);
     const job: Job = { id, config: decodeConfig(v.config), workspaceId: text(v.workspaceId, "Workspace ID", 8192), enabled: v.enabled, status: v.status as Job["status"] };
     if (v.nextAt !== undefined) job.nextAt = timestamp(v.nextAt);
     if (v.detail !== undefined) job.detail = text(v.detail, "Job detail", 500);
+    if (v.secretRef !== undefined) {
+      job.secretRef = text(v.secretRef, "Secret reference", 36);
+      if (!/^[a-f0-9-]{36}$/u.test(job.secretRef)) throw new HostCommandError("Invalid private secret reference.");
+    }
+    if (v.deliveries !== undefined) {
+      if (!Array.isArray(v.deliveries) || v.deliveries.length > 100 || v.deliveries.some((deliveryId) => typeof deliveryId !== "string" || !/^\d{13}:[A-Za-z0-9._-]{1,64}$/u.test(deliveryId))) throw new HostCommandError("Invalid webhook delivery history.");
+      job.deliveries = [...v.deliveries] as string[];
+    }
     if (v.lastRun !== undefined) {
       const r = object(v.lastRun, ["intentId", "at", "threadId", "outcome", "detail"]);
       const outcome = text(r.outcome, "Run outcome", 16);

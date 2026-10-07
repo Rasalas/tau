@@ -22,6 +22,10 @@ export function decodeConfig(input: unknown): JobConfig {
   if (!/^[a-z0-9][a-z0-9@._-]*$/u.test(backend) || backend === "machine" || backend.startsWith("machine@")) throw new HostCommandError("Select a local runtime backend.");
   const prompt = text(v.prompt, "Prompt", 16_384);
   const s = object(v.schedule, ["kind", "at", "time", "timezone"]);
+  if (s.kind === "webhook") {
+    object(s, ["kind"]);
+    return { name, workspace, backend, prompt, schedule: { kind: "webhook" } };
+  }
   if (s.kind === "once") {
     object(s, ["kind", "at"]);
     return { name, workspace, backend, prompt, schedule: { kind: "once", at: timestamp(s.at) } };

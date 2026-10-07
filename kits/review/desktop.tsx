@@ -2,6 +2,7 @@ import { SETTLEMENT_SERVICE, SettlementSource, type SettlementService } from "./
 import { Suspense, lazy } from "react";
 import { GitCompare } from "lucide-react";
 import { THREAD_PULL_REQUESTS_SERVICE, getClientStorage, type DesktopExtension, type PanelProps, type RegionProps } from "tau";
+import { PullRequestWatchFeed } from "./pr-watch-client.js";
 import { createWorkspaceRequestSummary } from "./workspace-summary.js";
 import { threadPullRequestsService } from "./pull-requests-service.js";
 import { COMMIT_MESSAGE_OPTIONS, registerCommitMessages } from "./commit-messages.js";
@@ -170,7 +171,8 @@ export const reviewExtension: DesktopExtension = {
     // Below the runtime banners, Pi's widgets and quick actions; above Thread Rail's settled note (90), which sits on the composer.
     const settlement = new SettlementSource();
     const releaseSettlement = plugin.useService<SettlementService>(SETTLEMENT_SERVICE, (service) => { settlement.set(service); return () => settlement.set(undefined); });
-    const Strip = createPullRequestStrip({ rows, links, preferences: plugin.preferences, client, host: plugin.host, settlement });
+    const watches = new PullRequestWatchFeed(plugin.host);
+    const Strip = createPullRequestStrip({ watches, rows, links, preferences: plugin.preferences, client, host: plugin.host, settlement });
     const releaseStrip = plugin.registerRegion({ id: "review.pull-request-strip", placement: "composer-above", order: 80, profiles: ["desktop", "web", "compact"], Component: Strip });
     const releaseStore = plugin.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => {
       workspaceStore = store;
@@ -188,7 +190,7 @@ export const reviewExtension: DesktopExtension = {
         plugin.registerKeybinding({ keys: "mod+d", commandId: "review.toggle", when: "!terminalFocus" }),
         registerCommitMessages(plugin, store),
         store.registerChangesSection(createRequestSection(plugin, store, requests, rows, { rows: links, client, dialogs: shared.dialogs })),
-        store.registerWorkspaceSummarySection?.(createWorkspaceRequestSummary(store, rows, links, client)) ?? (() => undefined),
+        store.registerWorkspaceSummarySection?.(createWorkspaceRequestSummary(store, rows, links, client, watches)) ?? (() => undefined),
         store.registerThreadRowAccessory(createRequestBadge(rows, links)),
         store.registerThreadCardSection?.({ place: "section", order: 10, Component: createRequestCardSection(rows, links) }) ?? (() => undefined),
       ];

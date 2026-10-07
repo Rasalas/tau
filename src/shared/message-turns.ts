@@ -1,13 +1,27 @@
-import type { UiMessage } from "./contracts.js";
+import type { UiMessage, UiWake } from "./contracts.js";
 
 export interface AsyncActivity {
   label: string;
   detail: string;
   attention?: boolean;
+  /** A kit woke the thread; the transcript draws a wake line. */
+  wake?: UiWake;
+}
+
+const WAKE_HEAD = /^\[Tau wake: ([a-z][a-z0-9-]{0,31})\] ([^\n]+)(?:\n\n([\s\S]*))?$/u;
+
+/** The text a wake is delivered as: its line first, then what the agent should know. */
+export function wakeMessageText(wake: UiWake, body: string): string {
+  const source = /^[a-z][a-z0-9-]{0,31}$/u.test(wake.source) ? wake.source : "tau";
+  const label = wake.label.replace(/\s+/gu, " ").trim().slice(0, 160) || "Woken";
+  const detail = body.trim();
+  return detail ? `[Tau wake: ${source}] ${label}\n\n${detail}` : `[Tau wake: ${source}] ${label}`;
 }
 
 /** A message sent in the user's name by a runtime or by Tau: a quiet line instead of a bubble. */
 export function parseAsyncActivity(text: string): AsyncActivity | undefined {
+  const wake = WAKE_HEAD.exec(text);
+  if (wake) return { label: wake[2]!, detail: wake[3] ?? "", wake: { source: wake[1]!, label: wake[2]! } };
   if (text.startsWith("Subagent needs attention:")) {
     return { label: "Subagent needs attention", detail: text, attention: true };
   }

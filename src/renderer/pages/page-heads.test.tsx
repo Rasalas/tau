@@ -9,7 +9,7 @@ import { SettingsScreen } from "../settings/SettingsScreen";
 import { SettingsPageHead } from "../settings/page-head";
 import { ThreadHeader } from "../components/ThreadHeader";
 import { StageTabs } from "../components/StageTabs";
-import { TestProviders } from "../test-support/test-providers";
+import { TestProviders, TestThreadStore } from "../test-support/test-providers";
 import { markedLists, parseCssRules, rendererCssRules } from "../test-support/list-markers";
 import { AppPageScreen } from "./AppPageScreen";
 
@@ -73,7 +73,7 @@ describe("page heads and bars draw no list markers", () => {
   });
 
   it("the thread's header and the stage's tab strip", () => {
-    const { container } = render(<>
+    const { container } = render(<TestThreadStore threads={[]}>
       <ThreadHeader title="Add pagination" details={<div className="thread-details"><span className="thread-detail">feat/pagination</span><span className="thread-detail">turn 2</span></div>} />
       <StageTabs
         tabs={[{ id: "a", kind: "file", path: "/work/shop-api/src/orders.ts", view: "source", preview: false }]}
@@ -81,7 +81,7 @@ describe("page heads and bars draw no list markers", () => {
         changedPaths={new Set(["/work/shop-api/src/orders.ts"])}
         onActivate={vi.fn()} onClose={vi.fn()} onPin={vi.fn()} onUnpin={vi.fn()} onCloseOthers={vi.fn()} onCloseToRight={vi.fn()}
       />
-    </>);
+    </TestThreadStore>);
     expect(container.querySelector('[role="tablist"]')).toBeTruthy();
     expect(text(markedLists(container, rules))).toEqual([]);
   });

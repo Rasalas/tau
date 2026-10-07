@@ -17,6 +17,7 @@ import {
   type ThreadBackendPromptResult,
   type ThreadBackendState,
   type ThreadCatalogView,
+  type ThreadGoalCapability,
   type ThreadRuntimeBackend,
   type ThreadRuntimeEvent,
   type ThreadTitleSource,
@@ -27,20 +28,24 @@ import {
   type UiModel,
   type UiPromptAttachment,
   type UiModelBilling,
+  type UiGoalStatus,
   type UiSkillDraft,
+  type UiThreadGoal,
   type UiThreadUsage,
   type UsageTally,
   type UsageTurn,
   appendUsageTurn,
   mergeTallies,
   unpricedUsage,
+  wakeMessageText,
 } from "tau/host-extension";
-import { MISSING_THREAD, type CodexAccount, type CodexCollaborationMode, type CodexLoginRequest, type CodexLoginStart, type CodexModel, type CodexPolicy, type CodexThreadInfo, type CodexUserInput } from "./app-server.js";
+import { RPC_METHOD_NOT_FOUND, RpcError } from "./rpc.js";
+import { MISSING_THREAD, type CodexAccount, type CodexGoal, type CodexGoalStatus, type CodexCollaborationMode, type CodexLoginRequest, type CodexLoginStart, type CodexModel, type CodexPolicy, type CodexThreadInfo, type CodexUserInput } from "./app-server.js";
 import { approvalDialog, elicitationForm, elicitationResult, pageElicitation, policyForLevel, refusal } from "./approvals.js";
 import { CodexTurnTranslator, codexLimitReset, contextUsage, emptyUsage, threadUsage, type CodexTokenUsage } from "./events.js";
 import type { CodexRuntimeAdapter } from "./runtime-adapter.js";
 import type { CodexConfiguredModel } from "./config.js";
-import { usageTurnsOf, type CodexSessionStore, type CodexStoredModel } from "./session-store.js";
+import { usageTurnsOf, type CodexSessionStore, type CodexStoredGoal, type CodexStoredModel } from "./session-store.js";
 import { codexToolsWrite } from "./tools.js";
 import { PLAN_MODE } from "./events.js";
 
@@ -64,6 +69,10 @@ export interface CodexSessionLike {
   startTurn(params: { threadId: string; input: CodexUserInput[]; policy: CodexPolicy; model?: string; serviceTier?: string | null; effort?: string; mode?: CodexCollaborationMode }): Promise<string>;
   steerTurn(params: { threadId: string; turnId: string; input: CodexUserInput[] }): Promise<void>;
   interruptTurn(threadId: string, turnId: string): Promise<void>;
+  /** `thread/goal/*`; absent on a session that predates goals. */
+  goalGet?(threadId: string): Promise<CodexGoal | undefined>;
+  goalSet?(params: { threadId: string; objective?: string; status?: CodexGoalStatus }): Promise<CodexGoal>;
+  goalClear?(threadId: string): Promise<boolean>;
   close(): Promise<void>;
 }
 
@@ -138,15 +147,35 @@ interface Turn {
   /** The user stopped it; interrupted as soon as Codex names it. */
   aborted?: boolean;
   status?: "completed" | "interrupted" | "error";
-  /** Resolves when Codex reported the turn over, or Tau stopped waiting. */
+  /** Resolves when Codex reported the turn over, or Tau stopped waiting; a goal's next turn replaces it. */
   completed: Promise<void>;
   complete(): void;
+  /** Codex finished a turn with the goal active: its next goal turn joins this run. */
+  awaitingContinuation?: boolean;
+  continuation?: (next: "adopted" | "ended") => void;
   /** Resolves once the turn settled, however it ended. */
   done: Promise<void>;
   finish(): void;
 }
 
 export const MODEL_PROVIDER = "openai";
+/** How long a goal run waits for Codex to start its next goal turn before it settles. */
+const GOAL_CONTINUATION_MS = 30_000;
+
+const GOAL_STATUS: Record<CodexGoalStatus, UiGoalStatus> = {
+  active: "active",
+  paused: "paused",
+  blocked: "blocked",
+  usageLimited: "usage-limited",
+  budgetLimited: "budget-limited",
+  complete: "complete",
+};
+
+/** A CLI without `thread/goal` answers this way. */
+function unsupportedMethod(error: unknown): boolean {
+  if (error instanceof RpcError && error.code === RPC_METHOD_NOT_FOUND) return true;
+  return /method not found|unknown variant|unknown method|not supported/iu.test(error instanceof Error ? error.message : String(error));
+}
 /** The effort picker's first entry: the model's own default. */
 const DEFAULT_EFFORT = "default";
 
@@ -247,6 +276,20 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   private persisting: Promise<void> = Promise.resolve();
   /** The only tools this thread keeps, from its record. */
   private tools?: string[];
+  /** Codex's goal for this thread as last reported, kept in the record. */
+  private goal?: CodexStoredGoal;
+  /** `set` left the goal paused until the turn carrying its objective has started. */
+  private activateGoal = false;
+  /** An active goal found after a restart is paused once, before anything else runs. */
+  private goalReconciled = false;
+  private readonly goalCapability: ThreadGoalCapability = {
+    current: () => this.uiGoal(),
+    set: (objective) => this.setGoal(objective),
+    pause: () => this.pauseGoal(),
+    resume: () => this.resumeGoal(),
+    clear: () => this.clearGoal(),
+    dismiss: () => this.clearGoal(),
+  };
 
   constructor(readonly threadId: string, readonly cwd: string, private readonly options: CodexThreadBackendOptions) {
     this.runtimeAdapter = options.adapter;
@@ -274,7 +317,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       // Codex reloads its own thread, so a continuation is an ordinary turn.
       resume: {
         hiddenPrompt: false,
-        notice: async (text) => { this.report({ type: "notice", message: text, level: "info" }); },
+        notice: async (text) => { this.note(text); },
       },
       ...activityHistory(threadId, options.activity),
     };
@@ -291,6 +334,9 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       record = { ...record, tools: [...this.options.tools] };
     }
     this.tools = record.tools;
+    // A thread restricted to some tools runs with Codex's goals switched off (`tools.ts`).
+    if (!this.tools) this.capabilities.goals = this.goalCapability;
+    this.goal = record.goal;
     this.messages = record.messages.map((message, index) => ({
       id: message.id ?? `codex-${message.role}-${message.clientMessageId ?? index}-${message.timestamp}`,
       role: message.role,
@@ -311,6 +357,9 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.observedModel = record.observedModel;
     this.modelList = [...await this.options.storedModels?.().catch(() => []) ?? []];
     this.configured = await this.options.configuredModel?.().catch(() => ({})) ?? {};
+    if (this.goal) this.report({ type: "goal" });
+    // Codex may still hold it active; the session pauses it before the goal shows as anything else.
+    if (this.goal?.status === "active" && this.capabilities.goals) void this.ensureSession().catch(() => undefined);
   }
 
   async transcript(): Promise<UiMessage[]> { return this.messages.map((message) => ({ ...message })); }
@@ -514,23 +563,28 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
           // The turn ended in between; the text becomes the next turn instead.
         }
       }
-      let complete!: () => void;
-      let finish!: () => void;
-      const turn: Turn = {
-        translator: new CodexTurnTranslator(this.now),
-        text: prepared.visibleText,
-        input: codexInput,
-        completed: new Promise<void>((resolve) => { complete = resolve; }),
-        complete: () => complete(),
-        done: new Promise<void>((resolve) => { finish = resolve; }),
-        finish: () => finish(),
-      };
-      this.turns.push(turn);
-      if (this.turns.length > 1) this.reportQueue();
-      const run = this.tail.then(() => this.runTurn(turn));
-      this.tail = run.then(() => undefined, () => undefined);
-      return run;
+      return this.enqueueTurn(prepared.visibleText, codexInput);
     } finally { this.admittingPrompts -= 1; }
+  }
+
+  /** A turn behind the ones queued; resuming a goal starts one with no input of its own. */
+  private enqueueTurn(text: string, input: CodexUserInput[]): Promise<ThreadBackendPromptResult> {
+    let complete!: () => void;
+    let finish!: () => void;
+    const turn: Turn = {
+      translator: new CodexTurnTranslator(this.now),
+      text,
+      input,
+      completed: new Promise<void>((resolve) => { complete = resolve; }),
+      complete: () => complete(),
+      done: new Promise<void>((resolve) => { finish = resolve; }),
+      finish: () => finish(),
+    };
+    this.turns.push(turn);
+    if (this.turns.length > 1) this.reportQueue();
+    const run = this.tail.then(() => this.runTurn(turn));
+    this.tail = run.then(() => undefined, () => undefined);
+    return run;
   }
 
   private async runTurn(turn: Turn): Promise<ThreadBackendPromptResult> {
@@ -557,8 +611,9 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
         ...(mode ? { mode } : {}),
       });
       turn.codexTurnId ??= id;
+      if (this.activateGoal && !turn.aborted) await this.activateGoalNow(live);
       if (turn.aborted) await this.interrupt(turn);
-      await turn.completed;
+      await this.goalRun(turn);
       const outcome = turn.translator.outcome;
       if (outcome?.status === "failed") this.report({ type: "notice", message: `Codex stopped: ${outcome.error ?? "the turn failed."}`, level: "error" });
       this.usage = { ...this.usage, turns: this.usage.turns + 1 };
@@ -701,6 +756,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
         this.modelList = models;
         this.options.onModels?.(models);
       }
+      await this.readGoal(session);
     } catch (error) {
       await session.close().catch(() => undefined);
       throw error;
@@ -730,6 +786,17 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       this.options.onRateLimits?.(params.rateLimits);
       return;
     }
+    if (method === "thread/goal/updated") {
+      const goal = params.goal as CodexGoal | undefined;
+      if (goal) this.applyGoal(goal);
+      if (goal?.status !== "active") this.endContinuation();
+      return;
+    }
+    if (method === "thread/goal/cleared") {
+      this.applyGoal(undefined);
+      this.endContinuation();
+      return;
+    }
     if (method === "error") {
       const error = params.error as { message?: string } | undefined;
       const message = error?.message?.trim() || "Codex reported an error.";
@@ -737,12 +804,20 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       return;
     }
     const turn = this.turns[0];
-    if (!turn) return;
     const turnId = typeof params.turnId === "string" ? params.turnId : (params.turn as { id?: string } | undefined)?.id;
+    if (!turn) {
+      if (method === "turn/started" && turnId) this.strayGoalTurn(turnId);
+      return;
+    }
+    if (method === "turn/started" && turnId && turn.awaitingContinuation && turnId !== turn.codexTurnId) this.adoptContinuation(turn, turnId);
     if (method === "turn/started" && turnId) turn.codexTurnId ??= turnId;
     if (turnId && turn.codexTurnId && turnId !== turn.codexTurnId) return;
     for (const event of turn.translator.push(method, params)) this.handleEvent(event);
-    if (method === "turn/completed") turn.complete();
+    if (method === "turn/completed") {
+      // Set before anything awaits: Codex may name its next goal turn in the same read.
+      if (this.goal?.status === "active" && this.capabilities.goals && !turn.aborted && turn.translator.outcome?.status === "completed") turn.awaitingContinuation = true;
+      turn.complete();
+    }
   }
 
   private async onRequest(method: string, raw: unknown): Promise<unknown> {
@@ -781,7 +856,8 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     const turn = this.turns[0];
     if (!error && !turn) return;
     if (error) this.report({ type: "notice", message: error.message, level: "error" });
-    if (turn && !turn.translator.outcome) {
+    if (turn?.awaitingContinuation) this.endContinuation();
+    else if (turn && !turn.translator.outcome) {
       for (const event of turn.translator.abandon("failed", error?.message ?? "Codex exited.")) this.handleEvent(event);
       turn.complete();
     }
@@ -791,9 +867,188 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     const turn = this.turns[0];
     if (!turn) return;
     turn.aborted = true;
+    // Between two goal turns nothing runs: the run ends, and a goal turn Codex starts later is stopped as a stray.
+    if (turn.awaitingContinuation) this.endContinuation();
     // Before Codex named the turn there is nothing to interrupt; `runTurn` does it once it can.
-    if (turn.codexTurnId) await this.interrupt(turn);
+    else if (turn.codexTurnId) await this.interrupt(turn);
     await turn.done;
+  }
+
+  /** One run for the whole goal: Codex starts its next goal turns itself, and each joins this one. */
+  private async goalRun(turn: Turn): Promise<void> {
+    for (;;) {
+      const completed = turn.completed;
+      await completed;
+      if (turn.completed !== completed) continue;
+      if (!turn.awaitingContinuation) return;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const next = await new Promise<"adopted" | "ended">((resolve) => {
+        turn.continuation = resolve;
+        timer = setTimeout(() => resolve("ended"), GOAL_CONTINUATION_MS);
+        timer.unref?.();
+      });
+      clearTimeout(timer);
+      turn.continuation = undefined;
+      if (next === "ended") { turn.awaitingContinuation = false; return; }
+    }
+  }
+
+  private endContinuation(): void {
+    const turn = this.turns[0];
+    if (!turn?.awaitingContinuation) return;
+    turn.awaitingContinuation = false;
+    turn.continuation?.("ended");
+  }
+
+  /** Codex started its next goal turn: it continues this run, with a line saying so. */
+  private adoptContinuation(turn: Turn, turnId: string): void {
+    turn.awaitingContinuation = false;
+    turn.codexTurnId = turnId;
+    turn.translator = new CodexTurnTranslator(this.now);
+    let complete!: () => void;
+    turn.completed = new Promise<void>((resolve) => { complete = resolve; });
+    turn.complete = () => complete();
+    if (this.goal) {
+      this.goal = { ...this.goal, turns: this.goal.turns + 1, updatedAt: this.now() };
+      this.saveGoal();
+      this.note(wakeMessageText({ source: "goal", label: `Goal continued · turn ${this.goal.turns}` }, ""));
+    }
+    turn.continuation?.("adopted");
+  }
+
+  /** A goal turn no run owns (it raced a Stop, or came after the run gave up waiting): pause, then stop it. */
+  private strayGoalTurn(turnId: string): void {
+    if (this.goal?.status !== "active" || !this.codexThreadId) return;
+    const live = this.live;
+    const threadId = this.codexThreadId;
+    this.report({ type: "notice", message: "Codex started a goal turn outside a run; Tau paused the goal and stopped that turn.", level: "warning" });
+    void (async () => {
+      const paused = await live?.goalSet?.({ threadId, status: "paused" }).catch(() => undefined);
+      if (paused) this.applyGoal(paused);
+      await live?.interruptTurn(threadId, turnId).catch(() => undefined);
+    })();
+  }
+
+  private uiGoal(): UiThreadGoal | undefined {
+    const goal = this.goal;
+    if (!goal) return undefined;
+    const status = GOAL_STATUS[goal.status as CodexGoalStatus] as UiGoalStatus | undefined;
+    return {
+      objective: goal.objective,
+      status: status ?? "blocked",
+      actions: { pause: true, resume: true },
+      tokensUsed: goal.tokensUsed,
+      ...(goal.tokenBudget !== undefined ? { tokenBudget: goal.tokenBudget } : {}),
+      turns: goal.turns,
+      ...(status ? {} : { reason: `Codex reports the goal as "${goal.status}".` }),
+      updatedAt: goal.updatedAt,
+    };
+  }
+
+  /** Keeps what Codex reported, with the turns Tau counted. */
+  private applyGoal(goal: CodexGoal | undefined): void {
+    this.goal = goal ? {
+      objective: goal.objective,
+      status: goal.status,
+      ...(typeof goal.tokenBudget === "number" ? { tokenBudget: goal.tokenBudget } : {}),
+      tokensUsed: goal.tokensUsed,
+      turns: this.goal && this.goal.objective === goal.objective ? this.goal.turns : 0,
+      updatedAt: this.now(),
+    } : undefined;
+    this.saveGoal();
+  }
+
+  private saveGoal(): void {
+    const goal = this.goal;
+    this.persisting = this.persisting.then(() => this.store.setGoal(this.threadId, this.cwd, goal)).catch(() => undefined);
+    this.report({ type: "goal" });
+  }
+
+  /** Reads Codex's goal once a session is up; a CLI without goals takes the capability away. */
+  private async readGoal(session: CodexSessionLike): Promise<void> {
+    if (!this.capabilities.goals || !this.codexThreadId) return;
+    if (!session.goalGet || !session.goalSet) { this.dropGoals(); return; }
+    try {
+      let goal = await session.goalGet(this.codexThreadId);
+      if (!this.goalReconciled && goal?.status === "active") goal = await session.goalSet({ threadId: this.codexThreadId, status: "paused" });
+      this.goalReconciled = true;
+      this.applyGoal(goal);
+    } catch (error) {
+      if (unsupportedMethod(error)) this.dropGoals();
+      else this.report({ type: "notice", message: `Codex did not report the thread's goal: ${error instanceof Error ? error.message : String(error)}`, level: "warning" });
+    }
+  }
+
+  private dropGoals(): void {
+    if (!this.capabilities.goals) return;
+    delete this.capabilities.goals;
+    this.goal = undefined;
+    this.saveGoal();
+  }
+
+  private async goalSession(): Promise<CodexSessionLike & Required<Pick<CodexSessionLike, "goalSet" | "goalClear">>> {
+    if (this.switchingAccount) throw new Error("Wait for the Codex account switch to finish.");
+    const live = await this.ensureSession();
+    if (!this.capabilities.goals || !live.goalSet || !live.goalClear || !this.codexThreadId) throw new Error("This Codex version has no native goals.");
+    return live as CodexSessionLike & Required<Pick<CodexSessionLike, "goalSet" | "goalClear">>;
+  }
+
+  /** Replaces any goal and leaves it paused until the turn carrying the objective starts, as Codex's TUI does. */
+  private async setGoal(objective: string): Promise<void> {
+    const live = await this.goalSession();
+    const threadId = this.codexThreadId!;
+    if (this.goal) await live.goalClear(threadId);
+    this.goal = undefined;
+    this.applyGoal(await live.goalSet({ threadId, objective, status: "paused" }));
+    this.activateGoal = true;
+  }
+
+  private async activateGoalNow(live: CodexSessionLike): Promise<void> {
+    this.activateGoal = false;
+    if (!live.goalSet || !this.codexThreadId) return;
+    try {
+      this.applyGoal(await live.goalSet({ threadId: this.codexThreadId, status: "active" }));
+      if (this.goal) { this.goal = { ...this.goal, turns: this.goal.turns + 1 }; this.saveGoal(); }
+    } catch (error) {
+      this.report({ type: "notice", message: `Codex did not start the goal: ${error instanceof Error ? error.message : String(error)}`, level: "warning" });
+    }
+  }
+
+  private async pauseGoal(): Promise<void> {
+    const live = await this.goalSession();
+    this.activateGoal = false;
+    this.applyGoal(await live.goalSet({ threadId: this.codexThreadId!, status: "paused" }));
+    this.endContinuation();
+  }
+
+  /** Active again; from rest, the next goal turn starts from the thread's history. */
+  private async resumeGoal(): Promise<void> {
+    const live = await this.goalSession();
+    if (!this.goal) throw new Error("This thread has no goal to resume.");
+    if (this.turns.length > 0) {
+      this.applyGoal(await live.goalSet({ threadId: this.codexThreadId!, status: "active" }));
+      return;
+    }
+    this.activateGoal = true;
+    // The turn has no message of the user's; this line says why it runs.
+    this.note(wakeMessageText({ source: "goal", label: `Goal resumed · turn ${this.goal.turns + 1}` }, ""));
+    void this.enqueueTurn("", []).catch(() => undefined);
+  }
+
+  private async clearGoal(): Promise<void> {
+    const live = await this.goalSession();
+    this.activateGoal = false;
+    await live.goalClear(this.codexThreadId!);
+    this.applyGoal(undefined);
+    this.endContinuation();
+  }
+
+  /** A row in the transcript that is nobody's message; kept with the thread. */
+  private note(text: string): void {
+    const message: UiMessage = { id: `codex-notice-${this.now()}-${this.messages.length}`, role: "notice", text, timestamp: this.now() };
+    this.messages.push(message);
+    this.persisting = this.persisting.then(() => this.store.appendMessages(this.threadId, this.cwd, [message])).catch(() => undefined);
+    this.deliver(message);
   }
 
   private async interrupt(turn: Turn): Promise<void> {
@@ -821,7 +1076,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   private deliver(message: UiMessage): void {
     if (this.options.onEvent) {
-      this.options.onEvent(message.role === "user" ? { type: "user-message", message } : { type: "assistant-end", message });
+      this.options.onEvent(message.role === "user" || (message.role === "notice" && !message.compaction) ? { type: "user-message", message } : { type: "assistant-end", message });
       return;
     }
     this.options.onMessage?.(message);

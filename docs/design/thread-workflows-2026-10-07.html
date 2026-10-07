@@ -1,0 +1,1187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tau · thread workflows prototype · 2026-10-07</title>
+<!--
+  Clickable design prototype for docs/design/thread-workflows-2026-10-07.md.
+  Standalone: no build, no dependencies. Tokens are copied from src/renderer/tokens.css (2026-10-07);
+  Figtree loads from the repo's own assets and falls back to the system face.
+  Nothing is stored: no localStorage, no network. A secret typed into the demo stays in the input until it is cleared.
+-->
+<style>
+@font-face { font-family: "Figtree"; font-style: normal; font-weight: 300 900; font-display: swap; src: url("../../src/renderer/assets/fonts/figtree/figtree-latin-wght-normal.woff2") format("woff2"); }
+
+/* ---- Tau tokens (copied subset of src/renderer/tokens.css) ---- */
+:root {
+  color-scheme: light dark;
+  --well: light-dark(#e8e5e0, #0f1116); --shell: light-dark(#fbfaf8, #0f1116); --rail: light-dark(#f0eeea, #171a1f);
+  --chrome: light-dark(#f0eeea, #171a1f); --stage: light-dark(#fbfaf8, #0f1116); --sunken: light-dark(#f4f2ef, #13161b);
+  --field: light-dark(#f0eeea, #171a1f); --thread-active: light-dark(#fbfaf8, #0f1116); --raised: light-dark(#e1dfdb, #24272c);
+  --raised-strong: light-dark(#dbd9d5, #2a2c31); --raised-hover: light-dark(#d2d0cd, #313439); --overlay: light-dark(#fbfaf8, #191c21);
+  --float: light-dark(#fbfaf8, #191c21); --hover: light-dark(#e8e6e2, #1f2226); --hover-strong: light-dark(#e3e1dd, #23252a);
+  --code-bg: light-dark(#f0eeea, #171a1f); --inset: light-dark(#f0eeea, #171a1f); --chip: light-dark(#e8e5e0, #23252a);
+  --chip-hover: light-dark(#d8d4cd, #2e3136); --scrim: light-dark(#1c1b19a3, #050608e0);
+  --term: light-dark(#1c1b19, #0a0c10); --term-ink: #e9e6e0;
+  --line: light-dark(#1c1b1917, #e3e6ec1a); --line-soft: light-dark(#1c1b190f, #e3e6ec12); --line-inset: light-dark(#1c1b1912, #e3e6ec14);
+  --line-card: light-dark(#1c1b191a, #e3e6ec1c); --line-control: light-dark(#1c1b191f, #e3e6ec21); --line-strong: light-dark(#1c1b192e, #e3e6ec2e);
+  --line-field: light-dark(#1c1b1929, #e3e6ec29); --line-float: light-dark(#1c1b191f, #e3e6ec21);
+  --ink: light-dark(#1c1b19, #e3e6ec); --ink-prose: light-dark(#1c1b19, #e3e6ec); --ink-2: light-dark(#35312c, #d0d4db);
+  --ink-3: light-dark(#504a43, #b3b8c1); --ink-code: light-dark(#433e38, #c2c6ce); --muted: light-dark(#6d665d, #9197a1);
+  --muted-2: light-dark(#8f887e, #71767f); --faint: light-dark(#8f887e, #71767f); --fainter: light-dark(#b7b1a8, #45484d);
+  --acid: light-dark(#4b75c5, #6b93e0); --acid-text: light-dark(#2f4f8f, #a6bfee); --acid-ink: light-dark(#ffffff, #10131a);
+  --acid-strong: light-dark(#3d63b0, #86a7e7); --acid-bg: light-dark(#e9effa, #121d36); --acid-chip: light-dark(#d4e0f6, #19284c);
+  --focus: light-dark(#4f79c9, #6b93e0); --user-bubble: light-dark(#e9effa, #121d36); --user-bubble-ink: light-dark(#182747, #e2eafa);
+  --ready: light-dark(#2f633c, #a4d0b1); --stop: light-dark(#c2282d, #e5484d); --danger: light-dark(#8c352f, #eba9a2);
+  --danger-bg: light-dark(#fbe9e7, #301613); --warn: light-dark(#82601a, #e8c67f); --warn-chip: light-dark(#fcf3dc, #291e05);
+  --warn-line: light-dark(#e2b34a, #8a6a24); --fail: light-dark(#c9564d, #d9756b); --fail-ink: light-dark(#8c352f, #eba9a2);
+  --info: light-dark(#4f79c9, #6b93e0); --info-ink: light-dark(#2f4f8f, #a6bfee); --merged: light-dark(#7446c2, #b59cf2);
+  --done: light-dark(#4f9660, #6fae82); --removed: light-dark(#8c352f, #eba9a2); --cyan: light-dark(#06706c, #6fd3cf);
+  --provider-anthropic: light-dark(#b3572f, #e5936a);
+  --shadow-soft: light-dark(#1c1b1914, #00000066); --shadow: light-dark(#1c1b191a, #00000073); --shadow-strong: light-dark(#1c1b192e, #0000008c);
+  --elevation-1: 0 3px 10px var(--shadow); --elevation-2: 0 12px 32px var(--shadow-strong); --elevation-3: 0 12px 32px var(--shadow-strong);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --sans: "Figtree", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --text-xs: 12px; --text-sm: 13px; --text-md: 14px; --text-lg: 15px; --text-title: 17px; --text-display: 24px; --text-code: 13px;
+  --touch-target: 44px;
+  --radius-xs: 4px; --radius-sm: 6px; --radius-row: 8px; --radius-md: 10px; --radius-lg: 12px; --radius-xl: 16px; --radius-pill: 999px;
+  --control-pill-height: 32px; --control-pill-icon: 14px;
+  --motion-fast: 120ms; --motion: 180ms; --ease: cubic-bezier(.4, 0, .2, 1);
+}
+
+/* ---- prototype chrome (not Tau UI) ---- */
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { display: flex; flex-direction: column; background: var(--well); color: var(--ink); font: var(--text-md)/1.5 var(--sans); }
+.proto-bar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 14px; border-bottom: 1px dashed var(--line-strong); background: var(--sunken); font-size: 12px; color: var(--muted); }
+.proto-bar b { color: var(--ink-2); font-weight: 600; margin-right: 2px; }
+.proto-group { display: inline-flex; align-items: center; gap: 3px; flex-wrap: wrap; }
+.proto-bar button { height: 26px; padding: 0 9px; border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: var(--stage); color: var(--ink-2); font: 12px var(--sans); cursor: pointer; }
+.proto-bar button[aria-pressed="true"] { background: var(--acid-chip); border-color: var(--acid); color: var(--acid-text); }
+.proto-bar button:disabled { opacity: .45; cursor: default; }
+.proto-bar .sim button { border-style: dashed; }
+.proto-note { flex-basis: 100%; color: var(--muted-2); }
+.viewport { flex: 1; min-height: 0; display: flex; justify-content: center; padding: 12px; overflow: auto; }
+
+/* ---- the app frame ---- */
+.app { --rail-w: 268px; position: relative; flex: none; width: 100%; height: 100%; min-height: 560px; display: grid; grid-template-columns: var(--rail-w) minmax(0, 1fr) minmax(0, 1fr);
+  overflow: hidden; border-radius: 12px; background: var(--shell); color: var(--ink); box-shadow: var(--elevation-2); container-type: inline-size; container-name: app; }
+.app[data-theme="light"] { color-scheme: light; }
+.app[data-theme="dark"] { color-scheme: dark; }
+.app[data-width="narrow"] { max-width: 760px; }
+.app[data-width="phone"] { max-width: 390px; max-height: 844px; --text-xs: 13px; --text-sm: 14px; --text-md: 16px; --text-lg: 17px; --control-pill-height: 36px; }
+.app.page-mode { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
+.app.stage-hidden { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+svg.i.s14 { width: 14px; height: 14px; } svg.i.s12 { width: 12px; height: 12px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* rail */
+.rail { display: flex; flex-direction: column; min-height: 0; padding: 44px 10px 10px; background: var(--rail); }
+.thread-search-row { display: flex; gap: 6px; margin-bottom: 12px; }
+.thread-search { flex: 1; height: 32px; padding: 0 10px; border: 0; border-radius: var(--radius-row); background: var(--stage); color: var(--muted); font: var(--text-sm) var(--sans); display: flex; align-items: center; }
+.icon-btn { display: inline-grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: var(--radius-row); background: transparent; color: var(--ink-3); cursor: pointer; }
+.icon-btn:hover { background: var(--hover); color: var(--ink); }
+.icon-btn.filled { background: var(--stage); }
+.rail-section { margin: 6px 6px 4px; color: var(--muted); font-size: var(--text-xs); }
+.thread-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 34px; padding: 6px 8px; border: 0; border-radius: var(--radius-row); background: none; text-align: left; cursor: pointer; color: var(--ink-2); }
+.thread-row:hover { background: var(--hover); }
+.thread-row.active { background: var(--thread-active); color: var(--ink); font-weight: 600; }
+.thread-row .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-md); }
+.thread-row .marks { display: inline-flex; gap: 4px; color: var(--muted); }
+.thread-row .marks .run { color: var(--info); } .thread-row .marks .attn { color: var(--warn); } .thread-row .marks .done { color: var(--done); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; display: inline-block; }
+.rail-foot { margin-top: auto; display: flex; flex-direction: column; gap: 2px; padding-top: 8px; }
+.rail-foot .thread-row { font-weight: 500; }
+.badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 99px; background: var(--warn-chip); color: var(--warn); font: 600 11px/18px var(--sans); text-align: center; }
+
+/* centre */
+.center { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--stage); }
+.thread-header { flex: none; display: flex; align-items: center; gap: 8px; min-height: 56px; padding: 8px 12px 8px 20px; }
+.thread-heading { flex: 1; min-width: 0; }
+.thread-title { font: 600 var(--text-title)/1.2 var(--sans); letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-details { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 3px; color: var(--muted); font-size: var(--text-xs); }
+.thread-details span { display: inline-flex; align-items: center; gap: 4px; }
+.prov { width: 12px; height: 12px; border-radius: 3px; background: var(--provider-anthropic); display: inline-block; }
+.header-tools { display: flex; gap: 2px; }
+/* The content frame: transcript, PR strip, queue, pills, docked cards and composer share one width and one inset.
+   One scroller holds transcript and dock, so a scrollbar never shifts one against the other. */
+.thread-scroll { --content-max: 780px; --content-inset: 32px; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; padding-inline: var(--content-inset); scroll-behavior: smooth; }
+.content-frame { width: 100%; max-width: var(--content-max); margin-inline: auto; }
+.transcript { flex: 1 0 auto; padding: 8px 0 24px; }
+.msg { margin: 14px auto; }
+.msg.user { display: flex; justify-content: flex-end; }
+.msg.user .bubble { max-width: 82%; padding: 8px 12px; border-radius: var(--radius-lg); background: var(--user-bubble); color: var(--user-bubble-ink); white-space: pre-wrap; }
+.msg.assistant { color: var(--ink-prose); line-height: 1.6; }
+.msg.assistant code, .wake code, .popover code, .card code { font: 0.9em var(--mono); padding: 1px 4px; border-radius: 4px; background: var(--raised); }
+.tool-line { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: var(--text-sm); margin: 4px 0; }
+.spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--info) 30%, transparent); border-top-color: var(--info); animation: spin .8s linear infinite; display: inline-block; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.stopped-note { color: var(--muted); font-size: var(--text-sm); }
+/* A turn the user did not type: the same divider for every wake source. */
+.wake { display: flex; align-items: center; gap: 8px; margin: 18px auto 10px; color: var(--ink-3); font-size: var(--text-sm); }
+.wake::before, .wake::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.wake > span { display: inline-flex; align-items: center; gap: 6px; max-width: 86%; }
+.wake time { color: var(--muted-2); font-size: var(--text-xs); }
+.wake.attn { color: var(--warn); }
+.status-row { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 8px auto; color: var(--muted); font-size: var(--text-xs); text-align: center; flex-wrap: wrap; }
+.status-row.ok { color: var(--ready); } .status-row.warn { color: var(--warn); }
+.linkish { padding: 0; border: 0; background: none; color: var(--acid-text); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+
+/* dock */
+.dock { position: sticky; bottom: 0; z-index: 3; flex: none; padding: 12px 0 16px; background: linear-gradient(to bottom, transparent, var(--stage) 12px); }
+.dock > .content-frame { display: flex; flex-direction: column; gap: 8px; }
+.pill-row { display: flex; justify-content: center; gap: 8px; min-height: 0; }
+.pill-row:empty { display: none; }
+.control-pill { position: relative; height: var(--control-pill-height); min-width: var(--control-pill-height); display: inline-flex; align-items: center; gap: 7px; padding: 0 12px;
+  border: 1px solid var(--line-control); border-radius: var(--radius-pill); background: var(--chrome); color: var(--ink-2); box-shadow: var(--elevation-1);
+  font: 500 var(--text-md)/1 var(--sans); font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; }
+.control-pill:hover, .control-pill[aria-expanded="true"] { border-color: var(--line-strong); background: var(--raised); color: var(--ink); }
+.control-pill .i { width: var(--control-pill-icon); height: var(--control-pill-icon); color: var(--ink-3); }
+.control-pill.run .i { color: var(--info); } .control-pill.attn .i, .control-pill.attn { color: var(--warn); } .control-pill.ok .i { color: var(--done); }
+.control-pill .num { color: var(--muted); font-weight: 500; }
+.queue { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; border-radius: var(--radius-row); background: var(--sunken); color: var(--ink-3); font-size: var(--text-sm); }
+.queue div { display: flex; gap: 6px; align-items: center; }
+.queue small { color: var(--muted); font-size: var(--text-xs); }
+
+/* the review strip, as kits/review/styles.css draws it, plus the watch segment */
+.pr-strip { --strip-tone: var(--ready); display: flex; align-items: center; border: 1px solid color-mix(in srgb, var(--strip-tone) 24%, transparent); border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--strip-tone) 10%, var(--stage)); color: var(--strip-tone); font: 12.5px/18px var(--sans); }
+.pr-strip.state-merged { --strip-tone: var(--merged); } .pr-strip.state-closed { --strip-tone: var(--removed); }
+.pr-strip-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px 0 12px; border: 0; border-radius: inherit; background: none; color: inherit; text-align: left; cursor: pointer; }
+.pr-strip-open:hover { background: color-mix(in srgb, var(--strip-tone) 6%, transparent); }
+.pr-num { font-weight: 500; font-variant-numeric: tabular-nums; flex: none; }
+.pr-repo { color: color-mix(in srgb, var(--strip-tone) 62%, transparent); flex: none; }
+.pr-branch { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11.5px; }
+.pr-fill { flex: 1; }
+.pr-checks { display: inline-flex; flex: none; } .pr-checks.passed { color: var(--ready); } .pr-checks.failed { color: var(--fail); } .pr-checks.pending { color: var(--warn); }
+.pr-seg { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; margin-right: 2px; border: 0; border-radius: var(--radius-sm); background: none; color: inherit; cursor: pointer; white-space: nowrap; }
+.pr-seg:hover, .pr-seg[aria-expanded="true"] { background: color-mix(in srgb, var(--strip-tone) 16%, transparent); }
+.pr-seg.icon { width: 26px; padding: 0; justify-content: center; opacity: .75; } .pr-seg.icon:hover { opacity: 1; }
+.pr-seg.watching { color: var(--ink-2); }
+.pr-seg.warn { color: var(--warn); } .pr-seg.ended { color: var(--muted); }
+.pr-seg:disabled { opacity: .45; cursor: not-allowed; }
+.pr-sep { width: 1px; height: 16px; background: color-mix(in srgb, var(--strip-tone) 24%, transparent); flex: none; }
+
+/* a card docked over the composer: questions, approvals, and now a secret (design 1c) */
+.dock-card { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 10px; border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--field); font-size: var(--text-sm); margin-bottom: -9px; }
+.dock-card header { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.dock-card .kind { display: inline-flex; align-items: center; gap: 5px; color: var(--warn); font-weight: 600; flex: none; }
+.dock-card .from { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.dock-card h3 { margin: 0; font: 600 var(--text-md)/1.35 var(--sans); color: var(--ink); }
+.dock-card p { margin: 0; color: var(--ink-3); line-height: 1.45; }
+.secret-field { display: flex; gap: 6px; align-items: center; }
+.secret-field input { flex: 1; min-width: 0; height: 36px; padding: 0 10px; border: 1px solid var(--line-field); border-radius: var(--radius-row); background: var(--stage); color: var(--ink);
+  font: var(--text-md) var(--mono); -webkit-text-security: disc; outline: none; }
+.secret-field input:focus-visible { box-shadow: inset 0 0 0 1.5px var(--acid); border-color: transparent; }
+.secret-field input:disabled { opacity: .55; }
+.dock-card footer { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: var(--text-xs); flex-wrap: wrap; }
+.dock-card footer .spacer { flex: 1; }
+.dock-card .err { color: var(--danger); font-size: var(--text-xs); }
+.count { color: var(--muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; min-width: 0; }
+
+/* buttons, the dialog-footer family: pills, one filled at most */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; padding: 0 12px; border: 0; border-radius: 99px; background: none; color: var(--ink-3); font: 500 var(--text-sm) var(--sans); white-space: nowrap; cursor: pointer; }
+.btn:hover { background: var(--hover); color: var(--ink); }
+.btn.primary { background: var(--acid); color: var(--acid-ink); }
+.btn.primary:hover { background: var(--acid-strong); }
+.btn.danger { color: var(--danger); } .btn.danger:hover { background: var(--danger-bg); }
+.btn.outline { border: 1px solid var(--line-control); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.primary:disabled { background: color-mix(in srgb, var(--acid) 45%, var(--field)); opacity: 1; }
+
+/* composer */
+.composer-frame { position: relative; z-index: 2; border-radius: var(--radius-lg); background: var(--field); }
+.composer-frame textarea { display: block; width: 100%; min-height: 52px; max-height: 160px; resize: none; padding: 12px 14px 4px; border: 0; background: transparent; color: var(--ink); font: var(--text-md)/1.5 var(--sans); outline: none; }
+.composer-frame textarea::placeholder { color: var(--muted-2); }
+.composer-foot { display: flex; align-items: center; gap: 6px; padding: 4px 8px 8px 10px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; border: 0; border-radius: 6px; background: var(--raised); color: var(--ink-2); font: 500 var(--text-sm) var(--sans); cursor: pointer; }
+.composer-foot .spacer { flex: 1; }
+.send-button { width: 32px; height: 32px; display: inline-grid; place-items: center; border: 0; border-radius: 50%; background: var(--acid); color: var(--acid-ink); cursor: pointer; }
+.send-button:disabled { background: color-mix(in srgb, var(--acid) 45%, var(--field)); cursor: default; }
+.send-button.stop { background: transparent; border: 1px solid var(--line-control); color: var(--stop); }
+.send-button.stop:hover { background: var(--danger-bg); }
+.send-button.stop .sq { width: 10px; height: 10px; border-radius: 2px; background: var(--stop); }
+.slash-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 9px); padding: 4px; border: 1px solid var(--line-float); border-radius: 12px; background: var(--overlay); box-shadow: var(--elevation-2); z-index: 5; }
+.slash-item { display: flex; gap: 10px; align-items: baseline; width: 100%; padding: 7px 10px; border: 0; border-radius: 8px; background: var(--hover); text-align: left; cursor: pointer; }
+.slash-item b { font-family: var(--mono); font-weight: 500; } .slash-item span { color: var(--muted); font-size: var(--text-sm); }
+.composer-notice { padding: 0 14px 4px; color: var(--muted); font-size: var(--text-xs); }
+
+/* popovers and sheets */
+.popover { position: absolute; z-index: 40; width: 340px; max-width: calc(100% - 24px); padding: 12px 14px 0; border: 1px solid var(--line-float); border-radius: var(--radius-md);
+  background: var(--float); box-shadow: var(--elevation-2); font-size: var(--text-sm); color: var(--ink-2); animation: fade-up .14s var(--ease); }
+@keyframes fade-up { from { opacity: 0; transform: translateY(4px); } }
+.popover:focus { outline: none; }
+.popover h4 { margin: 0; display: flex; align-items: center; gap: 6px; font: 600 var(--text-md) var(--sans); color: var(--ink); }
+.popover h4 small { margin-left: auto; color: var(--muted); font-weight: 400; font-size: var(--text-xs); }
+.popover p { margin: 8px 0 0; line-height: 1.45; }
+.popover .objective { margin-top: 8px; padding: 8px 10px; border-radius: var(--radius-row); background: var(--sunken); color: var(--ink); line-height: 1.45; }
+.popover ul { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.popover li { display: flex; gap: 8px; align-items: flex-start; }
+.popover li .i { margin-top: 2px; color: var(--muted); }
+.popover .meta { margin-top: 8px; color: var(--muted); font-size: var(--text-xs); line-height: 1.5; }
+.popover .meta.warn { color: var(--warn); }
+.popover footer { display: flex; justify-content: flex-end; gap: 6px; margin: 12px -14px 0; padding: 8px 10px; border-radius: 0 0 var(--radius-md) var(--radius-md); background: color-mix(in srgb, var(--ink) 4%, var(--float)); }
+.menu { padding: 4px; width: 260px; }
+.menu-item { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 30px; padding: 4px 8px; border: 0; border-radius: 6px; background: none; text-align: left; cursor: pointer; color: var(--ink-2); font-size: var(--text-sm); }
+.menu-item:hover, .menu-item:focus-visible { background: var(--hover); color: var(--ink); outline: none; }
+.menu-item:disabled { opacity: .45; cursor: not-allowed; }
+.menu-item kbd { margin-left: auto; color: var(--muted); font: var(--text-xs) var(--sans); }
+.menu-item .sub { margin-left: auto; color: var(--muted); font-size: var(--text-xs); }
+.menu-item.selected { font-weight: 600; color: var(--ink); }
+.menu-head { padding: 6px 8px 2px; color: var(--muted); font-size: var(--text-xs); }
+.menu hr { border: 0; border-top: 1px solid var(--line-inset); margin: 4px 2px; }
+.sheet-scrim { position: absolute; inset: 0; z-index: 39; background: var(--scrim); }
+
+/* stage */
+.stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-left: 1px solid var(--line); background: var(--stage); }
+.stage-tabs { flex: none; display: flex; align-items: center; gap: 2px; height: 40px; padding: 0 6px; background: var(--chrome); }
+.stage-tab-list { flex: 1; min-width: 0; display: flex; gap: 2px; overflow: hidden; }
+.stage-tab { display: inline-flex; align-items: center; gap: 6px; max-width: 200px; height: 30px; padding: 0 4px 0 10px; border-radius: var(--radius-sm); color: var(--ink-3); font-size: var(--text-sm); cursor: pointer; border: 0; background: none; }
+.stage-tab .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stage-tab[aria-selected="true"] { background: var(--stage); color: var(--ink); }
+.stage-tab-close { display: inline-grid; place-items: center; width: 20px; height: 20px; border: 0; border-radius: 4px; background: none; color: var(--muted); cursor: pointer; }
+.stage-tab-close:hover { background: var(--hover); color: var(--ink); }
+.stage-body { flex: 1; min-height: 0; overflow: auto; padding: 14px 16px; font-size: var(--text-sm); color: var(--ink-3); }
+.code { margin: 0; padding: 10px 12px; border-radius: var(--radius-row); background: var(--code-bg); color: var(--ink-code); font: var(--text-code)/1.55 var(--mono); white-space: pre; overflow: auto; }
+.term { margin: 0; padding: 10px 12px; border-radius: var(--radius-row); background: var(--term); color: var(--term-ink); font: var(--text-code)/1.55 var(--mono); white-space: pre-wrap; }
+.preview-box { display: grid; place-items: center; height: 220px; border: 1px dashed var(--line-strong); border-radius: var(--radius-row); color: var(--muted); }
+.stage-empty { display: grid; place-items: center; height: 100%; color: var(--muted); text-align: center; gap: 8px; }
+
+/* app page: Automations */
+.page { flex: 1; min-height: 0; overflow: auto; padding: 32px 32px 48px; }
+.page-inner { max-width: 820px; margin: 0 auto; }
+.page h1 { margin: 0; font: 600 var(--text-display)/1.2 var(--sans); letter-spacing: -.015em; color: var(--ink); }
+.page-head { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.page-head > div { flex: 1; min-width: 220px; }
+.page-sub { margin: 6px 0 0; color: var(--muted); font-size: var(--text-sm); max-width: 560px; }
+.page-actions { display: flex; align-items: center; gap: 10px; }
+.switch { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-3); font-size: var(--text-sm); cursor: pointer; border: 0; background: none; padding: 4px; border-radius: 8px; }
+.switch .knob { width: 32px; height: 18px; border-radius: 99px; background: var(--track, var(--raised-strong)); position: relative; transition: background var(--motion-fast); flex: none; }
+.switch .knob::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--stage); box-shadow: 0 1px 2px var(--shadow); transition: transform var(--motion-fast) var(--ease); }
+.switch[aria-checked="true"] .knob { background: var(--acid); }
+.switch[aria-checked="true"] .knob::after { transform: translateX(14px); }
+.switch:disabled { opacity: .45; cursor: not-allowed; }
+.banner { display: flex; gap: 8px; align-items: center; margin-top: 20px; padding: 10px 12px; border-radius: var(--radius-row); background: var(--warn-chip); color: var(--warn); font-size: var(--text-sm); }
+.banner.info { background: var(--sunken); color: var(--ink-3); }
+.group-title { margin: 28px 0 6px; color: var(--muted); font-size: var(--text-xs); display: flex; gap: 6px; align-items: center; }
+.jobs { display: flex; flex-direction: column; border-radius: var(--radius-md); background: var(--inset); overflow: hidden; }
+.job { display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 10px 12px 10px 14px; border-top: 1px solid var(--line-inset); }
+.job:first-child { border-top: 0; }
+.job-glyph { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; background: var(--stage); color: var(--ink-3); }
+.job-glyph.run { color: var(--info); } .job-glyph.attn { color: var(--warn); background: var(--warn-chip); } .job-glyph.fail { color: var(--fail); background: var(--danger-bg); } .job-glyph.off { color: var(--faint); }
+.job-main { flex: 1; min-width: 0; }
+.job-name { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-line { color: var(--muted); font-size: var(--text-xs); line-height: 1.5; }
+.job-line.attn { color: var(--warn); } .job-line.fail { color: var(--fail-ink); } .job-line.run { color: var(--info-ink); }
+.job-actions { flex: none; display: flex; align-items: center; gap: 4px; }
+
+/* dialog */
+.dialog-scrim { position: absolute; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px; background: var(--scrim); }
+.dialog { width: 460px; max-width: 100%; max-height: 100%; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 16px 18px 18px; border-radius: 12px; background: var(--overlay); box-shadow: var(--elevation-3); color: var(--ink); animation: fade-up .14s ease; }
+.dialog h2 { margin: 0; font: 600 16px var(--sans); letter-spacing: -.01em; }
+.dialog p { margin: 0; color: var(--ink-3); font: var(--text-sm)/1.5 var(--sans); }
+.field { display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: var(--text-sm); }
+.field input, .field textarea, .field select { width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: var(--field); color: var(--ink); font: var(--text-md) var(--sans); outline: none; }
+.field textarea { min-height: 84px; resize: vertical; line-height: 1.45; }
+.field input:focus-visible, .field textarea:focus-visible, .field select:focus-visible { box-shadow: inset 0 0 0 1.5px var(--acid); outline: none; }
+.field .hint { color: var(--muted-2); font-size: var(--text-xs); }
+.field .bad { color: var(--danger); font-size: var(--text-xs); }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.seg { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--field); gap: 2px; }
+.seg button { height: 28px; padding: 0 12px; border: 0; border-radius: 6px; background: none; color: var(--ink-3); font: 500 var(--text-sm) var(--sans); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.seg button[aria-checked="true"] { background: var(--stage); color: var(--ink); box-shadow: 0 1px 2px var(--shadow-soft); }
+.check { display: flex; gap: 9px; align-items: flex-start; color: var(--ink-2); font-size: var(--text-sm); }
+.check input { margin-top: 3px; accent-color: var(--acid); }
+.choice { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border-radius: 8px; background: var(--field); color: var(--ink-2); font-size: var(--text-sm); cursor: pointer; }
+.choice input { margin-top: 3px; accent-color: var(--acid); }
+.choice b { color: var(--ink); font-weight: 600; display: block; }
+.match { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-radius: 8px; border: 1px dashed var(--line-strong); font-size: var(--text-sm); color: var(--ink-2); }
+.dialog > footer { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; margin: 4px -18px -18px; padding: 10px 12px 12px; border-radius: 0 0 12px 12px; background: color-mix(in srgb, var(--ink) 4%, var(--overlay)); }
+
+/* toast */
+.toasts { position: absolute; right: 16px; bottom: 16px; z-index: 70; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.toast { max-width: 360px; padding: 10px 12px; border: 1px solid var(--line-float); border-radius: var(--radius-md); background: var(--float); box-shadow: var(--elevation-2); color: var(--ink-2); font-size: var(--text-sm); pointer-events: auto; animation: fade-up .14s var(--ease); display: flex; gap: 10px; align-items: center; }
+
+/* narrow and phone: one column; the stage and the rail come over it */
+.app.narrow, .app.narrow.page-mode, .app.narrow.stage-hidden { grid-template-columns: minmax(0, 1fr); }
+@container app (max-width: 980px) {
+  .rail { position: absolute; z-index: 50; inset: 0 auto 0 0; width: min(300px, 86%); box-shadow: var(--elevation-3); display: none; padding-top: 16px; }
+  .app.rail-open .rail { display: flex; }
+  .stage { position: absolute; z-index: 30; inset: 0; border-left: 0; display: none; }
+  .app.stage-open .stage { display: flex; }
+  .only-wide { display: none !important; }
+}
+@container app (min-width: 981px) { .only-narrow { display: none !important; } }
+@container app (max-width: 560px) {
+  .thread-scroll { --content-inset: 12px; }
+  .transcript { padding-top: 4px; }
+  .dock { padding-bottom: 10px; }
+  .thread-header { padding: 6px 8px 6px 6px; min-height: 52px; }
+  .page { padding: 18px 14px 40px; }
+  .popover { left: 0 !important; right: 0; bottom: 0; top: auto !important; width: 100%; max-width: none; border-radius: 16px 16px 0 0; padding-bottom: env(safe-area-inset-bottom, 0); }
+  .popover footer { border-radius: 0; padding-bottom: 14px; }
+  .popover footer .btn, .job-actions .btn, .dock-card .btn { min-height: var(--touch-target); }
+  .icon-btn, .stage-tab-close { min-width: var(--touch-target); min-height: var(--touch-target); }
+  .job { flex-wrap: wrap; }
+  .job-actions { width: 100%; justify-content: flex-end; }
+  .dialog-scrim { place-items: end stretch; padding: 0; }
+  .dialog { width: 100%; border-radius: 16px 16px 0 0; max-height: 92%; }
+  .row2 { grid-template-columns: 1fr; }
+  .pr-repo, .pr-branch { display: none; }
+  .secret-field { flex-wrap: wrap; } .secret-field input { flex-basis: 100%; height: var(--touch-target); }
+  .secret-field .btn { flex: 1; }
+  .toasts { left: 10px; right: 10px; bottom: 10px; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+<div class="proto-bar" role="region" aria-label="Prototype controls (not part of Tau)">
+  <span class="proto-group"><b>Scenario</b>
+    <button data-proto="scenario" data-v="watch">PR watch</button>
+    <button data-proto="scenario" data-v="goal">Goal</button>
+    <button data-proto="scenario" data-v="automations">Automations</button>
+    <button data-proto="scenario" data-v="secret">Secret</button>
+    <button data-proto="scenario" data-v="stage">Stage tabs</button>
+  </span>
+  <span class="proto-group"><b>Theme</b>
+    <button data-proto="theme" data-v="system">System</button><button data-proto="theme" data-v="light">Light</button><button data-proto="theme" data-v="dark">Dark</button>
+  </span>
+  <span class="proto-group"><b>Width</b>
+    <button data-proto="width" data-v="desktop">Desktop</button><button data-proto="width" data-v="narrow">Narrow 760</button><button data-proto="width" data-v="phone">Phone 390</button>
+  </span>
+  <span class="proto-group"><b>Device</b>
+    <button data-proto="access" data-v="full">Host window</button><button data-proto="access" data-v="read">Paired, read-only</button>
+  </span>
+  <span class="proto-group sim" id="sim"></span>
+  <span class="proto-group"><button data-proto="reset">Reset</button></span>
+  <span class="proto-note">Webhook triggers and the secret service are backend extensions (see the spec); the prototype only shows their UI. Dashed buttons simulate events from GitHub, the runtime or the host. In a browser ⌘⇧T and ⌘W belong to the browser: the prototype also takes Alt+Shift+T (reopen) and Alt+W (close tab).</span>
+</div>
+<div class="viewport">
+  <div class="app" id="app" data-theme="system" data-width="desktop">
+    <aside class="rail" id="rail" aria-label="Threads"></aside>
+    <main class="center" id="center">
+      <section id="thread-view" style="display:contents">
+        <header class="thread-header">
+          <button class="icon-btn only-narrow" data-act="rail-toggle" aria-label="Threads" title="Threads"><svg class="i"><use href="#i-panel-left"/></svg></button>
+          <div class="thread-heading">
+            <div class="thread-title" id="thread-title">Show the linked PR over the composer</div>
+            <div class="thread-details" id="thread-details"></div>
+          </div>
+          <div class="header-tools">
+            <button class="icon-btn" data-act="stage-toggle" id="stage-toggle" aria-label="Stage" title="Stage"><svg class="i"><use href="#i-panel-right"/></svg></button>
+          </div>
+        </header>
+        <div class="thread-scroll" id="scroller">
+        <div class="transcript" id="transcript" tabindex="0" aria-label="Transcript" aria-live="polite" aria-relevant="additions"></div>
+        <div class="dock" id="dock"><div class="content-frame">
+          <div id="dock-above" style="display:contents"></div>
+          <div class="pill-row" id="pills" role="toolbar" aria-label="Thread status"></div>
+          <div style="position:relative">
+            <div id="dock-card"></div>
+            <div class="composer-frame" id="composer">
+              <div id="slash" hidden></div>
+              <label class="sr" for="input">Message</label>
+              <textarea id="input" rows="1" placeholder="Ask, or /goal to set an objective"></textarea>
+              <div class="composer-notice" id="composer-notice" hidden></div>
+              <div class="composer-foot">
+                <button class="chip" title="Claude Code · Opus 5.5" aria-label="Model: Opus 5.5 on Claude Code"><span class="prov"></span>Opus 5.5</button>
+                <span class="spacer"></span>
+                <span id="send-slot"></span>
+              </div>
+            </div>
+          </div>
+        </div></div>
+        </div>
+      </section>
+      <section id="page-view" class="page" hidden></section>
+    </main>
+    <section class="stage" id="stage" aria-label="Stage"></section>
+    <div id="layer"></div>
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+  </div>
+</div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></symbol>
+    <symbol id="i-pr" viewBox="0 0 24 24"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M6 9v12"/></symbol>
+    <symbol id="i-merge" viewBox="0 0 24 24"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-x-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M6 3 20 12 6 21z"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></symbol>
+    <symbol id="i-rotate" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></symbol>
+    <symbol id="i-panel-left" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></symbol>
+    <symbol id="i-panel-right" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></symbol>
+    <symbol id="i-msg" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></symbol>
+    <symbol id="i-branch" viewBox="0 0 24 24"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+  </defs>
+</svg>
+
+<script>
+"use strict";
+const $ = (sel, root = document) => root.querySelector(sel);
+const app = $("#app");
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const md = (s) => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>");
+const icon = (id, cls = "") => `<svg class="i ${cls}" aria-hidden="true"><use href="#i-${id}"/></svg>`;
+const clock = (offsetMin = 0) => { const d = new Date(Date.UTC(2026, 9, 7, 8, 40 + offsetMin)); return d.toISOString().slice(11, 16); };
+const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+const MOD = mac ? "⌘" : "Ctrl+";
+
+const COMMENT_WAKE_LIMIT = 10;
+let tick = 0; // minutes since the scenario started, advanced by events
+
+function baseState() {
+  return {
+    view: "thread", railOpen: false, stageOpen: false,
+    running: false, waitingOnUser: false, turn: 7,
+    pr: { number: 42, title: "Show the linked pull request over the composer", state: "open", checks: "pending", branch: "tau/pr-strip-watch", repo: "tau" },
+    watch: { status: "off", since: null, wakes: 0, commentRun: 0, unreadable: false, endReason: null },
+    goal: { status: "none", objective: "", tokens: 0, budget: 200000, turns: 0, note: "" },
+    secret: { status: "none", error: null, failNext: false },
+    queue: [],
+    transcript: [
+      { k: "user", text: "Open a PR for the strip changes and keep an eye on CI." },
+      { k: "assistant", text: "Opened **#42** from `tau/pr-strip-watch`. Checks are running (`fast`, `smoke`, `performance`).\n\nI can watch it instead of polling: you'd see a marker here each time a failed check, a review from someone else or a new conflict wakes me. Merging stays with you." },
+    ],
+    popover: null, dialog: null, slashOpen: false,
+    scheduling: true,
+    jobs: [
+      { id: "j1", name: "Morning CI digest", prompt: "Summarise yesterday's failed CI runs on main and link the threads that caused them. Do not merge or deploy.", project: "tau", runtime: "claude", schedule: { kind: "daily", time: "06:00" }, enabled: true, status: "uncertain", last: "Tau restarted while starting the 06:00 UTC run" },
+      { id: "j2", name: "Nightly flaky-test triage", prompt: "Re-run the three flakiest e2e specs and report which ones still fail.", project: "tau", runtime: "codex", schedule: { kind: "daily", time: "02:30" }, enabled: true, status: "held", last: "Missed 02:30 UTC: this Mac was asleep" },
+      { id: "j3", name: "Docs link check", prompt: "Check every link under docs/ and open a thread note for broken ones.", project: "tau-site", runtime: "codex@work", schedule: { kind: "daily", time: "05:00" }, enabled: true, status: "failed", last: "Couldn't start: the runtime codex@work isn't available on this host" },
+      { id: "j4", name: "Translate changelog", prompt: "Translate the newest CHANGELOG section into German for the site.", project: "tau-site", runtime: "pi", schedule: { kind: "once", at: "2026-10-07T08:12:00Z" }, enabled: true, status: "running", last: "Running since 08:12 UTC" },
+      { id: "j5", name: "Daily dependency review", prompt: "Inspect new advisories for our lockfile and report. Do not merge or deploy.", project: "tau", runtime: "claude", schedule: { kind: "daily", time: "07:00" }, enabled: true, status: "ready", next: "Tomorrow 07:00 UTC", lastOk: "Last run today 07:00 · finished" },
+      { id: "j6", name: "Release notes draft", prompt: "Draft release notes for the next tag from merged PRs.", project: "tau", runtime: "claude", schedule: { kind: "once", at: "2026-10-09T16:00:00Z" }, enabled: true, status: "ready", next: "Fri 9 Oct, 16:00 UTC" },
+      { id: "j7", name: "Clean up stale branches", prompt: "List local branches merged into main more than 30 days ago. Do not delete anything.", project: "tau", runtime: "pi", schedule: { kind: "daily", time: "18:00" }, enabled: false, status: "ready" },
+    ],
+    stage: {
+      tabs: [
+        { id: "f1", kind: "file", title: "pull-request-strip.tsx" },
+        { id: "t1", kind: "terminal", title: "Terminal" },
+        { id: "p1", kind: "preview", title: "localhost:5173" },
+        { id: "r1", kind: "pr", title: "PR #42" },
+      ],
+      active: "f1", closed: [],
+    },
+  };
+}
+let S = baseState();
+let prefs = { theme: "system", width: "desktop", access: "full", scenario: "watch" };
+let runTimer = null, contTimer = null;
+const readOnly = () => prefs.access === "read";
+const RO_REASON = "This paired device is read-only. Change it on the host's own window.";
+
+/* ------------------------------------------------------------ helpers */
+function toast(text, ms = 3600) {
+  const el = document.createElement("div");
+  el.className = "toast"; el.innerHTML = text;
+  $("#toasts").append(el);
+  setTimeout(() => el.remove(), ms);
+}
+function push(item) { S.transcript.push(item); }
+function narrow() { return app.getBoundingClientRect().width <= 980; }
+function phone() { return app.getBoundingClientRect().width <= 560; }
+function fmtK(n) { return n >= 1000 ? `${Math.round(n / 1000)}k` : String(n); }
+
+/* ------------------------------------------------------------ the run simulator */
+const GOAL_STEPS = [
+  "Ran `pnpm test:e2e`: 3 of 41 failing (`reconnect`, `preview-download`, `stage-tabs`). Fixing `reconnect` first.",
+  "`reconnect.spec.ts` waited on a fixed 500 ms. It now waits for the host's ready event; 2 failing.",
+  "`preview-download` raced the save dialog. Fixed by awaiting the download event; 1 failing.",
+  "`stage-tabs` expected the old tab order. Updated the fixture, not the assertion. Running the full suite again.",
+];
+function startTurn({ reply, tool = "Reading the workspace", after }) {
+  S.running = true;
+  const item = { k: "assistant", text: "", live: true, tool };
+  push(item); render();
+  clearTimeout(runTimer);
+  runTimer = setTimeout(() => {
+    item.live = false; item.text = reply; S.running = false; S.turn++;
+    if (S.goal.status === "active") { S.goal.tokens += 9000 + Math.round(Math.random() * 7000); S.goal.turns++; }
+    after?.(); render(); afterTurn();
+  }, 2200);
+}
+function afterTurn() {
+  if (S.running || S.waitingOnUser) return;
+  if (S.queue.length) { const next = S.queue.shift(); setTimeout(() => deliverWake(next), 500); return; }
+  if (S.goal.status === "active") {
+    clearTimeout(contTimer);
+    contTimer = setTimeout(() => {
+      if (S.goal.status !== "active" || S.running) return;
+      if (S.goal.tokens >= S.goal.budget) { S.goal.status = "budget"; push({ k: "status", cls: "warn", icon: "target", text: "Goal reached its token budget. Nothing continues on its own." }); render(); return; }
+      push({ k: "wake", icon: "target", text: `Goal continued · turn ${S.goal.turns + 1}` });
+      startTurn({ reply: GOAL_STEPS[Math.min(S.goal.turns, GOAL_STEPS.length - 1)], tool: "Running pnpm test:e2e" });
+    }, 1400);
+  }
+}
+const canStop = () => S.running || S.waitingOnUser || S.goal.status === "active";
+function stopTurn() {
+  if (!canStop()) return;
+  const wasRunning = S.running || S.waitingOnUser;
+  clearTimeout(runTimer); clearTimeout(contTimer);
+  const live = [...S.transcript].reverse().find((m) => m.live);
+  if (live) { live.live = false; live.stopped = true; }
+  S.running = false;
+  if (S.secret.status === "pending") { S.secret.status = "ended"; S.waitingOnUser = false; push({ k: "secret", outcome: "ended" }); }
+  // Stop holds the whole thread: the turn, its PR watches and its goal. Queued wakes go; the user's own queued messages stay.
+  const held = [];
+  if (S.goal.status === "active") { S.goal.status = "paused"; held.push("goal paused"); }
+  if (S.watch.status === "watching") { S.watch.status = "ended"; S.watch.endReason = "you stopped the thread"; S.watch.unreadable = false; held.push(`stopped watching PR #${S.pr.number}`); }
+  S.queue = S.queue.filter((q) => q.source === "user");
+  push({ k: "status", icon: "pause", text: `Stopped${held.length ? ` · ${held.join(" · ")}` : ""}. Nothing wakes this thread until you start it again.` });
+  render();
+  announce("Stopped");
+}
+
+/* ------------------------------------------------------------ PR watch */
+const WAKE_REPLIES = {
+  failed: "The `smoke` check failed in `reconnect.spec.ts:88`: the strip drew before the link loaded. Pushed a fix (`a3f9e2c`); checks are running again.",
+  comment: "@mara asked to keep the hide button reachable on phones. Replied on #42 and raised its tap target to 44 px.",
+  passed: "All required checks passed on #42. It is ready for review; merging stays with you.",
+  conflict: "`main` moved and #42 now conflicts in `styles.css`. Rebased onto `main` and kept both rules; checks are running.",
+  unreadable: "I couldn't read GitHub for 15 minutes, so the watch on #42 stopped. Ask me to watch again once GitHub answers.",
+};
+function startWatch(by = "you") {
+  if (readOnly()) return toast(esc(RO_REASON));
+  S.watch = { status: "watching", since: clock(tick), wakes: 0, commentRun: 0, unreadable: false, endReason: null };
+  push({ k: "status", icon: "eye", text: `${by === "you" ? "You" : "The agent"} started watching PR #${S.pr.number}. Checks, reviews and conflicts wake the agent; nothing is polled from the thread.` });
+  S.popover = null; render(); announce(`Watching PR #${S.pr.number}`);
+}
+function endWatch(reason, { silent = false } = {}) {
+  S.watch.status = "ended"; S.watch.endReason = reason; S.watch.unreadable = false;
+  S.queue = S.queue.filter((q) => q.source !== "pr");
+  if (!silent) push({ k: "status", icon: "eye-off", text: `Stopped watching PR #${S.pr.number} · ${reason}` });
+  S.popover = null; render();
+}
+function prEvent(kind) {
+  tick += 3;
+  if (kind === "merge") { S.pr.state = "merged"; if (S.watch.status === "watching") endWatch("merged"); else render(); return; }
+  if (kind === "failed") S.pr.checks = "failed";
+  if (kind === "passed") S.pr.checks = "passed";
+  if (S.watch.status !== "watching") { render(); toast(`GitHub: ${kind === "comment" ? "new review comment" : kind === "failed" ? "check smoke failed" : kind === "passed" ? "required checks passed" : "branch conflicts"} on #${S.pr.number}. Not watching, so the agent stays asleep.`); return; }
+  if (kind === "unreadable") {
+    if (!S.watch.unreadable) { S.watch.unreadable = true; render(); return; }
+    S.watch.status = "ended"; S.watch.endReason = "GitHub unreadable for 15 min"; S.watch.unreadable = false;
+    queueOrWake({ source: "pr", icon: "alert", attn: true, text: `PR #${S.pr.number}: GitHub unreadable for 15 min · watch stopped`, reply: WAKE_REPLIES.unreadable });
+    return;
+  }
+  S.watch.unreadable = false;
+  S.watch.commentRun = kind === "comment" ? S.watch.commentRun + 1 : 0;
+  const text = { failed: "check `smoke` failed", comment: "review comment from @mara", passed: "required checks passed", conflict: "branch conflicts with `main`" }[kind];
+  queueOrWake({ source: "pr", icon: "zap", text: `Woken by PR #${S.pr.number} · ${text}`, reply: WAKE_REPLIES[kind] });
+  if (S.watch.commentRun >= COMMENT_WAKE_LIMIT) endWatch(`${COMMENT_WAKE_LIMIT} comment-only wakes in a row`);
+}
+function queueOrWake(w) {
+  if (S.running || S.waitingOnUser) { S.queue.push(w); render(); announce("Wake queued until the current turn ends"); return; }
+  deliverWake(w);
+}
+function deliverWake(w) {
+  if (w.source === "pr" && S.watch.status === "watching") S.watch.wakes++;
+  push({ k: "wake", icon: w.icon, text: w.text, attn: w.attn, time: clock(tick) });
+  startTurn({ reply: w.reply, tool: w.source === "pr" ? "Reading PR #42 checks" : "Working" });
+}
+
+/* ------------------------------------------------------------ goals */
+function setGoal(objective) {
+  S.goal = { status: "active", objective, tokens: 0, budget: 200000, turns: 0, note: "" };
+  push({ k: "user", text: `/goal ${objective}` });
+  push({ k: "status", icon: "target", text: "Goal set. Claude Code keeps working, turn after turn, until it reports the goal met, you pause it, or the budget runs out." });
+  startTurn({ reply: GOAL_STEPS[0], tool: "Running pnpm test:e2e" });
+}
+function goalAction(a) {
+  const g = S.goal; S.popover = null;
+  if (a === "pause") { clearTimeout(contTimer); g.status = "paused"; push({ k: "status", icon: "pause", text: S.running ? "Goal paused. The current turn finishes; no new one starts." : "Goal paused. No new turn starts on its own." }); }
+  if (a === "resume") { g.status = "active"; g.note = ""; push({ k: "status", icon: "play", text: "Goal resumed." }); if (!S.running) { push({ k: "wake", icon: "target", text: `Goal continued · turn ${g.turns + 1}` }); startTurn({ reply: GOAL_STEPS[Math.min(g.turns, GOAL_STEPS.length - 1)], tool: "Running pnpm test:e2e" }); } }
+  if (a === "end") { clearTimeout(contTimer); push({ k: "status", icon: "x", text: S.running ? "Goal ended. The current turn finishes as an ordinary turn." : "Goal ended." }); S.goal = { ...g, status: "none" }; }
+  if (a === "dismiss") { S.goal = { ...g, status: "none" }; }
+  render();
+}
+function goalEvent(kind) {
+  const g = S.goal;
+  if (!["active", "paused"].includes(g.status)) return toast("Set a goal first: type <code>/goal …</code> in the composer.");
+  clearTimeout(contTimer);
+  if (kind === "met") { const finish = () => { g.status = "complete"; push({ k: "status", cls: "ok", icon: "check-circle", text: "Claude Code reports the goal met: `pnpm test:e2e` passes, 41 of 41." }); }; if (S.running) { clearTimeout(runTimer); const live = S.transcript.find((m) => m.live); if (live) { live.live = false; live.text = "Full suite passes: 41 of 41, nothing skipped."; } S.running = false; } finish(); }
+  if (kind === "unknown") { if (S.running) { clearTimeout(runTimer); const live = S.transcript.find((m) => m.live); if (live) { live.live = false; live.text = "Ran the suite again; see the output above."; } S.running = false; } g.status = "unconfirmed"; push({ k: "status", cls: "warn", icon: "help", text: "Claude Code stopped continuing without saying whether the goal is met (no evaluator verdict). Check the result before relying on it." }); }
+  if (kind === "blocked") { if (S.running) { clearTimeout(runTimer); const live = S.transcript.find((m) => m.live); if (live) { live.live = false; live.text = "`preview-download` needs a real download folder; the sandbox denies `~/Downloads`. I need you to allow it or point me at another folder."; } S.running = false; } g.status = "blocked"; push({ k: "status", cls: "warn", icon: "alert", text: "Goal blocked: the agent needs an answer from you." }); }
+  if (kind === "budget") { g.tokens = g.budget; g.status = "budget"; if (!S.running) push({ k: "status", cls: "warn", icon: "target", text: "Goal reached its token budget (200k). Nothing continues on its own." }); }
+  render();
+}
+
+/* ------------------------------------------------------------ secret */
+function askSecret() {
+  if (S.secret.status === "pending") return;
+  S.view = "thread";
+  const begin = () => {
+    S.secret = { status: "pending", error: null, failNext: S.secret.failNext };
+    S.waitingOnUser = true; S.running = false;
+    render();
+    const input = $("#secret-input");
+    if (input && !$("#input").value.trim() && !readOnly()) input.focus();
+    announce("The agent asks for a secret: GitHub webhook secret");
+  };
+  if (!S.running) {
+    push({ k: "user", text: "Set up the CI failure triage automation with a GitHub webhook." });
+    S.running = true;
+    push({ k: "assistant", text: "", live: true, tool: "Creating the automation “CI failure triage”", holdForSecret: true });
+    render();
+    setTimeout(begin, 900);
+  } else begin();
+}
+function saveSecret() {
+  const input = $("#secret-input");
+  if (!input || !input.value) return;
+  if (S.secret.failNext) { S.secret.failNext = false; S.secret.error = "Couldn't save the secret. Nothing was sent to the agent. Try again."; input.value = ""; render(); $("#secret-input")?.focus(); return; }
+  input.value = ""; // the value is dropped here; the demo never keeps it
+  S.secret.status = "saved"; S.waitingOnUser = false;
+  push({ k: "secret", outcome: "saved" });
+  const live = S.transcript.find((m) => m.holdForSecret && m.live);
+  if (live) { live.live = false; live.text = "Created **CI failure triage** with a webhook trigger. Deliveries without a valid `X-Hub-Signature-256` are refused. Paste the same secret into the repository's webhook settings on GitHub; the URL is on the Automations page."; }
+  S.running = false; render(); $("#input").focus(); afterTurn();
+}
+function declineSecret() {
+  const input = $("#secret-input"); if (input) input.value = "";
+  S.secret.status = "declined"; S.waitingOnUser = false;
+  push({ k: "secret", outcome: "declined" });
+  const live = S.transcript.find((m) => m.holdForSecret && m.live);
+  if (live) { live.live = false; live.text = "Created **CI failure triage** without a webhook secret, so its webhook stays off. Add the secret on the Automations page or ask me again."; }
+  S.running = false; render(); $("#input").focus(); afterTurn();
+}
+
+/* ------------------------------------------------------------ stage tabs */
+const TAB_ICON = { file: "file", terminal: "terminal", preview: "globe", pr: "pr" };
+function closeTab(id) {
+  const st = S.stage; const i = st.tabs.findIndex((t) => t.id === id); if (i < 0) return;
+  const [tab] = st.tabs.splice(i, 1);
+  st.closed = [tab, ...st.closed.filter((t) => t.id !== tab.id)].slice(0, 20);
+  if (st.active === id) st.active = st.tabs[Math.min(i, st.tabs.length - 1)]?.id;
+  render(); announce(`Closed ${tab.title}. ${MOD}Shift+T reopens it.`);
+}
+function reopenTab(id) {
+  const st = S.stage;
+  const tab = id ? st.closed.find((t) => t.id === id) : st.closed[0];
+  if (!tab) { toast("No closed tabs in this thread's stage."); return; }
+  st.closed = st.closed.filter((t) => t !== tab);
+  if (!st.tabs.some((t) => t.id === tab.id)) st.tabs.push(tab);
+  st.active = tab.id; S.popover = null;
+  if (narrow()) S.stageOpen = true;
+  render();
+  const note = { terminal: "Reopened Terminal in a new shell in the same folder. The old shell ended when its tab closed.", preview: "Reopened the preview at localhost:5173. Back and forward history starts fresh." }[tab.kind];
+  if (note) toast(esc(note));
+  announce(`Reopened ${tab.title}`);
+}
+
+/* ------------------------------------------------------------ automations */
+function job(id) { return S.jobs.find((j) => j.id === id); }
+function scheduleText(j) {
+  if (j.schedule.kind === "daily") { const [h, m] = j.schedule.time.split(":").map(Number); const local = new Date(Date.UTC(2026, 9, 7, h, m)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); return `Every day ${j.schedule.time} UTC · ${local} your time`; }
+  return `Once · ${new Date(j.schedule.at).toUTCString().slice(0, 22)} UTC`;
+}
+function jobLine(j) {
+  if (!S.scheduling && j.enabled && ["ready"].includes(j.status)) return { cls: "", text: "Paused: scheduling is off" };
+  switch (j.status) {
+    case "held": return { cls: "attn", text: `${j.last}. Not run.` };
+    case "uncertain": return { cls: "attn", text: `${j.last}. Unclear whether a thread started.` };
+    case "failed": return { cls: "fail", text: j.last };
+    case "running": return { cls: "run", text: j.last };
+    case "starting": return { cls: "run", text: "Starting…" };
+    default: return j.enabled ? { cls: "", text: `Next: ${j.next ?? "—"}${j.lastOk ? ` · ${j.lastOk}` : ""}` } : { cls: "", text: "Off" };
+  }
+}
+function needsYou(j) { return ["held", "uncertain", "failed"].includes(j.status); }
+function jobAct(a, id) {
+  const j = job(id); S.popover = null;
+  if (readOnly() && a !== "open") { toast(esc(RO_REASON)); render(); return; }
+  if (a === "toggle") { j.enabled = !j.enabled; toast(`${esc(j.name)} ${j.enabled ? "is on" : "is off"}.`); }
+  if (a === "run" || a === "retry") {
+    if (!S.scheduling) { toast("Turn scheduling on to run an automation."); render(); return; }
+    j.status = "running"; j.last = `Running since ${clock(tick)} UTC`;
+    if (j.schedule.kind === "daily") j.next = "Tomorrow " + j.schedule.time + " UTC";
+    toast(`Started “Scheduled: ${esc(j.name)}”.`);
+    setTimeout(() => { if (j.status === "running") { j.status = "ready"; j.lastOk = `Last run today ${clock(tick)} · finished`; if (j.schedule.kind === "once") j.enabled = false; render(); } }, 6000);
+  }
+  if (a === "skip") { j.status = "ready"; j.next = j.schedule.kind === "daily" ? `Tomorrow ${j.schedule.time} UTC` : undefined; if (j.schedule.kind === "once") j.enabled = false; toast(`Skipped that run of ${esc(j.name)}.`); }
+  if (a === "resolve") S.dialog = { kind: "uncertain", id, choice: "skip", ack: false };
+  if (a === "edit") S.dialog = { kind: "editor", id, draft: { ...j, schedule: { ...j.schedule } }, errors: {} };
+  if (a === "delete") S.dialog = { kind: "delete", id };
+  if (a === "open") toast(`Opens “Scheduled: ${esc(j.name)}” in the thread list.`);
+  if (a === "check") toast(`Searches the threads for “Scheduled: ${esc(j.name)}”. One match today at 06:00 with no reply yet.`);
+  render();
+}
+function newDraft() {
+  return { id: null, name: "", prompt: "", project: "tau", runtime: "claude", schedule: { kind: "daily", time: "07:00", at: "2026-10-08T07:00" }, enabled: true, status: "ready" };
+}
+
+/* ------------------------------------------------------------ rendering */
+function renderRail() {
+  const g = S.goal.status, w = S.watch.status;
+  const marks = [];
+  if (S.waitingOnUser) marks.push(`<span class="attn" title="Waiting on you"><span class="dot"></span></span>`);
+  else if (S.running) marks.push(`<span class="spin" title="Working"></span>`);
+  if (w === "watching") marks.push(`<span title="Watching PR #${S.pr.number}">${icon("eye", "s14")}</span>`);
+  if (["active", "paused", "blocked", "budget", "unconfirmed"].includes(g)) marks.push(`<span class="${["blocked", "budget", "unconfirmed"].includes(g) ? "attn" : ""}" title="Goal ${g}">${icon("target", "s14")}</span>`);
+  const attention = S.jobs.filter(needsYou).length;
+  $("#rail").innerHTML = `
+    <div class="thread-search-row"><div class="thread-search">Search threads</div><button class="icon-btn filled" aria-label="New thread" title="New thread">${icon("plus")}</button></div>
+    <div class="rail-section">tau</div>
+    <button class="thread-row ${S.view === "thread" ? "active" : ""}" data-act="open-thread"><span class="t">Show the linked PR over the composer</span><span class="marks">${marks.join("")}</span></button>
+    <button class="thread-row"><span class="t">Fix reconnect after sleep</span><span class="marks"><span class="done">${icon("check", "s14")}</span></span></button>
+    <button class="thread-row"><span class="t">Scheduled: Morning CI digest</span><span class="marks"><span class="attn" title="Unclear whether it started">${icon("help", "s14")}</span></span></button>
+    <button class="thread-row"><span class="t">Scheduled: Daily dependency review</span><span class="marks"></span></button>
+    <div class="rail-section">tau-site</div>
+    <button class="thread-row"><span class="t">Scheduled: Translate changelog</span><span class="marks"><span class="spin"></span></span></button>
+    <div class="rail-foot">
+      <button class="thread-row ${S.view === "automations" ? "active" : ""}" data-act="open-automations">${icon("clock")}<span class="t">Automations</span>${attention ? `<span class="badge" aria-label="${attention} need you">${attention}</span>` : ""}</button>
+      <button class="thread-row">${icon("settings")}<span class="t">Settings</span></button>
+    </div>`;
+}
+function renderHeader() {
+  const g = S.goal;
+  $("#thread-details").innerHTML = `
+    <span>${icon("branch", "s12")}${esc(S.pr.branch)}</span>
+    <span title="Claude Code"><span class="prov"></span>Opus 5.5</span>
+    <span>turn ${S.turn}</span>`;
+  $("#stage-toggle").setAttribute("aria-pressed", String(narrow() ? S.stageOpen : true));
+}
+function renderTranscript() {
+  const t = $("#transcript"), scroller = $("#scroller");
+  const atEnd = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 40;
+  t.innerHTML = `<div class="content-frame">${S.transcript.map((m) => {
+    if (m.k === "user") return `<div class="msg user"><div class="bubble">${esc(m.text)}</div></div>`;
+    if (m.k === "assistant") {
+      if (m.live) return `<div class="msg assistant"><div class="tool-line"><span class="spin"></span>${esc(m.tool)}${S.waitingOnUser && m.holdForSecret ? " · waiting for the secret" : ""}</div></div>`;
+      if (m.stopped) return `<div class="msg assistant"><div class="stopped-note">Stopped.</div></div>`;
+      return `<div class="msg assistant">${md(m.text).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/\n\n/g, "<br><br>")}</div>`;
+    }
+    if (m.k === "wake") return `<div class="wake ${m.attn ? "attn" : ""}" role="note"><span>${icon(m.icon, "s14")}<span>${md(m.text)}</span>${m.time ? `<time>${m.time}</time>` : ""}</span></div>`;
+    if (m.k === "status") return `<div class="status-row ${m.cls ?? ""}">${icon(m.icon, "s12")}<span>${md(m.text)}</span>${m.action && S.watch.status === "watching" ? ` <button class="linkish" data-act="${m.action.id}">${m.action.label}</button>` : ""}</div>`;
+    if (m.k === "secret") {
+      const o = { saved: ["ok", "lock", "GitHub webhook secret · Saved privately for the webhook check of “CI failure triage”"], declined: ["", "x", "GitHub webhook secret · Declined"], ended: ["", "lock", "GitHub webhook secret · Request ended: the turn that asked was stopped"] }[m.outcome];
+      return `<div class="status-row ${o[0]}">${icon(o[1], "s12")}<span>${o[2]}</span></div>`;
+    }
+    return "";
+  }).join("")}</div>`;
+  if (atEnd || S.running) scroller.scrollTop = scroller.scrollHeight;
+}
+function renderDockAbove() {
+  const p = S.pr, w = S.watch;
+  let watchSeg = "";
+  if (p.state === "open" || w.status === "ended") {
+    if (w.status === "off") watchSeg = `<span class="pr-sep"></span><button class="pr-seg icon" data-act="watch-start" ${readOnly() ? "disabled" : ""} aria-label="Watch PR #${p.number}" title="${readOnly() ? esc(RO_REASON) : "Watch: wake the agent when a check fails, required checks pass, someone else reviews, or the branch conflicts"}">${icon("eye", "s14")}</button>`;
+    else if (w.status === "watching") watchSeg = `<span class="pr-sep"></span><button class="pr-seg watching ${w.unreadable ? "warn" : ""}" data-act="pop" data-pop="watch" id="watch-seg" aria-haspopup="dialog" aria-expanded="${S.popover === "watch"}">${icon(w.unreadable ? "alert" : "eye", "s14")}<span>${w.unreadable ? "Can't read GitHub" : "Watching"}</span>${w.wakes ? `<span style="opacity:.7">· ${w.wakes}</span>` : ""}</button>`;
+    else if (w.status === "ended") watchSeg = `<span class="pr-sep"></span><button class="pr-seg ended" data-act="pop" data-pop="watch" id="watch-seg" aria-haspopup="dialog" aria-expanded="${S.popover === "watch"}">${icon("eye-off", "s14")}<span>Watch ended</span></button>`;
+  }
+  const checks = p.state !== "open" ? "" : `<span class="pr-checks ${p.checks}" title="Checks: ${p.checks}">${icon(p.checks === "passed" ? "check-circle" : p.checks === "failed" ? "x-circle" : "clock", "s14")}</span>`;
+  const strip = `<div class="pr-strip state-${p.state}" role="group" aria-label="Pull request">
+      <button class="pr-strip-open" data-act="open-pr" aria-label="Open PR #${p.number}: ${esc(p.title)}">${icon(p.state === "merged" ? "merge" : "pr", "s14")}<span class="pr-num">#${p.number}</span><span class="pr-repo">${p.repo}</span><span class="pr-branch">${esc(p.branch)}</span><span class="pr-fill"></span>${checks}</button>
+      ${watchSeg}
+      <button class="pr-seg icon" aria-label="Hide PR #${p.number} for this thread" title="Hide for this thread" data-act="noop">${icon("x", "s14")}</button>
+    </div>`;
+  const queue = S.queue.length ? `<div class="queue" aria-label="Queued">${S.queue.map((q) => `<div>${icon(q.icon, "s12")}<span>${md(q.text)}</span></div>`).join("")}<small>Wakes wait for the current turn; they never interrupt it.</small></div>` : "";
+  $("#dock-above").innerHTML = queue + (S.secret.status === "pending" ? "" : strip);
+}
+function goalPill() {
+  const g = S.goal;
+  if (g.status === "none") return "";
+  const map = {
+    active: ["run", "target", "Goal", fmtK(g.tokens)],
+    paused: ["", "pause", "Goal paused", ""],
+    blocked: ["attn", "alert", "Goal blocked", ""],
+    budget: ["attn", "target", "Budget reached", ""],
+    complete: ["ok", "check-circle", "Goal met", ""],
+    unconfirmed: ["attn", "help", "Goal not confirmed", ""],
+  }[g.status];
+  return `<button class="control-pill ${map[0]}" id="goal-pill" data-act="pop" data-pop="goal" aria-haspopup="dialog" aria-expanded="${S.popover === "goal"}" aria-label="${map[2]}${map[3] ? `, ${map[3]} tokens` : ""}">${icon(map[1])}<span>${map[2]}</span>${map[3] ? `<span class="num">${map[3]}</span>` : ""}</button>`;
+}
+function renderPills() { $("#pills").innerHTML = goalPill(); }
+function renderDockCard() {
+  const s = S.secret;
+  if (s.status !== "pending") { $("#dock-card").innerHTML = ""; return; }
+  const ro = readOnly();
+  $("#dock-card").innerHTML = `<section class="dock-card" role="group" aria-labelledby="secret-title" data-act="focus-secret">
+    <header><span class="kind">${icon("key", "s14")}Secret</span><span class="from">for the webhook signature of “CI failure triage”</span></header>
+    <h3 id="secret-title">GitHub webhook secret</h3>
+    <p id="secret-reason">Enter the same value in the repository's webhook settings on GitHub. Tau checks each delivery's signature with it inside the host; no command or script the agent runs receives it.</p>
+    <div class="secret-field">
+      <label class="sr" for="secret-input">GitHub webhook secret</label>
+      <input id="secret-input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" data-1p-ignore data-lpignore="true" placeholder="${ro ? "Answer on the host's window" : "Paste the webhook secret"}" aria-describedby="secret-reason secret-note" ${ro ? "disabled" : ""}>
+      <button class="btn primary" data-act="secret-save" id="secret-save" disabled>Save privately</button>
+    </div>
+    ${s.error ? `<div class="err" role="alert">${esc(s.error)}</div>` : ""}
+    <footer><span id="secret-note" style="display:inline-flex;gap:6px;align-items:center">${icon("shield", "s12")}${ro ? esc(RO_REASON) : "Used only to verify this webhook. Never included in the conversation."}</span><span class="spacer"></span><span class="count" id="secret-count" aria-live="polite"></span><button class="btn" data-act="secret-decline" ${ro ? "disabled" : ""}>Decline</button></footer>
+  </section>`;
+}
+function renderSend() {
+  const busy = S.running || S.waitingOnUser;
+  const val = $("#input").value.trim();
+  const parts = [S.goal.status === "active" ? (busy ? "pause the goal" : "pause the goal before its next turn") : "", S.watch.status === "watching" ? `stop watching PR #${S.pr.number}` : ""].filter(Boolean);
+  const goalNote = (busy ? " the turn" : "") + (parts.length ? `${busy ? ", " : ": "}${parts.join(", ")}` : "");
+  $("#send-slot").innerHTML = `${canStop() ? `<button class="send-button stop" data-act="stop" aria-label="Stop${goalNote} (Escape)" title="Stop${goalNote} · Esc"><span class="sq"></span></button> ` : ""}<button class="send-button" data-act="send" aria-label="${busy ? "Queue message" : "Send"}" title="${busy ? "Queue: sent when the turn ends" : "Send · Enter"}" ${val ? "" : "disabled"}>${icon("up")}</button>`;
+  $("#send-slot").style.display = "inline-flex"; $("#send-slot").style.gap = "6px";
+}
+function renderSlash() {
+  const v = $("#input").value;
+  const show = /^\/[a-z]*$/.test(v) && "/goal".startsWith(v);
+  const el = $("#slash");
+  el.hidden = !show; el.className = "slash-menu";
+  el.innerHTML = show ? `<button class="slash-item" data-act="slash-goal"><b>/goal</b><span>Keep working until an objective is met · pause, resume, end from the Goal pill</span></button>` : "";
+}
+function renderStage() {
+  const st = S.stage;
+  const active = st.tabs.find((t) => t.id === st.active);
+  const body = !active ? `<div class="stage-empty"><div>${icon("panel-right")}<div>No tabs open.</div>${st.closed.length ? `<button class="btn outline" data-act="reopen">${icon("rotate", "s14")}Reopen ${esc(st.closed[0].title)}</button>` : ""}</div></div>`
+    : active.kind === "file" ? `<pre class="code">export function PullRequestStrip({ parts }: StripProps) {
+  const requests = useThreadRequests(parts);
+  const primary = requests[0];
+  if (!primary) return null;
+  return &lt;div className={\`review-pr-strip state-\${primary.state}\`}&gt;
+    &lt;StripOpen request={primary} /&gt;
+    &lt;WatchSegment request={primary} /&gt;
+    &lt;HideButton request={primary} /&gt;
+  &lt;/div&gt;;
+}</pre>`
+    : active.kind === "terminal" ? `<pre class="term">~/repos/tau-worktrees/tau-pr-strip-watch $ pnpm test kits/review
+ ✓ pull-request-strip.test.tsx (14)
+ ✓ watch-segment.test.tsx (9)
+Test Files  2 passed
+~/repos/tau-worktrees/tau-pr-strip-watch $ ▍</pre>`
+    : active.kind === "preview" ? `<div class="preview-box">Preview · http://localhost:5173</div>`
+    : `<div><strong style="color:var(--ink)">#42 Show the linked pull request over the composer</strong><p>Open · 3 checks · linked from 1 thread</p></div>`;
+  $("#stage").innerHTML = `<div class="stage-tabs">
+      <button class="icon-btn only-narrow" data-act="stage-toggle" aria-label="Back to the conversation" title="Back to the conversation">${icon("back")}</button>
+      <div class="stage-tab-list" role="tablist" aria-label="Stage tabs">${st.tabs.map((t) => `<span class="stage-tab" role="tab" tabindex="${t.id === st.active ? 0 : -1}" aria-selected="${t.id === st.active}" data-act="tab" data-id="${t.id}">${icon(TAB_ICON[t.kind], "s14")}<span class="lbl">${esc(t.title)}</span><button class="stage-tab-close" data-act="tab-close" data-id="${t.id}" aria-label="Close ${esc(t.title)}" title="Close · Alt+W">${icon("x", "s12")}</button></span>`).join("")}</div>
+      <button class="icon-btn" id="tabs-menu" data-act="pop" data-pop="tabs" aria-label="All tabs" aria-haspopup="menu" aria-expanded="${S.popover === "tabs"}" title="All tabs">${icon("chevron")}</button>
+    </div><div class="stage-body">${body}</div>`;
+}
+function renderPage() {
+  const groups = [
+    ["Needs you", S.jobs.filter(needsYou)],
+    ["Running", S.jobs.filter((j) => j.status === "running" || j.status === "starting")],
+    ["Scheduled", S.jobs.filter((j) => j.status === "ready" && j.enabled)],
+    ["Off", S.jobs.filter((j) => j.status === "ready" && !j.enabled)],
+  ].filter(([, list]) => list.length);
+  const ro = readOnly();
+  const row = (j) => {
+    const line = jobLine(j);
+    const glyph = { held: ["attn", "clock"], uncertain: ["attn", "help"], failed: ["fail", "x-circle"], running: ["run", "play"], starting: ["run", "play"] }[j.status] ?? (j.enabled ? ["", "clock"] : ["off", "clock"]);
+    let actions = "";
+    if (j.status === "held") actions = `<button class="btn primary" data-act="job" data-a="run" data-id="${j.id}" ${ro || !S.scheduling ? "disabled" : ""} title="${!S.scheduling ? "Turn scheduling on first" : ""}">Run now</button><button class="btn" data-act="job" data-a="skip" data-id="${j.id}" ${ro ? "disabled" : ""}>Skip</button>`;
+    else if (j.status === "uncertain") actions = `<button class="btn" data-act="job" data-a="check" data-id="${j.id}">Find its thread</button><button class="btn primary" data-act="job" data-a="resolve" data-id="${j.id}" ${ro ? "disabled" : ""}>Resolve…</button>`;
+    else if (j.status === "failed") actions = `<button class="btn primary" data-act="job" data-a="retry" data-id="${j.id}" ${ro || !S.scheduling ? "disabled" : ""}>Try again</button><button class="btn" data-act="job" data-a="skip" data-id="${j.id}" ${ro ? "disabled" : ""}>Skip</button>`;
+    else if (j.status === "running") actions = `<button class="btn outline" data-act="job" data-a="open" data-id="${j.id}">Open thread</button>`;
+    else actions = `<button class="switch" role="switch" aria-checked="${j.enabled}" data-act="job" data-a="toggle" data-id="${j.id}" aria-label="${j.enabled ? "Turn off" : "Turn on"} ${esc(j.name)}" ${ro ? "disabled" : ""}><span class="knob"></span></button>`;
+    return `<div class="job" role="listitem">
+      <span class="job-glyph ${glyph[0]}">${icon(glyph[1])}</span>
+      <div class="job-main"><div class="job-name">${esc(j.name)}</div><div class="job-line">${esc(scheduleText(j))} · ${esc(j.project)}</div><div class="job-line ${line.cls}">${esc(line.text)}</div></div>
+      <div class="job-actions">${actions}<button class="icon-btn" data-act="pop" data-pop="job:${j.id}" id="more-${j.id}" aria-label="More for ${esc(j.name)}" aria-haspopup="menu" aria-expanded="${S.popover === "job:" + j.id}">${icon("more")}</button></div>
+    </div>`;
+  };
+  $("#page-view").innerHTML = `<div class="page-inner">
+    <div style="display:flex;align-items:center;gap:6px;margin:-6px 0 14px" class="only-narrow"><button class="icon-btn" data-act="rail-toggle" aria-label="Threads">${icon("panel-left")}</button></div>
+    <div class="page-head"><div><h1>Automations</h1><p class="page-sub">Each run starts an ordinary thread named “Scheduled: …” on this host, as if you had sent its prompt: the runtime's normal access and approvals apply, and scheduling grants nothing extra. A missed or unclear run waits for you instead of starting late.</p></div>
+      <div class="page-actions"><button class="switch" role="switch" aria-checked="${S.scheduling}" data-act="sched-toggle" ${ro ? "disabled" : ""}><span class="knob"></span>Scheduling</button>
+      <button class="btn primary" data-act="job-new" ${ro ? "disabled" : ""}>${icon("plus", "s14")}New automation</button></div></div>
+    ${ro ? `<div class="banner info">${icon("lock", "s14")}${esc(RO_REASON)}</div>` : ""}
+    ${!S.scheduling ? `<div class="banner">${icon("pause", "s14")}Scheduling is off. No automation starts on its own, and Run now waits until it is on.</div>` : ""}
+    ${groups.map(([title, list]) => `<div class="group-title">${title === "Needs you" ? icon("alert", "s12") : ""}${title} <span>${list.length}</span></div><div class="jobs" role="list">${list.map(row).join("")}</div>`).join("")}
+  </div>`;
+}
+function popoverHtml() {
+  const p = S.popover; if (!p) return "";
+  if (p === "watch") {
+    const w = S.watch;
+    if (w.status === "ended") return `<div class="popover" role="dialog" aria-label="Watch ended"><h4>${icon("eye-off")}Watch ended<small>PR #${S.pr.number}</small></h4>
+      <p>Stopped: ${esc(w.endReason)}. ${w.wakes ? `It woke the agent ${w.wakes} ${w.wakes === 1 ? "time" : "times"}.` : "It never woke the agent."}</p>
+      <footer>${S.pr.state === "open" ? `<button class="btn primary" data-default data-act="watch-start" ${readOnly() ? "disabled" : ""}>Watch again</button>` : `<button class="btn" data-act="pop-close">Close</button>`}</footer></div>`;
+    return `<div class="popover" role="dialog" tabindex="-1" aria-label="Watching PR #${S.pr.number}"><h4>${icon("eye")}Watching PR #${S.pr.number}<small>since ${w.since}</small></h4>
+      ${w.unreadable ? `<p class="meta warn">${icon("alert", "s12")} GitHub hasn't answered for 3 min. After 15 min the watch stops and wakes the agent with the reason.</p>` : `<p class="meta">Last read 20 s ago · checks every minute</p>`}
+      <ul><li>${icon("x-circle", "s14")}A check fails</li><li>${icon("check-circle", "s14")}Required checks pass</li><li>${icon("msg", "s14")}Someone else reviews or comments</li><li>${icon("branch", "s14")}The branch conflicts</li></ul>
+      <p class="meta">Woke the agent ${w.wakes} ${w.wakes === 1 ? "time" : "times"}. Stops when the PR merges or closes, when you press Stop or settle the thread, after ${COMMENT_WAKE_LIMIT} comment-only wakes in a row (now ${w.commentRun}), or after 15 min without GitHub. Merging stays with you.</p>
+      <footer><button class="btn ${readOnly() ? "" : "danger"}" data-act="watch-stop" ${readOnly() ? `disabled title="${esc(RO_REASON)}"` : ""}>Stop watching</button></footer></div>`;
+  }
+  if (p === "goal") {
+    const g = S.goal;
+    const head = { active: S.running ? "Pursuing goal" : "Goal set · next turn starting", paused: "Goal paused", blocked: "Goal blocked", budget: "Goal reached its budget", complete: "Goal met", unconfirmed: "Goal not confirmed" }[g.status];
+    const note = { paused: "Nothing continues on its own. Your messages still go through as ordinary turns.", blocked: "The agent needs an answer. Reply in the composer, then resume.", budget: "200k tokens used. Start a new goal to continue with a fresh budget.", complete: "Claude Code reported the goal met.", unconfirmed: "Claude Code stopped without a verdict. Tau doesn't know whether the goal is met; check the result before relying on it." }[g.status] ?? "Stop ends the current turn and pauses the goal. Pause lets the current turn finish.";
+    const acts = {
+      active: `<button class="btn" data-act="goal" data-a="end">End goal</button><button class="btn outline" data-default data-act="goal" data-a="pause">${icon("pause", "s14")}Pause</button>`,
+      paused: `<button class="btn" data-act="goal" data-a="end">End goal</button><button class="btn primary" data-default data-act="goal" data-a="resume">${icon("play", "s14")}Resume</button>`,
+      blocked: `<button class="btn" data-act="goal" data-a="end">End goal</button><button class="btn primary" data-default data-act="goal" data-a="resume">Resume</button>`,
+      budget: `<button class="btn primary" data-default data-act="goal" data-a="end">End goal</button>`,
+      complete: `<button class="btn primary" data-default data-act="goal" data-a="dismiss">Done</button>`,
+      unconfirmed: `<button class="btn" data-default data-act="goal" data-a="dismiss">Dismiss</button><button class="btn primary" data-act="goal" data-a="resume">Resume</button>`,
+    }[g.status];
+    const ro = readOnly();
+    return `<div class="popover" role="dialog" tabindex="-1" aria-label="${head}"><h4>${icon(g.status === "complete" ? "check-circle" : g.status === "unconfirmed" ? "help" : "target")}${head}<small>Claude Code</small></h4>
+      <div class="objective">${md(g.objective)}</div>
+      <p class="meta">${fmtK(g.tokens)} of ${fmtK(g.budget)} tokens · ${g.turns} ${g.turns === 1 ? "turn" : "turns"}</p>
+      <p class="meta ${["blocked", "budget", "unconfirmed"].includes(g.status) ? "warn" : ""}">${note}</p>
+      <footer>${ro ? `<span class="meta" style="margin:0 auto 0 4px">${esc(RO_REASON)}</span>` : acts}</footer></div>`;
+  }
+  if (p === "tabs") {
+    const st = S.stage;
+    return `<div class="popover menu" role="menu" aria-label="All tabs">
+      ${st.tabs.map((t) => `<button class="menu-item ${t.id === st.active ? "selected" : ""}" role="menuitem" data-act="tab" data-id="${t.id}">${icon(TAB_ICON[t.kind], "s14")}${esc(t.title)}</button>`).join("") || `<div class="menu-head">No open tabs</div>`}
+      <hr><div class="menu-head">Recently closed</div>
+      ${st.closed.length ? st.closed.slice(0, 8).map((t, i) => `<button class="menu-item" role="menuitem" data-act="reopen" data-id="${t.id}">${icon(TAB_ICON[t.kind], "s14")}${esc(t.title)}${i === 0 ? `<kbd>${MOD}⇧T</kbd>` : t.kind === "terminal" ? `<span class="sub">new shell</span>` : ""}</button>`).join("") : `<div class="menu-head" style="color:var(--muted-2)">Nothing closed yet</div>`}
+    </div>`;
+  }
+  if (p.startsWith("job:")) {
+    const j = job(p.slice(4)); const busy = j.status === "running" || j.status === "starting"; const ro = readOnly();
+    const why = busy ? "Running automations can't be changed" : ro ? RO_REASON : "";
+    return `<div class="popover menu" role="menu" aria-label="${esc(j.name)}">
+      ${j.status === "ready" ? `<button class="menu-item" role="menuitem" data-act="job" data-a="run" data-id="${j.id}" ${ro || !S.scheduling ? "disabled" : ""}>${icon("play", "s14")}Run now${!S.scheduling ? `<span class="sub">scheduling off</span>` : ""}</button>` : ""}
+      ${j.lastOk || busy ? `<button class="menu-item" role="menuitem" data-act="job" data-a="open" data-id="${j.id}">${icon("msg", "s14")}Open last thread</button>` : ""}
+      <button class="menu-item" role="menuitem" data-act="job" data-a="edit" data-id="${j.id}" ${busy || ro || ["held", "uncertain", "failed"].includes(j.status) ? "disabled" : ""} title="${["held", "uncertain", "failed"].includes(j.status) ? "Resolve the run first" : esc(why)}">Edit…</button>
+      <hr><button class="menu-item" role="menuitem" data-act="job" data-a="delete" data-id="${j.id}" style="color:var(--danger)" ${busy || ro ? "disabled" : ""} title="${esc(why)}">Delete…</button>
+    </div>`;
+  }
+  return "";
+}
+function dialogHtml() {
+  const d = S.dialog; if (!d) return "";
+  if (d.kind === "delete") { const j = job(d.id); return `<div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="dlg-t"><h2 id="dlg-t">Delete “${esc(j.name)}”?</h2><p>Its schedule goes away. Threads it already started stay in the thread list.</p><footer><button class="btn" data-act="dlg-close">Cancel</button><button class="btn primary" style="background:var(--stop);color:#fff" data-act="dlg-delete">Delete</button></footer></div>`; }
+  if (d.kind === "uncertain") {
+    const j = job(d.id);
+    return `<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-t"><h2 id="dlg-t">Did “${esc(j.name)}” start?</h2>
+      <p>Tau restarted while starting the ${j.schedule.time} UTC run, so it can't tell whether a thread was created. Look before you decide.</p>
+      <div class="match">${icon("msg", "s14")}<span style="flex:1">Scheduled: ${esc(j.name)} · today ${j.schedule.time} · no reply yet</span><button class="linkish" data-act="job" data-a="open" data-id="${j.id}">Open</button></div>
+      <label class="choice"><input type="radio" name="unc" value="skip" ${d.choice === "skip" ? "checked" : ""} data-act="dlg-choice"><span><b>Skip this run</b>Keep what's there; start nothing new.</span></label>
+      <label class="choice"><input type="radio" name="unc" value="run" ${d.choice === "run" ? "checked" : ""} data-act="dlg-choice"><span><b>Run it again now</b>Starts a new thread, even if the first one did start.</span></label>
+      ${d.choice === "run" ? `<label class="check"><input type="checkbox" data-act="dlg-ack" ${d.ack ? "checked" : ""}><span>I checked the threads: running again may create a second “Scheduled: ${esc(j.name)}”.</span></label>` : ""}
+      <p style="font-size:var(--text-xs)">Either way the automation turns off. Turn it on again once you're sure.</p>
+      <footer><button class="btn" data-act="dlg-close">Cancel</button><button class="btn primary" data-act="dlg-resolve" ${d.choice === "run" && !d.ack ? "disabled" : ""}>${d.choice === "run" ? "Run again" : "Skip run"}</button></footer></div>`;
+  }
+  if (d.kind === "editor") {
+    const x = d.draft, e = d.errors;
+    const isNew = !d.id;
+    const [h, m] = (x.schedule.time ?? "07:00").split(":").map(Number);
+    const local = new Date(Date.UTC(2026, 9, 7, h || 0, m || 0)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const rt = (id, label) => `<button type="button" role="radio" aria-checked="${x.runtime.startsWith(id)}" data-act="dlg-runtime" data-v="${id}" title="${label}" aria-label="${label}"><span class="prov" style="background:${id === "claude" ? "var(--provider-anthropic)" : id === "codex" ? "light-dark(#2a62c4,#6ea6f7)" : "light-dark(#7a4fc4,#ae93f0)"}"></span></button>`;
+    return `<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-t"><h2 id="dlg-t">${isNew ? "New automation" : `Edit “${esc(x.name)}”`}</h2>
+      <label class="field">Name<input id="f-name" value="${esc(x.name)}" placeholder="Daily dependency review" maxlength="120">${e.name ? `<span class="bad">${e.name}</span>` : ""}</label>
+      <label class="field">Prompt<textarea id="f-prompt" placeholder="What should the agent do each time? Say what it must not do, too.">${esc(x.prompt)}</textarea>${e.prompt ? `<span class="bad">${e.prompt}</span>` : ""}</label>
+      <div class="row2">
+        <label class="field">Project<select id="f-project"><option ${x.project === "tau" ? "selected" : ""}>tau</option><option ${x.project === "tau-site" ? "selected" : ""}>tau-site</option></select></label>
+        <div class="field">Runtime<div class="seg" role="radiogroup" aria-label="Runtime">${rt("claude", "Claude Code")}${rt("codex", "Codex")}${rt("pi", "Pi")}</div></div>
+      </div>
+      <div class="field">When<div class="seg" role="radiogroup" aria-label="When"><button type="button" role="radio" aria-checked="${x.schedule.kind === "daily"}" data-act="dlg-kind" data-v="daily">Every day</button><button type="button" role="radio" aria-checked="${x.schedule.kind === "once"}" data-act="dlg-kind" data-v="once">Once</button></div></div>
+      ${x.schedule.kind === "daily" ? `<label class="field">Time (UTC)<input id="f-time" type="time" value="${x.schedule.time}"><span class="hint">${local} your time today. UTC doesn't follow daylight saving, so the local hour shifts when your clock does.</span></label>`
+        : `<label class="field">Date and time (UTC)<input id="f-at" type="datetime-local" value="${x.schedule.at ?? "2026-10-08T07:00"}"><span class="hint">Runs once, then turns off.</span></label>`}
+      <label class="check"><input type="checkbox" id="f-on" ${x.enabled ? "checked" : ""}><span>Start on schedule${S.scheduling ? "" : " (scheduling is off: it waits until you turn it on)"}</span></label>
+      <footer><button class="btn" data-act="dlg-close">Cancel</button><button class="btn primary" data-act="dlg-save">${isNew ? "Create" : "Save"}</button></footer></div>`;
+  }
+  return "";
+}
+function renderLayer() {
+  const layer = $("#layer");
+  const pop = popoverHtml(), dlg = dialogHtml();
+  layer.innerHTML = (pop && phone() ? `<div class="sheet-scrim" data-act="pop-close"></div>` : "") + pop + (dlg ? `<div class="dialog-scrim" data-act="dlg-scrim">${dlg}</div>` : "");
+  const el = layer.querySelector(".popover");
+  if (el && !phone()) {
+    const anchorId = { watch: "watch-seg", goal: "goal-pill", tabs: "tabs-menu" }[S.popover] ?? (S.popover.startsWith("job:") ? `more-${S.popover.slice(4)}` : null);
+    const anchor = anchorId && document.getElementById(anchorId);
+    if (anchor) {
+      const a = anchor.getBoundingClientRect(), r = app.getBoundingClientRect(), w = el.offsetWidth, h = el.offsetHeight;
+      const below = S.popover === "tabs" || S.popover.startsWith("job:");
+      let left = below ? a.right - r.left - w : a.left - r.left + a.width / 2 - w / 2;
+      left = Math.max(12, Math.min(left, r.width - w - 12));
+      let top = below ? a.bottom - r.top + 6 : a.top - r.top - h - 8;
+      if (below && top + h > r.height - 8) top = a.top - r.top - h - 6;
+      el.style.left = `${left}px`; el.style.top = `${Math.max(8, top)}px`;
+    }
+  }
+  if (dlg) { const first = layer.querySelector(".dialog input, .dialog textarea, .dialog button.primary"); if (first && !layer.contains(document.activeElement)) first.focus(); }
+}
+function renderProto() {
+  document.querySelectorAll("[data-proto]").forEach((b) => { const k = b.dataset.proto; if (k !== "reset") b.setAttribute("aria-pressed", String(prefs[k] === b.dataset.v)); });
+  const sims = {
+    watch: [["pr", "failed", "Check fails"], ["pr", "comment", "Review comment"], ["pr", "passed", "Checks pass"], ["pr", "conflict", "Conflict"], ["pr", "unreadable", S.watch.unreadable ? "…15 min unreachable" : "GitHub unreachable"], ["pr", "merge", "Merge PR"]],
+    goal: [["goal", "met", "Goal met"], ["goal", "unknown", "No verdict (Claude)"], ["goal", "blocked", "Agent blocked"], ["goal", "budget", "Budget reached"], ["pr", "failed", "PR check fails"]],
+    automations: [["job", "restart", "Tau restarts mid-run"], ["job", "missed", "Mac slept through a run"]],
+    secret: [["secret", "ask", "Agent asks for a secret"], ["secret", "fail", S.secret.failNext ? "Next save fails ✓" : "Next save fails"]],
+    stage: [],
+  }[prefs.scenario];
+  $("#sim").innerHTML = sims.length ? `<b>Simulate</b>${sims.map(([g, v, l]) => `<button data-sim="${g}" data-v="${v}">${l}</button>`).join("")}` : "";
+}
+function render() {
+  app.dataset.theme = prefs.theme; app.dataset.width = prefs.width;
+  app.classList.toggle("narrow", narrow());
+  const page = S.view === "automations";
+  app.classList.toggle("page-mode", page);
+  app.classList.toggle("rail-open", S.railOpen);
+  app.classList.toggle("stage-open", S.stageOpen && !page);
+  $("#thread-view").hidden = page; $("#thread-view").style.display = page ? "none" : "contents";
+  $("#page-view").hidden = !page;
+  $("#stage").style.display = page ? "none" : "";
+  renderRail();
+  if (page) renderPage(); else { renderHeader(); renderTranscript(); renderDockAbove(); renderPills(); renderDockCard(); renderSend(); renderSlash(); renderStage(); }
+  renderLayer(); renderProto();
+}
+function announce(text) { const live = $("#toasts"); const el = document.createElement("span"); el.className = "sr"; el.textContent = text; live.append(el); setTimeout(() => el.remove(), 1500); }
+
+/* ------------------------------------------------------------ input */
+function send() {
+  const input = $("#input"); const text = input.value.trim(); if (!text) return;
+  const goalCmd = /^\/goal(?:\s+(.*))?$/s.exec(text);
+  input.value = ""; $("#composer-notice").hidden = true;
+  if (goalCmd) {
+    const arg = (goalCmd[1] ?? "").trim();
+    if (!arg) { if (S.goal.status !== "none") { S.popover = "goal"; render(); } else { const n = $("#composer-notice"); n.hidden = false; n.textContent = "Say what done means: /goal Make pnpm test:e2e pass without skipping tests"; input.value = "/goal "; } return; }
+    if (["pause", "resume", "clear", "end"].includes(arg)) { goalAction(arg === "clear" ? "end" : arg); return; }
+    if (S.running || S.waitingOnUser) { S.queue.push({ source: "user", icon: "target", text: `/goal ${arg}`, reply: "" }); toast("A goal starts its own turn, so it waits for the current one."); render(); return; }
+    setGoal(arg); return;
+  }
+  if (S.running || S.waitingOnUser) { S.queue.push({ source: "user", icon: "msg", text, reply: "Noted. Folded that into the current work." }); render(); return; }
+  push({ k: "user", text });
+  startTurn({ reply: "Done. The strip keeps its height with the watch segment; I checked it at 390 px wide." });
+}
+document.addEventListener("input", (e) => {
+  if (e.target.id === "input") { renderSend(); renderSlash(); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px"; }
+  if (e.target.id === "secret-input") { const n = e.target.value.length; $("#secret-save").disabled = n === 0; $("#secret-count").textContent = n ? `${n} characters` : ""; }
+});
+document.addEventListener("keydown", (e) => {
+  const k = e.key.toLowerCase();
+  if (e.shiftKey && k === "t" && (e.altKey || e.metaKey || e.ctrlKey) && S.view === "thread") { e.preventDefault(); reopenTab(); return; }
+  if (e.altKey && !e.shiftKey && k === "w" && S.view === "thread") { e.preventDefault(); if (S.stage.active) closeTab(S.stage.active); return; }
+  if (e.key === "Escape") {
+    if (S.dialog) { S.dialog = null; render(); return; }
+    if (S.popover) { const back = { watch: "watch-seg", goal: "goal-pill", tabs: "tabs-menu" }[S.popover]; S.popover = null; render(); document.getElementById(back)?.focus(); return; }
+    if (e.target.id === "secret-input") { $("#input").focus(); return; }
+    if (canStop() && (e.target.id === "input" || e.target.id === "transcript")) { stopTurn(); return; }
+    if (S.railOpen) { S.railOpen = false; render(); return; }
+  }
+  if (e.target.id === "input" && e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    if (!$("#slash").hidden) { $("#input").value = "/goal "; renderSlash(); renderSend(); return; }
+    send();
+  }
+  if (e.target.id === "secret-input" && e.key === "Enter") { e.preventDefault(); saveSecret(); }
+  if (e.target.getAttribute?.("role") === "tab" && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
+    const tabs = S.stage.tabs; const i = tabs.findIndex((t) => t.id === S.stage.active);
+    const next = tabs[(i + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length]; if (next) { S.stage.active = next.id; render(); $(`[role=tab][data-id="${next.id}"]`)?.focus(); }
+  }
+  if (e.target.getAttribute?.("role") === "tab" && (e.key === "Delete" || e.key === "Backspace")) closeTab(e.target.dataset.id);
+});
+document.addEventListener("click", (e) => {
+  const proto = e.target.closest("[data-proto]");
+  if (proto) { const k = proto.dataset.proto; if (k === "reset") scenario(prefs.scenario); else if (k === "scenario") scenario(proto.dataset.v); else { prefs[k] = proto.dataset.v; render(); } return; }
+  const sim = e.target.closest("[data-sim]");
+  if (sim) {
+    const { sim: g, v } = sim.dataset;
+    if (g === "pr") { S.view = "thread"; prEvent(v); }
+    if (g === "goal") goalEvent(v);
+    if (g === "secret") { if (v === "ask") askSecret(); else { S.secret.failNext = !S.secret.failNext; render(); } }
+    if (g === "job") {
+      if (v === "restart") { const j = S.jobs.find((x) => x.status === "running") ?? job("j5"); j.status = "uncertain"; j.last = "Tau restarted while this run was in flight"; toast("Tau restarted. A run in flight is now marked unclear; nothing was retried."); }
+      if (v === "missed") { const j = job("j5"); j.status = "held"; j.last = "Missed 07:00 UTC: this Mac was asleep"; toast("Woke after a missed run. It is held, not replayed."); }
+      S.view = "automations"; render();
+    }
+    renderProto(); return;
+  }
+  const t = e.target.closest("[data-act]");
+  if (!t) { if (S.popover && !e.target.closest(".popover")) { S.popover = null; render(); } return; }
+  const a = t.dataset.act;
+  if (a !== "pop" && S.popover && !t.closest(".popover") && a !== "pop-close") S.popover = null;
+  switch (a) {
+    case "send": send(); break;
+    case "stop": stopTurn(); break;
+    case "slash-goal": $("#input").value = "/goal "; $("#input").focus(); renderSlash(); renderSend(); break;
+    case "pop": {
+      S.popover = S.popover === t.dataset.pop ? null : t.dataset.pop; render();
+      // Focus the common, safe step; where the only step ends something, the popover itself.
+      const pop = $("#layer .popover");
+      const target = pop?.querySelector("[data-default]:not(:disabled)") ?? (pop?.getAttribute("role") === "menu" ? pop.querySelector("button:not(:disabled)") : pop);
+      target?.focus({ preventScroll: true });
+      break;
+    }
+    case "pop-close": S.popover = null; render(); break;
+    case "watch-start": startWatch(); break;
+    case "watch-stop": if (readOnly()) { toast(esc(RO_REASON)); break; } endWatch("you stopped it"); announce("Stopped watching"); break;
+    case "open-pr": S.stage.active = "r1"; if (!S.stage.tabs.some((x) => x.id === "r1")) S.stage.tabs.push({ id: "r1", kind: "pr", title: "PR #42" }); if (narrow()) S.stageOpen = true; render(); break;
+    case "goal": if (readOnly()) { toast(esc(RO_REASON)); break; } goalAction(t.dataset.a); break;
+    case "secret-save": saveSecret(); break;
+    case "secret-decline": declineSecret(); break;
+    case "focus-secret": if (!e.target.closest("button")) $("#secret-input")?.focus(); break;
+    case "tab": if (e.target.closest(".stage-tab-close")) break; S.stage.active = t.dataset.id; S.popover = null; render(); break;
+    case "tab-close": e.stopPropagation(); closeTab(t.dataset.id); break;
+    case "reopen": reopenTab(t.dataset.id); break;
+    case "stage-toggle": S.stageOpen = !S.stageOpen; render(); break;
+    case "rail-toggle": S.railOpen = !S.railOpen; render(); break;
+    case "open-thread": S.view = "thread"; S.railOpen = false; render(); break;
+    case "open-automations": S.view = "automations"; S.railOpen = false; S.stageOpen = false; render(); break;
+    case "sched-toggle": S.scheduling = !S.scheduling; render(); break;
+    case "job": jobAct(t.dataset.a, t.dataset.id); break;
+    case "job-new": S.dialog = { kind: "editor", id: null, draft: newDraft(), errors: {} }; render(); break;
+    case "dlg-scrim": if (e.target === t) { S.dialog = null; render(); } break;
+    case "dlg-close": S.dialog = null; render(); break;
+    case "dlg-choice": S.dialog.choice = t.value; S.dialog.ack = false; render(); break;
+    case "dlg-ack": S.dialog.ack = t.checked; render(); break;
+    case "dlg-kind": keepDraft(); S.dialog.draft.schedule.kind = t.dataset.v; render(); break;
+    case "dlg-runtime": keepDraft(); S.dialog.draft.runtime = t.dataset.v; render(); break;
+    case "dlg-delete": { const j = job(S.dialog.id); S.jobs = S.jobs.filter((x) => x !== j); S.dialog = null; toast(`Deleted ${esc(j.name)}. Its threads stay.`); render(); break; }
+    case "dlg-resolve": { const j = job(S.dialog.id); const run = S.dialog.choice === "run"; j.enabled = false; S.dialog = null; if (run) { j.status = "running"; j.last = `Running since ${clock(tick)} UTC · started again after an unclear run`; toast(`Started a new “Scheduled: ${esc(j.name)}”. The automation is off until you turn it on.`); } else { j.status = "ready"; toast(`Skipped. ${esc(j.name)} is off until you turn it on.`); } render(); break; }
+    case "dlg-save": saveDraft(); break;
+  }
+});
+document.addEventListener("change", (e) => { if (e.target.dataset?.act === "dlg-ack") { S.dialog.ack = e.target.checked; render(); } });
+function keepDraft() {
+  const x = S.dialog.draft;
+  x.name = $("#f-name")?.value ?? x.name; x.prompt = $("#f-prompt")?.value ?? x.prompt; x.project = $("#f-project")?.value ?? x.project;
+  if ($("#f-time")) x.schedule.time = $("#f-time").value; if ($("#f-at")) x.schedule.at = $("#f-at").value; x.enabled = $("#f-on")?.checked ?? x.enabled;
+}
+function saveDraft() {
+  keepDraft();
+  const x = S.dialog.draft, errors = {};
+  if (!x.name.trim()) errors.name = "Name it, so its threads read “Scheduled: …”.";
+  if (!x.prompt.trim()) errors.prompt = "Write the prompt each run starts with.";
+  if (Object.keys(errors).length) { S.dialog.errors = errors; render(); return; }
+  const sched = x.schedule.kind === "daily" ? { kind: "daily", time: x.schedule.time } : { kind: "once", at: `${x.schedule.at}:00Z` };
+  const next = x.schedule.kind === "daily" ? `${x.schedule.time > clock(tick) ? "Today" : "Tomorrow"} ${x.schedule.time} UTC` : new Date(`${x.schedule.at}:00Z`).toUTCString().slice(0, 22) + " UTC";
+  if (S.dialog.id) { const j = job(S.dialog.id); Object.assign(j, { name: x.name.trim(), prompt: x.prompt, project: x.project, runtime: x.runtime, schedule: sched, enabled: x.enabled, next }); toast(`Saved ${esc(j.name)}.`); }
+  else { S.jobs.push({ id: "n" + Date.now(), name: x.name.trim(), prompt: x.prompt, project: x.project, runtime: x.runtime, schedule: sched, enabled: x.enabled, status: "ready", next }); toast(`Created ${esc(x.name.trim())}. ${x.enabled ? (S.scheduling ? `Next run: ${esc(next)}.` : "It waits until scheduling is on.") : "It is off."}`); }
+  S.dialog = null; render();
+}
+function scenario(name) {
+  clearTimeout(runTimer); clearTimeout(contTimer); tick = 0;
+  prefs.scenario = name; S = baseState();
+  if (name === "goal") { S.transcript = [{ k: "user", text: "The e2e suite is red after the reconnect change." }, { k: "assistant", text: "Three specs fail on `main`. This will take several rounds of run, fix, run again. Set a goal and I'll keep going until it passes, or until you pause me." }]; S.pr.checks = "failed"; }
+  if (name === "automations") S.view = "automations";
+  if (name === "stage") { S.stageOpen = narrow(); toast(`Close a tab, then press ${MOD}⇧T (Alt+Shift+T here), or use the ▾ menu.`, 5000); }
+  render();
+  const input = $("#input");
+  if (name === "goal") { input.value = "/goal Make `pnpm test:e2e` pass on CI without skipping or deleting tests"; renderSend(); input.focus(); }
+  if (name === "secret") askSecret();
+}
+new ResizeObserver(() => { if (app.classList.contains("narrow") !== narrow()) render(); }).observe(app);
+window.addEventListener("resize", () => render());
+scenario("watch");
+</script>
+</body>
+</html>

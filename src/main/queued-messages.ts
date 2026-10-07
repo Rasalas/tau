@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { UiPromptAttachment, UiQueuedMessage, UiQueuedPrompt, UiSkillDraft } from "../shared/contracts.js";
+import type { UiPromptAttachment, UiQueuedMessage, UiQueuedPrompt, UiSkillDraft, UiWake } from "../shared/contracts.js";
+import { wakeMessageText } from "../shared/message-turns.js";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
 
 const VERSION = 1;
@@ -9,6 +10,8 @@ export interface QueuedMessage extends UiQueuedPrompt {
   queuedAt: number;
   /** The thread that sent it, when another thread's agent did. */
   fromThreadId?: string;
+  /** Not the user's: a kit woke the thread. Stop drops it; the user's own messages stay. */
+  wake?: UiWake;
 }
 
 /** What a thread's queue looks like to the thread list; `undefined` when it is empty. */
@@ -49,11 +52,24 @@ function decodeSkill(value: unknown): UiSkillDraft | undefined {
     : undefined;
 }
 
+/** A kit's message as the queue keeps it: a wake carries its mark and is delivered with its line in front. */
+export function markWake(text: string, wake: UiWake | undefined): { text: string; wake?: UiWake } {
+  if (!wake) return { text };
+  const marked = { source: wake.source.slice(0, 32), label: wake.label.replace(/\s+/gu, " ").trim().slice(0, 160) };
+  return { text: wakeMessageText(marked, text), wake: marked };
+}
+
+function decodeWake(value: unknown): UiWake | undefined {
+  const wake = value as Partial<UiWake> | undefined;
+  return typeof wake?.source === "string" && typeof wake.label === "string" ? { source: wake.source, label: wake.label } : undefined;
+}
+
 function decodeMessage(value: unknown): QueuedMessage | undefined {
   const item = value as Record<string, unknown> | undefined;
   if (!item || typeof item.id !== "string" || typeof item.text !== "string") return undefined;
   const attachments = Array.isArray(item.attachments) ? item.attachments.flatMap((entry) => decodeAttachment(entry) ?? []) : [];
   const skillDraft = decodeSkill(item.skillDraft);
+  const wake = decodeWake(item.wake);
   return {
     id: item.id,
     text: item.text,
@@ -61,6 +77,7 @@ function decodeMessage(value: unknown): QueuedMessage | undefined {
     queuedAt: typeof item.queuedAt === "number" ? item.queuedAt : 0,
     ...(skillDraft ? { skillDraft } : {}),
     ...(typeof item.fromThreadId === "string" ? { fromThreadId: item.fromThreadId } : {}),
+    ...(wake ? { wake } : {}),
   };
 }
 
@@ -127,6 +144,7 @@ export class QueuedMessages {
         text: message.text,
         attachments: message.attachments.length,
         ...(message.fromThreadId ? { fromThreadId: message.fromThreadId } : {}),
+        ...(message.wake ? { wake: { ...message.wake } } : {}),
       })),
       held: this.held.has(sessionId),
     };
@@ -144,10 +162,14 @@ export class QueuedMessages {
     return queued;
   }
 
-  /** Takes messages out without sending them: one by id, or the whole queue. */
+  /**
+   * Takes messages out without sending them: one by id, or every message of the
+   * user's. Wakes stay for `dropWakes`, so a Stop that first hands the user's
+   * messages back to the composer still drops and counts them.
+   */
   take(sessionId: string, id?: string): QueuedMessage[] {
     const current = this.list(sessionId);
-    const taken = id === undefined ? current : current.filter((message) => message.id === id);
+    const taken = id === undefined ? current.filter((message) => !message.wake) : current.filter((message) => message.id === id);
     if (taken.length > 0) this.write(sessionId, current.filter((message) => !taken.includes(message)));
     return [...taken];
   }
@@ -162,6 +184,17 @@ export class QueuedMessages {
     const [message] = next.splice(from, 1);
     next.splice(target, 0, message!);
     this.write(sessionId, next);
+  }
+
+  /**
+   * Takes out every wake that waits, synchronously, so no idle pump can send
+   * one after a Stop; the user's own messages keep their place.
+   */
+  dropWakes(sessionId: string): QueuedMessage[] {
+    const current = this.list(sessionId);
+    const wakes = current.filter((message) => message.wake);
+    if (wakes.length > 0) this.write(sessionId, current.filter((message) => !message.wake));
+    return wakes;
   }
 
   /** The queue waits for the user: a stop, a limit or a refused delivery. */
@@ -214,8 +247,11 @@ export class QueuedMessages {
       this.persist();
       this.port.log("queue.delivered", `${sessionId.slice(0, 8)} · ${rest.length} left`);
     } catch (error) {
-      this.queues.set(sessionId, [head, ...this.list(sessionId)]);
-      this.held.add(sessionId);
+      // A refused wake is not the user's to resend; its kit wakes the thread again if it still should.
+      if (!head.wake) {
+        this.queues.set(sessionId, [head, ...this.list(sessionId)]);
+        this.held.add(sessionId);
+      } else this.persist();
       this.publish(sessionId);
       this.port.log("queue.delivery-failed", `${sessionId.slice(0, 8)}: ${error instanceof Error ? error.message : String(error)}`);
     } finally {

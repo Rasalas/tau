@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState, type ComponentProps, type KeyboardEvent, 
 import { Maximize2, Minimize2, PanelRight } from "lucide-react";
 import type { TranscriptPage } from "../../shared/host-protocol";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
-import { activeTab, splitTab, type StageExtensionTab, type StageState, type StageTab, type StageView } from "../../workbench/stage";
+import { activeTab, recentlyClosed, splitTab, type StageExtensionTab, type StageState, type StageTab, type StageView } from "../../workbench/stage";
+import { stageTabGlyph } from "./StageSpine";
 import type { DocumentOrigin, ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import type { StageTabController } from "../stage-tab-controller";
 import { FileViewer } from "./FileViewer";
@@ -70,7 +71,7 @@ function OriginFileViewer({ registry, workspace, ...props }: ComponentProps<type
 export function Stage({
   stage, cwd, workspace, changes, editor, maximize, tools, trailingActions, focusRef, registry, stageTabs, actions,
   loadFile, loadDiff, loadThread,
-  onActivate, onClose, onPin, onUnpin, onCloseOthers, onCloseToRight, onChangeView, onOpenInEditor, onTakeOverThread, renderPanel,
+  onActivate, onClose, onPin, onUnpin, onCloseOthers, onCloseToRight, onChangeView, onOpenInEditor, onTakeOverThread, renderPanel, onReopen,
 }: {
   stage: StageState;
   focusRef?: RefObject<HTMLElement | null>;
@@ -109,7 +110,11 @@ export function Stage({
   onTakeOverThread(sessionId: string): void;
   /** Where a maximized panel draws; the workbench keeps the panel itself. */
   renderPanel?(panelId: string): ReactNode;
+  /** Brings a closed tab back ("Recently closed"). */
+  onReopen?(id: string): void;
 }) {
+  const closed = useMemo(() => recentlyClosed(stage).map((entry) => entry.tab), [stage]);
+  const reopenShortcut = registry?.keybindingLabel?.("workbench.reopen-stage-tab");
   const current = activeTab(stage);
   const beside = splitTab(stage);
   const environments = usePlatform().environments;
@@ -150,7 +155,12 @@ export function Stage({
   const pane = (tab: StageTab | undefined) => {
     const lookIn = tab?.kind === "thread" ? lookInMachine(tab.machine, environments) : undefined;
     return !tab ? (
-      <div className="stage-empty" role="status">Nothing is open here.</div>
+      <div className="stage-empty" role="status">
+        <span>Nothing is open here.</span>
+        {onReopen && closed[0] ? <button type="button" className="text-button" onClick={() => onReopen(closed[0]!.id)}>
+          Reopen {stageTabGlyph(closed[0], registry).label}{reopenShortcut ? <kbd>{reopenShortcut}</kbd> : null}
+        </button> : null}
+      </div>
     ) : tab.kind === "panel" ? (
       <section key={tab.id} className="stage-pane panel-pane" aria-label={registry?.getPanels().find((panel) => panel.id === tab.panelId)?.label ?? tab.panelId}>
         {renderPanel?.(tab.panelId) ?? <div className="stage-empty" role="status">The extension that draws this panel is not active.</div>}
@@ -210,6 +220,9 @@ export function Stage({
         onUnpin={onUnpin}
         onCloseOthers={onCloseOthers}
         onCloseToRight={onCloseToRight}
+        closed={closed}
+        reopenShortcut={reopenShortcut}
+        onReopen={onReopen}
       />
       <div className="stage-strip-actions">
         {tools}

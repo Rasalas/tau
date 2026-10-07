@@ -5,7 +5,8 @@ import type { ExtensionRegistry, PanelContribution } from "../extension-system";
 import { usePlatform } from "../platform-context";
 import { useEnvironmentThread } from "../use-environment-thread";
 import { useThreadShell } from "../use-thread-shell";
-import { Menu, type MenuItem } from "./Menu";
+import { Menu, type MenuItem, type MenuSection } from "./Menu";
+import { useThreadStore } from "../workbench-context";
 import { stageTabGlyph } from "./StageSpine";
 import { tooltipProps } from "./ui/Tooltip";
 
@@ -110,9 +111,17 @@ function useOverflow(strip: React.RefObject<HTMLElement | null>, count: number):
   return over;
 }
 
+/** A closed tab's name in "Recently closed": a thread by its title. */
+function closedLabel(tab: StageTab, registry: ExtensionRegistry | undefined, title: (sessionId: string) => string | undefined): string {
+  if (tab.kind === "thread") return title(tab.sessionId) || "Thread";
+  return stageTabGlyph(tab, registry).label;
+}
+
+const RECENT_PREFIX = "recent:";
+
 export function StageTabs({
-  tabs, activeId, splitId, changedPaths, registry,
-  onActivate, onClose, onPin, onUnpin, onCloseOthers, onCloseToRight, onSplit,
+  tabs, activeId, splitId, changedPaths, registry, closed = [], reopenShortcut,
+  onActivate, onClose, onPin, onUnpin, onCloseOthers, onCloseToRight, onSplit, onReopen,
 }: {
   tabs: StageTab[];
   activeId?: string;
@@ -130,7 +139,12 @@ export function StageTabs({
   onCloseToRight(id: string): void;
   /** Shows a tab beside the active one; without an id, joins the panes again. */
   onSplit?: ((id?: string) => void) | undefined;
+  /** Tabs closed on this stage, newest first; "All tabs" lists them under "Recently closed". */
+  closed?: readonly StageTab[];
+  reopenShortcut?: string | undefined;
+  onReopen?: ((id: string) => void) | undefined;
 }) {
+  const threads = useThreadStore();
   const [menu, setMenu] = useState<TabMenu>();
   const [listOpen, setListOpen] = useState(false);
   const strip = useRef<HTMLDivElement>(null);
@@ -205,7 +219,7 @@ export function StageTabs({
         />;
       })}
     </div>
-    {overflow ? <span className="menu-anchor stage-tabs-overflow">
+    {overflow || (onReopen && closed.length > 0) ? <span className="menu-anchor stage-tabs-overflow">
       <button
         type="button"
         className="stage-tool"
@@ -216,10 +230,27 @@ export function StageTabs({
         onClick={() => setListOpen((open) => !open)}
       ><ChevronDown size={15} /></button>
       {listOpen ? <Menu
-        align="right"
+        // Without overflow the button follows the tabs near the stage's left edge, so the menu opens rightwards.
+        align={overflow ? "right" : "left"}
         label="All tabs"
-        items={tabs.map((tab) => ({ id: tab.id, label: stageTabGlyph(tab, registry).label, icon: stageTabGlyph(tab, registry).icon, selected: tab.id === activeId }))}
-        onSelect={(id) => { setListOpen(false); onActivate(id); }}
+        sections={[
+          { items: tabs.map((tab) => ({ id: tab.id, label: stageTabGlyph(tab, registry).label, icon: stageTabGlyph(tab, registry).icon, selected: tab.id === activeId })) },
+          ...(onReopen && closed.length > 0 ? [{
+            heading: "Recently closed",
+            items: closed.map((tab, index) => ({
+              id: `${RECENT_PREFIX}${tab.id}`,
+              label: closedLabel(tab, registry, (sessionId) => threads.getThread(sessionId)?.title),
+              icon: stageTabGlyph(tab, registry).icon,
+              ...(index === 0 && reopenShortcut ? { hint: reopenShortcut } : {}),
+              ...(tab.kind === "extension" && registry?.getStageTabKind(tab.tabKind)?.reopenHint ? { description: registry.getStageTabKind(tab.tabKind)!.reopenHint } : {}),
+            })),
+          } satisfies MenuSection] : []),
+        ]}
+        onSelect={(id) => {
+          setListOpen(false);
+          if (id.startsWith(RECENT_PREFIX)) onReopen?.(id.slice(RECENT_PREFIX.length));
+          else onActivate(id);
+        }}
         onClose={() => setListOpen(false)}
       /> : null}
     </span> : null}

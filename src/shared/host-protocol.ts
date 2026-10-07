@@ -78,6 +78,8 @@ export interface HostCatalog {
   mode?: string;
   /** The modes besides `default` the runtime offers. */
   modes?: string[];
+  /** The runtime keeps native goals for this thread. */
+  goals?: boolean;
   allTools: Array<{ name: string; description: string }>;
   composerCommands?: UiComposerCommand[];
   extensionCount: number;
@@ -288,13 +290,13 @@ export function threadDetailFromHostSnapshot(snapshot: HostSnapshot): ThreadDeta
  * so every holder of a snapshot applies a catalog the same way.
  */
 export function hostSnapshotWithCatalog(snapshot: HostSnapshot, catalog: HostCatalog): HostSnapshot {
-  const { sessionId: _sessionId, supportsImageInput, mode, modes, ...catalogFields } = catalog;
+  const { sessionId: _sessionId, supportsImageInput, mode, modes, goals, ...catalogFields } = catalog;
   return {
     ...snapshot,
     ...catalogFields,
     // A legacy v1 catalog carries no sessionId and no capability flag; leave
     // the snapshot's own value alone rather than reading absence as "no".
-    ...(catalog.sessionId === undefined ? {} : { supportsImageInput: supportsImageInput ?? false, mode, modes }),
+    ...(catalog.sessionId === undefined ? {} : { supportsImageInput: supportsImageInput ?? false, mode, modes, goals: goals === true }),
   };
 }
 
@@ -404,6 +406,7 @@ export function catalogFromSnapshot(snapshot: HostSnapshot): HostCatalog {
     thinkingLevels: [...snapshot.thinkingLevels],
     ...(snapshot.mode ? { mode: snapshot.mode } : {}),
     ...(snapshot.modes ? { modes: [...snapshot.modes] } : {}),
+    ...(snapshot.goals ? { goals: true } : {}),
     allTools: [...snapshot.allTools],
     composerCommands: snapshot.composerCommands?.map((command) => ({ ...command })),
     extensionCount: snapshot.extensionCount,

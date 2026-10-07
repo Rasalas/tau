@@ -113,6 +113,18 @@ describe("ThreadStore selective navigation subscriptions", () => {
     expect(store.getThreadIds()).toEqual(["two"]);
   });
 
+  it("takes a shell whose only change is its goal: set, moved on, and ended", () => {
+    const store = new ThreadStore();
+    store.applyThreadIndex({ projects: [], sessions: [shell("one")] });
+    const goal = { objective: "Ship", status: "active" as const, actions: { pause: true, resume: true }, updatedAt: 1 };
+    store.applyThreadShell("one", { ...shell("one"), goal });
+    expect(store.getThread("one")?.goal?.status).toBe("active");
+    store.applyThreadShell("one", { ...shell("one"), goal: { ...goal, status: "complete" } });
+    expect(store.getThread("one")?.goal?.status).toBe("complete");
+    store.applyThreadShell("one", shell("one"));
+    expect(store.getThread("one")?.goal).toBeUndefined();
+  });
+
   it("takes a shell whose only change is what the thread cost, as a price change makes it", () => {
     const store = new ThreadStore();
     const usage = { inputTokens: 10, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 11, costUsd: 0.01, turns: 1 };

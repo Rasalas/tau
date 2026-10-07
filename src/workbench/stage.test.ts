@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   activateTab, activeTab, addPanelTabBehind, closeTab, cycleTab, EMPTY_STAGE, extensionTabId, fileTabId, openExtensionTab, openFileTab, stageFilePath,
   openThreadTab, otherTabIds, pinTab, setExtensionTabDirty, setExtensionTabTitle, setFileView, stageParamsKey,
-  openPanelTab, panelTabId, splitStage, splitTab, stagedPanelIds, tabIdsToTheRight, threadTabId, unpinTab,
+  openPanelTab, panelTabId, recentlyClosed, rememberClosedTab, reopenClosedTab, splitStage, splitTab, stagedPanelIds, tabIdsToTheRight, threadTabId, unpinTab,
 } from "./stage";
 
 const A = "/repo/src/a.ts";
@@ -323,5 +323,28 @@ describe("trace tabs", () => {
     const traced = openFileTab(openFileTab(EMPTY_STAGE, "/repo/a.ts", { pin: true }), "/repo/b.ts", { trace: true });
     const pinned = pinTab(traced, traced.tabs[1]!.id);
     expect(pinned.tabs[1]).toMatchObject({ preview: false, trace: false });
+  });
+});
+
+describe("recently closed", () => {
+  it("rides along when tabs open, close and split", () => {
+    let state = openFileTab(openFileTab(EMPTY_STAGE, "a.ts", { pin: true }), "b.ts", { pin: true });
+    state = rememberClosedTab(closeTab(state, "file:a.ts"), { id: "file:a.ts", kind: "file", path: "a.ts", view: "source", preview: false }, 1);
+    state = openFileTab(state, "c.ts", { pin: true });
+    state = splitStage(state, "file:b.ts");
+    state = closeTab(state, "file:c.ts");
+    expect(state.closed?.map((entry) => entry.tab.id)).toEqual(["file:a.ts"]);
+    expect(recentlyClosed(state).map((entry) => entry.tab.id)).toEqual(["file:a.ts"]);
+  });
+
+  it("only brings an open tab forward, and forgets its entry", () => {
+    const a = { id: "file:a.ts", kind: "file" as const, path: "a.ts", view: "source" as const, preview: false };
+    let state = openFileTab(openFileTab(EMPTY_STAGE, "a.ts", { pin: true }), "b.ts", { pin: true });
+    state = rememberClosedTab(state, a, 1);
+    expect(recentlyClosed(state)).toEqual([]);
+    state = reopenClosedTab(state, a);
+    expect(state.tabs).toHaveLength(2);
+    expect(state.activeId).toBe("file:a.ts");
+    expect(state.closed).toBeUndefined();
   });
 });

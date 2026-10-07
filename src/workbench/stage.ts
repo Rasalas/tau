@@ -73,7 +73,20 @@ export interface StageState {
   activeId?: string;
   /** The tab shown beside the active one while the stage is split. */
   splitId?: string | undefined;
+  /** Tabs the user closed here, newest first; kept with the tabs, so each thread has its own. */
+  closed?: ClosedStageTab[];
 }
+
+/**
+ * A closed tab as "Reopen closed tab" brings it back: plain JSON, pinned, and
+ * for an extension tab only what its kind's `reopenParams` kept.
+ */
+export interface ClosedStageTab {
+  tab: StageTab;
+  closedAt: number;
+}
+
+export const MAX_CLOSED_TABS = 20;
 
 export const EMPTY_STAGE: StageState = { tabs: [] };
 
@@ -144,7 +157,12 @@ function openTab(state: StageState, tab: StageTab): StageState {
   const tabs = previewIndex >= 0
     ? state.tabs.map((entry, index) => index === previewIndex ? tab : entry)
     : insertAfterActive(state, tab);
-  return { tabs, activeId: tab.id };
+  return { ...withClosed(state), tabs, activeId: tab.id };
+}
+
+/** The history rides along with every new shape of the stage. */
+function withClosed(state: StageState): Pick<StageState, "closed"> {
+  return state.closed?.length ? { closed: state.closed } : {};
 }
 
 function reopen(state: StageState, existing: StageTab, next: StageTab): StageState {
@@ -210,7 +228,7 @@ export function openPanelTab(state: StageState, panelId: string): StageState {
 export function addPanelTabBehind(state: StageState, panelId: string): StageState {
   const id = panelTabId(panelId);
   if (state.tabs.some((tab) => tab.id === id)) return state;
-  return { tabs: [{ id, kind: "panel", panelId, preview: false }, ...state.tabs], activeId: state.activeId ?? id };
+  return { ...withClosed(state), tabs: [{ id, kind: "panel", panelId, preview: false }, ...state.tabs], activeId: state.activeId ?? id };
 }
 
 /** Panel ids that sit on the stage now. */
@@ -254,7 +272,7 @@ export function splitStage(state: StageState, id?: string): StageState {
   const index = state.tabs.findIndex((tab) => tab.id === id);
   if (index < 0 || state.tabs.length < 2) return { ...state, splitId: undefined };
   const activeId = id === state.activeId ? (state.tabs[index - 1] ?? state.tabs[index + 1])!.id : state.activeId;
-  return { tabs: state.tabs.map((tab) => tab.id === id ? { ...tab, preview: false } : tab), activeId, splitId: id };
+  return { ...withClosed(state), tabs: state.tabs.map((tab) => tab.id === id ? { ...tab, preview: false } : tab), activeId, splitId: id };
 }
 
 export function closeTab(state: StageState, id: string): StageState {
@@ -264,7 +282,35 @@ export function closeTab(state: StageState, id: string): StageState {
   const activeId = state.activeId !== id ? state.activeId : (tabs[index] ?? tabs[index - 1])?.id;
   // Without the split tab, or with it in front, the stage is one pane again.
   const { splitId } = state;
-  return { tabs, activeId, splitId: splitId !== id && splitId !== activeId ? splitId : undefined };
+  return { ...withClosed(state), tabs, activeId, splitId: splitId !== id && splitId !== activeId ? splitId : undefined };
+}
+
+/** Remembers a tab the user closed, newest first; one entry per tab, at most twenty. */
+export function rememberClosedTab(state: StageState, tab: StageTab, closedAt: number): StageState {
+  const closed = [{ tab, closedAt }, ...(state.closed ?? []).filter((entry) => entry.tab.id !== tab.id)].slice(0, MAX_CLOSED_TABS);
+  return { ...state, closed };
+}
+
+export function forgetClosedTab(state: StageState, id: string): StageState {
+  if (!state.closed?.some((entry) => entry.tab.id === id)) return state;
+  const closed = state.closed.filter((entry) => entry.tab.id !== id);
+  const { closed: _closed, ...rest } = state;
+  return closed.length > 0 ? { ...rest, closed } : rest;
+}
+
+/** What "Recently closed" lists: the newest first, without a tab that is open again. */
+export function recentlyClosed(state: StageState): ClosedStageTab[] {
+  return (state.closed ?? []).filter((entry) => !state.tabs.some((tab) => tab.id === entry.tab.id));
+}
+
+/**
+ * Puts a closed file or thread tab back, pinned, after the active one; an
+ * open one is only brought forward. Its entry leaves the history.
+ */
+export function reopenClosedTab(state: StageState, tab: StageTab): StageState {
+  const rest = forgetClosedTab(state, tab.id);
+  if (rest.tabs.some((entry) => entry.id === tab.id)) return activateTab(rest, tab.id);
+  return openTab(rest, { ...tab, preview: false });
 }
 
 export function pinTab(state: StageState, id: string): StageState {

@@ -74,7 +74,6 @@ export function withOpenCodeCatalog(provider: Provider, catalog: unknown): Provi
   return {
     ...provider,
     getModels: () => models,
-    getAllModels: () => [...(provider.getAllModels?.() ?? provider.getModels()), ...extra],
   };
 }
 

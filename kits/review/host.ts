@@ -10,6 +10,7 @@ import { registerPublishCommands } from "./publish-host.js";
 import { registerRequestCommands, type RequestCommandOptions } from "./requests-host.js";
 import { registerLocalRequestCommands } from "./local-request-host.js";
 import { registerLocalReviewCommands } from "./local-reviews-host.js";
+import { registerPullRequestWatches } from "./pr-watch-host.js";
 import { registerThreadLinks, type ThreadLinks } from "./thread-links-host.js";
 import { workspaceCommandContext } from "./workspace-host.js";
 
@@ -51,7 +52,7 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
     id: REVIEW_HOST_EXTENSION_ID,
     name: "Review Kit",
     permissions: ["sessions", "process", "network", "runtime:extend", "machines"],
-    activate(original: HostExtensionContext) {
+    async activate(original: HostExtensionContext) {
       const context = workspaceCommandContext(original);
       const { services } = context;
       // Review's desktop half reaches the Workspace read API through this
@@ -86,6 +87,7 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
       const reads = registerPullRequestCommands(context, sources, { ...options, created: (url, threadId) => { if (threadId) void links?.link(threadId, url, "created"); } });
       registerPullRequestListCommands(context, sources, workspace);
       links = registerThreadLinks(context, reads, workspace, sources);
+      const stopWatches = await registerPullRequestWatches(context, sources, links);
       registerRequestCommands(context, sources, {
         ...options,
         // A request opened from the Changes panel belongs to the thread on screen.
@@ -128,7 +130,7 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
         services.log("commit-message.suggested", message.split(/\r?\n/u)[0]);
         return { message };
       });
-      return async () => { links?.dispose(); await sources.dispose(); };
+      return async () => { await stopWatches(); links?.dispose(); await sources.dispose(); };
     },
   };
 }

@@ -153,6 +153,7 @@ export function Composer({
   onRunShellAction,
   newThread = false,
   lead,
+  stopHint,
   notice,
 }: {
   snapshot?: HostSnapshot;
@@ -200,6 +201,8 @@ export function Composer({
   newThread?: boolean;
   /** Core's chips before the model, after the kits' `lead` controls (a draft's project). */
   lead?: ReactNode;
+  /** What Stop's tooltip says when it ends more than the turn, e.g. a goal's next turn. */
+  stopHint?: string;
   /** Why the thread stopped, drawn as a bar on top of the field. */
   notice?: ReactNode;
 }) {
@@ -1241,7 +1244,7 @@ export function Composer({
 
           {/* Send is the row's one round button (design 1a); Stop is a quiet word before it, never in its place. */}
           {streaming ? (
-            <button className={`send-button stop${answerable ? " answering" : ""}`} {...tooltipProps("Stop the run", { shortcut: registry?.keybindingLabel?.("runtime.abort") })} aria-label="Stop the run" onClick={onAbort}><i /><span>Stop</span></button>
+            <button className={`send-button stop${answerable ? " answering" : ""}`} {...tooltipProps(stopHint ?? "Stop the run", { shortcut: registry?.keybindingLabel?.("runtime.abort") })} aria-label={stopHint ?? "Stop the run"} onClick={onAbort}><i /><span>Stop</span></button>
           ) : null}
           {(() => {
             // One send button, always there: it answers, steers or queues, or sends; with nothing to send it rests.

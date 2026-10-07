@@ -383,6 +383,35 @@ export interface UiQueuedMessage {
   attachments: number;
   /** The thread that sent it, when another thread's agent did. */
   fromThreadId?: string;
+  /** Set when something other than the user woke the thread; Stop drops it. New in API 1.52.0. */
+  wake?: UiWake;
+}
+
+/**
+ * What woke a thread: a pull request event, a goal's next turn, a schedule.
+ * `source` names the kind for its icon; `label` is the line the transcript and the queue show.
+ */
+export interface UiWake {
+  source: "pull-request" | "goal" | "automation" | (string & {});
+  label: string;
+}
+
+/** Where a native goal stands, as its runtime reports it. `unconfirmed`: the run ended without a verdict. */
+export type UiGoalStatus = "active" | "paused" | "blocked" | "usage-limited" | "budget-limited" | "complete" | "unconfirmed";
+
+/** A thread's native goal (API 1.52.0); the runtime pursues it across turns of its own. */
+export interface UiThreadGoal {
+  objective: string;
+  status: UiGoalStatus;
+  /** What the runtime can do to it: Claude Code, for one, has no pause. */
+  actions: { pause: boolean; resume: boolean };
+  tokensUsed?: number;
+  tokenBudget?: number;
+  /** Turns the runtime spent on it, when it counts them. */
+  turns?: number;
+  /** The runtime's own words for the last check or why it stopped. */
+  reason?: string;
+  updatedAt: number;
 }
 
 /** A queued message in full, as `take-queued` hands it back to a composer. */
@@ -391,6 +420,8 @@ export interface UiQueuedPrompt {
   text: string;
   attachments: UiPromptAttachment[];
   skillDraft?: UiSkillDraft;
+  /** A wake taken out is dropped, never put into the composer. */
+  wake?: UiWake;
 }
 
 /** A thread its provider stopped at a usage or rate limit. */
@@ -442,6 +473,8 @@ export interface UiSession {
   queued?: UiQueuedMessage[];
   /** The queue waits for the user: a restart, a stop or a limit held it. */
   queueHeld?: boolean;
+  /** The thread's native goal, when its runtime has one (API 1.52.0). */
+  goal?: UiThreadGoal;
   /** Why the thread's runtime could not start; the thread shows read-only until it does. */
   runtimeError?: string;
   /**
@@ -608,6 +641,8 @@ export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscript
   mode?: string;
   /** The modes besides `default` the thread's runtime offers; absent or empty offers none. */
   modes?: string[];
+  /** The thread's runtime keeps native goals (`/goal`); API 1.52.0. */
+  goals?: boolean;
   /** Cursor for the next page when this snapshot already contains a bounded window. */
   isStreaming: boolean;
   activeTools: string[];
@@ -714,6 +749,7 @@ export interface HostBootstrap {
     thinkingLevels: string[];
     mode?: string;
     modes?: string[];
+    goals?: boolean;
     allTools: Array<{ name: string; description: string }>;
     composerCommands?: UiComposerCommand[];
     extensionCount: number;

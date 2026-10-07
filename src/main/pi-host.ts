@@ -35,6 +35,7 @@ import type {
   SystemPromptInspection,
   UiToolOutputPreview,
 } from "../shared/contracts.js";
+import type { GoalAction, ThreadControls } from "./thread-stop.js";
 import { loadModelsConfig } from "./models-config.js";
 import { inspectHostSystemPrompt, configureHostModelProvider, configuredComposerCommands } from "./host-model-configuration.js";
 import { createNewThreadRequestId } from "../shared/contracts.js";
@@ -59,7 +60,7 @@ import type { WorkspaceWatch } from "./workspace-watch.js";
 import { findDanglingToolCalls } from "./dangling-tool-calls.js";
 import { reconcileInFlightTurns, type ReconcilableThread } from "./turn-reconciliation.js";
 import type { InFlightTurn, TurnsInFlight } from "./turns-in-flight.js";
-import type { QueuedMessage, QueuedMessages } from "./queued-messages.js";
+import { markWake, type QueuedMessage, type QueuedMessages } from "./queued-messages.js";
 import type { ThreadLimits } from "./thread-limits.js";
 import type { TurnSettlement } from "./turn-settlement.js";
 import type { ThreadRuntimeRegistry } from "./thread-runtimes.js";
@@ -213,6 +214,7 @@ export class PiHost {
   private readonly turnsInFlight: TurnsInFlight;
   /** The composer's queue and the limit marks, kept by the host so both outlive a restart. */
   readonly queue: QueuedMessages;
+  private readonly controls: ThreadControls;
   readonly limits: ThreadLimits;
   private readonly settlement: TurnSettlement;
 
@@ -251,6 +253,7 @@ export class PiHost {
       setWindowTitle: (title) => this.publishWindowTitle(title),
       windowTitle: () => this.windowTitle,
       abortThread: (thread) => this.abortThread(thread),
+      promptThread: (threadId, text) => this.prompt(text, [], threadId),
       adoptThread: (thread) => this.adoptThread(thread),
       applyThreadTitle: (thread, title, source) => this.applyThreadTitle(thread, title, source),
       prewarmSession: (path) => this.prewarmSession(path),
@@ -281,7 +284,7 @@ export class PiHost {
       purgeThread: (sessionId) => this.purgeThread(sessionId),
       pendingHostExtensions: () => this.pendingHostExtensions,
       deliverQueued: (sessionId, message) => this.deliverQueued(sessionId, message),
-      sendToThread: (sessionId, text, delivery, from, attachments) => this.sendToThread(sessionId, text, delivery, from, attachments),
+      sendToThread: (sessionId, text, delivery, from, attachments, wake) => this.sendToThread(sessionId, text, delivery, from, attachments, wake),
       reopenThread: (sessionId) => this.reopenThread(sessionId),
       continueThread: async (sessionId, text) => this.reopenThread(sessionId).then((thread) => this.prompt(text, [], thread.threadId, undefined, undefined, { hidden: thread.backend.capabilities.resume?.hiddenPrompt === true })),
     });
@@ -318,7 +321,7 @@ export class PiHost {
     this.prompts = components.prompts;
     this.turns = components.turns;
     this.turnsInFlight = components.turnsInFlight;
-    ({ queue: this.queue, limits: this.limits, settlement: this.settlement, catalogs: this.catalogs, toolUpdates: this.toolUpdates, pricing: this.pricing } = components);
+    ({ queue: this.queue, limits: this.limits, settlement: this.settlement, catalogs: this.catalogs, toolUpdates: this.toolUpdates, pricing: this.pricing, controls: this.controls } = components);
     this.continueThreadsAfterRestart = components.continueThreadsAfterRestart;
     this.threadLifecycle = components.threadLifecycle;
     this.turnObservers = components.turnObservers;
@@ -1160,14 +1163,14 @@ export class PiHost {
     return thread;
   }
 
-  async sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string, attachments: UiPromptAttachment[] = []): Promise<void> {
+  async sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string, attachments: UiPromptAttachment[] = [], wake?: QueuedMessage["wake"]): Promise<void> {
     const thread = await this.reopenThread(sessionId);
     if (!thread.runtimeAdapter.capabilities.fileAttachments) {
       const files = promptFiles(attachments);
       if (files.length) text = `${text}\n\nAttached files:\n${files.map((file) => `- ${file.path}`).join("\n")}`;
       attachments = attachments.filter((attachment) => attachment.kind === "image");
     }
-    if (delivery === "queue") this.queue.add(thread.threadId, { text, attachments: this.prompts.checked(thread, attachments), ...(from ? { fromThreadId: from } : {}) });
+    if (delivery === "queue") this.queue.add(thread.threadId, { ...markWake(text, wake), attachments: this.prompts.checked(thread, attachments), ...(from ? { fromThreadId: from } : {}) });
     else await (delivery === "steer" ? this.steer(text, attachments, thread.threadId) : this.prompt(text, attachments, thread.threadId));
   }
 
@@ -1770,8 +1773,10 @@ export class PiHost {
   async abort(sessionId?: string): Promise<void> {
     const thread = this.threadFor(sessionId);
     if (!thread) return;
-    await this.abortThread(thread);
+    await this.controls.stop(thread);
   }
+
+  threadGoal(sessionId: string, action: GoalAction, objective?: string): Promise<void> { return this.controls.goal(sessionId, action, objective); }
 
   /**
    * Stops one thread's run. Its open questions and approvals are settled first:
@@ -1978,6 +1983,7 @@ export class PiHost {
       pushToolOutput: (id, output) => this.pushToolOutput(id, output),
       toolEnded: (owner, tool, toolCwd) => this.turnObservers.toolEnded(owner, tool, toolCwd),
       refreshShell: (runtime, touch) => this.index.refreshShell(runtime, touch),
+      refreshGoal: (runtime) => this.controls.publishGoal(runtime),
       turnSettled: (owner, error, limit) => this.settlement.settled(owner, error, limit),
     });
   }

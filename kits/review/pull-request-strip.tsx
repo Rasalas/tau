@@ -1,6 +1,8 @@
 import { SettlementStrip } from "./settlement-strip.js";
 import type { SettlementSource } from "./settlement.js";
 import { PublicationStrip } from "./publication-strip.js";
+import { PullRequestWatchControl } from "./pr-watch-control.js";
+import type { PullRequestWatchFeed } from "./pr-watch-client.js";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { CircleCheck, CircleDashed, CircleX, X } from "lucide-react";
 import { getClientStorage, tooltipProps, type DesktopExtensionContext, type RegionProps } from "tau";
@@ -19,6 +21,7 @@ import type { ThreadLinkRows } from "./thread-links-store.js";
 
 export interface StripParts {
   settlement?: SettlementSource;
+  watches?: PullRequestWatchFeed;
   rows: RowRequests;
   links: ThreadLinkRows;
   preferences: DesktopExtensionContext["preferences"];
@@ -149,6 +152,7 @@ export default function PullRequestStrip({ snapshot, actions, parts }: RegionPro
         {others.length > 0 ? <span className="review-pr-strip-more" {...tooltipProps(others.map(otherLine).join("\n"), { variant: "lines" })}>+{others.length}</span> : null}
         {primary.state === "open" ? <StripChecks request={primary} client={parts.client} open={() => open("checks")} /> : null}
       </button>
+      {parts.watches ? <PullRequestWatchControl feed={parts.watches} threadId={threadId} request={primary} /> : null}
       <button type="button" className="review-pr-strip-hide" aria-label={`Hide ${info.short} #${primary.number} for this thread`} {...tooltipProps("Hide for this thread")}
         onClick={() => dismissals.hide(threadId, primary)}>
         <X size={14} aria-hidden="true" />

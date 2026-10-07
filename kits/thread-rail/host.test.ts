@@ -35,6 +35,7 @@ async function scratch(): Promise<string> {
 }
 
 interface Setup {
+  watchShelf?: (input: unknown) => unknown;
   machines?: HostMachineServices;
   stateDir?: string;
   sessions?: HostSessionSummary[];
@@ -79,11 +80,12 @@ async function harness(setup: Setup = {}) {
     (event) => events.push(event),
   );
   registries.push(registry);
-  if (setup.review) {
+  if (setup.review || setup.watchShelf) {
     const review: HostExtension = {
       id: REVIEW_EXTENSION_ID,
       name: "Review Kit",
       activate(context: HostExtensionContext) {
+        if (setup.watchShelf) context.registerCommand("watch-shelf", setup.watchShelf, { access: "owner", callers: [THREAD_RAIL_EXTENSION_ID] });
         context.registerCommand("pr-status", (input) => setup.review!((input as { workspace: string }).workspace, input as { fresh?: boolean }), { callers: [THREAD_RAIL_EXTENSION_ID] });
         if (setup.linked) context.registerCommand("thread-requests", (input) => setup.linked!((input as { threadIds: string[] }).threadIds), { callers: [THREAD_RAIL_EXTENSION_ID] });
       },
@@ -610,4 +612,14 @@ describe("Working preference persistence", () => {
     expect((await restarted.invoke("state")).settings).toMatchObject({ workingSection: true, onClosed: true });
     expect((await restarted.invoke("settings", { workingSection: false })).settings.workingSection).toBe(false);
   });
+});
+
+
+it("notifies the declared Review command when a local thread is settled or restored, including undo patches", async () => {
+  const shelf = vi.fn();
+  const h = await harness({ watchShelf: shelf });
+  await h.invoke("patch", { patches: { a: { settledAt: NOW, settledBy: "user" } } });
+  await vi.waitFor(() => expect(shelf).toHaveBeenCalledWith({ settled: ["a"], restored: [] }, expect.anything()));
+  await h.invoke("patch", { patches: { a: { settledAt: null, settledBy: null } } });
+  await vi.waitFor(() => expect(shelf).toHaveBeenCalledWith({ settled: [], restored: ["a"] }, expect.anything()));
 });
