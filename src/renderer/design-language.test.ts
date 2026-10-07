@@ -120,9 +120,10 @@ describe("one content frame for the conversation", () => {
 });
 
 describe("a goal's pill keeps the run's colours", () => {
+  const goalStyles = readFileSync("src/renderer/components/GoalPill.css", "utf8");
   it("is blue only while it runs, amber when it waits on the user, green only when confirmed", () => {
-    expect(rule(STYLES, ".control-pill.goal-pill.running > svg")).toMatch(/var\(--info\)/u);
-    expect(rule(STYLES, ".control-pill.goal-pill.waiting")).toMatch(/var\(--warn\)/u);
-    expect(rule(STYLES, ".control-pill.goal-pill.done > svg")).toMatch(/var\(--done\)/u);
+    expect(rule(goalStyles, ".control-pill.goal-pill.running > svg")).toMatch(/var\(--info\)/u);
+    expect(rule(goalStyles, ".control-pill.goal-pill.waiting")).toMatch(/var\(--warn\)/u);
+    expect(rule(goalStyles, ".control-pill.goal-pill.done > svg")).toMatch(/var\(--done\)/u);
   });
 });
