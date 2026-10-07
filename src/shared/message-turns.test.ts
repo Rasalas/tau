@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UiMessage } from "./contracts.js";
-import { lastTurnNumber, numberWindowTurns, startsTurn, turnNumberOf } from "./message-turns.js";
+import { lastTurnNumber, numberWindowTurns, parseAsyncActivity, startsTurn, turnNumberOf, wakeMessageText } from "./message-turns.js";
 import { TranscriptPager } from "./transcript-pager.js";
 
 const say = (id: string, role: UiMessage["role"], text = id): UiMessage => ({ id, role, text, timestamp: 0 });
@@ -42,5 +42,23 @@ describe("turn numbers of a window that leaves older turns out", () => {
     expect(lastTurnNumber([...older.messages, ...newest.messages])).toBe(12);
     expect(numberWindowTurns(history, 0, history.length)).toEqual(history);
     expect(history.every((message) => message.turnNumber === undefined)).toBe(true);
+  });
+});
+
+describe("wake lines", () => {
+  it("parses a wake as a quiet line that starts no turn", () => {
+    const text = wakeMessageText({ source: "pull-request", label: "Woken by PR #42 · check smoke failed" }, "Check smoke failed on abc123.");
+    expect(parseAsyncActivity(text)).toEqual({
+      label: "Woken by PR #42 · check smoke failed",
+      detail: "Check smoke failed on abc123.",
+      wake: { source: "pull-request", label: "Woken by PR #42 · check smoke failed" },
+    });
+    expect(startsTurn({ id: "u", role: "user", text, timestamp: 1 })).toBe(false);
+    expect(parseAsyncActivity(wakeMessageText({ source: "goal", label: "Goal continued · turn 3" }, ""))?.wake?.source).toBe("goal");
+  });
+
+  it("does not take a user's look-alike text with an unknown shape for a wake", () => {
+    expect(parseAsyncActivity("[Tau wake: Bad Source] hi")).toBeUndefined();
+    expect(wakeMessageText({ source: "Not valid!", label: "x" }, "")).toBe("[Tau wake: tau] x");
   });
 });

@@ -13,9 +13,11 @@ import type {
   UiModel,
   UiRuntimeToolsState,
   UiPromptAttachment,
+  UiWake,
 } from "../shared/contracts.js";
 import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, type HostActionResult, type HostUpdate, type ThreadDetail } from "../shared/host-protocol.js";
 import type { CompletionRequest } from "./runtime-types.js";
+import { HostCommandError } from "./host-extension-errors.js";
 import type { HostModelAuthServices } from "./model-auth.js";
 import type { ClientTurnLedger } from "./client-turn-ledger.js";
 import type { AttachedSessionHost } from "./attached-pi-session.js";
@@ -155,7 +157,7 @@ export interface ExtensionServicesPort {
   removeThread(sessionId: string): Promise<void>;
   restoreThread(sessionId: string): Promise<void>;
   purgeThread(sessionId: string): Promise<void>;
-  sendToThread(sessionId: string, text: string, options: { delivery: "prompt" | "steer" | "queue"; from?: string; attachments?: UiPromptAttachment[] }): Promise<void>;
+  sendToThread(sessionId: string, text: string, options: { delivery: "prompt" | "steer" | "queue"; from?: string; attachments?: UiPromptAttachment[]; wake?: UiWake }): Promise<void>;
   /** Changes a thread's model by id, on or off screen. */
   setThreadModel(sessionId: string, provider: string, id: string): Promise<void>;
   /** Stops a thread's running turn; nothing happens to a thread without a runtime. */
@@ -392,11 +394,16 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
       restore: (sessionId) => port.restoreThread(sessionId),
       trash: () => port.trashedThreads(),
       purge: (sessionId) => port.purgeThread(sessionId),
-      send: (sessionId, text, sendOptions) => port.sendToThread(sessionId, text, {
-        delivery: sendOptions?.delivery ?? "prompt",
-        ...(sendOptions?.from ? { from: sendOptions.from } : {}),
-        ...(sendOptions?.attachments ? { attachments: [...sendOptions.attachments] } : {}),
-      }),
+      send: async (sessionId, text, sendOptions) => {
+        // A wake never steers or interrupts: it waits for the turn, and Stop can still take it back.
+        if (sendOptions?.wake && sendOptions.delivery !== "queue") throw new HostCommandError("A wake waits in the queue: send it with delivery \"queue\".");
+        return port.sendToThread(sessionId, text, {
+          delivery: sendOptions?.delivery ?? "prompt",
+          ...(sendOptions?.from ? { from: sendOptions.from } : {}),
+          ...(sendOptions?.attachments ? { attachments: [...sendOptions.attachments] } : {}),
+          ...(sendOptions?.wake ? { wake: { source: sendOptions.wake.source, label: sendOptions.wake.label } } : {}),
+        });
+      },
       setModel: (sessionId, provider, id) => port.setThreadModel(sessionId, provider, id),
       abort: (sessionId) => port.abortThread(sessionId),
       exclusive: (work) => port.exclusive(work),

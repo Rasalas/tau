@@ -74,7 +74,7 @@ describe("runtime controls slash commands", () => {
     expect(registry.getSlashCommands().map((command) => command.name)).toEqual([
       "reload", "source", "tree", "fork", "clone", "compact", "model", "thinking", "new",
       "clear", "system", "instructions", "copy", "export", "session", "help",
-      "name", "hotkeys", "scoped-models",
+      "name", "hotkeys", "scoped-models", "goal",
     ]);
     const reloadWorkbench = vi.fn(async () => false);
     const openWorkbenchSource = vi.fn(async () => true);
@@ -178,8 +178,9 @@ describe("runtime controls keybindings", () => {
       "workbench.toggle-spine": ["mod+shift+\\"],
       "runtime.settings": ["mod+,"],
       "runtime.theme": ["mod+alt+shift+a"],
-      "runtime.transcript-detail": ["mod+shift+t"],
+      "runtime.transcript-detail": ["mod+alt+t"],
       "workbench.close-stage-tab": ["mod+w"],
+      "workbench.reopen-stage-tab": ["mod+shift+t"],
       "workbench.focus-composer": ["mod+alt+1"],
       "workbench.focus-stage": ["mod+alt+3"],
       "workbench.focus-transcript": ["mod+alt+2"],
@@ -191,7 +192,7 @@ describe("runtime controls keybindings", () => {
       "rightPanel.toggleMaximized": ["mod+alt+shift+b"],
     });
     const scoped = Object.fromEntries(registry.getKeybindings().filter((binding) => binding.when).map((binding) => [binding.keys, binding.when]));
-    expect(scoped).toEqual({ "mod+n": "!terminalFocus", "mod+shift+enter": "!terminalFocus", "mod+shift+e": "!terminalFocus", "mod+shift+n": "!terminalFocus", "mod+shift+o": "!terminalFocus", "ctrl+p": "composerFocus", escape: "chatFocus", f2: "!terminalFocus" });
+    expect(scoped).toEqual({ "mod+n": "!terminalFocus", "mod+shift+t": "!terminalFocus", "mod+shift+enter": "!terminalFocus", "mod+shift+e": "!terminalFocus", "mod+shift+n": "!terminalFocus", "mod+shift+o": "!terminalFocus", "ctrl+p": "composerFocus", escape: "chatFocus", f2: "!terminalFocus" });
   });
 });
 

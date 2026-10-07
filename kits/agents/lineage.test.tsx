@@ -2,9 +2,8 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { HostSnapshot, UiSession, UiToolRun, WorkbenchActions } from "tau";
-import { WorkbenchContext } from "../../src/renderer/workbench-context.js";
 import { TestProviders, TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
-import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { WorkbenchContext, createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { SpawnCard } from "./spawn-card.js";
 import { agentsExtension } from "./desktop.js";
 import { AgentLineage } from "./lineage.js";

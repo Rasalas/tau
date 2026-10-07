@@ -6,7 +6,7 @@ import { restoreTerminalTab, TerminalStageTab, terminalTabParams } from "./stage
 import { connectTerminalFont, connectTerminalHost, createTerminalFontService, refreshTerminalSessions, terminalHostReconnected, terminalKit, terminalServices, terminalStore, useTerminalActivity } from "./store.js";
 import { ShellRow, TERMINAL_SETTINGS_ROWS, TerminalSettingsPage } from "./settings.js";
 import { paneIds } from "./layout.js";
-import { closeTerminals, focusNextPane, keyboardShell, naturalSplit, onStage, openTerminal, runInTerminal, targetShell, toggleTerminal } from "./controller.js";
+import { closeTerminals, focusNextPane, keyboardShell, moveTerminalToStage, naturalSplit, onStage, openTerminal, runInTerminal, targetShell, toggleTerminal } from "./controller.js";
 import {
   COMPOSER_CONTEXT_CHIPS_SERVICE,
   PREVIEW_BROWSER_SERVICE,
@@ -145,6 +145,14 @@ export const terminalExtension: DesktopExtension = {
       Icon: Terminal,
       render: (params, handle, actions) => <TerminalStageTab params={terminalTabParams(params)} handle={handle} actions={actions} />,
       restore: restoreTerminalTab,
+      // Never the shells it showed: closing the tab handed them back to the panel. A new one starts in the thread's folder.
+      reopenParams: (params) => ({ label: terminalTabParams(params).label }),
+      reopenHint: "Opens a new shell",
+      reopen: async (_params, actions) => {
+        const opened = await openTerminal(actions);
+        moveTerminalToStage(actions, opened.id);
+        actions.notify("Opened a new shell in this thread's folder.");
+      },
     });
     const settings = plugin.registerSettingsPage({
       id: "terminal.settings",

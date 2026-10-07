@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { EMPTY_STAGE, extensionTabId, openFileTab, type StageState } from "../workbench/stage";
-import { ExtensionRegistry, type DesktopExtension, type StageTabContribution } from "./extension-system";
+import { ExtensionRegistry, type DesktopExtension, type StageTabContribution, type WorkbenchActions } from "./extension-system";
 import { StageTabController } from "./stage-tab-controller";
 
 const TERMINAL = extensionTabId("terminal", '{"id":"t1"}');
@@ -21,7 +21,7 @@ function kit(tab: Partial<StageTabContribution> = {}): DesktopExtension {
   };
 }
 
-function harness(initial: StageState = EMPTY_STAGE) {
+function harness(initial: StageState = EMPTY_STAGE, actions?: () => WorkbenchActions) {
   const registry = new ExtensionRegistry();
   let stage = initial;
   const confirmDiscard = vi.fn(() => true);
@@ -30,6 +30,7 @@ function harness(initial: StageState = EMPTY_STAGE) {
     stage: () => stage,
     setStage: (change) => { stage = typeof change === "function" ? change(stage) : change; },
     confirmDiscard,
+    ...(actions ? { actions } : {}),
   });
   return { registry, controller, confirmDiscard, get stage() { return stage; } };
 }
@@ -172,5 +173,84 @@ describe("a stage tab whose kind is not there", () => {
 
     expect(restore).toHaveBeenCalledExactlyOnceWith({ id: "t1" });
     expect(app.stage.tabs).toEqual([]);
+  });
+});
+
+describe("reopening a closed tab", () => {
+  it("brings back the file closed last, pinned, and leaves the history once reopened", () => {
+    const app = harness(openFileTab(openFileTab(EMPTY_STAGE, "src/a.ts", { pin: true }), "src/b.ts", { line: 12 }));
+    app.controller.close("file:src/b.ts");
+    expect(app.controller.closedTabs().map((tab) => tab.id)).toEqual(["file:src/b.ts"]);
+    expect(app.controller.reopen()).toBe(true);
+    const reopened = app.stage.tabs.find((tab) => tab.id === "file:src/b.ts");
+    expect(reopened).toMatchObject({ kind: "file", path: "src/b.ts", preview: false });
+    expect(reopened).not.toHaveProperty("line");
+    expect(app.stage.activeId).toBe("file:src/b.ts");
+    expect(app.controller.closedTabs()).toEqual([]);
+    expect(app.controller.reopen()).toBe(false);
+  });
+
+  it("keeps twenty, newest first, one entry per tab", () => {
+    let stage = EMPTY_STAGE;
+    for (let index = 0; index < 25; index += 1) stage = openFileTab(stage, `f${index}.ts`, { pin: true });
+    const app = harness(stage);
+    for (let index = 0; index < 25; index += 1) app.controller.close(`file:f${index}.ts`);
+    expect(app.controller.closedTabs()).toHaveLength(20);
+    expect(app.controller.closedTabs()[0]!.id).toBe("file:f24.ts");
+  });
+
+  it("keeps of an extension tab only what its kind's reopenParams answers, and nothing of a kind without one", () => {
+    const app = harness();
+    app.registry.activate(kit({ reopenParams: (params) => ({ label: String(params.label) }) }));
+    app.controller.open("terminal", { id: "pty-7", label: "zsh" });
+    app.controller.closeActive();
+    const [kept] = app.controller.closedTabs();
+    expect(kept).toMatchObject({ kind: "extension", tabKind: "terminal", params: { label: "zsh" } });
+    expect(JSON.stringify(kept)).not.toContain("pty-7");
+
+    const other = harness();
+    other.registry.activate(kit());
+    other.controller.open("terminal", { id: "pty-8" });
+    other.controller.closeActive();
+    expect(other.controller.closedTabs()).toEqual([]);
+  });
+
+  it("refuses what is not plain JSON from reopenParams", () => {
+    const app = harness();
+    app.registry.activate(kit({ reopenParams: () => ({ handle: () => undefined }) as never }));
+    app.controller.open("terminal", { id: "pty-9" });
+    app.controller.closeActive();
+    expect(app.controller.closedTabs()).toEqual([]);
+  });
+
+  it("reopens an extension tab through its kind's reopen, or opens the kind with the kept params", async () => {
+    const reopen = vi.fn();
+    const notify = vi.fn();
+    const app = harness(EMPTY_STAGE, () => ({ notify }) as unknown as WorkbenchActions);
+    app.registry.activate(kit({ reopenParams: (params) => ({ label: String(params.label ?? "shell") }), reopen }));
+    app.controller.open("terminal", { id: "pty-1", label: "zsh" });
+    app.controller.closeActive();
+    expect(app.controller.reopen()).toBe(true);
+    expect(reopen).toHaveBeenCalledWith({ label: "zsh" }, expect.objectContaining({ notify }));
+    expect(app.stage.tabs).toEqual([]);
+    expect(app.controller.closedTabs()).toEqual([]);
+
+    const plain = harness();
+    plain.registry.activate(kit({ reopenParams: (params) => ({ label: String(params.label) }) }));
+    plain.controller.open("terminal", { id: "pty-2", label: "fish" });
+    plain.controller.closeActive();
+    expect(plain.controller.reopen()).toBe(true);
+    expect(plain.stage.tabs).toMatchObject([{ kind: "extension", tabKind: "terminal", params: { label: "fish" } }]);
+  });
+
+  it("does not offer a tab nobody can save any more, closed because its kit went away", () => {
+    const app = harness();
+    app.registry.activate(kit({ reopenParams: () => ({ label: "x" }) }));
+    app.controller.open("terminal", { id: "pty-3" });
+    app.controller.syncKinds();
+    app.registry.deactivate("acme.terminals");
+    app.controller.syncKinds();
+    expect(app.stage.tabs).toEqual([]);
+    expect(app.controller.closedTabs()).toEqual([]);
   });
 });

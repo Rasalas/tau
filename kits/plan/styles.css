@@ -38,7 +38,7 @@
 .plan-card-expand:hover { background: var(--raised); color: var(--ink); }
 
 .plan-follow-up {
-  width: 100%; box-sizing: border-box; max-width: 780px; margin: 0 auto 8px; padding: 6px 6px 6px 12px;
+  width: 100%; box-sizing: border-box; max-width: var(--content-max, 780px); margin: 0 auto 8px; padding: 6px 6px 6px 12px;
   display: flex; align-items: center; gap: 8px; min-width: 0;
   border: 1px solid var(--acid-line); border-radius: var(--radius-lg);
   background: var(--acid-bg); font: calc(var(--text-sm) + .5px)/1.4 var(--sans); color: var(--ink-2);

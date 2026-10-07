@@ -287,7 +287,7 @@ body[data-keyboard] .preview-remote.compact .preview-remote-keys { padding-botto
 
 /* On a phone, what an agent drives: a strip above the composer; a tap opens the Preview sheet. */
 .preview-minibar {
-  width: 100%; box-sizing: border-box; max-width: 780px; margin: 0 auto 8px; display: flex; align-items: center; gap: 4px;
+  width: 100%; box-sizing: border-box; max-width: var(--content-max, 780px); margin: 0 auto 8px; display: flex; align-items: center; gap: 4px;
   padding: 4px 4px 4px 4px; border: 1px solid var(--line-control); border-radius: var(--radius-lg); background: var(--raised);
 }
 .preview-minibar-open { flex: 1; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 4px; border: 0; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }

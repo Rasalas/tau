@@ -1,6 +1,6 @@
 /* Why the thread stopped, on top of the composer as one card with it (2c). */
 .composer-notice {
-  max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 8px;
+  max-width: var(--content-max, 780px); margin: 0 auto; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 8px;
   border-bottom: 1px solid var(--line); border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--field);
   color: var(--ink); font: var(--text-sm)/1.45 var(--sans);
 }

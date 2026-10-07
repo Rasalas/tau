@@ -10,6 +10,7 @@ import { Markdown } from "./LazyMarkdown";
 import { compactTimestamp, fullTimestamp } from "./message-timestamp";
 import { TurnErrorLine } from "./TurnError";
 import { CompactionDivider } from "./CompactionDivider";
+import { WakeLine } from "./WakeLine";
 import { parseAsyncActivity, type AsyncActivity } from "./MessageText";
 import type { RetriedError } from "../../workbench/transcript-state";
 import type { TranscriptTurn } from "../extension-system";
@@ -89,6 +90,7 @@ export const Message = memo(function Message({
   const activity = message.skill ? undefined : parseAsyncActivity(message.text);
   const [thinkingToggled, setThinkingToggled] = useState(false);
 
+  if (activity?.wake) return <WakeLine wake={activity.wake} detail={activity.detail} timestamp={message.timestamp} />;
   if (activity) return <ActivityDisclosure activity={activity} />;
   if (message.compaction) return <CompactionDivider compaction={message.compaction} />;
   if (message.role === "notice") return <div className="notice-message">{message.text}</div>;

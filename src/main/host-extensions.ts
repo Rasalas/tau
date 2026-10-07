@@ -24,6 +24,7 @@ import type {
   UiThreadOrigin,
   UiThreadUsage,
   UiToolRun,
+  UiWake,
   UiSession,
 } from "../shared/contracts.js";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
@@ -360,6 +361,12 @@ export interface HostThreadSendOptions {
   from?: string;
   /** Attachments checked as a composer's are. Runtimes without native file input receive host-local file paths in the prompt. New in API 1.47.0. */
   attachments?: readonly UiPromptAttachment[];
+  /**
+   * The message wakes the thread for something other than the user: it needs
+   * `delivery: "queue"`, never interrupts a turn, shows as a wake line, and
+   * Stop drops it while it waits. New in API 1.52.0.
+   */
+  wake?: UiWake;
 }
 
 /** A deleted thread waiting in the trash. */
@@ -507,6 +514,24 @@ export interface HostTurnObserver {
   closed?(sessionId: string): Promise<void>;
   /** A tool call of the thread finished; `cwd` is the checkout it may have changed. */
   toolEnded?(sessionId: string, tool: UiToolRun, cwd: string): void;
+  /**
+   * The user, or a kit through `sessions.abort`, stopped the thread: its waiting
+   * wakes are already gone and its run is aborted next. Not called for a
+   * shutdown, a reload or the host's own repairs. Answer short phrases of what
+   * this stopped ("stopped watching PR #42"), or a report that also names work
+   * of yours that keeps running and may still wake the thread; the thread's
+   * status line joins them. New in API 1.52.0.
+   */
+  stopped?(sessionId: string): HostStopAnswer | void | Promise<HostStopAnswer | void>;
+}
+
+/** What one observer stopped, and what of its work goes on regardless. */
+export type HostStopAnswer = readonly string[] | { stopped?: readonly string[]; continues?: readonly string[] };
+
+/** Every observer's answer to one stop, joined. */
+export interface HostStopReport {
+  stopped: string[];
+  continues: string[];
 }
 
 /** Which door a client came through: the window's own IPC, or the host socket. */
@@ -1929,6 +1954,16 @@ async function rollbackAll(transactions: readonly HostActivationTransaction[]): 
   if (errors.length > 0) throw new AggregateError(errors, "Activation rollback failed");
 }
 
+function phrases(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((phrase): phrase is string => typeof phrase === "string" && phrase.trim().length > 0).map((phrase) => phrase.trim().slice(0, 200)) : [];
+}
+
+function stopAnswer(answer: unknown): HostStopReport {
+  if (Array.isArray(answer)) return { stopped: phrases(answer), continues: [] };
+  const report = answer && typeof answer === "object" ? answer as { stopped?: unknown; continues?: unknown } : {};
+  return { stopped: phrases(report.stopped), continues: phrases(report.continues) };
+}
+
 /** Fans turn boundaries out to every observer; pending work is the sum of theirs. */
 export class HostTurnObserverSet {
   private readonly observers = new Set<HostTurnObserver>();
@@ -1966,6 +2001,26 @@ export class HostTurnObserverSet {
 
   toolEnded(sessionId: string, tool: UiToolRun, cwd: string): void {
     for (const observer of [...this.observers]) observer.toolEnded?.(sessionId, tool, cwd);
+  }
+
+  /** Every observer hears a stop; one that fails or hangs past `timeoutMs` adds nothing to the status line. */
+  async stopped(sessionId: string, timeoutMs = 2_000): Promise<HostStopReport> {
+    const answers = await Promise.all([...this.observers].map(async (observer) => {
+      if (!observer.stopped) return { stopped: [], continues: [] };
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const answer = await Promise.race([
+          Promise.resolve(observer.stopped(sessionId)),
+          new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), timeoutMs); timer.unref?.(); }),
+        ]);
+        return stopAnswer(answer);
+      } catch {
+        return { stopped: [], continues: [] };
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }));
+    return { stopped: answers.flatMap((answer) => answer.stopped), continues: answers.flatMap((answer) => answer.continues) };
   }
 
   /** Every observer gets to close; failures are reported together afterwards. */

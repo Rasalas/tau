@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TranscriptPage } from "../../shared/host-protocol";
@@ -565,4 +565,58 @@ it("keeps a fallback child read-only without a takeover action", async () => {
   await screen.findByText("Child result");
   expect(screen.queryByRole("button", { name: "Take over" })).toBeNull();
   expect(takeover).not.toHaveBeenCalled();
+});
+
+describe("Stage: recently closed", () => {
+  /** The workbench's wiring: every close goes through the controller, which keeps the history. */
+  function Reopening({ initial }: { initial: StageState }) {
+    const [stage, setStage] = useState(initial);
+    const stageRef = useRef(stage);
+    stageRef.current = stage;
+    const [stageTabs] = useState(() => new StageTabController({
+      registry: new ExtensionRegistry(),
+      stage: () => stageRef.current,
+      setStage: (change) => setStage(change as (current: StageState) => StageState),
+      confirmDiscard: () => true,
+    }));
+    return <TestProviders><ThreadStoreContext.Provider value={new ThreadStore()}><Stage
+      stage={stage}
+      stageTabs={stageTabs}
+      actions={NO_ACTIONS}
+      cwd={CWD}
+      changes={NO_CHANGES}
+      loadFile={async (path): Promise<UiFileContent> => ({ path, name: "a.ts", size: 12, kind: "text", text: "const a = 1;\n", language: "typescript" })}
+      loadDiff={async (path) => ({ path, added: 0, removed: 0, hunks: [] })}
+      onActivate={(id) => setStage((current) => activateTab(current, id))}
+      onClose={stageTabs.close}
+      onReopen={(id) => { stageTabs.reopen(id); }}
+      onPin={(id) => setStage((current) => pinTab(current, id))}
+      onUnpin={(id) => setStage((current) => unpinTab(current, id))}
+      onCloseOthers={stageTabs.closeOthers}
+      onCloseToRight={stageTabs.closeToTheRight}
+      onChangeView={(id, view) => setStage((current) => setFileView(current, id, view))}
+      onOpenInEditor={() => undefined}
+      loadThread={async () => ({ sessionId: CHILD, messages: [], hasMore: false })}
+      onTakeOverThread={() => undefined}
+    /></ThreadStoreContext.Provider></TestProviders>;
+  }
+
+  it("lists a closed tab under Recently closed in All tabs and brings it back from there", async () => {
+    render(<Reopening initial={openFileTab(openFileTab(EMPTY_STAGE, `${CWD}/src/a.ts`, { pin: true }), `${CWD}/src/b.ts`, { pin: true })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Close b.ts" }));
+    expect(screen.queryByRole("tab", { name: /b\.ts/u })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "All tabs" }));
+    const menu = screen.getByRole("menu", { name: "All tabs" });
+    expect(menu.textContent).toContain("Recently closed");
+    fireEvent.click(within(menu).getByRole("menuitem", { name: /b\.ts/u }));
+    await waitFor(() => expect(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain("b.ts"));
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("offers the tab closed last on an empty stage", async () => {
+    render(<Reopening initial={openFileTab(EMPTY_STAGE, `${CWD}/src/a.ts`, { pin: true })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Close a.ts" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Reopen a\.ts/u }));
+    expect(await findFileText()).toBeTruthy();
+  });
 });

@@ -54,6 +54,11 @@ export function registerPullRequestTab(
         return <PullRequestView params={parsed} handle={handle} actions={actions} client={client} chips={chips} rows={rows} shared={shared} />;
       },
       restore: (params) => pullRequestTabParams(params) !== undefined,
+      // The request's address is all a reopened tab needs; its view reads the rest again.
+      reopenParams: (params) => {
+        const parsed = pullRequestTabParams(params);
+        return parsed ? { url: parsed.url, number: parsed.number, service: parsed.service, ...(parsed.workspace ? { workspace: parsed.workspace } : {}) } : undefined;
+      },
     }),
     plugin.registerStageTab<PullRequestsTabParams>({
       kind: PULL_REQUESTS_TAB,

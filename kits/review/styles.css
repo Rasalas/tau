@@ -579,8 +579,8 @@ body[data-profile="compact"] .pr-row-line.meta .pr-row-time { margin-left: auto;
 /* The thread's request over the composer: calm, tinted by its state. */
 .review-pr-strip {
   --strip-tone: var(--ready);
-  /* As wide as the composer: its zone keeps 32 px each side (12 px in a narrow window). */
-  display: flex; align-items: center; box-sizing: border-box; width: min(780px, calc(100% - 64px)); margin: 0 auto;
+  /* The region already insets it to the conversation's content frame. */
+  display: flex; align-items: center; box-sizing: border-box; width: 100%; max-width: var(--content-max, 780px); margin: 0 auto;
   border: 1px solid color-mix(in srgb, var(--strip-tone) 24%, transparent); border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--strip-tone) 10%, var(--stage));
   color: var(--strip-tone); font: 12.5px/18px var(--sans);
@@ -611,7 +611,6 @@ body[data-profile="compact"] .pr-row-line.meta .pr-row-time { margin-left: auto;
   border: 0; border-radius: var(--radius-sm); background: none; color: inherit; opacity: .7; cursor: pointer;
 }
 .review-pr-strip-hide:hover { opacity: 1; background: color-mix(in srgb, var(--strip-tone) 16%, transparent); }
-@media (max-width: 700px) { .review-pr-strip { width: calc(100% - 24px); } }
 
 /* The local pull request: the branch before a request exists. */
 .lpr-view .pr-head-row { gap: 8px; min-height: 36px; }
@@ -1240,3 +1239,14 @@ body[data-profile="compact"] .pr-verdict { min-height: var(--touch-target); padd
   .review-pr-strip-hide { min-width: var(--touch-target, 44px); min-height: var(--touch-target, 44px); }
   .review-pr-strip-service { display: none; }
 }
+.review-pr-watch { display: inline-flex; align-items: center; gap: 5px; flex: none; padding: 5px 8px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted); font: var(--text-xs) var(--sans); cursor: pointer; white-space: nowrap; }
+.review-pr-watch:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.review-pr-watch:disabled { opacity: .5; cursor: default; }
+.review-pr-watch.watching { color: var(--working); }
+.review-pr-watch.unreadable { color: var(--warn); }
+.review-pr-watch-popover { width: min(320px, calc(100vw - 32px)); padding: 14px; color: var(--ink); background: var(--float); }
+.review-pr-watch-popover h3 { margin: 0 0 8px; font-size: var(--text-sm); font-weight: 500; }
+.review-pr-watch-popover p { margin: 0 0 10px; color: var(--muted); font: var(--text-xs)/1.55 var(--sans); }
+.review-pr-watch-popover button { padding: 7px 11px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--inset); color: var(--ink); font: var(--text-xs) var(--sans); cursor: pointer; }
+.review-pr-watch-popover .review-pr-watch-error { color: var(--fail-ink); }
+@media (max-width: 560px) { .review-pr-watch { min-height: 44px; } .review-pr-watch-popover button { min-height: 44px; } }

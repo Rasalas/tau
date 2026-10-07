@@ -2,7 +2,7 @@
 
 /* The card and the composer under it read as one filled card, a hairline between them (design 3d). */
 .takeover-card {
-  max-width: 780px; margin: 0 auto; padding: 12px 12px 10px; box-sizing: border-box;
+  max-width: var(--content-max, 780px); margin: 0 auto; padding: 12px 12px 10px; box-sizing: border-box;
   display: flex; flex-direction: column; gap: 8px; min-width: 0;
   border-radius: var(--radius-lg) var(--radius-lg) 0 0; border-bottom: 1px solid var(--line);
   background: var(--field); font: var(--text-xs)/1.45 var(--sans); color: var(--ink);

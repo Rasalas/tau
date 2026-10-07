@@ -4,7 +4,7 @@
   "description": "Runs threads on the Codex CLI, with its sign-in and version on Providers.",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.40.0"
+    "api": "^1.52.0"
   },
   "permissions": [
     "process",

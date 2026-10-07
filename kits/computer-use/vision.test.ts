@@ -1,7 +1,9 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import type { ExtensionAPI, ExtensionToolContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { complete } from "@earendil-works/pi-ai/compat";
 import { registerComputerUseVision } from "./vision.js";
+
+type ExtensionToolContext = Parameters<ToolDefinition["execute"]>[4];
 
 vi.mock("@earendil-works/pi-ai/compat", () => ({ complete: vi.fn() }));
 beforeEach(() => { vi.clearAllMocks(); });

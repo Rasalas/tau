@@ -2,6 +2,19 @@ import { useRef, useState } from "react";
 import { ArrowUp, ChevronDown, ChevronUp, Clock, GripVertical, X } from "lucide-react";
 import type { UiQueuedMessage } from "../../shared/contracts";
 import { tooltipProps } from "./ui/Tooltip";
+import { WakeIcon } from "./WakeLine";
+
+/** A wake waits as one quiet row: it never steers into a turn, and dropping it puts nothing in the composer. */
+function QueuedWake({ entry, held, onDrop }: { entry: UiQueuedMessage & { wake: NonNullable<UiQueuedMessage["wake"]> }; held: boolean; onDrop(): void }) {
+  return <li className="queued-message queued-wake" aria-label={`Wake waiting: ${entry.wake.label}`}>
+    <WakeIcon source={entry.wake.source} size={13} />
+    <span className="queued-wake-label">{entry.wake.label}</span>
+    <span className="queued-message-status" {...tooltipProps(held ? "Held with the queue until you send" : "Wakes wait for the current turn; they never interrupt it.")}>
+      <Clock size={12} />{held ? "Held" : "Waits for the turn"}
+    </span>
+    <button type="button" aria-label="Drop this wake" {...tooltipProps("Drop this wake")} onClick={onDrop}><X size={14} /></button>
+  </li>;
+}
 
 /**
  * Messages sent during a run wait at the end of the conversation as dashed
@@ -27,6 +40,7 @@ export function QueuedMessages({ queue, streaming, held = false, steerShortcut, 
   return (
     <ol className="queued-messages" aria-label="Queued messages">
       {queue.map((entry, index) => {
+        if (entry.wake) return <QueuedWake key={entry.id} entry={entry as UiQueuedMessage & { wake: NonNullable<UiQueuedMessage["wake"]> }} held={held} onDrop={() => onReturn(entry.id)} />;
         const files = entry.attachments;
         const status = held
           ? "Held: sends after your next message, or send it now"

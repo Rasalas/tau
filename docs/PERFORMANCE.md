@@ -253,6 +253,10 @@ Desktop extensions consume selector-based stores and capability-specific events.
 
 An extension that requests an entire workbench snapshot for every token is using the wrong interface. Fix the seam rather than moving the feature back into core. This preserves the ownership boundaries in ADR 0002 and ADR 0003.
 
+## Thread workflow build size
+
+The October 7 thread workflows add native goal controls, wake rows and Stage reopen history. The first merged build measured 140,325 bytes of initial CSS and 504,411 bytes of total gzipped renderer JavaScript on CI. Goal controls and their styles now load only when a thread has a goal, keeping the existing initial CSS and initial JavaScript budgets. The desktop total gzipped JavaScript budget rises from 500,000 to 510,000 bytes; the browser budget rises from 510,000 to 520,000 bytes. The release build measures 138,156 bytes of initial desktop CSS and 138,330 bytes in the browser, below the unchanged 140,000-byte cap. The browser adds its connection and compact-client code to the same controls. Build time, startup, host and Git budgets stay unchanged.
+
 ## Interaction budgets
 
 Initial local targets:

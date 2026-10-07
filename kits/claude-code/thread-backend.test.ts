@@ -228,10 +228,10 @@ describe("thread runtime backends", () => {
       expect.objectContaining({ provider: "anthropic", turns: 1, at: expect.any(Number) }),
       expect.objectContaining({ provider: "anthropic", turns: 1, at: expect.any(Number) }),
     ]);
-    // Beside the model and effort pickers, the plan mode and the word it uses
-    // to say a turn was cut short, Claude offers no Pi-shaped capability;
-    // every such operation is refused in one place.
-    expect(Object.keys(backend.capabilities)).toEqual(["catalogWrite", "mode", "resume", "compaction", "restart"]);
+    // Beside the model and effort pickers, the plan mode, its `/goal` and the
+    // word it uses to say a turn was cut short, Claude offers no Pi-shaped
+    // capability; every such operation is refused in one place.
+    expect(Object.keys(backend.capabilities)).toEqual(["catalogWrite", "mode", "resume", "compaction", "goals", "restart"]);
     expect(backend.capabilities.resume?.hiddenPrompt).toBe(false);
 
     await backend.dispose();

@@ -17,6 +17,7 @@ import {
   type ThreadBackendPromptResult,
   type ThreadBackendState,
   type ThreadCatalogView,
+  type ThreadGoalCapability,
   type ThreadRuntimeBackend,
   type ThreadRuntimeEvent,
   type ThreadTitleSource,
@@ -27,6 +28,7 @@ import {
   type UiPromptAttachment,
   type UiModelBilling,
   type UiSkillDraft,
+  type UiThreadGoal,
   type UiThreadUsage,
   type UsageTally,
   type UsageTurn,
@@ -50,7 +52,7 @@ import { EFFORT_LEVELS, apiKeyBilling, probeBilling, uiModel, versionedModelName
 import { assertClaudePermissionPolicySupported, runtimePermissionPolicy, type ClaudeCodeAgentRuntimeAdapter, type ClaudeNetworkLimit, type ClaudeTurnHooks } from "./runtime-adapter.js";
 import { addUsage, SdkTurnTranslator } from "./sdk-events.js";
 import type { ClaudeSdkSession, SendPriority, UserContent } from "./sdk-session.js";
-import { ClaudeRuntimeSessionStore, usageTurnsOf } from "./session-store.js";
+import { ClaudeRuntimeSessionStore, usageTurnsOf, type ClaudeStoredGoal } from "./session-store.js";
 
 function derivedClaudeTitle(text: string): string | undefined {
   // This function normally receives the backend's visible projection. Keep a
@@ -89,6 +91,7 @@ const INTERRUPT_GRACE_MS = 3_000;
 /** The CLI keeps a conversation in Anthropic's one-hour prompt cache. */
 const PROMPT_CACHE_TTL_MS = 60 * 60_000;
 const COMPACT_COMMAND = "/compact";
+const GOAL_CLEAR_COMMAND = "/goal clear";
 const STDERR_TAIL_BYTES = 8 * 1024;
 
 export interface ClaudeThreadBackendOptions {
@@ -142,7 +145,7 @@ interface LiveSession {
 interface Turn {
   translator: SdkTurnTranslator;
   text: string;
-  /** A `/compact` Tau sent; the composer's queue never lists it. */
+  /** A `/compact` or `/goal clear` Tau sent; the composer's queue never lists it. */
   compaction?: boolean;
   /** Set once its result arrived and the turn was settled. */
   status?: "completed" | "interrupted" | "error";
@@ -213,9 +216,10 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       // ordinary turn; there is no message kind the transcript hides.
       resume: {
         hiddenPrompt: false,
-        notice: async (text) => { this.report({ type: "notice", message: text, level: "info" }); },
+        notice: async (text) => { this.note(text); },
       },
       compaction: { compact: () => this.compact() },
+      goals: this.goalCapability,
       restart: { restart: async () => {
         if (this.restarting || this.admittingPrompts || this.turns.length || this.backgroundTasks.size) throw new Error("Wait for Claude's running work and background tasks before restarting its session.");
         this.restarting = true;
@@ -225,6 +229,25 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     };
   }
 
+  /** Claude's `/goal`, as its `active_goal` frames last said. */
+  private goal?: ClaudeStoredGoal;
+  /** Tau sent `/goal clear`: the goal's end is the user's, not a verdict. */
+  private clearingGoal = false;
+  /** The goal's record and the transcript's notices, written in order; `dispose` waits for them. */
+  private writes: Promise<void> = Promise.resolve();
+  private readonly goalCapability: ThreadGoalCapability = {
+    current: () => this.uiGoal(),
+    // The CLI's own command, sent as the prompt the transcript shows.
+    set: async (objective) => { this.clearingGoal = false; return { prompt: `/goal ${objective}` }; },
+    pause: async () => { throw new Error("Claude Code cannot pause a goal: stop the turn, or end the goal."); },
+    resume: async () => {
+      if (!this.goal || this.goal.status === "active") return undefined;
+      this.clearingGoal = false;
+      return { prompt: `/goal ${this.goal.condition}` };
+    },
+    clear: () => this.clearGoal(),
+    dismiss: async () => { this.setGoal(undefined); },
+  };
   private restarting = false;
   private admittingPrompts = 0;
   private commandList: UiComposerCommand[] = [];
@@ -274,6 +297,11 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.model = this.chosenModel ?? record.observedModel;
     this.tools = record.tools;
     this.contextUsage = record.contextUsage ? { ...record.contextUsage } : undefined;
+    // A restart leaves an active goal unknown: Claude's session may still hold it.
+    this.goal = record.goal?.status === "active"
+      ? { ...record.goal, status: "unconfirmed", reason: "Tau restarted while this goal ran. Claude Code may still hold it; End goal sends /goal clear.", updatedAt: this.now() }
+      : record.goal;
+    if (this.goal) this.report({ type: "goal" });
   }
 
   async transcript(): Promise<UiMessage[]> { return this.messages.map((message) => ({ ...message, ...(message.skill ? { skill: { ...message.skill } } : {}) })); }
@@ -551,6 +579,11 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   private readonly nativeAgents = new ClaudeNativeAgents();
 
   private onFrame(frame: Parameters<SdkTurnTranslator["push"]>[0]): void {
+    // Not in the SDK's message union, but the query stream passes it on (sdk.d.ts `SDKActiveGoalMessage`).
+    if ((frame as { type: string }).type === "active_goal") {
+      this.onActiveGoal((frame as unknown as { value: { condition: string; iterations: number; last_reason?: string } | null }).value);
+      return;
+    }
     if (frame.type === "system") {
       if (frame.subtype === "background_tasks_changed") {
         this.backgroundTaskLevels = true;
@@ -652,6 +685,70 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     if (outcome?.error) throw new Error(`Claude Code could not compact the conversation: ${outcome.error}`);
     if (!outcome?.compacted) throw new Error(outcome?.texts.join("\n").trim() || "Claude Code did not compact the conversation.");
     } finally { this.admittingPrompts -= 1; }
+  }
+
+  /**
+   * Claude clears a goal when its check says met, and also after a timeout or
+   * an error, with the same frame. Without Tau's own `/goal clear` there is no
+   * telling which, so the goal stays as not confirmed, never as met.
+   */
+  private onActiveGoal(value: { condition: string; iterations: number; last_reason?: string } | null): void {
+    if (value) {
+      this.setGoal({ condition: value.condition, status: "active", iterations: value.iterations, ...(value.last_reason ? { reason: value.last_reason } : {}), updatedAt: this.now() });
+      return;
+    }
+    if (this.clearingGoal || !this.goal) { this.clearingGoal = false; this.setGoal(undefined); return; }
+    this.setGoal({ ...this.goal, status: "unconfirmed", updatedAt: this.now() });
+  }
+
+  private setGoal(goal: ClaudeStoredGoal | undefined): void {
+    this.goal = goal;
+    this.writes = this.writes.then(() => this.store.setGoal(this.threadId, this.cwd, goal)).catch(() => undefined);
+    this.report({ type: "goal" });
+  }
+
+  private uiGoal(): UiThreadGoal | undefined {
+    const goal = this.goal;
+    if (!goal) return undefined;
+    return {
+      objective: goal.condition,
+      status: goal.status,
+      actions: { pause: false, resume: goal.status === "unconfirmed" },
+      turns: goal.iterations,
+      ...(goal.reason ? { reason: goal.reason } : {}),
+      updatedAt: goal.updatedAt,
+    };
+  }
+
+  /** `/goal clear` as a turn of its own; a running goal turn is stopped first, since Claude has no pause. */
+  private async clearGoal(): Promise<void> {
+    if (this.restarting) throw new Error("The Claude session is restarting.");
+    this.clearingGoal = true;
+    if (this.turns.length > 0) await this.abort();
+    if (this.turns.length > 0) throw new Error("Claude Code is still working on this thread. End the goal once the turn stops.");
+    if (!this.record?.started) { this.setGoal(undefined); return; }
+    this.admittingPrompts += 1;
+    try {
+      const permissionLevel = this.options.permissionLevel?.() ?? "full";
+      const mode = this.mode === PLAN_MODE ? "plan" : runtimePermissionPolicy(permissionLevel).permissionMode;
+      const live = await this.ensureSession(permissionLevel, mode, false, await this.networkLimit());
+      const turn: Turn = { translator: new SdkTurnTranslator(this.now, undefined, true), text: GOAL_CLEAR_COMMAND, compaction: true };
+      this.turns.push(turn);
+      this.beginTurn(turn);
+      await live.session.send(GOAL_CLEAR_COMMAND, "next");
+      const outcome = turn.translator.outcome;
+      if (outcome?.error) throw new Error(`Claude Code did not end the goal: ${outcome.error}`);
+      // "No goal set" is an end as well; a frame may not follow then.
+      if (this.clearingGoal) { this.clearingGoal = false; this.setGoal(undefined); }
+    } finally { this.admittingPrompts -= 1; }
+  }
+
+  /** A row in the transcript that is nobody's message; kept with the thread. */
+  private note(text: string): void {
+    const message: UiMessage = { id: `claude-notice-${this.now()}-${this.messages.length}`, role: "notice", text, timestamp: this.now() };
+    this.messages.push(message);
+    this.writes = this.writes.then(() => this.persist([message])).catch(() => undefined);
+    this.deliverMessage(message);
   }
 
   /** What the session says about itself, once per init frame. */
@@ -761,7 +858,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   /** A host with an event route gets the message as an event; an older one as a whole message. */
   private deliverMessage(message: UiMessage): void {
     if (this.options.onEvent) {
-      this.options.onEvent(message.role === "user" ? { type: "user-message", message } : { type: "assistant-end", message });
+      this.options.onEvent(message.role === "user" || (message.role === "notice" && !message.compaction) ? { type: "user-message", message } : { type: "assistant-end", message });
       return;
     }
     this.options.onMessage?.(message);
@@ -813,6 +910,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.live = undefined;
     if (live && !live.session.closed) await live.session.close();
     for (const event of this.nativeAgents.tracker.interrupt()) this.handleEvent(event);
+    await this.writes;
   }
 
   private assertPreparedPrompt(

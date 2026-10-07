@@ -6,6 +6,7 @@ import { THEME_PREFERENCES, nextTheme, getUserTheme, type ThemePreference } from
 import type { PaletteItem, PaletteMenu } from "../extension-system";
 import { loadRuntimeControlRuns } from "../deferred-surfaces";
 import { openTitleRename, titleRenameRefusal } from "../thread-rename";
+import { goalCommandRefusal, shownGoal } from "../goal-state";
 
 /** The levels' rows load with their own chunk the first time one opens. */
 const menus = () => import("./palette-menus");
@@ -35,6 +36,35 @@ const SLASH_COMMANDS: ReadonlyArray<readonly [string, string, string?]> = [
   ["hotkeys", "View keyboard shortcuts and keybindings"],
   ["scoped-models", "Manage scoped models for quick cycling (Ctrl+P / Alt+P)"],
 ];
+
+/**
+ * `/goal <objective>` sets the thread's native goal; `pause`, `resume` and
+ * `end` act on it, and `/goal` alone says where it stands. Answers a line
+ * when it could not act.
+ */
+async function runGoalCommand(args: string, app: WorkbenchActions): Promise<string | void> {
+  if (!app.threadGoal) return "This Tau has no goals.";
+  const current = shownGoal();
+  if (!current?.supported) return "This thread's runtime keeps no goals. Codex and Claude Code threads do.";
+  const word = args.trim();
+  const command = word.toLowerCase();
+  try {
+    if (!word) {
+      const goal = current.goal;
+      app.notify(goal ? `Goal (${goal.status}): ${goal.objective}` : "No goal is set. Use /goal <objective>.");
+    } else if (command === "pause" || command === "resume") {
+      const refusal = goalCommandRefusal(command);
+      if (refusal) return refusal;
+      await app.threadGoal(command);
+    } else if (command === "end" || command === "clear") {
+      const refusal = goalCommandRefusal("end");
+      if (refusal) return refusal;
+      await app.threadGoal("clear");
+    } else await app.threadGoal("set", word);
+  } catch (error) {
+    return errorMessage(error);
+  }
+}
 
 const DETAIL_LABELS: Record<TranscriptDetail, string> = {
   focused: "focused",
@@ -165,6 +195,7 @@ export const runtimeControls: DesktopExtension = {
     // The command id other workbenches use, so an existing keybindings.json works here too.
     plugin.registerCommand({ id: "rightPanel.toggleMaximized", label: "Maximize or restore panel", group: "Workbench", access: "read", run: (app) => app.togglePanelMaximized?.() });
     plugin.registerCommand({ id: "workbench.close-stage-tab", label: "Close active stage tab", group: "Workbench", access: "read", run: (app) => app.closeActiveStageTab?.() });
+    plugin.registerCommand({ id: "workbench.reopen-stage-tab", label: "Reopen closed tab", group: "Workbench", access: "read", run: (app) => { if (!app.reopenStageTab?.()) app.notify("No closed tab to reopen on this stage."); } });
     plugin.registerCommand({ id: "workbench.next-stage-tab", label: "Next stage tab", group: "Workbench", access: "read", run: (app) => app.cycleStageTab?.(1) });
     plugin.registerCommand({ id: "workbench.prev-stage-tab", label: "Previous stage tab", group: "Workbench", access: "read", run: (app) => app.cycleStageTab?.(-1) });
     plugin.registerCommand({ id: "workbench.toggle-spine", label: "Collapse to spine", group: "Workbench", access: "read", run: (app) => app.toggleSpine?.() });
@@ -195,9 +226,20 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerCommand({ id: "runtime.cycle-model-backward", label: "Cycle model backward", group: "Runtime", access: "write", run: async (app) => { await app.cycleModel?.(-1); } });
     plugin.registerCommand({ id: "runtime.cycle-thinking", label: "Cycle thinking level", group: "Thread", access: "write", run: async (app) => { await app.cycleThinking?.(); } });
     plugin.registerCommand({ id: "runtime.open-prompt-editor", label: "Open prompt in external editor", group: "Composer", access: "write", run: async (app) => { await app.openPromptEditor?.(); } });
+    const goalCommand = (id: string, label: string, action: "pause" | "resume" | "clear", refusal: "pause" | "resume" | "end") => plugin.registerCommand({
+      id, label, group: "Thread", access: "write",
+      unavailable: () => goalCommandRefusal(refusal),
+      run: async (app) => {
+        try { await app.threadGoal?.(action); } catch (error) { app.notify(errorMessage(error)); }
+      },
+    });
+    goalCommand("runtime.goal-pause", "Pause goal", "pause", "pause");
+    goalCommand("runtime.goal-resume", "Resume goal", "resume", "resume");
+    goalCommand("runtime.goal-end", "End goal", "clear", "end");
     for (const [name, description, argumentHint] of SLASH_COMMANDS) {
       plugin.registerSlashCommand({ name, description, ...(argumentHint ? { argumentHint } : {}), run: async (args, app) => (await runs()).slashRuns[name]!(args, app) });
     }
+    plugin.registerSlashCommand({ name: "goal", description: "Set a goal the runtime pursues across turns, or pause, resume or end it", argumentHint: "<objective> | pause | resume | end", run: runGoalCommand });
     plugin.registerKeybinding({ keys: "mod+i", commandId: "runtime.instructions" });
     plugin.registerKeybinding({ keys: "mod+k", commandId: "runtime.command-palette" });
     // The open Settings screen answers the same chord by closing.
@@ -211,7 +253,9 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerKeybinding({ keys: "escape", commandId: "runtime.abort", when: "chatFocus" });
     plugin.registerKeybinding({ keys: "mod+shift+enter", commandId: "thread.steerQueuedMessage", when: "!terminalFocus" });
     plugin.registerKeybinding({ keys: "mod+shift+e", commandId: "composer.effort", when: "!terminalFocus" });
-    plugin.registerKeybinding({ keys: "mod+shift+t", commandId: "runtime.transcript-detail" });
+    // Reopen takes ⇧⌘T as browsers, editors and T3 Code do; transcript detail moved to ⌥⌘T.
+    plugin.registerKeybinding({ keys: "mod+alt+t", commandId: "runtime.transcript-detail" });
+    plugin.registerKeybinding({ keys: "mod+shift+t", commandId: "workbench.reopen-stage-tab", when: "!terminalFocus" });
     plugin.registerKeybinding({ keys: "mod+shift+m", commandId: "runtime.model" });
     // Pi's chord, in the composer only: elsewhere Ctrl+P is `mod+p` off macOS, the file picker.
     plugin.registerKeybinding({ keys: "ctrl+p", commandId: "runtime.cycle-model", when: "composerFocus" });

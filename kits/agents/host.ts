@@ -1494,6 +1494,12 @@ export function createAgentsHostExtension(options: {
           reset: async (sessionId) => { changed(sessionId, book.noteClosed(sessionId)); },
           // An agent someone is waiting on is not an idle runtime to release.
           pending: (sessionId) => waiters.get(book.linkFor(sessionId)?.id ?? "")?.size ?? 0,
+          // Stopping a parent leaves its agents running (`tau_cancel_thread` stops one); the stop's line must not promise quiet.
+          stopped: (sessionId) => {
+            const running = book.childrenOf(sessionId).filter((link) => isBusyStatus(link.status) || link.status === "pending").length;
+            if (running === 0) return undefined;
+            return { continues: [running === 1 ? "A sub-agent keeps running and reports back when it finishes" : `${running} sub-agents keep running and report back when they finish`] };
+          },
         }),
         services.registerThreadLifecycle({
           /**

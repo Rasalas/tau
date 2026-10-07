@@ -1,0 +1,31 @@
+/* A goal's pill: blue only while it runs, amber when it waits on the user, green only when the runtime confirmed it. */
+.control-pill.goal-pill.running > svg { color: var(--info); }
+.control-pill.goal-pill.waiting { color: var(--warn); border-color: var(--warn-line); }
+.control-pill.goal-pill.waiting > svg { color: var(--warn); }
+.control-pill.goal-pill.done > svg { color: var(--done); }
+.goal-pill-tokens { color: var(--muted); font-variant-numeric: tabular-nums; }
+.popover.goal-popover { width: min(400px, calc(100vw - 32px)); padding: 0; }
+.goal-popover-body { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; outline: none; }
+.goal-popover-head { display: flex; align-items: center; gap: 7px; }
+.goal-popover-head > svg { flex: none; width: 15px; height: 15px; color: var(--ink-3); }
+.goal-popover-body.running .goal-popover-head > svg { color: var(--info); }
+.goal-popover-body.waiting .goal-popover-head > svg { color: var(--warn); }
+.goal-popover-body.done .goal-popover-head > svg { color: var(--done); }
+.goal-popover-head > strong { font-size: var(--text-sm); font-weight: 700; color: var(--ink); }
+.goal-objective { margin: 0; color: var(--ink-2); font: var(--text-md)/1.45 var(--sans); overflow-wrap: anywhere; max-height: 7.5em; overflow: auto; }
+.goal-facts { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: var(--text-sm); }
+.goal-facts > dt { color: var(--muted); }
+.goal-facts > dd { margin: 0; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.goal-explanation, .goal-reason, .goal-read-only { margin: 0; color: var(--muted); font: var(--text-sm)/1.45 var(--sans); }
+.goal-reason { padding-left: 8px; border-left: 2px solid var(--line-strong); overflow-wrap: anywhere; }
+.goal-error { margin: 0; color: var(--danger); font: var(--text-sm)/1.45 var(--sans); }
+.goal-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+.goal-actions > button {
+  height: 28px; padding: 0 12px; border: 1px solid var(--line-control); border-radius: 99px;
+  background: transparent; color: var(--ink-2); font: 500 var(--text-sm) var(--sans); cursor: pointer;
+}
+.goal-actions > button:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
+.goal-actions > button.primary { border-color: transparent; background: var(--acid); color: var(--acid-ink); }
+.goal-actions > button:disabled { opacity: .55; cursor: default; }
+.goal-actions > button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+@media (pointer: coarse) { .goal-actions > button { height: var(--touch-target); padding: 0 16px; } }

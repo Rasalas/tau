@@ -8,10 +8,12 @@ import type {
   ThreadHostEvent,
   UiComposerCommand,
   UiPromptAttachment,
+  UiWake,
 } from "../shared/contracts.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
 import { AttachedThreadBackend } from "./attached-thread-backend.js";
 import { ClientMessageTracker } from "./client-message-tracker.js";
+import { ThreadControls } from "./thread-stop.js";
 import { ClientTurnLedger } from "./client-turn-ledger.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import { HostCompletions } from "./host-completion.js";
@@ -122,6 +124,8 @@ export interface PiHostDeps {
   setWindowTitle(title: string): void;
   windowTitle(): string | undefined;
   abortThread(thread: ThreadRuntime): Promise<void>;
+  /** Sends a turn the way the composer does. */
+  promptThread(threadId: string, text: string): Promise<void>;
   adoptThread(thread: ThreadRuntime): Promise<void>;
   applyThreadTitle(thread: ThreadRuntime, title: string, source: "generated" | "renamed"): Promise<HostUpdate>;
   prewarmSession(path: string): Promise<void>;
@@ -156,7 +160,7 @@ export interface PiHostDeps {
   /** Sends a queued message as the prompt it stands for. */
   deliverQueued(sessionId: string, message: QueuedMessage): Promise<void>;
   /** An extension's message to a thread; a released runtime is reopened off screen first. */
-  sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string, attachments?: UiPromptAttachment[]): Promise<void>;
+  sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string, attachments?: UiPromptAttachment[], wake?: UiWake): Promise<void>;
   /** The thread's runtime, reopened off screen when it was released. */
   reopenThread(sessionId: string): Promise<ThreadRuntime>;
   /** Continues a thread with a prompt the host writes, hidden where its runtime allows. */
@@ -206,6 +210,8 @@ export interface PiHostComponents {
   readonly turnsInFlight: TurnsInFlight;
   /** The composer's queue, kept by the host across windows and restarts. */
   readonly queue: QueuedMessages;
+  /** Stop and goals: the window's Stop, a kit's `sessions.abort`, the goal methods. */
+  readonly controls: ThreadControls;
   /** Threads a provider limit stopped, and the resumes scheduled for their reset. */
   readonly limits: ThreadLimits;
   readonly settlement: TurnSettlement;
@@ -461,7 +467,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     removeThread: (sessionId) => deps.removeThread(sessionId),
     restoreThread: (sessionId) => deps.restoreThread(sessionId),
     purgeThread: (sessionId) => deps.purgeThread(sessionId),
-    sendToThread: (sessionId, text, sendOptions) => deps.sendToThread(sessionId, text, sendOptions.delivery, sendOptions.from, sendOptions.attachments),
+    sendToThread: (sessionId, text, sendOptions) => deps.sendToThread(sessionId, text, sendOptions.delivery, sendOptions.from, sendOptions.attachments, sendOptions.wake),
     setThreadModel: async (sessionId, provider, id) => {
       const thread = await deps.reopenThread(sessionId);
       await requireCapability(thread.backend, "catalogWrite").setModel(provider, id);
@@ -471,7 +477,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     },
     abortThread: async (sessionId) => {
       const thread = deps.threadFor(sessionId);
-      if (thread && sessionId) await deps.abortThread(thread);
+      if (thread && sessionId) await controls.stop(thread);
     },
     trashedThreads: async () => { await trash.load(); return trash.list(); },
     sessionLocks,
@@ -706,6 +712,17 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     publish: (sessionId, view) => index.setQueue(sessionId, view),
     log: (label, detail) => deps.log(label, detail),
   }, { ...(options.queuedMessagesPath ? { filePath: options.queuedMessagesPath } : {}), ...persistedLogger });
+  const controls = new ThreadControls({
+    queue,
+    turnObservers,
+    abortThread: (thread) => deps.abortThread(thread),
+    reopenThread: (sessionId) => deps.reopenThread(sessionId),
+    prompt: (threadId, text) => deps.promptThread(threadId, text),
+    publishDetail: async (thread) => { if (deps.getActive() === thread) await publication.publishDetail(); },
+    emitForThread: (thread, event) => deps.emitForThread(thread, event),
+    setGoal: (threadId, goal) => index.setGoal(threadId, goal),
+    log: (label, detail) => deps.log(label, detail),
+  });
   const limits = new ThreadLimits({
     publish: (sessionId, limit) => index.setLimit(sessionId, limit),
     resume: (sessionId) => deps.continueThread(sessionId, LIMIT_CONTINUATION_PROMPT),
@@ -773,6 +790,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     turns,
     turnsInFlight,
     queue,
+    controls,
     limits,
     settlement,
     catalogs,

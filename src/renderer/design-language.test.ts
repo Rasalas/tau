@@ -88,3 +88,42 @@ describe("a run in flight is blue (K70)", () => {
     expect(rule(STYLES, ".activity-disclosure.attention > button")).toMatch(/color: var\(--warn\)/u);
   });
 });
+
+describe("one content frame for the conversation", () => {
+  const REVIEW = read("../../kits/review/styles.css");
+
+  it("sets its width and inset once, on the column, from the column's own width", () => {
+    const column = rule(STYLES, ".conversation-column");
+    expect(column).toMatch(/--content-max: 780px/u);
+    expect(column).toMatch(/--content-inset: clamp\(12px, \(100% - 560px\) \* 1000, 32px\)/u);
+    expect(column).toMatch(/--composer-inset: max\(var\(--content-inset\), calc\(\(100% - var\(--content-max\)\) \/ 2\)\)/u);
+    // No window-width rule decides the conversation's inset any more.
+    expect(STYLES).not.toMatch(/@media[^{]*\{\s*\.conversation-column \{ --composer-inset/u);
+  });
+
+  it("gives transcript, composer and the docked cards that frame instead of a width of their own", () => {
+    for (const selector of [".transcript-inner", ".composer-surface", ".extension-prompt", ".prompt-arrival-note"]) {
+      expect(rule(STYLES, selector), selector).toMatch(/max-width: var\(--content-max\)/u);
+    }
+    expect(rule(STYLES, ".composer-zone")).toMatch(/padding: 14px var\(--content-inset\) 16px/u);
+    expect(STYLES).toMatch(/scrollbar-gutter: stable both-edges/u);
+    // Touch draws no bar and reserves none, or the transcript would sit 8 px inside the composer on a phone.
+    expect(STYLES).toMatch(/@media \(pointer: coarse\) \{[^}]*--scrollbar-lane: 0px;[^}]*\}\s*\.conversation-column \.transcript \{ scrollbar-gutter: auto; scrollbar-width: none; \}/u);
+  });
+
+  it("lets the pull request strip fill the region's frame, inset once", () => {
+    const strip = rule(REVIEW, ".review-pr-strip");
+    expect(strip).toMatch(/width: 100%/u);
+    expect(strip).toMatch(/max-width: var\(--content-max, 780px\)/u);
+    expect(REVIEW).not.toMatch(/calc\(100% - 64px\)/u);
+  });
+});
+
+describe("a goal's pill keeps the run's colours", () => {
+  const goalStyles = readFileSync("src/renderer/components/GoalPill.css", "utf8");
+  it("is blue only while it runs, amber when it waits on the user, green only when confirmed", () => {
+    expect(rule(goalStyles, ".control-pill.goal-pill.running > svg")).toMatch(/var\(--info\)/u);
+    expect(rule(goalStyles, ".control-pill.goal-pill.waiting")).toMatch(/var\(--warn\)/u);
+    expect(rule(goalStyles, ".control-pill.goal-pill.done > svg")).toMatch(/var\(--done\)/u);
+  });
+});

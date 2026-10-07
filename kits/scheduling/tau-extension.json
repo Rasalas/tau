@@ -1,11 +1,13 @@
 {
   "id": "tau.scheduling",
   "name": "Scheduling",
-  "description": "Opt-in one-off and daily UTC prompts that create ordinary threads. Manage jobs through owner-only host commands.",
+  "description": "Saved prompts started at a time or by a signed webhook, with explicit recovery and private signature keys.",
   "icon": "CalendarClock",
   "version": "1.0.0",
-  "engines": { "api": "^1.49.0" },
-  "permissions": ["sessions", "workspace:read"],
+  "engines": { "api": "^1.52.0" },
+  "permissions": ["sessions", "workspace:read", "network", "process", "runtime:extend"],
   "isolation": "in-process",
-  "host": "./host.ts"
+  "host": "./host.ts",
+  "desktop": "./desktop.tsx",
+  "styles": "./styles.css"
 }

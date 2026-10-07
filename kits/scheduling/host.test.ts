@@ -16,6 +16,7 @@ async function harness(root?: string, start?: HostSessionServices["start"], host
   let observer: HostTurnObserver | undefined;
   const registry = await activateHostKit(createSchedulingHostExtension(), {
     stateDir,
+    findCommand: () => undefined,
     thread: (id) => id && busyThreads.has(id) ? { isIdle: () => false } as HostThread : undefined,
     sessions: { start: start ?? (async (options) => { threads.push(options); return { sessionId: `thread-${threads.length}`, cwd: options.cwd }; }) } as HostSessionServices,
     registerTurnObserver: (value) => { observer = value; return () => { observer = undefined; }; },

@@ -24,11 +24,14 @@ import type { HostThread } from "./host-extensions.js";
 import type { LiveTurnState } from "./live-turn-state.js";
 import { isPiBackend, isThreadRuntime, type ThreadRuntime } from "./thread-runtime.js";
 
-/** The thread's interaction mode and the modes it offers; nothing when it offers none. */
-function threadModes(thread: ThreadRuntime): { mode?: string; modes?: string[] } {
+/** The thread's interaction mode and the modes it offers, and whether it keeps goals; nothing when it offers none. */
+function threadModes(thread: ThreadRuntime): { mode?: string; modes?: string[]; goals?: boolean } {
   const capability = thread.backend.capabilities.mode;
   const modes = capability?.modes() ?? [];
-  return modes.length > 0 ? { mode: capability!.current(), modes: [...modes] } : {};
+  return {
+    ...(modes.length > 0 ? { mode: capability!.current(), modes: [...modes] } : {}),
+    ...(thread.backend.capabilities.goals ? { goals: true } : {}),
+  };
 }
 
 /** One message entry of a branch, in the shape the transcript maps. */

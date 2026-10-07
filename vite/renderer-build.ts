@@ -105,7 +105,7 @@ export const rendererBuild = {
       // helper back out can create a chunk cycle and reorder the cascade.
       if (!lazySurfaces.has(meta.getModuleInfo)) {
         const documents = new Set<string>();
-        const pending = [...meta.getModuleIds()].filter((module) => /\/renderer\/components\/(?:Markdown|Stage|ReviewMode|RuntimeInstanceUi|SignInUi|ReloadCurtain|ReloadConflictDialog|DiffStack|DiffView|FileViewer|AttachmentLightbox|ComposerMenu|ComposerChipLayer|ComposerNotice|ModelPicker|ProjectPicker|CommandPalette|ThreadTreeModal)\.tsx$/u.test(module) || COMMON.has(module.slice(module.lastIndexOf("/src/"))));
+        const pending = [...meta.getModuleIds()].filter((module) => /\/renderer\/components\/(?:Markdown|Stage|ReviewMode|RuntimeInstanceUi|SignInUi|ReloadCurtain|ReloadConflictDialog|DiffStack|DiffView|FileViewer|AttachmentLightbox|ComposerMenu|ComposerChipLayer|ComposerNotice|ModelPicker|ProjectPicker|CommandPalette|ThreadTreeModal|GoalPill)\.tsx$/u.test(module) || COMMON.has(module.slice(module.lastIndexOf("/src/"))));
         while (pending.length) {
           const module = pending.pop()!;
           if (documents.has(module) || entry.modules.has(module) || module.includes("/node_modules/")) continue;

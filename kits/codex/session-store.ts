@@ -14,10 +14,22 @@ const MAX_ID_LENGTH = 200;
 export interface CodexStoredMessage {
   /** The id the transcript showed it under, so tool cards anchored to it find it again. */
   id?: string;
-  role: "user" | "assistant";
+  /** `notice`: a row Tau wrote itself, a stop or a goal's next turn; never sent to Codex. */
+  role: "user" | "assistant" | "notice";
   text: string;
   timestamp: number;
   clientMessageId?: string;
+}
+
+/** The thread's goal as Codex last reported it, so the rail shows it before a session runs. */
+export interface CodexStoredGoal {
+  objective: string;
+  status: string;
+  tokenBudget?: number;
+  tokensUsed: number;
+  /** Goal turns Codex ran since it was set. */
+  turns: number;
+  updatedAt: number;
 }
 
 export interface CodexSessionRecord {
@@ -48,6 +60,7 @@ export interface CodexSessionRecord {
   observedModel?: string;
   /** The only tools the thread keeps, as Pi names them; set when it was created. */
   tools?: string[];
+  goal?: CodexStoredGoal;
   updatedAt: number;
 }
 
@@ -91,7 +104,7 @@ function storedUsage(value: unknown): UiThreadUsage | undefined {
 function storedMessage(value: unknown): CodexStoredMessage | undefined {
   if (!value || typeof value !== "object") return undefined;
   const item = value as Record<string, unknown>;
-  if ((item.role !== "user" && item.role !== "assistant") || typeof item.text !== "string" || typeof item.timestamp !== "number") return undefined;
+  if ((item.role !== "user" && item.role !== "assistant" && item.role !== "notice") || typeof item.text !== "string" || typeof item.timestamp !== "number") return undefined;
   const clientMessageId = text(item.clientMessageId, MAX_ID_LENGTH);
   const id = text(item.id, MAX_ID_LENGTH);
   return { ...(id ? { id } : {}), role: item.role, text: item.text, timestamp: item.timestamp, ...(clientMessageId ? { clientMessageId } : {}) };
@@ -118,6 +131,7 @@ function storedRecord(value: unknown): CodexSessionRecord | undefined {
     mode: text(item.mode, MAX_ID_LENGTH),
     observedModel: text(item.observedModel, MAX_ID_LENGTH),
     tools: storedTools(item.tools),
+    goal: storedGoal(item.goal),
   };
   return {
     backendKind: "codex",
@@ -127,6 +141,17 @@ function storedRecord(value: unknown): CodexSessionRecord | undefined {
     ...Object.fromEntries(Object.entries(optional).filter(([, entry]) => entry !== undefined)),
     updatedAt: item.updatedAt,
   };
+}
+
+function storedGoal(value: unknown): CodexStoredGoal | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const item = value as Record<string, unknown>;
+  const objective = text(item.objective, 16_384);
+  const status = text(item.status, 32);
+  const count = (number: unknown) => typeof number === "number" && Number.isFinite(number) && number >= 0 ? number : undefined;
+  if (!objective || !status || count(item.tokensUsed) === undefined || count(item.updatedAt) === undefined) return undefined;
+  const tokenBudget = count(item.tokenBudget);
+  return { objective, status, ...(tokenBudget !== undefined ? { tokenBudget } : {}), tokensUsed: count(item.tokensUsed)!, turns: count(item.turns) ?? 0, updatedAt: count(item.updatedAt)! };
 }
 
 function instanceOf(value: unknown): string | undefined {
@@ -170,6 +195,7 @@ function clone(record: CodexSessionRecord): CodexSessionRecord {
     ...(record.usage ? { usage: { ...record.usage } } : {}),
     ...(record.usageTurns ? { usageTurns: record.usageTurns.map((turn) => ({ ...turn })) } : {}),
     ...(record.tools ? { tools: [...record.tools] } : {}),
+    ...(record.goal ? { goal: { ...record.goal } } : {}),
   };
 }
 
@@ -307,6 +333,10 @@ export class CodexSessionStore {
     return this.update(tauThreadId, cwd, (record) => { record.tools = [...tools]; });
   }
 
+  setGoal(tauThreadId: string, cwd: string, goal: CodexStoredGoal | undefined): Promise<void> {
+    return this.update(tauThreadId, cwd, (record) => { if (goal) record.goal = { ...goal }; else delete record.goal; });
+  }
+
   setObservedModel(tauThreadId: string, cwd: string, model: string): Promise<void> {
     return this.update(tauThreadId, cwd, (record) => { record.observedModel = model; });
   }
@@ -367,7 +397,7 @@ export class CodexSessionStore {
   appendMessages(tauThreadId: string, cwd: string, messages: readonly UiMessage[]): Promise<void> {
     return this.update(tauThreadId, cwd, (record) => {
       for (const message of messages) {
-        if (message.role !== "user" && message.role !== "assistant") continue;
+        if (message.role !== "user" && message.role !== "assistant" && message.role !== "notice") continue;
         const clientMessageId = text(message.clientMessageId, MAX_ID_LENGTH);
         if (clientMessageId) {
           const existing = record.messages.find((item) => item.clientMessageId === clientMessageId);

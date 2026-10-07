@@ -9,6 +9,7 @@ import type {
   UiModel,
   UiPromptAttachment,
   UiSkillDraft,
+  UiThreadGoal,
   UiThreadTree,
   UiThreadUsage,
   UiToolOutputReadResult,
@@ -126,7 +127,9 @@ export type ThreadRuntimeEvent =
   | { type: "queue"; steering: string[]; followUp: string[] }
   | { type: "notice"; message: string; level: "info" | "warning" | "error" }
   /** `catalogView().usage` changed; the host republishes the thread's shell. */
-  | { type: "usage" };
+  | { type: "usage" }
+  /** `capabilities.goals.current()` changed; the host republishes the thread's goal. New in API 1.52.0. */
+  | { type: "goal" };
 
 /** What the host binds into a runtime that hosts extensions of its own. */
 export interface RuntimeExtensionBindings {
@@ -281,6 +284,30 @@ export interface ThreadModeCapability {
   set(mode: string): Promise<void>;
 }
 
+/**
+ * A runtime that pursues a goal across turns of its own: Codex's
+ * `thread/goal`, Claude Code's `/goal`. The runtime keeps the goal and starts
+ * its turns; Tau never loops prompts for it. A backend that cannot pause says
+ * so in `actions`, and one whose run ended without a verdict answers
+ * `unconfirmed`, never `complete`. Report changes with a `goal` event.
+ */
+export interface ThreadGoalCapability {
+  current(): UiThreadGoal | undefined;
+  /**
+   * Replaces any goal; the host then sends its first turn as an ordinary
+   * prompt: `prompt` when the runtime names one (Claude Code's `/goal …`),
+   * else the objective.
+   */
+  set(objective: string): Promise<{ prompt: string } | void>;
+  /** No further goal turn starts; a running one finishes. */
+  pause(): Promise<void>;
+  /** Starts the next goal turn, itself or through the prompt it answers. */
+  resume(): Promise<{ prompt: string } | void>;
+  clear(): Promise<void>;
+  /** Forgets a goal that ended (met, not confirmed); the runtime has none any more. */
+  dismiss?(): Promise<void>;
+}
+
 export interface ThreadSystemPromptCapability {
   inspect(): Promise<SystemPromptInspection> | SystemPromptInspection;
 }
@@ -305,6 +332,7 @@ export interface ThreadBackendCapabilities {
   newThread?: ThreadNewThreadCapability;
   systemPrompt?: ThreadSystemPromptCapability;
   mode?: ThreadModeCapability;
+  goals?: ThreadGoalCapability;
 }
 
 export type ThreadCapabilityName = keyof ThreadBackendCapabilities;
@@ -340,6 +368,7 @@ const CAPABILITY_LABELS: Record<ThreadCapabilityName, string> = {
   newThread: "Runtime-owned new threads",
   systemPrompt: "System prompt inspection",
   mode: "Interaction modes",
+  goals: "Goals",
 };
 
 /**

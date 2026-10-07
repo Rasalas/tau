@@ -48,3 +48,51 @@ source beside its title. These links survive a restart and do not make a fork
 a delegated agent. **Bring back to parent** puts a summary of work after the
 fork point into the source's composer for review. It does not merge Git changes;
 use the existing review and merge flow for those.
+
+## Give a thread a goal
+
+In a Codex or Claude Code thread, type `/goal <objective>` and send it. The
+runtime works on the objective turn after turn until its own check says it is
+met; Tau does not loop prompts for it. A **Goal** pill above the composer shows
+where it stands: running (blue, with the tokens it used), paused, blocked,
+budget reached, met (green, only when the runtime confirmed it), or not
+confirmed when the run ended without a verdict. Click the pill for the
+objective, tokens and turns, and to pause, resume or end it; `/goal pause`,
+`/goal resume` and `/goal end` do the same from the keyboard.
+
+**Stop** (or Escape) stops the turn and pauses a Codex goal before its next
+turn starts. Claude Code cannot pause a goal: Stop ends the turn and the goal
+stays set until you end it. A line under the stopped turn says what Stop
+ended, and whether anything may still wake the thread. After a restart a Codex
+goal that was running shows as paused until you resume it; a Claude Code goal
+shows as not confirmed. Pi threads have no native goals.
+
+## Reopen a closed tab
+
+`Cmd/Ctrl+Shift+T` brings back the stage tab closed last in this thread, and
+**All tabs** lists the last twenty under **Recently closed**. Files and threads
+come back as they were. A terminal tab comes back as a new shell in the
+thread's folder; the shell you closed went back to the Terminal panel. Each
+thread keeps its own list, with its tabs. Transcript detail moved to
+`Cmd/Ctrl+Alt+T`.
+
+## Watch a pull request
+
+The eye segment in a PR's existing strip or workspace card starts a GitHub
+watch in one click. Its state shows the wake count; click it to stop or inspect
+the last read. Changes queue a marked wake instead of interrupting a turn. Stop
+ends the watches; Settle ends them until its undo. See [Pull request watches](pr-watch.md).
+
+## Automations and private webhook keys
+
+Open **Automations** to save a prompt for a known project and runtime. The form
+configures and enables a daily, one-off or signed webhook trigger. Needs you,
+Running, Scheduled and Off groups show what can happen next. Open last thread
+returns directly to the conversation. Uncertain recovery defaults to Skip;
+retrying requires acknowledging possible duplicate work.
+
+Private webhook keys are entered in a masked field, stored in the host's OS
+secret store and kept out of agent messages. A tool's pending request appears
+above the composer without taking an unsent draft. Stop or Decline ends it.
+Automation management and private-key entry use the host's own window; paired
+devices can inspect jobs and open their threads. See [Scheduling](scheduling.md).

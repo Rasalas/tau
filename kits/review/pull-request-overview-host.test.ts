@@ -241,7 +241,7 @@ describe("linked pull requests", () => {
 
   it("gives every runtime the agent's link tools, bound to the calling thread", async () => {
     const { tool, invoke, runtime } = await harness();
-    expect(runtime).toHaveLength(1);
+    expect(runtime).toHaveLength(2);
     const linked = await tool("link_pull_request")({ number: 7 });
     expect(linked.details).toEqual({ host: "github.com", repository: "acme/tau", number: 7, url: GITHUB_URL, alreadyLinked: false });
     expect((await tool("link_pull_request")({ url: GITHUB_URL })).details).toMatchObject({ alreadyLinked: true });

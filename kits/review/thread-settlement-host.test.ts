@@ -45,16 +45,16 @@ it("settles a CLI-merged linked PR after turn-end with real Review and Thread Ra
   }));
   await registry.activate(createThreadRailHostExtension({ sweepMs: 1_000_000_000, modifiedAt: async () => Date.now() }));
   const state = async () => await registry.invoke("tau.thread-rail", "state") as RailState;
-  observers[0]!.accepted?.("thread", "turn", { deferBefore: false });
+  for (const observer of observers) observer.accepted?.("thread", "turn", { deferBefore: false });
   await registry.invoke("tau.review", "link-pr", { threadId: "thread", reference: "https://github.com/acme/tau/pull/7" });
   merged = true;
-  await observers[0]!.ended?.("thread", "turn", {} as never);
+  await Promise.all(observers.map((observer) => observer.ended?.("thread", "turn", {} as never)));
   await vi.waitFor(async () => expect((await state()).threads.thread?.settledBy).toBe("pr-merged"));
 
   // A later turn on the same merged PR must remain active until its new work lands.
   integrated = false;
-  observers[0]!.accepted?.("thread", "next", { deferBefore: false });
-  await observers[0]!.ended?.("thread", "next", {} as never);
+  for (const observer of observers) observer.accepted?.("thread", "next", { deferBefore: false });
+  await Promise.all(observers.map((observer) => observer.ended?.("thread", "next", {} as never)));
   await registry.invoke("tau.thread-rail", "sweep");
   expect((await state()).threads.thread?.settledAt).toBeUndefined();
 

@@ -80,6 +80,7 @@ composite widget. The ring shows for the keyboard only (`:focus-visible`).
 | `mod+shift+m` | | `runtime.model` | Model picker | core |
 | `mod+alt+shift+a` | | `runtime.theme` | Cycle light, dark, system | core |
 | `mod+w` | | `workbench.close-stage-tab` | Close the stage tab | core |
+| `mod+shift+t` | `!terminalFocus` | `workbench.reopen-stage-tab` | Reopen the tab closed last on this thread's stage | core |
 | `mod+,` | | `runtime.settings` | Settings | core |
 | `mod+i` | | `runtime.instructions` | System prompt and instructions | core |
 | `escape` | `chatFocus` | `runtime.abort` | Stop the run | core |
@@ -88,7 +89,7 @@ composite widget. The ring shows for the keyboard only (`:focus-visible`).
 | `mod+shift+a` | `!terminalFocus` | `composer.mode` | Access menu | Access |
 | `mod+shift+x` | `!terminalFocus` | `composer.workspace` | Where the thread runs | Workspace |
 | `mod+shift+g` | `!terminalFocus` | `composer.branch` | Branch picker | Workspace |
-| `mod+shift+t` | | `runtime.transcript-detail` | Cycle transcript detail | core |
+| `mod+alt+t` | | `runtime.transcript-detail` | Cycle transcript detail | core |
 | `f2` | `!terminalFocus` | `runtime.rename-thread` | Rename thread | core |
 | `mod+alt+k` | | `runtime.compact` | Compact the thread's context | core |
 | `mod+\` | | `workbench.split-stage` | Split or join the stage | core |

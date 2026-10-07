@@ -1,4 +1,4 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useRef, useSyncExternalStore } from "react";
 import type { UiPromptAttachment, UiPromptImageAttachment, UiQueuedMessage, UiQueuedPrompt, UiSkillDraft } from "../shared/contracts";
 import type { WorkbenchActions } from "./extension-system";
 import type { SubmitResult } from "./components/Composer";
@@ -16,7 +16,9 @@ export type SubmitPrompt = (
 const EMPTY: readonly UiQueuedMessage[] = [];
 
 /** Puts messages that were not sent back into the composer, below its draft; images come back as images. */
-export function returnToComposer(actions: WorkbenchActions | undefined, items: readonly UiQueuedPrompt[]): void {
+export function returnToComposer(actions: WorkbenchActions | undefined, taken: readonly UiQueuedPrompt[]): void {
+  // A wake is not the user's text: taking it out drops it.
+  const items = taken.filter((item) => !item.wake);
   if (!actions || items.length === 0) return;
   const texts = items.map((item) => item.text.trim()).filter(Boolean);
   if (texts.length > 0) actions.setComposerDraft?.([actions.composerDraft().trimEnd(), ...texts].filter(Boolean).join("\n\n"));
@@ -75,5 +77,14 @@ export function useFollowUpQueue({ client, threads, sessionId, isRunning, submit
     }
   }, [actions, isRunning, setNotice, submit, takeQueued]);
 
-  return { queue, held, cancelQueued, reorderQueue, steerQueued, takeQueued };
+  const returnQueued = useCallback((id?: string) => { void takeQueued(id).then((items) => returnToComposer(actions(), items)); }, [actions, takeQueued]);
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
+  const steerQueuedMessage = useCallback(() => {
+    // A wake never steers: the oldest of the user's own goes.
+    const head = queueRef.current.find((entry) => !entry.wake);
+    if (head) void steerQueued(head.id);
+    return Boolean(head);
+  }, [steerQueued]);
+  return { queue, held, cancelQueued, reorderQueue, steerQueued, takeQueued, returnQueued, steerQueuedMessage };
 }
