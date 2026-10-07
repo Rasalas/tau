@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createNewThreadRequestId, type ClientTurnIdentity, type HostEvent } from "../shared/contracts";
 import { setHostClient } from "./host-client-context";
 import { createMemoryStorage, getClientStorage, setClientStorage } from "../workbench/client-storage";
-import { writeNewThreadDraft } from "../workbench/draft-store";
+import { readNewThreadDraft, writeNewThreadDraft } from "../workbench/draft-store";
 import { createFakeHostClient } from "./test-support/fake-host-client";
 import { renderApp } from "./test-support/render-app";
 import { workspaceHostStub } from "./test-support/workspace-host-stub";
@@ -592,6 +592,52 @@ describe("App render isolation", () => {
       "/other",
       expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
       undefined,
+    ));
+  });
+
+  it.each([false, true])("starts a new thread with the last selected model and level after reopening the workbench, restored draft=%s", async (restoredDraft) => {
+    const old = { provider: "openai-codex", id: "gpt-5.6-sol", name: "GPT-5.6 Sol" };
+    const latest = { provider: "openai-codex", id: "gpt-6.1-sol", name: "GPT-6.1 Sol" };
+    const newSession = vi.fn(async () => ({ version: 1 as const, updates: [] as never[], submission: { accepted: true as const } }));
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
+        detail: { sessionId: "previous", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "previous", models: [old, latest], model: old, thinkingLevel: "medium", thinkingLevels: ["medium"], allTools: [], extensionCount: 0 },
+        project: { cwd: "/project" },
+      }),
+      runtimeCatalog: async () => ({ kind: "pi", models: [old, latest], model: old, thinkingLevels: { "openai-codex/gpt-6.1-sol": ["low", "medium", "high"] } }),
+      newSession,
+      invokeHostExtension: workspaceHostStub({
+        listEditors: async () => [],
+        getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+        getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+        getFileTree: async () => [],
+      }),
+    });
+    const first = renderApp(client);
+    await screen.findByRole("button", { name: "Select model: GPT-5.6 Sol" });
+    act(() => {
+      first.services.preferences.noteModelUsed("openai-codex/gpt-6.1-sol");
+      first.services.preferences.noteModelLevel("openai-codex/gpt-6.1-sol", "high");
+    });
+    first.unmount();
+    if (restoredDraft) writeNewThreadDraft(first.storage, { kind: "draft", draftId: "fresh-after-reload", projectPath: "/project", projectName: "project" });
+    renderApp(client, { storage: first.storage });
+    if (!restoredDraft) {
+      await screen.findByRole("button", { name: "Select model: GPT-5.6 Sol" });
+      fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+      await waitFor(() => expect(readNewThreadDraft(first.storage)).toBeDefined());
+    }
+    await screen.findByRole("heading", { name: /do next\?$/ });
+    expect(await screen.findByRole("button", { name: "Select model: GPT-6.1 Sol" })).toBeTruthy();
+    const composer = screen.getByPlaceholderText(/Ask anything/u);
+    fireEvent.change(composer, { target: { value: "use my selected model" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(newSession).toHaveBeenCalledWith(
+      "use my selected model", [], "/project", expect.anything(), undefined,
+      { model: { provider: "openai-codex", id: "gpt-6.1-sol" }, thinkingLevel: "high" },
     ));
   });
 

@@ -31,7 +31,7 @@ import { primaryPointerIsTouch } from "./touch-input";
 import { HOST_CAPABILITY } from "../shared/host-transport";
 import { usePreferences, useRendererServices } from "./renderer-services-context";
 import { AppUpdateStore } from "./app-update";
-import { effectiveNewThreadRuntime } from "./new-thread-runtime";
+import { effectiveNewThreadRuntime, recentRuntimeModels, rememberedNewThreadSelection } from "./new-thread-runtime";
 import { selectionOnScreen } from "../workbench/new-thread-project";
 import { useRuntimeCatalog } from "./use-runtime-catalog";
 import { draftRuntimeSnapshot } from "../workbench/runtime-catalog-store";
@@ -225,7 +225,14 @@ export default function App() {
   const threadView = useCallback(() => workbenchControlRef.current?.threadView(), []);
   const inheritSelection = useCallback(() => {
     const draft = newThreadController.current();
-    newThreadController.inherit(selectionOnScreen({ covered: threadView()?.covered, draft, draftRuntime: effectiveNewThreadRuntime(draft?.runtime ?? preferences.getSnapshot().newThreadRuntime, viewStore.getSnapshot()), thread: viewStore.getSnapshot() }));
+    const latestPreferences = preferences.getSnapshot();
+    const runtime = effectiveNewThreadRuntime(draft?.runtime ?? latestPreferences.newThreadRuntime, viewStore.getSnapshot());
+    const selection = selectionOnScreen({ covered: threadView()?.covered, draft, draftRuntime: runtime, thread: viewStore.getSnapshot() });
+    // An older thread on screen must not replace the last picker choice.
+    const chosenRuntime = selection?.runtime ?? runtime;
+    newThreadController.inherit(recentRuntimeModels(chosenRuntime, latestPreferences.recentModels).length
+      ? { runtime: chosenRuntime, ...(selection?.mode ? { mode: selection.mode } : {}) }
+      : selection);
   }, [newThreadController, preferences, threadView, viewStore]);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const attachFiles = usePendingAttachments(composerAttachmentRef, snapshot?.sessionId);
@@ -582,6 +589,15 @@ export default function App() {
   // A draft chooses from the catalog of the runtime it is bound for; the thread on screen's levels are its model's.
   const boundRuntime = pendingNewThread && !pendingNewThread.sessionId ? effectiveNewThreadRuntime(pendingNewThread.runtime ?? settings.newThreadRuntime, snapshot) : undefined;
   const draftCatalog = useRuntimeCatalog(boundRuntime);
+  useEffect(() => {
+    const draft = newThreadController.current();
+    if (!draft || draft.sessionId || draft.model || draft.thinkingLevel || draftCatalog?.status !== "ready" || draftCatalog.catalog.kind !== boundRuntime) return;
+    const remembered = rememberedNewThreadSelection(draftCatalog.catalog, settings.recentModels, settings.recentLevels);
+    if (!remembered?.model) return;
+    const next = { ...draft, model: remembered.model, ...(remembered.thinkingLevel ? { thinkingLevel: remembered.thinkingLevel } : {}), ...(boundRuntime !== "pi" ? { selectionRuntime: boundRuntime } : {}) };
+    writeNewThreadDraft(clientStorage, next);
+    newThreadController.set(next);
+  }, [boundRuntime, clientStorage, draftCatalog, newThreadController, pendingNewThread, settings.recentModels, settings.recentLevels]);
   const draftSnapshot = useMemo(() => pendingNewThread && snapshot && boundRuntime
     ? draftRuntimeSnapshot(snapshot, pendingNewThread, boundRuntime, draftCatalog)
     : snapshot, [draftCatalog, boundRuntime, pendingNewThread, snapshot]);
