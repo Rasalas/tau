@@ -12,6 +12,10 @@ const RAIL = "tau.thread-rail";
 const fields = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 400);
 const key = (watch: Pick<PullRequestWatch, "threadId" | "ref">) => `${watch.threadId}:${watch.ref.url}`;
+/** In every runtime's system prompt, so an agent waits on a PR with a watch instead of a polling loop. */
+export const WATCH_INSTRUCTIONS = `<pull_request_watching>
+When your next step waits on a GitHub pull request, such as its checks finishing or a review arriving, call watch_pull_request with its full URL, tell the user, and end your turn. Tau then queues a message into this thread when checks finish, someone comments or reviews, the branch conflicts, or the request is merged or closed, and you continue from there. Do not wait with gh pr checks --watch, sleep or a background polling loop. A watch never merges or edits the request. Call unwatch_pull_request when you no longer need it.
+</pull_request_watching>`;
 function decode(value: unknown): PullRequestWatch[] {
   value = fields(value).watches;
   if (!Array.isArray(value) || value.length > 100) throw new HostCommandError("Invalid PR watch state.");
@@ -131,7 +135,7 @@ export async function registerPullRequestWatches(context: HostExtensionContext, 
     { name: "watch_pull_request", label: "Watch pull request", description: "Watch a GitHub PR in this thread. Queue a wake when checks finish, someone comments or reviews, the branch conflicts, or the PR closes. Never merges. Stops on Stop, Settle, ten consecutive comment wakes, or fifteen minutes without a readable host.", parameters: Type.Object({ url: Type.String() }), execute: async (_id, input) => { const watch = await start(session.sessionId, String(fields(input).url ?? "")); return { content: [{ type: "text", text: JSON.stringify(watch) }], details: watch }; } },
     { name: "unwatch_pull_request", label: "Stop watching pull request", description: "Stop this thread's PR watches. Does not stop its running turn.", parameters: Type.Object({ url: Type.Optional(Type.String()) }), execute: async (_id, input) => { const url = fields(input).url; const result = await stop(session.sessionId, "user", typeof url === "string" ? url : undefined); return { content: [{ type: "text", text: JSON.stringify(result) }], details: result }; } },
   ];
-  const disposers = [services.mcp.registerTools(tools), services.registerRuntimeExtension("tau-pull-request-watch", (pi, session) => { for (const tool of tools(session)) pi.registerTool(tool); }), services.registerTurnObserver({ stopped: (id) => stop(id, "user") }), services.registerThreadLifecycle({ threadDeleted: async (id) => { for (const [watchKey, watch] of watches) if (watch.threadId === id) watches.delete(watchKey); await changed(); } })];
+  const disposers = [services.mcp.registerTools(tools), services.registerRuntimeExtension("tau-pull-request-watch", (pi, session) => { for (const tool of tools(session)) pi.registerTool(tool); pi.on("before_agent_start", (event) => ({ systemPrompt: `${event.systemPrompt}\n\n${WATCH_INSTRUCTIONS}` })); }), services.mcp.registerInstructions?.(() => WATCH_INSTRUCTIONS) ?? (() => undefined), services.registerTurnObserver({ stopped: (id) => stop(id, "user") }), services.registerThreadLifecycle({ threadDeleted: async (id) => { for (const [watchKey, watch] of watches) if (watch.threadId === id) watches.delete(watchKey); await changed(); } })];
   const timer = setInterval(() => { void tick().catch((error) => services.log("review.watch", message(error))); }, options.period ?? PERIOD); timer.unref?.();
   void tick().catch((error) => services.log("review.watch", message(error)));
   return async () => { disposed = true; clearInterval(timer); for (const dispose of disposers.reverse()) dispose(); await writes; };
