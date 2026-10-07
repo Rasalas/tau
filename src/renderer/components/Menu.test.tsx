@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Menu, type MenuSection } from "./Menu";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 const SECTIONS: MenuSection[] = [
   { items: [{ id: "pin", label: "Pin thread" }, { id: "rename", label: "Rename", disabled: true }] },
@@ -127,5 +127,41 @@ describe("Menu", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Settle thread" }));
     expect(onSelect).toHaveBeenCalledWith("settle");
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("draws over the window, below its trigger, when a scrolling box would cut it off", () => {
+    const rects: Array<[string, DOMRect]> = [["box", new DOMRect(0, 0, 300, 100)], ["menu-anchor", new DOMRect(200, 20, 40, 30)], ["menu", new DOMRect(0, 57, 220, 180)]];
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      return rects.find(([name]) => this.classList.contains(name))?.[1] ?? new DOMRect();
+    });
+    render(<div className="box" style={{ overflowY: "auto" }}><Harness onSelect={vi.fn()} /></div>);
+    fireEvent.click(screen.getByRole("button", { name: "Thread" }));
+    const menu = screen.getByRole("menu");
+    expect(menu.parentElement).toBe(document.body);
+    expect(menu.className).toContain("at-point");
+    // Right-aligned to the trigger, 7 px under it, as it sits in place.
+    expect([menu.style.left, menu.style.top]).toEqual(["20px", "57px"]);
+  });
+
+  it("keeps the keyboard on the entries after leaving a box that cut it off", () => {
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      return this.classList.contains("box") ? new DOMRect(0, 0, 300, 100) : this.classList.contains("menu") ? new DOMRect(0, 57, 220, 180) : new DOMRect();
+    });
+    const onSelect = vi.fn();
+    render(<div className="box" style={{ overflowY: "auto" }}><Harness onSelect={onSelect} /></div>);
+    const trigger = screen.getByRole("button", { name: "Thread" });
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    fireEvent.click(trigger);
+    expect(screen.getByRole("menu").parentElement).toBe(document.body);
+    expect(focused()).toBe("Pin thread");
+    press("Escape");
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("stays in place when the scrolling box has room for it", () => {
+    render(<div style={{ overflowY: "auto" }}><Harness onSelect={vi.fn()} /></div>);
+    fireEvent.click(screen.getByRole("button", { name: "Thread" }));
+    expect(screen.getByRole("menu").parentElement?.className).toBe("menu-anchor");
   });
 });
