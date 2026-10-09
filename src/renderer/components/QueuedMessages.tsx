@@ -4,14 +4,15 @@ import type { UiQueuedMessage } from "../../shared/contracts";
 import { tooltipProps } from "./ui/Tooltip";
 import { WakeIcon } from "./WakeLine";
 
-/** A wake waits as one quiet row: it never steers into a turn, and dropping it puts nothing in the composer. */
-function QueuedWake({ entry, held, onDrop }: { entry: UiQueuedMessage & { wake: NonNullable<UiQueuedMessage["wake"]> }; held: boolean; onDrop(): void }) {
+/** A wake waits as one quiet row; the arrow sends it like a queued message, and dropping it puts nothing in the composer. */
+function QueuedWake({ entry, held, streaming, onSend, onDrop }: { entry: UiQueuedMessage & { wake: NonNullable<UiQueuedMessage["wake"]> }; held: boolean; streaming: boolean; onSend(): void; onDrop(): void }) {
   return <li className="queued-message queued-wake" aria-label={`Wake waiting: ${entry.wake.label}`}>
     <WakeIcon source={entry.wake.source} size={13} />
     <span className="queued-wake-label">{entry.wake.label}</span>
-    <span className="queued-message-status" {...tooltipProps(held ? "Held with the queue until you send" : "Wakes wait for the current turn; they never interrupt it.")}>
+    <span className="queued-message-status" {...tooltipProps(held ? "Held with the queue until you send" : "Waits for the current turn; the arrow sends it now")}>
       <Clock size={12} />{held ? "Held" : "Waits for the turn"}
     </span>
+    <button type="button" aria-label="Send this wake now" {...tooltipProps(streaming ? "Send now, into the running turn" : "Send now")} onClick={onSend}><ArrowUp size={14} /></button>
     <button type="button" aria-label="Drop this wake" {...tooltipProps("Drop this wake")} onClick={onDrop}><X size={14} /></button>
   </li>;
 }
@@ -40,7 +41,7 @@ export function QueuedMessages({ queue, streaming, held = false, steerShortcut, 
   return (
     <ol className="queued-messages" aria-label="Queued messages">
       {queue.map((entry, index) => {
-        if (entry.wake) return <QueuedWake key={entry.id} entry={entry as UiQueuedMessage & { wake: NonNullable<UiQueuedMessage["wake"]> }} held={held} onDrop={() => onReturn(entry.id)} />;
+        if (entry.wake) return <QueuedWake key={entry.id} entry={entry as UiQueuedMessage & { wake: NonNullable<UiQueuedMessage["wake"]> }} held={held} streaming={streaming} onSend={() => onSteer(entry.id)} onDrop={() => onReturn(entry.id)} />;
         const files = entry.attachments;
         const status = held
           ? "Held: sends after your next message, or send it now"

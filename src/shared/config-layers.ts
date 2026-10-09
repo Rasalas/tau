@@ -43,6 +43,7 @@ export const CONFIG_DEFAULTS: Readonly<Record<string, unknown>> = {
   vimMode: false,
   prewarm: true,
   "threads.continueAfterRestart": false,
+  "threads.wakeDelivery": "steer",
   "extensions.watch": true,
   "confirm.quit": "hold",
   "confirm.quitWhileRunning": true,

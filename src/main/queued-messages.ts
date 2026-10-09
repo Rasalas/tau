@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { UiPromptAttachment, UiQueuedMessage, UiQueuedPrompt, UiSkillDraft, UiWake } from "../shared/contracts.js";
-import { wakeMessageText } from "../shared/message-turns.js";
+import { combineWakes, wakeMessageText } from "../shared/message-turns.js";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
 
 const VERSION = 1;
@@ -234,8 +234,12 @@ export class QueuedMessages {
   /** Sends the head when nothing holds the thread back; a refusal puts it back and holds the queue. */
   async pump(sessionId: string): Promise<void> {
     if (this.frozen || this.held.has(sessionId) || this.delivering.has(sessionId)) return;
-    const [head, ...rest] = this.list(sessionId);
-    if (!head || this.port.busy(sessionId)) return;
+    const current = this.list(sessionId);
+    if (!current[0] || this.port.busy(sessionId)) return;
+    // A wake at the head takes every waiting wake with it, as one message.
+    const wakes = current[0].wake ? current.filter((message) => message.wake) : [];
+    const head: QueuedMessage = wakes.length > 1 ? { ...wakes[0]!, ...combineWakes(wakes.map((wake) => wake.text)), attachments: wakes.flatMap((wake) => wake.attachments) } : current[0];
+    const rest = current.filter((message) => message !== current[0] && !(wakes.length > 1 && message.wake));
     this.delivering.set(sessionId, head);
     // Out of the list at once, so no client sends it too; the file keeps it until the thread accepted it.
     this.queues.set(sessionId, rest);

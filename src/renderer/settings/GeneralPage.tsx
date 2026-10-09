@@ -22,6 +22,8 @@ const SEND_SHORTCUTS: ReadonlyArray<{ value: SendShortcut; label: string }> = [
 
 const DETAIL_LABELS: Record<TranscriptDetail, string> = { focused: "Focused", detailed: "Detailed", everything: "Everything" };
 const QUIT_LABELS: Record<QuitConfirmation, string> = { hold: "Hold", "double-press": "Press twice", off: "At once" };
+type WakeDelivery = "steer" | "queue";
+const WAKE_LABELS: Record<WakeDelivery, string> = { steer: "Steer", queue: "Queue" };
 const THEME_LABELS: Record<string, string> = { system: "System", light: "Light", dark: "Dark" };
 
 const readBoolean = (raw: unknown) => (typeof raw === "boolean" ? raw : undefined);
@@ -65,6 +67,9 @@ export function GeneralPage({ themeHere, sections = [], onNotify = () => undefin
   const hostBackground = useSetting<boolean>("hostBackground", { defaultValue: CONFIG_DEFAULTS.hostBackground as boolean, read: readBoolean, offline: (value) => preferences.setHostBackground(value) });
   const continueAfterRestart = useSetting<boolean>("threads.continueAfterRestart", {
     defaultValue: CONFIG_DEFAULTS["threads.continueAfterRestart"] as boolean, read: readBoolean, offline: (value) => preferences.setContinueThreadsAfterRestart(value),
+  });
+  const wakeDelivery = useSetting<WakeDelivery>("threads.wakeDelivery", {
+    defaultValue: CONFIG_DEFAULTS["threads.wakeDelivery"] as WakeDelivery, read: (raw) => (raw === "steer" || raw === "queue" ? raw : undefined), format: (value) => WAKE_LABELS[value],
   });
   // CONFIG_DEFAULTS' value, written out: reading it here would keep the entry in the start-up chunk.
   const watchFiles = useSetting<boolean>("extensions.watch", { defaultValue: true, read: readBoolean });
@@ -159,6 +164,13 @@ export function GeneralPage({ themeHere, sections = [], onNotify = () => undefin
           help="Pick a thread back up where a restart cut its turn short. Off, the thread is repaired and marked instead."
           setting={continueAfterRestart}
           control={<Switch label="Continue threads after restarts" checked={continueAfterRestart.value} onChange={continueAfterRestart.set} />}
+        />
+        <SettingRow
+          id={settingAnchor("Wakes during a turn")}
+          title="Wakes during a turn"
+          help="A PR update or another wake arriving while the thread works. Steer sends it into the running turn; Queue waits for the turn, and its arrow still steers it in."
+          setting={wakeDelivery}
+          control={<SegmentedControl<WakeDelivery> label="Wakes during a turn" value={wakeDelivery.value} options={(["steer", "queue"] as const).map((value) => ({ value, label: WAKE_LABELS[value] }))} onChange={wakeDelivery.set} />}
         />
         <SettingRow
           id={settingAnchor("Reload files when they change")}

@@ -365,8 +365,8 @@ export interface HostThreadSendOptions {
   attachments?: readonly UiPromptAttachment[];
   /**
    * The message wakes the thread for something other than the user: it needs
-   * `delivery: "queue"`, never interrupts a turn, shows as a wake line, and
-   * Stop drops it while it waits. New in API 1.52.0.
+   * `delivery: "queue"` and shows as a wake line. A running turn gets it as a
+   * steer unless the user's `threads.wakeDelivery` is "queue"; Stop drops it while it waits. New in API 1.52.0.
    */
   wake?: UiWake;
 }

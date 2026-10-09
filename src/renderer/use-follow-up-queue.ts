@@ -1,5 +1,6 @@
 import { useCallback, useRef, useSyncExternalStore } from "react";
 import type { UiPromptAttachment, UiPromptImageAttachment, UiQueuedMessage, UiQueuedPrompt, UiSkillDraft } from "../shared/contracts";
+import { combineWakes } from "../shared/message-turns";
 import type { WorkbenchActions } from "./extension-system";
 import type { SubmitResult } from "./components/Composer";
 import { errorMessage } from "../workbench/error-message";
@@ -65,10 +66,15 @@ export function useFollowUpQueue({ client, threads, sessionId, isRunning, submit
   const reorderQueue = useCallback((id: string, toIndex: number) => {
     if (sessionId && client) void client.moveQueued(sessionId, id, toIndex).catch(report);
   }, [client, report, sessionId]);
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
   // Sends one queued message ahead of the queue: as a steer while the thread
   // runs, as a plain prompt otherwise. One that does not go out comes back to the composer.
+  // A wake takes every waiting wake with it, as one message.
   const steerQueued = useCallback(async (id: string) => {
-    const [item] = await takeQueued(id);
+    const wakes = queueRef.current.some((entry) => entry.id === id && entry.wake) ? queueRef.current.filter((entry) => entry.wake) : [];
+    const taken = wakes.length > 1 ? (await Promise.all(wakes.map((entry) => takeQueued(entry.id)))).flat() : await takeQueued(id);
+    const item = taken.length > 1 ? { ...taken[0]!, ...combineWakes(taken.map((entry) => entry.text)), attachments: taken.flatMap((entry) => entry.attachments) } : taken[0];
     if (!item) return;
     const result = await submit(item.text, item.attachments, isRunning() ? "steer" : undefined, item.skillDraft);
     if (!result.accepted) {
@@ -78,11 +84,8 @@ export function useFollowUpQueue({ client, threads, sessionId, isRunning, submit
   }, [actions, isRunning, setNotice, submit, takeQueued]);
 
   const returnQueued = useCallback((id?: string) => { void takeQueued(id).then((items) => returnToComposer(actions(), items)); }, [actions, takeQueued]);
-  const queueRef = useRef(queue);
-  queueRef.current = queue;
   const steerQueuedMessage = useCallback(() => {
-    // A wake never steers: the oldest of the user's own goes.
-    const head = queueRef.current.find((entry) => !entry.wake);
+    const head = queueRef.current[0];
     if (head) void steerQueued(head.id);
     return Boolean(head);
   }, [steerQueued]);

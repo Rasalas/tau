@@ -357,6 +357,10 @@ export function decodeConfigPatch(channel: string, field: string, value: unknown
     if (threads.continueAfterRestart !== undefined) {
       result.threads = { continueAfterRestart: decodeBoolean(channel, `${field}.threads.continueAfterRestart`, threads.continueAfterRestart) };
     }
+    if (threads.wakeDelivery !== undefined) {
+      if (threads.wakeDelivery !== "steer" && threads.wakeDelivery !== "queue") fail(channel, `${field}.threads.wakeDelivery`, 'must be "steer" or "queue"');
+      result.threads = { ...result.threads, wakeDelivery: threads.wakeDelivery };
+    }
   }
   if (item.extensions !== undefined) {
     const extensions = record(channel, `${field}.extensions`, item.extensions);

@@ -18,6 +18,22 @@ export function wakeMessageText(wake: UiWake, body: string): string {
   return detail ? `[Tau wake: ${source}] ${label}\n\n${detail}` : `[Tau wake: ${source}] ${label}`;
 }
 
+/**
+ * Waiting wakes leave as one message: one line naming every update, bodies in
+ * order. A label prefix they share ("PR #76") is written once.
+ */
+export function combineWakes(texts: readonly string[]): { text: string; wake: UiWake } {
+  const parts = texts.map((text) => {
+    const head = WAKE_HEAD.exec(text);
+    return head ? { source: head[1]!, label: head[2]!, body: head[3] ?? "" } : { source: "tau", label: "Woken", body: text };
+  });
+  const prefix = parts[0]?.label.split(" · ")[0];
+  const labels = parts.map((part, index) => index > 0 && prefix && part.label.startsWith(`${prefix} · `) ? part.label.slice(prefix.length + 3) : part.label);
+  const source = parts.every((part) => part.source === parts[0]?.source) ? parts[0]?.source ?? "tau" : "tau";
+  const wake = { source, label: labels.join(" · ").slice(0, 160) };
+  return { text: wakeMessageText(wake, parts.map((part) => part.body.trim()).filter(Boolean).join("\n\n")), wake };
+}
+
 /** A message sent in the user's name by a runtime or by Tau: a quiet line instead of a bubble. */
 export function parseAsyncActivity(text: string): AsyncActivity | undefined {
   const wake = WAKE_HEAD.exec(text);

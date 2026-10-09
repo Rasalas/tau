@@ -395,7 +395,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
       trash: () => port.trashedThreads(),
       purge: (sessionId) => port.purgeThread(sessionId),
       send: async (sessionId, text, sendOptions) => {
-        // A wake never steers or interrupts: it waits for the turn, and Stop can still take it back.
+        // The host decides whether a wake steers or waits (`threads.wakeDelivery`); kits only queue it.
         if (sendOptions?.wake && sendOptions.delivery !== "queue") throw new HostCommandError("A wake waits in the queue: send it with delivery \"queue\".");
         return port.sendToThread(sessionId, text, {
           delivery: sendOptions?.delivery ?? "prompt",

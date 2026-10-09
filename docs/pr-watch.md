@@ -15,7 +15,9 @@ polling with `gh pr checks --watch`, `sleep` or a background loop.
 The host checks once a minute using one compact GraphQL read per PR. Threads
 watching the same PR share that read. All checks finishing, a check failing,
 new comments or reviews, a new branch conflict, and merge or close produce a
-marked visible queue message. The watch never steers a running turn, edits the PR, or merges it.
+marked wake. A running turn gets it as a steer; with "Wakes during a turn"
+set to Queue in Settings › General it waits in the visible queue, where its
+arrow steers it in. The watch never edits the PR or merges it.
 
 Checks count as finished once nothing is pending: the rollup is no longer
 `PENDING`/`EXPECTED`, no check run or status is still in progress, and no

@@ -74,7 +74,7 @@ import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
 import type { LiveTurnState } from "./live-turn-state.js";
 import { requireCapability, type ThreadRuntimeEvent } from "./runtime-types.js";
 import { markTauHostRuntime } from "./tau-runtime-owner.js";
-import { QueuedMessages, type QueuedMessage } from "./queued-messages.js";
+import { QueuedMessages, markWake, type QueuedMessage } from "./queued-messages.js";
 import { LIMIT_CONTINUATION_PROMPT, ThreadLimits } from "./thread-limits.js";
 import { TurnSettlement } from "./turn-settlement.js";
 import { ModelPriceBook, piNewThreadCatalog } from "./model-price-book.js";
@@ -467,7 +467,14 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     removeThread: (sessionId) => deps.removeThread(sessionId),
     restoreThread: (sessionId) => deps.restoreThread(sessionId),
     purgeThread: (sessionId) => deps.purgeThread(sessionId),
-    sendToThread: (sessionId, text, sendOptions) => deps.sendToThread(sessionId, text, sendOptions.delivery, sendOptions.from, sendOptions.attachments, sendOptions.wake),
+    sendToThread: async (sessionId, text, sendOptions) => {
+      // A wake steers into a running turn unless the user wants wakes queued; a held queue keeps it.
+      const { wake } = sendOptions;
+      if (wake && sendOptions.delivery === "queue" && (defaultHostConfigManager.readSync(deps.getCwd()).threads?.wakeDelivery ?? "steer") === "steer" && deps.hostThread(sessionId)?.isIdle() === false && !queue.isHeld(sessionId)) {
+        try { return await deps.sendToThread(sessionId, markWake(text, wake).text, "steer", sendOptions.from, sendOptions.attachments); } catch { /* the turn ended meanwhile: queue it */ }
+      }
+      return deps.sendToThread(sessionId, text, sendOptions.delivery, sendOptions.from, sendOptions.attachments, wake);
+    },
     setThreadModel: async (sessionId, provider, id) => {
       const thread = await deps.reopenThread(sessionId);
       await requireCapability(thread.backend, "catalogWrite").setModel(provider, id);

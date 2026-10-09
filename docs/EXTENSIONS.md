@@ -2831,8 +2831,10 @@ then waits for the user.
 
 `wake: { source, label }` in `send`'s options (new in API 1.52.0) marks a
 message that something other than the user sent: a pull request event, a
-schedule. It needs `delivery: "queue"` — a wake never steers and never
-interrupts a turn — and is delivered with its line in front
+schedule. It needs `delivery: "queue"`. The host steers it into a running
+turn unless the user set `threads.wakeDelivery` to `"queue"` (Settings ›
+General); then it waits for the turn, and the user can still send it in
+with the queue's arrow. Either way it is delivered with its line in front
 (`wakeMessageText`, exported from `tau/host-extension`), which the transcript
 draws as a wake line instead of the user's bubble and which starts no
 numbered turn. `source` picks the icon (`pull-request`, `goal`, `automation`);
