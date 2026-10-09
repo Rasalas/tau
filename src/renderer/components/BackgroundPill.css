@@ -1,0 +1,23 @@
+/* Background work: blue while it holds the thread open, quiet for commands alone. */
+.control-pill.background-pill.holds > svg { color: var(--info); }
+.background-pill-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+.popover.background-popover { width: min(400px, calc(100vw - 32px)); padding: 0; }
+.background-popover-body { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; outline: none; }
+.background-popover-head > strong { font-size: var(--text-sm); font-weight: 700; color: var(--ink); }
+.background-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; max-height: 14em; overflow: auto; }
+.background-list > li { display: flex; align-items: center; gap: 8px; }
+.background-list > li > svg { flex: none; width: 14px; height: 14px; color: var(--ink-3); }
+.background-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.background-row-label { color: var(--ink-2); font: var(--text-md)/1.35 var(--sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.background-row-meta { color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.background-explanation { margin: 0; color: var(--muted); font: var(--text-sm)/1.45 var(--sans); }
+.background-error { margin: 0; color: var(--danger); font: var(--text-sm)/1.45 var(--sans); }
+.background-actions { display: flex; justify-content: flex-end; padding-top: 4px; }
+.background-list > li > button, .background-actions > button {
+  flex: none; height: 28px; padding: 0 12px; border: 1px solid var(--line-control); border-radius: 99px;
+  background: transparent; color: var(--ink-2); font: 500 var(--text-sm) var(--sans); cursor: pointer;
+}
+.background-list > li > button:hover:not(:disabled), .background-actions > button:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
+.background-list > li > button:disabled, .background-actions > button:disabled { opacity: .55; cursor: default; }
+.background-list > li > button:focus-visible, .background-actions > button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+@media (pointer: coarse) { .background-list > li > button, .background-actions > button { height: var(--touch-target); padding: 0 16px; } }

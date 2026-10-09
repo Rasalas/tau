@@ -276,6 +276,12 @@ export class CodexAppServer {
     return result.cleared;
   }
 
+  /** Experimental in codex-cli 0.162; answers whether the terminal is gone. */
+  async terminateBackgroundTerminal(threadId: string, processId: string): Promise<boolean> {
+    const result = await this.connection.request<{ terminated?: boolean }>("thread/backgroundTerminals/terminate", { threadId, processId }, { timeoutMs: this.timeouts.requestMs });
+    return result.terminated !== false;
+  }
+
   async interruptTurn(threadId: string, turnId: string): Promise<void> {
     await this.connection.request("turn/interrupt", { threadId, turnId }, { timeoutMs: this.timeouts.requestMs });
   }

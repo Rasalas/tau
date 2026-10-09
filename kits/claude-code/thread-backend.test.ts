@@ -85,6 +85,7 @@ function fakeSession(input: ClaudeSessionInput, script: Script) {
       return run;
     }),
     interrupt: vi.fn(async () => undefined),
+    stopTask: vi.fn(async () => undefined),
     setPermissionMode: vi.fn(async () => undefined),
     setModel: vi.fn(async () => undefined),
     setEffort: vi.fn(async () => undefined),
@@ -203,6 +204,31 @@ describe("thread runtime backends", () => {
     await backend.dispose();
   });
 
+  it("publishes what runs in the background, stops it through the CLI, and forgets it with the process", async () => {
+    const { filePath, store } = await scratchStore();
+    const { adapter, opened, sessions } = scriptedAdapter(filePath, () => [
+      frame({ type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "tool_use", id: "monitor-call", name: "Monitor", input: { description: "Nightly run" } }] } }),
+      frame({ type: "system", subtype: "background_tasks_changed", tasks: [{ task_id: "b1", task_type: "local_bash", description: "Nightly run" }] }),
+      frame({ type: "system", subtype: "task_started", task_id: "b1", tool_use_id: "monitor-call", description: "Nightly run", is_backgrounded: true, task_type: "local_bash" }),
+      ...turn("Watching the nightly"),
+    ]);
+    const events: ThreadRuntimeEvent[] = [];
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, projectName: "repo", now: () => 42, onEvent: (event) => events.push(event) });
+    await backend.start("create");
+    await backend.prompt({ text: "Watch it", delivery: "prompt" });
+    expect(events.filter((event) => event.type === "background")).toHaveLength(2);
+    expect(backend.capabilities.background!.current()).toEqual([{ id: "b1", kind: "monitor", label: "Nightly run", startedAt: 42 }]);
+    await expect(backend.capabilities.background!.stop("gone")).rejects.toThrow("no longer running");
+    await backend.capabilities.background!.stop();
+    expect(sessions[0]!.stopTask).toHaveBeenCalledWith("b1");
+    opened[0]!.onMessage(frame({ type: "system", subtype: "background_tasks_changed", tasks: [{ task_id: "b2", task_type: "local_bash", description: "npm run dev" }] }));
+    events.length = 0;
+    await sessions[0]!.close();
+    expect(events).toContainEqual({ type: "background" });
+    expect(backend.capabilities.background!.current()).toEqual([]);
+    await backend.dispose();
+  });
+
   it("streams a Claude turn as Tau events, persists the exchange and its usage, and restores both", async () => {
     const { filePath, store } = await scratchStore();
     const { adapter, opened, sessions } = scriptedAdapter(filePath, (content) => turn(`Claude: ${String(content)}`));
@@ -266,7 +292,7 @@ describe("thread runtime backends", () => {
     ]);
     // Native titles and short requests use Claude's own account; the other
     // capabilities describe its catalog, plan mode and session lifecycle.
-    expect(Object.keys(backend.capabilities)).toEqual(["titles", "completions", "catalogWrite", "mode", "resume", "compaction", "goals", "restart"]);
+    expect(Object.keys(backend.capabilities)).toEqual(["titles", "completions", "catalogWrite", "mode", "resume", "compaction", "goals", "background", "restart"]);
     expect(backend.capabilities.resume?.hiddenPrompt).toBe(false);
 
     await backend.dispose();
@@ -800,7 +826,7 @@ describe("a turn Claude starts on its own once a background agent finishes", () 
     let release!: () => void;
     const released = new Promise<void>((resolve) => { release = resolve; });
     const { backend, events, session } = await delegated(async () => { await released; return reply("Next"); });
-    expect(events.map((event) => event.type)).toContain("turn-started");
+    expect(events).toContainEqual({ type: "turn-started", unprompted: true });
     expect(backend.state()).toMatchObject({ streaming: true, idle: false });
     const queued = backend.prompt({ text: "Are they done?", delivery: "prompt" });
     await until(() => events.some((event) => event.type === "queue" && event.followUp.length === 1));

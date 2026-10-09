@@ -318,6 +318,12 @@ export class CodexTurnTranslator {
     const status = turn?.status === "interrupted" ? "interrupted" : turn?.status === "failed" ? "failed" : "completed";
     for (const tool of [...this.running.values()]) {
       this.running.delete(tool.id);
+      // A command still running when the turn completed is a background terminal, not a failure.
+      if (status === "completed" && tool.name === "bash") {
+        const streamed = this.streamed.get(tool.id);
+        events.push({ type: "tool-end", tool: { ...tool, status: "done", output: `${streamed?.trim() ? `${streamed.trimEnd()}\n` : ""}Keeps running in the background.`, endedAt: this.now() } });
+        continue;
+      }
       const output = this.streamed.get(tool.id) || (status === "interrupted" ? "Interrupted." : "The turn ended before the tool did.");
       events.push({ type: "tool-end", tool: { ...tool, status: "error", output, endedAt: this.now() } });
     }

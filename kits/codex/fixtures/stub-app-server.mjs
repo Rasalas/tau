@@ -5,6 +5,8 @@
 // `crash` exits mid-turn. `elicitation`, `permissions` and `question` are
 // written from the protocol's schema (codex-cli 0.156.1), not recorded.
 // `computeruse` exercises openai/form negotiation verified with 0.160.0.
+// `background` and `backgroundstop` leave a command running past the turn, as
+// a background terminal of codex-cli 0.162 does (experimental schema).
 // STUB_LOG names a file every client message is appended to; STUB_THREADS a
 // file of thread ids that survive a restart. Logins are the protocol's own
 // (codex-cli 0.156.1): a ChatGPT login or a device code is completed by
@@ -26,6 +28,8 @@ let turns = 0;
 let waiting;
 let interrupted = false;
 let openaiForms = false;
+/** Background terminals still running, by process id. */
+const terminals = new Map();
 
 function send(message) { process.stdout.write(`${JSON.stringify(message)}\n`); }
 function remember(id) {
@@ -56,6 +60,19 @@ async function play(name, ids) {
     send({ method: "item/agentMessage/delta", params: { threadId: child, turnId: "child-turn", itemId: "child-message", delta: "Child answer" } });
     send({ method: "turn/completed", params: { threadId: child, turn: { id: "child-turn", status: "completed" } } });
     name = "plain";
+  }
+  if (name === "background" || name === "backgroundstop") {
+    const item = { type: "commandExecution", id: "bg-item", command: "/bin/zsh -lc 'gh run watch 42'", cwd: ids.cwd, processId: "pty-1", status: "inProgress", commandActions: [], aggregatedOutput: null, exitCode: null, durationMs: null };
+    send({ method: "item/started", params: { threadId: ids.thread, turnId: ids.turn, item } });
+    send({ method: "item/commandExecution/outputDelta", params: { threadId: ids.thread, turnId: ids.turn, itemId: item.id, delta: "watching\n" } });
+    send({ method: "turn/completed", params: { threadId: ids.thread, turn: { id: ids.turn, items: [], status: "completed", error: null } } });
+    const end = (status, exitCode) => {
+      terminals.delete(item.processId);
+      send({ method: "item/completed", params: { threadId: ids.thread, turnId: ids.turn, item: { ...item, status, exitCode, aggregatedOutput: "watching\nrun 42 succeeded\n" } } });
+    };
+    terminals.set(item.processId, () => end("failed", 143));
+    if (name === "background") setTimeout(() => end("completed", 0), 50);
+    return;
   }
   if (name === "computeruse") {
     // Codex only advertises openai/form to MCP servers after client opt-in.
@@ -199,6 +216,12 @@ async function handle(message) {
       return;
     }
     case "turn/steer": return send({ id, result: { turnId: params.expectedTurnId } });
+    case "thread/backgroundTerminals/terminate": {
+      const stop = terminals.get(params.processId);
+      send({ id, result: { terminated: Boolean(stop) } });
+      stop?.();
+      return;
+    }
     case "turn/interrupt":
       send({ id, result: {} });
       interrupted = true;

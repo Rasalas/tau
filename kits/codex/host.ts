@@ -74,6 +74,7 @@ import {
 } from "./protocol.js";
 import { createCodexRuntimeAdapter } from "./runtime-adapter.js";
 import { CodexSessionStore, type CodexStoredModel } from "./session-store.js";
+import { endedCommandText } from "./background-commands.js";
 import { CodexThreadRuntimeBackend, MODEL_PROVIDER, codexBilling, storedModel, type CodexSessionInput, type CodexSessionLike } from "./thread-backend.js";
 import { readCodexIdentity, type AccountIdentity } from "./account-identity.js";
 import { codexLimitWindows, codexReadSnapshot, mergeCodexSnapshot, type CodexRateSnapshot, type LimitAccount } from "./limits.js";
@@ -655,6 +656,11 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
                 onMessage: thread.onMessage,
                 onEvent: thread.onEvent,
                 ask: thread.ask,
+                // Codex starts no turn when a background command ends; the wake tells the agent.
+                onBackgroundEnded: (command) => {
+                  void services.sessions.send?.(threadId, endedCommandText(command), { delivery: "queue", wake: { source: "background", label: `Background command ended · ${command.label}` } })
+                    .catch((error: unknown) => services.log("codex.background-wake.failed", error instanceof Error ? error.message : String(error)));
+                },
               });
               await backend.start(resume ? "resume" : "create");
               threadAccounts.set(threadId, { backend, get account() { return account; }, change: (next) => { account = next; } });

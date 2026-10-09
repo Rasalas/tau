@@ -178,6 +178,11 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
         if (!client || !sessionId) throw new Error("Open a thread first.");
         await client.threadGoal(sessionId, action, objective);
       },
+      stopBackground: async (taskId) => {
+        const sessionId = options.threadStore.getSnapshot().activeThreadId;
+        if (!client || !sessionId) throw new Error("Open a thread first.");
+        await client.stopBackground(sessionId, taskId);
+      },
       restartAgentSession: options.threadCommands.restartAgentSession,
       reloadWorkbench,
       openWorkbenchSource: async () => {

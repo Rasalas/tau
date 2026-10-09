@@ -31,6 +31,8 @@ export class ThreadRuntime implements LiveTurnState {
   currentAssistantId?: string;
   liveAssistant?: LiveAssistant;
   turnError?: string;
+  /** The running turn is one the runtime began itself; no prompt of the host's ends it. */
+  unpromptedTurn = false;
   unsubscribe?: () => void;
   private deferredRecords?: DeferredThreadRecord[];
 

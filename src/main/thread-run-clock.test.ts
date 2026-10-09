@@ -96,3 +96,69 @@ describe("ThreadRunClock across turns", () => {
     expect(ended).toEqual(["a"]);
   });
 });
+
+describe("ThreadRunClock with background work", () => {
+  const status = (running: boolean) => ({ type: "agent-status" as const, sessionId: "a", running });
+
+  function setup() {
+    let waits = false;
+    const ended: string[] = [];
+    const clock = new ThreadRunClock(() => 1_000, {
+      continues: () => false,
+      forward: () => undefined,
+      ended: (sessionId) => ended.push(sessionId),
+      waits: () => waits,
+    }, 10_000);
+    return { clock, ended, setWaits: (value: boolean) => { waits = value; } };
+  }
+
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("parks the run while a monitor runs and ends it after the turn the monitor wakes", async () => {
+    const { clock, ended, setWaits } = setup();
+    clock.stamp(status(true));
+    setWaits(true);
+    // Clients still see the turn stop; only the run's end waits.
+    expect(clock.stamp(status(false))).toEqual(status(false));
+    await Promise.resolve();
+    clock.recheck("a");
+    expect(ended).toEqual([]);
+    setWaits(false);
+    clock.recheck("a");
+    expect(ended).toEqual([]);
+    clock.stamp(status(true));
+    clock.stamp(status(false));
+    await Promise.resolve();
+    expect(ended).toEqual(["a"]);
+  });
+
+  it("ends a parked run when the work went away and no turn followed", async () => {
+    vi.useFakeTimers();
+    const { clock, ended, setWaits } = setup();
+    clock.stamp(status(true));
+    setWaits(true);
+    clock.stamp(status(false));
+    await Promise.resolve();
+    setWaits(false);
+    clock.recheck("a");
+    vi.advanceTimersByTime(9_999);
+    expect(ended).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(ended).toEqual(["a"]);
+  });
+
+  it("keeps waiting when new work starts before the wake", async () => {
+    vi.useFakeTimers();
+    const { clock, ended, setWaits } = setup();
+    clock.stamp(status(true));
+    setWaits(true);
+    clock.stamp(status(false));
+    await Promise.resolve();
+    setWaits(false);
+    clock.recheck("a");
+    setWaits(true);
+    clock.recheck("a");
+    vi.advanceTimersByTime(60_000);
+    expect(ended).toEqual([]);
+  });
+});

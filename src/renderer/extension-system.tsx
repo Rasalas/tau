@@ -74,6 +74,8 @@ export interface WorkbenchActions {
   abort(): void;
   /** The thread on screen's native goal (API 1.52.0); rejects where its runtime keeps none. `set` needs the objective. */
   threadGoal?(action: "set" | "pause" | "resume" | "clear" | "dismiss", objective?: string): Promise<void>;
+  /** Stops a background task of the thread on screen, or all of them without an id (API 1.58.0). */
+  stopBackground?(taskId?: string): Promise<void>;
   /** Builds Tau, reloads Pi resources and desktop extensions, then restarts the app when required. */
   restartAgentSession?(): Promise<void>;
   reloadWorkbench(): Promise<boolean>;

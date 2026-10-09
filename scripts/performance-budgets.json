@@ -4,7 +4,7 @@
   "initialCssBytes": 145000,
   "initialCssGzipBytes": 30000,
   "totalJavascriptBytes": 1900000,
-  "totalJavascriptGzipBytes": 510000,
+  "totalJavascriptGzipBytes": 512000,
   "kitDesktopJavascriptBytes": 3100000,
   "buildTimeMs": 30000,
   "buildTimeReference": {

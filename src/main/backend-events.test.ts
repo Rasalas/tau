@@ -37,9 +37,9 @@ function makeServices() {
     ownTool: vi.fn(),
     releaseTool: vi.fn(),
     pushToolOutput: vi.fn(),
-    toolEnded: vi.fn(),
+    turnObservers: { toolEnded: vi.fn(), unpromptedEnded: vi.fn() },
     refreshShell: vi.fn(async () => undefined),
-    refreshGoal: vi.fn(),
+    controls: { publishGoal: vi.fn(), publishBackground: vi.fn() },
     turnSettled: vi.fn(),
   };
   return { services, events, updates, logs, setStreaming: (value: boolean) => { snapshotStreaming = value; } };
@@ -55,6 +55,19 @@ describe("handleBackendRuntimeEvent", () => {
     const { services } = makeServices();
     handleBackendRuntimeEvent({ type: "title" }, thread, services);
     expect(services.refreshShell).toHaveBeenCalledWith(thread, false);
+  });
+  it("republishes background work and gives a turn the runtime began itself an outcome before its end goes out", () => {
+    const thread = makeThread();
+    const { services, events } = makeServices();
+    handleBackendRuntimeEvent({ type: "background" }, thread, services);
+    expect(services.controls.publishBackground).toHaveBeenCalledWith(thread);
+    vi.mocked(services.turnObservers.unpromptedEnded).mockImplementation(() => { expect(events.some((event) => event.type === "agent-status" && !event.running)).toBe(false); });
+    handleBackendRuntimeEvent({ type: "turn-started", unprompted: true }, thread, services);
+    handleBackendRuntimeEvent({ type: "turn-settled", status: "error", error: "boom" }, thread, services);
+    expect(services.turnObservers.unpromptedEnded).toHaveBeenCalledWith("thread-1", "failed");
+    handleBackendRuntimeEvent({ type: "turn-started" }, thread, services);
+    handleBackendRuntimeEvent({ type: "turn-settled", status: "completed" }, thread, services);
+    expect(services.turnObservers.unpromptedEnded).toHaveBeenCalledTimes(1);
   });
   it("turns a streamed turn into host events and keeps the live state the Pi path keeps", async () => {
     const thread = makeThread();
@@ -83,7 +96,7 @@ describe("handleBackendRuntimeEvent", () => {
     expect(services.pushToolOutput).toHaveBeenCalledWith("tool-1", "file");
     // The card keeps the arguments and start time of the running card it closes.
     const ended = { ...tool, status: "done", output: "file.txt", endedAt: 9 };
-    expect(services.toolEnded).toHaveBeenCalledWith("thread-1", ended, "/repo");
+    expect(services.turnObservers.toolEnded).toHaveBeenCalledWith("thread-1", ended, "/repo");
     expect(services.releaseTool).toHaveBeenCalledWith("tool-1");
     expect(thread.tools.size).toBe(0);
 
@@ -124,7 +137,7 @@ describe("handleBackendRuntimeEvent", () => {
     expect(thread.adapterActivity).toHaveLength(1);
     const closed = events.find((event) => event.type === "tool-end");
     expect(closed).toMatchObject({ tool: { id: "tool-1", status: "error", output: "Interrupted." } });
-    expect(services.toolEnded).toHaveBeenCalledTimes(1);
+    expect(services.turnObservers.toolEnded).toHaveBeenCalledTimes(1);
   });
 
   it("says why a turn failed: the backend's own reason, else the turn's first error notice", () => {
@@ -223,7 +236,7 @@ it("keeps native subagents alive after the parent settles and updates their orig
   handleBackendRuntimeEvent({ type: "tool-end", tool: done }, thread, services);
   expect(thread.adapterActivity[0]?.tools).toEqual([done]);
   expect(thread.adapterActivity[1]?.tools).toEqual([]);
-  expect(services.toolEnded).not.toHaveBeenCalled();
+  expect(services.turnObservers.toolEnded).not.toHaveBeenCalled();
   expect(services.ownTool).not.toHaveBeenCalled();
   await Promise.resolve();
   expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ id: thread.adapterActivity[0]?.id, tools: [done] }));

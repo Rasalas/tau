@@ -2025,6 +2025,11 @@ export class HostTurnObserverSet {
     for (const observer of [...this.observers]) await observer.ended?.(sessionId, turnId, outcome);
   }
 
+  /** A turn the runtime began itself counts as the run's prompt when none of the host's did. */
+  unpromptedEnded(sessionId: string, outcome: "completed" | "failed"): void {
+    if (this.outcomes.get(sessionId) !== "failed") this.outcomes.set(sessionId, outcome);
+  }
+
   /** The thread's run is over; observers hear it once, and only when a prompt of it ended. */
   runEnded(sessionId: string): void {
     const outcome = this.outcomes.get(sessionId);

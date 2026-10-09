@@ -1,6 +1,7 @@
 import type { UsageTally } from "./usage-pricing.js";
 import type {
   ClientTurnIdentity,
+  UiBackgroundTask,
   NewThreadRequestId,
   PreparedPrompt,
   UiComposerCommand,
@@ -109,7 +110,8 @@ export type RuntimeEventListener = (event: unknown, threadId: string) => void;
  * Every event belongs to the thread the backend was opened for.
  */
 export type ThreadRuntimeEvent =
-  | { type: "turn-started" }
+  /** `unprompted`: the runtime began the turn itself, e.g. after background work reported (API 1.58.0). */
+  | { type: "turn-started"; unprompted?: boolean }
   /**
    * `error` says why a turn with status "error" failed; the transcript and the rail show it.
    * `limit` marks that failure as a provider's usage or rate limit, with its reset (epoch ms)
@@ -131,7 +133,9 @@ export type ThreadRuntimeEvent =
   /** The backend adopted a title from its runtime; republish its shell. */
   | { type: "title" }
   /** `capabilities.goals.current()` changed; the host republishes the thread's goal. New in API 1.52.0. */
-  | { type: "goal" };
+  | { type: "goal" }
+  /** `capabilities.background.current()` changed; the host republishes it. New in API 1.58.0. */
+  | { type: "background" };
 
 /** What the host binds into a runtime that hosts extensions of its own. */
 export interface RuntimeExtensionBindings {
@@ -312,6 +316,18 @@ export interface ThreadGoalCapability {
   dismiss?(): Promise<void>;
 }
 
+/**
+ * Work a runtime keeps running after its turn ended: background shells,
+ * monitors, sub-agents. The runtime wakes the thread itself when one reports;
+ * the host shows the work and holds the run's end while any but a command runs.
+ * Report changes with a `background` event.
+ */
+export interface ThreadBackgroundCapability {
+  current(): readonly UiBackgroundTask[];
+  /** Stops one task, or all of them without an id. */
+  stop(taskId?: string): Promise<void>;
+}
+
 export interface ThreadSystemPromptCapability {
   inspect(): Promise<SystemPromptInspection> | SystemPromptInspection;
 }
@@ -339,6 +355,7 @@ export interface ThreadBackendCapabilities {
   systemPrompt?: ThreadSystemPromptCapability;
   mode?: ThreadModeCapability;
   goals?: ThreadGoalCapability;
+  background?: ThreadBackgroundCapability;
 }
 
 export type ThreadCapabilityName = keyof ThreadBackendCapabilities;
@@ -376,6 +393,7 @@ const CAPABILITY_LABELS: Record<ThreadCapabilityName, string> = {
   systemPrompt: "System prompt inspection",
   mode: "Interaction modes",
   goals: "Goals",
+  background: "Background work",
 };
 
 /**

@@ -75,7 +75,11 @@ One open document in the stage. A preview tab comes from a single click and is r
 
 ## Wake
 
-A turn something other than the user started: a pull request event, a goal's next turn, a schedule. An external event waits in the thread's queue and never interrupts a turn; the transcript shows it as a wake line, not as the user's message. Stop drops the wakes that still wait and ends what would send more; the user's own queued messages stay.
+A turn something other than the user started: a pull request event, a goal's next turn, a schedule, the end of background work. An external event waits in the thread's queue and never interrupts a turn; the transcript shows it as a wake line, not as the user's message. Stop drops the wakes that still wait and ends what would send more; the user's own queued messages stay.
+
+## Background work
+
+Work a thread's runtime keeps running after its turn ended: a background command, a monitor, a sub-agent. The thread is not done while a monitor, sub-agent or task runs; the runtime continues when one reports, and only then is the run over. A command alone, such as a dev server, does not hold the thread open. Stop ends the turn, not the background work; the user stops that separately.
 
 ## Goal
 
