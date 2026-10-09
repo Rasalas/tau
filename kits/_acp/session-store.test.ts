@@ -38,3 +38,12 @@ describe("AcpSessionStore tallies", () => {
     expect(acp.talliesOf("unused")).toEqual([]);
   });
 });
+
+describe("AcpSessionStore creation time", () => {
+  it("keeps when a thread began across later changes", async () => {
+    const acp = await store();
+    await acp.ensure("t", "/repo");
+    await acp.setObservedModel("t", "/repo", "m-1");
+    expect((await acp.list()).map((record) => record.createdAt)).toEqual([7]);
+  });
+});

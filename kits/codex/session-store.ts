@@ -61,6 +61,8 @@ export interface CodexSessionRecord {
   /** The only tools the thread keeps, as Pi names them; set when it was created. */
   tools?: string[];
   goal?: CodexStoredGoal;
+  /** When Tau created the thread; records from before it was kept fall back to their first message. */
+  createdAt?: number;
   updatedAt: number;
 }
 
@@ -116,6 +118,7 @@ function storedRecord(value: unknown): CodexSessionRecord | undefined {
   const tauThreadId = text(item.tauThreadId, MAX_ID_LENGTH);
   const cwd = text(item.cwd, 4_096);
   if (!tauThreadId || !cwd || typeof item.updatedAt !== "number") return undefined;
+  const messages = Array.isArray(item.messages) ? item.messages.flatMap((message) => { const parsed = storedMessage(message); return parsed ? [parsed] : []; }) : [];
   const optional = {
     codexThreadId: text(item.codexThreadId, MAX_ID_LENGTH),
     instance: instanceOf(item.instance),
@@ -132,12 +135,13 @@ function storedRecord(value: unknown): CodexSessionRecord | undefined {
     observedModel: text(item.observedModel, MAX_ID_LENGTH),
     tools: storedTools(item.tools),
     goal: storedGoal(item.goal),
+    createdAt: typeof item.createdAt === "number" && Number.isFinite(item.createdAt) ? item.createdAt : messages[0]?.timestamp,
   };
   return {
     backendKind: "codex",
     tauThreadId,
     cwd,
-    messages: Array.isArray(item.messages) ? item.messages.flatMap((message) => { const parsed = storedMessage(message); return parsed ? [parsed] : []; }) : [],
+    messages,
     ...Object.fromEntries(Object.entries(optional).filter(([, entry]) => entry !== undefined)),
     updatedAt: item.updatedAt,
   };
@@ -283,7 +287,7 @@ export class CodexSessionStore {
     if (existing && instance !== undefined && !sameInstance(existing, instance)) throw new Error("This Codex thread runs on another instance.");
     if (existing) return clone(existing);
     const owner = instanceOf(instance);
-    const record: CodexSessionRecord = { backendKind: "codex", tauThreadId, ...(owner ? { instance: owner } : {}), cwd, messages: [], updatedAt: this.now() };
+    const record: CodexSessionRecord = { backendKind: "codex", tauThreadId, ...(owner ? { instance: owner } : {}), cwd, messages: [], createdAt: this.now(), updatedAt: this.now() };
     this.records.set(tauThreadId, record);
     await this.persist();
     return clone(record);
@@ -385,6 +389,7 @@ export class CodexSessionStore {
         ...(session.model ? { observedModel: session.model } : {}),
         ...(session.usage ? { usage: { ...session.usage } } : {}),
         ...(session.usageTurns?.length ? { usageTurns: session.usageTurns.map((turn) => ({ ...turn })) } : {}),
+        ...(session.messages[0] ? { createdAt: session.messages[0].timestamp } : {}),
         updatedAt: session.updatedAt,
       });
       return tauThreadId;

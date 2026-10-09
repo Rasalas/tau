@@ -36,4 +36,10 @@ describe("loadExternalSessionShells", () => {
     expect(bare).not.toHaveProperty("modelProvider");
     expect(bare).not.toHaveProperty("model");
   });
+
+  it("carries when a thread began, so a turn does not move its row", async () => {
+    const [dated, undated] = await load([provider([{ threadId: "dated", cwd: "/repo", createdAt: 3, updatedAt: 9, messages: [] }, { threadId: "undated", cwd: "/repo", updatedAt: 9, messages: [] }])]);
+    expect(dated).toMatchObject({ createdAt: 3, modifiedAt: 9 });
+    expect(undated).not.toHaveProperty("createdAt");
+  });
 });

@@ -555,6 +555,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           threadId: entry.tauThreadId,
           cwd: entry.cwd,
           ...(entry.title ? { title: entry.title } : {}),
+          ...(entry.createdAt !== undefined ? { createdAt: entry.createdAt } : {}),
           updatedAt: entry.updatedAt,
           messages: entry.messages,
           ...(usage.length ? { usage } : {}),

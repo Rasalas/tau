@@ -32,6 +32,7 @@ export async function loadExternalSessionShells(options: {
         path,
         title: cleanThreadTitle(safeSessionTitle(record.title) || firstSentence(visibleTitleText(firstUser?.text ?? ""))),
         modifiedAt: record.updatedAt,
+        ...(record.createdAt !== undefined ? { createdAt: record.createdAt } : {}),
         projectPath: record.cwd,
         projectName: record.project?.name ?? options.projectName(record.cwd),
         ...(record.project?.listed === false ? { projectless: true } : {}),
