@@ -1,4 +1,5 @@
 import type { ExtensionInspection, ExtensionPackageSummary, HostExtensionSummary } from "../../shared/contracts";
+import { EXTENSION_API_VERSION, satisfiesRange } from "../../shared/extension-compat";
 import type { ExtensionSummary } from "../extension-system";
 
 /**
@@ -12,8 +13,11 @@ import type { ExtensionSummary } from "../extension-system";
 /** Where the extension came from. `app` is part of Tau's window itself, with no package. */
 export type ExtensionOrigin = "bundled" | "installed" | "app";
 
-/** What the user has to know first. `waiting`, `failed`, `incompatible` and `skipped` need them. */
-export type ExtensionState = "on" | "off" | "waiting" | "failed" | "incompatible" | "skipped";
+/**
+ * What the user has to know first. `waiting`, `failed`, `incompatible` and `skipped` need them;
+ * `update` is a kit this device's app is too old for, which arrives with its next update.
+ */
+export type ExtensionState = "on" | "off" | "waiting" | "failed" | "incompatible" | "skipped" | "update";
 
 export interface ExtensionEntry {
   id: string;
@@ -24,7 +28,7 @@ export interface ExtensionEntry {
   state: ExtensionState;
   /** Always on: Tau's own, which has no switch. */
   locked: boolean;
-  /** What went wrong, for `failed`, `incompatible` and `skipped`. */
+  /** What went wrong, for `failed`, `incompatible` and `skipped`; when it arrives, for `update`. */
   problem?: string;
   /** A theme: only a stylesheet. */
   theme: boolean;
@@ -65,7 +69,18 @@ export function matchesQuery(entry: ExtensionEntry, query: string): boolean {
   return words.every((word) => haystack.includes(word));
 }
 
-export function extensionCatalog({ summaries, packages = [], hostHalves = [], errors = [], skipped = [], disabled }: {
+/** Whether this client's extension API is older than the package's `engines.api`. */
+function needsNewerClient(pkg: ExtensionPackageSummary | undefined, api: string): boolean {
+  const range = pkg?.engines?.api;
+  if (!range) return false;
+  try {
+    return !satisfiesRange(api, range);
+  } catch {
+    return false;
+  }
+}
+
+export function extensionCatalog({ summaries, packages = [], hostHalves = [], errors = [], skipped = [], disabled, api = EXTENSION_API_VERSION }: {
   summaries: readonly ExtensionSummary[];
   packages?: readonly ExtensionPackageSummary[];
   hostHalves?: readonly HostExtensionSummary[];
@@ -74,6 +89,8 @@ export function extensionCatalog({ summaries, packages = [], hostHalves = [], er
   skipped?: ExtensionInspection["skipped"];
   /** The host's list of extensions turned off; with it, on and off are the host's, not this client's. */
   disabled?: readonly string[];
+  /** This client's extension API; a phone app can be older than its host. */
+  api?: string;
 }): ExtensionEntry[] {
   const entries = new Map<string, ExtensionEntry>();
   const ids = new Set([...summaries.map((entry) => entry.id), ...packages.map((entry) => entry.id), ...hostHalves.map((entry) => entry.id)]);
@@ -86,7 +103,8 @@ export function extensionCatalog({ summaries, packages = [], hostHalves = [], er
     const active = summary?.core ? summary.active
       : disabled && loaded ? !disabled.includes(id)
         : summary ? summary.active : host ? host.active : false;
-    const state: ExtensionState = !granted ? "waiting" : host?.error ? "failed" : active ? "on" : "off";
+    const tooNew = granted && !host?.error && needsNewerClient(pkg, api);
+    const state: ExtensionState = !granted ? "waiting" : host?.error ? "failed" : tooNew ? "update" : active ? "on" : "off";
     entries.set(id, {
       id,
       name: summary?.name ?? pkg?.name ?? host?.name ?? id,
@@ -95,7 +113,7 @@ export function extensionCatalog({ summaries, packages = [], hostHalves = [], er
       origin: pkg ? (pkg.scope === "bundled" ? "bundled" : "installed") : "app",
       state,
       locked: summary?.core === true,
-      ...(host?.error ? { problem: host.error } : {}),
+      ...(host?.error ? { problem: host.error } : tooNew ? { problem: "Arrives with the next update of Tau on this device." } : {}),
       theme: pkg?.theme === true,
       permissions: pkg?.permissions ?? summary?.permissions ?? [],
       ...(summary ? { summary } : {}),
@@ -154,6 +172,7 @@ const STATE_LABELS: Record<ExtensionState, string> = {
   failed: "Failed",
   incompatible: "Incompatible",
   skipped: "Skipped: project not trusted",
+  update: "With the next app update",
 };
 
 export function stateLabel(state: ExtensionState): string {

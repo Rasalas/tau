@@ -324,6 +324,7 @@ export async function loadBundledKitDesktopHalves(
         permissions: kit.manifest.permissions ?? [],
         granted: true,
         ...(theme ? { theme: true } : {}),
+        ...(kit.manifest.engines ? { engines: { ...kit.manifest.engines } } : {}),
       });
     } catch (error) {
       errors.push({ path: entry, message: message(error) });

@@ -334,6 +334,7 @@ export async function loadDesktopExtensions(
           granted,
           ...(entry.theme ? { theme: true } : {}),
           ...(entry.manifest?.source ? { source: entry.manifest.source } : {}),
+          ...(entry.manifest?.engines ? { engines: { ...entry.manifest.engines } } : {}),
         });
       } catch (error) {
         const failure = describeBuildError(error, folder);

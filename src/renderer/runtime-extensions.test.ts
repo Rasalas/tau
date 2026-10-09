@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExtensionRegistry, type DesktopExtension } from "./extension-system";
 import type { DesktopExtensionLoadResult } from "../shared/contracts";
 import { DEFERRED_SHARED_MODULES, SHARED_MODULE_SPECIFIERS } from "../shared/shared-modules";
-import { RuntimeExtensions, SHARED_MODULES, isDesktopExtension, loadTauApi, sharedExportNames, type RuntimeExtensionHost } from "./runtime-extensions";
+import { RuntimeExtensions, SHARED_MODULES, isDesktopExtension, loadTauApi, needsNewerClient, sharedExportNames, type RuntimeExtensionHost } from "./runtime-extensions";
 
 afterEach(() => {
   document.head.querySelectorAll("[data-tau-extension]").forEach((element) => element.remove());
@@ -133,6 +133,31 @@ describe("runtime desktop extensions", () => {
     await new RuntimeExtensions(registry, h).sync("/project");
     expect(notify).toHaveBeenCalledWith(expect.stringContaining("broken.tsx"));
     expect(registry.getExtensionSummaries()).toHaveLength(0);
+  });
+
+  it("leaves a bundle that needs a newer extension API than this client's off, without a notice", async () => {
+    const registry = new ExtensionRegistry();
+    const activate = vi.fn();
+    const imported = vi.fn();
+    const { host: h, notify, log } = host([]);
+    const load = async (): Promise<DesktopExtensionLoadResult> => ({
+      bundles: [{ id: "x.later", path: "/x/later/desktop.js", scope: "bundled", code: "", permissions: [], engines: { api: "^99.0.0" } }],
+      errors: [],
+      skipped: [],
+    });
+    await new RuntimeExtensions(registry, { ...h, load, importModule: async () => { imported(); return { default: { id: "x.later", name: "Later", activate } }; } }).sync("/project");
+    expect(imported).not.toHaveBeenCalled();
+    expect(activate).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith("desktop-extension.deferred", expect.stringContaining("x.later"));
+  });
+
+  it("compares a bundle's engines.api with the client's own API", () => {
+    const bundle = (api?: string) => ({ id: "x", path: "/x", scope: "bundled" as const, code: "", permissions: [], ...(api ? { engines: { api } } : {}) });
+    expect(needsNewerClient(bundle("^1.53.0"), "1.52.0")).toBe(true);
+    expect(needsNewerClient(bundle("^1.53.0"), "1.57.0")).toBe(false);
+    expect(needsNewerClient(bundle(), "1.0.0")).toBe(false);
+    expect(needsNewerClient(bundle("not a range"), "1.0.0")).toBe(false);
   });
 
   it("keeps an ungranted bundle inactive while registering it as known", async () => {

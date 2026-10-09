@@ -6,6 +6,7 @@ import { errorMessage } from "../workbench/error-message";
 import type { DesktopExtensionBundle, DesktopExtensionLoadResult, PackageBuildError } from "../shared/contracts";
 import type { PackagesChangeReport } from "../workbench/host-events";
 import { diagnosticLine } from "../shared/build-diagnostics";
+import { EXTENSION_API_VERSION, satisfiesRange } from "../shared/extension-compat";
 import type { ToastOptions } from "../workbench/toast-store";
 import type { DesktopExtension, ExtensionRegistry } from "./extension-system";
 import { DEFERRED_SHARED_MODULES, type SharedModuleSpecifier } from "../shared/shared-modules";
@@ -116,6 +117,21 @@ export async function importBundle(bundle: DesktopExtensionBundle, platform: Pla
   }
 }
 
+/**
+ * Whether this client's own extension API is older than the bundle needs. The
+ * host checks `engines` against its API only, and a phone app can lag the host
+ * it talks to; such a bundle stays off here until the app updates.
+ */
+export function needsNewerClient(bundle: DesktopExtensionBundle, api: string = EXTENSION_API_VERSION): boolean {
+  const range = bundle.engines?.api;
+  if (!range) return false;
+  try {
+    return !satisfiesRange(api, range);
+  } catch {
+    return false;
+  }
+}
+
 /** Identity includes approval and origin as well as the code and stylesheet. */
 function sameBundle(left: DesktopExtensionBundle, right: DesktopExtensionBundle): boolean {
   const identity = (bundle: DesktopExtensionBundle) => [
@@ -169,7 +185,7 @@ export class RuntimeExtensions {
   private async replace(cwd: string, only: readonly string[]): Promise<readonly RuntimeExtensionRecord[]> {
     const generation = this.generation;
     await loadTauApi();
-    const result = await this.host.load(cwd, sharedExportNames(), only);
+    const result = this.withoutTooNew(await this.host.load(cwd, sharedExportNames(), only));
     if (generation !== this.generation) return this.loaded;
     if (result.bundles.length > 0) {
       await loadSharedIcons();
@@ -250,6 +266,19 @@ export class RuntimeExtensions {
     return { extension, bundle };
   }
 
+  /**
+   * Drops the bundles this client is too old for, without a notice: the
+   * feature just is not here yet. On `replace`, the version already running stays.
+   */
+  private withoutTooNew(result: DesktopExtensionLoadResult): DesktopExtensionLoadResult {
+    const tooNew = result.bundles.filter((bundle) => needsNewerClient(bundle));
+    if (tooNew.length === 0) return result;
+    for (const bundle of tooNew) {
+      this.host.log("desktop-extension.deferred", `${bundle.id} needs extension API ${bundle.engines?.api}, this client has ${EXTENSION_API_VERSION}`);
+    }
+    return { ...result, bundles: result.bundles.filter((bundle) => !tooNew.includes(bundle)) };
+  }
+
   /** A module that would not load or activate: the record, the log, and its first line as a notice. */
   private reportLoadFailure(bundle: DesktopExtensionBundle, error: unknown): void {
     const message = errorMessage(error);
@@ -308,7 +337,7 @@ export class RuntimeExtensions {
   private async load(cwd: string, generation: number): Promise<readonly RuntimeExtensionRecord[]> {
     this.cwd = cwd;
     await loadTauApi();
-    const result = await this.host.load(cwd, sharedExportNames());
+    const result = this.withoutTooNew(await this.host.load(cwd, sharedExportNames()));
     if (generation !== this.generation) return this.loaded;
     // Only a workspace with packages pays for the icon set; it must be in
     // place before a bundle's shim reads its named exports.

@@ -33,13 +33,13 @@ function ExtensionRow({ entry, mark, readOnly, onOpen, onToggle }: {
         <ExtensionGlyph name={entry.name} mark={mark} />
         <span className="extension-row-text">
           <span className="extension-row-name"><strong>{entry.name}</strong><StateBadge entry={entry} /></span>
-          <small>{needsAttention(entry) && entry.problem ? entry.problem : extensionBlurb(entry)}</small>
+          <small>{(needsAttention(entry) || entry.state === "update") && entry.problem ? entry.problem : extensionBlurb(entry)}</small>
         </span>
       </button>
       <span className="extension-row-control">
         {entry.locked ? <span className="extension-row-note">Always on</span>
           : entry.state === "waiting" || entry.state === "skipped" ? <Button onClick={onOpen}>Review</Button>
-            : entry.state === "incompatible" ? null
+            : entry.state === "incompatible" || entry.state === "update" ? null
               : <Switch label={`${running ? "Turn off" : "Turn on"} ${entry.name}`} checked={running} disabled={readOnly} onChange={onToggle} />}
       </span>
       <ChevronRight className="extension-row-chevron" size={16} aria-hidden />
