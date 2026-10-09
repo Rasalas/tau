@@ -150,6 +150,20 @@ describe("the push host half", () => {
     });
   });
 
+  it("sends an Android activity card as data only, so the system draws no empty notification of its own", async () => {
+    const { observers, setUp, settle, sends, invoke } = await harness();
+    await setUp();
+    await invoke("activity-enable", undefined, phone("pixel"));
+    await observers[0]!.prepare!("t1", "turn-1");
+    await settle();
+    const cards = sends().map((send) => JSON.parse(send.body).message).filter((message) => message.data?.activity);
+    expect(cards.length).toBeGreaterThan(0);
+    for (const message of cards) {
+      expect(message.notification).toBeUndefined();
+      expect(message.android.notification).toBeUndefined();
+    }
+  });
+
   it("says only the title and what happened when the user chose titles only", async () => {
     const { observers, setUp, settle, apple } = await harness({ content: "title" });
     await setUp();
