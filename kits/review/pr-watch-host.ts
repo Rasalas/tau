@@ -14,16 +14,30 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 const key = (watch: Pick<PullRequestWatch, "threadId" | "ref">) => `${watch.threadId}:${watch.ref.url}`;
 /** In every runtime's system prompt, so an agent waits on a PR with a watch instead of a polling loop. */
 export const WATCH_INSTRUCTIONS = `<pull_request_watching>
-When your next step waits on a GitHub pull request, such as its checks finishing or a review arriving, call watch_pull_request with its full URL, tell the user, and end your turn. Tau then queues a message into this thread when checks finish, someone comments or reviews, the branch conflicts, or the request is merged or closed, and you continue from there. Do not wait with gh pr checks --watch, sleep or a background polling loop. A watch never merges or edits the request. Call unwatch_pull_request when you no longer need it.
+When your next step waits on a GitHub pull request, such as its checks finishing or a review arriving, call watch_pull_request with its full URL, tell the user, and end your turn. Tau then queues a message into this thread when all checks finish or one fails, someone comments or reviews, the branch conflicts, or the request is merged or closed, and you continue from there. Do not wait with gh pr checks --watch, sleep or a background polling loop. A watch never merges or edits the request. Call unwatch_pull_request when you no longer need it.
 </pull_request_watching>`;
+/** A baseline saved before failures were tracked held one combined `checks` string. */
+function decodeSnapshot(value: unknown): WatchSnapshot {
+  const b = fields(value);
+  if (!["OPEN", "CLOSED", "MERGED"].includes(String(b.state)) || typeof b.head !== "string" || typeof b.checks !== "string" || typeof b.comments !== "string" || typeof b.conflict !== "boolean") throw new HostCommandError("Invalid PR watch snapshot.");
+  const snapshot = { state: b.state as WatchSnapshot["state"], head: b.head, comments: b.comments, conflict: b.conflict };
+  if (b.failed === undefined && !["none", "pending", "done"].includes(b.checks)) return { ...snapshot, checks: legacyChecks(b.checks) };
+  if (!["none", "pending", "done"].includes(b.checks) || !Array.isArray(b.failed) || b.failed.length > 100 || !b.failed.every((check) => typeof fields(check).id === "string" && typeof fields(check).name === "string")) throw new HostCommandError("Invalid PR watch snapshot.");
+  return { ...snapshot, checks: b.checks as WatchSnapshot["checks"], failed: b.failed.map((check) => ({ id: String(check.id), name: String(check.name).slice(0, 200) })) };
+}
+function legacyChecks(checks: string): WatchSnapshot["checks"] {
+  if (checks === "NONE") return "none";
+  let state: unknown = checks;
+  try { state = (JSON.parse(checks) as unknown[])[0]; } catch { /* a bare rollup state */ }
+  return state === "PENDING" || state === "EXPECTED" ? "pending" : "done";
+}
 function decode(value: unknown): PullRequestWatch[] {
   value = fields(value).watches;
   if (!Array.isArray(value) || value.length > 100) throw new HostCommandError("Invalid PR watch state.");
   return value.map((input) => {
     const w = fields(input), ref = parseRequestUrl(String(fields(w.ref).url ?? ""));
     if (!ref || ref.service !== "github" || typeof w.threadId !== "string" || !w.threadId || !["watching", "unreadable", "ended"].includes(String(w.status)) || !Number.isFinite(w.startedAt) || !Number.isInteger(w.wakes) || !Number.isInteger(w.commentStreak) || Number(w.wakes) < 0 || Number(w.commentStreak) < 0) throw new HostCommandError("Invalid PR watch record.");
-    const baseline = w.baseline as WatchSnapshot | undefined;
-    if (baseline && (!["OPEN", "CLOSED", "MERGED"].includes(baseline.state) || typeof baseline.head !== "string" || typeof baseline.checks !== "string" || typeof baseline.comments !== "string" || typeof baseline.conflict !== "boolean")) throw new HostCommandError("Invalid PR watch snapshot.");
+    const baseline = w.baseline === undefined ? undefined : decodeSnapshot(w.baseline);
     return { threadId: w.threadId, ref, status: w.status as PullRequestWatch["status"], startedAt: w.startedAt as number, wakes: w.wakes as number, commentStreak: w.commentStreak as number, ...(typeof w.lastReadAt === "number" ? { lastReadAt: w.lastReadAt } : {}), ...(baseline ? { baseline } : {}), ...(typeof w.reason === "string" ? { reason: w.reason.slice(0, 400) } : {}), ...(w.stoppedBy === "user" || w.stoppedBy === "settle" ? { stoppedBy: w.stoppedBy } : {}) };
   });
 }
@@ -134,7 +148,7 @@ export async function registerPullRequestWatches(context: HostExtensionContext, 
     await changed();
   }, { access: "owner", callers: [RAIL] });
   const tools = (session: RuntimeSessionInfo): HostMcpTool[] => [
-    { name: "watch_pull_request", label: "Watch pull request", description: "Watch a GitHub PR in this thread. Queue a wake when checks finish, someone comments or reviews, the branch conflicts, or the PR closes. Never merges. Stops on Stop, Settle, ten consecutive comment wakes, or fifteen minutes without a readable host.", parameters: Type.Object({ url: Type.String() }), execute: async (_id, input) => { const watch = await start(session.sessionId, String(fields(input).url ?? "")); return { content: [{ type: "text", text: JSON.stringify(watch) }], details: watch }; } },
+    { name: "watch_pull_request", label: "Watch pull request", description: "Watch a GitHub PR in this thread. Queue a wake when all checks finish or one fails, someone comments or reviews, the branch conflicts, or the PR closes. Never merges. Stops on Stop, Settle, ten consecutive comment wakes, or fifteen minutes without a readable host.", parameters: Type.Object({ url: Type.String() }), execute: async (_id, input) => { const watch = await start(session.sessionId, String(fields(input).url ?? "")); return { content: [{ type: "text", text: JSON.stringify(watch) }], details: watch }; } },
     { name: "unwatch_pull_request", label: "Stop watching pull request", description: "Stop this thread's PR watches. Does not stop its running turn.", parameters: Type.Object({ url: Type.Optional(Type.String()) }), execute: async (_id, input) => { const url = fields(input).url; const result = await stop(session.sessionId, "user", typeof url === "string" ? url : undefined); return { content: [{ type: "text", text: JSON.stringify(result) }], details: result }; } },
   ];
   const disposers = [services.mcp.registerTools(tools), services.registerRuntimeExtension("tau-pull-request-watch", (pi, session) => { for (const tool of tools(session)) pi.registerTool(tool); pi.on("before_agent_start", (event) => ({ systemPrompt: `${event.systemPrompt}\n\n${WATCH_INSTRUCTIONS}` })); }), services.mcp.registerInstructions?.(() => WATCH_INSTRUCTIONS) ?? (() => undefined), services.registerTurnObserver({ stopped: (id) => stop(id, "user") }), services.registerThreadLifecycle({ threadDeleted: async (id) => { for (const [watchKey, watch] of watches) if (watch.threadId === id) watches.delete(watchKey); await changed(); } })];
