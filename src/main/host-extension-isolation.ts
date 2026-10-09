@@ -273,9 +273,10 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
   const observerFor = (handle: number, hooks: readonly string[]): HostTurnObserver => {
     const has = new Set(hooks);
     const observer: HostTurnObserver = {};
-    // The host does not wait for these two; they are void in the seam.
+    // The host does not wait for these; they are void in the seam.
     if (has.has("accepted")) observer.accepted = (sessionId, turnId, opts) => { void hookCall(handle, "accepted", [sessionId, turnId, opts]); };
     if (has.has("toolEnded")) observer.toolEnded = (sessionId: string, tool: UiToolRun, cwd: string) => { void hookCall(handle, "toolEnded", [sessionId, tool, cwd]); };
+    if (has.has("runEnded")) observer.runEnded = (sessionId, outcome) => { void hookCall(handle, "runEnded", [sessionId, outcome]); };
     if (has.has("prepare")) observer.prepare = async (sessionId, turnId) => { await hookCall(handle, "prepare", [sessionId, turnId]); };
     if (has.has("cancelled")) observer.cancelled = async (sessionId, turnId) => { await hookCall(handle, "cancelled", [sessionId, turnId]); };
     if (has.has("ended")) observer.ended = async (sessionId, turnId, outcome) => { await hookCall(handle, "ended", [sessionId, turnId, outcome]); };

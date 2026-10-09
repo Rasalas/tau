@@ -80,8 +80,9 @@ export function createNotificationsHostExtension(options: NotificationsHostOptio
         }));
       };
       const stops = [
+        // Once the thread is done, not after each turn of its queue.
         services.registerTurnObserver({
-          ended: async (sessionId, _turnId, outcome) => raise(sessionId, outcome === "failed" ? "failed" : "completed"),
+          runEnded: (sessionId, outcome) => raise(sessionId, outcome === "failed" ? "failed" : "completed"),
         }),
         services.decorateUiPrompt((prompt) => {
           raise(prompt.sessionId, promptReason(prompt));

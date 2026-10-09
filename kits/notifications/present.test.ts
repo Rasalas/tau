@@ -1,5 +1,5 @@
 import { describe as group, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, badgeCount, describe, presentation, readMode, readSound, type NotificationSettings } from "./present.js";
+import { DEFAULT_SETTINGS, badgeCount, describe, presentation, readMode, readSound, soundCue, type NotificationSettings } from "./present.js";
 
 const settingsWith = (patch: Partial<NotificationSettings>): NotificationSettings => ({ ...DEFAULT_SETTINGS, ...patch });
 
@@ -42,5 +42,13 @@ group("how loud one piece of news is", () => {
     expect(describe([{ threadId: "a", reason: "question", at: 1 }], title)).toEqual({ title: "Thread a", body: "Waiting for your answer" });
     const many = ["a", "b", "c", "d"].map((threadId) => ({ threadId, reason: "completed" as const, at: 1 }));
     expect(describe(many, title)).toEqual({ title: "4 threads need you", body: "Thread a, Thread b, Thread c and 1 more" });
+  });
+});
+
+group("soundCue", () => {
+  it("sounds done only when every thread finished, and asks for you otherwise", () => {
+    expect(soundCue([{ reason: "completed" }, { reason: "completed" }])).toBe("done");
+    expect(soundCue([{ reason: "completed" }, { reason: "question" }])).toBe("attention");
+    expect(soundCue([{ reason: "failed" }])).toBe("attention");
   });
 });

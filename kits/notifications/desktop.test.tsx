@@ -108,14 +108,15 @@ describe("Notifications on the desktop", () => {
   });
 
   it("in a focused window on another thread, toasts instead when asked to, and plays the chosen sound", async () => {
-    const oscillators: number[] = [];
+    const oscillators: Array<{ frequency: { value: number } }> = [];
     class FakeAudio {
       state = "running";
       currentTime = 0;
       destination = {};
       resume = async () => undefined;
-      createOscillator() { const node = { type: "", frequency: { value: 0 }, connect: (next: unknown) => next, start: () => undefined, stop: () => undefined }; oscillators.push(1); return node; }
-      createGain() { return { gain: { setValueAtTime: () => undefined, exponentialRampToValueAtTime: () => undefined }, connect: (next: unknown) => next }; }
+      createOscillator() { const node = { type: "", frequency: { value: 0 }, connect: (next: unknown) => next, start: () => undefined, stop: () => undefined }; oscillators.push(node); return node; }
+      createGain() { return { gain: { value: 1, setValueAtTime: () => undefined, exponentialRampToValueAtTime: () => undefined }, connect: (next: unknown) => next }; }
+      createBiquadFilter() { return { type: "", frequency: { value: 0 }, connect: (next: unknown) => next }; }
     }
     vi.stubGlobal("AudioContext", FakeAudio);
     const { push, preferences, attention, actions, toasts, clientKey } = setup();
@@ -128,7 +129,8 @@ describe("Notifications on the desktop", () => {
     focused = true;
     push(NOTIFY_EVENT, { clientKey: clientKey(), items: [item("t1", "question")] });
     expect(attention.notify).not.toHaveBeenCalled();
-    expect(oscillators).toHaveLength(1);
+    // A question plays Ping's rising phrase, which ends on C7.
+    expect(oscillators.map((node) => node.frequency.value)).toContain(2093);
     // On core's stack, one row: the thread's title and what it waits for, with the question mark.
     const toast = await screen.findByText("Thread t1 · Waiting for your answer");
     expect(toast.closest(".toast-item")?.getAttribute("data-type")).toBe("question");
@@ -192,7 +194,7 @@ describe("Notifications on the desktop", () => {
     expect(attention.requestPermission).toHaveBeenCalled();
     fireEvent.click(within(screen.getByRole("radiogroup", { name: "Sound" })).getByRole("radio", { name: "Ping" }));
     expect(preferences.value(NOTIFICATIONS_EXTENSION_ID, "sound")).toBe("ping");
-    expect(screen.getByRole("button", { name: /^Play / })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /^Play \w+ for a / }).map((button) => button.textContent)).toEqual(["Done", "Needs you"]);
     fireEvent.click(screen.getByRole("switch", { name: "Show a toast instead" }));
     expect(preferences.optionValue(NOTIFICATIONS_EXTENSION_ID, "toasts", false)).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Send a test notification" }));

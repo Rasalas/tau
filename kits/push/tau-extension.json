@@ -4,7 +4,7 @@
   "description": "Push notifications to the phone app when a thread finishes, fails or asks.",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.19.0"
+    "api": "^1.56.0"
   },
   "permissions": [
     "sessions",

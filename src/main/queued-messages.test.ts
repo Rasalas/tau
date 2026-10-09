@@ -42,6 +42,18 @@ function bench(filePath?: string) {
 const text = (message: string) => ({ text: message, attachments: [] });
 
 describe("QueuedMessages", () => {
+  it("says the run goes on while a message waits or is on its way, not while the queue is held", async () => {
+    const { queue, busy, settle, refuseWith } = bench();
+    busy.add("t1");
+    expect(queue.continues("t1")).toBe(false);
+    queue.add("t1", { text: "next", attachments: [] });
+    expect(queue.continues("t1")).toBe(true);
+    refuseWith("no");
+    await settle("t1");
+    expect(queue.isHeld("t1")).toBe(true);
+    expect(queue.continues("t1")).toBe(false);
+  });
+
   it("waits for the running turn, then sends one message per turn, oldest first", async () => {
     const { queue, busy, delivered, published, settle } = bench();
     busy.add("t");

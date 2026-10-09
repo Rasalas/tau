@@ -1,7 +1,9 @@
 import type { AttentionItem, AttentionReason } from "./protocol.js";
 
 export type NotificationMode = "off" | "notification" | "sound" | "both";
-export type SoundName = "chime" | "ping";
+export type SoundName = "chime" | "ping" | "marimba";
+/** Which of a sound's two phrases plays: the thread is done, or it waits for you. */
+export type SoundCue = "done" | "attention";
 
 /** The user's choices, kept in the host's config (`values` and `options` of this kit) like any setting. */
 export interface NotificationSettings {
@@ -26,10 +28,16 @@ export const MODES: ReadonlyArray<{ value: NotificationMode; label: string }> = 
 export const SOUNDS: ReadonlyArray<{ value: SoundName; label: string }> = [
   { value: "chime", label: "Chime" },
   { value: "ping", label: "Ping" },
+  { value: "marimba", label: "Marimba" },
 ];
 
 export function readMode(value: string | undefined): NotificationMode {
   return MODES.some((mode) => mode.value === value) ? value as NotificationMode : DEFAULT_SETTINGS.mode;
+}
+
+/** A thread that finished sounds done; a question, an approval or a failure asks for you. */
+export function soundCue(items: ReadonlyArray<{ reason: AttentionReason }>): SoundCue {
+  return items.every((item) => item.reason === "completed") ? "done" : "attention";
 }
 
 export function readSound(value: string | undefined): SoundName {
