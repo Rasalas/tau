@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UiProject, UiSession } from "../shared/contracts";
-import { lastUsedProject, newThreadProject, rootLast, selectionOnScreen } from "./new-thread-project";
+import { lastUsedProject, newThreadProject, rootLast, selectionOnScreen, startDraftProject } from "./new-thread-project";
 import { createNewThreadDraft } from "./draft-store";
 
 const project = (path: string, lastOpenedAt: number): UiProject => ({ path, name: path.split("/").at(-1) || path, lastOpenedAt });
@@ -76,5 +76,36 @@ describe("selectionOnScreen", () => {
   it("takes nothing while the thread is covered or there is none", () => {
     expect(selectionOnScreen({ thread: { sessionId: "t", model: luna }, covered: true })).toBeUndefined();
     expect(selectionOnScreen({})).toBeUndefined();
+  });
+});
+
+describe("startDraftProject", () => {
+  const empty = { messages: [], isStreaming: false, activeTools: [], sessionId: "s" };
+  const projects = [project("/a", 1), project("/b", 2)];
+  const threadIndex = { projects, sessions: [] };
+
+  it("opens a draft in the project of an empty startup thread", () => {
+    expect(startDraftProject({ detail: empty, project: { cwd: "/a" }, threadIndex }, projects)?.path).toBe("/a");
+  });
+
+  it("keeps a thread that has messages or is running", () => {
+    const message = { id: "m", role: "user", text: "hi" } as never;
+    expect(startDraftProject({ detail: { ...empty, messages: [message] }, project: { cwd: "/a" }, threadIndex }, projects)).toBeUndefined();
+    expect(startDraftProject({ detail: { ...empty, isStreaming: true }, project: { cwd: "/a" }, threadIndex }, projects)).toBeUndefined();
+  });
+
+  it("replaces the host's fresh thread, which the index lists without messages", () => {
+    const listed = { projects, sessions: [thread("/a", 1, 0)] };
+    expect(startDraftProject({ detail: { ...empty, sessionId: listed.sessions[0]!.id }, project: { cwd: "/a" }, threadIndex: listed }, projects)?.path).toBe("/a");
+  });
+
+  it("keeps a thread the index counts messages for, before its transcript is on screen", () => {
+    const listed = { projects, sessions: [thread("/a", 1, 3)] };
+    expect(startDraftProject({ detail: { ...empty, sessionId: listed.sessions[0]!.id }, project: { cwd: "/a" }, threadIndex: listed }, projects)).toBeUndefined();
+  });
+
+  it("keeps the thread when its folder is no listed project", () => {
+    expect(startDraftProject({ detail: empty, project: { cwd: "/c" }, threadIndex }, projects)).toBeUndefined();
+    expect(startDraftProject({ detail: empty, project: { cwd: "/" }, threadIndex }, [...projects, project("/", 3)])).toBeUndefined();
   });
 });

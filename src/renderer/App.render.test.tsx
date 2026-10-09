@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createNewThreadRequestId, type ClientTurnIdentity, type HostEvent } from "../shared/contracts";
 import { setHostClient } from "./host-client-context";
 import { createMemoryStorage, getClientStorage, setClientStorage } from "../workbench/client-storage";
-import { readNewThreadDraft, writeNewThreadDraft } from "../workbench/draft-store";
+import { writeNewThreadDraft } from "../workbench/draft-store";
 import { createFakeHostClient } from "./test-support/fake-host-client";
 import { renderApp } from "./test-support/render-app";
 import { workspaceHostStub } from "./test-support/workspace-host-stub";
@@ -428,7 +428,8 @@ describe("App render isolation", () => {
         threadIndex: { projects: [
           { path: "/project", name: "project", lastOpenedAt: 2 },
           { path: "/other", name: "other", lastOpenedAt: 1 },
-        ], sessions: [{ id: "session", path: "/session.jsonl", title: "Existing thread", modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 0 }] },
+        // A listed message keeps startup on this thread instead of a draft.
+        ], sessions: [{ id: "session", path: "/session.jsonl", title: "Existing thread", modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 1 }] },
         detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
@@ -625,11 +626,6 @@ describe("App render isolation", () => {
     first.unmount();
     if (restoredDraft) writeNewThreadDraft(first.storage, { kind: "draft", draftId: "fresh-after-reload", projectPath: "/project", projectName: "project" });
     renderApp(client, { storage: first.storage });
-    if (!restoredDraft) {
-      await screen.findByRole("button", { name: "Select model: GPT-5.6 Sol" });
-      fireEvent.keyDown(window, { key: "n", ctrlKey: true });
-      await waitFor(() => expect(readNewThreadDraft(first.storage)).toBeDefined());
-    }
     await screen.findByRole("heading", { name: /do next\?$/ });
     expect(await screen.findByRole("button", { name: "Select model: GPT-6.1 Sol" })).toBeTruthy();
     const composer = screen.getByPlaceholderText(/Ask anything/u);
@@ -1134,6 +1130,8 @@ describe("App render isolation", () => {
     await screen.findByRole("heading", { name: /do next\?$/ });
     const composer = screen.getByPlaceholderText(/Ask anything/u);
     await waitFor(() => expect(document.activeElement).toBe(composer));
+    // The startup draft asked for its own project already.
+    await waitFor(() => expect(getPreparedThreadCapability).toHaveBeenCalledWith("/project"));
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const dialog = await screen.findByRole("dialog", { name: "Search projects" });
     const projectOption = within(dialog).getByRole("option", { name: /other/u });
@@ -1151,13 +1149,13 @@ describe("App render isolation", () => {
     await waitFor(() => expect(getPreparedThreadCapability).toHaveBeenCalledWith("/project"));
     capabilityResolvers.get("/other")?.[0]?.({ cwd: "/other", generation: 1, supportsImageInput: true });
     expect(attach.hasAttribute("disabled")).toBe(true);
-    capabilityResolvers.get("/project")?.[0]?.({ cwd: "/project", generation: 2, supportsImageInput: false });
+    capabilityResolvers.get("/project")?.[1]?.({ cwd: "/project", generation: 2, supportsImageInput: false });
     await waitFor(() => expect(attach.hasAttribute("disabled")).toBe(true));
 
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const thirdDialog = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(thirdDialog).getByRole("option", { name: /other/u }));
-    await waitFor(() => expect(getPreparedThreadCapability).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(getPreparedThreadCapability).toHaveBeenCalledTimes(4));
     capabilityResolvers.get("/other")?.[1]?.({ cwd: "/other", generation: 3, supportsImageInput: true });
     await waitFor(() => expect(attach.hasAttribute("disabled")).toBe(false));
     await waitFor(() => expect(document.activeElement).toBe(composer));

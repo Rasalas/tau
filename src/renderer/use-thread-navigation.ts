@@ -1,5 +1,5 @@
-import { useCallback, type Dispatch, type RefObject, type SetStateAction } from "react";
-import type { UiProject } from "../shared/contracts";
+import { useCallback, useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
+import type { HostBootstrap, UiProject } from "../shared/contracts";
 import type { ThreadDetail, TranscriptPage } from "../shared/host-protocol";
 import { namesWorkspace } from "../shared/workspace-identity";
 import { optimisticThreadSnapshot, threadDetailFromPage } from "../workbench/app-state";
@@ -9,6 +9,7 @@ import { createNewThreadDraft, draftKey, writeNewThreadDraft, type NewThreadDraf
 import type { DraftThreads } from "../workbench/draft-threads";
 import { errorMessage } from "../workbench/error-message";
 import type { HostClient } from "../workbench/host-client";
+import { startDraftProject } from "../workbench/new-thread-project";
 import { activateTab, cycleTab, pinTab, setFileView, unpinTab, type StageState, type StageView } from "../workbench/stage";
 import type { ThreadStore } from "../workbench/thread-store";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
@@ -157,6 +158,17 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
     moveDraftToProject(project);
   }, [activeDraftKey, detachPendingDelivery, inheritSelection, leavePendingNewThread, moveDraftToProject, newThread, scopes, showThread]);
 
+  /** At startup the host opens an unsaved thread; a draft takes its place, as "New thread" would. */
+  const startDraft = useCallback((bootstrap: HostBootstrap) => {
+    if (newThread.current() || client?.isReadOnly()) return;
+    const project = startDraftProject(bootstrap, threads.getProjects());
+    if (project) moveDraftToProject(project);
+  }, [client, moveDraftToProject, newThread, threads]);
+  // The bootstrap effect depends on it; a new identity would start the bootstrap again.
+  const startDraftRef = useRef(startDraft);
+  useEffect(() => { startDraftRef.current = startDraft; }, [startDraft]);
+  const openStartDraft = useCallback((bootstrap: HostBootstrap) => startDraftRef.current(bootstrap), []);
+
   /** Throws a draft away; the draft on screen closes onto the thread the host has open. */
   const discardDraft = useCallback((draftId: string) => {
     const current = newThread.current();
@@ -255,6 +267,6 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
   return {
     stage, setStage, activateStage, pinStage, unpinStage, setStageView, cycleStageTab,
     applyHostResult, openWorkspace, createThreadInProject, openDraft, discardDraft,
-    switchSession, takeOverThread,
+    switchSession, takeOverThread, openStartDraft,
   };
 }

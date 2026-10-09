@@ -1,4 +1,4 @@
-import type { HostSnapshot, UiProject, UiSession } from "../shared/contracts";
+import type { HostBootstrap, HostSnapshot, UiProject, UiSession } from "../shared/contracts";
 import { isFilesystemRoot } from "../shared/filesystem-root";
 import { namesWorkspace } from "../shared/workspace-identity";
 import type { NewThreadDraft } from "./draft-store";
@@ -93,4 +93,17 @@ export function pickerOrder(projects: readonly UiProject[], threads: readonly Pi
   const used = (project: UiProject) => Math.max(project.lastOpenedAt, at.get(project.workspaceId ?? "") ?? 0, at.get(project.path) ?? 0);
   const rank = (project: UiProject) => (first !== undefined && namesWorkspace(first, project.workspaceId, project.path) ? Infinity : used(project));
   return rootLast([...projects].sort((a, b) => rank(b) - rank(a)));
+}
+
+/**
+ * The project whose draft replaces the empty thread the host opened at
+ * startup, so the first screen is the one "New thread" opens. A thread the
+ * index counts messages for stays.
+ */
+export function startDraftProject(bootstrap: Pick<HostBootstrap, "detail" | "project" | "threadIndex">, projects: readonly UiProject[]): UiProject | undefined {
+  const { detail, project, threadIndex } = bootstrap;
+  if (detail.messages.length > 0 || detail.isStreaming || detail.turnActivity?.tools.length) return undefined;
+  if (threadIndex.sessions.some((session) => session.id === detail.sessionId && session.messageCount > 0)) return undefined;
+  if (isFilesystemRoot(project.cwd)) return undefined;
+  return projects.find((candidate) => namesWorkspace(project.workspaceId ?? project.cwd, candidate.workspaceId, candidate.path));
 }

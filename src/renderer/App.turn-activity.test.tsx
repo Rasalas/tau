@@ -53,7 +53,8 @@ describe("last-turn activity", () => {
         version: 1,
         threadIndex: {
           projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }],
-          sessions: [{ id: "session", path: "/session.jsonl", title: "Thread", modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 0 }],
+          // A listed message keeps startup on this thread instead of a draft.
+          sessions: [{ id: "session", path: "/session.jsonl", title: "Thread", modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 1 }],
         },
         detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
