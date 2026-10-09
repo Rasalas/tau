@@ -6,6 +6,7 @@
   color: var(--ink);
   background: var(--shell);
   font-synthesis: none;
+  -webkit-font-smoothing: antialiased; /* macOS otherwise thickens strokes on dark grounds */
 }
 
 * { box-sizing: border-box; }
@@ -909,8 +910,8 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 /* No wider than the column: a wide table or code block scrolls in its own box, not the transcript. */
 .message.assistant { display: flex; flex-direction: column; gap: 14px; max-width: 100%; min-width: 0; }
 .message.assistant .message-text {
-  font-size: var(--text-md); line-height: 1.75; color: var(--ink-prose);
-  letter-spacing: -.002em; word-break: break-word;
+  font-size: var(--text-md); line-height: 1.625; color: var(--ink-prose);
+  word-break: break-word;
 }
 .message-shell.assistant.excluded-from-context { opacity: 0.88; }
 .message-shell.assistant.excluded-from-context:hover { opacity: 1; }
@@ -978,23 +979,23 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 /* ------------------------------------------------------------- markdown */
 
 /* Reading bodies share the chat's type role; inline Markdown keeps its label's size. */
-.markdown:not(.markdown-inline) { font-size: var(--text-md); line-height: 1.75; }
+.markdown:not(.markdown-inline) { font-size: var(--text-md); line-height: 1.625; }
 .markdown > :first-child { margin-top: 0; }
 .markdown > :last-child { margin-bottom: 0; }
-.markdown p { margin: 0 0 12px; }
-.markdown ul, .markdown ol { margin: 0 0 12px; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
+.markdown p { margin: 0 0 10px; }
+.markdown ul, .markdown ol { margin: 0 0 10px; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
 .markdown li { margin: 0; }
-.markdown li > ul, .markdown li > ol { margin: 8px 0 0; }
+.markdown li > ul, .markdown li > ol { margin: 4px 0 0; }
 .markdown li::marker { color: var(--faint); }
 .markdown strong { font-weight: 700; color: var(--ink); }
 .markdown em { font-style: italic; }
 .markdown del { color: var(--faint); }
 .markdown h1, .markdown h2, .markdown h3, .markdown h4, .markdown h5, .markdown h6 {
-  margin: 20px 0 10px; font-weight: 700; line-height: 1.3; letter-spacing: -.01em; color: var(--ink);
+  margin: 20px 0 8px; font-weight: 600; line-height: 1.3; color: var(--ink);
 }
-.markdown h1 { font-size: 18px; }
-.markdown h2 { font-size: 16px; }
-.markdown h3 { font-size: 14.5px; }
+.markdown h1 { font-size: 20px; }
+.markdown h2 { font-size: 18px; }
+.markdown h3 { font-size: 16px; }
 .markdown h4, .markdown h5, .markdown h6 { font-size: var(--text-md); }
 .markdown a { color: var(--acid-text); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--acid-text) 25%, transparent); }
 .markdown a:hover { border-bottom-color: var(--acid-text); }

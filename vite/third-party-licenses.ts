@@ -248,9 +248,8 @@ export function collectMobileLicenses(root: string): ThirdPartyLicense[] {
   return withTexts(root, walkPackages(mobileStarts(root).starts, (name) => firstParty.has(name)));
 }
 
-/** What Tau carries that comes from no npm package: the interface font, and source it adapted. */
+/** What Tau carries that comes from no npm package: source it adapted. */
 export const BUNDLED_FILES: ReadonlyArray<Omit<ThirdPartyLicense, "text"> & { notice: string }> = [
-  { name: "Figtree", version: "Google Fonts v9, via @fontsource-variable/figtree 5.3.0", license: "OFL-1.1", repository: "https://github.com/erikdkennedy/figtree", notice: "src/renderer/assets/fonts/figtree/OFL.txt" },
   { name: "T3 Code", version: "portions adapted in kits/review/pull-request-list-logic.ts", license: "MIT", repository: "https://github.com/pingdotgg/t3code", notice: "scripts/open-source/licenses/pingdotgg__t3code.txt" },
 ];
 

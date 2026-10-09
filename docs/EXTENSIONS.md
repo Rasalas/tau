@@ -4529,7 +4529,7 @@ The design's divider is the ink at a low alpha, so one hairline reads on either 
 | Token | Role | Light | Dark |
 |---|---|---|---|
 | `--ink` | headings and emphasis | `#1c1b19` | `#e3e6ec` |
-| `--ink-prose` | assistant prose | `#1c1b19` | `#e3e6ec` |
+| `--ink-prose` | assistant prose | `#494846` | `#b9bbc1` |
 | `--ink-2` | body text of the chrome | `#35312c` | `#d0d4db` |
 | `--ink-3` | secondary text | `#504a43` | `#b3b8c1` |
 | `--ink-code` | code and diff bodies | `#433e38` | `#c2c6ce` |
@@ -4643,7 +4643,7 @@ A provider's own colour, for its share in a chart or a limit bar; never a state.
 
 [Control sizes](design/control-sizes.md) defines the shared label, field, button and icon roles. Choose a role by purpose, including for icons contributed by kits; density changes targets and spacing, not font or icon sizes.
 
-Figtree (400–700, a variable face under the SIL Open Font License, `src/renderer/assets/fonts/figtree/`) ships with Tau and loads from its own files, never from a font server; the system stack is its fallback. Code and the terminal keep `--mono`.
+Text uses the platform face (SF Pro on Apple systems, Segoe UI on Windows), drawn with grayscale `antialiased` smoothing; Tau bundles no font and fetches none. Code and the terminal keep `--mono`.
 
 The type scale is one size per text role and device class ([ADR 0029](adr/0029-type-scale-per-device-class.md)): the values below are a desktop's, the design's; `data-device="tablet"` and `"phone"` on `<html>` set the `--type-*` bases larger (the ADR has the table). Each `--text-*` is its base times `--text-scale`, the system's text size on a touch device, plus `--text-step`, Tau's own Text size; a kit reads the `--text-*` tokens and never a pixel size, and sizes a row that holds text with `min-height` or `em` so a larger text size never cuts it.
 
@@ -4654,7 +4654,7 @@ The type scale is one size per text role and device class ([ADR 0029](adr/0029-t
 | `--elevation-2` | a menu, a toast, a popover | `0 12px 32px var(--shadow-strong)` |
 | `--elevation-3` | a modal | `0 12px 32px var(--shadow-strong)` |
 | `--mono` | code and numbers | `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace` |
-| `--sans` | everything else | `"Figtree", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif` |
+| `--sans` | everything else | `-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif` |
 | `--label-font` | a section or status label | `var(--sans)` |
 | `--label-case` | its text-transform | `none` |
 | `--label-tracking` | its letter-spacing | `normal` |
@@ -4719,7 +4719,7 @@ their pixels until a visual pass moves them.
 
 | Name | What reads it | Unset |
 |---|---|---|
-| `--font-family-override`, `--font-size-override` | the interface face and size (core's preferences) | Figtree (`--sans`), `13px` |
+| `--font-family-override`, `--font-size-override` | the interface face and size (core's preferences) | the platform face (`--sans`), `13px` |
 | `--prompt-font-family`, `--prompt-font-size` | the composer's text | the interface face, `13px` |
 | `--code-font-family`, `--code-font-scale` | code blocks, tool output, the file view and diffs | `--mono`, `1` |
 | `data-density` | Appearance Kit's stylesheet, into `--density` | normal |

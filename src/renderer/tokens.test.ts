@@ -183,18 +183,11 @@ describe("the token contract", () => {
     expect(main).toContain(`backgroundColor: "${shell}"`);
   });
 
-  it("ships Figtree as the sans with its own local files, never a font server", async () => {
+  it("sets text in the platform face and loads no font of its own", async () => {
     const tokens = await readTokens();
-    expect(tokens.get("--sans")).toMatch(/^"Figtree", system-ui,/u);
+    expect(tokens.get("--sans")).toMatch(/^-apple-system, BlinkMacSystemFont,/u);
     expect(tokens.get("--mono")).toMatch(/^ui-monospace,/u);
-    const css = await readFile(TOKENS, "utf8");
-    const sources = [...css.matchAll(/src:\s*url\("([^"]+)"\)/gu)].map((match) => match[1]);
-    expect(sources).toHaveLength(4);
-    for (const source of sources) {
-      expect(source).toMatch(/^\.\/assets\/fonts\/figtree\/figtree-[\w-]+\.woff2$/u);
-      await expect(readFile(new URL(source, TOKENS))).resolves.toBeTruthy();
-    }
-    await expect(readFile(new URL("./assets/fonts/figtree/OFL.txt", TOKENS), "utf8")).resolves.toMatch(/SIL OPEN FONT LICENSE Version 1\.1/u);
+    expect(await readFile(TOKENS, "utf8")).not.toContain("@font-face");
   });
 
   it("resolves a project's tint on its mark, where the hue is set", async () => {
