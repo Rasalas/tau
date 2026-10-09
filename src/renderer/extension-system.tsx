@@ -195,6 +195,14 @@ export interface WorkbenchActions {
   /** Shows a registered overlay in place of the workbench; `closeOverlay` returns. */
   openOverlay(id: string): void;
   closeOverlay(): void;
+  /**
+   * Shows a view `registerConversationView` added in place of the thread's
+   * transcript and composer; the header, stage and panels stay. Another
+   * thread on screen closes it (API 1.57.0).
+   */
+  openConversationView?(id: string, params?: Record<string, unknown>): void;
+  /** Back to the thread's own transcript (API 1.57.0). */
+  closeConversationView?(): void;
   /** Opens a page `registerPage` added, beside the sidebar; `params` is what it opens on. */
   openPage?(id: string, params?: Record<string, unknown>): void;
   /** Closes the open page, back to the thread. */
@@ -436,6 +444,21 @@ export interface OverlayProps {
 export interface OverlayContribution extends ProfileScoped {
   id: string;
   Component: ComponentType<OverlayProps>;
+}
+
+export interface ConversationViewProps {
+  actions: WorkbenchActions;
+  /** The thread the view was opened on. */
+  snapshot: HostSnapshot | undefined;
+  params: Readonly<Record<string, unknown>>;
+  /** Back to the thread's transcript. */
+  onClose(): void;
+}
+
+/** A view in the conversation column, such as a native subagent's run (API 1.57.0). */
+export interface ConversationViewContribution extends ProfileScoped {
+  id: string;
+  Component: ComponentType<ConversationViewProps>;
 }
 
 /**
@@ -1574,6 +1597,8 @@ export interface DesktopExtensionContext {
   registerRegion(region: RegionContribution): () => void;
   registerStatusItem(item: StatusItemContribution): () => void;
   registerOverlay(overlay: OverlayContribution): () => void;
+  /** A view `actions.openConversationView` shows in place of the transcript (API 1.57.0). */
+  registerConversationView?(view: ConversationViewContribution): () => void;
   registerPanel(panel: PanelContribution): () => void;
   /** A kind of tab this extension draws on the stage; `actions.openStageTab` opens one. */
   registerStageTab<Params extends Record<string, unknown>>(tab: StageTabContribution<Params>): () => void;
@@ -1796,6 +1821,7 @@ export class ExtensionRegistry {
   private regions = new Map<string, Owned<RegionContribution>>();
   private statusItems = new Map<string, Owned<StatusItemContribution>>();
   private overlays = new Map<string, Owned<OverlayContribution>>();
+  private conversationViews = new Map<string, Owned<ConversationViewContribution>>();
   private readonly workbenchEventListeners = new Map<WorkbenchEventType, Set<(event: WorkbenchEvent) => void>>();
   private transcriptRows = new Map<string, { order: number; owner: ContributionOwner; bySession: Map<string, readonly TranscriptRow[]> }>();
   /** Waiting labels per extension and thread; the first extension's label wins. */
@@ -2006,6 +2032,11 @@ export class ExtensionRegistry {
         if (!this.scopeToProfile(owner, "overlay", overlay.id, undefined, overlay)) return noContribution;
         note("overlay");
         return this.register(this.overlays, overlay.id, { ...overlay, ...owner }, disposers);
+      },
+      registerConversationView: (view) => {
+        if (!this.scopeToProfile(owner, "conversation view", view.id, undefined, view)) return noContribution;
+        note("conversation view");
+        return this.register(this.conversationViews, view.id, { ...view, ...owner }, disposers);
       },
       setLiveStatus: (sessionId, label) => {
         const own = this.liveStatuses.get(extension.id) ?? new Map<string, string>();
@@ -2436,6 +2467,10 @@ export class ExtensionRegistry {
 
   getOverlay(id: string | undefined): Owned<OverlayContribution> | undefined {
     return id ? this.overlays.get(id) : undefined;
+  }
+
+  getConversationView(id: string | undefined): Owned<ConversationViewContribution> | undefined {
+    return id ? this.conversationViews.get(id) : undefined;
   }
 
   /** Forwards one core event to the extensions listening for its type. */

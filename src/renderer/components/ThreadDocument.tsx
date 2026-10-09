@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { Bot } from "lucide-react";
 import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptPage } from "../../shared/host-protocol";
@@ -7,7 +7,8 @@ import type { ExtensionRegistry } from "../extension-system";
 import { formatCost } from "../cost-format";
 import { errorMessage } from "../../workbench/error-message";
 import { useThreadShell } from "../use-thread-shell";
-import { useThreadStore } from "../workbench-context";
+import { WorkbenchContext, useThreadStore } from "../workbench-context";
+import { useHostClient } from "../host-client-context";
 import { usePreferences } from "../renderer-services-context";
 import { VirtualTranscript } from "./VirtualTranscript";
 import { LiveStatus } from "./ComposerHost";
@@ -41,10 +42,6 @@ export function useStickToTail(scrollRef: RefObject<HTMLDivElement | null>, mess
 /**
  * Another thread's transcript in a stage tab, read-only: the composer keeps
  * addressing the active thread, and "Take over" is the one way to switch.
- *
- * The host publishes a background thread's index entry when its turn settles,
- * which is the reload signal; while it is streaming nothing is published until
- * the end, so the tab polls — and only then.
  */
 export function ThreadDocument({ sessionId, loadThread, onTakeOver, registry }: {
   sessionId: string;
@@ -52,6 +49,50 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver, registry }: 
   onTakeOver(sessionId: string): void;
   registry?: ExtensionRegistry;
 }) {
+  const store = useThreadStore();
+  const session = useThreadShell(sessionId);
+  const activity = useSyncExternalStore(store.subscribeToActivity, store.getActivity);
+  const streaming = activity.runningThreadIds.includes(sessionId);
+  const waiting = activity.waitingThreadIds.includes(sessionId);
+  const title = session?.title || "Agent";
+  const cost = session?.usage?.costUsd === undefined ? undefined : formatCost(session.usage.costUsd);
+  const status = [waiting ? "waiting for an answer" : streaming ? "working" : session ? "idle" : "gone", cost].filter(Boolean).join(" · ");
+
+  return <section className="stage-pane thread-document" aria-label={`Thread ${title}`}>
+    <header className="stage-pane-header">
+      <span className="stage-tab-icon"><Bot size={13} aria-hidden="true" /></span>
+      <strong title={title}>{title}</strong>
+      <small>{status}</small>
+      {streaming ? <span className="spinner small" aria-label="Agent is working" /> : null}
+      <span className="spacer" />
+      {!session?.parentThreadId && !registry?.getThreadLineage().parents[sessionId] ? <button
+        className="text-button"
+        disabled={!session}
+        title="Make this the thread the composer talks to"
+        onClick={() => onTakeOver(sessionId)}
+      ><span>Take over</span></button> : null}
+    </header>
+    <ThreadTranscript sessionId={sessionId} loadThread={loadThread} {...(registry ? { registry } : {})} />
+  </section>;
+}
+
+/**
+ * Another thread's transcript, read-only, as a stage tab or a conversation
+ * view shows it (API 1.57.0); without `loadThread` it reads over the window's host.
+ *
+ * The host publishes a background thread's index entry when its turn settles,
+ * which is the reload signal; while it is streaming nothing is published until
+ * the end, so it polls — and only then.
+ */
+export function ThreadTranscript({ sessionId, loadThread, registry: given }: {
+  sessionId: string;
+  loadThread?(sessionId: string): Promise<TranscriptPage>;
+  registry?: ExtensionRegistry;
+}) {
+  const client = useHostClient();
+  const context = useContext(WorkbenchContext);
+  const registry = given ?? context?.registry;
+  const load = loadThread ?? client?.loadTranscript.bind(client);
   const store = useThreadStore();
   const session = useThreadShell(sessionId);
   const activity = useSyncExternalStore(store.subscribeToActivity, store.getActivity);
@@ -72,14 +113,18 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver, registry }: 
 
   useEffect(() => {
     let cancelled = false;
-    void loadThread(sessionId).then(
+    if (!load) {
+      setState((current) => ({ ...current, loaded: true, error: "Reading another thread requires the Electron host" }));
+      return;
+    }
+    void load(sessionId).then(
       (page) => { if (!cancelled) setState({ messages: page.messages, activity: page.turnActivityHistory ?? [], loaded: true }); },
       (error: unknown) => { if (!cancelled) setState((current) => ({ ...current, loaded: true, error: errorMessage(error) })); },
     );
     return () => { cancelled = true; };
   // `revision` and `tick` are reload signals, not values this effect reads.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadThread, sessionId, revision, tick, streaming]);
+  }, [loadThread, client, sessionId, revision, tick, streaming]);
 
   useStickToTail(scrollRef, state.messages);
 
@@ -112,24 +157,7 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver, registry }: 
     ? <LiveStatus label="Waiting for an answer" />
     : streaming && !hasLiveTools ? <LiveStatus startedAt={activity.runningStartedAt[sessionId]} /> : undefined,
   [waiting, streaming, hasLiveTools, activity.runningStartedAt, sessionId]);
-  const title = session?.title || "Agent";
-  const cost = session?.usage?.costUsd === undefined ? undefined : formatCost(session.usage.costUsd);
-  const status = [waiting ? "waiting for an answer" : streaming ? "working" : session ? "idle" : "gone", cost].filter(Boolean).join(" · ");
-
-  return <WorkspaceResourceProvider sessionId={sessionId} workspace={session?.workspaceId} displayPath={session?.projectDisplayPath ?? session?.projectPath}><section className="stage-pane thread-document" aria-label={`Thread ${title}`}>
-    <header className="stage-pane-header">
-      <span className="stage-tab-icon"><Bot size={13} aria-hidden="true" /></span>
-      <strong title={title}>{title}</strong>
-      <small>{status}</small>
-      {streaming ? <span className="spinner small" aria-label="Agent is working" /> : null}
-      <span className="spacer" />
-      {!session?.parentThreadId && !registry?.getThreadLineage().parents[sessionId] ? <button
-        className="text-button"
-        disabled={!session}
-        title="Make this the thread the composer talks to"
-        onClick={() => onTakeOver(sessionId)}
-      ><span>Take over</span></button> : null}
-    </header>
+  return <WorkspaceResourceProvider sessionId={sessionId} workspace={session?.workspaceId} displayPath={session?.projectDisplayPath ?? session?.projectPath}>
     {!session
       ? <div className="stage-empty" role="status">This thread is not in the index any more. It may have been deleted or pruned.</div>
       : state.error
@@ -151,5 +179,5 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver, registry }: 
                 {liveStatus}
               </div>
             </div>}
-  </section></WorkspaceResourceProvider>;
+  </WorkspaceResourceProvider>;
 }

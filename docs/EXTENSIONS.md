@@ -3260,6 +3260,21 @@ Codex's own goal turns; a CLI without the methods, or a thread restricted to
 some tools, offers no goals. Claude Code Kit sends `/goal …` and `/goal
 clear`, follows the SDK's `active_goal` frames, and has no pause.
 
+### A view in place of the transcript: `registerConversationView` (new in API 1.57.0)
+
+`context.registerConversationView({ id, Component })` adds a view that
+`actions.openConversationView(id, params)` shows in the conversation column,
+in place of the thread's transcript and composer. The thread header, the stage
+and the panels stay. The composer is hidden, not unmounted, so its draft
+survives. The view belongs to the thread on screen when it opened: showing
+another thread closes it, and coming back shows that thread's transcript.
+`Component` gets `{ actions, snapshot, params, onClose }`. `onClose` and
+`actions.closeConversationView()` go back to the transcript. Both members are
+optional, so an older core has neither. `ThreadTranscript` (`{ sessionId }`)
+draws another thread's transcript read-only, as a thread stage tab does, for
+such a view. Agents Kit opens every local subagent this way, native or a child
+thread (ADR 0013, amendment of 2026-10-09).
+
 ### This client and accepted prompts, API 1.55.0
 
 `useClientEnvironment()` reads this client shell's environment. Its optional

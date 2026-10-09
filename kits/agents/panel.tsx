@@ -4,6 +4,7 @@ import { Bot, CircleCheck, CircleHelp, CircleSlash, CircleX, Clock, Server } fro
 import { ProviderIconStack, tooltipProps, useHostCapabilities, useThreadStore, useWorkbenchShell, type PanelProps } from "tau";
 import { agentsHost, agentsStore, definitionsStore, siblingsSource } from "./store.js";
 import { DefinitionsSection } from "./definitions-panel.js";
+import { openAgent } from "./subagent-view.js";
 import {
   agentsPanelModel,
   canSettleWorktree,
@@ -254,10 +255,10 @@ export function AgentsPanel({ actions, canLookIn, placement }: PanelProps & {
     overscan: 6,
   });
 
-  // A child's chat opens as a stage tab, so the composer keeps addressing the
-  // thread that spawned it and the rail keeps hiding the child.
+  // A child's chat opens in place of the parent's transcript, read-only, so the
+  // composer keeps the parent's draft and the rail keeps hiding the child.
   const open = useCallback((row: AgentRow) => {
-    if (row.path && row.threadId) actions.openThread(row.threadId);
+    if (row.path && row.threadId) openAgent(row, actions);
     // Read over the window's connection there; an older core would read the id as this machine's thread.
     else if (row.machine?.thread && canLookIn?.()) actions.openThread(row.machine.thread, { machine: row.machine.id });
     else if (row.machine) actions.notify(`${row.title} runs on ${row.machine.name}; its transcript is there.`);
@@ -307,7 +308,7 @@ export function AgentsPanel({ actions, canLookIn, placement }: PanelProps & {
       {model.groups.length > 0 ? (
         <p className="agents-note">{sheet
           ? "Questions are answered in the thread, not here."
-          : "Click an agent to open its transcript as a read-only tab. Questions from agents always arrive on the parent conversation's composer."}</p>
+          : "Click an agent to read its transcript in place of this one. Questions from agents always arrive on the parent conversation's composer."}</p>
       ) : null}
     </section>
   );

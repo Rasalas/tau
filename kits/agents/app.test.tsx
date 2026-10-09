@@ -114,17 +114,24 @@ describe("agents in the project card", () => {
     expect(screen.queryByRole("menuitem", { name: /Agents/ })).toBeNull();
   });
 
-  it("previews an agent while keeping its parent active and out of the rail", async () => {
-    const client = appWith(state, [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2, undefined, "parent")], "parent");
+  it("reads an agent in place of the parent's transcript, keeping the parent active and the child out of the rail", async () => {
+    const prompt: UiMessage = { id: "prompt", role: "user", text: "Split the work", timestamp: 1 };
+    const client = appWith(state, [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2, undefined, "parent")], "parent", [prompt]);
     client.loadTranscript = vi.fn(async (sessionId) => ({ sessionId, hasMore: false, messages: [{ id: "reply", role: "assistant" as const, text: "Alpha finished the job.", timestamp: 1 }] }));
     renderApp(client, { extensions: [workspaceExtension, agentsExtension] });
     fireEvent.click(await screen.findByRole("button", { name: "Alpha reply, Running" }));
-    await screen.findByText("Alpha finished the job.");
+    const view = await screen.findByRole("region", { name: "Subagent Alpha reply" });
+    await within(view).findByText("Alpha finished the job.");
+    expect(within(view).getByRole("button", { name: /Subagent of/ }).textContent).toContain("Parent thread");
     expect(client.loadTranscript).toHaveBeenCalledWith("alpha");
+    expect(screen.queryByText("Split the work")).toBeNull();
     expect(client.calls.some((call) => call.method === "switchSession")).toBe(false);
     const rail = screen.getByRole("navigation", { name: "Threads" });
     expect(within(rail).queryByText("Alpha reply")).toBeNull();
     expect(screen.queryByRole("button", { name: "Take over" })).toBeNull();
+    fireEvent.click(within(view).getByRole("button", { name: "Open parent" }));
+    await screen.findByText("Split the work");
+    expect(screen.queryByRole("region", { name: "Subagent Alpha reply" })).toBeNull();
   });
 
   it("opens an agent on another machine through that machine's transcript", async () => {

@@ -71,9 +71,11 @@ export class CodexNativeAgents {
       case "item/started":
       case "item/completed": {
         if (item.type === "agentMessage") events.push(...this.tracker.text(owner, String(item.id), String(item.text ?? "")));
-        else if (method === "item/started" && typeof item.type === "string") {
-          const activity = text(item.command) ?? text(item.tool) ?? String(item.type);
-          events.push(...this.tracker.update(owner, { lastTool: activity }), ...this.tracker.text(owner, `tool:${String(item.id)}`, activity));
+        // Thinking is the child's state, not a step of its run.
+        else if (item.type === "reasoning") { if (method === "item/started") events.push(...this.tracker.update(owner, { lastTool: "Thinking" })); }
+        else if (method === "item/started" && typeof item.type === "string" && item.type !== "userMessage") {
+          const command = text(item.command);
+          events.push(...this.tracker.tool(owner, String(item.id), text(item.tool) ?? (command ? "Shell" : String(item.type)), command));
         }
         break;
       }

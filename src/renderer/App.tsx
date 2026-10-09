@@ -22,7 +22,7 @@ import { useHostClient } from "./host-client-context";
 import { useClientStorage } from "./client-storage-context";
 import { applyHostEvent, type HostEventTargets, type PackagesChangeReport } from "../workbench/host-events";
 import { getPlatform, PlatformProvider, setPlatform } from "./platform-context";
-import { useAppOverlays } from "./use-app-overlays";
+import { useAppOverlays, useConversationView } from "./use-app-overlays";
 import { useAppKeybindings } from "./use-app-keybindings";
 import { useWorkbenchActions } from "./use-workbench-actions";
 import { useClientEnvironment } from "./client-environment";
@@ -521,13 +521,14 @@ export default function App() {
     return accepted;
   }, [newThreadController, threadCommands]);
   const submitText = useCallback((text: string) => submitPrompt(text), [submitPrompt]);
+  const { conversationView, openConversationView, closeConversationView } = useConversationView(pendingNewThread ? undefined : snapshot?.sessionId);
   const actions = useWorkbenchActions({
     hasPrivateThreadWorkspace: () => registry.getProjectSources().some((source) => source.createThreadWorkspace), client, platform, threadStore, viewStore, toasts: workbenchSession.toasts, composerScopeStore, threadCommands,
     snapshot, pendingNewThread, workspaceCwd, newThreadDeliveryPending, activeDraftKey,
     composerRef, transcriptRef, openPanel, closePanel: panelLayout.closePanel, togglePanelMaximized: panelLayout.toggleMaximized, openPalette, setSettingsPage, openNewThreadPicker, createThreadInProject,
     switchSession, openDraft, discardDraft, settleActiveThread, isVisibleThreadRunning, reloadWorkbench, openThreadTree,
     duplicateThread, setComposerSeed, setDockOpen: setStageShown, setNotice, openProjectSources,
-    applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay,
+    applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay, openConversationView, closeConversationView,
     openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, setComposerMode, submitPrompt: submitText, preferences,
     steerQueuedMessage, beforeAbort: returnQueued,
     openModelPicker, openInstructions, focusStage, showThread, toggleSidebar, toggleSpine, attachFiles, selectDraftRuntime, newThreadController, pages, threadView,
@@ -643,9 +644,9 @@ export default function App() {
     pinStageTab: pinStage, unpinStageTab: unpinStage, setStageFileView: setStageView, loadThread: threadCommands.loadThread, takeOverThread, documentState, documentSource, paletteOpen, paletteMenu, closePalette,
     commands, projectSourcesOpen, projectSource, closeProjectSources, newThreadPick, openNewThreadPicker,
     closeNewThreadPicker, projects, removeProject: threadCommands.removeProject, createThreadInProject, settingsPage, setSettingsPage,
-    setNotice, activeOverlayId, closeOverlay, pages,
+    setNotice, activeOverlayId, closeOverlay, conversationView, closeConversationView, pages,
   }), [
-    activeOverlayId, activateStage, chatFocused, stageMaximized, maximized, closeNewThreadPicker, layoutProfile,
+    activeOverlayId, conversationView, closeConversationView, activateStage, chatFocused, stageMaximized, maximized, closeNewThreadPicker, layoutProfile,
     closeOverlay, closePalette, closeProjectSources, commands, createThreadInProject,
     documentSource, documentState, drawer, panelLayout, setStageFolded, stageFolded, newThreadPick,
     openNewThreadPicker, openPanel,

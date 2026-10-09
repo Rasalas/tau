@@ -1,5 +1,5 @@
 import type { ThreadRuntimeEvent } from "tau/host-extension";
-import { NativeAgentTracker } from "../agents/native-events.js";
+import { NativeAgentTracker, toolDetail } from "../agents/native-events.js";
 
 function object(value: unknown): Record<string, unknown> { return value && typeof value === "object" ? value as Record<string, unknown> : {}; }
 function string(value: unknown): string | undefined { return typeof value === "string" ? value : undefined; }
@@ -50,7 +50,7 @@ export class ClaudeNativeAgents {
         if (text) events.push(...this.tracker.text(parent, string(message.id) ?? this.streamingMessage.get(parent) ?? "reply", text));
         for (const block of content) {
           if (block.type === "tool_use" && typeof block.name === "string") {
-            events.push(...this.tracker.update(parent, { lastTool: block.name }), ...this.tracker.text(parent, `tool:${String(block.id)}`, block.name));
+            events.push(...this.tracker.tool(parent, String(block.id), block.name, toolDetail(object(block.input))));
           }
         }
       }

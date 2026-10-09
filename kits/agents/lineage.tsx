@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType } from "react";
 import { Bot, Check, ChevronDown, ChevronUp, CircleHelp, CircleSlash, CircleX, Clock, CornerUpLeft, Ellipsis } from "lucide-react";
 import { Popover, ProviderIconStack, tooltipProps, useThreadStore, useWorkbench, type RegionProps, type WorkbenchActions } from "tau";
-import { agentsPanelModel, nativeAgentRow, formatElapsed, type AgentRow } from "./model.js";
+import { agentsPanelModel, nativeAgentRow, nativeAgentTools, formatElapsed, type AgentRow } from "./model.js";
+import { openAgent, subagentKey, useOpenedSubagent } from "./subagent-view.js";
 import { DefinitionsSection } from "./definitions-panel.js";
 import { isBusyStatus } from "./protocol.js";
 import { agentsStore, definitionsStore, siblingsSource } from "./store.js";
@@ -26,30 +27,25 @@ function Elapsed({ row }: { row: AgentRow }) {
 
 /** The same compact row in the project card and in a spawn's inline list. */
 export function AgentLineageRow({ row, actions, current = false }: { row: AgentRow; actions: WorkbenchActions; current?: boolean }) {
-  const [expanded, setExpanded] = useState(false);
+  const shown = useOpenedSubagent() === subagentKey(row);
   const provider = row.model?.includes("/") ? row.model.slice(0, row.model.indexOf("/")) : undefined;
   const status = STATUS[row.status];
   const icon = row.status === "running" ? <span className="spinner small" />
     : row.status === "waiting" ? <CircleHelp /> : row.status === "pending" ? <Clock />
     : row.status === "failed" ? <CircleX /> : row.status === "cancelled" ? <CircleSlash /> : <Check />;
-  const open = () => {
-    if (row.native) setExpanded((value) => !value);
-    else if (row.threadId) actions.openThread(row.threadId);
-    else if (row.machine?.thread) actions.openThread(row.machine.thread, { machine: row.machine.id });
-  };
-  return <><button type="button" className={`workspace-card-row agent-lineage-row status-${row.status}`} disabled={!row.native && !row.threadId && !row.machine?.thread} aria-expanded={row.native ? expanded : undefined} aria-current={current ? "page" : undefined} aria-label={`${row.title}, ${status}`} title={row.machine ? `${row.title} · ${row.machine.name}${row.machine.offline ? " · Offline" : ""}` : row.title} onClick={open}>
+  const open = () => openAgent(row, actions);
+  return <button type="button" className={`workspace-card-row agent-lineage-row status-${row.status}`} disabled={row.native ? !actions.openConversationView : !row.threadId && !row.machine?.thread} aria-current={current || shown ? "page" : undefined} aria-label={`${row.title}, ${status}`} title={row.machine ? `${row.title} · ${row.machine.name}${row.machine.offline ? " · Offline" : ""}` : row.title} onClick={open}>
     <span className="workspace-card-icon agent-lineage-provider" aria-hidden>{provider ? <ProviderIconStack modelProvider={provider} runtimeMark={false} hint={false} /> : <Bot />}</span>
     <span className="workspace-card-label">{row.title}</span>
     <Elapsed row={row} />
     <span className="workspace-card-tail agent-lineage-status" {...tooltipProps(status)} aria-hidden>{icon}</span>
-  </button>{row.native && expanded ? <div className="agent-native-transcript" role="region" aria-label={`${row.title} transcript`}><small>{[row.native.runtime, row.model, row.lastTool].filter(Boolean).join(" · ")}</small><pre>{row.native.transcript || "Waiting for activity…"}</pre></div> : null}</>;
+  </button>;
 }
 
 /** The current thread's parent and children, including persisted links after a restart. */
 export function AgentLineage({ snapshot, actions }: RegionProps) {
   const { tools } = useWorkbench();
-  const nativeTools = new Map([...(snapshot?.turnActivityHistory ?? []).flatMap((entry) => entry.tools), ...tools].filter((tool) => tool.kind === "subagent").map((tool) => [tool.id, tool]));
-  const nativeRows = [...nativeTools.values()].flatMap((tool) => { const row = nativeAgentRow(tool); return row ? [row] : []; });
+  const nativeRows = [...nativeAgentTools(snapshot?.turnActivityHistory, tools).values()].flatMap((tool) => { const row = nativeAgentRow(tool); return row ? [row] : []; });
   const threadStore = useThreadStore();
   const state = useSyncExternalStore(agentsStore.subscribe, agentsStore.getSnapshot);
   const navigation = useSyncExternalStore(threadStore.subscribe, threadStore.getSnapshot);
@@ -106,7 +102,8 @@ export function CompactLineage(props: RegionProps) {
   const store = useThreadStore();
   const navigation = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const id = props.snapshot?.sessionId;
-  useEffect(() => setOpen(false), [id]);
+  const opened = useOpenedSubagent();
+  useEffect(() => setOpen(false), [id, opened]);
   if (!id || !(native || state?.links.some((link) => link.threadId === id || link.parentThreadId === id) || navigation.threads.some((thread) => thread.id === id && thread.parentThreadId || thread.parentThreadId === id))) return null;
   return <span className="menu-anchor"><button ref={anchor} type="button" className="thread-detail" aria-label="Thread agents" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((value) => !value)}><Bot size={16} /> Agents</button>
     {open ? <Popover anchor={anchor} label="Thread agents" onClose={() => setOpen(false)}><div className="workspace-summary-card"><AgentLineage {...props} /></div></Popover> : null}

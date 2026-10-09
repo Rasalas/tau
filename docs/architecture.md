@@ -129,6 +129,7 @@ context.registerOptions(...);
 context.registerRegion(...);
 context.registerStatusItem(...);
 context.registerOverlay(...);
+context.registerConversationView(...); // in place of the transcript and composer, e.g. a native subagent
 context.registerComposerControl(...);
 context.registerTranscriptRows(...);
 context.registerDocumentSource(...);
