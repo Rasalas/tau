@@ -290,6 +290,27 @@ export async function threadWorkIntegrated(path: string, runGit: AgentGitRunner 
   return false;
 }
 
+const FETCH_EVERY_MS = 5 * 60_000;
+const fetchedAt = new Map<string, number>();
+
+/**
+ * `threadWorkIntegrated` for a clean checkout whose request the host reports
+ * merged: the remote ref may not have seen the merge yet, so it is fetched once
+ * (at most every five minutes per checkout); when Git cannot answer, the host's word counts.
+ */
+export async function mergedWorkIntegrated(path: string, targets: readonly string[] = [], runGit: AgentGitRunner = runAgentGit, now = Date.now()): Promise<boolean> {
+  try {
+    if (await threadWorkIntegrated(path, runGit, targets)) return true;
+    const key = `${resolve(path)}\0${[...targets].sort().join("\0")}`;
+    if (now - (fetchedAt.get(key) ?? -Infinity) < FETCH_EVERY_MS) return false;
+    fetchedAt.set(key, now);
+    await runGit(path, ["fetch", "origin", ...targets.map((target) => `+refs/heads/${target}:refs/remotes/origin/${target}`)]);
+    return await threadWorkIntegrated(path, runGit, targets);
+  } catch {
+    return true;
+  }
+}
+
 async function integratedInto(path: string, runGit: AgentGitRunner, requested?: string): Promise<boolean> {
   const branch = await readThreadBranch(path, runGit, requested, true);
   if (branch) return branch.merged && branch.uncommitted === 0 && !branch.unavailable;

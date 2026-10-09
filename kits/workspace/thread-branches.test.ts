@@ -6,8 +6,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { mergeThreadBranch, readThreadBranch, readThreadBranches, readThreadConflicts, removeThreadBranch, threadWorkIntegrated } from "./thread-branches.js";
+import { mergeThreadBranch, readThreadBranch, readThreadBranches, readThreadConflicts, removeThreadBranch, mergedWorkIntegrated, threadWorkIntegrated } from "./thread-branches.js";
 import { applyPicks, parseConflictText } from "./merge-picks.js";
+import { runAgentGit, type AgentGitRunner } from "./agent-worktrees.js";
 
 const created: string[] = [];
 
@@ -112,6 +113,41 @@ describe("a thread's worktree branch", () => {
     repo.run(repo.cwd, "commit", "-qm", "follow-up PR");
     repo.run(repo.cwd, "update-ref", "refs/remotes/origin/main", "main");
     expect(await threadWorkIntegrated(dir)).toBe(true);
+  });
+
+  it("fetches the target once when the host reports a merge the remote ref has not seen", async () => {
+    const repo = await repository();
+    const remote = join(repo.root, "remote.git");
+    repo.run(repo.root, "clone", "-q", "--bare", repo.cwd, remote);
+    repo.run(repo.cwd, "remote", "add", "origin", remote);
+    repo.run(repo.cwd, "fetch", "-q", "origin");
+    const dir = repo.worktree("tau/merged-on-host");
+    await repo.commit(dir, "b.txt", "work\n");
+    // The host squash-merges; this checkout's origin/main still has the old tip.
+    const host = join(repo.root, "host");
+    repo.run(repo.root, "clone", "-q", remote, host);
+    repo.run(host, "fetch", "-q", repo.cwd, "tau/merged-on-host");
+    repo.run(host, "merge", "--squash", "FETCH_HEAD");
+    repo.run(host, "-c", "user.email=h@example.com", "-c", "user.name=Host", "-c", "commit.gpgsign=false", "commit", "-qm", "squashed PR");
+    repo.run(host, "push", "-q", "origin", "main");
+    expect(await threadWorkIntegrated(dir, undefined, ["main"])).toBe(false);
+
+    let fetches = 0;
+    const counted: AgentGitRunner = (cwd, args, options) => { if (args[0] === "fetch") fetches++; return runAgentGit(cwd, args, options); };
+    expect(await mergedWorkIntegrated(dir, ["main"], counted, 0)).toBe(true);
+    expect(fetches).toBe(1);
+
+    // Follow-up work after the merge keeps it active, and the sweep does not fetch every minute.
+    await repo.commit(dir, "c.txt", "follow-up\n");
+    expect(await mergedWorkIntegrated(dir, ["main"], counted, 60_000)).toBe(false);
+    expect(fetches).toBe(1);
+    expect(await mergedWorkIntegrated(dir, ["main"], counted, 6 * 60_000)).toBe(false);
+    expect(fetches).toBe(2);
+  });
+
+  it("trusts the host's merge for a checkout Git cannot answer for", async () => {
+    const failing = async () => { throw new Error("git unavailable"); };
+    expect(await mergedWorkIntegrated("/nowhere", ["main"], failing)).toBe(true);
   });
 
   it("accepts work merged into a request's base other than the saved review target", async () => {
