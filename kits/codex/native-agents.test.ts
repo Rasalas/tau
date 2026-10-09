@@ -34,3 +34,11 @@ it("keeps a child's failure visible when the process subsequently reports it as 
   expect(idle).toMatchObject({ status: "error", args: { agentStatus: "failed" }, output: "Child failed" });
   expect(tools(agents.push("turn/started", { threadId: "child" }, "root")).at(-1)).toMatchObject({ status: "running", args: { agentStatus: "running" } });
 });
+
+it("lists a child's commands as steps and keeps its thinking out of them", () => {
+  const agents = new CodexNativeAgents();
+  agents.push("thread/started", { thread: { id: "child", source: { subAgent: { thread_spawn: { parent_thread_id: "root" } } } } }, "root");
+  expect(tools(agents.push("item/started", { threadId: "child", item: { id: "r", type: "reasoning" } }, "root")).at(-1)).toMatchObject({ args: { lastTool: "Thinking" } });
+  const ran = tools(agents.push("item/started", { threadId: "child", item: { id: "c", type: "commandExecution", command: "/bin/zsh -lc ls" } }, "root")).at(-1);
+  expect(ran?.args.entries).toEqual([{ id: "tool:c", kind: "tool", text: "Shell", detail: "/bin/zsh -lc ls" }]);
+});

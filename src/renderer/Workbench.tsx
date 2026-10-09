@@ -51,7 +51,7 @@ import { SidebarBrand } from "./components/SidebarBrand";
 import { SidebarClosedControls } from "./components/SidebarClosedControls";
 import { ResizeHandle } from "./components/ResizeHandle";
 import type { PanelLayout } from "./use-panel-layout";
-import type { NewThreadPick } from "./use-app-overlays";
+import type { NewThreadPick, OpenConversationView } from "./use-app-overlays";
 import { panelTabId } from "../workbench/stage";
 import { useCenterLayout } from "./use-center-layout";
 import { CHAT_MIN_WIDTH } from "../workbench/center-layout";
@@ -209,6 +209,9 @@ export interface WorkbenchLayout {
   setNotice(message?: string, level?: "info" | "warning" | "error"): void;
   activeOverlayId?: string;
   closeOverlay(): void;
+  /** The view shown in place of the transcript and composer, opened on the thread on screen. */
+  conversationView?: OpenConversationView | undefined;
+  closeConversationView(): void;
   /** The app page on screen, beside the sidebar. */
   pages: AppPageStore;
 }
@@ -308,7 +311,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     documentState, documentSource, paletteOpen, paletteMenu, closePalette, commands,
     projectSourcesOpen, projectSource, closeProjectSources, newThreadPick, openNewThreadPicker, closeNewThreadPicker,
     projects, removeProject, createThreadInProject, settingsPage, setSettingsPage,
-    setNotice, activeOverlayId, closeOverlay, pages,
+    setNotice, activeOverlayId, closeOverlay, conversationView, closeConversationView, pages,
   } = layout;
   const {
     snapshot, conversationSnapshot, pendingNewThread, draftRuntime, showStartScreen, startProjectPath, startProjectName,
@@ -685,6 +688,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   </>;
 
   const activeOverlay = registry.getOverlay(activeOverlayId);
+  const activeConversationView = showStartScreen ? undefined : registry.getConversationView(conversationView?.id);
   const overlayFrame = (content: React.ReactNode) => <div className="lazy-feature-screen">{content}</div>;
   const providers = (content: React.ReactNode) => <WorkbenchProviders model={model} threadStore={threadStore}>{content}</WorkbenchProviders>;
   if (activeOverlay) return providers(<>
@@ -819,7 +823,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           <button type="button" onClick={() => setSpine(false)}><MessageSquare size={13} />Open conversation</button>
         </aside> : null}
         <main
-          className={`conversation-column ${showStartScreen ? "conversation-start" : ""}`}
+          className={`conversation-column ${showStartScreen ? "conversation-start" : ""}${activeConversationView ? " conversation-view-active" : ""}`}
           data-keybinding-context="chat"
           onDragEnter={dropController.onDragEnter}
           onDragOver={dropController.onDragOver}
@@ -835,7 +839,16 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           {/* Before the composer in the DOM: the dock paints over the transcript by tree order. */}
           {conversationHeader}
           <div className="conversation-thread">
-            {!showStartScreen ? <>
+            {activeConversationView && conversationView ? <div className="conversation-view"><LazyFeatureBoundary
+              key={`${conversationView.id}:${conversationView.sessionId}`}
+              label="conversation view"
+              extensionId={activeConversationView.extensionId}
+              extensionName={activeConversationView.extensionName}
+              registry={registry}
+              onNotify={actions.notify}
+            >
+              <activeConversationView.Component actions={actions} snapshot={conversationSnapshot} params={conversationView.params} onClose={closeConversationView} />
+            </LazyFeatureBoundary></div> : !showStartScreen ? <>
               <Region registry={registry} placement="transcript-header" snapshot={snapshot} actions={actions} />
               {snapshot?.sessionId ? <ThreadRuntimeBanner
                 sessionId={snapshot.sessionId}

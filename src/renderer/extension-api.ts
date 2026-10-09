@@ -169,6 +169,8 @@ export type {
   ExtensionProblem,
   OverlayProps,
   OverlayContribution,
+  ConversationViewProps,
+  ConversationViewContribution,
   WorkbenchEvent,
   WorkbenchEventType,
   WorkbenchEvents,

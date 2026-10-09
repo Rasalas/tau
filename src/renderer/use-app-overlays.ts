@@ -1,4 +1,4 @@
-import { useCallback, useState, type RefObject } from "react";
+import { useCallback, useEffect, useState, type RefObject } from "react";
 import { AppPageStore } from "../workbench/app-page-store";
 
 /** How the new thread's project picker opens: the project in context, and whether it moves the draft on screen. */
@@ -60,4 +60,25 @@ export function useAppOverlays() {
     setSettingsPage,
     pages,
   };
+}
+
+/** A registered conversation view on screen, and the thread it belongs to. */
+export interface OpenConversationView {
+  sessionId: string;
+  id: string;
+  params: Readonly<Record<string, unknown>>;
+}
+
+/** The view shown in place of `threadId`'s transcript; coming back to that thread shows its transcript. */
+export function useConversationView(threadId: string | undefined) {
+  const [opened, setOpened] = useState<OpenConversationView>();
+  const openConversationView = useCallback((id: string, params: Record<string, unknown> = {}) => {
+    if (threadId) setOpened({ sessionId: threadId, id, params });
+  }, [threadId]);
+  const closeConversationView = useCallback(() => setOpened(undefined), []);
+  useEffect(() => {
+    setOpened((current) => current?.sessionId === threadId ? current : undefined);
+  }, [threadId]);
+  const conversationView = opened?.sessionId === threadId ? opened : undefined;
+  return { conversationView, openConversationView, closeConversationView };
 }

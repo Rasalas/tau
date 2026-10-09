@@ -9,11 +9,12 @@ import {
   type AgentsState,
   tauToolName,
 } from "./protocol.js";
+import type { NativeAgentEntry } from "./native-events.js";
 
 /** One row of the Agents panel: a spawned thread plus what the index knows about it. */
 export interface AgentRow {
   /** A runtime-owned child has no independently selectable Tau thread. */
-  native?: { transcript: string; runtime: string };
+  native?: { transcript: string; runtime: string; entries: readonly NativeAgentEntry[] };
   id: string;
   threadId?: string;
   /** The thread's session file, present only once the thread index knows it. */
@@ -411,7 +412,12 @@ export function nativeAgentRow(tool: UiToolRun): AgentRow | undefined {
     startedAt: tool.startedAt, ...(tool.endedAt ? { endedAt: tool.endedAt } : {}),
     ...(typeof tool.args.model === "string" ? { model: tool.args.model } : {}),
     ...(typeof tool.args.lastTool === "string" ? { lastTool: tool.args.lastTool } : {}),
-    native: { transcript: tool.output ?? "", runtime: String(tool.args.runtime ?? "") } };
+    native: { transcript: tool.output ?? "", runtime: String(tool.args.runtime ?? ""), entries: Array.isArray(tool.args.entries) ? tool.args.entries as NativeAgentEntry[] : [] } };
+}
+
+/** A thread's native children by tool id: its settled turns' runs, overlaid by the live turn's. */
+export function nativeAgentTools(history: readonly { tools: readonly UiToolRun[] }[] | undefined, live: readonly UiToolRun[]): Map<string, UiToolRun> {
+  return new Map([...(history ?? []).flatMap((entry) => entry.tools), ...live].filter((tool) => tool.kind === "subagent").map((tool) => [tool.id, tool]));
 }
 
 export function spawnCardModel(

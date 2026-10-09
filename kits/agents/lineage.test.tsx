@@ -7,6 +7,7 @@ import { WorkbenchContext, createKitHarness } from "../../src/renderer/test-supp
 import { SpawnCard } from "./spawn-card.js";
 import { agentsExtension } from "./desktop.js";
 import { AgentLineage } from "./lineage.js";
+import { SUBAGENT_VIEW } from "./subagent-view.js";
 import { agentsStore } from "./store.js";
 import type { AgentThreadLink } from "./protocol.js";
 
@@ -97,12 +98,12 @@ it("moves a finished agent into the collapsed completed group while keeping a ma
   expect(screen.getByRole("button", { name: "Review layout, Failed" })).toBeTruthy();
 });
 
-it("expands a native child's transcript inside the parent, without any thread navigation", () => {
-  const actions = { switchSession: vi.fn(), openThread: vi.fn() } as unknown as WorkbenchActions;
+it("opens a native child in place of the parent's transcript, without any thread navigation", () => {
+  const actions = { switchSession: vi.fn(), openThread: vi.fn(), openConversationView: vi.fn() } as unknown as WorkbenchActions;
   const tool = { id: "native-agent:codex:child", kind: "subagent", name: "tau_native_subagent", args: { agentId: "child", runtime: "codex", title: "Native reviewer", model: "gpt-5.6-luna", agentStatus: "completed" }, status: "done", output: "Native answer", startedAt: 1000, endedAt: 2000 } as UiToolRun;
   render(<TestProviders><TestThreadStore threads={sessions}><WorkbenchContext.Provider value={{ tools: [tool] } as never}><AgentLineage snapshot={{ sessionId: "parent" } as HostSnapshot} actions={actions} /></WorkbenchContext.Provider></TestThreadStore></TestProviders>);
   fireEvent.click(screen.getByRole("button", { name: "Native reviewer, Completed" }));
-  expect(screen.getByRole("region", { name: "Native reviewer transcript" }).textContent).toContain("Native answer");
+  expect(actions.openConversationView).toHaveBeenCalledWith(SUBAGENT_VIEW, { toolId: "native-agent:codex:child" });
   expect(actions.switchSession).not.toHaveBeenCalled();
   expect(actions.openThread).not.toHaveBeenCalled();
 });

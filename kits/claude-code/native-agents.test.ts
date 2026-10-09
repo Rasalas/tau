@@ -73,3 +73,14 @@ it("names a subagent whose launch it missed by the task its frames carry", () =>
   const child = agents.push({ type: "assistant", parent_tool_use_id: "earlier", subagent_type: "Explore", task_description: "Find the parser", message: { id: "reply", content: [{ type: "text", text: "Found it" }] } });
   expect(child.at(-1)).toMatchObject({ tool: { args: { title: "Find the parser" }, output: "Found it" } });
 });
+
+it("keeps a child's replies and tool calls as steps its view lists", () => {
+  const agents = new ClaudeNativeAgents();
+  agents.push({ type: "assistant", message: { content: [{ type: "tool_use", id: "call", name: "Agent", input: { description: "Review" } }] } });
+  agents.push({ type: "assistant", parent_tool_use_id: "call", message: { id: "reply", content: [{ type: "text", text: "Checking" }] } });
+  const ran = agents.push({ type: "assistant", parent_tool_use_id: "call", message: { id: "tools", content: [{ type: "tool_use", id: "bash", name: "Bash", input: { command: "npm test\n--watch=false" } }] } });
+  expect(ran.at(-1)).toMatchObject({ tool: { output: "Checking\n\nnpm test", args: { lastTool: "Bash", entries: [
+    { id: "reply", kind: "text", text: "Checking" },
+    { id: "tool:bash", kind: "tool", text: "Bash", detail: "npm test" },
+  ] } } });
+});

@@ -300,6 +300,20 @@ linked rows inline. Compact clients expose the same lineage from the thread
 header. Agent definitions remain accessible from the lineage heading.
 
 
+## Amendment, 2026-10-09: a native child opens in the conversation column
+
+A native child is no longer an inline transcript that expands under its row.
+Clicking it in the project card or in a spawn card opens it in place of the
+parent's transcript, as T3 Code opens a child thread. The view has a "Subagent
+of · <parent>" divider at the top and, where the composer stands, a bar with
+the runtime, model, status and elapsed time, "Runs on its own" and "Open
+parent". Escape, the divider and the bar all return to the parent. The child
+still has no thread of its own. The view reads the parent's tool run, whose
+`args.entries` keep the child's replies, tool calls (name and subject) and
+errors. The parent's composer is hidden while the view is open, and the child
+takes no prompts. A fallback or legacy child still opens as a read-only stage
+tab.
+
 ## Amendment, 2026-10-07: native delegation belongs inside the parent
 
 Subagents are delegated work within their parent conversation. Codex and Claude
