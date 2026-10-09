@@ -198,10 +198,10 @@ export interface WorkbenchActions {
   /**
    * Shows a view `registerConversationView` added in place of the thread's
    * transcript and composer; the header, stage and panels stay. Another
-   * thread on screen closes it (API 1.56.0).
+   * thread on screen closes it (API 1.57.0).
    */
   openConversationView?(id: string, params?: Record<string, unknown>): void;
-  /** Back to the thread's own transcript (API 1.56.0). */
+  /** Back to the thread's own transcript (API 1.57.0). */
   closeConversationView?(): void;
   /** Opens a page `registerPage` added, beside the sidebar; `params` is what it opens on. */
   openPage?(id: string, params?: Record<string, unknown>): void;
@@ -455,7 +455,7 @@ export interface ConversationViewProps {
   onClose(): void;
 }
 
-/** A view in the conversation column, such as a native subagent's run (API 1.56.0). */
+/** A view in the conversation column, such as a native subagent's run (API 1.57.0). */
 export interface ConversationViewContribution extends ProfileScoped {
   id: string;
   Component: ComponentType<ConversationViewProps>;
@@ -1597,7 +1597,7 @@ export interface DesktopExtensionContext {
   registerRegion(region: RegionContribution): () => void;
   registerStatusItem(item: StatusItemContribution): () => void;
   registerOverlay(overlay: OverlayContribution): () => void;
-  /** A view `actions.openConversationView` shows in place of the transcript (API 1.56.0). */
+  /** A view `actions.openConversationView` shows in place of the transcript (API 1.57.0). */
   registerConversationView?(view: ConversationViewContribution): () => void;
   registerPanel(panel: PanelContribution): () => void;
   /** A kind of tab this extension draws on the stage; `actions.openStageTab` opens one. */

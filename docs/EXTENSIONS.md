@@ -3260,7 +3260,7 @@ Codex's own goal turns; a CLI without the methods, or a thread restricted to
 some tools, offers no goals. Claude Code Kit sends `/goal …` and `/goal
 clear`, follows the SDK's `active_goal` frames, and has no pause.
 
-### A view in place of the transcript: `registerConversationView` (new in API 1.56.0)
+### A view in place of the transcript: `registerConversationView` (new in API 1.57.0)
 
 `context.registerConversationView({ id, Component })` adds a view that
 `actions.openConversationView(id, params)` shows in the conversation column,

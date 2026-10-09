@@ -78,7 +78,7 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver, registry }: 
 
 /**
  * Another thread's transcript, read-only, as a stage tab or a conversation
- * view shows it (API 1.56.0); without `loadThread` it reads over the window's host.
+ * view shows it (API 1.57.0); without `loadThread` it reads over the window's host.
  *
  * The host publishes a background thread's index entry when its turn settles,
  * which is the reload signal; while it is streaming nothing is published until

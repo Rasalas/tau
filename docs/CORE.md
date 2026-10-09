@@ -366,7 +366,7 @@ entry — which is what the host does when a background turn settles — and pol
 every two seconds only while the index says the thread is streaming. A tab whose
 session the index no longer knows shows an empty state rather than an error.
 `WorkbenchActions.openThread(sessionId)` is how an extension opens one. The
-transcript body is `ThreadTranscript` (API 1.56.0), which kits may use too:
+transcript body is `ThreadTranscript` (API 1.57.0), which kits may use too:
 Agents Kit draws a child thread with it in place of the parent's transcript. With `{ machine }` (API
 1.15.0) the tab reads a thread of another machine the window knows, over the
 window's own connection there (`RemoteThreadDocument`,

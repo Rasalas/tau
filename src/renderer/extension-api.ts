@@ -67,7 +67,7 @@ export { formatCost, threadCostLabel, threadCostOrigin } from "./cost-format";
 // asset pipeline, which an esbuild-bundled package has no loader for) and the
 // paging state machine behind every changed-file list.
 export { VirtualList } from "./components/VirtualList";
-// Another thread's transcript, read-only (API 1.56.0).
+// Another thread's transcript, read-only (API 1.57.0).
 export { ThreadTranscript } from "./components/ThreadDocument";
 export { Menu } from "./deferred-surfaces";
 // The UI primitives core draws with (API 1.11.0): tooltips through one layer,
