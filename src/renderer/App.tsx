@@ -336,7 +336,7 @@ export default function App() {
   const abortThread = useCallback((sessionId?: string) => { returnQueued(); abortRun(sessionId); }, [abortRun, returnQueued]);
   const {
     activateStage, pinStage, unpinStage, setStageView, cycleStageTab,
-    applyHostResult, openWorkspace, createThreadInProject, switchSession, takeOverThread, openDraft, discardDraft,
+    applyHostResult, openWorkspace, createThreadInProject, switchSession, takeOverThread, openDraft, discardDraft, openStartDraft,
   } = useThreadNavigation({
     ...(client ? { client } : {}),
     storage: clientStorage,
@@ -408,14 +408,14 @@ export default function App() {
       // A question raised while nobody was listening would otherwise stall the
       // host forever, including during bootstrap itself.
       stopPrompts = followOpenPrompts(client, viewStore);
-      stopBootstrap = followWorkbenchBootstrap(client, workbenchSession, setNotice);
+      stopBootstrap = followWorkbenchBootstrap(client, workbenchSession, setNotice, openStartDraft);
     } else {
       applyThreadIndex(mockThreadIndex);
       applySnapshot(mockSnapshot);
       addEvent("preview.mode", "Electron host unavailable; showing fixture state");
     }
     return () => { unsubscribe(); stopBootstrap(); stopPrompts(); };
-  }, [addEvent, applySnapshot, applyThreadIndex, client, handleHostEvent, threadStore, transcriptHistory, viewStore, workbenchSession]);
+  }, [addEvent, applySnapshot, applyThreadIndex, client, handleHostEvent, openStartDraft, threadStore, transcriptHistory, viewStore, workbenchSession]);
 
   const activeThreadIdForEvents = snapshot?.sessionId;
   useEffect(() => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UiProject, UiSession } from "../shared/contracts";
-import { lastUsedProject, newThreadProject, rootLast, selectionOnScreen } from "./new-thread-project";
+import { lastUsedProject, newThreadProject, rootLast, selectionOnScreen, startDraftProject, startDraftState } from "./new-thread-project";
 import { createNewThreadDraft } from "./draft-store";
 
 const project = (path: string, lastOpenedAt: number): UiProject => ({ path, name: path.split("/").at(-1) || path, lastOpenedAt });
@@ -76,5 +76,40 @@ describe("selectionOnScreen", () => {
   it("takes nothing while the thread is covered or there is none", () => {
     expect(selectionOnScreen({ thread: { sessionId: "t", model: luna }, covered: true })).toBeUndefined();
     expect(selectionOnScreen({})).toBeUndefined();
+  });
+});
+
+describe("startDraftProject", () => {
+  const empty = { messages: [], isStreaming: false, activeTools: [], sessionId: "s" };
+  const projects = [project("/a", 1), project("/b", 2)];
+
+  it("opens a draft in the project of an empty startup thread", () => {
+    expect(startDraftProject({ detail: empty, project: { cwd: "/a" } }, projects)?.path).toBe("/a");
+  });
+
+  it("keeps a thread that has messages or is running", () => {
+    const message = { id: "m", role: "user", text: "hi" } as never;
+    expect(startDraftProject({ detail: { ...empty, messages: [message] }, project: { cwd: "/a" } }, projects)).toBeUndefined();
+    expect(startDraftProject({ detail: { ...empty, isStreaming: true }, project: { cwd: "/a" } }, projects)).toBeUndefined();
+  });
+
+  it("keeps the thread when its folder is no listed project", () => {
+    expect(startDraftProject({ detail: empty, project: { cwd: "/c" } }, projects)).toBeUndefined();
+    expect(startDraftProject({ detail: empty, project: { cwd: "/" } }, [...projects, project("/", 3)])).toBeUndefined();
+  });
+});
+
+describe("startDraftState", () => {
+  it("opens once another thread has messages", () => {
+    expect(startDraftState([thread("/a", 1, 0), thread("/b", 2)], "/a-1")).toBe("open");
+  });
+
+  it("waits while no thread has a message, as on a fresh install", () => {
+    expect(startDraftState([thread("/a", 1, 0)], "/a-1")).toBe("wait");
+    expect(startDraftState([], "/a-1")).toBe("wait");
+  });
+
+  it("keeps a startup thread the index counts messages for", () => {
+    expect(startDraftState([thread("/a", 1, 3), thread("/b", 2)], "/a-1")).toBe("keep");
   });
 });

@@ -1,4 +1,4 @@
-import type { HostSnapshot, UiProject, UiSession } from "../shared/contracts";
+import type { HostBootstrap, HostSnapshot, UiProject, UiSession } from "../shared/contracts";
 import { isFilesystemRoot } from "../shared/filesystem-root";
 import { namesWorkspace } from "../shared/workspace-identity";
 import type { NewThreadDraft } from "./draft-store";
@@ -93,4 +93,25 @@ export function pickerOrder(projects: readonly UiProject[], threads: readonly Pi
   const used = (project: UiProject) => Math.max(project.lastOpenedAt, at.get(project.workspaceId ?? "") ?? 0, at.get(project.path) ?? 0);
   const rank = (project: UiProject) => (first !== undefined && namesWorkspace(first, project.workspaceId, project.path) ? Infinity : used(project));
   return rootLast([...projects].sort((a, b) => rank(b) - rank(a)));
+}
+
+/**
+ * The project whose draft replaces the empty thread the host opened at
+ * startup, so the first screen is the one "New thread" opens.
+ */
+export function startDraftProject(bootstrap: Pick<HostBootstrap, "detail" | "project">, projects: readonly UiProject[]): UiProject | undefined {
+  const { detail, project } = bootstrap;
+  if (detail.messages.length > 0 || detail.isStreaming || detail.turnActivity?.tools.length) return undefined;
+  if (isFilesystemRoot(project.cwd)) return undefined;
+  return projects.find((candidate) => namesWorkspace(project.workspaceId ?? project.cwd, candidate.workspaceId, candidate.path));
+}
+
+/**
+ * What the startup thread `startId` becomes as the index fills in: a thread
+ * with messages stays; with none anywhere it waits, since a fresh install
+ * shows Workspace Kit's first screen instead of a draft.
+ */
+export function startDraftState(threads: readonly UiSession[], startId: string): "open" | "wait" | "keep" {
+  if (threads.some((thread) => thread.id === startId && thread.messageCount > 0)) return "keep";
+  return threads.some((thread) => thread.messageCount > 0) ? "open" : "wait";
 }

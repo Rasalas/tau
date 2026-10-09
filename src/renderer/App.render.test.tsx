@@ -1102,6 +1102,34 @@ describe("App render isolation", () => {
     expect(screen.getByRole("button", { name: "Select model: GPT-5.6 Luna" })).toBeTruthy();
   });
 
+  it("replaces the host's empty startup thread with a draft once the index lists a thread with messages", async () => {
+    const project = { path: "/project", name: "project", lastOpenedAt: 1 };
+    const start = { id: "start", path: "/start.jsonl", title: "Untitled thread", modifiedAt: 2, projectPath: "/project", projectName: "project", messageCount: 0 };
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [project], sessions: [start] },
+        detail: { sessionId: "start", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "start", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0 },
+        project: { cwd: "/project" },
+      }),
+      invokeHostExtension: workspaceHostStub({
+        listEditors: async () => [],
+        getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+        getWorkspaceInfo: async () => ({ root: "/project", isRepo: true, isDirty: false, worktrees: [], refs: [] }),
+        getFileTree: async () => [],
+      }),
+    });
+    const view = renderApp(client);
+    await screen.findByRole("heading", { name: /do next\?$/ });
+    // A fresh install keeps the host's thread: no thread has a message yet.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(readNewThreadDraft(view.storage)).toBeUndefined();
+
+    act(() => client.emit({ type: "thread-index", threadIndex: { projects: [project], sessions: [start, { ...start, id: "old", path: "/old.jsonl", title: "Old work", modifiedAt: 1, messageCount: 4 }] } }));
+    await waitFor(() => expect(readNewThreadDraft(view.storage)).toMatchObject({ projectPath: "/project" }));
+  });
+
   it("keeps a new thread draft in memory without persisting image-capable composer data", async () => {
     const newSession = vi.fn(async () => ({ version: 1 as const, updates: [] as never[], submission: { accepted: true as const } }));
     const capabilityResolvers = new Map<string, Array<(capability: { cwd: string; generation: number; supportsImageInput: boolean }) => void>>();
