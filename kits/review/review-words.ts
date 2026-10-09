@@ -9,6 +9,7 @@ export const ALREADY: Record<NonNullable<LocalReview["mergedBy"]>, string> = {
   patches: "every commit's change is there already, under other commits (a cherry-pick, a rebase or rewritten history).",
   tree: "merging would change nothing (a squash merge).",
   squash: "its combined change was squash-merged, before later edits to the target.",
+  history: "an earlier commit of the target held all of it (a squashed base with picked commits), before later edits.",
   request: "its pull request was merged on the host.",
 };
 

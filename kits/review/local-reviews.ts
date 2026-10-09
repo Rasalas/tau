@@ -28,7 +28,7 @@ export interface ThreadBranch {
   committedAt?: number;
   merged: boolean;
   /** Merged without the branch's own commits: same patches, same tree, or its pull request merged on the host. */
-  mergedBy?: "patches" | "tree" | "squash" | "request";
+  mergedBy?: "patches" | "tree" | "squash" | "history" | "request";
   defaultBranch?: string;
   conflicts: string[];
   unavailable?: string;

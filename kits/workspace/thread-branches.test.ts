@@ -331,6 +331,38 @@ describe("a branch the target holds under other commits", () => {
     expect(await readThreadBranch(dir)).toMatchObject({ merged: false });
   });
 
+  it("is merged once a target commit held it all, a squashed base and a picked commit, before the target edited both", async () => {
+    const repo = await repository();
+    const dir = repo.worktree("fix/top");
+    await repo.commit(dir, "a.txt", "one\nTWO\nthree\n");
+    await repo.commit(dir, "c.txt", "see\n");
+    repo.run(repo.cwd, "branch", "feat/base", "fix/top");
+    await repo.commit(dir, "d.txt", "dee\n");
+    repo.run(repo.cwd, "merge", "--squash", "feat/base");
+    repo.run(repo.cwd, "commit", "-qm", "squashed base");
+    repo.run(repo.cwd, "cherry-pick", "fix/top");
+    await repo.commit(repo.cwd, "a.txt", "one\nzwei\nthree\n");
+    await repo.commit(repo.cwd, "d.txt", "DEE\n");
+
+    expect(await readThreadBranch(dir)).toMatchObject({ ahead: 3, merged: true, mergedBy: "history", conflicts: [] });
+    await repo.commit(dir, "e.txt", "not integrated\n");
+    expect(await readThreadBranch(dir)).toMatchObject({ merged: false });
+  });
+
+  it("stays open when no target commit ever held all of it", async () => {
+    const repo = await repository();
+    const dir = repo.worktree("fix/partial");
+    await repo.commit(dir, "a.txt", "one\nTWO\nthree\n");
+    await repo.commit(dir, "c.txt", "see\n");
+    repo.run(repo.cwd, "cherry-pick", "fix/partial~1");
+    await repo.commit(repo.cwd, "a.txt", "one\nzwei\nthree\n");
+    await repo.commit(repo.cwd, "c.txt", "sea\n");
+
+    const branch = await readThreadBranch(dir);
+    expect(branch).toMatchObject({ merged: false });
+    expect(branch?.mergedBy).toBeUndefined();
+  });
+
   it("recognizes a precursor incorporated into a squashed integration branch", async () => {
     const repo = await repository();
     const precursor = repo.worktree("fix/precursor");
