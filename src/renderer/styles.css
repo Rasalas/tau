@@ -351,16 +351,16 @@ button > svg { pointer-events: none; }
 /* One triplet on every client: a run in blue with a spinner, a question in amber, done in green. */
 .thread-status-age {
   display: inline-flex; align-items: center; gap: 5px; flex: none;
-  color: var(--info-ink); font-size: var(--text-xs); font-weight: 400; font-variant-numeric: tabular-nums;
+  color: var(--info-ink); font-size: var(--text-xs); font-weight: 500; font-variant-numeric: tabular-nums;
 }
 .thread-status-age.status-ready { color: var(--ready); }
-.thread-status-age.status-waiting { color: var(--warn); font-weight: 600; }
+.thread-status-age.status-waiting { color: var(--warn); }
 .thread-status-age.status-interrupted { color: var(--warn); }
-.thread-status-age:is(.status-failed, .status-limited) { color: var(--fail-ink); font-weight: 600; }
-.thread-status-age.status-offline { color: var(--muted); font-weight: 600; }
+.thread-status-age:is(.status-failed, .status-limited) { color: var(--fail-ink); }
+.thread-status-age.status-offline { color: var(--muted); }
 /* The design's spinner: a pale ring with the ink's arc. */
 .thread-status-age > i {
-  width: 9px; height: 9px; flex: none; border: 1.5px solid color-mix(in srgb, var(--info) 35%, transparent);
+  width: 11px; height: 11px; flex: none; border: 1.5px solid color-mix(in srgb, var(--info) 35%, transparent);
   border-top-color: var(--info-ink); border-radius: 50%; animation: spin .9s linear infinite;
 }
 .thread-status-age > time { min-width: 3ch; color: inherit; font: var(--text-xs) var(--mono); letter-spacing: 0; }

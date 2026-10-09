@@ -4569,7 +4569,7 @@ A run in flight is blue (`--info`, `--info-ink`), a question amber (`--warn`), a
 | Token | Role | Light | Dark |
 |---|---|---|---|
 | `--working` | a file a turn changed; a write | `#a34a08` | `#ff8a4d` |
-| `--ready` | a run that finished | `#2f633c` | `#a4d0b1` |
+| `--ready` | a run that finished | `#2f633c` | `#56dc85` |
 | `--removed` | something taken away | `#8c352f` | `#eba9a2` |
 | `--stop` | the abort control | `#c2282d` | `#e5484d` |
 | `--stop-ink` | the square on the stop button | `#ffffff` | `#ffffff` |
@@ -4579,13 +4579,13 @@ A run in flight is blue (`--info`, `--info-ink`), a question amber (`--warn`), a
 | `--danger` | destructive text | `#8c352f` | `#eba9a2` |
 | `--danger-line` | the edge of a destructive control | `#edb0a8` | `#6b352f` |
 | `--danger-bg` | that control, hovered | `#fbe9e7` | `#301613` |
-| `--warn` | a caution, and a question waiting for the user | `#82601a` | `#e8c67f` |
+| `--warn` | a caution, and a question waiting for the user | `#82601a` | `#ffbd34` |
 | `--warn-chip` | a caution as a chip | `#fcf3dc` | `#291e05` |
 | `--fail` | a failed run's mark | `#c9564d` | `#d9756b` |
-| `--fail-ink` | what that run says | `#8c352f` | `#eba9a2` |
+| `--fail-ink` | what that run says | `#8c352f` | `#fc7a75` |
 | `--info` | a run or a step in progress | `#4f79c9` | `#6b93e0` |
 | `--info-deep` | a step already done, in a dense bar | `#3d63b0` | `#86a7e7` |
-| `--info-ink` | the same, as text | `#2f4f8f` | `#a6bfee` |
+| `--info-ink` | the same, as text | `#2f4f8f` | `#7cafff` |
 | `--merged` | a merged pull or merge request | `#7446c2` | `#b59cf2` |
 | `--done` | a step that finished | `#4f9660` | `#6fae82` |
 | `--stale` | how long ago something ran | `#8a5a3f` | `#c9a18b` |
