@@ -91,6 +91,14 @@ jobs:
             echo "nightly=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # A version bump, docs, tests or CI alone would rebuild the same app under the next patch.
+          if [ "$EVENT" = schedule ] && [ -n "$last" ] && git fetch --quiet --depth=1 origin "$last" \
+            && [ "$(node .github/scripts/nightly-changes.mjs "$last" "$head")" = "changed=false" ]; then
+            echo "main moved past the last nightly ($last) by nothing the app ships; nothing to publish."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "nightly=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           version="$(node scripts/packaging/nightly-version.mjs --run "$RUN_NUMBER")"
           echo "Nightly $version from $head (last nightly: ${last:-none})."
           echo "build=true" >> "$GITHUB_OUTPUT"
