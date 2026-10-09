@@ -80,7 +80,7 @@ export interface HostBackendThreadRecord {
   threadId: string;
   cwd: string;
   title?: string;
-  /** When the thread began; the rail orders active threads by it. New in API 1.53.0. */
+  /** When the thread began; the rail orders active threads by it. New in API 1.54.0. */
   createdAt?: number;
   updatedAt: number;
   /** Visible messages, enough for a title and a count. */
