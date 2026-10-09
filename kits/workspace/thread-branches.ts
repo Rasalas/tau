@@ -245,15 +245,27 @@ export async function readThreadBranch(path: string, runGit: AgentGitRunner = ru
   };
 }
 
-/** Auto-settling needs clean files and proof the published target holds all committed work. */
-export async function threadWorkIntegrated(path: string, runGit: AgentGitRunner = runAgentGit): Promise<boolean> {
-  const branch = await readThreadBranch(path, runGit, undefined, true);
+/**
+ * Auto-settling needs clean files and proof the published target holds all committed work.
+ * `targets` are the branches merged requests went to; any one holding the work is enough.
+ */
+export async function threadWorkIntegrated(path: string, runGit: AgentGitRunner = runAgentGit, targets: readonly string[] = []): Promise<boolean> {
+  if (targets.length === 0) return integratedInto(path, runGit);
+  for (const target of targets) {
+    // oxlint-disable-next-line no-await-in-loop -- usually one target; stop at the first that holds the work
+    if (await integratedInto(path, runGit, target)) return true;
+  }
+  return false;
+}
+
+async function integratedInto(path: string, runGit: AgentGitRunner, requested?: string): Promise<boolean> {
+  const branch = await readThreadBranch(path, runGit, requested, true);
   if (branch) return branch.merged && branch.uncommitted === 0 && !branch.unavailable;
   // Linked requests also belong to threads in an ordinary shared checkout.
   if ((await runGit(path, ["status", "--porcelain", "--untracked-files=normal"])).trim()) return false;
   const current = (await runGit(path, ["symbolic-ref", "--short", "HEAD"])).trim();
   const saved = (await runGit(path, ["config", "--get", branchReviewTargetConfigKey(current)]).catch(() => "")).trim();
-  const target = saved || await readDefaultBranch(path, (cwd, args) => runGit(cwd, args));
+  const target = requested || saved || await readDefaultBranch(path, (cwd, args) => runGit(cwd, args));
   const head = (await runGit(path, ["rev-parse", "--verify", `refs/remotes/origin/${target}^{commit}`]).catch(() => "")).trim();
   if (!head) return false;
   const tip = (await runGit(path, ["rev-parse", "HEAD"])).trim();

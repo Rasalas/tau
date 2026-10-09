@@ -268,6 +268,8 @@ export interface SweepThread {
 export interface SweepRequest {
   state?: "open" | "closed" | "merged";
   url: string;
+  /** The branch it targets; a merged request's work landed there. */
+  baseRef?: string;
 }
 
 function lastActivity(thread: SweepThread, meta: ThreadMeta | undefined): number | undefined {

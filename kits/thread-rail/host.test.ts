@@ -41,7 +41,7 @@ interface Setup {
   sessions?: HostSessionSummary[];
   modified?: Record<string, number>;
   review?: (workspace: string, input: { fresh?: boolean }) => unknown;
-  integrated?: (workspace: string) => unknown;
+  integrated?: (workspace: string, targets?: string[]) => unknown;
   /** Review Kit's answer about the requests threads link. */
   linked?: (threadIds: string[]) => unknown;
   now?: () => number;
@@ -95,7 +95,7 @@ async function harness(setup: Setup = {}) {
       id: "tau.workspace", name: "Workspace Kit",
       activate(context) {
         context.registerCommand("thread-work-integrated", (input) => setup.integrated
-          ? setup.integrated((input as { workspace: string }).workspace)
+          ? setup.integrated((input as { workspace: string }).workspace, (input as { targets?: string[] }).targets)
           : { integrated: true }, { access: "read", callers: [THREAD_RAIL_EXTENSION_ID] });
       },
     });
@@ -275,6 +275,18 @@ describe("Thread Rail host", () => {
     expect((await invoke("sweep")).threads.continued?.settledAt).toBeUndefined();
     integrated = true;
     expect((await invoke("sweep")).threads.continued?.settledBy).toBe("pr-merged");
+  });
+
+  it("checks the merged PR's base, not the branch the worktree started from", async () => {
+    const integrated = vi.fn((_workspace: string, targets?: string[]) => ({ integrated: targets?.includes("main") === true }));
+    const { invoke } = await harness({
+      sessions: [session("rebased", "/worktrees/rebased")],
+      review: () => ({ request: { url: "https://example.test/pr/63", state: "merged" } }),
+      linked: () => ({ rebased: [{ url: "https://example.test/pr/63", state: "merged", baseRef: "main" }] }),
+      integrated,
+    });
+    expect((await invoke("sweep")).threads.rebased?.settledBy).toBe("pr-merged");
+    expect(integrated).toHaveBeenCalledWith("/worktrees/rebased", ["main"]);
   });
 
   it("does not treat an unavailable integration check as proof that the work landed", async () => {
