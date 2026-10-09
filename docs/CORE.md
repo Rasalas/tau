@@ -548,10 +548,8 @@ scheme and a near-black with a faint blue cast in the dark (K77), on two
 grounds — the document area and the side surface, the latter the lighter one
 in the dark scheme — one blue accent for Tau's own actions and selection,
 green and red for diffs and checks, amber for a question, short light shadows,
-and Figtree as the interface face. Figtree ships with Tau as local `woff2`
-files (`src/renderer/assets/fonts/figtree/`, SIL OFL 1.1, listed in the
-third-party licences) that `tokens.css` declares, so no font is fetched from a
-server and the first paint stays offline. The Tau mark is a warm-white τ on
+and the platform face (SF Pro on Apple systems) as the interface face, as in
+T3 Code; Tau bundles no font, so the first paint stays offline. The Tau mark is a warm-white τ on
 that blue (`--brand`, artwork in `assets/icon/`): the app icon, the reload
 curtain and the onboarding mark.
 

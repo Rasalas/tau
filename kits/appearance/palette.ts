@@ -43,7 +43,7 @@ const HAIRLINES: Readonly<Record<string, number>> = {
 
 /** How far each ink sits from the foreground toward the background, and the contrast it must keep. */
 const INKS: Readonly<Record<string, readonly [number, number]>> = {
-  "--ink-prose": [0.05, 4.5], "--ink-2": [0.14, 4.5], "--ink-3": [0.3, 4.5], "--ink-code": [0.2, 4.5],
+  "--ink-prose": [0.2, 4.5], "--ink-2": [0.14, 4.5], "--ink-3": [0.3, 4.5], "--ink-code": [0.2, 4.5],
   "--muted": [0.42, 4.5], "--muted-2": [0.5, 3], "--faint": [0.58, 3], "--fainter": [0.72, 1],
 };
 

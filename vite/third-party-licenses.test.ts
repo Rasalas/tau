@@ -17,10 +17,10 @@ async function pkg(directory: string, manifest: Record<string, unknown>, license
 }
 
 describe("the packages Tau ships", () => {
-  it("names the interface font it bundles, with the font's own licence", () => {
-    const [figtree] = bundledFileLicenses(fileURLToPath(new URL("..", import.meta.url)));
-    expect(figtree).toMatchObject({ name: "Figtree", license: "OFL-1.1" });
-    expect(figtree?.text).toMatch(/Copyright 2022 The Figtree Project Authors[\s\S]*SIL OPEN FONT LICENSE Version 1\.1/u);
+  it("names the source it adapted, with that project's own licence", () => {
+    const [t3] = bundledFileLicenses(fileURLToPath(new URL("..", import.meta.url)));
+    expect(t3).toMatchObject({ name: "T3 Code", license: "MIT" });
+    expect(t3?.text).toMatch(/MIT License/u);
   });
 
   it("walks dependencies and bundled devDependencies as Node resolves them, never build tools", async () => {
