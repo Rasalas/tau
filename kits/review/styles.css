@@ -1249,4 +1249,10 @@ body[data-profile="compact"] .pr-verdict { min-height: var(--touch-target); padd
 .review-pr-watch-popover p { margin: 0 0 10px; color: var(--muted); font: var(--text-xs)/1.55 var(--sans); }
 .review-pr-watch-popover button { padding: 7px 11px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--inset); color: var(--ink); font: var(--text-xs) var(--sans); cursor: pointer; }
 .review-pr-watch-popover .review-pr-watch-error { color: var(--fail-ink); }
+.review-pr-watch-list { display: grid; gap: 10px; margin: 0 0 10px; padding: 0; list-style: none; }
+.review-pr-watch-list li { display: flex; align-items: center; gap: 10px; }
+.review-pr-watch-row-text { display: grid; flex: 1; min-width: 0; color: var(--muted); font: var(--text-xs)/1.5 var(--sans); }
+.review-pr-watch-row-text strong { color: var(--ink); font-weight: 500; }
+.review-pr-watch-row-title { overflow: hidden; color: var(--ink); text-overflow: ellipsis; white-space: nowrap; }
+.review-pr-watch-list button { flex: none; }
 @media (max-width: 560px) { .review-pr-watch { min-height: 44px; } .review-pr-watch-popover button { min-height: 44px; } }

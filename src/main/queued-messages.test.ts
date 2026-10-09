@@ -172,6 +172,16 @@ describe("QueuedMessages", () => {
       expect(published.get("t")?.messages.map((message) => message.text)).toEqual(["mine"]);
     });
 
+    it("keeps each pull request's updates under its own number when wakes about several are combined", async () => {
+      const { queue, busy, delivered, settle } = bench();
+      busy.add("t");
+      queue.add("t", wake("PR #82 · checks passed; PR #83 · a check failed (smoke)"));
+      queue.add("t", wake("PR #82 · merged"));
+      queue.add("t", wake("PR #84 · new comments or reviews"));
+      await settle("t");
+      expect(delivered[0]?.text.split("\n")[0]).toBe("[Tau wake: pull-request] PR #82 · checks passed · merged; PR #83 · a check failed (smoke); PR #84 · new comments or reviews");
+    });
+
     it("drops waiting wakes at once and leaves the user's messages in their order", () => {
       const { queue, busy, published } = bench();
       busy.add("t");

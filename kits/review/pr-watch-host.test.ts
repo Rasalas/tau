@@ -6,10 +6,12 @@ import type { HostMcpInstructionsProvider, HostSessionServices, HostTurnObserver
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import type { SourceControl } from "./provider-registry.js";
 import { parseRequestUrl } from "./pull-request-json.js";
-import { registerPullRequestWatches, wakeText } from "./pr-watch-host.js";
+import { WATCH_INSTRUCTIONS, registerPullRequestWatches, wakeLabel as labelFor, wakeText } from "./pr-watch-host.js";
 import { readWatchSnapshot } from "./pr-watch-github.js";
-import { watchChanges, type PullRequestWatch, type WatchSnapshot, type WatchState } from "./pr-watch-protocol.js";
+import { watchChanges, watchStanding, type PullRequestWatch, type WatchSnapshot, type WatchState } from "./pr-watch-protocol.js";
 const URL = "https://github.com/example/project/pull/42";
+const OTHER = "https://github.com/example/project/pull/43";
+const THIRD = "https://github.com/example/project/pull/44";
 const initial: WatchSnapshot = { state: "OPEN", head: "head-1", checks: "pending", failed: [], comments: "0", conflict: false };
 const cleanups: (() => Promise<unknown>)[] = [];
 const wakeLabel = (send: { mock: { calls: unknown[][] } }, index: number) => (send.mock.calls[index]?.[2] as { wake?: { label?: string } } | undefined)?.wake?.label;
@@ -17,15 +19,17 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) awai
 async function harness(directory?: string, current = initial) {
   const stateDir = directory ?? await mkdtemp(join(tmpdir(), "tau-pr-watch-"));
   if (!directory) cleanups.push(() => rm(stateDir, { recursive: true, force: true }));
-  let snapshot = current, time = Date.now(), failure = false, observer: HostTurnObserver | undefined;
+  const snapshots = new Map<string, WatchSnapshot>();
+  let time = Date.now(), failure = false, observer: HostTurnObserver | undefined;
+  const snapshotOf = (url: string) => snapshots.get(url) ?? current;
   const instructions: HostMcpInstructionsProvider[] = [];
   const promptHooks: ((event: { systemPrompt: string }) => { systemPrompt: string })[] = [];
-  const read = vi.fn(async () => { if (failure) throw new Error("GitHub unavailable"); return structuredClone(snapshot); });
+  const read = vi.fn(async (_tools: unknown, ref: { url: string }) => { if (failure) throw new Error("GitHub unavailable"); return structuredClone(snapshotOf(ref.url)); });
   const reread = vi.fn(async (_url: string) => undefined);
   const send = vi.fn(async (_id: string, _text: string, _options: unknown) => {
     // The durable fingerprint precedes the visible queue admission.
     const stored = JSON.parse(await readFile(join(stateDir, "tau.review", "pr-watches.json"), "utf8"));
-    expect(JSON.stringify(stored)).toContain(snapshot.comments);
+    for (const url of [URL, ...snapshots.keys()]) expect(JSON.stringify(stored)).toContain(snapshotOf(url).comments);
   });
   const registry = await activateHostKit({ id: "tau.review", name: "Review", permissions: ["sessions", "runtime:extend"], activate: (context) => registerPullRequestWatches(context, { tools: {}, forUrl: (url: string) => ({ ref: parseRequestUrl(url) }) } as unknown as SourceControl, { link: async () => undefined, review: async () => undefined, observe: async () => undefined, reread, dispose: () => undefined }, { period: 15, read, now: () => time }) }, {
     stateDir, sessions: { list: async () => [{ sessionId: "a" }, { sessionId: "b" }], refreshIndex: async () => ({ type: "thread-index", index: { projects: [], sessions: ["a", "b", "claude-1"].map((id) => ({ id })) } }), send } as unknown as HostSessionServices,
@@ -38,12 +42,12 @@ async function harness(directory?: string, current = initial) {
   });
   cleanups.push(() => registry.deactivate("tau.review"));
   const call = (command: string, input?: unknown) => registry.invoke("tau.review", command, input);
-  return { stateDir, registry, call, instructions, promptHooks, send, read, reread, stop: (id: string) => observer?.stopped?.(id), list: () => call("watch-list") as Promise<WatchState>, change: (value: Partial<WatchSnapshot>) => { snapshot = { ...snapshot, ...value }; }, unavailable: () => { failure = true; time += 16 * 60_000; } };
+  return { stateDir, registry, call, instructions, promptHooks, send, read, reread, stop: (id: string) => observer?.stopped?.(id), list: () => call("watch-list") as Promise<WatchState>, change: (value: Partial<WatchSnapshot>, url = URL) => { snapshots.set(url, { ...snapshotOf(url), ...value }); }, unavailable: () => { failure = true; time += 16 * 60_000; } };
 }
 it("detects checks finishing on a new head, comments, new conflicts and terminal state without waking on ordinary polling", () => {
   expect(watchChanges(initial, initial)).toEqual([]);
-  expect(watchChanges(initial, { ...initial, checks: "done", comments: "1", conflict: true })).toEqual(["checks finished", "new comments or reviews", "branch conflicts"]);
-  expect(watchChanges({ ...initial, checks: "done" }, { ...initial, checks: "done", head: "head-2" })).toEqual(["checks finished"]);
+  expect(watchChanges(initial, { ...initial, checks: "done", comments: "1", conflict: true })).toEqual(["checks passed", "new comments or reviews", "branch conflicts"]);
+  expect(watchChanges({ ...initial, checks: "done" }, { ...initial, checks: "done", head: "head-2" })).toEqual(["checks passed"]);
   expect(watchChanges(initial, { ...initial, state: "MERGED" })).toEqual(["merged"]);
 });
 it("wakes once when every check is done, at once for each new failure, and judges a new head afresh", () => {
@@ -51,9 +55,9 @@ it("wakes once when every check is done, at once for each new failure, and judge
   expect(watchChanges(initial, { ...initial })).toEqual([]);
   expect(watchChanges(initial, { ...initial, failed: [smoke] })).toEqual(["a check failed (smoke)"]);
   expect(watchChanges({ ...initial, failed: [smoke] }, { ...initial, failed: [smoke] })).toEqual([]);
-  expect(watchChanges({ ...initial, failed: [smoke] }, { ...initial, checks: "done", failed: [smoke] })).toEqual(["checks finished"]);
+  expect(watchChanges({ ...initial, failed: [smoke] }, { ...initial, checks: "done", failed: [smoke] })).toEqual(["checks finished, a check failed (smoke)"]);
   expect(watchChanges({ ...initial, failed: [smoke] }, { ...initial, failed: [smoke, test] })).toEqual(["a check failed (test (1/3))"]);
-  expect(watchChanges(initial, { ...initial, checks: "done", failed: [smoke, test] })).toEqual(["checks finished", "2 checks failed (smoke, test (1/3))"]);
+  expect(watchChanges(initial, { ...initial, checks: "done", failed: [smoke, test] })).toEqual(["checks finished, 2 checks failed (smoke, test (1/3))"]);
   expect(watchChanges({ ...initial, checks: "done", failed: [smoke] }, { ...initial, head: "head-2", failed: [smoke] })).toEqual(["a check failed (smoke)"]);
   expect(watchChanges({ ...initial, checks: "done" }, { ...initial, head: "head-2", checks: "none" })).toEqual([]);
   expect(watchChanges({ ...initial, checks: "none" }, { ...initial, checks: "none" })).toEqual([]);
@@ -75,7 +79,7 @@ it("stays quiet while checks pass one by one, wakes on each failure, then once w
   expect(label(1)).toBe("PR #42 · a check failed (smoke)");
   h.change({ checks: "done" });
   await vi.waitFor(() => expect(h.send).toHaveBeenCalledTimes(3));
-  expect(label(2)).toBe("PR #42 · checks finished");
+  expect(label(2)).toBe("PR #42 · checks finished, 2 checks failed (wayland-native, smoke)");
   h.change({ head: "head-2", checks: "pending", failed: [] });
   await new Promise((resolve) => setTimeout(resolve, 40));
   h.change({ failed: [{ id: "3", name: "wayland-native" }] });
@@ -102,7 +106,7 @@ it("queues marked deduplicated wakes, persists before admission, survives restar
   await h.call("watch-start", { threadId: "a", url: URL });
   h.change({ checks: "done" });
   await vi.waitFor(() => expect(h.send).toHaveBeenCalledTimes(1));
-  expect(h.send).toHaveBeenCalledWith("a", expect.stringContaining("checks finished"), { delivery: "queue", wake: { source: "pull-request", label: "PR #42 · checks finished" } });
+  expect(h.send).toHaveBeenCalledWith("a", expect.stringContaining("checks passed"), { delivery: "queue", wake: { source: "pull-request", label: "PR #42 · checks passed" } });
   await h.registry.deactivate("tau.review");
   const restored = await harness(h.stateDir, { ...initial, checks: "done" });
   await new Promise((resolve) => setTimeout(resolve, 40));
@@ -191,6 +195,46 @@ it("tells every runtime to wait on a pull request with a watch rather than a pol
   }
   expect(pi.startsWith("base\n\n")).toBe(true);
 });
+it("asks the agent to handle every watched PR in one turn, keep a standing merge instruction, and unwatch before merging itself", () => {
+  expect(WATCH_INSTRUCTIONS).toContain("Handle all of them in that turn");
+  expect(WATCH_INSTRUCTIONS).toMatch(/holds for every request it covers until the user withdraws it/u);
+  expect(WATCH_INSTRUCTIONS).toMatch(/Before you merge or close a watched request yourself, call unwatch_pull_request/u);
+  expect(WATCH_INSTRUCTIONS).not.toMatch(/stays with the user/u);
+});
+it("wakes a thread once for every PR that changed in a poll and says where its other watches stand", async () => {
+  const h = await harness();
+  for (const url of [URL, OTHER, THIRD]) await h.call("watch-start", { threadId: "a", url });
+  await h.call("watch-start", { threadId: "b", url: OTHER });
+  h.change({ checks: "done" }, URL);
+  h.change({ checks: "done", failed: [{ id: "5", name: "smoke" }] }, OTHER);
+  await vi.waitFor(() => expect(h.send).toHaveBeenCalledTimes(2));
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  expect(h.send).toHaveBeenCalledTimes(2);
+  const [threadA, threadB] = ["a", "b"].map((id) => h.send.mock.calls.find((call) => call[0] === id)!);
+  expect(threadA[2]).toEqual({ delivery: "queue", wake: { source: "pull-request", label: "PR #42 · checks passed; PR #43 · checks finished, a check failed (smoke)" } });
+  expect(threadA[1]).toContain(`Pull request #42 (${URL}) at head commit head-1: checks passed.`);
+  expect(threadA[1]).toContain("- smoke: job 5 (gh run view --job 5 --log-failed)");
+  expect(threadA[1]).toContain(`Other pull requests this thread watches, unchanged:\n- #44 (${THIRD}): checks running`);
+  expect(threadA[1]).toContain("for each of them in this turn");
+  expect(threadB[1]).not.toContain("#42");
+  expect(watchStanding({ ...initial, checks: "done", conflict: true })).toBe("checks passed, branch conflicts");
+});
+it("shortens a wake line that names many PRs instead of cutting it mid-word", () => {
+  const event = (number: number, reason: string) => ({ watch: { ref: { url: `${URL}/${number}`, number } as PullRequestWatch["ref"] }, reasons: [reason] });
+  const failed = (number: number) => event(number, "checks finished, a check failed (Native fingerprint diff)");
+  expect(labelFor([event(17604, "checks passed"), event(17606, "checks passed"), failed(17607), failed(17602)])).toBe("PR #17604 · checks passed; PR #17606 · checks passed; PR #17607 · checks finished, a check failed; PR #17602 · checks finished, a check failed");
+  expect(labelFor([17601, 17602, 17603, 17604, 17605, 17606].map(failed))).toBe("PR #17601; PR #17602; PR #17603; PR #17604; PR #17605; PR #17606");
+});
+it("sends no wake for a PR the agent unwatched before merging it", async () => {
+  const h = await harness();
+  for (const url of [URL, OTHER]) await h.call("watch-start", { threadId: "a", url });
+  await h.call("watch-stop", { threadId: "a", url: URL });
+  h.change({ state: "MERGED" }, URL);
+  h.change({ comments: "1" }, OTHER);
+  await vi.waitFor(() => expect(h.send).toHaveBeenCalledTimes(1));
+  expect(wakeLabel(h.send, 0)).toBe("PR #43 · new comments or reviews");
+  expect(h.send.mock.calls[0]?.[1]).not.toContain("#42");
+});
 it("watches a thread of any runtime, not only Pi's, and refuses one the host does not know", async () => {
   const h = await harness();
   await h.call("watch-start", { threadId: "claude-1", url: URL });
@@ -199,7 +243,7 @@ it("watches a thread of any runtime, not only Pi's, and refuses one the host doe
 });
 it("names the head commit and the failed jobs, so a wake about an older push reads as one", () => {
   const ref = { url: URL, number: 42 } as PullRequestWatch["ref"];
-  const text = wakeText({ ref }, ["a check failed (test (2/3))"], { state: "OPEN", head: "abc123", checks: "done", failed: [{ id: "987", name: "test (2/3)" }, { id: "lint https://ci", name: "lint" }], comments: "0", conflict: false });
+  const text = wakeText([{ watch: { ref }, reasons: ["a check failed (test (2/3))"], snapshot: { state: "OPEN", head: "abc123", checks: "done", failed: [{ id: "987", name: "test (2/3)" }, { id: "lint https://ci", name: "lint" }], comments: "0", conflict: false } }]);
   expect(text).toContain(`Pull request #42 (${URL}) at head commit abc123: a check failed (test (2/3)).`);
   expect(text).toContain("- test (2/3): job 987 (gh run view --job 987 --log-failed)");
   expect(text).not.toContain("lint:");

@@ -5,7 +5,7 @@ import type { SourceControl } from "./provider-registry.js";
 import type { ThreadLinks } from "./thread-links-host.js";
 import { parseRequestUrl } from "./pull-request-json.js";
 import { readWatchSnapshot } from "./pr-watch-github.js";
-import { watchChanges, type PullRequestWatch, type WatchSnapshot } from "./pr-watch-protocol.js";
+import { watchChanges, watchStanding, type PullRequestWatch, type WatchSnapshot } from "./pr-watch-protocol.js";
 const PERIOD = 60_000;
 const UNREADABLE_LIMIT = 15 * 60_000;
 const RAIL = "tau.thread-rail";
@@ -14,7 +14,9 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 const key = (watch: Pick<PullRequestWatch, "threadId" | "ref">) => `${watch.threadId}:${watch.ref.url}`;
 /** In every runtime's system prompt, so an agent waits on a PR with a watch instead of a polling loop. */
 export const WATCH_INSTRUCTIONS = `<pull_request_watching>
-When your next step waits on a GitHub pull request, such as its checks finishing or a review arriving, call watch_pull_request with its full URL, tell the user, and end your turn. Tau then sends a message into this thread, possibly while you are still working, when all checks finish or one fails, someone comments or reviews, the branch conflicts, or the request is merged or closed, and you continue from there. Do not wait with gh pr checks --watch, sleep or a background polling loop. A watch never merges or edits the request. Call unwatch_pull_request when you no longer need it.
+When your next step waits on a GitHub pull request, such as its checks finishing or a review arriving, call watch_pull_request with its full URL, tell the user, and end your turn. Watch every request you open or wait on, each layer of a stack included. Tau then sends a message into this thread, possibly while you are still working, when all checks finish or one fails, someone comments or reviews, the branch conflicts, or the request is merged or closed, and you continue from there. Do not wait with gh pr checks --watch, sleep or a background polling loop.
+One message names every watched request that changed and where the thread's other watched requests stand. Handle all of them in that turn rather than one per turn.
+A watch never merges or edits the request. Merge only when the user asked you to. An instruction such as "merge them once they are green" holds for every request it covers until the user withdraws it; follow it without asking again. Before you merge or close a watched request yourself, call unwatch_pull_request for it, so its end does not wake the thread. Call unwatch_pull_request when you no longer need a watch.
 </pull_request_watching>`;
 /** A baseline saved before failures were tracked held one combined `checks` string. */
 function decodeSnapshot(value: unknown): WatchSnapshot {
@@ -31,14 +33,36 @@ function legacyChecks(checks: string): WatchSnapshot["checks"] {
   try { state = (JSON.parse(checks) as unknown[])[0]; } catch { /* a bare rollup state */ }
   return state === "PENDING" || state === "EXPECTED" ? "pending" : "done";
 }
-/** Names the commit the event belongs to, so an agent that pushed since can tell a stale result from its own. */
-export function wakeText(watch: Pick<PullRequestWatch, "ref">, reasons: readonly string[], snapshot?: WatchSnapshot): string {
-  const at = snapshot ? ` at head commit ${snapshot.head}` : "";
-  const jobs = (snapshot?.failed ?? []).filter((check) => /^\d+$/u.test(check.id)).map((check) => `${check.name}: job ${check.id} (gh run view --job ${check.id} --log-failed)`);
+export interface WatchEvent { watch: Pick<PullRequestWatch, "ref">; reasons: readonly string[]; snapshot?: WatchSnapshot }
+/** Where the wake line cuts a label (`markWake`). */
+const LABEL_LIMIT = 160;
+/**
+ * The label of one wake: a subject per PR, joined the way `combineWakes` reads them.
+ * Too long for the line, it drops the check names, then everything but the numbers; the body keeps them.
+ */
+export function wakeLabel(events: readonly WatchEvent[]): string {
+  const build = (short: (reason: string) => string) => events.map(({ watch, reasons }) => [`PR #${watch.ref.number}`, ...reasons.map(short)].join(" · ")).join("; ");
+  for (const short of [(reason: string) => reason, (reason: string) => reason.replace(/ \(.*\)$/u, "")]) {
+    const label = build(short);
+    if (label.length <= LABEL_LIMIT) return label;
+  }
+  return events.map(({ watch }) => `PR #${watch.ref.number}`).join("; ");
+}
+/**
+ * One wake for every PR of a thread that changed in a poll, then where its other watches stand.
+ * Names the commit each event belongs to, so an agent that pushed since can tell a stale result from its own.
+ */
+export function wakeText(events: readonly WatchEvent[], others: readonly Pick<PullRequestWatch, "ref" | "baseline" | "status">[] = []): string {
+  const parts = events.flatMap(({ watch, reasons, snapshot }) => {
+    const at = snapshot ? ` at head commit ${snapshot.head}` : "";
+    const jobs = (snapshot?.failed ?? []).filter((check) => /^\d+$/u.test(check.id)).map((check) => `${check.name}: job ${check.id} (gh run view --job ${check.id} --log-failed)`);
+    return [`Pull request #${watch.ref.number} (${watch.ref.url})${at}: ${reasons.join(", ")}.`, ...(jobs.length ? [`Failed check runs on that commit:\n${jobs.map((job) => `- ${job}`).join("\n")}`] : [])];
+  });
+  const standing = others.map((watch) => `- #${watch.ref.number} (${watch.ref.url}): ${watch.status === "unreadable" ? "GitHub unreadable right now" : watchStanding(watch.baseline)}`);
   return [
-    `Pull request #${watch.ref.number} (${watch.ref.url})${at}: ${reasons.join(", ")}.`,
-    ...(jobs.length ? [`Failed check runs on that commit:\n${jobs.map((job) => `- ${job}`).join("\n")}`] : []),
-    `${snapshot ? "If you pushed since, these results belong to the older commit. " : ""}Inspect the current state and decide what work is needed. Merging stays with the user.`,
+    ...parts,
+    ...(standing.length ? [`Other pull requests this thread watches, unchanged:\n${standing.join("\n")}`] : []),
+    `${events.some((event) => event.snapshot) ? "If you pushed since, these results belong to the older commit. " : ""}Inspect the current state and decide what work is needed${events.length > 1 ? " for each of them in this turn" : ""}. The watch never merges; merge only when the user asked you to.`,
   ].join("\n\n");
 }
 function decode(value: unknown): PullRequestWatch[] {
@@ -95,15 +119,19 @@ export async function registerPullRequestWatches(context: HostExtensionContext, 
     const watch: PullRequestWatch = { threadId, ref, status: "watching", startedAt: now(), lastReadAt: now(), wakes: 0, commentStreak: 0, baseline: snapshot };
     watches.set(id, watch); await changed(); return structuredClone(watch);
   };
-  const wake = async (watch: PullRequestWatch, reasons: string[], snapshot?: WatchSnapshot) => {
+  const wake = async (threadId: string, events: readonly WatchEvent[]) => {
     if (!services.sessions.send) throw new HostCommandError("The host cannot queue PR wakes.");
-    await services.sessions.send(watch.threadId, wakeText(watch, reasons, snapshot), { delivery: "queue", wake: { source: "pull-request", label: `PR #${watch.ref.number} · ${reasons.join(" · ")}` } });
+    const others = [...watches.values()].filter((watch) => watch.threadId === threadId && watch.status !== "ended" && !events.some((event) => event.watch === watch));
+    await services.sessions.send(threadId, wakeText(events, others), { delivery: "queue", wake: { source: "pull-request", label: wakeLabel(events) } });
   };
   const tick = async () => {
     if (disposed || polling || ![...watches.values()].some((watch) => watch.status !== "ended")) return;
     polling = true;
     const reads = new Map<string, Promise<WatchSnapshot>>();
     const reread = new Set<string>();
+    // A thread hears about every PR that changed in this poll in one wake, not one turn per PR.
+    const due = new Map<string, (WatchEvent & { watch: PullRequestWatch; unreadable?: true })[]>();
+    const add = (event: WatchEvent & { watch: PullRequestWatch; unreadable?: true }) => due.set(event.watch.threadId, [...due.get(event.watch.threadId) ?? [], event]);
     try {
       // All watches of one PR share its read, including ones that were added during this poll.
       for (const watch of [...watches.values()]) {
@@ -111,7 +139,7 @@ export async function registerPullRequestWatches(context: HostExtensionContext, 
         try {
           let read = reads.get(watch.ref.url);
           if (!read) { read = (options.read ?? readWatchSnapshot)(sources.tools, watch.ref); reads.set(watch.ref.url, read); }
-          // oxlint-disable-next-line no-await-in-loop -- bounded sequential admissions, one shared read per PR.
+          // oxlint-disable-next-line no-await-in-loop -- bounded sequential reads, one shared read per PR.
           const snapshot = await read;
           if (disposed || watch.stoppedBy || watches.get(key(watch)) !== watch) continue;
           const reasons = watch.baseline ? watchChanges(watch.baseline, snapshot) : [];
@@ -121,31 +149,29 @@ export async function registerPullRequestWatches(context: HostExtensionContext, 
             void links.reread(watch.ref.url);
           }
           watch.baseline = snapshot; watch.lastReadAt = now(); watch.status = "watching"; watch.reason = undefined;
-          if (reasons.length) {
-            watch.wakes++; watch.commentStreak = reasons.length === 1 && reasons[0] === "new comments or reviews" ? watch.commentStreak + 1 : 0;
-            if (snapshot.state !== "OPEN" || watch.commentStreak >= 10) { watch.status = "ended"; watch.reason = snapshot.state !== "OPEN" ? `PR ${snapshot.state.toLowerCase()}` : "Ten consecutive comment wakes"; }
-          }
-          // Save the fingerprint before admission: restart never blindly replays a wake.
-          // oxlint-disable-next-line no-await-in-loop
-          if (reasons.length) await changed();
-          if (reasons.length && !disposed && watch.stoppedBy !== "user" && watch.stoppedBy !== "settle") {
-            // oxlint-disable-next-line no-await-in-loop
-            await wake(watch, [...reasons, ...(watch.reason === "Ten consecutive comment wakes" ? ["watch ended after ten comment wakes"] : [])], snapshot).catch(async () => {
-              watch.status = "ended"; watch.reason = "Wake admission was not confirmed. Inspect the thread before watching again."; await changed();
-            });
-          }
+          if (!reasons.length) continue;
+          watch.wakes++; watch.commentStreak = reasons.length === 1 && reasons[0] === "new comments or reviews" ? watch.commentStreak + 1 : 0;
+          if (snapshot.state !== "OPEN" || watch.commentStreak >= 10) { watch.status = "ended"; watch.reason = snapshot.state !== "OPEN" ? `PR ${snapshot.state.toLowerCase()}` : "Ten consecutive comment wakes"; }
+          add({ watch, reasons: [...reasons, ...(watch.reason === "Ten consecutive comment wakes" ? ["watch ended after ten comment wakes"] : [])], snapshot });
         } catch (error) {
           if (disposed || watch.stoppedBy) continue;
           watch.status = "unreadable"; watch.reason = message(error);
-          const ended = now() - (watch.lastReadAt ?? watch.startedAt) >= UNREADABLE_LIMIT;
-          if (ended) { watch.status = "ended"; watch.reason = "GitHub unreadable for 15 minutes"; }
-          // oxlint-disable-next-line no-await-in-loop
-          if (ended) await changed();
-          if (ended) {
-            // oxlint-disable-next-line no-await-in-loop
-            await wake(watch, ["watch ended: GitHub unreadable for 15 minutes"]).catch(() => undefined);
-          }
+          if (now() - (watch.lastReadAt ?? watch.startedAt) < UNREADABLE_LIMIT) continue;
+          watch.status = "ended"; watch.reason = "GitHub unreadable for 15 minutes";
+          add({ watch, reasons: ["watch ended: GitHub unreadable for 15 minutes"], unreadable: true });
         }
+      }
+      // Save the fingerprints before admission: restart never blindly replays a wake.
+      if (due.size) await changed();
+      for (const [threadId, events] of due) {
+        const live = events.filter((event) => !event.watch.stoppedBy && watches.get(key(event.watch)) === event.watch);
+        if (disposed || !live.length) continue;
+        // oxlint-disable-next-line no-await-in-loop -- one admission per thread, in order.
+        await wake(threadId, live).catch(async () => {
+          // An unreadable watch has already ended with its own reason.
+          for (const event of live) if (!event.unreadable) { event.watch.status = "ended"; event.watch.reason = "Wake admission was not confirmed. Inspect the thread before watching again."; }
+          await changed();
+        });
       }
     } finally { polling = false; if (!disposed) await changed(); }
   };
@@ -164,8 +190,8 @@ export async function registerPullRequestWatches(context: HostExtensionContext, 
     await changed();
   }, { access: "owner", callers: [RAIL] });
   const tools = (session: RuntimeSessionInfo): HostMcpTool[] => [
-    { name: "watch_pull_request", label: "Watch pull request", description: "Watch a GitHub PR in this thread. Wake the thread when all checks finish or one fails, someone comments or reviews, the branch conflicts, or the PR closes. Never merges. Stops on Stop, Settle, ten consecutive comment wakes, or fifteen minutes without a readable host.", parameters: Type.Object({ url: Type.String() }), execute: async (_id, input) => { const watch = await start(session.sessionId, String(fields(input).url ?? "")); return { content: [{ type: "text", text: JSON.stringify(watch) }], details: watch }; } },
-    { name: "unwatch_pull_request", label: "Stop watching pull request", description: "Stop this thread's PR watches. Does not stop its running turn.", parameters: Type.Object({ url: Type.Optional(Type.String()) }), execute: async (_id, input) => { const url = fields(input).url; const result = await stop(session.sessionId, "user", typeof url === "string" ? url : undefined); return { content: [{ type: "text", text: JSON.stringify(result) }], details: result }; } },
+    { name: "watch_pull_request", label: "Watch pull request", description: "Watch a GitHub PR in this thread; watch each PR you wait on. Wake the thread when all checks finish or one fails, someone comments or reviews, the branch conflicts, or the PR closes; one wake covers every watched PR that changed. Never merges. Stops on Stop, Settle, ten consecutive comment wakes, or fifteen minutes without a readable host.", parameters: Type.Object({ url: Type.String() }), execute: async (_id, input) => { const watch = await start(session.sessionId, String(fields(input).url ?? "")); return { content: [{ type: "text", text: JSON.stringify(watch) }], details: watch }; } },
+    { name: "unwatch_pull_request", label: "Stop watching pull request", description: "Stop this thread's PR watches: the named URL, or all of them without one. Call it before you merge or close a watched PR yourself. Does not stop its running turn.", parameters: Type.Object({ url: Type.Optional(Type.String()) }), execute: async (_id, input) => { const url = fields(input).url; const result = await stop(session.sessionId, "user", typeof url === "string" ? url : undefined); return { content: [{ type: "text", text: JSON.stringify(result) }], details: result }; } },
   ];
   const disposers = [services.mcp.registerTools(tools), services.registerRuntimeExtension("tau-pull-request-watch", (pi, session) => { for (const tool of tools(session)) pi.registerTool(tool); pi.on("before_agent_start", (event) => ({ systemPrompt: `${event.systemPrompt}\n\n${WATCH_INSTRUCTIONS}` })); }), services.mcp.registerInstructions?.(() => WATCH_INSTRUCTIONS) ?? (() => undefined), services.registerTurnObserver({ stopped: (id) => stop(id, "user") }), services.registerThreadLifecycle({ threadDeleted: async (id) => { for (const [watchKey, watch] of watches) if (watch.threadId === id) watches.delete(watchKey); await changed(); } })];
   const timer = setInterval(() => { void tick().catch((error) => services.log("review.watch", message(error))); }, options.period ?? PERIOD); timer.unref?.();
