@@ -1,4 +1,5 @@
 import { CodexNativeAgents } from "./native-agents.js";
+import { CodexBackgroundCommands, type EndedCommand } from "./background-commands.js";
 import {
   DEFAULT_THREAD_MODE as DEFAULT_MODE,
   askElicitation,
@@ -70,6 +71,8 @@ export interface CodexSessionLike {
   startTurn(params: { threadId: string; input: CodexUserInput[]; policy: CodexPolicy; model?: string; serviceTier?: string | null; effort?: string; mode?: CodexCollaborationMode }): Promise<string>;
   steerTurn(params: { threadId: string; turnId: string; input: CodexUserInput[] }): Promise<void>;
   interruptTurn(threadId: string, turnId: string): Promise<void>;
+  /** `thread/backgroundTerminals/terminate`; absent on a session without it. */
+  terminateBackgroundTerminal?(threadId: string, processId: string): Promise<boolean>;
   /** `thread/goal/*`; absent on a session that predates goals. */
   goalGet?(threadId: string): Promise<CodexGoal | undefined>;
   goalSet?(params: { threadId: string; objective?: string; status?: CodexGoalStatus }): Promise<CodexGoal>;
@@ -90,6 +93,8 @@ export interface CodexSessionInput {
 }
 
 export interface CodexThreadBackendOptions {
+  /** A command Codex ran in the background ended; Codex starts no turn for it. */
+  onBackgroundEnded?(command: EndedCommand): void;
   /** Where the thread's tool cards are kept across restarts. */
   activity?: TurnActivityStore;
   adapter: CodexRuntimeAdapter;
@@ -311,7 +316,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
         },
       },
       restart: { restart: async () => {
-        if (this.turns.length || this.opening || this.switchingAccount || this.admittingPrompts) throw new Error("Wait for Codex to finish before restarting its session.");
+        if (this.turns.length || this.opening || this.switchingAccount || this.admittingPrompts || this.background.current().length) throw new Error("Wait for Codex to finish before restarting its session.");
         this.switchingAccount = true;
         this.restartingSession = true;
         this.strictResume = Boolean(this.codexThreadId);
@@ -331,6 +336,10 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       resume: {
         hiddenPrompt: false,
         notice: async (text) => { this.note(text); },
+      },
+      background: {
+        current: () => this.background.current(),
+        stop: (taskId) => this.stopBackground(taskId),
       },
       ...activityHistory(threadId, options.activity),
     };
@@ -780,6 +789,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   private readonly nativeAgents = new CodexNativeAgents();
+  private readonly background = new CodexBackgroundCommands(() => this.now());
 
   private onNotification(method: string, raw: unknown): void {
     const params = (raw ?? {}) as Record<string, unknown>;
@@ -821,6 +831,11 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       this.report(params.willRetry ? { type: "notice", message: `Codex is retrying: ${message}`, level: "warning" } : { type: "notice", message, level: "error" });
       return;
     }
+    if (method === "item/started" || method === "item/completed") {
+      const change = this.background.push(method, params);
+      if (change.changed) this.report({ type: "background" });
+      if (change.ended) this.options.onBackgroundEnded?.(change.ended);
+    }
     const turn = this.turns[0];
     const turnId = typeof params.turnId === "string" ? params.turnId : (params.turn as { id?: string } | undefined)?.id;
     if (!turn) {
@@ -832,6 +847,8 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     if (turnId && turn.codexTurnId && turnId !== turn.codexTurnId) return;
     for (const event of turn.translator.push(method, params)) this.handleEvent(event);
     if (method === "turn/completed") {
+      if (turn.translator.outcome?.status !== "completed") this.background.dropForeground();
+      else if (this.background.turnCompleted()) this.report({ type: "background" });
       // Set before anything awaits: Codex may name its next goal turn in the same read.
       if (this.goal?.status === "active" && this.capabilities.goals && !turn.aborted && turn.translator.outcome?.status === "completed") turn.awaitingContinuation = true;
       turn.complete();
@@ -871,6 +888,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     if (!session || this.live !== session) return;
     this.live = undefined;
     for (const event of this.nativeAgents.tracker.interrupt()) this.handleEvent(event);
+    if (this.background.clear()) this.report({ type: "background" });
     const turn = this.turns[0];
     if (!error && !turn) return;
     if (error) this.report({ type: "notice", message: error.message, level: "error" });
@@ -879,6 +897,27 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       for (const event of turn.translator.abandon("failed", error?.message ?? "Codex exited.")) this.handleEvent(event);
       turn.complete();
     }
+  }
+
+  /** Codex terminates the terminal; the agent hears nothing of a stop the user asked for. */
+  private async stopBackground(taskId?: string): Promise<void> {
+    const ids = taskId === undefined ? this.background.current().map((task) => task.id) : [taskId];
+    if (taskId !== undefined && !this.background.has(taskId)) throw new Error("That background command is no longer running.");
+    const live = this.live;
+    if (!live || live.closed || !this.codexThreadId) {
+      if (this.background.clear()) this.report({ type: "background" });
+      return;
+    }
+    if (!live.terminateBackgroundTerminal) throw new Error("This Codex version cannot stop a background command; update Codex in Settings → Runtimes.");
+    for (const id of ids) {
+      const processId = this.background.processOf(id);
+      if (!processId) throw new Error("Codex named no process for this command, so Tau cannot stop it.");
+      this.background.stopping(id, true);
+      const terminated = await live.terminateBackgroundTerminal(this.codexThreadId, processId).catch((error: unknown) => { this.background.stopping(id, false); throw error; });
+      if (!terminated) { this.background.stopping(id, false); throw new Error("Codex did not stop the command."); }
+      this.background.forget(id);
+    }
+    this.report({ type: "background" });
   }
 
   async abort(): Promise<void> {
@@ -1142,6 +1181,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.live = undefined;
     if (live && !live.closed) await live.close();
     for (const event of this.nativeAgents.tracker.interrupt()) this.handleEvent(event);
+    if (this.background.clear()) this.report({ type: "background" });
     await this.persisting;
   }
 }

@@ -54,6 +54,7 @@ import { EFFORT_LEVELS, apiKeyBilling, probeBilling, uiModel, versionedModelName
 import { assertClaudePermissionPolicySupported, runtimePermissionPolicy, type ClaudeCodeAgentRuntimeAdapter, type ClaudeNetworkLimit, type ClaudeTurnHooks } from "./runtime-adapter.js";
 import { addUsage, SdkTurnTranslator } from "./sdk-events.js";
 import type { ClaudeSdkSession, SendPriority, UserContent } from "./sdk-session.js";
+import { ClaudeBackgroundTasks } from "./background-tasks.js";
 import { ClaudeRuntimeSessionStore, usageTurnsOf, type ClaudeStoredGoal } from "./session-store.js";
 
 function derivedClaudeTitle(text: string): string | undefined {
@@ -230,8 +231,12 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       },
       compaction: { compact: () => this.compact() },
       goals: this.goalCapability,
+      background: {
+        current: () => this.background.current(),
+        stop: (taskId) => this.stopBackground(taskId),
+      },
       restart: { restart: async () => {
-        if (this.restarting || this.admittingPrompts || this.turns.length || this.backgroundTasks.size) throw new Error("Wait for Claude's running work and background tasks before restarting its session.");
+        if (this.restarting || this.admittingPrompts || this.turns.length || this.background.size) throw new Error("Wait for Claude's running work and background tasks before restarting its session.");
         this.restarting = true;
         try { await this.dispose(); await this.skills(); }
         finally { this.restarting = false; }
@@ -261,8 +266,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   private restarting = false;
   private admittingPrompts = 0;
   private commandList: UiComposerCommand[] = [];
-  private readonly backgroundTasks = new Set<string>();
-  private backgroundTaskLevels = false;
+  private readonly background = new ClaudeBackgroundTasks(() => this.now());
   private readonly store: ClaudeRuntimeSessionStore;
   private readonly options: ClaudeThreadBackendOptions;
 
@@ -571,8 +575,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     // Without the endpoint the thread still runs, only without Tau's tools.
     const mcpServer = await this.options.mcpServer?.(this.tools).catch(() => undefined);
     const live: LiveSession = { session: undefined as unknown as ClaudeSdkSession, mode, network: limit, resumed, confirmed: false, stderr: "" };
-    this.backgroundTasks.clear();
-    this.backgroundTaskLevels = false;
+    this.clearBackground();
     live.session = this.runtimeAdapter.openSession({
       cwd: this.cwd,
       claudeSessionId: record.claudeSessionId,
@@ -601,14 +604,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       this.onActiveGoal((frame as unknown as { value: { condition: string; iterations: number; last_reason?: string } | null }).value);
       return;
     }
-    if (frame.type === "system") {
-      if (frame.subtype === "background_tasks_changed") {
-        this.backgroundTaskLevels = true;
-        this.backgroundTasks.clear();
-        for (const task of frame.tasks) this.backgroundTasks.add(task.task_id);
-      } else if (!this.backgroundTaskLevels && frame.subtype === "task_started" && frame.is_backgrounded !== false) this.backgroundTasks.add(frame.task_id);
-      else if (!this.backgroundTaskLevels && frame.subtype === "task_notification") this.backgroundTasks.delete(frame.task_id);
-    }
+    if (this.background.push(frame)) this.report({ type: "background" });
     for (const event of this.nativeAgents.push(frame)) this.handleEvent(event);
     if ("parent_tool_use_id" in frame && frame.parent_tool_use_id) return;
     if ((frame.type === "assistant" || frame.type === "user") && Array.isArray(frame.message.content)) {
@@ -652,8 +648,8 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     else this.reportQueue();
   }
 
-  private beginTurn(_turn: Turn): void {
-    this.report({ type: "turn-started" });
+  private beginTurn(turn: Turn): void {
+    this.report(turn.unprompted ? { type: "turn-started", unprompted: true } : { type: "turn-started" });
     this.reportQueue();
   }
 
@@ -792,14 +788,26 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     if (this.live === live) {
       this.live = undefined;
       for (const event of this.nativeAgents.tracker.interrupt()) this.handleEvent(event);
-      this.backgroundTasks.clear();
-      this.backgroundTaskLevels = false;
+      this.clearBackground();
     }
     const status = error ? "error" : "interrupted";
     if (error) this.report({ type: "notice", message: `Claude Code stopped: ${error instanceof Error ? error.message : String(error)}${live.stderr.trim() ? `\n${live.stderr.trim()}` : ""}`, level: "error" });
     for (const turn of this.turns.splice(0)) this.settleTurn(turn, status);
     this.steering = [];
     this.reportQueue();
+  }
+
+  private clearBackground(): void {
+    if (this.background.clear()) this.report({ type: "background" });
+  }
+
+  /** The CLI stops each task and answers with its notification; without a CLI nothing runs. */
+  private async stopBackground(taskId?: string): Promise<void> {
+    const live = this.live;
+    const ids = taskId === undefined ? this.background.current().map((task) => task.id) : [taskId];
+    if (taskId !== undefined && !this.background.has(taskId)) throw new Error("That background task is no longer running.");
+    if (!live || live.session.closed) { this.clearBackground(); return; }
+    await Promise.all(ids.map((id) => live.session.stopTask(id)));
   }
 
   private reportQueue(): void {
@@ -938,6 +946,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.live = undefined;
     if (live && !live.session.closed) await live.session.close();
     for (const event of this.nativeAgents.tracker.interrupt()) this.handleEvent(event);
+    this.clearBackground();
     await this.writes;
   }
 

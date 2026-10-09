@@ -1,10 +1,10 @@
-import { Bell, CalendarClock, ChevronRight, GitPullRequest, Target } from "lucide-react";
+import { Bell, CalendarClock, ChevronRight, GitPullRequest, SquareTerminal, Target } from "lucide-react";
 import { useState } from "react";
 import type { UiWake } from "../../shared/contracts";
 import { compactTimestamp, fullTimestamp } from "./message-timestamp";
 
 export function WakeIcon({ source, size = 14 }: { source: string; size?: number }) {
-  const Icon = source === "pull-request" ? GitPullRequest : source === "goal" ? Target : source === "automation" ? CalendarClock : Bell;
+  const Icon = source === "pull-request" ? GitPullRequest : source === "goal" ? Target : source === "automation" ? CalendarClock : source === "background" ? SquareTerminal : Bell;
   return <Icon className="wake-icon" size={size} strokeWidth={1.8} aria-hidden="true" />;
 }
 

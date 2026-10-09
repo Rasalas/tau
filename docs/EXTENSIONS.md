@@ -3260,6 +3260,30 @@ Codex's own goal turns; a CLI without the methods, or a thread restricted to
 some tools, offers no goals. Claude Code Kit sends `/goal …` and `/goal
 clear`, follows the SDK's `active_goal` frames, and has no pause.
 
+### Work a runtime runs in the background: `capabilities.background` (new in API 1.58.0)
+
+A runtime backend whose work outlives its turn — a background shell, a
+monitor, a sub-agent — offers `ThreadBackgroundCapability`: `current()` lists
+`UiBackgroundTask`s (`{ id, kind, label, startedAt? }`, `kind` one of
+`command`, `monitor`, `agent`, `task`) and `stop(taskId?)` ends one, or all
+without an id. Report every change as a `{ type: "background" }` runtime event;
+the host publishes `current()` as `UiSession.background`. The thread's row then
+says Monitoring (a monitor), Waiting (sub-agents and tasks) or Running
+(commands alone) in place of Idle or Ready, the composer row shows a pill that
+lists and stops the tasks (host method `thread-background-stop`, write access),
+Stop says which tasks keep running, and the host keeps such a runtime live.
+Everything but a command holds the run open: `runEnded` waits for the work
+and for the turn it wakes, so the user hears once, at the end. A command does
+not, since a dev server may run for good. Mark a turn your runtime began on its
+own, such as the one after background work reported, as
+`{ type: "turn-started", unprompted: true }`; its end then counts as the run's
+end for `runEnded`. Claude Code Kit reads the SDK's `background_tasks_changed`
+level (its bookends where a CLI sends none), types a Monitor by its tool call
+and stops through `stopTask`; the CLI wakes the thread itself. Codex Kit keeps
+the commands still running when their turn completed (Codex's background
+terminals), stops them with `thread/backgroundTerminals/terminate`, and queues
+a `background` wake when one ends, since Codex starts no turn for it.
+
 ### A view in place of the transcript: `registerConversationView` (new in API 1.57.0)
 
 `context.registerConversationView({ id, Component })` adds a view that

@@ -1,7 +1,8 @@
-import type { ThreadHostEvent, UiThreadGoal } from "../shared/contracts.js";
+import { backgroundCount } from "../shared/background-work.js";
+import type { ThreadHostEvent, UiBackgroundTask, UiThreadGoal } from "../shared/contracts.js";
 import type { HostStopReport, HostTurnObserverSet } from "./host-extensions.js";
 import type { QueuedMessages } from "./queued-messages.js";
-import { requireCapability, type ThreadGoalCapability } from "./runtime-types.js";
+import { requireCapability, type ThreadBackgroundCapability, type ThreadGoalCapability } from "./runtime-types.js";
 import type { ThreadRuntime } from "./thread-runtime.js";
 
 /** How long Stop waits for a runtime to confirm a goal paused before it stops the run anyway. */
@@ -15,6 +16,8 @@ export interface ThreadStopPort {
   /** Every kit that may wake the thread hears the stop. */
   observers(): Promise<HostStopReport>;
   abort(): Promise<void>;
+  /** What the runtime still runs in the background once the run stopped. */
+  background?(): readonly UiBackgroundTask[];
   /** A transcript row that is nobody's message; rejects where the runtime has none. */
   notice(text: string): Promise<void>;
   /** The line as a passing notice, for a runtime without such a row. */
@@ -36,7 +39,12 @@ export async function stopThread(goals: ThreadGoalCapability | undefined, port: 
   const observers = port.observers();
   const goal = await pauseGoalForStop(goals, port);
   await port.abort();
-  const report = await observers;
+  // Stop ends the turn, not a dev server; the line says what goes on.
+  const background = port.background?.() ?? [];
+  const answered = await observers;
+  const report = background.length
+    ? { ...answered, continues: [...answered.continues, `${backgroundCount(background)} ${background.length === 1 ? "keeps" : "keep"} running in the background (${background.map((task) => task.label).join(", ")}); stop ${background.length === 1 ? "it" : "them"} above the composer`] }
+    : answered;
   // A kit that woke the thread while it was answering the stop is too late.
   const line = stopLine(goal, report, dropped + port.dropWakes());
   if (!line) return undefined;
@@ -118,7 +126,14 @@ export interface ThreadControlsPort {
   publishDetail(thread: ThreadRuntime): Promise<void>;
   emitForThread(thread: ThreadRuntime, event: ThreadHostEvent): void;
   setGoal(threadId: string, goal: UiThreadGoal | undefined): void;
+  setBackground(threadId: string, tasks: UiBackgroundTask[] | undefined): void;
   log(label: string, detail: string): void;
+}
+
+/** A copy the index may keep; none for no work. */
+export function publishedBackground(background: ThreadBackgroundCapability | undefined): UiBackgroundTask[] | undefined {
+  const tasks = background?.current() ?? [];
+  return tasks.length ? tasks.map((task) => ({ ...task })) : undefined;
 }
 
 /** Stop and goals for the host: what the window's Stop and a kit's `sessions.abort` do, and the goal methods. */
@@ -132,6 +147,7 @@ export class ThreadControls {
       holdQueue: () => port.queue.hold(thread.threadId),
       observers: () => port.turnObservers.stopped(thread.threadId),
       abort: () => port.abortThread(thread),
+      background: () => thread.backend.capabilities.background?.current() ?? [],
       notice: async (text) => {
         const notice = thread.backend.capabilities.resume?.notice;
         if (!notice) throw new Error("no transcript row");
@@ -154,5 +170,17 @@ export class ThreadControls {
 
   publishGoal = (thread: ThreadRuntime): void => {
     this.port.setGoal(thread.threadId, publishedGoal(thread.backend.capabilities.goals));
+  };
+
+  /** Stops one background task of the thread, or all of them without an id. */
+  stopBackground = async (sessionId: string, taskId?: string): Promise<void> => {
+    const thread = await this.port.reopenThread(sessionId);
+    await requireCapability(thread.backend, "background").stop(taskId);
+    this.publishBackground(thread);
+    this.port.log("background.stopped", `${thread.threadId.slice(0, 8)} · ${taskId ?? "all"}`);
+  };
+
+  publishBackground = (thread: ThreadRuntime): void => {
+    this.port.setBackground(thread.threadId, publishedBackground(thread.backend.capabilities.background));
   };
 }

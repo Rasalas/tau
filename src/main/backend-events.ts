@@ -2,6 +2,8 @@ import type { HostEvent, HostSnapshot, UiMessage, UiToolRun, UiTurnActivityEntry
 import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, type HostUpdate, type ThreadDetail } from "../shared/host-protocol.js";
 import type { ClientTurnLedger } from "./client-turn-ledger.js";
 import type { ThreadRuntimeEvent } from "./runtime-types.js";
+import type { HostTurnObserverSet } from "./host-extensions.js";
+import type { ThreadControls } from "./thread-stop.js";
 import type { ThreadRuntime } from "./thread-runtime.js";
 
 export interface BackendEventServices {
@@ -15,11 +17,12 @@ export interface BackendEventServices {
   ownTool(toolCallId: string, sessionId: string): void;
   releaseTool(toolCallId: string): void;
   pushToolOutput(toolCallId: string, output: string): void;
-  toolEnded(sessionId: string, tool: UiToolRun, cwd: string): void;
+  /** `unpromptedEnded`: a turn the runtime began itself ended, and its outcome stands for the run's. */
+  turnObservers: Pick<HostTurnObserverSet, "toolEnded" | "unpromptedEnded">;
   /** Republishes the thread's shell in the index: title, count, usage. */
   refreshShell(thread: ThreadRuntime, touch: boolean): Promise<void>;
-  /** Republishes the goal `capabilities.goals` holds now. */
-  refreshGoal(thread: ThreadRuntime): void;
+  /** Republishes the goal and the background work the runtime holds now. */
+  controls: Pick<ThreadControls, "publishGoal" | "publishBackground">;
   /** How the turn ended: why it failed, or undefined, and whether a provider limit stopped it. */
   turnSettled(sessionId: string, error: string | undefined, limit?: { resetsAt?: number }): void;
 }
@@ -35,6 +38,7 @@ export function handleBackendRuntimeEvent(event: ThreadRuntimeEvent, thread: Thr
   switch (event.type) {
     case "turn-started":
       thread.turnError = undefined;
+      thread.unpromptedTurn = event.unprompted === true;
       thread.adapterStreaming = true;
       thread.adapterActivity.push({ id: nextActivityId(thread), tools: [], status: "running" });
       services.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "started", sessionId });
@@ -112,7 +116,10 @@ export function handleBackendRuntimeEvent(event: ThreadRuntimeEvent, thread: Thr
       services.refreshShell(thread, false).catch((error) => services.fail(error, sessionId));
       break;
     case "goal":
-      services.refreshGoal(thread);
+      services.controls.publishGoal(thread);
+      break;
+    case "background":
+      services.controls.publishBackground(thread);
       break;
     default: {
       const unhandled: never = event;
@@ -170,7 +177,7 @@ function finishTool(tool: UiToolRun, thread: ThreadRuntime, services: BackendEve
   const ended: UiToolRun = { ...tool, args: Object.keys(tool.args).length > 0 ? tool.args : previous?.args ?? {}, startedAt: previous?.startedAt ?? tool.startedAt, endedAt: tool.endedAt ?? Date.now() };
   recordTool(thread, ended);
   saveActivity(thread, services);
-  services.toolEnded(thread.threadId, ended, thread.cwd);
+  services.turnObservers.toolEnded(thread.threadId, ended, thread.cwd);
   services.emit({ type: "tool-end", sessionId: thread.threadId, tool: ended });
   thread.tools.delete(tool.id);
   services.releaseTool(tool.id);
@@ -196,6 +203,10 @@ function settleTurn(status: "completed" | "interrupted" | "error", thread: Threa
     }
   }
   services.clientTurns.settle(sessionId);
+  if (thread.unpromptedTurn) {
+    thread.unpromptedTurn = false;
+    services.turnObservers.unpromptedEnded(sessionId, status === "error" ? "failed" : "completed");
+  }
   const reason = status === "error" ? failure?.trim() || thread.turnError || "The turn failed." : undefined;
   if (reason !== undefined && limit) services.turnSettled(sessionId, reason, limit);
   else services.turnSettled(sessionId, reason);

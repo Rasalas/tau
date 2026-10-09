@@ -1,7 +1,11 @@
+import { backgroundSummary } from "../shared/background-work";
 import type { UiSession } from "../shared/contracts";
 import type { ThreadActivitySnapshot } from "./thread-store";
 
-/** `background`: stopped, with work that wakes it again, such as a watched pull request (API 1.56.0). */
+/**
+ * `background`: stopped, with work that wakes it again, such as a watched pull
+ * request (API 1.56.0) or a runtime's own background shell or monitor (API 1.58.0).
+ */
 export type ThreadActivity = "idle" | "ready" | "working" | "tool" | "settled" | "waiting" | "background" | "stalled" | "interrupted" | "failed" | "limited" | "offline";
 
 /** What a thread row says about its thread, the same on the desktop rail, a tablet's list and a phone's. */
@@ -55,7 +59,7 @@ export function threadLimitHint(limit: UiSession["limit"], now = Date.now()): st
 export function threadRowStatus(
   id: string,
   activity: ThreadActivitySnapshot,
-  thread?: Pick<UiSession, "limit" | "turnError">,
+  thread?: Pick<UiSession, "limit" | "turnError" | "background">,
 ): ThreadRowStatus {
   // A stalled question outranks every other state: nothing moves until it is answered.
   if (activity.waitingThreadIds.includes(id)) return { activity: "waiting", label: THREAD_QUESTION_LABEL };
@@ -73,6 +77,8 @@ export function threadRowStatus(
   }
   // A tool still marked running while nothing is in flight is a dead turn, not work.
   if (id === activity.activeThreadId && activity.runningToolName) return { activity: "stalled", label: "Interrupted" };
+  // The runtime still runs work that reports back: not done, not Ready.
+  if (thread?.background?.length) return { activity: "background", ...backgroundSummary(thread.background) };
   // Ready means "finished while you were elsewhere"; opening the thread clears it.
   if (activity.unreadThreadIds.includes(id)) return { activity: "ready", label: "Ready" };
   return { activity: "idle", label: "Idle" };

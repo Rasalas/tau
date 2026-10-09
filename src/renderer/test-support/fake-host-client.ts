@@ -45,6 +45,7 @@ function defaults(): HostClient {
     moveQueued: async () => undefined,
     resumeLimited: async () => undefined,
     threadGoal: async () => undefined,
+    stopBackground: async () => undefined,
     runShellAction: async () => ({ output: "", cancelled: false, truncated: false }),
 
     loadTranscript: async (sessionId) => ({ sessionId, messages: [], hasMore: false }),

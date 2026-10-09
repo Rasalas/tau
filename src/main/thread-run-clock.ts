@@ -11,6 +11,8 @@ export interface ThreadRunClockPort {
   forward(event: HostEvent): void;
   /** The run is over, ended now or long ago. */
   ended(sessionId: string): void;
+  /** Background work holds the run open: the runtime wakes the thread when it reports. */
+  waits?(sessionId: string): boolean;
 }
 
 /**
@@ -21,11 +23,15 @@ export interface ThreadRunClockPort {
  *
  * A run spans turns: a turn that ends while the next one waits (a queued
  * message, a follow-up the runtime starts itself) holds its end back, so no
- * client shows the thread done or notifies in between.
+ * client shows the thread done or notifies in between. A run whose turn ended
+ * while background work runs is parked instead: clients see it stopped, and
+ * `ended` waits for the work and the turn it wakes.
  */
 export class ThreadRunClock {
   private readonly started = new Map<string, number>();
   private readonly held = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Runs parked on background work; a timer once the work is gone and its wake is due. */
+  private readonly parked = new Map<string, ReturnType<typeof setTimeout> | undefined>();
 
   constructor(
     private readonly now: () => number = Date.now,
@@ -49,10 +55,11 @@ export class ThreadRunClock {
     if (!event.running) {
       if (this.held.has(event.sessionId)) return undefined;
       const wasRunning = this.started.delete(event.sessionId);
-      if (wasRunning) queueMicrotask(() => this.port?.ended(event.sessionId));
+      if (wasRunning) queueMicrotask(() => this.end(event.sessionId));
       return event;
     }
     this.unhold(event.sessionId);
+    this.unpark(event.sessionId);
     let startedAt = this.started.get(event.sessionId);
     if (startedAt === undefined) {
       startedAt = event.startedAt ?? this.now();
@@ -65,7 +72,28 @@ export class ThreadRunClock {
   recheck(sessionId: string): void {
     if (this.held.has(sessionId)) {
       if (!this.port?.continues(sessionId)) this.release(sessionId);
+    } else if (this.parked.has(sessionId)) {
+      if (this.port?.waits?.(sessionId)) this.unpark(sessionId, true);
+      // The work reported; the runtime starts its wake turn a moment later.
+      else if (this.parked.get(sessionId) === undefined) {
+        const timer = setTimeout(() => { this.parked.delete(sessionId); this.port?.ended(sessionId); }, this.holdMs);
+        timer.unref?.();
+        this.parked.set(sessionId, timer);
+      }
     } else if (!this.started.has(sessionId)) this.port?.ended(sessionId);
+  }
+
+  private end(sessionId: string): void {
+    if (this.port?.waits?.(sessionId)) this.parked.set(sessionId, undefined);
+    else this.port?.ended(sessionId);
+  }
+
+  /** `keep`: the work runs again, so the run stays parked without a timer. */
+  private unpark(sessionId: string, keep = false): void {
+    const timer = this.parked.get(sessionId);
+    if (timer !== undefined) clearTimeout(timer);
+    if (keep) this.parked.set(sessionId, undefined);
+    else this.parked.delete(sessionId);
   }
 
   /** The running threads and their starts, for a bootstrap. */

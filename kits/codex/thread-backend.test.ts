@@ -9,7 +9,7 @@ import { ALLOW, ALLOW_SESSION } from "./approvals.js";
 import { spawnRpcProcess } from "./rpc.js";
 import { createCodexRuntimeAdapter } from "./runtime-adapter.js";
 import { CodexSessionStore } from "./session-store.js";
-import { CodexThreadRuntimeBackend, storedModel, userInput, type CodexSessionLike } from "./thread-backend.js";
+import { CodexThreadRuntimeBackend, storedModel, userInput, type CodexSessionLike, type CodexThreadBackendOptions } from "./thread-backend.js";
 import frames from "./fixtures/app-server-frames.json" with { type: "json" };
 
 /**
@@ -44,6 +44,42 @@ it("completes through a disposable Codex session without adding a turn to the or
   expect(requests.find((entry) => entry.method === "turn/start")?.params).toMatchObject({ model: "gpt-5.6-luna", effort: "low", sandboxPolicy: { type: "readOnly", networkAccess: false } });
 });
 
+describe("a command Codex keeps running after its turn", () => {
+  it("shows as background work, ends the turn's card as running on, and wakes the thread when it ends", async () => {
+    const space = await scratch();
+    const ended: Array<{ label: string; exitCode?: number; output?: string }> = [];
+    const { backend, events } = await open(space, { onBackgroundEnded: (command) => ended.push(command) });
+    await backend.prompt({ text: "[scenario:background]", delivery: "prompt" });
+    expect(events).toContainEqual(expect.objectContaining({ type: "tool-end", tool: expect.objectContaining({ status: "done", output: "watching\nKeeps running in the background." }) }));
+    expect(backend.capabilities.background!.current()).toEqual([expect.objectContaining({ id: "bg-item", kind: "command", label: "gh run watch 42" })]);
+    await until(() => ended.length === 1);
+    expect(ended).toEqual([{ label: "gh run watch 42", exitCode: 0, output: "watching\nrun 42 succeeded" }]);
+    expect(backend.capabilities.background!.current()).toEqual([]);
+    expect(events.filter((event) => event.type === "background")).toHaveLength(2);
+  });
+
+  it("stops through Codex's background terminals without waking the thread", async () => {
+    const space = await scratch();
+    const ended: unknown[] = [];
+    const { backend } = await open(space, { onBackgroundEnded: (command) => ended.push(command) });
+    await backend.prompt({ text: "[scenario:backgroundstop]", delivery: "prompt" });
+    await expect(backend.capabilities.background!.stop("other")).rejects.toThrow("no longer running");
+    await backend.capabilities.background!.stop("bg-item");
+    expect(backend.capabilities.background!.current()).toEqual([]);
+    expect((await sent(space)).find((entry) => entry.method === "thread/backgroundTerminals/terminate")?.params).toMatchObject({ processId: "pty-1" });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(ended).toEqual([]);
+  });
+});
+
+async function until(condition: () => boolean, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error("condition not met in time");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 afterEach(async () => {
   await Promise.all(backends.splice(0).map((backend) => backend.dispose()));
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
@@ -57,7 +93,7 @@ async function scratch() {
 
 type Scratch = Awaited<ReturnType<typeof scratch>>;
 
-async function open(space: Scratch, options: { level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer> | ExtensionUiAnswer; resume?: boolean; script?: string[]; tools?: string[]; activity?: TurnActivityStore; policy?: () => Promise<HostExecutionPolicy>; platform?: NodeJS.Platform; sessionCurrent?: (session: CodexSessionLike) => Promise<boolean> } = {}) {
+async function open(space: Scratch, options: { onBackgroundEnded?: CodexThreadBackendOptions["onBackgroundEnded"]; level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer> | ExtensionUiAnswer; resume?: boolean; script?: string[]; tools?: string[]; activity?: TurnActivityStore; policy?: () => Promise<HostExecutionPolicy>; platform?: NodeJS.Platform; sessionCurrent?: (session: CodexSessionLike) => Promise<boolean> } = {}) {
   const events: ThreadRuntimeEvent[] = [];
   const asked: BackendPrompt[] = [];
   const backend = new CodexThreadRuntimeBackend("tau-1", space.dir, {
@@ -82,6 +118,7 @@ async function open(space: Scratch, options: { level?: RuntimePermissionLevel; a
     ...(options.activity ? { activity: options.activity } : {}),
     ...(options.policy ? { executionPolicy: options.policy } : {}),
     ...(options.platform ? { platform: options.platform } : {}),
+    ...(options.onBackgroundEnded ? { onBackgroundEnded: options.onBackgroundEnded } : {}),
   });
   backends.push(backend);
   await backend.start(options.resume ? "resume" : "create");

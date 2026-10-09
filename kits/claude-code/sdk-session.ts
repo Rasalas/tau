@@ -80,6 +80,11 @@ export class ClaudeSdkSession {
     return this.query?.interrupt() ?? Promise.resolve(undefined);
   }
 
+  /** The CLI answers with a `task_notification` of status `stopped`. */
+  stopTask(taskId: string): Promise<void> {
+    return this.query?.stopTask(taskId) ?? Promise.resolve();
+  }
+
   setPermissionMode(mode: PermissionMode): Promise<void> {
     return this.query?.setPermissionMode(mode) ?? Promise.resolve();
   }

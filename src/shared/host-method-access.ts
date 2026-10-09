@@ -22,6 +22,7 @@ export const HOST_METHOD_ACCESS = {
   "move-queued": "write",
   "resume-limited": "write",
   "thread-goal": "write",
+  "thread-background-stop": "write",
   "abort": "write",
   "new-session": "write",
   "start-thread": "write",

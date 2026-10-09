@@ -89,6 +89,8 @@ export interface HostClient {
   resumeLimited(sessionId: string, when: "now" | "reset" | "cancel"): Promise<void>;
   /** A thread's native goal (API 1.52.0); `set` needs the objective. */
   threadGoal(sessionId: string, action: "set" | "pause" | "resume" | "clear" | "dismiss", objective?: string): Promise<void>;
+  /** Stops a thread's background task, or all of them without an id (API 1.58.0). */
+  stopBackground(sessionId: string, taskId?: string): Promise<void>;
   runShellAction(command: string, includeInContext?: boolean, expectedCwd?: string): Promise<ShellActionResult>;
 
   // Reading transcript history and durable tool output.
@@ -367,6 +369,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     moveQueued: (sessionId, id, toIndex) => call<void>("move-queued", [sessionId, id, toIndex]),
     resumeLimited: (sessionId, when) => call<void>("resume-limited", [sessionId, when]),
     threadGoal: (sessionId, action, objective) => call<void>("thread-goal", objective === undefined ? [sessionId, action] : [sessionId, action, objective]),
+    stopBackground: (sessionId, taskId) => call<void>("thread-background-stop", taskId === undefined ? [sessionId] : [sessionId, taskId]),
     runShellAction: (command, includeInContext, expectedCwd) =>
       call<ShellActionResult>("run-shell-action", [command, includeInContext, expectedCwd]),
 

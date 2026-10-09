@@ -304,6 +304,11 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       const objective = decodeOptionalText("thread-goal", "objective", params[2]);
       return (await host()).threadGoal(sessionId, action as "set" | "pause" | "resume" | "clear" | "dismiss", objective);
     },
+    // Stops a thread's background task, or all of them without an id.
+    "thread-background-stop": async (params) => (await host()).controls.stopBackground(
+      decodeString("thread-background-stop", "sessionId", params[0]),
+      decodeOptionalString("thread-background-stop", "taskId", params[1]),
+    ),
     // Stopping must not queue behind host readiness: a thread stuck on a question
     // is exactly what the user is trying to get out of.
     "abort": async (params) => deps.host()?.abort(decodeOptionalString("abort", "sessionId", params[0])),

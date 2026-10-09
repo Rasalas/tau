@@ -86,6 +86,7 @@ import { RuntimeCatalogs, type RuntimeCatalogSource } from "./runtime-catalogs.j
 import { RuntimeToolUpdates } from "./runtime-tool-updates.js";
 import { UsagePricing, type UsageTally } from "./usage-pricing.js";
 import { ThreadRunClock } from "./thread-run-clock.js";
+import { backgroundHoldsRun } from "../shared/background-work.js";
 import { readModelPrices } from "../shared/model-prices.js";
 
 /** Pi's model data is read this long after the first price is asked for, clear of the start. */
@@ -242,6 +243,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     continues: (sessionId) => turnObservers.hasOpenTurn(sessionId) || queue.continues(sessionId),
     forward,
     ended: (sessionId) => turnObservers.runEnded(sessionId),
+    waits: (sessionId) => backgroundHoldsRun(index.background(sessionId)),
   });
   const emit: Emit = (event) => {
     const stamped = runClock.stamp(event);
@@ -319,6 +321,8 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
       && record.runtime.adapterPending === 0
       && !record.runtime.adapterStreaming
       && turnObservers.pending(record.threadId) === 0
+      // Releasing the runtime would end its background shells and monitors.
+      && !record.runtime.backend.capabilities.background?.current().length
       // An external runtime owns its transcript in the app-data store rather
       // than in Pi's message array. It is therefore safe to release once its
       // own visible projection has been persisted.
@@ -737,6 +741,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     publishDetail: async (thread) => { if (deps.getActive() === thread) await publication.publishDetail(); },
     emitForThread: (thread, event) => deps.emitForThread(thread, event),
     setGoal: (threadId, goal) => index.setGoal(threadId, goal),
+    setBackground: (threadId, tasks) => { index.setBackground(threadId, tasks); runClock.recheck(threadId); },
     log: (label, detail) => deps.log(label, detail),
   });
   const limits = new ThreadLimits({
@@ -750,6 +755,8 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     queue,
     limits,
   });
+  // A released runtime ended its background work with it.
+  turnObservers.add({ closed: async (sessionId) => { index.setBackground(sessionId, undefined); runClock.recheck(sessionId); } });
   // A thread gone for good takes what waited for it along.
   threadLifecycle.add({ threadDeleted: async (sessionId) => { queue.forget(sessionId); limits.forget(sessionId); } });
   const turns = new TurnDelivery({

@@ -388,11 +388,11 @@ export interface UiQueuedMessage {
 }
 
 /**
- * What woke a thread: a pull request event, a goal's next turn, a schedule.
+ * What woke a thread: a pull request event, a goal's next turn, a schedule, a background command's end.
  * `source` names the kind for its icon; `label` is the line the transcript and the queue show.
  */
 export interface UiWake {
-  source: "pull-request" | "goal" | "automation" | (string & {});
+  source: "pull-request" | "goal" | "automation" | "background" | (string & {});
   label: string;
 }
 
@@ -412,6 +412,18 @@ export interface UiThreadGoal {
   /** The runtime's own words for the last check or why it stopped. */
   reason?: string;
   updatedAt: number;
+}
+
+/**
+ * Work a thread's runtime keeps running after its turn ended (API 1.58.0).
+ * `command` is a shell that may run for good, such as a dev server; `monitor`
+ * watches until something happens; `agent` is a sub-agent; `task` any other.
+ */
+export interface UiBackgroundTask {
+  id: string;
+  kind: "command" | "monitor" | "agent" | "task";
+  label: string;
+  startedAt?: number;
 }
 
 /** A queued message in full, as `take-queued` hands it back to a composer. */
@@ -475,6 +487,8 @@ export interface UiSession {
   queueHeld?: boolean;
   /** The thread's native goal, when its runtime has one (API 1.52.0). */
   goal?: UiThreadGoal;
+  /** What the runtime still runs in the background, oldest first (API 1.58.0). */
+  background?: UiBackgroundTask[];
   /** Why the thread's runtime could not start; the thread shows read-only until it does. */
   runtimeError?: string;
   /**

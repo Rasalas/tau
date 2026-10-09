@@ -38,6 +38,7 @@ import { TranscriptHistoryBoundary } from "./components/TranscriptHistoryBoundar
 import { TranscriptViewport } from "./components/TranscriptViewport";
 import { JumpToLatestButton, JumpToLatestStore } from "./components/JumpToLatest";
 import { TaskPill } from "./components/TaskProgress";
+import { ActiveBackgroundPill } from "./components/ActiveBackgroundPill";
 import { ActiveGoalPill } from "./components/ActiveGoalPill";
 import { useConversationActivities } from "./conversation-activities";
 import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
@@ -872,6 +873,12 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                     runtime={snapshot?.runtimeBackends?.find((backend) => backend.kind === conversationSnapshot?.backendKind)?.label ?? "The runtime"}
                     readOnly={hostCapabilities.readOnly}
                     onAction={(action) => actions.threadGoal?.(action) ?? Promise.resolve()}
+                  />
+                  <ActiveBackgroundPill
+                    sessionId={conversationSnapshot?.sessionId}
+                    runtime={snapshot?.runtimeBackends?.find((backend) => backend.kind === conversationSnapshot?.backendKind)?.label ?? "The runtime"}
+                    readOnly={hostCapabilities.readOnly}
+                    onStop={(taskId) => actions.stopBackground?.(taskId) ?? Promise.resolve()}
                   />
                 </>}
               >

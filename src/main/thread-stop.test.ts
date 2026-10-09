@@ -73,6 +73,12 @@ describe("stopThread", () => {
     expect(calls).toBe(2);
   });
 
+  it("says which background work keeps running after the stop", async () => {
+    const stop = port({ background: () => [{ id: "b1", kind: "command", label: "npm run dev" }] });
+    await stopThread(undefined, stop);
+    expect(stop.lines).toEqual(["Stopped · stopped watching PR #42 · dropped 2 waiting wakes. 1 command keeps running in the background (npm run dev); stop it above the composer."]);
+  });
+
   it("does not pretend a runtime without pause paused its goal", async () => {
     const goal = goals(active(false));
     const line = await stopThread(goal, port({ dropWakes: () => 0, observers: async () => ({ stopped: [], continues: [] }) }));

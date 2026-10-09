@@ -215,7 +215,7 @@ export class PiHost {
   private readonly turnsInFlight: TurnsInFlight;
   /** The composer's queue and the limit marks, kept by the host so both outlive a restart. */
   readonly queue: QueuedMessages;
-  private readonly controls: ThreadControls;
+  readonly controls: ThreadControls;
   readonly limits: ThreadLimits;
   private readonly settlement: TurnSettlement;
 
@@ -1981,9 +1981,9 @@ export class PiHost {
       ownTool: (id, owner) => this.toolOwners.set(id, owner),
       releaseTool: (id) => { this.toolOwners.delete(id); },
       pushToolOutput: (id, output) => this.pushToolOutput(id, output),
-      toolEnded: (owner, tool, toolCwd) => this.turnObservers.toolEnded(owner, tool, toolCwd),
+      turnObservers: this.turnObservers,
       refreshShell: (runtime, touch) => this.index.refreshShell(runtime, touch),
-      refreshGoal: (runtime) => this.controls.publishGoal(runtime),
+      controls: this.controls,
       turnSettled: (owner, error, limit) => this.settlement.settled(owner, error, limit),
     });
   }
