@@ -62,7 +62,7 @@ For a public claim use wording such as "N teilnehmende Desktop-Installationen ha
 
 Settings displays the device's Statistics ID and the privacy-policy contact `info@tbuck.de`. In Matomo's GDPR tools search Site `4` using `visitorId==<id>`. Delete all matching visits, including further batches if the result limit is reached, and allow affected archives to be recalculated. There is no administrative token in the app and no automatic deletion endpoint.
 
-Before distributing this feature, update the public policy at `tbuck.de/privacy/tau/`, including its statements that there is no analytics or stored operator data. The concrete disclosure to incorporate is in [the privacy-policy supplement](privacy-usage-statistics.md). The app itself already discloses the payload and voluntary participation beside the switch. Publishing a new Tau release and updating the external policy are separate from this worktree change.
+The [public policy](https://tbuck.de/privacy/tau/) was updated in German and English on 9 October 2026 for Tau 0.7.40, including its former statements that there was no analytics or stored operator data. The [privacy-policy supplement](privacy-usage-statistics.md) records the disclosure. The app also discloses the payload and voluntary participation beside the switch. Keep the public policy aligned before distributing future changes.
 
 ## Verification
 
@@ -70,4 +70,4 @@ The live collector test used a separate temporary site with the same action URL,
 
 Unit and component tests cover consent, daily deduplication, stable identity, retries, cancellation, storage failure, payload fields and development exclusions. An isolated desktop app checks that the settings page is present, initially off and disabled in a test instance.
 
-Validation on 9 October 2026: 187 relevant tests, typecheck, lint, desktop/web build budgets and startup budget passed. The full run passed 9,795 tests and failed five in the review PR-overview and browser-storage suites. The same five fail on an archived unchanged HEAD. The consent component also passes with `TAU_TEST_SLOW_RENDERS=30`.
+Validation on 9 October 2026 against the integrated main with Node 22.23.3: all 1,136 test files passed, with 9,825 tests passed and five skipped. Typecheck, lint, desktop/web build budgets and startup budget passed. The consent component also passes with `TAU_TEST_SLOW_RENDERS=30`. The public policy deployment succeeded and both language sections were verified at the live URL.

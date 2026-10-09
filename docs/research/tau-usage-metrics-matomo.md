@@ -18,7 +18,7 @@ Gespeicherte Werte:
 - Tracking auf den angegebenen Aktions-URL-Präfix beschränkt.
 - Eigene Datenschutzeinstellungen nur für Site `4`: IP vollständig maskieren und die maskierte IP für die Aufbereitung verwenden. Matomo bestätigte die Speicherung mit `Webseite aktualisiert`.
 
-Die Desktop-Integration ist im Worktree als optionales Kit `tau.usage-statistics` umgesetzt und standardmäßig aus. Sie wurde noch nicht als App-Release veröffentlicht. Die globale Datenschutzoberfläche zeigt IP-Maskierung von zwei Bytes, Anreicherung mit unmaskierter IP und keine regelmäßige Rohdatenlöschung. Die bestehende Matomo-Version bietet im Bearbeitungsformular pro Site eigene Anonymisierungseinstellungen; für Tau sind sie wie oben beschrieben gesetzt. Die globalen Einstellungen wurden nicht verändert. Webserver-/Proxy-Logs und Rohdatenaufbewahrung bleiben separat zu prüfen.
+Die Desktop-Integration ist als optionales Kit `tau.usage-statistics` umgesetzt und standardmäßig aus. Sie wird mit Tau 0.7.40 eingeführt. Die globale Datenschutzoberfläche zeigt IP-Maskierung von zwei Bytes, Anreicherung mit unmaskierter IP und keine regelmäßige Rohdatenlöschung. Die bestehende Matomo-Version bietet im Bearbeitungsformular pro Site eigene Anonymisierungseinstellungen; für Tau sind sie wie oben beschrieben gesetzt. Die globalen Einstellungen wurden nicht verändert. Webserver-/Proxy-Logs und Rohdatenaufbewahrung bleiben separat zu prüfen.
 
 Die serverseitige Konfiguration ist jetzt `enable_processing_unique_visitors_range=1`. Rollierende 7-/30-Tage-Unique-Visitor-Abfragen wurden mit einem separaten Testeintrag bestätigt. Custom Dimensions im Visit-Scope sind für Tau als `1=App version`, `2=Platform` und `3=Release channel` angelegt. Zwei gespeicherte Segmente unterscheiden Prompt- und Workbench-Aktivität. Es wurden keine Geheimnisse aus der Matomo-Konfiguration ausgegeben. Details und der Abfragebefehl stehen in [der Betriebsdokumentation](../usage-statistics.md).
 
@@ -78,4 +78,4 @@ Die Einrichtung und der Test stehen in [der Betriebsdokumentation](../usage-stat
 
 Die Desktop-Integration erfasst freiwillig teilnehmende Installationen. Manuelle Löschung anhand der angezeigten Statistik-ID ist Teil dieses Umfangs. Ein automatischer Löschdienst wurde nicht hinzugefügt.
 
-Vor der App-Veröffentlichung muss die externe Datenschutzerklärung ihren bisherigen Stand ohne Analyse und ohne gespeicherte Betreiber-Daten aktualisieren. Der [deutsche und englische Zusatz](../privacy-usage-statistics.md) ist vorbereitet. Die globale Rohdatenaufbewahrung und Server-/Proxy-Logs wurden nicht verändert.
+Die externe Datenschutzerklärung wurde am 9. Oktober 2026 auf Deutsch und Englisch für Tau 0.7.40 veröffentlicht. Sie beschreibt jetzt die freiwillige Statistik und die gespeicherten Betreiber-Daten. Der [deutsche und englische Zusatz](../privacy-usage-statistics.md) hält diese Angaben fest. Die globale Rohdatenaufbewahrung und Server-/Proxy-Logs wurden nicht verändert.
