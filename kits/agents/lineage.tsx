@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type Compon
 import { Bot, Check, ChevronDown, ChevronUp, CircleHelp, CircleSlash, CircleX, Clock, CornerUpLeft, Ellipsis } from "lucide-react";
 import { Popover, ProviderIconStack, tooltipProps, useThreadStore, useWorkbench, type RegionProps, type WorkbenchActions } from "tau";
 import { agentsPanelModel, nativeAgentRow, nativeAgentTools, formatElapsed, type AgentRow } from "./model.js";
-import { SUBAGENT_VIEW, useOpenedSubagent } from "./subagent-view.js";
+import { openAgent, subagentKey, useOpenedSubagent } from "./subagent-view.js";
 import { DefinitionsSection } from "./definitions-panel.js";
 import { isBusyStatus } from "./protocol.js";
 import { agentsStore, definitionsStore, siblingsSource } from "./store.js";
@@ -27,18 +27,13 @@ function Elapsed({ row }: { row: AgentRow }) {
 
 /** The same compact row in the project card and in a spawn's inline list. */
 export function AgentLineageRow({ row, actions, current = false }: { row: AgentRow; actions: WorkbenchActions; current?: boolean }) {
-  const shown = useOpenedSubagent() === row.id;
+  const shown = useOpenedSubagent() === subagentKey(row);
   const provider = row.model?.includes("/") ? row.model.slice(0, row.model.indexOf("/")) : undefined;
   const status = STATUS[row.status];
   const icon = row.status === "running" ? <span className="spinner small" />
     : row.status === "waiting" ? <CircleHelp /> : row.status === "pending" ? <Clock />
     : row.status === "failed" ? <CircleX /> : row.status === "cancelled" ? <CircleSlash /> : <Check />;
-  // A native child has no thread of its own: it opens in place of the parent's transcript, as in T3 Code.
-  const open = () => {
-    if (row.native) actions.openConversationView?.(SUBAGENT_VIEW, { toolId: row.id });
-    else if (row.threadId) actions.openThread(row.threadId);
-    else if (row.machine?.thread) actions.openThread(row.machine.thread, { machine: row.machine.id });
-  };
+  const open = () => openAgent(row, actions);
   return <button type="button" className={`workspace-card-row agent-lineage-row status-${row.status}`} disabled={row.native ? !actions.openConversationView : !row.threadId && !row.machine?.thread} aria-current={current || shown ? "page" : undefined} aria-label={`${row.title}, ${status}`} title={row.machine ? `${row.title} · ${row.machine.name}${row.machine.offline ? " · Offline" : ""}` : row.title} onClick={open}>
     <span className="workspace-card-icon agent-lineage-provider" aria-hidden>{provider ? <ProviderIconStack modelProvider={provider} runtimeMark={false} hint={false} /> : <Bot />}</span>
     <span className="workspace-card-label">{row.title}</span>

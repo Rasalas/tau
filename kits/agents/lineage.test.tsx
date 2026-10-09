@@ -107,3 +107,12 @@ it("opens a native child in place of the parent's transcript, without any thread
   expect(actions.switchSession).not.toHaveBeenCalled();
   expect(actions.openThread).not.toHaveBeenCalled();
 });
+it("opens a child thread in place of the parent's transcript where the core offers conversation views", () => {
+  agentsStore.set({ maxRunning: 8, links: [{ ...link, status: "running" }] });
+  const actions = { switchSession: vi.fn(), openThread: vi.fn(), openConversationView: vi.fn() } as unknown as WorkbenchActions;
+  render(<TestProviders><TestThreadStore threads={sessions}><WorkbenchContext.Provider value={{ tools: [] } as never}><AgentLineage snapshot={{ sessionId: "parent" } as HostSnapshot} actions={actions} /></WorkbenchContext.Provider></TestThreadStore></TestProviders>);
+  fireEvent.click(screen.getByRole("button", { name: "Review layout, Running" }));
+  expect(actions.openConversationView).toHaveBeenCalledWith(SUBAGENT_VIEW, { threadId: "child" });
+  expect(actions.openThread).not.toHaveBeenCalled();
+  expect(actions.switchSession).not.toHaveBeenCalled();
+});

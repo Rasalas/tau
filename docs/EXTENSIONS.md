@@ -3270,8 +3270,10 @@ survives. The view belongs to the thread on screen when it opened: showing
 another thread closes it, and coming back shows that thread's transcript.
 `Component` gets `{ actions, snapshot, params, onClose }`. `onClose` and
 `actions.closeConversationView()` go back to the transcript. Both members are
-optional, so an older core has neither. Agents Kit opens a native subagent
-this way (ADR 0013, amendment of 2026-10-09).
+optional, so an older core has neither. `ThreadTranscript` (`{ sessionId }`)
+draws another thread's transcript read-only, as a thread stage tab does, for
+such a view. Agents Kit opens every local subagent this way, native or a child
+thread (ADR 0013, amendment of 2026-10-09).
 
 ### This client and accepted prompts, API 1.55.0
 
