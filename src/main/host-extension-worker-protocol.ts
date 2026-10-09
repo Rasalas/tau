@@ -87,6 +87,7 @@ export interface WorkerTurnObserver {
   prepare?(sessionId: string, turnId: string): void | Promise<void>;
   cancelled?(sessionId: string, turnId: string): void | Promise<void>;
   ended?(sessionId: string, turnId: string, outcome: "completed" | "failed"): void | Promise<void>;
+  runEnded?(sessionId: string, outcome: "completed" | "failed"): void | Promise<void>;
   reset?(sessionId: string): void | Promise<void>;
   closed?(sessionId: string): void | Promise<void>;
   toolEnded?(sessionId: string, tool: UiToolRun, cwd: string): void | Promise<void>;
@@ -100,7 +101,7 @@ export interface WorkerProjectFacts {
 }
 
 export const LIFECYCLE_HOOKS = ["beforeWorkspace", "afterWorkspaceClose", "threadDeleted", "beforeOpen", "afterFork", "beforeActivate", "sweep"] as const;
-export const TURN_HOOKS = ["accepted", "prepare", "cancelled", "ended", "reset", "closed", "toolEnded"] as const;
+export const TURN_HOOKS = ["accepted", "prepare", "cancelled", "ended", "runEnded", "reset", "closed", "toolEnded"] as const;
 export const FACT_HOOKS = ["name", "label", "nested", "projectless"] as const;
 export const CLIENT_HOOKS = ["attached", "detached", "devicesChanged"] as const;
 

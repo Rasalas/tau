@@ -50,7 +50,7 @@ describe("the notifications host half", () => {
   it("tells the one client that is not looking when a turn ends, with the thread's title and file", async () => {
     const { observers, presence, named } = await harness();
     await presence({ clientKey: "window", focused: false, threadId: "t2" });
-    await observers[0]!.ended!("t1", "turn-1", "completed");
+    await observers[0]!.runEnded!("t1", "completed");
     expect(named(NOTIFY_EVENT)).toEqual([{ clientKey: "window", items: [{ threadId: "t1", reason: "completed", title: "Fix the build", path: "/sessions/t1.jsonl", at: 1_000 }] }]);
     expect(named(ATTENTION_EVENT).at(-1)).toMatchObject({ items: [{ threadId: "t1" }] });
   });
@@ -58,7 +58,7 @@ describe("the notifications host half", () => {
   it("reports a failed turn, a permission and a question as what they are", async () => {
     const { observers, decorators, presence, named, tick } = await harness();
     await presence({ clientKey: "window", focused: false });
-    await observers[0]!.ended!("t1", "turn-1", "failed");
+    await observers[0]!.runEnded!("t1", "failed");
     tick(10_000);
     decorators[0]!({ id: "q1", sessionId: "t1", kind: "confirm", title: "Run rm?" });
     tick(10_000);
@@ -71,8 +71,8 @@ describe("the notifications host half", () => {
   it("counts nothing for a thread a focused client shows, and ignores a sub-agent", async () => {
     const { observers, presence, named } = await harness();
     await presence({ clientKey: "window", focused: true, threadId: "t1" });
-    await observers[0]!.ended!("t1", "turn-1", "completed");
-    await observers[0]!.ended!("child", "turn-2", "completed");
+    await observers[0]!.runEnded!("t1", "completed");
+    await observers[0]!.runEnded!("child", "completed");
     expect(named(NOTIFY_EVENT)).toEqual([{ clientKey: "window", items: [expect.objectContaining({ threadId: "t1" })], seen: true }]);
     expect(named(ATTENTION_EVENT)).toEqual([]);
   });
@@ -80,7 +80,7 @@ describe("the notifications host half", () => {
   it("answers presence with the list and clears the thread the client now shows", async () => {
     const { observers, presence, named } = await harness();
     await presence({ clientKey: "window", focused: false, threadId: "t1" });
-    await observers[0]!.ended!("t1", "turn-1", "completed");
+    await observers[0]!.runEnded!("t1", "completed");
     await expect(presence({ clientKey: "window", focused: false, threadId: "t1" })).resolves.toMatchObject({ items: [{ threadId: "t1" }] });
     await expect(presence({ clientKey: "window", focused: true, threadId: "t1" })).resolves.toEqual({ items: [] });
     expect(named(ATTENTION_EVENT).at(-1)).toEqual({ items: [] });
@@ -88,7 +88,7 @@ describe("the notifications host half", () => {
 
   it("hands news that found nobody to the first client that reports", async () => {
     const { observers, presence, named } = await harness();
-    await observers[0]!.ended!("t1", "turn-1", "completed");
+    await observers[0]!.runEnded!("t1", "completed");
     expect(named(NOTIFY_EVENT)).toEqual([]);
     const reply = await presence({ clientKey: "window", focused: false });
     expect(reply.delivery).toMatchObject({ clientKey: "window", items: [{ threadId: "t1" }] });
@@ -113,10 +113,10 @@ describe("the notifications host half", () => {
     expect(named(ATTENTION_EVENT).at(-1)).toEqual({ items: [] });
 
     tick(10_000);
-    await observers[0]!.ended!("t1", "turn-1", "completed");
+    await observers[0]!.runEnded!("t1", "completed");
     const third = decorators[0]!({ id: "q3", sessionId: "t2", kind: "confirm", title: "Run rm?" });
     tick(10_000);
-    await observers[0]!.ended!("t2", "turn-2", "completed");
+    await observers[0]!.runEnded!("t2", "completed");
     const before = named(ATTENTION_EVENT).length;
     (third as () => void)();
     expect(named(ATTENTION_EVENT)).toHaveLength(before);
@@ -126,7 +126,7 @@ describe("the notifications host half", () => {
   it("drops a deleted thread from the list", async () => {
     const { observers, lifecycles, presence, named } = await harness();
     await presence({ clientKey: "window", focused: false });
-    await observers[0]!.ended!("t1", "turn-1", "completed");
+    await observers[0]!.runEnded!("t1", "completed");
     await lifecycles[0]!.threadDeleted!("t1", "/project");
     expect(named(ATTENTION_EVENT).at(-1)).toEqual({ items: [] });
   });
@@ -144,9 +144,9 @@ describe("the notifications host half", () => {
   it("keeps news the user silenced from every client and from Push, and still counts it", async () => {
     const { observers, presence, named, registry, tick } = await harness({ options: { "event-completed": false }, values: {} });
     await presence({ clientKey: "window", focused: false });
-    await observers[0]!.ended!("t1", "turn-1", "completed");
+    await observers[0]!.runEnded!("t1", "completed");
     tick(10_000);
-    await observers[0]!.ended!("t1", "turn-2", "failed");
+    await observers[0]!.runEnded!("t1", "failed");
     await expect.poll(() => named(NOTIFY_EVENT).length).toBe(1);
     expect(named(NOTIFY_EVENT)[0]).toMatchObject({ items: [{ reason: "failed" }] });
     expect(named(ATTENTION_EVENT).at(-1)).toMatchObject({ items: [{ threadId: "t1" }] });

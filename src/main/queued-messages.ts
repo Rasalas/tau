@@ -28,6 +28,8 @@ export interface QueuedMessagesPort {
   /** Sends one message as an ordinary prompt; rejects when the thread refused it. */
   deliver(sessionId: string, message: QueuedMessage): Promise<void>;
   publish(sessionId: string, view: QueuedMessagesView | undefined): void;
+  /** The head's delivery is over, sent or put back. */
+  delivered?(sessionId: string): void;
   log(label: string, detail?: string): void;
 }
 
@@ -154,6 +156,12 @@ export class QueuedMessages {
     return this.held.has(sessionId);
   }
 
+  /** A message waits to be sent on its own, or is on its way: the thread's run goes on. */
+  continues(sessionId: string): boolean {
+    if (this.frozen) return false;
+    return this.delivering.has(sessionId) || (!this.held.has(sessionId) && this.list(sessionId).length > 0);
+  }
+
   /** Queues a message; a thread with nothing running gets it at once. */
   add(sessionId: string, message: Omit<QueuedMessage, "id" | "queuedAt">): QueuedMessage {
     const queued: QueuedMessage = { ...message, id: `queued-${randomUUID()}`, queuedAt: Date.now() };
@@ -260,6 +268,7 @@ export class QueuedMessages {
       this.port.log("queue.delivery-failed", `${sessionId.slice(0, 8)}: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       this.delivering.delete(sessionId);
+      this.port.delivered?.(sessionId);
     }
   }
 

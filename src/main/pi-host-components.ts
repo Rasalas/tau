@@ -231,13 +231,21 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   /** PI_CODING_AGENT_SESSION_DIR, resolved once; undefined keeps Pi's own default sessions layout. */
   const sessionsDirOverride = resolvePiSessionsDirOverride();
   const lifecycleMetrics = new HostLifecycleInstrumentation();
-  const runClock = new ThreadRunClock();
   let toolUpdates: RuntimeToolUpdates | undefined;
-  const emit: Emit = (event) => {
-    const stamped = runClock.stamp(event);
+  const forward = (stamped: HostEvent): void => {
     if (stamped.type === "agent-status" && !stamped.running) toolUpdates?.turnEnded();
     lifecycleMetrics.recordIpc(stamped);
     deps.emit(stamped);
+  };
+  // A turn's end waits while the next one is on its way: an open prompt or the composer's queue.
+  const runClock = new ThreadRunClock(Date.now, {
+    continues: (sessionId) => turnObservers.hasOpenTurn(sessionId) || queue.continues(sessionId),
+    forward,
+    ended: (sessionId) => turnObservers.runEnded(sessionId),
+  });
+  const emit: Emit = (event) => {
+    const stamped = runClock.stamp(event);
+    if (stamped) forward(stamped);
   };
   const report = new HostReport({
     emit,
@@ -289,7 +297,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   const platform = options.platform ?? {};
   const kitStateDir = options.kitStateDir ?? join(tmpdir(), "tau-kit-state");
   const threadLifecycle = new HostThreadLifecycleSet();
-  const turnObservers = new HostTurnObserverSet();
+  const turnObservers = new HostTurnObserverSet((sessionId) => runClock.recheck(sessionId));
   // Transports report their clients into this one; a client that arrives or
   // leaves is published, so a panel never has to ask the host for the count.
   const clients = options.clients ?? new HostClientRegistry();
@@ -716,7 +724,8 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     busy: (sessionId) => deps.hostThread(sessionId)?.isIdle() === false,
     waitForIdle: async (sessionId) => { await deps.threadFor(sessionId)?.backend.waitForIdle(); },
     deliver: (sessionId, message) => deps.deliverQueued(sessionId, message),
-    publish: (sessionId, view) => index.setQueue(sessionId, view),
+    publish: (sessionId, view) => { index.setQueue(sessionId, view); runClock.recheck(sessionId); },
+    delivered: (sessionId) => runClock.recheck(sessionId),
     log: (label, detail) => deps.log(label, detail),
   }, { ...(options.queuedMessagesPath ? { filePath: options.queuedMessagesPath } : {}), ...persistedLogger });
   const controls = new ThreadControls({

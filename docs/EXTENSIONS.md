@@ -3221,6 +3221,11 @@ that way.
 `accepted`, `prepare`, `cancelled`, `ended`, `pending`, `reset`, `closed` and
 `toolEnded`. `closed` is a released runtime, not a deleted thread.
 
+`runEnded(sessionId, outcome)` (new in API 1.56.0) says the thread is done:
+its last prompt ended and no queued message or follow-up continues it. A
+queue of five messages ends five turns and one run; tell the user about the
+run, not the turns. `outcome` is `failed` when any prompt of the run failed.
+
 `stopped(sessionId)` (new in API 1.52.0) hears the user's Stop and a kit's
 `sessions.abort`, never a shutdown, a reload or the host's own repairs. By
 then the thread's waiting wakes are gone; the run is aborted right after the

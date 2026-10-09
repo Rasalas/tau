@@ -412,7 +412,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
       const stops = [
         services.registerTurnObserver({
           prepare: async (sessionId) => activityLater(sessionId, "running", { state: "running" }),
-          ended: async (sessionId, _turnId, outcome) => {
+          runEnded: (sessionId, outcome) => {
             activityLater(sessionId, outcome === "failed" ? "needs-input" : "completed", outcome === "failed" ? { state: "failed", reason: "The turn failed" } : { state: "done" });
             raiseLater(sessionId, outcome === "failed" ? "failed" : "completed");
           },

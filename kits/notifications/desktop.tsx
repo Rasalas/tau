@@ -22,6 +22,7 @@ import {
   presentation,
   readMode,
   readSound,
+  soundCue,
   type NotificationSettings,
 } from "./present.js";
 import {
@@ -113,7 +114,7 @@ function coordinate(context: DesktopExtensionContext) {
     if (!first) return;
     const current = settings();
     const plan = presentation(current, seen ? "on-screen" : focused() ? "other-thread" : "background");
-    if (plan.sound) playSound(current.sound);
+    if (plan.sound) playSound(current.sound, soundCue(delivered));
     if (plan.toast) for (const item of delivered.slice(0, 3).reverse()) toast(item);
     const attention = context.attention;
     if (!plan.system || !attention) return;
@@ -246,11 +247,12 @@ function createSettingsPage(context: DesktopExtensionContext) {
           <SettingRow
             id="setting-notifications-sound"
             title="Sound"
-            description="What plays when the mode includes a sound. Choosing one plays it."
+            description="What plays when the mode includes a sound: one phrase when a thread is done, another when it needs you. Choosing one plays it."
             setting={sound}
             control={<>
               <SegmentedControl label="Sound" value={sound.value} options={SOUNDS} onChange={(next) => { sound.set(next); playSound(next); }} />
-              <Button variant="ghost" icon={<Play size={13} />} aria-label={`Play ${SOUND_LABELS[sound.value]}`} onClick={() => playSound(sound.value)}>Play</Button>
+              <Button variant="ghost" icon={<Play size={13} />} aria-label={`Play ${SOUND_LABELS[sound.value]} for a finished thread`} onClick={() => playSound(sound.value, "done")}>Done</Button>
+              <Button variant="ghost" icon={<Play size={13} />} aria-label={`Play ${SOUND_LABELS[sound.value]} for a thread that needs you`} onClick={() => playSound(sound.value, "attention")}>Needs you</Button>
             </>}
           />
         </SettingsSection>

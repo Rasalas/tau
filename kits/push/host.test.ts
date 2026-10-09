@@ -131,7 +131,7 @@ describe("the push host half", () => {
   it("pushes a finished turn to every device with the title and the first line of the agent's answer", async () => {
     const { observers, setUp, settle, apple, sends } = await harness();
     await setUp();
-    await observers[0]!.ended!("t1", "turn-1", "completed");
+    await observers[0]!.runEnded!("t1", "completed");
     await settle();
     expect(apple.requests).toHaveLength(1);
     expect(JSON.parse(apple.requests[0]!.body)).toEqual({
@@ -153,7 +153,7 @@ describe("the push host half", () => {
   it("says only the title and what happened when the user chose titles only", async () => {
     const { observers, setUp, settle, apple } = await harness({ content: "title" });
     await setUp();
-    await observers[0]!.ended!("t1", "turn-1", "failed");
+    await observers[0]!.runEnded!("t1", "failed");
     await settle();
     expect(JSON.parse(apple.requests[0]!.body).aps.alert).toEqual({ title: "Fix the build", body: "Failed" });
   });
@@ -188,16 +188,16 @@ describe("the push host half", () => {
   it("stays quiet while someone is at a client, for a sub-agent and for a thread's second news within seconds", async () => {
     const quiet = await harness({ attended: true });
     await quiet.setUp();
-    await quiet.observers[0]!.ended!("t1", "turn-1", "completed");
+    await quiet.observers[0]!.runEnded!("t1", "completed");
     await quiet.settle();
     const { observers, setUp, settle, apple, tick } = await harness();
     await setUp();
-    await observers[0]!.ended!("child", "turn-1", "completed");
-    await observers[0]!.ended!("t1", "turn-1", "completed");
+    await observers[0]!.runEnded!("child", "completed");
+    await observers[0]!.runEnded!("t1", "completed");
     await settle();
-    await observers[0]!.ended!("t1", "turn-2", "completed");
+    await observers[0]!.runEnded!("t1", "completed");
     tick(6_000);
-    await observers[0]!.ended!("t1", "turn-3", "completed");
+    await observers[0]!.runEnded!("t1", "completed");
     await settle();
     expect(quiet.apple.requests).toHaveLength(0);
     expect(apple.requests).toHaveLength(2);
@@ -206,10 +206,10 @@ describe("the push host half", () => {
   it("sends nothing the user silenced in Notifications, and asks by the kind of news", async () => {
     const { observers, setUp, settle, apple, tick } = await harness({ muted: "completed" });
     await setUp();
-    await observers[0]!.ended!("t1", "turn-1", "completed");
+    await observers[0]!.runEnded!("t1", "completed");
     await settle();
     tick(6_000);
-    await observers[0]!.ended!("t1", "turn-2", "failed");
+    await observers[0]!.runEnded!("t1", "failed");
     await settle();
     expect(apple.requests).toHaveLength(1);
   });
@@ -217,7 +217,7 @@ describe("the push host half", () => {
   it("pushes without Notifications Kit, since nobody can say anyone is looking", async () => {
     const { observers, setUp, settle, apple } = await harness({ notifications: false });
     await setUp();
-    await observers[0]!.ended!("t1", "turn-1", "completed");
+    await observers[0]!.runEnded!("t1", "completed");
     await settle();
     expect(apple.requests).toHaveLength(1);
   });
@@ -226,7 +226,7 @@ describe("the push host half", () => {
     const { invoke, observers, clientObservers, setUp, settle, setDevices, events } = await harness();
     await setUp();
     await invoke("register", { platform: "ios", token: `${IOS_TOKEN}dead`.slice(0, 200), host: "host-1", topic: "de.tbuck.tau" }, phone("iphone"));
-    await observers[0]!.ended!("t1", "turn-1", "completed");
+    await observers[0]!.runEnded!("t1", "completed");
     await settle();
     expect((await invoke("status") as PushStatus).devices.map((device) => device.id)).toEqual(["pixel"]);
     setDevices([]);
@@ -315,7 +315,7 @@ describe("the push host half through Tau's relay", () => {
   it("seals what a push says with the phone's key, so the relay sees ciphertext and an opaque collapse id", async () => {
     const { invoke, observers, settle, relay, apple, sends } = await harness();
     await registerBoth(invoke);
-    await observers[0]!.ended!("t1", "turn-1", "completed");
+    await observers[0]!.runEnded!("t1", "completed");
     await settle();
     expect(apple.requests).toHaveLength(0);
     expect(sends()).toHaveLength(0);
@@ -341,7 +341,7 @@ describe("the push host half through Tau's relay", () => {
   it("forgets a device whose handle the relay calls gone, and asks the phone for a new one when it sends it again", async () => {
     const { invoke, observers, settle } = await harness({ relayAnswer: (request) => (request.body.includes(PIXEL.handle) ? { status: 410, body: { error: "gone", reason: "unknown-handle" } } : { status: 200, body: { ok: true } }) });
     await registerBoth(invoke);
-    await observers[0]!.ended!("t1", "turn-1", "completed");
+    await observers[0]!.runEnded!("t1", "completed");
     await settle();
     expect((await invoke("status") as PushStatus).devices.map((device) => device.id)).toEqual(["iphone"]);
     await expect(invoke("register", { platform: "android", host: "host-1", relay: PIXEL }, phone("pixel"))).resolves.toEqual({ registered: true, ready: false, route: "relay", renewHandle: true });
@@ -386,7 +386,7 @@ it("requires paired phone consent for encrypted remote starts and cleans up on d
   await invoke("activity-register", { hostId: "host-1", threadId: "tau.threads", topic: "de.tbuck.tau", relay: key, activityId: start.activity.activityId, tokenHash: "b".repeat(64) }, phone("iphone"));
   await settle(); expect(relay.sends()).toHaveLength(2);
   await invoke("activity-disable", undefined, phone("iphone"));
-  await observers[0]!.ended!("t1", "turn-2", "completed"); await settle();
+  await observers[0]!.runEnded!("t1", "completed"); await settle();
   expect(relay.sends().filter((row) => "activity" in row)).toHaveLength(2);
   tick(5000); await invoke("activity-start-register", input, phone("iphone"));
   setDevices([]); clientObservers[0]!.devicesChanged!(); await settle();
@@ -401,7 +401,7 @@ it("ends a fast turn when its remote update token arrives after completion, then
   await invoke("activity-start-register", { hostId: "host-1", topic: "de.tbuck.tau", enabled: true, relay: key }, phone("iphone"));
   await observers[0]!.prepare!("t1", "fast-turn"); await settle();
   const first = relay.sends()[0] as unknown as { activity: { activityId: string } };
-  await observers[0]!.ended!("t1", "fast-turn", "completed"); await settle();
+  await observers[0]!.runEnded!("t1", "completed"); await settle();
   await invoke("activity-register", { hostId: "host-1", threadId: "tau.threads", topic: "de.tbuck.tau", relay: key, activityId: first.activity.activityId, tokenHash: "b".repeat(64) }, phone("iphone"));
   await settle();
   const activityRequests = relay.sends().filter((row) => "activity" in row) as unknown as Array<{ activity: { event: string } }>;
@@ -439,9 +439,9 @@ it("starts one Live Activity for all of the host's threads and ends it when the 
   decorators[0]!({ id: "q1", sessionId: "t2", kind: "confirm", title: "Allow edit?", message: "src/app.ts" }); await settle();
   const asked = openActivity(sends().at(-1)!.payload, key, "update", start.activity.activityId!, "c".repeat(64));
   expect(asked).toMatchObject({ state: "needs-input", threads: [{ id: "t2", state: "waiting", reason: "Allow edit? — src/app.ts" }, { id: "t1", state: "running" }] });
-  await observers[0]!.ended!("t1", "turn-1", "completed"); await settle();
+  await observers[0]!.runEnded!("t1", "completed"); await settle();
   expect(sends().at(-1)!.activity.event).toBe("update");
-  tick(60_000); await observers[0]!.ended!("t2", "turn-1", "failed"); await settle();
+  tick(60_000); await observers[0]!.runEnded!("t2", "failed"); await settle();
   expect(sends().at(-1)!.activity.event).toBe("end");
   const ended = openActivity(sends().at(-1)!.payload, key, "update", start.activity.activityId!, "c".repeat(64));
   expect(ended).toMatchObject({ state: "completed", threads: [{ id: "t2", state: "failed" }, { id: "t1", state: "done" }] });

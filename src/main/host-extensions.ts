@@ -508,6 +508,12 @@ export interface HostTurnObserver {
   cancelled?(sessionId: string, turnId: string): Promise<void>;
   /** The prompt's run ended; an observer drops what it prepared for a turn that never started. */
   ended?(sessionId: string, turnId: string, outcome: "completed" | "failed"): Promise<void>;
+  /**
+   * The thread is done: its last prompt ended and nothing queued continues it.
+   * Once per run however many turns it took; `failed` when any of them did.
+   * News for the user belongs here, not in `ended`. New in API 1.56.0.
+   */
+  runEnded?(sessionId: string, outcome: "completed" | "failed"): void;
   /** Work still pending for the thread; a thread with pending work is not released. */
   pending?(sessionId: string): number;
   /** The thread's runtime was rebound; live state starts over. */
@@ -1977,13 +1983,30 @@ function stopAnswer(answer: unknown): HostStopReport {
 /** Fans turn boundaries out to every observer; pending work is the sum of theirs. */
 export class HostTurnObserverSet {
   private readonly observers = new Set<HostTurnObserver>();
+  /** Prompts accepted and not ended yet; a steer or follow-up joins one and is not counted. */
+  private readonly open = new Map<string, Set<string>>();
+  /** How the run's prompts ended so far, until `runEnded` reports it. */
+  private readonly outcomes = new Map<string, "completed" | "failed">();
+
+  /** `afterTurn` hears each prompt that ended or was refused, after it stopped counting as open. */
+  constructor(private readonly afterTurn?: (sessionId: string) => void) {}
 
   add(observer: HostTurnObserver): () => void {
     this.observers.add(observer);
     return () => { this.observers.delete(observer); };
   }
 
+  /** A prompt of the thread is still on its way, so its run goes on. */
+  hasOpenTurn(sessionId: string): boolean {
+    return (this.open.get(sessionId)?.size ?? 0) > 0;
+  }
+
   accepted(sessionId: string, turnId: string, options: { deferBefore: boolean; expectsInput?: boolean }): void {
+    if (options.expectsInput !== false) {
+      const open = this.open.get(sessionId) ?? new Set<string>();
+      open.add(turnId);
+      this.open.set(sessionId, open);
+    }
     for (const observer of [...this.observers]) observer.accepted?.(sessionId, turnId, options);
   }
 
@@ -1992,11 +2015,29 @@ export class HostTurnObserverSet {
   }
 
   async cancelled(sessionId: string, turnId: string): Promise<void> {
+    if (this.close(sessionId, turnId)) this.afterTurn?.(sessionId);
     for (const observer of [...this.observers]) await observer.cancelled?.(sessionId, turnId);
   }
 
   async ended(sessionId: string, turnId: string, outcome: "completed" | "failed"): Promise<void> {
+    if (this.outcomes.get(sessionId) !== "failed") this.outcomes.set(sessionId, outcome);
+    if (this.close(sessionId, turnId)) this.afterTurn?.(sessionId);
     for (const observer of [...this.observers]) await observer.ended?.(sessionId, turnId, outcome);
+  }
+
+  /** The thread's run is over; observers hear it once, and only when a prompt of it ended. */
+  runEnded(sessionId: string): void {
+    const outcome = this.outcomes.get(sessionId);
+    if (outcome === undefined) return;
+    this.outcomes.delete(sessionId);
+    for (const observer of [...this.observers]) observer.runEnded?.(sessionId, outcome);
+  }
+
+  private close(sessionId: string, turnId: string): boolean {
+    const open = this.open.get(sessionId);
+    if (!open?.delete(turnId)) return false;
+    if (open.size === 0) this.open.delete(sessionId);
+    return true;
   }
 
   pending(sessionId: string): number {
@@ -2006,6 +2047,8 @@ export class HostTurnObserverSet {
   }
 
   async reset(sessionId: string): Promise<void> {
+    // A rebound runtime ends no prompt of the one before it.
+    if (this.open.delete(sessionId)) this.afterTurn?.(sessionId);
     for (const observer of [...this.observers]) await observer.reset?.(sessionId);
   }
 
@@ -2035,6 +2078,7 @@ export class HostTurnObserverSet {
 
   /** Every observer gets to close; failures are reported together afterwards. */
   async closed(sessionId: string): Promise<void> {
+    if (this.open.delete(sessionId)) this.afterTurn?.(sessionId);
     const errors: unknown[] = [];
     for (const observer of [...this.observers]) {
       try { await observer.closed?.(sessionId); } catch (error) { errors.push(error); }
