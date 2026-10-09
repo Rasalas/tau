@@ -282,7 +282,8 @@ export function registerPullRequestCommands(context: HostExtensionContext, sourc
       throw new HostCommandError(capabilities.merge.length === 0 ? `${name} does not let Tau merge; merge it on the website.` : `Choose ${capabilities.merge.join(", ")}.`);
     }
     if (action === "auto-merge" && method && !capabilities.merge.includes(method)) throw new HostCommandError(`Choose ${capabilities.merge.join(", ")}.`);
-    const known = await detail(ref, true);
+    // The view's cached read is enough to refuse early: the host itself refuses a stale merge.
+    const known = await detail(ref, action === "revert");
     const request = asReviewRequest(known, []);
     const where = { host: ref.host, repo: ref.repo };
     if (action === "revert") {
