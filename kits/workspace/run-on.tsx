@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Check, ChevronDown, GitBranch, Laptop, Server } from "lucide-react";
-import { Popover, Sheet, Switch, hostHasLocalFiles, tooltipProps, useHostName, useThreadStore, type RegionProps, type UiProject, type DraftThread } from "tau";
-import { RefList, ThreadBranch, useWorkspaceState } from "./branch-menu.js";
-import type { BranchNaming, DraftMachineProps, DraftMachineSource } from "./protocol.js";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Check, ChevronDown, Folder, FolderGit2, GitBranch, Laptop, Server } from "lucide-react";
+import { Popover, Switch, hostHasLocalFiles, tooltipProps, useHostName, useSetting, useThreadStore, type RegionProps, type UiProject, type DraftThread } from "tau";
+import { CheckoutMenu, RefList, ThreadBranch, useWorkspaceState } from "./branch-menu.js";
+import { WORKSPACE_HOST_EXTENSION_ID, type BranchNaming, type DraftMachineSource } from "./protocol.js";
+import { START_FROM_ORIGIN_OPTION } from "./store.js";
 
 /** Where a branch the user names goes unless the name brings its own folder. */
 export const BRANCH_PREFIX = "tau/";
@@ -54,7 +55,7 @@ export function branchFromField(text: string): string {
   return !name ? "" : name.includes("/") ? name : `${BRANCH_PREFIX}${name}`;
 }
 
-function BranchField({ touch }: { touch: boolean }) {
+export function BranchField({ touch }: { touch: boolean }) {
   const { store, state } = useWorkspaceState();
   const value = state.draftBranch ?? "";
   const own = value && !value.startsWith(BRANCH_PREFIX);
@@ -94,134 +95,153 @@ function Naming({ touch }: { touch: boolean }) {
   </div>;
 }
 
-/** The default base, origin's latest other branches, the branches other threads work on, and the rest behind "Other…". */
-function Bases({ touch, onOther }: { touch: boolean; onOther(): void }) {
+/** The draft's new branch: its name, then the base to start from (T3's ref picker plus a name). */
+export function DraftWorktreeBranch({ touch, onPicked }: { touch: boolean; onPicked?(): void }) {
   const { store, state } = useWorkspaceState();
-  const threads = useThreadStore();
+  const origin = useSetting<boolean>(`options.${WORKSPACE_HOST_EXTENSION_ID}.${START_FROM_ORIGIN_OPTION}`, { defaultValue: true, scope: "both", read: (raw) => typeof raw === "boolean" ? raw : undefined });
   const base = state.worktreeBase;
   const chosen = state.draftBase ?? base?.ref;
-  const rows: Array<{ ref: string; detail?: string | undefined }> = [];
-  // Branches another worktree holds: most often the thread next to this one. Their copies on origin add nothing.
-  const held = state.workspace?.refs.filter((entry) => entry.worktreePath && !entry.isCurrent).map((entry) => entry.name) ?? [];
-  if (base) rows.push({ ref: base.ref, detail: touch ? "default" : ["default", fetchedAgo(base.fetchedAt, Date.now())].filter(Boolean).join(" · ") });
-  for (const ref of (base?.others ?? []).filter((name) => !held.includes(name.replace(/^origin\//u, ""))).slice(0, 2)) rows.push({ ref });
-  for (const ref of held.slice(0, 1)) rows.push({ ref, detail: threads.getSnapshot().threads.find((thread) => thread.projectLabel === ref)?.title });
-  if (chosen && !rows.some((row) => row.ref === chosen)) rows.splice(1, 0, { ref: chosen });
-  return <div className="run-on-rows" role="group" aria-label="Based on">
-    {base ? null : <p className="run-on-note">Fetching origin…</p>}
-    {rows.map((row) => <button
-      key={row.ref}
-      type="button"
-      className="run-on-row"
-      aria-pressed={row.ref === chosen}
-      onClick={() => store.setDraftBranch({ base: row.ref === base?.ref ? "" : row.ref })}
-    >
-      <GitBranch size={13} aria-hidden />
-      <span><code>{row.ref}</code>{row.detail ? <small>{row.detail}</small> : null}</span>
-      {row.ref === chosen ? <Check size={13} aria-hidden /> : null}
-    </button>)}
-    <button type="button" className="run-on-row run-on-other" onClick={onOther}><span><small>Other branch…</small></span></button>
-  </div>;
-}
-
-/**
- * A new thread's branch (design 1k/1o): a name, or empty for one from the
- * prompt or a random one, and the base. The New worktree switch stays until
- * "create the worktree on the first edit" is decided (K150 1k/5).
- */
-export function DraftBranchFields({ touch }: { touch: boolean }) {
-  const { store, state } = useWorkspaceState();
-  const [picking, setPicking] = useState(false);
-  const info = state.workspace;
-  const worktree = state.workspaceMode === "worktree";
-  useEffect(() => {
-    if (worktree && !state.worktreeBase) void store.loadWorktreeBase();
-  }, [state.worktreeBase, store, worktree]);
-  if (!info?.isRepo) return <div className="run-on-branch">
-    <div className="run-on-heading">Branch</div>
-    <p className="run-on-note">{info ? "Not a Git repository: the thread runs in the folder as it is." : "Reading the project…"}</p>
-  </div>;
-  if (picking) return <div className="branch-section picking">
-    <RefList refs={info.refs} {...(state.draftBase ? { current: state.draftBase } : {})} placeholder="Start from…" onPick={(ref) => { setPicking(false); store.setDraftBranch({ base: ref }); }} />
-  </div>;
-  return <div className="run-on-branch">
-    <div className="run-on-heading">Branch</div>
-    {worktree ? <>
-      <BranchField touch={touch} />
-      <Naming touch={touch} />
-      <div className="run-on-heading">Based on</div>
-      <Bases touch={touch} onOther={() => setPicking(true)} />
-    </> : <div className="run-on-field"><GitBranch size={13} aria-hidden /><code>{info.branch ?? "detached"}</code><small>checkout</small></div>}
-    {/* The whole row is the switch's label, so a tap anywhere on it switches (a 44 px target on touch). */}
-    <label className="branch-worktree">
-      <span><strong>New worktree</strong><small>{worktree ? "Its own folder; the checkout stays as it is" : "Runs in the project's checkout"}</small></span>
-      <Switch label="Run in a new worktree" checked={worktree} onChange={(on) => store.setWorkspaceMode(on ? "worktree" : "current")} />
+  const refs = useMemo(() => {
+    const known = state.workspace?.refs ?? [];
+    // The default base may be origin's, which the checkout's refs need not list.
+    return base && !known.some((ref) => ref.name === base.ref) ? [{ name: base.ref, isCurrent: false }, ...known] : known;
+  }, [base, state.workspace?.refs]);
+  return <div className="draft-branch">
+    <div className="run-on-heading">New branch</div>
+    <BranchField touch={touch} />
+    <Naming touch={touch} />
+    <div className="run-on-heading">Based on</div>
+    <RefList
+      refs={refs}
+      {...(chosen ? { current: chosen } : {})}
+      placeholder="Search branches…"
+      autoFocus={false}
+      detail={(ref) => ref === base?.ref ? ["default", touch ? undefined : fetchedAgo(base.fetchedAt, Date.now())].filter(Boolean).join(" · ") : undefined}
+      onPick={(ref) => { store.setDraftBranch({ base: ref === base?.ref ? "" : ref }); onPicked?.(); }}
+    />
+    <label className="branch-worktree draft-branch-origin" {...tooltipProps("Fetch origin and start from its latest commit")}>
+      <span><strong>Start from origin</strong></span>
+      <Switch label="Start from origin" checked={origin.value} onChange={(on) => { origin.set(on); store.setDraftBranch({ base: "" }); void store.loadWorktreeBase(); }} />
     </label>
   </div>;
 }
 
-/** What the pill shows after the machine: the planned branch, `tau/…` while the prompt names it. */
-function useBranchLabel(): string | undefined {
+/** The checkout branch a new thread without a worktree runs on, or the branch and base a new worktree gets. */
+function useDraftBranch(): { label: string; base?: string } | undefined {
   const { state } = useWorkspaceState();
   const info = state.workspace;
   if (!state.draftPending || !info?.isRepo) return undefined;
-  return state.workspaceMode === "worktree" ? state.draftBranch ?? `${BRANCH_PREFIX}…` : info.branch ?? "detached";
+  if (state.workspaceMode !== "worktree") return { label: info.branch ?? "detached" };
+  const base = state.draftBase ?? state.worktreeBase?.ref ?? info.branch ?? "HEAD";
+  return { label: state.draftBranch ?? `${BRANCH_PREFIX}…`, base };
 }
 
-function RunOnPill({ source, touch, snapshot, actions }: DraftMachineProps & { source: DraftMachineSource; touch: boolean }) {
+/**
+ * The machine beside the project pill under the heading; it says where the
+ * thread runs, with one machine too, and opens the machine rows.
+ */
+function MachinePill({ source, snapshot, actions }: RegionProps & { source: DraftMachineSource }) {
   const { state } = useWorkspaceState();
-  const machine = source.useMachine({ ...(snapshot ? { snapshot } : {}), ...(actions ? { actions } : {}) });
-  const branch = useBranchLabel();
+  const machine = source.useMachine({ ...(snapshot ? { snapshot } : {}), actions });
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   // Settings' Run on: Ask opens the choice as a draft starts.
   useEffect(() => { if (state.draftPending && source.openOnDraft?.()) setOpen(true); }, [source, state.draftPending]);
-  if (!machine && !state.draftPending) return null;
-  const close = () => setOpen(false);
-  const body = <>
-    {machine ? <>
-      {touch ? null : <div className="run-on-heading">Run on</div>}
-      <source.Section {...(snapshot ? { snapshot } : {})} {...(actions ? { actions } : {})} touch={touch} />
-    </> : null}
-    {state.draftPending ? <DraftBranchFields touch={touch} /> : null}
-    {touch ? <button type="button" className="run-on-done" onClick={close}><Check size={15} aria-hidden />Done</button> : null}
-  </>;
-  const name = machine?.moving ? "Moving…" : machine?.name;
+  if (!machine || !state.draftPending) return null;
   return <>
     <button
       ref={anchor}
       type="button"
-      className={`runtime-chip run-on-pill${touch ? " run-on-pill-icon" : ""}`}
+      className="draft-pill draft-machine"
       aria-haspopup="dialog"
       aria-expanded={open}
-      aria-label={`Run on ${machine?.name ?? "this project"}${branch ? `, branch ${branch}` : ""}`}
-      disabled={machine?.moving || state.workspaceBusy}
-      {...(!touch && machine?.tooltip ? tooltipProps(machine.tooltip) : {})}
+      aria-label={`Run on ${machine.name}`}
+      disabled={machine.moving}
+      {...(machine.tooltip ? tooltipProps(machine.tooltip) : {})}
       onClick={() => setOpen((value) => !value)}
     >
-      {machine?.icon ?? <GitBranch size={13} aria-hidden />}
-      {name && !touch ? <span>{name}</span> : null}
-      {branch && !touch ? <><i aria-hidden>·</i><code>{branch}</code></> : null}
-      {touch ? null : <ChevronDown size={12} className="chev" />}
+      {machine.icon}<span>{machine.moving ? "Moving…" : machine.name}</span><ChevronDown size={12} />
     </button>
-    {/* On the composer's top edge, at its left (design 1k); a new anchor each render places it again as rows arrive. */}
-    {open ? touch
-      ? <Sheet title="Run on" className="run-on-sheet" onClose={close}>{body}</Sheet>
-      : <Popover anchor={{ get current() { return anchor.current?.closest<HTMLElement>(".composer-frame") ?? anchor.current; } }} side="top" align="start" label="Run on" className="run-on-popover" onClose={close}>{body}</Popover> : null}
+    {open ? <Popover anchor={anchor} label="Run on" className="run-on-popover" onClose={() => setOpen(false)}>
+      <div className="run-on-heading">Run on</div>
+      <source.Section {...(snapshot ? { snapshot } : {})} actions={actions} touch={false} />
+    </Popover> : null}
   </>;
 }
 
+export function DraftMachinePill(props: RegionProps) {
+  const source = useMachineSource();
+  // Another source brings other hooks.
+  return <MachinePill key={source === hostMachine ? "host" : "machines"} source={source} {...props} />;
+}
+
+const MODES = [
+  { mode: "current", label: "Current checkout", detail: "Runs in the project's checkout", Icon: Folder },
+  { mode: "worktree", label: "New worktree", detail: "Its own folder; the checkout stays as it is", Icon: FolderGit2 },
+] as const;
+
 /**
- * A new thread's machine and branch as one pill before the model (design
- * 1k/1o), opening one popover, or a sheet with Done on touch. It shows with
- * one machine too: it says where the thread runs.
+ * Where a new thread works, on the composer's top edge without a surface of
+ * its own (T3's phone layout): checkout or new worktree at the left, the
+ * branch at the right. Each opens its popover.
  */
-export function createRunOnControl(touch: boolean) {
-  return function DraftRunOn(props: DraftMachineProps) {
-    const source = useMachineSource();
-    // Another source brings other hooks.
-    return <RunOnPill key={source === hostMachine ? "host" : "machines"} source={source} touch={touch} {...props} />;
-  };
+export function DraftCheckout({ snapshot }: RegionProps) {
+  const { store, state } = useWorkspaceState();
+  const branch = useDraftBranch();
+  const modeAnchor = useRef<HTMLButtonElement>(null);
+  const branchAnchor = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState<"mode" | "branch">();
+  const worktree = state.workspaceMode === "worktree";
+  useEffect(() => {
+    if (state.draftPending && worktree && !state.worktreeBase) void store.loadWorktreeBase();
+  }, [state.draftPending, state.worktreeBase, store, worktree]);
+  if (!branch) return null;
+  const current = MODES.find((entry) => entry.mode === state.workspaceMode) ?? MODES[0];
+  const close = () => setOpen(undefined);
+  const toggle = (which: "mode" | "branch") => setOpen((value) => value === which ? undefined : which);
+  return <div className="draft-checkout">
+    <button
+      ref={modeAnchor}
+      type="button"
+      className="draft-checkout-control"
+      aria-haspopup="dialog"
+      aria-expanded={open === "mode"}
+      aria-label={`Workspace: ${current.label}`}
+      disabled={state.workspaceBusy || state.preparingWorktree}
+      onClick={() => toggle("mode")}
+    >
+      <current.Icon size={13} aria-hidden /><span>{current.label}</span><ChevronDown size={12} className="chev" />
+    </button>
+    <button
+      ref={branchAnchor}
+      type="button"
+      className="draft-checkout-control draft-checkout-branch"
+      aria-haspopup="dialog"
+      aria-expanded={open === "branch"}
+      aria-label={branch.base ? `New branch ${branch.label} from ${branch.base}` : `Branch ${branch.label}`}
+      disabled={state.workspaceBusy || state.preparingWorktree}
+      onClick={() => toggle("branch")}
+    >
+      <GitBranch size={13} aria-hidden />
+      {branch.base ? <>{state.draftBranch ? <code>{branch.label}</code> : null}<span>{state.draftBranch ? "from" : "From"}</span></> : null}
+      <code>{branch.base ?? branch.label}</code>
+      <ChevronDown size={12} className="chev" />
+    </button>
+    {open === "mode" ? <Popover anchor={modeAnchor} side="top" label="Workspace" className="run-on-popover draft-mode-popover" onClose={close}>
+      <div className="run-on-rows" role="group" aria-label="Workspace">
+        {MODES.map(({ mode, label, detail, Icon }) => <button key={mode} type="button" className="run-on-row" aria-pressed={state.workspaceMode === mode} onClick={() => { store.setWorkspaceMode(mode); close(); }}>
+          <Icon size={13} aria-hidden /><span><strong>{label}</strong><small>{detail}</small></span>{state.workspaceMode === mode ? <Check size={13} aria-hidden /> : null}
+        </button>)}
+      </div>
+    </Popover> : null}
+    {open === "branch" ? worktree
+      ? <Popover anchor={branchAnchor} side="top" align="end" label="Branch" className="run-on-popover draft-branch-popover" onClose={close}>
+        <DraftWorktreeBranch touch={false} />
+      </Popover>
+      : <Popover anchor={branchAnchor} side="top" align="end" label="Branch" className="branch-popover" onClose={close}>
+        <CheckoutMenu sessionId={snapshot?.sessionId} onDone={close} />
+      </Popover> : null}
+  </div>;
 }
 
 /** Names a draft from project or draft metadata before falling back to its folder. */

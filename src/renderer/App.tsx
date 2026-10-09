@@ -421,7 +421,6 @@ export default function App() {
   useEffect(() => {
     registry.dispatchWorkbenchEvent({ type: "active-thread-changed", sessionId: activeThreadIdForEvents });
   }, [activeThreadIdForEvents, registry]);
-
   useEffect(() => client?.onConnectionState((state) => registry.dispatchWorkbenchEvent({ type: "host-connection", state })), [client, registry]);
 
   // The project the host has open, as the workbench's own event: a panel reacts

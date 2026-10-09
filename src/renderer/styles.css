@@ -541,6 +541,13 @@ button > svg { pointer-events: none; }
 /* The draft's composer: narrower than a thread's and off the window's edge (design 1k). */
 body:not([data-profile="compact"]) .conversation-start .composer-zone { padding-bottom: var(--space-7); }
 .conversation-start .composer-surface { max-width: 680px; }
+/* The composer in the middle with the heading above it (T3); the spacer below takes what the heading takes. */
+body:not([data-profile="compact"]) .conversation-start:not(:has(.fresh-start)) .conversation-empty { flex: 1 1 0; justify-content: flex-end; }
+body:not([data-profile="compact"]) .conversation-start:not(:has(.fresh-start)) .conversation-start-content::after { content: ""; flex: 1 1 0; order: 4; }
+body:not([data-profile="compact"]) .conversation-start .conversation-start-content > .region-composer-below { order: 3; }
+/* T3's draft card: rounder, with room for a few lines before the controls. */
+body:not([data-profile="compact"]) .conversation-start .composer-frame { border-radius: var(--radius-xl); }
+body:not([data-profile="compact"]) .conversation-start .composer-frame textarea { min-height: 78px; padding-inline: calc(16px * var(--density)); }
 .conversation-column.conversation-start .conversation-thread { display: none; }
 /*
  * A thread: the transcript runs on under the dock (controls row to composer), which lies over it, so folding

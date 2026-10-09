@@ -379,13 +379,29 @@
 .branch-worktree .switch.on, .branch-worktree .switch.on:hover:not(:disabled) { background: var(--acid); }
 @media (pointer: fine) { .branch-worktree .switch { --switch-w: 26px; --switch-h: 15px; } }
 
-/* A new thread's machine and branch before the model (design 1k): machine, a dot, the branch in mono. */
-.runtime-chip.run-on-pill { flex: 0 1 auto; min-width: 0; background: var(--raised); color: var(--ink); }
-.runtime-chip.run-on-pill:hover, .run-on-pill[aria-expanded="true"] { background: var(--raised-hover); }
-.run-on-pill > svg { flex: none; color: var(--muted); }
-.run-on-pill > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.run-on-pill > i { font-style: normal; color: var(--muted); }
-.run-on-pill > code { max-width: 12ch; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font: calc(var(--text-sm) - .5px) var(--mono); }
+/* Where a new thread works, above its composer without a surface (T3's phone layout): checkout left, branch right. */
+.draft-checkout { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; max-width: 680px; margin: 0 auto -8px; padding: 0 6px; }
+.draft-checkout-control {
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0; height: 26px; padding: 0 8px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--muted); font: var(--text-sm) var(--sans); cursor: pointer;
+}
+.draft-checkout-control:hover:not(:disabled), .draft-checkout-control[aria-expanded="true"] { background: var(--hover); color: var(--ink); }
+.draft-checkout-control:disabled { opacity: .6; cursor: default; }
+.draft-checkout-control > svg { flex: none; }
+.draft-checkout-control > .chev { opacity: .6; }
+.draft-checkout-control > :is(span, code) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.draft-checkout-control > code { max-width: 24ch; font: calc(var(--text-sm) - .5px) var(--mono); }
+.draft-checkout-branch { flex-shrink: 1; }
+.draft-pill.draft-machine > svg:first-child { flex: none; color: var(--muted); }
+.draft-pill.draft-machine:disabled { opacity: .6; cursor: default; }
+.popover.draft-mode-popover { padding: 6px; }
+.popover.run-on-popover.draft-branch-popover { overflow: visible; }
+.draft-branch { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px 10px; }
+.draft-branch > .run-on-heading { padding: 0; }
+.draft-branch > .run-on-heading ~ .run-on-heading { margin-top: 4px; }
+.draft-branch > .ref-search { margin: 0; }
+.draft-branch > .ref-list { max-height: 200px; margin: 0 -4px; }
+.draft-branch > .draft-branch-origin { padding: 6px 0 0; border-top: 1px solid var(--line-soft); }
 /* One popover for both (design 1k): Run on, a rule, then Branch. What is chosen sits on the rail's tone, a step up in dark. */
 .popover.run-on-popover {
   width: min(320px, calc(100vw - 24px)); max-height: min(620px, calc(100vh - 80px)); overflow: auto; padding: 6px 0 0;

@@ -2008,22 +2008,26 @@ its Branch section, `draftBranch` and `draftBase` in the store's state (set with
 `setDraftBranch({ name?, base? })`), wins over the naming kit and the default
 base; both are forgotten with the draft.
 
-A new thread's machine and branch are one pill before the model (design 1k/1o,
-K152): Workspace Kit's `lead` composer control, "machine · branch", opening one
-popover above the composer (a sheet with Done on a phone or tablet). It holds
-"Run on" (the machines), then Branch: a field under `tau/` ("name it, or leave
-empty"; a name with its own `/` is taken whole), "If empty: Name from the
-prompt / Random" (the kit preference `branch-naming`, `prompt` or `random`;
-without a naming kit it is random), "Based on" (the default base with its fetch
-age, origin's other latest branches and a branch another thread's worktree
-holds; "Other branch…" searches the rest) and the "New worktree" switch, whose
-whole row is its label. `worktree-base` answers `fetchedAt` (FETCH_HEAD's time)
-and `others` for it. Machines Kit fills "Run on" through the store:
+A new thread's page follows T3 Code's layout. Under the heading, the machine
+is a pill beside the project's (Workspace Kit's `draft-actions` region
+`workspace.draft-machine`, "Run on <machine>"), opening the machine rows. On
+the composer's top edge, without a surface of its own, sit the checkout and the
+branch (`composer-above` region `workspace.draft-checkout`): "Current checkout"
+or "New worktree" at the left, a menu; the branch at the right. Without a
+worktree the branch opens the checkout's branch menu (switch or create a
+branch). With one it reads "From <base>" (or "<name> from <base>") and opens
+the new branch: a field under `tau/` ("name it, or leave empty"; a name with its
+own `/` is taken whole), "If empty: Name from the prompt / Random" (the kit
+preference `branch-naming`, `prompt` or `random`; without a naming kit it is
+random), "Based on" (every ref, searchable, the default base marked with its
+fetch age) and "Start from origin". `worktree-base` answers `fetchedAt`
+(FETCH_HEAD's time) and `others` for it. A phone keeps the same order: the
+machine under the heading, checkout and branch above the composer, the name in
+the branch page. Machines Kit fills "Run on" through the store:
 `registerDraftMachine({ useMachine, Section })`, where `useMachine(props)` is a
 hook naming the machine (or `undefined` for a started thread) and `Section`
 draws the rows (`touch` for 44 px rows). Without it the pill names the host
-(`useHostName`) and lists it alone, so a phone shows "Run on" with one machine
-too.
+(`useHostName`) and lists it alone.
 
 A host half reaches another kit's host half with `context.invokeHostExtension(id,
 command, input)`, and only for a command the target registered with
@@ -2274,8 +2278,7 @@ package chips first lose their labels and then move into the menu; the
 model and the reasoning level stay longest. A host older than 1.27.0 draws a `menu` control in the row.
 `placement: "lead"` (API 1.27.0) puts a control before the model chip, then a
 thin rule, then the model. A `lead` control never folds into the menu. An
-older core draws it in the row. Workspace Kit's Run-on pill (a new thread's
-machine and branch, K152) is one; the project stays a pill in `draft-actions`.
+older core draws it in the row.
 
 `tau/host-extension` re-exports every host seam type, every type of the host
 protocol (`src/shared/contracts.ts`: `UiMessage`, `UiComposerCommand`,

@@ -29,7 +29,7 @@ import { threadBranchService } from "./branch-service.js";
 import { registerCheckpoints } from "./checkpoints.js";
 import { WorkspaceFollower } from "./dock.js";
 import { WorktreeSuggestionPill } from "./branch-menu.js";
-import { createHeadingBranch, createRunOnControl } from "./run-on.js";
+import { DraftCheckout, DraftMachinePill, createHeadingBranch } from "./run-on.js";
 import { FreshStart } from "./fresh-start.js";
 import { CloneProjectSource, LocalFolderSource, NewProjectSource, requestProjectSwitcher, WorkspaceSidebar } from "./navigation.js";
 import { ChangesPanel, FilesPanel, SEARCH_FILES_SERVICE, serviceSlot, type SearchFilesService } from "./panels.js";
@@ -152,8 +152,9 @@ export const workspaceExtension: DesktopExtension = {
 
     // The header's branch: a menu over the checkout; for a new thread "project · machine · no worktree yet".
     context.registerRegion({ id: "workspace.branch-touch", placement: "thread-branch", order: 10, profiles: ["compact"], Component: bind(createHeadingBranch(true)) });
-    // A new thread's machine and branch: one pill before the model (design 1k), a sheet on touch (1o).
-    context.registerComposerControl({ id: "workspace.run-on", placement: "lead", order: 5, profiles: ["desktop"], Component: bind(createRunOnControl(false)) });
+    // A new thread's machine beside the project pill; checkout and branch on the composer's top edge (T3's layout).
+    context.registerRegion({ id: "workspace.draft-machine", placement: "draft-actions", order: 5, profiles: ["desktop"], Component: bind(DraftMachinePill) });
+    context.registerRegion({ id: "workspace.draft-checkout", placement: "composer-above", order: 5, profiles: ["desktop"], Component: bind(DraftCheckout) });
     context.registerRegion({ id: "workspace.mobile-machine", placement: "draft-actions", order: 5, profiles: ["compact"], Component: bind(MobileDraftMachine) });
     context.registerRegion({ id: "workspace.mobile-checkout", placement: "composer-above", order: 5, profiles: ["compact"], Component: bind(MobileDraftCheckout) });
     // A fresh install's first screen (2a), in place of the draft until a thread exists.

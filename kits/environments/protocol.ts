@@ -24,7 +24,7 @@ export interface WorkspaceRailSlice {
   registerRailThreads?(source: { subscribe(listener: () => void): () => void; threads(): readonly MachineRailThread[] }): () => void;
   /** Absent before API 1.23.0; the row's hover card then names no machine for this machine's threads. */
   registerThreadCardSection?(section: { place: "row"; order?: number; Component: ComponentType<MachineCardRowProps> }): () => void;
-  /** A new thread's Run-on pill: its machine and the machines to pick from. */
+  /** A new thread's Run-on pill (beside the project pill): its machine and the machines to pick from. */
   registerDraftMachine?(source: DraftMachineSource): () => void;
 }
 

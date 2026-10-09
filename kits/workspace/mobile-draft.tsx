@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Check, ChevronRight, Folder, FolderGit2, GitBranch } from "lucide-react";
 import { Sheet, Switch, useSetting, type RegionProps } from "tau";
 import { useWorkspaceState } from "./branch-menu.js";
-import { useMachineSource } from "./run-on.js";
+import { BranchField, useMachineSource } from "./run-on.js";
 import { WORKSPACE_HOST_EXTENSION_ID } from "./protocol.js";
 import { START_FROM_ORIGIN_OPTION } from "./store.js";
 
@@ -38,7 +38,7 @@ export function MobileDraftCheckout() {
       {worktree ? <FolderGit2 size={18} /> : <Folder size={18} />}<span>{worktree ? "New worktree" : "Current checkout"}</span>
     </button>
     <button type="button" aria-label="Choose base branch" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
-      <GitBranch size={18} /><span>{worktree ? "From " : ""}{branch ?? "detached"}</span><ChevronRight size={14} />
+      <GitBranch size={18} /><span>{worktree ? state.draftBranch ? `${state.draftBranch} from ` : "From " : ""}{branch ?? "detached"}</span><ChevronRight size={14} />
     </button>
     {open ? <BaseBranch onClose={() => setOpen(false)} /> : null}
   </div>;
@@ -50,7 +50,10 @@ function BaseBranch({ onClose }: { onClose(): void }) {
   const origin = useSetting<boolean>(`options.${WORKSPACE_HOST_EXTENSION_ID}.${START_FROM_ORIGIN_OPTION}`, { defaultValue: true, scope: "both", read: (raw) => typeof raw === "boolean" ? raw : undefined });
   const selected = state.draftBase ?? state.worktreeBase?.ref ?? state.workspace?.branch;
   const refs = state.workspace?.refs.filter((ref) => ref.name.toLowerCase().includes(query.toLowerCase())) ?? [];
-  return <Sheet title="Base branch" presentation="page" className="mobile-base-branch" onClose={onClose}>
+  const worktree = state.workspaceMode === "worktree";
+  return <Sheet title={worktree ? "New branch" : "Base branch"} presentation="page" className="mobile-base-branch" onClose={onClose}>
+    {/* A new worktree's own branch; empty names it from the prompt (Settings → Branch name). */}
+    {worktree ? <BranchField touch /> : null}
     <input className="mobile-page-search" aria-label="Find a branch" placeholder="Find a branch" value={query} onChange={(event) => setQuery(event.target.value)} />
     <label className="mobile-choice-card mobile-origin"><span>Start from origin</span><Switch label="Start from origin" checked={origin.value} onChange={(on) => { origin.set(on); store.setDraftBranch({ base: "" }); void store.loadWorktreeBase(); }} /></label>
     <div className="mobile-choice-card">

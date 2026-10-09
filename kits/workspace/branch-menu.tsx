@@ -26,19 +26,22 @@ function useCursor(count: number, pick: (index: number) => void) {
   return { cursor, onKeyDown };
 }
 
-function SearchField({ value, label, onChange, onKeyDown }: { value: string; label: string; onChange(value: string): void; onKeyDown(event: KeyboardEvent<HTMLInputElement>): void }) {
+function SearchField({ value, label, autoFocus = true, onChange, onKeyDown }: { value: string; label: string; autoFocus?: boolean; onChange(value: string): void; onKeyDown(event: KeyboardEvent<HTMLInputElement>): void }) {
   return <div className="ref-search">
     <Search size={13} />
-    <input autoFocus value={value} placeholder={label} aria-label={label} onChange={(event) => onChange(event.target.value)} onKeyDown={onKeyDown} />
+    <input autoFocus={autoFocus} value={value} placeholder={label} aria-label={label} onChange={(event) => onChange(event.target.value)} onKeyDown={onKeyDown} />
   </div>;
 }
 
 /** Refs to pick from, with the typed name offered as a new one when `create` is given. */
-export function RefList({ refs, current, placeholder, create, onPick }: {
+export function RefList({ refs, current, placeholder, autoFocus, create, detail, onPick }: {
   refs: readonly UiRef[];
   current?: string;
   placeholder: string;
+  autoFocus?: boolean;
   create?: { label(name: string): ReactNode; onCreate(name: string): void };
+  /** A note after a ref's name in place of current/worktree. */
+  detail?(ref: string): string | undefined;
   onPick(ref: string): void;
 }) {
   const [query, setQuery] = useState("");
@@ -49,7 +52,7 @@ export function RefList({ refs, current, placeholder, create, onPick }: {
   const pick = (index: number) => (index < shown.length ? onPick(shown[index]!.name) : offer && create?.onCreate(offer));
   const { cursor, onKeyDown } = useCursor(count, pick);
   return <>
-    <SearchField value={query} label={placeholder} onChange={setQuery} onKeyDown={onKeyDown} />
+    <SearchField value={query} label={placeholder} {...(autoFocus === undefined ? {} : { autoFocus })} onChange={setQuery} onKeyDown={onKeyDown} />
     <VirtualList
       items={shown}
       itemHeight={32}
@@ -57,7 +60,7 @@ export function RefList({ refs, current, placeholder, create, onPick }: {
       empty={offer ? null : <p>No branch matches “{query}”.</p>}
       scrollToIndex={cursor < shown.length ? cursor : undefined}
       renderItem={(ref, index) => <button key={ref.name} type="button" className={ref.name === current || index === cursor ? "selected" : ""} onClick={() => onPick(ref.name)}>
-        <span>{ref.name}</span>{ref.name === current ? <small>current</small> : ref.worktreePath ? <small>worktree</small> : null}
+        <span>{ref.name}</span>{detail?.(ref.name) ? <small>{detail(ref.name)}</small> : ref.name === current ? <small>current</small> : ref.worktreePath ? <small>worktree</small> : null}
       </button>}
     />
     {offer && create ? <div className="ref-list ref-create">
@@ -72,7 +75,7 @@ function statusLine(status?: UiWorktreeStatus): string {
 }
 
 /** The checkout of a running thread: switch or create a branch, open, add or remove a worktree. */
-function CheckoutMenu({ sessionId, onDone }: { sessionId?: string; onDone(): void }) {
+export function CheckoutMenu({ sessionId, onDone }: { sessionId?: string; onDone(): void }) {
   const { store, state } = useWorkspaceState();
   const info = state.workspace;
   const [statuses, setStatuses] = useState<UiWorktreeStatus[]>();
