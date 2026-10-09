@@ -700,8 +700,8 @@ describe("Workspace Kit in the workbench", () => {
     await screen.findByRole("heading", { name: /do next\?$/ });
     expect(screen.getByRole("button", { name: "Change project, current project other" })).toBeTruthy();
     await waitFor(() => expect(getWorkspaceInfo).toHaveBeenCalledWith("/other"));
-    // The draft's Run-on pill names the pending project's branch, not the host's folder.
-    expect(await screen.findByRole("button", { name: /^Run on .+, branch main$/u })).toBeTruthy();
+    // The draft's branch control names the pending project's branch, not the host's folder.
+    expect(await screen.findByRole("button", { name: "Branch main" })).toBeTruthy();
   });
 
   it("keeps an unsubmitted draft when changing its project from the sidebar", async () => {
@@ -1653,7 +1653,7 @@ describe("Workspace Kit in the workbench", () => {
     expect(await screen.findByRole("button", { name: "Branch fix/header" })).toBeTruthy();
   });
 
-  it("draws a new thread as a chat: machine and branch in one pill before the model, one popover for both (design 1k)", async () => {
+  it("draws a new thread as T3 does: machine beside the project, checkout and branch above the composer, a name for a new branch", async () => {
     const storage = createMemoryStorage();
     writeNewThreadDraft(storage, createNewThreadDraft({ projectPath: "/project", projectName: "shop-api" }));
     const client = createFakeHostClient({
@@ -1679,45 +1679,45 @@ describe("Workspace Kit in the workbench", () => {
     expect(await screen.findByRole("heading", { name: "What should shop-api do next?" })).toBeTruthy();
     const header = document.querySelector(".thread-header") as HTMLElement;
     expect(within(header).getByText("New thread")).toBeTruthy();
-    // Only the project stays under the heading (K106); machine and branch moved into the composer.
+    // Project and machine under the heading; checkout and branch on the composer's top edge (T3's layout).
     const pills = screen.getByRole("heading", { name: "What should shop-api do next?" }).parentElement!.querySelector(".region-draft-actions") as HTMLElement;
-    expect(within(pills).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Change project, current project shop-api"]);
+    await waitFor(() => expect(within(pills).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Change project, current project shop-api", expect.stringMatching(/^Run on /u)]));
     expect(document.querySelector(".workspace-bar")).toBeNull();
     expect(within(header).queryByRole("button", { name: "Add action" })).toBeNull();
-    const pill = await screen.findByRole("button", { name: /^Run on .+, branch main$/u });
-    expect(pill.closest(".composer-toolbar")).toBeTruthy();
+    const mode = await screen.findByRole("button", { name: "Workspace: Current checkout" });
+    expect(mode.closest(".region-composer-above")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Branch main" }).closest(".region-composer-above")).toBeTruthy();
     // The composer chooses the future thread workspace; the card identifies the current checkout.
     const card = await screen.findByRole("region", { name: "Project workspace" });
     await within(card).findByText("main");
     expect(card.querySelector("header > strong")).toBeNull();
     expect(header.querySelector(".thread-detail")).toBeNull();
 
-    fireEvent.click(pill);
-    const popover = await screen.findByRole("dialog", { name: "Run on" });
-    expect(within(popover).getByRole("group", { name: "Machines" }).querySelector("[aria-pressed='true']")).toBeTruthy();
-    // The whole "New worktree" row switches, not only the switch (K104).
-    fireEvent.click(within(popover).getByText("New worktree"));
-    expect(within(popover).getByRole("switch", { name: "Run in a new worktree" }).getAttribute("aria-checked")).toBe("true");
-    expect(await screen.findByRole("button", { name: /, branch tau\/…$/u })).toBeTruthy();
+    fireEvent.click(within(pills).getByRole("button", { name: /^Run on /u }));
+    const machines = await screen.findByRole("dialog", { name: "Run on" });
+    expect(within(machines).getByRole("group", { name: "Machines" }).querySelector("[aria-pressed='true']")).toBeTruthy();
+
+    fireEvent.click(mode);
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Workspace" })).getByRole("button", { name: /^New worktree/u }));
+    const branch = await screen.findByRole("button", { name: "New branch tau/… from origin/main" });
     expect(within(card).getByText("main")).toBeTruthy();
     expect(header.querySelector(".thread-detail")).toBeNull();
-    // Based on: the default with its fetch age, then origin's other branches.
-    const bases = await within(popover).findByRole("group", { name: "Based on" });
-    await waitFor(() => expect(within(bases).getAllByRole("button").map((row) => row.textContent)).toEqual(["origin/maindefault · fetched 2m ago", "origin/develop", "Other branch…"]));
+    fireEvent.click(branch);
+    const popover = await screen.findByRole("dialog", { name: "Branch" });
+    // Based on: every ref, the default with its fetch age.
+    await waitFor(() => expect(within(popover).getByRole("button", { name: /^origin\/main/u }).textContent).toBe("origin/maindefault · fetched 2m ago"));
     // If empty: from the prompt needs a naming kit; without one it is random.
     expect((within(popover).getByRole("radio", { name: "Name from the prompt" }) as HTMLButtonElement).disabled).toBe(true);
     expect(within(popover).getByRole("radio", { name: "Random" }).getAttribute("aria-checked")).toBe("true");
     // A name goes under tau/ unless it brings its own folder.
     const field = within(popover).getByRole("textbox", { name: "Branch name for the new worktree" });
     fireEvent.change(field, { target: { value: "pages" } });
-    expect(screen.getByRole("button", { name: /, branch tau\/pages$/u })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "New branch tau/pages from origin/main" })).toBeTruthy();
     fireEvent.change(field, { target: { value: "feat/pages" } });
-    expect(screen.getByRole("button", { name: /, branch feat\/pages$/u })).toBeTruthy();
-    fireEvent.click(within(bases).getByRole("button", { name: "origin/develop" }));
-    expect(within(bases).getByRole("button", { name: "origin/develop" }).getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(within(bases).getByRole("button", { name: "Other branch…" }));
+    expect(screen.getByRole("button", { name: "New branch feat/pages from origin/main" })).toBeTruthy();
+    fireEvent.change(within(popover).getByRole("textbox", { name: "Search branches…" }), { target: { value: "release" } });
     fireEvent.click(await within(popover).findByRole("button", { name: "origin/release" }));
-    expect(within(await within(popover).findByRole("group", { name: "Based on" })).getByRole("button", { name: "origin/release" }).getAttribute("aria-pressed")).toBe("true");
+    expect(await screen.findByRole("button", { name: "New branch feat/pages from origin/release" })).toBeTruthy();
   });
 
   it("draws the icon chosen in Project settings on the project pill and in the picker, and the pill toggles the picker", async () => {

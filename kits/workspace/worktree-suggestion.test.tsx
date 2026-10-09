@@ -58,12 +58,12 @@ describe("a new thread's worktree suggestion (K125)", () => {
     const suggestion = await within(pills).findByRole("switch", { name: "Start in its own worktree" });
     await waitFor(() => expect(suggestion.getAttribute("aria-checked")).toBe("true"));
     expect(suggestion.closest("label")?.getAttribute("data-tooltip")).toBe(WORKTREE_SUGGESTION_REASON);
-    expect(await screen.findByRole("button", { name: /, branch tau\/…$/u })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /^New branch tau\/… from /u })).toBeTruthy();
 
-    // Deselectable: the Run-on pill goes back to the checkout's branch.
+    // Deselectable: the branch control goes back to the checkout's branch.
     fireEvent.click(suggestion);
     await waitFor(() => expect(suggestion.getAttribute("aria-checked")).toBe("false"));
-    expect(await screen.findByRole("button", { name: /, branch main$/u })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Branch main" })).toBeTruthy();
     fireEvent.click(suggestion);
     await waitFor(() => expect(suggestion.getAttribute("aria-checked")).toBe("true"));
 
@@ -94,8 +94,8 @@ describe("a new thread's worktree suggestion (K125)", () => {
   it("offers nothing while the running turn is in another folder", async () => {
     start("/elsewhere");
     const pills = await openDraft();
-    // The Run-on pill's branch comes from the same Git read the suggestion waits for.
-    expect(await screen.findByRole("button", { name: /, branch main$/u })).toBeTruthy();
+    // The branch control's name comes from the same Git read the suggestion waits for.
+    expect(await screen.findByRole("button", { name: "Branch main" })).toBeTruthy();
     expect(within(pills).queryByRole("switch", { name: "Start in its own worktree" })).toBeNull();
   });
 });

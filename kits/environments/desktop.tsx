@@ -154,7 +154,7 @@ export const environmentsExtension: DesktopExtension = {
       const section = store.registerRailSection?.(RailSection);
       const listed = store.registerRailThreads?.(threads);
       const card = store.registerThreadCardSection?.({ place: "row", order: 20, Component: MachineCardRow });
-      // A new thread's machine, in Workspace Kit's Run-on pill before the model (design 1k/1o).
+      // A new thread's machine, in Workspace Kit's Run-on pill beside the project.
       const runOn = store.registerDraftMachine?.(runOnSource);
       return () => { section?.(); listed?.(); card?.(); runOn?.(); };
     });

@@ -156,8 +156,6 @@ body[data-profile="compact"] .touch-split .thread-header .thread-title-trigger::
 body[data-profile="compact"] :is(.tau-icon-button, .tau-help-tip, .chrome-ghost.glyph, .stage-tool, .text-button, .composer-menu-item, .settings-sections-back, .setting-origin-trigger, .setting-reset) {
   min-width: var(--touch-target); min-height: var(--touch-target); flex-shrink: 0;
 }
-body[data-profile="compact"] .run-on-pill-icon { width: var(--touch-target); height: var(--touch-target); padding: 0; justify-content: center; flex: none; }
-body[data-profile="compact"] .run-on-pill-icon > svg { display: block; flex: none; }
 body[data-profile="compact"] :is(.menu button[role="menuitemcheckbox"], .menu button[role="menuitemradio"], .popover button[role="option"]) { min-height: var(--touch-target); }
 body[data-profile="compact"] .settings-screen.stacked :is(.settings-nav-list button, .settings-back, .settings-about-link, .about-license-toggle) { min-height: var(--touch-target); }
 
@@ -215,6 +213,7 @@ body[data-profile="compact"] .composer-overflow-anchor { order: -1; }
 
 /* Selection pages fill the phone and retain a visible back action. */
 .mobile-page-search, .mobile-model-search { display: flex; align-items: center; width: 100%; min-height: 52px; gap: 12px; margin-bottom: 16px; padding: 0 16px; border: 1px solid var(--line); border-radius: 28px; background: var(--chrome); color: var(--ink); }
+.mobile-base-branch .run-on-field { min-height: 52px; margin-bottom: 12px; padding: 0 16px; border: 1px solid var(--line); border-radius: 28px; background: var(--chrome); font-size: var(--text-md); }
 .mobile-model-search input { min-width: 0; width: 100%; border: 0; outline: none; background: none; color: inherit; }
 .mobile-model-search button { display: grid; place-items: center; flex: none; width: 48px; height: 48px; border: 0; background: none; color: var(--muted); }
 .mobile-choice-card { overflow: hidden; margin-bottom: 12px; border-radius: 26px; background: var(--raised); }
