@@ -44,7 +44,7 @@ export interface ThreadBranch {
   /** The target already holds the branch's own commits, or their changes. */
   merged: boolean;
   /** Merged without its own commits: the same patches (cherry-pick, rebase, rewritten history) or the same tree (squash). */
-  mergedBy?: "patches" | "tree" | "squash";
+  mergedBy?: "patches" | "tree" | "squash" | "history";
   /** The repository's default branch, when a local branch has that name. */
   defaultBranch?: string;
   /** Files `merge-tree` reports conflicted. */
@@ -131,6 +131,9 @@ async function ownStart(root: string, branch: string, tip: string, runGit: Agent
 const cherries = new Map<string, boolean>();
 const CHERRIES = 500;
 const squashes = new Map<string, boolean>();
+const helds = new Map<string, boolean>();
+/** Target commits `heldBefore` tries, newest first. */
+const HELD_CANDIDATES = 40;
 
 /** Ancestry or every individual patch proves inclusion, including cherry-picked precursors. */
 async function patchesIn(root: string, head: string, tip: string, runGit: AgentGitRunner): Promise<boolean> {
@@ -172,7 +175,36 @@ async function alreadyIn(root: string, head: string, tip: string, start: string,
     if (squashes.size >= CHERRIES) squashes.delete(squashes.keys().next().value!);
     squashes.set(squashKey, squashed);
   }
-  return squashed ? "squash" : undefined;
+  if (squashed) return "squash";
+  return await heldBefore(root, head, tip, start, runGit) ? "history" : undefined;
+}
+
+/**
+ * Whether a target commit since the fork held all of the branch: merging there
+ * would have changed nothing. Covers a squashed base with picked commits on
+ * top, whatever the target edited later. Only commits touching its files can.
+ */
+async function heldBefore(root: string, head: string, tip: string, start: string, runGit: AgentGitRunner): Promise<boolean> {
+  const key = `${root}\0${head}\0${tip}\0${start}`;
+  const known = helds.get(key);
+  if (known !== undefined) return known;
+  const paths = (await runGit(root, ["diff", "--name-only", "--no-renames", start, tip, "--"])).split("\n").filter(Boolean);
+  const candidates = paths.length
+    ? (await runGit(root, ["log", "--format=%H", `-${HELD_CANDIDATES}`, `${start}..${head}`, "--", ...paths])).split("\n").filter(Boolean)
+    : [];
+  let held = false;
+  for (const commit of candidates) {
+    // oxlint-disable-next-line no-await-in-loop -- newest first; the first that held it answers
+    const preview = await previewBranchMerge(root, tip, runGit, commit);
+    // oxlint-disable-next-line no-await-in-loop -- as above
+    if (preview.merged || (preview.conflicts.length === 0 && preview.tree === (await runGit(root, ["rev-parse", `${commit}^{tree}`])).trim())) {
+      held = true;
+      break;
+    }
+  }
+  if (helds.size >= CHERRIES) helds.delete(helds.keys().next().value!);
+  helds.set(key, held);
+  return held;
 }
 
 async function defaultBranchOf(root: string, runGit: AgentGitRunner): Promise<string | undefined> {
