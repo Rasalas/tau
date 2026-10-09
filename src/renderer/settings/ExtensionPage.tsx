@@ -212,8 +212,8 @@ export function ExtensionGlyph({ name, mark, size = "md" }: { name: string; mark
 
 export function StateBadge({ entry }: { entry: ExtensionEntry }) {
   if (entry.state === "on") return null;
-  const tone = entry.state === "off" ? "neutral" : entry.state === "waiting" || entry.state === "skipped" ? "warn" : "danger";
-  return <Badge tone={tone} dot={entry.state !== "off"}>{stateLabel(entry.state)}</Badge>;
+  const tone = entry.state === "off" || entry.state === "update" ? "neutral" : entry.state === "waiting" || entry.state === "skipped" ? "warn" : "danger";
+  return <Badge tone={tone} dot={entry.state !== "off" && entry.state !== "update"}>{stateLabel(entry.state)}</Badge>;
 }
 
 function originText(entry: ExtensionEntry, distribution?: ExtensionInspection["distribution"]): string {
@@ -306,7 +306,7 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
         </div>
         <div className="extension-hero-control">
           {entry.locked ? <Badge tone="accent">Always on</Badge>
-            : entry.state === "waiting" || entry.state === "incompatible" || entry.state === "skipped" ? null
+            : entry.state === "waiting" || entry.state === "incompatible" || entry.state === "skipped" || entry.state === "update" ? null
               : <Switch label={`${running ? "Turn off" : "Turn on"} ${entry.name}`} checked={running || entry.state === "failed"} disabled={readOnly} onChange={(next) => { toggle(entry, next); onChanged(); }} />}
         </div>
       </header>
@@ -347,6 +347,8 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
           </div>
         </div>
       ) : null}
+
+      {entry.state === "update" ? <p className="extension-approval-quiet">{entry.problem} Until then it stays off here; everything else keeps working.</p> : null}
 
       {entry.state === "failed" || entry.state === "incompatible" ? (
         <div className="extension-problem" role="alert">

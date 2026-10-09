@@ -10,7 +10,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-const kit = { id: "acme.kit", name: "Acme", version: "1.0.0", permissions: [], desktop: "./desktop.js" };
+const kit = { id: "acme.kit", name: "Acme", version: "1.0.0", engines: { api: "^1.0.0" }, permissions: [], desktop: "./desktop.js" };
 
 /** An app root with one kit under `dist-kits/`, as `scripts/build-kits.mjs` writes it. */
 async function appPath(index?: unknown): Promise<string> {
@@ -52,6 +52,13 @@ describe("the bundled distribution", () => {
     await writeFile(entry, "export default {};\n//# sourceMappingURL=desktop.js.map\n", "utf8");
     const { bundles } = await loadBundledKitDesktopHalves({ appPath: root, sharedExports: {} });
     expect(bundles[0].code).toBe(`export default {};\n//# sourceMappingURL=${pathToFileURL(`${entry}.map`).href}\n`);
+  });
+
+  it("sends the manifest's engines with a desktop half, for a client older than its host", async () => {
+    const root = await appPath();
+    await writeFile(join(root, "dist-kits", kit.id, "desktop.js"), "export default {};\n", "utf8");
+    const { bundles } = await loadBundledKitDesktopHalves({ appPath: root, sharedExports: {} });
+    expect(bundles[0].engines).toEqual({ api: "^1.0.0" });
   });
 
   it("says nothing about a distribution in safe mode", () => {

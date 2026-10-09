@@ -995,6 +995,8 @@ export interface DesktopExtensionBundle {
   /** A theme: only a stylesheet, and loaded after everything else so its tokens win. */
   theme?: boolean;
   source?: { url: string; commit?: string };
+  /** The manifest's `engines`; a client older than its `api` leaves the bundle off. */
+  engines?: Record<string, string>;
   /** A digest of `code` and `styles`, for a client that keeps bundles it was sent. */
   hash?: string;
   /** The client said it holds this `hash`: `code` and `styles` were left out. */

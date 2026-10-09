@@ -3782,6 +3782,12 @@ constrains `engines.api` and fails the check stays off on **both** sides, with
 the reason shown in Settings → Inspector; a package that names no `engines.api`
 always passes.
 
+A client carries its own `EXTENSION_API_VERSION`, and the phone app can lag
+the host it talks to. Each desktop bundle therefore travels with its
+manifest's `engines`, and a client older than `engines.api` leaves that
+desktop half off without a notice; Settings → Extensions shows it as "With the
+next app update", outside Needs attention. The host half keeps running.
+
 The compatibility rule mirrors ordinary caret ranges: for `^1.2.0`, the
 running Tau must have the **same major** version and a **minor.patch at least
 as high** as required (`1.2.0`, `1.2.1`, `1.5.0` all satisfy it; `1.1.9` and

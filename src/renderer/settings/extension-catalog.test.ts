@@ -27,6 +27,20 @@ describe("the extension catalog", () => {
   });
   const byId = (id: string) => entries.find((entry) => entry.id === id)!;
 
+  it("marks a kit this device's app is too old for as arriving with the next update, not as needing attention", () => {
+    const later = extensionCatalog({
+      summaries: [],
+      packages: [pkg("tau.resume-compaction", { engines: { api: "^1.53.0" } }), pkg("tau.terminal", { engines: { api: "^1.0.0" } })],
+      hostHalves: [{ id: "tau.resume-compaction", name: "Resume Compaction", active: true, commands: [] }],
+      api: "1.52.0",
+    });
+    const entry = later.find((candidate) => candidate.id === "tau.resume-compaction")!;
+    expect(entry).toMatchObject({ state: "update", problem: expect.stringContaining("next update") });
+    expect(matchesFilter(entry, "attention")).toBe(false);
+    expect(stateLabel("update")).toBe("With the next app update");
+    expect(later.find((candidate) => candidate.id === "tau.terminal")?.state).not.toBe("update");
+  });
+
   it("gives each extension its state from the three sources", () => {
     expect(byId("tau.terminal")).toMatchObject({ state: "on", origin: "bundled", version: "1.0.0", description: "A shell beside the chat." });
     expect(byId("tau.review")).toMatchObject({ state: "off", origin: "bundled" });
