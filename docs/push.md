@@ -4,6 +4,13 @@ The phone app hears of a thread that finished, failed, asks something or hands o
 you ("your turn") while you are away from Tau. Push Kit (`kits/push/`) on your machine
 decides when; this page is about how a notification gets to the phone.
 
+"Away" works as on Discord. While you use Tau anywhere (a key, a click or a touch in a
+window or the app within the last minutes), Tau tells you there and the phone stays quiet.
+News you have not seen by the time you have been away for that long (5 minutes unless
+Settings → Push → **When your phone hears** says otherwise) goes to the phone. News you saw
+in the meantime is dropped. A window that only has focus but has not been used counts as
+away, and so does a window you left for another app.
+
 Apple and Google deliver to the app `de.tbuck.tau` only for a sender that proves it holds
 the app's APNs key or the Firebase project's credentials. Your machine does not have
 them, and never should. So there are two routes, chosen per platform:

@@ -23,6 +23,17 @@ export function readPushContent(value: unknown): PushContent {
   return value === "title" ? "title" : DEFAULT_PUSH_CONTENT;
 }
 
+/** Setting `values.tau.push.away-after`: minutes without a key, click or touch in Tau before the phone hears. */
+export const PUSH_AWAY_KEY = "away-after";
+export const AWAY_MINUTES = [1, 5, 10, 15, 30] as const;
+export type AwayMinutes = (typeof AWAY_MINUTES)[number];
+export const DEFAULT_AWAY_MINUTES: AwayMinutes = 5;
+
+export function readAwayMinutes(value: unknown): AwayMinutes {
+  const minutes = typeof value === "string" ? Number(value) : value;
+  return AWAY_MINUTES.find((choice) => choice === minutes) ?? DEFAULT_AWAY_MINUTES;
+}
+
 /** Tau's push relay (docs/push.md); a host sends through it for a platform it has no key of its own for. */
 export const PUSH_RELAY_URL = "https://europe-west3-tau-push-e3c95.cloudfunctions.net/relay";
 

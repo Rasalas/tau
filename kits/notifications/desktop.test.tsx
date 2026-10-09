@@ -51,7 +51,7 @@ describe("Notifications on the desktop", () => {
   it("says which thread this window shows and whether it has focus", async () => {
     const { presences, clientKey } = setup();
     await flush();
-    expect(presences().at(-1)).toEqual({ clientKey: clientKey(), focused: false, threadId: "on-screen" });
+    expect(presences().at(-1)).toEqual({ clientKey: clientKey(), focused: false, threadId: "on-screen", usedAgoMs: expect.any(Number) });
     focused = true;
     act(() => { window.dispatchEvent(new Event("focus")); });
     expect(presences().at(-1)).toMatchObject({ focused: true, threadId: "on-screen" });

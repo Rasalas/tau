@@ -2,7 +2,7 @@ import { createDecipheriv, createHmac, hkdfSync, randomBytes } from "node:crypto
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   ExtensionUiPrompt,
   HostClientObserver,
@@ -37,7 +37,7 @@ function openSealed(sealed: string, relay: PushRelayRegistration): Record<string
 
 const relayFor = (platform: string, token: string): PushRelayRegistration => ({ handle: fakeRelayHandle(platform, token), keyId: randomBytes(16).toString("base64url"), key: randomBytes(32).toString("base64url") });
 
-async function harness(options: { content?: "title" | "excerpt"; attended?: boolean; muted?: string; notifications?: boolean; relayAnswer?: (request: FakeRequest) => { status: number; body?: unknown }; keysFile?: unknown } = {}) {
+async function harness(options: { content?: "title" | "excerpt"; attended?: boolean; muted?: string; answer?: (input: unknown) => Record<string, unknown>; notifications?: boolean; relayAnswer?: (request: FakeRequest) => { status: number; body?: unknown }; keysFile?: unknown } = {}) {
   const stateDir = await mkdtemp(join(tmpdir(), "tau-push-"));
   cleanups.push(() => rm(stateDir, { recursive: true, force: true }));
   if (options.keysFile) {
@@ -75,7 +75,7 @@ async function harness(options: { content?: "title" | "excerpt"; attended?: bool
     await registry.activate({
       id: "tau.notifications",
       name: "Notifications",
-      activate: (context) => { context.registerCommand("attended", (input) => ({ attended: options.attended === true, muted: (input as { kind?: string } | undefined)?.kind === options.muted }), { callers: [ID] }); },
+      activate: (context) => { context.registerCommand("attended", (input) => options.answer?.(input) ?? ({ attended: options.attended === true, muted: (input as { kind?: string } | undefined)?.kind === options.muted }), { callers: [ID] }); },
     });
   }
   const invoke = (command: string, input?: unknown, principal: Parameters<typeof registry.invoke>[3] = OWNER) => registry.invoke(ID, command, input, principal);
@@ -215,6 +215,56 @@ describe("the push host half", () => {
     await settle();
     expect(quiet.apple.requests).toHaveLength(0);
     expect(apple.requests).toHaveLength(2);
+  });
+
+  it("holds news back while the user is at Tau and sends it once they are away, if still unseen", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const asked: unknown[] = [];
+      let away = false;
+      const seen = new Set<string>();
+      const { observers, setUp, settle, apple } = await harness({
+        answer: (input) => {
+          asked.push(input);
+          const threadId = (input as { threadId: string }).threadId;
+          return { attended: !away, muted: false, awayInMs: away ? 0 : 240_000, unseen: !seen.has(threadId) };
+        },
+      });
+      await setUp();
+      await observers[0]!.runEnded!("t1", "completed");
+      await observers[0]!.runEnded!("t2", "completed");
+      await settle();
+      expect(apple.requests).toHaveLength(0);
+      expect(asked[0]).toEqual({ kind: "completed", threadId: "t1", awayAfterMs: 300_000 });
+      // t2 was opened at the desk; when the user has gone, only t1 still waits.
+      seen.add("t2");
+      away = true;
+      vi.advanceTimersByTime(241_000);
+      await settle();
+      await vi.waitFor(() => expect(apple.requests).toHaveLength(1));
+      expect(JSON.parse(apple.requests[0]!.body).aps["thread-id"]).toBe("t1");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("asks again later while the user stays at Tau, and lets news go once it was seen", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      let unseen = true;
+      const { observers, setUp, settle, apple } = await harness({ answer: () => ({ attended: true, muted: false, awayInMs: 300_000, unseen }) });
+      await setUp();
+      await observers[0]!.runEnded!("t1", "completed");
+      await settle();
+      vi.advanceTimersByTime(301_000);
+      await settle();
+      unseen = false;
+      vi.advanceTimersByTime(301_000);
+      await settle();
+      expect(apple.requests).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("sends nothing the user silenced in Notifications, and asks by the kind of news", async () => {

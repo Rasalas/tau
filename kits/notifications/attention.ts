@@ -7,6 +7,10 @@ interface Presence {
   /** When this client last gained focus; 0 when it never had it. */
   focusedAt: number;
   reportedAt: number;
+  /** Host time of the user's last key, click or touch there, from a client that tells it. */
+  usedAt: number;
+  /** An older client says nothing of its use: its focus alone tells. */
+  tellsUse: boolean;
 }
 
 /** What changed: whether every client's badge has to follow, and who shows what. */
@@ -74,16 +78,20 @@ export class AttentionBook {
   }
 
   /** A client says what it shows; the thread it has on screen with focus is seen. */
-  report(clientKey: string, presence: { focused: boolean; threadId?: string; idle?: boolean }): AttentionChange {
+  report(clientKey: string, presence: { focused: boolean; threadId?: string; idle?: boolean; usedAgoMs?: number }): AttentionChange {
     const now = this.options.now();
     const prior = this.clients.get(clientKey);
     const focusedAt = presence.focused ? (prior?.focused ? prior.focusedAt : now) : (prior?.focusedAt ?? 0);
+    const tellsUse = presence.usedAgoMs !== undefined;
+    const usedAt = tellsUse ? now - Math.max(0, presence.usedAgoMs!) : 0;
     this.clients.set(clientKey, {
       focused: presence.focused,
       ...(presence.threadId ? { threadId: presence.threadId } : {}),
       ...(presence.idle ? { idle: true } : {}),
       focusedAt,
       reportedAt: now,
+      usedAt,
+      tellsUse,
     });
     const changed = presence.focused && presence.threadId !== undefined && this.items.delete(presence.threadId);
     // What waited and is still unseen goes to whoever turned up first.
@@ -92,10 +100,33 @@ export class AttentionBook {
     return { changed, ...(waiting.length ? { delivery: { clientKey, items: waiting.reverse() } } : {}) };
   }
 
-  /** Someone is at a client: its window has focus and was used lately. News reaches them there, so a phone need not buzz. */
-  attended(): boolean {
-    for (const client of this.clients.values()) if (client.focused && !client.idle) return true;
-    return false;
+  /**
+   * How long until nobody counts as at a client: someone used one within
+   * `awayAfterMs`, focused or not, as Discord holds a phone back while its
+   * desktop is in use. 0 when the user is away; undefined while an older
+   * client's focus says someone is there for as long as it lasts.
+   */
+  awayIn(awayAfterMs: number): number | undefined {
+    const now = this.options.now();
+    let left = 0;
+    for (const client of this.clients.values()) {
+      if (!client.tellsUse) {
+        if (client.focused && !client.idle) return undefined;
+        continue;
+      }
+      left = Math.max(left, client.usedAt + awayAfterMs - now);
+    }
+    return left;
+  }
+
+  /** Someone is at a client, so news reaches them there and a phone need not buzz. */
+  attended(awayAfterMs: number): boolean {
+    return this.awayIn(awayAfterMs) !== 0;
+  }
+
+  /** The thread's news is still unseen: no focused client showed it, and its question waits. */
+  unseen(threadId: string): boolean {
+    return this.items.has(threadId);
   }
 
   leave(clientKey: string): void {
