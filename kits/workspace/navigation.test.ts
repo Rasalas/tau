@@ -80,6 +80,18 @@ describe("findProjectForSession", () => {
     expect(findProjectForSession(projects, { projectPath: "/repos/tau/sub-worktree" })?.icon).toBe("data:image/svg+xml;tau");
   });
 
+  it("prefers the repository's name over a folder that only contains the worktree", () => {
+    const withContainers = [
+      { name: "/", path: "/", lastOpenedAt: 3 },
+      { name: "home", path: "/home/me", lastOpenedAt: 3 },
+      ...projects,
+    ];
+    expect(findProjectForSession(withContainers, { projectPath: "/worktrees/tau-feat", projectName: "tau" })?.icon).toBe("data:image/svg+xml;tau");
+    expect(findProjectForSession(withContainers, { projectPath: "/home/me/.t3/worktrees/tau/x", projectName: "tau" })?.icon).toBe("data:image/svg+xml;tau");
+    expect(findProjectForSession(withContainers, { projectPath: "/home/me/notes", projectName: "notes" })?.name).toBe("home");
+    expect(findProjectForSession(withContainers, { projectPath: "/repos/tau/docs", projectName: "docs" })?.name).toBe("tau");
+  });
+
   it("returns undefined when no project matches", () => {
     expect(findProjectForSession(projects, { projectPath: "/other/unknown", projectName: "unknown" })).toBeUndefined();
   });

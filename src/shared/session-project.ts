@@ -14,11 +14,13 @@ export function findProjectForSession(
   const byPath = projects.find((project) => project.path === session.projectPath);
   if (byPath) return byPath;
 
-  const bySubpath = projects.find((project) => {
+  // Deepest first; a folder that merely contains the thread ("/", a home folder) loses to the repository's name.
+  const containing = projects.filter((project) => {
     const prefix = project.path.endsWith("/") ? project.path : `${project.path}/`;
     return session.projectPath.startsWith(prefix);
-  });
-  if (bySubpath) return bySubpath;
+  }).sort((a, b) => b.path.length - a.path.length);
+  const sameName = containing.find((project) => project.name === session.projectName);
+  if (sameName) return sameName;
 
   if (session.projectName) {
     const byName = projects.filter((project) => project.name === session.projectName);
@@ -32,5 +34,5 @@ export function findProjectForSession(
     }
   }
 
-  return undefined;
+  return containing[0];
 }
