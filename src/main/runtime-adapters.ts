@@ -1,8 +1,11 @@
 import type { RuntimeCapabilities, ThreadBackendKind } from "../shared/contracts.js";
 import { PI_RUNTIME_ADAPTER, type SkillRuntimeAdapter } from "./skill-invocation.js";
 
-/** What the user lets an external runtime do; Access Kit chooses it, a backend maps it onto its own policy. */
-export type RuntimePermissionLevel = "read-only" | "ask" | "full";
+/**
+ * What the user lets an external runtime do; Access Kit chooses it, a backend maps it onto its own policy.
+ * `auto` lets a runtime's own reviewer approve routine actions; a runtime without one asks as at `ask`.
+ */
+export type RuntimePermissionLevel = "read-only" | "ask" | "auto" | "full";
 
 export interface RuntimePromptInput {
   cwd: string;

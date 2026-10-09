@@ -11,13 +11,14 @@ export type ClaudeQuery = typeof sdkQuery;
 
 export interface RuntimePermissionPolicy {
   /** Claude's permission mode corresponding to Tau's access level. */
-  permissionMode: "plan" | "default" | "auto";
+  permissionMode: "plan" | "default" | "auto" | "bypassPermissions";
 }
 
 const PERMISSION_MODES: Record<RuntimePermissionLevel, RuntimePermissionPolicy["permissionMode"]> = {
   "read-only": "plan",
   ask: "default",
-  full: "auto",
+  auto: "auto",
+  full: "bypassPermissions",
 };
 
 /** Identifies Tau to the SDK; never Claude Code's own headers or prompt. */
@@ -29,7 +30,7 @@ export const CLIENT_APP = `${manifest.id}/${manifest.version}`;
  * question nobody can see.
  */
 export function assertClaudePermissionPolicySupported(policy: RuntimePermissionPolicy, options: { canAsk?: boolean } = {}): void {
-  if (!policy || !["plan", "default", "auto"].includes(policy.permissionMode)) {
+  if (!policy || !["plan", "default", "auto", "bypassPermissions"].includes(policy.permissionMode)) {
     throw new Error("Claude Code received an unsupported Tau permission policy.");
   }
   if (policy.permissionMode === "default" && options.canAsk === false) {
@@ -166,6 +167,8 @@ export function claudeQueryOptions(plan: ClaudeQueryPlan): Options {
     systemPrompt: { type: "preset", preset: "claude_code" },
     settingSources: ["user", "project", "local"],
     permissionMode: plan.policy.permissionMode,
+    // Only makes the mode available; a live session moves to and from it with `setPermissionMode`.
+    allowDangerouslySkipPermissions: true,
     ...(plan.model ? { model: plan.model } : {}),
     ...(plan.effort ? { effort: plan.effort } : {}),
     // Token deltas arrive as stream events; the whole message still follows.

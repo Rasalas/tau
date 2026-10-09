@@ -129,7 +129,16 @@ describe("CodexThreadRuntimeBackend against the app-server stub", () => {
     expect(stored?.usageTurns?.[0]?.at).toEqual(expect.any(Number));
     // Tau's access level travels with every turn; full access runs without a sandbox.
     const turn = (await sent(space)).find((message) => message.method === "turn/start");
-    expect(turn?.params).toMatchObject({ approvalPolicy: "never", sandboxPolicy: { type: "dangerFullAccess" } });
+    expect(turn?.params).toMatchObject({ approvalPolicy: "never", approvalsReviewer: "user", sandboxPolicy: { type: "dangerFullAccess" } });
+  });
+
+  it("lets Codex's own reviewer answer at auto level, inside the workspace sandbox", async () => {
+    const space = await scratch();
+    const { backend } = await open(space, { level: "auto" });
+    await backend.prompt({ text: "Reply with exactly one word: hello.", delivery: "prompt" });
+    const log = await sent(space);
+    expect(log.find((message) => message.method === "thread/start")?.params).toMatchObject({ approvalPolicy: "on-request", approvalsReviewer: "auto_review", sandbox: "workspace-write" });
+    expect(log.find((message) => message.method === "turn/start")?.params).toMatchObject({ approvalPolicy: "on-request", approvalsReviewer: "auto_review", sandboxPolicy: { type: "workspaceWrite" } });
   });
 
   it("asks before a command at ask level, answers Codex with the choice and shows the command as a card", async () => {

@@ -2338,6 +2338,11 @@ quarantine-and-restart behaviour Tau's own state files have).
 When core opens one of that package's threads it hands the backend a
 `HostBackendOpenContext`: the project's name and label, the user's access
 level (`permissionLevel()`), and three routes back into the workbench.
+The level is `read-only`, `ask`, `auto` (new in API 1.53.0) or `full`. At
+`auto` a runtime with a reviewer of its own lets it answer routine approvals,
+as Claude Code's `auto` mode and Codex's `auto_review` do; a runtime without
+one asks, as at `ask`. Map every level explicitly: a `default` branch would
+quietly turn `auto` into whatever it stands for.
 `onMessage(message)` delivers a whole message (a runtime whose turn resolves
 only when it is over uses this). `onEvent(event)` is for a runtime that
 streams: it reports `ThreadRuntimeEvent`s in Tau's vocabulary — turn started

@@ -78,6 +78,7 @@ export async function gateToolCall(
   onBlocked: AccessControl["onBlocked"],
 ): Promise<{ block: true; reason: string } | undefined> {
   if (level === "full" || !isMutatingToolCall(toolName, input)) return undefined;
+  // Tau has no reviewer of its own: at `auto` it asks, as at `ask`.
   if (level === "read-only") {
     const reason = `Blocked by Tau: this thread is read-only, so ${toolName} cannot run.`;
     onBlocked(toolName, reason);

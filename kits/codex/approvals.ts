@@ -16,6 +16,7 @@ const LABEL_MAX = 600;
  * read-only: Codex's read-only sandbox, never asking — a write fails.
  * ask: every command outside Codex's known-safe list and every edit asks
  * first; what is allowed runs inside the workspace sandbox.
+ * auto: the workspace sandbox, and Codex's own reviewer answers what would ask.
  * full: no sandbox and no questions, as a Pi thread at full access runs.
  * With `network: "none"` Codex's sandbox holds at every level and has no
  * network; its seatbelt and Landlock rules offer no host list, so the package
@@ -25,12 +26,14 @@ export function policyForLevel(level: RuntimePermissionLevel, options: { network
   // A project that limits its network gets Codex's sandbox without network at every level.
   if (options.network === "none") {
     if (level === "read-only") return { approvalPolicy: "never", sandbox: "read-only", sandboxPolicy: { type: "readOnly", networkAccess: false } };
+    if (level === "auto") return { approvalPolicy: "on-request", approvalsReviewer: "auto_review", sandbox: "workspace-write", sandboxPolicy: { type: "workspaceWrite", networkAccess: false } };
     return { approvalPolicy: level === "ask" ? "untrusted" : "never", sandbox: "workspace-write", sandboxPolicy: { type: "workspaceWrite", networkAccess: false } };
   }
   switch (level) {
     case "read-only": return { approvalPolicy: "never", sandbox: "read-only", sandboxPolicy: { type: "readOnly" } };
     case "ask": return { approvalPolicy: "untrusted", sandbox: "workspace-write", sandboxPolicy: { type: "workspaceWrite" } };
-    default: return { approvalPolicy: "never", sandbox: "danger-full-access", sandboxPolicy: { type: "dangerFullAccess" } };
+    case "auto": return { approvalPolicy: "on-request", approvalsReviewer: "auto_review", sandbox: "workspace-write", sandboxPolicy: { type: "workspaceWrite" } };
+    case "full": return { approvalPolicy: "never", sandbox: "danger-full-access", sandboxPolicy: { type: "dangerFullAccess" } };
   }
 }
 

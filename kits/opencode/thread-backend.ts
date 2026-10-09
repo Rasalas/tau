@@ -465,7 +465,7 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
   /** A server for the thread, its event stream, then the stored session resumed or a new one created. */
   private async openSession(firstText: string): Promise<Live> {
     const level = this.permissionLevel();
-    if (level === "ask" && !this.options.ask) throw new Error("OpenCode cannot ask for approvals on this host; choose read-only or full access.");
+    if ((level === "ask" || level === "auto") && !this.options.ask) throw new Error("OpenCode cannot ask for approvals on this host; choose read-only or full access.");
     await this.store.ensure(this.threadId, this.cwd, this.options.instance);
     let server: OpenCodeServerHandle | undefined;
     server = await this.options.connect({

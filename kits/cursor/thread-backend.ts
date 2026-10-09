@@ -189,7 +189,7 @@ export class CursorThreadRuntimeBackend extends AcpThreadBackend<CursorSessionLi
 
   /** The CLI, signed in; the stored session loaded (or resumed) once, a gone one started afresh. */
   protected async openSession(): Promise<CursorSessionLike> {
-    if (this.permissionLevel() === "ask" && !this.options.ask) throw new Error("Cursor cannot ask for approvals on this host; choose read-only or full access.");
+    if (["ask", "auto"].includes(this.permissionLevel()) && !this.options.ask) throw new Error("Cursor cannot ask for approvals on this host; choose read-only or full access.");
     await this.cursorStore.ensure(this.threadId, this.cwd, this.options.instance);
     let session: CursorSessionLike | undefined;
     session = await this.options.openSession({

@@ -53,7 +53,8 @@ describe("Claude Code runtime adapter", () => {
   it("maps Tau's access levels onto Claude's permission modes", () => {
     expect(runtimePermissionPolicy("read-only")).toEqual({ permissionMode: "plan" });
     expect(runtimePermissionPolicy("ask")).toEqual({ permissionMode: "default" });
-    expect(runtimePermissionPolicy("full")).toEqual({ permissionMode: "auto" });
+    expect(runtimePermissionPolicy("auto")).toEqual({ permissionMode: "auto" });
+    expect(runtimePermissionPolicy("full")).toEqual({ permissionMode: "bypassPermissions" });
   });
 
   it("tells the SDK to run the user's own CLI with the user's own settings, and only adds Tau's identity", () => {
@@ -65,13 +66,13 @@ describe("Claude Code runtime adapter", () => {
       pathToClaudeCodeExecutable: "/usr/local/bin/claude",
       systemPrompt: { type: "preset", preset: "claude_code" },
       settingSources: ["user", "project", "local"],
-      permissionMode: "auto",
+      permissionMode: "bypassPermissions",
+      allowDangerouslySkipPermissions: true,
       sessionId: SESSION,
       env: { PATH: "/bin", CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP },
       abortController,
     });
     expect(created).not.toHaveProperty("resume");
-    expect(created).not.toHaveProperty("allowDangerouslySkipPermissions");
     expect(created).not.toHaveProperty("extraArgs");
     expect(claudeQueryOptions({ ...plan, extraArgs: { chrome: null } })).toMatchObject({ extraArgs: { chrome: null } });
     expect(CLIENT_APP).toMatch(/^tau\.claude-code\/\d+\.\d+\.\d+$/u);

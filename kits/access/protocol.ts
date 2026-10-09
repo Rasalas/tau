@@ -2,7 +2,7 @@
  * Pi itself has no permission model — every tool it is asked to run, runs.
  * Tau enforces these levels through an inline Pi extension that can block tool calls.
  */
-export type AccessLevel = "read-only" | "ask" | "full";
+export type AccessLevel = "read-only" | "ask" | "auto" | "full";
 
 /**
  * Access Kit's contract between its host entry and its desktop entry. The gate
@@ -13,6 +13,7 @@ export const ACCESS_HOST_EXTENSION_ID = "tau.access";
 export const ACCESS_LEVELS: ReadonlyArray<{ id: AccessLevel; label: string }> = [
   { id: "read-only", label: "read-only" },
   { id: "ask", label: "ask before edits" },
+  { id: "auto", label: "auto review" },
   { id: "full", label: "full access" },
 ];
 
@@ -29,7 +30,7 @@ export function isAccessLevel(value: unknown): value is AccessLevel {
 export const ACCESS_LEVEL_EVENT = "level";
 
 /** Strictest first: a thread's own level may narrow the workbench's, never widen it. */
-const STRICTNESS: Record<AccessLevel, number> = { "read-only": 0, ask: 1, full: 2 };
+const STRICTNESS: Record<AccessLevel, number> = { "read-only": 0, ask: 1, auto: 2, full: 3 };
 
 export function strictestAccessLevel(left: AccessLevel, right: AccessLevel | undefined): AccessLevel {
   return right !== undefined && STRICTNESS[right] < STRICTNESS[left] ? right : left;

@@ -275,7 +275,7 @@ export class GrokThreadRuntimeBackend extends AcpThreadBackend<GrokSessionLike> 
 
   /** The CLI, signed in; the stored session loaded (or resumed) once, a gone one started afresh. */
   protected async openSession(): Promise<GrokSessionLike> {
-    if (this.permissionLevel() === "ask" && !this.options.ask) throw new Error("Grok cannot ask for approvals on this host; choose read-only or full access.");
+    if (["ask", "auto"].includes(this.permissionLevel()) && !this.options.ask) throw new Error("Grok cannot ask for approvals on this host; choose read-only or full access.");
     await this.options.store.ensure(this.threadId, this.cwd, this.options.instance);
     const agentArgs = this.agentArgs();
     let session: GrokSessionLike | undefined;

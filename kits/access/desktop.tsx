@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { Lock, LockOpen, Settings2 } from "lucide-react";
+import { Lock, LockOpen, Settings2, Sparkles } from "lucide-react";
 import { ComposerMenuItem, ComposerMenuSection, HostUnavailableError, hostIsReadOnly, type ComposerControlProps, type DesktopExtension, type HostExtensionClient, type PreferencesStore } from "tau";
 import type { AccessLevel } from "./protocol.js";
 import { ACCESS_HOST_EXTENSION_ID, ACCESS_LEVEL_KEY as LEVEL_KEY, ACCESS_LEVELS, DEFAULT_ACCESS_LEVEL, isAccessLevel } from "./protocol.js";
@@ -21,11 +21,11 @@ function createControl(preferences: PreferencesStore, choose: (level: string) =>
         {LEVEL_CHOICES.map((entry) => (
           <ComposerMenuItem
             key={entry.value}
-            icon={entry.value === "full" ? <LockOpen size={13} /> : <Lock size={13} />}
+            icon={entry.value === "full" ? <LockOpen size={13} /> : entry.value === "auto" ? <Sparkles size={13} /> : <Lock size={13} />}
             label={entry.label}
             detail={levelSummary(entry.value)}
             selected={entry.value === level}
-            disabled={noInteractiveApprovals && entry.value === "ask"}
+            disabled={noInteractiveApprovals && (entry.value === "ask" || entry.value === "auto")}
             disabledReason="This runtime cannot stop for an approval; choose read-only or full access."
             onSelect={() => choose(entry.value)}
           />
@@ -36,6 +36,8 @@ function createControl(preferences: PreferencesStore, choose: (level: string) =>
   };
 }
 
+const STATUS_LABELS: Record<Exclude<AccessLevel, "full">, string> = { "read-only": "Read only", ask: "Ask before edits", auto: "Auto review" };
+
 /** Restricted access stays visible while its choices remain in the menu. */
 function createAccessStatus(preferences: PreferencesStore) {
   return function AccessStatus() {
@@ -43,11 +45,11 @@ function createAccessStatus(preferences: PreferencesStore) {
     const level = useSyncExternalStore(preferences.subscribe, readLevel, readLevel);
     if (level === "full") return null;
     return (
-      <button type="button" className="runtime-chip composer-access-status" aria-label={`Access: ${level === "read-only" ? "Read only" : "Ask before edits"}`} onClick={(event) => {
+      <button type="button" className="runtime-chip composer-access-status" aria-label={`Access: ${STATUS_LABELS[level]}`} onClick={(event) => {
         event.currentTarget.closest(".composer-chips")?.querySelector<HTMLElement>('[data-composer-menu]')?.click();
       }}>
-        <Lock size={16} aria-hidden="true" />
-        {level === "read-only" ? "Read only" : "Ask before edits"}
+        {level === "auto" ? <Sparkles size={16} aria-hidden="true" /> : <Lock size={16} aria-hidden="true" />}
+        {STATUS_LABELS[level]}
       </button>
     );
   };
@@ -83,7 +85,7 @@ export const accessKitExtension: DesktopExtension = {
       id: "access.permissions",
       page: "runtimes",
       profiles: ["desktop", "web", "compact"],
-      rows: [{ id: PERMISSIONS_ROW, label: "Before a runtime may…", keywords: ["access level", "permissions", "approvals", "read only", "ask before edits", "full access"] }],
+      rows: [{ id: PERMISSIONS_ROW, label: "Before a runtime may…", keywords: ["access level", "permissions", "approvals", "read only", "ask before edits", "auto", "auto review", "full access"] }],
       Component: createPermissionsSection(plugin.preferences, choose),
     });
     // `composer.mode` opens the menu that holds the access level, its runtime mode.

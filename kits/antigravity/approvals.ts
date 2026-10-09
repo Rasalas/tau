@@ -29,7 +29,9 @@ export function modeForLevel(level: RuntimePermissionLevel, available: readonly 
   const first = (...candidates: string[]) => candidates.find((candidate) => ids.has(candidate));
   switch (level) {
     case "read-only": return first("plan", "default");
-    case "ask": return first("default");
+    // Antigravity has no reviewer of its own: `auto` asks.
+    case "ask":
+    case "auto": return first("default");
     case "full": return first("yolo", "auto_edit", "default");
     default: return undefined;
   }
