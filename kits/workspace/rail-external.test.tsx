@@ -200,10 +200,10 @@ describe("the rail's shelves", () => {
 describe("merging by time", () => {
   it("keeps the rail's own order and puts each outside thread before the first it is newer than", () => {
     const own = [session("pinned-by-hand", 5), session("a", 30), session("b", 20)];
-    const merged = mergeByTime(own, [session("x", 25), session("y", 1), session("z", 40)], "updated");
+    const merged = mergeByTime(own, [session("x", 25), session("y", 1), session("z", 40)]);
     expect(merged.map((entry) => entry.id)).toEqual(["z", "x", "pinned-by-hand", "a", "b", "y"]);
-    expect(mergeByTime(own, [], "updated")).toEqual(own);
-    expect(mergeByTime([session("a", 30, { createdAt: 1 })], [session("x", 10, { createdAt: 5 })], "created").map((entry) => entry.id)).toEqual(["x", "a"]);
+    expect(mergeByTime(own, [])).toEqual(own);
+    expect(mergeByTime([session("a", 30, { createdAt: 1 })], [session("x", 10, { createdAt: 5 })]).map((entry) => entry.id)).toEqual(["x", "a"]);
   });
 });
 

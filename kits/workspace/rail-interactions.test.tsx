@@ -299,7 +299,7 @@ describe("dragging a thread onto another kit's target (design 2f)", () => {
 });
 
 describe("navigationRowsFor", () => {
-  const order = { grouping: "repository" as const, projectSort: "activity" as const, threadSort: "updated" as const, preview: 2 };
+  const order = { grouping: "repository" as const, projectSort: "activity" as const, preview: 2 };
   const threads = [shell("a", 0), shell("b", 1, { projectName: "other" }), shell("c", 2), shell("d", 3)];
 
   it("draws group headings, the preview and a show-more row per group", () => {

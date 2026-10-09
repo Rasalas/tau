@@ -626,7 +626,8 @@ export function reconcileActiveThreadShell(
     path: input.path,
     title: input.explicitTitle || (!touch ? existing?.title : undefined) || input.derivedTitle,
     modifiedAt: touch ? input.now : existing?.modifiedAt ?? input.now,
-    createdAt: existing?.createdAt ?? input.now,
+    // A shell listed without a creation time keeps its listed age, so the rail does not move it.
+    createdAt: existing?.createdAt ?? existing?.modifiedAt ?? input.now,
     projectPath: input.projectPath,
     projectName: input.projectName,
     projectLabel: input.projectLabel,
@@ -654,9 +655,14 @@ export function mergeSessionIndexScan(
   const newer = new Map(current
     .filter((session) => session.modifiedAt >= scanStartedAt || keepIds.has(session.id))
     .map((session) => [session.id, session]));
+  const known = new Map(current.map((session) => [session.id, session]));
   const merged = scanned.map((session) => {
     const live = newer.get(session.id);
-    if (!live) return session;
+    if (!live) {
+      // Runtimes other than Pi list no creation time; the first one seen holds the rail's place.
+      const before = known.get(session.id);
+      return session.createdAt === undefined && before ? { ...session, createdAt: before.createdAt ?? before.modifiedAt } : session;
+    }
     // A runtime can publish its shell before the startup scan reads lineage.
     // Keep its fresh activity without dropping the persisted parent link.
     return session.parentThreadId && !live.parentThreadId

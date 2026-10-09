@@ -62,6 +62,8 @@ export interface ClaudeRuntimeSessionRecord {
   tools?: string[];
   /** The `/goal` Claude reported last, so it shows before a session runs. */
   goal?: ClaudeStoredGoal;
+  /** When Tau created the thread; records from before it was kept fall back to their first message. */
+  createdAt?: number;
   updatedAt: number;
 }
 
@@ -310,6 +312,7 @@ function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
     ? item.titleSource
     : undefined;
   const instance = instanceOf(item.instance);
+  const createdAt = typeof item.createdAt === "number" && Number.isFinite(item.createdAt) ? item.createdAt : messages[0]?.timestamp;
   return {
     backendKind: "claude-code",
     tauThreadId,
@@ -338,6 +341,7 @@ function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
     ...(boundedString(item.observedModel, MAX_ID_LENGTH) ? { observedModel: boundedString(item.observedModel, MAX_ID_LENGTH) } : {}),
     ...(storedTools(item.tools) ? { tools: storedTools(item.tools) } : {}),
     ...(storedGoal(item.goal) ? { goal: storedGoal(item.goal) } : {}),
+    ...(createdAt !== undefined ? { createdAt } : {}),
     updatedAt,
   };
 }
@@ -512,6 +516,7 @@ export class ClaudeRuntimeSessionStore {
       attemptCount: 0,
       createFallbackUsed: false,
       messages: [],
+      createdAt: this.now(),
       updatedAt: this.now(),
     };
     this.records.set(tauThreadId, record);
@@ -721,6 +726,7 @@ export class ClaudeRuntimeSessionStore {
         ...(session.model ? { observedModel: session.model } : {}),
         ...(session.usage ? { usage: { ...session.usage } } : {}),
         ...(session.usageTurns?.length ? { usageTurns: session.usageTurns.map((turn) => ({ ...turn })) } : {}),
+        ...(session.messages[0] ? { createdAt: session.messages[0].timestamp } : {}),
         updatedAt: session.updatedAt,
       });
       return tauThreadId;

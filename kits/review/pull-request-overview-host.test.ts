@@ -182,8 +182,8 @@ describe("linked pull requests", () => {
     await expect(invoke("pr-linked-threads", { url: GITHUB_URL })).resolves.toEqual(["t1", "t2"]);
     await expect(invoke("pr-linked-threads", { url: "https://github.com/acme/tau/pull/99" })).resolves.toEqual([]);
     await expect(invoke("thread-requests", { threadIds: ["t1", "t2", "t3", 4] })).resolves.toEqual({
-      t1: [{ url: GITHUB_URL, state: "open" }],
-      t2: [{ url: "https://github.com/ACME/tau/pull/7", state: "open" }, { url: GITLAB_URL, state: "open" }],
+      t1: [{ url: GITHUB_URL, state: "open", baseRef: "main" }],
+      t2: [{ url: "https://github.com/ACME/tau/pull/7", state: "open", baseRef: "main" }, { url: GITLAB_URL, state: "open", baseRef: "main" }],
     });
   });
 
@@ -204,8 +204,8 @@ describe("linked pull requests", () => {
     changed.mockClear();
     merged = true;
     // The normal read still uses its recent snapshot.
-    expect(await invoke("thread-requests", { threadIds: ["t1"] })).toEqual({ t1: [{ url: GITHUB_URL, state: "open" }] });
-    expect(await invoke("thread-requests", { threadIds: ["t1"], refresh: true })).toEqual({ t1: [{ url: GITHUB_URL, state: "merged" }] });
+    expect(await invoke("thread-requests", { threadIds: ["t1"] })).toEqual({ t1: [{ url: GITHUB_URL, state: "open", baseRef: "main" }] });
+    expect(await invoke("thread-requests", { threadIds: ["t1"], refresh: true })).toEqual({ t1: [{ url: GITHUB_URL, state: "merged", baseRef: "main" }] });
     await vi.waitFor(() => expect(changed).toHaveBeenCalledWith({ threadId: "t1" }));
     await registry.dispose();
   });

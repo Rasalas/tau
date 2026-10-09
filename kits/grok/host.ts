@@ -192,6 +192,7 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
           threadId: entry.tauThreadId,
           cwd: entry.cwd,
           ...(entry.title ? { title: entry.title } : {}),
+          ...(entry.createdAt !== undefined ? { createdAt: entry.createdAt } : {}),
           updatedAt: entry.updatedAt,
           messages: entry.messages,
           ...(usage.length ? { usage } : {}),

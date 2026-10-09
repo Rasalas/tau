@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -15,6 +15,21 @@ async function store() {
 }
 
 describe("CodexSessionStore", () => {
+  it("keeps when a thread began, and dates one stored before by its first message", async () => {
+    const { filePath, make } = await store();
+    let now = 5;
+    const first = new CodexSessionStore({ filePath, now: () => now });
+    await first.ensure("tau-1", "/repo");
+    now = 9;
+    await first.appendMessages("tau-1", "/repo", [{ id: "u", role: "user", text: "Hi", timestamp: 9 }]);
+    expect((await make().list()).map((record) => [record.createdAt, record.updatedAt])).toEqual([[5, 9]]);
+
+    const stored = JSON.parse(await readFile(filePath, "utf8"));
+    delete stored.sessions[0].createdAt;
+    await writeFile(filePath, JSON.stringify(stored));
+    expect((await make().list())[0]?.createdAt).toBe(9);
+  });
+
   it("sits beside the Pi session directory, never inside the user's Codex home", () => {
     expect(CodexSessionStore.defaultPath("/data/pi/sessions")).toBe("/data/pi/tau/codex-runtime-sessions.json");
   });
@@ -33,7 +48,7 @@ describe("CodexSessionStore", () => {
 
     const second = make();
     expect(await second.get("tau-1")).toEqual({
-      backendKind: "codex", tauThreadId: "tau-1", codexThreadId: "codex-1", cwd: "/repo", model: "gpt-5.6-luna", updatedAt: 5,
+      backendKind: "codex", tauThreadId: "tau-1", codexThreadId: "codex-1", cwd: "/repo", model: "gpt-5.6-luna", createdAt: 5, updatedAt: 5,
       messages: [{ id: "u", role: "user", text: "Hi", timestamp: 1, clientMessageId: "m1" }, { id: "a", role: "assistant", text: "Hello", timestamp: 2 }],
     });
     expect(await second.listModels()).toEqual([{ id: "gpt-5.6-luna", name: "GPT-5.6-Luna", efforts: ["low"], defaultEffort: "low" }]);

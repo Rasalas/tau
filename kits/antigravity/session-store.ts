@@ -37,6 +37,8 @@ export interface AntigravitySessionRecord {
   model?: string;
   /** What the thread last actually ran on; shown before a session exists, never applied. */
   observedModel?: string;
+  /** When Tau created the thread; records from before it was kept fall back to their first message. */
+  createdAt?: number;
   updatedAt: number;
 }
 
@@ -96,18 +98,21 @@ function storedRecord(value: unknown): AntigravitySessionRecord | undefined {
   const usageTurns = readUsageTurns(item.usageTurns);
   const model = boundedString(item.model, MAX_ID_LENGTH);
   const observedModel = boundedString(item.observedModel, MAX_ID_LENGTH);
+  const messages = Array.isArray(item.messages) ? item.messages.flatMap((message) => { const parsed = storedMessage(message); return parsed ? [parsed] : []; }) : [];
+  const createdAt = typeof item.createdAt === "number" && Number.isFinite(item.createdAt) ? item.createdAt : messages[0]?.timestamp;
   return {
     backendKind: "antigravity",
     tauThreadId,
     ...(acpSessionId ? { acpSessionId } : {}),
     cwd,
-    messages: Array.isArray(item.messages) ? item.messages.flatMap((message) => { const parsed = storedMessage(message); return parsed ? [parsed] : []; }) : [],
+    messages,
     ...(title ? { title } : {}),
     ...(titleSource ? { titleSource } : {}),
     ...(usage ? { usage } : {}),
     ...(usageTurns ? { usageTurns } : {}),
     ...(model ? { model } : {}),
     ...(observedModel ? { observedModel } : {}),
+    ...(createdAt !== undefined ? { createdAt } : {}),
     updatedAt,
   };
 }
@@ -204,7 +209,7 @@ export class AntigravitySessionStore {
     const existing = this.records.get(tauThreadId);
     if (existing && existing.cwd === cwd) return cloneRecord(existing);
     if (existing) throw new Error("Antigravity session belongs to another workspace.");
-    const record: AntigravitySessionRecord = { backendKind: "antigravity", tauThreadId, cwd, messages: [], updatedAt: this.now() };
+    const record: AntigravitySessionRecord = { backendKind: "antigravity", tauThreadId, cwd, messages: [], createdAt: this.now(), updatedAt: this.now() };
     this.records.set(tauThreadId, record);
     await this.persist();
     return cloneRecord(record);

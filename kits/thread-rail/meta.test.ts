@@ -99,6 +99,16 @@ describe("rail sections", () => {
     expect(ids(sections.settled)).toEqual(["recent", "old"]);
   });
 
+  it("orders active threads by when they began or came back, never by their latest turn", () => {
+    const meta = state({ reopened: { keptAt: NOW + 50 } });
+    const threads = [
+      { ...thread("busy", NOW + 99), createdAt: NOW + 1 },
+      { ...thread("fresh", NOW + 2), createdAt: NOW + 20 },
+      { ...thread("reopened", NOW + 3), createdAt: NOW },
+    ];
+    expect(ids(railSections(threads, meta, NOW).active)).toEqual(["reopened", "fresh", "busy"]);
+  });
+
   it("keeps threads started from one prompt together, where the first of them is", () => {
     const meta = state({ one: { siblingGroupId: "g" }, two: { siblingGroupId: "g" } });
     const sections = railSections([thread("one", 9), thread("other", 8), thread("two", 7)], meta, NOW);

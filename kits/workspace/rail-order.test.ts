@@ -15,22 +15,27 @@ function preferences(values: Record<string, string>, options: Record<string, boo
 
 describe("readRailOrder", () => {
   it("falls back to the defaults, and to repository grouping for the old toggle", () => {
-    expect(readRailOrder(preferences({}))).toEqual({ grouping: "none", projectSort: "activity", threadSort: "updated", preview: 6 });
+    expect(readRailOrder(preferences({}))).toEqual({ grouping: "none", projectSort: "activity", preview: 6 });
     expect(readRailOrder(preferences({}, { "group-by-project": true })).grouping).toBe("repository");
     expect(readRailOrder(preferences({ "rail-grouping": "separate" }, { "group-by-project": true })).grouping).toBe("separate");
   });
 
   it("ignores values it does not know", () => {
-    expect(readRailOrder(preferences({ "rail-grouping": "tree", "rail-preview": "99", "rail-thread-sort": "size" }))).toEqual({ grouping: "none", projectSort: "activity", threadSort: "updated", preview: 6 });
+    expect(readRailOrder(preferences({ "rail-grouping": "tree", "rail-preview": "99", "rail-thread-sort": "size" }))).toEqual({ grouping: "none", projectSort: "activity", preview: 6 });
     expect(readRailOrder(preferences({ "rail-preview": "3" })).preview).toBe(3);
   });
 });
 
 describe("sortThreads", () => {
-  it("sorts by last activity or by creation, newest first", () => {
+  it("sorts by creation, newest first, whatever ran last", () => {
     const threads = [thread("old", { modifiedAt: 30, createdAt: 1 }), thread("new", { modifiedAt: 10, createdAt: 20 }), thread("unknown", { modifiedAt: 5 })];
-    expect(sortThreads(threads, "updated").map((entry) => entry.id)).toEqual(["old", "new", "unknown"]);
-    expect(sortThreads(threads, "created").map((entry) => entry.id)).toEqual(["new", "unknown", "old"]);
+    expect(sortThreads(threads).map((entry) => entry.id)).toEqual(["new", "unknown", "old"]);
+  });
+
+  it("keeps a row in place when its thread runs a turn", () => {
+    const before = [thread("a", { modifiedAt: 10, createdAt: 3 }), thread("b", { modifiedAt: 20, createdAt: 2 }), thread("c", { modifiedAt: 30, createdAt: 1 })];
+    const after = before.map((entry) => entry.id === "c" ? { ...entry, modifiedAt: 99 } : entry);
+    expect(sortThreads(after).map((entry) => entry.id)).toEqual(sortThreads(before).map((entry) => entry.id));
   });
 });
 
@@ -71,11 +76,11 @@ describe("groupThreads", () => {
     expect(shape(groupThreads(threads, "repository_path", "opened", projectOf)).map(([label]) => label)).toEqual(["repo · web", "zeta", "repo"]);
   });
 
-  it("orders groups by their newest activity even when threads are sorted by creation", () => {
+  it("orders groups by their newest thread, not by the latest turn", () => {
     const sorted = sortThreads([
       thread("fresh-old-repo", { projectName: "old", modifiedAt: 50, createdAt: 1 }),
       thread("new-repo", { projectName: "new", modifiedAt: 10, createdAt: 40 }),
-    ], "created");
-    expect(groupThreads(sorted, "repository", "activity", () => undefined).map((group) => group.label)).toEqual(["old", "new"]);
+    ]);
+    expect(groupThreads(sorted, "repository", "activity", () => undefined).map((group) => group.label)).toEqual(["new", "old"]);
   });
 });
