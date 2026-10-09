@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from "vitest";
-import type { HostSnapshot, PreferencesStore } from "tau";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { HostSnapshot, PreferencesStore, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { shouldTitleAutomatically, threadModel, titleModel } from "./desktop.js";
-import { THREAD_TITLES_HOST_EXTENSION_ID } from "./protocol.js";
+import { shouldTitleAutomatically, threadModel, titleModel, titleGeneratorExtension } from "./desktop.js";
+import { THREAD_TITLES_HOST_EXTENSION_ID, TITLE_FAILED_EVENT } from "./protocol.js";
 
 function snapshot(messages: HostSnapshot["messages"], backendKind?: string): HostSnapshot {
   return {
@@ -31,6 +31,14 @@ beforeEach(() => {
 });
 
 describe("automatic title generation", () => {
+  it("shows a title failure after the deferred command has already returned", async () => {
+    const { registry } = createKitHarness();
+    const notify = vi.fn();
+    registry.activate(titleGeneratorExtension);
+    await registry.notifyPromptSubmitted({ prompt: "first", snapshot: snapshot([]) }, { notify } as unknown as WorkbenchActions);
+    registry.dispatchExtensionEvent({ type: "extension-event", extensionId: THREAD_TITLES_HOST_EXTENSION_ID, name: TITLE_FAILED_EVENT, payload: { sessionId: "session", message: "Model unavailable" } });
+    expect(notify).toHaveBeenCalledWith("Could not name the thread: Model unavailable");
+  });
   it("titles a thread on its first prompt only", () => {
     expect(shouldTitleAutomatically({ prompt: "first", snapshot: snapshot([]) }, preferences)).toBe(true);
     expect(shouldTitleAutomatically({

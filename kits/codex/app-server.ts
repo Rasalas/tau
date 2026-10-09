@@ -73,7 +73,7 @@ export interface CodexLoginCompleted {
 }
 
 export interface CodexThreadInfo {
-  thread: { id: string; path?: string | null; cliVersion?: string };
+  thread: { id: string; path?: string | null; cliVersion?: string; name?: string | null };
   model: string;
   reasoningEffort: string | null;
 }
@@ -205,12 +205,14 @@ export class CodexAppServer {
     return models;
   }
 
-  startThread(params: { cwd: string; model?: string; serviceTier?: string | null; policy: CodexPolicy }): Promise<CodexThreadInfo> {
+  startThread(params: { cwd: string; model?: string; serviceTier?: string | null; policy: CodexPolicy; ephemeral?: boolean; baseInstructions?: string }): Promise<CodexThreadInfo> {
     return this.connection.request("thread/start", {
       cwd: params.cwd,
       approvalPolicy: params.policy.approvalPolicy,
       approvalsReviewer: params.policy.approvalsReviewer ?? "user",
       sandbox: params.policy.sandbox,
+      ...(params.ephemeral ? { ephemeral: true, config: { mcp_servers: {}, "features.shell_tool": false, "features.apply_patch_tool": false }, developerInstructions: "Return the requested text only. Do not use tools or inspect the workspace." } : {}),
+      ...(params.baseInstructions ? { baseInstructions: params.baseInstructions } : {}),
       ...(params.model ? { model: params.model } : {}),
       ...(params.serviceTier !== undefined ? { serviceTier: params.serviceTier } : {}),
     }, { timeoutMs: this.timeouts.requestMs });
@@ -247,6 +249,10 @@ export class CodexAppServer {
 
   async setServiceTier(threadId: string, serviceTier: string | null): Promise<void> {
     await this.connection.request("thread/settings/update", { threadId, serviceTier }, { timeoutMs: this.timeouts.requestMs });
+  }
+
+  async setThreadName(threadId: string, name: string): Promise<void> {
+    await this.connection.request("thread/name/set", { threadId, name }, { timeoutMs: this.timeouts.requestMs });
   }
 
   /** Adds input to the running turn; the CLI refuses when that turn is no longer the one expected. */

@@ -80,6 +80,7 @@ import type {
   RuntimeSessionInfo,
 } from "./host-extensions.js";
 import { runtimeBackendOwner } from "./host-extensions.js";
+import { hostThreadCompletionServices } from "./host-completion.js";
 import { ProjectHistory } from "./project-history.js";
 import type { ProjectFactsCache } from "./project-facts-cache.js";
 import type { ThreadIndex } from "./thread-index.js";
@@ -406,8 +407,7 @@ export class PiHost {
       isCurrent: () => this.threads.get(thread.threadId)?.runtime === thread,
       sessionName: () => thread.state.title,
       transcript: () => thread.backend.transcript(),
-      complete: (provider, modelId, request) => requireCapability(thread.backend, "completions").complete(provider, modelId, request),
-      modelApi: () => thread.backend.capabilities.completions?.modelApi(),
+      ...hostThreadCompletionServices(thread.backend),
       shortcuts: (userBindings) => thread.backend.capabilities.extensions?.shortcuts(userBindings) ?? [],
       runShortcut: async (keys, userBindings) => {
         // A shortcut handler draws through ctx.ui, which only exists once bound.

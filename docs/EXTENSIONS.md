@@ -2501,10 +2501,11 @@ such report Pi's list stands. The vendor is the provider or the provider Pi
 names its subscription route after (`openai-codex` is `openai`'s).
 `smallCompletionModel(services, prefer, options?)` from `tau/host-extension` (API
 1.11.0) picks a small model from it — `isSmallModel(id)` knows the tiers by id
-(`haiku`, `mini`, `flash`, `luna`, …) — the one closest to `prefer`: same
+(`haiku`, `mini`, `flash`, `luna`, …) — same
 provider first, then the same vendor under another name (a Codex thread's
-`openai` is Pi's `openai-codex`), then the longest shared id, so a thread on
-`gpt-5.6-sol` gets `gpt-5.6-luna`; `undefined` when none is small, which
+`openai` is Pi's `openai-codex`). Since API 1.54.0 it picks the newest available
+generation within a small tier and prefers Luna over OpenAI's older mini/nano
+tiers. Explicit extension model settings still win. It returns `undefined` when none is small, which
 leaves `complete` on the default. With `{ elsePrefer: true }` (API 1.12.0) it
 answers `prefer` itself instead, where `complete` runs that model under the
 same vendor. Thread Title Generator and Worktree Names take the model their
@@ -2513,6 +2514,24 @@ and `elsePrefer`, for a thread of any runtime; Handoff keeps `undefined` and
 writes an excerpt instead of a summary. `HostThread.model` (new in API 1.11.0) is that
 model as the thread's runtime names it — a Codex thread's `openai/gpt-5.6-sol`
 — so a thread whose draft named none still gives the hint.
+
+API 1.54.0 adds optional `HostThread.nativeTitle()` and
+`HostThread.completionModels()` for in-process host extensions. The first reads
+a runtime's actual session name, excluding first-prompt previews. The second
+lists models reached through that thread's own login for `HostThread.complete`.
+Backends supply them through `capabilities.titles.title()` and
+`capabilities.completions.models()`. A backend that adopts a runtime name stores
+it and emits `{ type: "title" }`; core republishes the shell without changing its
+activity timestamp. Native title updates must preserve a title the user renamed.
+
+Thread Title Generator waits for the first turn of a runtime with title support,
+then takes its native name or completes through its own login. Claude Code uses
+the instance's transcript title metadata and a non-persisted, tool-free SDK
+completion; Codex uses thread names and disposable ephemeral completion threads.
+OpenCode names its own sessions; ACP backends adopt `session_info_update.title`.
+Pi and runtimes without model completions keep the host's Pi configuration as a
+fallback. The title request includes the first exchanges and ignores attachment
+filenames and boilerplate. A rename arriving during inference wins.
 
 A registered backend's `label` is what the workbench calls it where a new
 thread's runtime is chosen (the composer's runtime chip, Settings → Runtimes);

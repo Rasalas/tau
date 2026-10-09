@@ -37,6 +37,16 @@ function harness(transcript: PiKitTranscriptMessage[]) {
 const conversation: PiKitTranscriptMessage[] = [{ role: "user", content: [{ type: "text", text: "Fix automatic titles" }] }];
 
 describe("thread titles inside an attached Pi runtime", () => {
+  it("preserves a manual rename during the title request", async () => {
+    const kit = harness(conversation);
+    kit.setIdle(true);
+    kit.complete.mockImplementationOnce(async (_model, request) => {
+      kit.pi.setSessionName("Mein Titel");
+      return { request, stopReason: "stop", content: [{ type: "text", text: "Generated title" }] };
+    });
+    await expect(kit.commands.get("generate")!(kit.context, { provider: "provider", modelId: "model" })).resolves.toBeUndefined();
+    expect(kit.pi.getSessionName()).toBe("Mein Titel");
+  });
   it("waits for the run to settle before titling the thread", async () => {
     const kit = harness(conversation);
     const generated = kit.commands.get("generate")!(kit.context, { provider: "provider", modelId: "model", force: false });

@@ -58,6 +58,21 @@ async function open(space: Scratch, options: { level?: RuntimePermissionLevel; a
 const prompts = (fake: FakeOpenCode) => fake.requests.filter((request) => request.path.endsWith("/prompt_async"));
 
 describe("OpenCodeThreadRuntimeBackend against a fake OpenCode server", () => {
+  it("adopts OpenCode title updates without replacing manual names", async () => {
+    const space = await scratch((turn) => {
+      turn.emit({ type: "session.updated", properties: { info: { id: turn.session.id, title: "Bildvorschau im Chat" } } });
+      turn.emit({ type: "session.idle", properties: { sessionID: turn.session.id } });
+    });
+    const { backend, events } = await open(space);
+    await backend.prompt({ text: "Repariere die Bildvorschau", delivery: "prompt" });
+    expect(backend.state()).toMatchObject({ title: "Bildvorschau im Chat", titleSource: "generated" });
+    expect(await space.store.get("tau-1")).toMatchObject({ title: "Bildvorschau im Chat" });
+    expect(events.some((event) => event.type === "title")).toBe(true);
+    await backend.setTitle("Mein Titel", "renamed");
+    await backend.prompt({ text: "Weiter", delivery: "prompt" });
+    expect(backend.state()).toMatchObject({ title: "Mein Titel", titleSource: "renamed" });
+    expect(await space.store.get("tau-1")).toMatchObject({ title: "Mein Titel", titleSource: "renamed" });
+  });
   it("creates a session on the first turn, streams the answer and keeps both messages and OpenCode's usage", async () => {
     const space = await scratch();
     const { backend, events } = await open(space);
@@ -68,9 +83,9 @@ describe("OpenCodeThreadRuntimeBackend against a fake OpenCode server", () => {
     expect(types).toContain("assistant-delta");
     expect(events.find((event) => event.type === "turn-settled")).toEqual({ type: "turn-settled", status: "completed" });
     expect((await backend.transcript()).map((message) => [message.role, message.text])).toEqual([["user", "Reply with exactly one word: ok"], ["assistant", "ok"]]);
-    // The session is named after the prompt, so OpenCode spends no model call on a title.
+    // Keep OpenCode's default name so it can generate a real title itself.
     const created = space.fake.requests.find((request) => request.method === "POST" && request.path === "/session")!;
-    expect(created.body).toEqual({ title: "Reply with exactly one word: ok", permission: rulesForLevel("full") });
+    expect(created.body).toEqual({ permission: rulesForLevel("full") });
     expect(created.query.directory).toBe(space.dir);
     const view = backend.catalogView();
     expect(view.model).toMatchObject({ provider: "opencode", id: "mimo-v2.6-flash-free" });

@@ -1,10 +1,11 @@
 import { query as sdkQuery, type CanUseTool, type EffortLevel, type OnUserDialog, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { HostMcpConnection, RuntimePermissionLevel, RuntimePromptInput, RuntimePromptResult, RuntimeTransport, SkillRuntimeAdapter } from "tau/host-extension";
+import type { CompletionRequest, HostMcpConnection, RuntimePermissionLevel, RuntimePromptInput, RuntimePromptResult, RuntimeTransport, SkillRuntimeAdapter } from "tau/host-extension";
 import { homedir } from "node:os";
 import manifest from "./tau-extension.json";
 import { probeClaude, type ClaudeProbe } from "./probe.js";
 import { ClaudeSdkSession } from "./sdk-session.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
+import { readClaudeNativeTitle } from "./native-title.js";
 
 /** The SDK entry the adapter drives; tests inject a scripted one. */
 export type ClaudeQuery = typeof sdkQuery;
@@ -59,6 +60,8 @@ export interface ClaudeCodeAgentRuntimeAdapter extends SkillRuntimeAdapter {
   openSession(input: ClaudeSessionInput): ClaudeSdkSession;
   /** What the CLI says about its login and models; cached for a few minutes. `usage` also reads the plan's windows, afresh. */
   probe(options?: { fresh?: boolean; usage?: boolean }): Promise<ClaudeProbe>;
+  nativeTitle?(cwd: string, sessionId: string): Promise<string | undefined>;
+  complete?(cwd: string, modelId: string, request: CompletionRequest): Promise<string>;
   /** Shared app-data store used to resume this adapter after eviction/restart. */
   readonly sessionStore?: ClaudeRuntimeSessionStore;
 }
@@ -481,6 +484,23 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
     stream: (input, onMessage, hooks) => deliver(input, onMessage, hooks),
     openSession,
     probe,
+    nativeTitle: (cwd, sessionId) => readClaudeNativeTitle(env, cwd, sessionId),
+    complete: async (cwd, model, request) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 30_000);
+      let completion: ReturnType<ClaudeQuery> | undefined;
+      try {
+        completion = query({ prompt: request.prompt, options: {
+          cwd, model, systemPrompt: request.system, persistSession: false,
+          pathToClaudeCodeExecutable: options.resolveCommand?.(commandName()) ?? commandName(),
+          env: { ...env, CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP, CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(request.maxTokens ?? 256) },
+          tools: [], mcpServers: {}, strictMcpConfig: true, settingSources: [],
+          settings: { disableAllHooks: true }, thinking: { type: "disabled" },
+          permissionMode: "plan", maxTurns: 1, abortController: controller,
+        } });
+        return await collectTurnText(completion);
+      } finally { clearTimeout(timer); completion?.close(); }
+    },
     transport: {
       sendPrompt: (input) => deliver(input),
       async abort(tauThreadId) {

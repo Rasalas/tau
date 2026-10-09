@@ -51,12 +51,26 @@ function sharedPrefix(left: string, right: string): number {
   return length;
 }
 
+function smallFamily(id: string): string {
+  return SMALL_MODEL.exec(id)?.[0].replace(/^[-_./:]/u, "").toLowerCase() ?? "";
+}
+
+function compareGeneration(left: string, right: string): number {
+  const version = (id: string) => (id.match(/\d+(?:[.-]\d+)*/u)?.[0] ?? "").split(/[.-]/u).filter((part) => part.length < 8).map(Number);
+  const a = version(left), b = version(right);
+  for (let at = 0; at < Math.max(a.length, b.length); at += 1) {
+    const difference = (b[at] ?? 0) - (a[at] ?? 0);
+    if (difference) return difference;
+  }
+  return 0;
+}
+
 /**
  * The model for a kit's small job (a title, a branch name) when the user chose
  * none: a small model of `completionModels()`, the one closest to `prefer` —
  * the same provider first, then the same vendor under another name (a Codex
- * thread's `openai` is Pi's `openai-codex`), then the longest shared id
- * (`gpt-5.6-sol` → `gpt-5.6-luna`: a login may not reach an older generation).
+ * thread's `openai` is Pi's `openai-codex`), then the newest offered generation
+ * within a small tier. Luna takes precedence over OpenAI's older mini/nano tiers.
  * `undefined` when none is small, which leaves `complete` on the user's
  * default — or, with `elsePrefer`, on `prefer` itself where `complete` runs it.
  */
@@ -70,7 +84,19 @@ export async function smallCompletionModel(
   const closeness = (model: CompletionModelRef) => prefer ? provider(model) * 1_000 + sharedPrefix(model.id, prefer.id) : 0;
   const pick = catalog
     .filter((model) => isSmallModel(model.id))
-    .sort((left, right) => closeness(right) - closeness(left))[0]
+    .sort((left, right) => {
+      const vendor = provider(right) - provider(left);
+      if (vendor) return vendor;
+      const leftFamily = smallFamily(left.id), rightFamily = smallFamily(right.id);
+      if (leftFamily === rightFamily) return compareGeneration(left.id, right.id) || closeness(right) - closeness(left);
+      // Luna is OpenAI's current small tier; old mini/nano offers must not win just because the thread uses an older GPT.
+      if (provider(left) > 0 && provider(right) > 0) {
+        const tier = (family: string) => family === "luna" ? 3 : family === "mini" ? 2 : family === "nano" ? 1 : 0;
+        const difference = tier(rightFamily) - tier(leftFamily);
+        if (difference) return difference;
+      }
+      return closeness(right) - closeness(left);
+    })[0]
     ?? (prefer && options.elsePrefer ? catalog.filter((model) => model.id === prefer.id && provider(model) > 0).sort((left, right) => provider(right) - provider(left))[0] : undefined);
   return pick ? { provider: pick.provider, id: pick.id } : undefined;
 }

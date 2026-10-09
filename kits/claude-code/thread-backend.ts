@@ -8,6 +8,7 @@ import {
   prepareSkillPrompt,
   validatePreparedPrompt,
   type BackendPrompt,
+  type CompletionRequest,
   type ExtensionUiAnswer,
   type HostExecutionPolicy,
   type HostMcpConnection,
@@ -205,6 +206,12 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.options = options;
     this.now = options.now ?? Date.now;
     this.capabilities = {
+      titles: { title: () => this.runtimeAdapter.nativeTitle?.(this.cwd, this.providerSessionId) ?? Promise.resolve(undefined) },
+      ...(this.runtimeAdapter.complete ? { completions: {
+        complete: (_provider: string, modelId: string, request: CompletionRequest) => this.runtimeAdapter.complete!(this.cwd, modelId, request),
+        models: () => this.models(),
+        modelApi: () => "anthropic-messages",
+      } } : {}),
       catalogWrite: {
         setModel: (_provider, id) => this.setModel(id),
         setThinkingLevel: (level) => this.setEffort(level),

@@ -128,6 +128,8 @@ export type ThreadRuntimeEvent =
   | { type: "notice"; message: string; level: "info" | "warning" | "error" }
   /** `catalogView().usage` changed; the host republishes the thread's shell. */
   | { type: "usage" }
+  /** The backend adopted a title from its runtime; republish its shell. */
+  | { type: "title" }
   /** `capabilities.goals.current()` changed; the host republishes the thread's goal. New in API 1.52.0. */
   | { type: "goal" };
 
@@ -204,6 +206,8 @@ export interface ThreadCatalogWriteCapability {
 /** One short answer from a model of this runtime, outside the thread's conversation. */
 export interface ThreadCompletionCapability {
   complete(provider: string, modelId: string, request: CompletionRequest): Promise<string>;
+  /** Models reached through this runtime's own credentials. */
+  models?(): Promise<UiModel[]>;
   /** The provider API of the thread's active model, e.g. "openai-responses". */
   modelApi(): string | undefined;
 }
@@ -320,6 +324,8 @@ export interface ThreadBackendCapabilities {
   compaction?: ThreadCompactionCapability;
   catalogWrite?: ThreadCatalogWriteCapability;
   completions?: ThreadCompletionCapability;
+  /** A runtime's session name, excluding its first-prompt fallback. */
+  titles?: { title(): Promise<string | undefined> };
   extensions?: ThreadExtensionCapability;
   reload?: ThreadReloadCapability;
   /** Stops runtime resources while retaining the provider session for resume. */
@@ -357,6 +363,7 @@ const CAPABILITY_LABELS: Record<ThreadCapabilityName, string> = {
   compaction: "Context compaction",
   catalogWrite: "Model selection",
   completions: "Model completions",
+  titles: "Runtime titles",
   extensions: "Runtime extensions",
   reload: "Reloading runtime resources",
   restart: "Restarting the agent session",

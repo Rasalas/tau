@@ -17,7 +17,7 @@ function scripted(script: Script): { query: ClaudeQuery; calls: Call[] } {
     async function* run(): AsyncGenerator<SDKMessage, void> {
       for (const frame of await script(call)) yield frame;
     }
-    return run() as unknown as ReturnType<ClaudeQuery>;
+    return Object.assign(run(), { close: vi.fn() }) as unknown as ReturnType<ClaudeQuery>;
   }) as unknown as ClaudeQuery;
   return { query, calls };
 }
@@ -27,7 +27,35 @@ const frame = <T extends object>(value: T): SDKMessage => ({ uuid: "u", session_
 const init = () => frame({ type: "system", subtype: "init", model: "claude-opus-5" });
 const assistant = (text: string, parent: string | null = null) => frame({ type: "assistant", parent_tool_use_id: parent, message: { role: "assistant", content: [{ type: "text", text }] } });
 const success = (numTurns = 1, result = "") => frame({ type: "result", subtype: "success", is_error: false, num_turns: numTurns, result });
+
+it("completes a small job with the instance's own login and no persisted session, tools or project hooks", async () => {
+  const { query, calls } = scripted(() => [assistant("Bildvorschau im Chat"), success()]);
+  const adapter = createClaudeCodeRuntimeAdapter({ storePath: "/unused", query, env: { CLAUDE_CONFIG_DIR: "/isolated-account" } });
+  await expect(adapter.complete!("/repo", "haiku", { system: "Write a title", prompt: "Name the task", maxTokens: 256 })).resolves.toBe("Bildvorschau im Chat");
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({ prompt: "Name the task", options: {
+    model: "haiku", systemPrompt: "Write a title", persistSession: false,
+    env: { CLAUDE_CONFIG_DIR: "/isolated-account" }, tools: [], mcpServers: {},
+    settingSources: [], settings: { disableAllHooks: true }, thinking: { type: "disabled" },
+  } });
+  expect(calls[0]!.options).not.toHaveProperty("resume");
+});
 const failure = (...errors: string[]) => frame({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 1, errors });
+
+it("closes a failed short SDK request and clears its abort timer", async () => {
+  const close = vi.fn();
+  const { query } = scripted(() => [failure("Model unavailable")]);
+  const adapter = createClaudeCodeRuntimeAdapter({ storePath: "/unused", query: ((input) => {
+    const result = query(input);
+    return Object.assign(result, { close });
+  }) as ClaudeQuery });
+  vi.useFakeTimers();
+  try {
+    await expect(adapter.complete!("/repo", "haiku", { system: "Title", prompt: "Task" })).rejects.toThrow("Model unavailable");
+    expect(close).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  } finally { vi.useRealTimers(); }
+});
 const sdkAbort = () => Object.assign(new Error("Request was aborted."), { name: "AbortError" });
 const afterAbort = (signal: AbortSignal): Promise<never> => new Promise((_, reject) => {
   signal.addEventListener("abort", () => reject(sdkAbort()), { once: true });

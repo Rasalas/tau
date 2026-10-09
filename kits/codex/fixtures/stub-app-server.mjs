@@ -45,6 +45,11 @@ function threadInfo(id, cwd) {
 }
 
 async function play(name, ids) {
+  if (name === "title") {
+    send({ method: "thread/name/updated", params: { threadId: "other-thread", threadName: "Wrong thread" } });
+    send({ method: "thread/name/updated", params: { threadId: ids.thread, threadName: "Bildvorschau im Chat" } });
+    name = "plain";
+  }
   if (name === "native") {
     const child = "native-child";
     send({ method: "thread/started", params: { thread: { id: child, source: { subAgent: { thread_spawn: { parent_thread_id: ids.thread, agent_nickname: "Reviewer" } } } } } });
@@ -181,6 +186,9 @@ async function handle(message) {
       if (!threads.has(params.threadId)) return send({ id, error: { code: -32600, message: `no rollout found for thread id ${params.threadId}` } });
       cwds.set(params.threadId, params.cwd);
       return send({ id, result: threadInfo(params.threadId, params.cwd) });
+    case "thread/name/set":
+      send({ method: "thread/name/updated", params: { threadId: params.threadId, threadName: params.name } });
+      return send({ id, result: {} });
     case "turn/start": {
       const turn = `turn-${++turns}`;
       const text = params.input?.find((input) => input.type === "text")?.text ?? "";

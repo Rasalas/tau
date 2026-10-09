@@ -48,6 +48,7 @@ import type { CodexConfiguredModel } from "./config.js";
 import { usageTurnsOf, type CodexSessionStore, type CodexStoredGoal, type CodexStoredModel } from "./session-store.js";
 import { codexToolsWrite } from "./tools.js";
 import { PLAN_MODE } from "./events.js";
+import { completeCodex } from "./completion.js";
 
 /** What the backend needs of a live app-server; `CodexAppServer` is the real one. */
 export interface CodexSessionLike {
@@ -64,7 +65,7 @@ export interface CodexSessionLike {
   logout?(): Promise<void>;
   models(): Promise<CodexModel[]>;
   setServiceTier?(threadId: string, serviceTier: string | null): Promise<void>;
-  startThread(params: { cwd: string; model?: string; serviceTier?: string | null; policy: CodexPolicy }): Promise<CodexThreadInfo>;
+  startThread(params: { cwd: string; model?: string; serviceTier?: string | null; policy: CodexPolicy; ephemeral?: boolean; baseInstructions?: string }): Promise<CodexThreadInfo>;
   resumeThread(params: { threadId: string; cwd: string; model?: string; serviceTier?: string | null; policy: CodexPolicy }): Promise<CodexThreadInfo>;
   startTurn(params: { threadId: string; input: CodexUserInput[]; policy: CodexPolicy; model?: string; serviceTier?: string | null; effort?: string; mode?: CodexCollaborationMode }): Promise<string>;
   steerTurn(params: { threadId: string; turnId: string; input: CodexUserInput[] }): Promise<void>;
@@ -74,6 +75,7 @@ export interface CodexSessionLike {
   goalSet?(params: { threadId: string; objective?: string; status?: CodexGoalStatus }): Promise<CodexGoal>;
   goalClear?(threadId: string): Promise<boolean>;
   close(): Promise<void>;
+  setThreadName?(threadId: string, name: string): Promise<void>;
 }
 
 export interface CodexSessionInput {
@@ -246,6 +248,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   private tail: Promise<void> = Promise.resolve();
   private title?: string;
   private titleSource?: ThreadTitleSource;
+  private nativeTitle?: string;
   private usage: UiThreadUsage = emptyUsage();
   /** Each finished turn's tokens; the running total above is Codex's own. */
   private usageTurns: UsageTurn[] = [];
@@ -297,6 +300,16 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.store = options.store;
     this.now = options.now ?? Date.now;
     this.capabilities = {
+      titles: { title: async () => this.nativeTitle },
+      completions: {
+        models: () => this.models(),
+        modelApi: () => "openai-responses",
+        complete: async (_provider, modelId, request) => {
+          const efforts = this.modelList.find((model) => model.id === modelId)?.efforts ?? [];
+          const effort = ["none", "minimal", "low"].find((value) => efforts.includes(value)) ?? efforts[0] ?? "low";
+          return completeCodex(this.options.openSession, this.cwd, modelId, effort, request);
+        },
+      },
       restart: { restart: async () => {
         if (this.turns.length || this.opening || this.switchingAccount || this.admittingPrompts) throw new Error("Wait for Codex to finish before restarting its session.");
         this.switchingAccount = true;
@@ -746,6 +759,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
         await this.store.setCodexThread(this.threadId, this.cwd, info.thread.id);
       }
       if (info.reasoningEffort) this.observedEffort = info.reasoningEffort;
+      this.adoptNativeTitle(info.thread.name);
       if (info.model && info.model !== this.observedModel) {
         this.observedModel = info.model;
         await this.store.setObservedModel(this.threadId, this.cwd, info.model);
@@ -773,6 +787,10 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     for (const event of native.events) this.handleEvent(event);
     if (native.handled) return;
     if (typeof params.threadId === "string" && this.codexThreadId && params.threadId !== this.codexThreadId) return;
+    if (method === "thread/name/updated") {
+      if (params.threadId === this.codexThreadId) this.adoptNativeTitle(params.threadName);
+      return;
+    }
     if (method === "thread/tokenUsage/updated") {
       const usage = params.tokenUsage as CodexTokenUsage | undefined;
       if (!usage?.total) return;
@@ -1099,6 +1117,19 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.title = safe;
     this.titleSource = source;
     await this.store.setTitle(this.threadId, this.cwd, safe, source);
+    if (this.live && !this.live.closed && this.codexThreadId) await this.live.setThreadName?.(this.codexThreadId, safe);
+  }
+
+  private adoptNativeTitle(value: unknown): void {
+    const title = typeof value === "string" ? derivedTitle(value) : undefined;
+    if (!title || this.titleSource === "renamed" || title === this.title) return;
+    this.nativeTitle = title;
+    this.title = title;
+    this.titleSource = "generated";
+    this.persisting = this.persisting.then(async () => {
+      if (this.titleSource !== "renamed" && this.title === title) await this.store.setTitle(this.threadId, this.cwd, title, "generated");
+    });
+    this.report({ type: "title" });
   }
 
   async waitForIdle(): Promise<void> {

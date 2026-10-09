@@ -20,6 +20,30 @@ const STUB = fileURLToPath(new URL("./fixtures/stub-app-server.mjs", import.meta
 const directories: string[] = [];
 const backends: CodexThreadRuntimeBackend[] = [];
 
+it("adopts a Codex title, persists it, and preserves a manual rename against later native events", async () => {
+  const space = await scratch();
+  const { backend, events } = await open(space);
+  await backend.prompt({ text: "[scenario:title]", delivery: "prompt" });
+  expect(backend.state()).toMatchObject({ title: "Bildvorschau im Chat", titleSource: "generated" });
+  expect(await space.store.get("tau-1")).toMatchObject({ title: "Bildvorschau im Chat" });
+  expect(events.some((event) => event.type === "title")).toBe(true);
+  await backend.setTitle("Mein Titel", "renamed");
+  await backend.prompt({ text: "[scenario:title]", delivery: "prompt" });
+  expect(backend.state()).toMatchObject({ title: "Mein Titel", titleSource: "renamed" });
+  expect(await space.store.get("tau-1")).toMatchObject({ title: "Mein Titel", titleSource: "renamed" });
+});
+
+it("completes through a disposable Codex session without adding a turn to the original thread", async () => {
+  const space = await scratch();
+  const { backend } = await open(space);
+  await backend.capabilities.completions!.models!();
+  await expect(backend.capabilities.completions!.complete("openai", "gpt-5.6-luna", { system: "Write a title", prompt: "Name the task" })).resolves.toBe("hello");
+  expect(await backend.transcript()).toEqual([]);
+  const requests = await sent(space);
+  expect(requests.find((entry) => entry.method === "thread/start")?.params).toMatchObject({ ephemeral: true, sandbox: "read-only", baseInstructions: "Write a title" });
+  expect(requests.find((entry) => entry.method === "turn/start")?.params).toMatchObject({ model: "gpt-5.6-luna", effort: "low", sandboxPolicy: { type: "readOnly", networkAccess: false } });
+});
+
 afterEach(async () => {
   await Promise.all(backends.splice(0).map((backend) => backend.dispose()));
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));

@@ -50,6 +50,12 @@ const assistant: UiMessage = { id: "a1", role: "assistant", text: "done", timest
 const tool: UiToolRun = { id: "tool-1", name: "Bash", args: { command: "ls" }, status: "running", startedAt: 5 };
 
 describe("handleBackendRuntimeEvent", () => {
+  it("publishes a runtime title change without touching the thread's activity timestamp", () => {
+    const thread = makeThread();
+    const { services } = makeServices();
+    handleBackendRuntimeEvent({ type: "title" }, thread, services);
+    expect(services.refreshShell).toHaveBeenCalledWith(thread, false);
+  });
   it("turns a streamed turn into host events and keeps the live state the Pi path keeps", async () => {
     const thread = makeThread();
     const { services, events, updates } = makeServices();

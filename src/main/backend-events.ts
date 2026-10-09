@@ -108,6 +108,7 @@ export function handleBackendRuntimeEvent(event: ThreadRuntimeEvent, thread: Thr
       services.emit({ type: "notice", sessionId, message: event.message, level: event.level });
       break;
     case "usage":
+    case "title":
       services.refreshShell(thread, false).catch((error) => services.fail(error, sessionId));
       break;
     case "goal":

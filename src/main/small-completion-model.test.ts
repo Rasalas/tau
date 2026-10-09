@@ -2,6 +2,16 @@ import { describe, expect, it } from "vitest";
 import { isSmallModel, reachableCompletionModels, sameVendor, smallCompletionModel } from "./small-completion-model.js";
 
 describe("the small model for a kit's small job", () => {
+  it("uses the newest reachable small model of the same vendor, regardless of the thread's generation or catalog order", async () => {
+    const models = { completionModels: async () => [
+      { provider: "anthropic", id: "claude-haiku-4-5-20251001", name: "Old Haiku" },
+      { provider: "anthropic", id: "claude-haiku-5-5", name: "Haiku" },
+      { provider: "openai-codex", id: "gpt-5.6-luna", name: "Old Luna" },
+      { provider: "openai-codex", id: "gpt-6-luna", name: "Luna" },
+    ] };
+    await expect(smallCompletionModel(models, { provider: "anthropic", id: "claude-opus-4-5" })).resolves.toEqual({ provider: "anthropic", id: "claude-haiku-5-5" });
+    await expect(smallCompletionModel(models, { provider: "openai", id: "gpt-5.6-sol" })).resolves.toEqual({ provider: "openai-codex", id: "gpt-6-luna" });
+  });
   const catalog = [
     { provider: "openai-codex", id: "gpt-5.6-sol", name: "Sol" },
     // Listed first; the preferred model's generation wins. What a login reaches is the host's filter (below).

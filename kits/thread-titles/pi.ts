@@ -33,7 +33,7 @@ export default function threadTitlesPiExtension(pi: ExtensionAPI, bridge: PiKitB
     const response = await ctx.modelRegistry.complete(model, {
       systemPrompt: TITLE_SYSTEM_PROMPT,
       messages: [{ role: "user", content: [{ type: "text", text: TITLE_USER_PROMPT(conversation) }], timestamp: Date.now() }],
-    }, { maxTokens: 48, cacheRetention: "none", sessionId: randomUUID() });
+    }, { maxTokens: 256, cacheRetention: "none", sessionId: randomUUID() });
     if (response.stopReason === "error" || response.stopReason === "aborted") {
       throw new Error(response.errorMessage || "The title model did not complete.");
     }
@@ -41,6 +41,7 @@ export default function threadTitlesPiExtension(pi: ExtensionAPI, bridge: PiKitB
       .filter((part): part is { type: "text"; text: string } => part.type === "text")
       .map((part) => part.text)
       .join("\n"));
+    if (pi.getSessionName() && !force) return undefined;
     pi.setSessionName(title);
     return { title };
   };

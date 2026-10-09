@@ -159,6 +159,7 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
   private tail: Promise<void> = Promise.resolve();
   private title?: string;
   private titleSource?: ThreadTitleSource;
+  private nativeTitle?: string;
   private usage: UiThreadUsage = emptyUsage();
   private context?: UiContextUsage;
   private chosenModel?: OpenCodeModelRef;
@@ -178,6 +179,7 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.store = options.store;
     this.now = options.now ?? Date.now;
     this.capabilities = {
+      titles: { title: async () => this.nativeTitle },
       catalogWrite: {
         setModel: (provider, id) => this.setModel(provider, id),
         setThinkingLevel: (level) => this.setVariant(level),
@@ -393,7 +395,7 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.report({ type: "turn-started" });
     this.reportQueue();
     try {
-      const live = await this.ensureSession(turn.text);
+      const live = await this.ensureSession();
       if (turn.aborted) {
         this.settle(turn, "interrupted");
         return {};
@@ -456,14 +458,14 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.rulesLevel = level;
   }
 
-  private ensureSession(firstText: string): Promise<Live> {
+  private ensureSession(): Promise<Live> {
     if (this.live && !this.live.server.closed) return Promise.resolve(this.live);
-    this.opening ??= this.openSession(firstText).finally(() => { this.opening = undefined; });
+    this.opening ??= this.openSession().finally(() => { this.opening = undefined; });
     return this.opening;
   }
 
   /** A server for the thread, its event stream, then the stored session resumed or a new one created. */
-  private async openSession(firstText: string): Promise<Live> {
+  private async openSession(): Promise<Live> {
     const level = this.permissionLevel();
     if ((level === "ask" || level === "auto") && !this.options.ask) throw new Error("OpenCode cannot ask for approvals on this host; choose read-only or full access.");
     await this.store.ensure(this.threadId, this.cwd, this.options.instance);
@@ -487,13 +489,14 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
           this.report({ type: "notice", message: "OpenCode no longer has this conversation; a new one starts here.", level: "warning" });
         }
       }
-      session ??= await server.client.createSession(this.cwd, { title: this.title ?? derivedTitle(firstText) ?? "Tau thread", permission: rulesForLevel(level) });
+      session ??= await server.client.createSession(this.cwd, { ...(this.title ? { title: this.title } : {}), permission: rulesForLevel(level) });
       this.rulesLevel = level;
       this.children.clear();
       if (session.id !== this.sessionId) {
         this.sessionId = session.id;
         await this.store.setSession(this.threadId, this.cwd, session.id);
       }
+      this.adoptNativeTitle(session.title);
       if (session.tokens) this.usage = sessionUsage(session.tokens, session.cost, this.usage.turns);
     } catch (error) {
       subscription?.close();
@@ -520,6 +523,7 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
     if (!own) return;
     if (event.type === "session.updated") {
       const info = event.properties.info as OpenCodeSession | undefined;
+      this.adoptNativeTitle(info?.title);
       if (info?.tokens) {
         this.usage = sessionUsage(info.tokens, info.cost, this.usage.turns);
         this.report({ type: "usage" });
@@ -530,6 +534,18 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
     if (!turn?.posted) return;
     for (const runtimeEvent of turn.translator.push(event.type, event.properties)) this.handleEvent(runtimeEvent);
     if (turn.translator.outcome) turn.complete();
+  }
+
+  private adoptNativeTitle(value: string | undefined): void {
+    const title = value && !/^New session - /u.test(value) ? derivedTitle(value) : undefined;
+    if (!title || this.titleSource === "renamed" || title === this.title) return;
+    this.nativeTitle = title;
+    this.title = title;
+    this.titleSource = "generated";
+    this.persisting = this.persisting.then(async () => {
+      if (this.titleSource !== "renamed" && this.title === title) await this.store.setTitle(this.threadId, this.cwd, title, "generated");
+    });
+    this.report({ type: "title" });
   }
 
   private async answerPermission(request: PermissionRequest): Promise<void> {

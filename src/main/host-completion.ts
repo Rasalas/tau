@@ -1,11 +1,23 @@
 import { SettingsManager, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { UiModel } from "../shared/contracts.js";
+import type { HostThread } from "./host-extensions.js";
 import { modelAttribution } from "./model-attribution.js";
 import { modelLogin } from "./model-login.js";
 import type { PiModelData } from "./model-price-book.js";
 import { createPiModelRuntime } from "./pi-model-runtime.js";
-import type { CompletionRequest } from "./runtime-types.js";
+import { requireCapability, type CompletionRequest, type ThreadRuntimeBackend } from "./runtime-types.js";
 import { reachableCompletionModels, type ReportedModels } from "./small-completion-model.js";
+
+/** Exposes a runtime's short requests and native titles through the host facade. */
+export function hostThreadCompletionServices(backend: ThreadRuntimeBackend): Pick<HostThread, "complete" | "modelApi" | "nativeTitle" | "completionModels"> {
+  const { titles, completions } = backend.capabilities;
+  return {
+    ...(titles ? { nativeTitle: () => titles.title() } : {}),
+    ...(completions?.models ? { completionModels: () => completions.models!() } : {}),
+    complete: (provider, modelId, request) => requireCapability(backend, "completions").complete(provider, modelId, request),
+    modelApi: () => backend.capabilities.completions?.modelApi(),
+  };
+}
 
 /**
  * One short answer for an extension's small job — a thread title, a branch

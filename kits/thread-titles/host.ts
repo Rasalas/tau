@@ -1,5 +1,5 @@
-import { buildTitleConversation, cleanThreadTitle, smallCompletionModel, type HostExtension, type HostExtensionContext } from "tau/host-extension";
-import { THREAD_TITLES_HOST_EXTENSION_ID, TITLE_SYSTEM_PROMPT, TITLE_USER_PROMPT } from "./protocol.js";
+import { buildTitleConversation, cleanThreadTitle, smallCompletionModel, type HostExtension, type HostExtensionContext, type HostThread } from "tau/host-extension";
+import { THREAD_TITLES_HOST_EXTENSION_ID, TITLE_FAILED_EVENT, TITLE_SYSTEM_PROMPT, TITLE_USER_PROMPT } from "./protocol.js";
 
 const record = (input: unknown): Record<string, unknown> =>
   input && typeof input === "object" ? input as Record<string, unknown> : {};
@@ -16,6 +16,7 @@ export function createThreadTitlesHostExtension(): HostExtension {
     permissions: ["sessions"],
     activate(context: HostExtensionContext) {
       const { services } = context;
+      const pending = new Map<string, { input: unknown; thread: HostThread; running?: boolean }>();
       const generate = async (input: unknown, regenerate: boolean) => {
         const fields = record(input);
         // The settings' model wins; else a small one close to the thread's (`prefer`), the thread's own only when none is small.
@@ -41,9 +42,27 @@ export function createThreadTitlesHostExtension(): HostExtension {
         }
         if (force && thread.isStreaming()) throw new Error("Wait for the active agent run before generating a title.");
         if (thread.sessionName() && !force) return undefined;
-        // An automatic title must not wait for the run: agentic first turns take
-        // minutes, and the prompt alone names the thread well enough. The
-        // prompt stands in while the transcript has not persisted it yet.
+        // A runtime may finish its own name during the first turn. Defer without
+        // holding a host command open for a minutes-long agent run.
+        if (!force && thread.isStreaming() && thread.nativeTitle) {
+          pending.set(thread.sessionId, { input, thread });
+          return undefined;
+        }
+        if (!force && thread.nativeTitle) {
+          const native = await thread.nativeTitle().catch((error) => {
+            services.log("title.native-failed", error instanceof Error ? error.message : String(error));
+            return undefined;
+          });
+          if (!thread.isCurrent() || thread.sessionName()) return undefined;
+          if (native) {
+            const title = cleanThreadTitle(native);
+            await services.setThreadTitle(thread.sessionId, title, "generated");
+            return { title };
+          }
+        }
+        // Deferred runtimes include their first answer, which supplies context
+        // for image-only prompts. Otherwise the submitted prompt stands in
+        // while the transcript has not persisted it yet.
         const conversation = buildTitleConversation(
           (await thread.transcript()).map((message) => ({ role: message.role, content: message.text })),
           [{ role: "user", content: prompt }],
@@ -54,16 +73,24 @@ export function createThreadTitlesHostExtension(): HostExtension {
         }
 
         // The thread knows its model even where a new thread's draft named none.
-        const model = await chooseModel(thread.model ?? prefer);
+        const ownModels = await thread.completionModels?.().catch(() => []) ?? [];
+        const hint = thread.model ?? prefer;
+        const ownModel = provider && modelId
+          ? ownModels.find((candidate) => candidate.provider === provider && candidate.id === modelId)
+          : await smallCompletionModel({ completionModels: async () => ownModels }, hint, { elsePrefer: true });
+        const model = ownModel ?? await chooseModel(hint);
         services.log("title.started", model ? `${model.provider}/${model.id}` : "default model");
-        // Titling runs on the user's own model configuration, whichever runtime owns the thread;
-        // without a small model or the thread's own there, on its default.
-        const title = cleanThreadTitle(await services.complete({
+        // Prefer the harness's own login; other runtimes use the host catalog.
+        const request = {
           system: TITLE_SYSTEM_PROMPT,
           prompt: TITLE_USER_PROMPT(conversation),
-          maxTokens: 48,
-        }, model));
-        if (!thread.isCurrent()) return undefined;
+          maxTokens: 256,
+        };
+        const title = cleanThreadTitle(await (ownModel
+          ? thread.complete(ownModel.provider, ownModel.id, request)
+          : services.complete(request, model)));
+        // A manual rename or a native name can arrive while inference runs.
+        if (!thread.isCurrent() || !force && thread.sessionName()) return undefined;
         await services.setThreadTitle(thread.sessionId, title, "generated");
         services.log("title.generated", title);
         return { title };
@@ -71,6 +98,24 @@ export function createThreadTitlesHostExtension(): HostExtension {
       // A client titles a new thread on its own after its first prompt; the prompt stays the device's last change.
       context.registerCommand("generate", (input) => generate(input, false), { audit: { label: "titled a thread", automatic: true } });
       context.registerCommand("regenerate", (input) => generate(input, true), { audit: { label: "regenerated a thread title" } });
+      const stop = services.registerTurnObserver({
+        pending: (sessionId) => pending.has(sessionId) ? 1 : 0,
+        ended: async (sessionId) => {
+          const waiting = pending.get(sessionId);
+          if (!waiting || waiting.running || waiting.thread.isStreaming()) return;
+          if (!waiting.thread.isCurrent()) { pending.delete(sessionId); return; }
+          waiting.running = true;
+          try { await generate(waiting.input, false); }
+          catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            services.log("title.failed", message);
+            context.emit(TITLE_FAILED_EVENT, { sessionId, message });
+          }
+          finally { if (pending.get(sessionId) === waiting) pending.delete(sessionId); }
+        },
+        closed: async (sessionId) => { pending.delete(sessionId); },
+      });
+      return () => { stop(); pending.clear(); };
     },
   };
 }

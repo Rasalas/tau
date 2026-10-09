@@ -939,6 +939,10 @@ export interface HostThread {
   /** False once the host replaced or closed this thread's runtime. */
   isCurrent(): boolean;
   sessionName(): string | undefined;
+  /** A title supplied by the runtime, excluding first-prompt previews. */
+  nativeTitle?(): Promise<string | undefined>;
+  /** Models available for `complete` through this thread's own login. */
+  completionModels?(): Promise<UiModel[]>;
   transcript(): Promise<UiMessage[]>;
   /** One short answer from a model of the thread's runtime, unrelated to the conversation. */
   complete(provider: string, modelId: string, request: { system: string; prompt: string; maxTokens?: number }): Promise<string>;

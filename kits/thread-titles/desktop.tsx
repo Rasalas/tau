@@ -1,5 +1,5 @@
 import { errorMessage, type DesktopExtension, type HostExtensionClient, type PreferencesStore, type PromptSubmittedEvent, type WorkbenchActions } from "tau";
-import { THREAD_TITLES_HOST_EXTENSION_ID, THREAD_TITLES_SERVICE, type ThreadTitlesService } from "./protocol.js";
+import { THREAD_TITLES_HOST_EXTENSION_ID, THREAD_TITLES_SERVICE, TITLE_FAILED_EVENT, type ThreadTitlesService } from "./protocol.js";
 
 const MODEL_OPTION = "model";
 
@@ -22,8 +22,7 @@ export function threadModel(thread: { model?: { provider: string; id: string } }
 
 /**
  * The host entry renames the thread; the new title arrives like any other
- * rename. An automatic title is made from the submitted prompt right away,
- * not after the run ends.
+ * rename. The host can wait for a harness's native title and first answer.
  */
 async function generate(
   host: HostExtensionClient,
@@ -54,6 +53,11 @@ export const titleGeneratorExtension: DesktopExtension = {
   id: THREAD_TITLES_HOST_EXTENSION_ID,
   name: "Title generator",
   activate(context) {
+    let promptActions: WorkbenchActions | undefined;
+    context.host.onEvent(TITLE_FAILED_EVENT, (payload) => {
+      const message = (payload as { message?: unknown } | undefined)?.message;
+      promptActions?.notify(`Could not name the thread: ${typeof message === "string" ? message : "Title generation failed."}`);
+    });
     context.registerOptions([
       { id: "automatic", kind: "toggle", label: "Name a thread after its first prompt", defaultValue: true },
       { id: MODEL_OPTION, kind: "model", label: "Model that names threads" },
@@ -73,9 +77,10 @@ export const titleGeneratorExtension: DesktopExtension = {
     });
     context.registerPromptHook({
       id: "thread-titles.auto-generate",
-      async afterPrompt(event, actions) {
+      async afterPrompt(event, nextActions) {
+        promptActions = nextActions;
         if (!shouldTitleAutomatically(event, context.preferences)) return;
-        await generate(context.host, actions, context.preferences, event.snapshot, false, event.prompt);
+        await generate(context.host, nextActions, context.preferences, event.snapshot, false, event.prompt);
       },
     });
   },

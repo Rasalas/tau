@@ -83,6 +83,27 @@ function harness(store: CursorSessionStore, agents: FakeAgent[], settings: { lev
 }
 
 describe("CursorThreadRuntimeBackend", () => {
+  it("adopts ACP session metadata before or after a turn and protects a manually renamed title", async () => {
+    const agent = cursorAgent();
+    agent.respond("session/prompt", () => {
+      update(agent, { sessionUpdate: "session_info_update", title: "Bildvorschau im Chat" });
+      return { stopReason: "end_turn" };
+    });
+    const store = await scratchStore();
+    const { backend, events } = harness(store, [agent]);
+    await backend.start("create");
+    try {
+      await backend.prompt({ text: "Repariere die Bildvorschau", delivery: "prompt" });
+      expect(backend.state()).toMatchObject({ title: "Bildvorschau im Chat", titleSource: "generated" });
+      expect(await store.get("thread")).toMatchObject({ title: "Bildvorschau im Chat" });
+      expect(events.some((event) => event.type === "title")).toBe(true);
+      await backend.setTitle("Mein Titel", "renamed");
+      update(agent, { sessionUpdate: "session_info_update", title: "Anderer Titel" });
+      await backend.prompt({ text: "Weiter", delivery: "prompt" });
+      expect(backend.state()).toMatchObject({ title: "Mein Titel", titleSource: "renamed" });
+      expect(await store.get("thread")).toMatchObject({ title: "Mein Titel", titleSource: "renamed" });
+    } finally { await backend.dispose(); }
+  });
   it("creates a session on the first turn, applies model, effort and mode, and streams text and tools", async () => {
     const agent = cursorAgent();
     agent.respond("session/prompt", () => {

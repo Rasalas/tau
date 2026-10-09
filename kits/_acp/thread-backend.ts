@@ -110,6 +110,7 @@ export abstract class AcpThreadBackend<S extends AcpLiveSession> implements Thre
   private tail: Promise<void> = Promise.resolve();
   protected title?: string;
   protected titleSource?: ThreadTitleSource;
+  private nativeTitle?: string;
   protected commands: AcpCommand[] = [];
   protected contextUsage?: UiContextUsage;
   /** Cumulative session cost, when the agent reports one. */
@@ -135,6 +136,7 @@ export abstract class AcpThreadBackend<S extends AcpLiveSession> implements Thre
     this.kind = base.adapter.id;
     this.now = base.now ?? Date.now;
     this.capabilities = {
+      titles: { title: async () => this.nativeTitle },
       // The agent loads the stored session itself, so a continuation is an
       // ordinary turn; the protocol has no message kind the transcript hides.
       resume: {
@@ -346,6 +348,19 @@ export abstract class AcpThreadBackend<S extends AcpLiveSession> implements Thre
 
   /** Updates outside a posted prompt are a loaded session's replay or session facts; only the facts count. */
   protected onUpdate(update: AcpSessionUpdate): void {
+    if (update.sessionUpdate === "session_info_update") {
+      const title = typeof update.title === "string" ? derivedTitle(update.title) : undefined;
+      if (title && this.titleSource !== "renamed") {
+        this.nativeTitle = title;
+        this.title = title;
+        this.titleSource = "generated";
+        this.persisting = this.persisting.then(async () => {
+          if (this.titleSource !== "renamed" && this.title === title) await this.store.setTitle(this.threadId, this.cwd, title, "generated");
+        });
+        this.report({ type: "title" });
+      }
+      return;
+    }
     const turn = this.turns[0];
     if (!turn?.posted) {
       const probe = new AcpTurnTranslator(this.now, this.idPrefix);
