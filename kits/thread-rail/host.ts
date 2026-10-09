@@ -185,7 +185,11 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
                 const answer = record(await context.invokeHostExtension(REVIEW_EXTENSION_ID, "thread-requests", { threadIds: asked, ...(fresh ? { refresh: true } : {}) }));
                 for (const [id, links] of Object.entries(answer)) {
                   const known = (Array.isArray(links) ? links : []).map(record).flatMap((link): SweepRequest[] => typeof link.url === "string"
-                    ? [{ url: link.url, ...(link.state === "open" || link.state === "closed" || link.state === "merged" ? { state: link.state } : {}) }]
+                    ? [{
+                      url: link.url,
+                      ...(link.state === "open" || link.state === "closed" || link.state === "merged" ? { state: link.state } : {}),
+                      ...(typeof link.baseRef === "string" && link.baseRef ? { baseRef: link.baseRef } : {}),
+                    }]
                     : []);
                   if (known.length > 0) linked.set(id, known);
                 }
@@ -206,11 +210,14 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
               if (patch.settledBy !== "pr-merged") return;
               const cwd = threads.find((thread) => thread.id === id)?.cwd;
               if (!cwd) { keepActive(id); return; }
-              let checked = integration.get(cwd);
+              // The merged requests' bases, not the branch the worktree started from, say where the work landed.
+              const targets = [...new Set((linked.get(id) ?? []).flatMap((request) => request.state === "merged" && request.baseRef ? [request.baseRef] : []))].sort();
+              const key = [cwd, ...targets].join("\n");
+              let checked = integration.get(key);
               if (!checked) {
-                checked = context.invokeHostExtension("tau.workspace", "thread-work-integrated", { workspace: cwd })
+                checked = context.invokeHostExtension("tau.workspace", "thread-work-integrated", { workspace: cwd, ...(targets.length > 0 ? { targets } : {}) })
                   .then((answer) => record(answer).integrated === true, () => false);
-                integration.set(cwd, checked);
+                integration.set(key, checked);
               }
               if (!await checked) keepActive(id);
             }));

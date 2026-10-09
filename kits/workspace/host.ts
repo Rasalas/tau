@@ -587,7 +587,8 @@ export function createWorkspaceHostExtension(): HostExtension {
         const path = await services.knownWorkspacePath(workspaceOf(input));
         const info = await git.getWorkspaceInfo(path);
         // Projectless and non-Git threads have no repository work to integrate.
-        return { integrated: !info.isRepo || (!info.isDirty && await threadWorkIntegrated(path)) };
+        const targets = Array.isArray(record(input).targets) ? (record(input).targets as unknown[]).filter((target): target is string => typeof target === "string" && target.length > 0) : [];
+        return { integrated: !info.isRepo || (!info.isDirty && await threadWorkIntegrated(path, undefined, targets)) };
       }, { access: "read", long: true, callers: ["tau.thread-rail"] });
       context.registerCommand("worktree-statuses", async (input) => {
         const canonical = await services.knownWorkspacePath(workspaceOf(input));

@@ -114,6 +114,21 @@ describe("a thread's worktree branch", () => {
     expect(await threadWorkIntegrated(dir)).toBe(true);
   });
 
+  it("accepts work merged into a request's base other than the saved review target", async () => {
+    const repo = await repository();
+    repo.run(repo.cwd, "branch", "feature-base");
+    repo.run(repo.cwd, "update-ref", "refs/remotes/origin/feature-base", "feature-base");
+    const dir = repo.worktree("tau/rebased");
+    repo.run(dir, "config", "branch.tau/rebased.tau-review-target", "feature-base");
+    await repo.commit(dir, "b.txt", "fix\n");
+    repo.run(repo.cwd, "merge", "--squash", "tau/rebased");
+    repo.run(repo.cwd, "commit", "-qm", "squashed PR");
+    repo.run(repo.cwd, "update-ref", "refs/remotes/origin/main", "main");
+    expect(await threadWorkIntegrated(dir)).toBe(false);
+    expect(await threadWorkIntegrated(dir, undefined, ["main"])).toBe(true);
+    expect(await threadWorkIntegrated(dir, undefined, ["feature-base"])).toBe(false);
+  });
+
   it("checks new work in a shared checkout against origin too", async () => {
     const repo = await repository();
     repo.run(repo.cwd, "update-ref", "refs/remotes/origin/main", "main");
