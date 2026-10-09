@@ -97,6 +97,14 @@ describe("steps on a request opened by its URL", () => {
     await expect(invoke("pr-action", { url: "https://gitlab.com/acme/tau/-/merge_requests/3", action: "revert" })).rejects.toThrow("GitLab does not let Tau revert a request");
   });
 
+  it("arms auto-merge on the view's read, and reads the request again only after", async () => {
+    const { invoke, calls } = await harness();
+    await invoke("pr-view", { url: URL_7 });
+    calls.length = 0;
+    await invoke<PullRequestActionResult>("pr-action", { url: URL_7, action: "auto-merge", method: "squash" });
+    expect(calls.map((call) => call.args.slice(0, 2).join(" ")).filter((step) => step.startsWith("pr "))).toEqual(["pr merge", "pr view"]);
+  });
+
   it("refuses auto-merge where the provider has none", async () => {
     const { invoke } = await harness();
     await expect(invoke("pr-action", { url: "https://bitbucket.org/acme/tau/pull-requests/3", action: "auto-merge" })).rejects.toThrow("Bitbucket does not let Tau merge automatically");
