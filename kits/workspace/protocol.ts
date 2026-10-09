@@ -623,11 +623,16 @@ export interface ThreadRowAccessoryProps {
   session: UiSession;
 }
 
-/** A state another kit gives a thread's row, drawn like a question: a takeover's "Your turn". */
+/**
+ * A state another kit gives a thread's row, drawn like a question: a takeover's "Your turn".
+ * `background` is work that wakes the thread again, such as a watched pull request: drawn
+ * grey, never the user's turn, and only on a row that is not running or asking.
+ */
 export interface ThreadRowStatusMark {
   label: string;
   hint?: string;
   icon: ReactNode;
+  tone?: "background";
 }
 
 /**

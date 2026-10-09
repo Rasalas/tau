@@ -198,12 +198,13 @@ function ThreadSearch({ registry, onOpen }: { registry: ExtensionRegistry; onOpe
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const activity = useSyncExternalStore(store.subscribeToActivity, store.getActivity);
   const outside = useThreadListSources(registry);
+  const marks = useSyncExternalStore(registry.subscribe, registry.getThreadRowMarks);
   const [query, setQuery] = useState("");
   const field = useRef<HTMLInputElement>(null);
   useEffect(() => { field.current?.focus(); }, []);
   const results = useMemo(() => query.trim()
-    ? threadListGroups(snapshot.threads, activity, { query, extra: outside.rows, shown: { active: SEARCH_RESULTS, settled: SEARCH_RESULTS } }).flatMap((group) => group.rows).slice(0, SEARCH_RESULTS)
-    : [], [activity, outside.rows, query, snapshot.threads]);
+    ? threadListGroups(snapshot.threads, activity, { query, extra: outside.rows, marks, shown: { active: SEARCH_RESULTS, settled: SEARCH_RESULTS } }).flatMap((group) => group.rows).slice(0, SEARCH_RESULTS)
+    : [], [activity, marks, outside.rows, query, snapshot.threads]);
   return <>
     <label className="touch-search-field">
       <Search size={16} aria-hidden="true" />

@@ -80,6 +80,16 @@ describe("the compact thread list", () => {
     ]);
   });
 
+  it("shows kits' marks as on the desktop rail: one that asks sorts first, background work waits in place", () => {
+    const marks = { a: { label: "Waiting", tone: "background" as const }, c: { label: "Your turn" } };
+    const [active] = threadListGroups([thread("a", 50), thread("b", 40), thread("c", 10)], { ...idle, runningThreadIds: ["b"] }, { marks });
+    expect(active!.rows.map((row) => [row.id, row.state.activity, row.state.label])).toEqual([
+      ["c", "waiting", "Your turn"],
+      ["b", "working", "Working"],
+      ["a", "background", "Waiting"],
+    ]);
+  });
+
   it("pages the long groups and filters by title, project or label", () => {
     const threads = Array.from({ length: 15 }, (_, index) => thread(`t${index}`, index, index === 3 ? "Fix the Flaky test" : `Thread ${index}`));
     const settled = threads.map((entry) => entry.id);

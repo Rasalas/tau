@@ -1,4 +1,4 @@
-import type { ComponentType, ReactNode } from "react";
+import type { ComponentType } from "react";
 import type { WorkbenchActions } from "tau";
 
 /**
@@ -127,10 +127,3 @@ export interface ComputerUseScreenService {
   icon?(threadId: string): Promise<string | null>;
 }
 
-/** Workspace Kit's store, the part this kit uses: a state on the rail's rows. */
-export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
-
-export interface WorkspaceRowMarks {
-  /** A row's state in place of Working, by thread id; `{}` withdraws them. */
-  setThreadRowStatuses?(owner: string, statuses: Readonly<Record<string, { label: string; hint?: string; icon: ReactNode }>>): void;
-}

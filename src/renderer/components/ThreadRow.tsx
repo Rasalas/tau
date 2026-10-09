@@ -1,5 +1,5 @@
 import { memo, useEffect, useState, type ReactNode } from "react";
-import { ArrowUp, Check, CircleHelp, GitBranch, Monitor, PlugZap, TriangleAlert } from "lucide-react";
+import { ArrowUp, Check, CircleHelp, Eye, GitBranch, Monitor, PlugZap, TriangleAlert } from "lucide-react";
 import { displayRuntime, type UiSession } from "../../shared/contracts";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { DEFAULT_RUNTIME, threadOnPlan } from "../runtime-marks";
@@ -67,7 +67,7 @@ function elapsedLabel(milliseconds: number): string {
 
 /** Whether a row shows its state rather than its age. */
 export function showsThreadStatus(activity: ThreadActivity): boolean {
-  return activity === "working" || activity === "tool" || activity === "waiting" || activity === "ready" || activity === "interrupted" || activity === "failed" || activity === "limited" || activity === "offline";
+  return activity === "working" || activity === "tool" || activity === "waiting" || activity === "background" || activity === "ready" || activity === "interrupted" || activity === "failed" || activity === "limited" || activity === "offline";
 }
 
 /** A row's state badge, the same on every client: `Working 2:14` with a spinner, `? Question` in amber, and the rest. */
@@ -86,6 +86,7 @@ export function ThreadStatus({ activity, label, hint, icon, startedAt }: { activ
       {activity === "failed" || activity === "limited" ? <TriangleAlert size={13} aria-hidden="true" /> : null}
       {activity === "offline" ? <Monitor size={13} aria-hidden="true" /> : null}
       {activity === "waiting" ? icon ?? <CircleHelp size={13} aria-hidden="true" /> : null}
+      {activity === "background" ? icon ?? <Eye size={13} aria-hidden="true" /> : null}
       {activity === "ready" ? <Check size={13} aria-hidden="true" /> : null}
       {label}
       {working ? <time>{elapsedLabel(now - startedAt)}</time> : null}
@@ -134,7 +135,7 @@ export const ThreadRow = memo(function ThreadRow({
           {accessory}
           {!settled && machine ? <MachineMark machine={machine} /> : null}
           {showStatus
-            ? <ThreadStatus activity={activity} label={working ? "Working" : label} hint={activityHint} startedAt={startedAt ?? session.modifiedAt} />
+            ? <ThreadStatus activity={activity} label={working ? "Working" : label} hint={activityHint} icon={activityIcon} startedAt={startedAt ?? session.modifiedAt} />
             : <time>{age}</time>}
         </button>
         {onToggleSettled || (!settled && actions) ? <span className="thread-row-actions">

@@ -12,7 +12,6 @@ import {
   PREVIEW_COOKIE_IMPORT_SERVICE,
   TAKEOVER_EXTENSION_ID,
   TAKEOVER_STATE_EVENT,
-  WORKSPACE_STORE_SERVICE,
   type ComputerUseScreenService,
   type PreviewBrowserService,
   type PreviewCookieImportService,
@@ -44,7 +43,6 @@ function setup(initial: Takeover[] = [], platform: Record<string, unknown> = {},
   const preview = { open: vi.fn(async () => undefined), jump: vi.fn(async () => undefined), hold, ...previewExtras } satisfies PreviewBrowserService;
   const cookies = { importSite: vi.fn<PreviewCookieImportService["importSite"]>(async () => ({ imported: 2, skipped: 0, skippedSites: [], profile: "default", reloaded: true })) };
   const screen = { load: async () => ({ window: { app: "TextEdit" } }), bringToFront: vi.fn(async () => undefined), icon: vi.fn(async () => "data:image/png;base64,SUNPTg==") } satisfies ComputerUseScreenService;
-  let rowStatuses: Record<string, { label: string; hint?: string }> | undefined;
   registry.activate({
     id: "test.services",
     name: "Services",
@@ -52,9 +50,6 @@ function setup(initial: Takeover[] = [], platform: Record<string, unknown> = {},
       context.provideService(PREVIEW_BROWSER_SERVICE, preview);
       context.provideService(PREVIEW_COOKIE_IMPORT_SERVICE, cookies);
       context.provideService(COMPUTER_USE_SCREEN_SERVICE, screen);
-      context.provideService(WORKSPACE_STORE_SERVICE, {
-        setThreadRowStatuses: (_owner: string, statuses: typeof rowStatuses) => { rowStatuses = statuses; },
-      });
     },
   });
   registry.activate(takeoverKit);
@@ -79,7 +74,7 @@ function setup(initial: Takeover[] = [], platform: Record<string, unknown> = {},
     const { Component } = registry.getRegions("composer-above").find((region) => region.id === "takeover.card")!;
     return render(<Component snapshot={{ sessionId } as HostSnapshot} actions={actions} />);
   };
-  return { registry, calls, preview, cookies, screen, actions, publish, card, stage, hold, release, rowStatuses: () => rowStatuses };
+  return { registry, calls, preview, cookies, screen, actions, publish, card, stage, hold, release, rowStatuses: () => registry.getThreadRowMarks() };
 }
 
 describe("Takeover card on a device away from the host", () => {
@@ -242,7 +237,7 @@ describe("Takeover card", () => {
     expect(view.getByRole("region", { name: "Your turn" }).querySelector("code")?.textContent).toBe("staff.shop.local");
   });
 
-  it("gives the thread's rail row the state Your turn", () => {
+  it("gives the thread's row the state Your turn on every client", () => {
     const { publish, rowStatuses } = setup();
     expect(rowStatuses()).toEqual({});
     publish([takeover({ kind: "preview" })]);

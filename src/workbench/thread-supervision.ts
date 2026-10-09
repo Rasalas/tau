@@ -1,7 +1,7 @@
 import { displayRuntime, type UiProject, type UiSession, type UiThreadUsage } from "../shared/contracts";
 import { EMPTY_SNAPSHOT, type ThreadActivitySnapshot } from "./thread-store";
 import type { DraftThread } from "./draft-threads";
-import { threadRowStatus, type ThreadRowStatus } from "./thread-row-status";
+import { attentionMarkIds, markedRowStatus, threadRowStatus, type ThreadRowMark, type ThreadRowStatus } from "./thread-row-status";
 
 /**
  * What a thread is doing right now, in the words a supervisor needs: a phone
@@ -119,6 +119,8 @@ export interface ThreadListOptions extends ThreadOrganization {
   shown?: Partial<Record<"active" | "settled", number>>;
   /** Rows of threads kept elsewhere (another machine's), placed among these by the same order before paging. */
   extra?: readonly ThreadSupervisionRow[];
+  /** Kits' row states by thread id (`setThreadRowStatuses`); one that asks sorts as a question. */
+  marks?: Readonly<Record<string, ThreadRowMark>>;
 }
 
 /** Another machine's thread as a list row: asking, running or idle, as far as that machine's list says. */
@@ -147,14 +149,20 @@ export function threadListGroups(
   activity: ThreadActivitySnapshot,
   options: ThreadListOptions = {},
 ): ThreadListGroup[] {
+  const marks = options.marks ?? {};
+  const asking = attentionMarkIds(marks);
+  const live = asking.length ? { ...activity, waitingThreadIds: [...activity.waitingThreadIds, ...asking] } : activity;
   const query = options.query?.trim().toLowerCase();
   const project = options.project;
   const rows = threads
-    .filter((thread) => !thread.parentThreadId || activity.waitingThreadIds.includes(thread.id))
+    .filter((thread) => !thread.parentThreadId || live.waitingThreadIds.includes(thread.id))
     // A session nobody wrote in yet (the one a host opens at start) is no thread to list.
-    .filter((thread) => listed(thread, activity))
+    .filter((thread) => listed(thread, live))
     .filter((thread) => !project || inProject(thread, project))
-    .map((thread) => rowFor(thread, activity, options))
+    .map((thread) => {
+      const row = rowFor(thread, live, options);
+      return marks[thread.id] ? { ...row, state: markedRowStatus(row.state, marks[thread.id]) } : row;
+    })
     .concat(options.extra ?? [])
     .filter((row) => !query || [row.title, row.projectName, row.projectLabel ?? ""].some((text) => text.toLowerCase().includes(query)));
   const pinned = rows.filter((row) => row.pinned && !row.settled).sort(worstFirst);

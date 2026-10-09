@@ -1,8 +1,9 @@
 import { SETTLEMENT_SERVICE, SettlementSource, type SettlementService } from "./settlement.js";
 import { Suspense, lazy } from "react";
-import { GitCompare } from "lucide-react";
-import { THREAD_PULL_REQUESTS_SERVICE, getClientStorage, type DesktopExtension, type PanelProps, type RegionProps } from "tau";
+import { Eye, GitCompare } from "lucide-react";
+import { THREAD_PULL_REQUESTS_SERVICE, getClientStorage, type DesktopExtension, type DesktopExtensionContext, type PanelProps, type RegionProps } from "tau";
 import { PullRequestWatchFeed } from "./pr-watch-client.js";
+import { watchRowStatuses } from "./pr-watch-rows.js";
 import { createWorkspaceRequestSummary } from "./workspace-summary.js";
 import { threadPullRequestsService } from "./pull-requests-service.js";
 import { COMMIT_MESSAGE_OPTIONS, registerCommitMessages } from "./commit-messages.js";
@@ -173,6 +174,7 @@ export const reviewExtension: DesktopExtension = {
     const releaseSettlement = plugin.useService<SettlementService>(SETTLEMENT_SERVICE, (service) => { settlement.set(service); return () => settlement.set(undefined); });
     const watches = new PullRequestWatchFeed(plugin.host);
     const Strip = createPullRequestStrip({ watches, rows, links, preferences: plugin.preferences, client, host: plugin.host, settlement });
+    const releaseWatchMarks = markWatchingThreads(plugin, watches);
     const releaseStrip = plugin.registerRegion({ id: "review.pull-request-strip", placement: "composer-above", order: 80, profiles: ["desktop", "web", "compact"], Component: Strip });
     const releaseStore = plugin.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => {
       workspaceStore = store;
@@ -196,8 +198,17 @@ export const reviewExtension: DesktopExtension = {
       ];
       return () => { if (workspaceStore === store) workspaceStore = undefined; for (const dispose of disposers.reverse()) dispose(); };
     });
-    return () => { releaseSettlement(); releaseStore(); releaseStrip(); releaseLinks(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
+    return () => { releaseSettlement(); releaseStore(); releaseWatchMarks(); releaseStrip(); releaseLinks(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
   },
 };
+
+/** Thread rows of threads that watch a request say Waiting until the watch ends, on every client. */
+function markWatchingThreads(plugin: Pick<DesktopExtensionContext, "setThreadRowStatuses">, watches: PullRequestWatchFeed): () => void {
+  const mark = () => plugin.setThreadRowStatuses(Object.fromEntries(Object.entries(watchRowStatuses(watches.get().watches))
+    .map(([threadId, status]) => [threadId, { ...status, icon: <Eye size={13} aria-hidden="true" />, tone: "background" as const }])));
+  const stop = watches.subscribe(mark);
+  mark();
+  return () => { stop(); plugin.setThreadRowStatuses({}); };
+}
 
 export default reviewExtension;
