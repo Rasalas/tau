@@ -13,9 +13,17 @@ whose next step waits on a PR starts a watch and ends its turn instead of
 polling with `gh pr checks --watch`, `sleep` or a background loop.
 
 The host checks once a minute using one compact GraphQL read per PR. Threads
-watching the same PR share that read. Checks finishing, new comments or reviews,
-a new branch conflict, and merge or close produce a marked visible queue
-message. The watch never steers a running turn, edits the PR, or merges it.
+watching the same PR share that read. All checks finishing, a check failing,
+new comments or reviews, a new branch conflict, and merge or close produce a
+marked visible queue message. The watch never steers a running turn, edits the PR, or merges it.
+
+Checks count as finished once nothing is pending: the rollup is no longer
+`PENDING`/`EXPECTED`, no check run or status is still in progress, and no
+GitHub Actions run of the head commit is unfinished, which covers jobs that
+start after others. A single successful check while others run wakes nobody.
+A failed check (conclusion `FAILURE`, `TIMED_OUT`, `CANCELLED`,
+`ACTION_REQUIRED` or `STARTUP_FAILURE`, or status `FAILURE`/`ERROR`) wakes at
+once and is named; each failure wakes once. A new head commit is judged afresh.
 The agent's prompt names the event and URL, without copying external comment
 bodies into its instructions.
 
