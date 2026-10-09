@@ -3,6 +3,7 @@ import { AttentionBook, type AttentionChange } from "./attention.js";
 import {
   ATTENDED_COMMAND,
   ATTENTION_EVENT,
+  IDLE_AFTER_MS,
   NOTIFICATIONS_EXTENSION_ID,
   NOTIFY_EVENT,
   PRESENCE_REQUEST_EVENT,
@@ -31,6 +32,7 @@ function decodePresence(input: unknown): PresenceInput {
     focused: value.focused,
     ...(typeof value.threadId === "string" && value.threadId ? { threadId: value.threadId } : {}),
     ...(value.idle === true ? { idle: true } : {}),
+    ...(typeof value.usedAgoMs === "number" && Number.isFinite(value.usedAgoMs) ? { usedAgoMs: value.usedAgoMs } : {}),
   };
 }
 
@@ -111,8 +113,16 @@ export function createNotificationsHostExtension(options: NotificationsHostOptio
       }, { access: "read" });
       // Push asks before it sends: `muted` when the user silenced this kind of news, or it is quiet hours.
       context.registerCommand(ATTENDED_COMMAND, async (input) => {
-        const kind = (input as { kind?: AttentionReason } | null)?.kind;
-        return { attended: book.attended(), muted: kind ? silenced(kind, await values(), new Date(now())) : false };
+        const ask = input as { kind?: AttentionReason; threadId?: unknown; awayAfterMs?: unknown } | null;
+        const kind = ask?.kind;
+        const awayAfterMs = typeof ask?.awayAfterMs === "number" && ask.awayAfterMs > 0 ? ask.awayAfterMs : IDLE_AFTER_MS;
+        const awayInMs = book.awayIn(awayAfterMs);
+        return {
+          attended: awayInMs !== 0,
+          muted: kind ? silenced(kind, await values(), new Date(now())) : false,
+          ...(awayInMs !== undefined ? { awayInMs } : {}),
+          ...(typeof ask?.threadId === "string" ? { unseen: book.unseen(ask.threadId) } : {}),
+        };
       }, { access: "read", callers: ["tau.push"] });
       context.registerCommand("leave", (input) => {
         const clientKey = (input as { clientKey?: unknown } | null)?.clientKey;

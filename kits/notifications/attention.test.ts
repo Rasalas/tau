@@ -109,17 +109,43 @@ describe("which thread needs the user, and who tells them", () => {
     expect(attention.report("a", { focused: false }).delivery).toBeUndefined();
   });
 
-  it("counts someone as attending only at a focused client that is not idle", () => {
+  it("counts an older client, which tells no use, as attending only while focused and not idle", () => {
     const { book: attention } = book();
-    expect(attention.attended()).toBe(false);
+    expect(attention.attended(300_000)).toBe(false);
     attention.report("phone", { focused: false, threadId: "t1" });
-    expect(attention.attended()).toBe(false);
+    expect(attention.attended(300_000)).toBe(false);
     attention.report("window", { focused: true, threadId: "t2", idle: true });
-    expect(attention.attended()).toBe(false);
+    expect(attention.attended(300_000)).toBe(false);
     attention.report("window", { focused: true, threadId: "t2" });
-    expect(attention.attended()).toBe(true);
+    expect(attention.attended(300_000)).toBe(true);
+    expect(attention.awayIn(300_000)).toBeUndefined();
     attention.leave("window");
-    expect(attention.attended()).toBe(false);
+    expect(attention.attended(300_000)).toBe(false);
+  });
+
+  it("counts the user away once no client was used for the away time, focused or not", () => {
+    const { book: attention, tick } = book();
+    attention.report("window", { focused: true, threadId: "t1", usedAgoMs: 0 });
+    tick(60_000);
+    // Left Tau for the browser: still at the desk, for the rest of the five minutes.
+    attention.report("window", { focused: false, threadId: "t1", usedAgoMs: 60_000 });
+    expect(attention.attended(300_000)).toBe(true);
+    expect(attention.awayIn(300_000)).toBe(240_000);
+    tick(240_000);
+    expect(attention.attended(300_000)).toBe(false);
+    expect(attention.awayIn(300_000)).toBe(0);
+    // A touch on the phone counts as much as a click at the desk.
+    attention.report("phone", { focused: true, usedAgoMs: 10_000 });
+    expect(attention.awayIn(300_000)).toBe(290_000);
+  });
+
+  it("keeps news unseen until a focused client shows the thread", () => {
+    const { book: attention } = book();
+    attention.report("window", { focused: true, threadId: "t2", usedAgoMs: 0 });
+    attention.raise({ threadId: "t1", reason: "completed" });
+    expect(attention.unseen("t1")).toBe(true);
+    attention.report("window", { focused: true, threadId: "t1", usedAgoMs: 0 });
+    expect(attention.unseen("t1")).toBe(false);
   });
 
   it("stops asking a client that left", () => {

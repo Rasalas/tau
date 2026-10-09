@@ -8,7 +8,11 @@ export const ATTENTION_EVENT = "attention";
 export const NOTIFY_EVENT = "notify";
 /** A client left; the others say again what they show, so the host knows who is still looking. */
 export const PRESENCE_REQUEST_EVENT = "presence-request";
-/** Host command for other kits (Push): `{ attended }`, whether someone is at a client right now. */
+/**
+ * Host command for other kits (Push). Takes `{ kind, threadId?, awayAfterMs? }` and answers
+ * `{ attended, muted, awayInMs?, unseen? }`: whether someone used a client within `awayAfterMs`
+ * (default `IDLE_AFTER_MS`), when they count as away, and whether the thread's news is still unseen.
+ */
 export const ATTENDED_COMMAND = "attended";
 /** A focused client without a touch, a key or a click for this long no longer counts as attended. */
 export const IDLE_AFTER_MS = 3 * 60_000;
@@ -48,6 +52,8 @@ export interface PresenceInput {
   threadId?: string;
   /** Focused, but nobody used it for `IDLE_AFTER_MS`: the user may have walked away. */
   idle?: boolean;
+  /** Milliseconds since the last key, click or touch in this client; a delta, so clocks need not agree. */
+  usedAgoMs?: number;
 }
 
 /** News for one client to show. */

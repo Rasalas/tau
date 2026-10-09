@@ -17,11 +17,15 @@ import {
 } from "tau";
 import type { DesktopExtension, DesktopExtensionContext, SettingsPageProps } from "tau";
 import {
+  AWAY_MINUTES,
+  DEFAULT_AWAY_MINUTES,
   DEFAULT_PUSH_CONTENT,
+  PUSH_AWAY_KEY,
   PUSH_CONTENT_KEY,
   PUSH_EXTENSION_ID as ID,
   PUSH_STATE_EVENT,
   decodePushStatus,
+  readAwayMinutes,
   type PushContent,
   type PushDeviceRow,
   type PushRoute,
@@ -32,6 +36,7 @@ const CONTENTS: Array<{ value: PushContent; label: string }> = [
   { value: "title", label: "Title only" },
   { value: "excerpt", label: "Title and excerpt" },
 ];
+const AWAY_CHOICES = AWAY_MINUTES.map((minutes) => ({ value: String(minutes), label: `${minutes} min` }));
 const CONTENT_LABELS = Object.fromEntries(CONTENTS.map((entry) => [entry.value, entry.label])) as Record<PushContent, string>;
 
 /** The status Settings shows; the host's `state` event says when to ask again. */
@@ -205,6 +210,13 @@ function createSettingsPage(context: DesktopExtensionContext, store: StatusStore
       format: (value) => CONTENT_LABELS[value],
       offline: (value) => context.preferences.setValue(ID, PUSH_CONTENT_KEY, value),
     });
+    // Kept as text, as every value in the host's config is.
+    const away = useSetting<string>(`values.${ID}.${PUSH_AWAY_KEY}`, {
+      defaultValue: String(DEFAULT_AWAY_MINUTES),
+      read: (raw) => (raw === undefined ? undefined : String(readAwayMinutes(raw))),
+      format: (value) => `${value} min`,
+      offline: (value) => context.preferences.setValue(ID, PUSH_AWAY_KEY, value),
+    });
     useEffect(() => {
       const refresh = () => context.host.invoke("status").then((next) => store.set(decodePushStatus(next)), (failure: unknown) => store.set(undefined, errorMessage(failure)));
       void refresh();
@@ -231,6 +243,15 @@ function createSettingsPage(context: DesktopExtensionContext, store: StatusStore
               : "The thread's title and the first line of the agent's last message; the reason when it is your turn, the question when it asks."}
             setting={content}
             control={<SegmentedControl label="Content" value={content.value} options={CONTENTS} onChange={content.set} />}
+          />
+        </SettingsSection>
+        <SettingsSection title="When your phone hears">
+          <SettingRow
+            id="setting-push-away"
+            title="After you left Tau for"
+            description="While you use Tau anywhere, it tells you there and your phone stays quiet. What you have not seen by the time you were away this long goes to your phone."
+            setting={away}
+            control={<SegmentedControl label="After you left Tau for" value={away.value} options={AWAY_CHOICES} onChange={away.set} />}
           />
         </SettingsSection>
         {status.routes ? (

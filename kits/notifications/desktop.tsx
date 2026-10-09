@@ -42,6 +42,7 @@ import {
 import { playSound, unlockSound } from "./sounds.js";
 
 const TOAST_MS = 8_000;
+const USE_REPORT_MS = 30_000;
 
 export function readSettings(preferences: PreferencesStore): NotificationSettings {
   return {
@@ -67,6 +68,7 @@ function coordinate(context: DesktopExtensionContext) {
   let badge: number | undefined;
   let reported = "";
   let lastUsed = Date.now();
+  let reportedUse = 0;
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
 
   const settings = () => readSettings(context.preferences);
@@ -124,10 +126,11 @@ function coordinate(context: DesktopExtensionContext) {
 
   const report = (force = false) => {
     const threadId = onScreen();
-    const presence: PresenceInput = { clientKey, focused: focused(), ...(threadId ? { threadId } : {}), ...(idle() ? { idle: true } : {}) };
+    const presence: PresenceInput = { clientKey, focused: focused(), ...(threadId ? { threadId } : {}), ...(idle() ? { idle: true } : {}), usedAgoMs: Date.now() - lastUsed };
     const key = `${presence.focused}:${threadId ?? ""}:${presence.idle === true}`;
     if (!force && key === reported) return;
     reported = key;
+    reportedUse = lastUsed;
     context.host.invoke("presence", presence).then((reply) => {
       setItems(decodeAttentionItems(reply));
       const delivery = decodeDelivery((reply as { delivery?: unknown } | undefined)?.delivery);
@@ -152,7 +155,8 @@ function coordinate(context: DesktopExtensionContext) {
     lastUsed = Date.now();
     clearTimeout(idleTimer);
     idleTimer = setTimeout(() => report(), IDLE_AFTER_MS);
-    if (wasIdle) report();
+    // The host times "away" from the last use it heard of; tell it now and then while in use.
+    if (wasIdle || lastUsed - reportedUse >= USE_REPORT_MS) report(true);
   };
   const gesture = () => {
     used();

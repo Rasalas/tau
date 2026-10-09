@@ -9,10 +9,12 @@ import { FcmClient, readServiceAccount, safeEndpoint } from "./fcm.js";
 import {
   ATTENDED_COMMAND,
   NOTIFICATIONS_EXTENSION_ID,
+  PUSH_AWAY_KEY,
   PUSH_CONTENT_KEY,
   PUSH_EXTENSION_ID,
   PUSH_RELAY_URL,
   PUSH_STATE_EVENT,
+  readAwayMinutes,
   readPushContent,
   threadLink,
   type ApnsKeyInput,
@@ -39,6 +41,8 @@ const KINDS: readonly PushKind[] = ["completed", "failed", "turn", "question", "
 const APPROVAL_OPTION = /^(?:allow|approve|deny|reject)\b/iu;
 /** Handles the relay called gone, remembered so the phone can be told to renew one it sends again. */
 const MAX_REJECTED_HANDLES = 1_000;
+/** News unseen this long after it happened is old; the phone no longer hears of it. */
+const MAX_WAIT_MS = 12 * 60 * 60_000;
 
 export interface PushHostOptions {
   /** Where APNs requests go instead of Apple (a test's fake); `TAU_PUSH_APNS_ORIGIN` sets it too. */
@@ -283,26 +287,50 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
       };
 
       /**
-       * Someone at a focused client sees it there, or the user silenced this kind of news (Notifications Kit's
-       * switches and quiet hours); without Notifications Kit nobody can say, so the phone hears.
+       * Whether the phone should hear now. Like Discord: not while the user is at a Tau client (a key,
+       * click or touch within the away time), nor what they silenced (Notifications Kit's switches and
+       * quiet hours). `later` is when to ask again; without Notifications Kit nobody can say, so the phone hears.
        */
-      const attended = async (kind: PushKind): Promise<boolean> => {
+      const reach = async (threadId: string, kind: PushKind, retry: boolean): Promise<{ send: boolean; laterMs?: number }> => {
+        const minutes = readAwayMinutes((await services.settings?.().catch(() => undefined))?.values[PUSH_AWAY_KEY]);
+        const awayAfterMs = minutes * 60_000;
+        let answer: { attended?: unknown; muted?: unknown; awayInMs?: unknown; unseen?: unknown } | undefined;
         try {
-          const answer = await context.invokeHostExtension(NOTIFICATIONS_EXTENSION_ID, ATTENDED_COMMAND, { kind: kind === "turn" ? "completed" : kind }) as { attended?: unknown; muted?: unknown } | undefined;
-          return answer?.attended === true || answer?.muted === true;
+          answer = await context.invokeHostExtension(NOTIFICATIONS_EXTENSION_ID, ATTENDED_COMMAND, { kind: kind === "turn" ? "completed" : kind, threadId, awayAfterMs }) as typeof answer;
         } catch {
-          return false;
+          return { send: !retry };
         }
+        if (answer?.muted === true) return { send: false };
+        // Seen at a client while the push waited: nothing left to tell.
+        if (retry && answer?.unseen === false) return { send: false };
+        if (answer?.attended !== true) return { send: true };
+        return { send: false, laterMs: typeof answer.awayInMs === "number" && answer.awayInMs > 0 ? answer.awayInMs : awayAfterMs };
       };
 
-      const raise = async (threadId: string, kind: PushKind, text?: string): Promise<void> => {
+      /** Pushes held back while the user was at a client, one per thread; newer news replaces older. */
+      const waiting = new Map<string, { timer: ReturnType<typeof setTimeout>; since: number }>();
+      const wait = (threadId: string, kind: PushKind, text: string | undefined, laterMs: number, since: number) => {
+        clearTimeout(waiting.get(threadId)?.timer);
+        if (now() - since > MAX_WAIT_MS) { waiting.delete(threadId); return; }
+        const timer = setTimeout(() => {
+          waiting.delete(threadId);
+          raiseLater(threadId, kind, text, since);
+        }, laterMs + 1_000);
+        timer.unref?.();
+        waiting.set(threadId, { timer, since });
+      };
+
+      const raise = async (threadId: string, kind: PushKind, text?: string, since?: number): Promise<void> => {
         if (!threadId) return;
         const thread = services.thread(threadId);
         // A sub-agent reports to the thread that spawned it, not to the user.
         if (thread?.parentThreadId) return;
         const targets = reachable();
         if (targets.length === 0) return;
-        if (await attended(kind)) return;
+        if (since === undefined) clearTimeout(waiting.get(threadId)?.timer);
+        const decision = await reach(threadId, kind, since !== undefined);
+        if (decision.laterMs !== undefined) wait(threadId, kind, text, decision.laterMs, since ?? now());
+        if (!decision.send) return;
         const last = lastPushed.get(threadId);
         if (last !== undefined && now() - last < debounceMs) return;
         lastPushed.set(threadId, now());
@@ -314,8 +342,8 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         const title = thread?.sessionName();
         await deliver(targets, { ...composePush({ kind, ...(title ? { title } : {}), ...(said ? { text: said } : {}) }, content), threadId, kind });
       };
-      const raiseLater = (threadId: string, kind: PushKind, text?: string) => {
-        const work = raise(threadId, kind, text).catch((error: unknown) => services.log("push.failed", errorText(error)));
+      const raiseLater = (threadId: string, kind: PushKind, text?: string, since?: number) => {
+        const work = raise(threadId, kind, text, since).catch((error: unknown) => services.log("push.failed", errorText(error)));
         options.track?.(work);
       };
 
@@ -532,6 +560,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
 
       return () => {
         for (const stop of stops) stop();
+        for (const { timer } of waiting.values()) clearTimeout(timer);
         apns?.close();
       };
     },

@@ -134,11 +134,23 @@ describe("the notifications host half", () => {
   it("tells Push whether someone is at a focused client that was used lately", async () => {
     const { presence, registry } = await harness();
     const attended = () => registry.invoke(NOTIFICATIONS_EXTENSION_ID, "attended");
-    await expect(attended()).resolves.toEqual({ attended: false, muted: false });
+    await expect(attended()).resolves.toEqual({ attended: false, muted: false, awayInMs: 0 });
     await presence({ clientKey: "window", focused: true, threadId: "t2" });
     await expect(attended()).resolves.toEqual({ attended: true, muted: false });
     await presence({ clientKey: "window", focused: true, threadId: "t2", idle: true });
-    await expect(attended()).resolves.toEqual({ attended: false, muted: false });
+    await expect(attended()).resolves.toEqual({ attended: false, muted: false, awayInMs: 0 });
+  });
+
+  it("tells Push how long until the user counts as away, and whether the thread's news is still unseen", async () => {
+    const { observers, presence, registry, tick } = await harness();
+    const ask = (threadId: string) => registry.invoke(NOTIFICATIONS_EXTENSION_ID, "attended", { kind: "completed", threadId, awayAfterMs: 300_000 });
+    await presence({ clientKey: "window", focused: false, threadId: "t2", usedAgoMs: 60_000 });
+    await observers[0]!.runEnded!("t1", "completed");
+    await expect(ask("t1")).resolves.toEqual({ attended: true, muted: false, awayInMs: 240_000, unseen: true });
+    tick(240_000);
+    await expect(ask("t1")).resolves.toEqual({ attended: false, muted: false, awayInMs: 0, unseen: true });
+    await presence({ clientKey: "window", focused: true, threadId: "t1", usedAgoMs: 0 });
+    await expect(ask("t1")).resolves.toMatchObject({ attended: true, unseen: false });
   });
 
   it("keeps news the user silenced from every client and from Push, and still counts it", async () => {
@@ -150,8 +162,8 @@ describe("the notifications host half", () => {
     await expect.poll(() => named(NOTIFY_EVENT).length).toBe(1);
     expect(named(NOTIFY_EVENT)[0]).toMatchObject({ items: [{ reason: "failed" }] });
     expect(named(ATTENTION_EVENT).at(-1)).toMatchObject({ items: [{ threadId: "t1" }] });
-    await expect(registry.invoke(NOTIFICATIONS_EXTENSION_ID, "attended", { kind: "completed" })).resolves.toEqual({ attended: false, muted: true });
-    await expect(registry.invoke(NOTIFICATIONS_EXTENSION_ID, "attended", { kind: "question" })).resolves.toEqual({ attended: false, muted: false });
+    await expect(registry.invoke(NOTIFICATIONS_EXTENSION_ID, "attended", { kind: "completed" })).resolves.toEqual({ attended: false, muted: true, awayInMs: 0 });
+    await expect(registry.invoke(NOTIFICATIONS_EXTENSION_ID, "attended", { kind: "question" })).resolves.toEqual({ attended: false, muted: false, awayInMs: 0 });
   });
 
   it("is quiet between the hours the user chose, across midnight too", () => {
