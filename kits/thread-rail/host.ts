@@ -198,7 +198,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
               }
             }
             // A past PR is not proof that follow-up work in the checkout landed.
-            // Unknown Git state keeps the thread active; the idle rule is independent.
+            // A checkout not known to be clean stays active; the idle rule is independent.
             const patches = sweepPatches(threads, local, running, clock(), linked);
             const integration = new Map<string, Promise<boolean>>();
             const keepActive = (id: string) => {
