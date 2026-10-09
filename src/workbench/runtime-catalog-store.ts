@@ -102,6 +102,16 @@ export const catalogLevels = (catalog: UiRuntimeCatalog | undefined, model: UiMo
  * Without a catalog the snapshot stays as it was, and the composer's pickers
  * stay off for a draft bound for another runtime.
  */
+/**
+ * Whether a new thread's draft can send images: its model says so where the
+ * catalog knows; otherwise Pi answers through its prepared thread, and every
+ * other runtime takes images.
+ */
+export function draftImageInput(runtime: ThreadBackendKind, model: UiModel | undefined, prepared: boolean | undefined): boolean {
+  if (model?.images !== undefined) return model.images;
+  return runtime === "pi" ? prepared === true : true;
+}
+
 export function draftRuntimeSnapshot(snapshot: HostSnapshot, draft: NewThreadDraft, runtime: ThreadBackendKind, entry: RuntimeCatalogEntry | undefined): HostSnapshot {
   if (entry?.status !== "ready") return snapshot;
   const { catalog } = entry;

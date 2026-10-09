@@ -34,7 +34,7 @@ import { AppUpdateStore } from "./app-update";
 import { effectiveNewThreadRuntime, recentRuntimeModels, rememberedNewThreadSelection } from "./new-thread-runtime";
 import { selectionOnScreen } from "../workbench/new-thread-project";
 import { useRuntimeCatalog } from "./use-runtime-catalog";
-import { draftRuntimeSnapshot } from "../workbench/runtime-catalog-store";
+import { draftImageInput, draftRuntimeSnapshot } from "../workbench/runtime-catalog-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { openFileTab, openThreadTab, stageFilePath as projectFilePath, type StageView } from "../workbench/stage";
 import { useWorkspaceResourceNavigation } from "./workspace-resource-navigation";
@@ -591,28 +591,28 @@ export default function App() {
   const draftSnapshot = useMemo(() => pendingNewThread && snapshot && boundRuntime
     ? draftRuntimeSnapshot(snapshot, pendingNewThread, boundRuntime, draftCatalog)
     : snapshot, [draftCatalog, boundRuntime, pendingNewThread, snapshot]);
-  const conversationSnapshot = useMemo(() => pendingNewThread && snapshot && draftSnapshot ? {
-    ...draftSnapshot,
-    cwd: pendingNewThread.projectPath,
-    // A draft is a semantic scope, not a Pi session. The session ID remains
-    // the last real runtime while the draft ID travels in TranscriptTurnStart.
-    sessionName: undefined,
-    sessionTitle: "Untitled thread",
-    isStreaming: false,
+  const conversationSnapshot = useMemo(() => {
+    if (!pendingNewThread || !snapshot || !draftSnapshot) return snapshot ? { ...snapshot, isStreaming: visibleStreaming } : snapshot;
     // The draft's choice shows on the catalog of the runtime it was made for; another runtime's overlay applied it already.
-    ...(draftSnapshot === snapshot && pendingNewThread.model && (pendingNewThread.selectionRuntime ?? "pi") === (snapshot.backendKind ?? "pi") ? { model: pendingNewThread.model } : {}),
-    ...(draftSnapshot === snapshot && pendingNewThread.thinkingLevel && (pendingNewThread.selectionRuntime ?? "pi") === (snapshot.backendKind ?? "pi") ? { thinkingLevel: pendingNewThread.thinkingLevel } : {}),
-    mode: pendingNewThread.mode,
-    modes: snapshot.runtimeBackends?.find((backend) => backend.kind === effectiveNewThreadRuntime(pendingNewThread.runtime ?? settings.newThreadRuntime, snapshot))?.modes,
-    supportsImageInput: pendingNewThread.sessionId
-      ? snapshot.sessionId === pendingNewThread.sessionId && snapshot.supportsImageInput === true
-      : preparedThreadCapability?.cwd === pendingNewThread.projectPath
-        ? preparedThreadCapability.supportsImageInput ?? false
-        : false,
-    taskProgress: undefined,
-    taskHistory: [],
-  } : snapshot ? { ...snapshot, isStreaming: visibleStreaming } : snapshot,
-  [draftSnapshot, pendingNewThread, snapshot, visibleStreaming, preparedThreadCapability, settings.newThreadRuntime]);
+    const draftChoice = draftSnapshot === snapshot && (pendingNewThread.selectionRuntime ?? "pi") === (snapshot.backendKind ?? "pi");
+    const model = (draftChoice ? pendingNewThread.model : undefined) ?? draftSnapshot.model;
+    return {
+      ...draftSnapshot,
+      cwd: pendingNewThread.projectPath,
+      // A draft is a semantic scope, not a Pi session. The session ID remains
+      // the last real runtime while the draft ID travels in TranscriptTurnStart.
+      sessionName: undefined,
+      sessionTitle: "Untitled thread",
+      isStreaming: false,
+      ...(model ? { model } : {}),
+      ...(draftChoice && pendingNewThread.thinkingLevel ? { thinkingLevel: pendingNewThread.thinkingLevel } : {}),
+      mode: pendingNewThread.mode,
+      modes: snapshot.runtimeBackends?.find((backend) => backend.kind === effectiveNewThreadRuntime(pendingNewThread.runtime ?? settings.newThreadRuntime, snapshot))?.modes,
+      supportsImageInput: pendingNewThread.sessionId ? snapshot.sessionId === pendingNewThread.sessionId && snapshot.supportsImageInput === true : draftImageInput(boundRuntime ?? snapshot.backendKind ?? "pi", model, preparedThreadCapability?.cwd === pendingNewThread.projectPath ? preparedThreadCapability.supportsImageInput : undefined),
+      taskProgress: undefined,
+      taskHistory: [],
+    };
+  }, [boundRuntime, draftSnapshot, pendingNewThread, snapshot, visibleStreaming, preparedThreadCapability, settings.newThreadRuntime]);
   const addDroppedFiles = useCallback((files: FileList | readonly File[]) => {
     void composerAttachmentRef.current?.addFiles(files);
   }, []);
