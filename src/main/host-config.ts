@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { TauConfig } from "../shared/contracts.js";
+import type { TauConfig, TauThreadsConfig } from "../shared/contracts.js";
 import { isUpdateChannel, type UpdateChannel } from "../shared/app-version.js";
 import { isQuitConfirmation } from "../shared/window-shell.js";
 import { readModelPreferenceRecord } from "../shared/model-preferences.js";
@@ -340,11 +340,14 @@ export class HostConfigManager {
         case "values": case "keybindings":
           if (val && typeof val === "object" && !Array.isArray(val)) result[key] = val as never;
           break;
-        case "threads":
-          if (val && typeof val === "object" && typeof (val as { continueAfterRestart?: unknown }).continueAfterRestart === "boolean") {
-            result.threads = { continueAfterRestart: (val as { continueAfterRestart: boolean }).continueAfterRestart };
-          }
+        case "threads": {
+          const threads = val && typeof val === "object" ? val as Record<string, unknown> : {};
+          const next: TauThreadsConfig = {};
+          if (typeof threads.continueAfterRestart === "boolean") next.continueAfterRestart = threads.continueAfterRestart;
+          if (threads.wakeDelivery === "steer" || threads.wakeDelivery === "queue") next.wakeDelivery = threads.wakeDelivery;
+          if (Object.keys(next).length) result.threads = next;
           break;
+        }
         case "extensions":
           if (val && typeof val === "object" && typeof (val as { watch?: unknown }).watch === "boolean") {
             result.extensions = { watch: (val as { watch: boolean }).watch };

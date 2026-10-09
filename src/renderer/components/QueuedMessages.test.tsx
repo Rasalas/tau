@@ -60,17 +60,18 @@ describe("QueuedMessages", () => {
     expect(screen.getByRole("listitem").textContent).toContain("Held");
   });
 
-  it("shows a wake as one quiet row that never sends into the turn, and drops it on X", () => {
+  it("shows a wake as one quiet row that the arrow sends into the turn, and drops it on X", () => {
     const onSteer = vi.fn();
     const onReturn = vi.fn();
     const wake: UiQueuedMessage = { id: "w1", text: "[Tau wake: pull-request] Woken by PR #42 · check smoke failed\n\nCheck smoke failed.", attachments: 0, wake: { source: "pull-request", label: "Woken by PR #42 · check smoke failed" } };
     render(<QueuedMessages queue={[wake, queued("mine", "after this turn")]} streaming onSteer={onSteer} onReturn={onReturn} onReorder={vi.fn()} />);
     const row = screen.getByRole("listitem", { name: "Wake waiting: Woken by PR #42 · check smoke failed" });
     expect(row.textContent).toContain("Waits for the turn");
-    expect(within(row).queryByRole("button", { name: "Send now" })).toBeNull();
     expect(row.textContent).not.toContain("[Tau wake");
     fireEvent.click(within(row).getByRole("button", { name: "Drop this wake" }));
     expect(onReturn).toHaveBeenCalledWith("w1");
     expect(onSteer).not.toHaveBeenCalled();
+    fireEvent.click(within(row).getByRole("button", { name: "Send this wake now" }));
+    expect(onSteer).toHaveBeenCalledWith("w1");
   });
 });

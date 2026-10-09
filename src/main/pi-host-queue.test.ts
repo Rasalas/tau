@@ -3,12 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
+import { defaultHostConfigManager } from "./host-config.js";
 import { PiHost } from "./pi-host.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
 import { LIMIT_CONTINUATION_PROMPT } from "./thread-limits.js";
 import { ThreadRuntime } from "./thread-runtime.js";
 
-interface DeliveredPrompt { text: string; hidden?: boolean }
+interface DeliveredPrompt { text: string; hidden?: boolean; delivery?: string }
 
 /** A streamed non-Pi thread whose turn runs until the test ends it with a `turn-settled`. */
 function streamedThread(threadId: string, delivered: DeliveredPrompt[]) {
@@ -27,8 +28,8 @@ function streamedThread(threadId: string, delivered: DeliveredPrompt[]) {
       sourceFingerprint: clientMessageFingerprint(text, []),
     }),
     composerCommands: () => [],
-    prompt: async (input: { text: string; hidden?: boolean; onAdmitted?: (accepted: boolean) => void }) => {
-      delivered.push({ text: input.text, ...(input.hidden ? { hidden: true } : {}) });
+    prompt: async (input: { text: string; hidden?: boolean; delivery?: string; onAdmitted?: (accepted: boolean) => void }) => {
+      delivered.push({ text: input.text, ...(input.hidden ? { hidden: true } : {}), ...(input.delivery === "steer" ? { delivery: "steer" } : {}) });
       streaming = true;
       input.onAdmitted?.(true);
       return {};
@@ -48,7 +49,7 @@ function streamedThread(threadId: string, delivered: DeliveredPrompt[]) {
 }
 
 const dirs: string[] = [];
-afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
+afterEach(async () => { vi.restoreAllMocks(); await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
 
 async function host(dir?: string) {
   const userData = dir ?? await mkdtemp(join(tmpdir(), "tau-host-queue-"));
@@ -80,6 +81,22 @@ describe("PiHost queue and limits", () => {
     expect(bench.delivered.map((entry) => entry.text)).toEqual(["long job"]);
     bench.settle();
     await vi.waitFor(() => expect(bench.delivered.map((entry) => entry.text)).toEqual(["long job", "then this"]));
+    await bench.host.queue.flush();
+  });
+
+  it("steers a wake into the running turn, and queues it when the user wants wakes queued", async () => {
+    const bench = await host();
+    const wake = { source: "pull-request", label: "PR #76 · checks finished" };
+    const send = (text: string) => bench.internals.hostExtensions.services.sessions.send("thread-1", text, { delivery: "queue", wake });
+    await bench.host.prompt("long job", [], "thread-1");
+    await send("Checks finished.");
+    expect(bench.delivered.at(-1)).toEqual({ text: "[Tau wake: pull-request] PR #76 · checks finished\n\nChecks finished.", delivery: "steer" });
+    expect(bench.host.queue.list("thread-1")).toEqual([]);
+
+    vi.spyOn(defaultHostConfigManager, "readSync").mockReturnValue({ threads: { wakeDelivery: "queue" } });
+    await send("Checks finished again.");
+    expect(bench.host.queue.list("thread-1").map((entry) => entry.wake)).toEqual([wake]);
+    expect(bench.delivered).toHaveLength(2);
     await bench.host.queue.flush();
   });
 

@@ -149,6 +149,17 @@ describe("QueuedMessages", () => {
       await queue.flush();
     });
 
+    it("sends every waiting wake as one message when a wake is at the head", async () => {
+      const { queue, busy, delivered, published, settle } = bench();
+      busy.add("t");
+      queue.add("t", wake("PR #76 · a check failed (test)"));
+      queue.add("t", text("mine"));
+      queue.add("t", wake("PR #76 · checks finished"));
+      await settle("t");
+      expect(delivered[0]?.text).toBe("[Tau wake: pull-request] PR #76 · a check failed (test) · checks finished\n\nCheck PR #76 · a check failed (test) failed.\n\nCheck PR #76 · checks finished failed.");
+      expect(published.get("t")?.messages.map((message) => message.text)).toEqual(["mine"]);
+    });
+
     it("drops waiting wakes at once and leaves the user's messages in their order", () => {
       const { queue, busy, published } = bench();
       busy.add("t");

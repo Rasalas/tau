@@ -1103,6 +1103,8 @@ export interface TauThreadsConfig {
    * Off by default: continuing costs a model call nobody asked for.
    */
   continueAfterRestart?: boolean;
+  /** How a kit's wake reaches a running turn: steered into it, or queued until it ends. */
+  wakeDelivery?: "steer" | "queue";
 }
 
 /** How an installed Tau updates itself; read by the window's process on this machine. */

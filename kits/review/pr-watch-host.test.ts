@@ -6,9 +6,9 @@ import type { HostMcpInstructionsProvider, HostSessionServices, HostTurnObserver
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import type { SourceControl } from "./provider-registry.js";
 import { parseRequestUrl } from "./pull-request-json.js";
-import { registerPullRequestWatches } from "./pr-watch-host.js";
+import { registerPullRequestWatches, wakeText } from "./pr-watch-host.js";
 import { readWatchSnapshot } from "./pr-watch-github.js";
-import { watchChanges, type WatchSnapshot, type WatchState } from "./pr-watch-protocol.js";
+import { watchChanges, type PullRequestWatch, type WatchSnapshot, type WatchState } from "./pr-watch-protocol.js";
 const URL = "https://github.com/example/project/pull/42";
 const initial: WatchSnapshot = { state: "OPEN", head: "head-1", checks: "pending", failed: [], comments: "0", conflict: false };
 const cleanups: (() => Promise<unknown>)[] = [];
@@ -183,4 +183,12 @@ it("watches a thread of any runtime, not only Pi's, and refuses one the host doe
   await h.call("watch-start", { threadId: "claude-1", url: URL });
   expect((await h.list()).watches.map((watch) => watch.threadId)).toEqual(["claude-1"]);
   await expect(h.call("watch-start", { threadId: "gone", url: URL })).rejects.toThrow("The thread no longer exists.");
+});
+it("names the head commit and the failed jobs, so a wake about an older push reads as one", () => {
+  const ref = { url: URL, number: 42 } as PullRequestWatch["ref"];
+  const text = wakeText({ ref }, ["a check failed (test (2/3))"], { state: "OPEN", head: "abc123", checks: "done", failed: [{ id: "987", name: "test (2/3)" }, { id: "lint https://ci", name: "lint" }], comments: "0", conflict: false });
+  expect(text).toContain(`Pull request #42 (${URL}) at head commit abc123: a check failed (test (2/3)).`);
+  expect(text).toContain("- test (2/3): job 987 (gh run view --job 987 --log-failed)");
+  expect(text).not.toContain("lint:");
+  expect(text).toContain("If you pushed since, these results belong to the older commit.");
 });
