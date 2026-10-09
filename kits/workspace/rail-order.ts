@@ -5,19 +5,16 @@ import { WORKSPACE_HOST_EXTENSION_ID } from "./protocol.js";
 export type RailGrouping = "none" | "repository" | "repository_path" | "separate";
 /** Groups by their newest thread, by when the project was last opened, or by name. */
 export type RailProjectSort = "activity" | "opened" | "name";
-export type RailThreadSort = "updated" | "created";
 
 export interface RailOrder {
   grouping: RailGrouping;
   projectSort: RailProjectSort;
-  threadSort: RailThreadSort;
   /** Threads a group shows before its "show more". */
   preview: number;
 }
 
 export const RAIL_GROUPING_OPTION = "rail-grouping";
 export const RAIL_PROJECT_SORT_OPTION = "rail-project-sort";
-export const RAIL_THREAD_SORT_OPTION = "rail-thread-sort";
 export const RAIL_PREVIEW_OPTION = "rail-preview";
 /** The toggle the grouping replaced; a user who had it on keeps grouping by repository. */
 export const LEGACY_GROUP_OPTION = "group-by-project";
@@ -47,13 +44,6 @@ export const RAIL_ORDER_OPTIONS = [
     defaultValue: "activity",
   },
   {
-    id: RAIL_THREAD_SORT_OPTION,
-    kind: "select" as const,
-    label: "Order threads by",
-    values: [{ value: "updated", label: "Last activity" }, { value: "created", label: "Created" }],
-    defaultValue: "updated",
-  },
-  {
     id: RAIL_PREVIEW_OPTION,
     kind: "select" as const,
     label: "Threads per group before “show more”",
@@ -72,15 +62,19 @@ export function readRailOrder(preferences: Pick<PreferencesStore, "value" | "opt
   return {
     grouping: oneOf(preferences.value(id, RAIL_GROUPING_OPTION), ["none", "repository", "repository_path", "separate"]) ?? legacy,
     projectSort: oneOf(preferences.value(id, RAIL_PROJECT_SORT_OPTION), ["activity", "opened", "name"]) ?? "activity",
-    threadSort: oneOf(preferences.value(id, RAIL_THREAD_SORT_OPTION), ["updated", "created"]) ?? "updated",
     preview: PREVIEW_CHOICES.includes(preview) ? preview : DEFAULT_PREVIEW,
   };
 }
 
-/** A thread the index knows no creation time for sorts by its last activity. */
-export function sortThreads(threads: readonly UiSession[], sort: RailThreadSort): UiSession[] {
-  const key = sort === "created" ? (session: UiSession) => session.createdAt ?? session.modifiedAt : (session: UiSession) => session.modifiedAt;
-  return threads.slice().sort((left, right) => key(right) - key(left));
+/**
+ * Where a thread stands in the rail: when it began, as T3 Code orders its active
+ * list. A turn or a status change never moves a row; one without a creation time sorts by its activity.
+ */
+export const railAnchor = (session: UiSession): number => session.createdAt ?? session.modifiedAt;
+
+/** Newest first; ties by id, so two hosts draw the same order. */
+export function sortThreads(threads: readonly UiSession[]): UiSession[] {
+  return threads.slice().sort((left, right) => railAnchor(right) - railAnchor(left) || (left.id < right.id ? 1 : left.id > right.id ? -1 : 0));
 }
 
 const lastSegment = (path: string) => path.replace(/\/+$/u, "").split("/").pop() || path;
@@ -121,15 +115,15 @@ export function groupThreads(
     if (group) {
       group.threads.push(session);
       group.opened = Math.max(group.opened, project?.lastOpenedAt ?? 0);
-      group.active = Math.max(group.active, session.modifiedAt);
+      group.active = Math.max(group.active, railAnchor(session));
     } else {
-      groups.set(key, { key, label, threads: [session], opened: project?.lastOpenedAt ?? 0, active: session.modifiedAt });
+      groups.set(key, { key, label, threads: [session], opened: project?.lastOpenedAt ?? 0, active: railAnchor(session) });
     }
   }
   const list = [...groups.values()];
   if (projectSort === "name") list.sort((left, right) => left.label.localeCompare(right.label));
   else if (projectSort === "opened") list.sort((left, right) => right.opened - left.opened);
-  // By the newest activity in the group, whatever order its threads are in.
+  // By the group's newest thread, so a turn does not move the group either.
   else list.sort((left, right) => right.active - left.active);
   return list.map(({ key, label, threads: grouped }) => ({ key, label, threads: grouped }));
 }

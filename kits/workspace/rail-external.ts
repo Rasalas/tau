@@ -1,7 +1,7 @@
 import { useCallback, useRef, useSyncExternalStore } from "react";
 import type { PaletteItem, UiSession } from "tau";
 import type { RailExternalThread, RailThreadSource } from "./protocol.js";
-import type { RailThreadSort } from "./rail-order.js";
+import { railAnchor } from "./rail-order.js";
 
 const NONE: readonly RailExternalThread[] = [];
 
@@ -28,14 +28,13 @@ export function useRailExternalThreads(sources: readonly RailThreadSource[]): re
  * rail's own order stays as it is (a thread moved up by hand stays there); an
  * outside thread goes before the first of them it is newer than.
  */
-export function mergeByTime(local: readonly UiSession[], outside: readonly UiSession[], sort: RailThreadSort): UiSession[] {
+export function mergeByTime(local: readonly UiSession[], outside: readonly UiSession[]): UiSession[] {
   if (outside.length === 0) return local.slice();
-  const key = sort === "created" ? (session: UiSession) => session.createdAt ?? session.modifiedAt : (session: UiSession) => session.modifiedAt;
-  const pending = outside.slice().sort((left, right) => key(right) - key(left));
+  const pending = outside.slice().sort((left, right) => railAnchor(right) - railAnchor(left));
   const merged: UiSession[] = [];
   let next = 0;
   for (const session of local) {
-    while (next < pending.length && key(pending[next]!) > key(session)) merged.push(pending[next++]!);
+    while (next < pending.length && railAnchor(pending[next]!) > railAnchor(session)) merged.push(pending[next++]!);
     merged.push(session);
   }
   return merged.concat(pending.slice(next));

@@ -122,7 +122,7 @@ function withSiblingsTogether(threads: UiSession[], state: RailState): UiSession
 
 /**
  * Splits the rail's threads into its four sections, each in its own order:
- * pins by rank; active threads newest first above the ones the user arranged;
+ * pins by rank; active threads by when they began or came back, above the ones the user arranged;
  * snoozed threads by when they wake; settled threads latest first.
  */
 export function railSections(threads: readonly UiSession[], state: RailState, now: number, working: ReadonlySet<string> = new Set()): RailSections {
@@ -134,12 +134,16 @@ export function railSections(threads: readonly UiSession[], state: RailState, no
   const meta = (thread: UiSession): ThreadMeta => state.threads[thread.id] ?? {};
   const rank = (value: number | undefined) => value ?? Number.NEGATIVE_INFINITY;
   const byRecency = (left: UiSession, right: UiSession) => right.modifiedAt - left.modifiedAt;
-  // Unranked threads keep the order the rail handed in: its chosen sort (sorting is stable).
+  // Unranked pins keep the order the rail handed in (sorting is stable).
   // Two unranked threads give NaN (-Infinity minus itself), which `|| 0` reads as a tie.
   sections.pinned.sort((left, right) => rank(meta(left).pinOrder) - rank(meta(right).pinOrder) || 0);
-  sections.active.sort((left, right) => rank(meta(left).order) - rank(meta(right).order) || 0);
+  // As T3 Code: new and reopened threads on top, newest first; a turn never moves a row.
+  const anchor = (thread: UiSession) => Math.max(thread.createdAt ?? thread.modifiedAt, meta(thread).keptAt ?? 0);
+  const byPlace = (left: UiSession, right: UiSession) =>
+    rank(meta(left).order) - rank(meta(right).order) || (meta(left).order === undefined && meta(right).order === undefined ? anchor(right) - anchor(left) : 0);
+  sections.active.sort(byPlace);
   sections.active = withSiblingsTogether(sections.active, state);
-  sections.working.sort((left, right) => rank(meta(left).order) - rank(meta(right).order) || 0);
+  sections.working.sort(byPlace);
   sections.working = withSiblingsTogether(sections.working, state);
   sections.snoozed.sort((left, right) => (meta(left).snoozedUntil ?? 0) - (meta(right).snoozedUntil ?? 0));
   sections.settled.sort((left, right) => (meta(right).settledAt ?? 0) - (meta(left).settledAt ?? 0) || byRecency(left, right));

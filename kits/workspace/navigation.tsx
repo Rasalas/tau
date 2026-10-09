@@ -36,7 +36,7 @@ import { railActivity } from "./rail-activity.js";
 import { useRailDrag } from "./rail-drag.js";
 import { mergeByTime, useRailExternalThreads } from "./rail-external.js";
 import { ThreadCard, ThreadCardLayer, type ThreadCardTarget } from "./thread-card.js";
-import { groupThreads, readRailOrder, sortThreads, type RailOrder } from "./rail-order.js";
+import { groupThreads, railAnchor, readRailOrder, sortThreads, type RailOrder } from "./rail-order.js";
 import { NO_SELECTION, selectRange, selectedInOrder, toggleSelected, type RailSelection } from "./rail-selection.js";
 import { readProjectIcon, writeProjectIcon } from "./project-icons.js";
 import { ProjectSettingsDialog } from "./ProjectSettingsDialog.js";
@@ -904,7 +904,7 @@ export function defaultRailSections(
 ): ThreadRailSection[] {
   const pins = new Set(pinned);
   const shelved = new Set(showSettledShelf ? settled : []);
-  const sorted = threads.slice().sort((left, right) => Number(pins.has(right.id)) - Number(pins.has(left.id)) || right.modifiedAt - left.modifiedAt);
+  const sorted = threads.slice().sort((left, right) => Number(pins.has(right.id)) - Number(pins.has(left.id)) || railAnchor(right) - railAnchor(left));
   return [
     { id: "active", threads: sorted.filter((session) => !shelved.has(session.id)) },
     { id: "settled", label: "Settled", shelf: true, collapsed: false, settled: true, threads: sorted.filter((session) => shelved.has(session.id)) },
@@ -984,10 +984,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const matching = useMemo(() => sortThreads(
     visibleThreads(threads, lineage.parents, (id) => activity.running.has(id) || activity.waiting.has(id))
       .filter((session) => !projectFilter || session.projectName === projectFilter),
-    order.threadSort,
   // `liveKey` stands for the two sets the filter reads.
   // oxlint-disable-next-line react-hooks/exhaustive-deps
-  ), [threads, lineage.parents, liveKey, projectFilter, order.threadSort]);
+  ), [threads, lineage.parents, liveKey, projectFilter]);
   const sections = useMemo(
     () => organizer
       ? organizer.sections(matching, { ...activityState, waitingThreadIds: [...activityState.waitingThreadIds, ...Object.keys(rowStatuses)] })
@@ -1024,15 +1023,15 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     return [active, settled, working];
   }, [outside, shelfIndex, workingIndex]);
   const main = useMemo(
-    () => outsideActive.length === 0 ? ownMain : { ...ownMain, threads: mergeByTime(ownMain.threads, outsideActive, order.threadSort) },
-    [order.threadSort, outsideActive, ownMain],
+    () => outsideActive.length === 0 ? ownMain : { ...ownMain, threads: mergeByTime(ownMain.threads, outsideActive) },
+    [outsideActive, ownMain],
   );
   const shownSections = useMemo(
     () => sections.map((section, index) => {
       const extra = index === shelfIndex ? outsideSettled : index === workingIndex ? outsideWorking : [];
-      return extra.length ? { ...section, threads: mergeByTime(section.threads, extra, order.threadSort) } : section;
+      return extra.length ? { ...section, threads: mergeByTime(section.threads, extra) } : section;
     }),
-    [order.threadSort, outsideSettled, outsideWorking, sections, shelfIndex, workingIndex],
+    [outsideSettled, outsideWorking, sections, shelfIndex, workingIndex],
   );
   const listedIds = useMemo(() => new Set(matching.map((session) => session.id)), [matching]);
   // A draft on screen is the active row; the thread the host holds behind it is not.

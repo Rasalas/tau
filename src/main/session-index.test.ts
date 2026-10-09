@@ -159,4 +159,12 @@ describe("session index reconciliation", () => {
     expect(merged.find((session) => session.id === "active")?.title).toBe("fresh");
     expect(merged.map((session) => session.id)).toContain("created");
   });
+
+  it("keeps the creation time of a shell listed without one, so a turn or a rescan does not move its row", () => {
+    const listed = shell("codex-thread", 100);
+    const live = reconcileActiveThreadShell({ id: listed.id, path: listed.path, derivedTitle: "Work", now: 500, projectPath: listed.projectPath, projectName: listed.projectName, messageCount: 3 }, listed, true);
+    expect(live).toMatchObject({ modifiedAt: 500, createdAt: 100 });
+    const rescanned = mergeSessionIndexScan([shell("codex-thread", 500), { ...shell("pi-thread", 600), createdAt: 7 }], [live, shell("pi-thread", 50)], 900);
+    expect(rescanned.map((session) => [session.id, session.createdAt])).toEqual([["codex-thread", 100], ["pi-thread", 7]]);
+  });
 });
