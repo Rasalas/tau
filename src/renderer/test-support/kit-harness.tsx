@@ -102,6 +102,7 @@ export { ThreadStore } from "../../workbench/thread-store";
 export { ToastStore } from "../../workbench/toast-store";
 /** Core's toast stack, for a kit whose toasts are its output. */
 export { ToastViewport } from "../components/ui/Toasts";
+export { ClientEnvironmentProvider, electronClientEnvironment } from "../client-environment";
 export { ClientStorageProvider } from "../client-storage-context";
 export { createMemoryStorage, getClientStorage, setClientStorage } from "../../workbench/client-storage";
 export { createNewThreadDraft, writeNewThreadDraft } from "../../workbench/draft-store";

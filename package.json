@@ -34,6 +34,7 @@
     "dist:linux": "npm run build && electron-builder -c tooling/electron-builder.yml --linux --publish never",
     "dist:win": "npm run build && electron-builder -c tooling/electron-builder.yml --win --publish never",
     "start:report": "node scripts/start-report.mjs",
+    "stats": "node scripts/usage-statistics-report.mjs",
     "smoke:remote-host": "node scripts/remote-host-smoke.mjs",
     "smoke:window-host": "node scripts/window-host-smoke.mjs",
     "smoke:remote-work": "node scripts/remote-work-smoke.mjs",

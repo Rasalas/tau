@@ -3,6 +3,7 @@ import { createContext, useContext, type ComponentType, type ReactNode, type Ref
 import { parseClientProfile, type ClientProfile } from "../workbench/client-profile";
 import { createElectronPlatform } from "./platform-electron";
 import type { ClientPlatformFactory } from "./client-platform";
+import { readClientRelease, type ClientRelease } from "../shared/client-release";
 
 /**
  * The three facts a workbench cannot work out for itself: which client it is,
@@ -23,6 +24,8 @@ export interface ClientEnvironment {
   shell?: ClientShell;
   /** Installed native app, independent of any connected host release. */
   mobileApp?: { platform: "ios" | "android"; version: string };
+  /** Only a normal installed desktop release advertises this; isolated instances and development leave it absent. */
+  release?: ClientRelease;
   /** Native clients supply their control so other clients do not ship its UI. */
   dictation?: {
     port: DictationPort;
@@ -65,6 +68,7 @@ export function electronClientEnvironment(search: URLSearchParams): ClientEnviro
     profile: parseClientProfile(search.get("profile")) ?? "desktop",
     safeMode: search.get("safeMode") === "1",
     createPlatform: createElectronPlatform,
+    release: readClientRelease(search),
   };
 }
 

@@ -261,6 +261,18 @@ describe("ExtensionRegistry regions, status line, overlays, and events", () => {
     expect(registry.getOverlay("review")).toBeUndefined();
   });
 
+  it("announces a locally accepted prompt without forwarding its contents", async () => {
+    const registry = new ExtensionRegistry();
+    const accepted = vi.fn();
+    registry.activate({ id: "kit", name: "Kit", activate(context) {
+      context.events.on("prompt-accepted", accepted);
+    } });
+    await registry.notifyPromptSubmitted({ prompt: "private prompt" } as never, {} as never);
+    expect(accepted).toHaveBeenCalledExactlyOnceWith({ type: "prompt-accepted" });
+    registry.dispatchWorkbenchEvent({ type: "user-message", sessionId: "background", message: { text: "scheduler wake" } as never });
+    expect(accepted).toHaveBeenCalledTimes(1);
+  });
+
   it("forwards workbench events to listeners until the extension is deactivated", () => {
     const registry = new ExtensionRegistry({ invoke: async () => undefined });
     const seen: string[] = [];

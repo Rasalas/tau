@@ -52,9 +52,11 @@ function harness(options: {
   if (options.hostSessionApplied ?? true) hostSession.markApplied();
   const promptHooks = vi.fn(async (_event?: unknown) => undefined);
   const prepareNewThread = options.prepareNewThread ?? vi.fn(async () => undefined);
+  const workbenchEvents = vi.fn();
   const registry = {
     findSlashCommand: () => options.slash,
     notifyPromptSubmitted: promptHooks,
+    dispatchWorkbenchEvent: workbenchEvents,
     prepareNewThread,
     claimNewThread: options.claimNewThread ?? vi.fn(async () => false),
   } as unknown as ExtensionRegistry;
@@ -156,7 +158,7 @@ function harness(options: {
     enqueueFollowUp: async (threadId, item) => { followUps.push({ threadId, text: item.text }); },
   };
   const submission = new SubmissionController(ports);
-  return { submission, ports, client, view, threads, scopes, state, followUps, host, promptHooks, actions, hostSession, startedElsewhere };
+  return { workbenchEvents, submission, ports, client, view, threads, scopes, state, followUps, host, promptHooks, actions, hostSession, startedElsewhere };
 }
 
 const sentPrompts = (client: ReturnType<typeof createFakeHostClient>) =>
@@ -253,11 +255,12 @@ describe("SubmissionController", () => {
   });
 
   it("steers the running thread instead of queueing when asked", async () => {
-    const { submission, client, threads } = harness();
+    const { submission, client, threads, workbenchEvents } = harness();
     threads.setThreadRunning("session", true);
 
     await submission.submit({ text: "instead do this", delivery: "steer" });
 
+    expect(workbenchEvents).toHaveBeenCalledExactlyOnceWith({ type: "prompt-accepted" });
     expect(client.calls.some((call) => call.method === "steer")).toBe(true);
     expect(sentPrompts(client)).toHaveLength(0);
   });
@@ -294,12 +297,13 @@ describe("SubmissionController", () => {
   });
 
   it("queues a message typed while the thread is running", async () => {
-    const { submission, client, threads, followUps, view } = harness();
+    const { submission, client, threads, followUps, view, workbenchEvents } = harness();
     threads.setThreadRunning("session", true);
 
     const result = await submission.submit({ text: "afterwards" });
 
     expect(result).toEqual({ accepted: true });
+    expect(workbenchEvents).toHaveBeenCalledExactlyOnceWith({ type: "prompt-accepted" });
     expect(followUps).toEqual([{ threadId: "session", text: "afterwards" }]);
     expect(client.calls.some((call) => call.method === "preparePrompt")).toBe(false);
     expect(view.getOptimisticMessages()).toEqual([]);
@@ -484,7 +488,7 @@ describe("SubmissionController", () => {
   it("lets an extension take a new thread's first prompt, and keeps the draft for the next one", async () => {
     const claimNewThread = vi.fn(async (event: { alternate: boolean; runtime: string; model?: unknown; attachments: number }) => event.alternate) as unknown as ExtensionRegistry["claimNewThread"];
     const snapshot = { ...SESSION_SNAPSHOT, model: { provider: "openai", id: "gpt-5.6-luna", name: "Luna" } } as HostSnapshot;
-    const { submission, client, state, view, startedElsewhere } = harness({ pending: DRAFT, claimNewThread, snapshot });
+    const { submission, client, state, view, startedElsewhere, workbenchEvents } = harness({ pending: DRAFT, claimNewThread, snapshot });
 
     await expect(submission.submit({ text: "in the background", delivery: "alternate" })).resolves.toEqual({ accepted: true });
     expect(claimNewThread).toHaveBeenCalledWith(expect.objectContaining({
@@ -497,6 +501,7 @@ describe("SubmissionController", () => {
     }), expect.anything());
     expect(client.calls.some((call) => call.method === "newSession" || call.method === "preparePrompt")).toBe(false);
     expect(state.pending?.draftId).toBe(DRAFT.draftId);
+    expect(workbenchEvents).toHaveBeenCalledExactlyOnceWith({ type: "prompt-accepted" });
     expect(startedElsewhere).toEqual([DRAFT.draftId]);
     expect(view.getOptimisticMessages()).toEqual([]);
 

@@ -53,6 +53,8 @@ export { useClientStorage } from "./client-storage-context";
 // The app page on screen, for a sidebar that marks it and offers Back.
 export { useOpenPage } from "./app-page-context";
 export { getClientStorage } from "../workbench/client-storage";
+export { useClientEnvironment } from "./client-environment";
+export type { ClientRelease } from "../shared/client-release";
 export { useHostCapabilities, useHostName, hostHasLocalFiles, hostIsReadOnly, READ_ONLY_REASON, useCommandAllowed, hostCommandAllowed } from "./use-host-capabilities";
 export { hostAvailable } from "./host-client-context";
 // Whether a package's own host half runs, and why not, to disable what calls it (K112).

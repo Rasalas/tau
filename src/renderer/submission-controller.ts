@@ -238,6 +238,7 @@ export class SubmissionController {
     const newThreadRequestId = newThread.requestId();
     try {
       if (pendingNewThread && !pendingNewThread.sessionId && await this.claimNewThread(pendingNewThread, text, alternate, attachments, skillDraft)) {
+        registry.dispatchWorkbenchEvent({ type: "prompt-accepted" });
         this.ports.drafts.startedElsewhere(pendingNewThread.draftId);
         return { accepted: true };
       }
@@ -254,6 +255,7 @@ export class SubmissionController {
       } catch (error) {
         return { accepted: false, message: errorMessage(error) };
       }
+      registry.dispatchWorkbenchEvent({ type: "prompt-accepted" });
       return { accepted: true };
     }
     let prepared: PreparedPrompt | undefined;
@@ -344,6 +346,7 @@ export class SubmissionController {
       } catch (error) {
         return rejectSubmission(error);
       }
+      registry.dispatchWorkbenchEvent({ type: "prompt-accepted" });
       return { accepted: true };
     }
     if (pendingNewThread) {

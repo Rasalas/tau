@@ -3253,6 +3253,22 @@ Codex's own goal turns; a CLI without the methods, or a thread restricted to
 some tools, offers no goals. Claude Code Kit sends `/goal …` and `/goal
 clear`, follows the SDK's `active_goal` frames, and has no pause.
 
+### This client and accepted prompts, API 1.55.0
+
+`useClientEnvironment()` reads this client shell's environment. Its optional
+`release: ClientRelease` contains the installed desktop client's `version`,
+`platform` and `channel`, independently of the connected host. Development,
+isolated instances and the process-wide `TAU_USAGE_STATISTICS=0` opt-out leave
+it absent. Browser and native mobile clients do not provide this desktop field.
+
+`context.events.on("prompt-accepted", listener)` receives only
+`{ type: "prompt-accepted" }` after this client's composer accepts a runtime
+prompt, queued follow-up, steering or kit-claimed first prompt. It carries no
+prompt text or thread identity. Host `user-message` events, scheduler wakes,
+subagent turns, rejected submissions, slash commands and shell commands do not
+independently emit it. Usage Statistics Kit uses this event with device-local
+consent; the core has no reporting endpoint or device identity.
+
 ### Who is attached: `services.clients`
 
 `services.clients` is ungated — it answers `count()` and takes an observer

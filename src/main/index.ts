@@ -24,6 +24,7 @@ import { appIdentity } from "./app-identity.js";
 import { builtFromSource } from "./update-installers.js";
 import { backgroundModeRequested, installBackgroundMode } from "./background-mode.js";
 import { EXTENSION_API_VERSION, type ExtensionHostVersions } from "../shared/extension-compat.js";
+import { clientReleaseQuery } from "../shared/client-release.js";
 import { HostLog } from "./host-log.js";
 import { HostPushLog } from "./host-push-log.js";
 import { HostPushCoalescer } from "./host-push-coalescer.js";
@@ -373,8 +374,10 @@ function broadcast(event: HostPushEvent): void {
 
 /** What the renderer is told: which host to speak to, and as which client. */
 function workbenchQuery(): Record<string, string> {
+  const release = clientReleaseQuery(app.isPackaged, app.getVersion(), process.platform, process.env);
   if (shownHost && environments) {
     return {
+      ...release,
       ...(safeMode ? { safeMode: "1" } : {}),
       ...(process.env.TAU_CLIENT_PROFILE ? { profile: process.env.TAU_CLIENT_PROFILE } : {}),
       host: shownHost.hostUrl,
@@ -384,6 +387,7 @@ function workbenchQuery(): Record<string, string> {
     };
   }
   return {
+    ...release,
     ...(safeMode ? { safeMode: "1" } : {}),
     // Which client this window claims to be (ADR 0016). Unset is `desktop`;
     // setting it is how the desktop window shows what a smaller one leaves out.

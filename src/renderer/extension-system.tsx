@@ -452,6 +452,8 @@ export interface ExtensionProblem {
 export type WorkbenchEvent =
   | Extract<HostEvent, { type: "tool-start" | "tool-end" | "agent-status" | "user-message" | "assistant-end" | "thread-index" | "notice" | "client-count" }>
   | { type: "active-thread-changed"; sessionId?: string }
+  /** This client's composer prompt was accepted, including queueing and steering. Contains no prompt or thread data. API 1.55.0. */
+  | { type: "prompt-accepted" }
   /** The host opened another project; `from` is absent for the first one this client saw. */
   | { type: "workspace-changed"; from?: string; to: string }
   /** The window's link to the host changed state; `connected` after a drop means it is back. */
@@ -2777,6 +2779,7 @@ export class ExtensionRegistry {
   }
 
   async notifyPromptSubmitted(event: PromptSubmittedEvent, actions: WorkbenchActions): Promise<void> {
+    this.dispatchWorkbenchEvent({ type: "prompt-accepted" });
     for (const hook of this.promptHooks.values()) {
       try {
         await hook.afterPrompt?.(event, actions);

@@ -1,0 +1,9 @@
+{
+  "id": "tau.usage-statistics",
+  "name": "Usage statistics",
+  "description": "Optional, device-local statistics for active desktop installations.",
+  "version": "1.0.0",
+  "engines": { "api": "^1.55.0" },
+  "permissions": [],
+  "desktop": "./desktop.tsx"
+}
