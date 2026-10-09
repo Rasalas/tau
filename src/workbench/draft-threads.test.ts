@@ -163,4 +163,20 @@ describe("draft rows", () => {
     type(draft, "Next thought");
     expect(rows()[0]?.preview).toBe("Next thought");
   });
+
+  it("forgets a draft whose first prompt started a thread in the background once it is left empty", async () => {
+    const { storage, scopes, newThread, drafts, rows, type, leave } = setup();
+    const draft = createNewThreadDraft(project);
+    newThread.begin(draft);
+    type(draft, "Run it elsewhere");
+    const scope = createDraftKey(draftKey(undefined, draft));
+    const handle = await scopes.beginSubmission(scope);
+    writeComposerDraft(storage, scope, "");
+    drafts.startedElsewhere(draft.draftId);
+    if ("settle" in handle) handle.settle({ accepted: true });
+    expect(rows()).toMatchObject([{ draftId: draft.draftId, preview: "", active: true }]);
+    expect(rows()[0]?.submitting).toBeUndefined();
+    leave();
+    expect(rows()).toEqual([]);
+  });
 });

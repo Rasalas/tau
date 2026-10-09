@@ -47,6 +47,8 @@ export class DraftThreads {
   private lastActive: DraftThread | undefined;
   private readonly handoffs = new Map<string, DraftThread>();
   private readonly submissions = new Map<string, { draft: NewThreadDraft; row: DraftThread; scope: DraftKey; release(): void }>();
+  /** Drafts whose first prompt an extension started as a thread of its own; the draft stays on screen. */
+  private readonly startedAway = new Set<string>();
   private drafts: readonly DraftThread[] = [];
   private scope: DraftKey | undefined;
   private releaseScope: (() => void) | undefined;
@@ -84,6 +86,12 @@ export class DraftThreads {
     if (row && withUserTurn && !this.ports.threads?.listed(sessionId)) this.handoffs.set(sessionId, { ...row, sessionId, submitting: true });
     if (!withUserTurn) this.handoffs.delete(sessionId);
     this.refresh();
+  };
+
+  /** An extension took the draft's first prompt (a background start): no thread will replace this draft. */
+  startedElsewhere = (draftId: string): void => {
+    this.startedAway.add(draftId);
+    this.settleSubmission(draftId);
   };
 
   /**
@@ -180,6 +188,14 @@ export class DraftThreads {
     if (!submission) return;
     const composer = this.ports.scopes.getSnapshot(submission.scope);
     if (composer.submissionPending) return;
+    if (this.startedAway.delete(draftId)) {
+      submission.release();
+      this.submissions.delete(draftId);
+      if (this.sent?.draftId === draftId) this.sent = undefined;
+      if (this.typed?.draftId === draftId) this.typed = undefined;
+      this.refresh();
+      return;
+    }
     if (composer.error) {
       submission.release();
       this.submissions.delete(draftId);
