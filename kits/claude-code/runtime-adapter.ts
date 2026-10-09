@@ -78,7 +78,7 @@ export interface ClaudeSessionInput {
   tools?: readonly string[];
   /** The project holds its commands to this machine and these hosts (API 1.14.0). */
   network?: ClaudeNetworkLimit;
-  onMessage(message: SDKMessage): void;
+  onMessage(message: SDKMessage, unclaimed?: boolean): void;
   onExit(error: unknown | undefined): void;
   /** The CLI's stderr, for the message when the session fails. */
   onStderr?(chunk: string): void;

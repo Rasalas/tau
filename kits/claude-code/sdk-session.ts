@@ -11,7 +11,8 @@ export interface ClaudeSdkSessionOptions {
   /** Everything but the prompt; the session adds its own abort controller. */
   options: Options;
   claudeSessionId: string;
-  onMessage(message: SDKMessage): void;
+  /** `unclaimed` marks a result that settles no send: a turn the CLI ran on its own. */
+  onMessage(message: SDKMessage, unclaimed?: boolean): void;
   /** The query ended: the CLI exited, was closed, or failed. */
   onExit(error: unknown | undefined): void;
 }
@@ -132,7 +133,10 @@ export class ClaudeSdkSession {
       for await (const message of this.query!) {
         if (message.type === "result") {
           const uuids = this.resultSends(message);
-          if (uuids.length === 0) continue;
+          if (uuids.length === 0) {
+            this.options.onMessage(message, true);
+            continue;
+          }
           // The backend settles its turn synchronously in onMessage. Validate
           // first so background results cannot advance its turn queue.
           this.options.onMessage(message);

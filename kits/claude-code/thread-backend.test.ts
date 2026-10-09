@@ -777,3 +777,49 @@ it("keeps native child frames out of parent messages and reports background comp
   expect(backend.state().idle).toBe(true);
   await backend.dispose();
 });
+
+describe("a turn Claude starts on its own once a background agent finishes", () => {
+  async function delegated(script: (content: UserContent) => SDKMessage[] | Promise<SDKMessage[]>) {
+    const { filePath, store } = await scratchStore();
+    const { adapter, opened } = scriptedAdapter(filePath, (content) => content === "Delegate"
+      ? [frame({ type: "assistant", parent_tool_use_id: null, message: { id: "started", content: [{ type: "text", text: "Agent started" }] } }), result("Agent started")]
+      : script(content));
+    const events: ThreadRuntimeEvent[] = [];
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, projectName: "repo", onEvent: (event) => events.push(event) });
+    await backend.start("create");
+    await backend.prompt({ text: "Delegate", delivery: "prompt" });
+    events.length = 0;
+    const session = opened[0]!;
+    session.onMessage(frame({ type: "system", subtype: "task_notification", task_id: "task", status: "completed", summary: "Mapped" }));
+    session.onMessage(frame({ type: "assistant", parent_tool_use_id: null, message: { id: "own", content: [{ type: "text", text: "Both agents are done; building now" }] } }));
+    return { backend, events, session };
+  }
+  const reply = (text: string) => [frame({ type: "assistant", parent_tool_use_id: null, message: { id: text, content: [{ type: "text", text }] } }), result(text)];
+
+  it("shows it as a running turn and queues a prompt behind it", async () => {
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    const { backend, events, session } = await delegated(async () => { await released; return reply("Next"); });
+    expect(events.map((event) => event.type)).toContain("turn-started");
+    expect(backend.state()).toMatchObject({ streaming: true, idle: false });
+    const queued = backend.prompt({ text: "Are they done?", delivery: "prompt" });
+    await until(() => events.some((event) => event.type === "queue" && event.followUp.length === 1));
+    session.onMessage(result("Both agents are done; building now", { origin: { kind: "task-notification" } }), true);
+    expect(events.filter((event) => event.type === "turn-settled")).toHaveLength(1);
+    expect(backend.state().streaming).toBe(true);
+    release();
+    await expect(queued).resolves.toMatchObject({ assistantText: "Next" });
+    expect(events.filter((event) => event.type === "turn-settled")).toHaveLength(2);
+    expect(backend.state()).toMatchObject({ streaming: false, idle: true });
+    expect((await backend.transcript()).map((message) => message.text)).toEqual(["Delegate", "Agent started", "Both agents are done; building now", "Are they done?", "Next"]);
+    await backend.dispose();
+  });
+
+  it("ends it with a prompt the CLI folded into it", async () => {
+    const { backend, events } = await delegated(() => reply("Folded"));
+    await expect(backend.prompt({ text: "Are they done?", delivery: "prompt" })).resolves.toMatchObject({ assistantText: "Folded" });
+    expect(events.filter((event) => event.type === "turn-settled")).toHaveLength(2);
+    expect(backend.state()).toMatchObject({ streaming: false, idle: true });
+    await backend.dispose();
+  });
+});

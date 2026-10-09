@@ -85,6 +85,7 @@ describe("ClaudeSdkSession", () => {
   it.each(["user", "compact"])("keeps the %s turn open past unrelated background results", async (kind) => {
     const translator = new SdkTurnTranslator(() => 42, () => "assistant", kind === "compact");
     const outcomes: unknown[] = [];
+    const unclaimed: unknown[] = [];
     const { query } = sessionQuery((message) => [
       assistant("working"),
       result(["a-different-prompt"]),
@@ -93,13 +94,16 @@ describe("ClaudeSdkSession", () => {
       result([message.uuid!], kind === "compact" ? 0 : 1),
     ]);
     const session = new ClaudeSdkSession({ query, options: { cwd: "/repo" }, claudeSessionId: SESSION,
-      onMessage: (message) => {
+      onMessage: (message, background) => {
+        // The backend hands these to a turn the CLI began itself, never to Tau's.
+        if (background) return void unclaimed.push(message);
         translator.push(message);
         if (message.type === "result") outcomes.push(translator.outcome);
       }, onExit: () => undefined });
     session.start();
     await session.send(kind === "compact" ? "/compact" : "hello", "next");
     expect(outcomes).toHaveLength(1);
+    expect(unclaimed).toHaveLength(2);
     expect(translator.outcome).toMatchObject(kind === "compact" ? { compacted: true } : { texts: ["working"] });
     await session.close();
   });

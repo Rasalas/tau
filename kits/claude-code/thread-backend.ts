@@ -148,6 +148,8 @@ interface Turn {
   text: string;
   /** A `/compact` or `/goal clear` Tau sent; the composer's queue never lists it. */
   compaction?: boolean;
+  /** A turn the CLI began on its own, e.g. when a background agent finished; no send waits on it. */
+  unprompted?: boolean;
   /** Set once its result arrived and the turn was settled. */
   status?: "completed" | "interrupted" | "error";
 }
@@ -575,7 +577,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       ...(mcpServer ? { mcpServer } : {}),
       ...(this.tools ? { tools: this.tools } : {}),
       ...(network ? { network } : {}),
-      onMessage: (frame) => this.onFrame(frame),
+      onMessage: (frame, unclaimed) => this.onFrame(frame, unclaimed),
       onExit: (error) => this.onExit(live, error),
       onStderr: (chunk) => { live.stderr = `${live.stderr}${chunk}`.slice(-STDERR_TAIL_BYTES); },
     });
@@ -586,7 +588,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   private readonly nativeAgents = new ClaudeNativeAgents();
 
-  private onFrame(frame: Parameters<SdkTurnTranslator["push"]>[0]): void {
+  private onFrame(frame: Parameters<SdkTurnTranslator["push"]>[0], unclaimed = false): void {
     // Not in the SDK's message union, but the query stream passes it on (sdk.d.ts `SDKActiveGoalMessage`).
     if ((frame as { type: string }).type === "active_goal") {
       this.onActiveGoal((frame as unknown as { value: { condition: string; iterations: number; last_reason?: string } | null }).value);
@@ -609,6 +611,16 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
         return true;
       }) } } as typeof frame;
     }
+    // A result no send waits on ends only a turn the CLI began itself.
+    if (frame.type === "result" && unclaimed && !this.turns[0]?.unprompted) return;
+    // A prompt the CLI folded into its own turn: that turn ends with it.
+    if (frame.type === "result" && !unclaimed && this.turns[0]?.unprompted && this.turns.length > 1) this.settleTurn(this.turns.shift()!, "completed");
+    if (!this.turns[0] && (frame.type === "assistant" || frame.type === "stream_event")) {
+      // The CLI answers a finished background task with a turn of its own.
+      const turn: Turn = { translator: new SdkTurnTranslator(this.now), text: "", unprompted: true };
+      this.turns.push(turn);
+      this.beginTurn(turn);
+    }
     const turn = this.turns[0];
     if (!turn) {
       // Before any turn: remember what the session says about itself.
@@ -627,6 +639,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.turns.shift();
     const outcome = turn.translator.outcome;
     this.settleTurn(turn, outcome.interrupted ? "interrupted" : outcome.error ? "error" : "completed");
+    if (turn.unprompted) void this.persistUsage().catch(() => undefined);
     const next = this.turns[0];
     if (next) this.beginTurn(next);
     else this.reportQueue();
