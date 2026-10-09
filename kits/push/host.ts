@@ -228,7 +228,8 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
             android: {
               priority: "HIGH",
               ...(note.threadId ? { collapse_key: collapseId(note.threadId) } : {}),
-              notification: { ...(note.threadId ? { tag: collapseId(note.threadId) } : {}) },
+              // Any `android.notification` makes FCM draw one itself; an activity note has no text, so it must have none.
+              ...(note.activity ? {} : { notification: { ...(note.threadId ? { tag: collapseId(note.threadId) } : {}) } }),
             },
           });
         }
