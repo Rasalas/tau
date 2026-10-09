@@ -59,6 +59,8 @@ export interface WorkspaceStoreApi {
   stageAll?(): Promise<void>;
   revertFile?(path: string): Promise<void>;
   registerThreadRowAccessory(accessory: ComponentType<{ session: UiSession }>): () => void;
+  /** Workspace Kit's rail states by thread id; `{}` withdraws them. */
+  setThreadRowStatuses?(owner: string, statuses: Readonly<Record<string, { label: string; hint?: string; icon: ReactNode; tone?: "background" }>>): void;
   /** A section on a rail row's hover card (API 1.23.0); absent from an older Workspace Kit. */
   registerThreadCardSection?(section: { place: "section"; order?: number; Component: ComponentType<ThreadCardSectionProps> }): () => void;
 }

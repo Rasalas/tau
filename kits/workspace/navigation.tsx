@@ -26,7 +26,6 @@ import {
   type SidebarContributionProps,
   threadRowStatus,
   type ThreadActivity,
-  type ThreadRowStatus,
   type UiProject,
   type UiSession,
   type WorkbenchActions,
@@ -43,6 +42,7 @@ import { ProjectSettingsDialog } from "./ProjectSettingsDialog.js";
 import { useWorkspaceStore } from "./store-context.js";
 import { SidebarFooter } from "./sidebar-footer.js";
 import { readShelvesOpen, SHELF_PAGE, shelfFirstPage, shelfHeading, shelfIsOpen, shelfRows as rowsOfShelf, writeShelvesOpen, type ShelvesOpen } from "./rail-shelves.js";
+import { attentionMarks, markedRowStatus, type MarkedRowStatus } from "./row-status-marks.js";
 
 export const WORKSPACE_EXTENSION_ID = WORKSPACE_HOST_EXTENSION_ID;
 
@@ -919,7 +919,7 @@ const rowIdOf = (target: EventTarget | null) => target instanceof Element ? targ
 type ActivitySets = Record<"running" | "waiting", ReadonlySet<string>>;
 
 /** A row's state as the rail draws it: another kit's may bring its own glyph. */
-type RailStatus = ThreadRowStatus & { icon?: ReactNode };
+type RailStatus = MarkedRowStatus;
 
 /** A settled row shows its age; the label is only the hover card's. */
 const SETTLED_STATUS: RailStatus = { activity: "settled", label: "Settled" };
@@ -989,7 +989,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   ), [threads, lineage.parents, liveKey, projectFilter]);
   const sections = useMemo(
     () => organizer
-      ? organizer.sections(matching, { ...activityState, waitingThreadIds: [...activityState.waitingThreadIds, ...Object.keys(rowStatuses)] })
+      ? organizer.sections(matching, { ...activityState, waitingThreadIds: [...activityState.waitingThreadIds, ...attentionMarks(rowStatuses)] })
       : defaultRailSections(matching, settings.pinnedThreadIds, settings.settledThreadIds, showSettledShelf),
     // The organizer's version says when the same threads would land elsewhere.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
@@ -1063,8 +1063,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
 
   // The same derivation as a tablet's and a phone's list, so every client names a state alike.
   const activityFor = (sessionId: string): RailStatus => {
-    const mark = rowStatuses[sessionId];
-    return mark ? { activity: "waiting", ...mark } : threadRowStatus(sessionId, activityState, threadStore.getThread(sessionId));
+    return markedRowStatus(threadRowStatus(sessionId, activityState, threadStore.getThread(sessionId)), rowStatuses[sessionId]);
   };
 
   const toggleSettled = useCallback((session: UiSession) => {

@@ -1,7 +1,8 @@
 import type { UiSession } from "../shared/contracts";
 import type { ThreadActivitySnapshot } from "./thread-store";
 
-export type ThreadActivity = "idle" | "ready" | "working" | "tool" | "settled" | "waiting" | "stalled" | "interrupted" | "failed" | "limited" | "offline";
+/** `background`: stopped, with work that wakes it again, such as a watched pull request (API 1.56.0). */
+export type ThreadActivity = "idle" | "ready" | "working" | "tool" | "settled" | "waiting" | "background" | "stalled" | "interrupted" | "failed" | "limited" | "offline";
 
 /** What a thread row says about its thread, the same on the desktop rail, a tablet's list and a phone's. */
 export interface ThreadRowStatus {

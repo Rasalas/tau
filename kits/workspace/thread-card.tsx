@@ -1,6 +1,6 @@
 import { createContext, Fragment, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { Bot, CircleAlert, CircleDollarSign, Clock, FileDiff, GitBranch, Hourglass, MessageCircleQuestion, PlugZap, CircleCheck, LoaderCircle, Archive } from "lucide-react";
+import { Bot, CircleAlert, CircleDollarSign, Clock, FileDiff, GitBranch, Hourglass, MessageCircleQuestion, PlugZap, CircleCheck, LoaderCircle, Archive, Eye } from "lucide-react";
 import {
   MiddleTruncate,
   displayRuntime,
@@ -315,6 +315,7 @@ function statusRow(activity: ThreadActivity, label: string | undefined, hint: st
     case "working":
     case "tool": return { icon: <LoaderCircle size={12} />, text: text || "Working", tone: "working" };
     case "waiting": return { icon: glyph ?? <MessageCircleQuestion size={12} />, text: text || THREAD_QUESTION_LABEL, tone: "warning" };
+    case "background": return { icon: glyph ?? <Eye size={12} />, text: text || "Waiting" };
     case "failed": return { icon: <CircleAlert size={12} />, text, tone: "danger" };
     case "limited": return { icon: <Hourglass size={12} />, text, tone: "warning" };
     case "interrupted":

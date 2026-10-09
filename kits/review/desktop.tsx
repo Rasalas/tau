@@ -1,8 +1,9 @@
 import { SETTLEMENT_SERVICE, SettlementSource, type SettlementService } from "./settlement.js";
 import { Suspense, lazy } from "react";
-import { GitCompare } from "lucide-react";
+import { Eye, GitCompare } from "lucide-react";
 import { THREAD_PULL_REQUESTS_SERVICE, getClientStorage, type DesktopExtension, type PanelProps, type RegionProps } from "tau";
 import { PullRequestWatchFeed } from "./pr-watch-client.js";
+import { watchRowStatuses } from "./pr-watch-rows.js";
 import { createWorkspaceRequestSummary } from "./workspace-summary.js";
 import { threadPullRequestsService } from "./pull-requests-service.js";
 import { COMMIT_MESSAGE_OPTIONS, registerCommitMessages } from "./commit-messages.js";
@@ -192,6 +193,7 @@ export const reviewExtension: DesktopExtension = {
         store.registerChangesSection(createRequestSection(plugin, store, requests, rows, { rows: links, client, dialogs: shared.dialogs })),
         store.registerWorkspaceSummarySection?.(createWorkspaceRequestSummary(store, rows, links, client)) ?? (() => undefined),
         store.registerThreadRowAccessory(createRequestBadge(rows, links)),
+        markWatchingThreads(store, watches),
         store.registerThreadCardSection?.({ place: "section", order: 10, Component: createRequestCardSection(rows, links) }) ?? (() => undefined),
       ];
       return () => { if (workspaceStore === store) workspaceStore = undefined; for (const dispose of disposers.reverse()) dispose(); };
@@ -199,5 +201,15 @@ export const reviewExtension: DesktopExtension = {
     return () => { releaseSettlement(); releaseStore(); releaseStrip(); releaseLinks(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
   },
 };
+
+/** Rail rows of threads that watch a request say Waiting until the watch ends. */
+function markWatchingThreads(store: WorkspaceStoreApi, watches: PullRequestWatchFeed): () => void {
+  if (!store.setThreadRowStatuses) return () => undefined;
+  const mark = () => store.setThreadRowStatuses?.(REVIEW_HOST_EXTENSION_ID, Object.fromEntries(Object.entries(watchRowStatuses(watches.get().watches))
+    .map(([threadId, status]) => [threadId, { ...status, icon: <Eye size={13} aria-hidden="true" />, tone: "background" as const }])));
+  const stop = watches.subscribe(mark);
+  mark();
+  return () => { stop(); store.setThreadRowStatuses?.(REVIEW_HOST_EXTENSION_ID, {}); };
+}
 
 export default reviewExtension;
