@@ -284,6 +284,7 @@ export default function App() {
         markAwaitingPromotion,
         promoteFromUserMessage,
       },
+      drafts: workbenchSession.drafts,
       turn: turnScope,
       host: workbenchSession,
       enqueueFollowUp: async (threadId, item) => {

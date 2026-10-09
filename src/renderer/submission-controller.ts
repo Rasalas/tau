@@ -29,6 +29,7 @@ import type { NewThreadDeliveryPort } from "../workbench/new-thread-delivery";
 import type { PreferencesStore } from "./preferences";
 import type { ThreadStore } from "../workbench/thread-store";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
+import type { DraftThreads } from "../workbench/draft-threads";
 import {
   buildOptimisticMessage,
   addOptimisticMessage,
@@ -79,6 +80,8 @@ export interface SubmissionControllerPorts {
   hostSession: HostSessionState;
   delivery: NewThreadDeliveryPort;
   newThread: NewThreadPort;
+  /** The draft rows; told when an extension started the draft's thread and the draft stays on screen. */
+  drafts: Pick<DraftThreads, "startedElsewhere">;
   turn: TranscriptTurnPort;
   host: HostUpdatePort;
   /** Parks the message in the host's queue for the thread; rejects when the host refused it. */
@@ -235,6 +238,7 @@ export class SubmissionController {
     const newThreadRequestId = newThread.requestId();
     try {
       if (pendingNewThread && !pendingNewThread.sessionId && await this.claimNewThread(pendingNewThread, text, alternate, attachments, skillDraft)) {
+        this.ports.drafts.startedElsewhere(pendingNewThread.draftId);
         return { accepted: true };
       }
     } catch (error) {

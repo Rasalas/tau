@@ -136,6 +136,7 @@ function harness(options: {
     rehomeDetached: delivery.rehomeDetached,
     notifyPromptSubmitted: delivery.notifyPromptSubmitted,
   };
+  const startedElsewhere: string[] = [];
   const ports: SubmissionControllerPorts = {
     client: () => client,
     view,
@@ -149,12 +150,13 @@ function harness(options: {
     actions: () => actions,
     delivery: deliveryPort,
     newThread,
+    drafts: { startedElsewhere: (draftId) => { startedElsewhere.push(draftId); } },
     turn,
     host,
     enqueueFollowUp: async (threadId, item) => { followUps.push({ threadId, text: item.text }); },
   };
   const submission = new SubmissionController(ports);
-  return { submission, ports, client, view, threads, scopes, state, followUps, host, promptHooks, actions, hostSession };
+  return { submission, ports, client, view, threads, scopes, state, followUps, host, promptHooks, actions, hostSession, startedElsewhere };
 }
 
 const sentPrompts = (client: ReturnType<typeof createFakeHostClient>) =>
@@ -482,7 +484,7 @@ describe("SubmissionController", () => {
   it("lets an extension take a new thread's first prompt, and keeps the draft for the next one", async () => {
     const claimNewThread = vi.fn(async (event: { alternate: boolean; runtime: string; model?: unknown; attachments: number }) => event.alternate) as unknown as ExtensionRegistry["claimNewThread"];
     const snapshot = { ...SESSION_SNAPSHOT, model: { provider: "openai", id: "gpt-5.6-luna", name: "Luna" } } as HostSnapshot;
-    const { submission, client, state, view } = harness({ pending: DRAFT, claimNewThread, snapshot });
+    const { submission, client, state, view, startedElsewhere } = harness({ pending: DRAFT, claimNewThread, snapshot });
 
     await expect(submission.submit({ text: "in the background", delivery: "alternate" })).resolves.toEqual({ accepted: true });
     expect(claimNewThread).toHaveBeenCalledWith(expect.objectContaining({
@@ -495,6 +497,7 @@ describe("SubmissionController", () => {
     }), expect.anything());
     expect(client.calls.some((call) => call.method === "newSession" || call.method === "preparePrompt")).toBe(false);
     expect(state.pending?.draftId).toBe(DRAFT.draftId);
+    expect(startedElsewhere).toEqual([DRAFT.draftId]);
     expect(view.getOptimisticMessages()).toEqual([]);
 
     // Unclaimed, the modifier is a plain send.
@@ -590,8 +593,9 @@ describe("SubmissionController", () => {
   });
   it("keeps a claimed launch failure out of ordinary new-thread creation", async () => {
     const claimNewThread = vi.fn(async () => { throw new Error("Started 1 of 2 threads"); });
-    const { submission, client } = harness({ pending: DRAFT, claimNewThread });
+    const { submission, client, startedElsewhere } = harness({ pending: DRAFT, claimNewThread });
     await expect(submission.submit({ text: "fix it", delivery: "alternate" })).resolves.toEqual({ accepted: false, message: "Started 1 of 2 threads" });
+    expect(startedElsewhere).toEqual([]);
     expect(client.calls.some((call) => call.method === "newSession" || call.method === "sendPrompt" || call.method === "preparePrompt")).toBe(false);
   });
 
