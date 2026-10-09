@@ -24,7 +24,10 @@ import {
   type DraftThread,
   type ProjectSourceProps,
   type SidebarContributionProps,
+  attentionMarkIds,
+  markedRowStatus,
   threadRowStatus,
+  type ThreadRowStatus,
   type ThreadActivity,
   type UiProject,
   type UiSession,
@@ -42,7 +45,6 @@ import { ProjectSettingsDialog } from "./ProjectSettingsDialog.js";
 import { useWorkspaceStore } from "./store-context.js";
 import { SidebarFooter } from "./sidebar-footer.js";
 import { readShelvesOpen, SHELF_PAGE, shelfFirstPage, shelfHeading, shelfIsOpen, shelfRows as rowsOfShelf, writeShelvesOpen, type ShelvesOpen } from "./rail-shelves.js";
-import { attentionMarks, markedRowStatus, type MarkedRowStatus } from "./row-status-marks.js";
 
 export const WORKSPACE_EXTENSION_ID = WORKSPACE_HOST_EXTENSION_ID;
 
@@ -919,7 +921,8 @@ const rowIdOf = (target: EventTarget | null) => target instanceof Element ? targ
 type ActivitySets = Record<"running" | "waiting", ReadonlySet<string>>;
 
 /** A row's state as the rail draws it: another kit's may bring its own glyph. */
-type RailStatus = MarkedRowStatus;
+/** Every mark on the rail is a kit's React node. */
+type RailStatus = ThreadRowStatus & { icon?: ReactNode };
 
 /** A settled row shows its age; the label is only the hover card's. */
 const SETTLED_STATUS: RailStatus = { activity: "settled", label: "Settled" };
@@ -933,7 +936,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const organizer = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadRailOrganizer);
   const railSections = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railSections);
   const railThreadSources = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railThreadSources);
-  const rowStatuses = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadRowStatuses);
+  const ownMarks = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadRowStatuses);
+  const kitMarks = useSyncExternalStore(registry.subscribe, registry.getThreadRowMarks);
+  // Marks set through this kit's store predate the core's; both draw alike.
+  const rowStatuses = useMemo(() => ({ ...kitMarks, ...ownMarks }), [kitMarks, ownMarks]);
   const dropTargets = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadDropTargets);
   const externalThreads = useRailExternalThreads(railThreadSources);
   const organizerVersion = useSyncExternalStore(organizer?.subscribe ?? noSubscription, organizer?.getVersion ?? noVersion);
@@ -989,7 +995,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   ), [threads, lineage.parents, liveKey, projectFilter]);
   const sections = useMemo(
     () => organizer
-      ? organizer.sections(matching, { ...activityState, waitingThreadIds: [...activityState.waitingThreadIds, ...attentionMarks(rowStatuses)] })
+      ? organizer.sections(matching, { ...activityState, waitingThreadIds: [...activityState.waitingThreadIds, ...attentionMarkIds(rowStatuses)] })
       : defaultRailSections(matching, settings.pinnedThreadIds, settings.settledThreadIds, showSettledShelf),
     // The organizer's version says when the same threads would land elsewhere.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
@@ -1063,7 +1069,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
 
   // The same derivation as a tablet's and a phone's list, so every client names a state alike.
   const activityFor = (sessionId: string): RailStatus => {
-    return markedRowStatus(threadRowStatus(sessionId, activityState, threadStore.getThread(sessionId)), rowStatuses[sessionId]);
+    return markedRowStatus(threadRowStatus(sessionId, activityState, threadStore.getThread(sessionId)), rowStatuses[sessionId]) as RailStatus;
   };
 
   const toggleSettled = useCallback((session: UiSession) => {

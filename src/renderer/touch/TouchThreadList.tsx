@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Check, ChevronDown, GitBranch, Mail, MailOpen, MessageCircleQuestion, Pin, PinOff, RotateCcw, Server, Square, SquarePen, Trash2, TriangleAlert } from "lucide-react";
 import { errorMessage } from "../../workbench/error-message";
 import {
@@ -36,7 +36,7 @@ function RowTime({ row }: { row: ThreadSupervisionRow }) {
     ? { ...row.state, activity: "ready" as const, label: "Done" }
     : row.state;
   if (!row.settled && showsThreadStatus(state.activity)) {
-    return <ThreadStatus key={state.activity} activity={state.activity} label={state.label} {...(state.hint ? { hint: state.hint } : {})} startedAt={state.startedAt ?? row.modifiedAt} />;
+    return <ThreadStatus key={state.activity} activity={state.activity} label={state.label} {...(state.hint ? { hint: state.hint } : {})} icon={state.icon as ReactNode} startedAt={state.startedAt ?? row.modifiedAt} />;
   }
   return <time dateTime={new Date(row.modifiedAt).toISOString()}>{threadAge(row.modifiedAt, Date.now())}</time>;
 }
@@ -91,9 +91,10 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
   const outside = useThreadListSources(registry);
   // Another machine's projects are other projects; the filter keeps those of the same name.
   const extra = useMemo(() => project ? outside.rows.filter((row) => row.projectName === project.name) : outside.rows, [outside.rows, project]);
+  const marks = useSyncExternalStore(registry.subscribe, registry.getThreadRowMarks);
   const groups = useMemo(
-    () => threadListGroups(snapshot.threads, current, { pinned: pinnedThreadIds, settled: settledThreadIds, shown, extra, ...(project ? { project } : {}) }),
-    [current, extra, pinnedThreadIds, project, settledThreadIds, shown, snapshot.threads],
+    () => threadListGroups(snapshot.threads, current, { pinned: pinnedThreadIds, settled: settledThreadIds, shown, extra, marks, ...(project ? { project } : {}) }),
+    [current, extra, marks, pinnedThreadIds, project, settledThreadIds, shown, snapshot.threads],
   );
   const rowCommands = registry.getCommandsFor("thread-row");
   const runCommand = (id: string, threadId: string) => {

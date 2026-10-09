@@ -259,7 +259,7 @@ export { NearbyMachineList } from "./deferred-surfaces";
 export type { ClientStorage } from "../workbench/client-storage";
 export type { ThreadActivity, ThreadRowMachine } from "./components/ThreadRow";
 /** A thread row's state from the thread store's activity, as every client's list shows it (API 1.27.0). */
-export { THREAD_QUESTION_LABEL, threadLimitHint, threadRowStatus, type ThreadRowStatus } from "../workbench/thread-row-status";
+export { THREAD_QUESTION_LABEL, attentionMarkIds, markedRowStatus, threadLimitHint, threadRowStatus, type ThreadRowMark, type ThreadRowStatus } from "../workbench/thread-row-status";
 /** The line seam of `ReviewMode`'s diffs. */
 export type { DiffLineContext, DiffLineSlot } from "./components/DiffView";
 export type { HostActionResult, NewThreadResult } from "../shared/host-protocol";

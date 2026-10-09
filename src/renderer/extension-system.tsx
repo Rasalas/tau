@@ -1,5 +1,6 @@
 import type { SettingsNavGroup } from "./settings/settings-nav";
 import type { ToastHandle, ToastOptions } from "../workbench/toast-store";
+import type { ThreadRowMark } from "../workbench/thread-row-status";
 import { chordMatchesEvent, formatKeyChord, isMacPlatform, isModified, normalizeKeyChord, parseKeyChord, platformChordId, type KeyChord } from "./keybindings";
 import { evaluateWhen, isSpecificWhen, parseWhen, whenOverlaps, type WhenNode } from "./keybinding-when";
 import { domKeybindingContext } from "./keybinding-context";
@@ -1602,6 +1603,8 @@ export interface DesktopExtensionContext {
   registerTranscriptRows(id: string, order?: number, options?: ProfileScoped): TranscriptRowsHandle;
   /** Replaces the transcript's waiting label for a thread while the label is set; `undefined` clears it. */
   setLiveStatus(sessionId: string, label: string | undefined): void;
+  /** This extension's row states by thread id, on every client's thread list; `{}` withdraws them (API 1.56.0). */
+  setThreadRowStatuses(statuses: Readonly<Record<string, ThreadRowMark<ReactNode>>>): void;
   /** Publishes how threads this extension created relate to their parents; `undefined` withdraws it. */
   setThreadLineage(lineage: ThreadLineage | undefined): void;
   /**
@@ -1797,6 +1800,8 @@ export class ExtensionRegistry {
   private transcriptRows = new Map<string, { order: number; owner: ContributionOwner; bySession: Map<string, readonly TranscriptRow[]> }>();
   /** Waiting labels per extension and thread; the first extension's label wins. */
   private liveStatuses = new Map<string, Map<string, string>>();
+  private rowMarks = new Map<string, Readonly<Record<string, ThreadRowMark<ReactNode>>>>();
+  private mergedRowMarks: { version: number; marks: Readonly<Record<string, ThreadRowMark<ReactNode>>> } | undefined;
   /** Thread lineage per extension; entries merge, the first extension's answer wins. */
   private lineages = new Map<string, ThreadLineage>();
   private lineageCache: { version: number; value: ThreadLineage } | undefined;
@@ -2008,6 +2013,11 @@ export class ExtensionRegistry {
         else own.set(sessionId, label);
         if (own.size === 0) this.liveStatuses.delete(extension.id);
         else this.liveStatuses.set(extension.id, own);
+        this.changed();
+      },
+      setThreadRowStatuses: (statuses) => {
+        if (Object.keys(statuses).length) this.rowMarks.set(extension.id, statuses);
+        else if (!this.rowMarks.delete(extension.id)) return;
         this.changed();
       },
       setThreadLineage: (lineage) => {
@@ -2282,6 +2292,7 @@ export class ExtensionRegistry {
     this.contributionKinds.delete(id);
     this.profiledContributions.delete(id);
     this.liveStatuses.delete(id);
+    this.rowMarks.delete(id);
     this.lineages.delete(id);
     this.projectIcons.delete(id);
     this.providerIcons.delete(id);
@@ -2343,6 +2354,14 @@ export class ExtensionRegistry {
   getSettingsSections(page: SettingsSectionPage): Array<Owned<SettingsSectionContribution>> {
     return this.sorted("settings-sections", this.settingsSections).filter((section) => section.page === page);
   }
+
+  /** Every extension's row states by thread id; the same object until one changes. */
+  getThreadRowMarks = (): Readonly<Record<string, ThreadRowMark<ReactNode>>> => {
+    if (this.mergedRowMarks?.version !== this.version) {
+      this.mergedRowMarks = { version: this.version, marks: Object.assign({}, ...this.rowMarks.values()) as Record<string, ThreadRowMark<ReactNode>> };
+    }
+    return this.mergedRowMarks.marks;
+  };
 
   /** The waiting label an extension set for a thread, if any. */
   getLiveStatus(sessionId: string | undefined): string | undefined {

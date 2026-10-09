@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ThreadActivitySnapshot } from "./thread-store";
-import { threadRowStatus } from "./thread-row-status";
+import { attentionMarkIds, markedRowStatus, threadRowStatus } from "./thread-row-status";
 
 const idle: ThreadActivitySnapshot = {
   activeThreadId: "", isStreaming: false, unreadThreadIds: [], waitingThreadIds: [],
@@ -22,5 +22,29 @@ describe("a thread row's state", () => {
     expect(threadRowStatus("a", { ...idle, failedThreadIds: ["a"] }, { turnError: "HTTP 500" })).toEqual({ activity: "failed", label: "Failed", hint: "HTTP 500" });
     expect(threadRowStatus("a", { ...idle, unreadThreadIds: ["a"] })).toEqual({ activity: "ready", label: "Ready" });
     expect(threadRowStatus("a", idle)).toEqual({ activity: "idle", label: "Idle" });
+  });
+});
+
+describe("a kit's mark on a row", () => {
+  const yourTurn = { label: "Your turn" };
+  const watching = { label: "Waiting", hint: "Watching #76", tone: "background" as const };
+
+  it("draws a mark that asks as a question", () => {
+    expect(markedRowStatus({ activity: "working", label: "Working" }, yourTurn)).toMatchObject({ activity: "waiting", label: "Your turn" });
+  });
+
+  it("puts background work in place of an idle or a ready row", () => {
+    expect(markedRowStatus({ activity: "idle", label: "Idle" }, watching)).toMatchObject({ activity: "background", label: "Waiting", hint: "Watching #76" });
+    expect(markedRowStatus({ activity: "ready", label: "Ready" }, watching)).toMatchObject({ activity: "background" });
+  });
+
+  it("lets a running, asking or failed thread say so over background work", () => {
+    for (const activity of ["working", "waiting", "failed"] as const) {
+      expect(markedRowStatus({ activity, label: "x" }, watching).activity).toBe(activity);
+    }
+  });
+
+  it("counts only marks that ask for the user", () => {
+    expect(attentionMarkIds({ a: yourTurn, b: watching })).toEqual(["a"]);
   });
 });

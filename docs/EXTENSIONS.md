@@ -3271,16 +3271,21 @@ subagent turns, rejected submissions, slash commands and shell commands do not
 independently emit it. Usage Statistics Kit uses this event with device-local
 consent; the core has no reporting endpoint or device identity.
 
-### Background work on a rail row, API 1.56.0
+### Thread row states on every client, API 1.56.0
 
-`ThreadActivity` gains `background`: the thread stopped, but something will
-wake it again, so it is neither done nor the user's turn. `ThreadRow` draws it
-grey with the given icon (an eye by default) in place of the age. Workspace
-Kit's `setThreadRowStatuses` takes `tone: "background"` on a mark for it; such
-a mark stands in only for an idle or ready row, so Working, a question or a
-failure still show, and the rail does not count it among the threads waiting
-for the user. Review Kit marks every thread with an active pull request watch
-"Waiting", naming the watched requests in the tooltip.
+`context.setThreadRowStatuses(statuses)` gives threads' rows a state of this
+extension's, by thread id; `{}` withdraws them, and deactivation does too. A
+`ThreadRowMark` is `{ label, hint?, icon?, tone? }`. Without a tone it asks for
+the user, like a question: the row says the label in amber and sorts with the
+questions. `tone: "background"` is work that wakes the thread again: the new
+`ThreadActivity` `background`, drawn grey with the icon (an eye by default),
+only in place of an idle or ready row, so Working, a question or a failure still
+show. The desktop rail, the tablet's list and the phone's list and search all
+derive a row's state through the same `markedRowStatus`, so a mark looks alike
+everywhere. Takeover Kit marks "Your turn" this way, and Review Kit marks every
+thread with an active pull request watch "Waiting", naming the watched requests
+in the hint. Workspace Kit's older `setThreadRowStatuses(owner, statuses)` still
+works and draws the same, on the desktop rail only.
 
 ### Who is attached: `services.clients`
 

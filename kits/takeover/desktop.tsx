@@ -8,13 +8,11 @@ import {
   REQUEST_TAKEOVER_TOOL,
   TAKEOVER_EXTENSION_ID,
   TAKEOVER_STATE_EVENT,
-  WORKSPACE_STORE_SERVICE,
   readTakeovers,
   type ComputerUseScreenService,
   type PreviewBrowserService,
   type PreviewCookieImportService,
   type Takeover,
-  type WorkspaceRowMarks,
 } from "./protocol.js";
 import { hold, services, takeovers, workbench } from "./store.js";
 
@@ -97,12 +95,11 @@ const takeover: DesktopExtension = {
     disposers.push(context.useService<PreviewBrowserService>(PREVIEW_BROWSER_SERVICE, hold(services.preview)));
     disposers.push(context.useService<PreviewCookieImportService>(PREVIEW_COOKIE_IMPORT_SERVICE, hold(services.cookies)));
     disposers.push(context.useService<ComputerUseScreenService>(COMPUTER_USE_SCREEN_SERVICE, hold(services.screen)));
-    disposers.push(context.useService<WorkspaceRowMarks>(WORKSPACE_STORE_SERVICE, (workspace) => {
-      const mark = () => workspace.setThreadRowStatuses?.(TAKEOVER_EXTENSION_ID, Object.fromEntries(takeovers.get().map((entry) => [entry.threadId, { label: "Your turn", hint: entry.reason, icon: HAND }])));
-      mark();
-      const stop = takeovers.subscribe(mark);
-      return () => { stop(); workspace.setThreadRowStatuses?.(TAKEOVER_EXTENSION_ID, {}); };
-    }));
+    // Every client's thread list says it, the phone's too.
+    const mark = () => context.setThreadRowStatuses(Object.fromEntries(takeovers.get().map((entry) => [entry.threadId, { label: "Your turn", hint: entry.reason, icon: HAND }])));
+    mark();
+    const stopMarks = takeovers.subscribe(mark);
+    disposers.push(() => { stopMarks(); context.setThreadRowStatuses({}); });
     // The Preview's amber frame, and the phone's bar and footnote, while the user holds a page or a window.
     const control = { Bar: createTakeoverBar(hosts), Footer: TakeoverFooter };
     let release: (() => void) | undefined;
