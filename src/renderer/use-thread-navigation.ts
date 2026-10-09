@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { useCallback, type Dispatch, type RefObject, type SetStateAction } from "react";
 import type { HostBootstrap, UiProject } from "../shared/contracts";
 import type { ThreadDetail, TranscriptPage } from "../shared/host-protocol";
 import { namesWorkspace } from "../shared/workspace-identity";
@@ -9,7 +9,7 @@ import { createNewThreadDraft, draftKey, writeNewThreadDraft, type NewThreadDraf
 import type { DraftThreads } from "../workbench/draft-threads";
 import { errorMessage } from "../workbench/error-message";
 import type { HostClient } from "../workbench/host-client";
-import { startDraftProject } from "../workbench/new-thread-project";
+import { startDraftProject, startDraftState } from "../workbench/new-thread-project";
 import { activateTab, cycleTab, pinTab, setFileView, unpinTab, type StageState, type StageView } from "../workbench/stage";
 import type { ThreadStore } from "../workbench/thread-store";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
@@ -158,16 +158,21 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
     moveDraftToProject(project);
   }, [activeDraftKey, detachPendingDelivery, inheritSelection, leavePendingNewThread, moveDraftToProject, newThread, scopes, showThread]);
 
-  /** At startup the host opens an unsaved thread; a draft takes its place, as "New thread" would. */
-  const startDraft = useCallback((bootstrap: HostBootstrap) => {
-    if (newThread.current() || client?.isReadOnly()) return;
-    const project = startDraftProject(bootstrap, threads.getProjects());
-    if (project) moveDraftToProject(project);
-  }, [client, moveDraftToProject, newThread, threads]);
-  // The bootstrap effect depends on it; a new identity would start the bootstrap again.
-  const startDraftRef = useRef(startDraft);
-  useEffect(() => { startDraftRef.current = startDraft; }, [startDraft]);
-  const openStartDraft = useCallback((bootstrap: HostBootstrap) => startDraftRef.current(bootstrap), []);
+  /** At startup the host opens an empty thread; a draft takes its place, as "New thread" would. */
+  const openStartDraft = useCallback((bootstrap: HostBootstrap) => {
+    const project = client?.isReadOnly() ? undefined : startDraftProject(bootstrap, threads.getProjects());
+    if (!project) return;
+    const startId = bootstrap.detail.sessionId;
+    // The full index arrives after the bootstrap; until then a fresh install looks like any start.
+    const settle = (): boolean => {
+      if (newThread.current() || view.getSnapshot()?.sessionId !== startId || view.getTranscript().messages.length) return true;
+      const state = startDraftState(threads.getSnapshot().threads, startId);
+      if (state === "open") moveDraftToProject(project);
+      return state !== "wait";
+    };
+    if (settle()) return;
+    const stop = threads.subscribe(() => { if (settle()) stop(); });
+  }, [client, moveDraftToProject, newThread, threads, view]);
 
   /** Throws a draft away; the draft on screen closes onto the thread the host has open. */
   const discardDraft = useCallback((draftId: string) => {
