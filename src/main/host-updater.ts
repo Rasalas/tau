@@ -13,13 +13,12 @@ import {
   ChecksumMismatch,
   downloadVerified,
   pickReleaseFile,
-  readReleaseInfo,
-  releaseFeedBase,
+  readUpdateRelease,
   releaseFileUrl,
   releaseInfoName,
   safeReleaseName,
   type Fetch,
-  type ReleaseInfo,
+  type UpdateRelease,
   type UpdateFeed,
   type UpdateLog,
 } from "./release-feed.js";
@@ -58,6 +57,8 @@ export interface HostUpdaterOptions {
   fetch: Fetch;
   /** `updates.channel` of this machine's config, read before each check. */
   channel(): Promise<UpdateChannel | undefined>;
+  /** Saves an implicit nightly preference before installing a stable release. */
+  preserveNightlyChannel?(): Promise<void>;
   window?: WindowUpdatePort;
   /** A service host leaves to be started again on the new version. Absent: the next start runs it. */
   restart?(): void;
@@ -88,7 +89,7 @@ export class HostUpdater {
   private phase: HostUpdatePhase;
   private reason: string | undefined;
   private latest: string | undefined;
-  private info: ReleaseInfo | undefined;
+  private release: UpdateRelease | undefined;
   private staged: StagedUpdate | undefined;
   private progress: number | undefined;
   private checkedAt: number | undefined;
@@ -251,7 +252,7 @@ export class HostUpdater {
       this.channelNow = channel;
       // What the other channel offered is not this one's.
       this.latest = undefined;
-      this.info = undefined;
+      this.release = undefined;
       if (this.phase !== "unsupported" && this.phase !== "installing" && this.phase !== "installed") this.phase = "idle";
       this.emit();
     }
@@ -272,16 +273,23 @@ export class HostUpdater {
     if (this.phase === "unsupported" || this.phase === "installing" || this.phase === "installed") return;
     const channel = await this.refreshChannel();
     await this.refreshInstaller();
-    const base = releaseFeedBase(channel, this.options.feed, this.options.feedOverride);
-    if (!base) {
-      this.set("failed", "This build names no release feed.");
-      return;
-    }
     const before = this.phase;
     this.set("checking");
     try {
-      const info = await readReleaseInfo(this.options.fetch, base, releaseInfoName(this.options.platform, this.options.arch), this.options.releaseKeys);
-      this.info = info;
+      const release = await readUpdateRelease({
+        fetch: this.options.fetch, channel, feed: this.options.feed, override: this.options.feedOverride,
+        name: releaseInfoName(this.options.platform, this.options.arch), keys: this.options.releaseKeys, log: this.options.log,
+      });
+      const { info } = release;
+      // An unavailable feed cannot replace a newer download with an older one.
+      if (channel === "nightly" && this.staged && compareVersions(this.staged.version, info.version) > 0) {
+        this.latest = this.staged.version;
+        this.checkedAt = this.now();
+        this.set(this.requested && this.running.size > 0 ? "waiting" : "ready");
+        return;
+      }
+      if (channel === "nightly" && release.channel === "stable" && compareVersions(info.version, this.options.version) > 0) await this.options.preserveNightlyChannel?.();
+      this.release = release;
       this.latest = info.version;
       this.checkedAt = this.now();
       this.options.log.info("host-update.checked", { channel, latest: info.version, signed: info.signed });
@@ -303,9 +311,10 @@ export class HostUpdater {
   }
 
   private async download(): Promise<void> {
-    const info = this.info;
+    const release = this.release;
+    const info = release?.info;
     const method = this.options.installer?.method;
-    if (!info || !method || this.installer !== "host") return;
+    if (!release || !info || !method || this.installer !== "host") return;
     if (this.staged?.version === info.version) return;
     const blocked = await this.options.installer!.blocked();
     if (blocked) {
@@ -318,8 +327,7 @@ export class HostUpdater {
       this.set("failed", `The release lists nothing for this ${method} install on ${this.options.arch}.`);
       return;
     }
-    const channel = this.channelNow;
-    const base = releaseFeedBase(channel, this.options.feed, this.options.feedOverride)!;
+    const { channel, base } = release;
     const url = releaseFileUrl(name, info.version, channel, base, this.options.feed, this.options.feedOverride);
     mkdirSync(this.options.dir, { recursive: true });
     const target = join(this.options.dir, name);

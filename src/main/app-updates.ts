@@ -5,7 +5,8 @@ import { dialog } from "electron";
 import type { AppUpdatePhase } from "../shared/contracts.js";
 import { DEFAULT_UPDATE_CHANNEL, defaultUpdateChannel, isNightlyVersion, type UpdateChannel } from "../shared/app-version.js";
 import { compareVersions } from "../shared/runtime-version.js";
-import { NIGHTLY_TAG, UNPACKED_UPDATES, type LinuxInstall, type UpdateFeed, type UpdateLog } from "./release-feed.js";
+import { RELEASE_PUBLIC_KEYS } from "../shared/release-keys.js";
+import { NIGHTLY_TAG, UNPACKED_UPDATES, readUpdateRelease, releaseInfoName, type Fetch, type LinuxInstall, type UpdateFeed, type UpdateLog } from "./release-feed.js";
 
 // Moved to release-feed.ts, which the host process can load without Electron.
 export { DEB_EXECUTABLE, DEB_PACKAGE, NIGHTLY_TAG, UNPACKED_UPDATES, linuxInstall, readUpdateFeed, type LinuxInstall, type UpdateFeed, type UpdateLog } from "./release-feed.js";
@@ -94,6 +95,10 @@ export interface AppUpdatesOptions {
   feed?: UpdateFeed;
   /** `updates.channel` as the config holds it now, read before every check; unset follows the running build. */
   channel?(): Promise<UpdateChannel | undefined>;
+  /** Saves an implicit nightly preference before installing a stable release. */
+  preserveNightlyChannel?(): Promise<void>;
+  fetch?: Fetch;
+  releaseKeys?: readonly string[];
   /** False where nobody sees the window (a test instance, an invisible display): the host installs there. */
   interactive?: boolean;
   /**
@@ -197,6 +202,12 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
 
   updater.on("update-available", (info) => {
     log.info("update.available", info.version);
+    // A temporarily missing nightly may leave only an older stable visible.
+    if (applied === "nightly" && ready && compareVersions(info.version, ready) < 0) {
+      if (asked) tell(readyMessage(ready));
+      asked = false;
+      return;
+    }
     if (!fetching && info.version !== ready) fetch(info.version);
     if (asked) tell(info.version === ready ? readyMessage(ready) : `Tau ${info.version} is downloading. You will be told when it is ready.`);
     asked = false;
@@ -258,7 +269,23 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
   function check(): Promise<void> {
     checking ??= (async () => {
       try {
-        await applyChannel();
+        const channel = await applyChannel();
+        if (channel === "nightly" && options.feed) {
+          const selected = await readUpdateRelease({
+            fetch: options.fetch ?? globalThis.fetch,
+            channel,
+            feed: options.feed,
+            name: releaseInfoName(process.platform, process.arch),
+            keys: options.releaseKeys ?? RELEASE_PUBLIC_KEYS,
+            log,
+          });
+          if (selected.channel === "stable" && compareVersions(selected.info.version, options.currentVersion ?? "") > 0) await options.preserveNightlyChannel?.();
+          // Pin a stable winner to its tag. A GitHub provider with prereleases
+          // enabled could select a different release than the one compared.
+          updater.setFeedURL(selected.channel === "nightly" ? feedFor("nightly", options.feed) : {
+            provider: "generic", url: `https://github.com/${options.feed.owner}/${options.feed.repo}/releases/download/v${encodeURIComponent(selected.info.version)}`,
+          });
+        }
         await updater.checkForUpdates();
       } catch (error) {
         // A failed check arrives twice, as the `error` event and as this

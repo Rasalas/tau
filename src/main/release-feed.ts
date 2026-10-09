@@ -4,6 +4,7 @@ import { basename, join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { UpdateChannel } from "../shared/app-version.js";
+import { compareVersions } from "../shared/runtime-version.js";
 
 /**
  * Reading a release the way electron-builder publishes it, without
@@ -229,6 +230,40 @@ export interface ReleaseInfo {
   files: ReleaseFile[];
   /** Whether a release key vouched for the list; false where the build carries none. */
   signed: boolean;
+}
+
+/** The source of the selected release, separate from the user's update channel. */
+export interface UpdateRelease {
+  channel: UpdateChannel;
+  base: string;
+  info: ReleaseInfo;
+}
+
+/** Nightly follows the newest trusted version across both feeds; stable reads only stable. */
+export async function readUpdateRelease(options: {
+  fetch: Fetch;
+  channel: UpdateChannel;
+  feed?: UpdateFeed | undefined;
+  override?: string | undefined;
+  name: string;
+  keys: readonly string[];
+  log?: UpdateLog;
+}): Promise<UpdateRelease> {
+  // A local fixture replaces the entire feed; never reach GitHub from one.
+  const channels: UpdateChannel[] = options.channel === "nightly" && !options.override?.trim() ? ["nightly", "stable"] : [options.channel];
+  const results = await Promise.allSettled(channels.map(async (channel): Promise<UpdateRelease> => {
+    const base = releaseFeedBase(channel, options.feed, options.override);
+    if (!base) throw new Error("This build names no release feed.");
+    const info = await readReleaseInfo(options.fetch, base, options.name, options.keys, AbortSignal.timeout(15_000));
+    return { channel, base, info };
+  }));
+  let newest: UpdateRelease | undefined;
+  for (const [index, result] of results.entries()) {
+    if (result.status === "rejected") options.log?.warn("update.feed.failed", { channel: channels[index], error: result.reason });
+    else if (!newest || compareVersions(result.value.info.version, newest.info.version) > 0) newest = result.value;
+  }
+  if (newest) return newest;
+  throw (results[0] as PromiseRejectedResult).reason;
 }
 
 /**

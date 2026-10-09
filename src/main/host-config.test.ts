@@ -37,6 +37,15 @@ describe("HostConfigManager", () => {
     expect(config.showCosts).toBe(false);
   });
 
+  it("preserves an implicit nightly channel across a stable update without changing an explicit choice", async () => {
+    await manager.update({ theme: "dark" });
+    await manager.preserveNightlyChannel();
+    expect(await manager.read()).toMatchObject({ theme: "dark", updates: { channel: "nightly" } });
+    await manager.update({ updates: { channel: "stable" } });
+    await manager.preserveNightlyChannel();
+    expect(await manager.read()).toMatchObject({ theme: "dark", updates: { channel: "stable" } });
+  });
+
   it("merges project configuration over global configuration", async () => {
     await manager.update({ theme: "light", showCosts: true, transcriptDetail: "focused" }, "global");
     await manager.update({ transcriptDetail: "everything" }, "project", projectDir);

@@ -86,6 +86,53 @@ function updater(options: Partial<HostUpdaterOptions> & Pick<HostUpdaterOptions,
 }
 
 describe("HostUpdater", () => {
+  it("installs a newer stable from its own tag while keeping the nightly preference", async () => {
+    const stable = fakeFeed("0.7.40");
+    const nightly = fakeFeed("0.7.40-nightly.20261008.50");
+    const requests: string[] = [];
+    const preserveNightlyChannel = vi.fn(async () => undefined);
+    const { installer, installed } = fakeInstaller();
+    const { instance } = updater({
+      version: "0.7.40-nightly.20261008.50",
+      installer,
+      feedOverride: undefined,
+      preserveNightlyChannel,
+      fetch: async (url) => {
+        requests.push(url);
+        const feed = url.includes("/nightly/") ? nightly : stable;
+        return feed.fetch(`${LOCAL}${url.split("/").at(-1)}`);
+      },
+    });
+    expect(await instance.check()).toMatchObject({ channel: "nightly", latest: "0.7.40", phase: "ready" });
+    expect(requests.at(-1)).toBe(`https://github.com/Rasalas/tau-releases/releases/download/v0.7.40/${stable.name}`);
+    expect(preserveNightlyChannel).toHaveBeenCalledOnce();
+    await instance.install();
+    expect(installed).toEqual([expect.objectContaining({ version: "0.7.40", channel: "stable" })]);
+    instance.dispose();
+  });
+
+  it("replaces a downloaded stable with a newer nightly and keeps it if the nightly feed disappears", async () => {
+    const stable = fakeFeed("0.7.40");
+    let nightly: ReturnType<typeof fakeFeed> | undefined;
+    const { installer, installed } = fakeInstaller();
+    const { instance } = updater({
+      installer, feedOverride: undefined, channel: async () => "nightly",
+      fetch: async (url) => {
+        const feed = url.includes("/nightly/") ? nightly : stable;
+        return feed ? feed.fetch(`${LOCAL}${url.split("/").at(-1)}`) : new Response("", { status: 404 });
+      },
+    });
+    expect(await instance.check()).toMatchObject({ channel: "nightly", latest: "0.7.40", phase: "ready" });
+    nightly = fakeFeed("0.7.41-nightly.20261009.51");
+    expect(await instance.check()).toMatchObject({ channel: "nightly", latest: "0.7.41-nightly.20261009.51", phase: "ready" });
+    expect(existsSync(join(dir, stable.name))).toBe(false);
+    nightly = undefined;
+    expect(await instance.check()).toMatchObject({ latest: "0.7.41-nightly.20261009.51", phase: "ready" });
+    await instance.install();
+    expect(installed).toEqual([expect.objectContaining({ version: "0.7.41-nightly.20261009.51", channel: "nightly" })]);
+    instance.dispose();
+  });
+
   it("finds a newer release, downloads and verifies it, and installs it once the machine was quiet", async () => {
     const feed = fakeFeed("0.7.14");
     const { installer, installed } = fakeInstaller();
@@ -223,6 +270,7 @@ describe("HostUpdater", () => {
     expect(requests).toEqual([
       "https://github.com/Rasalas/tau-releases/releases/latest/download/latest-linux.yml",
       "https://github.com/Rasalas/tau-releases/releases/download/nightly/latest-linux.yml",
+      "https://github.com/Rasalas/tau-releases/releases/latest/download/latest-linux.yml",
     ]);
     expect(nightly.instance.status()).toMatchObject({ channel: "nightly", phase: "failed" });
   });

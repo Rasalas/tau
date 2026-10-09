@@ -567,6 +567,15 @@ For the release notes:
 
 ## Nightly builds
 
+The Nightly update track checks both the nightly and stable feeds and offers
+the higher version. For example, `0.7.40` updates
+`0.7.40-nightly.20261008.50`, while `0.7.41-nightly.20261009.51` is newer than
+`0.7.40`. Installing a stable release keeps the Nightly track selected. A
+manually installed nightly with no saved track saves that preference before
+taking a stable update. Stable continues to check only stable releases.
+If one feed is unavailable or its signature is invalid, Nightly uses the
+other trusted feed and keeps any newer update already downloaded.
+
 `.github/workflows/release.yml` has a schedule (03:14 UTC). Its `gate` job
 decides whether anything runs:
 

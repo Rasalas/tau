@@ -211,6 +211,11 @@ export class HostConfigManager {
     return this.piWins(this.merge(base, projectConfig), piBase);
   }
 
+  /** A manually installed nightly keeps following nightlies after updating to stable. */
+  async preserveNightlyChannel(): Promise<void> {
+    if ((await this.read()).updates?.channel === undefined) await this.update({ updates: { channel: "nightly" } });
+  }
+
   /**
    * Pi's own file decides for the keys Pi owns. `~/.tau/config.json` may still
    * hold one from a hand edit made before Tau stopped accepting them; letting it

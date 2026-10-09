@@ -914,6 +914,8 @@ if (primaryInstance) app.whenReady().then(async () => {
     ...(feed ? { feed } : {}),
     // This machine's config file: the updater belongs to the machine, not to a remote host.
     channel: async () => (await defaultHostConfigManager.read()).updates?.channel,
+    preserveNightlyChannel: () => defaultHostConfigManager.preserveNightlyChannel(),
+    fetch: (url, init) => net.fetch(url, init),
     interactive: process.env.TAU_NO_NATIVE_DIALOGS !== "1",
   });
   Menu.setApplicationMenu(Menu.buildFromTemplate(appMenuTemplate(process.platform, app.name, {

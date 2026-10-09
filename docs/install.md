@@ -67,8 +67,9 @@ the same for every machine the window keeps, with **Update**. While a Tau
 window runs on a machine, that window installs as before: it downloads on its
 own and installs when you choose Restart or quit; Update now from elsewhere asks
 it to. "Check for updates…" in the application menu asks on demand, and
-Settings → About → Pre-release builds switches between stable releases and the
-nightly build of `main`.
+Settings → About → Pre-release builds includes nightly builds of `main`
+alongside stable releases and offers whichever version is newer. A stable
+update keeps this setting enabled; switching it off follows only stable releases.
 
 - **Linux `.deb`:** the package brings a small update helper and a polkit rule,
   so members of `sudo`, `admin` or `wheel` (or a group `tau-update`) update

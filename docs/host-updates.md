@@ -19,6 +19,12 @@ feed electron-builder publishes (`latest-mac.yml`, `latest.yml`,
 `resources/app-update.yml` names, the public `Rasalas/tau-releases`
 ([RELEASE.md](RELEASE.md#where-releases-are-published)). Nothing needs a token.
 
+Stable reads only the stable feed. Nightly compares the stable and nightly
+feeds and takes the higher trusted version, retaining the Nightly preference
+after a stable update. The selected release's source controls the download
+URL and the channel passed to the Linux update helper; it does not change
+`updates.channel`. A local test feed replaces both sources.
+
 | What runs on the machine | Checks | Downloads and installs |
 |---|---|---|
 | A Tau window a person sees (packaged) | the window's electron-updater, as before; the host too, for the status | the window: on Restart or on quit, as before. Update now from anywhere asks the window through core's window half (`update-state`, `update-install`) |

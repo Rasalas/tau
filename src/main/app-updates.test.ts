@@ -32,7 +32,7 @@ function fakeUpdater() {
   return { updater, emit };
 }
 
-function updates(overrides: { enabled?: boolean; unsupported?: string; installOnQuit?: boolean; channel?: () => Promise<"stable" | "nightly" | undefined>; currentVersion?: string; feed?: { owner: string; repo: string } | null; whenStaged?: () => Promise<void>; checkBeforeInstallMs?: number } = {}) {
+function updates(overrides: { enabled?: boolean; unsupported?: string; installOnQuit?: boolean; channel?: () => Promise<"stable" | "nightly" | undefined>; currentVersion?: string; feed?: { owner: string; repo: string } | null; whenStaged?: () => Promise<void>; checkBeforeInstallMs?: number; fetch?: import("./release-feed.js").Fetch; preserveNightlyChannel?: () => Promise<void> } = {}) {
   const { updater, emit } = fakeUpdater();
   const told: string[] = [];
   const downloaded: string[] = [];
@@ -54,6 +54,9 @@ function updates(overrides: { enabled?: boolean; unsupported?: string; installOn
     ...(overrides.feed === null ? {} : { feed: overrides.feed ?? { owner: "Rasalas", repo: "tau-releases" } }),
     ...(overrides.channel ? { channel: overrides.channel } : {}),
     ...(overrides.currentVersion ? { currentVersion: overrides.currentVersion } : {}),
+    fetch: overrides.fetch ?? (async (url) => new Response(`version: ${url.includes("/nightly/") ? "0.4.1-nightly.20260922.17" : "0.4.0"}\n`)),
+    releaseKeys: [],
+    ...(overrides.preserveNightlyChannel ? { preserveNightlyChannel: overrides.preserveNightlyChannel } : {}),
   });
   return { subject, updater, emit, told, downloaded, steps, log };
 }
@@ -400,6 +403,30 @@ describe("app updates", () => {
   describe("channels", () => {
     const NIGHTLY_FEED = { provider: "generic", url: "https://github.com/Rasalas/tau-releases/releases/download/nightly" };
 
+    it("offers a newer stable release on nightly, preserves the track, then follows a newer nightly", async () => {
+      let nightly = "0.7.40-nightly.20261008.50";
+      const preserveNightlyChannel = vi.fn(async () => undefined);
+      const { subject, updater, emit, told } = updates({
+        currentVersion: nightly,
+        fetch: async (url) => new Response(`version: ${url.includes("/nightly/") ? nightly : "0.7.40"}\n`),
+        preserveNightlyChannel,
+      });
+      updater.checkForUpdates.mockImplementation(async () => {
+        const feed = updater.setFeedURL.mock.calls.at(-1)?.[0] as { url: string };
+        emit("update-available", { version: feed.url.endsWith("/nightly") ? nightly : "0.7.40" });
+      });
+      await subject.checkForUpdates();
+      expect(updater.setFeedURL).toHaveBeenLastCalledWith({ provider: "generic", url: "https://github.com/Rasalas/tau-releases/releases/download/v0.7.40" });
+      expect(preserveNightlyChannel).toHaveBeenCalledOnce();
+      expect(told).toEqual(["Tau 0.7.40 is downloading. You will be told when it is ready."]);
+      emit("update-downloaded", { version: "0.7.40" });
+      nightly = "0.7.41-nightly.20261009.51";
+      await subject.checkForUpdates();
+      expect(updater.setFeedURL).toHaveBeenLastCalledWith(NIGHTLY_FEED);
+      expect(updater.downloadUpdate).toHaveBeenCalledTimes(2);
+      expect(updater.allowDowngrade).toBe(false);
+    });
+
     it("keeps the build's own feed on stable and never takes a prerelease", async () => {
       const { subject, updater } = updates();
       await subject.checkForUpdates();
@@ -414,6 +441,30 @@ describe("app updates", () => {
       expect(updater.setFeedURL).toHaveBeenCalledWith(NIGHTLY_FEED);
       expect(updater.allowPrerelease).toBe(true);
       expect(updater.allowDowngrade).toBe(false);
+    });
+
+    it("keeps a newer downloaded nightly when only an older stable feed answers", async () => {
+      const { subject, updater, emit, told } = updates({
+        currentVersion: "0.7.39", channel: async () => "nightly",
+        fetch: async (url) => url.includes("/nightly/") ? new Response("", { status: 404 }) : new Response("version: 0.7.40\n"),
+      });
+      emit("update-downloaded", { version: "0.7.41-nightly.20261009.51" });
+      feedOffers(updater, emit, () => "0.7.40");
+      await subject.checkForUpdates();
+      expect(updater.downloadUpdate).not.toHaveBeenCalled();
+      expect(subject.downloaded()).toBe("0.7.41-nightly.20261009.51");
+      expect(told).toEqual(["Tau 0.7.41-nightly.20261009.51 is ready. Restart to install it."]);
+    });
+
+    it("does not take stable when the nightly preference could not be saved", async () => {
+      const { subject, updater, told } = updates({
+        currentVersion: "0.7.40-nightly.20261008.50",
+        fetch: async (url) => new Response(`version: ${url.includes("/nightly/") ? "0.7.40-nightly.20261008.50" : "0.7.40"}\n`),
+        preserveNightlyChannel: async () => { throw new Error("Cannot save update channel"); },
+      });
+      await subject.checkForUpdates();
+      expect(updater.checkForUpdates).not.toHaveBeenCalled();
+      expect(told).toEqual(["The update check failed: Cannot save update channel"]);
     });
 
     it("lets a nightly build go back to the latest stable release", async () => {

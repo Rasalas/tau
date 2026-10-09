@@ -190,7 +190,7 @@ export function AboutPage({ loader = loadLicenses }: { loader?: () => Promise<Th
             <SettingRow
               id={settingAnchor("Pre-release builds")}
               title="Pre-release builds"
-              description="The nightly build of main instead of tagged releases."
+              description="Nightly builds of main and stable releases, whichever version is newer."
               help="Turning it off returns to the latest release, even when it is older than the nightly build you have."
               setting={channel}
               control={<Switch label="Pre-release builds" checked={channel.value === "nightly"} onChange={(on) => channel.set(on ? "nightly" : "stable")} />}
