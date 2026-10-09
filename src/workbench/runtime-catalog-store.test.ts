@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, UiRuntimeCatalog } from "../shared/contracts";
 import { createNewThreadDraft } from "./draft-store";
-import { RuntimeCatalogStore, draftRuntimeSnapshot, type RuntimeCatalogPort } from "./runtime-catalog-store";
+import { RuntimeCatalogStore, draftImageInput, draftRuntimeSnapshot, type RuntimeCatalogPort } from "./runtime-catalog-store";
 
 const luna = { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" };
 const sol = { provider: "openai", id: "gpt-5.6-sol", name: "GPT-5.6 Sol" };
@@ -105,5 +105,24 @@ describe("draftRuntimeSnapshot", () => {
   it("leaves the snapshot alone until the catalog is there", () => {
     expect(draftRuntimeSnapshot(SNAPSHOT, draft(), "codex", { status: "loading" })).toBe(SNAPSHOT);
     expect(draftRuntimeSnapshot(SNAPSHOT, draft(), "codex", undefined)).toBe(SNAPSHOT);
+  });
+});
+
+describe("draftImageInput", () => {
+  const model = { provider: "anthropic", id: "claude-sonnet-5-5", name: "Sonnet 5.5" };
+
+  it("lets a draft for another runtime send images whatever Pi's prepared thread can", () => {
+    expect(draftImageInput("claude-code", model, false)).toBe(true);
+    expect(draftImageInput("claude-code", undefined, undefined)).toBe(true);
+  });
+
+  it("follows the model where the catalog says", () => {
+    expect(draftImageInput("claude-code", { ...model, images: false }, true)).toBe(false);
+    expect(draftImageInput("pi", { ...model, images: true }, false)).toBe(true);
+  });
+
+  it("asks Pi's prepared thread when the model does not say", () => {
+    expect(draftImageInput("pi", model, true)).toBe(true);
+    expect(draftImageInput("pi", model, undefined)).toBe(false);
   });
 });

@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Message } from "./Message";
-import { visibleUserMessageText } from "./MessageText";
+import { localImagePaths, visibleUserMessageText } from "./MessageText";
 import { TestProviders } from "../test-support/test-providers";
 import { ExtensionRegistry, type WorkbenchActions } from "../extension-system";
 import { WorkbenchShellContext } from "../workbench-context";
@@ -413,5 +413,21 @@ describe("A compaction", () => {
     render(<Message message={{ ...compacted, compaction: { tokensBefore: 950 } }} />);
     expect(screen.getByRole("separator").getAttribute("aria-label")).toBe("Context compacted · 950 tokens before");
     expect(screen.queryByRole("button", { name: "Show" })).toBeNull();
+  });
+});
+
+describe("An attachment the runtime reads from disk", () => {
+  const path = "/Users/me/Library/Application Support/Tau/kit-state/tau.composer-context/attachments/t1/ab-shot@2x.png";
+  const text = `The user attached shot@2x.png (image/png, 114 KB). It is at ${path}; read it from there.\n\nshot@2x.png what is this?`;
+
+  it("shows the image, not the note, even when its path holds a space", () => {
+    expect(localImagePaths(text)).toEqual([path]);
+    expect(visibleUserMessageText(text)).toBe("shot@2x.png what is this?");
+  });
+
+  it("hides the note of a file that is no image", () => {
+    const pdf = "The user attached a.pdf (application/pdf, 3.0 MB). It is at /state/a.pdf; read it from there.\n\nSummarize a.pdf";
+    expect(localImagePaths(pdf)).toEqual([]);
+    expect(visibleUserMessageText(pdf)).toBe("Summarize a.pdf");
   });
 });
