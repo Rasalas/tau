@@ -21,12 +21,13 @@ async function harness(directory?: string, current = initial) {
   const instructions: HostMcpInstructionsProvider[] = [];
   const promptHooks: ((event: { systemPrompt: string }) => { systemPrompt: string })[] = [];
   const read = vi.fn(async () => { if (failure) throw new Error("GitHub unavailable"); return structuredClone(snapshot); });
+  const reread = vi.fn(async (_url: string) => undefined);
   const send = vi.fn(async (_id: string, _text: string, _options: unknown) => {
     // The durable fingerprint precedes the visible queue admission.
     const stored = JSON.parse(await readFile(join(stateDir, "tau.review", "pr-watches.json"), "utf8"));
     expect(JSON.stringify(stored)).toContain(snapshot.comments);
   });
-  const registry = await activateHostKit({ id: "tau.review", name: "Review", permissions: ["sessions", "runtime:extend"], activate: (context) => registerPullRequestWatches(context, { tools: {}, forUrl: (url: string) => ({ ref: parseRequestUrl(url) }) } as unknown as SourceControl, { link: async () => undefined, review: async () => undefined, dispose: () => undefined }, { period: 15, read, now: () => time }) }, {
+  const registry = await activateHostKit({ id: "tau.review", name: "Review", permissions: ["sessions", "runtime:extend"], activate: (context) => registerPullRequestWatches(context, { tools: {}, forUrl: (url: string) => ({ ref: parseRequestUrl(url) }) } as unknown as SourceControl, { link: async () => undefined, review: async () => undefined, observe: async () => undefined, reread, dispose: () => undefined }, { period: 15, read, now: () => time }) }, {
     stateDir, sessions: { list: async () => [{ sessionId: "a" }, { sessionId: "b" }], refreshIndex: async () => ({ type: "thread-index", index: { projects: [], sessions: ["a", "b", "claude-1"].map((id) => ({ id })) } }), send } as unknown as HostSessionServices,
     registerTurnObserver: (value) => { observer = value; return () => { observer = undefined; }; },
     mcp: { registerTools: () => () => undefined, gate: () => () => undefined, registerInstructions: (provider) => { instructions.push(provider); return () => undefined; }, connect: async () => undefined },
@@ -37,7 +38,7 @@ async function harness(directory?: string, current = initial) {
   });
   cleanups.push(() => registry.deactivate("tau.review"));
   const call = (command: string, input?: unknown) => registry.invoke("tau.review", command, input);
-  return { stateDir, registry, call, instructions, promptHooks, send, read, stop: (id: string) => observer?.stopped?.(id), list: () => call("watch-list") as Promise<WatchState>, change: (value: Partial<WatchSnapshot>) => { snapshot = { ...snapshot, ...value }; }, unavailable: () => { failure = true; time += 16 * 60_000; } };
+  return { stateDir, registry, call, instructions, promptHooks, send, read, reread, stop: (id: string) => observer?.stopped?.(id), list: () => call("watch-list") as Promise<WatchState>, change: (value: Partial<WatchSnapshot>) => { snapshot = { ...snapshot, ...value }; }, unavailable: () => { failure = true; time += 16 * 60_000; } };
 }
 it("detects checks finishing on a new head, comments, new conflicts and terminal state without waking on ordinary polling", () => {
   expect(watchChanges(initial, initial)).toEqual([]);
@@ -124,6 +125,18 @@ it("shares a polling read across threads and restores only watches stopped by Se
   await h.stop("b");
   await h.call("watch-shelf", { restored: ["a", "b"] });
   expect((await h.list()).watches.map((watch) => [watch.threadId, watch.status])).toEqual([["a", "watching"], ["b", "ended"]]);
+});
+it("rereads the request once for its thread links when a push or merge is seen, not on other changes", async () => {
+  const h = await harness();
+  for (const threadId of ["a", "b"]) await h.call("watch-start", { threadId, url: URL });
+  h.change({ comments: "1" });
+  await vi.waitFor(() => expect(h.send).toHaveBeenCalledTimes(2));
+  expect(h.reread).not.toHaveBeenCalled();
+  h.change({ head: "head-2" });
+  await vi.waitFor(() => expect(h.reread).toHaveBeenCalledTimes(1));
+  h.change({ state: "MERGED" });
+  await vi.waitFor(() => expect(h.send).toHaveBeenCalledTimes(4));
+  expect(h.reread.mock.calls).toEqual([[URL], [URL]]);
 });
 it("ends after fifteen minutes unreadable", async () => {
   const h = await harness();

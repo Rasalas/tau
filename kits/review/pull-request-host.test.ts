@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { createReviewHostExtension } from "./host.js";
-import { REVIEW_HOST_EXTENSION_ID, type PullRequestDetail, type PullRequestFiles } from "./protocol.js";
+import { REVIEW_HOST_EXTENSION_ID, type PullRequestDetail, type PullRequestFiles, type ThreadPullRequestLink } from "./protocol.js";
 import {
   parseGitHubDetail,
   parseGitHubThreads,
@@ -298,6 +298,22 @@ describe("pull request commands", () => {
     expect((await reads).every((result) => result.status === "rejected")).toBe(true);
     await invoke("pr-comments", { url: GITHUB.url, fresh: true });
     expect(graphs).toBe(3);
+  });
+
+  it("records what the view read in every thread that links the request", async () => {
+    let state = "OPEN";
+    const { invoke, calls } = await harness({ answer: async (call) => {
+      if (call.args.slice(0, 2).join(" ") !== "pr view") return defaultAnswer(call);
+      return JSON.stringify({ ...JSON.parse(await fixture("gh-pr-view-discussed.json")), state });
+    } });
+    for (const threadId of ["a", "b"]) await invoke("link-pr", { threadId, reference: GITHUB.url });
+    const stateOf = async (threadId: string) => (await invoke<ThreadPullRequestLink[]>("thread-links", { threadId }))[0]?.state;
+    expect(await stateOf("a")).toBe("open");
+    state = "MERGED";
+    await invoke("pr-view", { url: GITHUB.url, fresh: true });
+    const views = calls.filter((call) => call.args[1] === "view").length;
+    await vi.waitFor(async () => expect([await stateOf("a"), await stateOf("b")]).toEqual(["merged", "merged"]));
+    expect(calls.filter((call) => call.args[1] === "view")).toHaveLength(views);
   });
 
   it("refuses anything that is not a request URL, and says which CLI is missing", async () => {
