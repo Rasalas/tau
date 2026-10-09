@@ -100,3 +100,43 @@ it("rejects an old reply even after returning to that same thread", async () => 
   expect(screen.getByText("Current b")).toBeTruthy();
   expect(screen.queryByText("Obsolete B")).toBeNull();
 });
+
+it("replaces a cached detail with a persisted page that is newer", async () => {
+  const test = await start();
+  let selected!: Promise<boolean>;
+  act(() => { selected = test.actions().switchSession("b"); });
+  await act(async () => { test.responses.get("b")!.resolve(result("b", "Question B")); await selected; });
+  await screen.findByText("Question B");
+  act(() => { selected = test.actions().switchSession("a"); });
+  await act(async () => { test.responses.get("a")!.resolve(result("a", "Original A")); await selected; });
+  await screen.findByText("Original A");
+
+  // The thread answered while it was off screen; the host is still opening its runtime.
+  act(() => { selected = test.actions().switchSession("b"); });
+  await screen.findByText("Question B");
+  await act(async () => {
+    test.pages.get("b")!.resolve({ sessionId: "b", hasMore: false, messages: [
+      ...detail("b", "Question B").messages,
+      { id: "b-answer", role: "assistant", text: "Answer B", timestamp: 2 },
+    ] });
+  });
+  await screen.findByText("Answer B");
+  await act(async () => { test.responses.get("b")!.resolve(result("b", "Question B")); await selected; });
+});
+
+it("keeps a cached detail when the persisted page adds nothing", async () => {
+  const test = await start();
+  let selected!: Promise<boolean>;
+  act(() => { selected = test.actions().switchSession("b"); });
+  await act(async () => { test.responses.get("b")!.resolve(result("b", "Live B")); await selected; });
+  act(() => { selected = test.actions().switchSession("a"); });
+  await act(async () => { test.responses.get("a")!.resolve(result("a", "Original A")); await selected; });
+  await screen.findByText("Original A");
+
+  act(() => { selected = test.actions().switchSession("b"); });
+  await screen.findByText("Live B");
+  await act(async () => { test.pages.get("b")!.resolve({ sessionId: "b", hasMore: false, messages: detail("b", "Persisted B").messages }); });
+  expect(screen.getByText("Live B")).toBeTruthy();
+  expect(screen.queryByText("Persisted B")).toBeNull();
+  await act(async () => { test.responses.get("b")!.resolve(result("b", "Live B")); await selected; });
+});
