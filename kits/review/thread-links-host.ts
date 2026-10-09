@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import { HostCommandError, type HostExtensionContext, type HostMcpTool, type RuntimeSessionInfo } from "tau/host-extension";
-import { THREAD_LINKS_EVENT, THREAD_RAIL_EXTENSION_ID, type BranchReviewRequest, type PullRequestRef, type ThreadPullRequestLink, type ReviewRequestContext } from "./protocol.js";
+import { THREAD_LINKS_EVENT, THREAD_RAIL_EXTENSION_ID, type BranchReviewRequest, type PullRequestDetail, type PullRequestRef, type ThreadPullRequestLink, type ReviewRequestContext } from "./protocol.js";
 import { LOCAL_REVIEWS_EVENT } from "./local-reviews.js";
 import type { SourceControl } from "./provider-registry.js";
 import type { PullRequestReads } from "./pull-request-host.js";
@@ -15,6 +15,9 @@ const CLOSED_REFRESH_MS = 30 * 60_000;
 /** Linked requests read at once when Thread Rail asks about many threads. */
 const SETTLE_READS = 4;
 
+/** What a provider read says about a linked request; its stack is read on its own. */
+const LINK_FIELDS = ["title", "state", "draft", "headRef", "headSha", "baseRef"] as const;
+
 const record = (input: unknown): Record<string, unknown> => input && typeof input === "object" ? input as Record<string, unknown> : {};
 const text = (value: unknown): string | undefined => typeof value === "string" && value.trim() ? value.trim() : undefined;
 
@@ -28,6 +31,10 @@ export interface ThreadLinks {
   link(threadId: string, url: string, source: ThreadPullRequestLink["source"]): Promise<void>;
   /** The cached request's destination and submitted tip; asks no provider. */
   review(threadIds: readonly string[], branch: string, tip: string): Promise<BranchReviewRequest | undefined>;
+  /** A provider's answer about a request, recorded in every thread that links it. */
+  observe(ref: PullRequestRef, detail: PullRequestDetail): Promise<void>;
+  /** Reads the request afresh, e.g. after a watch saw it merge; the read lands through `observe`. */
+  reread(url: string): Promise<void>;
   dispose(): void;
 }
 
@@ -81,15 +88,16 @@ export function registerThreadLinks(
     return number ? { number: Number(number) } : undefined;
   };
 
-  const snapshotOf = async (ref: PullRequestRef, fresh: boolean): Promise<Pick<ThreadPullRequestLink, "title" | "state" | "draft" | "headRef" | "headSha" | "baseRef" | "stack"> | undefined> => {
+  const fieldsOf = (detail: PullRequestDetail): Pick<ThreadPullRequestLink, (typeof LINK_FIELDS)[number]> => ({
+    title: detail.title, state: detail.state, draft: detail.draft, ...(detail.headRef ? { headRef: detail.headRef } : {}), ...(detail.headSha ? { headSha: detail.headSha } : {}), baseRef: detail.baseRef,
+  });
+
+  const snapshotOf = async (ref: PullRequestRef, fresh: boolean): Promise<Pick<ThreadPullRequestLink, (typeof LINK_FIELDS)[number] | "stack"> | undefined> => {
     try {
       const detail = await reads.detail(ref, fresh);
       // The stack a rail row counts; a stack that cannot be read counts as none.
       const stack = reads.stackOf ? await reads.stackOf(ref).catch(() => undefined) : undefined;
-      return {
-        title: detail.title, state: detail.state, draft: detail.draft, ...(detail.headRef ? { headRef: detail.headRef } : {}), ...(detail.headSha ? { headSha: detail.headSha } : {}), baseRef: detail.baseRef,
-        ...(stack ? { stack: { number: stack.number, size: stack.size } } : {}),
-      };
+      return { ...fieldsOf(detail), ...(stack ? { stack: { number: stack.number, size: stack.size } } : {}) };
     } catch {
       return undefined;
     }
@@ -297,6 +305,20 @@ export function registerThreadLinks(
         .sort((left, right) => Number(right.headSha === tip) - Number(left.headSha === tip) || right.linkedAt - left.linkedAt);
       const entry = candidates[0];
       return entry ? { target: entry.baseRef!, tip: entry.headSha, merged: entry.state === "merged", url: entry.url, number: entry.number } : undefined;
+    },
+    observe: async (ref, detail) => {
+      const fields = fieldsOf(detail);
+      for (const threadId of await store.threadsLinking(ref)) {
+        // oxlint-disable-next-line no-await-in-loop -- one thread's file write after another
+        const known = (await store.list(threadId)).find((entry) => linkKey(entry) === linkKey(ref));
+        if (!known || LINK_FIELDS.every((field) => known[field] === fields[field])) continue;
+        // oxlint-disable-next-line no-await-in-loop
+        if (await store.update(threadId, linkKey(ref), { ...fields, ...(known.stack ? { stack: known.stack } : {}) })) changed(threadId);
+      }
+    },
+    reread: async (url) => {
+      const ref = parseRequestUrl(url);
+      if (ref) await reads.detail(ref, true).catch(() => undefined);
     },
     dispose: () => { for (const dispose of disposers.reverse()) dispose(); },
   };

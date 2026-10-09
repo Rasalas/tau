@@ -84,7 +84,12 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
       let links: ThreadLinks | undefined;
       // A revert opened from a request's view belongs to the thread it was opened from.
       registerRequestMedia(context, sources);
-      const reads = registerPullRequestCommands(context, sources, { ...options, created: (url, threadId) => { if (threadId) void links?.link(threadId, url, "created"); } });
+      const reads = registerPullRequestCommands(context, sources, {
+        ...options,
+        created: (url, threadId) => { if (threadId) void links?.link(threadId, url, "created"); },
+        // Whatever reads a request (its view, a watch) keeps the threads linking it current.
+        read: (ref, detail) => { void links?.observe(ref, detail); },
+      });
       registerPullRequestListCommands(context, sources, workspace);
       links = registerThreadLinks(context, reads, workspace, sources);
       const stopWatches = await registerPullRequestWatches(context, sources, links);

@@ -31,6 +31,8 @@ export interface PullRequestCommandOptions {
   now?(): number;
   /** A revert opened a request on behalf of a thread; its URL. */
   created?(url: string, threadId: string | undefined): void;
+  /** The provider answered a read of the request; cached answers are not repeated. */
+  read?(ref: PullRequestRef, detail: PullRequestDetail): void;
 }
 
 /** The view's cached read of a request, for the kit's other commands (a link's snapshot). */
@@ -71,6 +73,7 @@ export function registerPullRequestCommands(context: HostExtensionContext, sourc
     const provider = sources.get(ref.service);
     const viewer = sources.viewer(ref.service, ref.host);
     const read = await provider.detail(ref, fresh);
+    options.read?.(ref, read);
     const login = await viewer;
     return login ? { ...read, viewer: login } : read;
   });

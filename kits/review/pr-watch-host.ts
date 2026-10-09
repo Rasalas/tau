@@ -103,6 +103,7 @@ export async function registerPullRequestWatches(context: HostExtensionContext, 
     if (disposed || polling || ![...watches.values()].some((watch) => watch.status !== "ended")) return;
     polling = true;
     const reads = new Map<string, Promise<WatchSnapshot>>();
+    const reread = new Set<string>();
     try {
       // All watches of one PR share its read, including ones that were added during this poll.
       for (const watch of [...watches.values()]) {
@@ -114,6 +115,11 @@ export async function registerPullRequestWatches(context: HostExtensionContext, 
           const snapshot = await read;
           if (disposed || watch.stoppedBy || watches.get(key(watch)) !== watch) continue;
           const reasons = watch.baseline ? watchChanges(watch.baseline, snapshot) : [];
+          // The thread's link and strip learn a merge or push from the watch, not a minute later.
+          if (watch.baseline && (watch.baseline.state !== snapshot.state || watch.baseline.head !== snapshot.head) && !reread.has(watch.ref.url)) {
+            reread.add(watch.ref.url);
+            void links.reread(watch.ref.url);
+          }
           watch.baseline = snapshot; watch.lastReadAt = now(); watch.status = "watching"; watch.reason = undefined;
           if (reasons.length) {
             watch.wakes++; watch.commentStreak = reasons.length === 1 && reasons[0] === "new comments or reviews" ? watch.commentStreak + 1 : 0;
