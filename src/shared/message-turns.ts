@@ -20,17 +20,22 @@ export function wakeMessageText(wake: UiWake, body: string): string {
 
 /**
  * Waiting wakes leave as one message: one line naming every update, bodies in
- * order. A label prefix they share ("PR #76") is written once.
+ * order. A label is subjects joined by "; " ("PR #82 · checks passed; PR #83 · …");
+ * each subject is written once, with its updates in order.
  */
 export function combineWakes(texts: readonly string[]): { text: string; wake: UiWake } {
   const parts = texts.map((text) => {
     const head = WAKE_HEAD.exec(text);
     return head ? { source: head[1]!, label: head[2]!, body: head[3] ?? "" } : { source: "tau", label: "Woken", body: text };
   });
-  const prefix = parts[0]?.label.split(" · ")[0];
-  const labels = parts.map((part, index) => index > 0 && prefix && part.label.startsWith(`${prefix} · `) ? part.label.slice(prefix.length + 3) : part.label);
+  const subjects = new Map<string, string[]>();
+  for (const part of parts) for (const subject of part.label.split("; ")) {
+    const [name = "", ...updates] = subject.split(" · ");
+    const known = subjects.get(name) ?? [];
+    subjects.set(name, [...known, ...updates.filter((update) => !known.includes(update))]);
+  }
   const source = parts.every((part) => part.source === parts[0]?.source) ? parts[0]?.source ?? "tau" : "tau";
-  const wake = { source, label: labels.join(" · ").slice(0, 160) };
+  const wake = { source, label: [...subjects].map(([name, updates]) => [name, ...updates].join(" · ")).join("; ").slice(0, 160) };
   return { text: wakeMessageText(wake, parts.map((part) => part.body.trim()).filter(Boolean).join("\n\n")), wake };
 }
 
