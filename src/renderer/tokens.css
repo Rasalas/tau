@@ -120,7 +120,7 @@
 
   /* -------------------------------------------------------------- status */
   --working: light-dark(#a34a08, #ff8a4d);           /* a file a turn changed; a write */
-  --ready: light-dark(#2f633c, #a4d0b1);             /* a run that finished */
+  --ready: light-dark(#2f633c, #56dc85);             /* a run that finished */
   --removed: light-dark(#8c352f, #eba9a2);           /* something taken away */
   --stop: light-dark(#c2282d, #e5484d);              /* the abort control */
   --stop-ink: #ffffff;                               /* the square on the stop button */
@@ -130,14 +130,14 @@
   --danger: light-dark(#8c352f, #eba9a2);            /* destructive text */
   --danger-line: light-dark(#edb0a8, #6b352f);       /* the edge of a destructive control */
   --danger-bg: light-dark(#fbe9e7, #301613);         /* that control, hovered */
-  --warn: light-dark(#82601a, #e8c67f);              /* a caution, and a question waiting for the user */
+  --warn: light-dark(#82601a, #ffbd34);              /* a caution, and a question waiting for the user */
   --warn-chip: light-dark(#fcf3dc, #291e05);         /* a caution as a chip */
   --warn-line: light-dark(#e2b34a, #8a6a24);         /* a caution as an edge: the Preview the user holds */
   --fail: light-dark(#c9564d, #d9756b);              /* a failed run's mark */
-  --fail-ink: light-dark(#8c352f, #eba9a2);          /* what that run says */
+  --fail-ink: light-dark(#8c352f, #fc7a75);          /* what that run says */
   --info: light-dark(#4f79c9, #6b93e0);              /* a run or a step in progress */
   --info-deep: light-dark(#3d63b0, #86a7e7);         /* a step already done, in a dense bar */
-  --info-ink: light-dark(#2f4f8f, #a6bfee);          /* the same, as text */
+  --info-ink: light-dark(#2f4f8f, #7cafff);          /* the same, as text */
   --merged: light-dark(#7446c2, #b59cf2);            /* a merged pull or merge request */
   --done: light-dark(#4f9660, #6fae82);              /* a step that finished */
   --stale: light-dark(#8a5a3f, #c9a18b);             /* how long ago something ran */

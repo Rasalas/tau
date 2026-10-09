@@ -82,11 +82,11 @@ export function ThreadStatus({ activity, label, hint, icon, startedAt }: { activ
   return (
     <span className={`thread-status-age status-${activity}`} {...tooltipProps(hint)}>
       {working ? <i /> : null}
-      {activity === "interrupted" ? <PlugZap size={11} aria-hidden="true" /> : null}
-      {activity === "failed" || activity === "limited" ? <TriangleAlert size={11} aria-hidden="true" /> : null}
-      {activity === "offline" ? <Monitor size={11} aria-hidden="true" /> : null}
-      {activity === "waiting" ? icon ?? <CircleHelp size={11} aria-hidden="true" /> : null}
-      {activity === "ready" ? <Check size={11} aria-hidden="true" /> : null}
+      {activity === "interrupted" ? <PlugZap size={13} aria-hidden="true" /> : null}
+      {activity === "failed" || activity === "limited" ? <TriangleAlert size={13} aria-hidden="true" /> : null}
+      {activity === "offline" ? <Monitor size={13} aria-hidden="true" /> : null}
+      {activity === "waiting" ? icon ?? <CircleHelp size={13} aria-hidden="true" /> : null}
+      {activity === "ready" ? <Check size={13} aria-hidden="true" /> : null}
       {label}
       {working ? <time>{elapsedLabel(now - startedAt)}</time> : null}
     </span>
