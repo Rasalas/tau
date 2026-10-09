@@ -22,6 +22,7 @@ const LOOKING = ["read", "glob", "grep", "list", "lsp", "skill", "todoread", "to
  * Tau's gate asks for them, as it does for Pi.
  * read-only: nothing that writes; a command still asks, since OpenCode has no sandbox to hold it.
  * ask: looking is free, everything else asks first.
+ * auto: as ask; OpenCode has no reviewer of its own.
  * full: nothing asks, the way a Pi thread at full access runs.
  */
 export function rulesForLevel(level: RuntimePermissionLevel): OpenCodePermissionRule[] {

@@ -35,7 +35,7 @@ describe("Access Kit host extension", () => {
 
   it("rejects unknown levels and restores full access when deactivated", async () => {
     const { registry, policy } = await harness();
-    await expect(registry.invoke(ACCESS_HOST_EXTENSION_ID, "set-level", { level: "root" })).rejects.toThrow("Access level must be read-only, ask or full.");
+    await expect(registry.invoke(ACCESS_HOST_EXTENSION_ID, "set-level", { level: "root" })).rejects.toThrow("Access level must be read-only, ask, auto or full.");
     await registry.invoke(ACCESS_HOST_EXTENSION_ID, "set-level", { level: "ask" });
     expect(policy()).toBe("ask");
     await registry.deactivate(ACCESS_HOST_EXTENSION_ID);
@@ -68,6 +68,8 @@ describe("Access Kit host extension", () => {
     await registry.invoke(ACCESS_HOST_EXTENSION_ID, "set-level", { level: "read-only" });
     await expect(agents!.invokeHostExtension(ACCESS_HOST_EXTENSION_ID, "thread-level", { threadId: "child", level: "full" })).resolves.toBe("read-only");
     await registry.invoke(ACCESS_HOST_EXTENSION_ID, "set-level", { level: "full" });
+    // Auto sits between ask and full: it narrows full and never widens ask.
+    await expect(agents!.invokeHostExtension(ACCESS_HOST_EXTENSION_ID, "thread-level", { threadId: "child", level: "auto" })).resolves.toBe("auto");
     await expect(agents!.invokeHostExtension(ACCESS_HOST_EXTENSION_ID, "thread-level", { threadId: "child", level: null })).resolves.toBe("full");
     await expect(toolCall("child", "edit")).resolves.toBeUndefined();
 

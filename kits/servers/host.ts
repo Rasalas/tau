@@ -100,6 +100,8 @@ export function createServersHostExtension(): HostExtension {
         targetLevel: async (key) => (await readTargetFile(store, key)).level,
         threadLevel: async (threadId) => {
           const level = await context.invokeHostExtension(ACCESS_KIT_ID, "thread-level-of", { threadId });
+          // Servers has no reviewer: a thread at `auto` asks as at `ask`.
+          if (level === "auto") return "ask";
           return (TARGET_LEVELS as readonly unknown[]).includes(level) ? level as TargetLevel : undefined;
         },
         mirrorDir: (key) => store.mirrorDir(key),

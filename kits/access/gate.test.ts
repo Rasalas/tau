@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { createAccessExtension, isMutatingToolCall } from "./gate.js";
+import type { AccessLevel } from "./protocol.js";
 
-function gate(level: "read-only" | "ask" | "full", confirm: (title: string, message: string) => Promise<boolean>) {
+function gate(level: AccessLevel, confirm: (title: string, message: string) => Promise<boolean>) {
   let handler: ((event: unknown, ctx: unknown) => Promise<unknown>) | undefined;
   createAccessExtension({ level: () => level, onBlocked: () => undefined })({
     on: (_event: string, callback: typeof handler) => { handler = callback; },
@@ -25,6 +26,12 @@ describe("access gate", () => {
     await expect(ask("edit", { path: "src/ok.ts" })).resolves.toBeUndefined();
     await expect(ask("bash", { command: "rm -rf build" })).resolves.toMatchObject({ block: true, reason: "Blocked by Tau: bash was not approved." });
     expect(confirm).toHaveBeenCalledWith("Wants to run", "rm -rf build", { signal: undefined });
+  });
+
+  it("asks at auto, since Tau has no reviewer of its own", async () => {
+    const confirm = vi.fn(async () => true);
+    await expect(gate("auto", confirm)("edit", { path: "a" })).resolves.toBeUndefined();
+    expect(confirm).toHaveBeenCalledWith("Wants to edit", "a", { signal: undefined });
   });
 });
 

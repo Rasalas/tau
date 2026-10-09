@@ -6,12 +6,14 @@ describe("policyForLevel", () => {
   it("maps Tau's access levels onto Codex's approval policy and sandbox", () => {
     expect(policyForLevel("read-only")).toEqual({ approvalPolicy: "never", sandbox: "read-only", sandboxPolicy: { type: "readOnly" } });
     expect(policyForLevel("ask")).toEqual({ approvalPolicy: "untrusted", sandbox: "workspace-write", sandboxPolicy: { type: "workspaceWrite" } });
+    expect(policyForLevel("auto")).toEqual({ approvalPolicy: "on-request", approvalsReviewer: "auto_review", sandbox: "workspace-write", sandboxPolicy: { type: "workspaceWrite" } });
     expect(policyForLevel("full")).toEqual({ approvalPolicy: "never", sandbox: "danger-full-access", sandboxPolicy: { type: "dangerFullAccess" } });
   });
 
   it("keeps Codex's sandbox without network at every level when the project limits its network", () => {
     expect(policyForLevel("read-only", { network: "none" })).toEqual({ approvalPolicy: "never", sandbox: "read-only", sandboxPolicy: { type: "readOnly", networkAccess: false } });
     expect(policyForLevel("ask", { network: "none" })).toEqual({ approvalPolicy: "untrusted", sandbox: "workspace-write", sandboxPolicy: { type: "workspaceWrite", networkAccess: false } });
+    expect(policyForLevel("auto", { network: "none" })).toEqual({ approvalPolicy: "on-request", approvalsReviewer: "auto_review", sandbox: "workspace-write", sandboxPolicy: { type: "workspaceWrite", networkAccess: false } });
     expect(policyForLevel("full", { network: "none" })).toEqual({ approvalPolicy: "never", sandbox: "workspace-write", sandboxPolicy: { type: "workspaceWrite", networkAccess: false } });
   });
 });

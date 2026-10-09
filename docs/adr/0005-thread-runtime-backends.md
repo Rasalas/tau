@@ -100,7 +100,12 @@ rules govern tools, the way Pi's own configuration governs Pi threads. This
 supersedes "installation defaults are never used" above.
 
 Tau's access levels map onto Claude's permission modes: `read-only` is `plan`,
-`ask` is `default`, `full` is `auto`. No dangerous bypass flag is ever passed.
+`ask` is `default`, `auto` is `auto`, `full` is `bypassPermissions`. Full access
+means "without asking", not "a classifier decides": under `auto` Claude's
+classifier refused merges and edits to the user's own Claude settings that the
+user had chosen full access for. Every session is opened with
+`allowDangerouslySkipPermissions`, which only makes bypass available, so a live
+session can move to it from `plan` or `auto` without a restart.
 Manual approvals are supported: the SDK's `canUseTool` and `onUserDialog`
 callbacks are answered on the workbench's own dialog surface (allow, allow for
 this session, deny; `AskUserQuestion` as one select per question, keyed by the

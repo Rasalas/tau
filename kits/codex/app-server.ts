@@ -12,6 +12,8 @@ export type SandboxPolicy = { type: "readOnly"; networkAccess?: boolean } | { ty
 
 export interface CodexPolicy {
   approvalPolicy: ApprovalPolicy;
+  /** `auto_review`: Codex's own reviewer answers the approvals. Sent every time, so leaving `auto` hands them back to the user. */
+  approvalsReviewer?: "user" | "auto_review";
   sandbox: SandboxMode;
   sandboxPolicy: SandboxPolicy;
 }
@@ -207,6 +209,7 @@ export class CodexAppServer {
     return this.connection.request("thread/start", {
       cwd: params.cwd,
       approvalPolicy: params.policy.approvalPolicy,
+      approvalsReviewer: params.policy.approvalsReviewer ?? "user",
       sandbox: params.policy.sandbox,
       ...(params.model ? { model: params.model } : {}),
       ...(params.serviceTier !== undefined ? { serviceTier: params.serviceTier } : {}),
@@ -219,6 +222,7 @@ export class CodexAppServer {
       threadId: params.threadId,
       cwd: params.cwd,
       approvalPolicy: params.policy.approvalPolicy,
+      approvalsReviewer: params.policy.approvalsReviewer ?? "user",
       sandbox: params.policy.sandbox,
       excludeTurns: true,
       ...(params.model ? { model: params.model } : {}),
@@ -231,6 +235,7 @@ export class CodexAppServer {
       threadId: params.threadId,
       input: params.input,
       approvalPolicy: params.policy.approvalPolicy,
+      approvalsReviewer: params.policy.approvalsReviewer ?? "user",
       sandboxPolicy: params.policy.sandboxPolicy,
       ...(params.model ? { model: params.model } : {}),
       ...(params.serviceTier !== undefined ? { serviceTier: params.serviceTier } : {}),

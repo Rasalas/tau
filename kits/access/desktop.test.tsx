@@ -59,6 +59,8 @@ describe("Access Kit desktop extension", () => {
     expect(ask.textContent).toContain("asks every time");
     expect(ask).toHaveProperty("disabled", true);
     expect(ask.getAttribute("data-tooltip")).toContain("cannot stop for an approval");
+    // Most runtimes ask at auto, so it needs approvals too.
+    expect(screen.getByRole("radio", { name: /^Auto/u })).toHaveProperty("disabled", true);
     fireEvent.click(screen.getByRole("radio", { name: /^Read only/u }));
     expect(preferences.value(ACCESS_HOST_EXTENSION_ID, "level")).toBe("read-only");
     fireEvent.click(screen.getByRole("button", { name: "Details in Settings → Runtimes" }));
@@ -78,6 +80,8 @@ describe("Access Kit desktop extension", () => {
     expect(opened).toHaveBeenCalledOnce();
     act(() => { preferences.setValue(ACCESS_HOST_EXTENSION_ID, "level", "ask"); });
     expect(screen.getByRole("button", { name: "Access: Ask before edits" })).toBeTruthy();
+    act(() => { preferences.setValue(ACCESS_HOST_EXTENSION_ID, "level", "auto"); });
+    expect(screen.getByRole("button", { name: "Access: Auto review" })).toBeTruthy();
     act(() => { preferences.setValue(ACCESS_HOST_EXTENSION_ID, "level", "full"); });
     expect(screen.queryByLabelText(/^Access:/u)).toBeNull();
   });
@@ -85,7 +89,7 @@ describe("Access Kit desktop extension", () => {
   it("offers one palette command per level", () => {
     const { registry, preferences } = activate();
     const commands = registry.getCommands().filter((command) => command.id.startsWith("access."));
-    expect(commands.map((command) => command.label)).toEqual(["Access: read-only", "Access: ask before edits", "Access: full access"]);
+    expect(commands.map((command) => command.label)).toEqual(["Access: read-only", "Access: ask before edits", "Access: auto review", "Access: full access"]);
     const notify = vi.fn();
     void commands[1]?.run({ notify } as never);
     expect(preferences.value(ACCESS_HOST_EXTENSION_ID, "level")).toBe("ask");

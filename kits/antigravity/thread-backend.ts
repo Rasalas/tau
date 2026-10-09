@@ -253,7 +253,7 @@ export class AntigravityThreadRuntimeBackend extends AcpThreadBackend<Antigravit
   /** The access level as a session mode, applied when it changed. */
   private async applyLevel(session: AntigravitySessionLike): Promise<void> {
     const level = this.permissionLevel();
-    if (level === "ask" && !this.options.ask) throw new Error("Antigravity cannot ask for approvals on this host; choose read-only or full access.");
+    if ((level === "ask" || level === "auto") && !this.options.ask) throw new Error("Antigravity cannot ask for approvals on this host; choose read-only or full access.");
     if (this.appliedLevel === level) return;
     const mode = modeForLevel(level, session.modeOptions());
     if (mode) await session.setMode(mode);

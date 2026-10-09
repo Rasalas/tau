@@ -39,6 +39,9 @@ describe("Access Kit on Settings → Runtimes", () => {
     cleanup();
     renderSection("read-only");
     expect((await says())[1]).toEqual(["Edit files", "Never: an edit is blocked"]);
+    cleanup();
+    renderSection("auto");
+    expect((await says())[2]).toEqual(["Run commands", "Reviewed: the runtime's reviewer decides, or it asks"]);
   });
 
   it("changes the level here as the composer does: stored, and told to the host", async () => {

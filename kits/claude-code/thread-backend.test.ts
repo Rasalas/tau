@@ -727,7 +727,8 @@ describe("plan mode", () => {
     expect((await backend.transcript()).some((message) => message.text.includes("<proposed_plan>"))).toBe(true);
     await backend.capabilities.mode!.set("default");
     await backend.prompt({ text: "implement it", delivery: "prompt" });
-    expect(sessions[0]?.setPermissionMode).toHaveBeenCalledWith("auto");
+    // Leaving plan mode at full access moves the live session to bypass, which it was opened to allow.
+    expect(sessions[0]?.setPermissionMode).toHaveBeenCalledWith("bypassPermissions");
     expect((await store.get("tau-thread"))?.mode).toBeUndefined();
   });
 });

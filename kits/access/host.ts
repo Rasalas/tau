@@ -56,7 +56,7 @@ export function createAccessHostExtension(initialLevel: AccessLevel = DEFAULT_AC
       context.registerCommand("level", () => level, { access: "read" });
       context.registerCommand("set-level", (input) => {
         const requested = input && typeof input === "object" ? (input as { level?: unknown }).level : undefined;
-        if (!isAccessLevel(requested)) throw new Error("Access level must be read-only, ask or full.");
+        if (!isAccessLevel(requested)) throw new Error("Access level must be read-only, ask, auto or full.");
         generation++;
         apply(requested);
         return level;
@@ -66,7 +66,7 @@ export function createAccessHostExtension(initialLevel: AccessLevel = DEFAULT_AC
         if (typeof fields.threadId !== "string" || !fields.threadId) throw new Error('thread-level needs "threadId".');
         if (fields.level === null || fields.level === undefined) threadLevels.delete(fields.threadId);
         else if (isAccessLevel(fields.level)) threadLevels.set(fields.threadId, fields.level);
-        else throw new Error("Access level must be read-only, ask or full.");
+        else throw new Error("Access level must be read-only, ask, auto or full.");
         return strictestAccessLevel(level, threadLevels.get(fields.threadId));
       }, { callers: ACCESS_THREAD_LEVEL_CALLERS });
       context.registerCommand(ACCESS_THREAD_LEVEL_OF_COMMAND, (input) => {
