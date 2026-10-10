@@ -3,9 +3,9 @@ import { createReadStream } from "node:fs";
 import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { assertAllowedCloneSource, HostCommandError, tauHomeDir } from "tau/host-extension";
-import { branchBaseConfigKey } from "../workspace/agent-worktrees.js";
+import { branchBaseConfigKey, branchReviewTargetConfigKey } from "../workspace/agent-worktrees.js";
 import { gitMessage, receivingGitRunner, type GitRunner } from "./git.js";
-import { REPO_KEY, folderName, slugOf } from "./identity.js";
+import { REPO_KEY, folderName, readRepoIdentity, slugOf } from "./identity.js";
 import { DOWNLOAD_PIECE_BYTES, REMOTE_WORK_PROTOCOL, type PrepareResult, type RepoIdentity, type ResultAnswer, type TransferStepId, type TransferStepState } from "./protocol.js";
 
 /** The receiving machine's own folder for remote work: mirrors, worktrees, outgoing bundles. */
@@ -28,6 +28,8 @@ export interface ReceivedWorktree {
   device?: string;
   createdAt: number;
   workspaceId?: string;
+  /** Existing admitted target repository; absent for a managed bare mirror. */
+  repository?: string;
 }
 
 export type StepReport = (id: TransferStepId, state: TransferStepState, detail?: string) => void;
@@ -158,7 +160,15 @@ export class MirrorStore {
    * one. Answers the commits its refs point at, so the bundle can leave out
    * everything they reach.
    */
-  prepare(repo: RepoIdentity, step: StepReport): Promise<PrepareResult & { detail: string }> {
+  prepare(repo: RepoIdentity, step: StepReport, repository?: string): Promise<PrepareResult & { detail: string }> {
+    if (repository) return this.serial(repo.key, async () => {
+      const identity = await readRepoIdentity(repository, this.git);
+      if (identity.key !== repo.key) throw new HostCommandError("The selected target checkout belongs to another project.");
+      const head = (await this.git(repository, ["rev-parse", "HEAD"])).trim();
+      const refs = await this.git(repository, ["for-each-ref", "--format=%(objectname)", "refs/heads", "refs/remotes", "refs/tau/incoming", "refs/tau/transfer"]);
+      const tips = [...new Set([head, ...refs.trim().split("\n")])].filter((tip) => SHA.test(tip)).slice(0, MAX_TIPS);
+      return { protocol: REMOTE_WORK_PROTOCOL, tips, mirror: "kept", reusedCheckout: true, detail: "Using the target's existing repository" };
+    });
     const mirror = this.mirrorPath(repo.key);
     return this.serial(repo.key, async () => {
       await mkdir(this.noHooksDir, { recursive: true });
@@ -211,12 +221,13 @@ export class MirrorStore {
    * it has when the bundle was not needed — and checks it out on a branch of
    * its own. The bundle is verified before a single object is fetched.
    */
-  receive(input: { transfer: string; repo: RepoIdentity; base: string; bundle?: string; device?: string; name?: string; from?: string }, step: StepReport): Promise<ReceivedWorktree> {
+  receive(input: { transfer: string; repo: RepoIdentity; base: string; bundle?: string; device?: string; name?: string; from?: string; repository?: string }, step: StepReport): Promise<ReceivedWorktree> {
     const { transfer, repo, base } = input;
     if (!TRANSFER_ID.test(transfer) || !SHA.test(base)) throw new HostCommandError("A transfer needs its id and the commit it carries.");
-    const mirror = this.mirrorPath(repo.key);
+    const mirror = input.repository ?? this.mirrorPath(repo.key);
     return this.serial(repo.key, async () => {
-      if (!await exists(join(mirror, "HEAD"))) throw new HostCommandError("This machine has no mirror of the project yet; prepare it first.");
+      if (input.repository && (await readRepoIdentity(input.repository, this.git)).key !== repo.key) throw new HostCommandError("The selected target checkout belongs to another project.");
+      if (!input.repository && !await exists(join(mirror, "HEAD"))) throw new HostCommandError("This machine has no mirror of the project yet; prepare it first.");
       if ((await this.load()).some((entry) => entry.transfer === transfer)) throw new HostCommandError(`Transfer ${transfer} arrived here already.`);
       step("unpack", "running", input.bundle ? "Checking the bundle" : "Looking for the commit");
       if (input.bundle) {
@@ -241,10 +252,15 @@ export class MirrorStore {
       await mkdir(join(worktree, ".."), { recursive: true });
       await this.git(mirror, ["worktree", "add", "--quiet", "--no-track", "-b", branch, worktree, base], { timeoutMs: 30 * 60_000 });
       await this.git(mirror, ["config", branchBaseConfigKey(branch), base]);
+      if (input.repository) {
+        const target = (await this.git(mirror, ["symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => "")).trim();
+        if (target) await this.git(mirror, ["config", branchReviewTargetConfigKey(branch), target]);
+      }
       step("worktree", "done", worktree);
       const entry: ReceivedWorktree = {
         transfer, key: repo.key, name: repo.name, worktree, branch, base, createdAt: (this.options.now ?? Date.now)(),
         ...(input.device ? { device: input.device } : {}),
+        ...(input.repository ? { repository: input.repository } : {}),
       };
       (await this.load()).push(entry);
       await this.save();
@@ -270,7 +286,7 @@ export class MirrorStore {
    */
   async result(transfer: string, device?: string): Promise<ResultAnswer> {
     const entry = await this.get(transfer, device);
-    const mirror = this.mirrorPath(entry.key);
+    const mirror = entry.repository ?? this.mirrorPath(entry.key);
     return this.serial(entry.key, async () => {
       const { worktree, base } = entry;
       if (!await exists(worktree)) throw new HostCommandError(`The worktree of transfer ${transfer} is gone from this machine.`);
@@ -315,7 +331,7 @@ export class MirrorStore {
   /** Removes a transfer's worktree, its branch, its refs and its bundle; the mirror stays for the next one. */
   async remove(transfer: string, device?: string): Promise<void> {
     const entry = await this.get(transfer, device);
-    const mirror = this.mirrorPath(entry.key);
+    const mirror = entry.repository ?? this.mirrorPath(entry.key);
     await this.serial(entry.key, async () => {
       if (await exists(entry.worktree)) await this.git(mirror, ["worktree", "remove", "--force", "--force", entry.worktree]).catch(() => "");
       await rm(entry.worktree, { recursive: true, force: true });

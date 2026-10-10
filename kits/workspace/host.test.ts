@@ -8,6 +8,7 @@ import type { HostExtensionServices, HostThread, HostTurnObserver } from "tau/ho
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { WORKSPACE_HEAD_TOPIC, createWorkspaceHostClient } from "./protocol.js";
 import { createWorkspaceHostExtension } from "./host.js";
+import { createRemoteWorkHostExtension } from "../remote-work/host.js";
 
 const directories: string[] = [];
 
@@ -327,23 +328,34 @@ describe("Workspace Kit host extension", () => {
     await expect(kit.openInEditor("")).rejects.toThrow('Workspace command needs "editorId".');
   });
 
-  it("admits the worktree it creates, so the draft that moves there can ask about it at once", async () => {
+  it("admits its new worktree and copies selected local files before the thread starts", async () => {
     const cwd = await workspace();
     const worktrees = await workspace();
     const git = (...args: string[]) => execFileSync("git", ["-C", cwd, "-c", "user.name=Tau", "-c", "user.email=tau@example.invalid", ...args], { stdio: "ignore" });
     git("init", "-b", "main");
     await writeFile(join(cwd, "README.md"), "# fixture\n");
-    git("add", "README.md");
+    await writeFile(join(cwd, ".gitignore"), ".env\n");
+    await writeFile(join(cwd, ".env"), "TOKEN=local-fixture\n");
+    git("add", "README.md", ".gitignore");
     git("commit", "-m", "fixture");
     const admitWorkspace = vi.fn((path: string) => ({ workspaceId: `admitted_${path}`, displayPath: path }));
     vi.stubEnv("TAU_WORKTREES_DIR", worktrees);
     try {
-      const kit = await client(cwd, { admitWorkspace });
+      const registry = await activated(cwd, { admitWorkspace, stateDir: join(cwd, "state") });
+      await registry.activate(createRemoteWorkHostExtension({ root: join(cwd, "remote-work") }));
+      await registry.invoke("tau.remote-work", "set-ignored-files", { cwd, paths: [".env"] });
+      const kit = createWorkspaceHostClient((command, input) => registry.invoke("tau.workspace", command, input));
       const created = await kit.createWorktree("feature", { startFromOrigin: false });
       expect(admitWorkspace).toHaveBeenCalledWith(created.displayPath);
       expect(created.workspaceId).toBe(`admitted_${created.displayPath}`);
       expect(created.baseCommit).toBe(execFileSync("git", ["-C", cwd, "rev-parse", "HEAD"], { encoding: "utf8" }).trim());
       expect(created.displayPath.startsWith(worktrees)).toBe(true);
+      expect(await readFile(join(created.displayPath, ".env"), "utf8")).toBe("TOKEN=local-fixture\n");
+      expect(await readFile(join(cwd, ".env"), "utf8")).toBe("TOKEN=local-fixture\n");
+      await registry.deactivate("tau.remote-work");
+      // Disabling the optional kit must not disable ordinary Git worktrees.
+      const plain = await kit.createWorktree("without-remote-work", { startFromOrigin: false });
+      await expect(readFile(join(plain.displayPath, ".env"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       vi.unstubAllEnvs();
     }

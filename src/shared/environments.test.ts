@@ -111,6 +111,13 @@ describe("a machine's thread list", () => {
     expect(projects).toEqual([{ name: "b", lastOpenedAt: 2, workspaceId: "ws-b" }, { name: "a", lastOpenedAt: 1 }]);
   });
 
+  it("does not advertise a proxy thread's project as a checkout on this machine", () => {
+    const remote = { path: "/rex/api", workspaceId: "ws1_remote", name: "api", lastOpenedAt: 1 };
+    const local = { path: "/mini/site", workspaceId: "ws1_local", name: "site", lastOpenedAt: 2 };
+    expect(environmentProjects({ projects: [remote, local], sessions: [session("rex~s1", 1, { workspaceId: "ws1_remote", backendKind: "machine" })] })).toEqual([{ workspaceId: "ws1_local", name: "site", lastOpenedAt: 2 }]);
+    expect(environmentProjects({ projects: [remote], sessions: [session("s1", 1, { workspaceId: "ws1_remote" })] })).toEqual([{ workspaceId: "ws1_remote", name: "api", lastOpenedAt: 1 }]);
+  });
+
   it("carries project images as data for another device", () => {
     const icon = "data:image/svg+xml;base64,PHN2Zy8+";
     expect(environmentProjects({ sessions: [], projects: [{ path: "/remote/tau", name: "Tau", lastOpenedAt: 1, icon }] })[0]?.icon).toBe(icon);

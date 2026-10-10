@@ -109,14 +109,14 @@ export function createRunOnSource(environments: PlatformEnvironments, host?: Hos
     // The choice is made when a draft's first prompt creates its thread; a thread that exists stays here.
     const isDraft = active?.draftPending ?? false;
     const automatic = auto && offerAuto && isDraft;
-    const match = useProjectMatches(bringing?.identities ?? NO_IDENTITIES, list, active?.cwd);
+    const match = useProjectMatches(bringing?.identities ?? NO_IDENTITIES, list, active?.cwd, active?.workspaceId);
     const targets = list && offerAuto ? threadTargets(list, active?.cwd, match) : new Map<string, string | undefined>();
     const preview = useAutoPreview(host, automatic && targets.size > 0 ? chooseInput(targets, active?.cwd, active?.backendKind, active?.model) : undefined);
     const chosen = useSyncExternalStore(bringing?.choice.subscribe ?? noChoice, () => bringing?.choice.get());
     if (!list || !current || !actions || !unstarted) return undefined;
     // Only this computer's own page starts work elsewhere with its project; its host holds the agents' keys there.
     const canRunThere = bringing !== undefined && isDraft && current.local && !environments.shownElsewhere;
-    const canBring = canRunThere && bringing.identities.movable(active?.cwd);
+    const canBring = canRunThere && bringing.identities.movable(active?.cwd, active?.workspaceId);
     const hasAgents = (machine: UiEnvironment) => agentView?.machines?.some((entry) => entry.id === machine.id && entry.status === "connected" && !entry.readOnly) ?? false;
     const checkingAgents = canRunThere && host !== undefined && agentView === undefined;
     const bringTo = canRunThere && chosen && chosen.projectPath === active?.cwd && !automatic ? list.environments.find((machine) => machine.id === chosen.machine) : undefined;

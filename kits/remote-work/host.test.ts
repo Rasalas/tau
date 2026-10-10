@@ -5,12 +5,13 @@ import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:f
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostBlob, HostBlobServices, HostExtensionServices, HostMachineServices, HostReadiness } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 // Test only: the setup runs through the real Project Scripts kit, as it does in the app.
 import { createProjectScriptsHostExtension } from "../project-scripts/host.js";
 import { createRemoteWorkHostExtension } from "./host.js";
+import { ProjectCopies, downloadProject } from "./project-copies.js";
 import { REMOTE_WORK_EXTENSION_ID as ID, TRANSFER_EVENT, type IgnoredFilesView, type RepoTransfer, type TransferPreview } from "./protocol.js";
 
 const made: string[] = [];
@@ -145,10 +146,16 @@ async function twoHosts(options: { projectFile?: Record<string, unknown>; projec
     },
   };
   const aEvents: PublishedKitEvent[] = [];
-  const a = await activateHostKit(createRemoteWorkHostExtension({ pollMs: 5 }), { machines, stateDir: join(dir, "a-state") }, (event) => aEvents.push(event));
+  const aServices: Partial<HostExtensionServices> = {
+    machines, stateDir: join(dir, "a-state"),
+    admitWorkspace: (path) => ({ workspaceId: `ws1_local_${path}`, displayPath: path }),
+    rememberProjectName: () => undefined,
+    noteSubprocess: () => undefined,
+  };
+  const a = await activateHostKit(createRemoteWorkHostExtension({ pollMs: 5, root: join(dir, "a-home", "remote-work"), env: rexEnv }), aServices, (event) => aEvents.push(event));
   const call = <T>(command: string, input?: unknown) => a.invoke(ID, command, input) as Promise<T>;
   const rexGit = (cwd: string, ...args: string[]) => execFileSync("git", ["-c", "core.hooksPath=/dev/null", ...args], { cwd, stdio: "pipe" }).toString().trim();
-  return { dir, repo, rex, a, call, aEvents, rexEvents, rexRoot, rexEnv, rexServices, rexGit, hookMark, blobs, paired, machines, projectNames };
+  return { dir, repo, rex, a, call, aEvents, rexEvents, rexRoot, rexEnv, rexServices, rexGit, hookMark, blobs, paired, machines, projectNames, aServices };
 }
 
 describe("Remote Work Kit: which repository a project is", () => {
@@ -170,6 +177,123 @@ describe("Remote Work Kit: which repository a project is", () => {
     expect(answer["ws-other"]).toBe(answer["ws-work"]);
     expect(answer["ws-plain"]).toBeNull();
     expect(answer["ws-unknown"]).toBeNull();
+  });
+});
+
+describe("Remote Work Kit: a project that only another machine has", () => {
+  it("keeps exported bundles private to their device, validates chunks and cleans up", async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), "tau-project-copies-")));
+    made.push(dir);
+    const repo = await fixture(dir);
+    const copies = new ProjectCopies(join(dir, "exports"));
+    const snapshot = await copies.capture(repo.work, [".env"], "device-a");
+    expect(snapshot).not.toHaveProperty("files");
+    expect(copies.files(snapshot.id, "device-a").map((file) => file.path)).toEqual([".env"]);
+    expect(() => copies.files(snapshot.id, "device-b")).toThrow("no project copy");
+    await expect(copies.read(snapshot.id, 0, 10, "device-b")).rejects.toThrow("no project copy");
+    await expect(copies.release(snapshot.id, "device-b")).rejects.toThrow("no project copy");
+    await expect(copies.read(snapshot.id, -1, 10, "device-a")).rejects.toThrow("range");
+    await expect(copies.read(snapshot.id, 0, 8 * 1024 * 1024, "device-a")).rejects.toThrow("range");
+    const machines = { call: vi.fn(async (_machine, _kit, _command, input: { offset: number; length: number }) => ({ data: await copies.read(snapshot.id, input.offset, input.length, "device-a") })) } as unknown as HostMachineServices;
+    const bundled = { ...await copies.bundle(snapshot.id, [], "device-a"), id: snapshot.id };
+    await downloadProject(machines, "source", bundled, join(dir, "download.bundle"));
+    await expect(downloadProject(machines, "source", { ...bundled, sha256: "0".repeat(64) }, join(dir, "bad.bundle"))).rejects.toThrow("checksum");
+    await copies.release(snapshot.id, "device-a");
+    await expect(copies.read(snapshot.id, 0, 10, "device-a")).rejects.toThrow("no project copy");
+    expect(repo.git("for-each-ref", "--format=%(refname)", "refs/tau/transfer")).toBe("");
+    expect(existsSync(join(dir, "exports", snapshot.id))).toBe(false);
+  });
+
+  it("reuses an existing target repository, creates its own worktree and prefers its local env", async () => {
+    const hosts = await twoHosts();
+    const { repo, rexServices, machines, dir } = hosts;
+    const target = join(dir, "target");
+    execFileSync("git", ["clone", "-q", pathToFileURL(repo.origin).href, target]);
+    await put(target, ".env", "SECRET=target-local\n");
+    const targetBefore = hosts.rexGit(target, "status", "--porcelain");
+    const source = await activateHostKit(createRemoteWorkHostExtension({ root: hosts.rexRoot, env: hosts.rexEnv }), {
+      ...rexServices, knownWorkspacePath: async () => repo.work,
+    });
+    await source.invoke(ID, "set-ignored-files", { cwd: repo.work, paths: [".env"] });
+    machines.call = async (_machine, extension, command, input) => source.invoke(extension, command, input, hosts.paired);
+    // Admit the target on the receiving host, without admitting the foreign source id.
+    hosts.aServices.knownWorkspacePath = async (workspace) => {
+      if (workspace !== "ws1_target") throw new Error("unknown workspace");
+      return target;
+    };
+    const receiving = await activateHostKit(createRemoteWorkHostExtension({ pollMs: 5, root: join(dir, "target-home"), env: hosts.rexEnv }), hosts.aServices);
+    const copied = await receiving.invoke(ID, "copy-project", { machine: "rex-id", workspace: "ws1_source", targetWorkspace: "ws1_target" }) as { displayPath: string };
+    expect(copied.displayPath).not.toBe(target);
+    expect(hosts.rexGit(copied.displayPath, "rev-parse", "--git-common-dir")).toBe(join(target, ".git"));
+    expect(await readFile(join(copied.displayPath, ".env"), "utf8")).toBe("SECRET=target-local\n");
+    expect(await readFile(join(copied.displayPath, "notes/draft.md"), "utf8")).toBe("An untracked draft.\n");
+    expect(hosts.rexGit(target, "status", "--porcelain")).toBe(targetBefore);
+    expect(await readFile(join(target, ".env"), "utf8")).toBe("SECRET=target-local\n");
+    await receiving.deactivate(ID);
+    await source.deactivate(ID);
+  });
+
+  it("relays a peer's project directly into a third host's existing repository without uploading shared commits", async () => {
+    const hosts = await twoHosts();
+    const { repo, dir, rexServices, machines } = hosts;
+    repo.git("reset", "--hard", "HEAD");
+    repo.git("clean", "-fd");
+    const target = join(dir, "third-checkout");
+    execFileSync("git", ["clone", "-q", pathToFileURL(repo.origin).href, target]);
+    await put(target, ".env", "SECRET=third-local\n");
+    const source = await activateHostKit(createRemoteWorkHostExtension({ root: join(dir, "source-root"), env: hosts.rexEnv }), {
+      ...rexServices, stateDir: join(dir, "source-state"), knownWorkspacePath: async () => repo.work,
+    });
+    await source.invoke(ID, "set-ignored-files", { cwd: repo.work, paths: [".env"] });
+    const third = await activateHostKit(createRemoteWorkHostExtension({ root: join(dir, "third-root"), env: hosts.rexEnv }), {
+      ...rexServices, stateDir: join(dir, "third-state"), knownWorkspacePath: async () => target,
+    });
+    machines.call = async (peer, extension, command, input) => (peer === "source-id" ? source : third).invoke(extension, command, input, hosts.paired);
+    const upload = vi.spyOn(machines, "upload");
+    const copied = await hosts.call<{ displayPath: string }>("copy-project", { machine: "source-id", workspace: "ws1_source", targetMachine: "rex-id", targetWorkspace: "ws1_third" });
+    expect(copied.displayPath.startsWith(join(dir, "third-root"))).toBe(true);
+    expect(hosts.rexGit(copied.displayPath, "rev-parse", "--git-common-dir")).toBe(join(target, ".git"));
+    expect(await readFile(join(copied.displayPath, ".env"), "utf8")).toBe("SECRET=third-local\n");
+    expect(upload).not.toHaveBeenCalled();
+    expect(await readFile(join(repo.work, ".env"), "utf8")).toBe("SECRET=local\n");
+    await source.deactivate(ID);
+    await third.deactivate(ID);
+  });
+
+  it("does not send a bundle when the receiver already has the source state", async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), "tau-project-delta-")));
+    made.push(dir);
+    const repo = await fixture(dir);
+    repo.git("reset", "--hard", "HEAD");
+    repo.git("clean", "-fd");
+    const copies = new ProjectCopies(join(dir, "exports"));
+    const snapshot = await copies.capture(repo.work, []);
+    expect(await copies.bundle(snapshot.id, [repo.head])).toEqual({ size: 0 });
+    await copies.close();
+  });
+
+  it("copies the remote workspace here without a reverse connection or changing its checkout", async () => {
+    const hosts = await twoHosts();
+    const { repo, rex, call, rexServices, machines } = hosts;
+    // Only rex knows this workspace. The relaying host must not interpret its path.
+    rexServices.knownWorkspacePath = async (workspace) => {
+      if (workspace !== "ws1_source") throw new Error("This host does not know that workspace.");
+      return repo.work;
+    };
+    // Services were captured on activation; use a fresh source registry with its own identity.
+    const source = await activateHostKit(createRemoteWorkHostExtension({ root: hosts.rexRoot, env: hosts.rexEnv }), rexServices);
+    machines.call = async (_machine, extension, command, input) => source.invoke(extension, command, input, hosts.paired);
+    const before = repo.git("status", "--porcelain");
+    const copied = await call<{ workspaceId: string; displayPath: string }>("copy-project", { machine: "rex-id", workspace: "ws1_source" });
+    expect(copied.workspaceId).toEqual(expect.any(String));
+    expect(copied.displayPath).not.toBe(repo.work);
+    expect(await readFile(join(copied.displayPath, "README.md"), "utf8")).toContain("An uncommitted line.");
+    expect(await readFile(join(copied.displayPath, "notes/draft.md"), "utf8")).toBe("An untracked draft.\n");
+    expect(existsSync(join(copied.displayPath, ".env"))).toBe(false);
+    expect(repo.git("status", "--porcelain")).toBe(before);
+    expect(repo.git("for-each-ref", "--format=%(refname)", "refs/tau/transfer")).toBe("");
+    await source.deactivate(ID);
+    await rex.deactivate(ID);
   });
 });
 

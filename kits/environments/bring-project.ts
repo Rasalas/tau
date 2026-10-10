@@ -16,6 +16,10 @@ const REMOTE_WORK_SETTINGS_PAGE = "remote-work.settings";
  */
 export type ProjectMatch = { found: true; workspaceId?: string } | { found: false };
 
+export function projectMachine(list: UiEnvironments | undefined, workspaceId: string | undefined): UiEnvironment | undefined {
+  return workspaceId ? list?.environments.find((machine) => machine.projects.some((project) => project.workspaceId === workspaceId)) : undefined;
+}
+
 function folderName(path: string): string {
   return path.replace(/[\\/]+$/u, "").split(/[\\/]/u).pop() ?? path;
 }
@@ -25,7 +29,8 @@ function folderName(path: string): string {
  * and `keys`, that machine's of its projects); a folder of the same name only
  * where either side could not say, as before identities.
  */
-export function matchProject(machine: UiEnvironment, projectPath: string | undefined, key: string | null | undefined, keys: Readonly<Record<string, string | null>> | undefined): ProjectMatch {
+export function matchProject(machine: UiEnvironment, projectPath: string | undefined, key: string | null | undefined, keys: Readonly<Record<string, string | null>> | undefined, workspaceId?: string): ProjectMatch {
+  if (workspaceId && machine.projects.some((project) => project.workspaceId === workspaceId)) return { found: true, workspaceId };
   if (key && keys) {
     const project = machine.projects.find((entry) => entry.workspaceId !== undefined && keys[entry.workspaceId] === key);
     return project ? { found: true, ...(project.workspaceId ? { workspaceId: project.workspaceId } : {}) } : { found: false };
@@ -50,10 +55,13 @@ export function createProjectIdentities(environments: PlatformEnvironments, remo
   const changed = () => { version += 1; listeners.forEach((listener) => listener()); };
   const asked = new Set<string>();
 
-  const askHere = (projectPath: string) => {
+  const askHere = (projectPath: string, source?: UiEnvironment) => {
     if (!remoteWork || here.has(projectPath) || asked.has(`here:${projectPath}`)) return;
     asked.add(`here:${projectPath}`);
-    remoteWork.invoke(PROJECT_IDENTITIES_COMMAND, { workspaces: [projectPath] }).then(
+    const read = source && !source.local && environments.readExtension
+      ? environments.readExtension(source.id, REMOTE_WORK_EXTENSION_ID, PROJECT_IDENTITIES_COMMAND, { workspaces: [projectPath] })
+      : remoteWork.invoke(PROJECT_IDENTITIES_COMMAND, { workspaces: [projectPath] });
+    read.then(
       (answer) => { here.set(projectPath, (answer as Record<string, string | null> | undefined)?.[projectPath] ?? null); },
       () => { here.set(projectPath, null); },
     ).finally(() => { asked.delete(`here:${projectPath}`); changed(); });
@@ -61,10 +69,11 @@ export function createProjectIdentities(environments: PlatformEnvironments, remo
   const askThere = (machine: UiEnvironment) => {
     const read = environments.readExtension;
     const current = signature(machine);
-    if (!read || machine.local || machine.status !== "connected" || there.get(machine.id)?.signature === current || asked.has(machine.id)) return;
+    if ((!read && !machine.local) || (!remoteWork && machine.local) || machine.status !== "connected" || there.get(machine.id)?.signature === current || asked.has(machine.id)) return;
     const workspaces = machine.projects.flatMap((project) => project.workspaceId ? [project.workspaceId] : []);
     asked.add(machine.id);
-    read(machine.id, REMOTE_WORK_EXTENSION_ID, PROJECT_IDENTITIES_COMMAND, { workspaces }).then(
+    const response = machine.local ? remoteWork!.invoke(PROJECT_IDENTITIES_COMMAND, { workspaces }) : read!(machine.id, REMOTE_WORK_EXTENSION_ID, PROJECT_IDENTITIES_COMMAND, { workspaces });
+    response.then(
       (answer) => { there.set(machine.id, { signature: current, keys: (answer ?? {}) as Record<string, string | null> }); },
       () => { there.set(machine.id, { signature: current }); },
     ).finally(() => { asked.delete(machine.id); changed(); });
@@ -74,14 +83,16 @@ export function createProjectIdentities(environments: PlatformEnvironments, remo
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     getVersion: () => version,
     /** Asks what is not known yet; the answers come with a change. */
-    ask(list: UiEnvironments, projectPath: string | undefined) {
-      if (projectPath) askHere(projectPath);
+    ask(list: UiEnvironments, projectPath: string | undefined, workspaceId?: string) {
+      const workspace = workspaceId ?? projectPath;
+      if (workspace) askHere(workspace, projectMachine(list, workspaceId));
       for (const machine of list.environments) askThere(machine);
     },
     /** Whether the project here is a repository with a commit, as Remote Work Kit reads it: what taking it along needs. */
-    movable: (projectPath: string | undefined): boolean => Boolean(projectPath && here.get(projectPath)),
-    match(machine: UiEnvironment, projectPath: string | undefined): ProjectMatch {
-      return matchProject(machine, projectPath, projectPath ? here.get(projectPath) : undefined, there.get(machine.id)?.keys);
+    movable: (projectPath: string | undefined, workspaceId?: string): boolean => Boolean((workspaceId ?? projectPath) && here.get((workspaceId ?? projectPath)!)),
+    match(machine: UiEnvironment, projectPath: string | undefined, workspaceId?: string): ProjectMatch {
+      const workspace = workspaceId ?? projectPath;
+      return matchProject(machine, projectPath, workspace ? here.get(workspace) : undefined, there.get(machine.id)?.keys, workspaceId);
     },
   };
 }
@@ -89,10 +100,10 @@ export function createProjectIdentities(environments: PlatformEnvironments, remo
 export type ProjectIdentities = ReturnType<typeof createProjectIdentities>;
 
 /** Matches for the draft's project, asked while it is on screen. */
-export function useProjectMatches(identities: ProjectIdentities, list: UiEnvironments | undefined, projectPath: string | undefined) {
+export function useProjectMatches(identities: ProjectIdentities, list: UiEnvironments | undefined, projectPath: string | undefined, workspaceId?: string) {
   useSyncExternalStore(identities.subscribe, identities.getVersion);
-  useEffect(() => { if (list) identities.ask(list, projectPath); }, [identities, list, projectPath]);
-  return (machine: UiEnvironment) => identities.match(machine, projectPath);
+  useEffect(() => { if (list) identities.ask(list, projectPath, workspaceId); }, [identities, list, projectPath, workspaceId]);
+  return (machine: UiEnvironment) => identities.match(machine, projectPath, workspaceId);
 }
 
 /** A draft's chosen home machine and its checkout, if the project is already there. */
@@ -147,7 +158,7 @@ interface ThreadLink {
  * window stays here; the thread joins the list from that machine, and a
  * notice says when it runs there or why it could not.
  */
-export function createBringProjectHook(choice: BringChoiceStore, remoteWork: HostExtensionClient, environments: PlatformEnvironments, host?: HostExtensionClient): PromptHookContribution {
+export function createBringProjectHook(choice: BringChoiceStore, remoteWork: HostExtensionClient, environments: PlatformEnvironments, host?: HostExtensionClient, identities?: ProjectIdentities): PromptHookContribution {
   const follow = (link: ThreadLink, projectName: string, actions: WorkbenchActions) => {
     let done = false;
     const stop = remoteWork.onEvent(THREAD_LINK_EVENT, (payload) => {
@@ -177,13 +188,40 @@ export function createBringProjectHook(choice: BringChoiceStore, remoteWork: Hos
     id: "environments.run-on-machine",
     async claimNewThread(event: NewThreadClaimEvent, actions: WorkbenchActions) {
       const chosen = choice.get();
-      if (!chosen || chosen.projectPath !== event.projectPath) return false;
-      if (event.attachments > 0 && event.promptAttachments?.length !== event.attachments) throw new Error("The attachment content is missing. Please attach the files again.");
+      const list = event.workspaceId ? environments.getSnapshot() : undefined;
+      const source = projectMachine(list, event.workspaceId);
+      const current = list?.environments.find((machine) => machine.id === list.shown);
+      const selected = chosen?.projectPath === event.projectPath ? chosen : undefined;
+      if ((selected || source && !source.local) && event.attachments > 0 && event.promptAttachments?.length !== event.attachments) throw new Error("The attachment content is missing. Please attach the files again.");
+      if (host && source && !source.local && current?.local && !environments.shownElsewhere) {
+        const target = selected?.machine ?? current.id;
+        const localMatch = identities?.match(current, event.projectPath, event.workspaceId);
+        const targetWorkspace = selected?.workspaceId ?? (!selected && localMatch?.found ? localMatch.workspaceId : undefined);
+        event.preparing(`Preparing ${folderName(event.projectPath)} on ${selected?.machineName ?? current.name}…`);
+        const answer = await host.invoke("start-project", {
+          sourceMachine: source.id, workspaceId: event.workspaceId, machine: target,
+          ...(targetWorkspace ? { targetWorkspaceId: targetWorkspace } : {}),
+          prompt: event.prompt, backend: event.runtime,
+          ...(event.model ? { model: event.model } : {}),
+          ...(event.thinkingLevel ? { thinkingLevel: event.thinkingLevel } : {}),
+          ...(event.mode ? { mode: event.mode } : {}),
+          ...(event.promptAttachments?.length ? { attachments: event.promptAttachments } : {}),
+        }) as { sessionId: string; path: string; local: boolean };
+        choice.set(undefined);
+        if (answer.local) await actions.switchSession(answer.path);
+        else {
+          const id = `${target}~${answer.sessionId}`;
+          if (await choice.waitForThread(id)) await actions.switchSession(`tau-thread:machine:${id}`);
+          else actions.toast?.({ type: "info", title: `Started on ${selected?.machineName ?? source.name}; it shows in the list in a moment.` });
+        }
+        return true;
+      }
+      if (!chosen || !selected) return false;
       const content = event.promptAttachments?.length ? { attachments: event.promptAttachments } : {};
       if (host) {
         event.preparing(`Starting on ${chosen.machineName}…`);
         const answer = await host.invoke("start-there", {
-          machine: chosen.machine, ...(chosen.workspaceId ? { workspaceId: chosen.workspaceId } : { projectPath: event.projectPath }), prompt: event.prompt, backend: event.runtime,
+          machine: chosen.machine, ...(chosen.workspaceId ? { workspaceId: chosen.workspaceId, sourceWorkspace: event.workspaceId ?? event.projectPath } : { projectPath: event.projectPath }), prompt: event.prompt, backend: event.runtime,
           ...(event.model ? { model: event.model } : {}),
           ...(event.thinkingLevel ? { thinkingLevel: event.thinkingLevel } : {}),
           ...(event.mode ? { mode: event.mode } : {}),

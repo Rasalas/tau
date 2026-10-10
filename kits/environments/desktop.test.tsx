@@ -9,7 +9,7 @@ import { ARRIVAL_KEY, createRailSection, environmentsExtension } from "./desktop
 import { followArrival, otherMachines, readPendingArrival, statusText, unavailableReason } from "./machines.js";
 import { agentThreadsSource, createMachineCardRow, createMachineThreads, createShownMachine } from "./rail.js";
 import { createRunOnSource, runOnDetail, RunOnDefaultRow, type RunOnBringing } from "./run-on.js";
-import { createBringChoice, createBringProjectHook, createProjectIdentities, matchProject } from "./bring-project.js";
+import { createBringChoice, createBringProjectHook, createProjectIdentities, matchProject, REMOTE_WORK_EXTENSION_ID } from "./bring-project.js";
 import { createMachinesPage } from "./settings.js";
 import { machineKitClient } from "./machine-kit.js";
 import { MachineSetup, setupRows, stateText } from "./setup.js";
@@ -504,6 +504,28 @@ describe("Run on: a machine without the project", () => {
     return { environments, bringing, remoteWork, readExtension, host };
   }
 
+  it("reads a remote draft's identity on its source and copies it to the selected local home before starting", async () => {
+    const { environments, bringing, remoteWork, readExtension, host } = bringingFor({ "ws-tau": "key-tau" });
+    bringing.identities.ask(environments.getSnapshot()!, "/rex/tau", "ws-tau");
+    await waitFor(() => expect(bringing.identities.movable("/rex/tau", "ws-tau")).toBe(true));
+    expect(readExtension).toHaveBeenCalledWith("rex", REMOTE_WORK_EXTENSION_ID, "project-identities", { workspaces: ["ws-tau"] });
+    expect(remoteWork.invoke).not.toHaveBeenCalledWith("project-identities", { workspaces: ["/rex/tau"] });
+    expect(bringing.identities.match(rex, "/rex/tau", "ws-tau")).toEqual({ found: true, workspaceId: "ws-tau" });
+    vi.mocked(host.invoke).mockResolvedValue({ sessionId: "t-local", path: "/sessions/t-local", local: true });
+    const actions = fakeActions({ switchSession: vi.fn(async () => true) });
+    const event = { prompt: "Fix it", projectPath: "/rex/tau", workspaceId: "ws-tau", preparing: vi.fn(), alternate: false, runtime: "pi", attachments: 0 };
+    await expect(createBringProjectHook(bringing.choice, remoteWork, environments, host).claimNewThread!(event, actions)).resolves.toBe(true);
+    expect(host.invoke).toHaveBeenCalledWith("start-project", { sourceMachine: "rex", workspaceId: "ws-tau", machine: "laptop", prompt: "Fix it", backend: "pi" });
+    expect(actions.switchSession).toHaveBeenCalledWith("/sessions/t-local");
+    expect(environments.open).not.toHaveBeenCalled();
+    const failed = new Error("rex is offline");
+    vi.mocked(host.invoke).mockRejectedValueOnce(failed);
+    bringing.choice.set({ machine: "laptop", machineName: "laptop", projectPath: "/rex/tau" });
+    await expect(createBringProjectHook(bringing.choice, remoteWork, environments, host).claimNewThread!(event, actions)).rejects.toBe(failed);
+    expect(bringing.choice.get()?.machine).toBe("laptop");
+    expect(actions.switchSession).toHaveBeenCalledOnce();
+  });
+
   it("keeps the draft here and says the project goes along, then names that machine on the pill", async () => {
     const { environments, bringing, host } = bringingFor({ "ws-api": "key-api", "ws-tau": "key-other" });
     const Control = createRunOnControl(environments, host, bringing, () => "ask");
@@ -561,7 +583,7 @@ describe("Run on: a machine without the project", () => {
     const event = { prompt: "Fix it", projectPath: tauHere, preparing: vi.fn(), alternate: false, runtime: "codex", attachments: 0, thinkingLevel: "high", mode: "plan" };
     const hook = createBringProjectHook(bringing.choice, remoteWork, environments, host);
     const pending = hook.claimNewThread!(event, actions);
-    await waitFor(() => expect(host.invoke).toHaveBeenCalledWith("start-there", { machine: "rex", workspaceId: "ws-tau", prompt: "Fix it", backend: "codex", thinkingLevel: "high", mode: "plan" }));
+    await waitFor(() => expect(host.invoke).toHaveBeenCalledWith("start-there", { machine: "rex", workspaceId: "ws-tau", sourceWorkspace: tauHere, prompt: "Fix it", backend: "codex", thinkingLevel: "high", mode: "plan" }));
     expect(actions.switchSession).not.toHaveBeenCalled();
     act(() => threads.applyThreadIndex({ projects: [], sessions: [{ id: "rex~t9", path: "tau-thread:machine:rex~t9", title: "Fix it", projectPath: "/rex/tau", projectName: "tau", messageCount: 1, modifiedAt: 1, backendKind: "machine" }] }));
     await expect(pending).resolves.toBe(true);
@@ -1062,7 +1084,7 @@ describe("Run on: Automatic", () => {
     const actions = fakeActions({ switchSession: vi.fn(async () => true) });
     const attachments = [{ kind: "image" as const, name: "shot.png", mimeType: "image/png", data: "AA==", size: 1 }];
     expect(await createAutoRunOnHook(environments, host, undefined, { choice, hook }).claimNewThread!(claim({ attachments: 1, promptAttachments: attachments }), actions)).toBe(true);
-    expect(host.invoke).toHaveBeenCalledWith("start-there", { machine: "studio", workspaceId: "ws-api", prompt: "Fix the parser", backend: "pi", model: luna, attachments });
+    expect(host.invoke).toHaveBeenCalledWith("start-there", { machine: "studio", workspaceId: "ws-api", sourceWorkspace: "ws-here", prompt: "Fix the parser", backend: "pi", model: luna, attachments });
     expect(actions.switchSession).toHaveBeenCalledWith("tau-thread:machine:studio~t9");
     expect(environments.open).not.toHaveBeenCalled();
     expect(remoteWork.invoke).not.toHaveBeenCalled();

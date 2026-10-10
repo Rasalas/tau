@@ -66,6 +66,8 @@ export interface SendRepoInput {
   name?: string;
   /** Ignored files that go along, relative to the checkout; the project's remembered choice without it. */
   ignored?: string[];
+  /** An admitted checkout on the target to reuse as the worktree's repository. */
+  targetWorkspace?: string;
 }
 
 export type RepoTransferState = "sending" | "ready" | "failed" | "discarded";
@@ -212,6 +214,8 @@ export interface PrepareResult {
   /** Commits the mirror there has at the tips of its refs; the bundle leaves out what they reach. */
   tips: string[];
   mirror: "cloned" | "fetched" | "empty" | "kept";
+  /** Confirms support for reusing an explicitly named target checkout. */
+  reusedCheckout?: boolean;
 }
 
 /** An ignored file on its way, inside the `receive` call itself. */

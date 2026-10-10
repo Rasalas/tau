@@ -145,8 +145,9 @@ export async function collectIgnoredFiles(root: string, paths: readonly string[]
  * Writes files a transfer carried into a new worktree. A path that would leave
  * it, reach into `.git`, or replace a file the bundle brought is refused.
  */
-export async function writeIgnoredFiles(worktree: string, files: readonly IgnoredFilePayload[]): Promise<{ written: number; refused: string[] }> {
+export async function writeIgnoredFiles(worktree: string, files: readonly IgnoredFilePayload[], options: { keepExisting?: boolean } = {}): Promise<{ written: number; refused: string[]; kept?: string[] }> {
   const refused: string[] = [];
+  const kept: string[] = [];
   let written = 0;
   let total = 0;
   const top = resolve(worktree);
@@ -160,7 +161,8 @@ export async function writeIgnoredFiles(worktree: string, files: readonly Ignore
       continue;
     }
     if (await lstat(target).then(() => true, () => false)) {
-      refused.push(path);
+      if (options.keepExisting) kept.push(path);
+      else refused.push(path);
       continue;
     }
     await mkdir(dirname(target), { recursive: true });
@@ -172,7 +174,16 @@ export async function writeIgnoredFiles(worktree: string, files: readonly Ignore
     await writeFile(target, data, { mode: file.mode === 0o755 ? 0o755 : 0o644, flag: "wx" });
     written += 1;
   }
-  return { written, refused };
+  return { written, refused, ...(options.keepExisting ? { kept } : {}) };
+}
+
+/** The target machine's selected files win; source files only fill missing paths. */
+export async function fillWorktreeFiles(worktree: string, preferred: readonly IgnoredFilePayload[], fallback: readonly IgnoredFilePayload[] = []) {
+  const files = new Map<string, IgnoredFilePayload>();
+  for (const file of [...fallback, ...preferred]) files.set(file.path, file);
+  const result = await writeIgnoredFiles(worktree, [...files.values()], { keepExisting: true });
+  if (result.refused.length) throw new HostCommandError(`The worktree refused files: ${result.refused.join(", ")}.`);
+  return result;
 }
 
 async function realParentInside(top: string, folder: string): Promise<boolean> {

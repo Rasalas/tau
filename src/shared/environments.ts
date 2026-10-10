@@ -305,7 +305,13 @@ export function environmentThreads(index: ThreadIndexSnapshot, running: Readonly
 }
 
 export function environmentProjects(index: ThreadIndexSnapshot): UiEnvironmentProject[] {
-  return [...index.projects]
+  return index.projects.filter((project) => {
+    const sessions = index.sessions.filter((session) => session.workspaceId === project.workspaceId);
+    // Proxy threads publish their home's project in the workbench index, but
+    // do not give this machine a checkout of it.
+    return !project.workspaceId || sessions.every((session) => session.backendKind !== "machine")
+      || sessions.some((session) => session.backendKind !== "machine");
+  })
     .sort((a, b) => b.lastOpenedAt - a.lastOpenedAt)
     .map((project) => {
       const entry: UiEnvironmentProject = { name: project.name, lastOpenedAt: project.lastOpenedAt };

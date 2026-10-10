@@ -127,7 +127,7 @@ export const environmentsExtension: DesktopExtension = {
     // A machine without the draft's project gets it from Remote Work Kit when the prompt is sent.
     const remoteWork = context.hostExtension(REMOTE_WORK_EXTENSION_ID);
     const bringing = { identities: createProjectIdentities(environments, remoteWork), choice: createBringChoice() };
-    const runOnHook = createBringProjectHook(bringing.choice, remoteWork, environments, context.host);
+    const runOnHook = createBringProjectHook(bringing.choice, remoteWork, environments, context.host, bringing.identities);
     context.registerPromptHook(createAutoRunOnHook(environments, context.host, bringing.identities, { choice: bringing.choice, hook: runOnHook }));
     context.registerPromptHook(runOnHook);
     const ArrivalRail = createRailSection(environments);

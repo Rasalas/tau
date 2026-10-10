@@ -104,7 +104,7 @@ export function createAutoRunOnHook(environments: PlatformEnvironments, host: Ho
     async claimNewThread(event: NewThreadClaimEvent, actions: WorkbenchActions) {
       const list = environments.getSnapshot();
       if (!autoRunOn.get() || !autoApplies(environments, list)) return false;
-      const targets = threadTargets(list, event.projectPath, identities && ((machine) => identities.match(machine, event.projectPath)));
+      const targets = threadTargets(list, event.projectPath, identities && ((machine) => identities.match(machine, event.projectPath, event.workspaceId)));
       if (targets.size === 0) return false;
       event.preparing("Choosing a machine…");
       let answer: ChooseMachineAnswer;

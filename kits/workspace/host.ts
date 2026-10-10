@@ -619,6 +619,12 @@ export function createWorkspaceHostExtension(): HostExtension {
             onStep: (stage) => step(stage),
           }, (path) => git.getWorkspaceInfo(path));
           const baseCommit = (await workspaceGit.runGitCommand(destination, ["rev-parse", "--verify", "HEAD"])).trim();
+          services.admitWorkspace(destination);
+          await context.invokeHostExtension("tau.remote-work", "worktree-files", { workspace: project, destination }).catch((error: unknown) => {
+            const code = (error as { code?: string }).code;
+            const inactive = error instanceof Error && /^Host extension .+ is not active/u.test(error.message);
+            if (code !== "unknown-extension" && code !== "unknown-command" && !inactive) throw error;
+          });
           await options.fill?.(destination);
           services.rememberProjectName(destination, await services.projectName(project));
           git.invalidate(project, ["branch", "status", "workspace"]);

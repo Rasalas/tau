@@ -194,7 +194,7 @@ export class RepoTransfers {
    * Follows an operation on the other machine to its end: its topic for each
    * step as it happens, and a poll that also catches up after a reconnect.
    */
-  private follow<Result>(machine: string, id: string, onSnapshot: (snapshot: OperationSnapshot) => void): Promise<Result> {
+  follow<Result>(machine: string, id: string, onSnapshot: (snapshot: OperationSnapshot) => void): Promise<Result> {
     const machines = this.machines();
     const pollMs = this.options.pollMs ?? 1000;
     const grace = this.options.offlineGraceMs ?? 120_000;
@@ -299,8 +299,9 @@ export class RepoTransfers {
         }
 
         await set("mirror", "running");
-        const prepareId = await this.start(machine.id, RECEIVING_COMMANDS.prepare, { protocol: REMOTE_WORK_PROTOCOL, transfer: transfer.id, repo: transfer.repo });
+        const prepareId = await this.start(machine.id, RECEIVING_COMMANDS.prepare, { protocol: REMOTE_WORK_PROTOCOL, transfer: transfer.id, repo: transfer.repo, ...(input.targetWorkspace ? { workspace: input.targetWorkspace } : {}) });
         const prepared = await this.follow<PrepareResult>(machine.id, prepareId, merge);
+        if (input.targetWorkspace && !prepared.reusedCheckout) throw new HostCommandError(`Update Tau on ${machine.name} to reuse its checkout and local files.`);
 
         await set("bundle", "running");
         const bundle = await createTransferBundle({ root: identity.root, transfer: transfer.id, tips: prepared.tips, directory, git: this.git });
@@ -324,6 +325,7 @@ export class RepoTransfers {
         const receiveId = await this.start(machine.id, RECEIVING_COMMANDS.receive, {
           protocol: REMOTE_WORK_PROTOCOL, transfer: transfer.id, repo: transfer.repo, base: state.base, ...(blob ? { blob } : {}), files,
           ...(transfer.name ? { name: transfer.name } : {}), from: this.machines().self.name,
+          ...(input.targetWorkspace ? { workspace: input.targetWorkspace } : {}),
         });
         const received = await this.follow<ReceiveResult>(machine.id, receiveId, merge);
         transfer.remote = { path: received.worktree, branch: received.branch, ...(received.workspaceId ? { workspaceId: received.workspaceId } : {}) };

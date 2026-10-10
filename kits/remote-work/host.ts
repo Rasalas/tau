@@ -1,12 +1,15 @@
 import { execFile } from "node:child_process";
-import { readFile, realpath } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { HostCommandError, decodePromptAttachments, decodeTransferredPromptAttachments, withReceivedPromptAttachments, type HostCommandCall, type HostExtension, type HostExtensionContext, type HostExtensionServices } from "tau/host-extension";
 import { worktreeSetupCommand } from "../workspace/agent-worktrees.js";
 import { HostedThreads } from "./hosted-threads.js";
 import { REPO_KEY } from "./identity.js";
-import { writeIgnoredFiles } from "./ignored-files.js";
+import { collectIgnoredFiles, fillWorktreeFiles } from "./ignored-files.js";
+import { createGitRunner } from "./git.js";
 import { MirrorStore, TRANSFER_ID, type ReceivedWorktree } from "./mirror.js";
 import { Operations, type OperationStep } from "./operations.js";
 import {
@@ -32,6 +35,7 @@ import {
   type HostedThreadStartInput,
   type IgnoredFilePayload,
   type ReceiveResult,
+  type PrepareResult,
   type RemoteThreadDelivery,
   type RemoteThreadModel,
   type RemoteThreadStartInput,
@@ -42,6 +46,7 @@ import {
 } from "./protocol.js";
 import { RemoteThreads } from "./threads.js";
 import { RepoTransfers } from "./transfers.js";
+import { ProjectCopies, downloadProject, type ProjectBundle, type ProjectSnapshot } from "./project-copies.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -75,6 +80,7 @@ function decodeSend(input: unknown): SendRepoInput {
   return {
     machine: required(raw, "machine"),
     cwd: required(raw, "cwd"),
+    ...(text(raw.targetWorkspace) ? { targetWorkspace: text(raw.targetWorkspace) } : {}),
     ...(text(raw.name) ? { name: text(raw.name) } : {}),
     ...(Array.isArray(ignored) ? { ignored: ignored as string[] } : {}),
   };
@@ -282,11 +288,104 @@ export function createRemoteWorkHostExtension(options: RemoteWorkHostOptions = {
       // Before the thread index's first scan, which activation precedes.
       for (const entry of await mirrors.list()) await nameProject(entry);
       const operations = new Operations({ emit: (snapshot) => context.emit(OPERATION_EVENT, snapshot, { topic: operationTopic(snapshot.id) }) });
+      const copies = new ProjectCopies(join(services.stateDir, "project-copies"));
+      await copies.open();
       const hosted = new HostedThreads({
         services,
         stateDir: services.stateDir,
         emit: (report) => context.emit(HOSTED_THREAD_EVENT, report, { topic: hostedThreadTopic(report.thread) }),
       });
+
+      // A client can choose a project that only a peer has. Pull its state through
+      // this host's agents connection; the peer never needs a connection back.
+      context.registerCommand("project-copy-export", async (input, call) => {
+        const root = await services.knownWorkspacePath(required(fields(input), "workspace"));
+        const ignored = (await transfers.ignoredFiles(root)).selected;
+        const operation = operations.start("result", call?.device, [], () => copies.capture(root, ignored, call?.device));
+        return { operation: operation.id, protocol: REMOTE_WORK_PROTOCOL };
+      }, { audit: { label: "packed a project for another machine" } });
+      context.registerCommand("project-copy-bundle", (input, call) => {
+        const raw = fields(input);
+        const tips = (Array.isArray(raw.tips) ? raw.tips : []).filter((tip): tip is string => typeof tip === "string").slice(0, 1000);
+        const operation = operations.start("result", call?.device, [], () => copies.bundle(required(raw, "id"), tips, call?.device));
+        return { operation: operation.id, protocol: REMOTE_WORK_PROTOCOL };
+      }, { audit: { label: "packed missing project commits" } });
+      const copyGit = createGitRunner({ config: [`core.hooksPath=${mirrors.noHooksDir}`, "core.fsmonitor=false"], env: options.env });
+      const preferredFiles = async (repository: string | undefined, fallback: IgnoredFilePayload[]) => repository
+        ? collectIgnoredFiles(repository, [...(await transfers.ignoredFiles(repository)).selected, ...fallback.map((file) => file.path)], copyGit)
+        : [];
+      context.registerCommand("worktree-files", async (input) => {
+        const raw = fields(input);
+        const root = await services.knownWorkspacePath(required(raw, "workspace"));
+        const destination = await services.knownWorkspacePath(required(raw, "destination"));
+        const common = async (path: string) => (await copyGit(path, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim();
+        if (root === destination || await common(root) !== await common(destination)) throw new HostCommandError("The destination is not another worktree of this project.");
+        return fillWorktreeFiles(destination, await preferredFiles(root, []));
+      }, { callers: ["tau.workspace"], audit: { label: "copied selected local files into a worktree" } });
+      context.registerCommand("project-copy-read", async (input, call) => {
+        const raw = fields(input);
+        return { data: await copies.read(required(raw, "id"), Number(raw.offset), Number(raw.length), call?.device) };
+      }, { access: "read" });
+      // Chosen ignored files may contain credentials. Never publish their
+      // content in the operation's progress events.
+      context.registerCommand("project-copy-files", (input, call) => copies.files(required(fields(input), "id"), call?.device), { access: "read" });
+      context.registerCommand("project-copy-release", async (input, call) => {
+        await copies.release(required(fields(input), "id"), call?.device);
+      }, { audit: { label: "released a project copy", automatic: true } });
+      context.registerCommand("copy-project", async (input) => {
+        const raw = fields(input);
+        const machine = required(raw, "machine");
+        const machines = services.machines;
+        if (!machines) throw new HostCommandError("This host keeps no machines for copying projects.");
+        const target = text(raw.targetMachine);
+        const targetWorkspace = text(raw.targetWorkspace);
+        const repository = !target && targetWorkspace ? await services.knownWorkspacePath(targetWorkspace) : undefined;
+        const remoteOperation = async <T,>(peer: string, command: string, payload: unknown) => {
+          const started = await machines.call(peer, REMOTE_WORK_EXTENSION_ID, command, payload) as { operation: string; protocol: number };
+          checkProtocol(started);
+          return transfers.follow<T>(peer, started.operation, () => undefined);
+        };
+        const snapshot = await remoteOperation<ProjectSnapshot>(machine, "project-copy-export", { workspace: required(raw, "workspace") });
+        const directory = await mkdtemp(join(tmpdir(), "tau-project-copy-"));
+        let received: ReceivedWorktree | undefined;
+        let complete = false;
+        try {
+          const repo = decodeRepo(snapshot.repo);
+          const prepared = target
+            ? await remoteOperation<PrepareResult>(target, RECEIVING_COMMANDS.prepare, { protocol: REMOTE_WORK_PROTOCOL, repo, ...(targetWorkspace ? { workspace: targetWorkspace } : {}) })
+            : await mirrors.prepare(repo, () => undefined, repository);
+          if (targetWorkspace && !prepared.reusedCheckout) throw new HostCommandError("Update Tau on the target machine to reuse its checkout and local files.");
+          const packed = await remoteOperation<ProjectBundle>(machine, "project-copy-bundle", { id: snapshot.id, tips: prepared.tips });
+          const bundle = packed.size ? join(directory, "project.bundle") : undefined;
+          if (bundle) await downloadProject(machines, machine, { ...packed, id: snapshot.id }, bundle);
+          const files = await machines.call(machine, REMOTE_WORK_EXTENSION_ID, "project-copy-files", { id: snapshot.id }) as IgnoredFilePayload[];
+          const from = machines.list().find((candidate) => candidate.id === machine)?.name ?? machine;
+          if (target) {
+            const blob = bundle ? await machines.upload(target, createReadStream(bundle), { size: packed.size }) : undefined;
+            if (blob && blob.sha256 !== packed.sha256) throw new HostCommandError("The project bundle arrived with another checksum.");
+            const answer = await remoteOperation<ReceiveResult>(target, RECEIVING_COMMANDS.receive, {
+              protocol: REMOTE_WORK_PROTOCOL, transfer: snapshot.id, repo, base: snapshot.base, files, from,
+              ...(blob ? { blob: { id: blob.id, sha256: blob.sha256 } } : {}), ...(targetWorkspace ? { workspace: targetWorkspace } : {}),
+            });
+            if (!answer.workspaceId) throw new HostCommandError("The target did not publish its worktree identity.");
+            complete = true;
+            return { workspaceId: answer.workspaceId, displayPath: answer.worktree };
+          }
+          const entry = await mirrors.receive({ transfer: snapshot.id, repo, base: snapshot.base, ...(bundle ? { bundle } : {}), ...(repository ? { repository } : {}), from }, () => undefined);
+          received = entry;
+          await fillWorktreeFiles(entry.worktree, await preferredFiles(repository, files), files);
+          await nameProject(entry);
+          const workspace = services.admitWorkspace(entry.worktree);
+          await mirrors.remember(snapshot.id, { workspaceId: workspace.workspaceId });
+          await runSetup(context, entry.worktree, () => undefined);
+          complete = true;
+          return workspace;
+        } finally {
+          if (received && !complete) await mirrors.remove(received.transfer).catch((error: unknown) => services.log("remote-work.copy-cleanup-failed", error instanceof Error ? error.message : String(error)));
+          await rm(directory, { recursive: true, force: true });
+          await machines.call(machine, REMOTE_WORK_EXTENSION_ID, "project-copy-release", { id: snapshot.id }).catch(() => undefined);
+        }
+      }, { long: true, callers: ["tau.environments"], audit: { label: "copied a project from another machine" } });
 
       // Here: the sending side, for this machine's clients and the kits that start work elsewhere.
       const kits = { callers: TRANSFER_CALLERS };
@@ -295,7 +394,7 @@ export function createRemoteWorkHostExtension(options: RemoteWorkHostOptions = {
         const cwd = text(fields(input).cwd);
         return cwd ? { root: await transfers.rootOf(cwd) } : {};
       };
-      context.registerCommand("send", (input) => transfers.send(decodeSend(input)), { long: true, ...kits, audit: { label: "sent a project's state to another machine" } });
+      context.registerCommand("send", (input) => transfers.send(decodeSend(input)), { long: true, callers: [...TRANSFER_CALLERS, "tau.environments"], audit: { label: "sent a project's state to another machine" } });
       // Which repository each project is, so another machine finds its own checkout of it (by origin, not folder name).
       context.registerCommand(PROJECT_IDENTITIES_COMMAND, async (input) => {
         const raw = fields(input);
@@ -322,25 +421,27 @@ export function createRemoteWorkHostExtension(options: RemoteWorkHostOptions = {
 
       // There: the receiving side, for the sending side's host through services.machines.
       const device = (call?: HostCommandCall) => call?.device;
-      context.registerCommand(RECEIVING_COMMANDS.prepare, (input, call) => {
+      context.registerCommand(RECEIVING_COMMANDS.prepare, async (input, call) => {
         const raw = fields(input);
         checkProtocol(raw);
         const repo = decodeRepo(raw.repo);
+        const repository = text(raw.workspace) ? await services.knownWorkspacePath(required(raw, "workspace")) : undefined;
         const operation = operations.start("prepare", device(call), pending([["mirror", "Mirror"]]), async (step) => {
           step("mirror", "running");
-          const prepared = await mirrors.prepare(repo, step);
+          const prepared = await mirrors.prepare(repo, step, repository);
           step("mirror", "done", prepared.detail);
-          return { protocol: prepared.protocol, tips: prepared.tips, mirror: prepared.mirror };
+          return { protocol: prepared.protocol, tips: prepared.tips, mirror: prepared.mirror, ...(prepared.reusedCheckout ? { reusedCheckout: true } : {}) };
         });
         return { operation: operation.id, protocol: REMOTE_WORK_PROTOCOL };
       }, { audit: { label: "prepared a mirror for another machine's work", automatic: true } });
 
-      context.registerCommand(RECEIVING_COMMANDS.receive, (input, call) => {
+      context.registerCommand(RECEIVING_COMMANDS.receive, async (input, call) => {
         const raw = fields(input);
         checkProtocol(raw);
         const transfer = transferId(raw);
         const repo = decodeRepo(raw.repo);
         const base = required(raw, "base");
+        const repository = text(raw.workspace) ? await services.knownWorkspacePath(required(raw, "workspace")) : undefined;
         const blob = raw.blob === undefined ? undefined : { id: required(fields(raw.blob), "id"), sha256: required(fields(raw.blob), "sha256") };
         const files = Array.isArray(raw.files) ? raw.files as IgnoredFilePayload[] : [];
         const name = optionalText(raw, "name");
@@ -349,18 +450,24 @@ export function createRemoteWorkHostExtension(options: RemoteWorkHostOptions = {
         if (blob && !services.blobs) throw new HostCommandError("This host takes no files from other machines.");
         const steps = pending([["unpack", "Unpack"], ["worktree", "Worktree"], ["files", "Ignored files"], ["setup", "Setup"]]);
         const operation = operations.start("receive", device(call), steps, async (step): Promise<ReceiveResult> => {
-          const receive = (bundle?: string) => mirrors.receive({ transfer, repo, base, ...(bundle ? { bundle } : {}), ...(device(call) ? { device: device(call) } : {}), ...named }, step);
+          const receive = (bundle?: string) => mirrors.receive({ transfer, repo, base, ...(bundle ? { bundle } : {}), ...(device(call) ? { device: device(call) } : {}), ...(repository ? { repository } : {}), ...named }, step);
           const entry = blob
             ? await services.blobs!.take(blob.id, (file) => {
               if (file.sha256 !== blob.sha256) throw new Error("The bundle here has another checksum than the one sent.");
               return receive(file.path);
             }, { caller: call })
             : await receive();
-          if (files.length === 0) step("files", "skipped", "None chosen for this project");
-          else {
-            step("files", "running");
-            const written = await writeIgnoredFiles(entry.worktree, files);
-            step("files", written.refused.length > 0 ? "failed" : "done", `${written.written} written${written.refused.length > 0 ? `; refused ${written.refused.join(", ")}` : ""}`);
+          try {
+            const preferred = await preferredFiles(repository, files);
+            if (files.length === 0 && preferred.length === 0) step("files", "skipped", "None chosen for this project");
+            else {
+              step("files", "running");
+              const written = await fillWorktreeFiles(entry.worktree, preferred, files);
+              step("files", "done", `${written.written} written; target files kept`);
+            }
+          } catch (error) {
+            await mirrors.remove(entry.transfer, device(call));
+            throw error;
           }
           await nameProject(entry);
           const workspace = services.admitWorkspace(entry.worktree);
@@ -483,7 +590,7 @@ export function createRemoteWorkHostExtension(options: RemoteWorkHostOptions = {
       return async () => {
         threads.close();
         for (const dispose of disposers) dispose();
-        await Promise.all([threads.flush(), hosted.flush()]);
+        await Promise.all([threads.flush(), hosted.flush(), copies.close()]);
       };
     },
   };

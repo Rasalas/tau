@@ -30,6 +30,76 @@ describe("Machines Kit on the host", () => {
     await expect(registry.invoke(ENVIRONMENTS_EXTENSION_ID, "start-there", input, { kind: "workbench-client", connection: "c1", pairedClient: "d1", readOnly: true })).rejects.toThrow(/Read.only|read.only/u);
     expect(machines.request).toHaveBeenCalledOnce();
   });
+  it("transfers a local draft into a new worktree of its matched remote repository", async () => {
+    const { machines } = fakeMachines([]);
+    machines.request = vi.fn(async () => ({ sessionId: "t9", path: "/remote/t9" }));
+    const registry = await activateHostKit(createEnvironmentsHostExtension(), { machines, knownWorkspacePath: async () => "/local/project" });
+    const send = vi.fn(async () => ({ state: "ready", remote: { workspaceId: "ws1_new_worktree" } }));
+    await registry.activate({ id: "tau.remote-work", name: "Remote Work fixture", activate(context) {
+      context.registerCommand("send", send, { callers: [ENVIRONMENTS_EXTENSION_ID] });
+    } });
+    await registry.invoke(ENVIRONMENTS_EXTENSION_ID, "start-there", { machine: "rex", workspaceId: "ws1_remote_project", sourceWorkspace: "ws1_local_project", prompt: "Fix it" });
+    expect(send).toHaveBeenCalledWith({ machine: "rex", cwd: "/local/project", targetWorkspace: "ws1_remote_project" }, expect.anything());
+    expect(machines.request).toHaveBeenCalledWith("rex", "start-thread", [{ cwd: "ws1_new_worktree", prompt: "Fix it" }]);
+  });
+
+  it("starts a project known only to a peer here, after copying it, without resolving its id locally", async () => {
+    const { machines } = fakeMachines([{ id: "rex", name: "rex", status: "connected" }]);
+    const start = vi.fn(async () => ({ sessionId: "t-local", path: "/sessions/t-local" }));
+    const knownWorkspacePath = vi.fn(async (id: string) => {
+      if (id !== "ws1_copied") throw new Error("This host does not know that workspace.");
+      return "/managed/project";
+    });
+    const registry = await activateHostKit(createEnvironmentsHostExtension(), { machines, knownWorkspacePath, sessions: { start } as never });
+    const copy = vi.fn(async () => ({ workspaceId: "ws1_copied", displayPath: "/managed/project" }));
+    await registry.activate({ id: "tau.remote-work", name: "Remote Work fixture", activate(context) {
+      context.registerCommand("copy-project", copy, { callers: [ENVIRONMENTS_EXTENSION_ID] });
+    } });
+    const input = { sourceMachine: "rex", workspaceId: "ws1_foreign", machine: "mini-id", prompt: "Fix it", backend: "codex", thinkingLevel: "high" };
+    expect(await registry.invoke(ENVIRONMENTS_EXTENSION_ID, "start-project", input)).toEqual({ sessionId: "t-local", path: "/sessions/t-local", local: true });
+    expect(copy).toHaveBeenCalledWith({ machine: "rex", workspace: "ws1_foreign" }, expect.anything());
+    expect(knownWorkspacePath).toHaveBeenCalledExactlyOnceWith("ws1_copied");
+    expect(start).toHaveBeenCalledExactlyOnceWith({ cwd: "/managed/project", prompt: "Fix it", backend: "codex", thinkingLevel: "high", attachments: [] });
+    expect(machines.request).not.toHaveBeenCalled();
+    await expect(registry.invoke(ENVIRONMENTS_EXTENSION_ID, "start-project", input, { kind: "workbench-client", connection: "c1", pairedClient: "read", readOnly: true })).rejects.toThrow(/Read.only|read.only/u);
+    expect(start).toHaveBeenCalledOnce();
+  });
+
+  it("copies from one peer to a third machine through this host and does not start on a failed transfer", async () => {
+    const { machines } = fakeMachines([]);
+    machines.request = vi.fn(async () => ({ sessionId: "t9", path: "/studio/t9" }));
+    const registry = await activateHostKit(createEnvironmentsHostExtension(), { machines });
+    const copy = vi.fn(async () => ({ workspaceId: "ws1_studio", displayPath: "/studio/worktree" }));
+    await registry.activate({ id: "tau.remote-work", name: "Remote Work fixture", activate(context) {
+      context.registerCommand("copy-project", copy, { callers: [ENVIRONMENTS_EXTENSION_ID] });
+    } });
+    const input = { sourceMachine: "rex", workspaceId: "ws1_foreign", machine: "studio", prompt: "Fix it" };
+    expect(await registry.invoke(ENVIRONMENTS_EXTENSION_ID, "start-project", input)).toMatchObject({ sessionId: "t9", local: false });
+    expect(copy).toHaveBeenCalledWith({ machine: "rex", workspace: "ws1_foreign", targetMachine: "studio" }, expect.anything());
+    expect(machines.request).toHaveBeenCalledWith("studio", "start-thread", [{ cwd: "ws1_studio", prompt: "Fix it" }]);
+    copy.mockRejectedValueOnce(new Error("studio is offline"));
+    await expect(registry.invoke(ENVIRONMENTS_EXTENSION_ID, "start-project", input)).rejects.toThrow("studio is offline");
+    expect(machines.request).toHaveBeenCalledOnce();
+  });
+
+  it("reuses the source or a linked target repository, but starts in a new worktree", async () => {
+    const { machines } = fakeMachines([]);
+    machines.request = vi.fn(async () => ({ sessionId: "t9", path: "/remote/t9" }));
+    const registry = await activateHostKit(createEnvironmentsHostExtension(), { machines });
+    const copy = vi.fn(async () => ({ workspaceId: "ws1_new_worktree", displayPath: "/new/worktree" }));
+    await registry.activate({ id: "tau.remote-work", name: "Remote Work fixture", activate(context) {
+      context.registerCommand("copy-project", copy, { callers: [ENVIRONMENTS_EXTENSION_ID] });
+    } });
+    const input = { sourceMachine: "rex", workspaceId: "ws1_foreign", machine: "rex", prompt: "Fix it" };
+    expect(await registry.invoke(ENVIRONMENTS_EXTENSION_ID, "start-project", input)).toMatchObject({ sessionId: "t9", local: false });
+    expect(copy).toHaveBeenCalledWith({ machine: "rex", workspace: "ws1_foreign", targetMachine: "rex", targetWorkspace: "ws1_foreign" }, expect.anything());
+    expect(machines.request).toHaveBeenCalledWith("rex", "start-thread", [{ cwd: "ws1_new_worktree", prompt: "Fix it" }]);
+    await registry.invoke(ENVIRONMENTS_EXTENSION_ID, "start-project", { ...input, machine: "studio", targetWorkspaceId: "ws1_studio" });
+    expect(copy).toHaveBeenCalledWith({ machine: "rex", workspace: "ws1_foreign", targetMachine: "studio", targetWorkspace: "ws1_studio" }, expect.anything());
+    expect(machines.request).toHaveBeenCalledWith("studio", "start-thread", [{ cwd: "ws1_new_worktree", prompt: "Fix it" }]);
+    expect(machines.call).not.toHaveBeenCalled();
+  });
+
   it("allocates projectless work on its chosen home and leaves ordinary projects to transfer", async () => {
     const { machines } = fakeMachines([]);
     machines.call = vi.fn(async () => ({ workspaceId: "ws-remote-scratch" }));

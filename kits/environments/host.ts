@@ -1,4 +1,4 @@
-import { transferPromptAttachments, withReceivedPromptAttachments, type HostExtension, type HostMachineServices, type HostReadiness, type HostResources } from "tau/host-extension";
+import { decodePromptAttachments, transferPromptAttachments, withReceivedPromptAttachments, type HostExtension, type HostMachineServices, type HostReadiness, type HostResources } from "tau/host-extension";
 import { readWeights } from "./choice.js";
 import { createMachineChooser } from "./chooser.js";
 import { createMachineBackendProvider } from "./machine-backend.js";
@@ -95,6 +95,12 @@ export function createEnvironmentsHostExtension(): HostExtension {
         }
         if (typeof workspaceId !== "string" || !workspaceId) throw new Error("start-there: name a workspace.");
         try {
+          if (typeof raw.sourceWorkspace === "string") {
+            const cwd = await context.services.knownWorkspacePath(raw.sourceWorkspace);
+            const sent = await context.invokeHostExtension("tau.remote-work", "send", { machine, cwd, targetWorkspace: workspaceId }) as { state: string; error?: string; remote?: { workspaceId?: string } };
+            if (sent.state !== "ready" || !sent.remote?.workspaceId) throw new Error(sent.error ?? "The project did not arrive on the selected machine.");
+            workspaceId = sent.remote.workspaceId;
+          }
           const attachments = await transferPromptAttachments(machines, machine, raw.attachments);
           const options = {
             cwd: workspaceId, prompt: raw.prompt,
@@ -111,7 +117,36 @@ export function createEnvironmentsHostExtension(): HostExtension {
         } catch (error) {
           throw machineMethodError(error, machines.list().find((entry) => entry.id === machine)?.name ?? machine, "start threads");
         }
-      }, { audit: { label: "started a thread on another machine" } });
+      }, { long: true, audit: { label: "started a thread on another machine" } });
+      context.registerCommand("start-project", async (input) => {
+        const raw = (input ?? {}) as Record<string, unknown>;
+        if (!machines) throw new Error("This host keeps no machines for its agents.");
+        if (typeof raw.sourceMachine !== "string" || typeof raw.workspaceId !== "string" || typeof raw.prompt !== "string") throw new Error("start-project: provide a source machine, workspace and prompt.");
+        const attachments = decodePromptAttachments(raw.attachments);
+        const model = raw.model as { provider?: unknown; id?: unknown } | undefined;
+        if (model !== undefined && (!model || typeof model.provider !== "string" || typeof model.id !== "string")) throw new Error("start-project: provide a model provider and id.");
+        const target = typeof raw.machine === "string" ? raw.machine : machines.self.id;
+        const targetWorkspace = target === raw.sourceMachine ? raw.workspaceId : typeof raw.targetWorkspaceId === "string" ? raw.targetWorkspaceId : undefined;
+        const copied = await context.invokeHostExtension("tau.remote-work", "copy-project", {
+          machine: raw.sourceMachine, workspace: raw.workspaceId,
+          ...(target !== machines.self.id ? { targetMachine: target } : {}),
+          ...(targetWorkspace ? { targetWorkspace } : {}),
+        }) as { workspaceId: string; displayPath: string };
+        const workspaceId = copied.workspaceId;
+        const configuration = {
+          prompt: raw.prompt,
+          ...(typeof raw.backend === "string" ? { backend: raw.backend } : {}),
+          ...(raw.model ? { model: raw.model as { provider: string; id: string } } : {}),
+          ...(typeof raw.thinkingLevel === "string" ? { thinkingLevel: raw.thinkingLevel } : {}),
+          ...(typeof raw.mode === "string" ? { mode: raw.mode } : {}),
+        };
+        if (target === machines.self.id) {
+          const cwd = await context.services.knownWorkspacePath(workspaceId);
+          return { ...await context.services.sessions.start({ cwd, ...configuration, attachments }), local: true };
+        }
+        const started = await context.invokeHostExtension(ENVIRONMENTS_EXTENSION_ID, "start-there", { machine: target, workspaceId, ...configuration, ...(raw.attachments ? { attachments: raw.attachments } : {}) });
+        return { ...started as { sessionId: string; path: string }, local: false };
+      }, { long: true, audit: { label: "started a thread in a linked project" } });
       context.registerCommand("thread-start", async (input, call) => {
         const raw = (input ?? {}) as Record<string, unknown>;
         if (typeof raw.cwd !== "string" || typeof raw.prompt !== "string") throw new Error("thread-start: provide a workspace and prompt.");

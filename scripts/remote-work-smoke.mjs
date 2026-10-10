@@ -262,6 +262,42 @@ export const STEPS = [
     },
   },
   {
+    title: "a project known only to rex starts on A without a reverse agents connection",
+    async run(ctx) {
+      const { project: source } = await ctx.rexOwner.request("bootstrap");
+      if (!source.workspaceId) throw new Error("rex did not publish its workspace identity");
+      const before = gitIn(source.cwd, "status", "--porcelain");
+      const started = await ctx.aOwner.request("host-extension", [MACHINES_KIT, "start-project", {
+        sourceMachine: ctx.rexHostId, workspaceId: source.workspaceId,
+        prompt: "Reply with one word: copied", model: { provider: FAKE_PROVIDER, id: FAKE_MODEL },
+      }]);
+      if (!started.local || !started.sessionId) throw new Error(`the copied project did not start here: ${JSON.stringify(started)}`);
+      let session;
+      await waitFor(() => {
+        session = sessionFiles(ctx.a.sessionsDir).find((file) => file.entries[0]?.id === started.sessionId);
+        return session && assistantTexts(session.entries).length > 0;
+      }, "the copied project's local turn");
+      const copied = session.entries[0].cwd;
+      if (copied === source.cwd || !copied.startsWith(dirname(ctx.a.userData))) throw new Error(`the thread used the wrong workspace: ${copied}`);
+      if (readFileSync(join(copied, "README.md"), "utf8") !== readFileSync(join(source.cwd, "README.md"), "utf8")) throw new Error("the source's files did not arrive");
+      if (gitIn(source.cwd, "status", "--porcelain") !== before) throw new Error("copying changed rex's checkout");
+      const { threadIndex } = await ctx.aOwner.request("bootstrap");
+      const targetWorkspaceId = threadIndex.sessions.find((entry) => entry.id === started.sessionId)?.workspaceId;
+      if (!targetWorkspaceId) throw new Error("A did not publish the copied workspace identity");
+      const second = await ctx.aOwner.request("host-extension", [MACHINES_KIT, "start-project", {
+        sourceMachine: ctx.rexHostId, workspaceId: source.workspaceId, targetWorkspaceId,
+        prompt: "Reply with one word: reused", model: { provider: FAKE_PROVIDER, id: FAKE_MODEL },
+      }]);
+      let next;
+      await waitFor(() => {
+        next = sessionFiles(ctx.a.sessionsDir).find((file) => file.entries[0]?.id === second.sessionId);
+        return next && assistantTexts(next.entries).length > 0;
+      }, "the reused repository's new worktree turn");
+      if (next.entries[0].cwd === copied || gitIn(next.entries[0].cwd, "rev-parse", "--git-common-dir") !== gitIn(copied, "rev-parse", "--git-common-dir")) throw new Error("the second thread did not reuse the repository in its own worktree");
+      return `rex workspace ${source.workspaceId} → local thread ${started.sessionId}; next thread reuses its repository in another worktree`;
+    },
+  },
+  {
     title: "A asks rex how busy it is and what it could run (host-resources, readiness), and itself by its own id",
     async run(ctx) {
       const ask = (command, machine) => ctx.aOwner.request("host-extension", [MACHINES_KIT, command, { machine }]);
