@@ -1,8 +1,9 @@
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { OpenCodeHttpError, parseEventBlock } from "./client.js";
+import { OpenCodeClient, OpenCodeHttpError, parseEventBlock } from "./client.js";
 import { connectOpenCodeServer, mergedConfigContent, startOpenCodeServer } from "./server.js";
 import { startFakeOpenCode } from "./fixtures/fake-server.js";
+import { startFakeOpenCode2 } from "./fixtures/fake-server-v2.js";
 
 const FAKE = fileURLToPath(new URL("./fixtures/fake-serve.mjs", import.meta.url));
 
@@ -19,8 +20,9 @@ describe("a local OpenCode server", () => {
       expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/u);
       expect(server.local).toBe(true);
       expect(server.password).toMatch(/^[\w-]{32}$/u);
-      await expect(server.client.health()).resolves.toEqual({ healthy: true, version: "1.18.32" });
-      const seen = await server.client.request<{ config: Record<string, unknown>; args: string[] }>("GET", "/config");
+      await expect(server.api.health()).resolves.toEqual({ healthy: true, version: "1.18.32" });
+      expect(server.api.generation).toBe(1);
+      const seen = await new OpenCodeClient({ url: server.url, password: server.password! }).request<{ config: Record<string, unknown>; args: string[] }>("GET", "/config");
       expect(seen.args).toEqual(["serve", "--hostname", "127.0.0.1", "--port", "0", "--print-logs"]);
       expect(seen.config).toEqual({ username: "me", mcp: { mine: { type: "local", command: ["x"] }, tau: { type: "remote", url: "http://127.0.0.1:1/mcp" } } });
     } finally {
@@ -37,14 +39,16 @@ describe("a local OpenCode server", () => {
   it("kills a server that ignores SIGTERM once the grace is over", async () => {
     const server = await startOpenCodeServer({ command: FAKE, cwd: process.cwd(), env: { ...process.env, FAKE_IGNORE_TERM: "1" }, closeGraceMs: 50 });
     await server.close();
-    await expect(server.client.health()).rejects.toThrow();
+    await expect(server.api.health()).rejects.toThrow();
   });
 
-  it("reads an OpenCode 2 server's version from /api/info", async () => {
-    const fake = await startFakeOpenCode({ version: "2.0.26" });
+  it("recognizes an OpenCode 2 server by /api/info and reads its version there", async () => {
+    const fake = await startFakeOpenCode2({ password: "pw" });
     try {
-      const server = await connectOpenCodeServer(fake.url, undefined);
-      await expect(server.client.health()).resolves.toEqual({ healthy: true, version: "2.0.26" });
+      const server = await connectOpenCodeServer(fake.url, "pw");
+      expect(server.api.generation).toBe(2);
+      await expect(server.api.health()).resolves.toEqual({ healthy: true, version: "2.0.26" });
+      await expect(connectOpenCodeServer(fake.url, "wrong")).rejects.toBeInstanceOf(OpenCodeHttpError);
     } finally {
       await fake.close();
     }
@@ -62,7 +66,7 @@ describe("a server the user runs", () => {
     try {
       const server = await connectOpenCodeServer(`${fake.url}/`, "pw");
       expect(server.local).toBe(false);
-      await expect(server.client.providers("/repo")).resolves.toMatchObject({ connected: ["opencode", "github-copilot"] });
+      await expect(server.api.providers("/repo")).resolves.toMatchObject({ connected: ["opencode", "github-copilot"] });
       await expect(connectOpenCodeServer(fake.url, "wrong")).rejects.toBeInstanceOf(OpenCodeHttpError);
     } finally {
       await fake.close();

@@ -35,6 +35,44 @@ export function rulesForLevel(level: RuntimePermissionLevel): OpenCodePermission
   return [rule("*", "ask"), ...LOOKING.map((name) => rule(name, "allow")), ...envFiles, tau];
 }
 
+export interface OpenCode2Rule { action: string; resource: string; effect: "allow" | "deny" | "ask" }
+
+const rule2 = (action: string, effect: OpenCode2Rule["effect"], resource = "*"): OpenCode2Rule => ({ action, resource, effect });
+/** What only looks around, by OpenCode 2's action names. */
+const LOOKING_2 = ["read", "glob", "grep", "list", "lsp", "skill", "todo", "question"];
+/** Pi's tool names to OpenCode 2's actions; a tool left out of a thread's list is denied its actions. */
+const TOOL_ACTIONS: Record<string, readonly string[]> = {
+  read: ["read"],
+  bash: ["shell"],
+  edit: ["edit"],
+  write: ["edit"],
+  grep: ["grep"],
+  find: ["glob"],
+  ls: ["list", "glob"],
+  web_search: ["websearch"],
+  fetch: ["webfetch"],
+};
+
+/**
+ * `rulesForLevel` in OpenCode 2's rule shape: `shell` asks where OpenCode 1
+ * asked for `bash`, and a session's rules come after the agent's, so the last
+ * match wins here too. A thread limited to some tools has the others' actions
+ * denied and never starts a sub-agent.
+ */
+export function rulesForLevelV2(level: RuntimePermissionLevel, tools?: readonly string[]): OpenCode2Rule[] {
+  const tau = rule2(`${TAU_MCP_SERVER}_*`, "allow");
+  const envFiles = [rule2("read", "ask", "*.env"), rule2("read", "ask", "*.env.*"), rule2("read", "allow", "*.env.example")];
+  const kept = new Set((tools ?? []).flatMap((name) => TOOL_ACTIONS[name] ?? []));
+  const limits: OpenCode2Rule[] = tools
+    ? [...new Set(Object.values(TOOL_ACTIONS).flat())].filter((action) => !kept.has(action)).map((action) => rule2(action, "deny")).concat(rule2("subagent", "deny"))
+    : [];
+  if (level === "full") return [rule2("*", "allow"), rule2("external_directory", "allow"), ...limits, tau];
+  if (level === "read-only") {
+    return [rule2("*", "deny"), ...LOOKING_2.map((name) => rule2(name, "allow")), ...envFiles, rule2("shell", "ask"), rule2("webfetch", "ask"), rule2("websearch", "ask"), rule2("edit", "deny"), ...limits, tau];
+  }
+  return [rule2("*", "ask"), ...LOOKING_2.map((name) => rule2(name, "allow")), ...envFiles, ...limits, tau];
+}
+
 function clip(text: string): string {
   const line = text.trim();
   return line.length > LABEL_MAX ? `${line.slice(0, LABEL_MAX - 1)}…` : line;
@@ -51,6 +89,7 @@ export interface PermissionRequest {
 
 const TITLES: Record<string, string> = {
   bash: "OpenCode wants to run a command",
+  shell: "OpenCode wants to run a command",
   edit: "OpenCode wants to edit files",
   write: "OpenCode wants to write a file",
   read: "OpenCode wants to read a file",
@@ -59,6 +98,7 @@ const TITLES: Record<string, string> = {
   external_directory: "OpenCode wants to work outside the project",
   doom_loop: "OpenCode keeps repeating the same call",
   task: "OpenCode wants to start a sub-agent",
+  subagent: "OpenCode wants to start a sub-agent",
 };
 
 /** The dialog for a permission request, and OpenCode's reply for each answer. */

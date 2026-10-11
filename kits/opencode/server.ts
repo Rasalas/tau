@@ -1,7 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { commandInvocation, killProcessTree } from "tau/host-extension";
-import { OpenCodeClient } from "./client.js";
+import type { OpenCodeApi } from "./api.js";
+import { connectOpenCodeApi } from "./connect.js";
 
 /**
  * A local `opencode serve` Tau starts, bound to 127.0.0.1 on a port it picks
@@ -14,7 +15,10 @@ export interface OpenCodeServerHandle {
   readonly password?: string;
   /** Tau started the process; an external server is only connected to. */
   readonly local: boolean;
-  readonly client: OpenCodeClient;
+  /** MCP servers Tau put in the server's config, whose tools a thread waits for. */
+  readonly mcpServers?: readonly string[];
+  /** The server's HTTP API, whichever generation answered. */
+  readonly api: OpenCodeApi;
   readonly closed: boolean;
   close(): Promise<void>;
 }
@@ -34,7 +38,8 @@ export interface OpenCodeServeInput {
   fetch?: typeof globalThis.fetch;
 }
 
-const READY = /opencode server listening on (https?:\/\/\S+)/u;
+// OpenCode 1 prints "opencode server listening on", OpenCode 2 "server listening on".
+const READY = /server listening on (https?:\/\/\S+)/u;
 const OUTPUT_TAIL = 8 * 1024;
 /** A server still at work may ignore SIGTERM for seconds; after this it is killed. */
 const CLOSE_GRACE_MS = 2_000;
@@ -57,13 +62,24 @@ export function mergedConfigContent(existing: string | undefined, config: Record
   return JSON.stringify(merged);
 }
 
+/** The names of the MCP servers a config adds, in either generation's shape. */
+function mcpServerNames(config: Record<string, unknown> | undefined): string[] | undefined {
+  const mcp = config?.mcp;
+  if (!mcp || typeof mcp !== "object") return undefined;
+  const servers = (mcp as { servers?: unknown }).servers;
+  const names = Object.keys(servers && typeof servers === "object" ? servers : mcp);
+  return names.length ? names : undefined;
+}
+
 /** Starts `opencode serve` and waits for the line that names its address. */
 export function startOpenCodeServer(input: OpenCodeServeInput): Promise<OpenCodeServerHandle> {
   const password = randomBytes(24).toString("base64url");
   const configContent = mergedConfigContent(input.env.OPENCODE_CONFIG_CONTENT, input.config);
   const env: NodeJS.ProcessEnv = {
     ...input.env,
+    // OpenCode 2 reads OPENCODE_PASSWORD, OpenCode 1 OPENCODE_SERVER_PASSWORD.
     OPENCODE_SERVER_PASSWORD: password,
+    OPENCODE_PASSWORD: password,
     ...(configContent ? { OPENCODE_CONFIG_CONTENT: configContent } : {}),
   };
   delete env.OPENCODE_SERVER_USERNAME;
@@ -113,21 +129,26 @@ export function startOpenCodeServer(input: OpenCodeServeInput): Promise<OpenCode
       ready = true;
       clearTimeout(timer);
       const url = match[1]!;
-      const client = new OpenCodeClient({ url, password, ...(input.fetch ? { fetch: input.fetch } : {}) });
-      resolve({
-        url,
-        password,
-        local: true,
-        client,
-        get closed() { return exited || closedByTau; },
-        close: async () => {
-          if (closedByTau) return exit;
-          closedByTau = true;
-          stop();
-          const grace = new Promise<boolean>((done) => setTimeout(() => done(false), input.closeGraceMs ?? CLOSE_GRACE_MS).unref?.());
-          if (!await Promise.race([exit.then(() => true), grace]) && child.pid !== undefined) killProcessTree(child.pid, "SIGKILL");
-          await exit;
-        },
+      void connectOpenCodeApi({ url, password, ...(input.fetch ? { fetch: input.fetch } : {}) }).then((api) => {
+        resolve({
+          url,
+          password,
+          local: true,
+          ...(mcpServerNames(input.config) ? { mcpServers: mcpServerNames(input.config)! } : {}),
+          api,
+          get closed() { return exited || closedByTau; },
+          close: async () => {
+            if (closedByTau) return exit;
+            closedByTau = true;
+            stop();
+            const grace = new Promise<boolean>((done) => setTimeout(() => done(false), input.closeGraceMs ?? CLOSE_GRACE_MS).unref?.());
+            if (!await Promise.race([exit.then(() => true), grace]) && child.pid !== undefined) killProcessTree(child.pid, "SIGKILL");
+            await exit;
+          },
+        });
+      }, (error: unknown) => {
+        stop();
+        reject(new Error(`OpenCode's server did not answer: ${error instanceof Error ? error.message : String(error)}${output.trim() ? `\n${output.trim().slice(-2_000)}` : ""}`));
       });
     });
     let stderrLine = "";
@@ -148,16 +169,15 @@ export function startOpenCodeServer(input: OpenCodeServeInput): Promise<OpenCode
   });
 }
 
-/** An OpenCode server the user runs, reached by URL and password; its version is checked here. */
+/** An OpenCode server the user runs, reached by URL and password; its generation and version are checked here. */
 export async function connectOpenCodeServer(url: string, password: string | undefined, fetcher?: typeof globalThis.fetch): Promise<OpenCodeServerHandle> {
-  const client = new OpenCodeClient({ url, ...(password ? { password } : {}), ...(fetcher ? { fetch: fetcher } : {}) });
-  await client.health();
+  const api = await connectOpenCodeApi({ url, ...(password ? { password } : {}), ...(fetcher ? { fetch: fetcher } : {}) });
   let closed = false;
   return {
-    url: client.url,
+    url: url.replace(/\/+$/u, ""),
     ...(password ? { password } : {}),
     local: false,
-    client,
+    api,
     get closed() { return closed; },
     close: async () => { closed = true; },
   };

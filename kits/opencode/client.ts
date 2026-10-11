@@ -163,11 +163,9 @@ export class OpenCodeClient {
     try {
       return await this.request("GET", "/global/health", { timeoutMs: 5_000 });
     } catch (error) {
-      // OpenCode 2 dropped this route; its `/api/info` still names the version the policy refuses.
-      if (!(error instanceof OpenCodeHttpError) || error.status !== 404) throw error;
-      const info = await this.request<{ version?: unknown } | undefined>("GET", "/api/info", { timeoutMs: 5_000 }).catch(() => undefined);
-      if (typeof info?.version !== "string") throw error;
-      return { healthy: true, version: info.version };
+      // OpenCode 2 answers this path with its web page, not JSON.
+      if (error instanceof SyntaxError) throw new Error("This server does not answer like OpenCode 1; it may be a release Tau does not support.", { cause: error });
+      throw error;
     }
   }
 
@@ -242,17 +240,40 @@ export class OpenCodeClient {
    * ends the stream; `onEnd` says which, with the error that ended it. The
    * answer resolves once the server accepted the subscription.
    */
-  async subscribe(directory: string, onEvent: (event: OpenCodeEvent) => void, onEnd: (error?: Error) => void): Promise<{ close(): void }> {
+  subscribe(directory: string, onEvent: (event: OpenCodeEvent) => void, onEnd: (error?: Error) => void): Promise<{ close(): void }> {
+    return this.follow("/event", { directory }, parseEventBlock, onEvent, onEnd);
+  }
+
+  /**
+   * A server-sent stream, one parsed event per block. `silenceMs` ends a
+   * stream that sends nothing, not even a heartbeat, for that long.
+   */
+  async follow<T>(path: string, query: Record<string, string | undefined>, parse: (block: string) => T | undefined, onEvent: (event: T) => void, onEnd: (error?: Error) => void, silenceMs?: number): Promise<{ close(): void }> {
     const controller = new AbortController();
-    const response = await this.fetcher(this.address("/event", { directory }), {
+    const response = await this.fetcher(this.address(path, query), {
       headers: { ...this.headers(false), accept: "text/event-stream" },
       signal: controller.signal,
     });
     if (!response.ok || !response.body) {
       controller.abort();
-      throw new OpenCodeHttpError("GET", "/event", response.status, await response.text().catch(() => ""));
+      throw new OpenCodeHttpError("GET", path, response.status, await response.text().catch(() => ""));
     }
-    let closed = false;
+    let ended = false;
+    let watchdog: NodeJS.Timeout | undefined;
+    const finish = (error?: Error) => {
+      if (ended) return;
+      ended = true;
+      clearTimeout(watchdog);
+      controller.abort();
+      onEnd(error);
+    };
+    const touch = () => {
+      if (!silenceMs) return;
+      clearTimeout(watchdog);
+      watchdog = setTimeout(() => finish(new Error("OpenCode stopped sending events.")), silenceMs);
+      watchdog.unref?.();
+    };
+    touch();
     const reader = response.body.getReader();
     void (async () => {
       const decoder = new TextDecoder();
@@ -261,29 +282,23 @@ export class OpenCodeClient {
         for (;;) {
           const { value, done } = await reader.read();
           if (done) break;
+          touch();
           buffer += decoder.decode(value, { stream: true });
           if (buffer.length > MAX_EVENT_BYTES) throw new Error("OpenCode sent an event larger than 16 MiB.");
           let end: number;
           while ((end = buffer.search(/\r?\n\r?\n/u)) >= 0) {
             const block = buffer.slice(0, end);
             buffer = buffer.slice(end).replace(/^\r?\n\r?\n/u, "");
-            const event = parseEventBlock(block);
-            if (event) onEvent(event);
+            const event = parse(block);
+            if (event !== undefined && !ended) onEvent(event);
           }
         }
-        if (!closed) onEnd(new Error("OpenCode closed its event stream."));
+        finish(new Error("OpenCode closed its event stream."));
       } catch (error) {
-        if (!closed) onEnd(error instanceof Error ? error : new Error(String(error)));
+        finish(error instanceof Error ? error : new Error(String(error)));
       }
     })();
-    return {
-      close: () => {
-        if (closed) return;
-        closed = true;
-        controller.abort();
-        onEnd();
-      },
-    };
+    return { close: () => { if (!ended) { ended = true; clearTimeout(watchdog); controller.abort(); onEnd(); } } };
   }
 }
 

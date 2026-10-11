@@ -27,14 +27,15 @@ import {
   type UiSkillDraft,
   type UiThreadUsage,
 } from "tau/host-extension";
-import { permissionDialog, questionDialogs, rulesForLevel, type PermissionRequest, type QuestionInfo } from "./approvals.js";
+import type { NativeSession, QuestionRequest, SessionPolicy, SessionPrompt, TurnTranslator } from "./api.js";
+import { permissionDialog, questionDialogs, type PermissionRequest } from "./approvals.js";
 import { DEFAULT_VARIANT, thinkingLevels } from "./catalog.js";
-import { OpenCodeHttpError, type OpenCodeEvent, type OpenCodeInputPart, type OpenCodePromptBody, type OpenCodeSession } from "./client.js";
-import { OpenCodeTurnTranslator, emptyUsage, sessionUsage, stepContext } from "./events.js";
+import { OpenCodeHttpError, type OpenCodeEvent, type OpenCodeInputPart } from "./client.js";
+import { emptyUsage, sessionUsage, stepContext } from "./events.js";
 import type { OpenCodeRuntimeAdapter } from "./runtime-adapter.js";
 import type { OpenCodeServerHandle } from "./server.js";
 import type { OpenCodeModelRef, OpenCodeSessionStore, OpenCodeStoredModel } from "./session-store.js";
-import { openCodeToolSwitches, openCodeToolsWrite } from "./tools.js";
+import { openCodeToolsWrite } from "./tools.js";
 
 /** What a thread's server connection needs from the kit. */
 export interface OpenCodeConnectInput {
@@ -73,7 +74,8 @@ export interface OpenCodeThreadBackendOptions {
 }
 
 interface Turn {
-  translator: OpenCodeTurnTranslator;
+  /** Made once the turn has a server, which tells the generation. */
+  translator?: TurnTranslator;
   text: string;
   parts: OpenCodeInputPart[];
   aborted?: boolean;
@@ -93,8 +95,6 @@ interface Live {
 
 /** Tau's name for OpenCode's plan agent, and the agent's own name. */
 export const PLAN_MODE = "plan";
-/** A plan reaches the transcript as a block Plan Kit draws as a card. */
-const PLAN_SYSTEM = "You are in plan mode: explore and ask, change nothing. When the plan is ready, write it once inside a <proposed_plan> block.";
 
 function derivedTitle(text: string): string | undefined {
   const firstLine = text.split(/\r?\n/u).find((line) => line.trim())?.trim() ?? "";
@@ -127,12 +127,6 @@ function wait(ms: number): Promise<false> {
 
 function missing(error: unknown): boolean {
   return error instanceof OpenCodeHttpError && error.status === 404;
-}
-
-/** The session an event is about: `sessionID`, or a session event's own id. */
-function sessionOf(event: OpenCodeEvent): string | undefined {
-  const id = event.properties.sessionID ?? (event.properties.info as { id?: unknown } | undefined)?.id;
-  return typeof id === "string" ? id : undefined;
 }
 
 /**
@@ -241,7 +235,7 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
       hasMessages: this.messages.length > 0,
       ...(this.title ? { title: this.title } : {}),
       ...(this.titleSource ? { titleSource: this.titleSource } : {}),
-      activeTools: [...(running?.translator.running.values() ?? [])].map((tool) => tool.name),
+      activeTools: [...(running?.translator?.running.values() ?? [])].map((tool) => tool.name),
       supportsImageInput: true,
       extensionCount: 0,
     };
@@ -353,7 +347,7 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
     // OpenCode queues a prompt that arrives while it works and answers it in the same run.
     if (input.delivery === "steer" && running?.posted && !running.status && this.live && !this.live.server.closed && this.sessionId) {
       try {
-        await this.live.server.client.promptAsync(this.cwd, this.sessionId, this.promptBody(parts));
+        await this.live.server.api.prompt(this.cwd, this.sessionId, this.sessionPrompt(parts, true));
         return {};
       } catch {
         // The turn ended in between; the text becomes the next turn instead.
@@ -362,7 +356,6 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
     let complete!: () => void;
     let finish!: () => void;
     const turn: Turn = {
-      translator: new OpenCodeTurnTranslator(this.now),
       text: prepared.visibleText,
       parts,
       completed: new Promise<void>((resolve) => { complete = resolve; }),
@@ -377,16 +370,16 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
     return run;
   }
 
-  private promptBody(parts: OpenCodeInputPart[]): OpenCodePromptBody {
+  private sessionPrompt(parts: OpenCodeInputPart[], steer = false): SessionPrompt {
     // The model the picker shows is the one that runs, also for a session OpenCode started anew.
     const model = this.currentModelRef();
-    const plan = this.mode === PLAN_MODE;
     return {
       parts,
       ...(model ? { model: { providerID: model.provider, modelID: model.id } } : {}),
       ...(this.chosenVariant ? { variant: this.chosenVariant } : {}),
-      ...(plan ? { agent: PLAN_MODE, system: PLAN_SYSTEM } : {}),
-      ...(this.tools ? { tools: openCodeToolSwitches(this.tools) } : {}),
+      plan: this.mode === PLAN_MODE,
+      ...(this.tools ? { tools: this.tools } : {}),
+      ...(steer ? { steer } : {}),
     };
   }
 
@@ -401,19 +394,21 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
         return {};
       }
       await this.applyRules(live);
+      const translator = live.server.api.translator(this.now);
+      turn.translator = translator;
       // Events may arrive before the answer does; from here on they are this turn's.
       turn.posted = true;
-      await live.server.client.promptAsync(this.cwd, this.sessionId!, this.promptBody(turn.parts));
+      await live.server.api.prompt(this.cwd, this.sessionId!, this.sessionPrompt(turn.parts));
       if (turn.aborted) await this.interrupt(turn);
       await turn.completed;
-      const outcome = turn.translator.outcome;
+      const outcome = translator.outcome;
       if (outcome?.status === "failed") this.report({ type: "notice", message: `OpenCode stopped: ${outcome.error ?? "the turn failed."}`, level: "error" });
-      const model = turn.translator.model;
+      const model = translator.model;
       if (model && (model.providerID !== this.observedModel?.provider || model.modelID !== this.observedModel?.id)) {
         this.observedModel = { provider: model.providerID, id: model.modelID };
         await this.store.setObservedModel(this.threadId, this.cwd, this.observedModel);
       }
-      const context = stepContext(turn.translator.lastStep, this.currentModel()?.contextWindow);
+      const context = stepContext(translator.lastStep, this.currentModel()?.contextWindow);
       if (context) this.context = context;
       this.usage = { ...this.usage, turns: this.usage.turns + 1 };
       await this.store.recordUsage(this.threadId, this.cwd, this.usage);
@@ -423,7 +418,7 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
       if (!turn.status) {
         const message = error instanceof Error ? error.message : String(error);
         this.report({ type: "notice", message: `OpenCode reported an error: ${message}`, level: "error" });
-        for (const event of turn.translator.abandon("failed", message)) this.handleEvent(event);
+        for (const event of turn.translator?.abandon("failed", message) ?? []) this.handleEvent(event);
         this.settle(turn, "error", message);
       }
       throw error;
@@ -450,11 +445,15 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
     return this.tools && !openCodeToolsWrite(this.tools) ? "read-only" : level;
   }
 
+  private policy(level = this.permissionLevel()): SessionPolicy {
+    return { level, ...(this.tools ? { tools: this.tools } : {}) };
+  }
+
   /** The session's rules follow the workbench's access level from the next turn on. */
   private async applyRules(live: Live): Promise<void> {
     const level = this.permissionLevel();
     if (level === this.rulesLevel || !this.sessionId) return;
-    await live.server.client.updateSession(this.cwd, this.sessionId, { permission: rulesForLevel(level) });
+    await live.server.api.applyPolicy(this.cwd, this.sessionId, this.policy(level));
     this.rulesLevel = level;
   }
 
@@ -476,20 +475,25 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
       ...(this.tools ? { tools: this.tools } : {}),
       onExit: (error) => this.onExit(server, error),
     });
+    const opened = server;
     let subscription: { close(): void } | undefined;
     try {
-      subscription = await server.client.subscribe(this.cwd, (event) => this.onServerEvent(event), (error) => { if (error) this.onStreamEnd(server, error); });
-      let session: OpenCodeSession | undefined;
+      subscription = await opened.api.subscribe(this.cwd, (event) => this.onServerEvent(opened, event), (error) => { if (error) this.onStreamEnd(opened, error); });
+      let session: NativeSession | undefined;
       if (this.sessionId) {
         try {
-          session = await server.client.getSession(this.cwd, this.sessionId);
-          await server.client.updateSession(this.cwd, session.id, { permission: rulesForLevel(level) });
+          session = await opened.api.getSession(this.cwd, this.sessionId);
+          // A run an earlier connection left on a shared server would end this thread's next turn.
+          await opened.api.settle(this.cwd, session.id);
+          await opened.api.applyPolicy(this.cwd, session.id, this.policy(level));
         } catch (error) {
           if (!missing(error)) throw error;
+          session = undefined;
           this.report({ type: "notice", message: "OpenCode no longer has this conversation; a new one starts here.", level: "warning" });
         }
       }
-      session ??= await server.client.createSession(this.cwd, { ...(this.title ? { title: this.title } : {}), permission: rulesForLevel(level) });
+      session ??= await opened.api.createSession(this.cwd, { ...(this.title ? { title: this.title } : {}), policy: this.policy(level) });
+      if (opened.mcpServers) await opened.api.awaitTools(this.cwd, opened.mcpServers);
       this.rulesLevel = level;
       this.children.clear();
       if (session.id !== this.sessionId) {
@@ -500,39 +504,40 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
       if (session.tokens) this.usage = sessionUsage(session.tokens, session.cost, this.usage.turns);
     } catch (error) {
       subscription?.close();
-      await server.close().catch(() => undefined);
+      await opened.close().catch(() => undefined);
       throw error;
     }
-    const live: Live = { server, close: () => subscription?.close() };
+    const live: Live = { server: opened, close: () => subscription?.close() };
     this.live = live;
     return live;
   }
 
-  private onServerEvent(event: OpenCodeEvent): void {
-    const session = sessionOf(event);
-    const own = session !== undefined && session === this.sessionId;
-    if ((event.type === "session.created" || event.type === "session.updated") && session && !own) {
-      const parent = (event.properties.info as { parentID?: unknown } | undefined)?.parentID;
-      if (typeof parent === "string" && (parent === this.sessionId || this.children.has(parent))) this.children.add(session);
+  private onServerEvent(server: OpenCodeServerHandle, event: OpenCodeEvent): void {
+    const signal = server.api.signal(event);
+    if (!signal) return;
+    const own = signal.sessionId === this.sessionId;
+    if (signal.kind === "session" && !own) {
+      if (signal.parentId && (signal.parentId === this.sessionId || this.children.has(signal.parentId))) this.children.add(signal.sessionId);
       return;
     }
-    const mine = own || (session !== undefined && this.children.has(session));
-    if (!mine) return;
-    if (event.type === "permission.asked") { void this.answerPermission(event.properties as unknown as PermissionRequest); return; }
-    if (event.type === "question.asked") { void this.answerQuestion(event.properties as unknown as { id: string; questions: QuestionInfo[] }); return; }
+    const mine = own || this.children.has(signal.sessionId);
+    if (signal.kind === "permission") { if (mine) void this.answerPermission(signal.request); return; }
+    if (signal.kind === "question") {
+      if (mine || (signal.request.orphan && server.local)) void this.answerQuestion(signal.sessionId, signal.request);
+      return;
+    }
     if (!own) return;
-    if (event.type === "session.updated") {
-      const info = event.properties.info as OpenCodeSession | undefined;
-      this.adoptNativeTitle(info?.title);
-      if (info?.tokens) {
-        this.usage = sessionUsage(info.tokens, info.cost, this.usage.turns);
+    if (signal.kind === "session") {
+      this.adoptNativeTitle(signal.title);
+      if (signal.usage) {
+        this.usage = sessionUsage(signal.usage.tokens, signal.usage.cost, this.usage.turns);
         this.report({ type: "usage" });
       }
       return;
     }
     const turn = this.turns[0];
-    if (!turn?.posted) return;
-    for (const runtimeEvent of turn.translator.push(event.type, event.properties)) this.handleEvent(runtimeEvent);
+    if (!turn?.posted || !turn.translator) return;
+    for (const runtimeEvent of turn.translator.push(signal.type, signal.properties)) this.handleEvent(runtimeEvent);
     if (turn.translator.outcome) turn.complete();
   }
 
@@ -560,10 +565,10 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
       const dialog = permissionDialog(request);
       reply = dialog.reply(await this.options.ask(dialog.prompt).catch(() => undefined));
     }
-    await live.server.client.replyPermission(this.cwd, request.id, reply).catch(() => undefined);
+    await live.server.api.replyPermission(this.cwd, request, reply).catch(() => undefined);
   }
 
-  private async answerQuestion(request: { id: string; questions: QuestionInfo[] }): Promise<void> {
+  private async answerQuestion(sessionId: string, request: QuestionRequest): Promise<void> {
     const live = this.live;
     if (!live || typeof request.id !== "string" || !Array.isArray(request.questions)) return;
     const ask = this.options.ask;
@@ -576,8 +581,9 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
         if ("cancelled" in answer) break;
       }
     }
-    const answers = dialogs.answers(replies);
-    await (answers ? live.server.client.replyQuestion(this.cwd, request.id, answers) : live.server.client.rejectQuestion(this.cwd, request.id)).catch(() => undefined);
+    // A question Tau cannot put in a dialog arrives without questions and is dismissed.
+    const answers = request.questions.length > 0 ? dialogs.answers(replies) : undefined;
+    await live.server.api.answerQuestion(this.cwd, sessionId, request, answers).catch(() => undefined);
   }
 
   /** The event stream ended while the server may still run: the running turn cannot be followed any more. */
@@ -599,8 +605,8 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   private failRunning(message: string): void {
     const turn = this.turns[0];
-    if (!turn || turn.translator.outcome) return;
-    for (const event of turn.translator.abandon("failed", message)) this.handleEvent(event);
+    if (!turn || turn.translator?.outcome) return;
+    for (const event of turn.translator?.abandon("failed", message) ?? []) this.handleEvent(event);
     turn.complete();
   }
 
@@ -615,11 +621,11 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   private async interrupt(turn: Turn): Promise<void> {
     const live = this.live;
-    if (live && !live.server.closed && this.sessionId) await live.server.client.abort(this.cwd, this.sessionId).catch(() => undefined);
+    if (live && !live.server.closed && this.sessionId) await live.server.api.abort(this.cwd, this.sessionId).catch(() => undefined);
     const stopped = await Promise.race([turn.completed.then(() => true), wait(this.options.timeouts?.interruptMs ?? 10_000)]);
     if (stopped) return;
     // OpenCode did not confirm; the server goes with the turn.
-    for (const event of turn.translator.abandon("interrupted")) this.handleEvent(event);
+    for (const event of turn.translator?.abandon("interrupted") ?? []) this.handleEvent(event);
     turn.complete();
     if (this.live === live) this.live = undefined;
     live?.close();
@@ -663,7 +669,7 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.titleSource = source;
     await this.store.setTitle(this.threadId, this.cwd, safe, source);
     // OpenCode's own list shows the same name; a missing server leaves it for the next start.
-    if (this.live && !this.live.server.closed && this.sessionId) await this.live.server.client.updateSession(this.cwd, this.sessionId, { title: safe }).catch(() => undefined);
+    if (this.live && !this.live.server.closed && this.sessionId) await this.live.server.api.renameSession(this.cwd, this.sessionId, safe).catch(() => undefined);
   }
 
   async waitForIdle(): Promise<void> {
