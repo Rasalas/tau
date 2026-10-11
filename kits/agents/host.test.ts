@@ -69,6 +69,8 @@ function harness() {
   /** Threads of a runtime without a journal, as a Codex parent is. */
   const noJournal = new Set<string>();
   const backends = new Map<string, string>();
+  /** The reasoning level a thread's Pi runtime reports. */
+  const thinking = new Map<string, string>();
   const models = new Map<string, { provider: string; id: string }>();
   let nextThread = 0;
   let projectCwd = "/project";
@@ -222,6 +224,7 @@ function harness() {
       getAllTools: () => all().map((name) => ({ name })),
       getActiveTools: () => active ?? all(),
       setActiveTools: (names: string[]) => { active = [...names]; },
+      getThinkingLevel: () => thinking.get(sessionId) ?? "off",
     } as never, { sessionId, cwd });
     return {
       call: async (name: string, params: unknown = {}, signal?: AbortSignal) =>
@@ -256,7 +259,7 @@ function harness() {
 
   const holdStarts = (gate: () => Promise<void>) => { startGate = gate; };
 
-  return { backends, models, activate, runtimeExtensions, services, threads, started, sent, aborted, refuseSteer: () => { steerRefused = true; }, refusePrompts: (count: number) => { promptRefusals = count; }, events, observers, lifecycles, runtime, mcpThread, mcpProviders, noJournal, open, notify, state, holdStarts, holdSends: (gate: () => Promise<void>) => { sendGate = gate; }, invoke: (command: string, input?: unknown) => invoke(command, input), registry: () => registry!, setProject: (dir: string) => { projectCwd = dir; } };
+  return { backends, models, thinking, activate, runtimeExtensions, services, threads, started, sent, aborted, refuseSteer: () => { steerRefused = true; }, refusePrompts: (count: number) => { promptRefusals = count; }, events, observers, lifecycles, runtime, mcpThread, mcpProviders, noJournal, open, notify, state, holdStarts, holdSends: (gate: () => Promise<void>) => { sendGate = gate; }, invoke: (command: string, input?: unknown) => invoke(command, input), registry: () => registry!, setProject: (dir: string) => { projectCwd = dir; } };
 }
 
 async function activated(paths: { settingsPath?: string; linksPath?: string; stateDir?: string; runGit?: AgentGitRunner } = {}) {
@@ -329,7 +332,7 @@ describe("Agents Kit status", () => {
     expect(deriveStatus(facts)).toBe("idle");
   });
 
-  it("stops nesting at depth 2 and hands out slots oldest first", () => {
+  it("hands out slots oldest first and lets agents nest without a limit", () => {
     const streaming = new Set(["t0", "t1"]);
     const book = new AgentThreadBook((threadId) => ({ streaming: streaming.has(threadId), idle: !streaming.has(threadId) }));
     book.setMaxRunning(2);
@@ -345,11 +348,12 @@ describe("Agents Kit status", () => {
     book.noteEnded("t0", "completed", 12);
     expect(book.startable("parent").map((entry) => entry.id)).toEqual(["c2"]);
 
-    // A depth-1 agent may still delegate once; its child may not.
-    book.assertCanSpawn("t0");
+    // Depth is a record, not a limit: a grandchild's own child is depth 3.
     book.add(link("grand", "t0", 20, 2));
     book.noteStarted("grand", "t2", 21);
-    expect(() => book.assertCanSpawn("t2")).toThrow("may nest 2 levels deep");
+    book.add(link("great", "t2", 22, 3));
+    expect(book.depthOf("t2")).toBe(2);
+    expect(book.linkFor("great")?.depth).toBe(3);
   });
 });
 
@@ -1816,6 +1820,43 @@ describe("Agents Kit orchestration", () => {
     expect(await parent.call("tau_send_to_thread", { threadId: running, message: "go on" })).toMatchObject({ delivered: "started", status: "running" });
   });
 
+  it("records the reasoning effort a child's runtime runs at, and none for off", async () => {
+    const bench = await activated();
+    const child = handleOf(await bench.runtime("parent").call("tau_spawn_thread", { prompt: "Think" }));
+    const runtime = bench.runtime(child);
+    await runtime.fire("before_agent_start", { systemPrompt: "base" }, { cwd: "/project", sessionManager: { getEntries: () => [] } });
+    expect((await bench.state()).links[0]!.effort).toBeUndefined();
+    bench.thinking.set(child, "high");
+    await runtime.fire("before_agent_start", { systemPrompt: "base" }, { cwd: "/project", sessionManager: { getEntries: () => [] } });
+    expect((await bench.state()).links[0]!.effort).toBe("high");
+
+    // A first turn that starts before the kit knows the thread is not lost.
+    bench.thinking.set("child-2", "medium");
+    await bench.runtime("child-2").fire("before_agent_start", { systemPrompt: "base" }, { cwd: "/project", sessionManager: { getEntries: () => [] } });
+    const second = handleOf(await bench.runtime("parent").call("tau_spawn_thread", { prompt: "Early" }));
+    expect(second).toBe("child-2");
+    expect((await bench.state()).links.find((link) => link.threadId === second)!.effort).toBe("medium");
+  });
+
+  it("stops an agent with everything it started, deepest levels included", async () => {
+    const bench = await activated({ settingsPath: await settingsWith(1) });
+    const child = handleOf(await bench.runtime("parent").call("tau_spawn_thread", { prompt: "Child" }));
+    const grandchild = handleOf(await bench.runtime(child).call("tau_spawn_thread", { prompt: "Grandchild" }));
+    await bench.runtime(child).call("tau_spawn_thread", { prompt: "Behind the budget" });
+    const great = handleOf(await bench.runtime(grandchild).call("tau_spawn_thread", { prompt: "Great-grandchild" }));
+    const links = (await bench.state()).links;
+    expect(links.map((link) => link.depth).sort()).toEqual([1, 2, 2, 3]);
+
+    expect(await bench.invoke("stop-agent", { threadId: child })).toMatchObject({ cancelled: true, alsoStopped: 3 });
+    expect(bench.aborted.sort()).toEqual([child, grandchild, great].sort());
+    expect((await bench.state()).links.map((link) => link.status)).toEqual(["cancelled", "cancelled", "cancelled", "cancelled"]);
+    // Nothing of the subtree wakes the parent, and the queued one never starts.
+    await settle();
+    expect(bench.started).toHaveLength(3);
+    expect(bench.sent).toEqual([]);
+    await expect(bench.invoke("stop-agent", { threadId: "nobody" })).rejects.toThrow("gone");
+  });
+
   it("wakes an idle parent with the answer of a child it was not waiting for", async () => {
     const bench = await activated();
     const parent = bench.runtime("parent");
@@ -1852,6 +1893,18 @@ describe("Agents Kit orchestration", () => {
     bench.threads.get(child)!.streaming = false;
     await bench.notify("ended", child, "failed");
     await vi.waitFor(() => expect(bench.sent.filter((entry) => entry.sessionId === "parent")).toHaveLength(2));
+  });
+
+  it("wakes the parent when the user stops a child whose queued turns were held", async () => {
+    const bench = await activated();
+    const parent = bench.runtime("parent");
+    const child = handleOf(await parent.call("tau_spawn_thread", { prompt: "One" }));
+    await parent.call("tau_send_to_thread", { threadId: child, message: "Then two", mode: "queue" });
+    // Stop holds the child's queue before it tells the kits, so "Then two" never starts.
+    for (const observer of bench.observers) await observer.stopped?.(child);
+    await finish(bench, child, "stopped halfway");
+    await vi.waitFor(() => expect(bench.sent.filter((entry) => entry.sessionId === "parent")).toHaveLength(1));
+    expect(bench.sent.at(-1)!.text).toContain(`threadId ${child}`);
   });
 
   it("wakes nobody when the parent waited for the child, and waits for a busy parent's turn to end", async () => {

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType } from "react";
-import { Bot, Check, ChevronDown, ChevronUp, CircleHelp, CircleSlash, CircleX, Clock, CornerUpLeft, Ellipsis } from "lucide-react";
-import { Popover, ProviderIconStack, tooltipProps, useThreadStore, useWorkbench, type RegionProps, type WorkbenchActions } from "tau";
-import { agentsPanelModel, nativeAgentRow, nativeAgentTools, formatElapsed, type AgentRow } from "./model.js";
+import { Bot, Check, ChevronDown, ChevronUp, CircleHelp, CircleSlash, CircleX, Clock, CornerUpLeft, Ellipsis, Square } from "lucide-react";
+import { Popover, ProviderIconStack, tooltipProps, useHostCapabilities, useThreadStore, useWorkbench, type RegionProps, type WorkbenchActions } from "tau";
+import { agentHoverText, agentsPanelModel, canStopRow, nativeAgentRow, nativeAgentTools, formatElapsed, type AgentRow } from "./model.js";
 import { openAgent, subagentKey, useOpenedSubagent } from "./subagent-view.js";
 import { DefinitionsSection } from "./definitions-panel.js";
 import { isBusyStatus } from "./protocol.js";
+import { stopAgent } from "./stop.js";
 import { agentsStore, definitionsStore, siblingsSource } from "./store.js";
 
 /** Optional contribution seam of the Workspace kit. */
@@ -34,12 +35,22 @@ export function AgentLineageRow({ row, actions, current = false }: { row: AgentR
     : row.status === "waiting" ? <CircleHelp /> : row.status === "pending" ? <Clock />
     : row.status === "failed" ? <CircleX /> : row.status === "cancelled" ? <CircleSlash /> : <Check />;
   const open = () => openAgent(row, actions);
-  return <button type="button" className={`workspace-card-row agent-lineage-row status-${row.status}`} disabled={row.native ? !actions.openConversationView : !row.threadId && !row.machine?.thread} aria-current={current || shown ? "page" : undefined} aria-label={`${row.title}, ${status}`} title={row.machine ? `${row.title} · ${row.machine.name}${row.machine.offline ? " · Offline" : ""}` : row.title} onClick={open}>
+  const { readOnly } = useHostCapabilities();
+  const [stopping, setStopping] = useState(false);
+  const stoppable = canStopRow(row) && !readOnly;
+  const stop = () => { setStopping(true); void stopAgent(row, actions).finally(() => setStopping(false)); };
+  const button = <button type="button" className={`workspace-card-row agent-lineage-row status-${row.status}`} disabled={row.native ? !actions.openConversationView : !row.threadId && !row.machine?.thread} aria-current={current || shown ? "page" : undefined} aria-label={`${row.title}, ${status}`} {...tooltipProps(agentHoverText(row), { variant: "lines", side: "left" })} onClick={open}>
     <span className="workspace-card-icon agent-lineage-provider" aria-hidden>{provider ? <ProviderIconStack modelProvider={provider} runtimeMark={false} hint={false} /> : <Bot />}</span>
     <span className="workspace-card-label">{row.title}</span>
     <Elapsed row={row} />
     <span className="workspace-card-tail agent-lineage-status" {...tooltipProps(status)} aria-hidden>{icon}</span>
   </button>;
+  if (!stoppable) return button;
+  // The stop sits beside the row, not in it: a button cannot hold a button. It takes the timer's place.
+  return <div className="agent-lineage-item has-stop">
+    {button}
+    <button type="button" className="agent-lineage-stop" aria-label={`Stop ${row.title}`} disabled={stopping} {...tooltipProps("Stop agent and its sub-agents", { side: "left" })} onClick={stop}><Square size={12} fill="currentColor" aria-hidden /></button>
+  </div>;
 }
 
 /** The current thread's parent and children, including persisted links after a restart. */
@@ -66,7 +77,7 @@ export function AgentLineage({ snapshot, actions }: RegionProps) {
   if (!id || (!parentId && !model.groups.length && !hasDefinitions && !nativeRows.length)) return null;
   const enriched = (row: AgentRow): AgentRow => {
     const thread = navigation.threads.find((entry) => entry.id === row.threadId);
-    return row.model || !thread?.modelProvider ? row : { ...row, model: `${thread.modelProvider}/` };
+    return row.model || !thread?.modelProvider ? row : { ...row, model: `${thread.modelProvider}/${thread.model ?? ""}` };
   };
   const rows = (items: AgentRow[]) => items.map((row) => <AgentLineageRow key={row.id} row={enriched(row)} actions={actions} current={row.threadId === id} />);
   return <section className="agent-lineage" aria-label="Agents">

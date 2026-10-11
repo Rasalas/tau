@@ -229,6 +229,22 @@ describe("thread runtime backends", () => {
     await backend.dispose();
   });
 
+  it("stops a running subagent through its task, though it was never a background task", async () => {
+    const { filePath, store } = await scratchStore();
+    const { adapter, sessions } = scriptedAdapter(filePath, () => [
+      frame({ type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "tool_use", id: "call", name: "Agent", input: { description: "Review" } }] } }),
+      frame({ type: "system", subtype: "task_started", task_id: "task-1", tool_use_id: "call", description: "Review", is_backgrounded: false, task_type: "local_agent" }),
+      ...turn("Reviewing"),
+    ]);
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, projectName: "repo" });
+    await backend.start("create");
+    await backend.prompt({ text: "Review it", delivery: "prompt" });
+    expect(backend.capabilities.background!.current()).toEqual([]);
+    await backend.capabilities.background!.stop("task-1");
+    expect(sessions[0]!.stopTask).toHaveBeenCalledWith("task-1");
+    await backend.dispose();
+  });
+
   it("streams a Claude turn as Tau events, persists the exchange and its usage, and restores both", async () => {
     const { filePath, store } = await scratchStore();
     const { adapter, opened, sessions } = scriptedAdapter(filePath, (content) => turn(`Claude: ${String(content)}`));

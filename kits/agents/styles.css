@@ -220,3 +220,45 @@
 .subagent-bar .spacer { flex: 1; }
 .subagent-bar .button, .subagent-bar button { display: inline-flex; align-items: center; gap: 6px; flex: none; }
 @media (max-width: 520px) { .subagent-bar-note { display: none; } }
+
+/* Stop takes the timer's place: on the pointer's row, always on touch. */
+.agent-lineage-item { position: relative; }
+.agent-lineage-stop {
+  position: absolute; top: 50%; right: 32px; translate: 0 -50%; display: grid; place-items: center; width: 32px; height: 28px;
+  padding: 0; border: 0; border-radius: 6px; background: none; color: var(--danger); cursor: pointer; opacity: 0; pointer-events: none;
+}
+.agent-lineage-stop:hover:not(:disabled) { background: var(--hover); }
+.agent-lineage-stop:disabled { opacity: .5; cursor: default; }
+.agent-lineage-item:is(:hover, :focus-within) .agent-lineage-stop { opacity: 1; pointer-events: auto; }
+.agent-lineage-item:is(:hover, :focus-within) .agent-lineage-time { visibility: hidden; }
+@media (hover: none), (pointer: coarse) {
+  .agent-lineage-stop { right: 44px; width: 44px; height: 44px; opacity: 1; pointer-events: auto; }
+  .agent-lineage-item.has-stop .agent-lineage-time { visibility: hidden; }
+}
+.agent-row-stop { display: none; align-items: center; justify-content: center; width: 28px; height: 20px; border-radius: 4px; color: var(--danger); cursor: pointer; }
+.agent-row-stop:hover { background: var(--hover); }
+.agent-row:is(:hover, :focus-within) .agent-row-status:has(.agent-row-stop) time { display: none; }
+.agent-row:is(:hover, :focus-within) .agent-row-stop { display: inline-flex; }
+@media (hover: none), (pointer: coarse) {
+  .agent-row-status:has(.agent-row-stop) time { display: none; }
+  .agent-row-stop { display: inline-flex; width: 36px; height: 36px; margin: -8px 0; }
+}
+
+/* Who asks, tucked onto the composer's frame like the settled note. */
+.agent-asks {
+  position: relative; z-index: 1; width: min(752px, calc(100% - 92px)); box-sizing: border-box; margin: 0 auto -14px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; padding: 4px 6px 4px 12px;
+  border: 1px solid var(--line); border-bottom: 0; border-radius: 10px 10px 0 0;
+  background: var(--sunken); color: var(--muted); font: 12px var(--sans);
+}
+.agent-asks > svg { flex: none; color: var(--warn); }
+.agent-asks-text { flex: 1 1 16em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-asks-text > strong { font-weight: 600; color: var(--ink); }
+.agent-asks-link { padding: 0; border: 0; background: none; color: var(--ink-2); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.agent-asks-link:hover { color: var(--ink); }
+.agent-asks-open {
+  flex: none; height: 24px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: transparent;
+  color: var(--ink); font: 500 var(--text-sm) var(--sans); cursor: pointer;
+}
+.agent-asks-open:hover { background: var(--raised); }
+@media (pointer: coarse) { .agent-asks-link, .agent-asks-open { min-height: 36px; } }

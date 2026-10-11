@@ -24,6 +24,12 @@ export interface AgentRow {
   /** The agent definition it was started from. */
   agent?: string;
   model?: string;
+  /** Reasoning effort it runs at, when its runtime reports one. */
+  effort?: string;
+  /** A runtime-owned child is stopped by this task id. */
+  taskId?: string;
+  /** The row has an agent behind it that Stop can reach. */
+  stoppable?: boolean;
   /** The parent's turn that spawned it. */
   turn?: number;
   startedAt?: number;
@@ -86,7 +92,7 @@ function usageOf(session: UiSession | undefined): UiThreadUsage | undefined {
   return session?.usage;
 }
 
-function rowOf(link: AgentThreadLink, sessions: ReadonlyMap<string, UiSession>): AgentRow {
+export function rowOf(link: AgentThreadLink, sessions: ReadonlyMap<string, UiSession>): AgentRow {
   const session = link.threadId ? sessions.get(link.threadId) : undefined;
   const cost = link.machine ? link.machine.costUsd : usageOf(session)?.costUsd;
   return {
@@ -97,6 +103,8 @@ function rowOf(link: AgentThreadLink, sessions: ReadonlyMap<string, UiSession>):
     status: link.status,
     ...(link.agent ? { agent: link.agent } : {}),
     ...(link.model ? { model: link.model } : {}),
+    ...(link.effort ? { effort: link.effort } : {}),
+    stoppable: true,
     ...(link.turn ? { turn: link.turn } : {}),
     ...(link.startedAt ? { startedAt: link.startedAt } : {}),
     ...(link.endedAt ? { endedAt: link.endedAt } : {}),
@@ -177,8 +185,8 @@ export function agentsPanelModel(
   const roots = new Set<string>();
   if (activeThreadId && spawned(activeThreadId)) roots.add(activeThreadId);
   if (own) roots.add(own);
-  // Depth 2: a child that spawned its own agents shows both levels.
-  for (const root of [...roots]) {
+  // A child that spawned its own agents shows its level too, however deep the tree goes.
+  for (const root of roots) {
     for (const link of byParent.get(root) ?? []) {
       if (link.threadId && spawned(link.threadId)) roots.add(link.threadId);
     }
@@ -224,6 +232,60 @@ export function agentsPanelModel(
     ...counts,
     ...(counted ? { totalCostUsd: cost } : {}),
   };
+}
+
+/**
+ * Whether Stop reaches the agent behind a row: it still runs or waits in the
+ * queue, and either its runtime gave a task to stop or the kit holds its link.
+ */
+export function canStopRow(row: AgentRow): boolean {
+  if (!isBusyStatus(row.status) && row.status !== "pending") return false;
+  return row.native ? Boolean(row.taskId) : row.stoppable === true;
+}
+
+/** The effort as the hover card spells it. */
+function effortLabel(effort: string): string {
+  return effort.replace(/^\w/u, (letter) => letter.toUpperCase());
+}
+
+/**
+ * What the hover card says about an agent, one fact per line: title, model and
+ * effort, state, where it works, what it does now. Tau's tooltip keeps the line breaks.
+ */
+export function agentHoverText(row: AgentRow): string {
+  const model = shortModel(row.model);
+  const status = {
+    running: "Running", waiting: "Needs your answer", pending: "Queued", completed: "Completed", idle: "Idle", failed: "Failed", cancelled: "Cancelled",
+  }[row.status];
+  return [
+    row.title,
+    [model, row.effort ? effortLabel(row.effort) : undefined].filter(Boolean).join(" · "),
+    row.machine ? machineTitle(row.machine) : undefined,
+    status,
+    row.workspace?.mode === "worktree" ? row.workspace.branch : undefined,
+    isBusyStatus(row.status) && row.lastTool ? row.lastTool : undefined,
+  ].filter(Boolean).join("\n");
+}
+
+/**
+ * Agents below a thread, at any depth, that hold on a question, oldest first.
+ * The thread's own composer shows its direct children's questions as cards; a
+ * grandchild's reaches nobody on screen, so the banner lists them all.
+ */
+export function waitingBelow(state: AgentsState | undefined, threadId: string | undefined): AgentThreadLink[] {
+  if (!state || !threadId) return [];
+  const found: AgentThreadLink[] = [];
+  const seen = new Set<string>([threadId]);
+  const pending = [threadId];
+  for (const parent of pending) {
+    for (const link of state.links) {
+      if (link.parentThreadId !== parent || seen.has(link.id)) continue;
+      seen.add(link.id);
+      if (link.threadId) pending.push(link.threadId);
+      if (link.status === "waiting") found.push(link);
+    }
+  }
+  return found.sort((left, right) => left.spawnedAt - right.spawnedAt);
 }
 
 /** `0:04`, `3:04`, `1:02:05`: the rail's `Working m:ss` clock. */
@@ -411,6 +473,8 @@ export function nativeAgentRow(tool: UiToolRun): AgentRow | undefined {
   return { id: tool.id, title: typeof tool.args.title === "string" ? tool.args.title : "Subagent", status,
     startedAt: tool.startedAt, ...(tool.endedAt ? { endedAt: tool.endedAt } : {}),
     ...(typeof tool.args.model === "string" ? { model: tool.args.model } : {}),
+    ...(typeof tool.args.effort === "string" ? { effort: tool.args.effort } : {}),
+    ...(typeof tool.args.taskId === "string" ? { taskId: tool.args.taskId } : {}),
     ...(typeof tool.args.lastTool === "string" ? { lastTool: tool.args.lastTool } : {}),
     native: { transcript: tool.output ?? "", runtime: String(tool.args.runtime ?? ""), entries: Array.isArray(tool.args.entries) ? tool.args.entries as NativeAgentEntry[] : [] } };
 }

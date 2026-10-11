@@ -21,6 +21,21 @@ it("does not present background shells as subagents and settles foreground Agent
   expect(agents.push({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "call", content: "failed", is_error: true }] } }).at(-1)).toMatchObject({ tool: { status: "error", args: { agentStatus: "failed" } } });
 });
 
+it("keeps the task id a row can be stopped by, and the effort it runs at", () => {
+  const agents = new ClaudeNativeAgents(() => "high");
+  const launch = agents.push({ type: "assistant", message: { content: [{ type: "tool_use", id: "call", name: "Agent", input: { description: "Review" } }] } });
+  // The owner's effort, until the call names its own.
+  expect(launch[0]).toMatchObject({ tool: { args: { effort: "high" } } });
+  const started = agents.push({ type: "system", subtype: "task_started", task_id: "task-1", tool_use_id: "call", task_type: "local_agent", description: "Review" });
+  expect(started.at(-1)).toMatchObject({ tool: { args: { taskId: "task-1" } } });
+  expect(agents.hasTask("task-1")).toBe(true);
+  expect(agents.hasTask("other")).toBe(false);
+  const own = agents.push({ type: "assistant", message: { content: [{ type: "tool_use", id: "second", name: "Agent", input: { description: "Plan", effort: "low" } }] } });
+  expect(own[0]).toMatchObject({ tool: { args: { effort: "low" } } });
+  const none = new ClaudeNativeAgents().push({ type: "assistant", message: { content: [{ type: "tool_use", id: "x", name: "Agent", input: { description: "Plain" } }] } });
+  expect(none[0]!.type === "tool-end" && "effort" in none[0].tool.args).toBe(false);
+});
+
 it("replaces child streaming deltas with the final message rather than repeating its text", () => {
   const agents = new ClaudeNativeAgents();
   agents.push({ type: "stream_event", parent_tool_use_id: "call", event: { type: "message_start", message: { id: "reply" } } });

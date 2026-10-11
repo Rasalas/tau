@@ -12,6 +12,10 @@ function contentText(value: unknown): string {
 export class ClaudeNativeAgents {
   readonly tracker = new NativeAgentTracker("claude-code");
   private readonly tasks = new Map<string, string>();
+  /** `ownerEffort` is what the owning thread runs at, for a call that names no effort of its own. */
+  constructor(private readonly ownerEffort: () => string | undefined = () => undefined) {}
+  /** Whether a task id belongs to a subagent row, which `stopTask` may then stop. */
+  hasTask(taskId: string): boolean { return this.tasks.has(taskId); }
   /** A SendMessage that resumed an agent, to the row the agent already has. */
   private readonly resumedBy = new Map<string, string>();
   private readonly background = new Set<string>();
@@ -31,7 +35,8 @@ export class ClaudeNativeAgents {
         const input = object(block.input);
         if (!id) continue;
         if (input.run_in_background === true) this.background.add(id);
-        events.push(...this.tracker.update(id, { title: string(input.description) ?? string(input.subagent_type) ?? "Subagent", ...(string(input.model) ? { model: string(input.model) } : {}) }));
+        const effort = string(input.effort) ?? this.ownerEffort();
+        events.push(...this.tracker.update(id, { title: string(input.description) ?? string(input.subagent_type) ?? "Subagent", ...(string(input.model) ? { model: string(input.model) } : {}), ...(effort ? { effort } : {}) }));
       }
     }
     const parent = this.row(string(frame.parent_tool_use_id));
@@ -74,7 +79,7 @@ export class ClaudeNativeAgents {
         const handle = known ?? id ?? frame.task_id;
         this.tasks.set(frame.task_id, handle);
         if (frame.is_backgrounded !== false) this.background.add(handle);
-        events.push(...this.tracker.update(handle, { title: string(frame.description) ?? "Subagent", ...(known ? { status: "running" as const } : {}) }));
+        events.push(...this.tracker.update(handle, { title: string(frame.description) ?? "Subagent", taskId: frame.task_id, ...(known ? { status: "running" as const } : {}) }));
       } else if (id && this.owns(id)) {
         if (frame.subtype === "task_notification") {
           this.background.delete(id);

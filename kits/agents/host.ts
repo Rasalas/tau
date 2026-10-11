@@ -24,7 +24,6 @@ import {
   CHOOSE_MACHINE_COMMAND,
   MACHINES_KIT_ID,
   MACHINE_SETTING,
-  MAX_AGENT_DEPTH,
   isBusyStatus,
   tauToolName,
   type AgentMachinesView,
@@ -393,6 +392,8 @@ export function createAgentsHostExtension(options: {
       const expect = (id: string) => { expecting.set(id, (expecting.get(id) ?? 0) + 1); save(); };
       /** Children that finished while nobody waited for them, by parent, until the parent hears. */
       const unreported = new Map<string, Set<string>>();
+      /** The reasoning level each thread's Pi runtime last reported. */
+      const efforts = new Map<string, string>();
       const notices = new Map<string, CompletionNotice>();
       const held = new Set<string>();
       const uncertainNotices = new Set<string>();
@@ -672,6 +673,7 @@ export function createAgentsHostExtension(options: {
           });
           prompts.delete(agent.id);
           changed(agent.id, book.noteStarted(agent.id, started.sessionId, Date.now()));
+          if (efforts.has(started.sessionId)) changed(agent.id, book.noteEffort(agent.id, efforts.get(started.sessionId)));
           if (acceptedEarly.delete(started.sessionId)) changed(agent.id, book.noteAccepted(agent.id));
           remember(book.linkFor(agent.id)!);
           services.log("agents.started", `${started.sessionId.slice(0, 8)} · ${agent.title}`);
@@ -761,8 +763,8 @@ export function createAgentsHostExtension(options: {
 
       /**
        * A thread's depth among sub-agents. One another machine started here as
-       * a sub-agent carries the depth it had there, so the tree stops at the
-       * same level on whichever machine it grows.
+       * a sub-agent carries the depth it had there, so a tree reads the same
+       * level on whichever machine it grows.
        */
       const depths = new Map<string, Promise<number>>();
       const depthOf = (threadId: string): Promise<number> => {
@@ -802,7 +804,6 @@ export function createAgentsHostExtension(options: {
       const spawn = async (parent: RuntimeSessionInfo, input: unknown, inheritedModel: string | undefined, spawnedBy = "tau_spawn_thread") => {
         const request = decodeSpawnRequest(input);
         const depth = await depthOf(parent.sessionId);
-        if (depth + 1 > MAX_AGENT_DEPTH) throw new Error(`Sub-agents may nest ${MAX_AGENT_DEPTH} levels deep; do this work in this thread instead.`);
         const projectPath = await resolveProject(request.projectPath, parent.cwd);
         // An unknown or broken definition fails this spawn only; the others go on.
         const definition = request.agent ? findAgentDefinition(await definitionReader.read(projectPath), request.agent) : undefined;
@@ -1156,8 +1157,38 @@ export function createAgentsHostExtension(options: {
         return { threadId: link.id, machine: where.name, delivered, status: book.linkFor(link.id)?.status ?? link.status, ...acknowledgment };
       };
 
-      /** Stops a child: a queued one never starts, a running one ends its turn. A finished one stays as it is. */
+      /**
+       * Stops a child and, after it, everything below it: its own turn first, so
+       * it starts nothing more, then each of its agents the same way. A finished
+       * one stays as it is.
+       */
       const cancelChild = async (parentThreadId: string, input: unknown) => {
+        const result = await cancelOne(parentThreadId, input);
+        const link = requireChild(parentThreadId, decodeThreadId(input));
+        const below = await cancelBelow(link);
+        return below > 0 ? { ...result, alsoStopped: below } : result;
+      };
+
+      /** Cancels every busy or queued agent under `link`, deepest levels included; answers how many it stopped. */
+      const cancelBelow = async (link: AgentThreadLink, seen = new Set<string>()): Promise<number> => {
+        if (!link.threadId || seen.has(link.id)) return 0;
+        seen.add(link.id);
+        let stopped = 0;
+        // Queued ones first: a freed slot would otherwise start one just to stop it.
+        const children = book.childrenOf(link.threadId).sort((left, right) => Number(right.status === "pending") - Number(left.status === "pending"));
+        for (const child of children) {
+          if (isBusyStatus(child.status) || child.status === "pending") {
+            await cancelOne(link.threadId, { threadId: child.id }).then(() => { stopped += 1; }, (error: unknown) => {
+              services.log("agents.cancel-failed", `${child.id.slice(0, 8)} · ${error instanceof Error ? error.message : String(error)}`);
+            });
+          }
+          stopped += await cancelBelow(child, seen);
+        }
+        return stopped;
+      };
+
+      /** Stops one child: a queued one never starts, a running one ends its turn. */
+      const cancelOne = async (parentThreadId: string, input: unknown) => {
         const link = requireChild(parentThreadId, decodeThreadId(input));
         const handle = link.threadId ?? link.id;
         expecting.delete(link.id);
@@ -1409,10 +1440,15 @@ export function createAgentsHostExtension(options: {
         pi.on("before_agent_start", async (event, ctx) => {
           // Tools set here count for this turn; the prompt's own tool list catches up next turn.
           await applyPersona(ctx);
+          // The first turn starts before the kit knows the thread, so the level waits for it.
+          const level = pi.getThinkingLevel();
+          const effort = level && level !== "off" ? level : undefined;
+          if (effort) efforts.set(threadId, effort); else efforts.delete(threadId);
+          changed(threadId, book.noteEffort(threadId, effort));
           const sections: string[] = [];
           const current = personaFor(ctx);
           if (current) sections.push(personaSection(current));
-          if (pi.getActiveTools().includes("tau_spawn_thread") && book.depthOf(threadId) < MAX_AGENT_DEPTH) {
+          if (pi.getActiveTools().includes("tau_spawn_thread")) {
             const listing = definitionsSection((await definitionReader.read(session.cwd)).definitions);
             if (listing) sections.push(listing);
           }
@@ -1420,6 +1456,20 @@ export function createAgentsHostExtension(options: {
         });
 
         for (const tool of agentTools(session)) pi.registerTool(tool);
+      };
+
+      /**
+       * The user stopped a child: Stop holds its queue, so the turns a tool
+       * queued behind the running one never start. Only the running turn is
+       * still owed to the parent, which would otherwise wait for them forever.
+       */
+      const settleExpectedTurns = (threadId: string) => {
+        const link = book.linkFor(threadId);
+        const owed = link ? expecting.get(link.id) : undefined;
+        if (!link || owed === undefined) return;
+        const running = isBusyStatus(link.status) || (services.thread(threadId)?.isStreaming() ?? false);
+        if (running && owed > 1) { expecting.set(link.id, 1); save(); }
+        else if (!running) { expecting.delete(link.id); save(); }
       };
 
       /** A child's turn ended, here or on its machine: note it, wake its parent if nobody waited, free its slot. */
@@ -1496,6 +1546,7 @@ export function createAgentsHostExtension(options: {
           pending: (sessionId) => waiters.get(book.linkFor(sessionId)?.id ?? "")?.size ?? 0,
           // Stopping a parent leaves its agents running (`tau_cancel_thread` stops one); the stop's line must not promise quiet.
           stopped: (sessionId) => {
+            settleExpectedTurns(sessionId);
             const running = book.childrenOf(sessionId).filter((link) => isBusyStatus(link.status) || link.status === "pending").length;
             if (running === 0) return undefined;
             return { continues: [running === 1 ? "A sub-agent keeps running and reports back when it finishes" : `${running} sub-agents keep running and report back when they finish`] };
@@ -1560,6 +1611,12 @@ export function createAgentsHostExtension(options: {
         // The panel's two row actions; the tools do the same from a turn.
         context.registerCommand("apply-changes", (input) => settleWorkspace(requireThreadId(input), "applied"), { long: true }),
         context.registerCommand("discard-changes", (input) => settleWorkspace(requireThreadId(input), "discarded"), { long: true }),
+        // The row's Stop: the agent and everything it started.
+        context.registerCommand("stop-agent", async (input) => {
+          const link = book.linkFor(requireThreadId(input));
+          if (!link) throw new HostCommandError("That agent is gone.");
+          return cancelChild(link.parentThreadId, { threadId: link.id });
+        }, { long: true }),
         context.registerCommand("definitions", async (input): Promise<AgentDefinitionsState> => {
           const sessionId = record(input).sessionId;
           const thread = typeof sessionId === "string" && sessionId ? services.thread(sessionId) : undefined;

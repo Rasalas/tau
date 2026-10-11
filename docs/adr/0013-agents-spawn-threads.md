@@ -69,8 +69,9 @@ stay the record of truth; the file is only the fast index.
 (`maxRunningAgents` in `~/.tau/agents.json`, capped at 64). A spawn beyond that
 is accepted with status `pending` and starts when a slot frees, oldest first, so
 `tau_spawn_thread` never fails for capacity and a model does not have to
-implement its own back-off. Every other guard rail still refuses: two levels of
-nesting, so a sub-agent may delegate once and its child may not; a project the
+implement its own back-off. Every other guard rail still refuses (nesting no
+longer does: since 2026-10 an agent may start agents without a depth limit, and
+the running budget per parent is the guard): a project the
 host already has open, never a new folder; the parent's model unless the caller
 names one; a wait bounded at ten minutes by default and thirty at most, which
 also gives up on the tool's own `AbortSignal`. A thread being waited on reports
@@ -85,8 +86,8 @@ beside the chat: a header with the counts and the total cost, then one
 fixed-height row per agent — status dot, title, elapsed, one activity line
 (current tool, question, result or error) and a metadata line with model and
 cost. It shows the agents of the thread on screen; a thread that is itself an
-agent sees its siblings and the thread above it, grouped by parent once depth 2
-is in play. Clicking a row opens that thread, and that thread's transcript
+agent sees its siblings and the thread above it, grouped by parent once
+agents nest. Clicking a row opens that thread, and that thread's transcript
 header carries the way back. Rows are virtualized and elapsed time is written
 into the text node rather than committed through React, because fifty rows
 ticking once a second is otherwise the whole frame.

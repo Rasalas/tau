@@ -36,7 +36,7 @@ export class NativeAgentTracker {
   has(id: string): boolean { return this.agents.has(id); }
   get busy(): boolean { return [...this.agents.values()].some((agent) => agent.status === "running"); }
 
-  update(id: string, change: { title?: string; model?: string; status?: NativeAgentStatus; lastTool?: string } = {}): ThreadRuntimeEvent[] {
+  update(id: string, change: { title?: string; model?: string; effort?: string; taskId?: string; status?: NativeAgentStatus; lastTool?: string } = {}): ThreadRuntimeEvent[] {
     const previous = this.agents.get(id);
     const previousStatus = previous?.args.agentStatus;
     const terminal = previousStatus === "failed" || previousStatus === "cancelled" || previousStatus === "completed";

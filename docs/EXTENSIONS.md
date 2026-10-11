@@ -1722,6 +1722,11 @@ open. A navigator draws them with `DraftRow` above its active threads, leaves
 out one whose `sessionId` it already lists, and marks no thread row active while
 a draft is `active`. Workspace Kit's rail is the worked example.
 
+`threadStore.ancestorsOf(threadId)` (unversioned addition to the same store) lists
+the threads above one, nearest first, from the lineage the thread index carries.
+A sub-agent's question waits on all of them: its card shows on the composer of
+each, and each wears the waiting mark in the rail.
+
 One consequence for `pinTranscriptEntries`: your provider is now also called
 with a thread the host has only a file for. `sessionId`, `cwd`, `sessionFile`,
 `parentThreadId`, `sessionName()`, `entries()` and `transcript()` answer as

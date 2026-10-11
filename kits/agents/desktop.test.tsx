@@ -6,7 +6,7 @@ import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import { agentsExtension } from "./desktop.js";
 import { createAgentsStore, createDefinitionsStore, definitionsStore, lineageOf, remoteAgentThreads } from "./store.js";
-import { agentsPanelModel, definitionRows, doneLabel, formatCost, formatElapsed, machineTitle, questionLine, rowStand, shortModel, spawnCardModel, spawnedThreadId, viewRows, worktreeLine } from "./model.js";
+import { agentHoverText, agentsPanelModel, canStopRow, definitionRows, doneLabel, formatCost, formatElapsed, machineTitle, questionLine, rowOf, rowStand, shortModel, spawnCardModel, spawnedThreadId, viewRows, waitingBelow, worktreeLine } from "./model.js";
 import { machineChoiceText } from "./settings.js";
 import { panelRows, viewCounts } from "./panel.js";
 import type { AgentThreadLink, AgentThreadStatus, AgentsState } from "./protocol.js";
@@ -112,6 +112,37 @@ describe("the Agents panel model", () => {
     expect(model.groups.map((group) => [group.parentThreadId, group.active])).toEqual([["parent", true], ["alpha", false]]);
     // The finished agent sits under its "Done" line, inside its parent's group.
     expect(panelRows(model).map((row) => row.kind)).toEqual(["group", "agent", "section", "agent", "group", "agent"]);
+  });
+
+  it("follows the tree as deep as it goes", () => {
+    const deep: AgentsState = {
+      maxRunning: 8,
+      links: [
+        link("child", "root", "running", 1),
+        { ...link("grand", "child", "running", 2), depth: 2 },
+        { ...link("great", "grand", "waiting", 3), depth: 3 },
+        { ...link("greater", "great", "running", 4), depth: 4 },
+      ],
+    };
+    const model = agentsPanelModel(deep, "root", []);
+    expect(model.groups.map((group) => group.parentThreadId)).toEqual(["root", "child", "grand", "great"]);
+    // Whoever holds on a question below, at any depth, oldest first.
+    expect(waitingBelow(deep, "root").map((entry) => entry.id)).toEqual(["great"]);
+    expect(waitingBelow(deep, "child").map((entry) => entry.id)).toEqual(["great"]);
+    expect(waitingBelow(deep, "great")).toEqual([]);
+    expect(waitingBelow(deep, undefined)).toEqual([]);
+  });
+
+  it("says model, effort, state and branch on the hover card, and stops only what runs", () => {
+    const running = rowOf(link("alpha", "parent", "running", 1, { model: "anthropic/claude-haiku-4-5", effort: "high", lastTool: "bash ls", workspace: { mode: "worktree", path: "/w", branch: "tau/alpha" } }), new Map());
+    expect(agentHoverText(running).split("\n")).toEqual(["ALPHA", "claude-haiku-4-5 · High", "Running", "tau/alpha", "bash ls"]);
+    expect(canStopRow(running)).toBe(true);
+    expect(canStopRow(rowOf(link("beta", "parent", "pending", 2), new Map()))).toBe(true);
+    expect(canStopRow(rowOf(link("gamma", "parent", "completed", 3), new Map()))).toBe(false);
+    // A runtime's own child needs its task; a row the index made has no agent behind it.
+    expect(canStopRow({ id: "n", title: "N", status: "running", native: { transcript: "", runtime: "x", entries: [] } })).toBe(false);
+    expect(canStopRow({ id: "n", title: "N", status: "running", taskId: "t", native: { transcript: "", runtime: "x", entries: [] } })).toBe(true);
+    expect(canStopRow({ id: "i", title: "I", status: "running" })).toBe(false);
   });
 
   it("lists the children the thread index names when the kit has no links at all", () => {
