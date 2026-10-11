@@ -28,7 +28,7 @@ export interface WindowExtensionContext {
   /**
    * The window's native menu, the one the page's right-click menus use. `point`
    * is in the workbench page's CSS pixels; the answer is the chosen item's id,
-   * undefined when the menu was dismissed. Absent before API 1.60.0.
+   * undefined when the menu was dismissed. Absent before API 1.59.0.
    */
   showContextMenu?(entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined>;
 }

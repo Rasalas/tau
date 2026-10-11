@@ -3986,7 +3986,7 @@ machine the user sits at rather than the one the host runs on — SnapShots
 reads the accessibility tree of a window this way. A half written for an older
 Tau checks that the member exists.
 
-`context.showContextMenu(entries, point)` (new in API 1.60.0) opens the window's
+`context.showContextMenu(entries, point)` (new in API 1.59.0) opens the window's
 native right-click menu, the one the page's `useContextMenu` uses, for a view the
 page cannot reach: a native view swallows its own `contextmenu` events. `entries`
 are the `NativeMenuEntry` list of `tau/host-extension` and `point` is in the
