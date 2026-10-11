@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { btwPrompt, fitLines, linesFromEntries, linesFromMessages } from "./btw-context.js";
 
-const message = (id: string, message: Record<string, unknown>) => ({ type: "message", id, message });
+const message = (id: string, body: Record<string, unknown>) => ({ type: "message", id, message: body });
 const text = (value: string) => [{ type: "text", text: value }];
 
 describe("side question context", () => {

@@ -114,7 +114,7 @@ describe("Handoff Kit side questions (/btw)", () => {
   });
 
   it("keeps a failed question for a retry on the same tab", async () => {
-    const complete = vi.fn(async () => { throw new Error("Rate limited."); });
+    const complete = vi.fn<(provider: string, id: string, request: Request) => Promise<string>>(async () => { throw new Error("Rate limited."); });
     const { thread } = makeThread({ complete });
     threads.set("t1", thread);
     const registry = await activate();

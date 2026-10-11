@@ -2295,6 +2295,14 @@ at), the checkout as it is for Duplicate, or the branch's HEAD alone, which the
 question says. Without a prompt core forks at once; `actions.duplicateThread({ ask: false })`
 copies at once too (Handoff's continuation on another runtime, which goes on with the same work). The last one registered wins.
 
+`actions.askFork({ entryId, prompt? })` (API 1.59.0) lets an extension propose a fork
+through an entry: the registered prompt asks as it does for the user's own fork, with
+`ForkRequest.prompt` as the task it offers in its "Task for the new thread" field, so
+the user still picks the branch and worktree. Without a prompt registered the fork
+starts at once, in the background, with `prompt` as its task. It resolves true once a
+question or a fork exists and false when nothing was forked. Handoff Kit's "Continue
+as side task" on a side question is the shipped caller.
+
 `registerModelSelection({ id, selected, subscribe, toggle, reset })` lets a new
 thread's model picker hold more than one model. Shift-click (or Shift+↵) on a
 row calls `toggle(model, current, runtime, currentRuntime)` instead of choosing — `current` is the model
@@ -2584,6 +2592,14 @@ and `elsePrefer`, for a thread of any runtime; Handoff keeps `undefined` and
 writes an excerpt instead of a summary. `HostThread.model` (new in API 1.11.0) is that
 model as the thread's runtime names it — a Codex thread's `openai/gpt-5.6-sol`
 — so a thread whose draft named none still gives the hint.
+
+A completion request may also carry `onText(delta)`, `signal` and `timeoutMs` (API 1.59.0).
+`onText` receives each piece of the answer as it arrives where the model runs through Pi's
+own model runtime (`services.complete` and `HostThread.complete` on a Pi thread); a runtime
+that cannot stream, such as the Agent SDK runtime's or Codex's, answers once at the end, so
+an extension must still use the returned text. `signal` ends the request, and `timeoutMs`
+replaces the 30 s limit, which suits a title and not an answer. `maxTokens` still defaults
+to 48. Handoff Kit's side questions stream their answers this way.
 
 API 1.54.0 adds optional `HostThread.nativeTitle()` and
 `HostThread.completionModels()` for in-process host extensions. The first reads
