@@ -161,8 +161,7 @@ describe("a local OpenCode 2 server", () => {
     }
   });
 
-  // mergedConfigContent merges one level deep, so the user's mcp.servers is replaced.
-  it.fails("keeps the user's own MCP servers when Tau adds its server under mcp.servers", () => {
+  it("keeps the user's own MCP servers when Tau adds its server under mcp.servers", () => {
     const merged = mergedConfigContent(JSON.stringify({ username: "me", mcp: { servers: { mine: { type: "local" } } } }), { mcp: { servers: { tau: { type: "remote" } } } });
     expect(JSON.parse(merged!)).toEqual({ username: "me", mcp: { servers: { mine: { type: "local" }, tau: { type: "remote" } } } });
   });

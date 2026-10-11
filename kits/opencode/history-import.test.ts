@@ -166,7 +166,7 @@ describe.each(generations)("importing OpenCode's own sessions, $name", (generati
   });
 
   // The page after a cursor carries no limit, so a list of more than 300 sessions stops early on OpenCode 2.
-  (generation.cursorKeepsPageSize ? it : it.fails)("reports a scan cut off at 500 sessions and keeps the newest", async () => {
+  it("reports a scan cut off at 500 sessions and keeps the newest", async () => {
     const { server, api } = await setup(generation);
     for (let index = 0; index < 501; index += 1) server.seed({ id: `ses_${String(index).padStart(4, "0")}`, directory: "/w", title: `s${index}`, updated: 10_000 + index });
     const { sessions, truncated } = await scanOpenCodeSessions(api, () => false);
@@ -243,7 +243,7 @@ describe.each(generations)("importing OpenCode's own sessions, $name", (generati
 
   // 850 messages are more than the four pages OpenCode 2 reads, so its first message is fetched apart;
   // the pages after the first carry no limit, though, and the second one looks like the last.
-  (generation.cursorKeepsPageSize ? it : it.fails)("finds the first user message of a conversation longer than the pages read", async () => {
+  it("finds the first user message of a conversation longer than the pages read", async () => {
     const { server, api, store } = await setup(generation);
     const entries: Entry[] = Array.from({ length: 850 }, (_, index) => index % 2 === 0 ? { user: `question ${index}` } : { assistant: `answer ${index}` });
     server.seed({ id: "ses_huge", directory: "/w", title: "Huge", updated: 5, entries });

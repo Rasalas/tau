@@ -44,6 +44,14 @@ const OUTPUT_TAIL = 8 * 1024;
 /** A server still at work may ignore SIGTERM for seconds; after this it is killed. */
 const CLOSE_GRACE_MS = 2_000;
 
+/** One level of a config key; OpenCode 2's `mcp.servers` is one level deeper. */
+function mergedObject(before: Record<string, unknown>, value: Record<string, unknown>, key: string): Record<string, unknown> {
+  const merged = { ...before, ...value };
+  const [mine, ours] = [before.servers, value.servers];
+  if (key === "mcp" && mine && ours && typeof mine === "object" && typeof ours === "object") merged.servers = { ...mine, ...ours };
+  return merged;
+}
+
 /** The user's own `OPENCODE_CONFIG_CONTENT`, with Tau's keys laid over it one level deep. */
 export function mergedConfigContent(existing: string | undefined, config: Record<string, unknown> | undefined): string | undefined {
   if (!config) return existing;
@@ -56,7 +64,7 @@ export function mergedConfigContent(existing: string | undefined, config: Record
   for (const [key, value] of Object.entries(config)) {
     const before = base[key];
     merged[key] = before && typeof before === "object" && !Array.isArray(before) && value && typeof value === "object" && !Array.isArray(value)
-      ? { ...before as Record<string, unknown>, ...value as Record<string, unknown> }
+      ? mergedObject(before as Record<string, unknown>, value as Record<string, unknown>, key)
       : value;
   }
   return JSON.stringify(merged);

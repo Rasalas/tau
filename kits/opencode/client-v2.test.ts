@@ -226,7 +226,7 @@ describe("sessions", () => {
     fake.addSession({ id: "ses_child", directory: DIR, title: "Child", parentID: "ses_parent", cost: 2.5, tokens: { ...ZERO, input: 7 } });
     const mark = fake.requests.length;
     await expect(api.getSession(DIR, "ses_child")).resolves.toEqual({ id: "ses_child", title: "Child", parentId: "ses_parent", cost: 2.5, tokens: { ...ZERO, input: 7 } });
-    expect(routes(fake, mark)).toEqual(["GET /api/session/ses_child"]);
+    expect(routes(fake, mark)).toEqual(["GET /api/session/ses_child", "GET /api/experimental/session/ses_child/instructions/entries"]);
   });
 
   it("rejects a missing session with the server's 404", async () => {
@@ -369,12 +369,10 @@ describe("prompting", () => {
     const fresh = await connect();
     mark = fake.requests.length;
     await fresh.prompt(DIR, "ses_known", { parts: [text("y")], model: { providerID: "opencode", modelID: "exo-free" }, variant: "high", plan: false });
-    expect(routes(fake, mark)).toEqual(["GET /api/session/ses_known", "POST /api/session/ses_known/agent", "POST /api/session/ses_known/prompt"]);
+    expect(routes(fake, mark)).toEqual(["GET /api/session/ses_known", "GET /api/experimental/session/ses_known/instructions/entries", "POST /api/session/ses_known/agent", `DELETE ${entry}`, "POST /api/session/ses_known/prompt"]);
   });
 
-  // Bug: plan state starts as "off" for a session this api did not set up, so the entry a former
-  // connection left behind is never removed (client-v2.ts, remember/prompt). Fix: read the entries.
-  it.fails("removes the plan entry an earlier connection left when leaving plan mode", async () => {
+  it("removes the plan entry an earlier connection left when leaving plan mode", async () => {
     const { fake, connect } = await setup();
     fake.addSession({ id: "ses_left", directory: DIR, agent: "plan", instructionEntries: { "tau-plan": "You are in plan mode" } });
     const fresh = await connect();
@@ -830,7 +828,7 @@ describe("history", () => {
   const session = (fake: FakeOpenCode2, id: string, extra: Record<string, unknown> = {}) => fake.addSession({ id, directory: DIR, ...extra } as Parameters<FakeOpenCode2["addSession"]>[0]);
   const sessionQueries = (fake: FakeOpenCode2, mark: number) => since(fake, mark).filter((request) => route(request) === "GET /api/session").map((request) => request.query);
 
-  /** The fake's cursor does not carry the first request's limit, a real server's does; add it. */
+  /** Records the requests; the client names the page size with every cursor (a cursor holds none). */
   function cursorKeepsLimit() {
     const sent: Array<{ path: string; query: Record<string, string> }> = [];
     const limits = new Map<string, string>();
@@ -886,7 +884,7 @@ describe("history", () => {
     let queries = shim.sent.slice(from).filter((request) => request.path === "/api/session").map((request) => request.query);
     expect(queries).toHaveLength(2);
     expect(queries[0]).toEqual({ limit: "200", order: "desc" });
-    expect(Object.keys(queries[1]!)).toEqual(["cursor"]);
+    expect(Object.keys(queries[1]!)).toEqual(["limit", "cursor"]);
     expect(full).toHaveLength(250);
     expect(full[0]!.id).toBe("ses_250");
     expect(full.at(-1)!.id).toBe("ses_001");
@@ -961,7 +959,7 @@ describe("history", () => {
     const queries = shim.sent.slice(from).map((request) => request.query);
     expect(queries).toHaveLength(3);
     expect(queries[0]).toEqual({ limit: "200", order: "desc" });
-    expect(queries.slice(1).every((query) => Object.keys(query).join() === "cursor")).toBe(true);
+    expect(queries.slice(1).every((query) => Object.keys(query).join() === "limit,cursor")).toBe(true);
     expect(messages).toHaveLength(450);
     expect(messages[0]).toEqual({ role: "user", text: "first", timestamp: 1 });
     expect(messages.at(-1)).toEqual({ role: "assistant", text: "a449", timestamp: 450 });
@@ -977,7 +975,7 @@ describe("history", () => {
     const queries = shim.sent.slice(from).map((request) => request.query);
     expect(queries).toHaveLength(5);
     expect(queries[0]).toEqual({ limit: "200", order: "desc" });
-    expect(queries.slice(1, 4).every((query) => Object.keys(query).join() === "cursor")).toBe(true);
+    expect(queries.slice(1, 4).every((query) => Object.keys(query).join() === "limit,cursor")).toBe(true);
     expect(queries[4]).toEqual({ limit: "20", order: "asc", type: "user" });
     expect(messages).toHaveLength(801);
     expect(messages[0]).toEqual({ role: "user", text: "first", timestamp: 1 });

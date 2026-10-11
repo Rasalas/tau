@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import type { BackendPrompt, ExtensionUiAnswer, RuntimePermissionLevel, ThreadRuntimeEvent } from "tau/host-extension";
 import { DENY } from "./approvals.js";
+import { OpenCode2Api } from "./client-v2.js";
 import { openCodeMcpConfig } from "./mcp.js";
 import { createOpenCodeRuntimeAdapter } from "./runtime-adapter.js";
 import { startOpenCodeServer, type OpenCodeServerHandle } from "./server.js";
@@ -92,6 +93,16 @@ describe.skipIf(!BIN)("a real OpenCode 2 server", () => {
     expect(listed).toEqual([expect.objectContaining({ id: session.id, directory: expect.stringContaining("project") })]);
     await expect(server.api.historyMessages(space.project, session.id)).resolves.toEqual({ messages: [] });
     await expect(server.api.settle(space.project, session.id)).resolves.toBeUndefined();
+
+    // A cursor holds no page size: the client names it again, and paging walks every session.
+    await server.api.createSession(space.project, { policy: { level: "full" } });
+    await server.api.createSession(space.project, { policy: { level: "full" } });
+    const client = (server.api as OpenCode2Api).client;
+    const first = await client.request<{ data: Array<{ id: string }>; cursor: { next?: string } }>("GET", "/api/session", { query: { limit: "1", order: "desc" } });
+    const second = await client.request<{ data: Array<{ id: string }> }>("GET", "/api/session", { query: { limit: "1", cursor: first.cursor.next } });
+    expect(first.data).toHaveLength(1);
+    expect(second.data).toHaveLength(1);
+    expect(second.data[0]!.id).not.toBe(first.data[0]!.id);
   });
 
   it.skipIf(!TURNS)("runs turns: a reply, a refused command, an answered question, a stop and a plan", async () => {

@@ -250,7 +250,10 @@ export class OpenCode2Api implements OpenCodeApi {
 
   async getSession(_directory: string, id: string): Promise<NativeSession> {
     const found = await this.client.request<{ data: V2Session }>("GET", `/api/session/${encodeURIComponent(id)}`);
-    this.remember(found.data);
+    const known = this.remember(found.data);
+    // An earlier connection may have left the plan instruction on the session.
+    const entries = await this.client.request<{ data?: Array<{ key: string }> }>("GET", `/api/experimental/session/${encodeURIComponent(id)}/instructions/entries`).catch(() => undefined);
+    known.plan = entries?.data?.some((entry) => entry.key === PLAN_ENTRY) === true;
     return nativeSession(found.data);
   }
 
@@ -383,8 +386,8 @@ export class OpenCode2Api implements OpenCodeApi {
     let cursor: string | undefined;
     while (sessions.length < limit) {
       const page = await this.client.request<{ data: V2Session[]; cursor?: { next?: string | null } }>("GET", "/api/session", {
-        // A cursor stands for the first request's filters and order.
-        query: cursor ? { cursor } : { limit: String(size), order: "desc", ...(query.roots ? { parentID: "null" } : {}) },
+        // A cursor stands for the first request's filters and order, not its page size.
+        query: { limit: String(size), ...(cursor ? { cursor } : { order: "desc", ...(query.roots ? { parentID: "null" } : {}) }) },
       });
       sessions.push(...page.data);
       cursor = page.cursor?.next ?? undefined;
@@ -411,7 +414,7 @@ export class OpenCode2Api implements OpenCodeApi {
     let more = false;
     for (let page = 0; page < MAX_MESSAGE_PAGES; page += 1) {
       const answer = await this.client.request<{ data: V2Message[]; cursor?: { next?: string | null } }>("GET", path, {
-        query: cursor ? { cursor } : { limit: String(MESSAGE_PAGE), order: "desc" },
+        query: { limit: String(MESSAGE_PAGE), ...(cursor ? { cursor } : { order: "desc" }) },
       });
       newest.push(...answer.data);
       cursor = answer.cursor?.next ?? undefined;
