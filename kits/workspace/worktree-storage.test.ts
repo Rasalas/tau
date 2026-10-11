@@ -13,7 +13,7 @@ afterEach(async () => { await Promise.all(made.splice(0).map((path) => rm(path, 
 const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: "pipe", encoding: "utf8" });
 
 /** A repository whose worktrees go to a folder of this test's own. */
-async function fixture(requestState?: (path: string) => Promise<"open" | "closed" | "merged" | undefined>) {
+async function fixture(request?: WorktreeStorageOptions["request"]) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "tau-storage-")));
   made.push(root);
   const repo = join(root, "repo");
@@ -37,7 +37,7 @@ async function fixture(requestState?: (path: string) => Promise<"open" | "closed
     log: () => undefined,
     removed: (repository) => { removed.push(repository); },
     measure: async () => 1024,
-    ...(requestState ? { requestState } : {}),
+    ...(request ? { request } : {}),
   };
   const storage = new WorktreeStorage(storageOptions);
   /** A worktree the way Workspace Kit makes one, recorded like `create-worktree` does. */
@@ -136,7 +136,7 @@ describe("worktree storage", () => {
 
   it("takes a branch whose request was merged by squash, and asks the host only while the rule is on", async () => {
     const asked: string[] = [];
-    const { repo, storage, tauWorktree } = await fixture(async (path) => { asked.push(path); return "merged"; });
+    const { repo, storage, tauWorktree } = await fixture(async (path) => { asked.push(path); return { state: "merged", headSha: git(path, "rev-parse", "HEAD").trim(), baseRef: "main" }; });
     const squashed = await tauWorktree("squashed");
     await writeFile(join(squashed, "work.txt"), "work\n");
     git(squashed, "add", "work.txt");
@@ -149,6 +149,34 @@ describe("worktree storage", () => {
     await storage.setPolicy({ rules: { onMerge: true } });
     expect(await verdict()).toEqual({ remove: true, reasons: ["merged"], blockers: [] });
     expect(asked).toEqual([squashed]);
+  });
+
+  it("keeps a worktree whose merged request did not hold its commits, or was merged elsewhere", async () => {
+    let answer: Awaited<ReturnType<NonNullable<WorktreeStorageOptions["request"]>>>;
+    const { repo, storage, tauWorktree } = await fixture(async () => answer);
+    const path = await tauWorktree("moved-on");
+    await writeFile(join(path, "work.txt"), "work\n");
+    git(path, "add", "work.txt");
+    git(path, "commit", "-qm", "work");
+    const head = git(path, "rev-parse", "HEAD").trim();
+    git(repo, "branch", "pushed-copy", "moved-on");
+    await storage.setPolicy({ rules: { onMerge: true } });
+    const verdict = async () => (await storage.report({ sizes: false })).worktrees.find((tree) => tree.path === path)?.verdict;
+
+    // Commits added after the squash are not in the merged request.
+    answer = { state: "merged", headSha: "0".repeat(40), baseRef: "main" };
+    expect(await verdict()).toEqual({ remove: false, reasons: [], blockers: ["request-differs"] });
+    answer = { state: "merged", baseRef: "main" };
+    expect(await verdict()).toEqual({ remove: false, reasons: [], blockers: ["request-differs"] });
+    // Merged into another branch than the default one is not "merged into the default branch".
+    answer = { state: "merged", headSha: head, baseRef: "release" };
+    expect(await verdict()).toEqual({ remove: false, reasons: [], blockers: ["request-differs"] });
+    answer = { state: "open", headSha: "0".repeat(40), baseRef: "main" };
+    expect(await verdict()).toEqual({ remove: false, reasons: [], blockers: [] });
+    answer = { state: "merged", headSha: head, baseRef: "main" };
+    expect(await verdict()).toEqual({ remove: true, reasons: ["merged"], blockers: [] });
+    answer = { state: "merged", headSha: head };
+    expect(await verdict()).toEqual({ remove: true, reasons: ["merged"], blockers: [] });
   });
 
   it("leaves worktrees Tau did not record or that lie outside the worktrees folder", async () => {

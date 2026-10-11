@@ -43,7 +43,8 @@ export type CleanupBlocker =
   | "thread-open"
   | "uncommitted"
   | "ignored-files"
-  | "unpushed";
+  | "unpushed"
+  | "request-differs";
 
 export interface CleanupVerdict {
   /** A rule matched and nothing blocks it: the next sweep removes it. */

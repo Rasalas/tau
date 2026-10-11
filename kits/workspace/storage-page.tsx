@@ -42,6 +42,7 @@ const BLOCKERS: Record<CleanupBlocker, string> = {
   uncommitted: "uncommitted changes",
   "ignored-files": "ignored files",
   unpushed: "unpushed commits",
+  "request-differs": "the merged request lacks its commits",
 };
 
 export function formatBytes(bytes: number | undefined): string {

@@ -16,6 +16,12 @@ describe("a branch's request as the CLIs print it", () => {
     expect(parseGitHubBranchRequest(JSON.stringify({ number: 1 }))).toBeUndefined();
   });
 
+  it("reads the commit the request's head points at", () => {
+    expect(parseGitHubBranchRequest(JSON.stringify({ ...JSON.parse(ghOutput), headRefOid: "abc123" }))).toMatchObject({ headSha: "abc123" });
+    expect(parseGitLabBranchRequest(JSON.stringify({ ...JSON.parse(glabOutput), sha: "def456" }))).toMatchObject({ headSha: "def456" });
+    expect(parseGitLabBranchRequest(JSON.stringify({ ...JSON.parse(glabOutput), diff_refs: { head_sha: "fed987" } }))).toMatchObject({ headSha: "fed987" });
+  });
+
   it("reads state, draft, checks, body and an armed merge", () => {
     const gh = JSON.stringify({
       number: 9, title: "Draft it", url: "https://github.com/acme/tau/pull/9", baseRefName: "main", headRefName: "topic",
