@@ -29,7 +29,7 @@ function Stat({ label, value, detail, hint }: { label: string; value: string; de
  * Design 1h's four figures for the period: money paid per token, tokens on
  * plans, threads and the agents they spawned, tokens on local models.
  */
-export function UsageStats({ entries, from, weekFrom, threads }: { entries: readonly UsageEntry[]; from: number; weekFrom: number; threads: ReadonlyMap<string, UiSession> }) {
+export function UsageStats({ entries, from, weekFrom, threads, loading = false }: { entries: readonly UsageEntry[]; from: number; weekFrom: number; threads: ReadonlyMap<string, UiSession>; loading?: boolean }) {
   let spend = 0, week = 0, planTokens = 0, planValue = 0, localTokens = 0;
   const plans = new Set<string>(), locals = new Set<string>(), roots = new Set<string>(), agents = new Set<string>();
   for (const entry of entries) {
@@ -43,7 +43,7 @@ export function UsageStats({ entries, from, weekFrom, threads }: { entries: read
   }
   const label = (key: string) => providerStackLabel(key, undefined);
   return (
-    <div className="usage-stats" aria-label="Totals">
+    <div className="usage-stats" aria-label="Totals" aria-busy={loading || undefined} data-loading={loading || undefined}>
       <Stat label="API spend" value={money(spend)} detail={`${money(week)} last week`} />
       <Stat label="On plans" value={formatTokens(planTokens)} detail={plans.size > 0 ? `tokens · ${names(plans, (key) => PLAN_NAMES[key] ?? label(key))}` : "tokens · no plan used"} hint={planValue > 0 ? `≈ ${money(planValue)} at API prices` : undefined} />
       <Stat label="Threads" value={String(roots.size)} detail={`${agents.size} ${agents.size === 1 ? "agent" : "agents"} spawned`} />
@@ -67,6 +67,8 @@ export interface TableRow {
   name: string;
   mark: ReactNode;
   title?: string | undefined;
+  /** Its figures are not all in yet: a runtime it sums is still being read. */
+  loading?: boolean | undefined;
   onOpen?(): void;
 }
 
@@ -81,7 +83,7 @@ export function UsageTable({ id, title, rows, metric, bars = false, counts = tru
       {rows.length === 0 ? <p className="usage-note">{empty}</p> : (
         <ol>
           {rows.map((row) => (
-            <li key={row.item.key}>
+            <li key={row.item.key} data-loading={row.loading || undefined}>
               <span className="usage-table-name">
                 {row.mark}
                 {row.onOpen ? <button type="button" onClick={row.onOpen} {...(row.title ? tooltipProps(row.title, { side: "top" }) : {})}>{row.name}</button> : <span {...(row.title ? tooltipProps(row.title, { side: "top" }) : {})}>{row.name}</span>}

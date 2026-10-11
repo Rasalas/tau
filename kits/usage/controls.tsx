@@ -1,8 +1,8 @@
 import { useState, useSyncExternalStore, type ReactNode } from "react";
-import { Monitor, Network, RefreshCw, Server, SlidersHorizontal } from "lucide-react";
+import { Check, Monitor, Network, RefreshCw, Server, SlidersHorizontal } from "lucide-react";
 import { formatCost, ProviderIconStack, Sheet, tooltipProps, usePreferences } from "tau";
 import type { UsageFigures, UsageMetric, UsageOrigin, UsageRange } from "./dashboard.js";
-import type { UsageFacts, UsageFilters, UsageView } from "./filters.js";
+import { toggleRuntime, type UsageFacts, type UsageFilters, type UsageView } from "./filters.js";
 import type { UsageMachine } from "./machines.js";
 import type { MonthFigures } from "./month.js";
 import { BACKEND_USAGE_SOURCES, PI_BACKEND } from "./protocol.js";
@@ -45,15 +45,17 @@ export function Segmented<T extends string>({ label, value, options, onChange }:
   );
 }
 
-/** All runtimes, or one: the runtimes as marks, their names on hover. */
-function RuntimeFilter({ runtimes, value, onChange }: { runtimes: readonly string[]; value: string | undefined; onChange(value: string | undefined): void }) {
+/** Which runtimes to show, each switched on or off: the runtimes as marks, their names on hover. */
+function RuntimeFilter({ runtimes, hidden, onChange }: { runtimes: readonly string[]; hidden: readonly string[]; onChange(hidden: string[]): void }) {
+  const all = runtimes.every((runtime) => !hidden.includes(runtime));
   return (
-    <div className="segmented usage-segmented usage-runtimes" role="radiogroup" aria-label="Runtime">
-      <button type="button" role="radio" aria-checked={value === undefined} className={value === undefined ? "active" : ""} onClick={() => onChange(undefined)}>All</button>
+    <div className="segmented usage-segmented usage-runtimes" role="group" aria-label="Runtime">
+      <button type="button" role="checkbox" aria-checked={all} className={all ? "active" : ""} onClick={() => onChange(all ? [...runtimes] : [])}>All</button>
       {runtimes.map((runtime) => {
         const name = RUNTIME_LABELS[runtime] ?? runtime;
+        const shown = !hidden.includes(runtime);
         return (
-          <button key={runtime} type="button" role="radio" aria-checked={value === runtime} aria-label={name} className={value === runtime ? "active" : ""} onClick={() => onChange(runtime)} {...tooltipProps(name, { side: "top" })}>
+          <button key={runtime} type="button" role="checkbox" aria-checked={shown} aria-label={name} className={shown ? "active" : ""} onClick={() => onChange(toggleRuntime(hidden, runtime))} {...tooltipProps(name, { side: "top" })}>
             <ProviderIconStack runtimeProvider={runtime} hint={false} />
           </button>
         );
@@ -114,9 +116,9 @@ export function MonthFigure({ month }: { month: MonthFigures | undefined }) {
   );
 }
 
-function NavGroup({ heading, children }: { heading: string; children: ReactNode }) {
+function NavGroup({ heading, multiple = false, children }: { heading: string; multiple?: boolean; children: ReactNode }) {
   return (
-    <div className="settings-nav-group" role="radiogroup" aria-label={heading}>
+    <div className="settings-nav-group" role={multiple ? "group" : "radiogroup"} aria-label={heading}>
       <h2 className="settings-nav-heading">{heading}</h2>
       {children}
     </div>
@@ -127,6 +129,15 @@ function NavRow({ active, icon, label, onSelect }: { active: boolean; icon?: Rea
   return (
     <button type="button" role="radio" aria-checked={active} aria-label={label} className={active ? "active" : undefined} onClick={onSelect}>
       {icon}<span>{label}</span>
+    </button>
+  );
+}
+
+/** A row that switches one thing on or off beside others: a check at its end says it is on. */
+function CheckRow({ checked, icon, label, onToggle }: { checked: boolean; icon?: ReactNode; label: string; onToggle(): void }) {
+  return (
+    <button type="button" role="checkbox" aria-checked={checked} aria-label={label} className="usage-check-row" onClick={onToggle}>
+      {icon}<span>{label}</span><Check size={14} aria-hidden="true" />
     </button>
   );
 }
@@ -153,6 +164,7 @@ function useView(view: UsageView): { filters: UsageFilters; facts: UsageFacts } 
  */
 export function UsageSidebar({ view }: { view: UsageView }) {
   const { filters, facts } = useView(view);
+  const hidden = filters.hiddenRuntimes ?? [];
   return (
     <div className="settings-nav-list usage-sidebar">
       <MonthFigure month={facts.month} />
@@ -170,10 +182,10 @@ export function UsageSidebar({ view }: { view: UsageView }) {
         </div>
       ) : null}
       {facts.runtimes.length > 1 ? (
-        <NavGroup heading="Runtime">
-          <NavRow active={filters.runtime === undefined} label="All runtimes" onSelect={() => view.setFilters({ runtime: undefined })} />
+        <NavGroup heading="Runtime" multiple>
+          <CheckRow checked={facts.runtimes.every((runtime) => !hidden.includes(runtime))} label="All runtimes" onToggle={() => view.setFilters({ hiddenRuntimes: facts.runtimes.every((runtime) => !hidden.includes(runtime)) ? [...facts.runtimes] : [] })} />
           {facts.runtimes.map((runtime) => (
-            <NavRow key={runtime} active={filters.runtime === runtime} icon={<ProviderIconStack runtimeProvider={runtime} hint={false} />} label={RUNTIME_LABELS[runtime] ?? runtime} onSelect={() => view.setFilters({ runtime })} />
+            <CheckRow key={runtime} checked={!hidden.includes(runtime)} icon={<ProviderIconStack runtimeProvider={runtime} hint={false} />} label={RUNTIME_LABELS[runtime] ?? runtime} onToggle={() => view.setFilters({ hiddenRuntimes: toggleRuntime(hidden, runtime) })} />
           ))}
         </NavGroup>
       ) : null}
@@ -208,7 +220,7 @@ export function UsageFilterButton({ view, now, status, busy, onReadAgain }: { vi
           <SheetGroup label="Period"><Segmented<UsageRange> label="Range" value={filters.range} options={usageRanges(now)} onChange={(range) => view.setFilters({ range })} /></SheetGroup>
           {facts.machines.length > 0 ? <SheetGroup label="Machine"><MachineFilter machines={facts.machines} value={filters.machine} onChange={(machine) => view.setFilters({ machine })} /></SheetGroup> : null}
           {facts.anyOutside ? <SheetGroup label="Where it ran"><Segmented<UsageOrigin | "all"> label="Where the work ran" value={filters.origin ?? "all"} options={ORIGINS} onChange={(value) => view.setFilters({ origin: value === "all" ? undefined : value })} /></SheetGroup> : null}
-          {facts.runtimes.length > 1 ? <SheetGroup label="Runtime"><RuntimeFilter runtimes={facts.runtimes} value={filters.runtime} onChange={(runtime) => view.setFilters({ runtime })} /></SheetGroup> : null}
+          {facts.runtimes.length > 1 ? <SheetGroup label="Runtime"><RuntimeFilter runtimes={facts.runtimes} hidden={filters.hiddenRuntimes ?? []} onChange={(hiddenRuntimes) => view.setFilters({ hiddenRuntimes })} /></SheetGroup> : null}
           <SheetGroup label="Measure"><Segmented<UsageMetric> label="Measure" value={filters.metric} options={METRICS} onChange={(metric) => view.setFilters({ metric })} /></SheetGroup>
           <p className="usage-sheet-read"><span>{status}</span><button type="button" className="mini-button" disabled={busy} onClick={onReadAgain}><RefreshCw size={13} />Read again</button></p>
         </Sheet>

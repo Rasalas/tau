@@ -25,7 +25,7 @@ export function activityLevel(turns: number, busiest: number): number {
  * its day on hover; the table under the chart has every day for touch and
  * screen readers.
  */
-export function ActivityCalendar({ days, entries, labels }: { days: readonly number[]; entries: readonly UsageEntry[]; labels: Record<string, string> }) {
+export function ActivityCalendar({ days, entries, labels, loading = false }: { days: readonly number[]; entries: readonly UsageEntry[]; labels: Record<string, string>; loading?: boolean }) {
   const perDay = days.map(() => new Map<string, number>());
   const tones = days.map(() => new Map<UsageTone, number>());
   for (const entry of entries) {
@@ -54,7 +54,7 @@ export function ActivityCalendar({ days, entries, labels }: { days: readonly num
     return `${dayLabel(days[index]!)}: ${turns} ${turns === 1 ? "turn" : "turns"}${parts.length > 1 ? ` (${parts.join(", ")})` : ""}`;
   };
   return (
-    <figure className="usage-calendar">
+    <figure className="usage-calendar" data-loading={loading || undefined}>
       <figcaption>
         <span>Last {days.length} days</span>
         <b>{active} active {active === 1 ? "day" : "days"}</b>

@@ -30,13 +30,13 @@ function split(day: DayFigures, metric: UsageMetric): [api: number, plan: number
  * Design 1h's "Per day": a column per day, API spend in the accent on top of
  * what plans covered in grey; in money a plan's part is its value at API prices.
  */
-export function UsageHistory({ series, metric, title }: { series: readonly DayFigures[]; metric: UsageMetric; title: string }) {
+export function UsageHistory({ series, metric, title, loading = false }: { series: readonly DayFigures[]; metric: UsageMetric; title: string; loading?: boolean }) {
   const top = Math.max(1e-9, ...series.map((day) => split(day, metric).reduce((sum, value) => sum + value, 0)));
   const share = (value: number) => `${Math.min(100, (value / top) * 100)}%`;
   const labelEvery = series.length > 31 ? 14 : 7;
   const first = series.length > 0 ? new Date(series[0]!.start).getMonth() : -1;
   return (
-    <figure className="usage-history usage-card" data-metric={metric}>
+    <figure className="usage-history usage-card" data-metric={metric} data-loading={loading || undefined}>
       <figcaption className="usage-legend">
         <b>{title}</b>
         <span><i data-part="api" />{metric === "cost" ? "API spend" : metric === "tokens" ? "API tokens" : "API turns"}</span>

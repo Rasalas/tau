@@ -3,7 +3,8 @@ import { ChartColumn, RefreshCw } from "lucide-react";
 import { Empty, errorMessage, ProviderIconStack, SettingsPageAction, tooltipProps, useThreadStore, type HostExtensionClient, type PlatformEnvironments, type PageProps, type ProjectIconSubject, type ThreadStore, type UiProject, type UiSession } from "tau";
 import { ActivityCalendar, ReadingHistory } from "./activity.js";
 import { jumpTo, PeriodSwitch, RUNTIME_LABELS, UsageFilterButton } from "./controls.js";
-import { dailyFigures, dayStarts, HISTORY_DAYS, ofRuntime, periodFrom, rankUsage, runtimesOf, type RankedUsage } from "./dashboard.js";
+import { family, withoutRuntimes } from "./accounts.js";
+import { dailyFigures, dayStarts, filterEntries, HISTORY_DAYS, periodFrom, rankUsage, readingRuntimes, runtimesOf, type RankedUsage } from "./dashboard.js";
 import { createUsageView, type UsageView } from "./filters.js";
 import { UsageForecast } from "./forecast-view.js";
 import { createJuicebarChoices, type JuicebarChoices } from "./juicebar-choices.js";
@@ -108,7 +109,7 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
   const [view] = useState(() => givenView ?? createUsageView());
   const [choices] = useState(() => givenChoices ?? createJuicebarChoices());
   const filters = useSyncExternalStore(view.subscribe, view.getFilters);
-  const { range, metric, runtime, machine, origin } = filters;
+  const { range, metric, hiddenRuntimes, machine, origin } = filters;
   // What the page read last time, at once; fresh answers replace it section by section.
   const [cached] = useState(() => readLastState(shown, dayStarts(HISTORY_DAYS, now?.())));
   const [summary, setSummary] = useState<UsageSummary | undefined>(cached?.summary);
@@ -197,12 +198,19 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
   const allEntries = useMemo(() => mergeEntries(summary?.entries ?? [], summaries), [summary, summaries]);
   const allLimits = useMemo(() => mergeLimits(limits, machineLimits), [limits, machineLimits]);
   useEffect(() => { feed?.publish(allLimits); }, [feed, allLimits]);
-  const runtimes = useMemo(() => runtimesOf(allEntries), [allEntries]);
-  const shownRuntime = runtime && runtimes.includes(runtime) ? runtime : undefined;
+  // Runtimes with a plan to report are offered as well, used or not.
+  const runtimes = useMemo(() => {
+    const used = runtimesOf(allEntries);
+    return [...used, ...[...new Set((allLimits?.accounts ?? []).map((account) => family(account.runtime)))].filter((runtime) => !used.includes(runtime)).sort()];
+  }, [allEntries, allLimits]);
   const shownMachine = machine === undefined || machine === "" || machines.some((other) => other.id === machine) ? machine : undefined;
   const anyOutside = useMemo(() => allEntries.some((entry) => entry.outside), [allEntries]);
   const shownOrigin = anyOutside ? origin : undefined;
-  const entries = useMemo(() => ofRuntime(allEntries, shownRuntime, shownMachine, shownOrigin), [allEntries, shownRuntime, shownMachine, shownOrigin]);
+  const entries = useMemo(() => filterEntries(allEntries, hiddenRuntimes, shownMachine, shownOrigin), [allEntries, hiddenRuntimes, shownMachine, shownOrigin]);
+  const shownLimits = useMemo(() => allLimits && withoutRuntimes(allLimits, hiddenRuntimes), [allLimits, hiddenRuntimes]);
+  // Only what a runtime still being read adds is unsure; the rest of the page stays as it is.
+  const unsure = useMemo(() => readingRuntimes([summary, ...summaries.map((read) => read.summary)], hiddenRuntimes), [summary, summaries, hiddenRuntimes]);
+  const loadingRow = (item: RankedUsage) => item.backends.some((backend) => unsure.has(backend));
   const machineName = (id: string | undefined) => (id ? machines.find((other) => other.id === id)?.name ?? "another machine" : undefined);
   const last = days.length;
   const today = now?.() ?? new Date();
@@ -260,16 +268,16 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
   };
   const projectName = (cwd: string) => index.projects.find((project) => project.path === cwd || project.workspaceId === cwd)?.name ?? folderName(cwd);
   const threadOf = (threadId: string | undefined) => (threadId ? threadIndex.get(threadId) : undefined);
-  const providers = rankUsage(entries, from, "provider", metric, 8).map(providerRow);
+  const providers = rankUsage(entries, from, "provider", metric, 8).map((item) => ({ ...providerRow(item), loading: loadingRow(item) }));
   const projects = rankUsage(entries, from, "project", metric, 6, projectOf).map((item) => {
     const key = item.key.slice(item.key.indexOf("\u0000") + 1);
     const where = [item.origin === "outside" ? "Outside Tau" : item.origin === "both" ? "Also outside Tau" : undefined, machineName(item.machine)].filter(Boolean).join(" · ");
-    return projectRow(item, projectSubject(key, item.cwd), where || undefined);
+    return { ...projectRow(item, projectSubject(key, item.cwd), where || undefined), loading: loadingRow(item) };
   });
   const ranked = rankUsage(entries, from, "thread", metric, Number.MAX_SAFE_INTEGER);
   const costliest = costliestThread(ranked, threadIndex, metric);
   const marks = (item: RankedUsage) => <ProviderIconStack runtimeProvider={item.backend} {...(item.provider ? { modelProvider: item.provider } : {})} hint={{ side: "top" }} />;
-  const models: TableRow[] = rankUsage(entries, from, "model", metric, 6).map((item) => ({ item, name: item.model, mark: marks(item), title: RUNTIME_LABELS[item.backend] ?? item.backend }));
+  const models: TableRow[] = rankUsage(entries, from, "model", metric, 6).map((item) => ({ item, name: item.model, mark: marks(item), title: RUNTIME_LABELS[item.backend] ?? item.backend, loading: loadingRow(item) }));
   const threads: TableRow[] = ranked.slice(0, 8).map((item) => {
     const outside = item.origin === "outside";
     const thread = item.machine || outside ? undefined : threadOf(item.threadId);
@@ -278,6 +286,7 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
       name: thread?.title || (outside ? `${RUNTIME_LABELS[item.backend] ?? item.backend} session ${item.threadId?.slice(0, 8) ?? ""}` : `Thread ${item.threadId?.slice(0, 8) ?? ""}`),
       title: [outside ? "Outside Tau" : undefined, projectName(item.cwd), machineName(item.machine)].filter(Boolean).join(" · "),
       mark: marks(item),
+      loading: loadingRow(item),
       ...(thread && actions ? { onOpen: () => { void actions.switchSession(thread.path); } } : {}),
     };
   });
@@ -291,7 +300,7 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
   const read = summary ? `Read ${new Date(summary.scannedAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}` : "Reading usage…";
   const status = busy && !summary ? "Reading…" : `${machines.length > 0 ? `${read} · this computer and ${machines.map((other) => other.name).join(", ")}` : read}${busy ? " · updating…" : logsReading ? " · still reading the CLIs' logs" : ""}`;
   return (
-    <div className={`usage-page${busy && summary ? " refreshing" : ""}`}>
+    <div className="usage-page">
       <SettingsPageAction>
         <div className="usage-toolbar">
           <span role="status" className="usage-read" data-active={busy || logsReading ? "" : undefined}>{status}</span>
@@ -314,9 +323,9 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
             </Empty>
           ) : (
             <div className="usage-overview">
-              <UsageStats entries={entries} from={from} weekFrom={last - 7} threads={threadIndex} />
-              <UsageHistory series={series} metric={metric} title={chartTitle} />
-              <UsageForecast entries={entries} days={days} now={today} />
+              <UsageStats entries={entries} from={from} weekFrom={last - 7} threads={threadIndex} loading={unsure.size > 0} />
+              <UsageHistory series={series} metric={metric} title={chartTitle} loading={unsure.size > 0} />
+              <UsageForecast entries={entries} days={days} now={today} loading={unsure.size > 0} />
               <div className="usage-tables">
                 <UsageTable id="usage-providers" title="By provider" rows={providers} metric={metric} bars empty={`Nothing in ${rangeLabel}.`} />
                 <UsageTable id="usage-projects" title="By project" rows={projects} metric={metric} empty={`Nothing in ${rangeLabel}.`}>
@@ -334,7 +343,7 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
 
           <section className="usage-section" id="usage-limits" aria-labelledby="usage-limits-title">
             <h2 id="usage-limits-title">Plan limits</h2>
-            <UsageLimits onRedeemReset={async (account: UsageLimitAccount, checkPending?: boolean) => {
+            {allLimits && allLimits.accounts.length > 0 && shownLimits?.accounts.length === 0 ? <p className="usage-note">The runtimes that report limits are switched off in the filter.</p> : <UsageLimits onRedeemReset={async (account: UsageLimitAccount, checkPending?: boolean) => {
               const input = { runtime: account.runtime, accountId: account.id, identity: account.identity?.key, checkPending: checkPending === true };
               try {
                 const outcome = account.machine
@@ -342,14 +351,14 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
                   : await host.invoke(USAGE_REDEEM_RESET_COMMAND, input);
                 return outcome === "reset" ? "Reset applied. The limits have been refreshed." : outcome === "nothingToReset" ? "The account is not limited yet." : outcome === "alreadyRedeemed" ? "This reset was already applied." : outcome === "alreadySettled" ? "The previous reset request is finished. The limits have been refreshed." : "No reset is available.";
               } finally { await loadLimits(true); }
-            }} limits={allLimits} error={limitsError} now={clock} entries={allEntries} fromDay={last - 30} period="Last 30 days" choices={choices} onRetry={() => void loadLimits(true)} {...(actions ? { onOpenExternal: (url: string) => actions.openExternal(url) } : {})} />
-            {allLimits ? <ReadingHistory limits={allLimits} now={clock} /> : null}
+            }} limits={shownLimits} error={limitsError} now={clock} entries={allEntries} fromDay={last - 30} period="Last 30 days" choices={choices} onRetry={() => void loadLimits(true)} {...(actions ? { onOpenExternal: (url: string) => actions.openExternal(url) } : {})} />}
+            {shownLimits ? <ReadingHistory limits={shownLimits} now={clock} /> : null}
           </section>
 
           {summary && allEntries.length > 0 ? (
             <section className="usage-section" id="usage-activity" aria-labelledby="usage-activity-title">
               <h2 id="usage-activity-title">Activity</h2>
-              <ActivityCalendar days={days} entries={entries} labels={RUNTIME_LABELS} />
+              <ActivityCalendar days={days} entries={entries} labels={RUNTIME_LABELS} loading={unsure.size > 0} />
               <div className="usage-ranks">
                 <UsageTable id="usage-models" title="Models" rows={models} metric={metric} empty={`Nothing in ${rangeLabel}.`} />
                 <UsageTable title="Threads" rows={threads} metric={metric} counts={false} empty={`Nothing in ${rangeLabel}.`} />

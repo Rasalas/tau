@@ -13,6 +13,7 @@ The first builds of Tau set out to prove that Pi can stay the agent runtime whil
 - full-window diff review (`Cmd/Ctrl+Shift+D`) with unified and split views, driven by a real `git diff`
 - commit and push from the review, with the message editable before it runs
 - composer-level model, thinking and access controls, plus a context dial wired to Pi's own usage and manual compaction
+- the Usage page's Runtime filter is a set of switches in the sidebar (marks in the sheet on a phone): switch any runtime off and the totals, charts, rankings, plan limits and accounts leave it out; a plan shared by two runtimes shows once for the one left. The runtimes switched off are kept on the device, so a runtime that appears later is shown. While a runtime's first read of the CLIs' logs is under way, only its rows and the totals it adds to dim, not the whole page
 - composer autocomplete for Pi skills, prompt templates, and extension commands; skills are searchable as `$skill` or `/skill`, and the selected runtime adapter resolves the shorthand to its supported invocation form when sent
 - `@` file mentions in the composer, expanded to the file's workspace-relative path the way Pi reads it
 - `!` shell commands from the composer, run through the login shell with their output styled in the transcript

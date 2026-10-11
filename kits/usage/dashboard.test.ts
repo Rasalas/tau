@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { dailyFigures, dayStarts, periodFrom, providerOf, rankUsage } from "./dashboard.js";
-import type { UsageEntry } from "./protocol.js";
+import { dailyFigures, dayStarts, filterEntries, periodFrom, providerOf, rankUsage, readingRuntimes } from "./dashboard.js";
+import type { UsageEntry, UsageSourceReport, UsageSummary } from "./protocol.js";
 
 function entry(patch: Partial<UsageEntry>): UsageEntry {
   return {
@@ -58,5 +58,22 @@ describe("usage dashboard", () => {
   it("ranks projects by a key it is handed, so a worktree's threads count with their project", () => {
     const ranked = rankUsage(entries, 0, "project", "cost", 5, () => "one project");
     expect(ranked.map((item) => [item.key, item.threads])).toEqual([["\u0000one project", 3]]);
+  });
+
+  it("leaves out the hidden runtimes and keeps the rest, whatever else is filtered", () => {
+    expect(filterEntries(entries, undefined)).toBe(entries);
+    expect(filterEntries(entries, ["codex"]).map((item) => item.backend)).toEqual(["pi", "pi", "pi"]);
+    expect(filterEntries(entries, ["pi", "codex"])).toEqual([]);
+    // A runtime nobody listed is shown.
+    expect(filterEntries(entries, ["opencode"])).toHaveLength(4);
+  });
+
+  it("names the runtimes still being read, apart from the hidden ones, and what a ranked row sums", () => {
+    const source = (backend: string, status: UsageSourceReport["status"]): UsageSourceReport => ({ backend, label: backend, status, detail: "", dating: "message" });
+    const answer = (...sources: UsageSourceReport[]) => ({ sources }) as unknown as UsageSummary;
+    const reading = readingRuntimes([answer(source("pi", "ok"), source("codex-outside", "reading"), source("opencode-outside", "reading")), undefined, answer(source("claude-code-outside", "reading"))], ["opencode"]);
+    expect([...reading].sort()).toEqual(["claude-code", "codex"]);
+    const ranked = rankUsage(entries, 0, "project", "tokens", 10);
+    expect(ranked.find((item) => item.cwd === "/work/beta")?.backends).toEqual(["pi", "codex"]);
   });
 });
