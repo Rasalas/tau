@@ -8,6 +8,7 @@ import { createWorkspaceRequestSummary } from "./workspace-summary.js";
 import { threadPullRequestsService } from "./pull-requests-service.js";
 import { COMMIT_MESSAGE_OPTIONS, registerCommitMessages } from "./commit-messages.js";
 import { ReviewCommentStore } from "./comments.js";
+import { GUIDE_OPTIONS } from "./guide-settings.js";
 import { createReviewOverlay } from "./overlay.js";
 import { trackDiffSettings } from "./diff-settings.js";
 import { createReviewSettingsPage, REVIEW_SETTINGS_ROWS } from "./settings-page.js";
@@ -26,8 +27,8 @@ import {
 import { workspaceChangesReader } from "./workspace.js";
 import { createRequestBadge, createRequestCardSection } from "./request-badge.js";
 import { RequestLinks } from "./request-links.js";
-import { createRequestSection } from "./request-section.js";
 import { createGuideRunWatcher } from "./guide-notify.js";
+import { createRequestSection } from "./request-section.js";
 import { LinkDialogs } from "./link-dialog.js";
 import { PendingReviewStore } from "./pending-review.js";
 import { createProactivePanels } from "./proactive-panels.js";
@@ -91,7 +92,7 @@ export const reviewExtension: DesktopExtension = {
     const shared = { links, pending: new PendingReviewStore(getClientStorage), preferences: plugin.preferences, dialogs: new LinkDialogs() };
     let chips: ComposerContextChips | undefined;
     // The rest of the kit's settings are its Review page; the model picker stays here.
-    plugin.registerOptions(COMMIT_MESSAGE_OPTIONS.filter((entry) => entry.kind === "model"));
+    plugin.registerOptions([...COMMIT_MESSAGE_OPTIONS.filter((entry) => entry.kind === "model"), ...GUIDE_OPTIONS]);
     plugin.registerSettingsPage({
       id: "review.settings",
       label: "Review",
@@ -169,8 +170,8 @@ export const reviewExtension: DesktopExtension = {
       onEvidence: (listener) => { evidenceListeners.add(listener); return () => { evidenceListeners.delete(listener); }; },
     });
     const releaseLinks = plugin.registerRegion({ id: "review.request-links", placement: "title-bar", profiles: ["desktop", "web", "compact"], Component: RequestLinks });
-    const releaseProactive = plugin.registerRegion({ id: "review.proactive-panels", placement: "title-bar", profiles: ["desktop"], Component: createProactivePanels(plugin, links, () => workspaceStore) });
     const releaseGuideRuns = plugin.registerRegion({ id: "review.guide-runs", placement: "title-bar", profiles: ["desktop", "web", "compact"], Component: createGuideRunWatcher(plugin.host) });
+    const releaseProactive = plugin.registerRegion({ id: "review.proactive-panels", placement: "title-bar", profiles: ["desktop"], Component: createProactivePanels(plugin, links, () => workspaceStore) });
     // Below the runtime banners, Pi's widgets and quick actions; above Thread Rail's settled note (90), which sits on the composer.
     const settlement = new SettlementSource();
     const releaseSettlement = plugin.useService<SettlementService>(SETTLEMENT_SERVICE, (service) => { settlement.set(service); return () => settlement.set(undefined); });
