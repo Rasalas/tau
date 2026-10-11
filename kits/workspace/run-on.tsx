@@ -86,17 +86,20 @@ export function useWorktreeBase(): void {
   }, [store, wanted]);
 }
 
-/** Every base a new worktree can start from: the default first, origin's branches last. */
+/** Every base a new worktree can start from: the chosen one first, then the default, origin's branches last. */
 export function useBaseRefs(): readonly UiRef[] {
   const { state } = useWorkspaceState();
   const base = state.worktreeBase;
+  const chosen = state.draftBase;
   const known = state.workspace?.refs;
   return useMemo(() => {
     const listed = new Set(known?.map((ref) => ref.name));
     // The checkout's refs list neither.
     const unlisted = (names: readonly string[]) => names.filter((name) => !listed.has(name)).map((name) => ({ name, isCurrent: false }));
-    return [...unlisted(base ? [base.ref] : []), ...known ?? [], ...unlisted(base?.others ?? [])];
-  }, [base, known]);
+    const all = [...unlisted(base ? [base.ref] : []), ...known ?? [], ...unlisted(base?.others ?? [])];
+    const picked = all.find((ref) => ref.name === chosen);
+    return picked ? [picked, ...all.filter((ref) => ref !== picked)] : all;
+  }, [base, chosen, known]);
 }
 
 /** The draft's new branch: its name, then the base to start from (T3's ref picker plus a name). */
