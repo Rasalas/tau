@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { CLIENT_APP, claudeQueryOptions, collectTurnText, createClaudeCodeRuntimeAdapter, runtimePermissionPolicy, sdkExtraArgs, type ClaudeQuery } from "./runtime-adapter.js";
+import { CLIENT_APP, claudeQueryOptions, collectTurnText, createClaudeCodeRuntimeAdapter, runtimePermissionPolicy, sdkExtraArgs, tauMcpServers, type ClaudeQuery } from "./runtime-adapter.js";
 
 interface Call { prompt: string; options: Options }
 type Script = (call: Call) => SDKMessage[] | Promise<SDKMessage[]>;
@@ -121,12 +121,15 @@ describe("Claude Code runtime adapter", () => {
     expect(claudeQueryOptions({ ...plan, hooks: { canUseTool } })).not.toHaveProperty("onUserDialog");
   });
 
-  it("adds Tau's MCP server beside the user's own and leaves its approvals to Tau's gate", () => {
+  it("pre-approves Tau's MCP server without putting it in the options, which become argv", () => {
     const plan = { cwd: "/repo", executable: "/usr/local/bin/claude", claudeSessionId: SESSION, started: false, policy: runtimePermissionPolicy("full"), abortController: new AbortController(), env: {} };
-    expect(claudeQueryOptions(plan)).not.toHaveProperty("mcpServers");
+    expect(claudeQueryOptions(plan)).not.toHaveProperty("allowedTools");
     const mcpServer = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
-    expect(claudeQueryOptions({ ...plan, mcpServer })).toMatchObject({
-      mcpServers: { tau: { type: "http", url: "http://127.0.0.1:4100/mcp", headers: { Authorization: "Bearer secret" } } },
+    const options = claudeQueryOptions({ ...plan, mcpServer });
+    expect(options).not.toHaveProperty("mcpServers");
+    expect(JSON.stringify(options)).not.toContain("secret");
+    expect(tauMcpServers(mcpServer)).toEqual({ tau: { type: "http", url: "http://127.0.0.1:4100/mcp", headers: { Authorization: "Bearer secret" } } });
+    expect(options).toMatchObject({
       allowedTools: ["mcp__tau"],
       // The user's own servers still come from their settings.
       settingSources: ["user", "project", "local"],
@@ -139,7 +142,8 @@ describe("Claude Code runtime adapter", () => {
     expect(claudeQueryOptions(plan)).not.toHaveProperty("strictMcpConfig");
     const mcpServer = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
     const restricted = claudeQueryOptions({ ...plan, mcpServer, tools: ["read", "grep", "find", "ls", "WebFetch", "tau_spawn_thread", "unknown"] });
-    expect(restricted).toMatchObject({ tools: ["Read", "Grep", "Glob", "WebFetch"], strictMcpConfig: true, mcpServers: { tau: expect.any(Object) } });
+    expect(restricted).toMatchObject({ tools: ["Read", "Grep", "Glob", "WebFetch"], strictMcpConfig: true, allowedTools: ["mcp__tau"] });
+    expect(restricted).not.toHaveProperty("mcpServers");
     expect(claudeQueryOptions({ ...plan, tools: ["tau_list_threads"] })).toMatchObject({ tools: [], strictMcpConfig: true });
   });
 

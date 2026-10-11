@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { AccountInfo, EffortLevel, ModelInfo, Options, PermissionMode, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { AccountInfo, EffortLevel, McpServerConfig, ModelInfo, Options, PermissionMode, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ClaudeQuery } from "./runtime-adapter.js";
 
 export type SendPriority = NonNullable<SDKUserMessage["priority"]>;
@@ -15,7 +15,19 @@ export interface ClaudeSdkSessionOptions {
   onMessage(message: SDKMessage, unclaimed?: boolean): void;
   /** The query ended: the CLI exited, was closed, or failed. */
   onExit(error: unknown | undefined): void;
+  /**
+   * Servers registered over the control channel right after the CLI starts, so
+   * their credentials never reach its command line. The first prompt waits for it.
+   */
+  mcpServers?: Record<string, McpServerConfig>;
+  /** Names of the servers that did not come up, or all of them on a timeout. */
+  onMcpUnavailable?(servers: string[], reason: "failed" | "timeout"): void;
+  /** How long the CLI gets to answer the registration; the SDK sets no deadline of its own. */
+  mcpTimeoutMs?: number;
 }
+
+/** The CLI answers once each server connected or hit its own 30 s timeout. */
+const MCP_REGISTRATION_TIMEOUT_MS = 90_000;
 
 interface PendingSend {
   resolve(result: ResultMessage): void;
@@ -44,13 +56,37 @@ export class ClaudeSdkSession {
   private loop?: Promise<void>;
   private ended = false;
   private exitError: unknown;
+  private mcpReady: Promise<void> = Promise.resolve();
+  private releaseMcp?: () => void;
 
   constructor(private readonly options: ClaudeSdkSessionOptions) {}
 
   start(): void {
     if (this.query) return;
     this.query = this.options.query({ prompt: this.messages(), options: { ...this.options.options, abortController: this.abortController } });
+    if (this.options.mcpServers && Object.keys(this.options.mcpServers).length > 0) this.mcpReady = this.registerMcpServers(this.options.mcpServers);
     this.loop = this.consume();
+  }
+
+  /** Never rejects: a thread without the servers still runs, and the owner is told. */
+  private async registerMcpServers(servers: Record<string, McpServerConfig>): Promise<void> {
+    const names = Object.keys(servers);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const released = new Promise<"released">((resolve) => { this.releaseMcp = () => resolve("released"); });
+    const timedOut = new Promise<"timeout">((resolve) => { timer = setTimeout(() => resolve("timeout"), this.options.mcpTimeoutMs ?? MCP_REGISTRATION_TIMEOUT_MS); });
+    const answer = this.query!.setMcpServers(servers).then(
+      (result) => ({ failed: Object.keys(result?.errors ?? {}) }),
+      () => ({ failed: names }),
+    );
+    try {
+      const outcome = await Promise.race([answer, timedOut, released]);
+      if (outcome === "released") return;
+      // Error texts can echo the headers, so only the names go on.
+      if (outcome === "timeout") this.options.onMcpUnavailable?.(names, "timeout");
+      else if (outcome.failed.length > 0) this.options.onMcpUnavailable?.(outcome.failed, "failed");
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** Sends still waiting for the result that consumes them. */
@@ -111,6 +147,7 @@ export class ClaudeSdkSession {
   async close(): Promise<void> {
     if (!this.ended) {
       this.ended = true;
+      this.releaseMcp?.();
       this.wake();
       this.abortController.abort();
     }
@@ -122,6 +159,7 @@ export class ClaudeSdkSession {
   }
 
   private async *messages(): AsyncGenerator<SDKUserMessage> {
+    await this.mcpReady;
     while (!this.ended) {
       const next = this.queue.shift();
       if (next) {
@@ -184,6 +222,7 @@ export class ClaudeSdkSession {
   private finish(error: unknown): void {
     this.ended = true;
     this.exitError = error;
+    this.releaseMcp?.();
     this.wake();
     const failure = error ?? sessionEnded();
     for (const send of this.pending.values()) send.reject(failure);

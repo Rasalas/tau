@@ -48,7 +48,8 @@ Pi as well.
 
 **Runtime kits wire it in.** Codex passes `-c mcp_servers.tau.*` overrides
 with the token in the environment (`bearer_token_env_var`), the Agent SDK
-runtime an `http` entry in `mcpServers`, Antigravity an ACP `http` server on
+runtime an `http` entry sent over the CLI's control channel (`setMcpServers`,
+not `mcpServers`, whose value lands on the command line), Antigravity an ACP `http` server on
 `session/new` and `session/resume`. Without an endpoint a thread still runs,
 only without Tau's tools.
 
