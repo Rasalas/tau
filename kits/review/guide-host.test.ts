@@ -66,7 +66,7 @@ async function harness(options: Options = {}) {
     settings: async () => ({ options: { "review-guides": options.enabled ?? true }, values: { "review-guide-model": options.model ?? "", "review-guide-instructions": options.instructions ?? "" } }),
     thread: ((id: string) => id === "parent" ? { sessionId: "parent", cwd: "/repo" } : id === "guide-thread" ? { sessionId: id, cwd: "/wt", model: { provider: "anthropic", id: "haiku" } } : undefined) as never,
     registerTurnObserver: (value) => { observer = value; return () => undefined; },
-    mcp: { registerTools: (provider) => { mcp = provider as typeof mcp; return () => undefined; }, gate: () => () => undefined, registerInstructions: () => () => undefined, connect: async () => undefined },
+    mcp: { registerTools: (offer) => { mcp = offer as typeof mcp; return () => undefined; }, gate: () => () => undefined, registerInstructions: () => () => undefined, connect: async () => undefined },
     registerRuntimeExtension: (_name, setup) => { runtime = setup as typeof runtime; return () => undefined; },
   }, (event: PublishedKitEvent) => { if (event.name === GUIDE_EVENT) events.push(event.payload as GuideEvent); });
   await registry.activate({ id: "tau.agents", name: "Agents", permissions: [], activate: (context) => {

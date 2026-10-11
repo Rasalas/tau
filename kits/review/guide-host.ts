@@ -164,8 +164,8 @@ export function registerGuides(
   const settledReview = async (ref: PullRequestRef): Promise<string> => {
     const provider = sources.get(ref.service);
     if (!provider.info.capabilities.conversations) return "";
-    const threads = await provider.threads(ref, false).catch(() => []);
-    return threads.filter((thread) => thread.resolved)
+    const conversations = await provider.threads(ref, false).catch(() => []);
+    return conversations.filter((thread) => thread.resolved)
       .map((thread) => `${thread.path}${thread.line ? `:${thread.line}` : ""}: ${(thread.comments[0]?.body ?? "").replace(/\s+/gu, " ").slice(0, 300)}`)
       .join("\n");
   };
