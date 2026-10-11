@@ -69,6 +69,46 @@ describe("DiffView", () => {
     expect(onExpandContext).toHaveBeenCalledOnce();
   });
 
+  it("offers steps on a gap that is longer than one step, and everything on a short one", () => {
+    const onExpandGap = vi.fn();
+    const long: UiFileDiff = { ...contextDiff, hunks: [
+      { header: "", lines: [{ kind: "added", newLine: 40, text: "a" }] },
+      { header: "", lines: [{ kind: "added", newLine: 100, text: "b" }] },
+    ] };
+    render(<DiffView diff={long} mode="unified" onExpandGap={onExpandGap} />);
+    // Above the first change only the lines next to it make sense; below the last, the unknown rest of the file.
+    const down = screen.getAllByRole("button", { name: "Show 20 more lines below the change above" });
+    const up = screen.getAllByRole("button", { name: "Show 20 more lines above the change below" });
+    expect(down).toHaveLength(2);
+    expect(up).toHaveLength(2);
+    fireEvent.click(up[0]!);
+    expect(onExpandGap).toHaveBeenLastCalledWith(expect.objectContaining({ where: "start", from: 1, to: 39 }), { from: 20, to: 39 });
+    fireEvent.click(down[0]!);
+    expect(onExpandGap).toHaveBeenLastCalledWith(expect.objectContaining({ where: "between", from: 41, to: 99 }), { from: 41, to: 60 });
+    fireEvent.click(screen.getByRole("button", { name: "Show the rest of the file" }));
+    expect(onExpandGap).toHaveBeenLastCalledWith(expect.objectContaining({ where: "end", from: 101 }), expect.objectContaining({ from: 101 }));
+    fireEvent.click(screen.getByRole("button", { name: "39 unchanged lines" }));
+    expect(onExpandGap).toHaveBeenLastCalledWith(expect.objectContaining({ where: "start" }), { from: 1, to: 39 });
+  });
+
+  it("shows a short gap as one button, the rest of a known file with its count, and a failed read where it was asked", () => {
+    const onExpandGap = vi.fn();
+    const { rerender } = render(<DiffView diff={contextDiff} mode="unified" onExpandGap={onExpandGap} totalLines={30} contextState={{ error: "Could not read it.", at: 6 }} />);
+    expect(screen.queryByRole("button", { name: /Show 20 more/u })).toBeNull();
+    expect(screen.getByRole("button", { name: "18 unchanged lines" })).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toBe("Could not read it.");
+    rerender(<DiffView diff={contextDiff} mode="unified" onExpandGap={onExpandGap} totalLines={12} />);
+    expect(screen.queryByRole("button", { name: "18 unchanged lines" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Show the rest of the file" })).toBeNull();
+  });
+
+  it("draws no gutter action on lines that were expanded", () => {
+    const expanded: UiFileDiff = { ...contextDiff, hunks: [{ header: "", lines: [{ kind: "context", oldLine: 4, newLine: 4, text: "kept", expanded: true }, { kind: "added", newLine: 5, text: "new" }] }] };
+    render(<DiffView diff={expanded} mode="unified" lines={{ onAction: vi.fn() }} />);
+    expect(screen.queryByRole("button", { name: "Comment on line 4" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Comment on line 5" })).toBeTruthy();
+  });
+
   it("draws a package's gutter action, selection and row under a line without knowing what they are", () => {
     const onAction = vi.fn();
     const { container } = render(<DiffView path="src/example.ts" diff={contextDiff} mode="unified" lines={{

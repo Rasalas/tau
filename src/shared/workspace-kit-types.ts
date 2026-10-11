@@ -105,6 +105,8 @@ export interface UiDiffLine {
   oldLine?: number;
   newLine?: number;
   text: string;
+  /** An unchanged line drawn by expanding the context around a change; the host's diff did not hold it. */
+  expanded?: boolean;
 }
 
 export interface UiDiffHunk {

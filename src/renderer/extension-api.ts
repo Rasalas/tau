@@ -266,6 +266,9 @@ export type { ThreadActivity, ThreadRowMachine } from "./components/ThreadRow";
 export { THREAD_QUESTION_LABEL, attentionMarkIds, markedRowStatus, threadLimitHint, threadRowStatus, type ThreadRowMark, type ThreadRowStatus } from "../workbench/thread-row-status";
 /** The line seam of `ReviewMode`'s diffs. */
 export type { DiffLineContext, DiffLineSlot } from "./components/DiffView";
+/** Unchanged lines around a diff's changes: where they are, how a click reveals them, and the hook that keeps what was revealed. */
+export { CONTEXT_STEP, diffGaps, expandDiffContext, splitFileText, stepRange, type DiffGap, type LineRange } from "./components/diff-context";
+export { useDiffContext, type DiffContext } from "./components/use-diff-context";
 export type { HostActionResult, NewThreadResult } from "../shared/host-protocol";
 export type { WorkspaceRef } from "../shared/workspace-identity";
 export type * from "../shared/workspace-kit-types";

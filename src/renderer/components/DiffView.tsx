@@ -13,7 +13,8 @@ import {
   type RefObject,
 } from "react";
 import type { UiChangedFile, UiDiffLine, UiFileDiff } from "../../shared/workspace-kit-types";
-import { ChevronsUpDown, MessageSquarePlus } from "lucide-react";
+import { ChevronDown, ChevronsUpDown, ChevronUp, MessageSquarePlus } from "lucide-react";
+import { CONTEXT_STEP, diffGaps, stepRange, type DiffGap, type LineRange } from "./diff-context";
 import { canonicalHighlightLanguage, highlightSource, loadHighlightLanguage } from "./Markdown";
 import "./diff-view.css";
 
@@ -138,7 +139,7 @@ export type DiffStreamRow =
   | { kind: "file"; key: string; path: string; file: UiChangedFile; diff?: UiFileDiff }
   | { kind: "note"; key: string; path: string; text: string }
   | { kind: "hunk"; key: string; path: string; text: string }
-  | { kind: "gap"; key: string; path: string; unchanged: number }
+  | { kind: "gap"; key: string; path: string; unchanged?: number; gap?: DiffGap }
   | { kind: "line"; key: string; path: string; line: UiDiffLine; language?: string; partner?: UiDiffLine; side?: IntralineSide }
   | { kind: "status"; key: string; path: string; title?: string; text: string }
   | { kind: "more"; key: string; path: string }
@@ -181,8 +182,11 @@ export function unwrappedWidth(rows: readonly DiffStreamRow[], split: boolean): 
   return split ? `calc(${2 * longest}ch + 160px)` : `calc(${longest + 2}ch + 80px)`;
 }
 
-/** Flattens one file's diff into stream rows. Collapsible streams show context gaps instead of hunk headers. */
-export function fileDiffRows(path: string, diff: UiFileDiff | undefined, options: { collapsible: boolean; error?: string } = { collapsible: false }): DiffStreamRow[] {
+/**
+ * Flattens one file's diff into stream rows. Collapsible streams show context gaps instead of hunk headers;
+ * `totalLines` is the file's length, or `"unknown"` to offer the stretch below the last hunk before it is read.
+ */
+export function fileDiffRows(path: string, diff: UiFileDiff | undefined, options: { collapsible: boolean; error?: string; totalLines?: number | "unknown" } = { collapsible: false }): DiffStreamRow[] {
   if (!diff) {
     return [options.error
       ? { kind: "status", key: `${path}\0error`, path, title: "Failed to load diff", text: options.error }
@@ -194,23 +198,20 @@ export function fileDiffRows(path: string, diff: UiFileDiff | undefined, options
   const rows: DiffStreamRow[] = diff.note ? [{ kind: "note", key: `${path}\0note`, path, text: diff.note }] : [];
   const language = diffLanguage(path || diff.path);
   const pairs = intralinePairs(diff);
-  let previousLine = 0;
+  const gaps = options.collapsible ? diffGaps(diff, options.totalLines) : [];
+  const gapRow = (index: number): DiffStreamRow[] => {
+    const gap = gaps.find((candidate) => candidate.index === index);
+    return gap ? [{ kind: "gap", key: `${path}\0gap-${index}`, path, ...(gap.unchanged !== undefined ? { unchanged: gap.unchanged } : {}), gap }] : [];
+  };
   diff.hunks.forEach((hunk, index) => {
-    const firstLine = hunk.lines.find((line) => line.newLine !== undefined || line.oldLine !== undefined);
-    const firstLineNumber = firstLine?.newLine ?? firstLine?.oldLine ?? previousLine + 1;
-    const unchanged = Math.max(0, firstLineNumber - previousLine - 1);
-    if (options.collapsible) {
-      if (unchanged > 0) rows.push({ kind: "gap", key: `${path}\0gap-${index}`, path, unchanged });
-    } else {
-      rows.push({ kind: "hunk", key: `${path}\0header-${index}`, path, text: hunk.header });
-    }
+    if (options.collapsible) rows.push(...gapRow(index));
+    else rows.push({ kind: "hunk", key: `${path}\0header-${index}`, path, text: hunk.header });
     hunk.lines.forEach((line, lineIndex) => {
       const pair = pairs.get(line);
       rows.push({ kind: "line", key: `${path}\0line-${index}-${lineIndex}`, path, line, ...(language ? { language } : {}), ...(pair ?? {}) });
     });
-    const lastLine = [...hunk.lines].reverse().find((line) => line.newLine !== undefined || line.oldLine !== undefined);
-    previousLine = lastLine?.newLine ?? lastLine?.oldLine ?? previousLine;
   });
+  if (options.collapsible) rows.push(...gapRow(diff.hunks.length));
   if (diff.truncated) rows.push({ kind: "more", key: `${path}\0more`, path });
   return rows;
 }
@@ -254,6 +255,10 @@ export interface DiffStreamProps {
   activePath?: string;
   lines?: DiffLineSlot;
   onExpandContext?(): void;
+  /** Reveals `range` of a gap's lines; the gap row then offers steps of its own. */
+  onExpandGap?(gap: DiffGap, range: LineRange): void;
+  /** Whether a file's gaps are being read or failed to be. */
+  contextState?(path: string): { busy?: boolean; error?: string; at?: number } | undefined;
   onLoadMore?(path: string): void;
   renderFileHeader?(file: UiChangedFile, diff?: UiFileDiff): ReactNode;
   onVisiblePathChange?(path: string): void;
@@ -272,6 +277,8 @@ export const DiffStream = forwardRef<DiffStreamHandle, DiffStreamProps>(function
   activePath,
   lines,
   onExpandContext,
+  onExpandGap,
+  contextState,
   onLoadMore,
   renderFileHeader,
   onVisiblePathChange,
@@ -351,10 +358,25 @@ export const DiffStream = forwardRef<DiffStreamHandle, DiffStreamProps>(function
         return <div className="diff-truncation" role="status">{row.text}</div>;
       case "hunk":
         return <div className="diff-hunk-header">{row.text}</div>;
-      case "gap":
-        return <button className="diff-context-gap" disabled={!onExpandContext} onClick={onExpandContext}>
-          <ChevronsUpDown size={12} /><span>{row.unchanged} unchanged {row.unchanged === 1 ? "line" : "lines"}</span>
-        </button>;
+      case "gap": {
+        const gap = row.gap;
+        if (!onExpandGap || !gap) {
+          return <button className="diff-context-gap" disabled={!onExpandContext} onClick={onExpandContext}>
+            <ChevronsUpDown size={12} /><span>{row.unchanged} unchanged {row.unchanged === 1 ? "line" : "lines"}</span>
+          </button>;
+        }
+        const status = contextState?.(row.path);
+        const known = gap.unchanged;
+        const stepped = known === undefined || known > CONTEXT_STEP;
+        return <div className="diff-context-bar">
+          {stepped && gap.where !== "start" ? <button className="diff-context-step" disabled={status?.busy} aria-label={`Show ${CONTEXT_STEP} more lines below the change above`} title={`Show ${CONTEXT_STEP} more lines`} onClick={() => onExpandGap(gap, stepRange(gap, "down"))}><ChevronDown size={12} /></button> : null}
+          <button className="diff-context-gap" disabled={status?.busy} onClick={() => onExpandGap(gap, stepRange(gap, "all"))}>
+            <ChevronsUpDown size={12} /><span>{known === undefined ? "Show the rest of the file" : `${known} unchanged ${known === 1 ? "line" : "lines"}`}</span>
+          </button>
+          {stepped && gap.where !== "end" ? <button className="diff-context-step" disabled={status?.busy} aria-label={`Show ${CONTEXT_STEP} more lines above the change below`} title={`Show ${CONTEXT_STEP} more lines`} onClick={() => onExpandGap(gap, stepRange(gap, "up"))}><ChevronUp size={12} /></button> : null}
+          {status?.error && status.at === gap.from ? <span className="diff-context-error" role="alert">{status.error}</span> : null}
+        </div>;
+      }
       case "status":
         return <div className={`diff-empty ${row.title ? "diff-error" : ""}`}>{row.title ? <strong>{row.title}</strong> : null}<span>{row.text}</span></div>;
       case "more":
@@ -372,7 +394,7 @@ export const DiffStream = forwardRef<DiffStreamHandle, DiffStreamProps>(function
             <div className={`diff-grid ${split ? "split" : ""}`}>
               <Row line={row.line} split={split} language={row.language} version={version} partner={row.partner} side={row.side} />
             </div>
-            {onAction && lineNumber !== undefined ? <button
+            {onAction && lineNumber !== undefined && !row.line.expanded ? <button
               className={`diff-annotate ${count ? "has-comments" : ""}`}
               title="Add line comment"
               aria-label={lines?.actionLabel?.(context) ?? `Comment on line ${lineNumber}`}
@@ -410,12 +432,17 @@ export const DiffStream = forwardRef<DiffStreamHandle, DiffStreamProps>(function
 });
 
 /** One file's diff with its own scroll element; review mode uses `DiffStream` directly. */
-export function DiffView({ diff, mode, path, onLoadMore, onExpandContext, lines, wrap = true }: {
+export function DiffView({ diff, mode, path, onLoadMore, onExpandContext, onExpandGap, totalLines, contextState, lines, wrap = true }: {
   diff?: UiFileDiff;
   mode: "unified" | "split";
   path?: string;
   onLoadMore?(): void;
   onExpandContext?(): void;
+  /** Gap rows reveal unchanged lines a step at a time; the caller keeps the lines and passes the expanded `diff` back. */
+  onExpandGap?(gap: DiffGap, range: LineRange): void;
+  /** The file's length at the new side, once known; the stretch below the last hunk is offered either way. */
+  totalLines?: number;
+  contextState?: { busy?: boolean; error?: string; at?: number } | undefined;
   lines?: DiffLineSlot;
   /** Long lines wrap unless this is `false`. */
   wrap?: boolean;
@@ -424,14 +451,14 @@ export function DiffView({ diff, mode, path, onLoadMore, onExpandContext, lines,
   const streamRef = useRef<DiffStreamHandle>(null);
   const pendingPrefixRef = useRef<string | null>(null);
   const filePath = path ?? diff?.path ?? "";
-  const collapsible = Boolean(onExpandContext);
+  const collapsible = Boolean(onExpandContext || onExpandGap);
   const languages = useMemo(() => {
     const language = diffLanguage(filePath);
     return language ? [language] : NO_LANGUAGES;
   }, [filePath]);
   const rows = useMemo(
-    () => diff && diff.hunks.length > 0 ? fileDiffRows(filePath, diff, { collapsible }) : [],
-    [collapsible, diff, filePath],
+    () => diff && diff.hunks.length > 0 ? fileDiffRows(filePath, diff, { collapsible, ...(onExpandGap ? { totalLines: totalLines ?? "unknown" as const } : {}) }) : [],
+    [collapsible, diff, filePath, onExpandGap, totalLines],
   );
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -478,6 +505,7 @@ export function DiffView({ diff, mode, path, onLoadMore, onExpandContext, lines,
       wrap={wrap}
       {...(lines ? { lines } : {})}
       {...(onExpandContext ? { onExpandContext } : {})}
+      {...(onExpandGap ? { onExpandGap, contextState: () => contextState } : {})}
       {...(onLoadMore ? { onLoadMore } : {})}
     />
   </div>;
