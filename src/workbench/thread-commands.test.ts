@@ -123,6 +123,17 @@ describe("forking", () => {
     expect(ask).toHaveBeenCalledTimes(2);
   });
 
+  it("gives an extension's fork to the asking kit with its task, or starts it in the background without one", async () => {
+    const ask = vi.fn();
+    const asked = forking({ ask });
+    expect(await asked.thread.askFork({ entryId: "e-a1", prompt: "Look into it" })).toBe(true);
+    expect(ask).toHaveBeenCalledWith({ entryId: "e-a1", prompt: "Look into it" });
+    expect(asked.forkThread).not.toHaveBeenCalled();
+    const direct = forking();
+    expect(await direct.thread.askFork({ entryId: "e-a1", prompt: "Look into it" })).toBe(true);
+    expect(direct.forkThread).toHaveBeenCalledWith("e-a1", "s1", undefined, true);
+  });
+
   it("forks at once without such a kit, and into the workspace the kit made", async () => {
     const { thread, forkThread, duplicateThread } = forking();
     await thread.forkFromMessage(answer, turn);

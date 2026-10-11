@@ -25,6 +25,8 @@ import { clearCachedTurnActivity } from "./turn-activity";
 export interface ForkRequest {
   entryId?: string;
   turn?: { number: number; messages: readonly UiMessage[]; last: boolean };
+  /** The task the fork starts with, for a prompt to offer as its draft. */
+  prompt?: string;
 }
 
 /** What a command needs of the contribution registry. */
@@ -332,6 +334,12 @@ export class ThreadCommands {
     if (!prompt) return false;
     if (this.requireWrite("Fork thread")) prompt.ask(request);
     return true;
+  };
+
+  /** A fork an extension proposes: asked about like the user's own, started at once where nothing asks. */
+  askFork = async (request: ForkRequest & { entryId: string }): Promise<boolean> => {
+    if (this.requestFork(request)) return true;
+    return this.forkMessage({ sourceEntryId: request.entryId }, { ...(request.prompt ? { prompt: request.prompt, stayInSource: true } : {}) });
   };
 
   /** `f` on a message: the end of its turn, as the turn's divider forks. */
