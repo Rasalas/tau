@@ -28,6 +28,7 @@ function client(detail: PullRequestDetail, threads: PullRequestThread[], files?:
     pipeline: vi.fn(async () => ({})),
     threads: vi.fn(async () => threads),
     files: vi.fn(async () => { if (!files) throw new Error("no diff"); return files; }),
+    file: vi.fn(async () => { throw new Error("not in this test"); }),
     comment: vi.fn(async () => undefined),
     update: vi.fn(async () => detail),
     viewed: vi.fn(async () => "viewed" as const),

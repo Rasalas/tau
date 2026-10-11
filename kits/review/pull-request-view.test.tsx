@@ -38,6 +38,7 @@ function fakeClient(overrides: Partial<PullRequestClient> = {}): PullRequestClie
     pipeline: vi.fn(async () => ({})),
     threads: vi.fn(async () => threads),
     files: vi.fn(async () => files),
+    file: vi.fn(async () => { throw new Error("not in this test"); }),
     comment: vi.fn(async () => undefined),
     update: vi.fn(async (_url: string, input: { title?: string; body?: string }): Promise<PullRequestDetail> => ({ ...detail, ...(input.title ? { title: input.title } : {}), ...(input.body !== undefined ? { body: input.body } : {}) })),
     viewed: vi.fn(async (_url: string, _path: string, value: boolean) => value ? "viewed" as const : "unviewed" as const),
@@ -129,6 +130,29 @@ describe("the pull-request view", () => {
     expect(screen.getAllByRole("button", { name: "kits/terminal/output.ts:10" })).toHaveLength(2);
     expect(tab.setTitle).toHaveBeenCalledWith("PR #7 Add the output helper");
     expect(rows.get("/project")).toMatchObject<Partial<UiReviewRequest>>({ number: 7, checks: { passed: 2, failed: 1, pending: 1, total: 4 } });
+  });
+
+  it("hides bot comments and says how many, until the filter asks for them; the choice is kept in the preferences", async () => {
+    const { shared } = renderView();
+    await screen.findByText("Comments (6)");
+    expect(screen.queryByText("Coverage 91%.")).toBeNull();
+    const filter = screen.getByRole("button", { name: "Filter comments" });
+    // The bot's comment and the resolved conversation.
+    expect(filter.textContent).toBe("2 hidden");
+    fireEvent.click(filter);
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Bot comments" }));
+    expect(await screen.findByText("Coverage 91%.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Filter comments" }).textContent).toBe("1 hidden");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Resolved or dismissed" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Filter comments" }).textContent).toBe("Filter"));
+    expect(shared.preferences.optionValue("tau.review", "pr-comments-bots", false)).toBe(true);
+    expect(shared.preferences.optionValue("tau.review", "pr-comments-resolved", false)).toBe(true);
+  });
+
+  it("says so when the filter hides every comment", async () => {
+    const detail = parseGitHubDetail(REF, fixture("gh-pr-view-discussed.json"));
+    renderView(fakeClient({ view: vi.fn(async () => ({ ...detail, comments: detail.comments.filter((entry) => entry.author.bot) })), threads: vi.fn(async () => []) }));
+    expect(await screen.findByText("The only comment is hidden by the filter.")).toBeTruthy();
   });
 
   it("draws the checks in one row in the bar, which opens and shows them; so does a tab opened at its checks", async () => {
@@ -310,6 +334,57 @@ describe("the pull-request view", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Comment on line 3" }), { target: { value: "Name this." } });
     fireEvent.click(screen.getByRole("button", { name: "Comment" }));
     await waitFor(() => expect(client.comment).toHaveBeenCalledWith(REF.url, { path: "kits/terminal/output.ts", line: 3, side: "new", body: "Name this." }));
+  });
+
+  it("expands the unchanged lines around a change from the file at the head, without a comment button on them", async () => {
+    const text = Array.from({ length: 300 }, (_unused, index) => `readme line ${index + 1}`).join("\n");
+    const file = vi.fn(async (_url: string, path: string) => ({ path, sha: "abc", text }));
+    renderView(fakeClient({ file }));
+    await screen.findByRole("heading", { name: "Add the output helper" });
+    fireEvent.click(screen.getByRole("tab", { name: "Code" }));
+    fireEvent.click(await screen.findByRole("button", { name: /README\.md/u }));
+    fireEvent.click(await screen.findByRole("button", { name: "262 unchanged lines" }));
+    await waitFor(() => expect(file).toHaveBeenCalledWith(REF.url, "README.md"));
+    expect(await screen.findByText("readme line 1")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "262 unchanged lines" })).toBeNull();
+    // Only the lines of the diff can be commented on.
+    expect(screen.queryByRole("button", { name: "Comment on line 1" })).toBeNull();
+    expect(file).toHaveBeenCalledTimes(1);
+  });
+
+  it("says why the unchanged lines could not be read, and tries again on the next click", async () => {
+    const file = vi.fn(async (_url: string, path: string) => {
+      if (file.mock.calls.length === 1) throw new Error("README.md is a binary file.");
+      return { path, sha: "abc", text: "one\ntwo" };
+    });
+    renderView(fakeClient({ file }));
+    await screen.findByRole("heading", { name: "Add the output helper" });
+    fireEvent.click(screen.getByRole("tab", { name: "Code" }));
+    fireEvent.click(await screen.findByRole("button", { name: /README\.md/u }));
+    fireEvent.click(await screen.findByRole("button", { name: "262 unchanged lines" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("README.md is a binary file.");
+    fireEvent.click(screen.getByRole("button", { name: "262 unchanged lines" }));
+    await waitFor(() => expect(file).toHaveBeenCalledTimes(2));
+  });
+
+  it("finds text across every file of the request with Cmd+F, and a match in another file selects it", async () => {
+    renderView();
+    await screen.findByRole("heading", { name: "Add the output helper" });
+    fireEvent.click(screen.getByRole("tab", { name: "Code" }));
+    fireEvent.click(await screen.findByRole("button", { name: /README\.md/u }));
+    const diff = await waitFor(() => {
+      const element = document.querySelector<HTMLElement>(".diff-scroll");
+      if (!element) throw new Error("no diff yet");
+      return element;
+    });
+    fireEvent.keyDown(diff, { key: "f", metaKey: true });
+    fireEvent.change(await screen.findByRole("textbox", { name: "Find in diff" }), { target: { value: "unseenOutput" } });
+    await waitFor(() => expect(screen.getByRole("status", { name: "" }).textContent).toBe("1 of 1"));
+    // The only match is in output.ts, which was not on screen.
+    await waitFor(() => expect(screen.getByRole("button", { name: /output\.ts/u }).getAttribute("aria-current")).toBe("true"));
+    expect(document.querySelector(".pr-file-header strong")?.textContent).toBe("output.ts");
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Find in diff" }), { key: "Escape" });
+    expect(screen.queryByRole("textbox", { name: "Find in diff" })).toBeNull();
   });
 
   it("holds line comments for a review and submits them with a verdict in one step", async () => {

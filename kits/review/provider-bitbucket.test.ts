@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionContext } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { createReviewHostExtension } from "./host.js";
-import { REVIEW_HOST_EXTENSION_ID, type PullRequestDetail, type PullRequestFiles, type PullRequestList, type PullRequestThread, type ReviewRequestContext, type ReviewRequestStatus } from "./protocol.js";
+import { REVIEW_HOST_EXTENSION_ID, type PullRequestDetail, type PullRequestFileText, type PullRequestFiles, type PullRequestList, type PullRequestThread, type ReviewRequestContext, type ReviewRequestStatus } from "./protocol.js";
 import type { HttpFetch } from "./provider.js";
 import type { CliRunOptions } from "./request-cli.js";
 import { LINK_SEAMS } from "./test-seams.js";
@@ -30,6 +30,12 @@ async function answer(url: string, method: string): Promise<{ status: number; bo
   if (path.startsWith("/pullrequests/") && path.includes("/statuses")) return { status: 200, body: await fixture("bitbucket-statuses.json") };
   if (path.startsWith("/pullrequests/11/diffstat")) return { status: 200, body: await fixture("bitbucket-diffstat.json") };
   if (path === "/pullrequests/11/diff") return { status: 200, body: await fixture("bitbucket-pull.diff") };
+  if (path.startsWith("/src/c6ee5d86f36e/")) {
+    if (path.includes("logo.png")) return { status: 200, body: "\u0089PNG\0\0" };
+    if (path.includes("dump.sql")) return { status: 200, body: "x".repeat(2 * 1024 * 1024 + 1) };
+    if (path.includes("gone.js")) return { status: 404, body: JSON.stringify({ type: "error", error: { message: "No such file or directory" } }) };
+    return { status: 200, body: "export const a = 1;\n" };
+  }
   return { status: 404, body: JSON.stringify({ type: "error", error: { message: "Not found" } }) };
 }
 
@@ -132,6 +138,18 @@ describe("the Bitbucket provider over its API", () => {
     const files = await invoke<PullRequestFiles>("pr-files", { url: URL_11 });
     expect(files.files).toHaveLength(5);
     expect(files.viewedOn).toBe("local");
+  });
+
+  it("reads a file at the head commit from the src endpoint, with the API credential", async () => {
+    const { invoke, sent } = await harness();
+    const file = await invoke<PullRequestFileText>("pr-file", { url: URL_11, path: "src/my dir/a.js" });
+    expect(file).toEqual({ path: "src/my dir/a.js", sha: "c6ee5d86f36e", text: "export const a = 1;\n" });
+    const read = sent.find((call) => call.url.includes("/src/"))!;
+    expect(read).toMatchObject({ url: `${API}/src/c6ee5d86f36e/src/my%20dir/a.js`, method: "GET" });
+    expect(read.headers.Authorization).toBe(`Basic ${Buffer.from("octo@example.com:token-1").toString("base64")}`);
+    await expect(invoke("pr-file", { url: URL_11, path: "logo.png" })).rejects.toThrow("logo.png is a binary file.");
+    await expect(invoke("pr-file", { url: URL_11, path: "dump.sql" })).rejects.toThrow("dump.sql is larger than 2 MB; Tau does not expand it.");
+    await expect(invoke("pr-file", { url: URL_11, path: "gone.js" })).rejects.toThrow("gone.js is not in the request's head commit.");
   });
 
   it("creates, merges and reviews with the API's own shapes", async () => {

@@ -118,6 +118,8 @@ export interface SourceControlProvider {
   pipeline?(ref: PullRequestRef, runIds: readonly string[], names?: Record<string, string>): Promise<PipelineFacts>;
   threads(ref: PullRequestRef, fresh: boolean): Promise<PullRequestThread[]>;
   changes?(ref: PullRequestRef, fresh: boolean): Promise<ChangedFileEntry[]>;
+  /** The text of a file at a commit of the request's repository, read only; `sha` is the request's head commit (`capabilities.fileContents`). */
+  fileContents?(ref: PullRequestRef, input: { path: string; sha: string }): Promise<string>;
   /** Viewed marks kept on the host; without it the kit keeps them itself. */
   viewedMarks?: {
     states(ref: PullRequestRef, fresh: boolean): Promise<Map<string, PullRequestViewedState>>;

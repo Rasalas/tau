@@ -1,9 +1,10 @@
 import { HostCommandError } from "tau/host-extension";
 import { PROVIDERS, type MergeOutcome, type PullRequestLabel, type PullRequestRef, type PullRequestViewedState } from "./protocol.js";
 import type { ChangedFileEntry, ProviderTools, SourceControlProvider } from "./provider.js";
+import { readFileText } from "./provider-file.js";
 import { listCall, pullRequestCalls } from "./pull-request-cli.js";
 import { parseRemote } from "./pull-request-hosting.js";
-import { parseGitHubChecks, parseGitHubDetail, parseGitHubFiles, parseGitHubThreads, isDiffTooLarge, parseUnifiedDiff } from "./pull-request-json.js";
+import { parseGitHubChecks, parseGitHubDetail, parseGitHubFiles, parseGitHubThreads, parseGitHubBotLogins, markBotComments, isDiffTooLarge, parseUnifiedDiff } from "./pull-request-json.js";
 import { parseGitHubList } from "./pull-request-list-json.js";
 import { createGitHubStacks } from "./github-stacks.js";
 import { createGitHubPipelines } from "./github-pipeline.js";
@@ -11,6 +12,8 @@ import { GITHUB_BRANCH_FIELDS, parseGitHubBranchRequest } from "./branch-request
 import { authArgs, createArgs, createdUrl, draftArgs, editArgs, mergeArgs, SERVICES } from "./request-cli.js";
 
 const DIFF_BUFFER = 16 * 1024 * 1024;
+/** Room for a file a little over the 2 MB cap, so its size is named instead of a buffer error. */
+export const FILE_BUFFER = 4 * 1024 * 1024;
 const LIST_BUFFER = 32 * 1024 * 1024;
 /** Pages of 100 read at most per connection: 3,000 threads or files. */
 const MAX_PAGES = 30;
@@ -153,7 +156,14 @@ export function createGitHubProvider(tools: ProviderTools): SourceControlProvide
       return { entries: entries.slice(0, input.limit), more: entries.length > input.limit };
     },
 
-    detail: async (ref) => parseGitHubDetail(ref, await cli(ref, pullRequestCalls.view(ref)[0]!, `Reading ${noun(ref)}`)),
+    detail: async (ref) => {
+      const [view, bots] = await Promise.all([
+        cli(ref, pullRequestCalls.view(ref)[0]!, `Reading ${noun(ref)}`),
+        // Best effort: without it a bot's comment reads as a person's.
+        cli(ref, pullRequestCalls.authors(ref), `Reading who commented on ${noun(ref)}`).then(parseGitHubBotLogins, () => new Set<string>()),
+      ]);
+      return markBotComments(parseGitHubDetail(ref, view), bots);
+    },
     pipeline: createGitHubPipelines(tools),
     checks: async (ref) => parseGitHubChecks(record(JSON.parse(await cli(ref, pullRequestCalls.checks(ref), `Reading the checks of ${noun(ref)}`))).statusCheckRollup),
     threads: async (ref, fresh) => (await threads(ref, fresh)).threads,
@@ -166,6 +176,13 @@ export function createGitHubProvider(tools: ProviderTools): SourceControlProvide
         return parseGitHubFiles(await cli(ref, pullRequestCalls.files(ref), `Reading the files of ${noun(ref)}`, DIFF_BUFFER));
       }
     },
+    // A fork's head commit is reachable through the base repository, so `ref` names the base.
+    fileContents: (ref, { path, sha }) => readFileText(path, () => cli(
+      ref,
+      { args: ["api", "--hostname", ref.host, "-H", "Accept: application/vnd.github.raw+json", `repos/${ref.repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(sha)}`] },
+      `Reading ${path} of ${noun(ref)}`,
+      FILE_BUFFER,
+    )),
     viewedMarks: {
       states: async (ref, fresh): Promise<Map<string, PullRequestViewedState>> => (await threads(ref, fresh)).viewed,
       set: async (ref, path, viewed, detail) => {

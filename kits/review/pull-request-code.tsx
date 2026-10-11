@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, Info, MessageSquare, PanelRightClose, PanelRightOpen, WrapText } from "lucide-react";
-import { DiffView, READ_ONLY_REASON, errorMessage, getClientStorage, tooltipProps, type WorkbenchActions } from "tau";
+import { DiffFindBar, DiffView, READ_ONLY_REASON, useDiffFind, errorMessage, getClientStorage, tooltipProps, type WorkbenchActions } from "tau";
 import { currentDiffWordWrap } from "./diff-settings.js";
 import { providerInfo, type PendingReviewComment, PullRequestComment, PullRequestDetail, PullRequestFile, PullRequestFiles, PullRequestThread, ReviewCommentChip } from "./protocol.js";
-import type { PullRequestCommentInput } from "./pull-request-client.js";
+import type { PullRequestClient, PullRequestCommentInput } from "./pull-request-client.js";
 import { hideWhitespace } from "./pull-request-diff.js";
 import { orderFiles, threadChip } from "./pull-request-logic.js";
 import { ThreadCard } from "./pull-request-parts.js";
+import { usePullRequestContext } from "./pull-request-context.js";
 import { usePullRequestLines } from "./pull-request-lines.js";
 import { ALL_WRITES, type PullRequestWrites } from "./pull-request-writes.js";
 
@@ -24,8 +25,9 @@ function split(path: string): { name: string; directory: string } {
  * threads under their lines, a new comment from a line's gutter button, and
  * a viewed mark per file that moves on to the next file still to read.
  */
-export function PullRequestCode({ detail, files, filesError, threads, focusPath, actions, load, onViewed, onComment, onSend, ignoreWhitespace, onIgnoreWhitespace, reviewComments, onPend, onRemovePending, onResolve, canEdit, onEdit, writes = ALL_WRITES }: {
+export function PullRequestCode({ detail, client, files, filesError, threads, focusPath, actions, load, onViewed, onComment, onSend, ignoreWhitespace, onIgnoreWhitespace, reviewComments, onPend, onRemovePending, onResolve, canEdit, onEdit, writes = ALL_WRITES }: {
   detail: PullRequestDetail;
+  client: PullRequestClient;
   files?: PullRequestFiles;
   filesError?: string;
   threads: readonly PullRequestThread[];
@@ -72,6 +74,14 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
 
   const { slotFor, loose, reply, resolver } = usePullRequestLines({ detail, threads, diffs, reviewComments, writes, onComment, onSend, onPend, onRemovePending, onResolve, canEdit, onEdit });
   const lines = useMemo(() => current ? slotFor(current.path) : undefined, [current, slotFor]);
+  const context = usePullRequestContext(client, detail, ordered);
+  const expanded = diff && context.can(diff.path) ? context.apply(diff) : undefined;
+  // Every file of the request is searched, not only the one on screen; a match in another file selects it.
+  const findDiffs = useMemo(() => {
+    const byPath = new Map(diffs.map((entry) => [entry.path, entry === diff && expanded ? expanded.diff : entry]));
+    return ordered.flatMap((file) => byPath.get(file.path) ?? []);
+  }, [diff, diffs, expanded, ordered]);
+  const find = useDiffFind({ diffs: findDiffs, onReveal: (match) => setSelected(match.path) });
 
   const toggleViewed = async (file: PullRequestFile) => {
     const next = !isViewed(file);
@@ -111,7 +121,7 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
   if (ordered.length === 0) return <p className="pr-empty pr-pad">This {providerInfo(detail.ref.service).noun} has no file changes.</p>;
 
   return (
-    <div className="pr-code">
+    <div className="pr-code" onKeyDown={find.onKeyDown}>
       <header className="pr-code-toolbar">
         <span>{ordered.length} {ordered.length === 1 ? "file" : "files"}</span>
         <span className="pr-viewed-count" title={files.viewedOn === "local" ? "GitLab keeps no viewed marks, so these are stored in this Tau only." : undefined}>
@@ -134,6 +144,7 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
       </header>
       <div className="pr-code-body">
         <main className="pr-code-main">
+          <DiffFindBar controller={find} />
           {loose.length > 0 ? (
             <section className="pr-loose">
               <button className="pr-group-toggle" aria-expanded={looseOpen} onClick={() => setLooseOpen(!looseOpen)}>
@@ -165,7 +176,8 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
             </header>
           ) : null}
           <div className="pr-diff">
-            <DiffView key={current?.path} {...(diff ? { diff } : {})} mode={layout} wrap={wrap} {...(current ? { path: current.path } : {})} {...(lines ? { lines } : {})} />
+            <DiffView key={current?.path} {...(diff ? { diff: expanded?.diff ?? diff } : {})} mode={layout} wrap={wrap} {...(current ? { path: current.path } : {})} {...(lines ? { lines } : {})} {...(find.find ? { find: find.find } : {})}
+              {...(expanded ? { onExpandGap: context.expand, contextState: context.state(diff!.path), ...(expanded.totalLines !== undefined ? { totalLines: expanded.totalLines } : {}) } : {})} />
           </div>
         </main>
         {treeOpen ? (

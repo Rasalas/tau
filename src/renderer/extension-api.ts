@@ -30,7 +30,7 @@ export {
   splitPromptTitle,
 } from "../shared/extension-prompt-options";
 export type { OptionParts, OptionPreview } from "../shared/extension-prompt-options";
-export { DiffView, DiffStack, ReviewMode } from "./extension-components";
+export { DiffView, DiffStack, DiffFindBar, ReviewMode } from "./extension-components";
 export { ChangesTree } from "./deferred-surfaces";
 // A text file with line numbers and highlighting, as a file tab shows it (API 1.20.0).
 export { FileSource } from "./deferred-surfaces";
@@ -266,6 +266,12 @@ export type { ThreadActivity, ThreadRowMachine } from "./components/ThreadRow";
 export { THREAD_QUESTION_LABEL, attentionMarkIds, markedRowStatus, threadLimitHint, threadRowStatus, type ThreadRowMark, type ThreadRowStatus } from "../workbench/thread-row-status";
 /** The line seam of `ReviewMode`'s diffs. */
 export type { DiffLineContext, DiffLineSlot } from "./components/DiffView";
+/** Unchanged lines around a diff's changes: where they are, how a click reveals them, and the hook that keeps what was revealed. */
+export { CONTEXT_STEP, diffGaps, expandDiffContext, splitFileText, stepRange, type DiffGap, type LineRange } from "./components/diff-context";
+export { useDiffContext, type DiffContext } from "./components/use-diff-context";
+/** Find across the diffs of a surface (Cmd+F): the matches, the bar's state and what the streams are handed. */
+export { useDiffFind, type DiffFindController } from "./components/use-diff-find";
+export type { DiffFind, FindMatch, FindQuery } from "./components/diff-find";
 export type { HostActionResult, NewThreadResult } from "../shared/host-protocol";
 export type { WorkspaceRef } from "../shared/workspace-identity";
 export type * from "../shared/workspace-kit-types";

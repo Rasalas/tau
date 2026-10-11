@@ -295,6 +295,59 @@ describe("ReviewMode", () => {
     expect(document.querySelector(".diff-code")).toBeNull();
   });
 
+  it("finds text in every file with Cmd+F, folded files included, paints the matches and unfolds the file of the active one", async () => {
+    stubDiffLayout();
+    const painted = new Map<string, Range[]>();
+    vi.stubGlobal("Highlight", class { readonly ranges: Range[]; constructor(...ranges: Range[]) { this.ranges = ranges; } });
+    vi.stubGlobal("CSS", { highlights: { set: (name: string, value: { ranges: Range[] }) => painted.set(name, value.ranges), delete: (name: string) => painted.delete(name) } });
+    const two: UiWorkspaceChanges = {
+      ...worktree,
+      files: [...worktree.files, { path: "src/c.ts", name: "c.ts", directory: "src", status: "modified", added: 1, removed: 0 }],
+      fileCount: 2,
+    };
+    const lineOf = (path: string, text: string): UiFileDiff => ({ path, added: 1, removed: 0, hunks: [{ header: "@@ -0,0 +1 @@", lines: [{ kind: "added", newLine: 1, text }] }] });
+    render(withStorage(<ReviewMode
+      changes={two}
+      busy={false}
+      primaryPush={false}
+      onSelect={() => undefined}
+      onBack={() => undefined}
+      onCommit={() => undefined}
+      onOpenInEditor={() => undefined}
+      loadDiff={async (path) => lineOf(path, path === "src/a.ts" ? "const needle = 1;" : "// a needle in the folded file")}
+    />));
+    const drawn = () => [...document.querySelectorAll(".diff-code")].map((element) => element.textContent).join("\n");
+    await waitFor(() => expect(drawn()).toContain("const needle = 1;"));
+    fireEvent.click(screen.getByRole("button", { name: "Collapse src/c.ts" }));
+    expect(drawn()).not.toContain("folded file");
+
+    const stream = document.querySelector<HTMLElement>(".review-diff-stream")!;
+    stream.focus();
+    fireEvent.keyDown(stream, { key: "f", metaKey: true });
+    const field = await screen.findByRole("textbox", { name: "Find in diff" });
+    expect(document.activeElement).toBe(field);
+    fireEvent.change(field, { target: { value: "needle" } });
+    // The folded file counts, and its match is not the first.
+    expect((await screen.findByRole("status")).textContent).toBe("1 of 2");
+    await waitFor(() => expect(painted.get("diff-find")?.map((range) => range.toString())).toEqual(["needle"]));
+    expect(painted.get("diff-find-active")).toHaveLength(1);
+
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(drawn()).toContain("a needle in the folded file"));
+    expect(screen.getByRole("status").textContent).toBe("2 of 2");
+    await waitFor(() => expect(painted.get("diff-find")).toHaveLength(2));
+    fireEvent.keyDown(field, { key: "Enter", shiftKey: true });
+    expect(screen.getByRole("status").textContent).toBe("1 of 2");
+
+    fireEvent.click(screen.getByRole("button", { name: "Match case" }));
+    fireEvent.change(field, { target: { value: "NEEDLE" } });
+    expect(screen.getByRole("status").textContent).toBe("No results");
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(screen.queryByRole("textbox", { name: "Find in diff" })).toBeNull();
+    await waitFor(() => expect(painted.size).toBe(0));
+    vi.unstubAllGlobals();
+  });
+
   it("keeps loaded diffs mounted while a workspace refresh revalidates them", async () => {
     let resolveRefresh!: (diff: UiFileDiff) => void;
     const initialDiff = async (path: string) => ({

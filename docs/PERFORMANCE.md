@@ -259,6 +259,8 @@ The October 7 thread workflows add native goal controls, wake rows and Stage reo
 
 On October 10 the browser budget rises from 520,000 to 525,000 bytes. Main sat about 70 bytes below it, and the renderer now carries the `engines` range check (`src/shared/extension-compat.ts`, 562 bytes gzipped) so a phone app older than its host leaves a too-new kit off instead of failing on it. The desktop budget holds.
 
+On October 12 the desktop budget for total gzipped JavaScript rises from 512,000 to 520,000 bytes. Reading a pull request in Tau gained a comment filter, context bars that read unchanged lines from the host, and find in diffs (about 3,500 bytes gzipped, in the lazily loaded review chunks), which put the build at 515,559 bytes. The browser budget rises from 525,000 to 532,000 bytes for the same code (CI measured 526,927). The initial JavaScript and CSS budgets hold.
+
 ## Interaction budgets
 
 Initial local targets:

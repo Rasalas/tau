@@ -26,3 +26,19 @@
 .diff-gutter.diff-removed { box-shadow: inset 3px 0 var(--diff-del-edge); }
 .diff-code.diff-removed { color: var(--diff-del-ink); }
 .diff-code.diff-removed > i { color: var(--diff-del-edge); }
+
+.diff-context-bar { display: flex; align-items: center; gap: 2px; margin: 1px 4px; }
+.diff-context-bar .diff-context-gap { flex: 1; width: auto; min-width: 0; margin: 0; }
+.diff-context-step {
+  flex: none; width: 32px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 6px;
+  background: var(--raised-strong); color: var(--faint); cursor: pointer;
+}
+.diff-context-step:hover:not(:disabled) { background: var(--raised-hover); color: var(--ink-2); }
+.diff-context-step:disabled, .diff-context-bar .diff-context-gap:disabled { cursor: progress; }
+.diff-context-error { flex: none; max-width: 50%; padding: 0 8px; overflow: hidden; color: var(--removed); font: 10.5px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+@media (pointer: coarse) {
+  .diff-context-bar .diff-context-gap, .diff-context-step { height: 44px; }
+}
+
+::highlight(diff-find) { background-color: color-mix(in srgb, var(--warn) 38%, transparent); color: inherit; }
+::highlight(diff-find-active) { background-color: color-mix(in srgb, var(--warn) 78%, transparent); color: var(--ink); }

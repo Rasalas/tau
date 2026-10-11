@@ -6,6 +6,7 @@ import type {
   PullRequestActionResult,
   PullRequestCheck,
   PullRequestDetail,
+  PullRequestFileText,
   PullRequestFiles,
   PullRequestLabel,
   PullRequestRef,
@@ -130,6 +131,19 @@ export function registerPullRequestCommands(context: HostExtensionContext, sourc
   context.registerCommand("pr-files", (input) => {
     const { ref, provider } = target(input);
     return files(ref, provider, fresh(input));
+  }, { access: "read", long: true });
+
+  // The commit comes from the cached read of the request, never from the caller, so only the request's own head is read.
+  context.registerCommand("pr-file", async (input): Promise<PullRequestFileText> => {
+    const { ref, provider } = target(input);
+    const read = provider.fileContents;
+    if (!read || !provider.info.capabilities.fileContents) throw lacks(provider, "read a file of a request");
+    const path = text(record(input).path) ?? "";
+    if (!path || path.includes("\0") || path.split("/").includes("..")) throw new HostCommandError("Name a file of the repository by its path.");
+    const sha = (await detail(ref, false)).headSha;
+    if (!sha) throw new HostCommandError(`${provider.info.name} did not name the head commit of ${noun(ref, provider)}.`);
+    const contents = await tools.cached(`file:${path}@${sha}`, ref, false, () => read(ref, { path, sha }));
+    return { path, sha, text: contents };
   }, { access: "read", long: true });
 
   context.registerCommand("pr-comment", async (input) => {

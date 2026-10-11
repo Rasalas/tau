@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionContext } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { createReviewHostExtension } from "./host.js";
-import { REVIEW_HOST_EXTENSION_ID, type PullRequestDetail, type PullRequestFiles, type PullRequestList, type PullRequestThread, type ReviewRequestContext, type ReviewRequestStatus } from "./protocol.js";
+import { REVIEW_HOST_EXTENSION_ID, type PullRequestDetail, type PullRequestFileText, type PullRequestFiles, type PullRequestList, type PullRequestThread, type ReviewRequestContext, type ReviewRequestStatus } from "./protocol.js";
 import { forgejoRepository, loginFor, parseTeaLogins } from "./provider-forgejo.js";
 import type { CliRunOptions } from "./request-cli.js";
 import { LINK_SEAMS } from "./test-seams.js";
@@ -32,6 +32,11 @@ async function answer(url: string, method: string): Promise<{ status: number; bo
   if (path.startsWith("/pulls/14486/reviews")) return { status: 200, body: await fixture("forgejo-reviews.json") };
   if (path.startsWith("/pulls/14486/commits")) return { status: 200, body: await fixture("forgejo-commits.json") };
   if (path === "/issues/14486/comments") return { status: 200, body: await fixture("forgejo-comments.json") };
+  if (path.startsWith("/raw/")) {
+    if (path.includes("logo.png")) return { status: 200, body: "\u0089PNG\0\0" };
+    if (path.includes("dump.sql")) return { status: 200, body: "x".repeat(2 * 1024 * 1024 + 1) };
+    return { status: 200, body: "package main\n\nfunc main() {}\n" };
+  }
   if (path.startsWith("/commits/")) return { status: 200, body: await fixture("forgejo-status.json") };
   return { status: 200, body: "[]" };
 }
@@ -158,6 +163,18 @@ describe("the Forgejo provider through tea", () => {
       comments: [{ path: "a.go", body: "Here.", new_position: 3 }],
     });
     await expect(invoke("pr-comment", { url: URL_14486, threadId: "23383834", body: "Reply" })).rejects.toThrow(/Forgejo does not let Tau reply/u);
+  });
+
+  it("reads a file at the head commit through the raw endpoint, with a sentence for what it cannot show", async () => {
+    const { invoke, calls } = await harness();
+    const file = await invoke<PullRequestFileText>("pr-file", { url: URL_14486, path: "tests/integration/my file.go" });
+    expect(file).toEqual({ path: "tests/integration/my file.go", sha: "1cbdbe71bcc602d20a7d254ead5e3ae4ecc12a4a", text: "package main\n\nfunc main() {}\n" });
+    const read = calls.find((call) => call.args.at(-1)!.includes("/raw/"))!;
+    expect(read.args).toEqual(["api", "--include", "--login", "codeberg.org", "--method", "GET", `${API}/raw/tests/integration/my%20file.go?ref=1cbdbe71bcc602d20a7d254ead5e3ae4ecc12a4a`]);
+    await expect(invoke("pr-file", { url: URL_14486, path: "assets/logo.png" })).rejects.toThrow("assets/logo.png is a binary file.");
+    await expect(invoke("pr-file", { url: URL_14486, path: "db/dump.sql" })).rejects.toThrow("db/dump.sql is larger than 2 MB; Tau does not expand it.");
+    const missing = await harness({ fail: (url) => url.includes("/raw/") ? 404 : undefined });
+    await expect(missing.invoke("pr-file", { url: URL_14486, path: "gone.go" })).rejects.toThrow("gone.go is not in the request's head commit.");
   });
 
   it("lists merged requests from the closed ones", async () => {

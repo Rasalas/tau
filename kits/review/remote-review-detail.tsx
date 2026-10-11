@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Copy, ExternalLink, GitBranch, MessageSquare, RefreshCw, SquarePlus } from "lucide-react";
-import { useDiffPresentation, errorMessage, READ_ONLY_REASON, tooltipProps, type WorkbenchActions } from "tau";
+import { DiffFindBar, useDiffFind, useDiffPresentation, errorMessage, READ_ONLY_REASON, tooltipProps, type WorkbenchActions } from "tau";
 import { githubHtml } from "./github-html.js";
 import { RequestMarkdown as Markdown, RequestMediaProvider } from "./request-markdown.js";
 import { LinkedThreadsControl, ThreadPicker, useLinkedThreads } from "./linked-threads.js";
@@ -8,6 +8,7 @@ import { providerInfo, REVIEW_HOST_EXTENSION_ID, type ComposerContextChips, type
 import type { PullRequestClient, PullRequestCommentInput } from "./pull-request-client.js";
 import { hideWhitespace } from "./pull-request-diff.js";
 import { PullRequestHeaderActions, type HeaderMenuStep } from "./pull-request-header-actions.js";
+import { usePullRequestContext } from "./pull-request-context.js";
 import { usePullRequestLines } from "./pull-request-lines.js";
 import { asReviewRequest, checksRollup, checksSummary, orderFiles, relativeTime, shortNoun, type PullRequestTabParams } from "./pull-request-logic.js";
 import { handOver, RollupIcon } from "./pull-request-parts.js";
@@ -15,6 +16,8 @@ import { ChecksMini, ChecksPipeline } from "./pipeline-view.js";
 import { ReviewComposer } from "./pull-request-review.js";
 import { PullRequestStackControl } from "./pull-request-stack.js";
 import { PullRequestTimeline } from "./pull-request-timeline.js";
+import { commentFilter, filterTimelineComments, setCommentFilter } from "./comment-filter.js";
+import { CommentFilterMenu } from "./comment-filter-menu.js";
 import { usePullRequest, WHITESPACE_OPTION_ID, type PullRequestViewShared } from "./pull-request-view.js";
 import { usePullRequestWrites } from "./pull-request-writes.js";
 import { RequestStateIcon } from "./request-state-icon.js";
@@ -73,6 +76,8 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
   const pending = useSyncExternalStore(shared.pending.subscribe, () => shared.pending.comments(params.url));
   useSyncExternalStore(shared.preferences.subscribe, shared.preferences.getSnapshot, shared.preferences.getSnapshot);
   const ignoreWhitespace = shared.preferences.optionValue(REVIEW_HOST_EXTENSION_ID, WHITESPACE_OPTION_ID, false) === true;
+  const filter = commentFilter(shared.preferences);
+  const timelineView = useMemo(() => filterTimelineComments(detail, { bots: filter.bots, resolved: filter.resolved }), [detail, filter.bots, filter.resolved]);
   const thread = actions.activeThread();
   const threadId = thread?.sessionId;
   const [tab, setTab] = useState<Tab>(params.focus ?? "changes");
@@ -119,8 +124,23 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
 
   const ordered = useMemo(() => orderFiles(data.files?.files ?? []), [data.files]);
   const diffs = useMemo(() => ignoreWhitespace ? (data.files?.diffs ?? []).map(hideWhitespace) : data.files?.diffs ?? [], [data.files, ignoreWhitespace]);
+  const context = usePullRequestContext(client, detail, ordered);
   const diffByPath = useMemo(() => new Map(diffs.map((diff) => [diff.path, diff])), [diffs]);
   const stackFiles = useMemo<StackFile[]>(() => ordered.map((file) => ({ path: file.path, added: file.added, removed: file.removed, ...(file.previousPath ? { previousPath: file.previousPath } : {}) })), [ordered]);
+  // Every file is searched, expanded lines included; the match's file is brought into view the way a click in the sidebar does.
+  const findDiffs = useMemo(() => ordered.flatMap((file) => {
+    const diff = diffByPath.get(file.path);
+    return diff ? [context.can(diff.path) ? context.apply(diff).diff : diff] : [];
+  }), [context, diffByPath, ordered]);
+  const found = useRef<string | undefined>(undefined);
+  const find = useDiffFind({ diffs: findDiffs, onReveal: (match) => {
+    // Within a file the stream scrolls to the line itself.
+    if (match.path === found.current) return;
+    found.current = match.path;
+    setTab("changes");
+    setJump({ path: match.path, at: ++jumps.current });
+  } });
+  useEffect(() => { if (!find.open) found.current = undefined; }, [find.open]);
   const lines = usePullRequestLines({
     detail, threads, diffs, reviewComments: pending, writes, onComment: comment,
     onSend: (chip) => handOver(chip, chips(), actions),
@@ -213,7 +233,10 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
       <LayoutToggle layout={layout} onChange={setLayout} wrap={wrap} onWrapChange={setWrap} />
     </>
   ) : shownTab === "timeline" ? (
-    <button type="button" className="text-button" onClick={() => setOldestFirst(!oldestFirst)}>{oldestFirst ? "Oldest first" : "Newest first"}</button>
+    <>
+      <CommentFilterMenu filter={filter} hidden={timelineView.hidden} onChange={(key, value) => setCommentFilter(shared.preferences, key, value)} />
+      <button type="button" className="text-button" onClick={() => setOldestFirst(!oldestFirst)}>{oldestFirst ? "Oldest first" : "Newest first"}</button>
+    </>
   ) : null;
 
   const files = data.files;
@@ -238,12 +261,16 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
           ) : !files ? <p className="rvd-empty" role="status">Loading the diff…</p>
           : ordered.length === 0 ? <p className="rvd-empty">This {providerInfo(params.service).noun} has no file changes.</p>
           : (
+            <div className="rvd-find" onKeyDown={find.onKeyDown}>
+            <div className="rvd-find-anchor"><DiffFindBar controller={find} /></div>
             <ReviewDiffStack
               files={stackFiles}
               layout={layout}
               wrap={wrap}
               diffs={diffByPath}
               lines={lines.slotFor}
+              context={context}
+              {...(find.find ? { find: find.find } : {})}
               extra={(file) => {
                 const entry = ordered.find((candidate) => candidate.path === file.path);
                 if (!entry) return null;
@@ -258,9 +285,10 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
               onActive={setActive}
               scroll={scroll}
             />
+            </div>
           )
         ) : shownTab === "timeline" ? (
-          <PullRequestTimeline detail={detail} oldestFirst={oldestFirst} actions={actions} />
+          <PullRequestTimeline detail={timelineView.detail} oldestFirst={oldestFirst} actions={actions} />
         ) : (
           <div className="rvd-pad"><ChecksPipeline client={client} url={params.url} checks={checks} actions={actions} /></div>
         )}

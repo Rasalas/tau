@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { createReviewHostExtension } from "./host.js";
-import { REVIEW_HOST_EXTENSION_ID, type PullRequestDetail, type PullRequestFiles, type ThreadPullRequestLink } from "./protocol.js";
+import { PROVIDERS, REVIEW_HOST_EXTENSION_ID, type PullRequestDetail, type PullRequestFileText, type PullRequestFiles, type ThreadPullRequestLink } from "./protocol.js";
 import {
   parseGitHubDetail,
   parseGitHubThreads,
@@ -183,6 +183,8 @@ async function harness(options: { tools?: Record<string, string>; answer?(call: 
     const call: Call = { args, ...(runOptions?.input !== undefined ? { input: runOptions.input } : {}) };
     // Who is signed in is asked once per host; the tests count the request's own calls.
     if (args[0] === "api" && args.at(-1) === "user") return JSON.stringify({ login: "octo" });
+    // Likewise which accounts are bots: asked beside every GitHub view, answered with none.
+    if (args.some((arg) => arg.startsWith("query=") && arg.includes("comments(first: 100) { nodes { author"))) return JSON.stringify({ data: { repository: { pullRequest: { comments: { nodes: [] }, reviews: { nodes: [] } } } } });
     calls.push(call);
     if (options.answer) return options.answer(call);
     return defaultAnswer(call);
@@ -335,6 +337,68 @@ describe("pull request commands", () => {
     expect(files.files.find((file) => file.path === "kits/terminal/output.ts")).toMatchObject({ status: "added", added: 13, viewed: "dismissed" });
     expect(files.files.find((file) => file.path === "README.md")!.viewed).toBe("unviewed");
     expect(files.diffs).toHaveLength(files.files.length);
+  });
+
+  describe("pr-file", () => {
+    const SHA = "0123456789abcdef0123456789abcdef01234567";
+    const fileAnswer = (call: Call) => call.args[0] === "api" && call.args.some((arg) => arg.includes("/contents/") || arg.includes("/repository/files/"))
+      ? (call.args.at(-1)!.includes("logo.png") ? "\u0089PNG\0\0" : call.args.at(-1)!.includes("gone") ? Promise.reject(new Error("gh: Not Found (HTTP 404)")) : "line 1\nline 2\n")
+      : defaultAnswer(call);
+
+    it("reads GitHub's raw file at the head sha of its own read, through the base repository", async () => {
+      const { invoke, calls } = await harness({ answer: fileAnswer });
+      const file = await invoke<PullRequestFileText>("pr-file", { url: GITHUB.url, path: "kits/my dir/output.ts", sha: "ffffffffffffffffffffffffffffffffffffffff" });
+      expect(file).toEqual({ path: "kits/my dir/output.ts", sha: SHA, text: "line 1\nline 2\n" });
+      expect(calls.find((call) => call.args.at(-1)!.includes("/contents/"))!.args).toEqual([
+        "api", "--hostname", "github.com", "-H", "Accept: application/vnd.github.raw+json", `repos/acme/tau/contents/kits/my%20dir/output.ts?ref=${SHA}`,
+      ]);
+      // The same file is not asked for twice.
+      await invoke("pr-file", { url: GITHUB.url, path: "kits/my dir/output.ts" });
+      expect(calls.filter((call) => call.args.at(-1)!.includes("/contents/"))).toHaveLength(1);
+    });
+
+    it("reads GitLab's raw file from the project the request is in", async () => {
+      const { invoke, calls } = await harness({ answer: fileAnswer });
+      const file = await invoke<PullRequestFileText>("pr-file", { url: GITLAB.url, path: "kits/terminal/output.ts" });
+      expect(file).toMatchObject({ path: "kits/terminal/output.ts", sha: "abcdef0123456789abcdef0123456789abcdef01", text: "line 1\nline 2\n" });
+      expect(calls.find((call) => call.args.at(-1)!.includes("/repository/files/"))!.args).toEqual([
+        "api", "--hostname", "gitlab.com", "projects/acme%2Ftools%2Ftau/repository/files/kits%2Fterminal%2Foutput.ts/raw?ref=abcdef0123456789abcdef0123456789abcdef01",
+      ]);
+    });
+
+    it("names a missing, binary or oversized file, and refuses a path that leaves the repository", async () => {
+      const { invoke, calls } = await harness({ answer: fileAnswer });
+      await expect(invoke("pr-file", { url: GITHUB.url, path: "gone.ts" })).rejects.toThrow("gone.ts is not in the request's head commit.");
+      await expect(invoke("pr-file", { url: GITHUB.url, path: "assets/logo.png" })).rejects.toThrow("assets/logo.png is a binary file.");
+      const big = await harness({ answer: (call) => call.args.at(-1)!.includes("/contents/") ? "x".repeat(2 * 1024 * 1024 + 1) : defaultAnswer(call) });
+      await expect(big.invoke("pr-file", { url: GITHUB.url, path: "db/dump.sql" })).rejects.toThrow("db/dump.sql is larger than 2 MB; Tau does not expand it.");
+      const before = calls.length;
+      for (const path of ["", "../secrets", "a/../../b", "a\0b", 7]) {
+        await expect(invoke("pr-file", { url: GITHUB.url, path })).rejects.toThrow("Name a file of the repository by its path.");
+      }
+      expect(calls).toHaveLength(before);
+    });
+
+    it("says so when the host named no head commit", async () => {
+      const { invoke } = await harness({ answer: async (call) => {
+        if (call.args.slice(0, 2).join(" ") !== "pr view") return fileAnswer(call);
+        const { headRefOid: _omitted, ...view } = JSON.parse(await fixture("gh-pr-view-discussed.json")) as Record<string, unknown>;
+        return JSON.stringify(view);
+      } });
+      await expect(invoke("pr-file", { url: GITHUB.url, path: "a.ts" })).rejects.toThrow("GitHub did not name the head commit of PR #7.");
+    });
+
+    it("refuses on a host whose capability is off", async () => {
+      const { invoke, calls } = await harness({ answer: fileAnswer });
+      const capabilities = PROVIDERS.gitlab.capabilities as { fileContents: boolean };
+      capabilities.fileContents = false;
+      try {
+        await expect(invoke("pr-file", { url: GITLAB.url, path: "a.ts" })).rejects.toThrow(/GitLab does not let Tau read a file of a request/u);
+      } finally {
+        capabilities.fileContents = true;
+      }
+      expect(calls).toHaveLength(0);
+    });
   });
 
   it("reads checks fresh every time", async () => {

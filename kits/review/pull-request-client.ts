@@ -10,6 +10,7 @@ import {
   type PullRequestActionResult,
   type PullRequestComment,
   type PullRequestDetail,
+  type PullRequestFileText,
   type PullRequestFiles,
   type PullRequestLabel,
   type PullRequestList,
@@ -44,6 +45,8 @@ export interface PullRequestClient {
   pipeline(url: string, runs: readonly string[], names?: Record<string, string>): Promise<PipelineFacts>;
   threads(url: string, fresh?: boolean): Promise<PullRequestThread[]>;
   files(url: string, fresh?: boolean): Promise<PullRequestFiles>;
+  /** A file's text at the request's head commit, which the host takes from its own read of the request. */
+  file(url: string, path: string): Promise<PullRequestFileText>;
   comment(url: string, input: PullRequestCommentInput): Promise<void>;
   update(url: string, input: { title?: string; body?: string }): Promise<PullRequestDetail>;
   viewed(url: string, path: string, viewed: boolean): Promise<PullRequestViewedState>;
@@ -82,6 +85,7 @@ export function pullRequestClient(host: HostExtensionClient): PullRequestClient 
     pipeline: (url, runs, names) => host.invoke("pr-pipeline", { url, runs, ...(names ? { names } : {}) }) as Promise<PipelineFacts>,
     threads: (url, fresh) => host.invoke("pr-comments", { url, ...read(fresh) }) as Promise<PullRequestThread[]>,
     files: (url, fresh) => host.invoke("pr-files", { url, ...read(fresh) }) as Promise<PullRequestFiles>,
+    file: (url, path) => host.invoke("pr-file", { url, path }) as Promise<PullRequestFileText>,
     comment: async (url, input) => { await host.invoke("pr-comment", { url, ...input }); },
     update: (url, input) => host.invoke("pr-update", { url, ...input }) as Promise<PullRequestDetail>,
     viewed: async (url, path, viewed) => ((await host.invoke("pr-viewed", { url, path, viewed })) as { viewed: PullRequestViewedState }).viewed,

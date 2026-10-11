@@ -1754,6 +1754,23 @@ highlighted code, links that open outside), for text a host wrote in
 Markdown. Review Kit's pull-request view draws a request's files and its
 description and comments with them.
 
+Unchanged lines and find reach a kit through three more pieces, all optional (new in API 1.59.0).
+`DiffView` and `DiffStack` take `onExpandGap(gap, range)` (gap rows then offer
+steps of 20 lines up or down and "all"), `totalLines` and `contextState`;
+`useDiffContext({ read, can, scope })` is the hook that reads the file once per
+scope and keeps the revealed line ranges (`DiffContext`: `apply(diff)`,
+`can(path)`, `expand`, `state`), so a diff that arrives again is expanded the
+same way. `diffGaps`, `stepRange`, `expandDiffContext`, `splitFileText`,
+`CONTEXT_STEP`, `DiffGap` and `LineRange` are the pure parts, for a caller that
+shows excerpts with their own context bars. Lines revealed this way carry
+`expanded: true` on `UiDiffLine`, and `DiffView` draws no gutter button on them.
+`useDiffFind({ diffs, onReveal })` runs a find over the diffs it is given
+(folded files and files off screen included), returns a `DiffFindController`
+whose `onKeyDown` opens the bar on Cmd/Ctrl+F and whose `find` goes to
+`DiffView` and `DiffStack` as `find`; `DiffFindBar` draws the bar. Matches are
+painted with the CSS Custom Highlight API, so the rows keep their markup;
+`onReveal(match)` is where the surface unfolds, selects or jumps to the file.
+
 `ReviewMode` draws the diffs and knows nothing about what a package does with
 them. What a caller may add, all optional:
 

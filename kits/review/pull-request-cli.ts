@@ -24,12 +24,22 @@ export const GITHUB_THREADS_QUERY = `query($owner: String!, $name: String!, $num
       reviewThreads(first: 100, after: $threadsAfter) @include(if: $withThreads) {
         pageInfo { hasNextPage endCursor }
         nodes { id isResolved isOutdated path line originalLine diffSide
-          comments(first: 100) { nodes { id body createdAt url author { login } } } }
+          comments(first: 100) { nodes { id body createdAt url author { login __typename } } } }
       }
       files(first: 100, after: $filesAfter) @include(if: $withFiles) {
         pageInfo { hasNextPage endCursor }
         nodes { path viewerViewedState }
       }
+    }
+  }
+}`;
+
+/** Who wrote the request's comments and reviews, by account type: `gh pr view` does not say which are bots. */
+const AUTHORS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      comments(first: 100) { nodes { author { login __typename } } }
+      reviews(first: 100) { nodes { author { login __typename } } }
     }
   }
 }`;
@@ -87,6 +97,11 @@ export const pullRequestCalls = {
     if (ref.service === "github") return [{ args: ["pr", "view", ref.url, "--json", GITHUB_VIEW_FIELDS] }];
     const { base, api } = gitlab(ref);
     return [api(base), api(`${base}/discussions?per_page=100`), api(`${base}/commits?per_page=100`)];
+  },
+  /** GitHub only: the account types behind the request's comments and reviews. */
+  authors(ref: PullRequestRef): CliCall {
+    const { owner, name, api } = github(ref);
+    return { args: [...api, "graphql", "-f", `query=${AUTHORS_QUERY}`, "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${ref.number}`] };
   },
   checks(ref: PullRequestRef): CliCall {
     return ref.service === "github"

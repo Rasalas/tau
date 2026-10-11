@@ -17,6 +17,8 @@ import { PullRequestSummary } from "./pull-request-summary.js";
 import { ChecksMini } from "./pipeline-view.js";
 import { ReviewComposer } from "./pull-request-review.js";
 import { PullRequestTimeline } from "./pull-request-timeline.js";
+import { commentFilter, filterTimelineComments, setCommentFilter } from "./comment-filter.js";
+import { CommentFilterMenu } from "./comment-filter-menu.js";
 import { usePullRequestWrites } from "./pull-request-writes.js";
 import type { RowRequests } from "./requests.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
@@ -155,6 +157,8 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
   const pending = useSyncExternalStore(shared.pending.subscribe, () => shared.pending.comments(params.url));
   useSyncExternalStore(shared.preferences.subscribe, shared.preferences.getSnapshot, shared.preferences.getSnapshot);
   const ignoreWhitespace = shared.preferences.optionValue(REVIEW_HOST_EXTENSION_ID, WHITESPACE_OPTION_ID, false) === true;
+  const filter = commentFilter(shared.preferences);
+  const onFilter = (key: keyof typeof filter, value: boolean) => setCommentFilter(shared.preferences, key, value);
   const thread = actions.activeThread();
   const threadId = thread?.sessionId;
   const links = useSyncExternalStore(shared.links.subscribe, () => shared.links.get(threadId));
@@ -243,7 +247,9 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
     void actions.copyText(value).then(() => { setCopied(key); if (done) actions.notify(done); }, (error: unknown) => actions.notify(errorMessage(error)));
   };
 
-  if (!detail) {
+  const timelineView = useMemo(() => detail ? filterTimelineComments(detail, { bots: filter.bots, resolved: filter.resolved }) : undefined, [detail, filter.bots, filter.resolved]);
+
+  if (!detail || !timelineView) {
     return (
       <div className="pr-view" aria-label={`${noun} #${params.number}`}>
         {data.detailError ? (
@@ -370,6 +376,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
             <span title="Comments"><MessageSquare size={11} aria-hidden="true" /> {data.threads || data.threadsError ? counts.comments : "…"}</span>
             <span title="Commits">{counts.commits} {counts.commits === 1 ? "commit" : "commits"}</span>
             <span title="Approvals"><Check size={11} aria-hidden="true" /> {counts.approvals}</span>
+            <CommentFilterMenu filter={filter} hidden={timelineView.hidden} onChange={onFilter} />
             <button className="text-button" onClick={() => setOldestFirst(!oldestFirst)}>{oldestFirst ? "Oldest first" : "Newest first"}</button>
           </span>
         ) : null}
@@ -399,6 +406,8 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
               onEdit={editComment}
               onReviewers={capabilities.reviewers && writes.reviewers ? async (change) => { setData({ detail: await client.reviewers(params.url, change) }); } : undefined}
               onLabels={capabilities.labels && writes.labels ? async (change) => { setData({ detail: await client.labels(params.url, change) }); } : undefined}
+              filter={filter}
+              onFilter={onFilter}
               showChecks={capabilities.checks}
               focusChecks={checksAt}
               client={client}
@@ -408,13 +417,14 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
         ) : null}
         {visited.has("timeline") ? (
           <div hidden={tab !== "timeline"}>
-            <PullRequestTimeline detail={detail} oldestFirst={oldestFirst} actions={actions} />
+            <PullRequestTimeline detail={timelineView.detail} oldestFirst={oldestFirst} actions={actions} />
           </div>
         ) : null}
         {visited.has("code") && capabilities.files ? (
           <div hidden={tab !== "code"} className="pr-code-frame">
             <PullRequestCode
               detail={detail}
+              client={client}
               files={data.files}
               filesError={data.filesError}
               threads={threads}

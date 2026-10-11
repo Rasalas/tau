@@ -3,12 +3,14 @@ import { ChevronDown, ChevronRight, Pencil, X } from "lucide-react";
 import { errorMessage, type WorkbenchActions } from "tau";
 import { RequestMarkdown as Markdown } from "./request-markdown.js";
 import type { PullRequestCheck, PullRequestComment, PullRequestDetail, PullRequestReviewer, PullRequestThread, ReviewCommentChip } from "./protocol.js";
-import { checksRollup, checksSummary, commentChip, relativeTime } from "./pull-request-logic.js";
+import { checksRollup, checksSummary, commentChip } from "./pull-request-logic.js";
 import { CommentCard, MarkdownEditor, RollupIcon } from "./pull-request-parts.js";
 import { ChecksPipeline } from "./pipeline-view.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import { ChipPicker } from "./pull-request-review.js";
 import { githubHtml } from "./github-html.js";
+import { applyCommentFilter, isFinished, type CommentFilter } from "./comment-filter.js";
+import { CommentFilterMenu, hiddenByFilter } from "./comment-filter-menu.js";
 
 /** Comments shown at once before "Show older". */
 const WINDOW = 10;
@@ -43,24 +45,12 @@ function Section({ title, aside, defaultOpen = true, anchor, children }: { title
   );
 }
 
-function Group({ label, children }: { label: string; children: ReactNode }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="pr-group">
-      <button className="pr-group-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
-        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />} {label}
-      </button>
-      {open ? children : null}
-    </div>
-  );
-}
-
 /**
  * The request at a glance, in this order: reviewers and labels, the
- * description, the checks, then every comment — active ones windowed, bots
- * and finished conversations folded away.
+ * description, the checks, then the comments the filter lets through,
+ * windowed. Bots and finished conversations wait behind the filter.
  */
-export function PullRequestSummary({ detail, checks, threads, threadsError, actions, onSend, onSaveBody, onRetry, onOpenPath, canEdit, onEdit, onReviewers, onLabels, showChecks = true, focusChecks = 0, candidates, client }: {
+export function PullRequestSummary({ detail, checks, threads, threadsError, actions, onSend, onSaveBody, onRetry, onOpenPath, canEdit, onEdit, onReviewers, onLabels, filter, onFilter, showChecks = true, focusChecks = 0, candidates, client }: {
   detail: PullRequestDetail;
   checks: readonly PullRequestCheck[];
   threads: readonly PullRequestThread[];
@@ -75,6 +65,8 @@ export function PullRequestSummary({ detail, checks, threads, threadsError, acti
   onEdit(comment: PullRequestComment, body: string): Promise<void>;
   onReviewers?: ((change: { add?: string[]; remove?: string[] }) => Promise<void>) | undefined;
   onLabels?: ((change: { add?: string[]; remove?: string[] }) => Promise<void>) | undefined;
+  filter: CommentFilter;
+  onFilter(key: keyof CommentFilter, value: boolean): void;
   /** False where the provider reports no checks. */
   showChecks?: boolean;
   /** Set to a new time to open the checks and scroll to them. */
@@ -92,26 +84,20 @@ export function PullRequestSummary({ detail, checks, threads, threadsError, acti
   const checksAnchor = useRef<HTMLElement>(null);
   useEffect(() => { if (focusChecks) checksAnchor.current?.scrollIntoView({ block: "start" }); }, [focusChecks]);
 
-  const { active, bots, finished } = useMemo(() => {
-    const entries: Entry[] = [
-      ...detail.comments.map((comment) => ({ comment })),
-      ...threads.flatMap((thread) => thread.comments.map((comment) => ({ comment, thread }))),
-    ].sort((left, right) => left.comment.createdAt.localeCompare(right.comment.createdAt));
-    const done = (entry: Entry) => entry.thread?.resolved === true || entry.comment.verdict === "dismissed";
-    return {
-      finished: entries.filter(done),
-      bots: entries.filter((entry) => !done(entry) && entry.comment.author.bot),
-      active: entries.filter((entry) => !done(entry) && !entry.comment.author.bot),
-    };
-  }, [detail.comments, threads]);
+  const entries = useMemo<Entry[]>(() => [
+    ...detail.comments.map((comment) => ({ comment })),
+    ...threads.flatMap((thread) => thread.comments.map((comment) => ({ comment, thread }))),
+  ].sort((left, right) => left.comment.createdAt.localeCompare(right.comment.createdAt)), [detail.comments, threads]);
+  const { shown: active, hidden } = useMemo(() => applyCommentFilter(entries, filter, (entry) => entry), [entries, filter]);
   const ordered = newestFirst ? [...active].reverse() : active;
-  const total = active.length + bots.length + finished.length;
+  const total = entries.length;
 
   const card = ({ comment, thread }: Entry) => (
     <CommentCard
       key={comment.id}
       comment={comment}
       actions={actions}
+      {...(isFinished(comment, thread) ? { finished: true } : {})}
       {...(thread ? { where: `${thread.path}${thread.line !== undefined ? `:${thread.line}` : ""}`, outdated: thread.outdated, onOpenWhere: () => onOpenPath(thread.path) } : {})}
       onSend={() => onSend(commentChip(detail, comment, thread))}
       {...(canEdit(comment) ? { onEdit: (body: string) => onEdit(comment, body) } : {})}
@@ -163,7 +149,7 @@ export function PullRequestSummary({ detail, checks, threads, threadsError, acti
 
       <Section
         title={`Comments (${total})`}
-        aside={<button className="text-button" onClick={() => setNewestFirst(!newestFirst)}>{newestFirst ? "Newest first" : "Oldest first"}</button>}
+        aside={<><CommentFilterMenu filter={filter} hidden={hidden} onChange={onFilter} /><button className="text-button" onClick={() => setNewestFirst(!newestFirst)}>{newestFirst ? "Newest first" : "Oldest first"}</button></>}
       >
         {threadsError ? (
           <div className="pr-unavailable compact" role="alert">
@@ -172,22 +158,12 @@ export function PullRequestSummary({ detail, checks, threads, threadsError, acti
             <button className="mini-button" onClick={onRetry}>Retry</button>
           </div>
         ) : null}
-        {total === 0 ? <p className="pr-empty">No comments yet.</p> : null}
+        {total === 0 ? <p className="pr-empty">No comments yet.</p> : active.length === 0 ? <p className="pr-empty">{hiddenByFilter(hidden)}</p> : null}
         {ordered.slice(0, shown).map(card)}
         {ordered.length > shown ? (
           <button className="text-button pr-more" onClick={() => setShown(shown + WINDOW)}>Show {Math.min(WINDOW, ordered.length - shown)} more comments ({ordered.length - shown} hidden)</button>
         ) : shown > WINDOW ? (
           <button className="text-button pr-more" onClick={() => setShown(WINDOW)}>Show only {WINDOW} comments</button>
-        ) : null}
-        {bots.length > 0 ? (
-          <Group label={`${bots.length} bot ${bots.length === 1 ? "comment" : "comments"} · latest ${relativeTime(bots.at(-1)!.comment.createdAt)}`}>
-            {bots.map(card)}
-          </Group>
-        ) : null}
-        {finished.length > 0 ? (
-          <Group label={`${finished.length} resolved or dismissed ${finished.length === 1 ? "comment" : "comments"}`}>
-            {finished.map(card)}
-          </Group>
         ) : null}
       </Section>
     </div>
