@@ -315,8 +315,53 @@ export function toReact(tree: HastRoot, components: MarkdownComponents): ReactEl
   return create(Fragment, {}, reactChildren(tree, components));
 }
 
-export function renderMarkdown(source: string, components: MarkdownComponents, html?: MarkdownHtml): ReactElement {
+/** Prefix of every generated id, as the footnote ids carry, so a heading never takes an id the app uses. */
+export const FRAGMENT_PREFIX = "user-content-";
+
+const HEADING = /^h[1-6]$/u;
+
+function hastText(node: HastParents | ElementContent): string {
+  if (node.type === "text") return node.value;
+  return "children" in node ? (node.children as ElementContent[]).map(hastText).join("") : "";
+}
+
+/** GitHub's heading anchor: lower case, punctuation dropped, spaces to hyphens. */
+export function headingSlug(value: string): string {
+  return value.trim().toLowerCase().replace(/[^\p{L}\p{M}\p{N}\p{Pc} -]/gu, "").replace(/ /gu, "-");
+}
+
+/** Gives each heading GitHub's slug as its id (`-1`, `-2` for repeats), so `[Setup](#setup)` finds it. */
+export function addHeadingIds(tree: HastRoot): HastRoot {
+  const taken = new Set<string>();
+  const collect = (node: HastParents | ElementContent) => {
+    if (node.type === "element" && typeof node.properties.id === "string") taken.add(node.properties.id);
+    if ("children" in node) (node.children as ElementContent[]).forEach(collect);
+  };
+  collect(tree);
+  const next = new Map<string, number>();
+  const visit = (node: HastParents | ElementContent) => {
+    if (node.type === "element" && HEADING.test(node.tagName)) {
+      const slug = headingSlug(hastText(node));
+      if (slug && node.properties.id === undefined) {
+        let count = next.get(slug) ?? 0;
+        let id = `${FRAGMENT_PREFIX}${slug}`;
+        while (taken.has(id)) id = `${FRAGMENT_PREFIX}${slug}-${++count}`;
+        next.set(slug, count);
+        taken.add(id);
+        node.properties.id = id;
+      }
+      return;
+    }
+    if ("children" in node) (node.children as ElementContent[]).forEach(visit);
+  };
+  visit(tree);
+  return tree;
+}
+
+/** With `headingIds` the headings carry anchors; without, the tree is exactly react-markdown's. */
+export function renderMarkdown(source: string, components: MarkdownComponents, html?: MarkdownHtml, { headingIds = false }: { headingIds?: boolean } = {}): ReactElement {
   const mdast = parseMarkdown(source);
   newlineToBreak(mdast);
-  return toReact(html ? html(toHast(mdast, { html: true })) : toHast(mdast), components);
+  const tree = html ? html(toHast(mdast, { html: true })) : toHast(mdast);
+  return toReact(headingIds ? addHeadingIds(tree) : tree, components);
 }

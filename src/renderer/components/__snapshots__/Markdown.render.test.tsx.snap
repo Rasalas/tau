@@ -39,22 +39,22 @@ npm run build</code></pre></div>
 `;
 
 exports[`finished Markdown > renders footnotes unchanged 1`] = `
-"<div class="markdown"><p>Text with a note<sup><a href="#user-content-fn-1" target="_blank" rel="noreferrer noopener">1</a></sup> and another<sup><a href="#user-content-fn-named" target="_blank" rel="noreferrer noopener">2</a></sup>.</p>
+"<div class="markdown"><p>Text with a note<sup><a href="#user-content-fn-1" rel="noreferrer noopener">1</a></sup> and another<sup><a href="#user-content-fn-named" rel="noreferrer noopener">2</a></sup>.</p>
 <section data-footnotes="true" class="footnotes"><h2 class="sr-only" id="footnote-label">Footnotes</h2>
 <ol>
 <li id="user-content-fn-1">
-<p>First note. <a href="#user-content-fnref-1" target="_blank" rel="noreferrer noopener">↩</a></p>
+<p>First note. <a href="#user-content-fnref-1" rel="noreferrer noopener">↩</a></p>
 </li>
 <li id="user-content-fn-named">
-<p>Second note with <code>code</code>. <a href="#user-content-fnref-named" target="_blank" rel="noreferrer noopener">↩</a></p>
+<p>Second note with <code>code</code>. <a href="#user-content-fnref-named" rel="noreferrer noopener">↩</a></p>
 </li>
 </ol>
 </section></div>"
 `;
 
 exports[`finished Markdown > renders headings and quotes unchanged 1`] = `
-"<div class="markdown"><h1>Title</h1>
-<h1>Setext</h1>
+"<div class="markdown"><h1 id="user-content-title">Title</h1>
+<h1 id="user-content-setext">Setext</h1>
 <blockquote>
 <p>quote with a fence:</p>
 <div class="md-code"><div class="md-code-head"><span>js</span><button type="button" aria-pressed="false" aria-label="Wrap lines" data-tooltip="Wrap lines"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-text-wrap" aria-hidden="true"><path d="m16 16-3 3 3 3"></path><path d="M3 12h14.5a1 1 0 0 1 0 7H13"></path><path d="M3 19h6"></path><path d="M3 5h18"></path></svg></button><button type="button" class="idle" aria-label="Copy code" data-tooltip="Copy code"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div><pre><code><span class="hljs-title function_">quoted</span>();</code></pre></div>
