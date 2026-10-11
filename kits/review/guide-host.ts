@@ -39,6 +39,8 @@ export interface GuideOptions {
   fetchHead?: GuideFetch;
   now?: () => number;
   runId?: () => string;
+  /** The pause between two tries to remove a worktree; a timer unless a test hands in its own. */
+  wait?: (ms: number) => Promise<void>;
 }
 
 interface Active {
@@ -56,6 +58,8 @@ export interface Guides {
   dispose(): void;
 }
 
+const CLEANUP_ATTEMPTS = 4;
+const CLEANUP_WAIT_MS = 3_000;
 const GUIDE_TOOLS: ReadonlySet<string> = new Set([GUIDE_DIFF_TOOL, GUIDE_SUBMIT_TOOL]);
 
 function toolResult(value: unknown) {
@@ -135,7 +139,18 @@ export function registerGuides(
   const agentCall = (command: string, input: unknown) => context.invokeHostExtension(AGENTS_KIT_ID, command, input);
   /** The worktree goes when the thread is done with it; a guide agent changes nothing worth keeping. */
   const cleanUp = async (threadId: string) => {
-    await agentCall("discard-changes", { threadId }).catch((error: unknown) => services.log("review.guide-cleanup", message(error)));
+    // The run can end a moment before Agents Kit sees its thread as done, and it refuses a busy one.
+    for (let attempt = 1; attempt <= CLEANUP_ATTEMPTS; attempt += 1) {
+      try {
+        // oxlint-disable-next-line no-await-in-loop -- attempts follow one another
+        await agentCall("discard-changes", { threadId });
+        return;
+      } catch (error) {
+        services.log("review.guide-cleanup", `${message(error)}${attempt < CLEANUP_ATTEMPTS ? " · again soon" : ""}`);
+        // oxlint-disable-next-line no-await-in-loop
+        if (attempt < CLEANUP_ATTEMPTS) await (options.wait ?? ((ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms).unref?.(); })))(CLEANUP_WAIT_MS);
+      }
+    }
   };
 
   const fail = (run: Active, detail: string) => {

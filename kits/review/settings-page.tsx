@@ -7,6 +7,7 @@ import { INSTRUCTIONS_OPTION, TEMPLATE_OPTION } from "./writing.js";
 import { DELETE_BRANCH_OPTION } from "./merge-controls.js";
 import { PROACTIVE_OPTION } from "./proactive-panels.js";
 import { STRIP_OPTION } from "./pull-request-strip-logic.js";
+import { GUIDE_ENABLED_OPTION, GUIDE_INSTRUCTIONS_VALUE } from "./guide-protocol.js";
 
 const value = (key: string) => `values.${ID}.${key}`;
 const option = (key: string) => `options.${ID}.${key}`;
@@ -36,6 +37,8 @@ export const REVIEW_SETTINGS_ROWS = [
   { id: "setting-review-delete-branch", label: "Delete the branch after merging", keywords: ["merge", "branch", "cleanup"] },
   { id: "setting-review-proactive", label: "Proactive panels", keywords: ["open pull request", "changes panel", "automatic"] },
   { id: "setting-review-strip", label: "Show the pull request above the composer", keywords: ["strip", "composer", "pull request state"] },
+  { id: "setting-review-guides", label: "Review guides", keywords: ["guide", "tour", "beta", "pull request", "agent"] },
+  { id: "setting-review-guide-instructions", label: "Guide instructions", keywords: ["guide", "tour", "prompt", "taste"] },
   { id: "setting-review-colors", label: "Diff colours", keywords: ["colors", "red", "green", "blue", "orange", "colour blindness"] },
   { id: "setting-review-wrap", label: "Wrap long lines", keywords: ["diff", "wrap"] },
   { id: "setting-review-split", label: "Split view", keywords: ["diff", "side by side"] },
@@ -69,6 +72,8 @@ export function ReviewSettingsPage({ host, onNotify = () => undefined }: { host?
   const deleteBranch = useSetting<boolean>(option(DELETE_BRANCH_OPTION), { defaultValue: false, scope: "both", read: readBoolean });
   const proactive = useSetting<boolean>(option(PROACTIVE_OPTION), { defaultValue: false, read: readBoolean });
   const strip = useSetting<boolean>(option(STRIP_OPTION), { defaultValue: true, read: readBoolean });
+  const guides = useSetting<boolean>(option(GUIDE_ENABLED_OPTION), { defaultValue: false, read: readBoolean });
+  const guideInstructions = useSetting<string>(value(GUIDE_INSTRUCTIONS_VALUE), { defaultValue: "", scope: "both", read: readString, format: (next) => (next ? `${next.slice(0, 40)}${next.length > 40 ? "…" : ""}` : "None") });
 
   const toggle = (label: string, setting: SettingHandle<boolean>) => <Switch label={label} checked={setting.value} onChange={setting.set} />;
 
@@ -102,6 +107,20 @@ export function ReviewSettingsPage({ host, onNotify = () => undefined }: { host?
         <SettingRow id="setting-review-strip" title="Show the pull request above the composer" description="The thread's pull or merge request, or the one it links, with its state."
           help="Its × hides it in that thread until the request or its state changes." setting={strip}
           control={toggle("Show the pull request above the composer", strip)} />
+      </SettingsSection>
+      <SettingsSection title="Review guides (beta)">
+        <SettingRow id="setting-review-guides" title="Review guides" description="A Guide tab on GitHub pull requests: a tour of the change in reading order, written by a read-only agent that reads the head in a worktree of its own."
+          help="Never automatic. Each guide is one agent run that costs tokens; it shows in the Agents panel. Off hides the tab and refuses runs for people and agents alike. The model that writes guides is chosen on Review Kit's own page under Extensions." setting={guides}
+          control={toggle("Review guides", guides)} />
+        <SettingRow id="setting-review-guide-instructions" title="Guide instructions" description="What you want every guide to favour or leave out. A project can have its own."
+          help="Where they differ from the defaults, yours win. ⌘Return or leaving the box saves them." setting={guideInstructions}
+          control={<TextField label="Guide instructions" rows={4} placeholder="Keep stops short. Always call out schema changes." value={guideInstructions.value}
+            onCommit={(draft) => {
+              const next = draft.trim();
+              if (next === guideInstructions.value) return;
+              if (next) guideInstructions.set(next);
+              else guideInstructions.reset();
+            }} />} />
       </SettingsSection>
       <SettingsSection title="Diffs">
         <SettingRow id="setting-review-colors" title="Diff colours" description="Additions and removals, including change counts. Blue and orange read apart for most kinds of colour blindness." setting={colors}

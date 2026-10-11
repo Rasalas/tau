@@ -58,7 +58,7 @@ async function harness(options: Options = {}) {
   const registry: HostExtensionRegistry = await activateHostKit({
     id: "tau.review", name: "Review", permissions: ["sessions", "runtime:extend"],
     activate: (context) => {
-      const guides = registerGuides(context, sources, reads, workspace, { fetchHead, runId: () => `run-${++ids}`, now: () => Date.parse("2026-10-12T10:00:00Z") });
+      const guides = registerGuides(context, sources, reads, workspace, { fetchHead, wait: async () => undefined, runId: () => `run-${++ids}`, now: () => Date.parse("2026-10-12T10:00:00Z") });
       return () => guides.dispose();
     },
   }, {
@@ -204,6 +204,14 @@ describe("the guide agent's tools", () => {
     expect(await h.call<GuideResult>("guide-get", { url: URL })).toMatchObject({ run: { state: "failed", headSha: "head-1", detail: expect.stringContaining("without submitting") } });
     await vi.waitFor(() => expect(h.discard).toHaveBeenCalledWith({ threadId: "guide-thread" }));
     expect(h.events.at(-1)).toMatchObject({ kind: "failed" });
+  });
+
+  it("tries again to remove the worktree when the agent still counts as busy", async () => {
+    const h = await harness();
+    await h.write();
+    h.discard.mockRejectedValueOnce(new Error("This thread is still working")).mockRejectedValueOnce(new Error("still working"));
+    await h.ended("completed");
+    await vi.waitFor(() => expect(h.discard).toHaveBeenCalledTimes(3));
   });
 
   it("says a failed agent failed, and keeps a stored guide when the run after it fails", async () => {
