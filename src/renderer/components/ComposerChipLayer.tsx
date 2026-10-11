@@ -1,6 +1,6 @@
 import { memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { WorkbenchShellContext } from "../workbench-context";
-import type { SelectedSkill } from "./ComposerAutocomplete";
+import { skillTokens, type SelectedSkill } from "./ComposerAutocomplete";
 import { CHIP_MARK, CHIP_SLOT, mirrorSegments, removeChipToken, repairChipTokens, tokenAround, type ChipToken, type MirrorSegment } from "./composer-chips";
 import { ComposerChipPopover } from "./ComposerChipPopover";
 import { useComposerChips, type UseComposerChipsOptions } from "./useComposerChips";
@@ -23,8 +23,8 @@ export interface ChipLayerApi {
 
 export interface ComposerChipLayerProps extends UseComposerChipsOptions {
   apiRef: RefObject<ChipLayerApi | undefined>;
-  /** Drawn as a chip while the text still names it. */
-  selectedSkill?: SelectedSkill;
+  /** Each is drawn as a chip while the text still names it. */
+  selectedSkills?: readonly SelectedSkill[];
   onNotify?(message: string): void;
   onPreview(imageId: number): void;
 }
@@ -51,18 +51,18 @@ const TEXT_METRICS = [
  * while the transcript is scrolled back.
  */
 export default function ComposerChipLayer(props: ComposerChipLayerProps) {
-  const { textareaRef, selectedSkill, apiRef, setCaret, onNotify, onPreview, scope, scopeStore } = props;
+  const { textareaRef, selectedSkills, apiRef, setCaret, onNotify, onPreview, scope, scopeStore } = props;
   // The composer re-renders on any of these, and so does its layer.
   const registry = useContext(WorkbenchShellContext)?.registry;
   const inlines = registry?.getComposerInlines() ?? NO_INLINES;
   const { attachments, draft: text, submissionPending: paused } = scopeStore.getSnapshot(scope);
   const collapseEnabled = useSyncExternalStore(composerFold.subscribe, composerFold.get);
-  const skill = selectedSkill && text.slice(selectedSkill.start, selectedSkill.end) === selectedSkill.invocation ? selectedSkill : undefined;
+  const skills = useMemo(() => skillTokens(text, selectedSkills ?? []), [selectedSkills, text]);
   const chips = useComposerChips({ ...props, text, inlines, attachments, paused });
   const mirrorRef = useRef<HTMLDivElement>(null);
   const [composing, setComposing] = useState(false);
   const composingRef = useRef(false);
-  const segments = useMemo(() => mirrorSegments(text, skill), [skill, text]);
+  const segments = useMemo(() => mirrorSegments(text, skills), [skills, text]);
   const tokens = useMemo(() => findTokens(segments), [segments]);
   const mirrored = segments.length > 0 && !composing;
   const pendingCaret = useRef<number | undefined>(undefined);

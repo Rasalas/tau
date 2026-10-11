@@ -191,6 +191,21 @@ describe("Message async activity", () => {
 });
 
 describe("Message skill invocations", () => {
+  it("draws one chip per skill of the message and keeps the typed text", () => {
+    const copyText = "/skill:tdd /skill:lint use $lint after";
+    const skills = [{ name: "tdd", command: "/skill:tdd", copyText }, { name: "lint", command: "/skill:lint", copyText }];
+    const view = render(<Message message={{ id: "two", role: "user", text: "use $lint after", skill: skills[0], skills, timestamp: 0 }} />);
+
+    expect([...view.container.querySelectorAll(".skill-chip")].map((chip) => chip.getAttribute("data-skill-name"))).toEqual(["tdd", "lint"]);
+    expect(view.container.querySelectorAll(".skill-chip + .skill-chip + .markdown.markdown-inline")).toHaveLength(1);
+    expect(view.container.textContent).toContain("use $lint after");
+  });
+
+  it("falls back to the single skill a host that predates several sends", () => {
+    const view = render(<Message message={{ id: "one", role: "user", text: "go", skill: { name: "tdd", command: "/skill:tdd", copyText: "/skill:tdd go" }, timestamp: 0 }} />);
+    expect(view.container.querySelectorAll(".skill-chip")).toHaveLength(1);
+  });
+
   it("renders host-provided skill metadata and only the user's Markdown instruction", () => {
     const view = render(<Message
       message={{

@@ -122,7 +122,9 @@ export interface UseComposerSubmissionOptions {
   draftStorageKey?: string;
   clientStorage: ClientStorage;
   documentSource?: DocumentSourceContribution;
-  selectedSkill?: SelectedSkill;
+  selectedSkills?: readonly SelectedSkill[];
+  /** The runtime loads every skill the text names; otherwise only a leading one. */
+  multipleSkills?: boolean;
   /** Typed context the composer's extensions hold for this draft. */
   inlines?: readonly ComposerInlineContribution[];
   inlineContext?: Omit<ComposerInlineContext, "scope">;
@@ -161,7 +163,8 @@ export function useComposerSubmission({
   draftStorageKey,
   clientStorage,
   documentSource,
-  selectedSkill,
+  selectedSkills,
+  multipleSkills,
   inlines = NO_INLINES,
   inlineContext,
   onSubmit,
@@ -174,7 +177,7 @@ export function useComposerSubmission({
 
     const sendSubmission = async (handle: SubmissionHandle) => {
       // A `/command` is not a prompt the context belongs to; it stays for the next one.
-      const isCommand = !selectedSkillDraft(handle.text, selectedSkill) && handle.text.trimStart().startsWith("/");
+      const isCommand = !selectedSkillDraft(handle.text, selectedSkills ?? [], multipleSkills) && handle.text.trimStart().startsWith("/");
       let inline: InlineSend = { context: "", attachments: [], asked: [] };
       if (!isCommand && inlines.length > 0) {
         try {
@@ -207,7 +210,7 @@ export function useComposerSubmission({
       try {
         // Chips go as their labels; the skill's range is read on the text as the editor had it.
         const submittedText = plainChipText(handle.text);
-        let skillDraft = selectedSkillDraft(handle.text, selectedSkill);
+        let skillDraft = selectedSkillDraft(handle.text, selectedSkills ?? [], multipleSkills);
         if (skillDraft) skillDraft = { ...skillDraft, visibleText: plainChipText(skillDraft.visibleText) };
         let promptToSend = submittedText;
         let attachmentsToSend = [...handle.attachments];
@@ -298,7 +301,8 @@ export function useComposerSubmission({
     recordPrompt,
     scope,
     scopeStore,
-    selectedSkill,
+    selectedSkills,
+    multipleSkills,
   ]);
 
   const answer = useCallback((sink: ComposerAnswerSink) => {

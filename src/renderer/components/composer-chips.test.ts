@@ -78,9 +78,14 @@ describe("composer chip tokens", () => {
       { kind: "chip", text: A, label: "a.ts" },
     ]);
     expect(mirrorSegments("mail a@b.c")).toEqual([]);
-    expect(mirrorSegments("/skill:x do it", { start: 0, end: 8 })).toEqual([
+    expect(mirrorSegments("/skill:x do it", [{ start: 0, end: 8 }])).toEqual([
       { kind: "skill", text: "/skill:x" },
       { kind: "text", text: " do it" },
+    ]);
+    expect(mirrorSegments("$a and $b", [{ start: 0, end: 2 }, { start: 7, end: 9 }])).toEqual([
+      { kind: "skill", text: "$a" },
+      { kind: "text", text: " and " },
+      { kind: "skill", text: "$b" },
     ]);
   });
 
