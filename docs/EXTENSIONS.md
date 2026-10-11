@@ -1754,7 +1754,7 @@ highlighted code, links that open outside), for text a host wrote in
 Markdown. Review Kit's pull-request view draws a request's files and its
 description and comments with them.
 
-Unchanged lines and find reach a kit through three more pieces, all optional.
+Unchanged lines and find reach a kit through three more pieces, all optional (new in API 1.59.0).
 `DiffView` and `DiffStack` take `onExpandGap(gap, range)` (gap rows then offer
 steps of 20 lines up or down and "all"), `totalLines` and `contextState`;
 `useDiffContext({ read, can, scope })` is the hook that reads the file once per
