@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { groupAccounts, memberCosts } from "./accounts.js";
-import type { UsageEntry, UsageLimitAccount } from "./protocol.js";
+import { groupAccounts, memberCosts, withoutRuntimes } from "./accounts.js";
+import type { UsageEntry, UsageLimitAccount, UsageLimitsSummary } from "./protocol.js";
 
 const CHATGPT = { provider: "openai", key: "a".repeat(64) };
 const OTHER = { provider: "openai", key: "b".repeat(64) };
@@ -66,5 +66,16 @@ describe("Usage accounts", () => {
     expect(groups[0]!.shown.machine).toBe("rex-id");
     const costs = memberCosts(groups[0]!, [codex, rexCodex], [entry({}), entry({ machine: "rex-id", apiValueUsd: 3 })], 0);
     expect(costs).toEqual([{ name: "Codex", costUsd: 0, apiValueUsd: 1 }, { name: "Codex on rex", costUsd: 0, apiValueUsd: 3 }]);
+  });
+
+  it("drops a hidden runtime's accounts, every instance of it, and its readings", () => {
+    const work = account({ id: "codex@work:account", runtime: "codex@work", label: "Codex (work)" });
+    const limits: UsageLimitsSummary = { checkedAt: 1, sources: [], accounts: [codex, work, pi], history: [{ source: "tau.codex", account: codex }, { source: "tau.pi-limits", account: pi }] };
+    expect(withoutRuntimes(limits, undefined)).toBe(limits);
+    const shown = withoutRuntimes(limits, ["codex"]);
+    expect(shown.accounts).toEqual([pi]);
+    expect(shown.history?.map((sample) => sample.source)).toEqual(["tau.pi-limits"]);
+    // The account Pi shares with Codex is then Pi's alone.
+    expect(groupAccounts(shown.accounts).map((group) => group.members.length)).toEqual([1]);
   });
 });

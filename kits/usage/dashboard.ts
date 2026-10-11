@@ -1,4 +1,4 @@
-import type { UsageEntry } from "./protocol.js";
+import type { UsageEntry, UsageSummary } from "./protocol.js";
 import { toneOf, type UsageTone } from "./tones.js";
 
 /** Days the page reads at once: the longest range it draws. */
@@ -91,6 +91,8 @@ export interface RankedUsage extends Omit<UsageFigures, "threads"> {
   origin: UsageOrigin | "both";
   /** The threads (and outside sessions) it counts. */
   threads: number;
+  /** Every runtime whose entries it sums: a project's or a provider's can be several. */
+  backends: string[];
 }
 
 /** Work Tau ran, or work a CLI logged on its own. */
@@ -105,10 +107,26 @@ export function measure(figures: Pick<UsageFigures, "costUsd" | "apiValueUsd" | 
   return metric === "tokens" ? figures.totalTokens : metric === "turns" ? figures.requests : figures.costUsd + figures.apiValueUsd;
 }
 
-/** One runtime's entries, or all of them; one machine's (`""` this one), or every machine's; Tau's, outside Tau, or both. */
-export function ofRuntime(entries: readonly UsageEntry[], backend: string | undefined, machine?: string, origin?: UsageOrigin): readonly UsageEntry[] {
-  if (!backend && machine === undefined && !origin) return entries;
-  return entries.filter((entry) => (!backend || entry.backend === backend) && (machine === undefined || (entry.machine ?? "") === machine) && (!origin || originOf(entry) === origin));
+/** Entries without the hidden runtimes; of one machine (`""` this one) or every machine's; Tau's, outside Tau, or both. */
+export function filterEntries(entries: readonly UsageEntry[], hidden: readonly string[] | undefined, machine?: string, origin?: UsageOrigin): readonly UsageEntry[] {
+  const left = hidden?.length ? new Set(hidden) : undefined;
+  if (!left && machine === undefined && !origin) return entries;
+  return entries.filter((entry) => !left?.has(entry.backend) && (machine === undefined || (entry.machine ?? "") === machine) && (!origin || originOf(entry) === origin));
+}
+
+/**
+ * The runtimes whose first read of the CLIs' logs is still under way, outside
+ * the hidden ones: what they add to a figure is not all in yet.
+ */
+export function readingRuntimes(summaries: ReadonlyArray<UsageSummary | undefined>, hidden: readonly string[] | undefined): ReadonlySet<string> {
+  const reading = new Set<string>();
+  for (const summary of summaries) {
+    for (const source of summary?.sources ?? []) {
+      const runtime = source.backend.replace(/-outside$/u, "");
+      if (source.status === "reading" && !hidden?.includes(runtime)) reading.add(runtime);
+    }
+  }
+  return reading;
 }
 
 /** Runtimes that recorded anything, the busiest first. */
@@ -139,12 +157,13 @@ export function rankUsage(entries: readonly UsageEntry[], fromDay: number, by: U
         ...(by !== "model" && entry.machine ? { machine: entry.machine } : {}),
         ...(by === "provider" ? { provider: key } : {}),
         origin: originOf(entry),
-        costUsd: 0, apiValueUsd: 0, totalTokens: 0, requests: 0, threads: 0,
+        costUsd: 0, apiValueUsd: 0, totalTokens: 0, requests: 0, threads: 0, backends: [entry.backend],
       };
       ranked.set(key, item);
       threads.set(key, new Set());
-    } else if (item.origin !== originOf(entry)) {
-      item.origin = "both";
+    } else {
+      if (item.origin !== originOf(entry)) item.origin = "both";
+      if (!item.backends.includes(entry.backend)) item.backends.push(entry.backend);
     }
     threads.get(key)!.add(thread);
     item.threads = threads.get(key)!.size;

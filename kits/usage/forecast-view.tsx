@@ -11,11 +11,11 @@ function estimate(value: number, missing: number): string {
 }
 
 /** Recent model mix, priced per token, rather than the cost of a subscription. */
-export function UsageForecast({ entries, days, now }: { entries: readonly UsageEntry[]; days: readonly number[]; now: Date }) {
+export function UsageForecast({ entries, days, now, loading = false }: { entries: readonly UsageEntry[]; days: readonly number[]; now: Date; loading?: boolean }) {
   const [window, setWindow] = useState<ForecastWindow>(7);
   const rows = providerForecasts(entries, days, now, window);
   return (
-    <section className="usage-card usage-forecast" id="usage-forecast" aria-labelledby="usage-forecast-title">
+    <section className="usage-card usage-forecast" id="usage-forecast" aria-labelledby="usage-forecast-title" data-loading={loading || undefined}>
       <div className="usage-forecast-head">
         <h2 id="usage-forecast-title">Monthly forecast</h2>
         <div className="usage-period" role="group" aria-label="Forecast average">

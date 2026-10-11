@@ -1,4 +1,4 @@
-import { PI_BACKEND, type UsageEntry, type UsageLimitAccount } from "./protocol.js";
+import { PI_BACKEND, type UsageEntry, type UsageLimitAccount, type UsageLimitsSummary } from "./protocol.js";
 
 /** What the page calls a shared account's provider. */
 const PROVIDER_NAMES: Record<string, string> = { openai: "ChatGPT", anthropic: "Anthropic" };
@@ -45,8 +45,20 @@ export function groupAccounts(accounts: readonly UsageLimitAccount[]): LimitGrou
 }
 
 /** The runtime an account's usage is recorded under: every Codex instance counts as `codex`. */
-function family(runtime: string): string {
+export function family(runtime: string): string {
   return runtime.split("@")[0]!;
+}
+
+/** The limits of the runtimes left out dropped: their accounts, and the readings the forecast and history draw from. */
+export function withoutRuntimes(limits: UsageLimitsSummary, hidden: readonly string[] | undefined): UsageLimitsSummary {
+  if (!hidden?.length) return limits;
+  const left = new Set(hidden);
+  const shown = (account: UsageLimitAccount) => !left.has(family(account.runtime));
+  return {
+    ...limits,
+    accounts: limits.accounts.filter(shown),
+    ...(limits.history ? { history: limits.history.filter((sample) => shown(sample.account)) } : {}),
+  };
 }
 
 function matches(account: UsageLimitAccount, entry: UsageEntry): boolean {

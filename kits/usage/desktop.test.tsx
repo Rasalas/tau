@@ -120,7 +120,7 @@ describe("Usage page", () => {
     expect(forecast.getByText("≈ $60.00", { selector: "td" })).toBeTruthy();
     fireEvent.click(within(screen.getByRole("radiogroup", { name: "Period" })).getByRole("radio", { name: "All time" }));
     expect(forecast.getByText("≈ $30.00")).toBeTruthy();
-    fireEvent.click(within((await openFilters()).getByRole("radiogroup", { name: "Runtime" })).getByRole("radio", { name: "OpenCode" }));
+    fireEvent.click(within((await openFilters()).getByRole("group", { name: "Runtime" })).getByRole("checkbox", { name: "Codex" }));
     await waitFor(() => expect(forecast.queryByText("OpenAI")).toBeNull());
     expect(forecast.getByText("≈ $30.00")).toBeTruthy();
     fireEvent.click(forecast.getByRole("button", { name: "Last 30 days" }));
@@ -177,6 +177,36 @@ describe("Usage page", () => {
     const spend = await screen.findByRole("region", { name: "API spend" });
     expect(await within(spend).findByText("$0.51")).toBeTruthy();
     expect(await within(await screen.findByLabelText("Limits")).findByRole("region", { name: "Codex limits" })).toBeTruthy();
+  });
+
+  it("dims only the figures of a runtime whose logs are still being read", async () => {
+    const outside = entry({ day: LAST - 1, backend: "codex", threadId: "019a-cli-session", cwd: "/work/side-project", model: "gpt-5.6-luna", provider: "openai", modelId: "gpt-5.6-luna", costUsd: 3, outside: true });
+    const sources: UsageSummary["sources"] = [
+      { backend: "pi", label: "Pi", status: "ok", detail: "", dating: "message" },
+      { backend: "codex-outside", label: "Codex outside Tau", status: "reading", detail: "Still reading.", dating: "message" },
+    ];
+    const { container } = renderPage(answers(() => summary({ entries: [...entries, outside], sources, reading: true })));
+    await waitFor(() => expect(within(threadList()).getByText("Codex session 019a-cli")).toBeTruthy());
+    const rowOf = (name: string) => within(threadList()).getByText(name).closest("li")!;
+    expect(rowOf("Codex session 019a-cli").getAttribute("data-loading")).toBe("true");
+    // Codex's two threads dim; Pi's and the Agent SDK runtime's rows do not.
+    const listed = within(threadList()).getAllByRole("listitem");
+    expect(listed.filter((item) => item.hasAttribute("data-loading"))).toHaveLength(2);
+    expect(listed.filter((item) => !item.hasAttribute("data-loading")).length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("Totals").getAttribute("data-loading")).toBe("true");
+    // The page itself, and the limits, stay as they are while a runtime reads.
+    expect(container.querySelector(".usage-page")?.className).toBe("usage-page");
+    expect(container.querySelector("#usage-limits [data-loading]")).toBeNull();
+  });
+
+  it("does not dim for a runtime that is switched off, nor for a read that only refreshes", async () => {
+    const sources: UsageSummary["sources"] = [{ backend: "codex-outside", label: "Codex outside Tau", status: "reading", detail: "", dating: "message" }];
+    renderPage(answers(() => summary({ sources })));
+    await screen.findByLabelText("Totals");
+    await waitFor(() => expect(screen.getByLabelText("Totals").getAttribute("data-loading")).toBe("true"));
+    const group = (await openFilters()).getByRole("group", { name: "Runtime" });
+    fireEvent.click(within(group).getByRole("checkbox", { name: "Codex" }));
+    await waitFor(() => expect(screen.getByLabelText("Totals").hasAttribute("data-loading")).toBe(false));
   });
 
   it("marks work outside Tau, names its sessions and projects, and filters by where it ran", async () => {

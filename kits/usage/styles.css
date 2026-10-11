@@ -4,8 +4,11 @@
  * as `--usage-tone`); a plan's value is a lighter step of it. The accent is
  * left to Tau's own controls, the warn and fail colours to states.
  */
-.usage-page { display: flex; flex-direction: column; gap: 36px; transition: opacity var(--panel-motion, 0ms) var(--ease); }
-.usage-page.refreshing :is(.usage-overview, .usage-ranks) { opacity: .55; }
+.usage-page { display: flex; flex-direction: column; gap: 36px; }
+/* Only the figures a runtime still being read will add to dim, after a beat so a quick answer does not flash. */
+.usage-stat-value, .usage-stat-detail, .usage-chart-stack, .usage-forecast-scroll, .usage-calendar-grid, .usage-table li > :not(.usage-table-name) { transition: opacity 150ms var(--ease) 150ms; }
+[data-loading] :is(.usage-stat-value, .usage-stat-detail, .usage-chart-stack, .usage-forecast-scroll, .usage-calendar-grid),
+.usage-table li[data-loading] > :not(.usage-table-name) { opacity: .55; }
 .usage-page .spacer { flex: 1; }
 .usage-page {
   --usage-tone: var(--provider-other);
@@ -364,6 +367,11 @@ body[data-profile="compact"] .usage-show-in-sidebar > button { min-height: var(-
 
 /* The sidebar: Settings' rows for the lists, the short choices segmented, the sections quietly at the end. */
 .usage-sidebar .provider-icon-stack { flex: none; margin: 0; }
+/* A runtime switched off keeps its row, its mark and name quieter and its check gone. */
+.usage-check-row > svg:last-child { flex: none; color: var(--ink-2); }
+.usage-check-row[aria-checked="false"] { color: var(--faint); }
+.usage-check-row[aria-checked="false"] > svg:last-child { visibility: hidden; }
+.usage-check-row[aria-checked="false"] .provider-icon-stack { opacity: .5; }
 .usage-sidebar-segment { padding: 0 var(--space-2); }
 .usage-sidebar-segment > .settings-nav-heading { padding-inline: var(--space-2); }
 .usage-sidebar .segmented { max-width: none; }

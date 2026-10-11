@@ -81,12 +81,55 @@ describe("Usage's page sidebar", () => {
     // One set of filters on screen: the sidebar's.
     expect(screen.getAllByRole("radiogroup", { name: "Measure" })).toHaveLength(1);
     const page = screen.getAllByRole("region", { name: "Threads" }).at(-1)!;
-    fireEvent.click(within(side.getByRole("radiogroup", { name: "Runtime" })).getByRole("radio", { name: "Codex" }));
+    const runtimes = within(side.getByRole("group", { name: "Runtime" }));
+    fireEvent.click(runtimes.getByRole("checkbox", { name: "Pi" }));
     expect(within(page).getAllByRole("listitem")).toHaveLength(1);
     fireEvent.click(within(side.getByRole("radiogroup", { name: "Measure" })).getByText("Tokens"));
     expect(within(page).getByText("500 tok")).toBeTruthy();
     fireEvent.click(side.getByRole("link", { name: "Models" }));
     expect(scrolled).toEqual(["usage-models"]);
+  });
+
+  it("switches runtimes off in the sidebar: activity, limits and accounts follow, and the choice is kept", async () => {
+    const view = createUsageView();
+    render(
+      <TestProviders><HostClientProvider client={createFakeHostClient()}>
+        <nav aria-label="Usage sidebar"><UsageSidebar view={view} /></nav>
+        <UsagePage host={host(answers)} now={() => NOW} navigate={vi.fn()} sidebar view={view} />
+      </HostClientProvider></TestProviders>,
+    );
+    const side = within(screen.getByRole("navigation", { name: "Usage sidebar" }));
+    const runtimes = within(await side.findByRole("group", { name: "Runtime" }));
+    await screen.findByRole("region", { name: "Codex limits" });
+    expect(runtimes.getAllByRole("checkbox").map((box) => `${box.getAttribute("aria-label")} ${box.getAttribute("aria-checked")}`)).toEqual(["All runtimes true", "Codex true", "Pi true", "Claude Code true"]);
+    fireEvent.click(runtimes.getByRole("checkbox", { name: "Codex" }));
+    expect(screen.queryByRole("region", { name: "Codex limits" })).toBeNull();
+    expect(runtimes.getByRole("checkbox", { name: "All runtimes" }).getAttribute("aria-checked")).toBe("false");
+    const page = screen.getAllByRole("region", { name: "Threads" }).at(-1)!;
+    expect(within(page).getAllByRole("listitem")).toHaveLength(1);
+    expect(view.getFilters().hiddenRuntimes).toEqual(["codex"]);
+    // With some off, All brings everything back; with none off, it switches all off and the limits say why they are gone.
+    fireEvent.click(runtimes.getByRole("checkbox", { name: "All runtimes" }));
+    expect(view.getFilters().hiddenRuntimes).toBeUndefined();
+    expect(await screen.findByRole("region", { name: "Codex limits" })).toBeTruthy();
+    fireEvent.click(runtimes.getByRole("checkbox", { name: "All runtimes" }));
+    expect(runtimes.getAllByRole("checkbox").every((box) => box.getAttribute("aria-checked") === "false")).toBe(true);
+    expect(screen.getByText("The runtimes that report limits are switched off in the filter.")).toBeTruthy();
+    fireEvent.click(runtimes.getByRole("checkbox", { name: "All runtimes" }));
+    expect(await screen.findByRole("region", { name: "Codex limits" })).toBeTruthy();
+    expect(view.getFilters().hiddenRuntimes).toBeUndefined();
+  });
+
+  it("offers the same switches in the sheet, as marks", async () => {
+    render(<TestProviders><HostClientProvider client={createFakeHostClient()}><UsagePage host={host(answers)} now={() => NOW} navigate={vi.fn()} /></HostClientProvider></TestProviders>);
+    await within(await screen.findByRole("region", { name: "API spend" })).findByText("$2.00");
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+    const sheet = within(await screen.findByRole("dialog", { name: "Usage filters" }));
+    const runtimes = within(sheet.getByRole("group", { name: "Runtime" }));
+    fireEvent.click(runtimes.getByRole("checkbox", { name: "Pi" }));
+    expect(runtimes.getByRole("checkbox", { name: "Pi" }).getAttribute("aria-checked")).toBe("false");
+    expect(runtimes.getByRole("checkbox", { name: "Codex" }).getAttribute("aria-checked")).toBe("true");
+    expect(within(screen.getAllByRole("region", { name: "Threads" }).at(-1)!).getAllByRole("listitem")).toHaveLength(1);
   });
 
   it("keeps the month and the filters in a sheet without a sidebar, and opens at the section asked for", async () => {
