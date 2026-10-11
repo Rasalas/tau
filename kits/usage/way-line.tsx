@@ -10,7 +10,7 @@ import { PI_BACKEND } from "./protocol.js";
 const family = (runtime: string): string => runtime.split("@")[0]!;
 
 /**
- * What the plan behind a way has left, for "Runs with" in the model picker:
+ * What the plan behind a way has left, for the model picker's highlighted row:
  * the windows the sidebar's bars draw, "5-hour 42% left, Weekly 65% left".
  * Pi's accounts are per provider; another runtime's is its own.
  */

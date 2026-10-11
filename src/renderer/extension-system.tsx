@@ -744,7 +744,7 @@ export interface ComposerSendModeContribution extends ProfileScoped {
   subscribe(listener: () => void): () => void;
 }
 
-/** A mark on a model's row in the model picker, and optionally a line under "Runs with". */
+/** A mark on a model's row in the model picker, and optionally words after the highlighted row's facts. */
 export interface ModelBadgeContribution extends ProfileScoped {
   id: string;
   order?: number;
@@ -757,7 +757,7 @@ export interface ModelBadgeContribution extends ProfileScoped {
   /** One line under the list while any listed model wears this badge. */
   note?: string;
   /**
-   * Added after the facts under "Runs with" for the way highlighted there,
+   * Added after the highlighted row's facts, for the way that row takes,
    * whether or not the model wears the badge: what an account has left, say.
    * It draws nothing when it has nothing to say, and must not throw.
    */

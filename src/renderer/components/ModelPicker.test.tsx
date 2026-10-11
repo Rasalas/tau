@@ -78,8 +78,9 @@ const search = () => screen.getByRole("combobox", { name: "Search models" });
 const rail = () => within(screen.getByRole("navigation", { name: "Providers" })).getAllByRole("button").map((button) => button.getAttribute("aria-label"));
 const railButton = (label: string) => within(screen.getByRole("navigation", { name: "Providers" })).getByRole("button", { name: new RegExp(`^${label}`, "u") });
 const optionNames = () => screen.queryAllByRole("option").map((option) => option.getAttribute("aria-label"));
-const ways = () => [...screen.getByRole("radiogroup", { name: /^Runs with/u }).querySelectorAll("button")].map((button) => `${button.getAttribute("aria-label")}${button.getAttribute("aria-checked") === "true" ? " ✓" : ""}${(button as HTMLButtonElement).disabled ? " (off)" : ""}`);
-const note = () => document.querySelector(".model-ways-note")?.textContent ?? "";
+const pills = () => [...screen.getByRole("radiogroup", { name: /^Runs with/u }).querySelectorAll("button")].map((button) => `${button.textContent}${button.getAttribute("aria-checked") === "true" ? " ✓" : ""}`);
+const pill = (name: string) => within(screen.getByRole("radiogroup", { name: /^Runs with/u })).getByRole("radio", { name });
+const highlightedFacts = () => document.querySelector(".model-row.selected .model-facts")?.textContent ?? "";
 
 describe("ModelPicker (K142 B: model first)", () => {
   it("lists who made the models on the rail, each model once, and the runtimes that list none after them", () => {
@@ -93,52 +94,62 @@ describe("ModelPicker (K142 B: model first)", () => {
     expect(sol.textContent).toMatch(/272k · API \$5\/\$30/u);
   });
 
-  it("offers every way to run the highlighted model under the list; Tab and the arrows pick one, Enter takes both", () => {
-    const onSelect = renderPicker({ runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady()]) });
+  it("filters a maker's models by runtime with pills, a row per way, and keeps each maker's pill", () => {
+    const preferences = new PreferencesStore();
+    const onSelect = renderPicker({ preferences, runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady()]) });
     fireEvent.click(railButton("OpenAI"));
-    expect(ways()).toEqual(["Pi, Plan", "Pi, API key", "Codex, Plan ✓"]);
-    expect(note()).toMatch(/^Codex \(OpenAI\) · 272k context/u);
-    const input = search();
-    input.focus();
-    fireEvent.keyDown(input, { key: "Tab" });
-    expect(document.activeElement?.getAttribute("aria-label")).toBe("Codex, Plan");
-    expect(ways()).toEqual(["Pi, Plan", "Pi, API key", "Codex, Plan ✓"]);
-    expect(note()).toMatch(/^Codex \(OpenAI\) · 272k context/u);
-    fireEvent.keyDown(document.activeElement!, { key: "Enter" });
-    expect(onSelect).toHaveBeenCalledWith(solCodex, "codex");
+    expect(pills()).toEqual(["All ✓", "Pi", "Codex"]);
+    fireEvent.click(pill("Pi"));
+    expect(optionNames()).toEqual(["GPT-5.6 Sol, Pi, Plan", "GPT-5.6 Sol, Pi, API key"]);
+    expect(screen.getAllByRole("option")[1]!.textContent).toMatch(/API key · \$5\/\$30/u);
+    expect(preferences.getSnapshot().pickerRuntimes).toEqual({ openai: "pi" });
+    // Tab steps to the next pill without leaving the search.
+    fireEvent.keyDown(search(), { key: "Tab" });
+    expect(pills()).toEqual(["All", "Pi", "Codex ✓"]);
+    // Codex's own order.
+    expect(optionNames()).toEqual(["GPT-5.6 Luna, Codex, Plan", "GPT-5.6 Sol, Codex, Plan"]);
+    expect(document.activeElement).toBe(search());
+    fireEvent.keyDown(search(), { key: "Enter" });
+    expect(onSelect).toHaveBeenCalledWith(luna, "codex");
+    // Anthropic's models run on Pi alone here: no pills, and its pill is not OpenAI's.
+    fireEvent.click(railButton("Anthropic"));
+    expect(screen.queryByRole("radiogroup", { name: /^Runs with/u })).toBeNull();
+    cleanup();
+    renderPicker({ preferences, runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady()]) });
+    fireEvent.click(railButton("OpenAI"));
+    expect(pills()).toEqual(["All", "Pi", "Codex ✓"]);
   });
 
-  it("keeps a running thread on its runtime: the thread's runtime stands greyed first, and a way elsewhere continues in a new thread", () => {
+  it("says on the highlighted row when its way would leave the thread for a new one", () => {
     const onSelect = renderPicker({
       runtime: "pi", runtimeBackends: backends, catalogs: cached([codexReady()]),
       runtimeActions: [{ id: "handoff.continue-in", label: "Continue in", run: vi.fn() }],
     });
     fireEvent.click(railButton("OpenAI"));
+    // A thread keeps its runtime where it can: Sol stays on Pi.
+    expect(optionNames()[0]).toBe("GPT-5.6 Sol, Pi, Plan");
+    expect(highlightedFacts()).not.toMatch(/new thread/u);
     fireEvent.keyDown(search(), { key: "ArrowDown" });
-    expect(ways()).toEqual(["Pi, can't run it (off)", "Codex, Plan ✓"]);
-    expect(note()).toBe("This thread runs with Pi. ↵ continues in a new thread with Codex, carrying a summary.");
+    expect(highlightedFacts()).toMatch(/ · new thread$/u);
     fireEvent.keyDown(search(), { key: "Enter" });
     expect(onSelect).toHaveBeenCalledWith(luna, "codex");
   });
 
-  it("offers what makes a runtime of the model's maker ready: Install, Sign in (from E)", () => {
+  it("offers what makes a runtime ready from its rail entry: Install, Sign in (from E)", () => {
     const onOpenSettings = vi.fn();
     renderPicker({ runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady(), notInstalled]), onOpenSettings });
-    fireEvent.click(railButton("Anthropic"));
-    expect(ways()).toEqual(["Pi, Plan ✓", "Install Claude Code"]);
-    fireEvent.click(screen.getByRole("button", { name: "Install Claude Code" }));
+    fireEvent.click(railButton("Claude Code"));
+    fireEvent.click(within(screen.getByRole("region", { name: "Claude Code" })).getByRole("button", { name: "Install Claude Code…" }));
     expect(onOpenSettings).toHaveBeenCalledWith("claude-code", "runtime");
   });
 
   it("searches every provider and runtime at once, one row per model", () => {
     renderPicker({ runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady()]) });
     fireEvent.change(search(), { target: { value: "sol" } });
-    expect(screen.getByText("Every provider · 1 match")).toBeTruthy();
     expect(optionNames()).toEqual(["GPT-5.6 Sol, Codex, Plan"]);
-    expect(ways()).toEqual(["Pi, Plan", "Pi, API key", "Codex, Plan ✓"]);
-    // A runtime's name narrows the ways to it (Pi's ChatGPT plan goes through "openai-codex").
-    fireEvent.change(search(), { target: { value: "sol codex" } });
-    expect(ways()).toEqual(["Pi, Plan", "Codex, Plan ✓"]);
+    expect(within(screen.getByRole("option")).getAllByRole("img").map((mark) => mark.getAttribute("aria-label"))).toEqual(["Pi", "Codex"]);
+    // Pills belong to a maker's page, not to a search.
+    expect(screen.queryByRole("radiogroup", { name: /^Runs with/u })).toBeNull();
   });
 
   it("pins a model with its way: ⌘n reaches it, Favourites lists it with that way, the row's star is the way's", () => {
@@ -146,8 +157,8 @@ describe("ModelPicker (K142 B: model first)", () => {
     preferences.toggleFavouriteModel("codex:openai/gpt-5.6-sol");
     const onSelect = renderPicker({ preferences, runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady()]) });
     fireEvent.click(railButton("OpenAI"));
-    // The pinned way comes first for its row.
-    expect(ways()).toEqual(["Pi, Plan", "Pi, API key", "Codex, Plan ✓"]);
+    // The pinned way stands for its row.
+    expect(screen.getByRole("button", { name: "Unpin GPT-5.6 Sol on Codex" })).toBeTruthy();
     expect(screen.getByText("⌘1")).toBeTruthy();
     fireEvent.click(railButton("Favourites"));
     expect(optionNames()).toEqual(["GPT-5.6 Sol, Codex, Plan"]);
@@ -177,10 +188,11 @@ describe("ModelPicker (K142 B: model first)", () => {
     expect(onSelect.mock.calls[0]).toHaveLength(1);
   });
 
-  it("adds a badge's line after the facts under Runs with, for the way highlighted", () => {
+  it("adds a badge's line after the highlighted row's facts", () => {
     const badge = { id: "test.left", applies: () => false, label: "Plan", WayLine: ({ runtime }: { runtime: string }) => <> · 65% left on {runtime}</> };
     render(<TestProviders><ModelPicker models={models} activeKey="anthropic/claude-opus-5" onSelect={vi.fn()} onClose={() => {}} anchor={{ current: null }} badges={[badge]} /></TestProviders>);
-    expect(document.querySelector(".model-ways-note")!.textContent).toMatch(/ · 65% left on pi$/u);
+    expect(highlightedFacts()).toMatch(/ · 65% left on pi$/u);
+    expect([...document.querySelectorAll(".model-row:not(.selected) .model-facts")].some((facts) => /left on/u.test(facts.textContent ?? ""))).toBe(false);
     expect(screen.queryByText("Plan", { selector: ".model-badge" })).toBeNull();
   });
 
@@ -252,7 +264,7 @@ describe("ModelPicker (K142 B: model first)", () => {
     expect(onSelect).toHaveBeenCalledWith(models[1]);
   });
 
-  it("makes a row the one 'Runs with' is for once the pointer rests on it, not while it passes", () => {
+  it("highlights a row once the pointer rests on it, not while it passes", () => {
     vi.useFakeTimers();
     try {
       renderPicker({ runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady()]) });
@@ -261,10 +273,10 @@ describe("ModelPicker (K142 B: model first)", () => {
       fireEvent.mouseEnter(lunaRow!);
       fireEvent.mouseLeave(lunaRow!);
       act(() => { vi.advanceTimersByTime(300); });
-      expect(ways()[2]).toBe("Codex, Plan ✓");
+      expect(lunaRow!.getAttribute("aria-selected")).toBe("false");
       fireEvent.mouseEnter(lunaRow!);
       act(() => { vi.advanceTimersByTime(300); });
-      expect(ways()).toEqual(["Codex, Plan ✓"]);
+      expect(lunaRow!.getAttribute("aria-selected")).toBe("true");
     } finally {
       vi.useRealTimers();
     }
@@ -350,12 +362,12 @@ it("prefers Claude Code for new Anthropic conversations while keeping an explici
   const preferences = new PreferencesStore();
   const picked = renderPicker({ runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: catalog, preferences });
   fireEvent.click(railButton("Anthropic"));
-  expect(ways()).toEqual(["Pi, Plan", "Claude Code, Plan ✓"]);
+  expect(optionNames()[0]).toBe("Claude Fable 5.1, Claude Code, Plan");
   fireEvent.keyDown(search(), { key: "Enter" });
   expect(picked).toHaveBeenCalledWith(models[0], "claude-code");
   cleanup();
   preferences.toggleFavouriteModel("anthropic/claude-fable-5-1");
   renderPicker({ runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: catalog, preferences });
   fireEvent.click(railButton("Anthropic"));
-  expect(ways()).toEqual(["Pi, Plan ✓", "Claude Code, Plan"]);
+  expect(optionNames()[0]).toBe("Claude Fable 5.1, Pi, Plan");
 });

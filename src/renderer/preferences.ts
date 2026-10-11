@@ -32,6 +32,8 @@ export interface PreferencesState {
   recentModels: readonly string[];
   /** Per recent model, the thinking level last set on it. */
   recentLevels: Readonly<Record<string, string>>;
+  /** Per model maker, the runtime the picker's filter pill was last left on; none means "All". This client's own. */
+  pickerRuntimes: Readonly<Record<string, string>>;
   /** The runtime backend a new thread is created on; unset means the host's default. */
   newThreadRuntime?: string;
   /** Keyed `extensionId.optionId`. */
@@ -70,6 +72,7 @@ const DEFAULTS: PreferencesState = {
   modelPrices: {},
   recentModels: [],
   recentLevels: {},
+  pickerRuntimes: {},
   extensionOptions: {},
   extensionValues: {},
   disabledExtensions: [],
@@ -140,6 +143,7 @@ function load(): PreferencesState {
       modelPrices: typeof raw.modelPrices === "object" && raw.modelPrices ? raw.modelPrices as Record<string, UiModelPrice> : {},
       recentModels: stringList(raw.recentModels).slice(0, RECENT_MODELS),
       recentLevels: typeof raw.recentLevels === "object" && raw.recentLevels ? raw.recentLevels as Record<string, string> : {},
+      pickerRuntimes: typeof raw.pickerRuntimes === "object" && raw.pickerRuntimes ? raw.pickerRuntimes as Record<string, string> : {},
       newThreadRuntime: typeof raw.newThreadRuntime === "string" ? raw.newThreadRuntime : undefined,
       extensionOptions: options,
       extensionValues: values,
@@ -414,6 +418,12 @@ export class PreferencesStore {
   /** The level just set on a recent model; a model not in "Recent" keeps none. */
   noteModelLevel(key: string, level: string): void {
     if (this.state.recentModels.includes(key)) this.update({ recentLevels: { ...this.state.recentLevels, [key]: level } }, false);
+  }
+
+  /** The picker's runtime filter for one maker's models; undefined is "All". */
+  setPickerRuntime(maker: string, runtime: string | undefined): void {
+    const { [maker]: _previous, ...rest } = this.state.pickerRuntimes;
+    this.update({ pickerRuntimes: runtime ? { ...rest, [maker]: runtime } : rest }, false);
   }
 
   isSettled(threadId: string): boolean {
