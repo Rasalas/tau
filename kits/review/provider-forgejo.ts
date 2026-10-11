@@ -15,7 +15,8 @@ import {
   type ReviewRequest,
 } from "./protocol.js";
 import type { LineCommentInput, ProviderTools, RepositoryTarget, SourceControlProvider } from "./provider.js";
-import { missingCli } from "./provider-github.js";
+import { FILE_BUFFER, missingCli } from "./provider-github.js";
+import { readFileText } from "./provider-file.js";
 import { parseRequestUrl, parseUnifiedDiff } from "./pull-request-json.js";
 
 /*
@@ -426,6 +427,12 @@ export function createForgejoProvider(tools: ProviderTools): SourceControlProvid
       return parseForgejoThreads(answers);
     },
     changes: async (ref) => parseUnifiedDiff(await api(ref.host, `${pullPath(ref)}.diff`, `Reading the diff of ${noun(ref)}`, { maxBuffer: DIFF_BUFFER })),
+    fileContents: (ref, { path, sha }) => readFileText(path, () => api(
+      ref.host,
+      `${repoPath(ref.repo)}/raw/${path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(sha)}`,
+      `Reading ${path} of ${noun(ref)}`,
+      { maxBuffer: FILE_BUFFER },
+    )),
     comment: async (ref, body) => { await api(ref.host, `${issuePath(ref)}/comments`, `Commenting on ${noun(ref)}`, { method: "POST", body: { body } }); },
     lineComment: async (ref, input, known) => { await postReview(ref, "COMMENT", "", [input], known, `Commenting on ${noun(ref)}`); },
     update: async (ref, input) => { await api(ref.host, pullPath(ref), `Editing ${noun(ref)}`, { method: "PATCH", body: input }); },
