@@ -20,6 +20,7 @@ import {
   type ReviewRequest,
 } from "./protocol.js";
 import type { ProviderTools, RepositoryTarget, SourceControlProvider } from "./provider.js";
+import { readFileText } from "./provider-file.js";
 import { missingCli } from "./provider-github.js";
 
 /*
@@ -351,6 +352,17 @@ export function createAzureProvider(tools: ProviderTools): SourceControlProvider
     },
     checks,
     threads: async (ref, fresh) => parseAzureThreads(await threads(ref, fresh)).threads,
+    /** The git items API through `az devops invoke`, which wants JSON back: the file comes as the item's `content`. */
+    fileContents: (ref, { path, sha }) => readFileText(path, async () => {
+      const { project, repository } = place(ref.host, ref.repo);
+      const answer = record(JSON.parse(await az(ref, [
+        "devops", "invoke", "--area", "git", "--resource", "items", "--route-parameters", `project=${project}`, `repositoryId=${repository}`,
+        "--query-parameters", `path=/${path}`, `versionDescriptor.version=${sha}`, "versionDescriptor.versionType=commit", "includeContent=true", "$format=json",
+        "--http-method", "GET", "--api-version", API_VERSION,
+      ], `Reading ${path} of ${noun(ref)}`)));
+      if (typeof answer.content !== "string") throw new HostCommandError(`${path} has no text Tau can read.`);
+      return answer.content;
+    }),
     comment: async (ref, body) => {
       await invoke(ref, "pullRequestThreads", {}, `Commenting on ${noun(ref)}`, "POST", { comments: [{ parentCommentId: 0, content: body, commentType: 1 }], status: 1 });
     },

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionContext } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { createReviewHostExtension } from "./host.js";
-import { REVIEW_HOST_EXTENSION_ID, type PullRequestDetail, type PullRequestList, type PullRequestThread, type ReviewRequestContext, type ReviewRequestStatus } from "./protocol.js";
+import { REVIEW_HOST_EXTENSION_ID, type PullRequestDetail, type PullRequestFileText, type PullRequestList, type PullRequestThread, type ReviewRequestContext, type ReviewRequestStatus } from "./protocol.js";
 import { azureRepository } from "./provider-azure.js";
 import { parseRequestUrl } from "./pull-request-json.js";
 import { LINK_SEAMS } from "./test-seams.js";
@@ -29,6 +29,11 @@ async function answer(args: string[]): Promise<string> {
   if (verb === "repos pr policy") return fixture("azure-policies.json");
   if (args[0] === "devops" && args.includes("pullRequestThreads") && args.includes("GET")) return fixture("azure-threads.json");
   if (args[0] === "devops" && args.includes("pullRequestCommits")) return fixture("azure-commits.json");
+  if (args[0] === "devops" && args.includes("items")) {
+    const path = args[args.indexOf("--query-parameters") + 1]!.replace("path=", "");
+    const content = path.includes("logo.png") ? "\u0089PNG\0\0" : path.includes("dump.sql") ? "x".repeat(2 * 1024 * 1024 + 1) : "export const a = 1;\n";
+    return JSON.stringify({ objectId: "1f2e", gitObjectType: "blob", commitId: "c6269c2837279c5d33654905e51969011e18e0a0", path, content });
+  }
   if (verb === "repos pr create") return JSON.stringify({ pullRequestId: 60, status: "active" });
   return "{}";
 }
@@ -131,6 +136,21 @@ describe("the Azure DevOps provider through az", () => {
       expect.objectContaining({ id: "303", path: "README.md", line: 4, side: "old", resolved: true }),
     ]);
     await expect(invoke("pr-files", { url: URL_46 })).rejects.toThrow(/Azure DevOps does not let Tau read a request's diff/u);
+  });
+
+  it("reads a file at the head commit through the git items API, and says when it is missing, binary or too large", async () => {
+    const { invoke, calls } = await harness();
+    const file = await invoke<PullRequestFileText>("pr-file", { url: URL_46, path: "src/app.ts" });
+    expect(file).toEqual({ path: "src/app.ts", sha: "c6269c2837279c5d33654905e51969011e18e0a0", text: "export const a = 1;\n" });
+    expect(calls.find((call) => call.args.includes("items"))!.args).toEqual([
+      "devops", "invoke", "--area", "git", "--resource", "items", "--route-parameters", "project=PowerShell", "repositoryId=PowerShell",
+      "--query-parameters", "path=/src/app.ts", "versionDescriptor.version=c6269c2837279c5d33654905e51969011e18e0a0", "versionDescriptor.versionType=commit", "includeContent=true", "$format=json",
+      "--http-method", "GET", "--api-version", "7.1", ...ORG,
+    ]);
+    await expect(invoke("pr-file", { url: URL_46, path: "logo.png" })).rejects.toThrow("logo.png is a binary file.");
+    await expect(invoke("pr-file", { url: URL_46, path: "dump.sql" })).rejects.toThrow("dump.sql is larger than 2 MB; Tau does not expand it.");
+    const missing = await harness({ fail: (args) => args.includes("items") ? "ERROR: TF401174: The item '/gone.ts' could not be found in the repository." : undefined });
+    await expect(missing.invoke("pr-file", { url: URL_46, path: "gone.ts" })).rejects.toThrow("gone.ts is not in the request's head commit.");
   });
 
   it("writes comments, replies and resolutions through the threads API with a body file, and votes", async () => {
