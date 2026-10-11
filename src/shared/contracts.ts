@@ -1154,6 +1154,12 @@ export interface TauConfig {
    */
   modelPrices?: Record<string, UiModelPrice>;
   disabledExtensions?: string[];
+  /**
+   * Whether a runtime may start work, by backend kind (`codex`, `codex@work`);
+   * a kind without an entry is on. The project file wins over the machine's,
+   * in either direction (API 1.59.0).
+   */
+  runtimeEnabled?: Record<string, boolean>;
   prewarm?: boolean;
   /** Leave the host process running after the app quits, so its threads keep going. */
   hostBackground?: boolean;

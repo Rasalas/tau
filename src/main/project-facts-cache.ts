@@ -33,6 +33,8 @@ export class ProjectFactsCache {
   private readonly nesting = new Map<string, boolean>();
   private readonly privateWorkspaces = new Map<string, boolean>();
   private readonly classifications = new Map<string, Promise<void>>();
+  /** The project a folder's settings follow; a folder that is its own is asked again after a minute. */
+  private readonly owners = new Map<string, { path: string; until: number }>();
 
   constructor(private readonly port: ProjectFactsCachePort) {}
 
@@ -138,6 +140,15 @@ export class ProjectFactsCache {
       await this.classifications.get(cwd);
     }
     return this.nesting.get(cwd) === true;
+  }
+
+  /** The project whose settings `cwd` follows: the one a linked worktree was made from, else `cwd` itself. */
+  async owner(cwd: string): Promise<string> {
+    const known = this.owners.get(cwd);
+    if (known && known.until > Date.now()) return known.path;
+    const root = await this.providers.root(cwd).catch(() => undefined);
+    this.owners.set(cwd, { path: root ?? cwd, until: root ? Number.POSITIVE_INFINITY : Date.now() + 60_000 });
+    return root ?? cwd;
   }
 
   classify(cwd: string): void {

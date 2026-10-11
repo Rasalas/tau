@@ -21,6 +21,8 @@ export interface RuntimeToolRun {
 
 export interface RuntimeToolUpdatesOptions {
   backends(): Iterable<HostRuntimeBackendProvider>;
+  /** Whether any project uses the runtime; the automatic check leaves the program of one nobody uses alone. */
+  inUse?(kind: ThreadBackendKind): boolean;
   /** Kinds with a turn running now. */
   busy(): ReadonlySet<ThreadBackendKind>;
   /** Asks a kind's version and catalog again after its program changed. */
@@ -199,10 +201,12 @@ export class RuntimeToolUpdates {
   }
 
   /** Every backend's program now, grouped by the file it runs. */
-  private async collect(): Promise<void> {
+  private async collect(inUseOnly = false): Promise<void> {
     const found = new Map<string, Tool>();
     for (const provider of this.options.backends()) {
       if (!provider.maintenance) continue;
+      // A scheduled check does not ask a program nobody uses; it keeps what it knew of it.
+      if (inUseOnly && this.options.inUse?.(provider.kind) === false) continue;
       const maintenance = await bounded(provider.maintenance(), ASK_TIMEOUT_MS).catch((error: unknown) => {
         this.options.log("runtime-tools.maintenance.failed", `${provider.kind}: ${error instanceof Error ? error.message : String(error)}`);
         return undefined;
@@ -213,6 +217,7 @@ export class RuntimeToolUpdates {
       if (held) held.kinds.push(provider.kind);
       else found.set(key, { key, kinds: [provider.kind], label: provider.label ?? provider.kind, maintenance });
     }
+    if (inUseOnly) for (const [key, tool] of this.tools) if (!found.has(key) && !tool.kinds.some((kind) => this.options.inUse?.(kind) !== false)) found.set(key, tool);
     const before = JSON.stringify([...this.tools.values()].map((tool) => [tool.kinds, Boolean(tool.maintenance.update)]));
     this.tools = found;
     if (before !== JSON.stringify([...found.values()].map((tool) => [tool.kinds, Boolean(tool.maintenance.update)]))) this.options.changed();
@@ -231,10 +236,11 @@ export class RuntimeToolUpdates {
   private async check(): Promise<void> {
     await this.load();
     if (this.blocked() || this.disposed) return;
-    await this.collect();
+    await this.collect(true);
     if (this.saved.automatic !== true) return;
     for (const tool of this.tools.values()) {
       const { installed, latest, update } = tool.maintenance;
+      if (this.options.inUse && !tool.kinds.some((kind) => this.options.inUse!(kind))) continue;
       if (update && installed && latest && compareVersions(installed, latest) < 0) this.enqueue({ key: tool.key, action: "update" });
     }
   }

@@ -17,6 +17,7 @@ import { isHostTranscriptCursor, type HostTranscriptCursor } from "../shared/tra
 import { isUpdateChannel } from "../shared/app-version.js";
 import { readModelPrices } from "../shared/model-prices.js";
 import { readModelPreferenceRecord } from "../shared/model-preferences.js";
+import { readRuntimeEnabled } from "../shared/runtime-enabled.js";
 import { MAX_ATTACHMENTS } from "../shared/prompt-attachment-limits.js";
 import { isQuitConfirmation } from "../shared/window-shell.js";
 
@@ -414,6 +415,12 @@ export function decodeConfigPatch(channel: string, field: string, value: unknown
       fail(channel, `${field}.modelPreferences`, "must map runtimes to { hidden?: string[]; order?: string[] }");
     }
     result.modelPreferences = preferences;
+  }
+  if (item.runtimeEnabled !== undefined) {
+    const entries = record(channel, `${field}.runtimeEnabled`, item.runtimeEnabled);
+    const enabled = readRuntimeEnabled(entries);
+    if (!enabled || Object.keys(enabled).length !== Object.keys(entries).length) fail(channel, `${field}.runtimeEnabled`, "must map runtimes to true or false");
+    result.runtimeEnabled = enabled;
   }
   if (item.modelPrices !== undefined) {
     const entries = record(channel, `${field}.modelPrices`, item.modelPrices);

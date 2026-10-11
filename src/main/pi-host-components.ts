@@ -83,6 +83,7 @@ import { modelReleaseDate, useModelCatalog } from "./pi-model-runtime.js";
 import { SignedModelCatalog, modelCatalogKeys } from "./model-catalog.js";
 import { RELEASE_PUBLIC_KEYS } from "../shared/release-keys.js";
 import { RuntimeCatalogs, type RuntimeCatalogSource } from "./runtime-catalogs.js";
+import { RuntimeGate } from "./runtime-gate.js";
 import { RuntimeToolUpdates } from "./runtime-tool-updates.js";
 import { UsagePricing, type UsageTally } from "./usage-pricing.js";
 import { ThreadRunClock } from "./thread-run-clock.js";
@@ -220,6 +221,8 @@ export interface PiHostComponents {
   readonly catalogs: RuntimeCatalogs;
   /** Keeps the agent CLIs current (Settings → Runtimes). */
   readonly toolUpdates: RuntimeToolUpdates;
+  /** Whether a runtime may start work in a folder. */
+  readonly runtimeGate: RuntimeGate;
   /** What threads cost: the user's prices, the runtimes', a subscription's value. */
   readonly pricing: UsagePricing;
   /** Settings → Defaults, read fresh: the answer is wanted once, at start. */
@@ -361,6 +364,14 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     recordBackground: (name, startedAt) => deps.recordBackground(name, startedAt),
     log: (label, detail) => deps.log(label, detail),
     errorMessage: (error) => deps.errorMessage(error),
+  });
+  /** Whether a runtime may start work in a folder (ADR 0032). */
+  const runtimeGate = new RuntimeGate({
+    config: (path) => defaultHostConfigManager.readSync(path),
+    owner: (cwd) => projects.owner(cwd),
+    label: (kind) => kind === "pi" ? "Pi" : seam.backends.get(kind)?.label ?? kind,
+    projectName: (path) => projects.name(path),
+    projectPaths: () => deps.projectHistory.list().map((project) => project.path),
   });
   /** The runtime spelling of a prompt, and the proof that a caller may execute it. */
   const prompts = new PromptPreparation({
@@ -654,11 +665,13 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     fail: (error, sessionId) => deps.fail(error, sessionId),
     runs: () => runClock.runs(),
     toolUpdates: (kind) => toolUpdates?.updatesFor(kind),
+    runtimeInUse: (kind) => runtimeGate.inUse(kind),
     prepareToolUpdates: async (kind) => { await toolUpdates?.ensure(kind); },
   });
   let refreshModelCatalog: (() => Promise<void>) | undefined;
   toolUpdates = new RuntimeToolUpdates({
     backends: () => seam.backends.values(),
+    inUse: (kind) => runtimeGate.inUse(kind),
     busy: () => new Set(Object.keys(runClock.runs()).map((threadId) => index.byId(threadId)?.backendKind ?? "pi")),
     recheck: async (kind) => { await Promise.all([publication.recheckVersion(kind), catalogs.recheck(kind)]); },
     changed: () => void publication.publishActiveCatalog().catch(() => undefined),
@@ -818,6 +831,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     settlement,
     catalogs,
     toolUpdates,
+    runtimeGate,
     pricing,
     continueThreadsAfterRestart: () => defaultHostConfigManager.readSync(deps.getCwd()).threads?.continueAfterRestart === true,
   };

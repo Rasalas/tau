@@ -128,3 +128,16 @@ describe("ProjectFactsCache", () => {
   expect(facts.knownProjectless("/private/thread")).toBe(true);
   expect(await facts.projectless("/project")).toBe(false);
 });
+
+describe("ProjectFactsCache owners", () => {
+  it("follows a linked worktree to the project it was made from, and a project to itself", async () => {
+    const { facts } = cache();
+    let asked = 0;
+    facts.add({ root: async (cwd) => { asked += 1; return cwd.endsWith("-wt") ? "/work/widgets" : undefined; } });
+    expect(await facts.owner("/work/widgets-wt")).toBe("/work/widgets");
+    expect(await facts.owner("/work/widgets-wt")).toBe("/work/widgets");
+    expect(await facts.owner("/work/gadgets")).toBe("/work/gadgets");
+    expect(await facts.owner("/work/gadgets")).toBe("/work/gadgets");
+    expect(asked).toBe(2);
+  });
+});

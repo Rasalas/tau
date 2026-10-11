@@ -58,6 +58,8 @@ export interface HostPublicationDeps {
   defaultBackendKind: ThreadBackendKind;
   /** Whether Tau keeps a backend's program current itself (`RuntimeToolVersion.updates`). */
   toolUpdates?(kind: ThreadBackendKind): "automatic" | "ask" | undefined;
+  /** Whether any project still uses the runtime; one nobody uses is not asked for its version. */
+  runtimeInUse?(kind: ThreadBackendKind): boolean;
   /** Learns how a backend's program is installed before its version is published. */
   prepareToolUpdates?(kind: ThreadBackendKind): Promise<void>;
   isCurrentActivation(epoch: number): boolean;
@@ -84,6 +86,7 @@ export class HostPublication {
   constructor(private readonly deps: HostPublicationDeps) {
     this.runtimeVersions = new RuntimeVersions({
       providers: () => deps.backends(),
+      ...(deps.runtimeInUse ? { inUse: (kind: ThreadBackendKind) => deps.runtimeInUse!(kind) } : {}),
       onChange: () => void this.publishActiveCatalog().catch(() => undefined),
       ...(deps.prepareToolUpdates ? { prepare: (kind: ThreadBackendKind) => deps.prepareToolUpdates!(kind) } : {}),
       log: (label, detail) => deps.log(label, detail),

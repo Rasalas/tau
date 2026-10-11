@@ -6,6 +6,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface RuntimeVersionsOptions {
   providers(): Iterable<HostRuntimeBackendProvider>;
+  /** Whether any project uses the runtime; one nobody uses is left unasked (an explicit `recheck` still asks). */
+  inUse?(kind: ThreadBackendKind): boolean;
   /** A backend answered with something new; the host republishes its catalog. */
   onChange(): void;
   /** Runs before a backend's new version is published (what Tau does about updates is known by then). */
@@ -48,7 +50,7 @@ export class RuntimeVersions {
   refresh(): void {
     const now = (this.options.now ?? Date.now)();
     for (const provider of this.options.providers()) {
-      if (!provider.version) continue;
+      if (!provider.version || this.options.inUse?.(provider.kind) === false) continue;
       const asked = this.asked.get(provider.kind);
       if (asked?.provider === provider && now - asked.at < (this.options.maxAgeMs ?? DAY_MS)) continue;
       this.asked.set(provider.kind, { at: now, provider });
