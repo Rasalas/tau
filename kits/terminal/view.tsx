@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { errorMessage, hostIsReadOnly } from "tau";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { errorMessage, hostIsReadOnly, useContextMenu } from "tau";
 import type { ILink, ITheme, Terminal } from "@xterm/xterm";
 import { terminalFont, terminalKit, terminalServices, terminalStore, onTerminalEvent, onTerminalReconnect, useTerminalFont, watchTerminalOutput } from "./store.js";
 import { unseenOutput } from "./output.js";
 import { terminalFontStack, type ResolvedTerminalFont } from "./font.js";
 import { classifyTerminalLink, findTerminalLinks, positionIn, wrappedLineAt } from "./links.js";
-import { terminalKeyOutcome } from "./keys.js";
+import { terminalKeyOutcome, terminalNavigation, type TerminalNavigation } from "./keys.js";
+import { terminalMenuChoice, terminalMenuSections } from "./context-menu.js";
 import { focusPane, isStaged } from "./layout.js";
 import { addExcerptToPrompt, openTerminalLink } from "./controller.js";
 import { forGround } from "./palette.js";
@@ -79,6 +80,12 @@ function linkHint(text: string): string {
   const target = classifyTerminalLink(text);
   const key = MAC ? "⌘" : "Ctrl";
   return target?.kind === "preview" ? `${key}-click to open in the Preview` : `${key}-click to open in the browser`;
+}
+
+function navigate(instance: Terminal, navigation: TerminalNavigation): void {
+  if (navigation === "select-all") instance.selectAll();
+  else if (navigation === "scroll-to-top") instance.scrollToTop();
+  else instance.scrollToBottom();
 }
 
 const activatesLink = (event: MouseEvent) => MAC ? event.metaKey : event.ctrlKey;
@@ -177,7 +184,16 @@ export function TerminalView({ session, place, focused = false, fontSize, touch 
       const addon = new fit.FitAddon();
       instance.loadAddon(addon);
       instance.open(element);
-      instance.attachCustomKeyEventHandler((event) => terminalKeyOutcome(event, MAC) !== "pass");
+      instance.attachCustomKeyEventHandler((event) => {
+        // The terminal's own select-all and scrollback jumps, ahead of the window's chords.
+        const navigation = terminalNavigation(event, MAC, instance.buffer.active.type === "alternate");
+        if (navigation) {
+          event.preventDefault();
+          navigate(instance, navigation);
+          return false;
+        }
+        return terminalKeyOutcome(event, MAC) !== "pass";
+      });
       const links = instance.registerLinkProvider({
         provideLinks: (row, callback) => {
           const line = wrappedLineAt(row, (index) => instance.buffer.active.getLine(index));
@@ -295,6 +311,30 @@ export function TerminalView({ session, place, focused = false, fontSize, touch 
     return () => { disposed = true; cleanup(); };
   }, [id, place]);
 
+  const openMenu = useContextMenu();
+  const showMenu = (event: ReactMouseEvent) => {
+    const instance = terminal.current;
+    if (!instance) return;
+    const canType = running.current && !hostIsReadOnly();
+    void openMenu(event, terminalMenuSections({ hasSelection: selection !== "", canType, mac: MAC })).then(async (picked) => {
+      try {
+        switch (terminalMenuChoice(picked)) {
+          case "copy": {
+            const text = instance.getSelection();
+            if (terminalServices.actions) await terminalServices.actions.copyText(text);
+            else await navigator.clipboard.writeText(text);
+            break;
+          }
+          case "paste": instance.paste(await navigator.clipboard.readText()); break;
+          case "select-all": navigate(instance, "select-all"); break;
+          case "scroll-to-bottom": navigate(instance, "scroll-to-bottom"); break;
+          case undefined: return;
+        }
+        instance.focus();
+      } catch (problem) { setError(errorMessage(problem)); }
+    });
+  };
+
   const addSelection = () => {
     if (addExcerptToPrompt(sessionRef.current, selection, terminalServices.actions)) {
       terminal.current?.clearSelection();
@@ -311,6 +351,6 @@ export function TerminalView({ session, place, focused = false, fontSize, touch 
       onMouseDown={(event) => event.preventDefault()}
       onClick={addSelection}
     >Add to prompt</button> : null}
-    <div className="terminal-view" ref={surface} data-terminal-id={id} data-keybinding-context="terminal" />
+    <div className="terminal-view" ref={surface} data-terminal-id={id} data-keybinding-context="terminal" onContextMenu={showMenu} />
   </div>;
 }

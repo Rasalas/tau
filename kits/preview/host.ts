@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdir, open, type FileHandle } from "node:fs/promises";
 import { join, posix, win32 } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { HostCommandError, type HostCommandCall, type HostExtension, type HostExtensionContext, type RuntimeExtensionFactory } from "tau/host-extension";
+import { HostCommandError, type HostCommandCall, type HostExtension, type HostExtensionContext, type MenuPoint, type NativeMenuEntry, type RuntimeExtensionFactory } from "tau/host-extension";
 import {
   EMPTY_PREVIEW_STATE,
   PREVIEW_HOST_EXTENSION_ID,
@@ -116,6 +116,8 @@ export interface PreviewSurfaceOptions {
   log(label: string, detail?: string): void;
   /** Reaches this kit's window half, when the host has a client that holds one. */
   callClient?(command: string, input?: unknown): Promise<unknown>;
+  /** The window's native menu, for a right-click on the page (the window half only). */
+  showContextMenu?(entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined>;
 }
 
 export type PreviewSurfaceFactory = (options: PreviewSurfaceOptions) => Promise<PreviewSurface | undefined>;

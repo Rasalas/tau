@@ -1,6 +1,8 @@
-import { BrowserWindow, WebContentsView, nativeImage, session, shell, type Debugger, type NativeImage } from "electron";
+import { BrowserWindow, ClipboardItem, WebContentsView, clipboard, nativeImage, session, shell, type ContextMenuParams, type Debugger, type NativeImage } from "electron";
 import { sep } from "node:path";
 import { downloadPreviewFile } from "./download.js";
+import { isWebLink, previewMenuEntries, type PreviewMenuAction } from "./context-menu.js";
+import { readImageBytes } from "./copy-image.js";
 import { EMPTY_PREVIEW_STATE, type PreviewAppearance, type PreviewChord, type PreviewState } from "./protocol.js";
 import type { WindowExtension, WindowExtensionContext } from "tau/host-extension";
 import type { PreviewRect, PreviewSurface, PreviewSurfaceOptions } from "./host.js";
@@ -194,6 +196,35 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions, win
     if (!chord || !options.onChord) return;
     event.preventDefault();
     options.onChord(chord);
+  });
+  // The window's native menu, over the page (T3 #17555); the view's own coordinates are offset by where it sits.
+  const copyImage = async (params: ContextMenuParams): Promise<void> => {
+    // A frame of another site is out of copyImageAt's reach: read the picture by its address instead.
+    if (params.frame === contents.mainFrame) { contents.copyImageAt(params.x, params.y); return; }
+    const picture = nativeImage.createFromBuffer(await readImageBytes(params.srcURL, (url, init) => previewSession.fetch(url, init)));
+    if (picture.isEmpty()) throw new Error("The image could not be decoded");
+    await clipboard.write([new ClipboardItem({ "image/png": new Blob([Uint8Array.from(picture.toPNG())], { type: "image/png" }) })]);
+  };
+  const runMenuAction = async (action: PreviewMenuAction, params: ContextMenuParams): Promise<void> => {
+    switch (action) {
+      case "open-link": if (isWebLink(params.linkURL)) await shell.openExternal(params.linkURL); return;
+      case "copy-link": clipboard.writeText(params.linkURL); return;
+      case "copy-image": await copyImage(params); return;
+      case "copy-image-address": clipboard.writeText(params.srcURL); return;
+      case "copy": contents.copy(); return;
+      case "cut": contents.cut(); return;
+      case "paste": contents.paste(); return;
+      case "select-all": contents.selectAll(); return;
+    }
+  };
+  contents.on("context-menu", (_event, params) => {
+    const entries = previewMenuEntries(params);
+    if (!options.showContextMenu || entries.length === 0 || window.isDestroyed()) return;
+    const bounds = view.getBounds();
+    const zoom = window.webContents.getZoomFactor() || 1;
+    void options.showContextMenu(entries, { x: (bounds.x + params.x) / zoom, y: (bounds.y + params.y) / zoom })
+      .then((id) => id ? runMenuAction(id as PreviewMenuAction, params) : undefined)
+      .catch((error: unknown) => note(`context menu: ${error instanceof Error ? error.message : String(error)}`));
   });
   contents.on("did-start-loading", () => { errors.length = 0; changed(); });
   contents.on("did-stop-loading", changed);
@@ -438,6 +469,7 @@ export default function activatePreviewWindowHalf(context: WindowExtensionContex
       onChord: (chord: PreviewChord) => { void context.invokeHost("view-chord", { chord }).catch(() => undefined); },
       workspaceRoot: () => workspaceRoot,
       log: (label, detail) => context.log(label, detail),
+      ...(context.showContextMenu ? { showContextMenu: context.showContextMenu } : {}),
     }, window);
     if (!created) throw new Error(PREVIEW_WINDOW_UNAVAILABLE);
     owner = window;

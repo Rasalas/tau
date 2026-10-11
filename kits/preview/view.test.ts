@@ -27,6 +27,9 @@ const electron = vi.hoisted(() => ({
   } & Record<string, unknown>,
   createFromBuffer: vi.fn(),
   stages: [] as FakeWindow[],
+  clipboardText: vi.fn(),
+  clipboardWrite: vi.fn(async () => undefined),
+  openExternal: vi.fn(),
 }));
 vi.mock("electron", async () => {
   const { fakeView, fakeWindow: stageWindow } = await import("./fake-electron-window.js");
@@ -53,7 +56,9 @@ vi.mock("electron", async () => {
         webRequest: { onBeforeRequest: vi.fn() },
       }),
     },
-    shell: { openExternal: vi.fn() },
+    shell: { openExternal: electron.openExternal },
+    clipboard: { writeText: electron.clipboardText, write: electron.clipboardWrite },
+    ClipboardItem: class { constructor(public items: unknown) {} },
   };
 });
 
@@ -65,6 +70,8 @@ beforeEach(() => {
   let attached = false;
   electron.stages.length = 0;
   electron.window = fakeWindow();
+  electron.openExternal.mockClear();
+  electron.clipboardText.mockClear();
   electron.contents = {
     on: vi.fn(),
     once: vi.fn(),
@@ -237,6 +244,56 @@ describe("preview input delivery", () => {
     const view = surface();
     await expect(view.pressKey("Enter")).rejects.toThrow("fixture refused key");
     await expect(view.input!({ kind: "text", text: "next" })).resolves.toBeUndefined();
+  });
+});
+
+describe("the page's right-click menu", () => {
+  const params = (over: Record<string, unknown> = {}) => ({
+    x: 30, y: 40, linkURL: "", srcURL: "", mediaType: "none", selectionText: "", isEditable: false,
+    editFlags: { canCut: false, canCopy: false, canPaste: false, canSelectAll: true }, frame: undefined, ...over,
+  });
+  function open(choose: string | undefined) {
+    const showContextMenu = vi.fn(async (_entries: unknown[], _point: { x: number; y: number }) => choose);
+    const view = createElectronPreviewSurface({ partition: "", onChange: () => undefined, workspaceRoot: () => "", log: () => undefined, showContextMenu })!;
+    view.place({ x: 100, y: 60, width: 800, height: 600 }, true);
+    const registered = ((electron.contents.on as ReturnType<typeof vi.fn>).mock.calls as Array<[string, unknown]>).filter(([name]) => name === "context-menu");
+    const handler = registered.at(-1)![1] as (event: unknown, params: unknown) => void;
+    return { showContextMenu, ask: (over?: Record<string, unknown>) => handler({}, params(over)) };
+  }
+
+  it("shows the window's native menu at the click, offset by where the view sits", async () => {
+    const { showContextMenu, ask } = open(undefined);
+    ask({ linkURL: "https://example.com" });
+    await vi.waitFor(() => expect(showContextMenu).toHaveBeenCalled());
+    expect(showContextMenu.mock.calls[0]![1]).toEqual({ x: 130, y: 100 });
+  });
+
+  it("shows nothing on plain page, and without a menu to lend", () => {
+    const { showContextMenu, ask } = open(undefined);
+    ask();
+    expect(showContextMenu).not.toHaveBeenCalled();
+    const bare = createElectronPreviewSurface({ partition: "", onChange: () => undefined, workspaceRoot: () => "", log: () => undefined })!;
+    expect(bare).toBeDefined();
+  });
+
+  it("opens a web link in the browser and copies its address", async () => {
+    open("open-link").ask({ linkURL: "https://example.com/a" });
+    await vi.waitFor(() => expect(electron.openExternal).toHaveBeenCalledWith("https://example.com/a"));
+    open("copy-link").ask({ linkURL: "https://example.com/b" });
+    await vi.waitFor(() => expect(electron.clipboardText).toHaveBeenCalledWith("https://example.com/b"));
+  });
+
+  it("never opens a link that is not a web link, even if asked", async () => {
+    open("open-link").ask({ linkURL: "file:///etc/passwd" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(electron.openExternal).not.toHaveBeenCalled();
+  });
+
+  it("copies an image of the page's own frame where it was clicked", async () => {
+    const copyImageAt = vi.fn();
+    Object.assign(electron.contents, { copyImageAt, mainFrame: "main" });
+    open("copy-image").ask({ mediaType: "image", srcURL: "https://example.com/a.png", frame: "main" });
+    await vi.waitFor(() => expect(copyImageAt).toHaveBeenCalledWith(30, 40));
   });
 });
 

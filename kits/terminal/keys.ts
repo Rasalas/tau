@@ -25,3 +25,21 @@ export function terminalKeyOutcome(event: KeyLike, mac: boolean): TerminalKeyOut
   if (mac && event.metaKey) return "pass";
   return undefined;
 }
+
+/** What the terminal does itself with a navigation chord (T3 #17091). */
+export type TerminalNavigation = "select-all" | "scroll-to-top" | "scroll-to-bottom";
+
+/**
+ * Select all and the jumps through the scrollback. On macOS they are the
+ * system's own ⌘A and ⌘Home/⌘End; elsewhere Ctrl+A and Home/End belong to the
+ * shell, so they take Shift as well. A full-screen program keeps Home and End.
+ */
+export function terminalNavigation(event: KeyLike, mac: boolean, alternateScreen: boolean): TerminalNavigation | undefined {
+  if (event.type !== "keydown" || event.altKey) return undefined;
+  const primary = mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey && event.shiftKey;
+  if (!primary) return undefined;
+  if (event.key.toLowerCase() === "a") return mac && event.shiftKey ? undefined : "select-all";
+  if (alternateScreen) return undefined;
+  if (event.key === "Home") return "scroll-to-top";
+  return event.key === "End" ? "scroll-to-bottom" : undefined;
+}

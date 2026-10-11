@@ -3986,6 +3986,15 @@ machine the user sits at rather than the one the host runs on — SnapShots
 reads the accessibility tree of a window this way. A half written for an older
 Tau checks that the member exists.
 
+`context.showContextMenu(entries, point)` (new in API 1.60.0) opens the window's
+native right-click menu, the one the page's `useContextMenu` uses, for a view the
+page cannot reach: a native view swallows its own `contextmenu` events. `entries`
+are the `NativeMenuEntry` list of `tau/host-extension` and `point` is in the
+workbench page's CSS pixels (add the view's bounds to the click, divide by the
+page zoom); it resolves with the chosen item's `id`, or `undefined` when the menu
+was dismissed. Preview Kit's page menu (open a link in the browser, copy a link
+or an image) is the example. Check that the member exists on an older Tau.
+
 A call goes to one window, never to every client
 ([ADR 0023](adr/0023-client-tokens-and-pairing.md)). While a command runs for a
 client, `callClient` asks that client's own window; otherwise, and when that

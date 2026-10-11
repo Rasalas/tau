@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import { loadDependencyModule } from "./dependency-loader.js";
+import type { MenuPoint, NativeMenuEntry } from "../shared/context-menu.js";
 import type { HostLogger } from "./host-log.js";
 
 const requireModule = createRequire(import.meta.url);
@@ -24,6 +25,12 @@ export interface WindowExtensionContext {
    * Absent before API 1.12.0.
    */
   loadDependency?(packageName: string): Promise<unknown>;
+  /**
+   * The window's native menu, the one the page's right-click menus use. `point`
+   * is in the workbench page's CSS pixels; the answer is the chosen item's id,
+   * undefined when the menu was dismissed. Absent before API 1.60.0.
+   */
+  showContextMenu?(entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined>;
 }
 
 /** The window half itself: one command handler and a way to let go. */
@@ -40,6 +47,7 @@ export interface WindowExtensionPorts {
   logger?: HostLogger;
   /** Stands in for resolving from Tau's own modules, for tests. */
   loadDependency?(packageName: string): Promise<unknown>;
+  showContextMenu?(entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined>;
 }
 
 /**
@@ -64,6 +72,7 @@ export class WindowExtensionRegistry {
       invokeHost: (command, input) => this.ports.invokeHost(id, command, input),
       log: (label, detail) => this.ports.logger?.info(`window-extension.${id}.${label}`, detail),
       loadDependency: (packageName) => (this.ports.loadDependency ?? loadDependencyModule)(packageName),
+      ...(this.ports.showContextMenu ? { showContextMenu: this.ports.showContextMenu } : {}),
     }));
   }
 

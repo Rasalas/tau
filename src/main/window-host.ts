@@ -10,7 +10,7 @@ import { HostServiceManager } from "./host-service.js";
 import { HostUplink } from "./host-uplink.js";
 import { readHostToken } from "./host-token.js";
 import type { EndpointTrust, HostCertificateRefusedError, ReachedCertificate } from "./host-tls-trust.js";
-import { WindowExtensionRegistry } from "./window-extensions.js";
+import { WindowExtensionRegistry, type WindowExtensionPorts } from "./window-extensions.js";
 
 /** Compiling every kit on a cold cache takes longer than a click does. */
 const UPLINK_TIMEOUT_MS = 180_000;
@@ -37,6 +37,8 @@ export interface WindowHostOptions {
   onHello?(certificate: ReachedCertificate | undefined): void;
   /** The machine's service for this userData; `host-service.ts` by default. */
   service?: HostServiceControl | null;
+  /** The window's native menu, lent to the window halves of kits. */
+  showContextMenu?: WindowExtensionPorts["showContextMenu"];
 }
 
 /**
@@ -67,6 +69,7 @@ export class WindowHost {
     this.extensions = new WindowExtensionRegistry({
       invokeHost: (extensionId, command, input) => this.request("host-extension", [extensionId, command, input]),
       logger: options.logger,
+      ...(options.showContextMenu ? { showContextMenu: options.showContextMenu } : {}),
     });
   }
 

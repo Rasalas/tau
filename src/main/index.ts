@@ -553,6 +553,7 @@ async function startHostProcess(): Promise<void> {
     execPath: process.execPath,
     ...(requestedWorkspace ? { workspace: requestedWorkspace } : {}),
     logger: hostLog,
+    showContextMenu: windowContextMenu,
     onFatal: ({ message, logPath }) => {
       showErrorBox("Tau's host stopped", `${message}\n\nDetails were written to:\n${logPath || hostLog.filePath}`);
     },
