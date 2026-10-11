@@ -357,7 +357,7 @@ export function registerPullRequestCommands(context: HostExtensionContext, sourc
     return (await provider.stackMemberships({ host: ref.host, repo: ref.repo }, [ref.number])).get(ref.number);
   };
 
-  return { detail, stackOf, files: (ref, fresh) => files(ref, sources.get(ref.service), fresh) };
+  return { detail, stackOf, files: (ref, again) => files(ref, sources.get(ref.service), again) };
 }
 
 /** The stack as the window showed it, checked field by field: it decides what a stack step may touch. */
