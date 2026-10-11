@@ -9,21 +9,48 @@ export function useWorkspaceState() {
   return { store, state: useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot) };
 }
 
-/** Arrow keys over `count` rows from a search field, Enter picks; typing stays in the field. */
-function useCursor(count: number, pick: (index: number) => void) {
-  const [cursor, setCursor] = useState(0);
+/**
+ * Arrow keys over `count` rows from a search field, Enter picks; typing stays in the field.
+ * A new `query` puts the cursor back on `from`; -1 marks no row until an arrow key.
+ */
+export function useCursor(count: number, pick: (index: number) => void, query = "", from = 0) {
+  const [cursor, setCursor] = useState(from);
   useEffect(() => setCursor((value) => Math.min(value, Math.max(0, count - 1))), [count]);
+  useEffect(() => setCursor(from), [from, query]);
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     event.stopPropagation();
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      if (count) setCursor((value) => (value + (event.key === "ArrowDown" ? 1 : count - 1)) % count);
-    } else if (event.key === "Enter" && count) {
+      if (count) setCursor((value) => event.key === "ArrowDown" ? (value + 1) % count : value <= 0 ? count - 1 : value - 1);
+    } else if (event.key === "Enter" && count && cursor >= 0) {
       event.preventDefault();
       pick(cursor);
     }
   };
   return { cursor, onKeyDown };
+}
+
+/** How many characters the query's letters in order span at the tightest, or -1. */
+function spread(value: string, query: string): number {
+  let best = -1;
+  for (let start = value.indexOf(query[0]!); start >= 0; start = value.indexOf(query[0]!, start + 1)) {
+    let at = start;
+    for (const character of query.slice(1)) {
+      at = value.indexOf(character, at + 1);
+      if (at < 0) return best;
+    }
+    if (best < 0 || at - start < best) best = at - start;
+  }
+  return best;
+}
+
+/** Refs whose name holds the query, then those holding its letters in order (`orimain` finds `origin/main`), tightest first. */
+export function rankRefs(refs: readonly UiRef[], query: string): readonly UiRef[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return refs;
+  const score = (name: string) => name.includes(needle) ? name.indexOf(needle) : spread(name, needle) < 0 ? -1 : 1_000 + spread(name, needle);
+  return refs.map((ref) => ({ ref, score: score(ref.name.toLowerCase()) })).filter((entry) => entry.score >= 0)
+    .sort((left, right) => left.score - right.score).map((entry) => entry.ref);
 }
 
 function SearchField({ value, label, autoFocus = true, onChange, onKeyDown }: { value: string; label: string; autoFocus?: boolean; onChange(value: string): void; onKeyDown(event: KeyboardEvent<HTMLInputElement>): void }) {
@@ -33,6 +60,27 @@ function SearchField({ value, label, autoFocus = true, onChange, onKeyDown }: { 
   </div>;
 }
 
+/** The rows of a ref list; `cursor` is the one Enter picks. */
+export function RefRows({ refs, cursor, current, detail, empty, onPick }: {
+  refs: readonly UiRef[];
+  cursor: number;
+  current?: string;
+  detail?(ref: string): string | undefined;
+  empty: ReactNode;
+  onPick(ref: string): void;
+}) {
+  return <VirtualList
+    items={refs}
+    itemHeight={32}
+    className="ref-list"
+    empty={empty}
+    scrollToIndex={cursor >= 0 && cursor < refs.length ? cursor : undefined}
+    renderItem={(ref, index) => <button key={ref.name} type="button" className={ref.name === current || index === cursor ? "selected" : ""} onClick={() => onPick(ref.name)}>
+      <span>{ref.name}</span>{detail ? detail(ref.name) && <small>{detail(ref.name)}</small> : ref.name === current ? <small>current</small> : ref.worktreePath ? <small>worktree</small> : null}
+    </button>}
+  />;
+}
+
 /** Refs to pick from, with the typed name offered as a new one when `create` is given. */
 export function RefList({ refs, current, placeholder, autoFocus, create, detail, onPick }: {
   refs: readonly UiRef[];
@@ -40,29 +88,20 @@ export function RefList({ refs, current, placeholder, autoFocus, create, detail,
   placeholder: string;
   autoFocus?: boolean;
   create?: { label(name: string): ReactNode; onCreate(name: string): void };
-  /** A note after a ref's name in place of current/worktree. */
+  /** A note after a ref's name; given, it replaces current/worktree. */
   detail?(ref: string): string | undefined;
   onPick(ref: string): void;
 }) {
   const [query, setQuery] = useState("");
   const needle = query.trim();
-  const shown = useMemo(() => refs.filter((ref) => !needle || ref.name.toLowerCase().includes(needle.toLowerCase())), [needle, refs]);
+  const shown = useMemo(() => rankRefs(refs, needle), [needle, refs]);
   const offer = create && needle && !refs.some((ref) => ref.name === needle) ? needle : undefined;
   const count = shown.length + (offer ? 1 : 0);
   const pick = (index: number) => (index < shown.length ? onPick(shown[index]!.name) : offer && create?.onCreate(offer));
-  const { cursor, onKeyDown } = useCursor(count, pick);
+  const { cursor, onKeyDown } = useCursor(count, pick, needle);
   return <>
     <SearchField value={query} label={placeholder} {...(autoFocus === undefined ? {} : { autoFocus })} onChange={setQuery} onKeyDown={onKeyDown} />
-    <VirtualList
-      items={shown}
-      itemHeight={32}
-      className="ref-list"
-      empty={offer ? null : <p>No branch matches “{query}”.</p>}
-      scrollToIndex={cursor < shown.length ? cursor : undefined}
-      renderItem={(ref, index) => <button key={ref.name} type="button" className={ref.name === current || index === cursor ? "selected" : ""} onClick={() => onPick(ref.name)}>
-        <span>{ref.name}</span>{detail?.(ref.name) ? <small>{detail(ref.name)}</small> : ref.name === current ? <small>current</small> : ref.worktreePath ? <small>worktree</small> : null}
-      </button>}
-    />
+    <RefRows refs={shown} cursor={cursor} {...(current ? { current } : {})} {...(detail ? { detail } : {})} empty={offer ? null : <p>No branch matches “{query}”.</p>} onPick={onPick} />
     {offer && create ? <div className="ref-list ref-create">
       <button type="button" className={cursor === shown.length ? "selected" : ""} onClick={() => create.onCreate(offer)}><Plus size={13} /><span>{create.label(offer)}</span></button>
     </div> : null}
@@ -90,7 +129,8 @@ export function CheckoutMenu({ sessionId, onDone }: { sessionId?: string; onDone
   if (!info?.isRepo) return <p className="branch-note">Not a Git repository.</p>;
   const done = (changed: Promise<boolean>) => void changed.then((ok) => { if (ok) onDone(); });
   const byPath = new Map(statuses?.map((status) => [status.path, status]));
-  const base = state.worktreeBase?.ref ?? info.branch ?? "HEAD";
+  // Only shown: the host resolves the same default.
+  const base = state.worktreeBase?.ref;
   // A switch rewrites the files under a running turn; ask first. A ref checked out elsewhere only opens that worktree.
   const switchTo = async (ref: string) => {
     const turns = info.refs.some((entry) => entry.name === ref && entry.worktreePath) ? [] : await store.host.checkoutTurns(sessionId, store.workspace()).catch(() => []);
@@ -142,7 +182,7 @@ export function CheckoutMenu({ sessionId, onDone }: { sessionId?: string; onDone
           }}
         ><Trash2 size={12} /></span> : null}
       </button>)}
-      <NewWorktree base={base} onCreate={(name) => done(store.createWorktree(name, base))} />
+      <NewWorktree base={base ?? "the main line"} onCreate={(name) => done(store.createWorktree(name))} />
     </div>
   </div>;
 }

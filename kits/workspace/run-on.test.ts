@@ -1,22 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { branchFromField, fetchedAgo, draftProjectName } from "./run-on.js";
+import { rankRefs } from "./branch-menu.js";
+import { draftProjectName } from "./run-on.js";
 
 describe("a new thread's Run on (design 1k)", () => {
-  it("puts a name under tau/ unless it brings its own folder, and leaves an empty one to the prompt", () => {
-    expect(branchFromField("pagination")).toBe("tau/pagination");
-    expect(branchFromField(" feat/pagination ")).toBe("feat/pagination");
-    expect(branchFromField("tau/x")).toBe("tau/x");
-    expect(branchFromField("  ")).toBe("");
+  it("finds a base by its letters in order, whole hits first", () => {
+    const refs = ["main", "feat/remote-main", "origin/main", "origin/release"].map((name) => ({ name, isCurrent: false }));
+    expect(rankRefs(refs, "orimain").map((ref) => ref.name)).toEqual(["origin/main"]);
+    expect(rankRefs(refs, "main").map((ref) => ref.name)).toEqual(["main", "origin/main", "feat/remote-main"]);
+    expect(rankRefs(refs, "rmain").map((ref) => ref.name)).toEqual(["origin/main", "feat/remote-main"]);
+    // The tighter run of letters first: `orirel` means origin/release, not origin/fix/remote-linking.
+    expect(rankRefs([{ name: "origin/fix/remote-linking", isCurrent: false }, { name: "origin/release", isCurrent: false }], "orirel").map((ref) => ref.name)).toEqual(["origin/release", "origin/fix/remote-linking"]);
+    expect(rankRefs(refs, "  ")).toBe(refs);
+    expect(rankRefs(refs, "pages")).toEqual([]);
   });
 
-  it("says how long ago the default base was fetched", () => {
-    const now = 1_000_000_000;
-    expect(fetchedAgo(undefined, now)).toBeUndefined();
-    expect(fetchedAgo(now - 20_000, now)).toBe("fetched just now");
-    expect(fetchedAgo(now - 2 * 60_000, now)).toBe("fetched 2m ago");
-    expect(fetchedAgo(now - 3 * 3_600_000, now)).toBe("fetched 3h ago");
-    expect(fetchedAgo(now - 2 * 86_400_000, now)).toBe("fetched 2d ago");
-  });
 });
 
 describe("a draft's project subtitle", () => {

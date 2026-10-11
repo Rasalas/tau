@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { Check, ChevronDown, Folder, FolderGit2, GitBranch, Laptop, Server } from "lucide-react";
-import { Popover, Switch, hostHasLocalFiles, tooltipProps, useHostName, useSetting, useThreadStore, type RegionProps, type UiProject, type DraftThread } from "tau";
-import { CheckoutMenu, RefList, ThreadBranch, useWorkspaceState } from "./branch-menu.js";
-import { WORKSPACE_HOST_EXTENSION_ID, type BranchNaming, type DraftMachineSource } from "./protocol.js";
-import { START_FROM_ORIGIN_OPTION } from "./store.js";
+import { Popover, hostHasLocalFiles, tooltipProps, useHostName, useThreadStore, type RegionProps, type UiProject, type UiRef, type DraftThread } from "tau";
+import { CheckoutMenu, RefRows, ThreadBranch, rankRefs, useCursor, useWorkspaceState } from "./branch-menu.js";
+import type { BranchNaming, DraftMachineSource } from "./protocol.js";
 
-/** Where a branch the user names goes unless the name brings its own folder. */
+/** Where a branch named from the prompt or at random goes. */
 export const BRANCH_PREFIX = "tau/";
 
 function useRunning(): number {
@@ -40,38 +39,21 @@ export function useMachineSource(): DraftMachineSource {
   return useWorkspaceState().state.draftMachine ?? hostMachine;
 }
 
-/** `fetched 2m ago`, as "Based on" says of the default base. */
-export function fetchedAgo(at: number | undefined, now: number): string | undefined {
-  if (at === undefined) return undefined;
-  const minutes = Math.max(0, Math.floor((now - at) / 60_000));
-  if (minutes < 1) return "fetched just now";
-  const [value, unit] = minutes < 60 ? [minutes, "m"] : minutes < 1440 ? [Math.floor(minutes / 60), "h"] : [Math.floor(minutes / 1440), "d"];
-  return `fetched ${value}${unit} ago`;
-}
-
-/** A name with a folder of its own is taken whole; anything else goes under `tau/`. */
-export function branchFromField(text: string): string {
-  const name = text.trim();
-  return !name ? "" : name.includes("/") ? name : `${BRANCH_PREFIX}${name}`;
-}
-
-export function BranchField({ touch }: { touch: boolean }) {
+/** The new worktree's branch, taken whole; on desktop it also searches "Based on". */
+export function BranchField({ touch, onKeyDown }: { touch: boolean; onKeyDown?(event: KeyboardEvent<HTMLInputElement>): void }) {
   const { store, state } = useWorkspaceState();
-  const value = state.draftBranch ?? "";
-  const own = value && !value.startsWith(BRANCH_PREFIX);
   return <label className="run-on-field">
     <GitBranch size={13} aria-hidden />
-    {own ? null : <span>{BRANCH_PREFIX}</span>}
     <input
       autoFocus={!touch}
-      value={own ? value : value.slice(BRANCH_PREFIX.length)}
-      placeholder="name it, or leave empty"
+      value={state.draftBranch ?? ""}
+      placeholder={onKeyDown ? "name it, or find a base" : "name it, or leave empty"}
       aria-label="Branch name for the new worktree"
       spellCheck={false}
       autoCapitalize="off"
       autoCorrect="off"
-      onChange={(event) => store.setDraftBranch({ name: branchFromField(event.target.value) })}
-      onKeyDown={(event) => event.stopPropagation()}
+      onChange={(event) => store.setDraftBranch({ name: event.target.value })}
+      onKeyDown={onKeyDown ?? ((event) => event.stopPropagation())}
     />
   </label>;
 }
@@ -95,34 +77,57 @@ function Naming({ touch }: { touch: boolean }) {
   </div>;
 }
 
+/** Reads where a new worktree starts once a worktree draft can show it; the store follows Settings → Base. */
+export function useWorktreeBase(): void {
+  const { store, state } = useWorkspaceState();
+  const wanted = state.draftPending && state.workspaceMode === "worktree" && Boolean(state.workspace?.isRepo) && !state.worktreeBase;
+  useEffect(() => {
+    if (wanted) void store.loadWorktreeBase();
+  }, [store, wanted]);
+}
+
+/** Every base a new worktree can start from: the default first, origin's branches last. */
+export function useBaseRefs(): readonly UiRef[] {
+  const { state } = useWorkspaceState();
+  const base = state.worktreeBase;
+  const known = state.workspace?.refs;
+  return useMemo(() => {
+    const listed = new Set(known?.map((ref) => ref.name));
+    // The checkout's refs list neither.
+    const unlisted = (names: readonly string[]) => names.filter((name) => !listed.has(name)).map((name) => ({ name, isCurrent: false }));
+    return [...unlisted(base ? [base.ref] : []), ...known ?? [], ...unlisted(base?.others ?? [])];
+  }, [base, known]);
+}
+
 /** The draft's new branch: its name, then the base to start from (T3's ref picker plus a name). */
 export function DraftWorktreeBranch({ touch, onPicked }: { touch: boolean; onPicked?(): void }) {
   const { store, state } = useWorkspaceState();
-  const origin = useSetting<boolean>(`options.${WORKSPACE_HOST_EXTENSION_ID}.${START_FROM_ORIGIN_OPTION}`, { defaultValue: true, scope: "both", read: (raw) => typeof raw === "boolean" ? raw : undefined });
   const base = state.worktreeBase;
   const chosen = state.draftBase ?? base?.ref;
-  const refs = useMemo(() => {
-    const known = state.workspace?.refs ?? [];
-    // The default base may be origin's, which the checkout's refs need not list.
-    return base && !known.some((ref) => ref.name === base.ref) ? [{ name: base.ref, isCurrent: false }, ...known] : known;
-  }, [base, state.workspace?.refs]);
+  const refs = useBaseRefs();
+  const needle = state.draftBranch ?? "";
+  const matched = useMemo(() => rankRefs(refs, needle), [refs, needle]);
+  // A name that finds no base leaves every base to pick from.
+  const shown = matched.length ? matched : refs;
+  const pick = (ref: string) => {
+    // Text that found the base was a search, not the new branch's name.
+    store.setDraftBranch({ base: ref === base?.ref ? "" : ref, ...(needle && matched.length ? { name: "" } : {}) });
+    onPicked?.();
+  };
+  const { cursor, onKeyDown } = useCursor(shown.length, (index) => pick(shown[index]!.name), needle, -1);
   return <div className="draft-branch">
     <div className="run-on-heading">New branch</div>
-    <BranchField touch={touch} />
+    <BranchField touch={touch} onKeyDown={onKeyDown} />
     <Naming touch={touch} />
     <div className="run-on-heading">Based on</div>
-    <RefList
-      refs={refs}
+    <RefRows
+      refs={shown}
+      cursor={cursor}
       {...(chosen ? { current: chosen } : {})}
-      placeholder="Search branches…"
-      autoFocus={false}
-      detail={(ref) => ref === base?.ref ? ["default", touch ? undefined : fetchedAgo(base.fetchedAt, Date.now())].filter(Boolean).join(" · ") : undefined}
-      onPick={(ref) => { store.setDraftBranch({ base: ref === base?.ref ? "" : ref }); onPicked?.(); }}
+      detail={(ref) => ref === base?.ref ? "default" : undefined}
+      empty={<p>No branches.</p>}
+      onPick={pick}
     />
-    <label className="branch-worktree draft-branch-origin" {...tooltipProps("Fetch origin and start from its latest commit")}>
-      <span><strong>Start from origin</strong></span>
-      <Switch label="Start from origin" checked={origin.value} onChange={(on) => { origin.set(on); store.setDraftBranch({ base: "" }); void store.loadWorktreeBase(); }} />
-    </label>
   </div>;
 }
 
@@ -132,7 +137,8 @@ function useDraftBranch(): { label: string; base?: string } | undefined {
   const info = state.workspace;
   if (!state.draftPending || !info?.isRepo) return undefined;
   if (state.workspaceMode !== "worktree") return { label: info.branch ?? "detached" };
-  const base = state.draftBase ?? state.worktreeBase?.ref ?? info.branch ?? "HEAD";
+  // Until the default base is read; the checkout's branch is not where a worktree starts.
+  const base = state.draftBase ?? state.worktreeBase?.ref ?? "…";
   return { label: state.draftBranch ?? `${BRANCH_PREFIX}…`, base };
 }
 
@@ -192,9 +198,7 @@ export function DraftCheckout({ snapshot }: RegionProps) {
   const branchAnchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState<"mode" | "branch">();
   const worktree = state.workspaceMode === "worktree";
-  useEffect(() => {
-    if (state.draftPending && worktree && !state.worktreeBase) void store.loadWorktreeBase();
-  }, [state.draftPending, state.worktreeBase, store, worktree]);
+  useWorktreeBase();
   if (!branch) return null;
   const current = MODES.find((entry) => entry.mode === state.workspaceMode) ?? MODES[0];
   const close = () => setOpen(undefined);

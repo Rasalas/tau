@@ -89,9 +89,7 @@ export interface UiWorktreeBase {
   fromOrigin: boolean;
   /** Why the base is not the one that was asked for. */
   note?: string;
-  /** When the remote was last fetched (FETCH_HEAD), for "fetched 2m ago". */
-  fetchedAt?: number;
-  /** A few other remote branches, latest first, for "Based on". */
+  /** origin's other branches, latest first, for "Based on". */
   others?: string[];
 }
 

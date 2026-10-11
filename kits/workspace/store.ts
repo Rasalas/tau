@@ -144,6 +144,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   private sessionId?: string;
   private namer?: WorktreeNamer;
   private defaults?: ProjectDefaults;
+  /** The Settings → Base the shown default base was read with. */
+  private baseFromOrigin?: boolean;
   private commitMessageSuggester?: CommitMessageSuggester;
   private fileEditor?: WorkspaceFileEditor;
   /** Another thread's turn runs in the draft's folder, as the follower last saw it. */
@@ -262,6 +264,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   /** A draft not yet decided follows the default when Settings changes it. */
   followDefaultChanges(): () => void {
     return this.preferences.subscribe(() => {
+      // Settings → Base moves the default base.
+      if (this.state.worktreeBase && this.baseFromOrigin !== this.startFromOrigin()) void this.loadWorktreeBase();
       if (!this.state.draftPending || this.state.worktreeSuggested) return;
       const mode = this.defaultWorkspaceMode();
       if (mode !== this.state.workspaceMode) this.update({ workspaceMode: mode });
@@ -371,9 +375,10 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     if (!hostAvailable() || !this.state.workspace?.isRepo) return;
     const cwd = this.state.cwd;
     try {
-      // The checkout's branch, as a worktree made without a base starts from it.
-      const branch = this.state.workspace.branch;
-      const base = await this.host.getWorktreeBase(this.workspace(), { startFromOrigin: this.startFromOrigin(), ...(branch ? { baseRef: branch } : {}) });
+      // No base asked: the project's main line, as a worktree made without one starts from it.
+      const startFromOrigin = this.startFromOrigin();
+      this.baseFromOrigin = startFromOrigin;
+      const base = await this.host.getWorktreeBase(this.workspace(), { startFromOrigin });
       if (cwd === this.state.cwd) this.update({ worktreeBase: base });
     } catch (error) {
       if (cwd === this.state.cwd) this.notify(errorMessage(error));
@@ -638,7 +643,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     const release = this.actions.holdComposer();
     this.update({ workspaceBusy: true });
     try {
-      const created = await this.host.createWorktree(branch, { ...(baseRef ? { baseRef } : {}), ...this.worktreeOptions() }, this.workspace());
+      const created = await this.host.createWorktree(branch, { ...this.worktreeOptions(), ...(baseRef ? { baseRef, startFromOrigin: false } : {}) }, this.workspace());
       return await this.actions.openWorkspace(created.workspaceId, { inheritDraft: true });
     } catch (error) {
       this.notify(errorMessage(error));
@@ -662,7 +667,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       const named = this.state.draftBranch ?? await this.threadBranchName(event.prompt);
       const branch = event.branchSuffix ? `${named}-${event.branchSuffix}` : named;
       const base = event.baseCommit ?? this.state.draftBase;
-      const created = await this.host.createWorktree(branch, { ...this.worktreeOptions(), ...(base ? { baseRef: base } : {}), ...(event.baseCommit ? { startFromOrigin: false } : {}) }, this.workspace());
+      // A chosen base is taken as named: `main` stays local, `origin/main` is fetched anyway.
+      const created = await this.host.createWorktree(branch, { ...this.worktreeOptions(), ...(base ? { baseRef: base, startFromOrigin: false } : {}) }, this.workspace());
       return { workspace: { workspaceId: created.workspaceId, displayPath: created.displayPath }, ...(created.baseCommit ? { baseCommit: created.baseCommit } : {}) };
     } catch (error) {
       if (this.state.worktreeSuggested) this.draftFellBack = true;
