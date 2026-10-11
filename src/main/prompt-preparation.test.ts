@@ -12,7 +12,7 @@ function makePrompts(assertPromptAllowed?: (level: string) => void) {
   });
 }
 
-const runtimeGate = { assert: vi.fn(async () => undefined), enabled: vi.fn(async () => true) };
+const runtimeGate = { assert: vi.fn(async (_kind: string, _cwd: string) => undefined), enabled: vi.fn(async (_kind: string, _cwd: string) => true) };
 
 function piThread(threadId = "session", supportsImageInput = false, fileAttachments = false) {
   const backend = {
