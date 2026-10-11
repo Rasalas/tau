@@ -46,6 +46,8 @@ export type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protoc
 export { isWorkspaceRelativePath, type WorkspaceRef } from "../shared/workspace-identity.js";
 // Validates transcript file links for their owning host. New in API 1.50.0.
 export { linkedFilePath } from "../shared/linked-file-path.js";
+// The sandboxed document a kit hands to `browserResources.publishFrame`, and the readers for what a document declares. New in the next API version.
+export { FRAME_MAX_HTML_BYTES, readFrameCsp, readFramePermissions, type FrameColorScheme, type SandboxFrameCsp, type SandboxFramePermissions } from "../shared/sandbox-frame.js";
 export type { HostActionResult, TranscriptPage } from "../shared/host-protocol.js";
 // A machine backend follows pushes and pages its home host. New in API 1.42.0.
 export type { HostPushEvent } from "../shared/host-transport.js";

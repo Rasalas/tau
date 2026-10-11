@@ -106,3 +106,75 @@ it("allows scripts only in immutable visualization capabilities with no ambient 
   expect((await store.respond(request(path))).status).toBe(404);
   store.close();
 });
+
+describe("sandbox frame capabilities", () => {
+  const frame = { html: "<!doctype html><p>app</p>", csp: { connectDomains: ["https://api.example.com"] }, colorScheme: "dark" as const };
+
+  it("serves the document under the sandbox and its own policy, and nothing else of the extension's", async () => {
+    const store = new HostBrowserResourceStore();
+    const resources = store.services[BIND_BROWSER_RESOURCES]("codex");
+    expect(() => resources.publishFrame(frame)).toThrow(/client command/);
+    const path = await as("client", async () => resources.publishFrame(frame));
+    expect(path).toMatch(/^\/resources\/[0-9a-f]{64}$/);
+    const result = await store.respond(request(path));
+    expect(result.status).toBe(200);
+    expect(result.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    const csp = result.headers.get("content-security-policy")!;
+    expect(csp.startsWith("sandbox allow-scripts allow-forms;")).toBe(true);
+    expect(csp).not.toContain("allow-same-origin");
+    expect(csp).toContain("connect-src https://api.example.com");
+    expect(csp).not.toContain("'self'");
+    expect(result.headers.get("cache-control")).toBe("private, no-store");
+    expect(result.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(result.headers.get("referrer-policy")).toBe("no-referrer");
+    const body = await result.text();
+    expect(body.startsWith('<!doctype html><meta http-equiv="Content-Security-Policy"')).toBe(true);
+    expect(body).toContain('colorScheme="dark"');
+    expect(body.endsWith("<p>app</p>")).toBe(true);
+    expect((await store.respond(request(path + "?x=1"))).status).toBe(404);
+    expect((await store.respond(request(path, { method: "POST" }))).status).toBe(405);
+    store.close();
+  });
+
+  it("ignores a declared policy that is not well formed", async () => {
+    const store = new HostBrowserResourceStore();
+    const path = await as("client", async () => store.services[BIND_BROWSER_RESOURCES]("codex").publishFrame({ html: "<p></p>", csp: { connectDomains: ["*", "https://ok.example.com; script-src *"] } }));
+    const csp = (await store.respond(request(path))).headers.get("content-security-policy")!;
+    expect(csp).toContain("connect-src 'none'");
+    expect(csp).not.toContain("script-src *");
+  });
+
+  it("is released only by its publisher, and goes with a release, a detach and the clock", async () => {
+    let now = 0;
+    const store = new HostBrowserResourceStore(() => now);
+    const own = store.services[BIND_BROWSER_RESOURCES]("codex");
+    const other = store.services[BIND_BROWSER_RESOURCES]("other");
+    const a = await as("a", async () => own.publishFrame(frame));
+    await as("b", async () => own.release(a));
+    await as("a", async () => other.release(a));
+    expect((await store.respond(request(a))).status).toBe(200);
+    await as("a", async () => own.release(a));
+    expect((await store.respond(request(a))).status).toBe(404);
+    const b = await as("a", async () => own.publishFrame(frame));
+    store.detach("a");
+    expect((await store.respond(request(b))).status).toBe(404);
+    const c = await as("a", async () => own.publishFrame(frame));
+    now = 10 * 60_000 - 1;
+    expect((await store.respond(request(c))).status).toBe(200);
+    now = 10 * 60_000;
+    expect((await store.respond(request(c))).status).toBe(404);
+  });
+
+  it("refuses a document that is not a string or is over the limit, and the unbound stub", async () => {
+    const store = new HostBrowserResourceStore();
+    const resources = store.services[BIND_BROWSER_RESOURCES]("codex");
+    await as("client", async () => {
+      expect(() => resources.publishFrame({ html: "x".repeat(5 * 1024 * 1024 + 1) })).toThrow(/too large/);
+      expect(() => resources.publishFrame({ html: "é".repeat(3 * 1024 * 1024) })).toThrow(/too large/);
+      expect(() => resources.publishFrame({ html: 5 as never })).toThrow(/too large/);
+      expect(() => resources.publishFrame({ html: "x".repeat(5 * 1024 * 1024) })).not.toThrow();
+      expect(() => store.services.publishFrame(frame)).toThrow(/extension/);
+    });
+    store.close();
+  });
+});

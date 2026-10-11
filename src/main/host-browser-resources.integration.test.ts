@@ -26,4 +26,16 @@ describe("browser resources over the host's HTTP listener", () => {
     resources.close();
     expect((await fetch(base + path)).status).toBe(404);
   });
+
+  it("serves a sandbox frame over HTTP with its sandbox header", async () => {
+    const resources = new HostBrowserResourceStore();
+    transport = await startSocketHostTransport({ listen: "127.0.0.1:0", attachTo: createServer((_request, response) => response.end("static")), browserResources: resources, methods: {}, pushLog: new HostPushLog(), hostVersion: "test", capabilities: [], token: "test-secret" });
+    const path = await runAsCaller({ kind: "workbench-client", connection: "test" }, async () => resources.services[BIND_BROWSER_RESOURCES]("kit").publishFrame({ html: "<p>app</p>" }));
+    const response = await fetch(`http://127.0.0.1:${transport.port}${path}`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-security-policy")).toMatch(/^sandbox allow-scripts allow-forms; default-src 'none'/);
+    expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(await response.text()).toMatch(/^<!doctype html><meta .*<p>app<\/p>$/s);
+    resources.close();
+  });
 });

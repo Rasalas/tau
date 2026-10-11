@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useColorScheme } from "../use-color-scheme";
 import { RESOURCE_UNAVAILABLE, resourceRelativePath, transcriptFilePath, useWorkspaceResources } from "../workspace-resource-context";
 import type { VisualizationReference } from "./visualization-markers";
 
@@ -10,15 +11,7 @@ export function visualizationRelativePath(path: string, displayPath?: string): s
   return resourceRelativePath(relative);
 }
 
-/** Custom themes declare a single CSS scheme; system themes follow the device. */
-export function visualizationTheme(): "light" | "dark" {
-  const root = document.documentElement;
-  const preference = root.dataset.theme;
-  if (preference === "light" || preference === "dark") return preference;
-  const scheme = getComputedStyle(root).colorScheme.trim();
-  if (scheme === "light" || scheme === "dark") return scheme;
-  return globalThis.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
+export { currentColorScheme as visualizationTheme } from "../use-color-scheme";
 
 export function InlineVisualization({ reference }: { reference: VisualizationReference }) {
   const resources = useWorkspaceResources();
@@ -28,18 +21,10 @@ export function InlineVisualization({ reference }: { reference: VisualizationRef
   const [height, setHeight] = useState(600);
   const [expanded, setExpanded] = useState(false);
   const [readyUrl, setReadyUrl] = useState<string>();
-  const [theme, setTheme] = useState<"light" | "dark">(visualizationTheme);
+  const theme = useColorScheme();
   let path: string | undefined;
   try { path = visualizationRelativePath(reference.path, resources?.displayPath); } catch { /* Render guidance. */ }
 
-  useEffect(() => {
-    const update = () => setTheme(visualizationTheme());
-    const observer = new MutationObserver(update);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "style"] });
-    const media = globalThis.matchMedia?.("(prefers-color-scheme: dark)");
-    media?.addEventListener("change", update);
-    return () => { observer.disconnect(); media?.removeEventListener("change", update); };
-  }, []);
   useEffect(() => {
     const element = dialog.current;
     if (!element) return;

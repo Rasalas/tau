@@ -465,6 +465,13 @@ so a card is what to reach for when the thing a tool started outlives the turn
 that started it; Agents Kit's spawn card is the caller that motivated it. A
 tool a card claims is not offered to `registerToolRenderer`.
 
+`UiToolRun.extras` (new in the next API version) is JSON a kit attaches to a
+tool run, a plain object of 4 KB or less (a larger one is dropped when the
+turn is saved). A kit's backend sets it on `tool-start` or `tool-end`; the
+host keeps it through the turn's record, restarts and pushes, and a card's or
+renderer's `match` can read it (`tool.extras?.["my.kit.key"]`). Core never
+reads it; prefix keys with the kit's id.
+
 Both see a tool as clients receive it. A settled tool whose output is longer
 than 16 KB comes without `output`: `outputDeferred` is true and
 `outputLength` says how many characters the host holds back. A card that needs
@@ -1598,6 +1605,7 @@ are Tau's own, not a component library; the reasons and the numbers are in
 | `ConfirmDialog` | A yes-or-no question on `Dialog`: `title`, `message`, `confirmLabel` (`destructive` draws it red; `icon` goes before its label, API 1.38.0), `cancelLabel`, and with `dontAskAgain` a box whose state `onConfirm(dontAskAgain)` hears; `onCancel` on Cancel, Escape or the scrim. The action has focus, so Enter answers it. Thread Rail's delete, archive and unpin questions and core's quit question use it (API 1.12.0). |
 | `Popover` | A card beside an element (`anchor`, a ref) or a point, `side` and `align` preferred and flipped or shifted to stay in the window; a press outside it or Escape closes it, and focus goes back. |
 | `Sheet` | A modal sheet from the bottom edge for a compact client (phone, tablet), where a desktop would use a `Dialog` or a `Popover`: `title`, `className`, `onClose` and the content as children. It has a grip, the title and a 44 px close button on top; the content scrolls under them. The X, Escape, the scrim and a pull down close it; the pull starts anywhere but on a control, and inside the content only once it is scrolled to the top. Review Kit's filters for the Pull Requests page on a phone use it. |
+| `SandboxFrame`, `useColorScheme()` | New in the next API version. A document a host serves, drawn in an opaque-origin frame (ADR 0032). `src` is the capability URL (`host.resourceUrl(path)`); the frame keeps the first non-empty one for its whole life, because a changed `src` would reload the app, and renders nothing while it is `undefined`. `title`, `permissions` (`SandboxFramePermissions`, becomes the `allow` attribute and nothing else is delegated), `height` (what the document asked for, clamped to 80..2000 px, 320 by default, `clampFrameHeight` is exported), `bordered`, `label`, `stoppedLabel`, `onWidth(width)` (the box's width in CSS px as it changes). The frame is `sandbox="allow-scripts allow-forms"`: never `allow-same-origin`, popups or top navigation, no `srcdoc`, `referrerPolicy="no-referrer"`. `onMessage(data)` hears only messages whose `event.source` is this frame's own window; answer with `handleRef`'s `post(message)`, which targets `"*"` (an opaque origin has no other target) and does nothing before the document loaded or spoke, after it stopped or after unmount. The frame is locked to the document that was served: a second `load` means it navigated itself away, so `onStopped()` runs, a notice replaces the frame and nothing more is delivered; mount it again with a different `key` to open the document anew. The handle also has `hasUserActivation()` (true only while the frame has focus and `navigator.userActivation.isActive`: the one moment to open a link the app asked for, through your own code), `width()` and `size()`. `fullscreen` is controlled: the same box moves to the top layer with the Popover API, so the iframe is not reloaded and the app keeps its state; Escape pressed outside the document, focus moving outside the box and the exit button call `onFullscreenChange(false)`, and where the browser has no Popover API the frame ignores `fullscreen` and stays inline. `useColorScheme()` answers `"light"` or `"dark"` for the workbench, live (theme, a custom theme's `color-scheme`, the OS preference); the frame sets its `color-scheme` from it and tells the document on every change after it loaded (the bootstrap the host serves with it listens for that message, from its parent only). |
 | `FileSource` | A text file as a file tab shows it (API 1.20.0): `content` (a `UiFileContent` of kind `text`, as a document source's `loadFile` answers), line numbers, highlighting while the file is under 200 KB and its language known, the note for a truncated file, and `line` marked and scrolled to (`reveal` counts requests for the same line). The Files panel reads a file with it in a phone's sheet. |
 | `useFocusReturn(active, ref?, fallback?)`, `useFocusTrap(ref, active?)` | The two halves of the above for a surface of your own: give focus back to what had it when `active` turned on (`fallback` when that element is gone), and keep Tab inside. The palette, the model picker and the project picker use them. |
 | `useEscapeLayer(onClose, active?)` | Escape for a floating surface of your own: while `active` it closes on Escape when it is the topmost overlay, before anything under it (Stop, a panel) hears the key, as `Dialog`, `Popover` and `Menu` do. New in API 1.17.0. |
@@ -3566,6 +3574,29 @@ retain their defaults and can use `NODE_EXTRA_CA_CERTS` for private authorities.
 This callback interface is absent in worker-isolated extensions and transports
 without an HTTP listener. On expiry, mint a new capability rather than reusing
 its URL.
+
+`browserResources.publishFrame({ html, csp?, colorScheme? })` (new in the next
+API version) publishes a document for a client to frame, with the same
+capability path, ten-minute lifetime, release and detach rules as above. It
+serves `html` (5 MiB at most; a larger or non-string value throws) as
+`text/html; charset=utf-8` with a `content-security-policy` of
+`sandbox allow-scripts allow-forms` and the document's own policy, in place of
+the generic header. There is no `allow-same-origin`, so the page has an opaque
+origin and no access to the workbench's storage or host connection. `csp`
+lists the origins the document needs (`connectDomains`, `resourceDomains`,
+`frameDomains`, `baseUriDomains`); core keeps `scheme://host[:port]` entries
+only, at most 32 per list, and never allows `'self'`. Pass what you read
+through `readFrameCsp` if it came from a third party. Core inserts the
+doctype if missing, then the same policy as a `<meta>`, a script that sets the
+document's colour scheme (`colorScheme`, `"light"` by default) and a guard that
+makes `document.cookie` read as empty, ahead of the document's own markup.
+The frame loads the path once and keeps its document; a remounted frame needs a
+new path. Other headers are as for `publish`.
+
+Kits import the supporting types and functions from `tau/host-extension` (new
+in the next API version): `SandboxFrameDocument`, `SandboxFrameCsp`,
+`SandboxFramePermissions`, `FrameColorScheme`, `readFrameCsp`,
+`readFramePermissions` and `FRAME_MAX_HTML_BYTES`.
 
 Review Kit uses this interface for private forge uploads. Its module owns
 upload parsing, CLI credential discovery, HTTPS API validation, redirect policy

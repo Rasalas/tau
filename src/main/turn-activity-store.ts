@@ -31,6 +31,14 @@ function fileName(threadId: string): string {
   return SAFE_ID.test(threadId) ? `${threadId}.jsonl` : `${createHash("sha256").update(threadId).digest("hex").slice(0, 40)}.jsonl`;
 }
 
+const MAX_EXTRAS_JSON = 4096;
+
+/** Kit-owned JSON on a tool run: a plain object, kept whole or not at all. */
+function extrasOf(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  try { return (JSON.stringify(value)?.length ?? Infinity) <= MAX_EXTRAS_JSON ? value as Record<string, unknown> : undefined; } catch { return undefined; }
+}
+
 function tool(value: unknown): UiToolRun | undefined {
   const item = value as Partial<UiToolRun> | undefined;
   if (!item || typeof item.id !== "string" || typeof item.name !== "string" || typeof item.startedAt !== "number") return undefined;
@@ -41,6 +49,7 @@ function tool(value: unknown): UiToolRun | undefined {
     name: item.name,
     ...(item.kind === "subagent" ? { kind: item.kind } : {}),
     args,
+    ...(extrasOf(item.extras) ? { extras: extrasOf(item.extras)! } : {}),
     ...(Array.isArray(item.media) ? { media: item.media.filter((media) => media && ["image", "audio", "video"].includes(media.type) && typeof media.url === "string") } : {}),
     status: item.status,
     startedAt: item.startedAt,
@@ -170,7 +179,7 @@ export class TurnActivityStore {
       for (const run of entry.tools) {
         const kept = this.clipped(run);
         const signature = kept.kind === "subagent" ? createHash("sha256").update(JSON.stringify(kept)).digest("hex")
-          : `${kept.status}:${kept.endedAt ?? ""}:${kept.output?.length ?? 0}:${Object.keys(kept.args).length}:${kept.media?.length ? createHash("sha256").update(JSON.stringify(kept.media)).digest("hex") : ""}`;
+          : `${kept.status}:${kept.endedAt ?? ""}:${kept.output?.length ?? 0}:${Object.keys(kept.args).length}:${kept.media?.length ? createHash("sha256").update(JSON.stringify(kept.media)).digest("hex") : ""}:${kept.extras ? JSON.stringify(kept.extras) : ""}`;
         if (known.tools.get(run.id) === signature) continue;
         lines.push({ turn: key, tool: kept });
         known.tools.set(run.id, signature);
@@ -196,6 +205,7 @@ export class TurnActivityStore {
       name: run.name,
       ...(run.kind ? { kind: run.kind } : {}),
       args,
+      ...(extrasOf(run.extras) ? { extras: extrasOf(run.extras)! } : {}),
       ...(run.media?.length ? { media: run.media } : {}),
       status: run.status,
       startedAt: run.startedAt,

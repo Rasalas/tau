@@ -174,7 +174,8 @@ function remember(thread: ThreadRuntime, message: UiMessage): void {
 
 function finishTool(tool: UiToolRun, thread: ThreadRuntime, services: BackendEventServices): void {
   const previous = thread.tools.get(tool.id);
-  const ended: UiToolRun = { ...tool, args: Object.keys(tool.args).length > 0 ? tool.args : previous?.args ?? {}, startedAt: previous?.startedAt ?? tool.startedAt, endedAt: tool.endedAt ?? Date.now() };
+  const extras = tool.extras ?? previous?.extras;
+  const ended: UiToolRun = { ...tool, ...(extras ? { extras } : {}), args: Object.keys(tool.args).length > 0 ? tool.args : previous?.args ?? {}, startedAt: previous?.startedAt ?? tool.startedAt, endedAt: tool.endedAt ?? Date.now() };
   recordTool(thread, ended);
   saveActivity(thread, services);
   services.turnObservers.toolEnded(thread.threadId, ended, thread.cwd);
