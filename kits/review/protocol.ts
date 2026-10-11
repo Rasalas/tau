@@ -155,6 +155,8 @@ export interface ProviderCapabilities {
   deleteBranch: boolean;
   /** Requests stacked on one another, merged and rebased as one. */
   stacks: boolean;
+  /** A review guide can be written for the request (ADR 0032); the head fetch is written for GitHub first. */
+  guides: boolean;
 }
 
 /** How a provider is named in the UI, and what it can do. */
@@ -176,7 +178,7 @@ const EVERYTHING: ProviderCapabilities = {
   conversations: true, lineComments: true, replies: true, resolve: true,
   reviewEvents: ["comment", "approve", "request-changes"], editComments: ["comment", "review", "review-comment"],
   reviewers: true, labels: true, viewed: "host", publish: true,
-  autoMerge: true, revert: true, deleteBranch: true, stacks: true,
+  autoMerge: true, revert: true, deleteBranch: true, stacks: true, guides: true,
 };
 
 const plainUrl = (host: string, repo: string) => `https://${host}/${repo}`;
@@ -186,17 +188,17 @@ export const PROVIDERS: Readonly<Record<RequestService, ProviderInfo>> = {
   gitlab: {
     kind: "gitlab", name: "GitLab", noun: "merge request", short: "MR", checkout: (number) => `glab mr checkout ${number}`, repositoryUrl: plainUrl,
     // GitLab's API has no "request changes"; viewed marks are kept by the kit.
-    capabilities: { ...EVERYTHING, reviewEvents: ["comment", "approve"], viewed: "local", revert: false, stacks: false },
+    capabilities: { ...EVERYTHING, reviewEvents: ["comment", "approve"], viewed: "local", revert: false, stacks: false, guides: false },
   },
   forgejo: {
     kind: "forgejo", name: "Forgejo", noun: "pull request", short: "PR", checkout: (number) => `tea pr checkout ${number}`, repositoryUrl: plainUrl,
-    capabilities: { ...EVERYTHING, replies: false, resolve: false, editComments: ["comment"], viewed: "local", publish: false, autoMerge: false, revert: false, stacks: false },
+    capabilities: { ...EVERYTHING, replies: false, resolve: false, editComments: ["comment"], viewed: "local", publish: false, autoMerge: false, revert: false, stacks: false, guides: false },
   },
   bitbucket: {
     kind: "bitbucket", name: "Bitbucket", noun: "pull request", short: "PR", repositoryUrl: plainUrl,
     capabilities: {
       ...EVERYTHING, merge: ["merge", "squash"], resolve: false, editComments: ["comment", "review-comment"], reviewers: false, labels: false, viewed: "local", publish: false,
-      autoMerge: false, revert: false, stacks: false,
+      autoMerge: false, revert: false, stacks: false, guides: false,
     },
   },
   "azure-devops": {
@@ -208,7 +210,7 @@ export const PROVIDERS: Readonly<Record<RequestService, ProviderInfo>> = {
     // `az` gives no diff and no labels; conversations and comments go through `az devops invoke`.
     capabilities: {
       ...EVERYTHING, merge: ["squash", "merge"], files: false, lineComments: false, reviewEvents: ["approve", "request-changes"],
-      editComments: [], labels: false, viewed: "local", publish: false, revert: false, stacks: false,
+      editComments: [], labels: false, viewed: "local", publish: false, revert: false, stacks: false, guides: false,
     },
   },
 };
