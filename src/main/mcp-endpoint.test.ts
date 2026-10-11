@@ -266,6 +266,19 @@ describe("the host's MCP endpoint", () => {
     expect(runs).toEqual([{ name: "asked", input: { text: "z" } }, { name: "free", input: { text: "w" } }]);
   });
 
+  it("hands a gate the tool's own hints", async () => {
+    const seen: unknown[] = [];
+    const annotated = { ...echo("annotated"), annotations: { readOnlyHint: true } };
+    const { mcp } = endpoint({
+      providers: [() => [annotated, echo("plain")]],
+      gates: [(call) => { seen.push([call.toolName, call.annotations]); return undefined; }],
+    });
+    const session = await connectClient((await mcp.connect({ sessionId: "thread-a", cwd: "/project" }))!);
+    await session.callTool({ name: "annotated", arguments: { text: "x" } });
+    await session.callTool({ name: "plain", arguments: { text: "y" } });
+    expect(seen).toEqual([["annotated", { readOnlyHint: true }], ["plain", undefined]]);
+  });
+
   it("fails closed when a gate throws", async () => {
     const runs: unknown[] = [];
     const { mcp } = endpoint({

@@ -874,6 +874,8 @@ export interface HostMcpToolCall {
   readonly cwd: string;
   readonly toolName: string;
   readonly input: Record<string, unknown>;
+  /** The tool's own hints (`readOnlyHint`, `destructiveHint`), when it declares any. */
+  readonly annotations?: HostMcpTool["annotations"];
   /** Aborts when the runtime cancels the call or its thread closes. */
   readonly signal: AbortSignal;
   /** Asks the user on the thread's own dialog surface; a cancelled question is `false`. */

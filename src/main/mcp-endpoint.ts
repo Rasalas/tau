@@ -195,7 +195,7 @@ export class McpEndpoint {
       } catch (error) {
         return failure(messageOf(error));
       }
-      const refusal = await this.gate(thread, name, args, controller.signal);
+      const refusal = await this.gate(thread, tool, args, controller.signal);
       if (refusal) return failure(refusal);
       const run = () => this.execute(tool, args, controller.signal);
       return tool.executionMode === "sequential" ? await this.inSequence(thread.sessionId, run) : await run();
@@ -208,7 +208,8 @@ export class McpEndpoint {
   }
 
   /** The first gate that blocks names the reason; a gate that fails blocks too. */
-  private async gate(thread: RuntimeSessionInfo, toolName: string, input: Record<string, unknown>, signal: AbortSignal): Promise<string | undefined> {
+  private async gate(thread: RuntimeSessionInfo, tool: HostMcpTool, input: Record<string, unknown>, signal: AbortSignal): Promise<string | undefined> {
+    const toolName = tool.name;
     for (const gate of [...this.options.gates()]) {
       try {
         const verdict = await gate({
@@ -216,6 +217,7 @@ export class McpEndpoint {
           cwd: thread.cwd,
           toolName,
           input,
+          ...(tool.annotations ? { annotations: tool.annotations } : {}),
           signal,
           confirm: (title, message) => this.options.confirm(thread.sessionId, title, message, signal),
         });

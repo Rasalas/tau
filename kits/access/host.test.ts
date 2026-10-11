@@ -110,11 +110,12 @@ describe("Access Kit host extension", () => {
     await registry.activate({ id: "tau.agents", name: "Agents", activate: (context) => { agents = context; } });
     const asked: string[] = [];
     let approve = false;
-    const call = (toolName: string, threadId = "codex-thread") => gates[0]!({
+    const call = (toolName: string, threadId = "codex-thread", annotations?: HostMcpToolCall["annotations"]) => gates[0]!({
       threadId,
       cwd: "/project",
       toolName,
       input: { threadId: "child-1" },
+      ...(annotations ? { annotations } : {}),
       signal: new AbortController().signal,
       confirm: async (title, message) => { asked.push(`${title} ${message}`); return approve; },
     } satisfies HostMcpToolCall);
@@ -125,6 +126,10 @@ describe("Access Kit host extension", () => {
 
     await registry.invoke(ACCESS_HOST_EXTENSION_ID, "set-level", { level: "ask" });
     await expect(call("preview_snapshot")).resolves.toBeUndefined();
+    // A kit's tool that declares itself mutating is asked about, one that declares nothing is not.
+    await expect(call("kit_publish", "codex-thread", { readOnlyHint: false })).resolves.toEqual({ block: true, reason: "Blocked by Tau: kit_publish was not approved." });
+    await expect(call("kit_list")).resolves.toBeUndefined();
+    asked.length = 0;
     await expect(call("tau_apply_thread_changes")).resolves.toEqual({ block: true, reason: "Blocked by Tau: tau_apply_thread_changes was not approved." });
     expect(asked).toEqual(["Wants to apply an agent's work Apply the changes of thread child-1"]);
     approve = true;

@@ -51,7 +51,7 @@ export function createAccessHostExtension(initialLevel: AccessLevel = DEFAULT_AC
       const onBlocked = (toolName: string, reason: string) => services.log("access.blocked", `${toolName}: ${reason}`);
       services.registerRuntimeExtension("tau-access", createAccessExtension({ level: levelFor, onBlocked }));
       // Tau's own tools reach other runtimes over MCP; the same decision gates them there.
-      const releaseMcpGate = services.mcp.gate((call) => gateToolCall(levelFor(call.threadId), call.toolName, call.input, call.confirm, onBlocked));
+      const releaseMcpGate = services.mcp.gate((call) => gateToolCall(levelFor(call.threadId), call.toolName, call.input, call.confirm, onBlocked, { origin: "tau", annotations: call.annotations }));
       services.setPermissionLevel(() => level);
       context.registerCommand("level", () => level, { access: "read" });
       context.registerCommand("set-level", (input) => {

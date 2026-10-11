@@ -28,10 +28,61 @@ const READ_ONLY_COMPUTER_USE_TOOLS = new Set([
   "end_session",
 ]);
 
-export function isMutatingToolCall(
+/** Names Pi and Tau own; a tool from another source that takes one never gets a read-only pass. */
+const RESERVED_READ_TOOLS = new Set(["read", "grep", "find", "ls", "tool_search"]);
+const RESERVED_PREFIXES = ["computer_use_", "tau_"];
+
+/** What a tool says about itself, in the meaning of MCP tool annotations. */
+export interface ToolHints {
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+}
+
+/**
+ * Where a tool really comes from and what it claims. `tau` is Tau's own surface (host
+ * extensions, Pi's core tools); anything else is `foreign` and is judged by its hints.
+ */
+export interface ToolMetadata {
+  origin: "tau" | "foreign";
+  annotations?: ToolHints;
+}
+
+/** The registered tool as Pi's `getAllTools()` lists it; structural so a test needs no Pi. */
+interface RegisteredToolInfo {
+  name: string;
+  annotations?: ToolHints;
+  sourceInfo?: { path?: string; source?: string };
+}
+
+/**
+ * Whether the registry entry is what it claims: a path no extension file can have
+ * (`<inline:…>` is a host-contributed runtime extension, `builtin:<name>` a Pi core tool).
+ */
+function isTauOwned(tool: RegisteredToolInfo): boolean {
+  const { path, source } = tool.sourceInfo ?? {};
+  if (source === "inline") return typeof path === "string" && path.startsWith("<inline:");
+  if (source !== "builtin") return false;
+  return path === `builtin:${tool.name}` || (tool.name === "tool_search" && path === "builtin:tool-search");
+}
+
+/**
+ * Reads a tool's origin and hints off the live registry. `undefined` when the
+ * runtime offers no registry or no such tool is registered: the name policy alone
+ * applies then, and a call to a tool that does not exist runs nothing anyway.
+ */
+export function toolMetadataOf(
+  getAllTools: (() => readonly RegisteredToolInfo[]) | undefined,
   toolName: string,
-  input: Record<string, unknown>,
-): boolean {
+): ToolMetadata | undefined {
+  if (typeof getAllTools !== "function") return undefined;
+  let tools: readonly RegisteredToolInfo[];
+  try { tools = getAllTools(); } catch { return { origin: "foreign" }; }
+  const tool = tools.find((candidate) => candidate.name === toolName);
+  if (!tool) return undefined;
+  return { origin: isTauOwned(tool) ? "tau" : "foreign", ...(tool.annotations ? { annotations: tool.annotations } : {}) };
+}
+
+function mutatesByName(toolName: string, input: Record<string, unknown>): boolean {
   if (MUTATING_TOOLS.has(toolName)) return true;
   if (!toolName.startsWith("computer_use_")) return false;
 
@@ -41,6 +92,24 @@ export function isMutatingToolCall(
   if (operation === "page") return input.action !== "get_text" && input.action !== "query_dom";
   if (operation === "browser_dialog") return input.action !== "inspect";
   return true;
+}
+
+/**
+ * The one classification behind every gate. Tau's own tools keep the name policy; a
+ * tool from elsewhere runs unasked only when its own hint says read-only and it takes
+ * no name Tau or Pi owns. A hint that says "mutates" is believed from anyone.
+ */
+export function isMutatingToolCall(
+  toolName: string,
+  input: Record<string, unknown>,
+  metadata: ToolMetadata = { origin: "tau" },
+): boolean {
+  if (mutatesByName(toolName, input)) return true;
+  const hints = metadata.annotations;
+  if (hints?.destructiveHint === true || hints?.readOnlyHint === false) return true;
+  if (metadata.origin === "tau") return false;
+  if (RESERVED_READ_TOOLS.has(toolName) || RESERVED_PREFIXES.some((prefix) => toolName.startsWith(prefix))) return true;
+  return hints?.readOnlyHint !== true;
 }
 
 /** Short human-readable description of what a tool is about to do. */
@@ -76,8 +145,9 @@ export async function gateToolCall(
   input: Record<string, unknown>,
   confirm: (title: string, message: string) => Promise<boolean>,
   onBlocked: AccessControl["onBlocked"],
+  metadata?: ToolMetadata,
 ): Promise<{ block: true; reason: string } | undefined> {
-  if (level === "full" || !isMutatingToolCall(toolName, input)) return undefined;
+  if (level === "full" || !isMutatingToolCall(toolName, input, metadata)) return undefined;
   // Tau has no reviewer of its own: at `auto` it asks, as at `ask`.
   if (level === "read-only") {
     const reason = `Blocked by Tau: this thread is read-only, so ${toolName} cannot run.`;
@@ -98,12 +168,16 @@ export async function gateToolCall(
  */
 export function createAccessExtension(control: AccessControl): (pi: Parameters<ExtensionFactory>[0], session?: { sessionId: string }) => void {
   return (pi, session) => {
-    pi.on("tool_call", (event: ToolCallEvent, ctx): Promise<ToolCallEventResult | undefined> => gateToolCall(
-      control.level(session?.sessionId),
-      event.toolName,
-      event.input as Record<string, unknown>,
-      (title, message) => ctx.ui.confirm(title, message, { signal: ctx.signal }),
-      control.onBlocked,
-    ));
+    pi.on("tool_call", (event: ToolCallEvent, ctx): Promise<ToolCallEventResult | undefined> => {
+      const level = control.level(session?.sessionId);
+      return gateToolCall(
+        level,
+        event.toolName,
+        event.input as Record<string, unknown>,
+        (title, message) => ctx.ui.confirm(title, message, { signal: ctx.signal }),
+        control.onBlocked,
+        level === "full" ? undefined : toolMetadataOf(pi.getAllTools?.bind(pi), event.toolName),
+      );
+    });
   };
 }
