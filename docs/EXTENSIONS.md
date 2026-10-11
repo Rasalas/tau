@@ -722,12 +722,18 @@ order and before the user's text:
 | `kind` | `payload` | Sent as |
 |---|---|---|
 | `file` | `{ path, startLine?, endLine? }`, workspace-relative, lines 1-based | `<file path="…" lines="a-b">…</file>`, read at send time, 200 KB at most |
-| `text-excerpt` | `{ source, text, comment? }` | `From <source>:` and the text as a `>` quote, then `My comment on this excerpt: <comment>` when the user wrote one in the chip's popover |
+| `text-excerpt` | `{ source, text, comment?, messageId? }` | `<excerpt>` … `</excerpt>` around `From <source>:`, the text as a `>` quote, then `My comment on this excerpt: <comment>` when the user wrote one in the chip's popover; `messageId` (the transcript message the text was taken from) becomes the tag's `message` attribute |
 | `pull-request` | `{ number, title, url, branch? }` | `Pull request [#n](url): title` |
 | `attachment` | `{ name, mimeType, size, path? }`, `path` on the host | a `kind: "file"` attachment for a runtime that opens files; otherwise the text inline (200 KB at most) or, for anything else, a sentence naming the path |
 
 Composer Context fills `chips`, so its chips sit in the text; a click on an
-excerpt opens it in full with a field for the user's comment on it. A draft's
+excerpt opens it in full with a field for the user's comment on it. Once sent,
+the kit draws the `<excerpt>` block of the user's message itself
+(`registerMessageBlock`, roles `user`): a chip above the bubble that reads as the
+comment, else the start of the quote, with a popover holding the source, the
+quote (scrolling) and the comment, and "Go to source" when `messageId` names
+a message of this thread. A prompt written before the tag existed shows as a
+plain Markdown quote. A draft's
 chips persist with its text (the `draftState` slot above) and go when
 the prompt was accepted; a refused prompt puts them back. An attachment whose
 upload the connection lost after its three retries is uploaded again, from the
@@ -798,11 +804,39 @@ fences. `Component` gets `body` (what stands between the tags), `complete`
 changed, so the block survives a restart wherever the runtime keeps text.
 Plan Kit draws `proposed_plan` as a plan card this way.
 
+The opening tag may carry attributes — `<tag name="value" other="…">` on a line
+of its own, values escaping `&`, `"` and `<` as `&amp;`, `&quot;` and `&lt;` — and
+`Component` gets them as `attributes` (`{}` for a bare tag; new after API 1.59.0).
+Anything else on the line leaves it text. Composer Context sends an excerpt as
+`<excerpt message="<id>">` this way.
+
 `roles` says whose messages the block is drawn in: assistant replies when it
 is absent, `["user"]` for context a prompt carries. A user message draws its
 blocks above the bubble and keeps them out of the text the bubble shows, so a
 long piece of handed-over context reads as one folded card instead of a wall
 of text. Handoff Kit draws `handoff_context` and `merge_back_context` this way.
+
+#### Find in the thread, and revealing a message (new after API 1.59.0)
+
+The transcript's find (⌘F, `/`) looks through the turns a client has loaded.
+`registerTranscriptFinder({ id, find({ sessionId, query }) })` lets a package
+answer for the whole thread: `find` resolves the ids of the thread's messages
+that hold the query, oldest first, under the ids the transcript draws. The
+find asks it 200 ms after the last keystroke, shows its own loaded matches
+meanwhile, and falls back to them when `find` rejects. The last finder
+registered wins. Search Kit's is the shipped one: its `find-in-thread` host
+command reads `services.transcript(sessionId)`, so it needs no session file and
+finds plan text inside a reply (the plan is part of the reply's text).
+`HostThread.transcript()` answers under the ids the client draws (a Pi
+thread's session entry ids), so an id a host half names is one the window
+knows.
+
+A match in a turn that is not loaded is reached by loading older turns until
+it is there, then scrolling to it. `actions.revealMessage?.(messageId)` does
+that for any caller: it resolves true once the message is in view (its row
+flashes) and false when the thread has no such message. Prompt Tools' "Cite"
+records the cited reply's id in the excerpt chip (`messageId`), and the sent
+excerpt's "Go to source" calls it.
 
 #### The thread's interaction mode (new in API 1.11.0)
 
