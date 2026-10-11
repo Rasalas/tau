@@ -129,6 +129,8 @@ export interface ProviderCapabilities {
   checks: boolean;
   /** The diff, so the view has a Code tab. */
   files: boolean;
+  /** The text of a file at the request's head, so the diff can show unchanged lines. */
+  fileContents: boolean;
   /** Conversations anchored on lines of the diff. */
   conversations: boolean;
   /** A new comment on a line, posted at once or held for a review. */
@@ -170,7 +172,7 @@ export interface ProviderInfo {
 }
 
 const EVERYTHING: ProviderCapabilities = {
-  create: true, edit: true, draft: true, merge: ["squash", "merge", "rebase"], checks: true, files: true,
+  create: true, edit: true, draft: true, merge: ["squash", "merge", "rebase"], checks: true, files: true, fileContents: true,
   conversations: true, lineComments: true, replies: true, resolve: true,
   reviewEvents: ["comment", "approve", "request-changes"], editComments: ["comment", "review", "review-comment"],
   reviewers: true, labels: true, viewed: "host", publish: true,
@@ -473,6 +475,13 @@ export interface PullRequestFile {
   added: number;
   removed: number;
   viewed: PullRequestViewedState;
+}
+
+/** One file's text at the request's head commit, for the lines a diff leaves out. */
+export interface PullRequestFileText {
+  path: string;
+  sha: string;
+  text: string;
 }
 
 export interface PullRequestFiles {
