@@ -13,7 +13,10 @@
 // with `wait <ms>` pauses that long before each step; one with `ask` asks a
 // single-choice question (AskUserQuestion, through `can_use_tool`) instead and
 // says what was chosen. `long` in a prompt reports a 150k-token context;
-// `/compact` compacts it to 4k with the CLI's boundary and no reply.
+// `/compact` compacts it to 4k with the CLI's boundary and no reply. A prompt
+// with `mcp <tool>` calls that tool on the HTTP server the SDK registered over
+// the control channel (`mcp_set_servers`; none on the command line) and says
+// what came back. STUB_CLI_LOG gets the registered server names.
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -43,6 +46,33 @@ function streamTurns() {
   const account = { ...status(), tokenSource: "apiKey" };
   let turn = Promise.resolve();
   const answers = new Map();
+  let servers = {};
+  const rpc = async (server, method, params, id) => {
+    const response = await fetch(server.url, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...server.headers }, body: JSON.stringify({ jsonrpc: "2.0", ...(id === undefined ? {} : { id }), method, params }) });
+    const text = await response.text();
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = text.split("\n").find((line) => line.startsWith("data:"))?.slice(5) ?? text;
+    return data.trim() ? JSON.parse(data) : undefined;
+  };
+  async function callMcp(prompt) {
+    const tool = /\bmcp\s+(\S+)/iu.exec(prompt)?.[1] ?? "";
+    const server = Object.values(servers).find((entry) => entry.type === "http");
+    let text;
+    try {
+      if (!server) throw new Error("no server registered");
+      await rpc(server, "initialize", { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "stub-cli", version: "0" } }, 1);
+      await rpc(server, "notifications/initialized", {});
+      const listed = await rpc(server, "tools/list", {}, 2);
+      const names = (listed?.result?.tools ?? []).map((entry) => entry.name);
+      const called = tool ? await rpc(server, "tools/call", { name: tool, arguments: {} }, 3) : undefined;
+      text = `Tools: ${names.length}. ${tool ? `${tool}: ${called?.result?.isError ? "error " : ""}${(called?.result?.content ?? [])[0]?.text ?? JSON.stringify(called?.error)}` : ""}`;
+    } catch (error) {
+      text = `MCP failed: ${error.message}`;
+    }
+    send({ type: "system", subtype: "init", cwd: process.cwd(), model, claude_code_version: "2.1.280", apiKeySource: "ANTHROPIC_API_KEY", tools: ["Bash", "Read"], mcp_servers: Object.keys(servers).map((name) => ({ name, status: "connected" })), permissionMode: "default", slash_commands: [], output_style: "default" });
+    assistant([{ type: "text", text }]);
+    send({ type: "result", subtype: "success", is_error: false, num_turns: 1, result: text, duration_ms: 1, duration_api_ms: 0, total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }, modelUsage: {}, permission_denials: [] });
+  }
   const control = (request) => new Promise((resolve) => {
     const id = `stub_${randomUUID().slice(0, 8)}`;
     answers.set(id, resolve);
@@ -71,6 +101,7 @@ function streamTurns() {
   async function play(prompt) {
     if (prompt.trim() === "/compact") return compact();
     if (/\bask\b/iu.test(prompt)) return askColor();
+    if (/\bmcp\b/iu.test(prompt)) return callMcp(prompt);
     const pause = Math.min(Number(/\bwait\s+(\d+)/u.exec(prompt)?.[1] ?? 150), 60_000);
     const step = async (write) => { await sleep(pause); write(); };
     const id = (n) => `toolu_stub_${randomUUID().slice(0, 8)}_${n}`;
@@ -96,7 +127,13 @@ function streamTurns() {
       answers.delete(id);
     } else if (message.type === "control_request") {
       const subtype = message.request?.subtype;
-      const response = subtype === "initialize"
+      if (subtype === "mcp_set_servers") {
+        servers = message.request.servers ?? {};
+        if (process.env.STUB_CLI_LOG) appendFileSync(process.env.STUB_CLI_LOG, `${JSON.stringify({ mcp_set_servers: Object.keys(servers) })}\n`);
+      }
+      const response = subtype === "mcp_set_servers"
+        ? { added: Object.keys(servers), removed: [], errors: {} }
+        : subtype === "initialize"
         ? { commands: [], agents: [], output_style: "default", available_output_styles: ["default"], models, account }
         : subtype === "get_usage" && process.env.STUB_CLI_USAGE
           ? JSON.parse(readFileSync(process.env.STUB_CLI_USAGE, "utf8"))
