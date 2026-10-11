@@ -41,9 +41,10 @@ import {
   wakeMessageText,
 } from "tau/host-extension";
 import { RPC_METHOD_NOT_FOUND, RpcError } from "./rpc.js";
-import { MISSING_THREAD, type CodexAccount, type CodexGoal, type CodexGoalStatus, type CodexCollaborationMode, type CodexLoginRequest, type CodexLoginStart, type CodexModel, type CodexPolicy, type CodexThreadInfo, type CodexUserInput } from "./app-server.js";
+import { MISSING_THREAD, type CodexMcpResourceRead, type CodexMcpTool, type CodexMcpToolResult, type CodexAccount, type CodexGoal, type CodexGoalStatus, type CodexCollaborationMode, type CodexLoginRequest, type CodexLoginStart, type CodexModel, type CodexPolicy, type CodexThreadInfo, type CodexUserInput } from "./app-server.js";
 import { approvalDialog, elicitationForm, elicitationResult, pageElicitation, policyForLevel, refusal } from "./approvals.js";
-import { CodexTurnTranslator, codexLimitReset, contextUsage, emptyUsage, threadUsage, type CodexTokenUsage } from "./events.js";
+import { CodexTurnTranslator, codexLimitReset, contextUsage, emptyUsage, threadUsage, type CodexTokenUsage, type McpAppCapture } from "./events.js";
+import type { McpAppReader, McpAppThread } from "./mcp-apps.js";
 import type { CodexRuntimeAdapter } from "./runtime-adapter.js";
 import type { CodexConfiguredModel } from "./config.js";
 import { usageTurnsOf, type CodexSessionStore, type CodexStoredGoal, type CodexStoredModel } from "./session-store.js";
@@ -77,6 +78,10 @@ export interface CodexSessionLike {
   goalGet?(threadId: string): Promise<CodexGoal | undefined>;
   goalSet?(params: { threadId: string; objective?: string; status?: CodexGoalStatus }): Promise<CodexGoal>;
   goalClear?(threadId: string): Promise<boolean>;
+  /** `mcpServer/*`; absent on a session without MCP Apps support. */
+  readMcpResource?(params: { threadId: string; server: string; uri: string; originCallId?: string }): Promise<CodexMcpResourceRead>;
+  callMcpTool?(params: { threadId: string; server: string; tool: string; arguments?: unknown }): Promise<CodexMcpToolResult>;
+  listMcpTools?(threadId: string, server: string): Promise<Record<string, CodexMcpTool>>;
   close(): Promise<void>;
   setThreadName?(threadId: string, name: string): Promise<void>;
 }
@@ -130,6 +135,10 @@ export interface CodexThreadBackendOptions {
   onRateLimits?(snapshot: unknown): void;
   /** Direct the user to the plan controls when the Responses grant reaches its limit. */
   onUsageLimit?(): void;
+  /** A tool call finished with an MCP App; the owner reads and keeps its document. */
+  onMcpApp?(capture: McpAppCapture, reader: McpAppReader): void;
+  /** What apps told the model since the last turn, as one text; `commit` marks it sent. */
+  appContext?(): Promise<{ text: string; commit(): Promise<void> } | undefined>;
 }
 
 /** A ChatGPT login is the subscription; an API key is billed per token. */
@@ -160,6 +169,8 @@ interface Turn {
   /** Codex finished a turn with the goal active: its next goal turn joins this run. */
   awaitingContinuation?: boolean;
   continuation?: (next: "adopted" | "ended") => void;
+  /** Called once Codex took the turn's input. */
+  delivered?: () => void;
   /** Resolves once the turn settled, however it ended. */
   done: Promise<void>;
   finish(): void;
@@ -576,27 +587,32 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       this.deliver(user);
       input.onAdmitted?.(true);
       const codexInput = userInput(prepared.runtimeText, input.attachments);
+      const context = await this.options.appContext?.().catch(() => undefined);
+      if (context) codexInput.push({ type: "text", text: context.text, text_elements: [] });
+      const delivered = context ? () => { void context.commit(); } : undefined;
       const running = this.turns[0];
       if (input.delivery === "steer" && running?.codexTurnId && this.live && !this.live.closed && this.codexThreadId) {
         try {
           await this.live.steerTurn({ threadId: this.codexThreadId, turnId: running.codexTurnId, input: codexInput });
+          delivered?.();
           return {};
         } catch {
           // The turn ended in between; the text becomes the next turn instead.
         }
       }
-      return this.enqueueTurn(prepared.visibleText, codexInput);
+      return this.enqueueTurn(prepared.visibleText, codexInput, delivered);
     } finally { this.admittingPrompts -= 1; }
   }
 
   /** A turn behind the ones queued; resuming a goal starts one with no input of its own. */
-  private enqueueTurn(text: string, input: CodexUserInput[]): Promise<ThreadBackendPromptResult> {
+  private enqueueTurn(text: string, input: CodexUserInput[], delivered?: () => void): Promise<ThreadBackendPromptResult> {
     let complete!: () => void;
     let finish!: () => void;
     const turn: Turn = {
-      translator: new CodexTurnTranslator(this.now),
+      translator: this.newTranslator(),
       text,
       input,
+      ...(delivered ? { delivered } : {}),
       completed: new Promise<void>((resolve) => { complete = resolve; }),
       complete: () => complete(),
       done: new Promise<void>((resolve) => { finish = resolve; }),
@@ -607,6 +623,23 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     const run = this.tail.then(() => this.runTurn(turn));
     this.tail = run.then(() => undefined, () => undefined);
     return run;
+  }
+
+  private newTranslator(): CodexTurnTranslator {
+    return new CodexTurnTranslator(this.now, (capture) => {
+      const live = this.live;
+      const codexThreadId = this.codexThreadId;
+      if (!this.options.onMcpApp || !live?.readMcpResource || !codexThreadId) return;
+      this.options.onMcpApp(capture, { codexThreadId, read: (params) => live.readMcpResource!(params) });
+    });
+  }
+
+  /** What the thread's apps may use: the live session when there is one, and the dialog surface. Starts nothing. */
+  appThread(): McpAppThread {
+    return {
+      live: () => this.live && !this.live.closed && this.codexThreadId ? { session: this.live, codexThreadId: this.codexThreadId } : undefined,
+      ...(this.options.ask ? { ask: this.options.ask } : {}),
+    };
   }
 
   private async runTurn(turn: Turn): Promise<ThreadBackendPromptResult> {
@@ -633,6 +666,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
         ...(mode ? { mode } : {}),
       });
       turn.codexTurnId ??= id;
+      turn.delivered?.();
       if (this.activateGoal && !turn.aborted) await this.activateGoalNow(live);
       if (turn.aborted) await this.interrupt(turn);
       await this.goalRun(turn);
@@ -961,7 +995,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   private adoptContinuation(turn: Turn, turnId: string): void {
     turn.awaitingContinuation = false;
     turn.codexTurnId = turnId;
-    turn.translator = new CodexTurnTranslator(this.now);
+    turn.translator = this.newTranslator();
     let complete!: () => void;
     turn.completed = new Promise<void>((resolve) => { complete = resolve; });
     turn.complete = () => complete();

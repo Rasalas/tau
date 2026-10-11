@@ -1,0 +1,75 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Counter</title>
+<style>
+  body { font: 14px system-ui, sans-serif; margin: 0; padding: 12px; background: var(--color-background-primary, #fff); color: var(--color-text-primary, #111); }
+  button { font: inherit; margin: 2px 4px 2px 0; padding: 4px 10px; }
+  pre { background: rgba(127,127,127,.15); padding: 8px; border-radius: 6px; white-space: pre-wrap; max-height: 160px; overflow: auto; }
+  #isolation { color: var(--color-text-secondary, #666); }
+</style></head>
+<body>
+<h3>Counter app <span id="count">?</span></h3>
+<div>
+  <button id="peek">Peek (read-only)</button>
+  <button id="bump">Bump (write)</button>
+  <button id="model-only">Call model-only tool</button>
+  <button id="message">Send message</button>
+  <button id="context">Update context</button>
+  <button id="full">Full screen</button>
+  <button id="download">Download</button>
+  <button id="link">Open link</button>
+  <button id="grow">Grow 700px</button>
+  <button id="navigate">Navigate away</button>
+  <button id="close">Close</button>
+</div>
+<pre id="log"></pre>
+<div id="isolation"></div>
+<script>
+let nextId = 1, mode = "inline";
+const pending = new Map();
+const log = (text) => { const el = document.getElementById("log"); el.textContent = text + "\n" + el.textContent; };
+const send = (message) => parent.postMessage({ jsonrpc: "2.0", ...message }, "*");
+const request = (method, params) => new Promise((resolve, reject) => { const id = nextId++; pending.set(id, { resolve, reject }); send({ id, method, params }); });
+const notify = (method, params) => send({ method, params });
+window.addEventListener("message", (event) => {
+  if (event.source !== parent) return;
+  const m = event.data;
+  if (!m || m.jsonrpc !== "2.0") return;
+  if (m.method === undefined && m.id !== undefined) {
+    const p = pending.get(m.id); pending.delete(m.id);
+    if (p) m.error ? p.reject(new Error(m.error.message)) : p.resolve(m.result);
+    return;
+  }
+  if (m.method === "ui/notifications/tool-result") { document.getElementById("count").textContent = m.params?.structuredContent?.count ?? "?"; log("tool-result " + JSON.stringify(m.params)); }
+  else if (m.method === "ui/notifications/tool-input") log("tool-input " + JSON.stringify(m.params));
+  else if (m.method === "ui/notifications/host-context-changed") log("host-context " + JSON.stringify(m.params).slice(0, 200));
+  else if (m.method === "ui/resource-teardown") { log("teardown"); send({ id: m.id, result: {} }); }
+});
+const run = (id, fn) => document.getElementById(id).addEventListener("click", async () => {
+  try { log(id + " -> " + JSON.stringify(await fn())); } catch (error) { log(id + " !! " + error.message); }
+});
+run("peek", () => request("tools/call", { name: "peek", arguments: {} }));
+run("bump", async () => { const r = await request("tools/call", { name: "bump", arguments: { by: 2 } }); document.getElementById("count").textContent = r.structuredContent?.count ?? "?"; return r; });
+run("model-only", () => request("tools/call", { name: "model_only", arguments: {} }));
+run("message", () => request("ui/message", { role: "user", content: [{ type: "text", text: "Hello from the counter app" }] }));
+run("context", () => request("ui/update-model-context", { content: [{ type: "text", text: "The counter is at " + document.getElementById("count").textContent }] }));
+run("full", async () => { mode = mode === "inline" ? "fullscreen" : "inline"; return request("ui/request-display-mode", { mode }); });
+run("download", () => request("ui/download-file", { contents: [{ type: "resource", resource: { uri: "file:///fixture/report.txt", mimeType: "text/plain", text: "report body" } }] }));
+run("link", () => request("ui/open-link", { url: "https://example.com/" }));
+run("grow", async () => { document.body.style.minHeight = "700px"; });
+run("close", async () => notify("ui/notifications/request-teardown", {}));
+document.getElementById("navigate").addEventListener("click", () => { location.href = "data:text/html,<p>navigated</p>"; });
+new ResizeObserver(() => notify("ui/notifications/size-changed", { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight })).observe(document.body);
+(async () => {
+  const init = await request("ui/initialize", { appInfo: { name: "counter", version: "1.0.0" }, appCapabilities: { availableDisplayModes: ["inline", "fullscreen"] }, protocolVersion: "2026-01-26" });
+  log("initialized " + JSON.stringify(init).slice(0, 300));
+  notify("ui/notifications/initialized", {});
+  const checks = [];
+  checks.push("origin=" + location.origin);
+  try { parent.document; checks.push("parent.document READABLE"); } catch { checks.push("parent.document blocked"); }
+  try { localStorage.getItem("x"); checks.push("localStorage READABLE"); } catch { checks.push("localStorage blocked"); }
+  checks.push("cookie=" + JSON.stringify(document.cookie));
+  fetch("http://127.0.0.1:1/").then(() => checks.push("fetch ALLOWED"), () => {}).finally(() => { document.getElementById("isolation").textContent = checks.join(" | "); });
+  document.getElementById("isolation").textContent = checks.join(" | ");
+})();
+</script>
+</body></html>

@@ -76,6 +76,7 @@ import {
 import { createCodexRuntimeAdapter } from "./runtime-adapter.js";
 import { CodexSessionStore, type CodexStoredModel } from "./session-store.js";
 import { endedCommandText } from "./background-commands.js";
+import { startMcpApps } from "./mcp-app-commands.js";
 import { CodexThreadRuntimeBackend, MODEL_PROVIDER, codexBilling, storedModel, type CodexSessionInput, type CodexSessionLike } from "./thread-backend.js";
 import { readCodexIdentity, type AccountIdentity } from "./account-identity.js";
 import { codexLimitWindows, codexReadSnapshot, mergeCodexSnapshot, type CodexRateSnapshot, type LimitAccount } from "./limits.js";
@@ -249,6 +250,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       const transitioning = new Set<string>();
       const openingThreads = new Map<string, number>();
       const threadAccounts = new Map<string, { backend: CodexThreadRuntimeBackend; account: string; change(account: string): void }>();
+      const mcpApps = startMcpApps(context, (threadId) => threadAccounts.get(threadId)?.backend.appThread());
       const sessions = new Map<string, Set<CodexSessionLike>>();
       const sessionTokens = new WeakMap<CodexSessionLike, string>();
       const stopSessions = async (id: string) => {
@@ -667,6 +669,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
                 onMessage: thread.onMessage,
                 onEvent: thread.onEvent,
                 ask: thread.ask,
+                ...mcpApps.forThread(threadId),
                 // Codex starts no turn when a background command ends; the wake tells the agent.
                 onBackgroundEnded: (command) => {
                   void services.sessions.send?.(threadId, endedCommandText(command), { delivery: "queue", wake: { source: "background", label: `Background command ended · ${command.label}` } })

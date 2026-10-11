@@ -45,7 +45,7 @@ import { TurnAttachmentRegistry } from "./turn-attachments.js";
 import { ExecutionPolicyRegistry, type HostExecutionPolicy, type HostExecutionPolicyServices } from "./host-execution-policy.js";
 import { BIND_NETWORK_EXTENSION } from "./host-network-contributions.js";
 import { BIND_BROWSER_RESOURCES, REMOVE_BROWSER_RESOURCES, type HostBrowserResources } from "./host-browser-resources.js";
-export type { HostBrowserResources, HostBrowserResourceHandler } from "./host-browser-resources.js";
+export type { HostBrowserResources, HostBrowserResourceHandler, SandboxFrameDocument } from "./host-browser-resources.js";
 
 export interface DirectoryPickerOptions {
   buttonLabel?: string;

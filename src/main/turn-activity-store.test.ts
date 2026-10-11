@@ -29,6 +29,29 @@ describe("TurnActivityStore", () => {
     expect(await new TurnActivityStore({ directory }).load("other")).toEqual([]);
   });
 
+  it("keeps a tool run's extras across a restart, and drops ones that are not a small plain object", async () => {
+    const store = new TurnActivityStore({ directory });
+    await store.load("t1");
+    const extras = { "kit.ref": { server: "s", list: [1, 2] } };
+    const huge = { blob: "x".repeat(5000) };
+    await store.save("t1", turn("activity-t1-1", "completed", [
+      run("a", "done", { extras, endedAt: 2 }),
+      run("b", "done", { extras: huge, endedAt: 2 }),
+      run("c", "done", { extras: [1] as never, endedAt: 2 }),
+    ]));
+    const [entry] = await new TurnActivityStore({ directory }).load("t1");
+    expect(entry!.tools.map((tool) => tool.extras)).toEqual([extras, undefined, undefined]);
+  });
+
+  it("writes a tool again when only its extras changed", async () => {
+    const store = new TurnActivityStore({ directory });
+    await store.load("t1");
+    await store.save("t1", turn("activity-t1-1", "running", [run("a", "done", { endedAt: 2 })]));
+    await store.save("t1", turn("activity-t1-1", "running", [run("a", "done", { endedAt: 2, extras: { ref: 1 } })]));
+    const [entry] = await new TurnActivityStore({ directory }).load("t1");
+    expect(entry!.tools[0]!.extras).toEqual({ ref: 1 });
+  });
+
   it("appends only what changed", async () => {
     const store = new TurnActivityStore({ directory });
     await store.load("t1");

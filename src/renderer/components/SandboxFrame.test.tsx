@@ -1,0 +1,268 @@
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { createRef } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FRAME_SCHEME_MESSAGE } from "../../shared/sandbox-frame";
+import { SandboxFrame, type SandboxFrameHandle, type SandboxFrameProps } from "./SandboxFrame";
+
+const base = { src: "tau-ext://resources/frame/a", title: "App", onMessage: () => undefined };
+
+function frameOf(): HTMLIFrameElement {
+  return screen.getByTitle("App") as HTMLIFrameElement;
+}
+
+function messageFrom(source: Window | null, data: unknown) {
+  act(() => { window.dispatchEvent(new MessageEvent("message", { data, source })); });
+}
+
+function renderFrame(props: Partial<SandboxFrameProps> = {}) {
+  return render(<SandboxFrame {...base} {...props} />);
+}
+
+function stubPopover() {
+  const show = vi.fn();
+  const hide = vi.fn();
+  Object.defineProperty(HTMLElement.prototype, "popover", { configurable: true, value: "", writable: true });
+  Object.defineProperty(HTMLElement.prototype, "showPopover", { configurable: true, value: show, writable: true });
+  Object.defineProperty(HTMLElement.prototype, "hidePopover", { configurable: true, value: hide, writable: true });
+  return { show, hide };
+}
+
+afterEach(() => {
+  cleanup();
+  for (const key of ["popover", "showPopover", "hidePopover"]) delete (HTMLElement.prototype as unknown as Record<string, unknown>)[key];
+  vi.unstubAllGlobals();
+  delete document.documentElement.dataset.theme;
+});
+
+beforeEach(() => { document.documentElement.dataset.theme = "light"; });
+
+describe("SandboxFrame isolation attributes", () => {
+  it("sandboxes the frame without same-origin, popups or top navigation", () => {
+    renderFrame();
+    const frame = frameOf();
+    expect(frame.getAttribute("sandbox")).toBe("allow-scripts allow-forms");
+    expect(frame.getAttribute("referrerpolicy")).toBe("no-referrer");
+    expect(frame.getAttribute("srcdoc")).toBeNull();
+    expect(frame.getAttribute("src")).toBe(base.src);
+    expect(frame.getAttribute("allow")).toBe("");
+  });
+
+  it("delegates only the declared permissions", () => {
+    renderFrame({ permissions: { camera: {}, clipboardWrite: {} } });
+    expect(frameOf().getAttribute("allow")).toBe("camera; clipboard-write");
+  });
+
+  it("renders nothing until it has a source, and keeps the first one", () => {
+    const view = renderFrame({ src: undefined });
+    expect(screen.queryByTitle("App")).toBeNull();
+    view.rerender(<SandboxFrame {...base} src="tau-ext://resources/frame/first" />);
+    expect(frameOf().getAttribute("src")).toBe("tau-ext://resources/frame/first");
+    view.rerender(<SandboxFrame {...base} src="tau-ext://resources/frame/second" />);
+    expect(frameOf().getAttribute("src")).toBe("tau-ext://resources/frame/first");
+  });
+});
+
+describe("SandboxFrame messages", () => {
+  it("delivers only messages whose source is its own window", () => {
+    const onMessage = vi.fn();
+    renderFrame({ onMessage });
+    const other = document.body.appendChild(document.createElement("iframe"));
+    messageFrom(window, "from the page");
+    messageFrom(other.contentWindow, "from another frame");
+    messageFrom(null, "from nowhere");
+    expect(onMessage).not.toHaveBeenCalled();
+    messageFrom(frameOf().contentWindow, "from the app");
+    expect(onMessage).toHaveBeenCalledExactlyOnceWith("from the app");
+  });
+
+  it("stops listening on unmount", () => {
+    const onMessage = vi.fn();
+    const view = renderFrame({ onMessage });
+    const source = frameOf().contentWindow;
+    view.unmount();
+    messageFrom(source, "late");
+    expect(onMessage).not.toHaveBeenCalled();
+  });
+
+  it("posts to the document with target * once it loaded or spoke, and not after unmount", () => {
+    const handle = createRef<SandboxFrameHandle>();
+    const view = renderFrame({ handleRef: handle });
+    const target = frameOf().contentWindow!;
+    const spy = vi.spyOn(target, "postMessage");
+    handle.current!.post("early");
+    expect(spy).not.toHaveBeenCalledWith("early", "*");
+    messageFrom(target, { hello: true });
+    handle.current!.post("reply");
+    expect(spy).toHaveBeenCalledWith("reply", "*");
+    const post = handle.current!.post;
+    view.unmount();
+    spy.mockClear();
+    post("after unmount");
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe("SandboxFrame navigation lock", () => {
+  it("replaces the frame with a notice on a second load and drops the bridge", () => {
+    const onStopped = vi.fn();
+    const onMessage = vi.fn();
+    const handle = createRef<SandboxFrameHandle>();
+    renderFrame({ onStopped, onMessage, handleRef: handle });
+    const frame = frameOf();
+    const target = frame.contentWindow!;
+    const spy = vi.spyOn(target, "postMessage");
+    fireEvent.load(frame);
+    expect(onStopped).not.toHaveBeenCalled();
+    fireEvent.load(frame);
+    expect(onStopped).toHaveBeenCalledOnce();
+    expect(screen.queryByTitle("App")).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe("This page left its document and was stopped");
+    spy.mockClear();
+    handle.current!.post("nothing");
+    messageFrom(target, "late");
+    expect(spy).not.toHaveBeenCalled();
+    expect(onMessage).not.toHaveBeenCalled();
+  });
+
+  it("uses the caller's notice text, and a new key opens the document again", () => {
+    const view = render(<SandboxFrame key="one" {...base} stoppedLabel="Closed" />);
+    fireEvent.load(frameOf());
+    fireEvent.load(frameOf());
+    expect(screen.getByRole("status").textContent).toBe("Closed");
+    view.rerender(<SandboxFrame key="two" {...base} stoppedLabel="Closed" />);
+    expect(frameOf().getAttribute("src")).toBe(base.src);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+});
+
+describe("SandboxFrame colour scheme", () => {
+  it("sets the frame's colour scheme and tells the document when it changes after load", async () => {
+    renderFrame();
+    const frame = frameOf();
+    const spy = vi.spyOn(frame.contentWindow!, "postMessage");
+    expect(frame.style.colorScheme).toBe("light");
+    fireEvent.load(frame);
+    expect(spy).toHaveBeenLastCalledWith({ type: FRAME_SCHEME_MESSAGE, scheme: "light" }, "*");
+    act(() => { document.documentElement.dataset.theme = "dark"; });
+    await vi.waitFor(() => expect(spy).toHaveBeenLastCalledWith({ type: FRAME_SCHEME_MESSAGE, scheme: "dark" }, "*"));
+    expect(frameOf().style.colorScheme).toBe("dark");
+  });
+});
+
+describe("SandboxFrame height", () => {
+  const heightOf = (view: { container: HTMLElement }) => (view.container.querySelector(".sandbox-frame") as HTMLElement).style.height;
+
+  it("clamps the requested height and defaults to 320", () => {
+    const view = renderFrame();
+    expect(heightOf(view)).toBe("320px");
+    view.rerender(<SandboxFrame {...base} height={5} />);
+    expect(heightOf(view)).toBe("80px");
+    view.rerender(<SandboxFrame {...base} height={99999} />);
+    expect(heightOf(view)).toBe("2000px");
+    view.rerender(<SandboxFrame {...base} height={Number.NaN} />);
+    expect(heightOf(view)).toBe("320px");
+  });
+
+  it("marks a bordered box", () => {
+    const view = renderFrame({ bordered: true });
+    expect(view.container.querySelector(".sandbox-frame-box")?.hasAttribute("data-bordered")).toBe(true);
+  });
+});
+
+describe("SandboxFrame full screen", () => {
+  it("shows the same box in the top layer without replacing the iframe", () => {
+    const { show, hide } = stubPopover();
+    const onFullscreenChange = vi.fn();
+    const view = renderFrame({ height: 400, label: "Chart", onFullscreenChange });
+    const frame = frameOf();
+    const box = view.container.querySelector(".sandbox-frame-box")!;
+    expect(box.getAttribute("popover")).toBe("manual");
+    expect(box.hasAttribute("data-sandbox-frame-fullscreen")).toBe(false);
+    view.rerender(<SandboxFrame {...base} height={400} label="Chart" fullscreen onFullscreenChange={onFullscreenChange} />);
+    expect(show).toHaveBeenCalledOnce();
+    expect(box.hasAttribute("data-sandbox-frame-fullscreen")).toBe(true);
+    expect(frameOf()).toBe(frame);
+    expect(screen.getByText("Chart")).toBeTruthy();
+    expect((view.container.querySelector(".sandbox-frame") as HTMLElement).style.height).toBe("400px");
+    view.rerender(<SandboxFrame {...base} height={400} label="Chart" onFullscreenChange={onFullscreenChange} />);
+    expect(hide).toHaveBeenCalledOnce();
+    expect(frameOf()).toBe(frame);
+    expect(screen.queryByText("Chart")).toBeNull();
+  });
+
+  it("asks to leave on Escape outside the document, focus outside the box, and the exit button", () => {
+    stubPopover();
+    const onFullscreenChange = vi.fn();
+    renderFrame({ fullscreen: true, label: "Chart", onFullscreenChange });
+    const outside = document.body.appendChild(document.createElement("button"));
+    fireEvent.keyDown(window, { key: "a" });
+    fireEvent.focusIn(frameOf());
+    expect(onFullscreenChange).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onFullscreenChange).toHaveBeenCalledTimes(1);
+    fireEvent.focusIn(outside);
+    expect(onFullscreenChange).toHaveBeenCalledTimes(2);
+    const exit = screen.getByRole("button", { name: "Exit full screen" });
+    fireEvent.click(exit);
+    expect(onFullscreenChange).toHaveBeenCalledTimes(3);
+    expect(onFullscreenChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("stays inline where the Popover API is missing", () => {
+    const onFullscreenChange = vi.fn();
+    const view = renderFrame({ fullscreen: true, label: "Chart", onFullscreenChange });
+    const box = view.container.querySelector(".sandbox-frame-box")!;
+    expect(box.hasAttribute("popover")).toBe(false);
+    expect(box.hasAttribute("data-sandbox-frame-fullscreen")).toBe(false);
+    expect(screen.queryByRole("button", { name: "Exit full screen" })).toBeNull();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onFullscreenChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("SandboxFrame measuring and handle", () => {
+  it("reports the box width from a ResizeObserver", () => {
+    let notify: ((entries: unknown[]) => void) | undefined;
+    const disconnect = vi.fn();
+    vi.stubGlobal("ResizeObserver", class { constructor(callback: (entries: unknown[]) => void) { notify = callback; } observe() {} disconnect = disconnect; });
+    const onWidth = vi.fn();
+    const view = renderFrame({ onWidth });
+    act(() => { notify?.([{ contentRect: { width: 412.4 } }]); });
+    expect(onWidth).toHaveBeenLastCalledWith(412);
+    view.unmount();
+    expect(disconnect).toHaveBeenCalled();
+  });
+
+  it("measures once where there is no ResizeObserver", () => {
+    vi.stubGlobal("ResizeObserver", undefined);
+    const onWidth = vi.fn();
+    renderFrame({ onWidth });
+    expect(onWidth).toHaveBeenCalledWith(0);
+  });
+
+  it("answers width and size from the elements", () => {
+    const handle = createRef<SandboxFrameHandle>();
+    const view = renderFrame({ handleRef: handle });
+    expect(handle.current!.width()).toBe(0);
+    vi.spyOn(view.container.querySelector(".sandbox-frame-box")!, "getBoundingClientRect").mockReturnValue({ width: 300.4 } as DOMRect);
+    vi.spyOn(frameOf(), "getBoundingClientRect").mockReturnValue({ width: 300.4, height: 199.6 } as DOMRect);
+    expect(handle.current!.width()).toBe(300);
+    expect(handle.current!.size()).toEqual({ width: 300, height: 200 });
+  });
+
+  it("allows a link only while the frame has focus and the activation is live", () => {
+    const handle = createRef<SandboxFrameHandle>();
+    renderFrame({ handleRef: handle });
+    const activation = { isActive: true };
+    vi.stubGlobal("navigator", { userActivation: activation });
+    expect(handle.current!.hasUserActivation()).toBe(false);
+    frameOf().focus();
+    expect(document.activeElement).toBe(frameOf());
+    expect(handle.current!.hasUserActivation()).toBe(true);
+    activation.isActive = false;
+    expect(handle.current!.hasUserActivation()).toBe(false);
+    vi.stubGlobal("navigator", {});
+    expect(handle.current!.hasUserActivation()).toBe(false);
+  });
+});

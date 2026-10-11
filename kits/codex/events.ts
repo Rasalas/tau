@@ -1,4 +1,5 @@
 import type { ThreadRuntimeEvent, UiContextUsage, UiMessage, UiThreadUsage, UiToolRun } from "tau/host-extension";
+import { MCP_APP_EXTRA, MCP_APP_RESOURCE_SCHEME, type McpAppRef } from "./mcp-app-protocol.js";
 
 /**
  * Turns the app-server's notifications for one turn into Tau's runtime
@@ -41,6 +42,25 @@ const MAX_TOOL_OUTPUT_BYTES = 128 * 1024;
 const EMPTY_USAGE: UiThreadUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, costUsd: 0, turns: 0 };
 /** Items that are not tools: the user's own echo, text and reasoning, and bookkeeping. */
 const NOT_TOOLS = new Set(["userMessage", "agentMessage", "reasoning", "plan", "hookPrompt", "contextCompaction", "enteredReviewMode", "exitedReviewMode"]);
+
+/** A finished MCP tool call that names an app; the owner of the translator reads the document. */
+export interface McpAppCapture extends McpAppRef {
+  itemId: string;
+  arguments: unknown;
+  result?: { content?: unknown[]; structuredContent?: unknown; _meta?: unknown };
+}
+
+/** The app an `mcpToolCall` item names: `mcpAppUi.resourceUri`, else the legacy field. */
+export function mcpAppRefOf(item: Item): McpAppRef | undefined {
+  if (item.type !== "mcpToolCall" || typeof item.server !== "string" || typeof item.tool !== "string") return undefined;
+  const ui = item.mcpAppUi as { resourceUri?: unknown } | null | undefined;
+  const uri = typeof ui?.resourceUri === "string" ? ui.resourceUri : item.mcpAppResourceUri;
+  return typeof uri === "string" && uri.startsWith(MCP_APP_RESOURCE_SCHEME) ? { server: item.server, tool: item.tool, resourceUri: uri } : undefined;
+}
+
+function appExtras(ref: McpAppRef | undefined): Pick<UiToolRun, "extras"> | Record<string, never> {
+  return ref ? { extras: { [MCP_APP_EXTRA]: ref } } : {};
+}
 
 export function emptyUsage(): UiThreadUsage { return { ...EMPTY_USAGE }; }
 
@@ -106,7 +126,7 @@ export function toolFor(item: Item, startedAt: number): UiToolRun | undefined {
       return { ...base, name: added ? "write" : "edit", args: { ...(paths[0] ? { path: paths[0] } : {}), ...(paths.length > 1 ? { paths } : {}) } };
     }
     case "mcpToolCall":
-      return { ...base, name: `mcp__${String(item.server ?? "server")}__${String(item.tool ?? "tool")}`, args: argsOf(item.arguments) };
+      return { ...base, name: `mcp__${String(item.server ?? "server")}__${String(item.tool ?? "tool")}`, args: argsOf(item.arguments), ...appExtras(failed(item) ? undefined : mcpAppRefOf(item)) };
     case "dynamicToolCall":
       return { ...base, name: String(item.tool ?? "tool"), args: argsOf(item.arguments) };
     case "webSearch":
@@ -167,6 +187,22 @@ function mediaOf(item: Item): NonNullable<UiToolRun["media"]> {
   });
 }
 
+function capture(item: Item, ref: McpAppRef): McpAppCapture {
+  const result = item.result as { content?: unknown; structuredContent?: unknown; "_meta"?: unknown } | null | undefined;
+  return {
+    ...ref,
+    itemId: item.id,
+    arguments: item.arguments ?? {},
+    ...(result && typeof result === "object" ? {
+      result: {
+        ...(Array.isArray(result.content) ? { content: result.content } : {}),
+        ...(result.structuredContent != null ? { structuredContent: result.structuredContent } : {}),
+        ...(result["_meta"] != null ? { "_meta": result["_meta"] } : {}),
+      },
+    } : {}),
+  };
+}
+
 function failed(item: Item): boolean {
   if (item.status === "failed" || item.status === "declined") return true;
   if (item.type === "dynamicToolCall" && item.success === false) return true;
@@ -192,7 +228,7 @@ export class CodexTurnTranslator {
   private readonly streamed = new Map<string, string>();
   private segments = 0;
 
-  constructor(private readonly now: () => number = Date.now) {}
+  constructor(private readonly now: () => number = Date.now, private readonly onApp?: (capture: McpAppCapture) => void) {}
 
   push(method: string, params: Record<string, unknown>): ThreadRuntimeEvent[] {
     switch (method) {
@@ -264,7 +300,11 @@ export class CodexTurnTranslator {
     const output = bounded(outputOf(item, this.streamed.get(item.id) ?? ""));
     this.streamed.delete(item.id);
     const media = mediaOf(item);
-    const ended: UiToolRun = { ...tool, ...(media.length ? { media } : {}), status: failed(item) ? "error" : "done", ...(output ? { output } : {}), endedAt: this.now() };
+    const failure = failed(item);
+    const app = failure ? undefined : mcpAppRefOf(item);
+    if (app) this.onApp?.(capture(item, app));
+    const { extras: _started, ...plain } = tool;
+    const ended: UiToolRun = { ...plain, ...(app ? appExtras(app) : failure ? {} : tool.extras ? { extras: tool.extras } : {}), ...(media.length ? { media } : {}), status: failure ? "error" : "done", ...(output ? { output } : {}), endedAt: this.now() };
     return [...(started ? [] : [...this.closeSegment(), { type: "tool-start" as const, tool }]), { type: "tool-end", tool: ended }];
   }
 

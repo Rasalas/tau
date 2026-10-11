@@ -120,6 +120,16 @@ describe("handleBackendRuntimeEvent", () => {
     expect(updates.map((update) => update.type === "run" ? `run:${update.event}` : update.type)).toEqual(["run:started", "run:settled", "thread-detail", "catalog"]);
   });
 
+  it("keeps the kit's extras on a tool run from its start through its end", () => {
+    const thread = makeThread();
+    const { services, events } = makeServices();
+    const extras = { "kit.ref": { id: "x" } };
+    handleBackendRuntimeEvent({ type: "tool-start", tool: { ...tool, extras } }, thread, services);
+    handleBackendRuntimeEvent({ type: "tool-end", tool: { ...tool, status: "done", endedAt: 9 } }, thread, services);
+    expect(events.find((event) => event.type === "tool-end")).toMatchObject({ tool: { extras } });
+    expect(thread.adapterActivity[0]?.tools[0]?.extras).toEqual(extras);
+  });
+
   it("closes the cards of tools still running when a turn is interrupted, and replaces a re-sent row", () => {
     const thread = makeThread();
     const { services, events } = makeServices();

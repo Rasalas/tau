@@ -93,6 +93,26 @@ front of the tab under the pointer or last. The order is kept with the thread's
 stage, and "Close to the right" follows it. A tab let go below the strip still
 splits the stage; letting go on the strip never does.
 
+## MCP Apps in a Codex thread
+
+When an MCP server in a Codex thread offers an interactive view of a tool's
+result (an MCP App), the tool's row in the transcript becomes that view. It runs
+in an isolated frame: it cannot read the workbench, its storage or your host
+connection, reaches only the web origins its server declared, and cannot leave
+its page. The view is kept with the thread, so it opens again after a restart;
+buttons that call the server work while the thread's Codex session runs, and
+otherwise say so (send a message in the thread to start it again).
+
+What an app does on its own: reads and calls to tools the server marks read-only
+run without asking. A tool that is not read-only, a message the app wants to
+send as you, and a file it wants to save each ask first in a card above the
+composer, with the tool's full arguments, on every device the thread is open on.
+An app can ask for full screen (it keeps its state; Escape, or a question from
+the agent, brings it back inline), size itself between 80 and 2000 px, and open a
+link only right after you clicked inside it. What an app tells the model
+(`ui/update-model-context`) goes with your next message as data from that
+server, marked untrusted. See [ADR 0032](adr/0032-sandbox-frame-and-mcp-apps.md).
+
 ## Reopen a closed tab
 
 `Cmd/Ctrl+Shift+T` brings back the stage tab closed last in this thread, and

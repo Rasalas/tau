@@ -40,6 +40,7 @@ import {
   type CodexThreadSettings,
   type ManagedCodexState,
 } from "./protocol.js";
+import { createMcpAppCard, hasMcpApp } from "./mcp-app-card.js";
 
 const TERMINAL_HOST_EXTENSION_ID = "tau.terminal";
 /** Terminal Kit's desktop service (`kits/terminal/protocol.ts`), named here: a kit never imports another. */
@@ -541,6 +542,7 @@ export const codexExtension: DesktopExtension = {
   activate(plugin) {
     plugin.registerComposerControl({ id: "codex.thread-settings", placement: "menu", order: 21, profiles: ["desktop", "web", "compact"], Component: createThreadSettingsControl(plugin.host) });
     plugin.registerComposerSpeed(createCodexSpeed(plugin.host));
+    const appCard = plugin.registerToolCard({ id: "codex.mcp-app", match: hasMcpApp, profiles: ["desktop", "web", "compact"], Component: createMcpAppCard(plugin.host) });
     const instances = new CodexInstances();
     const terminal = () => plugin.hostExtension(TERMINAL_HOST_EXTENSION_ID);
     const cards = new Map<string, { label: string; dispose: () => void }>();
@@ -579,6 +581,7 @@ export const codexExtension: DesktopExtension = {
     });
     const updateToasts = createUpdateToasts(plugin.host, () => runner);
     const stops = [
+      appCard,
       plugin.registerRegion({ id: "codex.chatgpt-plan", placement: "composer-above", order: 4, profiles: ["desktop", "web", "compact"], Component: createChatGPTPlanBanner(plugin.host) }),
       plugin.registerRegion({ id: "codex.version", placement: "composer-above", order: 5, profiles: ["desktop", "web", "compact"], Component: createVersionBanner(terminal) }),
       plugin.registerRegion({ id: "codex.update-toasts", placement: "composer-above", order: 6, profiles: ["desktop", "web", "compact"], Component: updateToasts }),

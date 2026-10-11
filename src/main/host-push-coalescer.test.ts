@@ -85,6 +85,18 @@ describe("HostPushCoalescer", () => {
     expect(recorded.filter((event) => event.type === "tool-update")).toHaveLength(4);
   });
 
+  it("carries a tool's extras through a tool-end, whole or as a delta", () => {
+    const { clock, recorded, coalescer } = setup();
+    const extras = { "kit.ref": { id: "x" } };
+    const base = "q".repeat(100);
+    coalescer.publish(update(base));
+    clock.fire();
+    coalescer.publish({ type: "tool-end", sessionId: "s", tool: { ...tool, extras, output: base } });
+    coalescer.publish({ type: "tool-end", sessionId: "s", tool: { ...tool, id: "t2", extras, output: "short" } });
+    expect(recorded[1]).toMatchObject({ type: "tool-end-delta", tool: { id: "t1", extras } });
+    expect(recorded[2]).toMatchObject({ type: "tool-end", tool: { id: "t2", extras } });
+  });
+
   it("sends whole again only the outputs of threads a client just started to show", () => {
     const { clock, recorded, coalescer } = setup();
     const other: HostPushEvent = { type: "tool-update", sessionId: "o", id: "t9", output: "x".repeat(100) };

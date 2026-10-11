@@ -437,7 +437,7 @@ it("streams linked video from its named workspace with seek ranges", async () =>
   const handlers: Array<(request: Request) => Promise<Response>> = [];
   const registry = await activated(active, {
     knownWorkspacePath: async (id) => { if (id !== "origin") throw new Error("Unknown workspace"); return origin; },
-    browserResources: { publish: (handler) => { handlers.push(handler); return "/resources/clip"; }, release: () => undefined, publishVisualization: () => "" },
+    browserResources: { publish: (handler) => { handlers.push(handler); return "/resources/clip"; }, release: () => undefined, publishVisualization: () => "", publishFrame: () => "" },
   });
   expect(await registry.invoke("tau.workspace", "publish-linked-media", { path: "clip.mp4", workspace: "origin" })).toEqual({ path: "/resources/clip", mimeType: "video/mp4" });
   const response = await handlers[0]!(new Request("https://host/resources/clip", { headers: { Range: "bytes=2-5" } }));

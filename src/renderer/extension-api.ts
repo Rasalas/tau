@@ -81,6 +81,11 @@ export { PrivateAccountText } from "./components/ui/PrivateAccountText";
 export { useContextMenu } from "./components/ui/ContextMenu";
 export { ConfirmDialog, Dialog, Popover, Sheet } from "./deferred-surfaces";
 export { Empty, Skeleton, Spinner } from "./components/ui/Feedback";
+// One sandboxed frame for documents a host serves (ADR 0032), and the colour scheme it follows.
+export { SandboxFrame, type SandboxFrameHandle, type SandboxFrameProps } from "./components/SandboxFrame";
+export { useColorScheme } from "./use-color-scheme";
+export { FRAME_DEFAULT_HEIGHT, FRAME_MAX_HEIGHT, FRAME_MIN_HEIGHT, clampFrameHeight, frameAllowAttribute } from "../shared/sandbox-frame";
+export type { FrameColorScheme, SandboxFrameCsp, SandboxFramePermissions } from "../shared/sandbox-frame";
 export { useFocusReturn, useFocusTrap } from "./components/ui/focus";
 export { useEscapeLayer } from "./components/ui/escape-layers";
 export type { FloatingAlign, FloatingSide } from "./components/ui/floating";

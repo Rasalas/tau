@@ -1,0 +1,13 @@
+/* Codex Kit: an MCP App's card in the transcript. */
+.mcp-app { display: flex; flex-direction: column; gap: 6px; min-width: 0; margin: 6px 0; font: var(--text-sm)/1.45 var(--sans); color: var(--ink-3); }
+.mcp-app-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.mcp-app-line > svg { flex: none; color: var(--muted); }
+.mcp-app-server { flex: none; color: var(--ink-2); font-weight: 500; }
+.mcp-app-tool { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-family: var(--mono); font-size: var(--text-xs); }
+.mcp-app-status { margin-left: auto; flex: none; color: var(--muted); font-size: var(--text-xs); }
+.mcp-app-status[data-tone="error"] { color: var(--fail-ink); }
+.mcp-app-reason { margin: 0; color: var(--muted); }
+.mcp-app-closed { display: flex; align-items: center; gap: 8px; }
+.mcp-app-show { padding: 3px 10px; border: 0; border-radius: var(--radius-sm); background: var(--raised); color: var(--ink-2); font: inherit; cursor: pointer; }
+.mcp-app-show:hover { background: var(--raised-hover); color: var(--ink); }
+.mcp-app-output { margin: 0; max-height: 150px; overflow: auto; padding: 8px 10px; border-radius: var(--radius-row); background: var(--code-bg); color: var(--ink-code); font: var(--text-code)/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
