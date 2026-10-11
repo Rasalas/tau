@@ -139,7 +139,17 @@ speaks to it with the host's own token;
 a running Tau it starts the app on that folder. The command is `bin/tau.mjs`
 (`bin` in `package.json`) and needs Node 22 or newer. The `.deb` puts it on
 your `PATH` as `tau` and runs it on Tau's own binary, so it needs no Node.
-Elsewhere, link it yourself:
+On macOS and on Linux builds without the `.deb`, **Settings → General →
+Terminal command** installs it without a console: Install names the folder
+first (`~/.local/bin`, then `~/bin`, and on a Mac Homebrew's and `/usr/local/bin`;
+one already on your `PATH` wins), writes a small launcher into Tau's data folder
+that runs the command on the app's own binary, so Node is not needed, and links
+it there. The row shows where it is and whether a new terminal finds it, and
+Remove takes the link and the launcher away. Tau never replaces a `tau` that is
+already there, and a `tau` earlier on your `PATH` is named. Tau Dev installs
+`tau-dev`. Windows and a build from source have no such row.
+
+To link it yourself instead:
 
 ```bash
 # a checkout
@@ -149,6 +159,10 @@ ln -s /Applications/Tau.app/Contents/Resources/app.asar.unpacked/bin/tau.mjs ~/.
 # Tau Dev, beside it; this one reads Tau Dev's userData
 ln -s "/Applications/Tau Dev.app/Contents/Resources/app.asar.unpacked/bin/tau.mjs" ~/.local/bin/tau-dev
 ```
+
+`TAU_COMMAND_DIR` points the row at one folder of your choosing and lets a
+build from source show it; tests and isolated instances use it so nothing is
+ever linked into a real `PATH` folder.
 
 `npm run smoke:cli-app` (after `npm run build`) drives it against a headless
 host in temp folders.

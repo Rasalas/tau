@@ -1,25 +1,40 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionClient } from "tau";
 import { connectTerminalHost, terminalHostReconnected } from "./store.js";
 import { TerminalView } from "./view.js";
 import { TERMINAL_DATA_EVENT } from "./protocol.js";
 
-const { writes } = vi.hoisted(() => ({ writes: [] as string[] }));
+const { writes, calls, keyHandlers, menu } = vi.hoisted(() => ({
+  menu: { show: undefined as unknown as (event: unknown, sections: unknown[]) => Promise<string | undefined> },
+  writes: [] as string[],
+  calls: [] as string[],
+  keyHandlers: [] as Array<(event: KeyboardEvent) => boolean>,
+}));
+vi.mock("tau", async (original) => ({
+  ...await original<typeof import("tau")>(),
+  useContextMenu: () => (event: unknown, sections: unknown[]) => menu.show(event, sections),
+}));
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
     options = {};
     cols = 80;
     rows = 24;
-    buffer = { active: { getLine: () => undefined } };
+    buffer = { active: { type: "normal", getLine: () => undefined } };
     loadAddon() {}
     open() {}
     write(data: string, done?: () => void) { writes.push(data); done?.(); }
     onData() { return { dispose() {} }; }
     onSelectionChange() { return { dispose() {} }; }
     registerLinkProvider() { return { dispose() {} }; }
-    attachCustomKeyEventHandler() {}
+    attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) { keyHandlers.push(handler); }
+    selectAll() { calls.push("selectAll"); }
+    scrollToTop() { calls.push("scrollToTop"); }
+    scrollToBottom() { calls.push("scrollToBottom"); }
+    paste(text: string) { calls.push(`paste:${text}`); }
+    focus() { calls.push("focus"); }
+    getSelection() { return "picked"; }
     dispose() {}
   },
 }));
@@ -28,6 +43,8 @@ vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit() {} } }));
 const disconnects: Array<() => void> = [];
 beforeEach(() => {
   writes.length = 0;
+  calls.length = 0;
+  keyHandlers.length = 0;
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
 });
@@ -81,5 +98,50 @@ describe("mounted terminal reconnect", () => {
     view.unmount();
     act(() => terminalHostReconnected());
     expect(fake.invoke.mock.calls.filter(([command]) => command === "replay")).toHaveLength(2);
+  });
+});
+
+describe("a terminal's own navigation", () => {
+  async function mounted(choose?: string) {
+    const fake = host();
+    disconnects.push(connectTerminalHost(fake.client));
+    const show = vi.fn(async (_event: unknown, _sections: unknown[]) => choose);
+    menu.show = show;
+    const view = render(<TerminalView session={{ id: "remote-shell", label: "Rex", cols: 80, rows: 24 }} place="panel" />);
+    await waitFor(() => expect(keyHandlers).toHaveLength(1));
+    return { view, show, handler: keyHandlers[0]! };
+  }
+  const chord = (init: KeyboardEventInit) => new KeyboardEvent("keydown", { cancelable: true, ...init });
+
+  it("selects everything and jumps through the scrollback, keeping the key from the shell and the window", async () => {
+    const { handler } = await mounted();
+    const selectAll = chord({ key: "A", ctrlKey: true, shiftKey: true });
+    expect(handler(selectAll)).toBe(false);
+    expect(selectAll.defaultPrevented).toBe(true);
+    handler(chord({ key: "Home", ctrlKey: true, shiftKey: true }));
+    handler(chord({ key: "End", ctrlKey: true, shiftKey: true }));
+    expect(calls).toEqual(["selectAll", "scrollToTop", "scrollToBottom"]);
+    // Ctrl+A alone is the shell's: the line start.
+    const plain = chord({ key: "a", ctrlKey: true });
+    expect(handler(plain)).toBe(true);
+    expect(plain.defaultPrevented).toBe(false);
+  });
+
+  it("opens the native menu on a right-click and carries out the choice", async () => {
+    const { view, show } = await mounted("scroll-to-bottom");
+    fireEvent.contextMenu(view.container.querySelector(".terminal-view")!);
+    await waitFor(() => expect(calls).toContain("scrollToBottom"));
+    expect(show).toHaveBeenCalledTimes(1);
+    const sections = show.mock.calls[0]![1] as Array<{ items: Array<{ id: string }> }>;
+    expect(sections.map((section) => section.items.map((item) => item.id))).toEqual([["copy", "paste"], ["select-all", "scroll-to-bottom"]]);
+    expect(calls).toContain("focus");
+  });
+
+  it("does nothing when the menu is dismissed", async () => {
+    const { view, show } = await mounted(undefined);
+    fireEvent.contextMenu(view.container.querySelector(".terminal-view")!);
+    await waitFor(() => expect(show).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(calls).toEqual([]);
   });
 });

@@ -69,6 +69,30 @@ ended, and whether anything may still wake the thread. After a restart a Codex
 goal that was running shows as paused until you resume it; a Claude Code goal
 shows as not confirmed. Pi threads have no native goals.
 
+## Right-click menus in the terminal and the preview
+
+A terminal's menu has Copy, Paste, **Select all** (the whole scrollback) and
+**Jump to latest**; the same two work from the keyboard (see
+[Keybindings](keybindings.md)). The Preview's page has a native menu too: on a
+link, **Open Link in Browser** (web links only) and **Copy Link Address**; on an
+image, **Copy Image** and **Copy Image Address**; on a selection or in a field,
+the usual edits. Images inside a frame of another site are read by their
+address, with no cookies and at most 32 MiB.
+
+## The `tau` command from Settings
+
+Settings → General → **Terminal command** puts `tau` on your terminal's `PATH`
+after asking which folder it links into, shows where it is installed and
+whether a new terminal finds it, and **Remove** undoes it. An existing `tau`
+is never replaced. See [Install](install.md#the-tau-command).
+
+## Reorder stage tabs
+
+Drag a stage tab along the strip and let it go: a line shows where it lands, in
+front of the tab under the pointer or last. The order is kept with the thread's
+stage, and "Close to the right" follows it. A tab let go below the strip still
+splits the stage; letting go on the strip never does.
+
 ## Reopen a closed tab
 
 `Cmd/Ctrl+Shift+T` brings back the stage tab closed last in this thread, and

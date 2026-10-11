@@ -87,3 +87,19 @@ describe("what the page asks of the window", () => {
     expect(ports.checkForUpdates).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("the tau command", () => {
+  it("passes the operation and the folder shown to the person on, and answers unsupported without one", async () => {
+    const commandLine = { state: vi.fn(async () => ({ supported: true, name: "tau", onPath: false })), install: vi.fn(async () => ({ supported: true, name: "tau", onPath: true })), remove: vi.fn(async () => ({ supported: true, name: "tau", onPath: false })) };
+    const { subject, ports } = shell();
+    expect(await subject.act({ kind: "command-line", op: "state" })).toEqual({ supported: false, name: "tau", onPath: false });
+
+    const withCommand = createAppShell({ ...ports, commandLine });
+    await withCommand.act({ kind: "command-line", op: "state" });
+    await withCommand.act({ kind: "command-line", op: "install", folder: "/home/a/.local/bin" });
+    await withCommand.act({ kind: "command-line", op: "remove" });
+    expect(commandLine.install).toHaveBeenCalledWith("/home/a/.local/bin");
+    expect(commandLine.state).toHaveBeenCalledTimes(1);
+    expect(commandLine.remove).toHaveBeenCalledTimes(1);
+  });
+});

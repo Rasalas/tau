@@ -254,6 +254,18 @@ describe("the window half registry", () => {
     await expect(context?.loadDependency?.("../secrets.js")).rejects.toThrow(/not a package name/u);
   });
 
+  it("lends a half the window's native menu only when the window has one", async () => {
+    const shown: unknown[][] = [];
+    const given = new WindowExtensionRegistry({ invokeHost: async () => undefined, showContextMenu: async (...args) => { shown.push(args); return "copy"; } });
+    const without = new WindowExtensionRegistry({ invokeHost: async () => undefined });
+    let context: Parameters<Parameters<typeof given.register>[1]>[0] | undefined;
+    given.register("tau.preview", (c) => { context = c; return { handle: () => undefined }; });
+    await expect(context?.showContextMenu?.([{ type: "item", id: "copy", label: "Copy" }], { x: 3, y: 4 })).resolves.toBe("copy");
+    expect(shown).toEqual([[[{ type: "item", id: "copy", label: "Copy" }], { x: 3, y: 4 }]]);
+    without.register("tau.preview", (c) => { context = c; return { handle: () => undefined }; });
+    expect(context?.showContextMenu).toBeUndefined();
+  });
+
   it("lets every half go when the window does", () => {
     const instance = registry();
     let disposed = false;

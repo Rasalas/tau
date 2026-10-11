@@ -147,6 +147,18 @@ still saves, Escape closes the search or drops extra cursors and never stops
 the run, and chords the editor does not use (`mod+k`, `mod+w`, `mod+p`, …)
 reach the workbench as usual.
 
+Inside Settings, `mod+f` and `/` focus the settings search (`mod+f` also from
+another field, never from a chord recorder), and Escape clears it first.
+
+A focused terminal answers a few navigation chords itself, ahead of the
+window's: on macOS ⌘A selects everything, including the scrollback, and ⌘Home /
+⌘End (also with ⇧) jump to its start and to the latest output; elsewhere the same
+three are Ctrl+Shift+A, Ctrl+Shift+Home and Ctrl+Shift+End, because Ctrl+A,
+Ctrl+Home and Ctrl+End belong to the shell. Shift+PageUp / PageDown page through
+the scrollback. A full-screen program (an editor, `less`) keeps Home and End.
+The terminal's right-click menu has the same two as "Select all" and "Jump to
+latest", beside Copy and Paste.
+
 ## Notes on the defaults
 
 - Global chords carry `!terminalFocus` only where the terminal gives the chord

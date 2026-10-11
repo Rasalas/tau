@@ -21,6 +21,7 @@ import { inspectExtensionPackages, loadHostExtensionPackages } from "./extension
 import { installShellEnvironment } from "./shell-environment.js";
 import { configureAppIdentity, installSingleInstance } from "./single-instance.js";
 import { appIdentity } from "./app-identity.js";
+import { appCommandLine } from "./command-line.js";
 import { builtFromSource } from "./update-installers.js";
 import { backgroundModeRequested, installBackgroundMode } from "./background-mode.js";
 import { EXTENSION_API_VERSION, type ExtensionHostVersions } from "../shared/extension-compat.js";
@@ -321,6 +322,7 @@ const appShell = createAppShell({
   checkForUpdates: () => void updates?.checkForUpdates(),
   updateReady: () => updates?.downloaded(),
   devBuild: appIdentity().flavor === "dev",
+  commandLine: appCommandLine({ userData: app.getPath("userData"), packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath(), name: appIdentity().cliName }),
   releaseNotes: {
     pending: async () => releaseNotes?.pending(),
     seen: async (version) => releaseNotes?.seen(version),
@@ -551,6 +553,7 @@ async function startHostProcess(): Promise<void> {
     execPath: process.execPath,
     ...(requestedWorkspace ? { workspace: requestedWorkspace } : {}),
     logger: hostLog,
+    showContextMenu: windowContextMenu,
     onFatal: ({ message, logPath }) => {
       showErrorBox("Tau's host stopped", `${message}\n\nDetails were written to:\n${logPath || hostLog.filePath}`);
     },

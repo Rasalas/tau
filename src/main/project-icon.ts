@@ -1,13 +1,19 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import { dirname, extname, isAbsolute, relative, resolve } from "node:path";
+import { extractIcnsPng } from "./icns.js";
 
 const MAX_ICON_BYTES = 1024 * 1024;
 const MAX_ICON_SOURCE_BYTES = 256 * 1024;
+/** An `.icns` holds every size up to 1024 px; only one small PNG of it leaves this file. */
+const MAX_ICNS_BYTES = 16 * 1024 * 1024;
+/** The sidebar draws a project icon at a fraction of this. */
+const ICNS_MIN_WIDTH = 96;
 
 const ICON_MIME_TYPES = new Map([
   [".avif", "image/avif"],
   [".gif", "image/gif"],
   [".ico", "image/x-icon"],
+  [".icns", "image/png"],
   [".jpeg", "image/jpeg"],
   [".jpg", "image/jpeg"],
   [".png", "image/png"],
@@ -37,6 +43,10 @@ export const PROJECT_ICON_CANDIDATES = [
   "assets/icon.png",
   "icon.svg",
   "icon.png",
+  "build/icon.icns",
+  "resources/icon.icns",
+  "assets/icon.icns",
+  "icon.icns",
 ] as const;
 
 const ICON_SOURCE_FILES = ["index.html", "public/index.html", "src/index.html"] as const;
@@ -92,9 +102,12 @@ async function iconDataUrl(root: string, candidate: string): Promise<string | un
     const path = await realpath(resolve(root, candidate));
     if (!staysWithin(root, path)) return undefined;
     const metadata = await stat(path);
-    if (!metadata.isFile() || metadata.size > MAX_ICON_BYTES) return undefined;
-    const contents = await readFile(path);
-    return `data:${mime};base64,${contents.toString("base64")}`;
+    const icns = extname(candidate).toLocaleLowerCase() === ".icns";
+    if (!metadata.isFile() || metadata.size > (icns ? MAX_ICNS_BYTES : MAX_ICON_BYTES)) return undefined;
+    const file = await readFile(path);
+    const contents = icns ? extractIcnsPng(file, ICNS_MIN_WIDTH) : file;
+    if (!contents || contents.length > MAX_ICON_BYTES) return undefined;
+    return `data:${mime};base64,${Buffer.from(contents).toString("base64")}`;
   } catch {
     return undefined;
   }

@@ -9,9 +9,7 @@ import { Menu, type MenuItem, type MenuSection } from "./Menu";
 import { useThreadStore } from "../workbench-context";
 import { stageTabGlyph } from "./StageSpine";
 import { tooltipProps } from "./ui/Tooltip";
-
-/** What a tab dragged off the strip carries: its id. */
-export const STAGE_TAB_DRAG = "application/x-tau-stage-tab";
+import { STAGE_TAB_DRAG } from "../stage-drag";
 
 /** What every tab of the strip does, whatever it holds. */
 interface TabChrome {
@@ -23,6 +21,8 @@ interface TabChrome {
   close(): void;
   pin(): void;
   openMenu(event: { clientX: number; clientY: number }, label: string): void;
+  /** A tab dragged over the strip would land in front of this one. */
+  dropBefore?: boolean;
 }
 
 function StageTabButton({ chrome, title, label, icon, marker }: {
@@ -38,7 +38,7 @@ function StageTabButton({ chrome, title, label, icon, marker }: {
     aria-selected={chrome.active}
     data-tab-id={chrome.id}
     {...tooltipProps(title, { side: "bottom" })}
-    className={`stage-tab ${chrome.active ? "active" : ""} ${chrome.preview ? "preview" : ""}${chrome.trace ? " trace" : ""}`}
+    className={`stage-tab ${chrome.active ? "active" : ""} ${chrome.preview ? "preview" : ""}${chrome.trace ? " trace" : ""}${chrome.dropBefore ? " drop-before" : ""}`}
     onClick={chrome.activate}
     onDoubleClick={chrome.pin}
     onContextMenu={(event) => { event.preventDefault(); chrome.openMenu(event, label); }}
@@ -120,7 +120,7 @@ function closedLabel(tab: StageTab, registry: ExtensionRegistry | undefined, tit
 const RECENT_PREFIX = "recent:";
 
 export function StageTabs({
-  tabs, activeId, splitId, changedPaths, registry, closed = [], reopenShortcut,
+  tabs, activeId, splitId, changedPaths, registry, closed = [], reopenShortcut, dropSlot,
   onActivate, onClose, onPin, onUnpin, onCloseOthers, onCloseToRight, onSplit, onReopen,
 }: {
   tabs: StageTab[];
@@ -143,6 +143,8 @@ export function StageTabs({
   closed?: readonly StageTab[];
   reopenShortcut?: string | undefined;
   onReopen?: ((id: string) => void) | undefined;
+  /** Where a tab being dragged over the strip would land: in front of `beforeId`, or last. */
+  dropSlot?: { beforeId: string | undefined } | undefined;
 }) {
   const threads = useThreadStore();
   const [menu, setMenu] = useState<TabMenu>();
@@ -178,6 +180,7 @@ export function StageTabs({
           active: tab.id === activeId || tab.id === splitId,
           preview: tab.preview,
           trace: tab.kind === "file" && tab.trace,
+          dropBefore: dropSlot?.beforeId === tab.id,
           activate: () => onActivate(tab.id),
           close: () => onClose(tab.id),
           pin: () => onPin(tab.id),
@@ -218,6 +221,7 @@ export function StageTabs({
           marker={changed ? <em className="stage-tab-changed" {...tooltipProps("Changed")} aria-label="Changed">M</em> : null}
         />;
       })}
+      {dropSlot && dropSlot.beforeId === undefined ? <span className="stage-tab-drop-end" aria-hidden /> : null}
     </div>
     {overflow || (onReopen && closed.length > 0) ? <span className="menu-anchor stage-tabs-overflow">
       <button

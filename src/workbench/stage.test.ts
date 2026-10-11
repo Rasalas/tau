@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  activateTab, activeTab, addPanelTabBehind, closeTab, cycleTab, EMPTY_STAGE, extensionTabId, fileTabId, openExtensionTab, openFileTab, stageFilePath,
+  activateTab, activeTab, moveTab, addPanelTabBehind, closeTab, cycleTab, EMPTY_STAGE, extensionTabId, fileTabId, openExtensionTab, openFileTab, stageFilePath,
   openThreadTab, otherTabIds, pinTab, setExtensionTabDirty, setExtensionTabTitle, setFileView, stageParamsKey,
   openPanelTab, panelTabId, recentlyClosed, rememberClosedTab, reopenClosedTab, splitStage, splitTab, stagedPanelIds, tabIdsToTheRight, threadTabId, unpinTab,
 } from "./stage";
@@ -8,6 +8,34 @@ import {
 const A = "/repo/src/a.ts";
 const B = "/repo/src/b.ts";
 const C = "/repo/src/c.ts";
+
+describe("moving a tab", () => {
+  const three = () => {
+    let state = openFileTab(EMPTY_STAGE, A, { pin: true });
+    state = openFileTab(state, B, { pin: true });
+    return openFileTab(state, C, { pin: true });
+  };
+  const order = (state: ReturnType<typeof three>) => state.tabs.map((tab) => tab.id);
+
+  it("puts a tab in front of another, or last, and leaves everything else alone", () => {
+    const state = { ...three(), splitId: fileTabId(B) };
+    expect(order(moveTab(state, fileTabId(C), fileTabId(A)))).toEqual([fileTabId(C), fileTabId(A), fileTabId(B)]);
+    expect(order(moveTab(state, fileTabId(A)))).toEqual([fileTabId(B), fileTabId(C), fileTabId(A)]);
+    expect(order(moveTab(state, fileTabId(A), fileTabId(C)))).toEqual([fileTabId(B), fileTabId(A), fileTabId(C)]);
+    const moved = moveTab(state, fileTabId(C), fileTabId(A));
+    expect(moved).toMatchObject({ activeId: state.activeId, splitId: fileTabId(B) });
+    expect(moved.tabs.find((tab) => tab.id === fileTabId(C))).toBe(state.tabs.find((tab) => tab.id === fileTabId(C)));
+  });
+
+  it("returns the same state when nothing would move", () => {
+    const state = three();
+    expect(moveTab(state, fileTabId(B), fileTabId(C))).toBe(state);
+    expect(moveTab(state, fileTabId(C))).toBe(state);
+    expect(moveTab(state, fileTabId(B), fileTabId(B))).toBe(state);
+    expect(moveTab(state, "file:missing", fileTabId(A))).toBe(state);
+    expect(moveTab(state, fileTabId(A), "file:missing")).toBe(state);
+  });
+});
 
 describe("stage tabs", () => {
   it("opens a maximized panel pinned, after the active tab, and only once", () => {

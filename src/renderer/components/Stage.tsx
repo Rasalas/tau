@@ -10,7 +10,8 @@ import { FileViewer } from "./FileViewer";
 import { bindWorkspaceFileLoader } from "../workspace-resource-context";
 import { actionableStageTab } from "../workspace-resource-navigation";
 import { useHostClient } from "../host-client-context";
-import { STAGE_TAB_DRAG, StageTabs } from "./StageTabs";
+import { StageTabs } from "./StageTabs";
+import { STAGE_TAB_DRAG, stageDropAt, type StageDrop } from "../stage-drag";
 import { lookInMachine } from "../../workbench/look-in";
 import { usePlatform } from "../platform-context";
 import { RemoteThreadDocument } from "./RemoteThreadDocument";
@@ -135,17 +136,21 @@ export function Stage({
     onClose(current.id);
   };
 
-  // A tab dragged below the strip splits the stage when let go (design 2f). On the window:
-  // a panel on the stage is drawn elsewhere in React's tree, so its events never reach this section's props.
-  const [dropping, setDropping] = useState(false);
+  // A tab dragged below the strip splits the stage when let go (design 2f); let go on the strip it takes a new place (T3 #17730).
+  // On the window: a panel on the stage is drawn elsewhere in React's tree, so its events never reach this section's props.
+  const [dropping, setDropping] = useState<StageDrop | undefined>();
   const tabCount = stage.tabs.length;
   useEffect(() => {
     const on = (event: DragEvent) => {
-      const target = event.target as Element;
-      const inside = event.type !== "dragend" && tabCount > 1 && !!event.dataTransfer?.types.includes(STAGE_TAB_DRAG) && !!target.closest?.(".stage") && !target.closest(".stage-strip");
-      if (inside) event.preventDefault();
-      if (inside && event.type === "drop") stageTabs?.split(event.dataTransfer!.getData(STAGE_TAB_DRAG));
-      setDropping(inside && event.type === "dragover");
+      const drop = event.type === "dragend" ? undefined : stageDropAt(event, tabCount);
+      if (drop) event.preventDefault();
+      if (drop && event.type === "drop") {
+        const id = event.dataTransfer!.getData(STAGE_TAB_DRAG);
+        if (drop.kind === "split") stageTabs?.split(id);
+        else stageTabs?.move(id, drop.beforeId);
+      }
+      const hover = drop && event.type === "dragover" ? drop : undefined;
+      setDropping((last) => last?.kind === hover?.kind && (last?.kind !== "reorder" || (hover?.kind === "reorder" && last.beforeId === hover.beforeId)) ? last : hover);
     };
     const kinds = ["dragover", "drop", "dragend"] as const;
     for (const kind of kinds) addEventListener(kind, on);
@@ -223,6 +228,7 @@ export function Stage({
         closed={closed}
         reopenShortcut={reopenShortcut}
         onReopen={onReopen}
+        dropSlot={dropping?.kind === "reorder" ? dropping : undefined}
       />
       <div className="stage-strip-actions">
         {tools}
@@ -241,6 +247,6 @@ export function Stage({
       </div>
     </div>
     {beside ? <div className="stage-split">{pane(current)}{pane(beside)}</div> : pane(current)}
-    {dropping ? <div className="stage-split-drop"><PanelRight size={16} />Drop to split</div> : null}
+    {dropping?.kind === "split" ? <div className="stage-split-drop"><PanelRight size={16} />Drop to split</div> : null}
   </section>;
 }

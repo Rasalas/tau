@@ -64,6 +64,24 @@ export interface WindowShellStatus {
   releaseNotes?: ReleaseNotes;
 }
 
+/** The `tau` command in a terminal: whether this app can link it, and where it stands. */
+export interface CommandLineState {
+  /** False in a build from source and on Windows, where nothing is linked. */
+  supported: boolean;
+  /** `tau`, or `tau-dev` for Tau Dev. */
+  name: string;
+  /** The link Tau made, when it is there. */
+  installedPath?: string;
+  /** Whether a new terminal runs that link. */
+  onPath: boolean;
+  /** Where Install would link it, and whether that folder is on PATH yet. */
+  target?: { folder: string; onPath: boolean };
+  /** Another command of that name a terminal finds, which Install never replaces. */
+  otherPath?: string;
+}
+
+export type CommandLineOp = "state" | "install" | "remove";
+
 export type WindowAction =
   /** Pastes the clipboard's text into whatever has focus, without its formatting. */
   | { kind: "paste-as-text" }
@@ -71,7 +89,9 @@ export type WindowAction =
   | { kind: "status" }
   /** The notes of `version` were shown; they are not offered again. */
   | { kind: "release-notes-seen"; version: string }
-  | { kind: "check-for-updates" };
+  | { kind: "check-for-updates" }
+  /** The `tau` command: `install` needs the `folder` the person was shown. */
+  | { kind: "command-line"; op: CommandLineOp; folder?: string };
 
 const QUIT_ANSWERS = new Set<string>(["quit", "stay", "asking"]);
 
@@ -91,6 +111,11 @@ export function decodeWindowAction(method: string, value: unknown): WindowAction
     case "release-notes-seen":
       if (typeof item.version !== "string" || !item.version) return fail();
       return { kind: "release-notes-seen", version: item.version };
+    case "command-line":
+      if (item.op !== "state" && item.op !== "install" && item.op !== "remove") return fail();
+      if (item.op !== "install") return { kind: "command-line", op: item.op };
+      if (typeof item.folder !== "string" || !item.folder) return fail();
+      return { kind: "command-line", op: "install", folder: item.folder };
     default:
       return fail();
   }

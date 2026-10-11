@@ -293,7 +293,11 @@ export function SettingsScreen({
       // Another dialog (a picker opened from a page) closes first.
       if (document.querySelectorAll('[aria-modal="true"]').length > 1) return;
       const typing = event.target instanceof HTMLElement && (event.target.tagName === "INPUT" || event.target.tagName === "TEXTAREA" || event.target.tagName === "SELECT" || event.target.isContentEditable);
-      if (event.key === "/" && !typing && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      // The find chord also works from a field; a chord recorder keeps it (T3 #17859).
+      const recording = event.target instanceof Element && event.target.closest(`[${KEYBINDING_CAPTURE_ATTRIBUTE}]`) !== null;
+      const find = event.key.toLowerCase() === "f" && !event.altKey && !event.shiftKey && (mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey);
+      if (event.isComposing || (recording && find)) return;
+      if (find || (event.key === "/" && !typing && !event.metaKey && !event.ctrlKey && !event.altKey)) {
         event.preventDefault();
         searchRef.current?.focus();
         searchRef.current?.select();

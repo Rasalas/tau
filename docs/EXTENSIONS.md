@@ -510,7 +510,7 @@ plugin.registerCommand({
 with the tab's id; `actions.closeStageTab(id)` closes any tab and
 `actions.stageTabs()` lists what is on the stage. `actions.splitStage?(id?)` (API 1.38.0) shows a
 tab beside the active one; without an id it splits off the active tab or joins the two
-panes again (a tab dragged onto the stage does the same). **`params` is plain JSON and
+panes again (a tab dragged onto the stage does the same). A tab dragged along the strip takes a new place; core keeps the order, a kit adds nothing. **`params` is plain JSON and
 is the whole of what the tab is:** two opens with the same params are the same
 tab, the params key the tab (`ext:<kind>:<key>` — pass `key` to name one
 yourself, or `singleton: true` for a kind with one tab whatever it is opened
@@ -1556,7 +1556,7 @@ projects with, keyed by a project's `workspaceId` or, for a host without ids,
 its `path`; each value is a `data:image/` URL (anything else is dropped), and
 `undefined` withdraws them, as deactivation does. Every project mark core
 draws takes them before the host's own picture (`UiProject.icon`: a
-`favicon.*`, `t3.json`) and before the initial: the new thread's project pill,
+`favicon.*`, a macOS app icon (`build/icon.icns` and its neighbours, drawn from the PNG inside), `t3.json`) and before the initial: the new thread's project pill,
 the project picker, the thread rows and draft rows, the phone's and tablet's
 thread lists and project filter. When two extensions name the same project,
 the one activated first wins. Core never reads an extension's settings for
@@ -3985,6 +3985,15 @@ only, resolved where npm put it. It is for a native addon that must act on the
 machine the user sits at rather than the one the host runs on — SnapShots
 reads the accessibility tree of a window this way. A half written for an older
 Tau checks that the member exists.
+
+`context.showContextMenu(entries, point)` (new in API 1.59.0) opens the window's
+native right-click menu, the one the page's `useContextMenu` uses, for a view the
+page cannot reach: a native view swallows its own `contextmenu` events. `entries`
+are the `NativeMenuEntry` list of `tau/host-extension` and `point` is in the
+workbench page's CSS pixels (add the view's bounds to the click, divide by the
+page zoom); it resolves with the chosen item's `id`, or `undefined` when the menu
+was dismissed. Preview Kit's page menu (open a link in the browser, copy a link
+or an image) is the example. Check that the member exists on an older Tau.
 
 A call goes to one window, never to every client
 ([ADR 0023](adr/0023-client-tokens-and-pairing.md)). While a command runs for a

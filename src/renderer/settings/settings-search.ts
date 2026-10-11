@@ -48,6 +48,7 @@ const CORE_PAGES: ReadonlyArray<{ page: CoreSettingsPage; label: string; keyword
       ["Reload files when they change", ["watch", "hot reload", "extensions", "packages", "themes", "config"]],
       ["Quit shortcut", ["quit", "cmd q", "hold", "press twice", "confirm", "confirmation"]],
       ["Ask before quitting while threads work", ["quit", "confirm", "confirmation", "running", "ask"]],
+      ["Terminal command", ["tau command", "cli", "command line", "terminal", "shell", "path", "install", "symlink", "tau app"]],
     ],
   },
   {

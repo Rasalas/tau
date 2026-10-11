@@ -9,6 +9,8 @@
  */
 export type * from "./host-extensions.js";
 export type { WindowExtension, WindowExtensionContext, WindowExtensionFactory } from "./window-extensions.js";
+// What `WindowExtensionContext.showContextMenu` takes and answers (next API version).
+export type { MenuPoint, NativeMenuEntry } from "../shared/context-menu.js";
 export type * from "./runtime-types.js";
 export type * from "./runtime-adapters.js";
 export type * from "./pi-kit-extensions.js";

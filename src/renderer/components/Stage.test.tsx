@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TranscriptPage } from "../../shared/host-protocol";
@@ -425,6 +425,32 @@ describe("a tab a kit drew", () => {
     expect(await screen.findByRole("button", { name: /shell t1 output/u })).toBeTruthy();
     expect(await findFileText()).toBeTruthy();
     expect(screen.queryByText("Drop to split")).toBeNull();
+  });
+
+  it("reorders when a tab is let go on the strip, and does not split", async () => {
+    render(<Harness initial={openFileTab(tab("t1"), `${CWD}/src/a.ts`, { pin: true })} registry={terminals()} />);
+    await findFileText();
+    const names = () => screen.getAllByRole("tab").map((entry) => entry.getAttribute("data-tab-id"));
+    const before = names();
+    // jsdom lays nothing out: give each tab a 100px box.
+    screen.getAllByRole("tab").forEach((entry, index) => {
+      entry.getBoundingClientRect = () => ({ left: index * 100, width: 100, right: index * 100 + 100, top: 0, bottom: 40, height: 40, x: index * 100, y: 0, toJSON: () => ({}) });
+    });
+    const last = before[1]!;
+    const carried = { types: ["application/x-tau-stage-tab"], getData: () => last, setData: vi.fn() };
+    const first = screen.getAllByRole("tab")[0]!;
+
+    // jsdom's drag events carry no pointer position.
+    const at = (type: "dragOver" | "drop", x: number) => fireEvent(first, Object.assign(createEvent[type](first, { dataTransfer: carried }), { clientX: x }));
+    at("dragOver", 10);
+    await waitFor(() => expect(first.className).toContain("drop-before"));
+    expect(screen.queryByText("Drop to split")).toBeNull();
+    at("drop", 10);
+
+    await waitFor(() => expect(names()).toEqual([before[1], before[0]]));
+    expect(screen.queryByText("Drop to split")).toBeNull();
+    expect(screen.getAllByRole("tab").filter((entry) => entry.classList.contains("active"))).toHaveLength(1);
+    expect(document.querySelector(".drop-before")).toBeNull();
   });
 
   it("unpins a tab from the context menu, which makes it the preview again", async () => {
