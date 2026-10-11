@@ -518,6 +518,21 @@ describe("thread runtime backends", () => {
     await offline.dispose();
   });
 
+  it("tells the user, by server name only, when Tau's tools did not come up in the session", async () => {
+    const { filePath, store } = await scratchStore();
+    const { adapter, opened } = scriptedAdapter(filePath, () => turn("ok"));
+    const mcpServer = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
+    const events: ThreadRuntimeEvent[] = [];
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", mcpServer: async () => mcpServer, onEvent: (event) => { events.push(event); } });
+    await backend.start("create");
+    await backend.prompt({ text: "hi", delivery: "prompt" });
+    opened[0]!.onMcpUnavailable!(["tau"], "timeout");
+    const notice = events.find((event) => event.type === "notice");
+    expect(notice).toMatchObject({ type: "notice", level: "warning", message: expect.stringContaining("(tau)") });
+    expect(JSON.stringify(notice)).not.toContain("secret");
+    await backend.dispose();
+  });
+
   it("keeps a thread created with a tool list to those tools, across a restart", async () => {
     const { filePath, store } = await scratchStore();
     const { adapter, opened } = scriptedAdapter(filePath, () => turn("ok"));

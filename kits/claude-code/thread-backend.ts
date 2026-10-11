@@ -590,6 +590,11 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       onMessage: (frame, unclaimed) => this.onFrame(frame, unclaimed),
       onExit: (error) => this.onExit(live, error),
       onStderr: (chunk) => { live.stderr = `${live.stderr}${chunk}`.slice(-STDERR_TAIL_BYTES); },
+      onMcpUnavailable: (servers, reason) => this.report({
+        type: "notice",
+        message: `${reason === "timeout" ? "No answer when connecting" : "Could not connect"} Tau's tools (${servers.join(", ")}); this thread runs without them until it is reopened.`,
+        level: "warning",
+      }),
     });
     this.live = live;
     void live.session.accountInfo?.().then((account) => { this.billing = probeBilling(account) ?? this.billing; }, () => undefined);

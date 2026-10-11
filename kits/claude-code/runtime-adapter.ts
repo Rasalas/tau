@@ -1,4 +1,4 @@
-import { query as sdkQuery, type CanUseTool, type EffortLevel, type OnUserDialog, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { query as sdkQuery, type CanUseTool, type EffortLevel, type McpServerConfig, type OnUserDialog, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { CompletionRequest, HostMcpConnection, RuntimePermissionLevel, RuntimePromptInput, RuntimePromptResult, RuntimeTransport, SkillRuntimeAdapter } from "tau/host-extension";
 import { homedir } from "node:os";
 import manifest from "./tau-extension.json";
@@ -78,6 +78,8 @@ export interface ClaudeSessionInput {
   hooks?: ClaudeTurnHooks;
   /** Tau's tools for this thread, over the host's MCP endpoint. */
   mcpServer?: HostMcpConnection;
+  /** Tau's server did not come up in this session: its names, and whether the CLI failed or never answered. */
+  onMcpUnavailable?(servers: string[], reason: "failed" | "timeout"): void;
   /** The only tools the thread keeps, as Pi names them; every tool when absent. */
   tools?: readonly string[];
   /** The project holds its commands to this machine and these hosts (API 1.14.0). */
@@ -105,6 +107,8 @@ export interface ClaudeCodeRuntimeOptions {
   sessionStore?: ClaudeRuntimeSessionStore;
   /** The instance's own options for every launch, as the SDK takes them. */
   extraArgs?: Record<string, string | null>;
+  /** How long a session waits for the CLI to register Tau's MCP server; tests shorten it. */
+  mcpTimeoutMs?: number;
 }
 
 export interface ClaudeQueryPlan {
@@ -235,15 +239,19 @@ export function claudeToolOptions(tools: readonly string[]): Pick<Options, "tool
 }
 
 /**
- * Tau's tools as one more MCP server beside the user's own. Its tools are
- * pre-approved here because Tau's own gate asks for them, as it does for Pi;
- * a second question from Claude would only repeat the first.
+ * Tau's tools beside the user's own MCP servers. They are pre-approved here
+ * because Tau's own gate asks for them, as it does for Pi; a second question
+ * from the CLI would only repeat the first. The server itself is not an
+ * option: `mcpServers` becomes `--mcp-config` on the CLI's command line, where
+ * every local user reads the token (see `tauMcpServers`).
  */
-export function tauMcpOptions(server: HostMcpConnection): Pick<Options, "mcpServers" | "allowedTools"> {
-  return {
-    mcpServers: { [server.name]: { type: "http", url: server.url, headers: { ...server.headers } } },
-    allowedTools: [`mcp__${server.name}`],
-  };
+export function tauMcpOptions(server: HostMcpConnection): Pick<Options, "allowedTools"> {
+  return { allowedTools: [`mcp__${server.name}`] };
+}
+
+/** Tau's MCP server for `ClaudeSdkSession`, registered over the control channel once the CLI runs. */
+export function tauMcpServers(server: HostMcpConnection): Record<string, McpServerConfig> {
+  return { [server.name]: { type: "http", url: server.url, headers: { ...server.headers } } };
 }
 
 function abortError(message: string): Error {
@@ -472,7 +480,16 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
       ...(input.tools ? { tools: input.tools } : {}),
       ...(input.network ? { network: input.network } : {}),
     });
-    const session = new ClaudeSdkSession({ query, options: queryOptions, claudeSessionId: input.claudeSessionId, onMessage: input.onMessage, onExit: input.onExit });
+    const session = new ClaudeSdkSession({
+      query,
+      options: queryOptions,
+      claudeSessionId: input.claudeSessionId,
+      onMessage: input.onMessage,
+      onExit: input.onExit,
+      ...(input.mcpServer ? { mcpServers: tauMcpServers(input.mcpServer) } : {}),
+      ...(options.mcpTimeoutMs !== undefined ? { mcpTimeoutMs: options.mcpTimeoutMs } : {}),
+      ...(input.onMcpUnavailable ? { onMcpUnavailable: input.onMcpUnavailable } : {}),
+    });
     session.start();
     return session;
   }
