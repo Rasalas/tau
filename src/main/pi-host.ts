@@ -1453,8 +1453,8 @@ export class PiHost {
       const thread = this.requireActive();
       if (expectedSessionId && thread.threadId !== expectedSessionId) throw new Error("The selected thread changed before it could be moved.");
       const tree = requireCapability(thread.backend, "tree", "Use /tree in Pi.");
-      if (thread.state.streaming) throw new Error("Wait for the active run before moving this thread.");
-      const result = await tree.navigateTree(entryId, options);
+      if (thread.state.streaming || thread.adapterPending > 0 || thread.pendingClientMessageIds.length > 0 || thread.inFlightClientMessageIds.size > 0) throw new Error("Wait for the active run before moving this thread.");
+      const result = await this.sessionControl.navigating(thread.threadId, () => tree.navigateTree(entryId, options));
       if (result.cancelled) return { ...this.publication.actionResult([]), cancelled: true };
       this.log("thread.tree.navigated", entryId);
       const update = await this.publication.publishDetail();
