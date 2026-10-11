@@ -4,7 +4,7 @@ import { Check, Copy, WrapText } from "lucide-react";
 import { tooltipProps } from "./ui/Tooltip";
 import { FileKindIcon } from "./FileKindIcon";
 import { StreamingMarkdownBlocks } from "./markdown-blocks";
-import { parseMarkdown, renderMarkdown, type MarkdownComponents, type MarkdownHtml } from "./markdown-pipeline";
+import { FRAGMENT_PREFIX, parseMarkdown, renderMarkdown, type MarkdownComponents, type MarkdownHtml } from "./markdown-pipeline";
 export type { MarkdownComponents } from "./markdown-pipeline";
 import { WorkbenchContext } from "../workbench-context";
 import { useWorkspaceResources, transcriptFilePath } from "../workspace-resource-context";
@@ -306,10 +306,28 @@ function FileChip({ path, name }: { path: string; name: string }) {
   return <button type="button" className="md-file-link" aria-label={`Open ${path}`} onClick={() => openFile(path.replace(/^\.\//u, ""))}>{chip}</button>;
 }
 
+/** The element a `#fragment` names inside the Markdown that holds the link; a repeat's `-N` finds the Nth heading of that slug. */
+export function fragmentTarget(link: Element, fragment: string): Element | undefined {
+  if (!fragment) return undefined;
+  let name = fragment;
+  try { name = decodeURIComponent(fragment); } catch { /* A malformed escape names itself. */ }
+  const scope = link.closest(".markdown") ?? link.ownerDocument;
+  const named = (id: string) => [...scope.querySelectorAll("[id]")].filter((element) => element.id === id);
+  const direct = named(name)[0] ?? named(`${FRAGMENT_PREFIX}${name}`)[0];
+  if (direct) return direct;
+  const repeat = /^(.+)-(\d+)$/u.exec(name);
+  return repeat ? named(`${FRAGMENT_PREFIX}${repeat[1]}`)[Number(repeat[2])] : undefined;
+}
+
 function FileLink({ href, children }: { href?: string; children?: ReactNode }) {
   const resources = useWorkspaceResources();
+  const fragment = href?.startsWith("#") ?? false;
   const local = href && !/^(?:[A-Za-z][A-Za-z0-9+.-]*:|\/\/|#|\?)/u.test(href);
-  return <a href={href} target={local ? undefined : "_blank"} rel="noreferrer noopener" onClick={local && resources ? (event) => {
+  // A fragment stays in the document: the browser would open a window for it, and the route lives in the hash.
+  return <a href={href} target={local || fragment ? undefined : "_blank"} rel="noreferrer noopener" onClick={fragment ? (event) => {
+    event.preventDefault();
+    fragmentTarget(event.currentTarget, href!.slice(1))?.scrollIntoView({ block: "start" });
+  } : local && resources ? (event) => {
     event.preventDefault();
     let path = href;
     try { path = decodeURIComponent(href); } catch { /* Keep malformed paths readable in the file error. */ }
@@ -376,7 +394,7 @@ const INLINE_COMPONENTS: MarkdownComponents = {
 };
 
 const MarkdownTree = memo(function MarkdownTree({ children, components = COMPONENTS, html }: { children: string; components?: MarkdownComponents; html?: MarkdownHtml | undefined }) {
-  return renderMarkdown(children, components, html);
+  return renderMarkdown(children, components, html, { headingIds: true });
 });
 
 const StreamingChunk = memo(function StreamingChunk({ children }: { children: string }) {

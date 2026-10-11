@@ -97,6 +97,21 @@ function followHostList(local: readonly string[], before: readonly string[] | un
   return kept.length === local.length && added.length === 0 ? local : [...kept, ...added];
 }
 
+/** Per runtime the host's entry, except that `hidden` follows the host list with this client's unanswered change kept. */
+function followModelPreferences(
+  local: Readonly<Record<string, TauModelPreferences>>,
+  before: Record<string, TauModelPreferences> | undefined,
+  now: Record<string, TauModelPreferences> | undefined,
+  record: (local: Readonly<Record<string, TauModelPreferences>>, before: Record<string, TauModelPreferences> | undefined, now: Record<string, TauModelPreferences> | undefined) => Record<string, TauModelPreferences>,
+): Record<string, TauModelPreferences> {
+  const result = record(local, before, now);
+  for (const [runtime, entry] of Object.entries(now ?? {})) {
+    const hidden = followHostList(local[runtime]?.hidden ?? [], before && (before[runtime]?.hidden ?? []), entry.hidden ?? []);
+    if (hidden.length > 0) result[runtime] = { ...entry, hidden: [...hidden] };
+  }
+  return result;
+}
+
 function load(): PreferencesState {
   try {
     const storage = getClientStorage();
@@ -259,8 +274,11 @@ export class PreferencesStore {
     else if (previous?.threads?.continueAfterRestart !== undefined) patch.continueThreadsAfterRestart = DEFAULTS.continueThreadsAfterRestart;
     if (config.confirm?.quitWhileRunning !== undefined) patch.confirmQuitWhileRunning = config.confirm.quitWhileRunning;
     else if (previous?.confirm?.quitWhileRunning !== undefined) patch.confirmQuitWhileRunning = DEFAULTS.confirmQuitWhileRunning;
-    if (config.favouriteModels) patch.favouriteModels = config.favouriteModels;
-    if (config.modelPreferences || previous?.modelPreferences) patch.modelPreferences = record(this.state.modelPreferences, previous?.modelPreferences, config.modelPreferences);
+    if (config.favouriteModels || previous?.favouriteModels) {
+      const favourites = followHostList(this.state.favouriteModels, previous && (previous.favouriteModels ?? []), config.favouriteModels ?? []);
+      if (favourites !== this.state.favouriteModels) patch.favouriteModels = favourites;
+    }
+    if (config.modelPreferences || previous?.modelPreferences) patch.modelPreferences = followModelPreferences(this.state.modelPreferences, previous && (previous.modelPreferences ?? {}), config.modelPreferences, record);
     if (config.modelPrices || previous?.modelPrices) patch.modelPrices = record(this.state.modelPrices, previous?.modelPrices, config.modelPrices);
     // The host's list is every device's: a client follows it, keeping only its own change the host has not answered yet.
     const disabled = followHostList(this.state.disabledExtensions, previous && (previous.disabledExtensions ?? []), config.disabledExtensions ?? []);
