@@ -27,6 +27,7 @@ import { workspaceChangesReader } from "./workspace.js";
 import { createRequestBadge, createRequestCardSection } from "./request-badge.js";
 import { RequestLinks } from "./request-links.js";
 import { createRequestSection } from "./request-section.js";
+import { createGuideRunWatcher } from "./guide-notify.js";
 import { LinkDialogs } from "./link-dialog.js";
 import { PendingReviewStore } from "./pending-review.js";
 import { createProactivePanels } from "./proactive-panels.js";
@@ -169,6 +170,7 @@ export const reviewExtension: DesktopExtension = {
     });
     const releaseLinks = plugin.registerRegion({ id: "review.request-links", placement: "title-bar", profiles: ["desktop", "web", "compact"], Component: RequestLinks });
     const releaseProactive = plugin.registerRegion({ id: "review.proactive-panels", placement: "title-bar", profiles: ["desktop"], Component: createProactivePanels(plugin, links, () => workspaceStore) });
+    const releaseGuideRuns = plugin.registerRegion({ id: "review.guide-runs", placement: "title-bar", profiles: ["desktop", "web", "compact"], Component: createGuideRunWatcher(plugin.host) });
     // Below the runtime banners, Pi's widgets and quick actions; above Thread Rail's settled note (90), which sits on the composer.
     const settlement = new SettlementSource();
     const releaseSettlement = plugin.useService<SettlementService>(SETTLEMENT_SERVICE, (service) => { settlement.set(service); return () => settlement.set(undefined); });
@@ -198,7 +200,7 @@ export const reviewExtension: DesktopExtension = {
       ];
       return () => { if (workspaceStore === store) workspaceStore = undefined; for (const dispose of disposers.reverse()) dispose(); };
     });
-    return () => { releaseSettlement(); releaseStore(); releaseWatchMarks(); releaseStrip(); releaseLinks(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
+    return () => { releaseSettlement(); releaseStore(); releaseWatchMarks(); releaseStrip(); releaseLinks(); releaseGuideRuns(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
   },
 };
 
