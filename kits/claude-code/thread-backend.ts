@@ -601,7 +601,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     return live;
   }
 
-  private readonly nativeAgents = new ClaudeNativeAgents();
+  private readonly nativeAgents = new ClaudeNativeAgents(() => this.chosenEffort ?? this.observedEffort);
 
   private onFrame(frame: Parameters<SdkTurnTranslator["push"]>[0], unclaimed = false): void {
     // Not in the SDK's message union, but the query stream passes it on (sdk.d.ts `SDKActiveGoalMessage`).
@@ -810,7 +810,8 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   private async stopBackground(taskId?: string): Promise<void> {
     const live = this.live;
     const ids = taskId === undefined ? this.background.current().map((task) => task.id) : [taskId];
-    if (taskId !== undefined && !this.background.has(taskId)) throw new Error("That background task is no longer running.");
+    // A subagent's row stops by its task too, whether or not the CLI backgrounded it.
+    if (taskId !== undefined && !this.background.has(taskId) && !this.nativeAgents.hasTask(taskId)) throw new Error("That background task is no longer running.");
     if (!live || live.session.closed) { this.clearBackground(); return; }
     await Promise.all(ids.map((id) => live.session.stopTask(id)));
   }
