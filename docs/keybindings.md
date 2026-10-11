@@ -147,6 +147,9 @@ still saves, Escape closes the search or drops extra cursors and never stops
 the run, and chords the editor does not use (`mod+k`, `mod+w`, `mod+p`, …)
 reach the workbench as usual.
 
+Inside Settings, `mod+f` and `/` focus the settings search (`mod+f` also from
+another field, never from a chord recorder), and Escape clears it first.
+
 ## Notes on the defaults
 
 - Global chords carry `!terminalFocus` only where the terminal gives the chord

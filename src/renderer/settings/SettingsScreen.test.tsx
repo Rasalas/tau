@@ -9,6 +9,7 @@ import { HostClientProvider } from "../host-client-context";
 import { PreferencesStore } from "../preferences";
 import { createFakeHostClient } from "../test-support/fake-host-client";
 import { TestProviders } from "../test-support/test-providers";
+import { KEYBINDING_CAPTURE_ATTRIBUTE } from "../keybinding-context";
 import { SettingsScreen } from "./SettingsScreen";
 import { AppPageContext } from "../app-page-context";
 import { AppPageStore } from "../../workbench/app-page-store";
@@ -130,6 +131,33 @@ describe("the Settings screen", () => {
     expect(results[0]!.getAttribute("aria-selected")).toBe("true");
     fireEvent.keyDown(search, { key: "Enter" });
     expect(onSetPage).toHaveBeenCalledWith("general#setting-theme");
+  });
+
+  it("focuses the search on the find chord, also from another field, but not while a chord is recorded", () => {
+    const { page } = renderScreen();
+    const search = within(page).getByRole("searchbox", { name: "Search settings" });
+    const field = document.createElement("input");
+    page.appendChild(field);
+    field.focus();
+    const find = (target: EventTarget, init: KeyboardEventInit = {}) => {
+      const event = new KeyboardEvent("keydown", { key: "f", metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true, ...init });
+      target.dispatchEvent(event);
+      return event;
+    };
+
+    expect(find(field).defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(search);
+
+    field.focus();
+    // The other platform's modifier, a shifted or alt chord and plain F leave the keyboard alone.
+    for (const init of [{ metaKey: !mac, ctrlKey: mac }, { shiftKey: true }, { altKey: true }, { metaKey: false, ctrlKey: false }]) {
+      expect(find(field, init).defaultPrevented).toBe(false);
+    }
+    expect(document.activeElement).toBe(field);
+
+    field.setAttribute(KEYBINDING_CAPTURE_ATTRIBUTE, "");
+    expect(find(field).defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(field);
   });
 
   it("scrolls to the row a search result names", async () => {
