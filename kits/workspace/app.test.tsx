@@ -1724,6 +1724,8 @@ describe("Workspace Kit in the workbench", () => {
     fireEvent.click(within(popover).getByRole("button", { name: "origin/release" }));
     expect(await screen.findByRole("button", { name: "New branch tau/… from origin/release" })).toBeTruthy();
     expect((field as HTMLInputElement).value).toBe("");
+    // The chosen base leads the list, the default right after it.
+    expect([...popover.querySelectorAll(".ref-list button > span")].map((row) => row.textContent)).toEqual(["origin/release", "origin/main", "main", "origin/develop"]);
     // A name typed after the base keeps it; arrow keys and Enter pick from the field.
     fireEvent.change(field, { target: { value: "feat/pages" } });
     expect(screen.getByRole("button", { name: "New branch feat/pages from origin/release" })).toBeTruthy();

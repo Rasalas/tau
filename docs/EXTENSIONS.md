@@ -2019,8 +2019,8 @@ branch). With one it reads "From <base>" (or "<name> from <base>") and opens
 the new branch: one field that takes the whole name and fuzzy-searches "Based
 on" as it is typed (picking a base it found clears it again), "If empty: Name
 from the prompt / Random" (the kit preference `branch-naming`, `prompt` or
-`random`; without a naming kit it is random) and "Based on" (the default base
-marked "default", the local branches, then origin's). The default base is the
+`random`; without a naming kit it is random) and "Based on" (a chosen base first,
+the default marked "default", the local branches, then origin's). The default base is the
 project's main line, `origin/main` or `main` as Settings → Base says; a base
 picked from the list is taken as named. `worktree-base` answers `others`
 (origin's branches) for it. A phone keeps the same order: the
