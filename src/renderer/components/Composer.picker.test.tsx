@@ -89,7 +89,7 @@ describe("model picker at the model chip", () => {
   it("carries the level to the next model, or the next lower one it has, and says so with Undo (K142)", async () => {
     const { chip, onSetModel, onSetThinking } = renderComposer({ snapshot: { ...snapshot, thinkingLevel: "high", thinkingLevels: ["low", "medium", "high"] } });
     await openPicker(chip);
-    await screen.findByRole("radio", { name: "Codex, Plan" });
+    await screen.findByRole("radio", { name: "Codex" });
     fireEvent.click(screen.getByRole("option", { name: /^GPT-5.6 Sol, Pi/u }));
     expect(onSetModel).toHaveBeenCalledWith("openai-codex", "gpt-5.6-sol");
     expect(onSetThinking).toHaveBeenCalledWith("medium");
@@ -125,7 +125,9 @@ describe("model picker at the model chip", () => {
     const onSelect = vi.fn();
     const { chip, onSetModel } = renderComposer({ runtimeChoice: { kind: "pi", backends: snapshot.runtimeBackends!, onSelect } });
     await openPicker(chip);
-    fireEvent.click(await screen.findByRole("radio", { name: "Codex, Plan" }));
+    // The Codex pill lists its ways; one of them binds the draft to Codex.
+    fireEvent.click(await screen.findByRole("radio", { name: "Codex" }));
+    fireEvent.click(screen.getByRole("option", { name: /^GPT-5.6 Luna, Codex, Plan/u }));
     expect(onSelect).toHaveBeenCalledWith("codex");
     expect(onSetModel).toHaveBeenCalledWith("openai", "gpt-5.6-luna");
   });
@@ -135,9 +137,9 @@ describe("model picker at the model chip", () => {
     const { chip, onSetModel } = renderComposer({ onNewThreadOnRuntime });
     const { input } = await openPicker(chip);
     fireEvent.change(input, { target: { value: "5.5" } });
-    expect(await screen.findByRole("button", { name: "Pi, can't run it" })).toHaveProperty("disabled", true);
-    expect(document.querySelector(".model-ways-note")?.textContent).toBe("This thread runs with Pi. ↵ starts a new thread with Codex.");
-    fireEvent.click(screen.getByRole("radio", { name: "Codex, Plan" }));
+    const row = await screen.findByRole("option", { name: /^GPT-5.5, Codex/u });
+    expect(row.textContent).toMatch(/ · new thread$/u);
+    fireEvent.click(row);
     // The new thread starts on the model chosen for it.
     expect(onNewThreadOnRuntime).toHaveBeenCalledWith("codex", expect.objectContaining({ provider: "openai", id: "gpt-5.5" }), undefined);
     expect(onSetModel).not.toHaveBeenCalled();

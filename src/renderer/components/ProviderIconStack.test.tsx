@@ -72,7 +72,7 @@ describe("ProviderIconStack", () => {
 
   it("draws a plan by its mark where the list is Pi's", () => {
     const { getByLabelText } = render(<ProviderIconStack modelProvider="openai-codex" />);
-    expect(getByLabelText("ChatGPT plan").querySelector(".provider-family-codex img.provider-mark")).toBeTruthy();
+    expect(getByLabelText("ChatGPT plan").querySelector(".provider-family-codex .provider-mark-mono")).toBeTruthy();
     expect(providerLabel("openai-codex")).toBe("ChatGPT plan");
   });
 
@@ -113,7 +113,7 @@ describe("ProviderIconStack", () => {
   it("draws a runtime instance with its program's mark", () => {
     const { getByLabelText } = render(<ProviderIconStack modelProvider="openai" runtimeProvider="codex@work" />);
     const stack = getByLabelText("Codex (OpenAI)");
-    expect(stack.querySelector(".provider-family-codex img.provider-mark")).toBeTruthy();
+    expect(stack.querySelector(".provider-family-codex .provider-mark-mono")).toBeTruthy();
     expect(stack.querySelector(".provider-family-openai")).toBeNull();
     cleanup();
     expect(render(<ProviderIconStack runtimeProvider="claude-code@second" />).getByLabelText("Claude Code")).toBeTruthy();

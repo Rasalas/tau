@@ -1,37 +1,84 @@
 /*
- * The model picker (K142 B): a popover at its chip with no scrim — makers as
- * marks on the rail, one row per model, "Runs with" pinned under the list. A
- * narrow window puts the rail above the list; on a phone it is a bottom sheet,
- * tablets keep the popover. Loaded with the picker's chunk; the chip keeps its rules in styles.css.
+ * The model picker, drawn after T3 Code's: a rail of makers on a quieter band with a bar at the one shown,
+ * then search, the maker's runtime pills and one compact row per model. A narrow window puts the rail
+ * above the list; on a phone it is a bottom sheet, tablets keep the popover. The chip keeps its rules in styles.css.
  */
 .model-picker.popover {
-  width: 580px; max-width: calc(100vw - 16px); height: 470px; max-height: calc(100vh - 16px);
+  width: 440px; max-width: calc(100vw - 16px); height: 440px; max-height: calc(100vh - 16px);
   display: flex; flex-direction: column; padding: 0; overflow: hidden;
   border-radius: 12px; background: var(--overlay); color: var(--ink);
 }
 .model-picker-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.model-picker-body { flex: 1; min-height: 0; display: flex; }
 
-/* The search: a filled field over all three columns, as the design draws it. */
-.model-search {
-  flex: none; height: 38px; gap: 8px; margin: 8px 8px 2px; padding: 0 6px 0 12px;
-  border: 1px solid transparent; border-radius: 9px; background: var(--inset);
-  transition: border-color .12s ease;
+/* The rail: Favourites, Recent, each maker as its mark, then the runtimes that list nothing yet, with their state's dot. */
+.model-rail {
+  width: 52px; flex: none; overflow: auto; scrollbar-width: none;
+  display: flex; flex-direction: column; gap: 4px; padding: 6px;
+  background: color-mix(in srgb, var(--rail) 70%, transparent); border-right: 1px solid var(--line);
 }
-.model-search:focus-within { border-color: var(--line-focus); }
+.model-rail-slot { position: relative; }
+.model-rail-slot > hr { border: 0; border-top: 1px solid var(--line); margin: 0 2px 4px; }
+.model-rail button {
+  position: relative; width: 40px; height: 40px; display: grid; place-items: center;
+  border: 0; border-radius: 7px; padding: 0; background: transparent;
+  color: var(--ink); cursor: pointer; transition: background-color .12s ease;
+}
+.model-rail button:hover { background: var(--hover-strong); }
+.model-rail button:focus-visible { outline: 1px solid var(--focus); outline-offset: -1px; }
+/* The entry shown: a bar on the rail's edge, as T3 Code marks it. */
+.model-rail button.active::after {
+  content: ""; position: absolute; right: -6px; top: 50%; width: 3px; height: 20px; translate: 0 -50%;
+  border-radius: 3px 0 0 3px; background: var(--acid-text);
+}
+.model-rail .rail-icon { margin-left: 0; width: 20px; height: 20px; }
+.model-rail .rail-icon :is(.provider-icon, .provider-mark) { width: 20px; height: 20px; color: var(--ink); filter: none; }
+.model-rail .rail-glyph { flex: none; color: var(--ink); }
+/* Not installed or not signed in: still there, dimmed; choosing it says why and what fixes it. */
+.model-rail button.blocked > :not(.runtime-dot) { opacity: .45; filter: grayscale(1); }
+.model-rail button.blocked.active > :not(.runtime-dot) { opacity: .7; }
+/* A second instance of one program: its initials on the program's mark. */
+.rail-instance {
+  position: absolute; left: 3px; bottom: 3px; min-width: 11px; height: 11px; padding: 0 2px;
+  border-radius: 3px; background: var(--overlay); box-shadow: 0 0 0 1px var(--line-control);
+  font: 700 7.5px/11px var(--mono); font-style: normal; color: var(--ink-2); text-align: center;
+}
+.runtime-dot {
+  position: absolute; right: 5px; top: 6px; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--fainter); box-shadow: 0 0 0 1.5px var(--overlay);
+}
+.runtime-dot-ready { background: var(--ready); }
+.runtime-dot-update { background: var(--info); }
+.runtime-dot-sign-in, .runtime-dot-unavailable { background: var(--warn); }
+.runtime-dot-loading { background: var(--faint); animation: model-dot-pulse 1.2s ease-in-out infinite; }
+.runtime-dot-not-installed, .runtime-dot-unlisted { background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint); }
+@keyframes model-dot-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .runtime-dot-loading { animation: none; } }
+
+.model-column { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+/* The search: an underlined field over the list, as T3 Code draws it. */
+.model-search {
+  flex: none; height: 36px; display: flex; align-items: center; gap: 8px; margin: 8px 12px 0 16px;
+  border-bottom: 1px solid var(--line); transition: border-color .12s ease;
+}
+.model-search:focus-within { border-bottom-color: var(--line-focus); }
 .model-search > svg { color: var(--faint); flex: none; }
-.model-search > input { font-size: var(--text-md); }
-.model-search > .model-keys { flex: none; font: var(--text-xs) var(--mono); color: var(--faint); letter-spacing: .12em; }
+.model-search > input {
+  flex: 1; min-width: 0; border: 0; background: transparent; outline: none;
+  color: var(--ink); font: var(--text-md) var(--sans);
+}
+.model-search > input::placeholder { color: var(--faint); }
 .model-tool { position: relative; flex: none; }
 .model-tool-button {
-  min-height: var(--control-size); min-width: var(--control-size); display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 0 6px;
-  border: 0; border-radius: 7px; background: transparent;
-  color: var(--muted); font: var(--text-control) var(--sans); cursor: pointer;
+  min-height: 26px; min-width: 26px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 0 5px;
+  border: 0; border-radius: 6px; background: transparent;
+  color: var(--faint); font: var(--text-control) var(--sans); cursor: pointer;
 }
 .model-tool-button:hover, .model-tool-button[aria-expanded="true"] { background: var(--hover-strong); color: var(--ink); }
-.model-tool-button > svg { width: var(--icon-size); height: var(--icon-size); }
 .model-tool-button.on { color: var(--acid-text); }
 .model-menu {
-  position: absolute; right: 0; top: 32px; z-index: 2; min-width: 190px; padding: 4px;
+  position: absolute; right: 0; top: 30px; z-index: 2; min-width: 190px; padding: 4px;
   display: flex; flex-direction: column; border: 1px solid var(--line-float); border-radius: 9px;
   background: var(--overlay); box-shadow: var(--elevation-1);
 }
@@ -47,78 +94,53 @@
   content: "✓"; position: absolute; left: 8px; color: var(--acid-text); font-size: var(--text-xs);
 }
 
-.model-picker-body { flex: 1; min-height: 0; display: flex; gap: 4px; padding: 4px 8px 0; }
+/* A maker's runtime pills: "All", then each runtime that runs its models; the choice is kept per maker. */
+.model-pills {
+  flex: none; display: flex; align-items: center; gap: 6px; padding: 12px 12px 6px 16px;
+  overflow-x: auto; scrollbar-width: none;
+}
+.model-pill {
+  flex: none; height: 26px; display: inline-flex; align-items: center; gap: 6px; padding: 0 11px;
+  border: 1px solid var(--line-control); border-radius: 999px; background: transparent;
+  color: var(--ink-3); font: 500 var(--text-xs) var(--sans); white-space: nowrap; cursor: pointer;
+}
+.model-pill:hover { color: var(--ink); background: var(--hover); }
+.model-pill.on { color: var(--acid-text); border-color: var(--acid-line); background: var(--acid-bg); }
+.model-pill .pill-icon { margin-left: 0; width: 13px; height: 13px; }
+.model-pill .pill-icon :is(.provider-icon, .provider-mark) { width: 13px; height: 13px; color: currentColor; filter: none; }
+.model-pills > .model-keys { margin-left: auto; flex: none; font: var(--text-xs) var(--mono); color: var(--fainter); }
 
-/* The rail: Favourites, Recent, each maker as its mark, then the runtimes that list nothing yet, with their state's dot. */
-.model-rail {
-  width: 40px; flex: none; overflow: auto; scrollbar-width: none;
-  display: flex; flex-direction: column; gap: 2px; padding-top: 26px;
-}
-.model-rail-slot > hr { border: 0; border-top: 1px solid var(--line); margin: 3px 4px 5px; }
-.model-rail button {
-  position: relative; width: 36px; height: 36px; display: grid; place-items: center;
-  border: 0; border-radius: 8px; padding: 0; background: transparent;
-  color: var(--ink-3); cursor: pointer;
-}
-.model-rail button:hover { background: var(--hover-strong); color: var(--ink-2); }
-.model-rail button:focus-visible { outline: 1px solid var(--focus); outline-offset: -1px; }
-.model-rail button.active { background: var(--raised); color: var(--ink); }
-/* Not installed or not signed in: still there, dimmed; choosing it says why and what fixes it. */
-.model-rail button.blocked > :not(.runtime-dot) { opacity: .45; filter: grayscale(1); }
-.model-rail button.blocked.active > :not(.runtime-dot) { opacity: .7; }
-.model-rail .rail-icon { margin-left: 0; flex: none; }
-.model-rail .rail-glyph { flex: none; color: var(--acid-text); }
-.model-rail .rail-glyph.recent { color: var(--muted); }
-/* A second instance of one program: its initials on the program's mark. */
-.rail-instance {
-  position: absolute; left: 3px; bottom: 3px; min-width: 11px; height: 11px; padding: 0 2px;
-  border-radius: 3px; background: var(--overlay); box-shadow: 0 0 0 1px var(--line-control);
-  font: 700 7.5px/11px var(--mono); font-style: normal; color: var(--ink-2); text-align: center;
-}
-.runtime-dot {
-  position: absolute; right: 4px; top: 5px; width: 7px; height: 7px; border-radius: 50%;
-  background: var(--fainter); box-shadow: 0 0 0 1.5px var(--overlay);
-}
-.runtime-dot-ready { background: var(--ready); }
-.runtime-dot-update { background: var(--info); }
-.runtime-dot-sign-in, .runtime-dot-unavailable { background: var(--warn); }
-.runtime-dot-loading { background: var(--faint); animation: model-dot-pulse 1.2s ease-in-out infinite; }
-.runtime-dot-not-installed, .runtime-dot-unlisted { background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint); }
-@keyframes model-dot-pulse { 50% { opacity: .35; } }
-@media (prefers-reduced-motion: reduce) { .runtime-dot-loading { animation: none; } }
-
-/* The list, under the maker's name. */
-.model-column { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.model-column-head {
-  flex: none; height: 26px; display: flex; align-items: center; gap: 8px; padding: 0 10px;
-  font-size: calc(var(--text-xs) + .5px); color: var(--muted); white-space: nowrap;
-}
-.model-list { flex: 1; min-width: 0; overflow: auto; padding: 0 0 4px; }
+/* The list: one compact row per model, its name over how it runs. */
+.model-list { flex: 1; min-width: 0; overflow: auto; padding: 6px 8px 8px 10px; }
 .model-row {
-  display: flex; align-items: center; gap: 8px; height: 44px; margin-bottom: 2px; padding: 0 4px 0 10px;
+  display: flex; align-items: center; gap: 8px; height: 44px; margin-bottom: 4px; padding: 0 6px 0 10px;
   border-radius: 8px; cursor: pointer; color: var(--ink-2);
 }
-.model-fold { height: 30px; }
-.model-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.model-facts { font-size: var(--text-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .model-row.selected { background: var(--hover-strong); }
 .model-row.current { background: var(--raised); }
 .model-row.current.selected { background: var(--raised-hover); }
 .model-row.hidden-model .model-line { opacity: .55; }
 .model-line {
   flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
-  height: 18px; flex-wrap: wrap; row-gap: 0; overflow: hidden;
+  height: 17px; flex-wrap: wrap; row-gap: 0; overflow: hidden;
 }
 /* The name wins over its badges: a badge without room wraps onto a line nobody sees. */
 .model-line > strong {
-  flex: 0 1 auto; max-width: 100%; line-height: 18px;
-  font-size: var(--text-md); font-weight: 500; color: var(--ink-2);
+  flex: 0 1 auto; max-width: 100%; line-height: 17px;
+  font-size: var(--text-sm); font-weight: 500; color: var(--ink);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.model-row.current .model-line > strong { color: var(--ink); font-weight: 600; }
-/* The runtimes that run it, quiet; names in the tooltip. */
-.model-runtimes { flex: none; display: inline-flex; align-items: center; gap: 4px; opacity: .75; }
-.model-runtimes .sub-icon { margin-left: 0; }
+.model-row.current .model-line > strong { font-weight: 600; }
+.model-facts {
+  min-width: 0; display: flex; align-items: center; gap: 6px; height: 14px;
+  font-size: calc(var(--text-xs) - 1px); line-height: 14px; color: var(--muted); white-space: nowrap; overflow: hidden;
+}
+.model-facts > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+/* The runtimes that run it, names in the tooltip. */
+.model-runtimes { flex: none; display: inline-flex; align-items: center; gap: 5px; }
+:is(.model-runtimes, .model-facts) .row-icon { margin-left: 0; width: 11px; height: 11px; }
+:is(.model-runtimes, .model-facts) .row-icon :is(.provider-icon, .provider-mark) { width: 11px; height: 11px; color: var(--ink-2); filter: none; }
 .model-line > em {
   flex: none; font: var(--text-xs)/1 var(--mono); font-style: normal; color: var(--acid-text);
   border: 1px solid var(--acid-line); border-radius: 4px; padding: 1px 5px;
@@ -127,15 +149,16 @@
 .model-line > em.model-chosen { background: var(--acid-chip); }
 .model-kbd {
   flex: none; font: var(--text-xs)/1 var(--mono); color: var(--muted);
-  background: var(--inset); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px;
+  background: var(--inset); border: 1px solid var(--line); border-radius: 5px; padding: 2px 5px;
 }
 .model-badge {
-  flex: none; font: 500 var(--text-xs)/1 var(--mono); letter-spacing: .02em; color: var(--muted);
-  border: 1px solid var(--line-strong); border-radius: 4px; padding: 1px 5px;
+  flex: none; font: 600 calc(var(--text-xs) - 1.5px)/1 var(--sans); letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
+  border: 1px solid var(--line-strong); border-radius: 4px; padding: 2px 4px;
 }
-.model-badge-new { color: var(--acid-text); border-color: var(--acid-line); background: var(--acid-bg); font-weight: 700; }
+.model-badge-new { color: var(--acid-text); border-color: var(--acid-line); background: var(--acid-bg); }
 .model-badge-warning { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: var(--warn-chip); }
-.model-check { flex: none; width: 16px; display: grid; place-items: center; color: var(--acid-text); }
+/* A way off this thread's runtime, on the highlighted row. */
+.model-leaves { color: var(--acid-text); font-weight: 500; }
 .model-row-actions { flex: none; display: flex; }
 .model-row-action {
   flex: none; width: 24px; height: 24px; display: inline-grid; place-items: center;
@@ -148,7 +171,7 @@
 .model-row:hover .model-row-action, .model-row.selected .model-row-action, .model-row.hidden-model .model-hide { opacity: 1; }
 .model-star.on { color: var(--acid-text); }
 /* "Show all 14", "Pinned only", "Legacy models": quiet rows that fold the list. */
-.model-fold { color: var(--muted); font-size: var(--text-sm); }
+.model-fold { height: 32px; color: var(--muted); font-size: var(--text-sm); }
 .model-fold[aria-label^="Show all"] { color: var(--info-ink); }
 .model-fold .model-line { gap: 6px; }
 .model-fold .model-line > small { color: var(--faint); font: var(--text-xs) var(--mono); }
@@ -180,31 +203,6 @@
 }
 .model-note-action:hover { background: var(--hover-strong); color: var(--ink); }
 
-/* "Runs with": every way to run the highlighted model, a runtime and how it is paid (B, with E's states). */
-.model-ways-bar { flex: none; padding: 8px 10px 9px 14px; border-top: 1px solid var(--line-inset); }
-.model-ways-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.model-ways-label { flex: none; font-size: var(--text-xs); color: var(--muted); }
-.model-ways { min-width: 0; display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--well); overflow-x: auto; scrollbar-width: none; }
-.model-way {
-  flex: none; min-height: var(--control-size); display: inline-flex; align-items: center; gap: 6px; padding: 0 10px;
-  border: 0; border-radius: 6px; background: transparent; color: var(--ink-3); font: var(--text-control) var(--sans); white-space: nowrap; cursor: pointer;
-}
-.model-way:hover:not(:disabled) { color: var(--ink); background: var(--hover); }
-.model-way:focus-visible { outline: 1px solid var(--focus); outline-offset: -1px; }
-.model-way.on { background: var(--float); color: var(--ink); font-weight: 600; box-shadow: var(--elevation-0), inset 0 1px 0 var(--edge-highlight); }
-.model-way.cannot { color: var(--fainter); }
-.model-way.cannot:disabled { cursor: default; }
-.model-way.cannot .way-icon { opacity: .5; filter: grayscale(1); }
-.model-way .way-icon { margin-left: 0; }
-.way-star { color: var(--acid-text); }
-.model-ways-row > .model-keys { margin-left: auto; flex: none; font: var(--text-xs) var(--mono); color: var(--faint); }
-.model-ways-note {
-  display: flex; align-items: flex-start; gap: 6px; margin: 6px 0 0 calc(var(--text-xs) * 5.2);
-  min-height: 1.5em; font-size: var(--text-xs); line-height: 1.5; color: var(--muted);
-}
-.model-ways-note > b { font-weight: 600; }
-.model-ways-note b { color: var(--acid-text); font-weight: 600; }
-.model-ways-glyph { flex: none; margin-top: 2px; color: var(--acid-text); }
 /* The phone sheet's last row: the thinking chip's words, a tap away from its own sheet. */
 .model-thinking-row {
   flex: none; display: flex; align-items: center; min-height: var(--touch-target); margin: 0 6px; padding: 0 10px;
@@ -221,33 +219,27 @@
 }
 .model-picker-content.stacked .model-rail-slot { display: flex; align-items: center; }
 .model-picker-content.stacked .model-rail-slot > hr { width: 1px; height: 22px; border: 0; border-left: 1px solid var(--line); margin: 0 4px 0 2px; }
-.model-picker-content.stacked .model-column { padding: 0 8px; min-height: 0; }
+.model-picker-content.stacked .model-column { min-height: 0; }
 /* A phone or an iPad: every control a finger's size (44 px), no hover to uncover the star, and hiding is left to a pointer. */
-body[data-profile="compact"] .model-search { height: var(--touch-target); margin: 8px 10px 4px; padding-right: 0; }
+body[data-profile="compact"] .model-search { height: var(--touch-target); margin: 6px 10px 0; }
 body[data-profile="compact"] .model-search > input { font-size: max(16px, var(--text-input)); height: var(--touch-target); }
 body[data-profile="compact"] .model-tool-button { width: 44px; height: 44px; border-radius: 10px; }
 body[data-profile="compact"] .model-menu { top: 48px; }
 body[data-profile="compact"] .model-menu > button { height: var(--touch-target); font-size: var(--text-lg); }
-body[data-profile="compact"] .model-rail { width: 48px; padding-top: 30px; }
+body[data-profile="compact"] .model-rail { width: 52px; }
 body[data-profile="compact"] .model-rail button { width: 44px; height: 44px; }
 body[data-profile="compact"] .model-picker-content.stacked .model-rail { width: auto; padding: 2px 8px; }
-body[data-profile="compact"] .model-column-head { height: calc(30px * var(--text-scale)); font-size: var(--text-xs); }
 /* The virtual list's pitch is fixed (touchRowHeight): a row holds its name up to the largest text size. */
 body[data-profile="compact"] .model-row { height: 56px; padding-right: 0; }
 body[data-profile="compact"] .model-fold { height: 42px; }
-body[data-profile="compact"] .model-way { height: 40px; padding-inline: 14px; font-size: var(--text-md); }
-body[data-profile="compact"] .model-ways-note { margin-left: 0; }
-body[data-profile="compact"] .model-ways-bar { padding-inline: 12px; }
+body[data-profile="compact"] .model-pill { height: 36px; padding-inline: 14px; font-size: var(--text-sm); }
+body[data-profile="compact"] .model-row .model-facts { height: 1.3em; line-height: 1.3; }
 body[data-profile="compact"] .model-row .model-line { font-size: var(--text-lg); height: 1.25em; }
 body[data-profile="compact"] .model-row .model-line > strong { font-size: var(--text-lg); line-height: 1.25; }
 /* Meta never under 12px on a touch device (ADR 0029). */
-body[data-profile="compact"] :is(.model-facts, .model-fold .model-line > small, .model-menu > button > small, .model-ways-note) { font-size: var(--text-xs); }
+body[data-profile="compact"] :is(.model-facts, .model-fold .model-line > small, .model-menu > button > small) { font-size: var(--text-xs); }
 body[data-profile="compact"] .model-row-action { width: 44px; height: 44px; }
 body[data-profile="compact"] .model-row-action:not(.model-star.on) { opacity: 1; color: var(--faint); }
 body[data-profile="compact"] .model-hide { display: none; }
-body[data-profile="compact"] .model-footer-link { min-height: var(--touch-target); font-size: var(--text-sm); }
 body[data-profile="compact"] :is(.model-note-action, .model-runtime-pane-actions > button) { min-height: var(--touch-target); padding-inline: 14px; font-size: var(--text-sm); }
 
-/* The phone sheet (design 1w): "Runs with" over the whole width, its label above the segments. */
-.model-picker-sheet .model-ways-row { flex-direction: column; align-items: stretch; gap: 6px; }
-.model-picker-sheet .model-way { flex: 1; justify-content: center; }

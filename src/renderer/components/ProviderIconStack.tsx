@@ -1,7 +1,6 @@
 import anthropicIcon from "@lobehub/icons-static-svg/icons/anthropic.svg?no-inline";
-import claudeCodeIcon from "@lobehub/icons-static-svg/icons/claudecode.svg?no-inline";
+import claudeIcon from "@lobehub/icons-static-svg/icons/claude-color.svg?no-inline";
 import antigravityIcon from "@lobehub/icons-static-svg/icons/antigravity-color.svg?no-inline";
-import codexIcon from "@lobehub/icons-static-svg/icons/codex-color.svg?no-inline";
 import geminiIcon from "@lobehub/icons-static-svg/icons/gemini-color.svg?no-inline";
 import openAiIcon from "@lobehub/icons-static-svg/icons/openai.svg?no-inline";
 import openCodeIcon from "@lobehub/icons-static-svg/icons/opencode.svg?no-inline";
@@ -34,9 +33,10 @@ function providerIdentity(value: string | undefined): ProviderIdentity | undefin
   // A runtime instance (`codex@work`) is drawn as its program.
   const key = runtimeDriver(value).toLocaleLowerCase().replace(/[_.\s]/gu, "-");
   if (["anthropic", "claude"].includes(key)) return { family: "anthropic", label: "Anthropic", source: anthropicIcon, fallback: "A" };
-  if (key === "claude-code") return { family: "claude-code", label: "Claude Code", source: claudeCodeIcon, fallback: "C" };
+  // Harnesses wear their maker's mark, as T3 Code draws them: Anthropic's spark, OpenAI's knot.
+  if (key === "claude-code") return { family: "claude-code", label: "Claude Code", source: claudeIcon, color: true, fallback: "C" };
   if (key === "antigravity") return { family: "antigravity", label: "Antigravity", source: antigravityIcon, color: true, fallback: "A" };
-  if (key === "codex") return { family: "codex", label: "Codex", source: codexIcon, color: true, fallback: "C" };
+  if (key === "codex") return { family: "codex", label: "Codex", source: openAiIcon, fallback: "C" };
   if (key === "openai-codex") return PLANS.codex;
   if (["openai", "gpt"].includes(key)) return { family: "openai", label: "OpenAI", source: openAiIcon, fallback: "O" };
   if (["google", "google-gemini", "gemini"].includes(key)) return { family: "gemini", label: "Google Gemini", source: geminiIcon, color: true, fallback: "G" };
@@ -54,8 +54,8 @@ function providerIdentity(value: string | undefined): ProviderIdentity | undefin
 
 /** A subscription plan wears its product's mark, as a ChatGPT plan wears Codex's. */
 const PLANS = {
-  codex: { family: "codex", label: "ChatGPT plan", source: codexIcon, color: true, fallback: "C" },
-  claude: { family: "claude-code", label: "Claude plan", source: claudeCodeIcon, fallback: "C" },
+  codex: { family: "codex", label: "ChatGPT plan", source: openAiIcon, fallback: "C" },
+  claude: { family: "claude-code", label: "Claude plan", source: claudeIcon, color: true, fallback: "C" },
   grok: { family: "grok", label: "Grok plan", styled: true, fallback: "G" },
 } satisfies Record<string, ProviderIdentity>;
 

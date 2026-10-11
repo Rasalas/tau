@@ -1,14 +1,15 @@
-import { Check, Eye, EyeOff, Star } from "lucide-react";
+import { Eye, EyeOff, Star } from "lucide-react";
+import type { ReactNode } from "react";
 import type { ThreadBackendKind, UiModel } from "../../shared/contracts";
 import type { ModelBadgeContribution } from "../extension-system";
 import { billingBadge, formatPrice, formatTokens, type Offering } from "./model-offerings";
-import { entryFacts, type ModelEntry } from "./model-entries";
-import { ProviderIconStack } from "./ProviderIconStack";
+import { entryFacts, modelMaker, type ModelEntry } from "./model-entries";
+import { ProviderIconStack, providerLabel } from "./ProviderIconStack";
 
 /** What every row of one list shares: marks, the model in use, the chosen set and the row actions. */
 export interface RowCell {
   badges: readonly ModelBadgeContribution[];
-  inUse(entry: ModelEntry): boolean;
+  inUse(entry: ModelEntry, way: Offering | undefined): boolean;
   /** "added" or "×2" for a model in a new thread's set. */
   chosen(way: Offering): string | undefined;
   /** ⌘n reaches it. */
@@ -19,27 +20,55 @@ export interface RowCell {
   onHide(entry: ModelEntry): void;
   /** Search lists legacy models flat, tagged. */
   showLegacy: boolean;
+  /** What the highlighted row adds to its second line: a plan's rest, or that it starts a new thread. */
+  more(way: Offering): ReactNode;
 }
+
+/**
+ * What a row's second line says: every runtime that runs the model ("marks", a maker's "All"),
+ * the way with its runtime ("runtime", Favourites and Recent), or the way alone under a runtime's filter ("route").
+ */
+export type RowLine = "marks" | "runtime" | "route";
+
+const billingOf = (model: UiModel) => model.billing ?? (model.login === "subscription" ? "subscription" : undefined);
 
 export function wears(badge: ModelBadgeContribution, model: UiModel, runtime: ThreadBackendKind): boolean {
   try { return badge.applies(model, runtime); } catch (error) { console.error(`Model badge ${badge.id} failed`, error); return false; }
 }
 
+/** How a way is had: "Plan", "API key", "Free" through the maker itself; a gateway by its name. */
+export function wayText(way: Offering): string {
+  const billing = billingOf(way.model);
+  const own = modelMaker({ provider: way.model.provider, id: "" }) === modelMaker(way.model) || way.model.provider === way.runtime;
+  if (!own) return providerLabel(way.model.provider);
+  return billing === "subscription" ? "Plan" : billing === "free" ? "Free" : billing === "local" ? "Local" : "API key";
+}
+
+/** One way's context and, off a plan, its price. */
+function wayFacts(way: Offering): string[] {
+  const { contextWindow, price } = way.model;
+  return [
+    ...(contextWindow ? [formatTokens(contextWindow)] : []),
+    ...(price && billingOf(way.model) !== "subscription" ? [formatPrice(price)] : []),
+  ];
+}
+
 /** The runtimes a model runs on, as their marks; the names are in the tooltip. */
-export function RuntimeMarks({ ways }: { ways: readonly Offering[] }) {
+function RuntimeMarks({ ways }: { ways: readonly Offering[] }) {
   const runtimes = [...new Map(ways.map((way) => [way.runtime, way.runtimeLabel] as const))];
   return (
     <span className="model-runtimes">
-      {runtimes.map(([runtime, label]) => <ProviderIconStack key={runtime} runtimeProvider={runtime} runtimeName={label} className="sub-icon" hint={{ side: "top" }} />)}
+      {runtimes.map(([runtime, label]) => <ProviderIconStack key={runtime} runtimeProvider={runtime} runtimeName={label} className="row-icon" hint={{ side: "top" }} />)}
     </span>
   );
 }
 
-/** One model, once, with the way chosen for it (`way`): its name, what it reads and costs, the runtimes that run it. */
-export function EntryRow({ id, entry, way, selected, cells, onPoint, onLeave, onChoose }: {
+/** One model with the way chosen for it (`way`): its name, then how it runs and what it reads and costs. */
+export function EntryRow({ id, entry, way, line, selected, cells, onPoint, onLeave, onChoose }: {
   id: string;
   entry: ModelEntry;
   way: Offering;
+  line: RowLine;
   selected: boolean;
   cells: RowCell;
   onPoint(): void;
@@ -48,19 +77,20 @@ export function EntryRow({ id, entry, way, selected, cells, onPoint, onLeave, on
 }) {
   const { model, runtime } = way;
   const access = billingBadge(model);
-  const current = cells.inUse(entry);
+  const ways = line === "marks" ? entry.ways : [way];
+  const current = cells.inUse(entry, line === "marks" ? undefined : way);
   const chosen = cells.chosen(way);
   const jump = cells.jump(way.key);
   const level = cells.level(way);
-  const hidden = entry.ways.every((item) => item.hidden);
-  const legacy = entry.ways.every((item) => item.legacy);
-  const facts = entryFacts(entry.ways);
+  const hidden = ways.every((item) => item.hidden);
+  const legacy = ways.every((item) => item.legacy);
+  const facts = line === "marks" ? entryFacts(entry.ways) : [line === "runtime" ? `${way.runtimeLabel} · ${wayText(way)}` : wayText(way), ...wayFacts(way)].join(" · ");
   return (
     <div
       id={id}
       role="option"
       aria-selected={selected}
-      aria-label={`${entry.name}, ${way.runtimeLabel}${access ? `, ${access.label}` : ""}${current ? ", in use" : ""}`}
+      aria-label={`${entry.name}, ${way.runtimeLabel}${line === "marks" ? "" : `, ${wayText(way)}`}${access && line === "marks" ? `, ${access.label}` : ""}${current ? ", in use" : ""}`}
       data-provider={entry.maker}
       className={`model-row${selected ? " selected" : ""}${current ? " current" : ""}${hidden ? " hidden-model" : ""}`}
       onMouseEnter={onPoint}
@@ -70,7 +100,7 @@ export function EntryRow({ id, entry, way, selected, cells, onPoint, onLeave, on
       <span className="model-text">
         <span className="model-line">
           <strong>{entry.name}</strong>
-          {entry.ways.some((item) => item.isNew) ? <span className="model-badge model-badge-new">NEW</span> : null}
+          {ways.some((item) => item.isNew) ? <span className="model-badge model-badge-new">NEW</span> : null}
           {cells.showLegacy && legacy ? <span className="model-badge">legacy</span> : null}
           {hidden ? <span className="model-badge">hidden</span> : null}
           {chosen ? <em className="model-chosen">{chosen}</em> : null}
@@ -79,10 +109,13 @@ export function EntryRow({ id, entry, way, selected, cells, onPoint, onLeave, on
             <span key={badge.id} className={`model-badge${badge.tone === "warning" ? " model-badge-warning" : ""}`} title={badge.title}>{badge.label}</span>
           ))}
         </span>
-        {facts ? <small className="model-facts">{facts}</small> : null}
+        <small className="model-facts">
+          {line === "marks" ? <RuntimeMarks ways={entry.ways} /> : null}
+          {line === "runtime" ? <ProviderIconStack runtimeProvider={runtime} runtimeName={way.runtimeLabel} className="row-icon" hint={false} /> : null}
+          {facts || selected ? <span>{facts}{selected ? cells.more(way) : null}</span> : null}
+        </small>
       </span>
-      <RuntimeMarks ways={entry.ways} />
-      {jump ? <kbd className="model-kbd keyboard-hint">⌘{jump}</kbd> : null}
+      {jump ? <kbd className="model-kbd">⌘{jump}</kbd> : null}
       <span className="model-row-actions">
         <button
           className="model-row-action model-hide"
@@ -104,24 +137,6 @@ export function EntryRow({ id, entry, way, selected, cells, onPoint, onLeave, on
           <Star size={13} fill={way.favourite ? "currentColor" : "none"} />
         </button>
       </span>
-      <span className="model-check" aria-hidden>{current ? <Check size={14} /> : null}</span>
     </div>
   );
-}
-
-/**
- * What a model reads and costs, for the line under "Runs with":
- * its context, how it is paid, and its price per million tokens (over the API
- * for a plan, which includes it).
- */
-export function modelFacts(model: UiModel, customPrice = false): string[] {
-  const facts: string[] = [];
-  if (model.contextWindow) facts.push(`${formatTokens(model.contextWindow)} context`);
-  const billing = model.billing ?? (model.login === "subscription" ? "subscription" : undefined);
-  const price = model.price ? `${formatPrice(model.price)} per MTok${customPrice ? " (your price)" : ""}` : undefined;
-  if (billing === "subscription") facts.push("in the plan", ...(price ? [`API ≈ ${price}`] : []));
-  else if (price) facts.push(price);
-  else if (billing === "free" || billing === "local") facts.push(billing);
-  else if (billing === "api-key") facts.push("API key");
-  return facts;
 }

@@ -1,6 +1,6 @@
 import { MobileModelPicker } from "./MobileModelPicker";
 import { lazy, Suspense, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import { ChevronDown, ChevronRight, ChevronUp, CornerDownRight, History, Search, SlidersHorizontal, Star } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, History, Search, SlidersHorizontal, Star } from "lucide-react";
 import type { ThreadBackendKind, UiModel, UiRuntimeBackend } from "../../shared/contracts";
 import type { ModelBadgeContribution, ModelSelectionContribution } from "../extension-system";
 import { catalogLevels, type RuntimeCatalogEntry } from "../../workbench/runtime-catalog-store";
@@ -8,7 +8,7 @@ import { withPriceOverride } from "../../shared/model-prices";
 import { modelPresentation } from "../model-manifest";
 import { getHostClient } from "../host-client-context";
 import { usePreferences } from "../renderer-services-context";
-import { DEFAULT_RUNTIME, modelOnPlan } from "../runtime-marks";
+import { DEFAULT_RUNTIME } from "../runtime-marks";
 import { runtimeInstanceId } from "../../shared/runtime-instances";
 import { runtimeUpdate } from "../runtime-update";
 import { THINKING_LABELS } from "../thinking-levels";
@@ -20,8 +20,8 @@ import {
   offeringComparator, type BillingFilter, type CapabilityFilter, type Offering, type OfferingFilters, type OfferingSort,
 } from "./model-offerings";
 import { MAKER_ORDER, modelEntries, modelMaker, type ModelEntry } from "./model-entries";
-import { EntryRow, modelFacts, wears, type RowCell } from "./ModelPickerRow";
-import { ProviderIconStack, monogram, providerLabel, providerStackLabel } from "./ProviderIconStack";
+import { EntryRow, wayText, wears, type RowCell, type RowLine } from "./ModelPickerRow";
+import { ProviderIconStack, monogram, providerLabel } from "./ProviderIconStack";
 import { Popover } from "./ui/Dialog";
 import { placeFloating, viewportSize } from "./ui/floating";
 import { useFocusTrap } from "./ui/focus";
@@ -41,7 +41,7 @@ const STACK_WIDTH = 560;
 const SHEET_STACK_WIDTH = 700;
 /** A maker with more models than this and none pinned still folds behind "Show all". */
 const FOLD_UNPINNED = 8;
-/** The pointer has to rest on a row this long to make it the one "Runs with" is for; passing over on the way down does not. */
+/** The pointer has to rest on a row this long to highlight it; passing over on the way down does not. */
 const POINT_REST_MS = 110;
 const NO_SELECTION: readonly string[] = [];
 const NO_CATALOGS: ReadonlyMap<ThreadBackendKind, RuntimeCatalogEntry> = new Map();
@@ -49,7 +49,7 @@ const NO_BADGES: readonly ModelBadgeContribution[] = [];
 const NO_ACTIONS: readonly RuntimeAction[] = [];
 const noSubscription = () => () => undefined;
 
-export { modelKey };
+export { modelKey, wayText };
 
 /** Something to do with another runtime than the thread's, besides a new thread on it ("Continue in…"). */
 export interface RuntimeAction {
@@ -59,12 +59,12 @@ export interface RuntimeAction {
   run(runtime: ThreadBackendKind): void;
 }
 
-/** One line of the list: a model with the way it was listed for (a favourite's, a recent one's), or a fold. */
+/** One line of the list: a model with the way it was listed for (a favourite's, a recent one's, a filter's), or a fold. */
 type Row =
-  | { kind: "entry"; key: string; entry: ModelEntry; way?: Offering }
+  | { kind: "entry"; key: string; entry: ModelEntry; way?: Offering; line: RowLine }
   | { kind: "legacy" | "more"; key: string; count: number; expanded: boolean };
 
-const rowHeight = (row: Row): number => row.kind === "entry" ? 46 : 30;
+const rowHeight = (row: Row): number => row.kind === "entry" ? 48 : 32;
 /** On a phone every row that can be tapped is at least a finger (44 px) high. */
 const touchRowHeight = (row: Row): number => row.kind === "entry" ? 58 : 44;
 
@@ -96,14 +96,7 @@ function countLabel(count: number): string {
 }
 
 const billingOf = (way: Offering) => way.model.billing ?? (way.model.login === "subscription" ? "subscription" : undefined);
-
-/** How a way is had: "Plan", "API key", "Free" through the maker itself; a gateway by its name. */
-export function wayText(way: Offering): string {
-  const billing = billingOf(way);
-  const own = modelMaker({ provider: way.model.provider, id: "" }) === modelMaker(way.model) || way.model.provider === way.runtime;
-  if (!own) return providerLabel(way.model.provider);
-  return billing === "subscription" ? "Plan" : billing === "free" ? "Free" : billing === "local" ? "Local" : "API key";
-}
+const rowHas = (row: Row, key: string | undefined): boolean => row.kind === "entry" && key !== undefined && (row.way ? row.way.key === key : row.entry.ways.some((way) => way.key === key));
 
 function useStacked(asSheet: boolean): boolean {
   const limit = asSheet ? SHEET_STACK_WIDTH : STACK_WIDTH;
@@ -123,7 +116,7 @@ function toggled<T>(set: ReadonlySet<T>, value: T): Set<T> {
   return next;
 }
 
-/** A printable key typed while the rail or "Runs with" has focus belongs in the search field. */
+/** A printable key typed while the rail has focus belongs in the search field. */
 function typedCharacter(event: KeyboardEvent): string | undefined {
   return event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey && event.key !== " " ? event.key : undefined;
 }
@@ -145,10 +138,9 @@ function focusColumn(column: HTMLElement | null): boolean {
 }
 
 /**
- * The model picker (K142, concept B): the rail lists who made the models,
- * each model is one row, and "Runs with" under the list offers every way to
- * run the highlighted one — a runtime and how it is paid. Thinking, context
- * window and speed are the composer's own chip, not the picker's.
+ * The model picker (K142, concept B, drawn after T3 Code's): the rail lists who made the models,
+ * a maker's pills narrow its models to one runtime (kept per maker), and each row is a model
+ * or, under a pill, one of its ways. Thinking, context window and speed are the composer's own chip.
  */
 export function ModelPicker({
   models,
@@ -238,8 +230,6 @@ export function ModelPicker({
   const [cursor, setCursor] = useState<number>();
   const [expandedLegacy, setExpandedLegacy] = useState<ReadonlySet<string>>(() => new Set());
   const [expandedAll, setExpandedAll] = useState<ReadonlySet<string>>(() => new Set());
-  // The way chosen in "Runs with" for a row, until another is.
-  const [picked, setPicked] = useState<Record<string, string>>({});
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -247,7 +237,6 @@ export function ModelPicker({
   const sheetRef = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => { sheetRef.current = asSheet ? surfaceRef.current?.closest<HTMLElement>(".model-picker") ?? null : null; }, [asSheet]);
   const railRef = useRef<HTMLElement>(null);
-  const waysRef = useRef<HTMLDivElement>(null);
   const pointTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(pointTimer.current), []);
   const chosen = useSyncExternalStore(
@@ -342,13 +331,32 @@ export function ModelPicker({
       : 5 + (billingOf(way) === "subscription" ? 0 : 1) + (way.runtime === threadRuntime ? 0 : 0.5);
     return [...entry.ways].sort((a, b) => score(a) - score(b))[0]!;
   };
-  const wayOf = (row: Extract<Row, { kind: "entry" }>): Offering => {
-    const chosenWay = picked[row.key];
-    return row.entry.ways.find((way) => way.key === chosenWay) ?? row.way ?? bestWay(row.entry);
+  const wayOf = (row: Extract<Row, { kind: "entry" }>): Offering => row.way ?? bestWay(row.entry);
+
+  // A maker's filter pills: "All", then every runtime that runs one of its models; each maker keeps its own.
+  const maker = !needle && current.kind === "maker" ? current.maker : undefined;
+  const pillRuntimes = useMemo(() => {
+    if (!maker) return [];
+    const kinds = new Set(entries.filter((entry) => entry.maker === maker).flatMap((entry) => entry.ways.map((way) => way.runtime)));
+    return runtimes.filter((entry) => kinds.has(entry.backend.kind)).map((entry) => entry.backend);
+  }, [entries, maker, runtimes]);
+  const remembered = maker ? settings.pickerRuntimes[maker] : undefined;
+  const pill = pillRuntimes.length > 1 && pillRuntimes.some((backend) => backend.kind === remembered) ? remembered : undefined;
+  const choosePill = (kind: ThreadBackendKind | undefined) => {
+    if (maker) preferences.setPickerRuntime(maker, kind);
+    setCursor(undefined);
+    inputRef.current?.focus();
   };
 
   const rows = useMemo<Row[]>(() => {
-    const entryRow = (entry: ModelEntry, way?: Offering): Row => ({ kind: "entry", key: way ? way.key : entry.key, entry, ...(way ? { way } : {}) });
+    const entryRow = (entry: ModelEntry, way?: Offering): Row => way
+      ? { kind: "entry", key: way.key, entry, way, line: "runtime" }
+      : { kind: "entry", key: entry.key, entry, line: "marks" };
+    // Under a runtime's pill each of its ways is a row of its own: a plan before a key.
+    const entryRows = (entry: ModelEntry): Row[] => pill
+      ? [...entry.ways].sort((a, b) => (BILLING_RANK[billingOf(a) ?? ""] ?? 4) - (BILLING_RANK[billingOf(b) ?? ""] ?? 4) || a.position - b.position)
+        .map((way): Row => ({ kind: "entry", key: way.key, entry, way, line: "route" }))
+      : [entryRow(entry)];
     const compare = offeringComparator(sort);
     const sorted = (list: readonly ModelEntry[]) => sort === "relevance" ? [...list] : [...list].sort((a, b) => compare(a.ways[0]!, b.ways[0]!));
     if (needle) {
@@ -364,18 +372,23 @@ export function ModelPicker({
     }
     if (current.kind !== "maker") return [];
     // The first runtime's order (the user's, where set), then the next runtime's for what only it runs.
-    const scoped = sorted(entries.filter((entry) => entry.maker === current.maker).sort((a, b) => (runtimeOrder.get(a.ways[0]!.runtime) ?? 99) - (runtimeOrder.get(b.ways[0]!.runtime) ?? 99) || a.ways[0]!.position - b.ways[0]!.position));
-    const group = current.key;
+    const own = entries.filter((entry) => entry.maker === current.maker).flatMap((entry) => {
+      if (!pill) return [entry];
+      const ways = entry.ways.filter((way) => way.runtime === pill);
+      return ways.length > 0 ? [{ ...entry, ways }] : [];
+    });
+    const scoped = sorted(own.sort((a, b) => (runtimeOrder.get(a.ways[0]!.runtime) ?? 99) - (runtimeOrder.get(b.ways[0]!.runtime) ?? 99) || a.ways[0]!.position - b.ways[0]!.position));
+    const group = `${current.key}|${pill ?? ""}`;
     const isLegacy = (entry: ModelEntry) => entry.ways.every((way) => way.legacy);
     // The legacy fold is the catalog's own order's; a sort or filter lists everything.
     const withLegacy = (list: readonly ModelEntry[]): Row[] => {
       const legacy = list.filter(isLegacy);
-      if (legacy.length === 0 || sort !== "relevance" || filterCount(filters) > 0) return list.map((entry) => entryRow(entry));
+      if (legacy.length === 0 || sort !== "relevance" || filterCount(filters) > 0) return list.flatMap(entryRows);
       const expanded = expandedLegacy.has(group) || legacy.some((entry) => entry.ways.some((way) => way.key === activeOffering));
       return [
-        ...list.filter((entry) => !isLegacy(entry)).map((entry) => entryRow(entry)),
+        ...list.filter((entry) => !isLegacy(entry)).flatMap(entryRows),
         { kind: "legacy", key: `legacy:${group}`, count: legacy.length, expanded },
-        ...(expanded ? legacy.map((entry) => entryRow(entry)) : []),
+        ...(expanded ? legacy.flatMap(entryRows) : []),
       ];
     };
     if (sort !== "relevance" || filterCount(filters) > 0) return withLegacy(scoped);
@@ -386,18 +399,18 @@ export function ModelPicker({
     if (!folds) return withLegacy(scoped);
     const open = expandedAll.has(group);
     return [
-      ...pinned.map((entry) => entryRow(entry)),
+      ...pinned.flatMap(entryRows),
       { kind: "more", key: `more:${group}`, count: scoped.length, expanded: open },
       ...(open ? withLegacy(rest) : []),
     ];
-  }, [activeOffering, byKey, current, entries, entryOf, expandedAll, expandedLegacy, filters, needle, recentRank, runtimeOrder, settings.favouriteModels, settings.recentModels, sort, threadRuntime, visible]);
+  }, [activeOffering, byKey, current, entries, entryOf, expandedAll, expandedLegacy, filters, needle, pill, recentRank, runtimeOrder, settings.favouriteModels, settings.recentModels, sort, threadRuntime, visible]);
 
   // The cursor starts on the model in use, else on the first row.
   const initialCursor = useMemo(() => {
-    const index = activeOffering ? rows.findIndex((row) => row.kind === "entry" && row.entry.ways.some((way) => way.key === activeOffering)) : -1;
+    const index = activeOffering ? rows.findIndex((row) => rowHas(row, activeOffering)) : -1;
     return index >= 0 && !needle ? index : rows.findIndex((row) => row.kind === "entry");
   }, [activeOffering, needle, rows]);
-  useEffect(() => setCursor(undefined), [needle, view, sort, filters]);
+  useEffect(() => setCursor(undefined), [needle, view, sort, filters, pill]);
   const at = cursor !== undefined && rows[cursor] ? cursor : initialCursor;
   const activeRow = rows[at];
   const highlighted = activeRow?.kind === "entry" ? activeRow : undefined;
@@ -503,9 +516,12 @@ export function ModelPicker({
       if (focusColumn(railRef.current)) event.preventDefault();
       return;
     }
-    // Tab, or → at the end of the text: into "Runs with".
-    if ((event.key === "Tab" && plain) || (event.key === "ArrowRight" && plain && collapsed && (input.selectionStart ?? 0) === input.value.length)) {
-      if (focusColumn(waysRef.current)) event.preventDefault();
+    // Tab and ⇧Tab step through the maker's filter pills; focus stays in the search.
+    if (event.key === "Tab" && !event.metaKey && !event.ctrlKey && !event.altKey && pillRuntimes.length > 1) {
+      event.preventDefault();
+      const order = [undefined, ...pillRuntimes.map((backend) => backend.kind)];
+      const index = order.indexOf(pill);
+      choosePill(order[(index + (event.shiftKey ? -1 : 1) + order.length) % order.length]);
       return;
     }
     if (event.metaKey || event.ctrlKey) return;
@@ -538,32 +554,6 @@ export function ModelPicker({
     }
   };
 
-  const onWaysKeyDown = (event: KeyboardEvent) => {
-    const typed = typedCharacter(event);
-    if (typed) {
-      event.preventDefault();
-      setQuery((held) => held + typed);
-      inputRef.current?.focus();
-      return;
-    }
-    if (event.metaKey || event.ctrlKey || event.altKey) return;
-    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-      event.preventDefault();
-      const next = stepColumn(waysRef.current, event.key === "ArrowRight" ? 1 : -1);
-      const key = next?.dataset.way;
-      if (key && highlighted) setPicked((held) => ({ ...held, [highlighted.key]: key }));
-    } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-      event.preventDefault();
-      inputRef.current?.focus();
-      stepCursor(event.key === "ArrowDown" ? 1 : -1);
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      const key = (event.target as HTMLElement).dataset.way;
-      const way = key ? byKey.get(key) : undefined;
-      if (way) choose(way, event.shiftKey);
-    }
-  };
-
   const viewLabel = (entry: ViewEntry): string => {
     if (entry.kind === "favourites") return "Favourites";
     if (entry.kind === "recent") return "Recent";
@@ -590,7 +580,7 @@ export function ModelPicker({
   };
   const cells: RowCell = {
     badges,
-    inUse: (entry) => chosen.length === 0 && entry.ways.some((way) => way.key === activeOffering),
+    inUse: (entry, way) => chosen.length === 0 && (way ? way.key === activeOffering : entry.ways.some((item) => item.key === activeOffering)),
     chosen: (way) => {
       const selected = `${way.runtime}::${modelKey(way.model)}`;
       const legacy = modelKey(way.model);
@@ -604,78 +594,36 @@ export function ModelPicker({
       for (const way of entry.ways) if (way.hidden !== hide) preferences.toggleHiddenModel(way.runtime, modelKey(way.model));
     },
     showLegacy: Boolean(needle),
+    more: (way) => {
+      if (!draft && way.runtime !== threadRuntime) {
+        return <b className="model-leaves" {...tooltipProps(`This thread runs with ${threadRuntimeName}; ${way.runtimeLabel} ${runtimeActions.length > 0 ? "continues in a new thread, carrying a summary" : "starts a new thread"}`)}> · new thread</b>;
+      }
+      return badges.map(({ id, WayLine }) => WayLine ? <WayLine key={id} model={way.model} runtime={way.runtime} /> : null);
+    },
   };
   const listId = "model-picker-list";
   const optionsOn = filterCount(filters) + (sort === "relevance" ? 0 : 1) + (showHidden ? 1 : 0);
-  const heading = needle ? `Every provider · ${rows.length} ${rows.length === 1 ? "match" : "matches"}` : viewLabel(current);
 
-  // "Runs with" for the highlighted row: the thread's runtime first, then the host's order, a plan before a key.
-  const ways = highlighted ? [...highlighted.entry.ways].sort((a, b) => (a.runtime === threadRuntime ? -1 : 0) - (b.runtime === threadRuntime ? -1 : 0)
-    || (runtimeOrder.get(a.runtime) ?? 99) - (runtimeOrder.get(b.runtime) ?? 99)
-    || (BILLING_RANK[billingOf(a) ?? ""] ?? 4) - (BILLING_RANK[billingOf(b) ?? ""] ?? 4)) : [];
-  // A thread that exists keeps its runtime: when that one cannot run the model, it stands first, greyed.
-  const cannot = !draft && highlighted && !ways.some((way) => way.runtime === threadRuntime) ? threadRuntime : undefined;
-  // From E: a runtime of the model's maker that is not ready yet offers what makes it ready.
-  const blockedWays = highlighted ? runtimes.filter((entry) => BLOCKED.has(entry.status)
-    && (entry.backend.homeProviders ?? []).some((provider) => modelMaker({ provider, id: "" }) === highlighted.entry.maker)) : [];
-  const leaves = !draft && highlightedWay && highlightedWay.runtime !== threadRuntime ? highlightedWay : undefined;
-  const carries = leaves && runtimeActions.length > 0;
-  const waysBar = highlighted && highlightedWay ? (
-    <footer className="model-ways-bar" aria-live="polite">
-      <div className="model-ways-row">
-        <span className="model-ways-label">Runs with</span>
-        <div ref={waysRef} className="model-ways" role="radiogroup" aria-label={`Runs with, ${highlighted.entry.name}`} onKeyDown={onWaysKeyDown}>
-          {cannot ? (
-            <button type="button" className="model-way cannot" disabled aria-label={`${runtimeName(cannot)}, can't run it`} {...tooltipProps(`${runtimeName(cannot)} runs this thread and cannot run ${highlighted.entry.name}`)}>
-              <ProviderIconStack runtimeProvider={cannot} className="way-icon" hint={false} />can't run it
-            </button>
-          ) : null}
-          {ways.map((way) => {
-            const on = way.key === highlightedWay.key;
-            const text = wayText(way);
-            return (
-              <button
-                key={way.key}
-                type="button"
-                role="radio"
-                aria-checked={on}
-                aria-label={`${way.runtimeLabel}, ${text}`}
-                className={`model-way${on ? " on" : ""}`}
-                data-column-item
-                data-way={way.key}
-                {...(on ? { "data-current": "" } : {})}
-                tabIndex={on ? 0 : -1}
-                {...tooltipProps(`${providerStackLabel(way.model.provider, way.runtime, { plan: modelOnPlan(way.model) })}${way.runtime === threadRuntime || draft ? "" : " · a new thread"}`)}
-                onClick={(event) => { setPicked((held) => ({ ...held, [highlighted.key]: way.key })); choose(way, event.shiftKey); }}
-              >
-                <ProviderIconStack runtimeProvider={way.runtime} runtimeName={way.runtimeLabel} className="way-icon" hint={false} />
-                {text}
-                {jumps.has(way.key) ? <Star size={10} fill="currentColor" className="way-star" aria-hidden /> : null}
-              </button>
-            );
-          })}
-          {blockedWays.map((entry) => {
-            const fix = fixAction(entry);
-            return (
-              <button key={entry.backend.kind} type="button" className="model-way cannot" disabled={!fix} aria-label={fix?.label.replace(/…$/u, "") ?? `${entry.backend.label}, ${RUNTIME_STATUS_LABELS[entry.status]}`} {...tooltipProps(`${entry.backend.label} · ${RUNTIME_STATUS_LABELS[entry.status]}`)} onClick={fix?.run}>
-                <ProviderIconStack runtimeProvider={entry.backend.kind} className="way-icon" hint={false} />
-                {entry.status === "not-installed" ? "Install" : entry.status === "sign-in" ? "Sign in" : "Unavailable"}
-              </button>
-            );
-          })}
-        </div>
-        {stacked || compact ? null : <span className="model-keys keyboard-hint" aria-hidden>Tab ←→</span>}
-      </div>
-      <p className="model-ways-note">
-        {leaves ? <>
-          <CornerDownRight size={13} className="model-ways-glyph" aria-hidden />
-          <span>This thread runs with {threadRuntimeName}. <b>{compact ? "Choosing it" : "↵"} {carries ? "continues in a new thread" : "starts a new thread"}</b> with {leaves.runtimeLabel}{carries ? ", carrying a summary" : ""}.</span>
-        </> : <>
-          {[providerStackLabel(highlightedWay.model.provider, highlightedWay.runtime, { plan: modelOnPlan(highlightedWay.model) }), ...modelFacts(highlightedWay.model, highlightedWay.customPrice)].join(" · ")}
-          {badges.map(({ id, WayLine }) => WayLine ? <WayLine key={id} model={highlightedWay.model} runtime={highlightedWay.runtime} /> : null)}
-        </>}
-      </p>
-    </footer>
+  const pills = pillRuntimes.length > 1 ? (
+    <div className="model-pills" role="radiogroup" aria-label={`Runs with, ${maker ? providerLabel(maker) : ""} models`}>
+      <button type="button" role="radio" aria-checked={pill === undefined} className={`model-pill${pill === undefined ? " on" : ""}`} tabIndex={-1} onClick={() => choosePill(undefined)}>All</button>
+      {pillRuntimes.map((backend) => (
+        <button
+          key={backend.kind}
+          type="button"
+          role="radio"
+          aria-checked={pill === backend.kind}
+          aria-label={backend.label}
+          className={`model-pill${pill === backend.kind ? " on" : ""}`}
+          tabIndex={-1}
+          onClick={() => choosePill(backend.kind)}
+        >
+          <ProviderIconStack runtimeProvider={backend.kind} runtimeName={backend.label} className="pill-icon" hint={false} />
+          {backend.label}
+        </button>
+      ))}
+      {stacked || compact ? null : <span className="model-keys" aria-hidden {...tooltipProps("Tab and ⇧Tab switch the filter", { side: "bottom" })}>Tab</span>}
+    </div>
   ) : null;
 
   const content: ReactNode = (
@@ -690,66 +638,6 @@ export function ModelPicker({
         <strong>Model</strong>
         <button type="button" className="model-sheet-done" onClick={onClose}>Done</button>
       </header> : null}
-      <div className="palette-input-wrap model-search">
-        <Search size={15} />
-        <input
-          ref={inputRef}
-          value={query}
-          role="combobox"
-          aria-expanded
-          aria-controls={listId}
-          aria-activedescendant={activeRow ? `model-option-${at}` : undefined}
-          aria-autocomplete="list"
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={onSearchKeyDown}
-          placeholder={compact ? "Model or provider" : "Search models…"}
-          aria-label="Search models"
-        />
-        {stacked ? null : <span className="model-keys keyboard-hint" aria-hidden {...tooltipProps(`↑↓ move · Tab Runs with · ↵ choose · ⌥↵ pin${multiSelect ? " · ⇧click adds a model" : ""}`, { side: "bottom" })}>↑↓ ↵</span>}
-        <div className="model-tool">
-          <button
-            className={`model-tool-button${optionsOn > 0 ? " on" : ""}`}
-            aria-label={optionsOn > 0 ? `Sort and filter (${optionsOn} on)` : "Sort and filter"}
-            {...tooltipProps("Sort, filter, hidden models, providers", { side: "bottom" })}
-            aria-haspopup="menu"
-            aria-expanded={menu === "options"}
-            onClick={() => setMenu((held) => held ? undefined : "options")}
-          >
-            <SlidersHorizontal size={14} />{optionsOn > 0 ? <span>{optionsOn}</span> : null}
-          </button>
-          {menu === "options" ? (
-            <div className="model-menu" role="menu" aria-label="Sort and filter models">
-              <span className="model-menu-heading">Sort</span>
-              {(Object.keys(SORT_LABELS) as OfferingSort[]).map((option) => (
-                <button key={option} role="menuitemradio" aria-checked={sort === option} onClick={() => { setSort(option); setMenu(undefined); inputRef.current?.focus(); }}>
-                  {SORT_LABELS[option]}
-                  {option === "price" ? <small>plans first</small> : null}
-                </button>
-              ))}
-              <span className="model-menu-heading">Billing</span>
-              {BILLING_FILTERS.map(([value, label]) => (
-                <button key={value} role="menuitemcheckbox" aria-checked={filters.billing.has(value)} onClick={() => setFilters((held) => ({ ...held, billing: toggled(held.billing, value) }))}>{label}</button>
-              ))}
-              <span className="model-menu-heading">Can</span>
-              {CAPABILITY_FILTERS.map(([value, label]) => (
-                <button key={value} role="menuitemcheckbox" aria-checked={filters.capabilities.has(value)} onClick={() => setFilters((held) => ({ ...held, capabilities: toggled(held.capabilities, value) }))}>{label}</button>
-              ))}
-              <hr />
-              <button role="menuitemcheckbox" aria-checked={showHidden} onClick={() => setShowHidden((held) => !held)}>
-                Show hidden models{offerings.some((offering) => offering.hidden) ? <small>{offerings.filter((offering) => offering.hidden).length}</small> : null}
-              </button>
-              <button role="menuitem" onClick={() => { setMenu(undefined); setAddProviderOpen(true); }}>Add model provider…</button>
-              {onOpenSettings ? <button role="menuitem" onClick={() => { onOpenSettings(highlightedWay?.runtime ?? threadRuntime, "models"); onClose(); }}>Pin models in Settings…</button> : null}
-              {refreshModels ? (
-                <button role="menuitem" disabled={refreshing} title="Ask every runtime for its version and models again" onClick={() => {
-                  setRefreshing(true);
-                  void refreshModels("refresh").catch(() => undefined).finally(() => setRefreshing(false));
-                }}>{refreshing ? "Refreshing…" : "Refresh models"}</button>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-      </div>
 
       <div className="model-picker-body">
         <nav ref={railRef} className="model-rail" aria-label="Providers" onKeyDown={onRailKeyDown}>
@@ -774,7 +662,7 @@ export function ModelPicker({
                     ? <ProviderIconStack runtimeProvider={entry.backend.kind === DEFAULT_RUNTIME ? "pi" : entry.backend.kind} className="rail-icon" hint={false} />
                     : entry.kind === "maker"
                       ? <ProviderIconStack modelProvider={entry.maker} className="rail-icon" hint={false} />
-                      : entry.kind === "recent" ? <History size={16} className="rail-glyph recent" /> : <Star size={16} fill="currentColor" className="rail-glyph" />}
+                      : entry.kind === "recent" ? <History size={18} className="rail-glyph recent" /> : <Star size={18} fill="currentColor" className="rail-glyph" />}
                   {entry.kind === "runtime" && entry.backend.kind.includes("@")
                     ? <i className="rail-instance" aria-hidden>{monogram(runtimeInstanceId(entry.backend.kind))}</i>
                     : null}
@@ -786,9 +674,66 @@ export function ModelPicker({
         </nav>
 
         <section className="model-column" aria-label="Models">
-          <header className="model-column-head">
-            <span className="model-column-title">{heading}</span>
-          </header>
+          <div className="model-search">
+            <Search size={15} aria-hidden />
+            <input
+              ref={inputRef}
+              value={query}
+              role="combobox"
+              aria-expanded
+              aria-controls={listId}
+              aria-activedescendant={activeRow ? `model-option-${at}` : undefined}
+              aria-autocomplete="list"
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={onSearchKeyDown}
+              placeholder={compact ? "Model or provider" : "Search models…"}
+              aria-label="Search models"
+            />
+            <div className="model-tool">
+              <button
+                className={`model-tool-button${optionsOn > 0 ? " on" : ""}`}
+                aria-label={optionsOn > 0 ? `Sort and filter (${optionsOn} on)` : "Sort and filter"}
+                {...tooltipProps("Sort, filter, hidden models, providers", { side: "bottom" })}
+                aria-haspopup="menu"
+                aria-expanded={menu === "options"}
+                onClick={() => setMenu((held) => held ? undefined : "options")}
+              >
+                <SlidersHorizontal size={14} />{optionsOn > 0 ? <span>{optionsOn}</span> : null}
+              </button>
+              {menu === "options" ? (
+                <div className="model-menu" role="menu" aria-label="Sort and filter models">
+                  <span className="model-menu-heading">Sort</span>
+                  {(Object.keys(SORT_LABELS) as OfferingSort[]).map((option) => (
+                    <button key={option} role="menuitemradio" aria-checked={sort === option} onClick={() => { setSort(option); setMenu(undefined); inputRef.current?.focus(); }}>
+                      {SORT_LABELS[option]}
+                      {option === "price" ? <small>plans first</small> : null}
+                    </button>
+                  ))}
+                  <span className="model-menu-heading">Billing</span>
+                  {BILLING_FILTERS.map(([value, label]) => (
+                    <button key={value} role="menuitemcheckbox" aria-checked={filters.billing.has(value)} onClick={() => setFilters((held) => ({ ...held, billing: toggled(held.billing, value) }))}>{label}</button>
+                  ))}
+                  <span className="model-menu-heading">Can</span>
+                  {CAPABILITY_FILTERS.map(([value, label]) => (
+                    <button key={value} role="menuitemcheckbox" aria-checked={filters.capabilities.has(value)} onClick={() => setFilters((held) => ({ ...held, capabilities: toggled(held.capabilities, value) }))}>{label}</button>
+                  ))}
+                  <hr />
+                  <button role="menuitemcheckbox" aria-checked={showHidden} onClick={() => setShowHidden((held) => !held)}>
+                    Show hidden models{offerings.some((offering) => offering.hidden) ? <small>{offerings.filter((offering) => offering.hidden).length}</small> : null}
+                  </button>
+                  <button role="menuitem" onClick={() => { setMenu(undefined); setAddProviderOpen(true); }}>Add model provider…</button>
+                  {onOpenSettings ? <button role="menuitem" onClick={() => { onOpenSettings(highlightedWay?.runtime ?? threadRuntime, "models"); onClose(); }}>Pin models in Settings…</button> : null}
+                  {refreshModels ? (
+                    <button role="menuitem" disabled={refreshing} title="Ask every runtime for its version and models again" onClick={() => {
+                      setRefreshing(true);
+                      void refreshModels("refresh").catch(() => undefined).finally(() => setRefreshing(false));
+                    }}>{refreshing ? "Refreshing…" : "Refresh models"}</button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
+          {elsewhere ? null : pills}
           {elsewhere ? (
             <div className="model-runtime-pane" role="region" aria-label={elsewhere.backend.label}>
               <ProviderIconStack runtimeProvider={elsewhere.backend.kind} className="runtime-pane-icon" />
@@ -839,6 +784,7 @@ export function ModelPicker({
                   id={`model-option-${index}`}
                   entry={row.entry}
                   way={wayOf(row)}
+                  line={row.line}
                   selected={index === at}
                   cells={cells}
                   onPoint={() => point(index)}
@@ -851,14 +797,13 @@ export function ModelPicker({
                 />}
             />
           )}
+          {multiSelect && chosen.length > 1 ? <p className="model-picker-note">{`${chosen.length} models chosen`}</p> : null}
+          {staleNote ? <p className="model-picker-note" role="status">{staleNote}</p> : null}
+          {notes.map((note) => <p key={note} className="model-picker-note">{note}</p>)}
+          {update ? <p className="model-picker-note" role="status">{update.text}{update.command ? <> {update.verb} <code>{update.command}</code>.</> : null}</p> : null}
         </section>
       </div>
 
-      {elsewhere ? null : waysBar}
-      {multiSelect && chosen.length > 1 ? <p className="model-picker-note">{`${chosen.length} models chosen`}</p> : null}
-      {staleNote ? <p className="model-picker-note" role="status">{staleNote}</p> : null}
-      {notes.map((note) => <p key={note} className="model-picker-note">{note}</p>)}
-      {update ? <p className="model-picker-note" role="status">{update.text}{update.command ? <> {update.verb} <code>{update.command}</code>.</> : null}</p> : null}
       {asSheet && onOpenThinking ? (
         <button type="button" className="model-thinking-row" onClick={onOpenThinking}>
           Thinking and speed<span>{thinkingSummary}<ChevronRight size={16} aria-hidden /></span>

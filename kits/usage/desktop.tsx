@@ -45,7 +45,7 @@ export const usageExtension: DesktopExtension = {
       Component: (props) => <JuicebarStrip {...props} feed={feed} choices={choices} />,
     });
 
-    // What the plan has left, after the facts under "Runs with" in the model picker; never a mark on a row.
+    // What the plan has left, after the highlighted row's facts in the model picker; never a mark on a row.
     plugin.registerModelBadge({ id: "usage.plan-left", profiles: ["desktop", "web", "compact"], applies: () => false, label: "Plan", WayLine: createWayLine(feed, choices) });
 
     plugin.registerCommand({
