@@ -105,7 +105,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-transcript.js",   "./host-transport-clients.js",   "./host-transport-electron.js",   "./host-transport-socket.js",
   "./host-web-server.js",   "./image-clipboard.js",   "./image-preview.js",
   "./ipc-input.js",   "./lifecycle-queue.js",   "./linux-sandbox.js",   "./live-turn-state.js",
-  "./managed-workbench-source.js",   "./mcp-endpoint.js",   "./model-attribution.js",   "./model-login.js",   "./model-price-book.js",   "./models-config.js",   "./packaged-app.js",
+  "./managed-workbench-source.js",   "./mcp-endpoint.js",   "./model-attribution.js",   "./model-completion.js",   "./model-login.js",   "./model-price-book.js",   "./models-config.js",   "./packaged-app.js",
   "./opencode-catalog.js",
   "./persisted-json.js",   "./persisted-transcript.js",   "./pi-bridge-client.js",
   "./secret-store.js", // OS-store leaf shared by host kits; no runtime access to values.
