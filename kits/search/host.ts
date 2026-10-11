@@ -6,7 +6,7 @@ import { commandInvocation, THREAD_TEXTS_COMMAND } from "tau/host-extension";
 import { rankFuzzy } from "./fuzzy.js";
 import { parseRipgrepLine, projectPath, ripgrepArgs, ripgrepError, ripgrepFileArgs } from "./ripgrep.js";
 import { RuntimeThreadIndex } from "./runtime-threads.js";
-import { findInThread, queryTokens, sessionText, type ThreadText } from "./threads.js";
+import { findInThread, findMessages, queryTokens, sessionText, type ThreadText } from "./threads.js";
 import { contentPattern, searchWalkedFiles, walkProject } from "./walker.js";
 import {
   CONTENT_LIMIT,
@@ -18,6 +18,7 @@ import {
   type ContentSearchInput,
   type ContentSearchResult,
   type FileSearchResult,
+  type ThreadFindResult,
   type ThreadMatch,
   type ThreadRequestMatch,
 } from "./protocol.js";
@@ -266,6 +267,17 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
           }
         }
         return matches;
+      }, { access: "read", long: true });
+
+      context.registerCommand("find-in-thread", async (raw): Promise<ThreadFindResult> => {
+        const fields = record(raw);
+        const sessionId = text(fields.sessionId);
+        const query = text(fields.query);
+        if (!sessionId || !query.trim()) return { messageIds: [], truncated: false };
+        // The runtime holds the thread's whole transcript under the ids the client draws; a thread it has closed has none.
+        let messages: Awaited<ReturnType<typeof services.transcript>> = [];
+        try { messages = await services.transcript(sessionId); } catch { /* nothing open under that id */ }
+        return findMessages(messages, query);
       }, { access: "read", long: true });
 
       context.registerCommand("thread-requests", async (raw): Promise<ThreadRequestMatch[]> => {

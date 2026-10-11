@@ -1,7 +1,7 @@
 import type { DesktopExtension, RegionProps } from "tau";
 import { SearchDialogs, SearchDialogsLayer, type SearchHost } from "./dialogs.js";
 import { fileItems, projectItems, settle, threadContentItems, threadRequestItems, threadTitleItems } from "./palette-sources.js";
-import { SEARCH_FILES_SERVICE, SEARCH_KIT_ID, WORKSPACE_STORE_SERVICE, type SearchFilesService, type WorkspaceStoreView } from "./protocol.js";
+import { SEARCH_FILES_SERVICE, SEARCH_KIT_ID, WORKSPACE_STORE_SERVICE, type SearchFilesService, type ThreadFindResult, type WorkspaceStoreView } from "./protocol.js";
 
 /** Content search waits this long after a keystroke before it asks the host to read the threads. */
 export const THREAD_CONTENT_DELAY_MS = 150;
@@ -33,6 +33,13 @@ export function createSearchExtension(options: { threadContentDelayMs?: number }
       const Layer = ({ actions }: RegionProps) => <SearchDialogsLayer dialogs={dialogs} host={host} channel={channel} actions={actions} />;
       context.registerRegion({ id: "search.dialogs", placement: "title-bar", profiles: ["desktop", "web", "compact"], Component: Layer });
       context.provideService<SearchFilesService>(SEARCH_FILES_SERVICE, { pickFile: (onPick) => dialogs.pickFile(onPick) });
+
+      // The transcript's ⌘F reaches the turns the window has not loaded through the runtime's whole transcript.
+      context.registerTranscriptFinder({
+        id: "search.transcript",
+        profiles: ["desktop", "web", "compact"],
+        find: async ({ sessionId, query }) => ((await host("find-in-thread", { sessionId, query })) as ThreadFindResult).messageIds,
+      });
 
       context.registerPaletteSource({ id: "search.threads", label: "Threads", order: 10, scope: "threads", search: threadTitleItems });
       context.registerPaletteSource({

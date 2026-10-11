@@ -117,6 +117,14 @@ describe("Search Kit: palette sources", () => {
     expect(files().label).toBe("Files · in fix/tabs");
   });
 
+  it("hands the transcript's find the ids the host names for the whole thread", async () => {
+    const invoke = vi.fn(async () => ({ messageIds: ["u1", "a7"], truncated: false }));
+    const { registry } = createKitHarness(invoke);
+    registry.activate(createSearchExtension());
+    expect(await registry.getTranscriptFinder()!.find({ sessionId: "t1", query: "quartz" })).toEqual(["u1", "a7"]);
+    expect(invoke).toHaveBeenCalledWith(SEARCH_KIT_ID, "find-in-thread", { sessionId: "t1", query: "quartz" });
+  });
+
   it("switches to a thread and opens a project by its workspace id", async () => {
     const actions = { switchSession: vi.fn(async () => true), openWorkspace: vi.fn(async () => true) } as unknown as WorkbenchActions;
     const context = searchContext(actions);
