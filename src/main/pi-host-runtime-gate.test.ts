@@ -139,7 +139,7 @@ describe("a runtime a project turned off (ADR 0032)", () => {
     const { host, internals } = bench();
     internals.runtimes.openExternal = vi.fn();
     internals.seam.backends.set("codex", { kind: "codex", label: "Codex", adapter: PI_AGENT_RUNTIME_ADAPTER });
-    const result = await host.newSession("hello", [], OFF, undefined, { backendKind: "codex" } as never);
+    const result = await host.newSession("hello", [], OFF, undefined, { backendKind: "codex", sessionId: "draft" } as never);
     expect((result as { submission?: unknown }).submission).toEqual({ accepted: false, message: MESSAGE });
     expect(internals.runtimes.openExternal).not.toHaveBeenCalled();
   });

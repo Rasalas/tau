@@ -1203,8 +1203,8 @@ export class PiHost {
     if (prepared && backendKind !== "pi" && !this.seam.backends.has(backendKind)) {
       throw new Error("Prepared prompt names an unsupported runtime backend.");
     }
-    const refusal = await this.prompts.runtimeRefusal(backendKind, cwd ?? this.cwd);
-    if (refusal) return this.publication.newThreadResult([], { accepted: false, message: refusal }, requestId);
+    // Asked now, answered inside the activation: waiting here would queue this request behind a later switch.
+    const refusal = this.prompts.runtimeRefusal(backendKind, cwd ?? this.cwd);
     // A runtime that creates threads itself answers the request; Tau only
     // publishes what it reports.
     const owner = !cwd || cwd === this.cwd ? this.active : undefined;
@@ -1212,6 +1212,8 @@ export class PiHost {
     if (owner && runtimeThreads) {
       return this.lifecycle.runActivation("new-thread-runtime", async (activation) => {
         const activationEpoch = activation.epoch;
+        const refused = await refusal;
+        if (refused) return this.publication.newThreadResult([], { accepted: false, message: refused }, requestId);
         if (!this.isCurrentActivation(activationEpoch)) return this.staleNewThreadResult(requestId);
         const ownedRequestId = requestId ?? createNewThreadRequestId(randomUUID());
         try {
@@ -1249,6 +1251,8 @@ export class PiHost {
     }
     return this.lifecycle.runActivation("new-thread", async (activation) => {
       const activationEpoch = activation.epoch;
+      const refused = await refusal;
+      if (refused) return this.publication.newThreadResult([], { accepted: false, message: refused }, requestId);
       // A superseded request still creates its thread and delivers its prompt
       // in the background; it only stops competing for the visible thread.
       const startedAt = performance.now();
@@ -1476,9 +1480,7 @@ export class PiHost {
     return this.forkThread(leafId, thread.threadId);
   }
 
-  async exportThreadMarkdown(expectedSessionId?: string): Promise<string> {
-    return exportThreadMarkdown(this.requireThread(expectedSessionId));
-  }
+  async exportThreadMarkdown(expectedSessionId?: string): Promise<string> { return exportThreadMarkdown(this.requireThread(expectedSessionId)); }
 
   /**
    * Resolves a prompt before the renderer creates its optimistic message. A
@@ -1585,11 +1587,11 @@ export class PiHost {
       : clientIdentityForRequest(clientMessageIdOrPreflight);
     const clientMessageId = identity?.clientMessageId;
     const thread = await this.awaitThread(sessionId);
-    await this.prompts.assertRuntimeOn(thread);
     const restartGeneration = thread.restartGeneration;
     // Freeze the epoch after resolving the thread. A concurrent switch changes
     // it, and the prompt must not land on a thread that was superseded.
     const promptEpoch = this.activationEpoch;
+    await this.prompts.assertRuntimeOn(thread);
     // The switch that opened this thread may still be binding its extensions.
     await this.binding.settle(thread);
     this.sessionControl.assertAvailable(thread.threadId);
