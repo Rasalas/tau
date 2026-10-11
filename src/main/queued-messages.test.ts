@@ -116,7 +116,7 @@ describe("QueuedMessages", () => {
     before.busy.add("interrupted");
     before.busy.add("continued");
     before.queue.add("interrupted", { text: "after the turn", attachments: [{ kind: "file", name: "a.txt", mimeType: "text/plain", path: "/a.txt", size: 1 }] });
-    before.queue.add("continued", { text: "run the tests", attachments: [], skillDraft: { source: "skill", name: "tdd", visibleText: "/tdd", command: "/skill:tdd" } });
+    before.queue.add("continued", { text: "run the tests", attachments: [], skillDraft: { source: "skill", name: "tdd", visibleText: "/tdd", command: "/skill:tdd", additionalSkills: [{ name: "lint", command: "/skill:lint" }] } });
     before.queue.freeze();
     await before.queue.flush();
     expect(JSON.parse(await readFile(filePath, "utf8")).threads.interrupted[0].text).toBe("after the turn");
@@ -127,6 +127,7 @@ describe("QueuedMessages", () => {
     expect(after.published.get("interrupted")).toMatchObject({ held: true, messages: [{ text: "after the turn", attachments: 1 }] });
     expect(after.published.get("continued")).toMatchObject({ held: false });
     expect(after.queue.list("continued")[0]?.skillDraft?.name).toBe("tdd");
+    expect(after.queue.list("continued")[0]?.skillDraft?.additionalSkills).toEqual([{ name: "lint", command: "/skill:lint" }]);
 
     await after.settle("interrupted");
     expect(after.delivered).toEqual([]);

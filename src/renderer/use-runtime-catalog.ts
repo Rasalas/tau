@@ -107,10 +107,10 @@ export function useDraftCommands(
   const sameRuntime = (runtime ?? "pi") === (snapshot?.backendKind ?? "pi");
   return useMemo(() => {
     if (!snapshot || !key || !client) return snapshot;
-    const own = snapshot.composerCommands ?? [];
+    const shown = snapshot.composerCommands ?? [];
     const commands = loaded?.key === key
-      ? [...own.filter((command) => sameRuntime && command.source !== "skill"), ...loaded.commands.filter((command) => !sameRuntime || command.source === "skill")]
-      : own.filter((command) => sameRuntime && command.source !== "skill");
+      ? [...shown.filter((command) => sameRuntime && command.source !== "skill"), ...loaded.commands.filter((command) => !sameRuntime || command.source === "skill")]
+      : shown.filter((command) => sameRuntime && command.source !== "skill");
     return { ...snapshot, composerCommands: commands };
   }, [client, key, loaded, sameRuntime, snapshot]);
 }

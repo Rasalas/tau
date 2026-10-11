@@ -205,6 +205,15 @@ export function decodeUiSkillDraft(channel: string, field: string, value: unknow
     name: decodeString(channel, `${field}.name`, item.name),
     visibleText: decodeString(channel, `${field}.visibleText`, item.visibleText),
     command: decodeString(channel, `${field}.command`, item.command),
+    ...(item.additionalSkills !== undefined ? {
+      additionalSkills: decodeArray(channel, `${field}.additionalSkills`, item.additionalSkills).map((entry, index) => {
+        const ref = record(channel, `${field}.additionalSkills[${index}]`, entry);
+        return {
+          name: decodeString(channel, `${field}.additionalSkills[${index}].name`, ref.name),
+          command: decodeString(channel, `${field}.additionalSkills[${index}].command`, ref.command),
+        };
+      }),
+    } : {}),
   };
 }
 
