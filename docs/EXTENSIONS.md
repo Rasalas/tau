@@ -2586,7 +2586,7 @@ Antigravity and Cursor name each model's provider by its maker (`claude-…` is
 `anthropic`, `gpt-…` `openai`, `gemini-…` `google`; `kits/_acp/model-provider.ts`),
 because neither ACP nor Cursor's model list says it; the rest are their own.
 
-A runtime can be turned off for a project (API 1.59.0, ADR 0032) while its kit
+A runtime can be turned off for a project (API 1.59.0, ADR 0033) while its kit
 stays active. The setting is `runtimeEnabled.<backend kind>` in Tau's config, a
 boolean per kind (`codex`, `codex@work`), machine file and project file under
 the usual levels. The host refuses every start on an off runtime: its

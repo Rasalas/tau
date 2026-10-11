@@ -9,7 +9,7 @@ export interface RuntimeAvailabilityPort {
 const NONE: readonly string[] = [];
 
 /**
- * Which runtimes each project turned off (ADR 0032), as the host resolves them.
+ * Which runtimes each project turned off (ADR 0033), as the host resolves them.
  * A project is asked once when a draft or thread on screen belongs to it and
  * again whenever the host says its config changed. The host enforces the
  * answer; this only keeps the pickers from offering what would be refused.

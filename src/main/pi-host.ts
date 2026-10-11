@@ -1127,7 +1127,7 @@ export class PiHost {
       open: async (marker) => {
         const thread = this.threads.get(marker.sessionId)?.runtime ?? await this.openMarkedThread(marker);
         if (!thread) return undefined;
-        // A runtime the project turned off is marked interrupted, not continued (ADR 0032).
+        // A runtime the project turned off is marked interrupted, not continued (ADR 0033).
         const resume = await this.prompts.runtimeEnabled(thread.backend.kind, thread.cwd) ? thread.backend.capabilities.resume : undefined;
         return {
           threadId: thread.threadId,

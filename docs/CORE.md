@@ -283,7 +283,7 @@ the pills without leaving the search; ← (at its start) goes to the rail; ⌥�
 (a favourite is a model with its way), ⌘⇧↑↓ step through the rail, and typing
 anywhere goes to the search, which runs across every provider and runtime (a
 runtime's name narrows the ways to it).
-A runtime is on or off per project (ADR 0032): `runtimeEnabled.<backend kind>` in
+A runtime is on or off per project (ADR 0033): `runtimeEnabled.<backend kind>` in
 Tau's config (`~/.tau/config.json`, `<project>/.tau/config.json`), a boolean per
 runtime or instance; no entry means on, and the project's entry wins over the
 machine's in either direction. Settings → Providers puts a switch in each card's

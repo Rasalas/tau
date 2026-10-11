@@ -21,7 +21,7 @@ export class RuntimeOffError extends Error {
 }
 
 /**
- * Whether a runtime may start work in a folder (ADR 0032). The host asks it
+ * Whether a runtime may start work in a folder (ADR 0033). The host asks it
  * wherever a turn starts or wakes; a thread on another machine is that
  * machine's to gate.
  */

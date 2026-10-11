@@ -67,7 +67,7 @@ export function runtimeAvailabilityStore(client: HostClient | undefined): Runtim
 
 /**
  * The snapshot with the runtimes the project of `workspaceId` turned off marked
- * `disabled` (ADR 0032); `workspaceId` is the draft's project while one is on screen.
+ * `disabled` (ADR 0033); `workspaceId` is the draft's project while one is on screen.
  */
 export function useOfferedRuntimes(snapshot: HostSnapshot | undefined, workspaceId: string | undefined): HostSnapshot | undefined {
   const store = runtimeAvailabilityStore(useHostClient());

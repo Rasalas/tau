@@ -363,7 +363,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     log: (label, detail) => deps.log(label, detail),
     errorMessage: (error) => deps.errorMessage(error),
   });
-  /** Whether a runtime may start work in a folder (ADR 0032). */
+  /** Whether a runtime may start work in a folder (ADR 0033). */
   const runtimeGate = new RuntimeGate({
     config: (path) => defaultHostConfigManager.readSync(path),
     owner: (cwd) => projects.owner(cwd),

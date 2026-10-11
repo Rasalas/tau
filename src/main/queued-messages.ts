@@ -164,7 +164,7 @@ export class QueuedMessages {
     return this.delivering.has(sessionId) || (!this.held.has(sessionId) && this.list(sessionId).length > 0);
   }
 
-  /** `add` for a caller that may be refused: a thread whose runtime is off takes no message (ADR 0032). */
+  /** `add` for a caller that may be refused: a thread whose runtime is off takes no message (ADR 0033). */
   async submit(sessionId: string, message: Omit<QueuedMessage, "id" | "queuedAt">): Promise<QueuedMessage> {
     await this.port.admit?.(sessionId);
     return this.add(sessionId, message);

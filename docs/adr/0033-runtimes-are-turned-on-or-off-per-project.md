@@ -1,4 +1,4 @@
-# ADR 0032: Runtimes are turned on or off per project
+# ADR 0033: Runtimes are turned on or off per project
 
 A runtime (Pi, the Agent SDK runtime, Codex, OpenCode, Cursor, Grok, Antigravity, and every instance such as `codex@work`) can be turned off for one project while it stays on for the others, and turned on for one project while it is off on the machine. T3 Code made the same move for its providers; the Providers page already read as if its switch did this.
 

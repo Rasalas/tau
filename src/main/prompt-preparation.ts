@@ -13,7 +13,7 @@ export interface PromptPreparationPort {
   /** The provider behind a non-Pi backend kind, for its own prompt gate. */
   requireBackend(kind: ThreadBackendKind): HostRuntimeBackendProvider;
   permissionLevel(): RuntimePermissionLevel;
-  /** Whether a runtime may start work in a folder (ADR 0032). */
+  /** Whether a runtime may start work in a folder (ADR 0033). */
   runtimeGate: RuntimeGate;
   /** The terminal owns an attached Pi session; the gate is for threads Tau starts work on. */
   ownedByPi(thread: ThreadRuntime): boolean;

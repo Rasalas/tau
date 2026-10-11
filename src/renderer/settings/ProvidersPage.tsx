@@ -36,7 +36,7 @@ function ProviderCard({ card, cwd, onNotify }: { card: SettingsPageContribution;
       return next;
     });
   }, []);
-  // The kit stays active either way; the switch decides whether the host starts work on the runtime (ADR 0032).
+  // The kit stays active either way; the switch decides whether the host starts work on the runtime (ADR 0033).
   const enabled = useSetting<boolean>(`runtimeEnabled.${card.runtime ?? card.id}`, { defaultValue: true, scope: "both", read: readEnabled });
   const off = !enabled.value;
   const resettable = enabled.writable && enabled.origin === enabled.editing;

@@ -82,7 +82,7 @@ function bench() {
   return { host, internals, delivered, off, worktree, on };
 }
 
-describe("a runtime a project turned off (ADR 0032)", () => {
+describe("a runtime a project turned off (ADR 0033)", () => {
   it("refuses a send there and still sends in the project that kept it", async () => {
     const { host, delivered } = bench();
     await expect(host.prompt("hello", [], "off")).rejects.toThrow(MESSAGE);
