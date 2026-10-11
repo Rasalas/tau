@@ -44,6 +44,8 @@ export interface GuideState {
   /** A run is going, or the request to start one is on its way. */
   running: boolean;
   write(input?: GuideWriteInput): Promise<GuideWriteResult | undefined>;
+  /** Reads again, for a read that failed. */
+  refresh(): Promise<void>;
 }
 
 /**
@@ -99,5 +101,5 @@ export function useGuide(client: GuideClient | undefined, url: string): GuideSta
     }
   }, [client, url]);
 
-  return { result, loading, error, running: writing || result?.run?.state === "running", write };
+  return { result, loading, error, running: writing || result?.run?.state === "running", write, refresh: read };
 }

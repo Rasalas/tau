@@ -112,6 +112,8 @@ describe("small words", () => {
   it("reads tab params back only when they name a request", () => {
     expect(pullRequestTabParams({ url: REF.url, number: 7, service: "github" })).toEqual({ url: REF.url, number: 7, service: "github" });
     expect(pullRequestTabParams({ url: REF.url, number: "7", service: "github" })).toBeUndefined();
+    expect(pullRequestTabParams({ url: REF.url, number: 7, service: "github", focus: "guide", at: 3 })).toEqual({ url: REF.url, number: 7, service: "github", focus: "guide", at: 3 });
+    expect(pullRequestTabParams({ url: REF.url, number: 7, service: "github", focus: "elsewhere" })).toEqual({ url: REF.url, number: 7, service: "github" });
   });
 
   it("says how long ago", () => {

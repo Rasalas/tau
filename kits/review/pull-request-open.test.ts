@@ -16,6 +16,12 @@ describe("opening a pull request", () => {
     expect(actions.openPage).not.toHaveBeenCalled();
   });
 
+  it("opens the desktop's tab at its guide", () => {
+    const actions = { openStageTab: vi.fn(() => "tab") };
+    openPullRequest(actions, REQUEST, undefined, "guide");
+    expect(actions.openStageTab).toHaveBeenCalledWith(PULL_REQUEST_TAB, expect.objectContaining({ url: REQUEST.url, focus: "guide", at: expect.any(Number) }), { key: REQUEST.url });
+  });
+
   it("opens the request on the Reviews page where the client draws no pull-request tab", () => {
     document.body.dataset.profile = "compact";
     const actions = { openStageTab: vi.fn(() => "tab"), openPage: vi.fn() };

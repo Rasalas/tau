@@ -202,6 +202,14 @@ describe("an excerpt as a diff of its own", () => {
     expect(out.hunks[0]!.lines.map((line) => line.oldLine)).toEqual([39, 40, 41, 42]);
   });
 
+  it("gives no old number to lines drawn above the cut of a new file", () => {
+    const created: UiFileDiff = { path: "n.ts", added: 3, removed: 0, hunks: [{ header: "@@ -0,0 +1,3 @@", lines: [add(1), add(2), add(3)] }] };
+    const view = excerptDiff(created, { side: "new", start: 3, end: 3 })!;
+    const out = expandExcerpt(view, (diff) => ({ ...diff, hunks: [{ header: "", lines: [{ kind: "context", oldLine: 2, newLine: 2, text: "x", expanded: true }, ...diff.hunks[0]!.lines] }] }));
+    expect(out.hunks[0]!.lines[0]).toEqual({ kind: "context", newLine: 2, text: "x", expanded: true });
+    expect(out.hunks[0]!.lines[1]).toMatchObject({ kind: "added", newLine: 3 });
+  });
+
   it("moves old numbers without touching the new side", () => {
     const moved = shiftOldLines(FILE, 3);
     expect(moved.hunks[0]!.lines[0]).toMatchObject({ oldLine: 13, newLine: 10 });

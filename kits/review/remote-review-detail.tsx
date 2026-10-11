@@ -13,6 +13,8 @@ import { usePullRequestLines } from "./pull-request-lines.js";
 import { asReviewRequest, checksRollup, checksSummary, orderFiles, relativeTime, shortNoun, type PullRequestTabParams } from "./pull-request-logic.js";
 import { handOver, RollupIcon } from "./pull-request-parts.js";
 import { ChecksMini, ChecksPipeline } from "./pipeline-view.js";
+import { GuideTab } from "./guide-tab.js";
+import { GUIDE_ENABLED_OPTION } from "./guide-protocol.js";
 import { ReviewComposer } from "./pull-request-review.js";
 import { PullRequestStackControl } from "./pull-request-stack.js";
 import { PullRequestTimeline } from "./pull-request-timeline.js";
@@ -28,7 +30,7 @@ import { ReviewDiffStack, type StackFile } from "./review-diff-stack.js";
 import { baseName } from "./review-lines.js";
 import { plural } from "./review-words.js";
 
-type Tab = "changes" | "timeline" | "checks";
+type Tab = "changes" | "timeline" | "checks" | "guide";
 
 interface RemoteProps {
   params: PullRequestTabParams;
@@ -194,10 +196,13 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
     ...(checkout ? [{ id: "view:copy-checkout", label: "Copy checkout command", icon: <Copy size={13} />, run: () => copy(checkout, "Copied the checkout command.") }] : []),
     { id: "view:composer", label: "Add to the composer", icon: <SquarePlus size={13} />, run: () => handOver({ kind: "pull-request", payload: { number: detail.ref.number, title: detail.title, url: detail.ref.url, ...(detail.headRef ? { branch: detail.headRef } : {}) } }, chips(), actions) },
   ];
+  // The beta switch and a provider that can write a guide both have to say yes; the tab needs the diff for its excerpts.
+  const guides = capabilities.guides && capabilities.files && client.guides !== undefined && shared.preferences.optionValue(REVIEW_HOST_EXTENSION_ID, GUIDE_ENABLED_OPTION, false) === true ? client.guides : undefined;
   const tabs: FrameTab<Tab>[] = [
     ...(capabilities.files ? [{ id: "changes" as const, label: "Changes", aside: String(totals.files) }] : []),
     { id: "timeline", label: "Timeline" },
     ...(capabilities.checks ? [{ id: "checks" as const, label: "Checks", aside: <>· {rollup ? <RollupIcon rollup={rollup} /> : null}{checksSummary(checks)}</> }] : []),
+    ...(guides ? [{ id: "guide" as const, label: "Guide" }] : []),
   ];
   const shownTab: Tab = tabs.some((entry) => entry.id === tab) ? tab : "timeline";
 
@@ -289,6 +294,22 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
           )
         ) : shownTab === "timeline" ? (
           <PullRequestTimeline detail={timelineView.detail} oldestFirst={oldestFirst} actions={actions} />
+        ) : shownTab === "guide" && guides ? (
+          <GuideTab
+            lines={{
+              detail, threads, reviewComments: pending, writes, onComment: comment, onSend: (chip) => handOver(chip, chips(), actions),
+              onPend: (held) => shared.pending.add(params.url, held), onRemovePending: (id) => shared.pending.remove(params.url, id), onResolve: resolve, canEdit, onEdit: editComment,
+            }}
+            client={client}
+            guides={guides}
+            actions={actions}
+            files={data.files}
+            filesError={data.filesError}
+            loadFiles={loadFiles}
+            active
+            onOpenFile={(path) => { setTab("changes"); setJump({ path, at: ++jumps.current }); }}
+            onFinish={writes.comment || writes.review ? () => setComposing(true) : null}
+          />
         ) : (
           <div className="rvd-pad"><ChecksPipeline client={client} url={params.url} checks={checks} actions={actions} /></div>
         )}

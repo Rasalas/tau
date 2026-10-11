@@ -133,7 +133,8 @@ export function excerptRows(rows: readonly DiffRow[], excerpt: Pick<GuideExcerpt
   };
   let first = rows.findIndex(inRange);
   if (first === -1) return [];
-  let last = rows.findLastIndex(inRange);
+  let last = first;
+  for (let index = rows.length - 1; index > first; index -= 1) if (inRange(rows[index]!)) { last = index; break; }
   if (excerpt.side === "new" && rows[first]!.line.kind === "added") {
     while (first > 0 && rows[first - 1]!.line.kind === "removed" && rows[first - 1]!.hunk === rows[first]!.hunk) first -= 1;
   }
@@ -205,7 +206,9 @@ export function shiftOldLines(diff: UiFileDiff, by: number): UiFileDiff {
  * were unchanged before the cut, so the old side is moved to run in step there and back after.
  */
 export function expandExcerpt(view: Pick<ExcerptView, "diff" | "startDelta">, expand: (diff: UiFileDiff) => UiFileDiff): UiFileDiff {
-  return shiftOldLines(expand(shiftOldLines(view.diff, -view.startDelta)), view.startDelta);
+  const moved = shiftOldLines(expand(shiftOldLines(view.diff, -view.startDelta)), view.startDelta);
+  // A file with no old side before the cut (a new one) has no number to give the lines drawn above it.
+  return { ...moved, hunks: moved.hunks.map((hunk) => ({ ...hunk, lines: hunk.lines.map((line) => line.expanded && line.oldLine !== undefined && line.oldLine < 1 ? { kind: line.kind, newLine: line.newLine, text: line.text, expanded: true } as UiDiffLine : line) })) };
 }
 
 // ---- Progress: where the reader is, kept for as long as the window is open ----
@@ -244,6 +247,12 @@ export class GuideProgressStore {
   /** Moves to `next`; leaving a stop for a later one counts it as read. */
   go(key: string, next: number): void {
     this.set(key, (current) => ({ position: next, seen: next > current.position ? new Set(current.seen).add(current.position) : current.seen }));
+  }
+
+  /** Forgets every tour; a test starts from a reader who has read nothing. */
+  clear(): void {
+    this.entries.clear();
+    for (const listener of [...this.listeners]) listener();
   }
 
   markSeen(key: string, index: number): void {

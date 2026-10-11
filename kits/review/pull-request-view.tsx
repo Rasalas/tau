@@ -8,6 +8,8 @@ import { RequestMediaProvider } from "./request-markdown.js";
 import type { PullRequestClient, PullRequestCommentInput } from "./pull-request-client.js";
 import { LinkedThreadsControl, ThreadPicker, useLinkedThreads } from "./linked-threads.js";
 import { PullRequestCode } from "./pull-request-code.js";
+import { GuideTab } from "./guide-tab.js";
+import { GUIDE_ENABLED_OPTION } from "./guide-protocol.js";
 import { PullRequestHeaderActions, type HeaderMenuStep } from "./pull-request-header-actions.js";
 import { useCompactProfile } from "./compact-profile.js";
 import { PullRequestStackControl } from "./pull-request-stack.js";
@@ -40,7 +42,7 @@ const CHECKS_POLL_MS = 20_000;
 /** Coming back to the window reads again, but not more often than this. */
 const FOCUS_MIN_MS = 10_000;
 
-type Tab = "summary" | "timeline" | "code";
+type Tab = "summary" | "timeline" | "code" | "guide";
 
 export interface PullRequestViewData {
   detail?: PullRequestDetail;
@@ -184,7 +186,9 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
   const noun = shortNoun(params.service);
   const host = hostName(params.service);
   const { capabilities } = providerInfo(params.service);
-  const tabs = capabilities.files ? (["summary", "timeline", "code"] as const) : (["summary", "timeline"] as const);
+  // The beta switch and a provider that can write a guide both have to say yes; the tab needs the diff for its excerpts.
+  const guides = capabilities.guides && capabilities.files && client.guides !== undefined && shared.preferences.optionValue(REVIEW_HOST_EXTENSION_ID, GUIDE_ENABLED_OPTION, false) === true ? client.guides : undefined;
+  const tabs: readonly Tab[] = [...(capabilities.files ? (["summary", "timeline", "code"] as const) : (["summary", "timeline"] as const)), ...(guides ? (["guide"] as const) : [])];
   const { detail } = data;
   const checks = data.checks ?? detail?.checks ?? [];
   const threads = data.threads ?? [];
@@ -204,6 +208,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
 
   const showChecks = () => { open("summary"); setChecksAt(Date.now()); };
   useEffect(() => { if (params.focus === "checks") showChecks(); }, [params.focus, params.at]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (params.focus === "guide" && guides) open("guide"); }, [params.focus, params.at, Boolean(guides)]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const comment = useCallback(async (input: PullRequestCommentInput) => {
     await client.comment(params.url, input);
@@ -361,7 +366,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
               className={tab === entry ? "active" : ""}
               onMouseEnter={() => { if (entry === "code" && !data.files) void loadFiles(false); }}
               onClick={() => open(entry)}
-            >{entry === "summary" ? "Summary" : entry === "timeline" ? "Timeline" : "Code"}</button>
+            >{entry === "summary" ? "Summary" : entry === "timeline" ? "Timeline" : entry === "code" ? "Code" : "Guide"}</button>
           ))}
         </div>
         <span className="spacer" />
@@ -443,6 +448,25 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
               canEdit={canEdit}
               onEdit={editComment}
               writes={writes}
+            />
+          </div>
+        ) : null}
+        {visited.has("guide") && guides ? (
+          <div hidden={tab !== "guide"} className="pr-guide-frame">
+            <GuideTab
+              lines={{
+                detail, threads, reviewComments: pending, writes, onComment: comment, onSend: (chip) => handOver(chip, chips(), actions),
+                onPend: (held) => shared.pending.add(params.url, held), onRemovePending: (id) => shared.pending.remove(params.url, id), onResolve: resolve, canEdit, onEdit: editComment,
+              }}
+              client={client}
+              guides={guides}
+              actions={actions}
+              files={data.files}
+              filesError={data.filesError}
+              loadFiles={loadFiles}
+              active={tab === "guide"}
+              onOpenFile={(path) => { setFocusPath(path); open("code"); }}
+              onFinish={writes.comment || writes.review ? () => setComposing(true) : null}
             />
           </div>
         ) : null}

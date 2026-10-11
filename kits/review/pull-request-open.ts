@@ -10,8 +10,8 @@ function compactClient(): boolean {
   return typeof document !== "undefined" && document.body.dataset.profile === "compact";
 }
 
-/** Opens a request's view on the stage, at its checks with `focus`; the same request is always the same tab. */
-export function openPullRequest(actions: OpenActions, request: Pick<ReviewRequest, "url" | "number" | "provider">, workspace?: string, focus?: "checks"): string {
+/** Opens a request's view on the stage, at its checks or guide with `focus`; the same request is always the same tab. */
+export function openPullRequest(actions: OpenActions, request: Pick<ReviewRequest, "url" | "number" | "provider">, workspace?: string, focus?: "checks" | "guide"): string {
   if (compactClient() && actions.openPage) {
     actions.openPage(REVIEWS_PAGE, { tab: "remote", url: request.url, number: request.number, service: request.provider, ...(workspace ? { workspace } : {}), ...(focus ? { focus } : {}) });
     return request.url;
