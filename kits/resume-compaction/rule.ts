@@ -1,8 +1,12 @@
 import type { UiContextUsage } from "tau";
 
-/** Thresholds: a context this large, idle this long, has fallen out of any prompt cache. */
+/** A context this large, idle past its prompt cache's lifetime, is written to the cache anew. */
 export const RESUME_COMPACTION_TOKENS = 100_000;
-export const RESUME_COMPACTION_IDLE_MS = 70 * 60_000;
+
+/** The cache's lifetime plus a margin for clocks and the last write: a sixth of it, one to ten minutes. */
+export function coldAfterMs(promptCacheTtlMs: number): number {
+  return promptCacheTtlMs + Math.min(10 * 60_000, Math.max(60_000, promptCacheTtlMs / 6));
+}
 
 /**
  * Whether to compact before the next prompt. Only a runtime that names
@@ -10,13 +14,13 @@ export const RESUME_COMPACTION_IDLE_MS = 70 * 60_000;
  */
 export function offersResumeCompaction(usage: UiContextUsage | undefined, now: number): boolean {
   if (!usage || usage.promptCacheTtlMs === undefined || usage.updatedAt === undefined) return false;
-  return usage.tokens >= RESUME_COMPACTION_TOKENS && now - usage.updatedAt >= RESUME_COMPACTION_IDLE_MS;
+  return usage.tokens >= RESUME_COMPACTION_TOKENS && now - usage.updatedAt >= coldAfterMs(usage.promptCacheTtlMs);
 }
 
 /** When the offer becomes due, for a context large enough; undefined when it never will. */
 export function offerDueAt(usage: UiContextUsage | undefined): number | undefined {
   if (!usage || usage.promptCacheTtlMs === undefined || usage.updatedAt === undefined || usage.tokens < RESUME_COMPACTION_TOKENS) return undefined;
-  return usage.updatedAt + RESUME_COMPACTION_IDLE_MS;
+  return usage.updatedAt + coldAfterMs(usage.promptCacheTtlMs);
 }
 
 /** A context's size as "153k". */

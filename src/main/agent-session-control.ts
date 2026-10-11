@@ -31,10 +31,18 @@ interface AgentSessionControlPort {
 /** Owns targeted restart admission, discovery refresh and failed-reopen recovery. */
 export class AgentSessionControl {
   private readonly restartingThreads = new Set<string>();
+  private readonly navigatingThreads = new Set<string>();
   constructor(private readonly port: AgentSessionControlPort) {}
+
+  /** Holds a thread's messages back while it moves to another point of its tree, which can take a summary's time. */
+  async navigating<T>(threadId: string, run: () => Promise<T>): Promise<T> {
+    this.navigatingThreads.add(threadId);
+    try { return await run(); } finally { this.navigatingThreads.delete(threadId); }
+  }
 
   assertAvailable(threadId?: string): void {
     const id = threadId ?? this.port.active()?.threadId;
+    if (id && this.navigatingThreads.has(id)) throw new Error("The thread is moving to another point in its tree. Wait before sending another message.");
     if (id && this.restartingThreads.has(id)) throw new Error("The agent session is restarting. Wait before sending another message or changing this thread.");
   }
 

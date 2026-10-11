@@ -19,6 +19,8 @@ export interface TurnOutcome {
   /** The same, one tally per model the turn called (sub-agents may run another). */
   tallies: UsageTally[];
   contextUsage?: UiContextUsage;
+  /** The prompt cache's lifetime, when a call of the turn wrote to it. */
+  promptCacheTtlMs?: number;
   /** The CLI compacted the conversation and no reply measured it since; `contextUsage` is the size it left, when known. */
   compacted?: boolean;
   error?: string;
@@ -137,11 +139,18 @@ export function resultTallies(message: ResultMessage, sessionModel: string | und
   });
 }
 
-type CallUsage = { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
+type CallUsage = { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number; cache_creation?: { ephemeral_1h_input_tokens?: number; ephemeral_5m_input_tokens?: number } | null };
 
 /** What one call read and wrote: the context the next call starts from. */
 function callTokens(usage: CallUsage | undefined): number {
   return (usage?.input_tokens ?? 0) + (usage?.cache_read_input_tokens ?? 0) + (usage?.cache_creation_input_tokens ?? 0) + (usage?.output_tokens ?? 0);
+}
+
+/** How long the provider keeps what a call wrote: an hour on a subscription, five minutes with an API key; undefined when it wrote nothing. */
+function cacheTtlMs(usage: CallUsage | undefined): number | undefined {
+  if ((usage?.cache_creation?.ephemeral_1h_input_tokens ?? 0) > 0) return 60 * 60_000;
+  if ((usage?.cache_creation?.ephemeral_5m_input_tokens ?? 0) > 0) return 5 * 60_000;
+  return undefined;
 }
 
 /** The result's usage sums every call of the turn, so it measures the context only when no call reported its own. */
@@ -201,6 +210,8 @@ export class SdkTurnTranslator {
   private compactionError?: string;
   /** The context the main loop's latest call left; a compaction clears it. */
   private lastCallTokens?: number;
+  /** The cache lifetime the main loop's latest writing call reported. */
+  private cacheTtl?: number;
 
   constructor(
     private readonly now: () => number = Date.now,
@@ -262,6 +273,7 @@ export class SdkTurnTranslator {
     this.compaction = undefined;
     const tokens = callTokens((message.message as { usage?: CallUsage }).usage);
     if (tokens > 0) this.lastCallTokens = tokens;
+    this.cacheTtl = cacheTtlMs((message.message as { usage?: CallUsage }).usage) ?? this.cacheTtl;
     const text = content.filter((block) => block.type === "text").map((block) => (block as { text: string }).text).join("\n\n").trim();
     const thinking = content.filter((block) => block.type === "thinking").map((block) => (block as { thinking: string }).thinking).join("\n\n").trim();
     const id = this.assistantId ?? this.nextId();
@@ -323,6 +335,7 @@ export class SdkTurnTranslator {
       usage: resultUsage(message),
       tallies: resultTallies(message, this.facts.model),
       ...(contextUsage ? { contextUsage } : {}),
+      ...(this.cacheTtl !== undefined ? { promptCacheTtlMs: this.cacheTtl } : {}),
       ...(compaction ? { compacted: true } : {}),
     };
     return [];

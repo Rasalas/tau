@@ -10,6 +10,9 @@ export type ApprovalPolicy = "untrusted" | "on-request" | "never";
 export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 export type SandboxPolicy = { type: "readOnly"; networkAccess?: boolean } | { type: "workspaceWrite"; networkAccess?: boolean } | { type: "dangerFullAccess" };
 
+/** The name Codex sees as its client, and as the originator of its requests. */
+export const CODEX_CLIENT_NAME = "tau";
+
 export interface CodexPolicy {
   approvalPolicy: ApprovalPolicy;
   /** `auto_review`: Codex's own reviewer answers the approvals. Sent every time, so leaving `auto` hands them back to the user. */
@@ -143,7 +146,7 @@ export class CodexAppServer {
     const server = new CodexAppServer(options);
     try {
       server.initialized = await server.connection.request<CodexInitializeResult>("initialize", {
-        clientInfo: { name: "tau", title: "Tau", version: options.clientVersion },
+        clientInfo: { name: CODEX_CLIENT_NAME, title: "Tau", version: options.clientVersion },
         // Plan mode is experimental. MCP app approvals use OpenAI forms;
         // keep the legacy opt-in for older supported app-server versions.
         capabilities: { experimentalApi: true, requestAttestation: false, mcpServerOpenaiFormElicitation: true },

@@ -90,6 +90,18 @@ describe("SdkTurnTranslator", () => {
     expect(translator.outcome?.contextUsage).toEqual({ tokens: 122_800, contextWindow: 1_000_000, percent: 12.3 });
   });
 
+  it("reads the prompt cache's lifetime from what the last writing call stored", () => {
+    const call = (usage: object, parent: string | null = null) => frame({ type: "assistant", parent_tool_use_id: parent, message: { role: "assistant", content: [{ type: "text", text: "ok" }], usage } });
+    const ttl = (...calls: object[]) => run([...calls.map((usage) => call(usage)), success({ modelUsage: { "m": { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 1, cacheCreationInputTokens: 1, costUSD: 1, contextWindow: 200_000, webSearchRequests: 0, maxOutputTokens: 1 } } })]).translator.outcome?.promptCacheTtlMs;
+    const wrote = (hour: number, five: number) => ({ input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: hour + five, cache_creation: { ephemeral_1h_input_tokens: hour, ephemeral_5m_input_tokens: five } });
+    expect(ttl(wrote(2_000, 300))).toBe(60 * 60_000);
+    expect(ttl(wrote(0, 300))).toBe(5 * 60_000);
+    // A call that wrote nothing leaves the lifetime of the one before it.
+    expect(ttl(wrote(0, 300), wrote(0, 0))).toBe(5 * 60_000);
+    expect(ttl(wrote(0, 0))).toBeUndefined();
+    expect(ttl({ input_tokens: 1, output_tokens: 1 })).toBeUndefined();
+  });
+
   it("keeps sub-agent narration out but shows their tool calls, and opens no row for a tool-only message", () => {
     const { events, translator } = run([
       messageStart("task-1"),

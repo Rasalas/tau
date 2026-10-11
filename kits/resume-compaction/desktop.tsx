@@ -22,7 +22,7 @@ export const resumeCompactionExtension: DesktopExtension = {
       plugin.registerSettingsPage({
         id: "resume-compaction.settings",
         label: "Resume compaction",
-        description: "A thread quiet for over an hour with a long context resumes with a cold prompt cache. Its send button then compacts first, on the runtimes whose provider caches the prompt.",
+        description: "A thread with a long context, quiet for longer than its prompt cache lasts, resumes with a cold cache. Its send button then compacts first, on the runtimes whose provider caches the prompt.",
         Icon: Minimize2,
         group: "threads",
         order: 60,

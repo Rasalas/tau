@@ -69,6 +69,7 @@ async function harness(options: { installed?: string | undefined; found?: boolea
   // Never the user's own ~/.codex: the default instance's home is the scratch folder's.
   const extension = createCodexHostExtension({
     env: options.env ?? { CODEX_HOME: join(root, "home") },
+    catalogRefreshMs: 0,
     fetch: fetch as typeof globalThis.fetch,
     ...(options.managed ? { managedAsset: options.managed.asset } : {}),
     readVersion: async () => "installed" in options ? options.installed : "0.154.0",
@@ -140,6 +141,15 @@ describe("Codex host half", () => {
     // The token travels in the environment, never on the command line.
     expect(thread.args.join(" ")).not.toContain("secret");
     expect(thread.env[TAU_MCP_TOKEN_VARIABLE]).toBe("secret");
+  });
+
+  it("names Tau as the originator at spawn, and lets a value the user set win", async () => {
+    const plain = await harness();
+    await plain.registry.invoke("tau.codex", "status");
+    expect(plain.launches[0]!.env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE).toBe("tau");
+    const set = await harness({ env: { CODEX_HOME: "/unused-home", CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "my-client" } });
+    await set.registry.invoke("tau.codex", "status");
+    expect(set.launches[0]!.env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE).toBe("my-client");
   });
 
   it("reports installed native desktop tools to the thread's MCP credential", async () => {
