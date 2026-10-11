@@ -242,8 +242,8 @@ describe("PiHost prompts for a draft of another project", () => {
     try {
       const fixture = localHost(PI_AGENT_RUNTIME_ADAPTER);
       await adopt(fixture);
-      const host = fixture.host as unknown as { composerCommandsFor(kind: string, cwd: string): UiComposerCommand[] };
-      expect(host.composerCommandsFor("pi", join(root, "b")).map((command) => command.name)).toEqual(["skill:bravo-note"]);
+      const host = fixture.host as unknown as { composerCommandsFor(kind: string, cwd: string): Promise<UiComposerCommand[]> };
+      expect((await host.composerCommandsFor("pi", join(root, "b"))).map((command) => command.name)).toEqual(["skill:bravo-note"]);
 
       const draft = { source: "skill" as const, name: "bravo-note", command: "/skill:bravo-note", visibleText: "go" };
       // The thread on screen has only `tdd`: without the project it refuses, with it the prompt is prepared.

@@ -32,16 +32,16 @@ afterEach(async () => {
 describe("piWorkspaceCommands", () => {
   const base: UiComposerCommand[] = [{ name: "reload", source: "extension" }, { name: "skill:stale", source: "skill" }];
 
-  it("lists the skills of the project asked for, in the runtime's spelling, beside the host's own commands", () => {
-    const commands = piWorkspaceCommands(base, join(root, "b"), PI_RUNTIME_ADAPTER);
+  it("lists the skills of the project asked for, in the runtime's spelling, beside the host's own commands", async () => {
+    const commands = await piWorkspaceCommands(base, join(root, "b"), PI_RUNTIME_ADAPTER);
     expect(commands).toEqual([
       { name: "reload", source: "extension" },
       { name: "skill:bravo-note", description: "bravo-note of b", source: "skill", skillCommand: "/skill:bravo-note" },
     ]);
   });
 
-  it("does not carry another project's skills", () => {
-    const names = piWorkspaceCommands([], join(root, "a"), PI_RUNTIME_ADAPTER).map((command) => command.name);
+  it("does not carry another project's skills", async () => {
+    const names = (await piWorkspaceCommands([], join(root, "a"), PI_RUNTIME_ADAPTER)).map((command) => command.name);
     expect(names).toContain("skill:alpha-note");
     expect(names).not.toContain("skill:bravo-note");
   });

@@ -1249,7 +1249,7 @@ export class PiHost {
       }, "unserialized");
     }
     if (prepared && prepared.tauThreadId === undefined && prepared.sessionId === undefined) {
-      this.prompts.assertUnbound(initialPrompt ?? "", prepared, this.adapterFor(backendKind), this.composerCommandsFor(backendKind, cwd ?? this.cwd), backendKind);
+      this.prompts.assertUnbound(initialPrompt ?? "", prepared, this.adapterFor(backendKind), await this.composerCommandsFor(backendKind, cwd ?? this.cwd), backendKind);
     }
     return this.lifecycle.runActivation("new-thread", async (activation) => {
       const activationEpoch = activation.epoch;
@@ -1494,7 +1494,7 @@ export class PiHost {
     const sameDraft = this.active && threadBackendKind(this.active) === kind && (!workspace || samePath(this.active.cwd, cwd));
     const target = sessionId ? await this.awaitThread(sessionId) : sameDraft ? this.active : undefined;
     if (target) return target.backend.preparePrompt(text, skill);
-    return this.prompts.prepare(text, skill, this.adapterFor(kind), this.composerCommandsFor(kind, cwd), undefined, kind);
+    return this.prompts.prepare(text, skill, this.adapterFor(kind), await this.composerCommandsFor(kind, cwd), undefined, kind);
   }
 
   /** The backends a new thread can run on, in the order every picker uses. */
@@ -1504,8 +1504,8 @@ export class PiHost {
   runtimeBackendOwner(kind: ThreadBackendKind): string | undefined { const provider = this.seam.backends.get(kind); return provider && runtimeBackendOwner(provider); }
 
   /** The commands a backend's composer offers, before any thread of it exists. */
-  composerCommandsFor(kind: ThreadBackendKind, cwd: string): readonly UiComposerCommand[] {
-    return kind !== "pi" ? this.externalComposerCommands(kind, cwd) : piWorkspaceCommands(this.runtimeCommands, cwd, this.piAdapter);
+  async composerCommandsFor(kind: ThreadBackendKind, cwd: string): Promise<readonly UiComposerCommand[]> {
+    return kind !== "pi" ? this.externalComposerCommands(kind, cwd) : await piWorkspaceCommands(this.runtimeCommands, cwd, this.piAdapter);
   }
 
   async switchSession(path: string): Promise<HostActionResult> {
