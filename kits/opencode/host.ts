@@ -17,6 +17,7 @@ import {
   packageUpdateCommand,
   runtimeUpdateCommand,
   runtimeVersionPolicy,
+  satisfiesVersionRange,
   updateAvailable,
   versionCompatibility,
   type CliPackageSpec,
@@ -39,6 +40,8 @@ import { openCodeMcpConfig } from "./mcp.js";
 import {
   INSTANCES_EVENT,
   MIN_OPENCODE_VERSION,
+  OPENCODE_2_NPM_PACKAGE,
+  OPENCODE_2_VERSION,
   ONBOARDING_KIT_ID,
   OPENCODE_BACKEND_KIND,
   OPENCODE_HOME_VARIABLE,
@@ -79,9 +82,20 @@ const PROBE_TTL_MS = 10 * 60 * 1000;
  * release it was built against is the one to install.
  */
 export const OPENCODE_VERSION_POLICY: VersionPolicy = {
-  ranges: [{ range: `<${MIN_OPENCODE_VERSION}`, status: "broken", message: `Tau speaks the server API of OpenCode ${MIN_OPENCODE_VERSION} and newer; threads do not start on an older one.` }],
+  ranges: [
+    { range: `<${MIN_OPENCODE_VERSION}`, status: "broken", message: `Tau speaks the server API of OpenCode ${MIN_OPENCODE_VERSION} and newer; threads do not start on an older one.` },
+    { range: `>=${OPENCODE_2_VERSION}`, status: "broken", message: "OpenCode 2 replaced the server API Tau speaks; threads run on OpenCode 1 until Tau supports it." },
+  ],
   recommendedVersion: TESTED_OPENCODE_VERSION,
 };
+
+/** Going back from OpenCode 2 swaps packages: both install the `opencode` command. */
+export function openCode1ReinstallCommand(realPath: string, version: string): string | undefined {
+  const path = realPath.replaceAll("\\", "/").toLowerCase();
+  if (!path.includes(`/node_modules/${OPENCODE_2_NPM_PACKAGE}/`)) return undefined;
+  const [remove, add] = path.includes("/.bun/") ? ["bun remove -g", "bun add -g"] : path.includes("/pnpm/") ? ["pnpm remove -g", "pnpm add -g"] : ["npm uninstall -g", "npm install -g"];
+  return `${remove} ${OPENCODE_2_NPM_PACKAGE} && ${add} ${OPENCODE_NPM_PACKAGE}@${version}`;
+}
 
 /** Where OpenCode keeps its database: the XDG data folder, `~/.local/share` on every platform. */
 export function openCodeDataDir(env: NodeJS.ProcessEnv): string {
@@ -180,7 +194,8 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
       const compatibility = async (path: string | undefined, version: string | undefined): Promise<RuntimeCompatibility | undefined> => {
         const verdict = versionCompatibility(policy, version);
         if (!verdict?.recommendedVersion || !path) return verdict;
-        const install = packageInstallCommand(await realpath(path).catch(() => path), OPENCODE_NPM_PACKAGE, verdict.recommendedVersion);
+        const real = await realpath(path).catch(() => path);
+        const install = openCode1ReinstallCommand(real, verdict.recommendedVersion) ?? packageInstallCommand(real, OPENCODE_NPM_PACKAGE, verdict.recommendedVersion);
         return install ? { ...verdict, installCommand: install } : verdict;
       };
       const cli = async (id: string): Promise<{ path: string; version?: string }> => {
@@ -197,7 +212,9 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
       const refuseBroken = async (version: string | undefined, path?: string): Promise<void> => {
         const verdict = await compatibility(path, version);
         if (verdict?.status !== "broken") return;
-        const fix = verdict.installCommand ? `Install ${verdict.recommendedVersion} with: ${verdict.installCommand}` : `Update it with: ${await updateCommand(path)}`;
+        // Updating OpenCode 2 only keeps it at 2; without a command to go back, the message says it alone.
+        const tooNew = version !== undefined && satisfiesVersionRange(version, `>=${OPENCODE_2_VERSION}`);
+        const fix = verdict.installCommand ? `Install ${verdict.recommendedVersion} with: ${verdict.installCommand}` : tooNew ? "" : `Update it with: ${await updateCommand(path)}`;
         throw new Error(`OpenCode ${version ?? "(unknown version)"} does not work with Tau: ${verdict.message ?? ""} ${fix}`.replace(/\s+/gu, " ").trim());
       };
 

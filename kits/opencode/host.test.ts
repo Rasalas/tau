@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { type HostExtension, type HostMcpConnection, type HostRuntimeBackendProvider } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { startFakeOpenCode, type FakeOpenCode } from "./fixtures/fake-server.js";
-import createOpenCodeHostExtension, { openCodeEnvironment } from "./host.js";
+import createOpenCodeHostExtension, { openCode1ReinstallCommand, openCodeEnvironment } from "./host.js";
 import { connectOpenCodeServer, type OpenCodeServeInput } from "./server.js";
 import { OpenCodeSessionStore } from "./session-store.js";
 
@@ -115,6 +115,32 @@ describe("OpenCode host half", () => {
     const backend = await provider.open("tau-old", root, { resume: false }, context);
     await expect(backend.prompt({ text: "Hi", delivery: "prompt" })).rejects.toThrow(/does not work with Tau/u);
     await backend.dispose();
+  });
+
+  it("refuses OpenCode 2 by name instead of failing on its missing routes", async () => {
+    const { provider, root } = await harness({ installed: "2.0.26" });
+    await expect(provider.version!()).resolves.toMatchObject({ compatibility: { status: "broken", message: expect.stringMatching(/OpenCode 2 replaced/u) } });
+    const backend = await provider.open("tau-v2", root, { resume: false }, context);
+    const refused = backend.prompt({ text: "Hi", delivery: "prompt" });
+    await expect(refused).rejects.toThrow(/OpenCode 2\.0\.26 does not work with Tau: OpenCode 2 replaced/u);
+    // Updating would keep it at 2, so the message must not suggest it.
+    await expect(refused).rejects.not.toThrow(/Update it with/u);
+    await backend.dispose();
+  });
+
+  it("refuses a server the user runs on OpenCode 2", async () => {
+    const { registry, backend } = await harness();
+    const v2 = await startFakeOpenCode({ version: "2.0.26" });
+    fakes.push(v2);
+    await registry.invoke("tau.opencode", "save-instance", { instance: { id: "v2", name: "V2" } });
+    await registry.invoke("tau.opencode", "set-server", { instance: "v2", url: v2.url });
+    await expect(backend("opencode@v2")!.version!()).rejects.toThrow(/OpenCode 2\.0\.26 does not work with Tau: OpenCode 2 replaced/u);
+  });
+
+  it("swaps OpenCode 2's package back for OpenCode 1's", () => {
+    expect(openCode1ReinstallCommand("/usr/local/lib/node_modules/@opencode/cli/bin/opencode.cjs", "1.18.32")).toBe("npm uninstall -g @opencode/cli && npm install -g opencode-ai@1.18.32");
+    expect(openCode1ReinstallCommand("/Users/me/.bun/install/global/node_modules/@opencode/cli/bin/opencode.cjs", "1.18.32")).toBe("bun remove -g @opencode/cli && bun add -g opencode-ai@1.18.32");
+    expect(openCode1ReinstallCommand("/usr/local/lib/node_modules/opencode-ai/bin/opencode", "1.18.32")).toBeUndefined();
   });
 
   it("connects an instance to a server the user runs, with its password, and never hands the password back", async () => {

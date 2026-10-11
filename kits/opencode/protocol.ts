@@ -14,6 +14,9 @@ export const OPENCODE_NPM_PACKAGE = "opencode-ai";
 export const TESTED_OPENCODE_VERSION = "1.18.32";
 /** Older servers lack the permission, question and health routes Tau speaks. */
 export const MIN_OPENCODE_VERSION = "1.14.19";
+/** OpenCode 2 replaced the server API and ships as its own package, still as `opencode`. */
+export const OPENCODE_2_VERSION = "2.0.0";
+export const OPENCODE_2_NPM_PACKAGE = "@opencode/cli";
 
 /**
  * An instance's home: OpenCode keeps config, data, state and cache under the

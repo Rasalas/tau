@@ -215,6 +215,11 @@ export async function startFakeOpenCode(options: FakeOpenCodeOptions = {}): Prom
       if (expected && request.headers.authorization !== expected) return send(response, 401, { error: "unauthorized" });
       const path = url.pathname;
       const sessionRoute = /^\/session\/([^/]+)(?:\/(message|prompt_async|abort))?$/u.exec(path);
+      // OpenCode 2 moved every route under `/api`.
+      if (Number((options.version ?? "1").split(".")[0]) >= 2) {
+        if (path === "/api/info") return send(response, 200, { version: options.version, pid: 0, urls: [], paths: { tmp: "/tmp" } });
+        return send(response, 404, { error: `no route ${request.method} ${path}` });
+      }
       if (path === "/global/health") return send(response, 200, { healthy: true, version: options.version ?? "1.18.32" });
       if (path === "/provider") return send(response, 200, options.providers ?? FAKE_PROVIDERS);
       if (path === "/config") return send(response, 200, options.config ?? {});
