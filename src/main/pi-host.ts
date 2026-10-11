@@ -87,7 +87,6 @@ import type { ThreadIndex } from "./thread-index.js";
 import type { ThreadTrash } from "./thread-trash.js";
 import type { ThreadBinding } from "./thread-binding.js";
 import type { SessionRuntimeExtension, ThreadRuntimeLifecycle } from "./thread-runtime-lifecycle.js";
-import type { RuntimeGate } from "./runtime-gate.js";
 import type { RuntimePrewarm } from "./runtime-prewarm.js";
 import type { PromptPreparation } from "./prompt-preparation.js";
 import type { TurnDelivery } from "./turn-delivery.js";
@@ -221,8 +220,6 @@ export class PiHost {
   private readonly settlement: TurnSettlement;
 
   private readonly continueThreadsAfterRestart: () => boolean;
-  /** Whether a runtime may start work in a folder (ADR 0032). */
-  private readonly runtimeGate: RuntimeGate;
   /** The last title a Pi extension gave the window, for a client that attaches later. */
   private windowTitle?: string;
   private readonly toolOwners: Map<string, string>;
@@ -327,7 +324,6 @@ export class PiHost {
     this.turnsInFlight = components.turnsInFlight;
     ({ queue: this.queue, limits: this.limits, settlement: this.settlement, catalogs: this.catalogs, toolUpdates: this.toolUpdates, pricing: this.pricing, controls: this.controls } = components);
     this.continueThreadsAfterRestart = components.continueThreadsAfterRestart;
-    this.runtimeGate = components.runtimeGate;
     this.threadLifecycle = components.threadLifecycle;
     this.turnObservers = components.turnObservers;
     this.toolOwners = components.toolOwners;
@@ -484,7 +480,7 @@ export class PiHost {
     const files = promptFiles(attachments);
     const cwd = options.cwd || this.cwd;
     const backendKind = options.backend ?? "pi";
-    await this.runtimeGate.assert(backendKind, cwd);
+    await this.prompts.assertRuntimeKind(backendKind, cwd);
     const provider = backendKind === "pi" ? undefined : this.requireBackend(backendKind);
     if (options.tools && !provider?.restrictsTools) {
       throw new Error(`The ${provider?.label ?? backendKind} runtime cannot restrict its tools${provider ? "" : " when a thread starts; a runtime extension sets them"}.`);
@@ -1131,8 +1127,8 @@ export class PiHost {
       open: async (marker) => {
         const thread = this.threads.get(marker.sessionId)?.runtime ?? await this.openMarkedThread(marker);
         if (!thread) return undefined;
-        // A runtime the project turned off is not continued; the thread is marked interrupted instead.
-        const resume = await this.runtimeGate.enabled(thread.backend.kind, thread.cwd) ? thread.backend.capabilities.resume : undefined;
+        // A runtime the project turned off is marked interrupted, not continued (ADR 0032).
+        const resume = await this.prompts.runtimeEnabled(thread.backend.kind, thread.cwd) ? thread.backend.capabilities.resume : undefined;
         return {
           threadId: thread.threadId,
           repair: () => this.repairDanglingToolCalls(thread),
@@ -1171,13 +1167,12 @@ export class PiHost {
 
   async sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string, attachments: UiPromptAttachment[] = [], wake?: QueuedMessage["wake"]): Promise<void> {
     const thread = await this.reopenThread(sessionId);
-    await this.assertRuntimeOnFor(thread);
     if (!thread.runtimeAdapter.capabilities.fileAttachments) {
       const files = promptFiles(attachments);
       if (files.length) text = `${text}\n\nAttached files:\n${files.map((file) => `- ${file.path}`).join("\n")}`;
       attachments = attachments.filter((attachment) => attachment.kind === "image");
     }
-    if (delivery === "queue") this.queue.add(thread.threadId, { ...markWake(text, wake), attachments: this.prompts.checked(thread, attachments), ...(from ? { fromThreadId: from } : {}) });
+    if (delivery === "queue") await this.queue.submit(thread.threadId, { ...markWake(text, wake), attachments: this.prompts.checked(thread, attachments), ...(from ? { fromThreadId: from } : {}) });
     else await (delivery === "steer" ? this.steer(text, attachments, thread.threadId) : this.prompt(text, attachments, thread.threadId));
   }
 
@@ -1208,12 +1203,8 @@ export class PiHost {
     if (prepared && backendKind !== "pi" && !this.seam.backends.has(backendKind)) {
       throw new Error("Prepared prompt names an unsupported runtime backend.");
     }
-    try {
-      await this.runtimeGate.assert(backendKind, cwd ?? this.cwd);
-    } catch (error) {
-      this.log("new-thread.rejected", this.errorMessage(error));
-      return this.publication.newThreadResult([], { accepted: false, message: this.errorMessage(error) }, requestId);
-    }
+    const refusal = await this.prompts.runtimeRefusal(backendKind, cwd ?? this.cwd);
+    if (refusal) return this.publication.newThreadResult([], { accepted: false, message: refusal }, requestId);
     // A runtime that creates threads itself answers the request; Tau only
     // publishes what it reports.
     const owner = !cwd || cwd === this.cwd ? this.active : undefined;
@@ -1411,7 +1402,7 @@ export class PiHost {
       if (expectedSessionId && thread.threadId !== expectedSessionId) {
         throw new Error("The selected thread changed before it could be forked.");
       }
-      await this.assertRuntimeOnFor(thread, cwd ?? thread.cwd);
+      await this.prompts.assertRuntimeOn(thread, cwd ?? thread.cwd);
       const fork = requireCapability(thread.backend, "fork");
       // A runtime that forks itself reports the result through its own events.
       if (fork.runtimeOwned) {
@@ -1594,7 +1585,7 @@ export class PiHost {
       : clientIdentityForRequest(clientMessageIdOrPreflight);
     const clientMessageId = identity?.clientMessageId;
     const thread = await this.awaitThread(sessionId);
-    await this.assertRuntimeOnFor(thread);
+    await this.prompts.assertRuntimeOn(thread);
     const restartGeneration = thread.restartGeneration;
     // Freeze the epoch after resolving the thread. A concurrent switch changes
     // it, and the prompt must not land on a thread that was superseded.
@@ -1772,7 +1763,6 @@ export class PiHost {
     clientMessageIdOrIdentity?: ClientTurnRequest,
     prepared?: PreparedPrompt,
   ): Promise<void> {
-    await this.assertRuntimeOn(sessionId);
     await this.turns.queued("steer", text, attachments, sessionId, clientMessageIdOrIdentity, prepared);
   }
 
@@ -1783,25 +1773,12 @@ export class PiHost {
     clientMessageIdOrIdentity?: ClientTurnRequest,
     prepared?: PreparedPrompt,
   ): Promise<void> {
-    await this.assertRuntimeOn(sessionId);
     await this.turns.queued("followUp", text, attachments, sessionId, clientMessageIdOrIdentity, prepared);
-  }
-
-  /** Throws the gate's message when the runtime of a live thread is off in its project; the composer's queue asks before it takes a message. */
-  async assertRuntimeOn(sessionId?: string): Promise<void> {
-    const thread = this.threadFor(sessionId);
-    if (thread) await this.assertRuntimeOnFor(thread);
-  }
-
-  /** The terminal owns an attached Pi session; the gate is for threads Tau starts work on. */
-  private assertRuntimeOnFor(thread: ThreadRuntime, cwd = thread.cwd): Promise<void> {
-    return this.ownedByPi(thread) ? Promise.resolve() : this.runtimeGate.assert(thread.backend.kind, cwd);
   }
 
   async abort(sessionId?: string): Promise<void> {
     const thread = this.threadFor(sessionId);
-    if (!thread) return;
-    await this.controls.stop(thread);
+    if (thread) await this.controls.stop(thread);
   }
 
   threadGoal(sessionId: string, action: GoalAction, objective?: string): Promise<void> { return this.controls.goal(sessionId, action, objective); }
@@ -1865,13 +1842,9 @@ export class PiHost {
   prepareWorkbenchReload(mode: import("../shared/contracts.js").WorkbenchReloadMode): Promise<import("../shared/contracts.js").WorkbenchReloadPreparation> { return this.workbenchReload.prepare(mode); }
   async releaseWorkbenchReload(): Promise<void> { this.workbenchReload.release(); }
 
-  restartSession(threadId: string): Promise<HostActionResult> {
-    return this.lifecycle.runActivation("restart-session", (activation) => this.sessionControl.restart(threadId, activation.epoch));
-  }
+  restartSession(threadId: string): Promise<HostActionResult> { return this.lifecycle.runActivation("restart-session", (activation) => this.sessionControl.restart(threadId, activation.epoch)); }
 
-  reloadRuntime(): Promise<void> {
-    return this.lifecycle.run("reload-runtime", () => this.sessionControl.reload());
-  }
+  reloadRuntime(): Promise<void> { return this.lifecycle.run("reload-runtime", () => this.sessionControl.reload()); }
 
   async compactContext(): Promise<HostActionResult> {
     await requireCapability(this.requireActive().backend, "compaction").compact();
@@ -1892,10 +1865,7 @@ export class PiHost {
     ]));
   }
 
-  private admitWorkspace(path: string): WorkspaceRef {
-    this.admittedWorkspaces.add(path);
-    return this.workspaces.ref(path);
-  }
+  private admitWorkspace(path: string): WorkspaceRef { this.admittedWorkspaces.add(path); return this.workspaces.ref(path); }
 
   async dispose(): Promise<void> {
     // Before anything is torn down: the aborts below are this shutdown's, not

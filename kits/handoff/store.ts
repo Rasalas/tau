@@ -99,7 +99,9 @@ export class HandoffStore {
     return threadId ? this.view.lineage.links.find((entry) => entry.threadId === threadId) : undefined;
   }
 
-  setRuntimes(runtimes: readonly UiRuntimeBackend[] | undefined): void {
+  setRuntimes(all: readonly UiRuntimeBackend[] | undefined): void {
+    // A runtime the project turned off cannot take the handoff.
+    const runtimes = all?.filter((runtime) => !runtime.disabled);
     if (!runtimes || runtimes === this.view.runtimes) return;
     if (runtimes.length === this.view.runtimes.length && runtimes.every((runtime, index) => runtime.kind === this.view.runtimes[index]?.kind && runtime.label === this.view.runtimes[index]?.label)) return;
     this.update({ runtimes });

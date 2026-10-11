@@ -221,8 +221,6 @@ export interface PiHostComponents {
   readonly catalogs: RuntimeCatalogs;
   /** Keeps the agent CLIs current (Settings → Runtimes). */
   readonly toolUpdates: RuntimeToolUpdates;
-  /** Whether a runtime may start work in a folder. */
-  readonly runtimeGate: RuntimeGate;
   /** What threads cost: the user's prices, the runtimes', a subscription's value. */
   readonly pricing: UsagePricing;
   /** Settings → Defaults, read fresh: the answer is wanted once, at start. */
@@ -377,6 +375,8 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   const prompts = new PromptPreparation({
     requireBackend: (kind) => deps.requireBackend(kind),
     permissionLevel: () => seam.permissionLevel(),
+    runtimeGate,
+    ownedByPi: (thread) => deps.ownedByPi(thread),
   });
   /** The Pi sessions this host writes; every write to a session file goes through them. */
   const sessionLocks = new SessionLocks(options.dataFolder ? { dataFolder: options.dataFolder } : {});
@@ -740,6 +740,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   const queue = new QueuedMessages({
     busy: (sessionId) => deps.hostThread(sessionId)?.isIdle() === false,
     waitForIdle: async (sessionId) => { await deps.threadFor(sessionId)?.backend.waitForIdle(); },
+    admit: async (sessionId) => { const thread = deps.threadFor(sessionId); if (thread) await prompts.assertRuntimeOn(thread); },
     deliver: (sessionId, message) => deps.deliverQueued(sessionId, message),
     publish: (sessionId, view) => { index.setQueue(sessionId, view); runClock.recheck(sessionId); },
     delivered: (sessionId) => runClock.recheck(sessionId),
@@ -831,7 +832,6 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     settlement,
     catalogs,
     toolUpdates,
-    runtimeGate,
     pricing,
     continueThreadsAfterRestart: () => defaultHostConfigManager.readSync(deps.getCwd()).threads?.continueAfterRestart === true,
   };

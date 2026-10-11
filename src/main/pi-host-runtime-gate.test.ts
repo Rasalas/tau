@@ -61,7 +61,7 @@ function bench() {
   internals.prewarm.scheduleThreads = () => {};
   internals.prewarm.scheduleSpare = () => {};
   const configs: Record<string, TauConfig> = { [OFF]: { runtimeEnabled: { codex: false } }, [ON]: { runtimeEnabled: { codex: true } } };
-  internals.runtimeGate = new RuntimeGate({
+  const gate = new RuntimeGate({
     config: (path) => (path ? configs[path] : undefined) ?? {},
     // A worktree of the off project follows it.
     owner: async (cwd) => cwd.startsWith(OFF) ? OFF : cwd,
@@ -69,6 +69,8 @@ function bench() {
     projectName: (path) => path.split("/").pop() ?? path,
     projectPaths: () => [OFF, ON],
   });
+  // The gate the host's components built is the one every path asks.
+  internals.prompts.port.runtimeGate = gate;
   const off = fakeThread("off", OFF, delivered);
   const worktree = fakeThread("worktree", `${OFF}-wt`, delivered);
   const on = fakeThread("on", ON, delivered);
@@ -98,8 +100,10 @@ describe("a runtime a project turned off (ADR 0032)", () => {
 
   it("refuses a message queued from the composer or by a kit, and a queued one at delivery", async () => {
     const { host, delivered } = bench();
-    await expect(host.assertRuntimeOn("off")).rejects.toThrow(MESSAGE);
-    await expect(host.assertRuntimeOn("on")).resolves.toBeUndefined();
+    await expect(host.queue.submit("off", { text: "from the composer", attachments: [] })).rejects.toThrow(MESSAGE);
+    await expect(host.queue.submit("on", { text: "from the composer", attachments: [] })).resolves.toMatchObject({ text: "from the composer" });
+    await vi.waitFor(() => { expect(delivered).toEqual(["on:prompt:from the composer"]); });
+    delivered.length = 0;
     for (const delivery of ["prompt", "steer", "queue"] as const) {
       await expect(host.sendToThread("off", "from a kit", delivery)).rejects.toThrow(MESSAGE);
     }
@@ -136,7 +140,7 @@ describe("a runtime a project turned off (ADR 0032)", () => {
     internals.runtimes.openExternal = vi.fn();
     internals.seam.backends.set("codex", { kind: "codex", label: "Codex", adapter: PI_AGENT_RUNTIME_ADAPTER });
     const result = await host.newSession("hello", [], OFF, undefined, { backendKind: "codex" } as never);
-    expect(result.submission).toEqual({ accepted: false, message: MESSAGE });
+    expect((result as { submission?: unknown }).submission).toEqual({ accepted: false, message: MESSAGE });
     expect(internals.runtimes.openExternal).not.toHaveBeenCalled();
   });
 

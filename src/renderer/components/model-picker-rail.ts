@@ -55,7 +55,8 @@ export function runtimeStatus(backend: UiRuntimeBackend, entry: RuntimeCatalogEn
 
 /** Every runtime the host offers, in its order; the one on hand first when the host names none. */
 export function pickerRuntimes(catalogRuntime: ThreadBackendKind = DEFAULT_RUNTIME, backends: readonly UiRuntimeBackend[] | undefined, catalogs: ReadonlyMap<ThreadBackendKind, RuntimeCatalogEntry>): RuntimeEntry[] {
-  const offered = backends?.length ? [...backends] : [];
+  // A runtime the project turned off is not offered; the one the thread is on stays, as it is only read.
+  const offered = backends?.length ? backends.filter((backend) => !backend.disabled || backend.kind === catalogRuntime) : [];
   if (!offered.some((backend) => backend.kind === catalogRuntime)) offered.unshift({ kind: catalogRuntime, label: catalogRuntime === DEFAULT_RUNTIME ? "Pi" : catalogRuntime });
   return offered.map((backend) => Object.assign({ backend }, runtimeStatus(backend, catalogs.get(backend.kind), backend.kind === catalogRuntime)));
 }

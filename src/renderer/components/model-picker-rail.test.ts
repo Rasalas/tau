@@ -13,6 +13,12 @@ describe("the picker's rail", () => {
     expect(views.map((entry) => entry.key)).toEqual(["favourites", "recent", "maker:openai", "maker:anthropic", "maker:acme", "maker:opencode", "runtime:claude-code"]);
   });
 
+  it("leaves out a runtime the project turned off, unless the thread is on it", () => {
+    const marked = backends.map((backend) => backend.kind === "codex" ? { ...backend, disabled: true } : backend);
+    expect(pickerRuntimes("pi", marked, new Map()).map((entry) => entry.backend.kind)).toEqual(["pi", "claude-code"]);
+    expect(pickerRuntimes("codex", marked, new Map()).map((entry) => entry.backend.kind)).toEqual(["pi", "codex", "claude-code"]);
+  });
+
   it("adds the catalog's own runtime on a host that lists none", () => {
     expect(pickerRuntimes(undefined, undefined, new Map()).map((entry) => [entry.backend.kind, entry.listed])).toEqual([["pi", true]]);
   });

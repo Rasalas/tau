@@ -64,7 +64,7 @@ import {
 import { useClientStorage } from "./client-storage-context";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { usePreferences } from "./renderer-services-context";
-import { effectiveNewThreadRuntime } from "./new-thread-runtime";
+import { effectiveNewThreadRuntime, offeredBackends } from "./new-thread-runtime";
 import { threadListOrder } from "../workbench/thread-supervision";
 import { useHostCapabilities, useHostName } from "./use-host-capabilities";
 import { usePlatform } from "./platform-context";
@@ -1181,7 +1181,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
   const preferences = usePreferences();
   const { newThreadRuntime } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   // The runtime is a property of the thread; it is chosen before the thread exists and never after.
-  const runtimeBackends = snapshot?.runtimeBackends ?? [];
+  const runtimeBackends = offeredBackends(snapshot?.runtimeBackends);
   const runtimeChoice = pendingNewThread && runtimeBackends.length > 1
     ? { kind: effectiveNewThreadRuntime(draftRuntime ?? newThreadRuntime, snapshot), backends: runtimeBackends, onSelect: (kind: string) => (composer.selectRuntime ? composer.selectRuntime(kind) : preferences.setNewThreadRuntime(kind)) }
     : undefined;

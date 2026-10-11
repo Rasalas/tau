@@ -42,7 +42,7 @@ function makeDelivery(thread: ThreadRuntime, overrides: Partial<TurnDeliveryPort
     turnObservers: { accepted: vi.fn(), prepare: vi.fn(async () => undefined), ended: vi.fn(async () => undefined), cancelled: vi.fn(async () => undefined) } as never,
     turnsInFlight: { record: vi.fn(), clear: vi.fn() } as never,
     projection: { composerCommands: () => [], isExtensionCommand: () => false } as never,
-    prompts: { assertBound: vi.fn(), assertAttachmentInput: vi.fn() } as never,
+    prompts: { assertBound: vi.fn(), assertAttachmentInput: vi.fn(), assertRuntimeOn: vi.fn(async () => undefined) } as never,
     binding: { settle: vi.fn(async () => undefined) } as never,
     index: { refreshShell: vi.fn(async () => undefined) } as never,
     assertAvailable: () => undefined,
@@ -115,6 +115,15 @@ describe("TurnDelivery", () => {
     expect(port.clientTurns.cancel).toHaveBeenCalled();
     expect(port.turnObservers.cancelled).toHaveBeenCalled();
     expect(failures).toHaveLength(1);
+  });
+
+  it("hands nothing to a runtime the project turned off, whichever way the message goes", async () => {
+    const { thread, sent } = makeThread({});
+    const { delivery, port } = makeDelivery(thread);
+    (port.prompts.assertRuntimeOn as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("Codex is turned off"));
+    for (const kind of ["steer", "followUp"] as const) await expect(delivery.queued(kind, "wait", [], "session")).rejects.toThrow("Codex is turned off");
+    expect(sent).toEqual([]);
+    expect(port.clientMessages.appendMarker).not.toHaveBeenCalled();
   });
 
   it("takes the runtime path for a backend with no host journal", async () => {

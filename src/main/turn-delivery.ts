@@ -76,6 +76,7 @@ export class TurnDelivery {
     let preparedTurnId: string | undefined;
     try {
       thread = this.port.requireThread(sessionId);
+      await this.port.prompts.assertRuntimeOn(thread);
       await this.port.binding.settle(thread);
       if (!thread.backend.capabilities.journal) {
         await this.toRuntime(thread, text, attachments, delivery, identity, prepared);

@@ -12,13 +12,14 @@ The project's entry wins over the machine's, in either direction; the machine's 
 
 ## What is refused, and where
 
-The host refuses, not the picker. One gate (`RuntimeGate`, `src/main/runtime-gate.ts`) answers `kind` and folder with the effective value and, when it is off, with the one message every path shows: "Codex is turned off for <project>. Turn it on under Settings → Providers (Applies to this project)." It is checked in the host at every point that starts or wakes a turn on a runtime:
+The host refuses, not the picker. One gate (`RuntimeGate`, `src/main/runtime-gate.ts`, reached through `PromptPreparation`, which already stands for "may this caller execute this prompt") answers `kind` and folder with the effective value and, when it is off, with the one message every path shows: "Codex is turned off for <project>. Turn it on under Settings → Providers (Applies to this project)." It is checked in the host at every point that starts or wakes a turn on a runtime:
 
 | Path | Where | What the caller sees |
 | --- | --- | --- |
 | New thread, first message | `PiHost.newSession` | the submission is rejected with the message; the draft stays |
-| Send, steer, follow-up | `PiHost.prompt`, `steer`, `followUp` | the send fails with the message |
-| Queue (composer and kits) | `queue-message`, `PiHost.sendToThread`, and the delivery of a queued message through `prompt` | refused when queued; a message queued before the switch is put back and the queue is held |
+| Send | `PiHost.prompt`, which every prompt reaches (the composer, a kit's `sessions.send`, a goal, a limit's resume) | the send fails with the message |
+| Steer, follow-up | `TurnDelivery.queued` | the same |
+| Queue (composer and kits) | `QueuedMessages.submit` (`queue-message`, `sessions.send` with `queue`), and the delivery of a queued message, which is a prompt | refused when queued; a message queued before the switch is put back and the queue is held |
 | Continuation after a restart and after a usage limit | `reconcileInFlightTurns` (the thread is marked interrupted, nothing is sent), `continueThread` | no model call |
 | Thread an extension starts (`sessions.start`): `tau_spawn_thread`, Scheduling, Handoff | `PiHost.startThread` | the call throws the message; a kit's worktree is removed as for any failed start |
 | Fork and duplicate | `PiHost.forkThread`, `duplicateThread` | refused: the fork could not be sent to |

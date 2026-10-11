@@ -223,3 +223,22 @@ describe("QueuedMessages", () => {
     });
   });
 });
+
+describe("QueuedMessages.submit", () => {
+  it("asks the host before it takes a message, and queues nothing it refuses", async () => {
+    const published = new Map<string, QueuedMessagesView | undefined>();
+    const queue = new QueuedMessages({
+      busy: () => true,
+      waitForIdle: async () => undefined,
+      admit: async (sessionId) => { if (sessionId === "off") throw new Error("Codex is turned off"); },
+      deliver: async () => undefined,
+      publish: (sessionId, view) => { published.set(sessionId, view); },
+      log: () => undefined,
+    });
+    await expect(queue.submit("off", { text: "hello", attachments: [] })).rejects.toThrow("Codex is turned off");
+    expect(queue.list("off")).toEqual([]);
+    expect(published.size).toBe(0);
+    await queue.submit("on", { text: "hello", attachments: [] });
+    expect(queue.list("on").map((message) => message.text)).toEqual(["hello"]);
+  });
+});

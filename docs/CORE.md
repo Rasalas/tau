@@ -283,6 +283,23 @@ the pills without leaving the search; ← (at its start) goes to the rail; ⌥�
 (a favourite is a model with its way), ⌘⇧↑↓ step through the rail, and typing
 anywhere goes to the search, which runs across every provider and runtime (a
 runtime's name narrows the ways to it).
+A runtime is on or off per project (ADR 0032): `runtimeEnabled.<backend kind>` in
+Tau's config (`~/.tau/config.json`, `<project>/.tau/config.json`), a boolean per
+runtime or instance; no entry means on, and the project's entry wins over the
+machine's in either direction. Settings → Providers puts a switch in each card's
+head, written at the level "Applies to" names, with the origin popover and a
+reset; the kit and its card stay usable while the runtime is off. The host
+enforces it (`src/main/runtime-gate.ts`, `PiHost`), not the picker: a new
+thread's first message, a send, a steer, a follow-up, a queued message (when it
+is queued and when it leaves), a thread an extension starts (`tau_spawn_thread`,
+Scheduling, Handoff), a fork or duplicate and the continuation after a restart
+are all refused with one message, and an interrupted thread is marked instead of
+continued. A turn already running finishes and the thread stays readable. A
+linked worktree follows the project it was made from. The pickers
+(`snapshot.runtimeBackends[].disabled`, set by the workbench per project), the
+runtime chip, the palette and Handoff leave an off runtime out; version and
+update checks skip a runtime no project uses.
+
 A row hides its model with every way to run it (with a pointer; a phone shows only the star). What a
 runtime hides and the order it lists its models in is `modelPreferences.<runtime>`
 in Tau's config, a record of the config levels that Settings → Providers →
