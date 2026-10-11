@@ -5,7 +5,7 @@ import type { PaletteSearchContext, UiProject, UiSession, WorkbenchActions } fro
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { createSearchExtension } from "./desktop.js";
 import { SearchDialogs, SearchDialogsLayer, type SearchHost } from "./dialogs.js";
-import { fileItems, projectItems, threadContentItems, threadTitleItems } from "./palette-sources.js";
+import { fileItems, projectItems, threadContentItems, threadRequestItems, threadTitleItems } from "./palette-sources.js";
 import { SEARCH_FILES_SERVICE, SEARCH_KIT_ID, WORKSPACE_STORE_SERVICE, type ContentSearchResult, type FileSearchResult, type SearchFilesService, type WorkspaceStoreView } from "./protocol.js";
 
 afterEach(cleanup);
@@ -46,6 +46,42 @@ describe("Search Kit: palette sources", () => {
     const all = { ...base, index: { ...base.index, threads }, scope: "all" as const };
     expect(threadTitleItems("", all).map((item) => item.id)).toEqual(["b", "c", "a"]);
     expect(threadTitleItems("agent", all).map((item) => item.id)).toEqual(["d"]);
+  });
+
+  it("puts threads that wait on the user first in an empty palette, however old, and says so", () => {
+    const base = searchContext();
+    const many = Array.from({ length: 7 }, (_, index) => thread(`n${index}`, `Newer ${index}`, 100 + index));
+    const context = { ...base, index: { ...base.index, threads: [...base.index.threads, ...many], waiting: ["a", "c"] }, scope: "all" as const };
+    const rows = threadTitleItems("", context);
+    expect(rows.slice(0, 2).map((item) => item.id)).toEqual(["c", "a"]);
+    expect(rows.map((item) => item.id).slice(2)).toEqual(["n6", "n5", "n4"]);
+    expect(rows[0]!.detail).toContain("waiting");
+    // Typing is a search: the order is recency again.
+    expect(threadTitleItems("newer", context)[0]!.id).toBe("n6");
+  });
+
+  it("finds a thread by its branch label", () => {
+    const base = searchContext();
+    base.index.threads[2]!.projectLabel = "feat/thread-directory";
+    expect(threadTitleItems("directory", base).map((item) => item.id)).toEqual(["c"]);
+  });
+
+  it("lists threads found through their linked requests, newest first, unless the title already showed them", () => {
+    const context = searchContext();
+    const request = { url: "https://github.com/acme/tau/pull/95", repository: "acme/tau", state: "open" as const, title: null, headBranch: "feat/x" };
+    const items = threadRequestItems([
+      { sessionId: "a", requests: [{ ...request, number: 95 }, { ...request, number: 96 }] },
+      { sessionId: "c", requests: [{ ...request, number: 95 }] },
+      { sessionId: "gone", requests: [{ ...request, number: 95 }] },
+      { sessionId: "b", requests: [{ ...request, number: 95 }] },
+    ], context, new Set(["b"]));
+    expect(items.map((item) => [item.id, item.detail])).toEqual([
+      ["c", "#95 · acme/tau · open · feat/x"],
+      ["a", "#95 · acme/tau · open · feat/x · +1"],
+    ]);
+    const actions = { switchSession: vi.fn() } as unknown as WorkbenchActions;
+    items[0]!.run!(actions);
+    expect(actions.switchSession).toHaveBeenCalledWith("/sessions/c.jsonl");
   });
 
   it("opens a thread in the stage and a file as source, pinned there with the modifier", () => {
@@ -117,6 +153,20 @@ describe("Search Kit: palette sources", () => {
     const aborted = new AbortController();
     aborted.abort();
     expect(await source.search("moon", { ...searchContext(), signal: aborted.signal })).toEqual([]);
+  });
+
+  it("asks the host which threads link the request the query names, once the title did not show them", async () => {
+    const invoke = vi.fn(async (_id: string, command: string) => command === "thread-requests"
+      ? [{ sessionId: "c", requests: [{ number: 95, repository: "acme/tau", url: "https://github.com/acme/tau/pull/95", state: "open", title: null, headBranch: null }] }]
+      : undefined);
+    const { registry } = createKitHarness(invoke);
+    registry.activate(createSearchExtension({ threadContentDelayMs: 0 }));
+    const source = registry.getPaletteSources().find((entry) => entry.id === "search.thread-requests")!;
+    expect(source.scope).toBe("threads");
+    expect(await source.search("9", searchContext())).toEqual([]);
+    const found = await source.search("acme/tau#95", searchContext());
+    expect(found.map((item) => [item.label, item.detail])).toEqual([["Luna test", "#95 · acme/tau · open"]]);
+    expect(invoke).toHaveBeenCalledWith(SEARCH_KIT_ID, "thread-requests", { query: "acme/tau#95", limit: 12 });
   });
 
   it("binds ⇧⌘F and ⌘P and forgets the file list when Git reports a change", () => {

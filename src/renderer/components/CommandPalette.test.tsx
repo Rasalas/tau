@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExtensionRegistry, type PaletteItem, type PaletteSearchContext, type WorkbenchActions } from "../extension-system";
 import { CommandPalette } from "./CommandPalette";
 import { HostClientProvider } from "../host-client-context";
+import { ThreadStore } from "../../workbench/thread-store";
+import { ThreadStoreContext } from "../workbench-context";
 import { createFakeHostClient } from "../test-support/fake-host-client";
 import { READ_ONLY_REASON } from "../use-host-capabilities";
 import type { PaletteCommand } from "../palette-results";
@@ -339,6 +341,18 @@ describe("command palette scopes", () => {
     expect(heads()).toEqual(["Threads", "Commands"]);
     expect(pressed()).toEqual(["All"]);
     expect(asked).toEqual([["threads", "", "all"], ["files", "", "all"]]);
+  });
+
+  it("hands sources the threads that wait on the user", () => {
+    const store = new ThreadStore();
+    store.setWaiting(["t2"]);
+    const seen: Array<readonly string[] | undefined> = [];
+    const registry = new ExtensionRegistry();
+    registry.activate({ id: "fixture.waiting", name: "Waiting fixture", activate(context) {
+      context.registerPaletteSource({ id: "fixture.threads", label: "Threads", scope: "threads", search: (_query, search) => { seen.push(search.index.waiting); return []; } });
+    } });
+    render(<ThreadStoreContext.Provider value={store}><CommandPalette open commands={[]} actions={{} as WorkbenchActions} registry={registry} onClose={() => undefined} /></ThreadStoreContext.Provider>);
+    expect(seen).toEqual([["t2"]]);
   });
 
   it("narrows to one kind by its prefix or its tab, and keeps what was typed", () => {

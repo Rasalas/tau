@@ -28,7 +28,8 @@ export interface ThreadSiblingsService {
   subscribe(listener: () => void): () => void;
 }
 
-export type SettledBy = "user" | "inactive" | "pr-merged" | "pr-closed" | "import";
+/** `agent`: the thread's own agent (or another one) settled it with `tau_thread_organize`. */
+export type SettledBy = "user" | "inactive" | "pr-merged" | "pr-closed" | "import" | "agent";
 
 /** What the kit keeps about one thread; the thread itself is core's. */
 export interface ThreadMeta {

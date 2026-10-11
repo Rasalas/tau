@@ -1,12 +1,12 @@
 import { Type } from "typebox";
 import { HostCommandError, type HostExtensionContext, type HostMcpTool, type RuntimeSessionInfo } from "tau/host-extension";
-import { THREAD_LINKS_EVENT, THREAD_RAIL_EXTENSION_ID, type BranchReviewRequest, type PullRequestDetail, type PullRequestRef, type ThreadPullRequestLink, type ReviewRequestContext } from "./protocol.js";
+import { SEARCH_EXTENSION_ID, THREAD_LINKS_EVENT, THREAD_RAIL_EXTENSION_ID, type BranchReviewRequest, type PullRequestDetail, type PullRequestRef, type ThreadPullRequestLink, type ThreadRequestLink, type ReviewRequestContext } from "./protocol.js";
 import { LOCAL_REVIEWS_EVENT } from "./local-reviews.js";
 import type { SourceControl } from "./provider-registry.js";
 import type { PullRequestReads } from "./pull-request-host.js";
 import { projectRepository } from "./pull-request-list-host.js";
 import { parseRequestUrl } from "./pull-request-json.js";
-import { linkKey, ThreadLinkStore } from "./thread-links.js";
+import { linkKey, linkMatchesQuery, ThreadLinkStore } from "./thread-links.js";
 
 /** An open linked request's state is asked again at most this often; a merged one only on request. */
 const REFRESH_MS = 60_000;
@@ -199,6 +199,27 @@ export function registerThreadLinks(
     await Promise.all(Array.from({ length: SETTLE_READS }, worker));
     return answer;
   }, { access: "read", long: true, callers: [THREAD_RAIL_EXTENSION_ID] });
+
+  /**
+   * Which threads keep which requests, from the stored links alone (no provider is asked):
+   * the named threads', else every thread's, and with `query` only the links that match it
+   * (`#95`, `owner/repo#95`, a request URL, words of its title or its head branch).
+   * Thread Rail adds them to its thread list, Search finds threads by them.
+   */
+  context.registerCommand("thread-request-links", async (input) => {
+    const fields = record(input);
+    const ids = Array.isArray(fields.threadIds) ? new Set(fields.threadIds.filter((id): id is string => typeof id === "string" && id.length > 0)) : undefined;
+    const query = text(fields.query) ?? "";
+    const answer: Record<string, ThreadRequestLink[]> = {};
+    for (const [threadId, links] of await store.all()) {
+      if (ids && !ids.has(threadId)) continue;
+      const kept = query ? links.filter((entry) => linkMatchesQuery(entry, query)) : links;
+      if (kept.length > 0) answer[threadId] = kept.map((entry) => ({
+        url: entry.url, repository: entry.repo, number: entry.number, state: entry.state ?? null, title: entry.title ?? null, headBranch: entry.headRef ?? null,
+      }));
+    }
+    return answer;
+  }, { access: "read", callers: [THREAD_RAIL_EXTENSION_ID, SEARCH_EXTENSION_ID] });
 
   context.registerCommand("link-pr", async (input) => {
     const threadId = threadOf(input);

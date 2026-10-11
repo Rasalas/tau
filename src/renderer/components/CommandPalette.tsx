@@ -93,7 +93,7 @@ export function CommandPalette({
     const snapshot = threads?.getSnapshot();
     return {
       actions: actionsRef.current,
-      index: { projects: snapshot?.projects ?? [], threads: snapshot?.threads ?? [], running: snapshot?.runningThreadIds ?? [], ...(snapshot?.activeThreadId ? { activeThreadId: snapshot.activeThreadId } : {}) },
+      index: { projects: snapshot?.projects ?? [], threads: snapshot?.threads ?? [], running: snapshot?.runningThreadIds ?? [], waiting: snapshot?.waitingThreadIds ?? [], ...(snapshot?.activeThreadId ? { activeThreadId: snapshot.activeThreadId } : {}) },
       ...(scope === "commands" ? {} : { scope }),
       signal,
     };

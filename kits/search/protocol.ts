@@ -96,10 +96,27 @@ export interface ThreadMatch {
   snippet: string;
 }
 
+/** Review Kit, which keeps the pull and merge requests each thread links; `thread-request-links` names `SEARCH_KIT_ID` as a caller. */
+export const REVIEW_KIT_ID = "tau.review";
+
+export interface ThreadRequestInput {
+  /** A request number (`#95`, `acme/tau#95`), a request URL, or words of its title or head branch. */
+  query: string;
+  limit?: number;
+}
+
+/** A thread whose stored request links match the query. */
+export interface ThreadRequestMatch {
+  sessionId: string;
+  requests: Array<{ number: number; repository: string; url: string; state: "open" | "closed" | "merged" | null; title: string | null; headBranch: string | null }>;
+}
+
 export interface SearchHostCommands {
   "content": { input: ContentSearchInput; output: ContentSearchResult };
   "files": { input: FileSearchInput; output: FileSearchResult };
   /** Forgets a project's file list; the next `files` reads it again. */
   "invalidate": { input: { cwd?: string }; output: void };
   "threads": { input: ThreadSearchInput; output: ThreadMatch[] };
+  /** Threads found through their linked requests; empty when Review Kit is not there. */
+  "thread-requests": { input: ThreadRequestInput; output: ThreadRequestMatch[] };
 }

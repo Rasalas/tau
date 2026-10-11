@@ -24,6 +24,8 @@ export interface ReviewTurn extends UiWorkspaceChanges {
 
 /** The kit that asks `pr-status` about a thread's checkout to settle it. */
 export const THREAD_RAIL_EXTENSION_ID = "tau.thread-rail";
+/** Search Kit asks `thread-request-links` to find threads by their requests. */
+export const SEARCH_EXTENSION_ID = "tau.search";
 
 export interface WorkspaceStoreApi {
   getSnapshot(): {
@@ -561,6 +563,16 @@ export interface ThreadPullRequestLink {
   /** The stack it is a layer of, where the host keeps stacks: its number and how many layers it has. */
   stack?: { number: number; size: number };
   refreshedAt?: number;
+}
+
+/** One stored link as `thread-request-links` answers it; nothing here was read just now. */
+export interface ThreadRequestLink {
+  url: string;
+  repository: string;
+  number: number;
+  state: ThreadPullRequestLink["state"] | null;
+  title: string | null;
+  headBranch: string | null;
 }
 
 /** A thread's cached request for its branch, used to target and settle a local review. */

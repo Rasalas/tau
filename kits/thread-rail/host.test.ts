@@ -11,9 +11,12 @@ import type {
   HostExtensionContext,
   HostExtensionServices,
   HostSessionSummary,
+  HostMcpTool,
+  HostMcpToolProvider,
   HostThreadLifecycle,
   HostTurnObserver,
 } from "tau/host-extension";
+import type { UiSession } from "tau";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { MACHINE_STATE_TOPIC, MACHINE_META_EVENT, MACHINE_TRASH_EVENT } from "./machine-state.js";
 import { DAY_MS } from "./meta.js";
@@ -44,6 +47,10 @@ interface Setup {
   integrated?: (workspace: string, targets?: string[]) => unknown;
   /** Review Kit's answer about the requests threads link. */
   linked?: (threadIds: string[]) => unknown;
+  /** The host's thread index (`sessions.refreshIndex`). */
+  index?: UiSession[];
+  /** Review Kit's `thread-request-links`. */
+  requestLinks?: (input: { threadIds?: string[]; query?: string }) => unknown;
   now?: () => number;
 }
 
@@ -51,6 +58,9 @@ async function harness(setup: Setup = {}) {
   const stateDir = setup.stateDir ?? await scratch();
   const events: PublishedKitEvent[] = [];
   const observers: HostTurnObserver[] = [];
+  const toolProviders: HostMcpToolProvider[] = [];
+  const instructions: unknown[] = [];
+  const runtimeExtensions: string[] = [];
   const lifecycles: HostThreadLifecycle[] = [];
   const start = vi.fn(async (options: { cwd: string }) => ({ sessionId: `started-${start.mock.calls.length}`, cwd: options.cwd }));
   const trash: Array<{ sessionId: string }> = [];
@@ -66,7 +76,15 @@ async function harness(setup: Setup = {}) {
       restore: restored,
       purge: restored,
       trash: async () => [...trash],
+      refreshIndex: async () => ({ version: 1, type: "thread-index", index: { projects: [], sessions: setup.index ?? [] } }),
     } as unknown as HostExtensionServices["sessions"],
+    mcp: {
+      registerTools: (provider) => { toolProviders.push(provider); return () => undefined; },
+      gate: () => () => undefined,
+      registerInstructions: (provider) => { instructions.push(provider); return () => undefined; },
+      connect: async () => undefined,
+    },
+    registerRuntimeExtension: (name) => { runtimeExtensions.push(name); return () => undefined; },
     registerTurnObserver: (observer) => { observers.push(observer); return () => undefined; },
     registerThreadLifecycle: (lifecycle) => { lifecycles.push(lifecycle); return () => undefined; },
   };
@@ -80,13 +98,14 @@ async function harness(setup: Setup = {}) {
     (event) => events.push(event),
   );
   registries.push(registry);
-  if (setup.review || setup.watchShelf) {
+  if (setup.review || setup.watchShelf || setup.requestLinks) {
     const review: HostExtension = {
       id: REVIEW_EXTENSION_ID,
       name: "Review Kit",
       activate(context: HostExtensionContext) {
         if (setup.watchShelf) context.registerCommand("watch-shelf", setup.watchShelf, { access: "owner", callers: [THREAD_RAIL_EXTENSION_ID] });
-        context.registerCommand("pr-status", (input) => setup.review!((input as { workspace: string }).workspace, input as { fresh?: boolean }), { callers: [THREAD_RAIL_EXTENSION_ID] });
+        if (setup.requestLinks) context.registerCommand("thread-request-links", (input) => setup.requestLinks!(input as { threadIds?: string[]; query?: string }), { access: "read", callers: [THREAD_RAIL_EXTENSION_ID] });
+        context.registerCommand("pr-status", (input) => setup.review?.((input as { workspace: string }).workspace, input as { fresh?: boolean }), { callers: [THREAD_RAIL_EXTENSION_ID] });
         if (setup.linked) context.registerCommand("thread-requests", (input) => setup.linked!((input as { threadIds: string[] }).threadIds), { callers: [THREAD_RAIL_EXTENSION_ID] });
       },
     };
@@ -101,7 +120,12 @@ async function harness(setup: Setup = {}) {
     });
   }
   const invoke = (command: string, input?: unknown) => registry.invoke(THREAD_RAIL_EXTENSION_ID, command, input) as Promise<RailState>;
-  return { invoke, events, observers, lifecycles, start, stateDir, removed, restored, registry };
+  /** The tools one thread is offered over MCP, by name. */
+  const tools = async (threadId: string) => {
+    const offered = (await Promise.all(toolProviders.map((provider) => provider({ sessionId: threadId, cwd: "/project" })))).flat();
+    return new Map<string, HostMcpTool>(offered.map((tool) => [tool.name, tool]));
+  };
+  return { invoke, events, observers, lifecycles, start, stateDir, removed, restored, registry, tools, instructions, runtimeExtensions };
 }
 
 function machineServices(initial: HostMachine[] = [], self = "here") {
@@ -395,6 +419,135 @@ describe("Thread Rail host", () => {
   });
 });
 
+
+const shell = (id: string, title: string, extra: Partial<UiSession> = {}): UiSession =>
+  ({ id, path: `/sessions/${id}.jsonl`, title, modifiedAt: NOW - 1000, projectPath: "/project", projectName: "tau", messageCount: 2, ...extra });
+const callTool = async (tool: HostMcpTool | undefined, params: unknown) => JSON.parse((await tool!.execute("call", params as never, undefined, undefined, undefined as never) as { content: Array<{ text: string }> }).content[0]!.text);
+
+describe("Thread Rail agent tools", () => {
+  it("offers the tools over MCP and to Pi, with instructions on how to mention a thread", async () => {
+    const { tools, instructions, runtimeExtensions } = await harness();
+    expect([...(await tools("t1")).keys()]).toEqual(["tau_find_threads", "tau_thread_organize"]);
+    expect((await tools("t1")).get("tau_find_threads")!.annotations).toEqual({ readOnlyHint: true });
+    expect(runtimeExtensions).toEqual(["tau-thread-directory"]);
+    expect(instructions).toHaveLength(1);
+  });
+
+  it("settles its own thread when the run ends well, and only then", async () => {
+    let now = NOW;
+    const { tools, observers, invoke } = await harness({ now: () => now, index: [shell("t1", "Fix it")] });
+    const organize = (await tools("t1")).get("tau_thread_organize");
+    const observer = observers[0]!;
+
+    observer.accepted?.("t1", "turn-1", { deferBefore: false });
+    expect(await callTool(organize, { action: "settle" })).toEqual({ threadId: "t1", action: "settle", applied: false, appliesWhenRunEnds: true });
+    expect((await invoke("state")).threads.t1?.settledAt).toBeUndefined();
+    now += 5;
+    observer.runEnded?.("t1", "completed");
+    expect((await invoke("state")).threads.t1).toMatchObject({ settledAt: NOW + 5, settledBy: "agent" });
+
+    // A failed run keeps the thread as it was.
+    observer.accepted?.("t1", "turn-2", { deferBefore: false });
+    expect((await invoke("state")).threads.t1?.settledAt).toBeUndefined();
+    await callTool(organize, { action: "settle" });
+    observer.runEnded?.("t1", "failed");
+    expect((await invoke("state")).threads.t1?.settledAt).toBeUndefined();
+  });
+
+  it("drops the request when a message queues behind the run, the user stops it or the agent takes it back", async () => {
+    const { tools, observers, invoke } = await harness({ index: [shell("t1", "Fix it")] });
+    const organize = (await tools("t1")).get("tau_thread_organize");
+    const observer = observers[0]!;
+    const ends = async () => { observer.runEnded?.("t1", "completed"); return (await invoke("state")).threads.t1?.settledAt; };
+
+    observer.accepted?.("t1", "turn-1", { deferBefore: false });
+    await callTool(organize, { action: "settle" });
+    observer.accepted?.("t1", "turn-2", { deferBefore: true });
+    expect(await ends()).toBeUndefined();
+
+    observer.accepted?.("t1", "turn-3", { deferBefore: false });
+    await callTool(organize, { action: "settle" });
+    await observer.stopped?.("t1");
+    expect(await ends()).toBeUndefined();
+
+    observer.accepted?.("t1", "turn-4", { deferBefore: false });
+    await callTool(organize, { action: "settle" });
+    await callTool(organize, { action: "unsettle" });
+    expect(await ends()).toBeUndefined();
+  });
+
+  it("settles and snoozes an idle thread at once, validates the snooze and wakes or reopens on request", async () => {
+    const { tools, invoke } = await harness({ index: [shell("t1", "Me"), shell("t2", "Other")] });
+    const organize = (await tools("t1")).get("tau_thread_organize");
+    expect(await callTool(organize, { action: "settle", threadId: "t2" })).toMatchObject({ applied: true });
+    expect((await invoke("state")).threads.t2).toMatchObject({ settledBy: "agent" });
+    expect(await callTool(organize, { action: "unsettle", threadId: "t2" })).toMatchObject({ applied: true });
+    expect((await invoke("state")).threads.t2?.settledAt).toBeUndefined();
+
+    const until = new Date(NOW + DAY_MS).toISOString();
+    expect(await callTool(organize, { action: "snooze", threadId: "t2", snoozedUntil: until })).toMatchObject({ applied: true });
+    expect((await invoke("state")).threads.t2?.snoozedUntil).toBe(NOW + DAY_MS);
+    await callTool(organize, { action: "unsnooze", threadId: "t2" });
+    expect((await invoke("state")).threads.t2?.snoozedUntil).toBeUndefined();
+
+    await expect(callTool(organize, { action: "snooze", threadId: "t2" })).rejects.toThrow("snoozedUntil");
+    await expect(callTool(organize, { action: "snooze", threadId: "t2", snoozedUntil: new Date(NOW - 1).toISOString() })).rejects.toThrow("future");
+    await expect(callTool(organize, { action: "settle", threadId: "nope" })).rejects.toThrow("No thread nope");
+  });
+
+  it("snoozes a running thread when its run ends", async () => {
+    const { tools, observers, invoke } = await harness({ index: [shell("t1", "Me")] });
+    observers[0]!.accepted?.("t1", "turn-1", { deferBefore: false });
+    await callTool((await tools("t1")).get("tau_thread_organize"), { action: "snooze", snoozedUntil: new Date(NOW + DAY_MS).toISOString() });
+    observers[0]!.runEnded?.("t1", "completed");
+    expect((await invoke("state")).threads.t1?.snoozedUntil).toBe(NOW + DAY_MS);
+  });
+
+  it("lists threads with their rail state, links and requests, and filters by state, words and request", async () => {
+    const index = [
+      shell("t1", "Fix the rail", { modifiedAt: NOW - 10, projectLabel: "fix/rail" }),
+      shell("t2", "Write [docs]", { modifiedAt: NOW - 20 }),
+      shell("t3", "Old work", { modifiedAt: NOW - 30 }),
+      shell("t4", "Agent child", { modifiedAt: NOW - 5, parentThreadId: "t1" }),
+      shell("t5", "Gone", { modifiedAt: NOW - 40 }),
+      shell("t6", "Other machine", { machine: { id: "rex", name: "Rex" } }),
+    ];
+    const requestLinks = vi.fn((input: { threadIds?: string[]; query?: string }) => {
+      const pr = { url: "https://github.com/acme/tau/pull/95", repository: "acme/tau", number: 95, state: "open", title: "Rail fix", headBranch: "fix/rail" };
+      if (input.query) return input.query.includes("95") ? { t2: [pr] } : {};
+      return Object.fromEntries((input.threadIds ?? []).filter((id) => id === "t2").map((id) => [id, [pr]]));
+    });
+    const { tools, invoke, observers } = await harness({ index, requestLinks });
+    await invoke("patch", { patches: { t2: { snoozedUntil: NOW + DAY_MS }, t3: { settledAt: NOW - 5, settledBy: "user" }, t5: { archivedAt: NOW - 1 } } });
+    observers[0]!.accepted?.("t1", "turn-1", { deferBefore: false });
+    const find = (await tools("t1")).get("tau_find_threads");
+
+    const all = await callTool(find, {});
+    expect(all.threads.map((thread: { threadId: string }) => thread.threadId)).toEqual(["t1", "t2", "t3"]);
+    expect(all.total).toBe(3);
+    expect(all.threads[0]).toMatchObject({ link: "[Fix the rail](tau://thread?thread=t1)", state: "active", running: true, current: true, branch: "fix/rail", snoozed: false, settled: false });
+    expect(all.threads[1]).toMatchObject({ link: "[Write docs](tau://thread?thread=t2)", state: "snoozed", snoozed: true, snoozedUntil: new Date(NOW + DAY_MS).toISOString(), pullRequests: [expect.objectContaining({ number: 95 })] });
+    expect(all.threads[2]).toMatchObject({ state: "settled", settled: true, settledBy: "user" });
+
+    const ids = async (params: unknown) => (await callTool(find, params)).threads.map((thread: { threadId: string }) => thread.threadId);
+    expect(await ids({ snoozed: true })).toEqual(["t2"]);
+    expect(await ids({ settled: false })).toEqual(["t1", "t2"]);
+    expect(await ids({ state: "settled" })).toEqual(["t3"]);
+    expect(await ids({ state: "archived" })).toEqual(["t5"]);
+    expect(await ids({ includeSubagents: true })).toEqual(["t4", "t1", "t2", "t3"]);
+    expect(await ids({ query: "rail" })).toEqual(["t1"]);
+    expect(await ids({ query: "fix/rail" })).toEqual(["t1"]);
+    expect(await ids({ query: "#95" })).toEqual(["t2"]);
+    expect(await ids({ limit: 1 })).toEqual(["t1"]);
+  });
+
+  it("lists threads without Review Kit, just without requests", async () => {
+    const { tools } = await harness({ index: [shell("t1", "Only")] });
+    const found = await callTool((await tools("x")).get("tau_find_threads"), { query: "only" });
+    expect(found.threads).toHaveLength(1);
+    expect(found.threads[0].pullRequests).toBeUndefined();
+  });
+});
 
 describe("Thread Rail machine ownership", () => {
   it("keeps local metadata and trash when a peer projects the same composite id", async () => {

@@ -1,6 +1,6 @@
 import type { DesktopExtension, RegionProps } from "tau";
 import { SearchDialogs, SearchDialogsLayer, type SearchHost } from "./dialogs.js";
-import { fileItems, projectItems, settle, threadContentItems, threadTitleItems } from "./palette-sources.js";
+import { fileItems, projectItems, settle, threadContentItems, threadRequestItems, threadTitleItems } from "./palette-sources.js";
 import { SEARCH_FILES_SERVICE, SEARCH_KIT_ID, WORKSPACE_STORE_SERVICE, type SearchFilesService, type WorkspaceStoreView } from "./protocol.js";
 
 /** Content search waits this long after a keystroke before it asks the host to read the threads. */
@@ -47,6 +47,21 @@ export function createSearchExtension(options: { threadContentDelayMs?: number }
           const matches = await host("threads", { query, limit: 12, ...(search.index.activeThreadId ? { activeSessionId: search.index.activeThreadId } : {}) });
           const titled = new Set(threadTitleItems(query, search).map((item) => item.id));
           return threadContentItems(matches, search, titled);
+        },
+      });
+      // `#95`, `acme/tau#95`, a request URL or a branch finds the threads that link that request.
+      context.registerPaletteSource({
+        id: "search.thread-requests",
+        label: "Threads",
+        order: 12,
+        scope: "threads",
+        search: async (query, search) => {
+          if (query.trim().length < 2) return [];
+          await settle(delay, search.signal);
+          if (search.signal.aborted) return [];
+          const matches = await host("thread-requests", { query, limit: 12 });
+          const titled = new Set(threadTitleItems(query, search).map((item) => item.id));
+          return threadRequestItems(matches, search, titled);
         },
       });
       context.registerPaletteSource({ id: "search.projects", label: "Projects", order: 30, search: projectItems });

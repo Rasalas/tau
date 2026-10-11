@@ -187,6 +187,21 @@ describe("linked pull requests", () => {
     });
   });
 
+  it("lists the stored links per thread and filters them by number, repository, URL, title or branch", async () => {
+    const { invoke } = await harness();
+    await invoke("link-pr", { threadId: "t1", reference: GITHUB_URL });
+    await invoke("link-pr", { threadId: "t2", reference: GITLAB_URL });
+    const seven = { url: GITHUB_URL, repository: "acme/tau", number: 7, state: "open", title: "Add the output helper", headBranch: expect.any(String) };
+    await expect(invoke("thread-request-links", { threadIds: ["t1", "nope"] })).resolves.toEqual({ t1: [seven] });
+    for (const query of ["#7", "acme/tau#7", GITHUB_URL, "#7 acme"]) {
+      await expect(invoke("thread-request-links", { query })).resolves.toEqual({ t1: [seven] });
+    }
+    await expect(invoke("thread-request-links", { query: "draft" })).resolves.toMatchObject({ t2: [{ number: 12 }] });
+    await expect(invoke("thread-request-links", { query: "FEAT/output" })).resolves.toMatchObject({ t1: [{ number: 7 }], t2: [{ number: 12 }] });
+    await expect(invoke("thread-request-links", { query: "#99" })).resolves.toEqual({});
+    expect(Object.keys(await invoke<Record<string, unknown>>("thread-request-links", {}))).toEqual(["t1", "t2"]);
+  });
+
   it("freshly reads a recently linked PR for turn-end settlement and notifies Thread Rail", async () => {
     let merged = false;
     const detail = JSON.parse(await fixture("gh-pr-view-discussed.json"));

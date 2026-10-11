@@ -1011,6 +1011,10 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 .markdown h4, .markdown h5, .markdown h6 { font-size: var(--text-md); }
 .markdown a { color: var(--acid-text); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--acid-text) 25%, transparent); }
 .markdown a:hover { border-bottom-color: var(--acid-text); }
+.md-thread-link { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; vertical-align: -2px; padding: 0 5px 0 3px; border: 1px solid var(--line-card); border-radius: 6px; background: var(--chrome); font: 500 var(--text-sm) var(--sans); color: var(--ink); cursor: pointer; }
+.md-thread-link > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.md-thread-link:hover { border-color: var(--line-strong); color: var(--acid-text); }
+.md-thread-link--gone { padding-left: 5px; color: var(--muted); cursor: default; }
 .markdown blockquote {
   margin: 0 0 12px; padding: 2px 0 2px 12px;
   border-left: 2px solid var(--line-strong); color: var(--muted);

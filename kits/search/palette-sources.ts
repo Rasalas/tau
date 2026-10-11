@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { File } from "lucide-react";
 import { ProjectIcon, type PaletteItem, type PaletteSearchContext, type UiSession } from "tau";
-import type { FileMatch, ThreadMatch } from "./protocol.js";
+import type { FileMatch, ThreadMatch, ThreadRequestMatch } from "./protocol.js";
 
 /**
  * What the kit adds to the palette: threads by title, threads by what was said
@@ -29,11 +29,11 @@ export function threadAge(modifiedAt: number, now = Date.now()): string {
   return minutes < 1 ? "now" : minutes < 60 ? `${minutes}m` : minutes < 1440 ? `${Math.floor(minutes / 60)}h` : `${Math.floor(minutes / 1440)}d`;
 }
 
-/** Project, then "working" or its age, then its branch: design 2b's line. */
+/** Project, then "working", "waiting" or its age, then its branch: design 2b's line. */
 function threadItem(thread: UiSession, context: PaletteSearchContext, detail?: string): PaletteItem {
   const project = context.index.projects.find((entry) => (thread.workspaceId && entry.workspaceId === thread.workspaceId) || entry.path === thread.projectPath)
     ?? { path: thread.projectPath, name: thread.projectName };
-  const state = context.index.running?.includes(thread.id) ? "working" : threadAge(thread.modifiedAt);
+  const state = context.index.waiting?.includes(thread.id) ? "waiting" : context.index.running?.includes(thread.id) ? "working" : threadAge(thread.modifiedAt);
   return {
     id: thread.id,
     label: thread.title || "Untitled thread",
@@ -48,12 +48,34 @@ function threadItem(thread: UiSession, context: PaletteSearchContext, detail?: s
 export function threadTitleItems(query: string, context: PaletteSearchContext): PaletteItem[] {
   const tokens = paletteTokens(query);
   if (tokens.length === 0 && !context.scope) return [];
-  return context.index.threads
+  const waiting = new Set(tokens.length ? [] : context.index.waiting);
+  const matching = context.index.threads
     // Before anything is typed, agents stay in their panel as they do in the rail.
-    .filter((thread) => (tokens.length || !thread.parentThreadId) && holdsAll(tokens, thread.title, thread.projectName))
-    .sort((a, b) => b.modifiedAt - a.modifiedAt)
-    .slice(0, context.scope === "threads" ? SCOPED_ROWS : tokens.length ? THREAD_ROWS : RECENT_ROWS)
-    .map((thread) => threadItem(thread, context));
+    .filter((thread) => (tokens.length || !thread.parentThreadId) && holdsAll(tokens, thread.title, thread.projectName, thread.projectLabel))
+    // Before anything is typed, threads waiting on the user come first, however old.
+    .sort((a, b) => Number(waiting.has(b.id)) - Number(waiting.has(a.id)) || b.modifiedAt - a.modifiedAt);
+  const asking = matching.filter((thread) => waiting.has(thread.id)).length;
+  const rows = context.scope === "threads" ? SCOPED_ROWS : tokens.length ? THREAD_ROWS : Math.max(RECENT_ROWS, asking);
+  return matching.slice(0, rows).map((thread) => threadItem(thread, context));
+}
+
+/** "#95 · acme/tau · open" for a thread's first matching request, "+N" for more. */
+function requestDetail(match: ThreadRequestMatch): string {
+  const [first] = match.requests;
+  if (!first) return "";
+  return [`#${first.number}`, first.repository, first.state, first.headBranch, match.requests.length > 1 ? `+${match.requests.length - 1}` : undefined].filter(Boolean).join(" · ");
+}
+
+/** Threads whose pull or merge request the query names, unless the title already put them on the list. */
+export function threadRequestItems(matches: readonly ThreadRequestMatch[], context: PaletteSearchContext, shown: ReadonlySet<string>): PaletteItem[] {
+  return matches
+    .flatMap((match) => {
+      const thread = context.index.threads.find((entry) => entry.id === match.sessionId);
+      return thread && !shown.has(thread.id) ? [{ thread, match }] : [];
+    })
+    .sort((a, b) => b.thread.modifiedAt - a.thread.modifiedAt)
+    .slice(0, THREAD_ROWS)
+    .map(({ thread, match }) => threadItem(thread, context, requestDetail(match)));
 }
 
 export function projectItems(query: string, context: PaletteSearchContext): PaletteItem[] {
