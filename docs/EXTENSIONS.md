@@ -1022,8 +1022,8 @@ then it is also asked for an empty query, in All and in its own tab, and
 The tabs (All, Threads, Files, > Commands) and the prefixes `#`, `/` and `>`
 narrow the palette; a source whose `scope` is the chosen one is the only kind
 asked. `search` may answer at once or with a promise; `index` is the thread
-index this window holds (`projects`, `threads`, `activeThreadId`, and `running`,
-the threads with a turn going), and `signal` aborts as soon as the query changes
+index this window holds (`projects`, `threads`, `activeThreadId`, `running`, the
+threads with a turn going, and `waiting`, the ones asking the user something; new with W07), and `signal` aborts as soon as the query changes
 or the palette closes. An answer that arrives after that is dropped, so a slow
 source never paints rows for a query the user already left; a source that talks
 to its host half should wait a moment on the signal before it asks. A row is
@@ -1041,9 +1041,10 @@ same label share one section), then Commands — the commands whose label
 matches, core's own Settings rows (a page or a row of one found by the words
 Settings search uses, "Settings › page"), and last the commands that matched
 only by their group. An empty query lists the recent threads and then every
-command. Search Kit (`kits/search/`) is the shipped caller: threads by title and
-by what was said in them, the files of the thread on screen, and projects;
-Workspace Kit adds other machines' threads.
+command, with the threads waiting on the user (`index.waiting`) first. Search Kit
+(`kits/search/`) is the shipped caller: threads by title, project or branch label,
+by what was said in them and by the pull or merge request they link, the files of
+the thread on screen, and projects; Workspace Kit adds other machines' threads.
 
 #### Levels under a row (new in API 1.12.0)
 
@@ -3009,6 +3010,27 @@ credential per thread.
 | `gate(gate)` | Runs before each call with `{ threadId, cwd, toolName, input, annotations?, signal, confirm(title, message) }` (`annotations` is the tool's own `readOnlyHint`/`destructiveHint`, so a gate can tell a read from a write; new in API 1.59.0); answering `{ block: true, reason }` refuses the call with that text. `confirm` is a yes/no question on the thread's own dialog surface. A gate that throws blocks. Access Kit's gate is the shipped one. |
 | `connect(thread, options?)` | For a runtime backend: `{ name, url, token, headers }`, the server entry to put into the session's own MCP configuration (`name` is `tau`, so a runtime shows `mcp__tau__<tool>`). `options.tools` narrows what the credential lists and calls to those names, for a thread started with `tools`. The credential lives as long as the thread's runtime; a new runtime gets a new one. `undefined` in safe mode or when the endpoint cannot listen — the thread then runs without Tau's tools. |
 
+#### Mentioning a thread (new with W07)
+
+A thread has one link everywhere: `[title](tau://thread?thread=<id>)`. The id is
+the reference; the label is only a stand-in, because the transcript draws the
+chip with the thread's current title, project mark and a click that opens it
+(`src/shared/thread-links.ts`; `host=<id>` is added only where the link leaves
+the app, as a push does). A tool that names a thread gives the id and this
+link, never a title baked into text. Thread Rail's `tau_find_threads` (read-only:
+filters `query`, `state`, `settled`, `snoozed`, `includeSubagents`, `limit`)
+returns it as `link` beside the rail state (`state`, `snoozed`, `snoozedUntil`,
+`settled`, `settledBy`, `pinned`, `archived`, `running`), the pull requests the
+thread links and `current`; `tau_thread_organize` (`action`: `settle`, `unsettle`,
+`snooze`, `unsnooze`; `threadId` defaults to the caller) settles or snoozes. A
+change to a running thread, the caller's own included, is kept until the run
+ends and then applied only if it ended well (`runEnded`, `outcome: "completed"`);
+a failed or stopped run, a reset or a queued message drops it. The titles come
+from `sessions.refreshIndex()`, the requests from Review Kit's
+`thread-request-links` (`{ threadIds? , query? }`, callers `tau.thread-rail` and
+`tau.search`; stored links only, no provider is asked), which Search also uses
+to find threads by `#95`, `owner/repo#95`, a request URL or a head branch.
+
 Since API 1.49.0, tool providers may return a Promise. `connect` also accepts
 `thread.nativeCapabilities`, a list of capability names
 verified by the runtime kit. The endpoint copies and freezes this list into
@@ -3040,7 +3062,7 @@ for the thread (a server the user runs and names by URL gets none), Cursor as
 an ACP `http` server on `session/new` and `session/load` (sent without the
 transport check, as the Cursor CLI takes it without announcing it), Grok the
 same way on `session/new` and `session/load`. Each lets
-Tau's gate ask instead of asking again itself. Preview Kit and Agents Kit offer their tools this way.
+Tau's gate ask instead of asking again itself. Preview Kit, Agents Kit, Review Kit and Thread Rail offer their tools this way.
 
 A thread started with `tools` keeps them on every runtime that can: Codex
 switches off its shell, web search, image viewing, image generation, apps and
