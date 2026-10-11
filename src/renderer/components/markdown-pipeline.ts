@@ -8,6 +8,7 @@ import { gfmFromMarkdown } from "mdast-util-gfm";
 import { newlineToBreak } from "mdast-util-newline-to-break";
 import { gfm } from "micromark-extension-gfm";
 import { normalizeUri } from "micromark-util-sanitize-uri";
+import { parseThreadLink } from "../../shared/thread-links";
 
 /*
  * What `react-markdown` with `remark-gfm` and `remark-breaks` does, called
@@ -31,8 +32,9 @@ export function parseMarkdown(source: string): Root {
 
 const SAFE_PROTOCOL = /^(https?|ircs?|mailto|xmpp)$/iu;
 
-/** Keeps relative URLs and safe protocols; anything else (`javascript:`) becomes empty. */
+/** Keeps relative URLs, safe protocols and links to a thread; anything else (`javascript:`) becomes empty. */
 export function safeUrl(value: string): string {
+  if (parseThreadLink(value)) return value;
   const colon = value.indexOf(":");
   if (colon === -1) return value;
   for (const mark of ["/", "?", "#"]) {

@@ -12,6 +12,8 @@ import { MediaLinkContext } from "./media-link-context";
 import { WorkspaceVideo, isVideoPath } from "./WorkspaceVideo";
 import { MediaGallery } from "./MediaGallery";
 import { WorkspaceImage } from "./WorkspaceImage";
+import { ThreadLink } from "./ThreadLink";
+import { parseThreadLink } from "../../shared/thread-links";
 import { InlineVisualization } from "./InlineVisualization";
 import { splitVisualizationMarkers } from "./visualization-markers";
 import { usePlatform } from "../platform-context";
@@ -370,7 +372,8 @@ const COMPONENTS: MarkdownComponents = {
     return <FileChip path={children as string} name={name} />;
   },
   a({ href, children }) {
-    return <FileLink href={href}>{children}</FileLink>;
+    const thread = href ? parseThreadLink(href) : undefined;
+    return thread ? <ThreadLink target={thread}>{children}</ThreadLink> : <FileLink href={href}>{children}</FileLink>;
   },
   table({ children }) {
     return <div className="md-table-scroll"><table>{children}</table></div>;
