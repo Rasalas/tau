@@ -5,7 +5,7 @@ import type {
   UiModel,
   UiSkillDraft,
 } from "../shared/contracts.js";
-import { validatePreparedPrompt } from "../shared/prepared-prompt.js";
+import { skillFields, validatePreparedPrompt } from "../shared/prepared-prompt.js";
 import { transcriptPagingNegotiated, type PiBridgePreparedPrompt, type PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
 import type { TranscriptPage } from "../shared/host-protocol.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
@@ -13,7 +13,7 @@ import { bridgeCursorValue } from "./transcript-cursor.js";
 import { localTranscriptPage, readAttachedToolOutput } from "./host-transcript.js";
 import { mapBridgeTranscriptPageValue, mapModel } from "./host-messages.js";
 import { bridgeHostSnapshot, composerCommandsForAdapter } from "./bridge-snapshot.js";
-import { PI_AGENT_RUNTIME_ADAPTER, type AgentRuntimeAdapter } from "./runtime-adapters.js";
+import { ATTACHED_PI_RUNTIME_ADAPTER, type AgentRuntimeAdapter } from "./runtime-adapters.js";
 import { AttachedPiSession, type AttachedSessionHost } from "./attached-pi-session.js";
 import type { AttachedRuntimeBackend } from "./attached-runtime.js";
 import type { HostAttachedRuntime } from "./host-extensions.js";
@@ -37,7 +37,7 @@ import type {
  */
 export class AttachedThreadBackend implements ThreadRuntimeBackend {
   readonly kind = "pi" as const;
-  readonly runtimeAdapter: AgentRuntimeAdapter = PI_AGENT_RUNTIME_ADAPTER;
+  readonly runtimeAdapter: AgentRuntimeAdapter = ATTACHED_PI_RUNTIME_ADAPTER;
   readonly turnReporting = "streamed" as const;
   readonly capabilities: ThreadBackendCapabilities;
   readonly session: AttachedRuntimeBackend;
@@ -182,7 +182,7 @@ export class AttachedThreadBackend implements ThreadRuntimeBackend {
       runtimeCapabilities: prepared.runtimeCapabilities ?? this.runtimeAdapter.capabilities,
       visibleText: prepared.visibleText,
       runtimeText: prepared.runtimeText,
-      ...(prepared.skill ? { skill: prepared.skill } : {}),
+      ...skillFields(prepared),
       sourceFingerprint: prepared.sourceFingerprint,
     };
     validatePreparedPrompt(text, preparedResult, {
@@ -265,7 +265,7 @@ export class AttachedThreadBackend implements ThreadRuntimeBackend {
       visibleText: prepared.visibleText,
       runtimeText: prepared.runtimeText,
       runtimeCapabilities: prepared.runtimeCapabilities,
-      ...(prepared.skill ? { skill: prepared.skill } : {}),
+      ...skillFields(prepared),
       sourceFingerprint: prepared.sourceFingerprint,
     };
   }

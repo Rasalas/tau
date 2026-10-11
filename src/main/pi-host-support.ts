@@ -1,5 +1,6 @@
 import { basename, resolve } from "node:path";
 import { realpath } from "node:fs/promises";
+import { skillDraftOf } from "../shared/prepared-prompt.js";
 import type { ClientTurnIdentity, PreparedPrompt, ThreadBackendKind, UiSkillDraft } from "../shared/contracts.js";
 
 const EXTERNAL_THREAD_PATH_PREFIX = "tau-thread:";
@@ -34,9 +35,8 @@ export function promptRebindForThread(
     || (prepared.sessionId !== undefined && prepared.sessionId !== sessionId)
     || (prepared.providerSessionId !== undefined && prepared.providerSessionId !== sessionId);
   if (!changed) return undefined;
-  return prepared.skill
-    ? { skill: { source: "skill", name: prepared.skill.name, visibleText: prepared.visibleText, command: prepared.skill.command } }
-    : {};
+  const skill = skillDraftOf(prepared, prepared.visibleText);
+  return skill ? { skill } : {};
 }
 
 export function processIsAlive(pid: number): boolean {

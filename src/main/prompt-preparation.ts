@@ -1,6 +1,6 @@
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import type { PreparedPrompt, ThreadBackendKind, UiComposerCommand, UiPromptAttachment, UiSkillDraft } from "../shared/contracts.js";
-import { validatePreparedPrompt } from "../shared/prepared-prompt.js";
+import { skillFields, validatePreparedPrompt } from "../shared/prepared-prompt.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
 import type { HostRuntimeBackendProvider } from "./host-extensions.js";
 import type { RuntimeGate } from "./runtime-gate.js";
@@ -73,7 +73,7 @@ export class PromptPreparation {
       runtimeCapabilities: adapter.capabilities,
       visibleText: prepared.text,
       runtimeText: prepared.runtimeText,
-      ...(prepared.skill ? { skill: prepared.skill } : {}),
+      ...skillFields(prepared),
       sourceFingerprint: clientMessageFingerprint(text, [...knownSkillNames(commands)]),
     };
     validatePreparedPrompt(text, result, {

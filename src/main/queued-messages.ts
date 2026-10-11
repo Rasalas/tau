@@ -51,9 +51,11 @@ function decodeAttachment(value: unknown): UiPromptAttachment | undefined {
 
 function decodeSkill(value: unknown): UiSkillDraft | undefined {
   const skill = value as Partial<UiSkillDraft> | undefined;
-  return skill?.source === "skill" && typeof skill.name === "string" && typeof skill.visibleText === "string" && typeof skill.command === "string"
-    ? { source: "skill", name: skill.name, visibleText: skill.visibleText, command: skill.command }
-    : undefined;
+  if (skill?.source !== "skill" || typeof skill.name !== "string" || typeof skill.visibleText !== "string" || typeof skill.command !== "string") return undefined;
+  const additionalSkills = Array.isArray(skill.additionalSkills)
+    ? skill.additionalSkills.flatMap((ref) => typeof ref?.name === "string" && typeof ref.command === "string" ? [{ name: ref.name, command: ref.command }] : [])
+    : [];
+  return { source: "skill", name: skill.name, visibleText: skill.visibleText, command: skill.command, ...(additionalSkills.length > 0 ? { additionalSkills } : {}) };
 }
 
 /** A kit's message as the queue keeps it: a wake carries its mark and is delivered with its line in front. */

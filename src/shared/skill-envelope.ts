@@ -8,7 +8,10 @@
  */
 
 export interface ParsedSkillEnvelope {
+  /** The first skill of the run. */
   name: string;
+  /** Every skill of the run in order, without repeats; `name` is the first. */
+  names: string[];
   userMessage: string;
   /** True when the input was an expanded runtime envelope. */
   envelope: boolean;
@@ -107,8 +110,7 @@ function stripEnvelopeSeparator(text: string): string {
   return separator ? text.slice(separator.length) : text;
 }
 
-/** Parses a complete top-level envelope without interpreting fenced lookalikes. */
-export function parseSkillEnvelope(raw: string): ParsedSkillEnvelope | undefined {
+function parseOneEnvelope(raw: string): { name: string; userMessage: string } | undefined {
   const withoutBom = raw.startsWith("\uFEFF") ? raw.slice(1) : raw;
   const prefix = /^(?:(?:[ \t]{0,3})\r?\n)*[ \t]{0,3}/u.exec(withoutBom)?.[0] ?? "";
   const text = withoutBom.slice(prefix.length);
@@ -128,17 +130,32 @@ export function parseSkillEnvelope(raw: string): ParsedSkillEnvelope | undefined
       const started = fenceStart(line);
       if (started) fence = started;
       else if (/^ {0,3}<\/skill>[ \t]*$/u.test(line)) {
-        return {
-          name: opening.name,
-          userMessage: stripEnvelopeSeparator(text.slice(current.next)),
-          envelope: true,
-        };
+        return { name: opening.name, userMessage: stripEnvelopeSeparator(text.slice(current.next)) };
       }
     }
     if (current.next === text.length) break;
     cursor = current.next;
   }
   return undefined;
+}
+
+/**
+ * Parses a complete top-level envelope without interpreting fenced lookalikes.
+ * A run of envelopes (one per skill of a message) is read as one; with
+ * `isKnown`, the run stops at the first skill that is not.
+ */
+export function parseSkillEnvelope(raw: string, isKnown?: (name: string) => boolean): ParsedSkillEnvelope | undefined {
+  const first = parseOneEnvelope(raw);
+  if (!first) return undefined;
+  const names = [first.name];
+  let userMessage = first.userMessage;
+  for (;;) {
+    const next = parseOneEnvelope(userMessage);
+    if (!next || (isKnown && !isKnown(next.name))) break;
+    if (!names.includes(next.name)) names.push(next.name);
+    userMessage = next.userMessage;
+  }
+  return { name: first.name, names, userMessage, envelope: true };
 }
 
 function commandSkillName(command: { name: string; source: string }): string | undefined {
@@ -169,44 +186,74 @@ function shorthandName(token: string): string | undefined {
   return SKILL_NAME.test(token) ? token : undefined;
 }
 
-/** Parses a known `$name`, `/name`, or `/skill:name` at the start of text. */
+export interface SkillRunOptions {
+  /** Read a run of skill tokens (`$a $b text`), not only the first; for runtimes that load every one. */
+  multiple?: boolean;
+}
+
+/** Reads the leading `$name`, `/name` or `/skill:name` tokens `accept` allows, one delimiter apart. */
+function readSkillRun(
+  raw: string,
+  accept: (name: string, marker: string, token: string) => boolean,
+  multiple: boolean,
+): ParsedSkillEnvelope | undefined {
+  const names: string[] = [];
+  let offset = /^ {0,3}/u.exec(raw)![0].length;
+  let end = -1;
+  for (;;) {
+    const match = /^([$/])([^\s]+)(?=[ \t\r\n]|$)/u.exec(raw.slice(offset));
+    const name = match && shorthandName(match[2]!);
+    if (!match || !name || !accept(name, match[1]!, match[2]!)) break;
+    if (!names.includes(name)) names.push(name);
+    end = offset + match[0].length;
+    if (!multiple || !/^[ \t]/u.test(raw.slice(end))) break;
+    offset = end + 1;
+  }
+  if (end < 0) return undefined;
+  return { name: names[0]!, names, userMessage: instructionAfterToken(raw, end), envelope: false };
+}
+
+/** Parses known `$name`, `/name`, or `/skill:name` tokens at the start of text. */
 export function parseKnownSkillReference(
   raw: string,
   commands: readonly { name: string; source: string }[],
+  options: SkillRunOptions = {},
 ): ParsedSkillEnvelope | undefined {
-  const match = /^( {0,3})([$/])([^\s]+)(?=[ \t\r\n]|$)/u.exec(raw);
-  if (!match) return undefined;
-  const name = shorthandName(match[3]);
   const known = knownSkillNames(commands);
-  if (!name || !known.has(name)) return undefined;
-  if (match[2] === "/" && !match[3].startsWith("skill:") && commands.some((command) => command.source !== "skill" && command.name === name)) {
-    return undefined;
-  }
-  return { name, userMessage: instructionAfterToken(raw, match[0].length), envelope: false };
+  return readSkillRun(raw, (name, marker, token) => known.has(name)
+    && !(marker === "/" && !token.startsWith("skill:") && commands.some((command) => command.source !== "skill" && command.name === name)), options.multiple === true);
 }
 
 /** Lightweight variant for correlation callers that only have names. */
 export function parseKnownSkillName(
   raw: string,
   names: Iterable<string>,
+  options: SkillRunOptions = {},
 ): ParsedSkillEnvelope | undefined {
-  const match = /^( {0,3})([$/])([^\s]+)(?=[ \t\r\n]|$)/u.exec(raw);
-  if (!match) return undefined;
-  const token = match[3];
-  const name = shorthandName(token);
   const known = new Set(names);
-  if (!name || !known.has(name)) return undefined;
-  return { name, userMessage: instructionAfterToken(raw, match[0].length), envelope: false };
+  return readSkillRun(raw, (name) => known.has(name), options.multiple === true);
+}
+
+/**
+ * The tokens of a skill selection the composer made: the leading run of
+ * `names`, whatever the command spelling, and the text after it. Unlike the
+ * parsers above it accepts a name an extension also uses, because the user
+ * chose that skill.
+ */
+export function parseSelectedSkillRun(raw: string, names: ReadonlySet<string>): ParsedSkillEnvelope | undefined {
+  return readSkillRun(raw, (name) => names.has(name), true);
 }
 
 /** Shared parser used by both normalization and runtime correlation. */
 export function parseKnownSkillInvocation(
   raw: string,
   commands: readonly { name: string; source: string }[],
+  options: SkillRunOptions = {},
 ): ParsedSkillEnvelope | undefined {
-  const envelope = parseSkillEnvelope(raw);
-  if (envelope) return knownSkillNames(commands).has(envelope.name) ? envelope : undefined;
-  return parseKnownSkillReference(raw, commands);
+  const known = knownSkillNames(commands);
+  const envelope = parseSkillEnvelope(raw, (name) => known.has(name));
+  if (envelope) return known.has(envelope.name) ? envelope : undefined;
+  return parseKnownSkillReference(raw, commands, options);
 }
 
 /** Returns the visible suffix only for complete envelopes. */

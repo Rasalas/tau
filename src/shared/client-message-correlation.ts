@@ -72,9 +72,9 @@ function visibleFingerprintText(value: string, knownSkillNames: Iterable<string>
   // an unknown wrapper's suffix as canonical would let it collide with a
   // different, genuinely typed message.
   const known = new Set(knownSkillNames);
-  const envelope = parseSkillEnvelope(value);
+  const envelope = parseSkillEnvelope(value, (name) => known.has(name));
   if (envelope && known.has(envelope.name)) return envelope.userMessage;
-  const shorthand = parseKnownSkillName(value, known);
+  const shorthand = parseKnownSkillName(value, known, { multiple: true });
   if (shorthand) return shorthand.userMessage;
   return value;
 }

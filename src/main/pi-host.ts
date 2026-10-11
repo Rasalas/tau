@@ -117,6 +117,7 @@ import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import type { ClientTurnLedger } from "./client-turn-ledger.js";
 import { skillMessagePresentation } from "./skill-invocation.js";
+import { skillDraftOf } from "../shared/prepared-prompt.js";
 import type { WorkbenchReloadCoordinator } from "./workbench-reload-coordinator.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
 import {
@@ -1340,9 +1341,7 @@ export class PiHost {
           try {
             const preparedThreadId = prepared?.tauThreadId ?? prepared?.sessionId;
             const deliveryPrepared = preparedThreadId && preparedThreadId !== thread.threadId
-              ? await thread.backend.preparePrompt(initialPrompt ?? "", prepared?.skill
-                ? { source: "skill", name: prepared.skill.name, visibleText: prepared.visibleText, command: prepared.skill.command }
-                : undefined)
+              ? await thread.backend.preparePrompt(initialPrompt ?? "", prepared && skillDraftOf(prepared, prepared.visibleText))
               : prepared;
             await this.prompt(initialPrompt ?? "", attachments, thread.threadId, identity, deliveryPrepared);
             // Whether this prompt creates a user turn is decided inside

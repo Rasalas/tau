@@ -1,6 +1,6 @@
 import type { RuntimeCapabilities, SkillInvocationDialect, UiComposerCommand, UiSkillDraft, UiSkillInvocation } from "../shared/contracts.js";
 import { parseKnownSkillInvocation } from "../shared/skill-envelope.js";
-import { canonicalPreparedSkillName, runtimeSkillCommand } from "../shared/prepared-prompt.js";
+import { canonicalPreparedSkillName, runtimeSkillCommand, skillFields } from "../shared/prepared-prompt.js";
 
 export { visibleSkillEnvelopeText } from "../shared/skill-envelope.js";
 
@@ -14,9 +14,10 @@ export const PI_RUNTIME_ADAPTER = {
   capabilities: { skillInvocationDialect: "pi" },
 } as const satisfies SkillRuntimeAdapter;
 
-function formatSkillInvocation(name: string, userMessage: string, dialect: SkillInvocationDialect): string {
-  const command = runtimeSkillCommand(name, { skillInvocationDialect: dialect });
-  return userMessage ? `${command} ${userMessage}` : command;
+/** The runtime spelling of a message: every skill's command, then the text after them. */
+function formatSkillInvocation(names: readonly string[], userMessage: string, dialect: SkillInvocationDialect): string {
+  const commands = names.map((name) => runtimeSkillCommand(name, { skillInvocationDialect: dialect })).join(" ");
+  return userMessage ? `${commands} ${userMessage}` : commands;
 }
 
 /** Runtime-owned spelling exposed to the composer as typed command metadata. */
@@ -31,7 +32,16 @@ export function canonicalSkillName(name: string): string {
 export interface PreparedSkillPrompt {
   text: string;
   runtimeText: string;
+  /** The first skill of the message. */
   skill?: UiSkillInvocation;
+  /** Every skill, only when there are two or more. */
+  skills?: UiSkillInvocation[];
+}
+
+function invocations(names: readonly string[], userMessage: string, adapter: SkillRuntimeAdapter): { skill: UiSkillInvocation; skills?: UiSkillInvocation[]; copyText: string } {
+  const copyText = formatSkillInvocation(names, userMessage, adapter.capabilities.skillInvocationDialect);
+  const all = names.map((name) => ({ name, command: skillInvocationCommand(name, adapter), copyText }));
+  return { skill: all[0]!, ...(all.length > 1 ? { skills: all } : {}), copyText };
 }
 
 /**
@@ -46,38 +56,36 @@ export function prepareSkillPrompt(
   selectedSkill?: UiSkillDraft,
 ): PreparedSkillPrompt {
   if (selectedSkill) {
-    const name = canonicalSkillName(selectedSkill.name);
-    const command = skillInvocationCommand(name, adapter);
-    const catalogEntry = commands.find((candidate) => candidate.source === "skill"
-      && canonicalSkillName(candidate.name) === name);
-    const isKnownSkill = Boolean(catalogEntry);
-    if (selectedSkill.source !== "skill"
-      || !/^[A-Za-z0-9][A-Za-z0-9_-]*$/u.test(name)
-      || !isKnownSkill
-      || selectedSkill.command !== command
-      || (catalogEntry?.skillCommand !== undefined && catalogEntry.skillCommand !== command)
-      || typeof selectedSkill.visibleText !== "string") {
-      throw new Error(`The selected skill '${selectedSkill.name}' is no longer available in this runtime.`);
+    const selected = [{ name: selectedSkill.name, command: selectedSkill.command }, ...selectedSkill.additionalSkills ?? []];
+    const names = selected.map((entry) => canonicalSkillName(entry.name));
+    const unavailable = () => new Error(`The selected skill '${selectedSkill.name}' is no longer available in this runtime.`);
+    if (selected.length > 1 && adapter.capabilities.multipleSkills !== true) {
+      throw new Error("This runtime loads one skill per message.");
     }
-    const skill: UiSkillInvocation = {
-      name,
-      command,
-      copyText: formatSkillInvocation(name, selectedSkill.visibleText, adapter.capabilities.skillInvocationDialect),
-    };
-    return { text: selectedSkill.visibleText, runtimeText: skill.copyText, skill };
+    if (selectedSkill.source !== "skill" || typeof selectedSkill.visibleText !== "string" || new Set(names).size !== names.length) throw unavailable();
+    selected.forEach((entry, index) => {
+      const name = names[index]!;
+      const command = skillInvocationCommand(name, adapter);
+      const catalogEntry = commands.find((candidate) => candidate.source === "skill"
+        && canonicalSkillName(candidate.name) === name);
+      if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/u.test(name)
+        || !catalogEntry
+        || entry.command !== command
+        || (catalogEntry.skillCommand !== undefined && catalogEntry.skillCommand !== command)) {
+        throw new Error(`The selected skill '${entry.name}' is no longer available in this runtime.`);
+      }
+    });
+    const { skill, skills, copyText } = invocations(names, selectedSkill.visibleText, adapter);
+    return { text: selectedSkill.visibleText, runtimeText: copyText, skill, ...(skills ? { skills } : {}) };
   }
-  const invocation = parseKnownSkillInvocation(raw, commands);
+  const invocation = parseKnownSkillInvocation(raw, commands, { multiple: adapter.capabilities.multipleSkills === true });
   if (!invocation) return { text: raw, runtimeText: raw };
-  const dialect = adapter.capabilities.skillInvocationDialect;
-  const skill: UiSkillInvocation = {
-    name: invocation.name,
-    command: skillInvocationCommand(invocation.name, adapter),
-    copyText: formatSkillInvocation(invocation.name, invocation.userMessage, dialect),
-  };
+  const { skill, skills, copyText } = invocations(invocation.names, invocation.userMessage, adapter);
   return {
     text: invocation.userMessage,
-    runtimeText: skill.copyText,
+    runtimeText: copyText,
     skill,
+    ...(skills ? { skills } : {}),
   };
 }
 
@@ -98,6 +106,7 @@ export function normalizePiBridgePrompt(raw: string, commands: readonly UiCompos
 export interface SkillMessagePresentation {
   text: string;
   skill: UiSkillInvocation;
+  skills?: UiSkillInvocation[];
 }
 
 /** Produce the renderer-safe message shape without leaking injected body or local origin. */
@@ -107,5 +116,5 @@ export function skillMessagePresentation(
   commands: readonly UiComposerCommand[],
 ): SkillMessagePresentation | undefined {
   const prepared = prepareSkillPrompt(raw, adapter, commands);
-  return prepared.skill ? { text: prepared.text, skill: prepared.skill } : undefined;
+  return prepared.skill ? { text: prepared.text, ...skillFields(prepared), skill: prepared.skill } : undefined;
 }
