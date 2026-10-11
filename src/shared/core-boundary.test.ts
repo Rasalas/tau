@@ -54,6 +54,8 @@ const HOST_FORBIDDEN_IMPORTS = ["git-coordinator", "workspace-git", "workspace-k
  */
 const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./app-menu.js",   "./app-shell.js",   "./app-updates.js",
+  // The `tau` command linked from Settings → General.
+  "./command-line.js",
   // Tau or Tau Dev: every name two installed apps could share (K132).
   "./app-identity.js",
   // An AppImage without sandbox installing the .deb and restarting from it (K26).

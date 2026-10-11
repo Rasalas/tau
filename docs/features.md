@@ -69,6 +69,13 @@ ended, and whether anything may still wake the thread. After a restart a Codex
 goal that was running shows as paused until you resume it; a Claude Code goal
 shows as not confirmed. Pi threads have no native goals.
 
+## The `tau` command from Settings
+
+Settings → General → **Terminal command** puts `tau` on your terminal's `PATH`
+after asking which folder it links into, shows where it is installed and
+whether a new terminal finds it, and **Remove** undoes it. An existing `tau`
+is never replaced. See [Install](install.md#the-tau-command).
+
 ## Reorder stage tabs
 
 Drag a stage tab along the strip and let it go: a line shows where it lands, in

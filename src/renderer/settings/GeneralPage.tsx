@@ -10,6 +10,7 @@ import { isMacPlatform } from "../keybindings";
 import { useHostCapabilities } from "../use-host-capabilities";
 import type { SettingsCardId, SettingsSectionProps } from "../extension-system";
 import { SegmentedControl, Select, Switch } from "./controls";
+import { CommandLineRow } from "./CommandLineRow";
 import { SettingRow, SettingsCard, useSetting } from "./settings-layout";
 import { settingAnchor } from "./settings-search";
 import { useClientEnvironment } from "../client-environment";
@@ -194,6 +195,7 @@ export function GeneralPage({ themeHere, sections = [], onNotify = () => undefin
             setting={quitWhileRunning}
             control={<Switch label="Ask before quitting while threads work" checked={quitWhileRunning.value} onChange={quitWhileRunning.set} />}
           />
+          <CommandLineRow onNotify={onNotify} />
         </> : null}
       </SettingsCard>
       {sections.filter((section) => !section.card).map(({ id, Component }) => <Component key={id} onNotify={onNotify} onChanged={() => undefined} />)}

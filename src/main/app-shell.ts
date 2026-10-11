@@ -1,4 +1,5 @@
-import type { ReleaseNotes, WindowAction, WindowShellEvent, WindowShellStatus } from "../shared/window-shell.js";
+import type { CommandLine } from "./command-line.js";
+import type { CommandLineState, ReleaseNotes, WindowAction, WindowShellEvent, WindowShellStatus } from "../shared/window-shell.js";
 
 /** How long a quit waits for the page's first answer before it goes ahead anyway. */
 export const QUIT_ANSWER_TIMEOUT_MS = 2_000;
@@ -16,6 +17,8 @@ export interface AppShellPorts {
   devBuild?: boolean;
   releaseNotes?: { pending(): Promise<ReleaseNotes | undefined>; seen(version: string): Promise<void> };
   schedule?(run: () => void, ms: number): () => void;
+  /** The `tau` command of a terminal; a client without it answers `unsupported`. */
+  commandLine?: CommandLine;
 }
 
 const defaultSchedule = (run: () => void, ms: number) => {
@@ -79,6 +82,11 @@ export function createAppShell(ports: AppShellPorts) {
         case "check-for-updates":
           ports.checkForUpdates();
           return undefined;
+        case "command-line": {
+          if (!ports.commandLine) return { supported: false, name: "tau", onPath: false } satisfies CommandLineState;
+          if (action.op === "install") return ports.commandLine.install(action.folder!);
+          return action.op === "remove" ? ports.commandLine.remove() : ports.commandLine.state();
+        }
       }
     },
   };
