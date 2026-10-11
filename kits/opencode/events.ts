@@ -42,13 +42,13 @@ export function stepContext(tokens: (OpenCodeTokens & { total?: number }) | unde
   return { tokens: used, contextWindow, percent: Math.min(100, Math.round((used / contextWindow) * 100)) };
 }
 
-function bounded(output: string): string {
+export function bounded(output: string): string {
   const bytes = Buffer.from(output, "utf8");
   if (bytes.length <= MAX_TOOL_OUTPUT_BYTES) return output;
   return `[Earlier output truncated; showing the latest ${MAX_TOOL_OUTPUT_BYTES} bytes.]\n${bytes.subarray(bytes.length - MAX_TOOL_OUTPUT_BYTES).toString("utf8")}`;
 }
 
-function record(value: unknown): Record<string, unknown> {
+export function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
