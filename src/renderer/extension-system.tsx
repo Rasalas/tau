@@ -1108,8 +1108,11 @@ export interface PaletteMenu {
 /** What the palette hands a source with every query. */
 export interface PaletteSearchContext {
   actions: WorkbenchActions;
-  /** The thread index as this window holds it; `running` are the threads with a turn going. */
-  index: { projects: readonly UiProject[]; threads: readonly UiSession[]; activeThreadId?: string; running?: readonly string[] };
+  /**
+   * The thread index as this window holds it; `running` are the threads with a turn going,
+   * `waiting` the ones asking the user something (new with W07).
+   */
+  index: { projects: readonly UiProject[]; threads: readonly UiSession[]; activeThreadId?: string; running?: readonly string[]; waiting?: readonly string[] };
   /** The tab or prefix the palette is narrowed to; "all" when none is. */
   scope?: "all" | "threads" | "files";
   /** Aborted when the query changes or the palette closes; a late answer is dropped either way. */

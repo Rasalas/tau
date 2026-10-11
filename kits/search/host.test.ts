@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { threadTextsDelta, THREAD_TEXTS_COMMAND, type HostExtension, type HostExtensionServices } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import createSearchHostExtension from "./host.js";
-import { SEARCH_KIT_ID, type ContentSearchResult, type FileSearchResult, type ThreadMatch } from "./protocol.js";
+import { SEARCH_KIT_ID, type ContentSearchResult, type FileSearchResult, type ThreadMatch, type ThreadRequestMatch } from "./protocol.js";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -168,6 +168,28 @@ describe("Search host: threads", () => {
     expect(asked).toEqual([{ known: {}, limit: 25 }]);
     // The next keystrokes search the index as it is; the kit is asked again only after a few seconds.
     expect((await registry.invoke(SEARCH_KIT_ID, "threads", { query: "older" }) as ThreadMatch[]).map((match) => match.sessionId)).toEqual(["codex-old"]);
+    expect(asked).toHaveLength(1);
+  });
+
+  it("finds threads through Review Kit's stored request links and answers nothing without it", async () => {
+    const asked: unknown[] = [];
+    const review: HostExtension = {
+      id: "tau.review",
+      name: "Review",
+      activate(context) {
+        context.registerCommand("thread-request-links", (input) => {
+          asked.push(input);
+          return { t1: [{ url: "https://github.com/acme/tau/pull/95", repository: "acme/tau", number: 95, state: "open", title: "Add it", headBranch: "feat/x" }] };
+        }, { callers: [SEARCH_KIT_ID] });
+      },
+    };
+    const registry = await activateHostKit(createSearchHostExtension() as unknown as HostExtension, { cwd: () => "/", findCommand: () => undefined } as Partial<HostExtensionServices>);
+    expect(await registry.invoke(SEARCH_KIT_ID, "thread-requests", { query: "#95" })).toEqual([]);
+    await registry.activate(review);
+    const found = await registry.invoke(SEARCH_KIT_ID, "thread-requests", { query: " #95 " }) as ThreadRequestMatch[];
+    expect(found).toEqual([{ sessionId: "t1", requests: [expect.objectContaining({ number: 95, repository: "acme/tau" })] }]);
+    expect(asked).toEqual([{ query: "#95" }]);
+    expect(await registry.invoke(SEARCH_KIT_ID, "thread-requests", { query: "  " })).toEqual([]);
     expect(asked).toHaveLength(1);
   });
 });

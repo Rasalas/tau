@@ -11,6 +11,7 @@ import { contentPattern, searchWalkedFiles, walkProject } from "./walker.js";
 import {
   CONTENT_LIMIT,
   FILE_LIMIT,
+  REVIEW_KIT_ID,
   SEARCH_KIT_ID,
   THREAD_TEXT_SOURCES,
   type ContentMatch,
@@ -18,6 +19,7 @@ import {
   type ContentSearchResult,
   type FileSearchResult,
   type ThreadMatch,
+  type ThreadRequestMatch,
 } from "./protocol.js";
 
 /** Bad input, not a broken command: it reaches the caller without counting against the kit. */
@@ -264,6 +266,22 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
           }
         }
         return matches;
+      }, { access: "read", long: true });
+
+      context.registerCommand("thread-requests", async (raw): Promise<ThreadRequestMatch[]> => {
+        const fields = record(raw);
+        const query = text(fields.query).trim();
+        if (!query) return [];
+        let answer: unknown;
+        try {
+          answer = await context.invokeHostExtension(REVIEW_KIT_ID, "thread-request-links", { query });
+        } catch {
+          // No Review Kit, or one that does not know the command: a thread has no request to find it by.
+          return [];
+        }
+        return Object.entries(record(answer))
+          .flatMap(([sessionId, links]) => Array.isArray(links) && links.length > 0 ? [{ sessionId, requests: links as ThreadRequestMatch["requests"] }] : [])
+          .slice(0, count(fields.limit, 20, 100));
       }, { access: "read", long: true });
 
       return () => {

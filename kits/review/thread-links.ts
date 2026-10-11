@@ -46,6 +46,17 @@ function decodeLink(value: unknown): ThreadPullRequestLink | undefined {
 export const linkKey = (link: Pick<PullRequestRef, "host" | "repo" | "number">): string => `${link.host.toLowerCase()}/${link.repo.toLowerCase()}#${link.number}`;
 
 /**
+ * Whether every word of `query` is in the link's number (`#95`), `owner/repo#95`,
+ * URL, title or head branch, ignoring case.
+ */
+export function linkMatchesQuery(link: ThreadPullRequestLink, query: string): boolean {
+  const words = query.toLowerCase().split(/\s+/u).filter(Boolean);
+  if (words.length === 0) return false;
+  const terms = [`#${link.number}`, `${link.repo}#${link.number}`, link.url, link.title, link.headRef].filter(Boolean).join(" ").toLowerCase();
+  return words.every((word) => terms.includes(word));
+}
+
+/**
  * The requests each thread keeps beside it, in the kit's own state folder:
  * a thread of any runtime has them, and deleting the thread drops them.
  * Writes are queued, so two links in a row never lose one another.
@@ -96,6 +107,11 @@ export class ThreadLinkStore {
 
   async list(threadId: string): Promise<ThreadPullRequestLink[]> {
     return [...(await this.load()).get(threadId) ?? []];
+  }
+
+  /** Every thread's links, as stored: no provider is asked. */
+  async all(): Promise<ReadonlyMap<string, readonly ThreadPullRequestLink[]>> {
+    return new Map(await this.load());
   }
 
   /** Adds a link, or leaves the one already there; answers whether it was there. */
