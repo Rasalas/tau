@@ -156,3 +156,39 @@ describe("tool media", () => {
     expect(events.at(-1)).toMatchObject({ type: "tool-end", tool: { media: [{ type: "image", url: "data:image/png;base64,AQ==" }] } });
   });
 });
+
+describe("an MCP tool call with an app", () => {
+  const call = (extra: Record<string, unknown> = {}, status = "completed") => ({ type: "mcpToolCall", id: "m1", server: "fixture", tool: "counter", status, arguments: { start: 1 }, appContext: null, mcpAppUi: null, result: { content: [{ type: "text", text: "1" }], structuredContent: { count: 1 }, _meta: null }, error: null, ...extra });
+  const ref = { "tau.codex.mcp-app": { server: "fixture", tool: "counter", resourceUri: "ui://fixture/counter.html" } };
+
+  it("marks start and end with the reference and reports the capture with the nulls dropped", () => {
+    const captures: unknown[] = [];
+    const translator = new CodexTurnTranslator(() => 1, (capture) => captures.push(capture));
+    const started = translator.push("item/started", { item: call({ mcpAppResourceUri: "ui://fixture/counter.html", result: null }) });
+    const ended = translator.push("item/completed", { item: call({ mcpAppResourceUri: "ui://fixture/counter.html" }) });
+    expect(started).toMatchObject([{ type: "tool-start", tool: { extras: ref } }]);
+    expect(ended).toMatchObject([{ type: "tool-end", tool: { extras: ref, status: "done" } }]);
+    expect(captures).toEqual([{ server: "fixture", tool: "counter", resourceUri: "ui://fixture/counter.html", itemId: "m1", arguments: { start: 1 }, result: { content: [{ type: "text", text: "1" }], structuredContent: { count: 1 } } }]);
+  });
+
+  it("prefers mcpAppUi.resourceUri over the legacy field and marks a call only seen finished", () => {
+    const captures: Array<{ resourceUri: string }> = [];
+    const translator = new CodexTurnTranslator(() => 1, (capture) => captures.push(capture));
+    const events = translator.push("item/completed", { item: call({ mcpAppUi: { resourceUri: "ui://fixture/counter.html", preferredModelDisplayMode: "inline" }, mcpAppResourceUri: "ui://legacy/other.html" }) });
+    expect(events).toMatchObject([{ type: "tool-start", tool: { extras: ref } }, { type: "tool-end", tool: { extras: ref } }]);
+    expect(captures.map((capture) => capture.resourceUri)).toEqual(["ui://fixture/counter.html"]);
+  });
+
+  it("marks nothing for a call without a ui:// resource, another item type or a failed call", () => {
+    const captures: unknown[] = [];
+    const translator = new CodexTurnTranslator(() => 1, (capture) => captures.push(capture));
+    const plain = translator.push("item/completed", { item: call({ id: "a" }) });
+    const web = translator.push("item/completed", { item: call({ id: "b", mcpAppResourceUri: "https://example.com/app.html" }) });
+    const command = translator.push("item/completed", { item: { type: "commandExecution", id: "c", command: "ls", mcpAppResourceUri: "ui://x/y", status: "completed" } });
+    const failedCall = translator.push("item/completed", { item: call({ id: "d", mcpAppResourceUri: "ui://fixture/counter.html", error: { message: "boom" }, status: "failed" }) });
+    for (const events of [plain, web, command, failedCall]) {
+      for (const event of events) expect((event as { tool?: { extras?: unknown } }).tool?.extras).toBeUndefined();
+    }
+    expect(captures).toEqual([]);
+  });
+});

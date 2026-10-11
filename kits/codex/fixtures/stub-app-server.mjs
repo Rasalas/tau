@@ -5,6 +5,7 @@
 // `crash` exits mid-turn. `elicitation`, `permissions` and `question` are
 // written from the protocol's schema (codex-cli 0.156.1), not recorded.
 // `computeruse` exercises openai/form negotiation verified with 0.160.0.
+// `mcpapp` finishes an MCP tool call that names a `ui://` document.
 // `background` and `backgroundstop` leave a command running past the turn, as
 // a background terminal of codex-cli 0.162 does (experimental schema).
 // STUB_LOG names a file every client message is appended to; STUB_THREADS a
@@ -72,6 +73,13 @@ async function play(name, ids) {
     };
     terminals.set(item.processId, () => end("failed", 143));
     if (name === "background") setTimeout(() => end("completed", 0), 50);
+    return;
+  }
+  if (name === "mcpapp") {
+    const item = { type: "mcpToolCall", id: "mcp-item", server: "fixture", tool: "counter", status: "inProgress", arguments: { start: 1 }, appContext: null, mcpAppResourceUri: "ui://fixture/counter.html", mcpAppUi: null, pluginId: null, readOnlyHint: true, result: null, error: null, durationMs: null };
+    send({ method: "item/started", params: { threadId: ids.thread, turnId: ids.turn, item } });
+    send({ method: "item/completed", params: { threadId: ids.thread, turnId: ids.turn, item: { ...item, status: "completed", result: { content: [{ type: "text", text: "1" }], structuredContent: { count: 1 }, _meta: null } } } });
+    send({ method: "turn/completed", params: { threadId: ids.thread, turn: { id: ids.turn, items: [], status: "completed", error: null } } });
     return;
   }
   if (name === "computeruse") {
@@ -215,6 +223,8 @@ async function handle(message) {
       void play(name, { thread: params.threadId, turn, cwd: cwds.get(params.threadId) ?? "/" });
       return;
     }
+    case "mcpServer/resource/read":
+      return send({ id, result: { contents: [{ uri: params.uri, mimeType: "text/html;profile=mcp-app", text: "<html><body>counter</body></html>", _meta: { ui: { prefersBorder: true } } }], originCallId: params.originCallId ?? null } });
     case "turn/steer": return send({ id, result: { turnId: params.expectedTurnId } });
     case "thread/backgroundTerminals/terminate": {
       const stop = terminals.get(params.processId);

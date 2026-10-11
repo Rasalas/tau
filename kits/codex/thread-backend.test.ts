@@ -72,6 +72,50 @@ describe("a command Codex keeps running after its turn", () => {
   });
 });
 
+describe("MCP Apps", () => {
+  it("declares the extension when the session starts", async () => {
+    const space = await scratch();
+    const { backend } = await open(space);
+    await backend.prompt({ text: "hi", delivery: "prompt" });
+    const initialize = (await sent(space)).find((entry) => entry.method === "initialize");
+    expect(initialize?.params).toMatchObject({ capabilities: { extensions: { "io.modelcontextprotocol/ui": { mimeTypes: ["text/html;profile=mcp-app"] } } } });
+  });
+
+  it("marks the tool card and hands the finished call to its owner with a reader on the live session", async () => {
+    const space = await scratch();
+    const captures: Array<Parameters<NonNullable<CodexThreadBackendOptions["onMcpApp"]>>> = [];
+    const { backend, events } = await open(space, { onMcpApp: (capture, reader) => { captures.push([capture, reader]); } });
+    await backend.prompt({ text: "[scenario:mcpapp]", delivery: "prompt" });
+    const ref = { "tau.codex.mcp-app": { server: "fixture", tool: "counter", resourceUri: "ui://fixture/counter.html" } };
+    expect(events.filter((event) => event.type === "tool-start" || event.type === "tool-end")).toEqual([
+      expect.objectContaining({ tool: expect.objectContaining({ extras: ref }) }),
+      expect.objectContaining({ tool: expect.objectContaining({ extras: ref, status: "done" }) }),
+    ]);
+    expect(captures).toHaveLength(1);
+    const [capture, reader] = captures[0]!;
+    expect(capture).toMatchObject({ itemId: "mcp-item", server: "fixture", tool: "counter", arguments: { start: 1 }, result: { content: [{ type: "text", text: "1" }], structuredContent: { count: 1 } } });
+    const read = await reader.read({ threadId: reader.codexThreadId, originCallId: "mcp-item", server: "fixture", uri: "ui://fixture/counter.html" });
+    expect(read.contents[0]).toMatchObject({ uri: "ui://fixture/counter.html", mimeType: "text/html;profile=mcp-app" });
+    expect((await sent(space)).find((entry) => entry.method === "mcpServer/resource/read")?.params).toMatchObject({ threadId: reader.codexThreadId, originCallId: "mcp-item", server: "fixture" });
+  });
+
+  it("sends the apps' changed context as an extra input item, once, and keeps it out of the transcript", async () => {
+    const space = await scratch();
+    const committed: string[] = [];
+    let pending: string | undefined = "<untrusted_app_context>x</untrusted_app_context>";
+    const { backend } = await open(space, {
+      appContext: async () => pending ? { text: pending, commit: async () => { committed.push(pending!); pending = undefined; } } : undefined,
+    });
+    await backend.prompt({ text: "first", delivery: "prompt" });
+    await backend.prompt({ text: "second", delivery: "prompt" });
+    const turns = (await sent(space)).filter((entry) => entry.method === "turn/start").map((entry) => entry.params!.input);
+    expect(turns[0]).toEqual([{ type: "text", text: "first", text_elements: [] }, { type: "text", text: "<untrusted_app_context>x</untrusted_app_context>", text_elements: [] }]);
+    expect(turns[1]).toEqual([{ type: "text", text: "second", text_elements: [] }]);
+    expect(committed).toHaveLength(1);
+    expect((await backend.transcript()).filter((message) => message.role === "user").map((message) => message.text)).toEqual(["first", "second"]);
+  });
+});
+
 async function until(condition: () => boolean, timeoutMs = 2_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!condition()) {
@@ -93,7 +137,7 @@ async function scratch() {
 
 type Scratch = Awaited<ReturnType<typeof scratch>>;
 
-async function open(space: Scratch, options: { onBackgroundEnded?: CodexThreadBackendOptions["onBackgroundEnded"]; level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer> | ExtensionUiAnswer; resume?: boolean; script?: string[]; tools?: string[]; activity?: TurnActivityStore; policy?: () => Promise<HostExecutionPolicy>; platform?: NodeJS.Platform; sessionCurrent?: (session: CodexSessionLike) => Promise<boolean> } = {}) {
+async function open(space: Scratch, options: { onBackgroundEnded?: CodexThreadBackendOptions["onBackgroundEnded"]; level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer> | ExtensionUiAnswer; resume?: boolean; script?: string[]; tools?: string[]; activity?: TurnActivityStore; policy?: () => Promise<HostExecutionPolicy>; platform?: NodeJS.Platform; sessionCurrent?: (session: CodexSessionLike) => Promise<boolean>; onMcpApp?: CodexThreadBackendOptions["onMcpApp"]; appContext?: CodexThreadBackendOptions["appContext"] } = {}) {
   const events: ThreadRuntimeEvent[] = [];
   const asked: BackendPrompt[] = [];
   const backend = new CodexThreadRuntimeBackend("tau-1", space.dir, {
@@ -119,6 +163,8 @@ async function open(space: Scratch, options: { onBackgroundEnded?: CodexThreadBa
     ...(options.policy ? { executionPolicy: options.policy } : {}),
     ...(options.platform ? { platform: options.platform } : {}),
     ...(options.onBackgroundEnded ? { onBackgroundEnded: options.onBackgroundEnded } : {}),
+    ...(options.onMcpApp ? { onMcpApp: options.onMcpApp } : {}),
+    ...(options.appContext ? { appContext: options.appContext } : {}),
   });
   backends.push(backend);
   await backend.start(options.resume ? "resume" : "create");

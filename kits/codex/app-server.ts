@@ -1,3 +1,4 @@
+import { MCP_APP_EXTENSION_ID, MCP_APP_MIME_TYPE } from "./mcp-app-protocol.js";
 import { RpcConnection, spawnRpcProcess, type RpcClosedError, type RpcProcess, type RpcSpawnInput } from "./rpc.js";
 
 /**
@@ -94,6 +95,28 @@ export interface CodexGoal {
   updatedAt: number;
 }
 
+/** `mcpServer/resource/read`: the contents as the MCP server answered them. */
+export interface CodexMcpResourceRead {
+  contents: Array<{ uri?: unknown; mimeType?: unknown; text?: unknown; blob?: unknown; _meta?: unknown }>;
+  originCallId?: string | null;
+}
+
+/** `mcpServer/tool/call`: an MCP `CallToolResult`. */
+export interface CodexMcpToolResult {
+  content: unknown[];
+  structuredContent?: unknown;
+  isError?: boolean;
+  _meta?: unknown;
+}
+
+/** An MCP `Tool` as `mcpServerStatus/list` carries it; only the parts Tau reads are named. */
+export interface CodexMcpTool {
+  name?: string;
+  annotations?: unknown;
+  _meta?: unknown;
+  [key: string]: unknown;
+}
+
 export interface CodexInitializeResult {
   userAgent: string;
   codexHome: string;
@@ -116,6 +139,7 @@ export interface CodexSessionOptions {
   timeouts?: { handshakeMs?: number; requestMs?: number };
 }
 
+const MCP_RESOURCE_READ_MS = 20_000;
 const DEFAULT_TIMEOUTS = { handshakeMs: 60_000, requestMs: 60_000 };
 /** The CLI answers a resume of a thread it has no rollout for with this. */
 export const MISSING_THREAD = /no rollout found|thread[^\n]*(?:not found|does not exist|unknown)/iu;
@@ -149,7 +173,10 @@ export class CodexAppServer {
         clientInfo: { name: CODEX_CLIENT_NAME, title: "Tau", version: options.clientVersion },
         // Plan mode is experimental. MCP app approvals use OpenAI forms;
         // keep the legacy opt-in for older supported app-server versions.
-        capabilities: { experimentalApi: true, requestAttestation: false, mcpServerOpenaiFormElicitation: true },
+        capabilities: {
+          experimentalApi: true, requestAttestation: false, mcpServerOpenaiFormElicitation: true,
+          extensions: { [MCP_APP_EXTENSION_ID]: { mimeTypes: [MCP_APP_MIME_TYPE] } },
+        },
       }, { timeoutMs: server.timeouts.handshakeMs });
       server.connection.notify("initialized");
       return server;
@@ -283,6 +310,21 @@ export class CodexAppServer {
   async terminateBackgroundTerminal(threadId: string, processId: string): Promise<boolean> {
     const result = await this.connection.request<{ terminated?: boolean }>("thread/backgroundTerminals/terminate", { threadId, processId }, { timeoutMs: this.timeouts.requestMs });
     return result.terminated !== false;
+  }
+
+  /** Reads a resource through the thread's MCP connection to `server`. */
+  readMcpResource(params: { threadId: string; server: string; uri: string; originCallId?: string }): Promise<CodexMcpResourceRead> {
+    return this.connection.request("mcpServer/resource/read", params, { timeoutMs: MCP_RESOURCE_READ_MS });
+  }
+
+  callMcpTool(params: { threadId: string; server: string; tool: string; arguments?: unknown }): Promise<CodexMcpToolResult> {
+    return this.connection.request("mcpServer/tool/call", params, { timeoutMs: this.timeouts.requestMs });
+  }
+
+  /** The tools `server` offers this thread, by name; empty when the server is unknown. */
+  async listMcpTools(threadId: string, server: string): Promise<Record<string, CodexMcpTool>> {
+    const result = await this.connection.request<{ data?: Array<{ name?: string; tools?: Record<string, CodexMcpTool> }> }>("mcpServerStatus/list", { threadId, serverName: server, detail: "toolsAndAuthOnly" }, { timeoutMs: this.timeouts.requestMs });
+    return result.data?.find((entry) => entry.name === server)?.tools ?? {};
   }
 
   async interruptTurn(threadId: string, turnId: string): Promise<void> {
