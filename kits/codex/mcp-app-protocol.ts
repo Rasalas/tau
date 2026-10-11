@@ -89,6 +89,11 @@ export type McpAppOpen =
   | { state: "pending" }
   | { state: "unavailable"; reason: string };
 
+/** `mcp-app-release` input: gives back the frame resource `open` minted. */
+export interface McpAppReleaseInput extends McpAppTarget {
+  path: string;
+}
+
 export interface McpAppCallToolInput extends McpAppTarget {
   name: string;
   arguments: Record<string, unknown>;

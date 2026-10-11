@@ -14,5 +14,6 @@
   ],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",
-  "host": "./host.ts"
+  "host": "./host.ts",
+  "styles": "./styles.css"
 }
