@@ -362,7 +362,7 @@ export const DiffStream = forwardRef<DiffStreamHandle, DiffStreamProps>(function
       virtualizer.scrollToIndex(index, { align: "center" });
       requestAnimationFrame(() => {
         const row = [...streamElement.current?.querySelectorAll("[data-find-id]") ?? []].find((element) => element.getAttribute("data-find-id") === active.id);
-        row?.scrollIntoView?.({ block: "nearest" });
+        row?.scrollIntoView?.({ block: "center" });
       });
     });
   }, [find?.active, find?.seek, rows, virtualizer]);

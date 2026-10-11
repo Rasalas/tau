@@ -77,7 +77,10 @@ export function PullRequestCode({ detail, client, files, filesError, threads, fo
   const context = usePullRequestContext(client, detail, ordered);
   const expanded = diff && context.can(diff.path) ? context.apply(diff) : undefined;
   // Every file of the request is searched, not only the one on screen; a match in another file selects it.
-  const findDiffs = useMemo(() => diffs.map((entry) => entry === diff && expanded ? expanded.diff : entry), [diff, diffs, expanded]);
+  const findDiffs = useMemo(() => {
+    const byPath = new Map(diffs.map((entry) => [entry.path, entry === diff && expanded ? expanded.diff : entry]));
+    return ordered.flatMap((file) => byPath.get(file.path) ?? []);
+  }, [diff, diffs, expanded, ordered]);
   const find = useDiffFind({ diffs: findDiffs, onReveal: (match) => setSelected(match.path) });
 
   const toggleViewed = async (file: PullRequestFile) => {

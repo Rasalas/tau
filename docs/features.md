@@ -78,6 +78,24 @@ thread's folder; the shell you closed went back to the Terminal panel. Each
 thread keeps its own list, with its tabs. Transcript detail moved to
 `Cmd/Ctrl+Alt+T`.
 
+## Read a pull request
+
+The comments of a pull or merge request come with a **Filter** menu, in the
+Summary and in the Timeline: bot comments and resolved or dismissed ones start
+hidden, the button says how many it holds back ("14 hidden"), and the choice is
+kept for every request. On GitHub a bot is told by its account type, not by a
+`[bot]` suffix. In the Changes and Code views a bar of unchanged lines sits
+between the hunks, above the first and below the last: the arrows show 20 more
+lines, the middle shows them all. Tau reads the file at the request's head
+commit from the host (GitHub, GitLab, Forgejo, Bitbucket, Azure DevOps), only
+ever reading, and the revealed lines carry no comment button, since hosts take
+comments on the diff's own lines only. `Cmd/Ctrl+F` inside a diff (the review
+overlay, the Code tab, the Reviews page's Changes) opens a find bar over every
+loaded file, folded ones included: Enter and Shift+Enter step through the
+matches, the file of the active one unfolds or is selected, and the switches
+match case, whole word or a regular expression. A diff that Tau loads in pages
+is searched as far as it is loaded.
+
 ## Watch a pull request
 
 The eye segment in a PR's existing strip or workspace card starts a GitHub

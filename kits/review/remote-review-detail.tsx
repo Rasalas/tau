@@ -128,7 +128,10 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
   const diffByPath = useMemo(() => new Map(diffs.map((diff) => [diff.path, diff])), [diffs]);
   const stackFiles = useMemo<StackFile[]>(() => ordered.map((file) => ({ path: file.path, added: file.added, removed: file.removed, ...(file.previousPath ? { previousPath: file.previousPath } : {}) })), [ordered]);
   // Every file is searched, expanded lines included; the match's file is brought into view the way a click in the sidebar does.
-  const findDiffs = useMemo(() => diffs.map((diff) => context.can(diff.path) ? context.apply(diff).diff : diff), [context, diffs]);
+  const findDiffs = useMemo(() => ordered.flatMap((file) => {
+    const diff = diffByPath.get(file.path);
+    return diff ? [context.can(diff.path) ? context.apply(diff).diff : diff] : [];
+  }), [context, diffByPath, ordered]);
   const found = useRef<string>();
   const find = useDiffFind({ diffs: findDiffs, onReveal: (match) => {
     // Within a file the stream scrolls to the line itself.
