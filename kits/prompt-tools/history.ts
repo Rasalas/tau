@@ -9,6 +9,7 @@
 const CONTEXT_BLOCKS: readonly RegExp[] = [
   /^<file path="[^"]*"[^>\n]*\/>/u,
   /^<file path="[^"]*"[^>\n]*>\n[\s\S]*?\n<\/file>/u,
+  /^<excerpt(?:\s+[a-z][\w-]*="[^"<>]*")*>\n[\s\S]*?\n<\/excerpt>/u,
   /^From [^\n]*:\n(?:>[^\n]*(?:\n|$))+/u,
   /^Pull request \[#\d+\]\([^)\s]*\): [^\n]*/u,
   /^The user attached [^\n]*? It is at [^\n]*; read it from there\./u,

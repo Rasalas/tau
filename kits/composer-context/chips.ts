@@ -10,6 +10,7 @@ import {
   type ChipPayloads,
   type DescribedAttachment,
   type ReadFileResult,
+  EXCERPT_TAG,
 } from "./protocol.js";
 
 /** A chip as the kit holds it: the service's shape plus the upload it may be waiting on. */
@@ -213,6 +214,8 @@ export function shouldFoldPaste(text: string): boolean {
 }
 
 const escapeAttribute = (value: string) => value.replace(/&/gu, "&amp;").replace(/"/gu, "&quot;").replace(/</gu, "&lt;");
+/** The user's words on an excerpt must not close the block they sit in. */
+const escapeComment = (text: string) => text.replace(/^([ \t]*)<\/excerpt>/gimu, "$1<\\/excerpt>");
 /** Captured text is data: it must not close the block it sits in. */
 const escapeBody = (text: string) => text.replace(/<\/file>/giu, "<\\/file>");
 
@@ -243,7 +246,7 @@ const ORDER: readonly ChipKind[] = ["file", "text-excerpt", "pull-request", "att
 
 /**
  * The prompt prefix, in a fixed order whatever order the chips were added in:
- * files as `<file>` blocks, excerpts as quoted blocks, pull requests as a link
+ * files as `<file>` blocks, excerpts as quoted `<excerpt>` blocks, pull requests as a link
  * with their title, then attachments a runtime cannot open itself.
  */
 export function serializeChips({ chips, files, attachments, fileAttachments }: SerializeInput): string {
@@ -264,7 +267,9 @@ export function serializeChips({ chips, files, attachments, fileAttachments }: S
         case "text-excerpt": {
           const quoted = chip.payload.text.replace(/\s+$/u, "").split(/\r?\n/u).map((line) => line ? `> ${line}` : ">").join("\n");
           const comment = chip.payload.comment?.trim();
-          blocks.push(`From ${chip.payload.source}:\n${quoted}${comment ? `\n\nMy comment on this excerpt: ${comment}` : ""}`);
+          const source = chip.payload.source.replace(/\s+/gu, " ").trim();
+          const open = chip.payload.messageId ? `<${EXCERPT_TAG} message="${escapeAttribute(chip.payload.messageId)}">` : `<${EXCERPT_TAG}>`;
+          blocks.push(`${open}\nFrom ${source}:\n${quoted}${comment ? `\n\nMy comment on this excerpt: ${escapeComment(comment)}` : ""}\n</${EXCERPT_TAG}>`);
           break;
         }
         case "pull-request":

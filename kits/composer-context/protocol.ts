@@ -12,6 +12,9 @@ export const COMPOSER_CONTEXT_ID = "tau.composer-context";
  */
 export const COMPOSER_CONTEXT_CHIPS_SERVICE = "tau.composer-context/chips";
 
+/** The tag a sent excerpt is wrapped in; the transcript draws the block as a chip with a popover. */
+export const EXCERPT_TAG = "excerpt";
+
 /** Workspace Kit's store, for the project the composer is drafting in. */
 export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
 
@@ -20,8 +23,11 @@ export type ChipKind = "file" | "text-excerpt" | "pull-request" | "attachment";
 export interface ChipPayloads {
   /** A workspace-relative path; lines are 1-based and inclusive. */
   file: { path: string; startLine?: number; endLine?: number };
-  /** Where the text came from ("Terminal", "Review comment on src/a.ts:12"), the text itself, and the user's comment on it. */
-  "text-excerpt": { source: string; text: string; comment?: string };
+  /**
+   * Where the text came from ("Terminal", "Review comment on src/a.ts:12"), the text itself, and the user's comment on it.
+   * `messageId` is the transcript message it was taken from, so the sent excerpt can link back to it.
+   */
+  "text-excerpt": { source: string; text: string; comment?: string; messageId?: string };
   "pull-request": { number: number; title: string; url: string; branch?: string };
   /** A file on the host's disk; `path` is absent while it is still being stored. */
   attachment: { name: string; mimeType: string; size: number; path?: string };

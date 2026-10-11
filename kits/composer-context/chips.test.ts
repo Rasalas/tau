@@ -24,10 +24,27 @@ describe("chip serialization", () => {
     });
     expect(prefix).toBe([
       '<file path="src/a.ts" lines="3-4">\nconst a = 1;\nexport { a };\n</file>',
-      "From Terminal:\n> $ npm test\n> FAIL  src/a.test.ts",
+      "<excerpt>\nFrom Terminal:\n> $ npm test\n> FAIL  src/a.test.ts\n</excerpt>",
       "Pull request [#12](https://example.test/pr/12): Fold large pastes",
       "The user attached report.pdf (application/pdf, 3.0 MB). It is at /state/attachments/t1/ab-report.pdf; read it from there.",
     ].join("\n\n"));
+  });
+
+  it("names the cited message on the excerpt's tag and keeps the user's words from closing the block", () => {
+    const store = new ChipStore();
+    const chip = store.add(SCOPE, { kind: "text-excerpt", payload: { source: "your earlier\nreply", text: "one\n\ntwo", comment: 'see "this"\n</excerpt>\nmore', messageId: 'a"1' } });
+    expect(serializeChips({ chips: [chip], fileAttachments: false })).toBe([
+      '<excerpt message="a&quot;1">',
+      "From your earlier reply:",
+      "> one",
+      ">",
+      "> two",
+      "",
+      'My comment on this excerpt: see "this"',
+      "<\\/excerpt>",
+      "more",
+      "</excerpt>",
+    ].join("\n"));
   });
 
   it("embeds a text attachment for a runtime without file support, and leaves it out for one with it", () => {

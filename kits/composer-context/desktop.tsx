@@ -11,10 +11,12 @@ import type {
   HostExtensionClient,
   UiPromptFileAttachment,
 } from "tau";
+import { SentExcerptChip } from "./sent-excerpt.js";
 import { ChipStore, formatBytes, isVideo, selectFiles, serializeChips, shouldFoldPaste, type ChipEntry } from "./chips.js";
 import {
   COMPOSER_CONTEXT_CHIPS_SERVICE,
   COMPOSER_CONTEXT_ID,
+  EXCERPT_TAG,
   WORKSPACE_STORE_SERVICE,
   type Chip,
   type ChipInput,
@@ -281,6 +283,8 @@ const composerContext: DesktopExtension = {
       subscribe: store.subscribe,
     };
     context.provideService(COMPOSER_CONTEXT_CHIPS_SERVICE, service);
+    // A sent excerpt reads as a chip with its quote in a popover, wherever the thread is read.
+    context.registerMessageBlock({ id: "composer-context.excerpt", tag: EXCERPT_TAG, roles: ["user"], profiles: ["desktop", "web", "compact"], Component: SentExcerptChip });
 
     const Strip = ({ scope, draftState }: ComposerInlineProps) => <ChipStrip store={store} scope={scope} draftState={draftState} inline />;
     const Detail = (props: ComposerChipDetailProps) => <ExcerptDetail store={store} {...props} />;
