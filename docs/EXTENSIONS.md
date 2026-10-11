@@ -1023,7 +1023,7 @@ The tabs (All, Threads, Files, > Commands) and the prefixes `#`, `/` and `>`
 narrow the palette; a source whose `scope` is the chosen one is the only kind
 asked. `search` may answer at once or with a promise; `index` is the thread
 index this window holds (`projects`, `threads`, `activeThreadId`, `running`, the
-threads with a turn going, and `waiting`, the ones asking the user something; new with W07), and `signal` aborts as soon as the query changes
+threads with a turn going, and `waiting`, the ones asking the user something; API 1.59.0), and `signal` aborts as soon as the query changes
 or the palette closes. An answer that arrives after that is dropped, so a slow
 source never paints rows for a query the user already left; a source that talks
 to its host half should wait a moment on the signal before it asks. A row is
@@ -3010,7 +3010,7 @@ credential per thread.
 | `gate(gate)` | Runs before each call with `{ threadId, cwd, toolName, input, annotations?, signal, confirm(title, message) }` (`annotations` is the tool's own `readOnlyHint`/`destructiveHint`, so a gate can tell a read from a write; new in API 1.59.0); answering `{ block: true, reason }` refuses the call with that text. `confirm` is a yes/no question on the thread's own dialog surface. A gate that throws blocks. Access Kit's gate is the shipped one. |
 | `connect(thread, options?)` | For a runtime backend: `{ name, url, token, headers }`, the server entry to put into the session's own MCP configuration (`name` is `tau`, so a runtime shows `mcp__tau__<tool>`). `options.tools` narrows what the credential lists and calls to those names, for a thread started with `tools`. The credential lives as long as the thread's runtime; a new runtime gets a new one. `undefined` in safe mode or when the endpoint cannot listen — the thread then runs without Tau's tools. |
 
-#### Mentioning a thread (new with W07)
+#### Mentioning a thread (API 1.59.0)
 
 A thread has one link everywhere: `[title](tau://thread?thread=<id>)`. The id is
 the reference; the label is only a stand-in, because the transcript draws the

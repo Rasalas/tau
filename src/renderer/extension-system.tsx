@@ -1110,7 +1110,7 @@ export interface PaletteSearchContext {
   actions: WorkbenchActions;
   /**
    * The thread index as this window holds it; `running` are the threads with a turn going,
-   * `waiting` the ones asking the user something (new with W07).
+   * `waiting` the ones asking the user something (API 1.59.0).
    */
   index: { projects: readonly UiProject[]; threads: readonly UiSession[]; activeThreadId?: string; running?: readonly string[]; waiting?: readonly string[] };
   /** The tab or prefix the palette is narrowed to; "all" when none is. */
