@@ -40,6 +40,16 @@ describe("a local OpenCode server", () => {
     await expect(server.client.health()).rejects.toThrow();
   });
 
+  it("reads an OpenCode 2 server's version from /api/info", async () => {
+    const fake = await startFakeOpenCode({ version: "2.0.26" });
+    try {
+      const server = await connectOpenCodeServer(fake.url, undefined);
+      await expect(server.client.health()).resolves.toEqual({ healthy: true, version: "2.0.26" });
+    } finally {
+      await fake.close();
+    }
+  });
+
   it("keeps a config it cannot read out of the merge", () => {
     expect(mergedConfigContent("not json", { a: 1 })).toBe('{"a":1}');
     expect(mergedConfigContent('{"a":1}', undefined)).toBe('{"a":1}');

@@ -159,8 +159,16 @@ export class OpenCodeClient {
     return JSON.parse(text) as T;
   }
 
-  health(): Promise<{ healthy: boolean; version: string }> {
-    return this.request("GET", "/global/health", { timeoutMs: 5_000 });
+  async health(): Promise<{ healthy: boolean; version: string }> {
+    try {
+      return await this.request("GET", "/global/health", { timeoutMs: 5_000 });
+    } catch (error) {
+      // OpenCode 2 dropped this route; its `/api/info` still names the version the policy refuses.
+      if (!(error instanceof OpenCodeHttpError) || error.status !== 404) throw error;
+      const info = await this.request<{ version?: unknown } | undefined>("GET", "/api/info", { timeoutMs: 5_000 }).catch(() => undefined);
+      if (typeof info?.version !== "string") throw error;
+      return { healthy: true, version: info.version };
+    }
   }
 
   providers(directory: string): Promise<OpenCodeProviderList> {
