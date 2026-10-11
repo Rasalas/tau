@@ -155,6 +155,9 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   /** Threads that run in the checkout only because their suggested worktree failed. */
   private readonly fellBack = new Set<string>();
 
+  /** Projects created here whose first thread has not been sent yet. */
+  private readonly freshProjects = new Set<string>();
+
   /** Clones in flight and just finished, as toasts. */
   readonly clones: CloneToasts;
 
@@ -251,14 +254,24 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     this.suggestWorktree();
   }
 
+  /** Creates a project from a name; its first thread starts in the folder, not in a worktree. */
+  async createProject(name: string, parentPath?: string): Promise<Awaited<ReturnType<WorkspaceHostClient["createProject"]>>> {
+    const created = await this.host.createProject(name, parentPath);
+    if (created) this.freshProjects.add(created.workspace.workspaceId);
+    return created;
+  }
+
   /**
    * Where a new thread of this project runs when nobody chose: the project's
-   * own answer beats the checked-in one, and both beat the global default.
+   * own answer beats the checked-in one, and both beat the global default. A
+   * project just created has nothing to branch from yet, so its first thread
+   * skips the global default.
    */
   private defaultWorkspaceMode(): WorkspaceMode {
     const root = this.state.cwd;
     const own = root ? asMode(this.preferences.value(WORKSPACE_KIT_ID, projectWorkspaceModeKey(root))) : undefined;
-    return own ?? this.defaults?.workspaceMode ?? asMode(this.preferences.value(WORKSPACE_KIT_ID, NEW_THREAD_WORKSPACE_KEY)) ?? "current";
+    const fresh = this.state.workspaceId !== undefined && this.freshProjects.has(this.state.workspaceId);
+    return own ?? this.defaults?.workspaceMode ?? (fresh ? "current" : undefined) ?? asMode(this.preferences.value(WORKSPACE_KIT_ID, NEW_THREAD_WORKSPACE_KEY)) ?? "current";
   }
 
   /** A draft not yet decided follows the default when Settings changes it. */
@@ -660,6 +673,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
    * from: a prompt is never lost to a worktree that could not be made.
    */
   async prepareThreadWorktree(event: ThreadWorktreeRequest): Promise<{ workspace?: { workspaceId: string; displayPath: string }; baseCommit?: string }> {
+    if (this.state.workspaceId) this.freshProjects.delete(this.state.workspaceId);
     if ((!event.force && this.workspaceMode() !== "worktree") || !this.state.workspace?.isRepo || !hostAvailable()) return {};
     this.update({ preparingWorktree: true });
     try {

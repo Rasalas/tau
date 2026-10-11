@@ -258,6 +258,48 @@ describe("Workspace Kit's default for a new draft", () => {
   });
 });
 
+describe("Workspace Kit's first thread of a new project", () => {
+  const WS = { workspaceId: "ws1_fresh", displayPath: "/projects/fresh" };
+  const storeWithNewProject = (preferences: PreferencesStore) => {
+    const stub = workspaceHostStub({ getWorkspaceInfo: async () => REPO });
+    setHostClient(createFakeHostClient({ invokeHostExtension: stub }));
+    const host = { ...createWorkspaceHostClient((command, input) => stub("tau.workspace", command, input)), createProject: vi.fn(async () => ({ workspace: WS })) };
+    const store = new WorkspaceStore(preferences, host);
+    store.bind({ holdComposer: () => () => undefined, openWorkspace: vi.fn(async () => true), notify: vi.fn() } as unknown as WorkbenchActions);
+    return store;
+  };
+
+  it("starts in the project's folder although new threads default to a worktree, once", async () => {
+    const preferences = new PreferencesStore();
+    preferences.setValue("tau.workspace", "new-thread-workspace", "worktree");
+    const workspaceStore = storeWithNewProject(preferences);
+    await workspaceStore.createProject("Fresh");
+
+    workspaceStore.follow({ cwd: "/projects/fresh", workspaceId: "ws1_fresh", draftPending: true });
+    expect(workspaceStore.workspaceMode()).toBe("current");
+    // Another project still follows the global default.
+    workspaceStore.follow({ cwd: "/projects/other", workspaceId: "ws1_other", draftPending: true });
+    expect(workspaceStore.workspaceMode()).toBe("worktree");
+
+    // Once the first thread has been sent, the project is like any other.
+    workspaceStore.follow({ cwd: "/projects/fresh", workspaceId: "ws1_fresh", draftPending: true });
+    await workspaceStore.prepareThreadWorktree({ prompt: "hello", preparing: () => undefined });
+    workspaceStore.follow({ cwd: "/projects/fresh", workspaceId: "ws1_fresh", sessionId: "first", draftPending: false });
+    workspaceStore.follow({ cwd: "/projects/fresh", workspaceId: "ws1_fresh", draftPending: true });
+    expect(workspaceStore.workspaceMode()).toBe("worktree");
+  });
+
+  it("lets the user's own choice for the project win", async () => {
+    const preferences = new PreferencesStore();
+    preferences.setValue("tau.workspace", "new-thread-workspace", "worktree");
+    preferences.setValue("tau.workspace", "workspace-mode:/projects/fresh", "worktree");
+    const workspaceStore = storeWithNewProject(preferences);
+    await workspaceStore.createProject("Fresh");
+    workspaceStore.follow({ cwd: "/projects/fresh", workspaceId: "ws1_fresh", draftPending: true });
+    expect(workspaceStore.workspaceMode()).toBe("worktree");
+  });
+});
+
 describe("Workspace Kit's default base", () => {
   it("rereads the shown base when Settings → Base changes", async () => {
     const preferences = new PreferencesStore();
