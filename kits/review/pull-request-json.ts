@@ -67,7 +67,7 @@ function actor(value: unknown): PullRequestActor | undefined {
   const login = text(raw.login) ?? text(raw.username);
   if (!login) return undefined;
   const name = text(raw.name);
-  const bot = raw.is_bot === true || raw.bot === true || raw.__typename === "Bot" || /\[bot\]$/u.test(login);
+  const bot = raw.is_bot === true || raw.bot === true || raw["__typename"] === "Bot" || /\[bot\]$/u.test(login);
   return { login, ...(name && name !== login ? { name } : {}), ...(bot ? { bot } : {}) };
 }
 
@@ -81,7 +81,7 @@ export function parseGitHubBotLogins(output: string): Set<string> {
     for (const node of list(record(connection).nodes)) {
       const author = record(node.author);
       const login = text(author.login);
-      if (login && author.__typename === "Bot") logins.add(login);
+      if (login && author["__typename"] === "Bot") logins.add(login);
     }
   }
   return logins;

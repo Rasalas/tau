@@ -183,6 +183,8 @@ async function harness(options: { tools?: Record<string, string>; answer?(call: 
     const call: Call = { args, ...(runOptions?.input !== undefined ? { input: runOptions.input } : {}) };
     // Who is signed in is asked once per host; the tests count the request's own calls.
     if (args[0] === "api" && args.at(-1) === "user") return JSON.stringify({ login: "octo" });
+    // Likewise which accounts are bots: asked beside every GitHub view, answered with none.
+    if (args.some((arg) => arg.startsWith("query=") && arg.includes("comments(first: 100) { nodes { author"))) return JSON.stringify({ data: { repository: { pullRequest: { comments: { nodes: [] }, reviews: { nodes: [] } } } } });
     calls.push(call);
     if (options.answer) return options.answer(call);
     return defaultAnswer(call);

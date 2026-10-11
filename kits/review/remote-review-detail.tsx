@@ -132,7 +132,7 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
     const diff = diffByPath.get(file.path);
     return diff ? [context.can(diff.path) ? context.apply(diff).diff : diff] : [];
   }), [context, diffByPath, ordered]);
-  const found = useRef<string>();
+  const found = useRef<string | undefined>(undefined);
   const find = useDiffFind({ diffs: findDiffs, onReveal: (match) => {
     // Within a file the stream scrolls to the line itself.
     if (match.path === found.current) return;
