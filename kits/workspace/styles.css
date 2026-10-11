@@ -401,7 +401,6 @@
 .draft-branch > .run-on-heading ~ .run-on-heading { margin-top: 4px; }
 .draft-branch > .ref-search { margin: 0; }
 .draft-branch > .ref-list { max-height: 200px; margin: 0 -4px; }
-.draft-branch > .draft-branch-origin { padding: 6px 0 0; border-top: 1px solid var(--line-soft); }
 /* One popover for both (design 1k): Run on, a rule, then Branch. What is chosen sits on the rail's tone, a step up in dark. */
 .popover.run-on-popover {
   width: min(320px, calc(100vw - 24px)); max-height: min(620px, calc(100vh - 80px)); overflow: auto; padding: 6px 0 0;

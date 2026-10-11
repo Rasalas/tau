@@ -2682,7 +2682,8 @@ export async function resolveWorktreeBase(
   runGit: GitRunner = git,
 ): Promise<WorktreeBase> {
   const requested = options.requested?.trim();
-  const base = requested || await resolveDefaultBaseRef(cwd, runGit);
+  // Unasked, a worktree starts from the project's main line, `origin/main` when origin is wanted.
+  const base = requested || await readDefaultBranch(cwd, runGit);
   const remotes = (await runGit(cwd, ["remote"]).catch(() => ""))
     .split("\n")
     .map((remote) => remote.trim())
@@ -2710,6 +2711,7 @@ export async function resolveWorktreeBase(
     if (remoteCommit) return { ref: tracking, commit: remoteCommit, fromOrigin: true };
   }
   const resolved = await commitOf(base);
+  if (!resolved && !requested) return resolveWorktreeBase(cwd, { requested: await resolveDefaultBaseRef(cwd, runGit), startFromOrigin: false }, runGit);
   if (!resolved) throw new Error(`The worktree base "${base}" does not exist.`);
   return {
     ref: base,
@@ -2719,17 +2721,14 @@ export async function resolveWorktreeBase(
   };
 }
 
-/** What "Based on" lists beside `base`: when the remote was last fetched, and origin's other latest branches. */
-export async function readBaseChoices(cwd: string, base: string, runGit: GitRunner = git): Promise<{ fetchedAt?: number; others: string[] }> {
-  const [fetchedAt, listed] = await Promise.all([
-    runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-path", "FETCH_HEAD"])
-      .then((path) => stat(path.trim()))
-      .then((info) => info.mtimeMs, () => undefined),
-    runGit(cwd, ["for-each-ref", "--sort=-committerdate", "--count=12", "--format=%(refname:short)", "refs/remotes/origin"]).catch(() => ""),
-  ]);
+const REMOTE_BASE_LIMIT = 500;
+
+/** What "Based on" lists beside `base`: origin's other branches, latest first. */
+export async function readBaseChoices(cwd: string, base: string, runGit: GitRunner = git): Promise<{ others: string[] }> {
+  const listed = await runGit(cwd, ["for-each-ref", "--sort=-committerdate", `--count=${REMOTE_BASE_LIMIT}`, "--format=%(refname:short)", "refs/remotes/origin"]).catch(() => "");
   // `origin/HEAD` reads as plain `origin` in its short form.
-  const others = listed.split("\n").map((ref) => ref.trim()).filter((ref) => ref.includes("/") && ref !== base && ref !== "origin/HEAD").slice(0, 8);
-  return { ...(fetchedAt ? { fetchedAt } : {}), others };
+  const others = listed.split("\n").map((ref) => ref.trim()).filter((ref) => ref.includes("/") && ref !== base && ref !== "origin/HEAD");
+  return { others };
 }
 
 /**
@@ -2824,7 +2823,7 @@ export async function createWorktree(
   }
   options.onStep?.("fetch");
   const base = await resolveWorktreeBase(cwd, {
-    ...(options.baseRef || info.branch ? { requested: options.baseRef || info.branch } : {}),
+    ...(options.baseRef ? { requested: options.baseRef } : {}),
     ...(options.startFromOrigin === undefined ? {} : { startFromOrigin: options.startFromOrigin }),
   }, runGit);
   // The commit, not the ref: a worktree started at `origin/main` would follow

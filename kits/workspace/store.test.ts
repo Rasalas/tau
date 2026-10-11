@@ -44,8 +44,8 @@ describe("Workspace Kit worktree creation", () => {
 
     await expect(workspaceStore.createWorktree("fix/queue", "main")).resolves.toBe(true);
 
-    // The draft's project and the new worktree are both named by identity, never by path.
-    expect(createWorktree).toHaveBeenCalledWith("fix/queue", { baseRef: "main", startFromOrigin: true }, "ws1_draft-project");
+    // The draft's project and the new worktree are both named by identity, never by path; a chosen `main` stays local.
+    expect(createWorktree).toHaveBeenCalledWith("fix/queue", { baseRef: "main", startFromOrigin: false }, "ws1_draft-project");
     expect(actions.openWorkspace).toHaveBeenCalledWith("ws1_worktree", { inheritDraft: true });
     expect(actions.holdComposer).toHaveBeenCalledTimes(1);
     expect(release).toHaveBeenCalledTimes(1);
@@ -255,6 +255,27 @@ describe("Workspace Kit's default for a new draft", () => {
     stop();
     preferences.setValue("tau.workspace", "new-thread-workspace", "worktree");
     expect(workspaceStore.workspaceMode()).toBe("current");
+  });
+});
+
+describe("Workspace Kit's default base", () => {
+  it("rereads the shown base when Settings → Base changes", async () => {
+    const preferences = new PreferencesStore();
+    const getWorktreeBase = vi.fn(async (_workspace?: string, options?: unknown) => {
+      const fromOrigin = (options as { startFromOrigin?: boolean } | undefined)?.startFromOrigin === true;
+      return { ref: fromOrigin ? "origin/main" : "main", commit: "abc", shortCommit: "abc", fromOrigin };
+    });
+    const workspaceStore = storeOver({ getWorktreeBase }, preferences);
+    const stop = workspaceStore.followDefaultChanges();
+    workspaceStore.update({ cwd: "/project", workspaceId: "ws1_project", draftPending: true, workspace: REPO });
+    await workspaceStore.loadWorktreeBase();
+    expect(workspaceStore.getSnapshot().worktreeBase?.ref).toBe("origin/main");
+    preferences.setOption("tau.workspace", "start-from-origin", false);
+    await vi.waitFor(() => expect(workspaceStore.getSnapshot().worktreeBase?.ref).toBe("main"));
+    // Another preference leaves it alone.
+    preferences.setValue("tau.workspace", "editor", "vscode");
+    expect(getWorktreeBase).toHaveBeenCalledTimes(2);
+    stop();
   });
 });
 

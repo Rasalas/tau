@@ -1671,7 +1671,7 @@ describe("Workspace Kit in the workbench", () => {
           root: "/project", isRepo: true, isDirty: false, branch: "main", worktrees: [],
           refs: [{ name: "main", isCurrent: true }, { name: "origin/release", isCurrent: false }], worktreeParent: "/project-worktrees",
         }),
-        getWorktreeBase: async () => ({ ref: "origin/main", commit: "abc1234", shortCommit: "abc1234", fromOrigin: true, fetchedAt: Date.now() - 2 * 60_000, others: ["origin/develop"] }),
+        getWorktreeBase: async () => ({ ref: "origin/main", commit: "abc1234", shortCommit: "abc1234", fromOrigin: true, others: ["origin/develop"] }),
         getFileTree: async () => [],
       }),
     });
@@ -1704,20 +1704,35 @@ describe("Workspace Kit in the workbench", () => {
     expect(header.querySelector(".thread-detail")).toBeNull();
     fireEvent.click(branch);
     const popover = await screen.findByRole("dialog", { name: "Branch" });
-    // Based on: every ref, the default with its fetch age.
-    await waitFor(() => expect(within(popover).getByRole("button", { name: /^origin\/main/u }).textContent).toBe("origin/maindefault · fetched 2m ago"));
+    // Based on: the default, the checkout's refs, then origin's; origin is a base to pick, not a switch.
+    await waitFor(() => expect(within(popover).getByRole("button", { name: /^origin\/main/u }).textContent).toBe("origin/maindefault"));
+    expect(within(popover).queryByRole("switch", { name: "Start from origin" })).toBeNull();
+    expect(within(popover).queryByText("worktree")).toBeNull();
+    expect([...popover.querySelectorAll(".ref-list button > span")].map((row) => row.textContent)).toEqual(["origin/main", "main", "origin/release", "origin/develop"]);
     // If empty: from the prompt needs a naming kit; without one it is random.
     expect((within(popover).getByRole("radio", { name: "Name from the prompt" }) as HTMLButtonElement).disabled).toBe(true);
     expect(within(popover).getByRole("radio", { name: "Random" }).getAttribute("aria-checked")).toBe("true");
-    // A name goes under tau/ unless it brings its own folder.
+    // The name is taken whole; one that finds no base leaves every base listed.
     const field = within(popover).getByRole("textbox", { name: "Branch name for the new worktree" });
+    expect(within(popover).queryByRole("textbox", { name: "Search branches…" })).toBeNull();
     fireEvent.change(field, { target: { value: "pages" } });
-    expect(screen.getByRole("button", { name: "New branch tau/pages from origin/main" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "New branch pages from origin/main" })).toBeTruthy();
+    expect(within(popover).getByRole("button", { name: "origin/develop" })).toBeTruthy();
+    // The same field searches the bases; the text that found one is no name.
+    fireEvent.change(field, { target: { value: "orirel" } });
+    await waitFor(() => expect([...popover.querySelectorAll(".ref-list button > span")].map((row) => row.textContent)).toEqual(["origin/release"]));
+    fireEvent.click(within(popover).getByRole("button", { name: "origin/release" }));
+    expect(await screen.findByRole("button", { name: "New branch tau/… from origin/release" })).toBeTruthy();
+    expect((field as HTMLInputElement).value).toBe("");
+    // A name typed after the base keeps it; arrow keys and Enter pick from the field.
     fireEvent.change(field, { target: { value: "feat/pages" } });
-    expect(screen.getByRole("button", { name: "New branch feat/pages from origin/main" })).toBeTruthy();
-    fireEvent.change(within(popover).getByRole("textbox", { name: "Search branches…" }), { target: { value: "release" } });
-    fireEvent.click(await within(popover).findByRole("button", { name: "origin/release" }));
-    expect(await screen.findByRole("button", { name: "New branch feat/pages from origin/release" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "New branch feat/pages from origin/release" })).toBeTruthy();
+    fireEvent.change(field, { target: { value: "dev" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(screen.getByRole("button", { name: "New branch dev from origin/release" })).toBeTruthy();
+    fireEvent.keyDown(field, { key: "ArrowDown" });
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(await screen.findByRole("button", { name: "New branch tau/… from origin/develop" })).toBeTruthy();
   });
 
   it("draws the icon chosen in Project settings on the project pill and in the picker, and the pill toggles the picker", async () => {

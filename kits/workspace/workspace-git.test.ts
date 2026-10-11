@@ -1100,21 +1100,29 @@ describe("worktree base", () => {
     expect(offline.some((args) => args[0] === "fetch")).toBe(false);
   });
 
-  it("lists origin's other latest branches and when it was fetched, for Based on (design 1k)", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "tau-base-choices-"));
-    try {
-      const fetchHead = join(dir, "FETCH_HEAD");
-      await writeFile(fetchHead, "");
-      const { mtimeMs } = await stat(fetchHead);
-      await expect(readBaseChoices("/repo", "origin/main", runner({
-        "rev-parse --path-format=absolute --git-path FETCH_HEAD": `${fetchHead}\n`,
-        "for-each-ref --sort=-committerdate --count=12 --format=%(refname:short) refs/remotes/origin": "origin/develop\norigin/main\norigin\norigin/feat/a\norigin/feat/b\norigin/feat/c\n",
-      }))).resolves.toEqual({ fetchedAt: mtimeMs, others: ["origin/develop", "origin/feat/a", "origin/feat/b", "origin/feat/c"] });
-      // Never fetched, no remote: nothing but the default.
-      await expect(readBaseChoices("/repo", "main", runner({}))).resolves.toEqual({ others: [] });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+  it("starts from the project's main line when no base is asked, whatever the checkout is on", async () => {
+    await expect(resolveWorktreeBase("/repo", {}, runner({
+      "symbolic-ref --short refs/remotes/origin/HEAD": "origin/main\n",
+      "remote": "origin\n",
+      "fetch --prune origin": "",
+      "rev-parse --verify --quiet origin/main^{commit}": "5555555555555555555555555555555555555555\n",
+    }))).resolves.toMatchObject({ ref: "origin/main", fromOrigin: true });
+
+    // Without origin and without a local main, the first base that exists answers.
+    await expect(resolveWorktreeBase("/repo", { startFromOrigin: false }, async (_cwd, args) => {
+      if (args[0] === "remote") return "";
+      if (args[0] === "branch") return "work\n";
+      if (args.join(" ") === "rev-parse --verify --quiet work^{commit}") return "6666666666666666666666666666666666666666\n";
+      throw new Error("no such ref");
+    })).resolves.toMatchObject({ ref: "work", fromOrigin: false });
+  });
+
+  it("lists origin's other branches for Based on (design 1k)", async () => {
+    await expect(readBaseChoices("/repo", "origin/main", runner({
+      "for-each-ref --sort=-committerdate --count=500 --format=%(refname:short) refs/remotes/origin": "origin/develop\norigin/main\norigin\norigin/feat/a\norigin/feat/b\norigin/feat/c\n",
+    }))).resolves.toEqual({ others: ["origin/develop", "origin/feat/a", "origin/feat/b", "origin/feat/c"] });
+    // No remote: nothing but the default.
+    await expect(readBaseChoices("/repo", "main", runner({}))).resolves.toEqual({ others: [] });
   });
 
   it("keeps offering the local base when origin cannot be reached", async () => {
@@ -1211,6 +1219,33 @@ describe("worktree creation", () => {
       expect(calls).toContainEqual(["config", "branch.feat/fresh-main.tau-review-target", "main"]);
       expect(calls.findIndex((args) => args[0] === "fetch"))
         .toBeLessThan(calls.findIndex((args) => args[0] === "worktree"));
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("starts from origin's main line, not the checkout's branch, when no base is chosen", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-worktree-"));
+    const calls: string[][] = [];
+    try {
+      const destination = await createWorktree(cwd, "feat/default", {}, async () => ({
+        root: cwd,
+        isRepo: true,
+        isDirty: false,
+        branch: "feature/current",
+        hasRemote: true,
+        worktrees: [],
+        refs: [],
+        worktreeParent: join(cwd, "worktrees"),
+      }), async (_path, args) => {
+        calls.push(args);
+        if (args[0] === "symbolic-ref") return "origin/main\n";
+        if (args[0] === "remote") return "origin\n";
+        if (args.join(" ") === "rev-parse --verify --quiet origin/main^{commit}") return "7777777777777777777777777777777777777777\n";
+        return "";
+      });
+      expect(calls).toContainEqual(["worktree", "add", "-b", "feat/default", destination, "7777777777777777777777777777777777777777"]);
+      expect(calls).toContainEqual(["config", "branch.feat/default.tau-base", "origin/main"]);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

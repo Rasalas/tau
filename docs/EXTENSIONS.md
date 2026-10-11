@@ -2016,12 +2016,14 @@ branch (`composer-above` region `workspace.draft-checkout`): "Current checkout"
 or "New worktree" at the left, a menu; the branch at the right. Without a
 worktree the branch opens the checkout's branch menu (switch or create a
 branch). With one it reads "From <base>" (or "<name> from <base>") and opens
-the new branch: a field under `tau/` ("name it, or leave empty"; a name with its
-own `/` is taken whole), "If empty: Name from the prompt / Random" (the kit
-preference `branch-naming`, `prompt` or `random`; without a naming kit it is
-random), "Based on" (every ref, searchable, the default base marked with its
-fetch age) and "Start from origin". `worktree-base` answers `fetchedAt`
-(FETCH_HEAD's time) and `others` for it. A phone keeps the same order: the
+the new branch: one field that takes the whole name and fuzzy-searches "Based
+on" as it is typed (picking a base it found clears it again), "If empty: Name
+from the prompt / Random" (the kit preference `branch-naming`, `prompt` or
+`random`; without a naming kit it is random) and "Based on" (the default base
+marked "default", the local branches, then origin's). The default base is the
+project's main line, `origin/main` or `main` as Settings → Base says; a base
+picked from the list is taken as named. `worktree-base` answers `others`
+(origin's branches) for it. A phone keeps the same order: the
 machine under the heading, checkout and branch above the composer, the name in
 the branch page. Machines Kit fills "Run on" through the store:
 `registerDraftMachine({ useMachine, Section })`, where `useMachine(props)` is a
