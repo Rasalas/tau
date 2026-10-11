@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, PreparedPrompt, UiComposerCommand } from "../shared/contracts.js";
 import type { PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
@@ -220,6 +223,36 @@ async function adopt(host: ReturnType<typeof localHost>): Promise<void> {
   });
   host.internals.threads.setActive(host.thread.threadId);
 }
+
+describe("PiHost prompts for a draft of another project", () => {
+  async function twoProjects() {
+    const root = await mkdtemp(join(tmpdir(), "tau-draft-projects-"));
+    const previous = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = join(root, "agent");
+    await mkdir(join(root, "agent"), { recursive: true });
+    for (const [project, name] of [["a", "alpha-note"], ["b", "bravo-note"]] as const) {
+      await mkdir(join(root, project, ".pi", "skills", name), { recursive: true });
+      await writeFile(join(root, project, ".pi", "skills", name, "SKILL.md"), `---\nname: ${name}\ndescription: ${name}\n---\n\nBody.\n`);
+    }
+    return { root, restore: async () => { if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; await rm(root, { recursive: true, force: true }); } };
+  }
+
+  it("offers and accepts the skills of the project the draft is in, not those of the thread on screen", async () => {
+    const { root, restore } = await twoProjects();
+    try {
+      const fixture = localHost(PI_AGENT_RUNTIME_ADAPTER);
+      await adopt(fixture);
+      const host = fixture.host as unknown as { composerCommandsFor(kind: string, cwd: string): UiComposerCommand[] };
+      expect(host.composerCommandsFor("pi", join(root, "b")).map((command) => command.name)).toEqual(["skill:bravo-note"]);
+
+      const draft = { source: "skill" as const, name: "bravo-note", command: "/skill:bravo-note", visibleText: "go" };
+      // The thread on screen has only `tdd`: without the project it refuses, with it the prompt is prepared.
+      await expect(fixture.host.preparePrompt("$bravo-note go", undefined, draft, "pi")).rejects.toThrow("no longer available");
+      const prepared = await fixture.host.preparePrompt("$bravo-note go", undefined, draft, "pi", join(root, "b"));
+      expect(prepared).toMatchObject({ visibleText: "go", runtimeText: "/skill:bravo-note go", skill: { name: "bravo-note" } });
+    } finally { await restore(); }
+  });
+});
 
 describe("PiHost skill delivery", () => {
   it("maps bridge messages through the attached Pi runtime adapter", () => {

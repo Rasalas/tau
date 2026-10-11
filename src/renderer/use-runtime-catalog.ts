@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useSyncExternalStore } from "react";
-import type { HostSnapshot, ThreadBackendKind } from "../shared/contracts";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import type { HostSnapshot, ThreadBackendKind, UiComposerCommand } from "../shared/contracts";
+import type { NewThreadDraft } from "../workbench/draft-store";
 import type { HostClient } from "../workbench/host-client";
 import { RuntimeAvailabilityStore, withDisabledRuntimes } from "../workbench/runtime-availability-store";
 import { RuntimeCatalogStore, type RuntimeCatalogEntry } from "../workbench/runtime-catalog-store";
@@ -74,4 +75,42 @@ export function useOfferedRuntimes(snapshot: HostSnapshot | undefined, workspace
   useEffect(() => { store?.request(workspaceId); }, [store, workspaceId]);
   const disabled = useSyncExternalStore(store?.subscribe ?? idle, () => store?.disabled(workspaceId) ?? NO_KINDS);
   return useMemo(() => withDisabledRuntimes(snapshot, disabled), [snapshot, disabled]);
+}
+
+/**
+ * A new thread's draft shows the snapshot of the thread on screen, whose
+ * skills belong to that thread's project and runtime. For a draft of another
+ * project or runtime the composer lists what the host says that one offers
+ * (API 1.59.0, `composer-commands`); until it answers, only the commands that
+ * are not skills, so a skill of the wrong project is never offered.
+ */
+export function useDraftCommands(
+  snapshot: HostSnapshot | undefined,
+  draft: NewThreadDraft | undefined,
+  runtime: ThreadBackendKind | undefined,
+): HostSnapshot | undefined {
+  const client = useHostClient();
+  const workspace = draft?.workspaceId ?? draft?.projectPath;
+  const own = Boolean(draft?.workspaceId && draft.workspaceId === snapshot?.workspaceId) && (runtime ?? "pi") === (snapshot?.backendKind ?? "pi");
+  const key = !draft || draft.sessionId || own || !workspace || !runtime ? undefined : `${runtime}\u0000${workspace}`;
+  const [loaded, setLoaded] = useState<{ key: string; commands: UiComposerCommand[] }>();
+  useEffect(() => {
+    if (!key || !client) return undefined;
+    let current = true;
+    const [kind, where] = key.split("\u0000") as [ThreadBackendKind, string];
+    client.composerCommands(kind, where).then(
+      (commands) => { if (current) setLoaded({ key, commands }); },
+      () => { if (current) setLoaded({ key, commands: [] }); },
+    );
+    return () => { current = false; };
+  }, [client, key]);
+  const sameRuntime = (runtime ?? "pi") === (snapshot?.backendKind ?? "pi");
+  return useMemo(() => {
+    if (!snapshot || !key || !client) return snapshot;
+    const own = snapshot.composerCommands ?? [];
+    const commands = loaded?.key === key
+      ? [...own.filter((command) => sameRuntime && command.source !== "skill"), ...loaded.commands.filter((command) => !sameRuntime || command.source === "skill")]
+      : own.filter((command) => sameRuntime && command.source !== "skill");
+    return { ...snapshot, composerCommands: commands };
+  }, [client, key, loaded, sameRuntime, snapshot]);
 }

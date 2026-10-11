@@ -33,7 +33,7 @@ import { usePreferences, useRendererServices } from "./renderer-services-context
 import { AppUpdateStore } from "./app-update";
 import { effectiveNewThreadRuntime, recentRuntimeModels, rememberedNewThreadSelection } from "./new-thread-runtime";
 import { selectionOnScreen } from "../workbench/new-thread-project";
-import { useOfferedRuntimes, useRuntimeCatalog } from "./use-runtime-catalog";
+import { useDraftCommands, useOfferedRuntimes, useRuntimeCatalog } from "./use-runtime-catalog";
 import { draftImageInput, draftRuntimeSnapshot } from "../workbench/runtime-catalog-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { openFileTab, openThreadTab, stageFilePath as projectFilePath, type StageView } from "../workbench/stage";
@@ -592,7 +592,7 @@ export default function App() {
   const draftSnapshot = useMemo(() => pendingNewThread && snapshot && boundRuntime
     ? draftRuntimeSnapshot(snapshot, pendingNewThread, boundRuntime, draftCatalog)
     : snapshot, [draftCatalog, boundRuntime, pendingNewThread, snapshot]);
-  const conversationSnapshot = useMemo(() => {
+  const draftConversation = useMemo(() => {
     if (!pendingNewThread || !snapshot || !draftSnapshot) return snapshot ? { ...snapshot, isStreaming: visibleStreaming } : snapshot;
     // The draft's choice shows on the catalog of the runtime it was made for; another runtime's overlay applied it already.
     const draftChoice = draftSnapshot === snapshot && (pendingNewThread.selectionRuntime ?? "pi") === (snapshot.backendKind ?? "pi");
@@ -614,6 +614,7 @@ export default function App() {
       taskHistory: [],
     };
   }, [boundRuntime, draftSnapshot, pendingNewThread, snapshot, visibleStreaming, preparedThreadCapability, settings.newThreadRuntime]);
+  const conversationSnapshot = useDraftCommands(draftConversation, pendingNewThread, boundRuntime);
   const addDroppedFiles = useCallback((files: FileList | readonly File[]) => {
     void composerAttachmentRef.current?.addFiles(files);
   }, []);

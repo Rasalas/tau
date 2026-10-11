@@ -36,6 +36,7 @@ function defaults(): HostClient {
     recoverThread: async () => ({ version: 1, updates: [] }),
 
     preparePrompt: async () => undefined,
+    composerCommands: async () => [],
     sendPrompt: async () => undefined,
     steer: async () => undefined,
     followUp: async () => undefined,

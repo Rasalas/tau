@@ -29,6 +29,7 @@ import type {
   CustomProviderConfig,
   CustomProviderInput,
   UiModel,
+  UiComposerCommand,
   UiRuntimeCatalog,
   UiRuntimeToolsState,
   SystemPromptInspection,
@@ -75,7 +76,9 @@ export interface HostClient {
 
   // Sending and controlling one turn of a running thread.
   /** `backendKind` names the runtime of a thread that does not exist yet; ignored with a `sessionId`. */
-  preparePrompt(text: string, sessionId?: string, skill?: UiSkillDraft, backendKind?: ThreadBackendKind): Promise<PreparedPrompt | undefined>;
+  preparePrompt(text: string, sessionId?: string, skill?: UiSkillDraft, backendKind?: ThreadBackendKind, workspace?: string): Promise<PreparedPrompt | undefined>;
+  /** The commands a draft of `workspace` offers on `backendKind` (API 1.59.0). */
+  composerCommands(backendKind: ThreadBackendKind, workspace: string): Promise<UiComposerCommand[]>;
   sendPrompt(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<void>;
   steer(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<void>;
   followUp(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<void>;
@@ -356,7 +359,8 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     renameThread: (title, expectedSessionId) => call<HostActionResult>("rename-thread", [title, expectedSessionId]),
     recoverThread: () => call<HostActionResult>("recover-thread"),
 
-    preparePrompt: (text, sessionId, skill, backendKind) => call<PreparedPrompt | undefined>("prepare-prompt", [text, sessionId, skill, backendKind]),
+    preparePrompt: (text, sessionId, skill, backendKind, workspace) => call<PreparedPrompt | undefined>("prepare-prompt", [text, sessionId, skill, backendKind, workspace]),
+    composerCommands: (backendKind, workspace) => call<UiComposerCommand[]>("composer-commands", [backendKind, workspace]),
     sendPrompt: (text, attachments, sessionId, clientMessageIdOrIdentity, prepared) =>
       call<void>("prompt", [text, attachments, sessionId, clientMessageIdOrIdentity, prepared]),
     steer: (text, attachments, sessionId, clientMessageIdOrIdentity, prepared) =>

@@ -249,6 +249,12 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       decodeOptionalString("prepare-prompt", "sessionId", params[1]),
       decodeUiSkillDraft("prepare-prompt", "skill", params[2]),
       decodeOptionalString("prepare-prompt", "backendKind", params[3]),
+      await optionalWorkspace("prepare-prompt", "workspace", params[4]),
+    ),
+    // What a draft of a project offers on a runtime: its own skills, not the visible thread's.
+    "composer-commands": async (params) => (await host()).composerCommandsFor(
+      decodeString("composer-commands", "backendKind", params[0]),
+      await workspace("composer-commands", "workspace", params[1]),
     ),
     "prompt": async (params) => {
       const args = decodePromptArgs("prompt", params);

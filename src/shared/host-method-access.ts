@@ -85,6 +85,7 @@ export const HOST_METHOD_ACCESS = {
   // Names and whether a key is set, never the key.
   "get-models-config": "read",
   "runtime-catalog": "read",
+  "composer-commands": "read",
   "runtime-catalogs": "read",
   // Refresh asks the programs again, as a picker that opens does; running a package manager is the owner's.
   "runtime-tools": "read",

@@ -292,7 +292,7 @@ describe("SubmissionController", () => {
 
     await harnessed.submission.submit({ text: "confirm during preflight" });
 
-    expect(preparePrompt).toHaveBeenCalledWith("confirm during preflight", undefined, undefined, undefined);
+    expect(preparePrompt).toHaveBeenCalledWith("confirm during preflight", undefined, undefined, undefined, undefined);
     expect(sentPrompts(harnessed.client)[0]?.args[2]).toBe("session");
   });
 
@@ -387,6 +387,15 @@ describe("SubmissionController", () => {
     expect(event.snapshot).toMatchObject({ sessionId: "created", messages: [] });
     expect(event.snapshot?.model).toBeUndefined();
     expect(event.snapshot?.backendKind).toBeUndefined();
+  });
+
+  it("prepares a new thread's first prompt against the draft's own project", async () => {
+    const { submission, client } = harness({
+      pending: { ...DRAFT, workspaceId: "ws-b" },
+      client: { newSession: async () => ({ version: 1, submission: { accepted: true }, sessionId: "created", updates: [] }) },
+    });
+    await submission.submit({ text: "go", skillDraft: { source: "skill", name: "bravo-note", command: "/skill:bravo-note", visibleText: "go" } });
+    expect(client.calls.find((call) => call.method === "preparePrompt")?.args[4]).toBe("ws-b");
   });
 
   it("uses the model shown on a fresh draft when no explicit draft model was chosen", async () => {
