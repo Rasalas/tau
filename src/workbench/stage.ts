@@ -335,6 +335,16 @@ export function tabIdsToTheRight(state: StageState, id: string): string[] {
   return index < 0 ? [] : state.tabs.slice(index + 1).map((tab) => tab.id);
 }
 
+/** Puts a tab in front of `beforeId`, or last without one; nothing else about the stage changes. */
+export function moveTab(state: StageState, id: string, beforeId?: string): StageState {
+  const from = state.tabs.findIndex((tab) => tab.id === id);
+  if (from < 0 || id === beforeId) return state;
+  const rest = state.tabs.filter((tab) => tab.id !== id);
+  const to = beforeId === undefined ? rest.length : rest.findIndex((tab) => tab.id === beforeId);
+  if (to < 0 || to === from) return state;
+  return { ...state, tabs: [...rest.slice(0, to), state.tabs[from]!, ...rest.slice(to)] };
+}
+
 export function setFileView(state: StageState, id: string, view: StageView): StageState {
   if (!state.tabs.some((tab) => tab.id === id && tab.kind === "file")) return state;
   return { ...state, tabs: state.tabs.map((tab) => tab.id === id && tab.kind === "file" ? { ...tab, view } : tab) };

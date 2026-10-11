@@ -8,6 +8,7 @@ import {
   rememberClosedTab,
   reopenClosedTab,
   extensionTabId,
+  moveTab,
   openExtensionTab,
   otherTabIds,
   setExtensionTabDirty,
@@ -121,6 +122,9 @@ export class StageTabController {
 
   /** Shows `id` beside the active tab; without one, splits off the active tab or joins the panes again. */
   split = (id?: string): void => this.ports.setStage((current) => splitStage(current, id ?? (splitTab(current) ? undefined : current.activeId)));
+
+  /** Puts a tab in front of another, or last; the strip's drag-to-reorder. */
+  move = (id: string, beforeId?: string): void => this.ports.setStage((current) => moveTab(current, id, beforeId));
 
   close = (id: string): void => this.closeAll([id]);
 

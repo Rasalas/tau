@@ -510,7 +510,7 @@ plugin.registerCommand({
 with the tab's id; `actions.closeStageTab(id)` closes any tab and
 `actions.stageTabs()` lists what is on the stage. `actions.splitStage?(id?)` (API 1.38.0) shows a
 tab beside the active one; without an id it splits off the active tab or joins the two
-panes again (a tab dragged onto the stage does the same). **`params` is plain JSON and
+panes again (a tab dragged onto the stage does the same). A tab dragged along the strip takes a new place; core keeps the order, a kit adds nothing. **`params` is plain JSON and
 is the whole of what the tab is:** two opens with the same params are the same
 tab, the params key the tab (`ext:<kind>:<key>` — pass `key` to name one
 yourself, or `singleton: true` for a kind with one tab whatever it is opened
