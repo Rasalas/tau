@@ -2420,15 +2420,18 @@ API 1.21.0 it may also say when it was measured, `updatedAt` (ms since the
 epoch, the end of the turn it describes), and `promptCacheTtlMs`, how long the
 provider keeps that context in its prompt cache. A runtime that names the cache
 takes part in Resume Compaction (`kits/resume-compaction/`): once the context
-holds 100k tokens and has been idle for 70 minutes, the send button reads
+holds 100k tokens and has been idle for that lifetime plus a margin (a sixth of
+it, one to ten minutes: 70 minutes for an hour, 6 for five), the send button reads
 "Compact and send" (a `registerComposerSendMode`), so the next prompt compacts
 the thread first instead of writing all of it into the cache again; "Send with
 full history" in the menu beside it sends without. It calls
 `actions.compactContext()`, so a runtime that names the
 cache also offers the `compaction` capability group (`compact()`). Pi names it
 for a Claude model (five minutes, an hour with `PI_CACHE_RETENTION=long`) and
-dates the context by its last reply; the Agent SDK runtime names the CLI's one
-hour, keeps the measurement in its session store so a thread opened after a
+dates the context by its last reply; the Agent SDK runtime reads the lifetime
+from the `cache_creation` split of the last call that wrote to the cache (an
+hour on a subscription, five minutes with an API key, Bedrock or Vertex) and
+assumes the hour until one does, keeps the measurement in its session store so a thread opened after a
 restart still has it, and compacts by sending `/compact` as a turn of its own,
 whose `compact_boundary` gives the size it left. Resume Compaction's desktop
 half publishes `tau.resume-compaction/opt-out` (`turnOff(runtime)`, a backend

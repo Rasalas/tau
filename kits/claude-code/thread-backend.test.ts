@@ -390,6 +390,30 @@ describe("thread runtime backends", () => {
     expect((await afterRestart.transcript()).at(-1)).toMatchObject({ role: "notice", compaction: divider.compaction });
   });
 
+  it("names the prompt cache lifetime the CLI wrote, keeps it through a turn that wrote nothing, and falls back to an hour", async () => {
+    const { filePath, store } = await scratchStore();
+    const call = (usage: object) => frame({ type: "assistant", parent_tool_use_id: null, message: { role: "assistant", content: [{ type: "text", text: "ok" }], usage } });
+    const wrote = { input_tokens: 5, output_tokens: 5, cache_creation_input_tokens: 90_000, cache_creation: { ephemeral_1h_input_tokens: 0, ephemeral_5m_input_tokens: 90_000 } };
+    const read = { input_tokens: 5, output_tokens: 5, cache_read_input_tokens: 90_000, cache_creation_input_tokens: 0, cache_creation: { ephemeral_1h_input_tokens: 0, ephemeral_5m_input_tokens: 0 } };
+    const replies = [[call(wrote), result("one")], [call(read), result("two")]];
+    const { adapter } = scriptedAdapter(filePath, () => replies.shift() ?? turn("three"));
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo" });
+    await backend.start("create");
+    await backend.prompt({ text: "a", delivery: "prompt" });
+    expect(backend.catalogView().contextUsage?.promptCacheTtlMs).toBe(5 * 60_000);
+    await backend.prompt({ text: "b", delivery: "prompt" });
+    expect(backend.catalogView().contextUsage?.promptCacheTtlMs).toBe(5 * 60_000);
+    // A CLI that reports no cache split leaves the hour a subscription gets.
+    const fresh = await scratchStore();
+    const plain = scriptedAdapter(fresh.filePath, () => turn("hi"));
+    const other = new ClaudeThreadRuntimeBackend("tau-other", WORKSPACE, { adapter: plain.adapter, store: fresh.store, commands, projectName: "repo" });
+    await other.start("create");
+    await other.prompt({ text: "a", delivery: "prompt" });
+    expect(other.catalogView().contextUsage?.promptCacheTtlMs).toBe(60 * 60_000);
+    await backend.dispose();
+    await other.dispose();
+  });
+
   it("says why when the CLI had nothing to compact", async () => {
     const { filePath, store } = await scratchStore();
     const { adapter } = scriptedAdapter(filePath, (content) => String(content) === "/compact"

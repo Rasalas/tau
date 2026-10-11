@@ -60,6 +60,12 @@ describe("Compact and send", () => {
     expect(mode.read(snapshot(undefined))).toBeUndefined();
   });
 
+  it("offers a runtime with a five-minute cache a few minutes after it, not an hour", () => {
+    const { mode } = setup({ now: () => NOW });
+    expect(mode.read(snapshot(usage(153_000, 5, 5 * MINUTE)))).toBeUndefined();
+    expect(mode.read(snapshot(usage(153_000, 7, 5 * MINUTE)))).toBeDefined();
+  });
+
   it("tells the composer once the 70 minutes pass", () => {
     vi.useFakeTimers({ now: NOW });
     const { mode } = setup();

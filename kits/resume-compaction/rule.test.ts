@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatContextTokens, offerDueAt, offersResumeCompaction, readList, RESUME_COMPACTION_IDLE_MS } from "./rule.js";
+import { coldAfterMs, formatContextTokens, offerDueAt, offersResumeCompaction, readList } from "./rule.js";
 
 const HOUR = 60 * 60_000;
 const context = (tokens: number, updatedAt?: number, promptCacheTtlMs: number | null = HOUR) => ({
@@ -12,10 +12,19 @@ describe("the resume compaction rule", () => {
   const at = 1_000_000_000;
 
   it("offers from 100k tokens and 70 minutes on, not a token or a millisecond before", () => {
-    expect(offersResumeCompaction(context(100_000, at), at + RESUME_COMPACTION_IDLE_MS)).toBe(true);
-    expect(offersResumeCompaction(context(99_999, at), at + RESUME_COMPACTION_IDLE_MS)).toBe(false);
-    expect(offersResumeCompaction(context(153_000, at), at + RESUME_COMPACTION_IDLE_MS - 1)).toBe(false);
+    expect(offersResumeCompaction(context(100_000, at), at + coldAfterMs(HOUR))).toBe(true);
+    expect(offersResumeCompaction(context(99_999, at), at + coldAfterMs(HOUR))).toBe(false);
+    expect(offersResumeCompaction(context(153_000, at), at + coldAfterMs(HOUR) - 1)).toBe(false);
     expect(offersResumeCompaction(context(153_000, at), at + 5 * HOUR)).toBe(true);
+  });
+
+  it("follows the cache the runtime names, with a small margin", () => {
+    const FIVE = 5 * 60_000;
+    expect(coldAfterMs(HOUR)).toBe(70 * 60_000);
+    expect(coldAfterMs(FIVE)).toBe(FIVE + 60_000);
+    expect(offersResumeCompaction(context(153_000, at, FIVE), at + coldAfterMs(FIVE) - 1)).toBe(false);
+    expect(offersResumeCompaction(context(153_000, at, FIVE), at + coldAfterMs(FIVE))).toBe(true);
+    expect(offerDueAt(context(153_000, at, FIVE))).toBe(at + coldAfterMs(FIVE));
   });
 
   it("leaves out a runtime that names no prompt cache or does not date its context", () => {
@@ -25,7 +34,7 @@ describe("the resume compaction rule", () => {
   });
 
   it("knows when the offer becomes due", () => {
-    expect(offerDueAt(context(153_000, at))).toBe(at + RESUME_COMPACTION_IDLE_MS);
+    expect(offerDueAt(context(153_000, at))).toBe(at + coldAfterMs(HOUR));
     expect(offerDueAt(context(50_000, at))).toBeUndefined();
     expect(offerDueAt(context(153_000, at, null))).toBeUndefined();
   });

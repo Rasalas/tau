@@ -91,7 +91,7 @@ function effortLevel(value: string | undefined): EffortLevel | undefined {
   return (EFFORT_LEVELS as readonly string[]).includes(value ?? "") ? value as EffortLevel : undefined;
 }
 const INTERRUPT_GRACE_MS = 3_000;
-/** The CLI keeps a conversation in Anthropic's one-hour prompt cache. */
+/** The cache lifetime assumed until a call reports its own: the hour a subscription gets. */
 const PROMPT_CACHE_TTL_MS = 60 * 60_000;
 const COMPACT_COMMAND = "/compact";
 const GOAL_CLEAR_COMMAND = "/goal clear";
@@ -673,7 +673,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
         this.usageTurns = appendUsageTurn(this.usageTurns, dated);
         this.unsavedTurns.push(dated);
       }
-      if (outcome.contextUsage || outcome.compacted) this.noteContext(outcome.contextUsage, at);
+      if (outcome.contextUsage || outcome.compacted) this.noteContext(outcome.contextUsage, at, outcome.promptCacheTtlMs);
       this.report({ type: "usage" });
       if (outcome.error) this.report({ type: "notice", message: `Claude Code reported an error: ${outcome.error}`, level: "error" });
     }
@@ -686,8 +686,9 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   /** The context a turn left, dated, and kept for a thread opened after a restart. */
-  private noteContext(usage: UiContextUsage | undefined, at: number): void {
-    this.contextUsage = usage ? { ...usage, updatedAt: at, promptCacheTtlMs: PROMPT_CACHE_TTL_MS } : undefined;
+  private noteContext(usage: UiContextUsage | undefined, at: number, cacheTtlMs?: number): void {
+    const promptCacheTtlMs = cacheTtlMs ?? this.contextUsage?.promptCacheTtlMs ?? PROMPT_CACHE_TTL_MS;
+    this.contextUsage = usage ? { ...usage, updatedAt: at, promptCacheTtlMs } : undefined;
     void this.store.setContextUsage(this.threadId, this.cwd, this.contextUsage).catch(() => undefined);
   }
 
