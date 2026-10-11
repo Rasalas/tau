@@ -49,10 +49,11 @@ import {
   THREAD_TEXTS_COMMAND,
   threadTextsDelta,
 } from "tau/host-extension";
-import { CodexAppServer, type CodexAccount, type CodexLoginCompleted, type CodexModel } from "./app-server.js";
+import { CODEX_CLIENT_NAME, CodexAppServer, type CodexAccount, type CodexLoginCompleted, type CodexModel } from "./app-server.js";
 import { codexHome, readCodexConfiguredModel } from "./config.js";
 import { codexSessionDirs, importCodexSessions, scanCodexSessions } from "./history-import.js";
 import { codexMcpLaunch } from "./mcp.js";
+import { listAfterRefresh } from "./models-cache.js";
 import { codexNativeCapabilities } from "./native-capabilities.js";
 import { NATIVE_AGENT_ARGS, codexToolArgs } from "./tools.js";
 import {
@@ -89,6 +90,8 @@ export interface CodexHostExtensionOptions {
   sessionsDir?: string;
   env?: NodeJS.ProcessEnv;
   clientVersion?: string;
+  /** How long a ChatGPT account's probe waits for Codex to refresh its model catalog; tests turn it off. */
+  catalogRefreshMs?: number;
   /** `codex --version`; tests answer it. */
   readVersion?(path: string): Promise<string | undefined>;
   fetch?: typeof globalThis.fetch;
@@ -99,6 +102,9 @@ export interface CodexHostExtensionOptions {
 /** What `status` and the model list need of the CLI, asked without a thread. */
 interface Probe { account?: CodexAccount; models: CodexModel[]; codexHome?: string; at: number }
 const PROBE_TTL_MS = 10 * 60 * 1000;
+/** Codex reads this variable to name the client it fetches its model catalog as. */
+const ORIGINATOR_VARIABLE = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
+const CATALOG_REFRESH_MS = 3_000;
 /** Quota windows move with every turn; reading them more often than this only costs requests. */
 const LIMITS_TTL_MS = 5 * 60 * 1000;
 
@@ -384,7 +390,8 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           await store.setSessionHome(input.threadId, input.cwd, sessionHome);
         }
         const launch = { args: [...tau.args, ...NATIVE_AGENT_ARGS, ...(input.tools ? codexToolArgs(input.tools) : []), ...settings.args(id), ...(!credentials && codexHomeLayout(instanceEnv(id)).overlay ? ["-c", 'cli_auth_credentials_store="file"'] : []), ...(credentials ? CHATGPT_PLAN_ARGS : [])], env: tau.env };
-        const sessionEnv = { ...cliEnv, ...launch.env, ...(credentials ? { ACCESS_TOKEN: credentials.tokens!.accessToken } : {}) };
+        // Codex fetches its model catalog as the originator it starts with; a tier like Ultrafast is missing for the plain CLI's.
+        const sessionEnv = { [ORIGINATOR_VARIABLE]: CODEX_CLIENT_NAME, ...cliEnv, ...launch.env, ...(credentials ? { ACCESS_TOKEN: credentials.tokens!.accessToken } : {}) };
         const track = (session: CodexSessionLike): CodexSessionLike => {
           const held = sessions.get(id) ?? new Set<CodexSessionLike>();
           for (const previous of held) if (previous.closed) held.delete(previous);
@@ -432,6 +439,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         if (!fresh && entry.probe) return entry.probe.then((cached) => Date.now() - cached.at < PROBE_TTL_MS ? cached : runProbe(id, true));
         const next = (async (): Promise<Probe> => {
           await mkdir(services.stateDir, { recursive: true });
+          const spawnedAt = Date.now();
           const session = await spawnSession(id, {
             cwd: services.stateDir,
             onNotification: () => undefined,
@@ -439,7 +447,10 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
             onExit: () => undefined,
           });
           try {
-            const [account, models] = await Promise.all([session.account?.(), session.models()]);
+            const account = await session.account?.();
+            const models = account?.type === "chatgpt" && session.codexHome
+              ? await listAfterRefresh({ list: () => session.models(), codexHome: session.codexHome, since: spawnedAt, timeoutMs: options.catalogRefreshMs ?? CATALOG_REFRESH_MS })
+              : await session.models();
             return { ...(account ? { account } : {}), models, ...(session.codexHome ? { codexHome: session.codexHome } : {}), at: Date.now() };
           } finally {
             await session.close().catch(() => undefined);
