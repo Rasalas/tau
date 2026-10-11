@@ -15,6 +15,8 @@ import { ChecksMini, ChecksPipeline } from "./pipeline-view.js";
 import { ReviewComposer } from "./pull-request-review.js";
 import { PullRequestStackControl } from "./pull-request-stack.js";
 import { PullRequestTimeline } from "./pull-request-timeline.js";
+import { commentFilter, filterTimelineComments, setCommentFilter } from "./comment-filter.js";
+import { CommentFilterMenu } from "./comment-filter-menu.js";
 import { usePullRequest, WHITESPACE_OPTION_ID, type PullRequestViewShared } from "./pull-request-view.js";
 import { usePullRequestWrites } from "./pull-request-writes.js";
 import { RequestStateIcon } from "./request-state-icon.js";
@@ -73,6 +75,8 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
   const pending = useSyncExternalStore(shared.pending.subscribe, () => shared.pending.comments(params.url));
   useSyncExternalStore(shared.preferences.subscribe, shared.preferences.getSnapshot, shared.preferences.getSnapshot);
   const ignoreWhitespace = shared.preferences.optionValue(REVIEW_HOST_EXTENSION_ID, WHITESPACE_OPTION_ID, false) === true;
+  const filter = commentFilter(shared.preferences);
+  const timelineView = useMemo(() => filterTimelineComments(detail, { bots: filter.bots, resolved: filter.resolved }), [detail, filter.bots, filter.resolved]);
   const thread = actions.activeThread();
   const threadId = thread?.sessionId;
   const [tab, setTab] = useState<Tab>(params.focus ?? "changes");
@@ -213,7 +217,10 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
       <LayoutToggle layout={layout} onChange={setLayout} wrap={wrap} onWrapChange={setWrap} />
     </>
   ) : shownTab === "timeline" ? (
-    <button type="button" className="text-button" onClick={() => setOldestFirst(!oldestFirst)}>{oldestFirst ? "Oldest first" : "Newest first"}</button>
+    <>
+      <CommentFilterMenu filter={filter} hidden={timelineView.hidden} onChange={(key, value) => setCommentFilter(shared.preferences, key, value)} />
+      <button type="button" className="text-button" onClick={() => setOldestFirst(!oldestFirst)}>{oldestFirst ? "Oldest first" : "Newest first"}</button>
+    </>
   ) : null;
 
   const files = data.files;
@@ -260,7 +267,7 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
             />
           )
         ) : shownTab === "timeline" ? (
-          <PullRequestTimeline detail={detail} oldestFirst={oldestFirst} actions={actions} />
+          <PullRequestTimeline detail={timelineView.detail} oldestFirst={oldestFirst} actions={actions} />
         ) : (
           <div className="rvd-pad"><ChecksPipeline client={client} url={params.url} checks={checks} actions={actions} /></div>
         )}

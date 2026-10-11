@@ -59,10 +59,12 @@ export function verdictWord(comment: PullRequestComment): string {
  * One comment: who, when, what it decided, where in the code, the text, and
  * a way to hand it to the composer.
  */
-export function CommentCard({ comment, where, outdated, onSend, onOpenWhere, onEdit, actions, children }: {
+export function CommentCard({ comment, where, outdated, finished, onSend, onOpenWhere, onEdit, actions, children }: {
   comment: PullRequestComment;
   where?: string;
   outdated?: boolean;
+  /** Said beside the author when the comment is on a resolved conversation or a dismissed review. */
+  finished?: boolean;
   onSend?(): void;
   onOpenWhere?(): void;
   /** Only for the signed-in account's own comments. */
@@ -76,6 +78,7 @@ export function CommentCard({ comment, where, outdated, onSend, onOpenWhere, onE
       <header>
         <strong>{comment.author.login}</strong>
         {comment.author.bot ? <span className="pr-tag">bot</span> : null}
+        {finished ? <span className="pr-tag">{comment.verdict === "dismissed" ? "dismissed" : "resolved"}</span> : null}
         <span className={`pr-verb ${comment.verdict ?? ""}`}>{verdictWord(comment)}</span>
         {comment.url ? (
           <button className="pr-time" title="Open on the host" onClick={() => actions.openExternal(comment.url!)}>{relativeTime(comment.createdAt)}</button>

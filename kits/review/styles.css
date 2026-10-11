@@ -545,6 +545,11 @@ body[data-profile="compact"] .pr-row-line.meta .pr-row-time { margin-left: auto;
 .pr-picker li button { display: block; width: 100%; padding: 4px 8px; border: 0; border-radius: var(--radius-xs); background: transparent; color: var(--ink-2); font: var(--text-sm) var(--sans); text-align: left; cursor: pointer; }
 .pr-picker li button:hover, .pr-picker li button:focus-visible { background: var(--hover); color: var(--ink); outline: none; }
 .pr-picker .pr-empty { display: flex; align-items: center; gap: 6px; font-size: calc(var(--text-xs) + .5px); }
+.pr-filter-button { display: inline-flex; align-items: center; gap: 4px; }
+.pr-filter-menu fieldset { display: flex; flex-direction: column; gap: 2px; min-width: 190px; margin: 0; padding: 0; border: 0; }
+.pr-filter-menu legend { padding: 2px 8px 4px; color: var(--faint); font: var(--text-xs) var(--sans); }
+.pr-filter-menu label { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-xs); color: var(--ink-2); font: var(--text-sm) var(--sans); cursor: pointer; }
+.pr-filter-menu label:hover { background: var(--hover); color: var(--ink); }
 .pr-whitespace { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font: var(--text-xs) var(--sans); cursor: pointer; white-space: nowrap; }
 .publish-form input[aria-label="Repository"] { font-family: var(--mono); }
 .publish-options { display: flex; flex-wrap: wrap; gap: 8px; }

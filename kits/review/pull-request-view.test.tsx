@@ -38,6 +38,7 @@ function fakeClient(overrides: Partial<PullRequestClient> = {}): PullRequestClie
     pipeline: vi.fn(async () => ({})),
     threads: vi.fn(async () => threads),
     files: vi.fn(async () => files),
+    file: vi.fn(async () => { throw new Error("not in this test"); }),
     comment: vi.fn(async () => undefined),
     update: vi.fn(async (_url: string, input: { title?: string; body?: string }): Promise<PullRequestDetail> => ({ ...detail, ...(input.title ? { title: input.title } : {}), ...(input.body !== undefined ? { body: input.body } : {}) })),
     viewed: vi.fn(async (_url: string, _path: string, value: boolean) => value ? "viewed" as const : "unviewed" as const),
@@ -129,6 +130,29 @@ describe("the pull-request view", () => {
     expect(screen.getAllByRole("button", { name: "kits/terminal/output.ts:10" })).toHaveLength(2);
     expect(tab.setTitle).toHaveBeenCalledWith("PR #7 Add the output helper");
     expect(rows.get("/project")).toMatchObject<Partial<UiReviewRequest>>({ number: 7, checks: { passed: 2, failed: 1, pending: 1, total: 4 } });
+  });
+
+  it("hides bot comments and says how many, until the filter asks for them; the choice is kept in the preferences", async () => {
+    const { shared } = renderView();
+    await screen.findByText("Comments (6)");
+    expect(screen.queryByText("Coverage 91%.")).toBeNull();
+    const filter = screen.getByRole("button", { name: "Filter comments" });
+    // The bot's comment and the resolved conversation.
+    expect(filter.textContent).toBe("2 hidden");
+    fireEvent.click(filter);
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Bot comments" }));
+    expect(await screen.findByText("Coverage 91%.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Filter comments" }).textContent).toBe("1 hidden");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Resolved or dismissed" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Filter comments" }).textContent).toBe("Filter"));
+    expect(shared.preferences.optionValue("tau.review", "pr-comments-bots", false)).toBe(true);
+    expect(shared.preferences.optionValue("tau.review", "pr-comments-resolved", false)).toBe(true);
+  });
+
+  it("says so when the filter hides every comment", async () => {
+    const detail = parseGitHubDetail(REF, fixture("gh-pr-view-discussed.json"));
+    renderView(fakeClient({ view: vi.fn(async () => ({ ...detail, comments: detail.comments.filter((entry) => entry.author.bot) })), threads: vi.fn(async () => []) }));
+    expect(await screen.findByText("The only comment is hidden by the filter.")).toBeTruthy();
   });
 
   it("draws the checks in one row in the bar, which opens and shows them; so does a tab opened at its checks", async () => {
