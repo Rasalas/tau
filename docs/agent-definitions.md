@@ -42,6 +42,14 @@ error that names its line.
 
 ## `tools` on another runtime
 
+## Agents starting agents
+
+An agent may start agents of its own, and those may start more: there is no
+depth limit. What bounds a tree is the running budget, which counts per parent
+(`maxRunning` in `~/.tau/agents.json`, eight by default). Stopping an agent from
+its row in the Agents list stops everything below it too, queued agents first.
+The agent definitions are listed to every thread that may spawn.
+
 A runtime other than Pi narrows its own tools as far as it can, and a runtime
 that cannot refuses the spawn with that reason:
 
