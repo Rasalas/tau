@@ -285,6 +285,11 @@
 .provider-card-head .provider-card-icon { margin-left: 0; }
 .provider-card-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-3); }
 .provider-card-badges:empty { display: none; }
+.provider-card-tools { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-4); min-width: 0; }
+.provider-card-switch { display: inline-flex; align-items: center; gap: var(--space-2); flex: none; }
+/* Off: the kit's rows stay usable, so a runtime can still be set up before a project turns it on. */
+.provider-card[data-off] > .settings-group { opacity: .62; }
+.provider-card[data-off] > .settings-group:focus-within, .provider-card[data-off] > .settings-group:hover { opacity: 1; }
 
 /* Runtimes (design 1j): a table of runtimes in a card, the kits' sections under it. */
 .settings-table-frame { border-radius: var(--radius-md); background: var(--inset); overflow: hidden; }

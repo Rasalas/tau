@@ -270,7 +270,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "queue-message": async (params) => {
       const sessionId = decodeString("queue-message", "sessionId", params[0]);
       const skillDraft = decodeUiSkillDraft("queue-message", "skillDraft", params[3]);
-      const queued = (await host()).queue.add(sessionId, {
+      const queued = await (await host()).queue.submit(sessionId, {
         text: decodeText("queue-message", "text", params[1]),
         attachments: decodeUiPromptAttachments("queue-message", "attachments", params[2]) ?? [],
         ...(skillDraft ? { skillDraft } : {}),

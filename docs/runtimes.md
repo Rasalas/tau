@@ -66,6 +66,14 @@ Which runtime a new thread gets is chosen in the composer before its first messa
 
 `TAU_RUNTIME_ADAPTER=pi` (default) keeps the embedded Pi runtime; `TAU_RUNTIME_ADAPTER=claude-code` or `antigravity` makes that backend, which the bundled `tau.claude-code` or `tau.antigravity` host extension registers, the default for new threads and the thread opened at startup (a name without a registered extension stops the start with an error dialog). The composer's runtime chip and Settings → Runtimes override the default per client.
 
+## Turning a runtime off for a project
+
+Settings → Providers has a switch in the head of each runtime's card, for Pi, the Agent SDK runtime, Codex, OpenCode, Cursor, Grok, Antigravity and every instance such as `codex@work`. Choose "Applies to" at the top of the page first: with This machine selected the switch turns the runtime off or on everywhere, with a project selected it overrides this machine for that project only, in either direction (off in one repository, or on in one while the machine has it off). The layers icon beside the switch shows where the value comes from, and the undo arrow returns the project to the machine's setting. The same choice is written to `runtimeEnabled` in `~/.tau/config.json` or `<project>/.tau/config.json`, so a repository can keep a runtime out for everyone who opens it.
+
+Turning a runtime off does not remove it: its card, sign-in and models stay, and threads it already has stay readable. What stops is starting work on it in that project. The runtime chip, the model picker, the palette and "Continue in" stop offering it, and the app refuses everything that would start or wake a turn there with "Codex is turned off for “app”. Turn it on under Settings → Providers, with Applies to set to the project.": a new thread, a message, a steer, a follow-up, a queued message, an agent's `tau_spawn_thread` and a scheduled run (which shows as failed with that line), a fork, and the continuation of a thread after a restart (the thread is marked as interrupted instead). A turn that is already running finishes. A thread in a worktree follows the project the worktree was made from.
+
+Tau also stops checking a runtime's program for updates once no project uses it: a runtime is in use while the machine or any project you opened keeps it on. Refresh and Update on Settings → Runtimes still work.
+
 ## Pull and merge requests
 
 When `gh` or `glab` is installed and logged in, the Review's branch scope diffs against the base branch of the current branch's pull or merge request and links to it; the Changes panel then commits, pushes and opens that request (title and description written by the commit-message model, filled into the repository's template, optionally as a draft), edits and merges it, and the thread's rail row shows its state and checks. Without the CLI, its login or a remote, the panel says which one is missing.

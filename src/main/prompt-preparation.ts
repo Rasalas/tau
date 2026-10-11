@@ -3,6 +3,7 @@ import type { PreparedPrompt, ThreadBackendKind, UiComposerCommand, UiPromptAtta
 import { validatePreparedPrompt } from "../shared/prepared-prompt.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
 import type { HostRuntimeBackendProvider } from "./host-extensions.js";
+import type { RuntimeGate } from "./runtime-gate.js";
 import { promptFiles, promptImages } from "./prompt-attachments.js";
 import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
 import { prepareSkillPrompt } from "./skill-invocation.js";
@@ -12,6 +13,10 @@ export interface PromptPreparationPort {
   /** The provider behind a non-Pi backend kind, for its own prompt gate. */
   requireBackend(kind: ThreadBackendKind): HostRuntimeBackendProvider;
   permissionLevel(): RuntimePermissionLevel;
+  /** Whether a runtime may start work in a folder (ADR 0033). */
+  runtimeGate: RuntimeGate;
+  /** The terminal owns an attached Pi session; the gate is for threads Tau starts work on. */
+  ownedByPi(thread: ThreadRuntime): boolean;
 }
 
 /**
@@ -24,6 +29,30 @@ export interface PromptPreparationPort {
  */
 export class PromptPreparation {
   constructor(private readonly port: PromptPreparationPort) {}
+
+  /** Throws when the thread's runtime is off in its project (or in `cwd`, for a fork there). */
+  assertRuntimeOn(thread: ThreadRuntime, cwd = thread.cwd): Promise<void> {
+    return this.port.ownedByPi(thread) ? Promise.resolve() : this.port.runtimeGate.assert(thread.backend.kind, cwd);
+  }
+
+  /** Throws when `kind` is off in the project `cwd` belongs to. */
+  assertRuntimeKind(kind: ThreadBackendKind, cwd: string): Promise<void> {
+    return this.port.runtimeGate.assert(kind, cwd);
+  }
+
+  /** The message a start on `kind` in `cwd` is refused with, or undefined when it may go on. */
+  async runtimeRefusal(kind: ThreadBackendKind, cwd: string): Promise<string | undefined> {
+    try {
+      await this.port.runtimeGate.assert(kind, cwd);
+      return undefined;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  runtimeEnabled(kind: ThreadBackendKind, cwd: string): Promise<boolean> {
+    return this.port.runtimeGate.enabled(kind, cwd);
+  }
 
   /** Resolves a prompt for a runtime the host has no thread of yet. */
   prepare(

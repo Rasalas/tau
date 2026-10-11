@@ -254,6 +254,8 @@ export interface HostProjectFacts {
   label?(cwd: string): Promise<string | undefined>;
   /** True for a secondary checkout of another project; it is not listed as a project of its own. */
   nested?(cwd: string): Promise<boolean>;
+  /** The project a nested checkout belongs to, whose settings it follows (API 1.59.0); undefined for a project of its own. */
+  root?(cwd: string): Promise<string | undefined>;
 }
 
 /** A persisted session file without a runtime: its raw entries and the durable custom-entry seam. */
@@ -2129,5 +2131,13 @@ export class HostProjectFactsSet {
       if (await facts.nested?.(cwd)) return true;
     }
     return false;
+  }
+
+  async root(cwd: string): Promise<string | undefined> {
+    for (const facts of [...this.providers]) {
+      const root = await facts.root?.(cwd);
+      if (root) return root;
+    }
+    return undefined;
   }
 }

@@ -25,6 +25,8 @@ export interface QueuedMessagesPort {
   busy(sessionId: string): boolean;
   /** Resolves once the thread has nothing running; at once for a thread without a runtime. */
   waitForIdle(sessionId: string): Promise<void>;
+  /** Throws when the thread may not take another message, before one is queued for it. */
+  admit?(sessionId: string): Promise<void>;
   /** Sends one message as an ordinary prompt; rejects when the thread refused it. */
   deliver(sessionId: string, message: QueuedMessage): Promise<void>;
   publish(sessionId: string, view: QueuedMessagesView | undefined): void;
@@ -160,6 +162,12 @@ export class QueuedMessages {
   continues(sessionId: string): boolean {
     if (this.frozen) return false;
     return this.delivering.has(sessionId) || (!this.held.has(sessionId) && this.list(sessionId).length > 0);
+  }
+
+  /** `add` for a caller that may be refused: a thread whose runtime is off takes no message (ADR 0033). */
+  async submit(sessionId: string, message: Omit<QueuedMessage, "id" | "queuedAt">): Promise<QueuedMessage> {
+    await this.port.admit?.(sessionId);
+    return this.add(sessionId, message);
   }
 
   /** Queues a message; a thread with nothing running gets it at once. */

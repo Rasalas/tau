@@ -341,6 +341,18 @@ describe("HostConfigManager", () => {
       expect(layers.project?.modelPreferences).toBeUndefined();
     });
 
+    it("keeps which runtimes may start work per level: a project wins over the machine in either direction", async () => {
+      await manager.update({ runtimeEnabled: { codex: false, pi: true } }, "global");
+      await manager.update({ runtimeEnabled: { cursor: false } }, "global");
+      await manager.update({ runtimeEnabled: { codex: true, bad: "no" as never } }, "project", projectDir);
+      expect((await manager.read()).runtimeEnabled).toEqual({ codex: false, pi: true, cursor: false });
+      expect((await manager.read(projectDir)).runtimeEnabled).toEqual({ codex: true, pi: true, cursor: false });
+      expect(manager.readSync(projectDir).runtimeEnabled).toEqual({ codex: true, pi: true, cursor: false });
+      const layers = await manager.clear(["runtimeEnabled.codex"], "project", projectDir);
+      expect(layers.project?.runtimeEnabled).toBeUndefined();
+      expect((await manager.read(projectDir)).runtimeEnabled?.codex).toBe(false);
+    });
+
     it("keeps the user's model prices entry by entry, and clears one", async () => {
       await manager.update({ modelPrices: { "openai/gpt-5.6-luna": { input: 0.2, output: 1.2 } } }, "global");
       await manager.update({ modelPrices: { "claude-haiku-4-5": { input: 1, output: 5, cacheRead: 0.1 }, bad: { input: -1, output: 1 } } }, "global");

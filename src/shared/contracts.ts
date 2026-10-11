@@ -232,6 +232,12 @@ export interface UiRuntimeBackend {
   ownPlan?: boolean;
   /** The program the backend drives, once the host asked it; see `RuntimeToolVersion`. */
   version?: RuntimeToolVersion;
+  /**
+   * The project on screen turned this runtime off (`runtimeEnabled`): the
+   * workbench sets it on its copy of the snapshot, the host never sends it.
+   * A picker that starts work leaves such a runtime out (API 1.59.0).
+   */
+  disabled?: boolean;
 }
 
 /** What a backend knows of the program it drives, so a client can say an update is out. */
@@ -1156,6 +1162,12 @@ export interface TauConfig {
    */
   modelPrices?: Record<string, UiModelPrice>;
   disabledExtensions?: string[];
+  /**
+   * Whether a runtime may start work, by backend kind (`codex`, `codex@work`);
+   * a kind without an entry is on. The project file wins over the machine's,
+   * in either direction (API 1.59.0).
+   */
+  runtimeEnabled?: Record<string, boolean>;
   prewarm?: boolean;
   /** Leave the host process running after the app quits, so its threads keep going. */
   hostBackground?: boolean;

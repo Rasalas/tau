@@ -114,7 +114,9 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./project-facts-cache.js",   "./project-history.js",   "./project-icon.js",   "./icns.js",   "./remote-host-trust.js",
   "./prompt-attachments.js",   "./prompt-cache.js",   "./prompt-preparation.js",   "./resource-discovery-cache.js",
   "./runtime-adapters.js",   "./runtime-catalogs.js",   "./runtime-tool-updates.js",   "./cli-install.js",   "./model-catalog.js",   "./runtime-prewarm.js",   "./runtime-resource-cache.js",
-  "./runtime-instance-settings.js",   "./runtime-types.js",   "./runtime-versions.js",   "./self-signed-certificate.js",   "./session-entries.js",   "./session-events.js",
+  "./runtime-instance-settings.js",   "./runtime-types.js",
+  // Which runtimes may start work in a folder: the host's one gate (ADR 0033).
+  "./runtime-gate.js",   "./runtime-versions.js",   "./self-signed-certificate.js",   "./session-entries.js",   "./session-events.js",
   "./session-import.js",   "./session-lineage.js",   "./session-locks.js",   "./session-model-provider.js",   "./session-usage.js",
   // Pi sessions read without Pi's repairs on open, and the Pi CLI taking the same session locks (K13).
   "./session-read.js",   "./pi-session-lock-extension.js",

@@ -74,6 +74,25 @@ describe("RuntimeToolUpdates", () => {
     expect(rechecked.sort()).toEqual(["codex", "codex@work"]);
   });
 
+  it("leaves the program of a runtime no project uses alone, and updates it once one does", async () => {
+    let version = "0.159.0";
+    let used = false;
+    const ran: string[] = [];
+    const { updates } = harness([
+      provider("codex", "Codex", () => codex(() => version)),
+      provider("cursor", "Cursor", () => undefined),
+    ], {
+      inUse: (kind) => kind !== "codex" || used,
+      run: async (command) => { ran.push(command.args[0]!); version = "0.159.1"; return { exitCode: 0, output: "" }; },
+    });
+    await updates.setAutomatic(true);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(ran).toEqual([]);
+    used = true;
+    await updates.setAutomatic(true);
+    await vi.waitFor(() => expect(ran).toEqual(["install"]));
+  });
+
   it("waits while a turn of the runtime runs and updates once it ended", async () => {
     let version = "0.159.0";
     const ran: string[] = [];

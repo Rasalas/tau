@@ -1,4 +1,4 @@
-import type { HostSnapshot, ThreadBackendKind, UiModel, UiRuntimeCatalog } from "../shared/contracts";
+import type { HostSnapshot, ThreadBackendKind, UiModel, UiRuntimeBackend, UiRuntimeCatalog } from "../shared/contracts";
 import type { NewThreadSelection } from "../workbench/new-thread-controller";
 import { catalogLevels } from "../workbench/runtime-catalog-store";
 import { offeringKey } from "./components/model-offerings";
@@ -25,10 +25,19 @@ export function rememberedNewThreadSelection(catalog: UiRuntimeCatalog, recent: 
  */
 export function chosenNewThreadRuntime(preference: string | undefined, snapshot: HostSnapshot | undefined): ThreadBackendKind | undefined {
   if (!preference) return undefined;
-  return snapshot?.runtimeBackends?.some((backend) => backend.kind === preference) ? preference : undefined;
+  return snapshot?.runtimeBackends?.some((backend) => backend.kind === preference && !backend.disabled) ? preference : undefined;
+}
+
+/** The backends a new thread may start on: those the project on screen did not turn off. */
+export function offeredBackends(backends: readonly UiRuntimeBackend[] | undefined): UiRuntimeBackend[] {
+  return (backends ?? []).filter((backend) => !backend.disabled);
 }
 
 /** What the workbench shows as the runtime of the next new thread. */
 export function effectiveNewThreadRuntime(preference: string | undefined, snapshot: HostSnapshot | undefined): ThreadBackendKind {
-  return chosenNewThreadRuntime(preference, snapshot) ?? snapshot?.defaultBackendKind ?? "pi";
+  const standard = snapshot?.defaultBackendKind ?? "pi";
+  const chosen = chosenNewThreadRuntime(preference, snapshot);
+  if (chosen) return chosen;
+  // The host's default may be off in this project; the first runtime that is on stands in for it.
+  return snapshot?.runtimeBackends?.some((backend) => backend.kind === standard && backend.disabled) ? offeredBackends(snapshot.runtimeBackends)[0]?.kind ?? standard : standard;
 }

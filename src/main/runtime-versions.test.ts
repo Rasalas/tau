@@ -46,6 +46,19 @@ describe("RuntimeVersions", () => {
     expect(first).toHaveBeenCalledTimes(1);
   });
 
+  it("asks no backend nobody uses, but an explicit recheck still does", async () => {
+    const version = vi.fn(async () => ({ tool: "codex", installed: "0.154.0" }));
+    let used = false;
+    const versions = new RuntimeVersions({ providers: () => [provider("codex", version)], inUse: () => used, onChange: () => undefined, log: () => undefined, now: () => 0 });
+    versions.refresh();
+    expect(version).not.toHaveBeenCalled();
+    await versions.recheck("codex");
+    expect(version).toHaveBeenCalledTimes(1);
+    used = true;
+    versions.refresh();
+    await vi.waitFor(() => expect(version).toHaveBeenCalledTimes(2));
+  });
+
   it("keeps no newer release while TAU_NO_RUNTIME_UPDATES=1, so no client offers an update", async () => {
     const version = vi.fn(async () => ({ tool: "claude", installed: "2.1.281", latest: "2.1.282", updateCommand: "claude update" }));
     const versions = new RuntimeVersions({ providers: () => [provider("claude-code", version)], onChange: () => undefined, log: () => undefined, env: { TAU_NO_RUNTIME_UPDATES: "1" } });

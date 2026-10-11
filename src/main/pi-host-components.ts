@@ -83,6 +83,7 @@ import { modelReleaseDate, useModelCatalog } from "./pi-model-runtime.js";
 import { SignedModelCatalog, modelCatalogKeys } from "./model-catalog.js";
 import { RELEASE_PUBLIC_KEYS } from "../shared/release-keys.js";
 import { RuntimeCatalogs, type RuntimeCatalogSource } from "./runtime-catalogs.js";
+import { RuntimeGate } from "./runtime-gate.js";
 import { RuntimeToolUpdates } from "./runtime-tool-updates.js";
 import { UsagePricing, type UsageTally } from "./usage-pricing.js";
 import { ThreadRunClock } from "./thread-run-clock.js";
@@ -362,10 +363,20 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     log: (label, detail) => deps.log(label, detail),
     errorMessage: (error) => deps.errorMessage(error),
   });
+  /** Whether a runtime may start work in a folder (ADR 0033). */
+  const runtimeGate = new RuntimeGate({
+    config: (path) => defaultHostConfigManager.readSync(path),
+    owner: (cwd) => projects.owner(cwd),
+    label: (kind) => kind === "pi" ? "Pi" : seam.backends.get(kind)?.label ?? kind,
+    projectName: (path) => projects.name(path),
+    projectPaths: () => deps.projectHistory.list().map((project) => project.path),
+  });
   /** The runtime spelling of a prompt, and the proof that a caller may execute it. */
   const prompts = new PromptPreparation({
     requireBackend: (kind) => deps.requireBackend(kind),
     permissionLevel: () => seam.permissionLevel(),
+    runtimeGate,
+    ownedByPi: (thread) => deps.ownedByPi(thread),
   });
   /** The Pi sessions this host writes; every write to a session file goes through them. */
   const sessionLocks = new SessionLocks(options.dataFolder ? { dataFolder: options.dataFolder } : {});
@@ -654,11 +665,13 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     fail: (error, sessionId) => deps.fail(error, sessionId),
     runs: () => runClock.runs(),
     toolUpdates: (kind) => toolUpdates?.updatesFor(kind),
+    runtimeInUse: (kind) => runtimeGate.inUse(kind),
     prepareToolUpdates: async (kind) => { await toolUpdates?.ensure(kind); },
   });
   let refreshModelCatalog: (() => Promise<void>) | undefined;
   toolUpdates = new RuntimeToolUpdates({
     backends: () => seam.backends.values(),
+    inUse: (kind) => runtimeGate.inUse(kind),
     busy: () => new Set(Object.keys(runClock.runs()).map((threadId) => index.byId(threadId)?.backendKind ?? "pi")),
     recheck: async (kind) => { await Promise.all([publication.recheckVersion(kind), catalogs.recheck(kind)]); },
     changed: () => void publication.publishActiveCatalog().catch(() => undefined),
@@ -727,6 +740,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   const queue = new QueuedMessages({
     busy: (sessionId) => deps.hostThread(sessionId)?.isIdle() === false,
     waitForIdle: async (sessionId) => { await deps.threadFor(sessionId)?.backend.waitForIdle(); },
+    admit: async (sessionId) => { const thread = deps.threadFor(sessionId); if (thread) await prompts.assertRuntimeOn(thread); },
     deliver: (sessionId, message) => deps.deliverQueued(sessionId, message),
     publish: (sessionId, view) => { index.setQueue(sessionId, view); runClock.recheck(sessionId); },
     delivered: (sessionId) => runClock.recheck(sessionId),

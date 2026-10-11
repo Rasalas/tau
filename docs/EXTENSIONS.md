@@ -2594,6 +2594,25 @@ Antigravity and Cursor name each model's provider by its maker (`claude-…` is
 `anthropic`, `gpt-…` `openai`, `gemini-…` `google`; `kits/_acp/model-provider.ts`),
 because neither ACP nor Cursor's model list says it; the rest are their own.
 
+A runtime can be turned off for a project (API 1.59.0, ADR 0033) while its kit
+stays active. The setting is `runtimeEnabled.<backend kind>` in Tau's config, a
+boolean per kind (`codex`, `codex@work`), machine file and project file under
+the usual levels. The host refuses every start on an off runtime: its
+`sessions.start` throws "Codex is turned off for “project”…" (Scheduling records
+the run as failed with it, `tau_spawn_thread` reports it, Handoff's
+"Continue in" does not offer the runtime), and a send, a queued message, a fork
+and the continuation after a restart are refused the same way. A backend needs
+to do nothing; it never sees the request. The workbench marks such a backend
+`disabled: true` on its copy of `snapshot.runtimeBackends` for the project on
+screen (the draft's project while a draft is); a kit that offers runtimes to
+start work on leaves those out, and one that only reads or configures a runtime
+(its own Providers card) ignores the flag. The host never publishes it.
+
+`HostProjectFacts.root(cwd)` (API 1.59.0, optional) answers the project a nested
+checkout belongs to: the folder whose settings a linked worktree follows, so a
+runtime off in a repository is off in its worktrees too. Workspace Kit answers it
+from the Git common directory; a folder that answers nothing is its own project.
+
 A backend that drives a program the user installed may say which version that
 is: `version()` on the provider answers `{ tool, installed?, latest?,
 updateCommand? }` (`RuntimeToolVersion`), or `undefined` when it cannot tell.

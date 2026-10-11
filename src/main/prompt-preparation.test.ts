@@ -7,8 +7,12 @@ function makePrompts(assertPromptAllowed?: (level: string) => void) {
   return new PromptPreparation({
     requireBackend: () => ({ assertPromptAllowed } as never),
     permissionLevel: () => "read-only",
+    runtimeGate: runtimeGate as never,
+    ownedByPi: (thread) => thread.threadId === "terminal",
   });
 }
+
+const runtimeGate = { assert: vi.fn(async (_kind: string, _cwd: string) => undefined), enabled: vi.fn(async (_kind: string, _cwd: string) => true) };
 
 function piThread(threadId = "session", supportsImageInput = false, fileAttachments = false) {
   const backend = {
@@ -101,5 +105,28 @@ describe("PromptPreparation", () => {
     expect(() => prompts.assertAttachmentInput(piThread("session", false, true), [file])).not.toThrow();
     expect(() => prompts.assertAttachmentInput(piThread("session", false, true), [{ ...file, path: "spec.pdf" }])).toThrow("absolute path");
     expect(() => prompts.assertAttachmentInput(piThread("session", false, true), [{ ...file, size: 51 * 1024 * 1024 }])).toThrow("50 MB");
+  });
+});
+
+describe("PromptPreparation runtime gate", () => {
+  it("asks the gate for the thread's runtime and folder, or the folder a fork goes to", async () => {
+    runtimeGate.assert.mockClear();
+    const prompts = makePrompts();
+    await prompts.assertRuntimeOn(piThread("work"));
+    await prompts.assertRuntimeOn(piThread("work"), "/elsewhere");
+    expect(runtimeGate.assert.mock.calls.map(([kind]) => kind)).toEqual(["pi", "pi"]);
+    expect(runtimeGate.assert.mock.calls[1]?.[1]).toBe("/elsewhere");
+  });
+
+  it("leaves a session the terminal owns alone", async () => {
+    runtimeGate.assert.mockClear();
+    await makePrompts().assertRuntimeOn(piThread("terminal"));
+    expect(runtimeGate.assert).not.toHaveBeenCalled();
+  });
+
+  it("turns the gate's refusal into a message for a caller that returns it", async () => {
+    runtimeGate.assert.mockRejectedValueOnce(new Error("Codex is turned off"));
+    await expect(makePrompts().runtimeRefusal("codex", "/work")).resolves.toBe("Codex is turned off");
+    await expect(makePrompts().runtimeRefusal("codex", "/work")).resolves.toBeUndefined();
   });
 });

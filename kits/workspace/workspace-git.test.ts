@@ -20,6 +20,7 @@ import {
   getSnapshotFileDiff,
   isLinkedWorktree,
   isNestedProject,
+  mainCheckoutOf,
   MAX_DIFF_BYTES,
   MAX_DIFF_HUNKS,
   parseUnifiedDiff,
@@ -1003,6 +1004,15 @@ describe("worktree classification", () => {
     await expect(isLinkedWorktree("/tmp/plain", async () => { throw new Error("not a git repository"); }))
       .rejects.toThrow("not a git repository");
     await expect(isLinkedWorktree("/tmp/plain", async () => "\n")).rejects.toThrow("not a Git repository");
+  });
+
+  it("names the main checkout a linked worktree was made from, and nothing for any other folder", async () => {
+    const run = async (_cwd: string, args: string[]) => args.includes("--git-dir")
+      ? "/repos/tau/.git/worktrees/feat\n/repos/tau/.git\n"
+      : "/repos/tau/.git\n";
+    await expect(mainCheckoutOf("/repos/tau-worktrees/feat", run)).resolves.toBe("/repos/tau");
+    await expect(mainCheckoutOf("/repos/tau", async () => "/repos/tau/.git\n/repos/tau/.git\n")).resolves.toBeUndefined();
+    await expect(mainCheckoutOf("/tmp/plain", async () => { throw new Error("not a git repository"); })).resolves.toBeUndefined();
   });
 
   it("keeps vanished worktree paths out of the project picker", async () => {

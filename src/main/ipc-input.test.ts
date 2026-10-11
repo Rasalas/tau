@@ -382,6 +382,12 @@ describe("decodeConfigPatch", () => {
       .toThrow("update-config: patch.modelPreferences must map runtimes");
   });
 
+  it("takes which runtimes may start work, and rejects an entry that is not a boolean", () => {
+    expect(decodeConfigPatch(CH, "patch", { runtimeEnabled: { codex: false, "codex@work": true } })).toEqual({ runtimeEnabled: { codex: false, "codex@work": true } });
+    expect(() => decodeConfigPatch(CH, "patch", { runtimeEnabled: { codex: "off" } }))
+      .toThrow("update-config: patch.runtimeEnabled must map runtimes to true or false");
+  });
+
   it("takes the user's model prices, and rejects a malformed one", () => {
     expect(decodeConfigPatch(CH, "patch", { modelPrices: { "openai/o4-mini": { input: 1, output: 4 } } }))
       .toEqual({ modelPrices: { "openai/o4-mini": { input: 1, output: 4 } } });

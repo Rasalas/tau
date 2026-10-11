@@ -11,7 +11,9 @@ import { runtimeCatalogStore } from "./use-runtime-catalog";
 export async function listRuntimeModels(client: HostClient | undefined, backends: readonly UiRuntimeBackend[] | undefined, live: HostSnapshot | undefined): Promise<RuntimeModels[]> {
   const store = runtimeCatalogStore(client);
   await store?.refresh();
-  const offered = backends?.length ? backends : [{ kind: DEFAULT_RUNTIME, label: "Pi" }];
+  // A runtime the project turned off cannot start a thread; the one on screen stays, as it is only read.
+  const listed = backends?.filter((backend) => !backend.disabled || backend.kind === (live?.backendKind ?? DEFAULT_RUNTIME));
+  const offered = listed?.length ? listed : backends?.length ? backends : [{ kind: DEFAULT_RUNTIME, label: "Pi" }];
   return offered.map((backend) => {
     const entry = store?.get(backend.kind);
     const held = entry && entry.status !== "loading" ? entry.catalog : undefined;

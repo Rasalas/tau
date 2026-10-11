@@ -791,6 +791,7 @@ export function createWorkspaceHostExtension(): HostExtension {
             return branch;
           },
           nested: (project) => isScratchWorkspace(services.stateDir, project) ? Promise.resolve(true) : workspaceGit.isNestedProject(project),
+          root: (project) => isScratchWorkspace(services.stateDir, project) ? Promise.resolve(undefined) : workspaceGit.mainCheckoutOf(project),
         }),
         // Edits and Git commands run by the agent stale the cache.
         services.registerTurnObserver({ toolEnded: (_sessionId, tool, project) => invalidateAfterTool(git, tool, project) }),

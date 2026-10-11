@@ -302,6 +302,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
     if (has.has("name")) facts.name = async (cwd) => await hookCall(handle, "name", [cwd]) as string | undefined;
     if (has.has("label")) facts.label = async (cwd) => await hookCall(handle, "label", [cwd]) as string | undefined;
     if (has.has("nested")) facts.nested = async (cwd) => Boolean(await hookCall(handle, "nested", [cwd]));
+    if (has.has("root")) facts.root = async (cwd) => await hookCall(handle, "root", [cwd]) as string | undefined;
     return facts;
   };
 

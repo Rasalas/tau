@@ -33,7 +33,7 @@ import { usePreferences, useRendererServices } from "./renderer-services-context
 import { AppUpdateStore } from "./app-update";
 import { effectiveNewThreadRuntime, recentRuntimeModels, rememberedNewThreadSelection } from "./new-thread-runtime";
 import { selectionOnScreen } from "../workbench/new-thread-project";
-import { useRuntimeCatalog } from "./use-runtime-catalog";
+import { useOfferedRuntimes, useRuntimeCatalog } from "./use-runtime-catalog";
 import { draftImageInput, draftRuntimeSnapshot } from "../workbench/runtime-catalog-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { openFileTab, openThreadTab, stageFilePath as projectFilePath, type StageView } from "../workbench/stage";
@@ -137,7 +137,7 @@ export default function App() {
   const projects = useSyncExternalStore(threadStore.subscribeToProjects, threadStore.getProjects);
   const threadActivity = useSyncExternalStore(threadStore.subscribeToActivity, threadStore.getActivity);
 
-  const snapshot = useSyncExternalStore(viewStore.subscribeToSnapshot, viewStore.getSnapshot);
+  const hostSnapshot = useSyncExternalStore(viewStore.subscribeToSnapshot, viewStore.getSnapshot);
   // Tool runs render in the transcript, which subscribes itself; here only
   // whether there are any, which a stream of output never changes.
   const turnHasActivity = useSyncExternalStore(viewStore.subscribeToTools, () => hasActivityTools(viewStore));
@@ -172,6 +172,7 @@ export default function App() {
   // A prepared thread is not a runtime session yet, so its project is the
   // only trustworthy workspace identity while it is on screen. In
   // particular, do not expose the last real thread's worktree in the chrome.
+  const snapshot = useOfferedRuntimes(hostSnapshot, pendingNewThread ? pendingNewThread.workspaceId : hostSnapshot?.workspaceId); // runtimes this project turned off are marked
   const workspaceCwd = safeMode ? undefined : (pendingNewThread?.projectPath ?? snapshot?.cwd);
   // A draft without an id is keyed by its path, never by the host's project.
   const activeWorkspaceId = pendingNewThread ? pendingNewThread.workspaceId : snapshot?.workspaceId;

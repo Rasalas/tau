@@ -1,6 +1,7 @@
-import { useEffect, useSyncExternalStore } from "react";
-import type { ThreadBackendKind } from "../shared/contracts";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
+import type { HostSnapshot, ThreadBackendKind } from "../shared/contracts";
 import type { HostClient } from "../workbench/host-client";
+import { RuntimeAvailabilityStore, withDisabledRuntimes } from "../workbench/runtime-availability-store";
 import { RuntimeCatalogStore, type RuntimeCatalogEntry } from "../workbench/runtime-catalog-store";
 import { useHostClient } from "./host-client-context";
 
@@ -47,4 +48,30 @@ export function useModelName(kind: ThreadBackendKind | undefined, model: string 
   const models = entry && entry.status !== "loading" ? entry.catalog?.models : undefined;
   if (!model || !models) return undefined;
   return (models.find((item) => item.id === model && (!provider || item.provider === provider)) ?? models.find((item) => item.id === model))?.name;
+}
+
+const availabilities = new WeakMap<HostClient, RuntimeAvailabilityStore>();
+const NO_KINDS: readonly string[] = [];
+
+/** One store per client, asked again whenever the host's config changes. */
+export function runtimeAvailabilityStore(client: HostClient | undefined): RuntimeAvailabilityStore | undefined {
+  if (!client) return undefined;
+  let store = availabilities.get(client);
+  if (!store) {
+    const created = store = new RuntimeAvailabilityStore(client);
+    client.onHostEvent((event) => { if (event.type === "config-changed") created.refresh(); });
+    availabilities.set(client, store);
+  }
+  return store;
+}
+
+/**
+ * The snapshot with the runtimes the project of `workspaceId` turned off marked
+ * `disabled` (ADR 0033); `workspaceId` is the draft's project while one is on screen.
+ */
+export function useOfferedRuntimes(snapshot: HostSnapshot | undefined, workspaceId: string | undefined): HostSnapshot | undefined {
+  const store = runtimeAvailabilityStore(useHostClient());
+  useEffect(() => { store?.request(workspaceId); }, [store, workspaceId]);
+  const disabled = useSyncExternalStore(store?.subscribe ?? idle, () => store?.disabled(workspaceId) ?? NO_KINDS);
+  return useMemo(() => withDisabledRuntimes(snapshot, disabled), [snapshot, disabled]);
 }

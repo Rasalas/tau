@@ -8,6 +8,7 @@ import { isUpdateChannel, type UpdateChannel } from "../shared/app-version.js";
 import { isQuitConfirmation } from "../shared/window-shell.js";
 import { readModelPreferenceRecord } from "../shared/model-preferences.js";
 import { readModelPrices } from "../shared/model-prices.js";
+import { readRuntimeEnabled } from "../shared/runtime-enabled.js";
 import { PI_OWNED_CONFIG_KEYS, isPiOwnedSetting, withoutPiOwned, withoutSetting, type ConfigLayers } from "../shared/config-layers.js";
 import { tauHomeDir } from "./app-identity.js";
 
@@ -301,7 +302,7 @@ export class HostConfigManager {
       "theme", "transcriptDetail", "showCosts", "favouriteModels", "disabledExtensions",
       "prewarm", "options", "values", "keybindings", "fontFamily", "fontSize",
       "temperature", "maxTokens", "vimMode", "hostBackground", "hostKeepAwake", "threads", "updates", "confirm", "extensions",
-      "modelPreferences", "modelPrices",
+      "modelPreferences", "modelPrices", "runtimeEnabled",
     ]);
     const result: Partial<TauConfig> = {};
     for (const [key, val] of Object.entries(patch) as [keyof TauConfig, unknown][]) {
@@ -330,6 +331,11 @@ export class HostConfigManager {
         case "modelPreferences": {
           const preferences = readModelPreferenceRecord(val);
           if (preferences) result.modelPreferences = preferences;
+          break;
+        }
+        case "runtimeEnabled": {
+          const enabled = readRuntimeEnabled(val);
+          if (enabled) result.runtimeEnabled = enabled;
           break;
         }
         case "modelPrices": {
@@ -410,6 +416,9 @@ export class HostConfigManager {
     }
     if (override.disabledExtensions !== undefined || base.disabledExtensions !== undefined) {
       result.disabledExtensions = override.disabledExtensions ?? base.disabledExtensions;
+    }
+    if (base.runtimeEnabled || override.runtimeEnabled) {
+      result.runtimeEnabled = { ...(base.runtimeEnabled ?? {}), ...(override.runtimeEnabled ?? {}) };
     }
     if (override.models || base.models) {
       result.models = {

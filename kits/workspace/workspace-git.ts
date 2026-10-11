@@ -2777,6 +2777,17 @@ export async function isNestedProject(
   return !await exists(cwd) || isLinkedWorktree(cwd, runGit);
 }
 
+/** The main checkout a linked worktree was made from; undefined for any other folder. */
+export async function mainCheckoutOf(cwd: string, runGit: GitRunner = git): Promise<string | undefined> {
+  try {
+    if (!await isLinkedWorktree(cwd, runGit)) return undefined;
+    const commonDir = (await runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim();
+    return commonDir ? dirname(resolve(cwd, commonDir)) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Returns one stable project name for a repository and all of its linked worktrees. */
 export async function repositoryDisplayName(cwd: string, runGit: GitRunner = git): Promise<string> {
   try {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HostSnapshot, UiRuntimeCatalog } from "../shared/contracts";
-import { chosenNewThreadRuntime, effectiveNewThreadRuntime, rememberedNewThreadSelection } from "./new-thread-runtime";
+import { chosenNewThreadRuntime, effectiveNewThreadRuntime, offeredBackends, rememberedNewThreadSelection } from "./new-thread-runtime";
 
 const snapshot = {
   runtimeBackends: [{ kind: "pi", label: "Pi" }, { kind: "acme", label: "Acme" }],
@@ -18,6 +18,29 @@ describe("the runtime of a new thread", () => {
     expect(effectiveNewThreadRuntime("gone", snapshot)).toBe("acme");
     expect(chosenNewThreadRuntime(undefined, snapshot)).toBeUndefined();
     expect(effectiveNewThreadRuntime(undefined, undefined)).toBe("pi");
+  });
+});
+
+describe("the runtime of a new thread in a project that turned runtimes off", () => {
+  const marked = (...off: string[]) => ({
+    runtimeBackends: [{ kind: "pi", label: "Pi" }, { kind: "acme", label: "Acme" }, { kind: "other", label: "Other" }].map((backend) => off.includes(backend.kind) ? Object.assign({ disabled: true }, backend) : backend),
+    defaultBackendKind: "acme",
+  }) as HostSnapshot;
+
+  it("does not take a choice the project turned off, and falls back to the default", () => {
+    expect(chosenNewThreadRuntime("other", marked("other"))).toBeUndefined();
+    expect(effectiveNewThreadRuntime("other", marked("other"))).toBe("acme");
+    expect(effectiveNewThreadRuntime("pi", marked("other"))).toBe("pi");
+  });
+
+  it("stands in the first runtime that is on for a default the project turned off", () => {
+    expect(effectiveNewThreadRuntime(undefined, marked("acme"))).toBe("pi");
+    expect(effectiveNewThreadRuntime("acme", marked("acme", "pi"))).toBe("other");
+  });
+
+  it("keeps the default when every runtime is off, so the host can say why", () => {
+    expect(effectiveNewThreadRuntime(undefined, marked("acme", "pi", "other"))).toBe("acme");
+    expect(offeredBackends(marked("acme", "pi").runtimeBackends).map((backend) => backend.kind)).toEqual(["other"]);
   });
 });
 
