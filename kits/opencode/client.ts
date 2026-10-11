@@ -1,5 +1,6 @@
 /**
- * The part of `opencode serve`'s HTTP API Tau speaks: health, providers,
+ * The part of OpenCode 1's `opencode serve` HTTP API Tau speaks (and the HTTP
+ * plumbing OpenCode 2's client shares: auth, JSON, event streams): health, providers,
  * sessions and their messages, prompts, permissions and questions, and the
  * event stream. Field names are OpenCode's own (`GET /doc` prints them).
  * Every call names the project folder in `directory`, which is how one server
