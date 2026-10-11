@@ -41,6 +41,8 @@ export interface PullRequestReads {
   detail(ref: PullRequestRef, fresh: boolean): Promise<PullRequestDetail>;
   /** The stack a request is a layer of; undefined for one on its own or a host without stacks. */
   stackOf?(ref: PullRequestRef): Promise<PullRequestStackMembership | undefined>;
+  /** The request's changed files and their diffs, as the view reads them. */
+  files(ref: PullRequestRef, fresh: boolean): Promise<PullRequestFiles>;
 }
 
 const VERDICTS: Record<PullRequestReviewEvent, string> = { comment: "review without a verdict", approve: "approval", "request-changes": "request for changes" };
@@ -355,7 +357,7 @@ export function registerPullRequestCommands(context: HostExtensionContext, sourc
     return (await provider.stackMemberships({ host: ref.host, repo: ref.repo }, [ref.number])).get(ref.number);
   };
 
-  return { detail, stackOf };
+  return { detail, stackOf, files: (ref, fresh) => files(ref, sources.get(ref.service), fresh) };
 }
 
 /** The stack as the window showed it, checked field by field: it decides what a stack step may touch. */
