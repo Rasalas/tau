@@ -70,4 +70,29 @@ describe("resolveProjectIcon", () => {
 
     expect(await resolveProjectIcon(project)).toBeUndefined();
   });
+
+  it("draws a macOS app icon from the PNG inside its .icns", async () => {
+    const project = await temporaryProject();
+    await mkdir(join(project, "build"));
+    const png = Buffer.alloc(24);
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png);
+    png.writeUInt32BE(256, 16);
+    const head = Buffer.alloc(16);
+    head.write("icns");
+    head.writeUInt32BE(16 + png.length, 4);
+    head.write("ic08", 8);
+    head.writeUInt32BE(8 + png.length, 12);
+    await writeFile(join(project, "build/icon.icns"), Buffer.concat([head, png]));
+
+    expect(await resolveProjectIcon(project)).toBe(`data:image/png;base64,${png.toString("base64")}`);
+  });
+
+  it("skips an .icns without a PNG and goes on to the next candidate", async () => {
+    const project = await temporaryProject();
+    await mkdir(join(project, "build"));
+    await writeFile(join(project, "build/icon.icns"), "not an icns");
+    await writeFile(join(project, "icon.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+    expect(await resolveProjectIcon(project)).toBe("data:image/png;base64,iVBORw==");
+  });
 });

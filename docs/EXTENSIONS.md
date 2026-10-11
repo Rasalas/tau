@@ -1556,7 +1556,7 @@ projects with, keyed by a project's `workspaceId` or, for a host without ids,
 its `path`; each value is a `data:image/` URL (anything else is dropped), and
 `undefined` withdraws them, as deactivation does. Every project mark core
 draws takes them before the host's own picture (`UiProject.icon`: a
-`favicon.*`, `t3.json`) and before the initial: the new thread's project pill,
+`favicon.*`, a macOS app icon (`build/icon.icns` and its neighbours, drawn from the PNG inside), `t3.json`) and before the initial: the new thread's project pill,
 the project picker, the thread rows and draft rows, the phone's and tablet's
 thread lists and project filter. When two extensions name the same project,
 the one activated first wins. Core never reads an extension's settings for

@@ -109,7 +109,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./secret-store.js", // OS-store leaf shared by host kits; no runtime access to values.
   "./pi-host-components.js",   "./pi-host-options.js",   "./pi-host-support.js",   "./pi-host.js",
   "./pi-kit-extensions.js",   "./pi-model-runtime.js",   "./pi-session-dir.js",   "./platform-process.js",   "./process-lock.js",
-  "./project-facts-cache.js",   "./project-history.js",   "./project-icon.js",   "./remote-host-trust.js",
+  "./project-facts-cache.js",   "./project-history.js",   "./project-icon.js",   "./icns.js",   "./remote-host-trust.js",
   "./prompt-attachments.js",   "./prompt-cache.js",   "./prompt-preparation.js",   "./resource-discovery-cache.js",
   "./runtime-adapters.js",   "./runtime-catalogs.js",   "./runtime-tool-updates.js",   "./cli-install.js",   "./model-catalog.js",   "./runtime-prewarm.js",   "./runtime-resource-cache.js",
   "./runtime-instance-settings.js",   "./runtime-types.js",   "./runtime-versions.js",   "./self-signed-certificate.js",   "./session-entries.js",   "./session-events.js",
