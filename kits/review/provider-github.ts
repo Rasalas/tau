@@ -1,6 +1,7 @@
 import { HostCommandError } from "tau/host-extension";
 import { PROVIDERS, type MergeOutcome, type PullRequestLabel, type PullRequestRef, type PullRequestViewedState } from "./protocol.js";
 import type { ChangedFileEntry, ProviderTools, SourceControlProvider } from "./provider.js";
+import { readFileText } from "./provider-file.js";
 import { listCall, pullRequestCalls } from "./pull-request-cli.js";
 import { parseRemote } from "./pull-request-hosting.js";
 import { parseGitHubChecks, parseGitHubDetail, parseGitHubFiles, parseGitHubThreads, isDiffTooLarge, parseUnifiedDiff } from "./pull-request-json.js";
@@ -11,6 +12,8 @@ import { GITHUB_BRANCH_FIELDS, parseGitHubBranchRequest } from "./branch-request
 import { authArgs, createArgs, createdUrl, draftArgs, editArgs, mergeArgs, SERVICES } from "./request-cli.js";
 
 const DIFF_BUFFER = 16 * 1024 * 1024;
+/** Room for a file a little over the 2 MB cap, so its size is named instead of a buffer error. */
+export const FILE_BUFFER = 4 * 1024 * 1024;
 const LIST_BUFFER = 32 * 1024 * 1024;
 /** Pages of 100 read at most per connection: 3,000 threads or files. */
 const MAX_PAGES = 30;
@@ -166,6 +169,13 @@ export function createGitHubProvider(tools: ProviderTools): SourceControlProvide
         return parseGitHubFiles(await cli(ref, pullRequestCalls.files(ref), `Reading the files of ${noun(ref)}`, DIFF_BUFFER));
       }
     },
+    // A fork's head commit is reachable through the base repository, so `ref` names the base.
+    fileContents: (ref, { path, sha }) => readFileText(path, () => cli(
+      ref,
+      { args: ["api", "--hostname", ref.host, "-H", "Accept: application/vnd.github.raw+json", `repos/${ref.repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(sha)}`] },
+      `Reading ${path} of ${noun(ref)}`,
+      FILE_BUFFER,
+    )),
     viewedMarks: {
       states: async (ref, fresh): Promise<Map<string, PullRequestViewedState>> => (await threads(ref, fresh)).viewed,
       set: async (ref, path, viewed, detail) => {

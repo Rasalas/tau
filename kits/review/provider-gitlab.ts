@@ -1,7 +1,8 @@
 import { HostCommandError } from "tau/host-extension";
 import { PROVIDERS, type PullRequestRef } from "./protocol.js";
 import { readPages, type ProviderTools, type SourceControlProvider } from "./provider.js";
-import { cliAuthStatus, missingCli, parseCandidates } from "./provider-github.js";
+import { FILE_BUFFER, cliAuthStatus, missingCli, parseCandidates } from "./provider-github.js";
+import { readFileText } from "./provider-file.js";
 import { listCall, pullRequestCalls } from "./pull-request-cli.js";
 import { parseRemote } from "./pull-request-hosting.js";
 import { parseGitLabChecks, parseGitLabDetail, parseGitLabDiffs, parseGitLabThreads } from "./pull-request-json.js";
@@ -87,6 +88,13 @@ export function createGitLabProvider(tools: ProviderTools): SourceControlProvide
     },
     threads: async (ref, fresh) => parseGitLabThreads(await discussions(ref, fresh)),
     changes: async (ref) => parseGitLabDiffs(await readPages((page) => cli(ref, pullRequestCalls.diff(ref, page), `Reading the diff of ${noun(ref)}`))),
+    // GitLab keeps a request's head in the target project, so a fork's commit reads from `ref.repo`.
+    fileContents: (ref, { path, sha }) => readFileText(path, () => tools.cli(
+      kind,
+      { args: ["api", "--hostname", ref.host, `projects/${encodeURIComponent(ref.repo)}/repository/files/${encodeURIComponent(path)}/raw?ref=${encodeURIComponent(sha)}`] },
+      `Reading ${path} of ${noun(ref)}`,
+      { host: ref.host, maxBuffer: FILE_BUFFER },
+    )),
     comment: async (ref, body) => { await cli(ref, pullRequestCalls.comment(ref, body), `Commenting on ${noun(ref)}`); },
     reply: async (ref, threadId, body) => { await cli(ref, pullRequestCalls.reply(ref, threadId, body), `Commenting on ${noun(ref)}`); },
     lineComment: async (ref, input, known) => {
