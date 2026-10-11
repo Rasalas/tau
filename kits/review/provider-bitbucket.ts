@@ -15,6 +15,7 @@ import {
   type PullRequestVerdict,
   type ReviewRequest,
 } from "./protocol.js";
+import { readFileText } from "./provider-file.js";
 import type { GitCredential, ProviderTools, RepositoryTarget, SourceControlProvider } from "./provider.js";
 import { parseRemote } from "./pull-request-hosting.js";
 import { parseUnifiedDiff } from "./pull-request-json.js";
@@ -361,6 +362,11 @@ export function createBitbucketProvider(tools: ProviderTools, env: Record<string
     checks,
     threads: async (ref, fresh) => parseBitbucketThreads(await comments(ref, fresh)),
     changes: async (ref) => parseUnifiedDiff(await request(`${pullPath(ref)}/diff`, `Reading the diff of ${noun(ref)}`, { accept: "text/plain" })),
+    fileContents: (ref, { path, sha }) => readFileText(path, () => request(
+      `${repoPath(ref.repo)}/src/${encodeURIComponent(sha)}/${path.split("/").map(encodeURIComponent).join("/")}`,
+      `Reading ${path} of ${noun(ref)}`,
+      { accept: "*/*" },
+    )),
     comment: async (ref, body) => { await post(ref, { content: { raw: body } }, `Commenting on ${noun(ref)}`); },
     reply: async (ref, threadId, body) => { await post(ref, { content: { raw: body }, parent: { id: Number(threadId) } }, `Commenting on ${noun(ref)}`); },
     lineComment: async (ref, input) => {
