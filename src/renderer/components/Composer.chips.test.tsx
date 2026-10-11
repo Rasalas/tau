@@ -113,6 +113,22 @@ describe("chips in the composer's text", () => {
     expect(mirrorText()).toBe(textarea.value);
   });
 
+  it("lays its text out with the field's own padding and font, whatever rule set them", async () => {
+    const kit = chipKit();
+    const { textarea } = renderWith(kit.contribution);
+    // As the new-thread page's wider padding and the compact profile's larger font do.
+    textarea.style.padding = "11px 16px 7px 15px";
+    textarea.style.fontSize = "17px";
+    textarea.style.lineHeight = "1.8";
+    fireEvent.change(textarea, { target: { value: "look at" } });
+    act(() => { kit.add("a.ts"); });
+    await waitFor(() => expect(textarea.className).toContain("mirrored"));
+    const mirror = document.querySelector<HTMLElement>(".composer-mirror")!.style;
+    expect([mirror.paddingTop, mirror.paddingRight, mirror.paddingBottom, mirror.paddingLeft]).toEqual(["11px", "16px", "7px", "15px"]);
+    expect(mirror.fontSize).toBe("17px");
+    expect(mirror.lineHeight).toBe("1.8");
+  });
+
   it("puts a chip at the caret while the field has the keyboard", async () => {
     const kit = chipKit();
     const { textarea } = renderWith(kit.contribution);
