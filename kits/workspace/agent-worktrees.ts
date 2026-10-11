@@ -255,10 +255,14 @@ export async function createAgentWorktree(options: {
   agentId: string;
   runGit?: AgentGitRunner;
   worktreeParent?: string;
+  /** A commit the worktree starts from instead of the parent's state (a pull request's head). */
+  startPoint?: string;
 }): Promise<AgentWorktree> {
   const runGit = options.runGit ?? runAgentGit;
   const { parentCwd } = options;
-  const state = await captureStartingState(parentCwd, runGit);
+  const state = options.startPoint
+    ? { head: (await runGit(parentCwd, ["rev-parse", "--verify", `${options.startPoint}^{commit}`])).trim(), tree: "", dirty: false }
+    : await captureStartingState(parentCwd, runGit);
   const baseCommit = state.dirty
     ? (await runGit(parentCwd, ["commit-tree", state.tree, "-p", state.head, "-m", `tau: state of ${basename(parentCwd)} for a spawned thread`])).trim()
     : state.head;
