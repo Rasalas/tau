@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatThreadLink, parseThreadLink } from "./thread-links";
+import { formatThreadLink, parseThreadLink } from "./thread-links.js";
 
 describe("thread links", () => {
   it("round-trips an id, with the host when the link leaves the app", () => {

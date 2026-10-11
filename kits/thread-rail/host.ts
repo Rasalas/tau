@@ -9,6 +9,8 @@ import {
   type HostThreadStartOptions,
   type HostSessionSummary,
 } from "tau/host-extension";
+import { agentTools, DIRECTORY_INSTRUCTIONS, type DeferredChange } from "./agent-tools.js";
+import type { DirectoryRequest } from "./directory.js";
 import {
   EMPTY_STATE,
   UNARCHIVE_PATCH,
@@ -22,6 +24,7 @@ import {
   nextWake,
   pinPatch,
   settlePatch,
+  snoozePatch,
   sweepPatches,
   unsettlePatch,
   type SweepRequest,
@@ -81,7 +84,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
   return {
     id: THREAD_RAIL_EXTENSION_ID,
     name: "Thread Rail",
-    permissions: ["sessions", "machines"],
+    permissions: ["sessions", "machines", "runtime:extend"],
     async activate(context: HostExtensionContext) {
       const { services } = context;
       const file = join(services.stateDir, "thread-meta.json");
@@ -397,10 +400,48 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         return started;
       }, { long: true });
 
+      // A settle or snooze an agent asked for while its thread runs; it lands when the run ends well.
+      const deferred = new Map<string, DeferredChange>();
+      const toolPorts = {
+        now: clock,
+        state: homeState,
+        threads: async () => {
+          const update = await services.sessions.refreshIndex();
+          return update.type === "thread-index" ? update.index.sessions : [];
+        },
+        isRunning: (id: string) => running.has(id),
+        requests: async (input: { threadIds?: readonly string[]; query?: string }): Promise<Record<string, DirectoryRequest[]>> => {
+          try {
+            return record(await context.invokeHostExtension(REVIEW_EXTENSION_ID, "thread-request-links", input)) as Record<string, DirectoryRequest[]>;
+          } catch {
+            // Without Review Kit a thread links no request.
+            return {};
+          }
+        },
+        apply: async (id: string, patch: ThreadMetaPatch) => { await readOwnership(); await changeOwned({ [id]: patch }); },
+        defer: (id: string, request: DeferredChange) => { deferred.set(id, request); },
+        forgetDeferred: (id: string) => { deferred.delete(id); },
+      };
+      const endRun = (sessionId: string, outcome: "completed" | "failed") => {
+        const asked = deferred.get(sessionId);
+        deferred.delete(sessionId);
+        if (!asked || outcome !== "completed" || owner(sessionId)) return;
+        services.log("thread-rail.agent-organized", `${sessionId.slice(0, 8)} · ${asked.action}`);
+        change({ [sessionId]: asked.action === "settle" ? settlePatch(clock(), "agent") : snoozePatch(asked.until) });
+      };
+
       const disposers = [
+        services.mcp.registerTools((thread) => agentTools(toolPorts, thread)),
+        services.mcp.registerInstructions?.(() => DIRECTORY_INSTRUCTIONS) ?? (() => undefined),
+        services.registerRuntimeExtension("tau-thread-directory", (pi, thread) => {
+          for (const tool of agentTools(toolPorts, thread)) pi.registerTool(tool);
+          pi.on("before_agent_start", (event) => ({ systemPrompt: `${event.systemPrompt}\n\n${DIRECTORY_INSTRUCTIONS}` }));
+        }),
         services.registerTurnObserver({
-          accepted: (sessionId) => {
+          accepted: (sessionId, _turnId, queued) => {
             if (owner(sessionId)) return;
+            // A message queued behind the run is more work than the agent settled for.
+            if (queued.deferBefore) deferred.delete(sessionId);
             running.add(sessionId);
             turnVersions.set(sessionId, (turnVersions.get(sessionId) ?? 0) + 1);
             const meta = state.threads[sessionId];
@@ -415,15 +456,18 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
               },
             });
           },
-          cancelled: async (sessionId) => { running.delete(sessionId); queueRecheck(sessionId, true); },
+          cancelled: async (sessionId) => { running.delete(sessionId); deferred.delete(sessionId); queueRecheck(sessionId, true); },
           ended: async (sessionId) => {
             if (owner(sessionId)) return;
             running.delete(sessionId);
             change({ [sessionId]: { activityAt: clock() } });
             queueRecheck(sessionId, true);
           },
-          reset: async (sessionId) => { running.delete(sessionId); queueRecheck(sessionId, true); },
-          closed: async (sessionId) => { running.delete(sessionId); queueRecheck(sessionId, true); },
+          // The run is over, however it ended: `runEnded` already took what the agent asked for.
+          runEnded: endRun,
+          stopped: (sessionId) => { deferred.delete(sessionId); },
+          reset: async (sessionId) => { running.delete(sessionId); deferred.delete(sessionId); queueRecheck(sessionId, true); },
+          closed: async (sessionId) => { running.delete(sessionId); deferred.delete(sessionId); queueRecheck(sessionId, true); },
         }),
         services.registerThreadLifecycle({
           sweep: async (snapshot) => {

@@ -121,7 +121,7 @@ function createSettledNote(store: RailStore, unsettle: (threadId: string) => voi
     const requests = reason ? (meta.settledForRequest ?? "").split(" ").filter((url) => /^https?:\/\//u.test(url)) : [];
     return (
       <div className="thread-rail-settled-note" role="status">
-        <span>{requests.length ? <>Settled · {requests.map((url, index) => <span key={url}>{index ? ", " : ""}<a href={url} target="_blank" rel="noreferrer noopener">PR #{url.split("/").at(-1)}</a> {reason}</span>)}</> : meta.settledBy === "inactive" ? "Settled after inactivity" : "This thread is settled"}</span>
+        <span>{requests.length ? <>Settled · {requests.map((url, index) => <span key={url}>{index ? ", " : ""}<a href={url} target="_blank" rel="noreferrer noopener">PR #{url.split("/").at(-1)}</a> {reason}</span>)}</> : meta.settledBy === "inactive" ? "Settled after inactivity" : meta.settledBy === "agent" ? "Settled by the agent" : "This thread is settled"}</span>
         <button type="button" onClick={() => unsettle(threadId)}>Reopen</button>
       </div>
     );
