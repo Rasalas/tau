@@ -8,6 +8,7 @@ import { providerInfo, REVIEW_HOST_EXTENSION_ID, type ComposerContextChips, type
 import type { PullRequestClient, PullRequestCommentInput } from "./pull-request-client.js";
 import { hideWhitespace } from "./pull-request-diff.js";
 import { PullRequestHeaderActions, type HeaderMenuStep } from "./pull-request-header-actions.js";
+import { usePullRequestContext } from "./pull-request-context.js";
 import { usePullRequestLines } from "./pull-request-lines.js";
 import { asReviewRequest, checksRollup, checksSummary, orderFiles, relativeTime, shortNoun, type PullRequestTabParams } from "./pull-request-logic.js";
 import { handOver, RollupIcon } from "./pull-request-parts.js";
@@ -123,6 +124,7 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
 
   const ordered = useMemo(() => orderFiles(data.files?.files ?? []), [data.files]);
   const diffs = useMemo(() => ignoreWhitespace ? (data.files?.diffs ?? []).map(hideWhitespace) : data.files?.diffs ?? [], [data.files, ignoreWhitespace]);
+  const context = usePullRequestContext(client, detail, ordered);
   const diffByPath = useMemo(() => new Map(diffs.map((diff) => [diff.path, diff])), [diffs]);
   const stackFiles = useMemo<StackFile[]>(() => ordered.map((file) => ({ path: file.path, added: file.added, removed: file.removed, ...(file.previousPath ? { previousPath: file.previousPath } : {}) })), [ordered]);
   const lines = usePullRequestLines({
@@ -251,6 +253,7 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
               wrap={wrap}
               diffs={diffByPath}
               lines={lines.slotFor}
+              context={context}
               extra={(file) => {
                 const entry = ordered.find((candidate) => candidate.path === file.path);
                 if (!entry) return null;

@@ -424,6 +424,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
           <div hidden={tab !== "code"} className="pr-code-frame">
             <PullRequestCode
               detail={detail}
+              client={client}
               files={data.files}
               filesError={data.filesError}
               threads={threads}

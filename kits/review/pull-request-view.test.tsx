@@ -336,6 +336,37 @@ describe("the pull-request view", () => {
     await waitFor(() => expect(client.comment).toHaveBeenCalledWith(REF.url, { path: "kits/terminal/output.ts", line: 3, side: "new", body: "Name this." }));
   });
 
+  it("expands the unchanged lines around a change from the file at the head, without a comment button on them", async () => {
+    const text = Array.from({ length: 300 }, (_unused, index) => `readme line ${index + 1}`).join("\n");
+    const file = vi.fn(async (_url: string, path: string) => ({ path, sha: "abc", text }));
+    renderView(fakeClient({ file }));
+    await screen.findByRole("heading", { name: "Add the output helper" });
+    fireEvent.click(screen.getByRole("tab", { name: "Code" }));
+    fireEvent.click(await screen.findByRole("button", { name: /README\.md/u }));
+    fireEvent.click(await screen.findByRole("button", { name: "262 unchanged lines" }));
+    await waitFor(() => expect(file).toHaveBeenCalledWith(REF.url, "README.md"));
+    expect(await screen.findByText("readme line 1")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "262 unchanged lines" })).toBeNull();
+    // Only the lines of the diff can be commented on.
+    expect(screen.queryByRole("button", { name: "Comment on line 1" })).toBeNull();
+    expect(file).toHaveBeenCalledTimes(1);
+  });
+
+  it("says why the unchanged lines could not be read, and tries again on the next click", async () => {
+    const file = vi.fn(async (_url: string, path: string) => {
+      if (file.mock.calls.length === 1) throw new Error("README.md is a binary file.");
+      return { path, sha: "abc", text: "one\ntwo" };
+    });
+    renderView(fakeClient({ file }));
+    await screen.findByRole("heading", { name: "Add the output helper" });
+    fireEvent.click(screen.getByRole("tab", { name: "Code" }));
+    fireEvent.click(await screen.findByRole("button", { name: /README\.md/u }));
+    fireEvent.click(await screen.findByRole("button", { name: "262 unchanged lines" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("README.md is a binary file.");
+    fireEvent.click(screen.getByRole("button", { name: "262 unchanged lines" }));
+    await waitFor(() => expect(file).toHaveBeenCalledTimes(2));
+  });
+
   it("holds line comments for a review and submits them with a verdict in one step", async () => {
     const { client, shared } = renderView();
     await screen.findByRole("heading", { name: "Add the output helper" });
