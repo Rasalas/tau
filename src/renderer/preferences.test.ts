@@ -325,3 +325,69 @@ describe("a page showing another machine", () => {
     expect(own.config()).toEqual({ theme: "light" });
   });
 });
+
+describe("favourite and hidden models follow the host", () => {
+  type Client = import("../workbench/host-client").HostClient;
+  const bound = (store: PreferencesStore) => store.bindHost({ getConfig: async () => ({}), updateConfig: async () => ({}) } as unknown as Client);
+
+  it("keeps a favourite clicked after the echo of an earlier click", () => {
+    bound(preferences);
+    preferences.applyConfig({});
+    preferences.toggleFavouriteModel("a");
+    preferences.toggleFavouriteModel("b");
+    // The host's answer to the first write arrives after the second click.
+    preferences.applyConfig({ favouriteModels: ["a"] });
+    expect(preferences.getSnapshot().favouriteModels).toEqual(["a", "b"]);
+    preferences.applyConfig({ favouriteModels: ["a", "b"] });
+    expect(preferences.getSnapshot().favouriteModels).toEqual(["a", "b"]);
+  });
+
+  it("takes a favourite another client added and drops one it removed, keeping its own click", () => {
+    bound(preferences);
+    preferences.applyConfig({ favouriteModels: ["a", "b"] });
+    preferences.toggleFavouriteModel("c");
+    preferences.applyConfig({ favouriteModels: ["b", "d"] });
+    expect(preferences.getSnapshot().favouriteModels).toEqual(["b", "c", "d"]);
+  });
+
+  it("does not lose the other client's favourite when both click quickly", () => {
+    const host = { config: {} as import("../shared/contracts").TauConfig };
+    const clients: PreferencesStore[] = [];
+    const connect = () => {
+      const store = new PreferencesStore();
+      store.bindHost({ getConfig: async () => host.config, updateConfig: async (patch: import("../shared/contracts").TauConfig) => { host.config = { ...host.config, ...patch }; return host.config; } } as unknown as Client);
+      clients.push(store);
+      return store;
+    };
+    const desktop = connect();
+    const phone = connect();
+    desktop.applyConfig(host.config);
+    phone.applyConfig(host.config);
+    desktop.toggleFavouriteModel("a");
+    // The phone hears the desktop's write before its own click.
+    phone.applyConfig(host.config);
+    phone.toggleFavouriteModel("b");
+    desktop.applyConfig(host.config);
+    expect(host.config.favouriteModels).toEqual(["a", "b"]);
+    expect(desktop.getSnapshot().favouriteModels).toEqual(["a", "b"]);
+  });
+
+  it("keeps a model hidden in a quick second click against the echo of the first", () => {
+    bound(preferences);
+    preferences.applyConfig({});
+    preferences.toggleHiddenModel("pi", "a");
+    preferences.toggleHiddenModel("pi", "b");
+    preferences.applyConfig({ modelPreferences: { pi: { hidden: ["a"] } } });
+    expect(preferences.getSnapshot().modelPreferences.pi?.hidden).toEqual(["a", "b"]);
+    preferences.applyConfig({ modelPreferences: { pi: { hidden: ["a", "b"] } } });
+    expect(preferences.getSnapshot().modelPreferences.pi?.hidden).toEqual(["a", "b"]);
+  });
+
+  it("takes the host's order for a runtime while keeping its own unanswered hide", () => {
+    bound(preferences);
+    preferences.applyConfig({ modelPreferences: { pi: { order: ["x"] } } });
+    preferences.toggleHiddenModel("pi", "a");
+    preferences.applyConfig({ modelPreferences: { pi: { order: ["y", "x"] } } });
+    expect(preferences.getSnapshot().modelPreferences.pi).toEqual({ order: ["y", "x"], hidden: ["a"] });
+  });
+});
