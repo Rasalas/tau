@@ -39,9 +39,11 @@ import { importHome, importOpenCodeSessions, scanOpenCodeSessions } from "./hist
 import { openCodeMcpConfig } from "./mcp.js";
 import {
   INSTANCES_EVENT,
+  MIN_OPENCODE_2_VERSION,
   MIN_OPENCODE_VERSION,
   OPENCODE_2_NPM_PACKAGE,
   OPENCODE_2_VERSION,
+  TESTED_OPENCODE_2_VERSION,
   ONBOARDING_KIT_ID,
   OPENCODE_BACKEND_KIND,
   OPENCODE_HOME_VARIABLE,
@@ -78,23 +80,26 @@ interface Probe { version?: string; providers: OpenCodeProviderList; configured?
 const PROBE_TTL_MS = 10 * 60 * 1000;
 
 /**
- * The releases this kit speaks to. Older servers lack routes Tau needs; the
- * release it was built against is the one to install.
+ * The releases this kit speaks to. Two server APIs, one client each: OpenCode 1
+ * from 1.14.19 and OpenCode 2 from 2.0.10 (older ones lack routes Tau needs).
+ * Only the releases named in the protocol file were run; the recommended
+ * version of each line is the one to install.
  */
 export const OPENCODE_VERSION_POLICY: VersionPolicy = {
   ranges: [
     { range: `<${MIN_OPENCODE_VERSION}`, status: "broken", message: `Tau speaks the server API of OpenCode ${MIN_OPENCODE_VERSION} and newer; threads do not start on an older one.` },
-    { range: `>=${OPENCODE_2_VERSION}`, status: "broken", message: "OpenCode 2 replaced the server API Tau speaks; threads run on OpenCode 1 until Tau supports it." },
+    { range: `>=${OPENCODE_2_VERSION} <${MIN_OPENCODE_2_VERSION}`, status: "broken", message: `Tau speaks the server API of OpenCode ${MIN_OPENCODE_2_VERSION} and newer; earlier OpenCode 2 releases lack routes it needs.` },
+    { range: `>=${MIN_OPENCODE_2_VERSION} <${TESTED_OPENCODE_2_VERSION}`, status: "unsafe", message: `Tau was run against OpenCode ${TESTED_OPENCODE_2_VERSION}; this release has the routes but was not tried.` },
+    { range: ">=3.0.0", status: "unsafe", message: "Tau was run against OpenCode 2; a newer major release may have changed its server API." },
   ],
   recommendedVersion: TESTED_OPENCODE_VERSION,
 };
 
-/** Going back from OpenCode 2 swaps packages: both install the `opencode` command. */
-export function openCode1ReinstallCommand(realPath: string, version: string): string | undefined {
-  const path = realPath.replaceAll("\\", "/").toLowerCase();
-  if (!path.includes(`/node_modules/${OPENCODE_2_NPM_PACKAGE}/`)) return undefined;
-  const [remove, add] = path.includes("/.bun/") ? ["bun remove -g", "bun add -g"] : path.includes("/pnpm/") ? ["pnpm remove -g", "pnpm add -g"] : ["npm uninstall -g", "npm install -g"];
-  return `${remove} ${OPENCODE_2_NPM_PACKAGE} && ${add} ${OPENCODE_NPM_PACKAGE}@${version}`;
+/** The npm package, install command and release to name for an installed OpenCode of this version. */
+function lineOf(version: string | undefined): { npm: string; recommended: string } {
+  return version !== undefined && satisfiesVersionRange(version, `>=${OPENCODE_2_VERSION}`)
+    ? { npm: OPENCODE_2_NPM_PACKAGE, recommended: TESTED_OPENCODE_2_VERSION }
+    : { npm: OPENCODE_NPM_PACKAGE, recommended: TESTED_OPENCODE_VERSION };
 }
 
 /** Where OpenCode keeps its database: the XDG data folder, `~/.local/share` on every platform. */
@@ -125,6 +130,8 @@ export const OPENCODE_PACKAGE: CliPackageSpec = {
   homebrew: { formulae: ["opencode"] },
   native: { args: ["upgrade"], paths: ["/.opencode/bin/"] },
 };
+/** OpenCode 2 comes from its own npm package; updating stays on that line. */
+const OPENCODE_2_PACKAGE: CliPackageSpec = { ...OPENCODE_PACKAGE, npm: OPENCODE_2_NPM_PACKAGE };
 
 interface InstanceState {
   /** `key` is the executable's fingerprint: a replaced CLI is read again. */
@@ -187,15 +194,19 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
       const openCodeCommand = (id: string): string => settings.command(id).command;
       const instanceEnv = (id: string): NodeJS.ProcessEnv => openCodeEnvironment(settings.environment(id, env));
       const locate = (id: string): string | undefined => services.findCommand(openCodeCommand(id));
-      const updateCommand = async (path: string | undefined): Promise<string> => {
+      const updateCommand = async (path: string | undefined, version?: string): Promise<string> => {
         const real = path ? await realpath(path).catch(() => path) : undefined;
-        return runtimeUpdateCommand(OPENCODE_BACKEND_KIND, (real && packageUpdateCommand(real, OPENCODE_NPM_PACKAGE)) ?? "opencode upgrade", env);
+        return runtimeUpdateCommand(OPENCODE_BACKEND_KIND, (real && packageUpdateCommand(real, lineOf(version).npm)) ?? "opencode upgrade", env);
       };
       const compatibility = async (path: string | undefined, version: string | undefined): Promise<RuntimeCompatibility | undefined> => {
-        const verdict = versionCompatibility(policy, version);
-        if (!verdict?.recommendedVersion || !path) return verdict;
+        const found = versionCompatibility(policy, version);
+        if (!found) return found;
+        // A release of OpenCode 2 is moved to the tested one of its own line, not back to OpenCode 1.
+        const line = lineOf(version);
+        const verdict = found.recommendedVersion || found.status !== "supported" ? { ...found, recommendedVersion: line.recommended } : found;
+        if (!path) return verdict;
         const real = await realpath(path).catch(() => path);
-        const install = openCode1ReinstallCommand(real, verdict.recommendedVersion) ?? packageInstallCommand(real, OPENCODE_NPM_PACKAGE, verdict.recommendedVersion);
+        const install = packageInstallCommand(real, line.npm, line.recommended);
         return install ? { ...verdict, installCommand: install } : verdict;
       };
       const cli = async (id: string): Promise<{ path: string; version?: string }> => {
@@ -212,9 +223,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
       const refuseBroken = async (version: string | undefined, path?: string): Promise<void> => {
         const verdict = await compatibility(path, version);
         if (verdict?.status !== "broken") return;
-        // Updating OpenCode 2 only keeps it at 2; without a command to go back, the message says it alone.
-        const tooNew = version !== undefined && satisfiesVersionRange(version, `>=${OPENCODE_2_VERSION}`);
-        const fix = verdict.installCommand ? `Install ${verdict.recommendedVersion} with: ${verdict.installCommand}` : tooNew ? "" : `Update it with: ${await updateCommand(path)}`;
+        const fix = verdict.installCommand ? `Install ${verdict.recommendedVersion} with: ${verdict.installCommand}` : `Update it with: ${await updateCommand(path, version)}`;
         throw new Error(`OpenCode ${version ?? "(unknown version)"} does not work with Tau: ${verdict.message ?? ""} ${fix}`.replace(/\s+/gu, " ").trim());
       };
 
@@ -223,7 +232,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
         const external = servers.get(id);
         if (external) {
           const server = await connectOpenCodeServer(external.url, external.password, options.fetch);
-          await refuseBroken((await server.client.health()).version);
+          await refuseBroken((await server.api.health()).version);
           return server;
         }
         const { path, version } = await cli(id);
@@ -237,7 +246,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
           args: settings.args(id),
           cwd: input.cwd,
           env: instanceEnv(id),
-          ...(mcp ? { config: openCodeMcpConfig(mcp) } : {}),
+          ...(mcp ? { config: openCodeMcpConfig(mcp, version !== undefined && satisfiesVersionRange(version, `>=${OPENCODE_2_VERSION}`) ? 2 : 1) } : {}),
           onExit: input.onExit,
           onStderrLine: (line) => services.log("opencode.stderr", line.slice(0, 500)),
           ...(options.fetch ? { fetch: options.fetch } : {}),
@@ -260,9 +269,9 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
           const server = await connect(id, { cwd: directory, onExit: () => undefined });
           try {
             const [health, providers, config] = await Promise.all([
-              server.client.health().catch(() => undefined),
-              server.client.providers(directory),
-              server.client.config(directory).catch(() => ({ model: undefined })),
+              server.api.health().catch(() => undefined),
+              server.api.providers(directory),
+              server.api.config(directory).catch(() => ({ model: undefined })),
             ]);
             const configured = parseModelRef(config.model);
             return { ...(health?.version ? { version: health.version } : {}), providers, ...(configured ? { configured } : {}), at: Date.now() };
@@ -307,7 +316,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
           tool: "opencode",
           ...(version ? { installed: version } : {}),
           ...(maintenance?.latest ? { latest: maintenance.latest } : {}),
-          updateCommand: maintenance?.update ? runtimeUpdateCommand(OPENCODE_BACKEND_KIND, cliCommandText(maintenance.update), env) : await updateCommand(path),
+          updateCommand: maintenance?.update ? runtimeUpdateCommand(OPENCODE_BACKEND_KIND, cliCommandText(maintenance.update), env) : await updateCommand(path, version),
           ...(verdict ? { compatibility: verdict } : {}),
         };
       };
@@ -319,7 +328,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
           tool: "opencode",
           path,
           ...(version ? { installed: version } : {}),
-          spec: OPENCODE_PACKAGE,
+          spec: lineOf(version).npm === OPENCODE_2_NPM_PACKAGE ? OPENCODE_2_PACKAGE : OPENCODE_PACKAGE,
           findCommand: (name) => services.findCommand(name),
           cacheFile: join(services.stateDir, "latest-version.json"),
           env,
@@ -557,7 +566,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
         await mkdir(services.stateDir, { recursive: true });
         const server = await importServer();
         try {
-          return { source: OPENCODE_BACKEND_KIND, ...await scanOpenCodeSessions(server.client, (id) => held.has(id)) };
+          return { source: OPENCODE_BACKEND_KIND, ...await scanOpenCodeSessions(server.api, (id) => held.has(id)) };
         } finally {
           await server.close().catch(() => undefined);
         }
@@ -566,7 +575,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
         await mkdir(services.stateDir, { recursive: true });
         const server = await importServer();
         try {
-          const outcome = await importOpenCodeSessions(server.client, (input as { paths?: unknown } | undefined)?.paths, store);
+          const outcome = await importOpenCodeSessions(server.api, (input as { paths?: unknown } | undefined)?.paths, store);
           return { ...outcome, ...(outcome.imported.length ? { update: await services.sessions.refreshIndex() } : {}) };
         } finally {
           await server.close().catch(() => undefined);

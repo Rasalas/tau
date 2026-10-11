@@ -91,6 +91,8 @@ OPENCODE_SERVER_PASSWORD=test opencode serve --hostname 127.0.0.1 --port 0
 
 Stop a server you started by its PID. For import tests, `<import root>/opencode` is such a home too: start a server over it, create a session and send one prompt, and Onboarding lists it.
 
+OpenCode 2 is a separate npm package that also installs `opencode`, so it never goes in globally on a machine that has OpenCode 1. Install it into the worktree and point the instance at it: `npm i --prefix $PWD/.tau-dev/opencode2 @opencode/cli@2.0.26`, then `TAU_OPENCODE_COMMAND=$PWD/.tau-dev/opencode2/node_modules/.bin/opencode npm run dev:instance …`. A server of it reads `OPENCODE_PASSWORD` (OpenCode 1 reads `OPENCODE_SERVER_PASSWORD`; the kit sets both), prints `server listening on …`, and answers `GET /api/info`; its free models (`opencode/space-bunny-free`, say) need no login. `kits/opencode/live-v2.test.ts` runs the kit against such an install: `TAU_OPENCODE2_BIN=<path> [TAU_OPENCODE2_TURN=1] npx vitest run kits/opencode/live-v2.test.ts` (the turns reach the network and take a minute).
+
 ### Cursor gets a shadow home, and usually the fake CLI
 
 The Cursor CLI keeps its config and chats in `~/.cursor` and, on macOS, its login in the keychain. The Cursor kit reads `TAU_CURSOR_HOME` as that folder (`CURSOR_CONFIG_DIR` and `CURSOR_DATA_DIR`) with a file login (`AGENT_CLI_CREDENTIAL_STORE=file`), so a home is an account of its own; `dev-instance.mjs` sets it to `<worktree>/.tau-dev/cursor-home` (a caller's own value is kept). Nothing is linked from `~/.cursor`, and nobody signs in there for a test. A CLI older than 2026.04.08 has no `acp` and would take the word as a prompt, so the kit never starts one with it; `--version` and `about` are all it asks of such a CLI.

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { type HostExtension, type HostMcpConnection, type HostRuntimeBackendProvider } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { startFakeOpenCode, type FakeOpenCode } from "./fixtures/fake-server.js";
-import createOpenCodeHostExtension, { openCode1ReinstallCommand, openCodeEnvironment } from "./host.js";
+import { startFakeOpenCode2 } from "./fixtures/fake-server-v2.js";
+import createOpenCodeHostExtension, { openCodeEnvironment } from "./host.js";
 import { connectOpenCodeServer, type OpenCodeServeInput } from "./server.js";
 import { OpenCodeSessionStore } from "./session-store.js";
 
@@ -20,7 +21,7 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-async function harness(options: { installed?: string; found?: boolean; env?: (root: string) => NodeJS.ProcessEnv; config?: Record<string, unknown> } = {}) {
+async function harness(options: { installed?: string; found?: boolean; cliPath?: string; env?: (root: string) => NodeJS.ProcessEnv; config?: Record<string, unknown> } = {}) {
   const root = await mkdtemp(join(tmpdir(), "tau-opencode-host-"));
   directories.push(root);
   const fake = await startFakeOpenCode({ ...(options.config ? { config: options.config } : {}) });
@@ -40,7 +41,7 @@ async function harness(options: { installed?: string; found?: boolean; env?: (ro
   });
   const registry = await activateHostKit(extension, {
     mcp: { registerTools: () => () => undefined, gate: () => () => undefined, connect: async () => TAU_SERVER },
-    findCommand: (name) => name === "opencode" && options.found !== false ? FAKE_CLI : undefined,
+    findCommand: (name) => name === "opencode" && options.found !== false ? options.cliPath ?? FAKE_CLI : undefined,
     sessionsDir: join(root, "agent", "sessions"),
     stateDir: join(root, "state"),
     noteSubprocess: () => undefined,
@@ -117,30 +118,65 @@ describe("OpenCode host half", () => {
     await backend.dispose();
   });
 
-  it("refuses OpenCode 2 by name instead of failing on its missing routes", async () => {
-    const { provider, root } = await harness({ installed: "2.0.26" });
-    await expect(provider.version!()).resolves.toMatchObject({ compatibility: { status: "broken", message: expect.stringMatching(/OpenCode 2 replaced/u) } });
+  it("refuses an OpenCode 2 release without the routes Tau needs, and points to the tested one", async () => {
+    const { provider, root } = await harness({ installed: "2.0.5" });
+    await expect(provider.version!()).resolves.toMatchObject({ compatibility: { status: "broken", recommendedVersion: "2.0.26", message: expect.stringMatching(/OpenCode 2\.0\.10 and newer/u) } });
     const backend = await provider.open("tau-v2", root, { resume: false }, context);
-    const refused = backend.prompt({ text: "Hi", delivery: "prompt" });
-    await expect(refused).rejects.toThrow(/OpenCode 2\.0\.26 does not work with Tau: OpenCode 2 replaced/u);
-    // Updating would keep it at 2, so the message must not suggest it.
-    await expect(refused).rejects.not.toThrow(/Update it with/u);
+    await expect(backend.prompt({ text: "Hi", delivery: "prompt" })).rejects.toThrow(/OpenCode 2\.0\.5 does not work with Tau/u);
     await backend.dispose();
   });
 
-  it("refuses a server the user runs on OpenCode 2", async () => {
-    const { registry, backend } = await harness();
-    const v2 = await startFakeOpenCode({ version: "2.0.26" });
-    fakes.push(v2);
-    await registry.invoke("tau.opencode", "save-instance", { instance: { id: "v2", name: "V2" } });
-    await registry.invoke("tau.opencode", "set-server", { instance: "v2", url: v2.url });
-    await expect(backend("opencode@v2")!.version!()).rejects.toThrow(/OpenCode 2\.0\.26 does not work with Tau: OpenCode 2 replaced/u);
+  it("warns about an OpenCode 2 release between the first usable one and the tested one, and about a newer major", async () => {
+    await expect((await harness({ installed: "2.0.12" })).provider.version!()).resolves.toMatchObject({ compatibility: { status: "unsafe", recommendedVersion: "2.0.26" } });
+    await expect((await harness({ installed: "3.1.0" })).provider.version!()).resolves.toMatchObject({ compatibility: { status: "unsafe" } });
+    const tested = await (await harness({ installed: "2.0.26" })).provider.version!();
+    expect(tested?.compatibility).toBeUndefined();
+    const newer = await (await harness({ installed: "2.0.30" })).provider.version!();
+    expect(newer?.compatibility).toBeUndefined();
   });
 
-  it("swaps OpenCode 2's package back for OpenCode 1's", () => {
-    expect(openCode1ReinstallCommand("/usr/local/lib/node_modules/@opencode/cli/bin/opencode.cjs", "1.18.32")).toBe("npm uninstall -g @opencode/cli && npm install -g opencode-ai@1.18.32");
-    expect(openCode1ReinstallCommand("/Users/me/.bun/install/global/node_modules/@opencode/cli/bin/opencode.cjs", "1.18.32")).toBe("bun remove -g @opencode/cli && bun add -g opencode-ai@1.18.32");
-    expect(openCode1ReinstallCommand("/usr/local/lib/node_modules/opencode-ai/bin/opencode", "1.18.32")).toBeUndefined();
+  it("names the package of the installed line when it offers an install, and never moves OpenCode 2 back to 1", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-opencode-pkg-"));
+    directories.push(root);
+    const two = join(root, "lib", "node_modules", "@opencode", "cli", "bin");
+    await mkdir(two, { recursive: true });
+    await writeFile(join(two, "opencode"), "#!/bin/sh\n");
+    const old = await harness({ installed: "2.0.5", cliPath: join(two, "opencode") });
+    await expect(old.provider.version!()).resolves.toMatchObject({ compatibility: { status: "broken", installCommand: "npm install -g @opencode/cli@2.0.26" } });
+    const one = join(root, "lib", "node_modules", "opencode-ai", "bin");
+    await mkdir(one, { recursive: true });
+    await writeFile(join(one, "opencode"), "#!/bin/sh\n");
+    const older = await harness({ installed: "1.10.0", cliPath: join(one, "opencode") });
+    await expect(older.provider.version!()).resolves.toMatchObject({ compatibility: { status: "broken", installCommand: "npm install -g opencode-ai@1.18.32" } });
+  });
+
+  it("runs a thread on an OpenCode 2 server the user runs, with the OpenCode 2 client", async () => {
+    const { registry, backend } = await harness();
+    const v2 = await startFakeOpenCode2({ password: "pw2" });
+    await registry.invoke("tau.opencode", "save-instance", { instance: { id: "v2", name: "V2" } });
+    await registry.invoke("tau.opencode", "set-server", { instance: "v2", url: v2.url, password: "pw2" });
+    await expect(backend("opencode@v2")!.version!()).resolves.toMatchObject({ installed: "2.0.26" });
+    const catalog = await backend("opencode@v2")!.newThreadCatalog!();
+    expect(catalog?.models.map((model) => `${model.provider}/${model.id}`)).toContain("opencode/space-bunny-free");
+    const dir = await mkdtemp(join(tmpdir(), "tau-opencode-v2-"));
+    directories.push(dir);
+    const thread = await backend("opencode@v2")!.open("tau-v2", dir, { resume: false }, context);
+    try {
+      await expect(thread.prompt({ text: "Reply with one word.", delivery: "prompt" })).resolves.toEqual({ assistantText: "pong" });
+    } finally {
+      await thread.dispose();
+      await v2.close();
+    }
+    expect(v2.requests.some((request) => request.method === "POST" && request.path.endsWith("/prompt"))).toBe(true);
+  });
+
+  it("refuses a server the user runs on an OpenCode 2 release without the routes", async () => {
+    const { registry, backend } = await harness();
+    const old = await startFakeOpenCode2({ version: "2.0.5" });
+    await registry.invoke("tau.opencode", "save-instance", { instance: { id: "old", name: "Old" } });
+    await registry.invoke("tau.opencode", "set-server", { instance: "old", url: old.url });
+    await expect(backend("opencode@old")!.version!()).rejects.toThrow(/OpenCode 2\.0\.5 does not work with Tau/u);
+    await old.close();
   });
 
   it("connects an instance to a server the user runs, with its password, and never hands the password back", async () => {
