@@ -58,7 +58,7 @@ function heldThread(threadId: string, delivered: DeliveredPrompt[]) {
 
 function host() {
   const delivered: DeliveredPrompt[] = [];
-  const history = { list: () => [], isHidden: () => false, remember: async () => undefined };
+  const history = { list: () => [], isHidden: () => false, iconFor: async () => undefined, remember: async () => undefined };
   const piHost = new PiHost("/repo", () => undefined, history as never, false, false);
   const internals = piHost as unknown as Record<string, any>;
   internals.rememberProject = async () => {};

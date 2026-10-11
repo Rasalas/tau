@@ -70,7 +70,7 @@ function bindableThread(bind: (bindings: RuntimeExtensionBindings) => Promise<vo
 async function hostWithBindingThread(bind: (bindings: RuntimeExtensionBindings) => Promise<void>) {
   const events: HostEvent[] = [];
   const prompts: string[] = [];
-  const history = { list: () => [], isHidden: () => false };
+  const history = { list: () => [], isHidden: () => false, iconFor: async () => undefined };
   const host = new PiHost("/repo", (event) => { events.push(event); }, history as never, false, false);
   const internals = host as unknown as HostInternals;
   const thread = bindableThread(bind, prompts);

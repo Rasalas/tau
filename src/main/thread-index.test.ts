@@ -37,6 +37,7 @@ function makeIndex(options: {
   sessionsDir?: string;
   backends?: HostRuntimeBackendProvider[];
   priceUsage?: ThreadIndexPort["priceUsage"];
+  iconFor?: (path: string) => Promise<string | undefined>;
 } = {}) {
   const events: HostEvent[] = [];
   const updates: HostUpdate[] = [];
@@ -55,6 +56,7 @@ function makeIndex(options: {
     projectHistory: {
       list: () => [...(options.projects ?? [{ path: "/repo", name: "repo", lastOpenedAt: 2 }])],
       isHidden: () => false,
+      iconFor: options.iconFor ?? (async () => undefined),
     } as never,
     threadLifecycle: options.threadLifecycle ?? new HostThreadLifecycleSet(),
     backends: () => new Map((options.backends ?? []).map((provider) => [provider.kind, provider])),
@@ -269,6 +271,24 @@ describe("ThreadIndex", () => {
     index.snapshot();
     await projects.settleClassifications();
     expect(index.snapshot().projects.map((project) => project.path)).toEqual(["/found"]);
+  });
+
+  it("draws a project only its threads name with its own picture, once that is read", async () => {
+    const asked: string[] = [];
+    const { index, projects, updates } = makeIndex({
+      projects: [],
+      iconFor: async (path) => { asked.push(path); return `data:image/svg+xml,${path.slice(1)}`; },
+    });
+    seed(index, [shell({ id: "a", path: "/a.jsonl", projectPath: "/found", projectName: "found" })]);
+    index.snapshot();
+    await projects.settleClassifications();
+    expect(index.snapshot().projects[0]?.icon).toBeUndefined();
+    // The picture arrives first, its publication a tick after.
+    await flush();
+    await flush();
+    expect(updates.some((update) => update.type === "thread-index")).toBe(true);
+    expect(index.snapshot().projects[0]?.icon).toBe("data:image/svg+xml,found");
+    expect(asked).toEqual(["/found"]);
   });
 
   it("reads a parent from the link the start wrote", () => {

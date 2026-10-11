@@ -24,7 +24,7 @@ async function bench() {
     dispose: async () => undefined,
   };
   const thread = new ThreadRuntime(backend as never, { session: { sessionId: source.getSessionId() }, dispose: async () => undefined } as never);
-  const host = new PiHost("/repo", () => undefined, { list: () => [], isHidden: () => false } as never, false, false);
+  const host = new PiHost("/repo", () => undefined, { list: () => [], isHidden: () => false, iconFor: async () => undefined } as never, false, false);
   const internals = host as unknown as Record<string, any>;
   internals.sessionsDirOverride = sessions;
   const opened: SessionManager[] = [];

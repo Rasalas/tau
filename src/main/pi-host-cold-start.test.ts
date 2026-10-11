@@ -58,7 +58,7 @@ function blankThread(threadId: string, delivered: string[]): ThreadRuntime {
 
 /** A host whose initial runtime opens only when the test releases it. */
 function coldHost(delivered: string[]) {
-  const history = { list: () => [], isHidden: () => false, remember: async () => undefined };
+  const history = { list: () => [], isHidden: () => false, iconFor: async () => undefined, remember: async () => undefined };
   const host = new PiHost("/repo", () => undefined, history as never, false, false);
   const internals = host as unknown as Record<string, any>;
   const thread = blankThread("cold-thread", delivered);
