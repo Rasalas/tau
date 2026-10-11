@@ -163,7 +163,7 @@ export interface UiToolRun {
   /** Runtime-owned delegation activity, which may continue after its parent's turn. */
   kind?: "subagent";
   media?: readonly UiToolMedia[];
-  /** JSON a kit attaches to the run (4 KB at most); a tool card's `match` can read it, core never does. New in the next API version. */
+  /** JSON a kit attaches to the run (4 KB at most); a tool card's `match` can read it, core never does. New in API 1.59.0. */
   extras?: Record<string, unknown>;
   id: string;
   name: string;

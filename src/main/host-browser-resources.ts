@@ -14,7 +14,7 @@ export interface HostBrowserResources {
   publish(handler: HostBrowserResourceHandler): string;
   /** Immutable HTML with scripts in an opaque sandbox, without filesystem or network access. */
   publishVisualization(fragment: string, theme?: "light" | "dark"): string;
-  /** HTML with scripts in an opaque sandbox under the document's own declared policy (ADR 0032). Loads once; mint again to remount. New in the next API version. */
+  /** HTML with scripts in an opaque sandbox under the document's own declared policy (ADR 0032). Loads once; mint again to remount. New in API 1.59.0. */
   publishFrame(document: SandboxFrameDocument): string;
   /** Only the publishing extension and connection can release it. */
   release(path: string): void;
