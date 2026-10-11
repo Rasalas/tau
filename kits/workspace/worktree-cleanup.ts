@@ -121,6 +121,8 @@ export interface WorktreeFacts {
   integrated: boolean;
   /** The branch's pull or merge request was merged on the host; a squash or rebase merge leaves `integrated` false. */
   requestMerged?: boolean;
+  /** The request was merged, but not these commits (other head) or not into the default branch. */
+  requestDiffers?: boolean;
   lastActivityAt: number;
   inspectionError?: string;
 }
@@ -148,6 +150,7 @@ export function evaluateWorktree(facts: WorktreeFacts, rules: WorktreeCleanupRul
   if (facts.dirtyFiles > 0) blockers.push("uncommitted");
   if (facts.ignoredFiles > 0) blockers.push("ignored-files");
   if (facts.unpushedCommits > 0) blockers.push("unpushed");
+  if (facts.requestDiffers) blockers.push("request-differs");
   return { remove: reasons.length > 0 && blockers.length === 0, reasons, blockers };
 }
 

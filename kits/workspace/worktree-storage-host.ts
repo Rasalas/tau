@@ -1,7 +1,7 @@
 import { HostCommandError, type HostExtensionContext } from "tau/host-extension";
 import type { GitRunner } from "./workspace-git.js";
 import { STORAGE_CHANGED_EVENT } from "./storage-protocol.js";
-import { WorktreeStorage, storageGit } from "./worktree-storage.js";
+import { WorktreeStorage, storageGit, type WorktreeStorageOptions } from "./worktree-storage.js";
 
 const HOUR_MS = 60 * 60_000;
 const FIRST_SWEEP_MS = 60_000;
@@ -23,7 +23,7 @@ function sweepInterval(): number {
  */
 export function registerWorktreeStorage(
   context: HostExtensionContext,
-  options: { removed(repository: string): void; runGit?: GitRunner; requestState?: (path: string) => Promise<"open" | "closed" | "merged" | undefined> },
+  options: { removed(repository: string): void; runGit?: GitRunner; request?: WorktreeStorageOptions["request"] },
 ): { storage: WorktreeStorage; dispose(): void } {
   const { services } = context;
   const runGit: GitRunner = options.runGit ?? (async (cwd, args, maxBuffer) => {
@@ -42,7 +42,7 @@ export function registerWorktreeStorage(
     hostCwd: () => services.cwd(),
     log: (label, detail) => services.log(label, detail),
     removed: options.removed,
-    ...(options.requestState ? { requestState: options.requestState } : {}),
+    ...(options.request ? { request: options.request } : {}),
   });
   const announce = (removed: readonly string[]) => {
     if (removed.length > 0) context.emit(STORAGE_CHANGED_EVENT, { removed });

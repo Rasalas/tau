@@ -204,7 +204,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       const branchRequest = createBranchRequests((input) => context.invokeHostExtension(REVIEW_KIT_ID, "branch-request", input));
       const worktrees = registerWorktreeStorage(context, {
         removed: (repository) => git.invalidate(repository, ["branch", "status", "workspace"]),
-        requestState: async (path) => (await branchRequest(path))?.state,
+        request: (path) => branchRequest(path),
       });
       const restoreWorktree = async (path: string): Promise<void> => {
         const restored = await worktrees.storage.restoreMissing(path);

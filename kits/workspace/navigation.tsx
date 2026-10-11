@@ -274,7 +274,7 @@ export function NewProjectSource({ actions, onBack, onDone }: ProjectSourceProps
     if (!name.trim() || busy) return;
     setBusy(true);
     try {
-      const created = await store.host.createProject(name, useBase ? base : undefined);
+      const created = await store.createProject(name, useBase ? base : undefined);
       if (!created) return;
       if (created.warning) actions.notify(created.warning);
       if (await actions.openWorkspace(created.workspace.workspaceId)) {

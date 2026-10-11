@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { PullRequestCheck, PullRequestThread } from "./protocol.js";
-import { parseGitHubDetail, parseRequestUrl, parseUnifiedDiff } from "./pull-request-json.js";
+import { parseGitHubChecks, parseGitHubDetail, parseRequestUrl, parseUnifiedDiff } from "./pull-request-json.js";
 import {
   anchorThreads,
   asReviewRequest,
@@ -21,6 +21,27 @@ import {
 const fixture = (name: string) => readFile(join(import.meta.dirname, "fixtures", name), "utf8");
 const REF = parseRequestUrl("https://github.com/acme/tau/pull/7")!;
 const check = (status: PullRequestCheck["status"], name: string = status): PullRequestCheck => ({ name, status });
+
+describe("the rollup's re-runs", () => {
+  const run = (fields: Record<string, string>) => ({ name: "test", workflowName: "CI", ...fields });
+
+  it("shows a re-run still going even when an older run of the check finished later", () => {
+    const rollup = [
+      run({ status: "COMPLETED", conclusion: "SUCCESS", startedAt: "2026-10-01T10:05:00Z", completedAt: "2026-10-01T10:06:00Z" }),
+      run({ status: "IN_PROGRESS", conclusion: "", startedAt: "2026-10-01T10:00:00Z" }),
+    ];
+    expect(parseGitHubChecks(rollup).map((row) => row.status)).toEqual(["pending"]);
+    expect(parseGitHubChecks([...rollup].reverse()).map((row) => row.status)).toEqual(["pending"]);
+  });
+
+  it("still takes the newest of the finished runs", () => {
+    const rollup = [
+      run({ status: "COMPLETED", conclusion: "FAILURE", startedAt: "2026-10-01T10:00:00Z" }),
+      run({ status: "COMPLETED", conclusion: "SUCCESS", startedAt: "2026-10-01T10:05:00Z" }),
+    ];
+    expect(parseGitHubChecks(rollup).map((row) => row.status)).toEqual(["passed"]);
+  });
+});
 
 describe("checks", () => {
   it("rolls up to the worst news and says it in one line", () => {

@@ -8,7 +8,7 @@ import type { AutoMergeState, MergeMethod, ReviewRequest } from "./protocol.js";
  */
 
 /** What `gh pr view` is asked for the branch's request. */
-export const GITHUB_BRANCH_FIELDS = "number,title,url,baseRefName,headRefName,state,isDraft,statusCheckRollup,body,autoMergeRequest";
+export const GITHUB_BRANCH_FIELDS = "number,title,url,baseRefName,headRefName,headRefOid,state,isDraft,statusCheckRollup,body,autoMergeRequest";
 
 const asNumber = (value: unknown): number | undefined => typeof value === "number" && Number.isFinite(value) ? value : undefined;
 const asString = (value: unknown): string | undefined => typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -83,6 +83,7 @@ export function parseGitHubBranchRequest(output: string): ReviewRequest | undefi
   return {
     provider: "github", number, title: asString(raw.title) ?? `#${number}`, url, baseRef,
     ...(asString(raw.headRefName) ? { headRef: asString(raw.headRefName) } : {}),
+    ...(asString(raw.headRefOid) ? { headSha: asString(raw.headRefOid) } : {}),
     ...statusFields(asString(raw.state), raw.isDraft, summarizeGitHubChecks(raw.statusCheckRollup), raw.body),
     ...(autoMerge ? { autoMerge } : {}),
   };
@@ -96,9 +97,11 @@ export function parseGitLabBranchRequest(output: string): ReviewRequest | undefi
   const url = asString(raw.web_url);
   if (number === undefined || !baseRef || !url) return undefined;
   const autoMerge = gitlabAutoMerge(raw);
+  const headSha = asString(raw.sha) ?? asString(record(raw.diff_refs).head_sha);
   return {
     provider: "gitlab", number, title: asString(raw.title) ?? `!${number}`, url, baseRef,
     ...(asString(raw.source_branch) ? { headRef: asString(raw.source_branch) } : {}),
+    ...(headSha ? { headSha } : {}),
     ...statusFields(asString(raw.state), typeof raw.draft === "boolean" ? raw.draft : raw.work_in_progress, summarizeGitLabPipeline(raw.head_pipeline ?? raw.pipeline), raw.description),
     ...(autoMerge ? { autoMerge } : {}),
   };

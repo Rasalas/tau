@@ -43,6 +43,8 @@ export interface UiReviewRequest {
   /** Branch the request merges into; the branch diff uses it as base. */
   baseRef: string;
   headRef?: string;
+  /** The commit the request's head branch points at (API 1.59.0). */
+  headSha?: string;
   /** What the tool reported; absent when it did not say. */
   state?: "open" | "closed" | "merged";
   draft?: boolean;

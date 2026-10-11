@@ -107,11 +107,12 @@ export function githubCheckStatus(entry: Json): PullRequestCheckStatus {
 }
 
 /**
- * The rollup as rows, one per workflow and name, the newest run winning; a
- * name two workflows share is spelled `workflow / name`.
+ * The rollup as rows, one per workflow and name, the newest run winning but a
+ * run still going beating any finished one; a name two workflows share is
+ * spelled `workflow / name`.
  */
 export function parseGitHubChecks(rollup: unknown): PullRequestCheck[] {
-  const newest = new Map<string, { at: string; check: PullRequestCheck }>();
+  const newest = new Map<string, { at: string; open: boolean; check: PullRequestCheck }>();
   for (const entry of list(rollup)) {
     const name = text(entry.name) ?? text(entry.context);
     if (!name) continue;
@@ -129,7 +130,9 @@ export function parseGitHubChecks(rollup: unknown): PullRequestCheck[] {
     const key = `${workflow ?? ""}\0${name}`;
     const at = text(entry.startedAt) ?? text(entry.completedAt) ?? "";
     const current = newest.get(key);
-    if (!current || at >= current.at) newest.set(key, { at, check });
+    const open = status === "pending";
+    // An unfinished re-run hides nothing and is hidden by nothing finished.
+    if (!current || (open === current.open ? at >= current.at : open)) newest.set(key, { at, open, check });
   }
   const checks = [...newest.values()].map((entry) => entry.check);
   const names = new Map<string, number>();
