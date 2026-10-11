@@ -4,7 +4,7 @@ import type { ChangedFileEntry, ProviderTools, SourceControlProvider } from "./p
 import { readFileText } from "./provider-file.js";
 import { listCall, pullRequestCalls } from "./pull-request-cli.js";
 import { parseRemote } from "./pull-request-hosting.js";
-import { parseGitHubChecks, parseGitHubDetail, parseGitHubFiles, parseGitHubThreads, isDiffTooLarge, parseUnifiedDiff } from "./pull-request-json.js";
+import { parseGitHubChecks, parseGitHubDetail, parseGitHubFiles, parseGitHubThreads, parseGitHubBotLogins, markBotComments, isDiffTooLarge, parseUnifiedDiff } from "./pull-request-json.js";
 import { parseGitHubList } from "./pull-request-list-json.js";
 import { createGitHubStacks } from "./github-stacks.js";
 import { createGitHubPipelines } from "./github-pipeline.js";
@@ -156,7 +156,14 @@ export function createGitHubProvider(tools: ProviderTools): SourceControlProvide
       return { entries: entries.slice(0, input.limit), more: entries.length > input.limit };
     },
 
-    detail: async (ref) => parseGitHubDetail(ref, await cli(ref, pullRequestCalls.view(ref)[0]!, `Reading ${noun(ref)}`)),
+    detail: async (ref) => {
+      const [view, bots] = await Promise.all([
+        cli(ref, pullRequestCalls.view(ref)[0]!, `Reading ${noun(ref)}`),
+        // Best effort: without it a bot's comment reads as a person's.
+        cli(ref, pullRequestCalls.authors(ref), `Reading who commented on ${noun(ref)}`).then(parseGitHubBotLogins, () => new Set<string>()),
+      ]);
+      return markBotComments(parseGitHubDetail(ref, view), bots);
+    },
     pipeline: createGitHubPipelines(tools),
     checks: async (ref) => parseGitHubChecks(record(JSON.parse(await cli(ref, pullRequestCalls.checks(ref), `Reading the checks of ${noun(ref)}`))).statusCheckRollup),
     threads: async (ref, fresh) => (await threads(ref, fresh)).threads,

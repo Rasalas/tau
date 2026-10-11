@@ -67,11 +67,32 @@ function actor(value: unknown): PullRequestActor | undefined {
   const login = text(raw.login) ?? text(raw.username);
   if (!login) return undefined;
   const name = text(raw.name);
-  const bot = raw.is_bot === true || raw.bot === true || /\[bot\]$/u.test(login);
+  const bot = raw.is_bot === true || raw.bot === true || raw.__typename === "Bot" || /\[bot\]$/u.test(login);
   return { login, ...(name && name !== login ? { name } : {}), ...(bot ? { bot } : {}) };
 }
 
 const GHOST: PullRequestActor = { login: "ghost" };
+
+/** The logins of the bot accounts in `pullRequest { comments, reviews { nodes { author { login __typename } } } }`. */
+export function parseGitHubBotLogins(output: string): Set<string> {
+  const pull = record(record(record(record(JSON.parse(output)).data).repository).pullRequest);
+  const logins = new Set<string>();
+  for (const connection of [pull.comments, pull.reviews]) {
+    for (const node of list(record(connection).nodes)) {
+      const author = record(node.author);
+      const login = text(author.login);
+      if (login && author.__typename === "Bot") logins.add(login);
+    }
+  }
+  return logins;
+}
+
+/** The request with its comments by the given accounts marked as bots; `gh pr view` leaves that out. */
+export function markBotComments(detail: PullRequestDetail, logins: ReadonlySet<string>): PullRequestDetail {
+  if (logins.size === 0) return detail;
+  const mark = <T extends { author: PullRequestActor }>(entry: T): T => logins.has(entry.author.login) && !entry.author.bot ? { ...entry, author: { ...entry.author, bot: true } } : entry;
+  return { ...detail, comments: detail.comments.map(mark) };
+}
 
 function githubVerdict(state: string | undefined): PullRequestVerdict {
   switch (state?.toUpperCase()) {
