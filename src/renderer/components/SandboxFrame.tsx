@@ -66,7 +66,8 @@ export function SandboxFrame(props: SandboxFrameProps) {
   // The document may speak before its load event; the reply must not be dropped.
   const alive = useRef(false);
   const latest = useRef(props);
-  useEffect(() => { latest.current = props; });
+  // Layout effects: the listener must exist when the frame commits, before its document can speak.
+  useLayoutEffect(() => { latest.current = props; });
 
   const fullscreen = Boolean(props.fullscreen) && popoverSupported() && kept !== undefined;
 
@@ -88,7 +89,7 @@ export function SandboxFrame(props: SandboxFrameProps) {
     },
   }), [post]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (stopped) return;
     const receive = (event: MessageEvent) => {
       const source = frameRef.current?.contentWindow;

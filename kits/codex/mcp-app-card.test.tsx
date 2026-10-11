@@ -112,7 +112,7 @@ describe("MCP App card", () => {
     app.send({ jsonrpc: "2.0", id: "x", method: "tools/call", params: { name: "t" } }, window);
     app.send({ jsonrpc: "2.0", id: "y", method: "tools/call", params: { name: "t" } }, null);
     app.send({ jsonrpc: "2.0", id: "z", method: "tools/call", params: { name: "t" } }, document.createElement("iframe").contentWindow);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Messages are handled synchronously inside act(), so nothing is pending here.
     expect(app.posted()).toHaveLength(before);
     expect(host.invoke).not.toHaveBeenCalledWith(MCP_APP_COMMANDS.callTool, expect.anything());
   });
