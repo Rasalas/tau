@@ -392,6 +392,8 @@ export function createAgentsHostExtension(options: {
       const expect = (id: string) => { expecting.set(id, (expecting.get(id) ?? 0) + 1); save(); };
       /** Children that finished while nobody waited for them, by parent, until the parent hears. */
       const unreported = new Map<string, Set<string>>();
+      /** The reasoning level each thread's Pi runtime last reported. */
+      const efforts = new Map<string, string>();
       const notices = new Map<string, CompletionNotice>();
       const held = new Set<string>();
       const uncertainNotices = new Set<string>();
@@ -671,6 +673,7 @@ export function createAgentsHostExtension(options: {
           });
           prompts.delete(agent.id);
           changed(agent.id, book.noteStarted(agent.id, started.sessionId, Date.now()));
+          if (efforts.has(started.sessionId)) changed(agent.id, book.noteEffort(agent.id, efforts.get(started.sessionId)));
           if (acceptedEarly.delete(started.sessionId)) changed(agent.id, book.noteAccepted(agent.id));
           remember(book.linkFor(agent.id)!);
           services.log("agents.started", `${started.sessionId.slice(0, 8)} · ${agent.title}`);
@@ -1437,8 +1440,11 @@ export function createAgentsHostExtension(options: {
         pi.on("before_agent_start", async (event, ctx) => {
           // Tools set here count for this turn; the prompt's own tool list catches up next turn.
           await applyPersona(ctx);
-          const effort = pi.getThinkingLevel();
-          changed(threadId, book.noteEffort(threadId, effort && effort !== "off" ? effort : undefined));
+          // The first turn starts before the kit knows the thread, so the level waits for it.
+          const level = pi.getThinkingLevel();
+          const effort = level && level !== "off" ? level : undefined;
+          if (effort) efforts.set(threadId, effort); else efforts.delete(threadId);
+          changed(threadId, book.noteEffort(threadId, effort));
           const sections: string[] = [];
           const current = personaFor(ctx);
           if (current) sections.push(personaSection(current));

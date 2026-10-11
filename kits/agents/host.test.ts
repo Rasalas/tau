@@ -1829,6 +1829,13 @@ describe("Agents Kit orchestration", () => {
     bench.thinking.set(child, "high");
     await runtime.fire("before_agent_start", { systemPrompt: "base" }, { cwd: "/project", sessionManager: { getEntries: () => [] } });
     expect((await bench.state()).links[0]!.effort).toBe("high");
+
+    // A first turn that starts before the kit knows the thread is not lost.
+    bench.thinking.set("child-2", "medium");
+    await bench.runtime("child-2").fire("before_agent_start", { systemPrompt: "base" }, { cwd: "/project", sessionManager: { getEntries: () => [] } });
+    const second = handleOf(await bench.runtime("parent").call("tau_spawn_thread", { prompt: "Early" }));
+    expect(second).toBe("child-2");
+    expect((await bench.state()).links.find((link) => link.threadId === second)!.effort).toBe("medium");
   });
 
   it("stops an agent with everything it started, deepest levels included", async () => {
