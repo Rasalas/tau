@@ -34,6 +34,12 @@ const BUSY = ".composer-frame.stacked, .composer-command-menu, .composer-history
 
 const NO_INLINES: readonly never[] = [];
 
+/** Where the field's text sits and wraps: taken from the field, so a rule that restyles it cannot leave the mirror behind. */
+const TEXT_METRICS = [
+  "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
+  "fontFamily", "fontSize", "fontWeight", "fontStyle", "fontStretch", "lineHeight", "letterSpacing", "wordSpacing", "tabSize", "textIndent",
+] as const;
+
 /**
  * Chips inside the composer's text, loaded in its own chunk after the
  * textarea is up: the first key never waits for it. The textarea lays a token
@@ -79,9 +85,11 @@ export default function ComposerChipLayer(props: ComposerChipLayerProps) {
     const field = textareaRef.current;
     const mirror = mirrorRef.current;
     if (!field || !mirror) return;
-    // Over the field in the frame; its client box leaves out a scrollbar, which moves where its lines wrap.
-    mirror.style.left = `${field.offsetLeft}px`;
-    mirror.style.top = `${field.offsetTop}px`;
+    const style = (field.ownerDocument.defaultView ?? window).getComputedStyle(field);
+    for (const name of TEXT_METRICS) mirror.style[name] = style[name];
+    // Over the field's padding box; its client box leaves out a scrollbar, which moves where its lines wrap.
+    mirror.style.left = `${field.offsetLeft + field.clientLeft}px`;
+    mirror.style.top = `${field.offsetTop + field.clientTop}px`;
     mirror.style.width = `${field.clientWidth}px`;
     mirror.style.height = `${field.clientHeight}px`;
     mirror.scrollTop = field.scrollTop;
