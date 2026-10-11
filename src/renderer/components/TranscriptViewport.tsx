@@ -21,6 +21,7 @@ import {
 import { VirtualTranscript, type TranscriptVisibleRange } from "./VirtualTranscript";
 import type { JumpToLatestStore } from "./JumpToLatest";
 import { composerReserve } from "./ComposerReserve";
+import { useTranscriptFind, useTranscriptReveal } from "./use-transcript-reveal";
 
 export type { TranscriptNavigationScope, TranscriptTurnStart } from "../../workbench/transcript-navigation";
 export { useTranscriptNavigation } from "./transcript-navigation-dom";
@@ -162,6 +163,8 @@ export interface TranscriptViewportProps {
   onReachStart?: () => void;
   /** Sits above the first loaded row and must take no height: the older turns' loading or error line. */
   history?: ReactNode;
+  /** Loads older turns until the message is among them; false when the thread does not reach back to it. The find and `revealMessage` use it. */
+  loadThrough?: (messageId: string) => Promise<boolean>;
   /** Where the viewport offers Jump to latest while the reader is away from the tail; the button lives outside it. */
   jumpToLatest?: JumpToLatestStore;
 }
@@ -186,6 +189,7 @@ export const TranscriptViewport = memo(function TranscriptViewport({
   onFocusComposer,
   onReachStart,
   history,
+  loadThrough,
   jumpToLatest,
 }: TranscriptViewportProps) {
   const messageScopeKey = scopeKey ?? turnStart?.scopeKey ?? sessionId;
@@ -346,6 +350,8 @@ export const TranscriptViewport = memo(function TranscriptViewport({
   useEffect(() => () => jumpToLatest?.set(undefined), [jumpToLatest]);
 
   const [searchOpen, setSearchOpen] = useState(false);
+  const reveal = useTranscriptReveal({ scrollRef, sessionId, messages, jumpToMessage: navigation.jumpToMessage, loadThrough });
+  const { find, onActive } = useTranscriptFind(scrollRef, sessionId);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     // The rows' own keys (the message cursor, its actions) come first.
@@ -462,7 +468,9 @@ export const TranscriptViewport = memo(function TranscriptViewport({
     {searchOpen ? (
       <TranscriptSearch
         messages={messages}
-        onJump={navigation.jumpToMessage}
+        find={find}
+        onJump={reveal}
+        onActive={onActive}
         onClose={() => {
           setSearchOpen(false);
           scrollRef.current?.focus();

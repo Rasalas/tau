@@ -94,6 +94,11 @@ export interface WorkbenchActions {
   forkFrom?(message: Pick<UiMessage, "sourceEntryId">, options?: { workspace?: string; prompt?: string; stayInSource?: boolean; expectedSessionId?: string }): Promise<boolean>;
   focusComposer(seed?: string): void;
   focusTranscript(): void;
+  /**
+   * Scrolls the transcript to a message of the thread on screen and marks it, loading
+   * older turns first when it is not among them. False when the thread has no such message.
+   */
+  revealMessage?(messageId: string): Promise<boolean>;
   focusStage(): void;
   toggleDock(): void;
   /** Hides or shows the sidebar (the thread sheet on a compact client). */
@@ -1396,6 +1401,8 @@ export interface MessageActionContribution extends ProfileScoped {
 export interface MessageBlockProps {
   /** What stands between the tags. */
   body: string;
+  /** The opening tag's `name="value"` pairs; empty for a bare tag. */
+  attributes: Readonly<Record<string, string>>;
   /** False while the closing tag has not arrived yet. */
   complete: boolean;
   message: UiMessage;
@@ -1415,6 +1422,17 @@ export interface MessageBlockContribution extends ProfileScoped {
   Component: ComponentType<MessageBlockProps>;
 }
 
+
+/**
+ * Answers the transcript's find (⌘F) for the whole thread, not just the turns
+ * a client has loaded. The last one registered wins; without one the find
+ * looks through the loaded turns.
+ */
+export interface TranscriptFinderContribution extends ProfileScoped {
+  id: string;
+  /** The ids of the thread's messages that hold `query`, oldest first, over its whole history. */
+  find(request: { sessionId: string; query: string }): Promise<readonly string[]>;
+}
 
 /**
  * A set of models a new thread's picker builds with Shift-click, kept by the
@@ -1685,6 +1703,8 @@ export interface DesktopExtensionContext {
   registerMessageAction(action: MessageActionContribution): () => void;
   /** Draws a tagged block of an assistant reply itself. New in API 1.11.0. */
   registerMessageBlock(block: MessageBlockContribution): () => void;
+  /** Lets the transcript's find reach turns that are not loaded yet; the last one wins. */
+  registerTranscriptFinder(finder: TranscriptFinderContribution): () => void;
   registerPromptRenderer(renderer: PromptRendererContribution): () => void;
   /** The stage shows documents; one extension says how to load them and which are changed. */
   registerDocumentSource(source: DocumentSourceContribution): () => void;
@@ -1856,6 +1876,7 @@ export class ExtensionRegistry {
   private forkPrompts = new Map<string, Owned<ForkPromptContribution>>();
   private messageActions = new Map<string, Owned<MessageActionContribution>>();
   private messageBlocks = new Map<string, Owned<MessageBlockContribution>>();
+  private transcriptFinders = new Map<string, Owned<TranscriptFinderContribution>>();
   private promptRenderers = new Map<string, Owned<PromptRendererContribution>>();
   private documentSources = new Map<string, Owned<DocumentSourceContribution>>();
   private userKeymaps = new Map<string, Owned<UserKeymapContribution>>();
@@ -2248,6 +2269,11 @@ export class ExtensionRegistry {
         if (!this.scopeToProfile(owner, "message block", block.id, undefined, block)) return noContribution;
         note("message blocks");
         return this.register(this.messageBlocks, block.id, { ...block, ...owner }, disposers);
+      },
+      registerTranscriptFinder: (finder) => {
+        if (!this.scopeToProfile(owner, "transcript finder", finder.id, undefined, finder)) return noContribution;
+        note("transcript finder");
+        return this.register(this.transcriptFinders, finder.id, { ...finder, ...owner }, disposers);
       },
       registerUserKeymap: (keymap) => {
         note("user keymap");
@@ -2811,6 +2837,10 @@ export class ExtensionRegistry {
   /** The model set a new thread's picker builds, from the extension that registered last. */
   getModelSelection(): Owned<ModelSelectionContribution> | undefined {
     return [...this.modelSelections.values()].at(-1);
+  }
+
+  getTranscriptFinder(): Owned<TranscriptFinderContribution> | undefined {
+    return [...this.transcriptFinders.values()].at(-1);
   }
 
   getThreadMenu(): Owned<ThreadMenuContribution> | undefined {

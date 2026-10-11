@@ -69,7 +69,7 @@ function useUserBlocks(message: UiMessage): { text: string; blocks: ReactNode[] 
       if (part.kind === "text") return [];
       const block = contributions.find((entry) => entry.tag === part.tag)!;
       return [<LazyFeatureBoundary key={index} label={block.id} extensionId={block.extensionId} extensionName={block.extensionName} registry={registry}>
-        <block.Component body={part.body} complete={part.complete} message={message} streaming={false} />
+        <block.Component body={part.body} attributes={part.attributes} complete={part.complete} message={message} streaming={false} />
       </LazyFeatureBoundary>];
     }),
   };

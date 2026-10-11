@@ -1135,7 +1135,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
     loadPage={loadTranscriptPage}
     applyPage={applyTranscriptPage}
   >
-    {(loadOlderOnReach, history) => <TranscriptViewport
+    {(loadOlderOnReach, history, loadThrough) => <TranscriptViewport
       messages={messages}
       scrollRef={transcriptRef}
       sessionId={conversationSnapshot?.sessionId}
@@ -1155,6 +1155,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
       onRetryMessage={readOnly || limit || shell?.turnError ? undefined : retry}
       history={history}
       onReachStart={loadOlderOnReach}
+      loadThrough={loadThrough}
       jumpToLatest={jumpToLatest}
     />}
   </TranscriptHistoryBoundary>;

@@ -52,7 +52,7 @@ function AssistantText({ message, streaming }: { message: UiMessage; streaming: 
     if (part.kind === "text") return <Markdown key={index} streaming={streaming && index === parts.length - 1}>{part.text}</Markdown>;
     const block = blocks.find((entry) => entry.tag === part.tag)!;
     return <LazyFeatureBoundary key={index} label={block.id} extensionId={block.extensionId} extensionName={block.extensionName} registry={registry}>
-      <block.Component body={part.body} complete={part.complete} message={message} streaming={streaming} />
+      <block.Component body={part.body} attributes={part.attributes} complete={part.complete} message={message} streaming={streaming} />
     </LazyFeatureBoundary>;
   })}</>;
 }

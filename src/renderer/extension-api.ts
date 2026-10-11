@@ -220,6 +220,7 @@ export type {
   PromptHookContribution,
   MessageActionContribution,
   MessageBlockContribution,
+  TranscriptFinderContribution,
   MessageBlockProps,
   PromptRendererContribution,
   PromptRendererProps,

@@ -698,6 +698,21 @@ describe("new-thread claims and model selections", () => {
   });
 });
 
+describe("ExtensionRegistry transcript finder", () => {
+  it("offers the finder the last extension registered, and forgets it on deactivation", async () => {
+    const registry = new ExtensionRegistry();
+    const finder = (id: string, ids: string[]) => ({ id, find: async () => ids });
+    expect(registry.getTranscriptFinder()).toBeUndefined();
+    registry.activate({ id: "first", name: "First", activate(context) { context.registerTranscriptFinder(finder("first.find", ["a"])); } });
+    registry.activate({ id: "second", name: "Second", activate(context) { context.registerTranscriptFinder(finder("second.find", ["b"])); } });
+    expect(await registry.getTranscriptFinder()!.find({ sessionId: "t", query: "x" })).toEqual(["b"]);
+    registry.deactivate("second");
+    expect(registry.getTranscriptFinder()?.id).toBe("first.find");
+    registry.deactivate("first");
+    expect(registry.getTranscriptFinder()).toBeUndefined();
+  });
+});
+
 describe("ExtensionRegistry prompt tools seams", () => {
   it("asks prompt hooks for the running-turn delivery, the first answer winning", () => {
     const registry = new ExtensionRegistry();

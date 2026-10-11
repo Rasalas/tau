@@ -60,7 +60,7 @@ describe("Plan Kit desktop extension", () => {
     const block = registry.getMessageBlocks().find((entry) => entry.tag === "proposed_plan")!;
     render(
       <WorkbenchShellContext.Provider value={{ registry, actions: actionsFor() }}>
-        <block.Component body={plan} complete message={{ id: "a1", role: "assistant", text: "", timestamp: 0 }} streaming={false} />
+        <block.Component body={plan} attributes={{}} complete message={{ id: "a1", role: "assistant", text: "", timestamp: 0 }} streaming={false} />
       </WorkbenchShellContext.Provider>,
     );
     expect(screen.getByRole("heading", { name: "Add a login form" })).toBeTruthy();
