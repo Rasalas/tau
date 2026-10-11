@@ -3018,7 +3018,12 @@ vendor or name alone never suppresses the tools.
 The runtime kits are the reference: Codex passes the entry as
 `codex app-server -c mcp_servers.tau.…` overrides with the token in the
 process environment (`bearer_token_env_var`), the Agent SDK runtime as an
-`http` entry of `mcpServers`, Antigravity as an ACP `http` server on
+`http` entry registered over the CLI's stdin control channel
+(`query.setMcpServers`) right after it starts and before the first prompt,
+never in `mcpServers` (the SDK would put that on the command line, where every
+local user reads the token; a failure or no answer within 90 s is a warning
+notice naming the server, and the thread runs without Tau's tools),
+Antigravity as an ACP `http` server on
 `session/new` and `session/resume` (agy_acp_server 1.1.1 announces
 `mcpCapabilities: { http: true, sse: true }`; an agent that does not announce a
 transport is not sent servers of it), OpenCode as a `remote` entry laid over
