@@ -48,7 +48,7 @@ async function fixture() {
   vi.stubEnv("PI_CODING_AGENT_SESSION_DIR", sessions);
   vi.stubEnv("TAU_CONFIG_FILE", join(root, "tau-config.json"));
   cleanups.push(async () => { vi.unstubAllEnvs(); });
-  const history = { list: () => [], isHidden: () => false, remember: async () => undefined, flush: async () => undefined };
+  const history = { list: () => [], isHidden: () => false, remember: async () => undefined, iconFor: async () => undefined, flush: async () => undefined };
   const open = async () => {
     const events: HostEvent[] = [];
     const host = new PiHost(workspace, (event) => events.push(event), history as never, false, false, { hostExtensions: [] });

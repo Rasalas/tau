@@ -7,7 +7,7 @@ describe("the window title a Pi extension sets", () => {
   it("reaches every client as a push, and a client that attaches later hears the last one", () => {
     const events: HostEvent[] = [];
     const clients = new HostClientRegistry();
-    const history = { list: () => [], isHidden: () => false };
+    const history = { list: () => [], isHidden: () => false, iconFor: async () => undefined };
     const host = new PiHost("/repo", (event) => { events.push(event); }, history as never, false, false, { clients });
     const titles = () => events.filter((event) => event.type === "window-title");
 

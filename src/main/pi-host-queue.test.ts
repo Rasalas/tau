@@ -55,7 +55,7 @@ async function host(dir?: string) {
   const userData = dir ?? await mkdtemp(join(tmpdir(), "tau-host-queue-"));
   if (!dir) dirs.push(userData);
   const delivered: DeliveredPrompt[] = [];
-  const history = { list: () => [], isHidden: () => false, remember: async () => undefined };
+  const history = { list: () => [], isHidden: () => false, iconFor: async () => undefined, remember: async () => undefined };
   const piHost = new PiHost("/repo", () => undefined, history as never, false, false, {
     queuedMessagesPath: join(userData, "queued-messages.json"),
     threadLimitsPath: join(userData, "thread-limits.json"),

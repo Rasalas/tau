@@ -101,6 +101,16 @@ describe("ProjectFactsCache", () => {
     expect(facts.isRoot("/repo")).toBe(true);
   });
 
+  it("answers whether a path is nested, asking the providers once", async () => {
+    const { facts } = cache();
+    const asked: string[] = [];
+    facts.add({ nested: async (cwd) => { asked.push(cwd); return cwd === "/repo/worktree"; } });
+    expect(await facts.nested("/repo/worktree")).toBe(true);
+    expect(await facts.nested("/repo")).toBe(false);
+    expect(await facts.nested("/repo/worktree")).toBe(true);
+    expect(asked).toEqual(["/repo/worktree", "/repo"]);
+  });
+
   it("treats a path no provider can classify as a root", async () => {
     const { facts } = cache();
     facts.add({ nested: async () => { throw new Error("not a checkout"); } });

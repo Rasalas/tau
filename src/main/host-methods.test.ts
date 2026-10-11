@@ -63,7 +63,7 @@ function fakeThread(threadId: string, cwd: string, delivered: string[]): ThreadR
 
 function offScreenHost() {
   const delivered: string[] = [];
-  const history = { list: () => [], isHidden: () => false, remember: async () => undefined };
+  const history = { list: () => [], isHidden: () => false, iconFor: async () => undefined, remember: async () => undefined };
   const host = new PiHost("/repo", () => undefined, history as never, false, false);
   const internals = host as unknown as Record<string, any>;
   internals.rememberProject = async () => {};

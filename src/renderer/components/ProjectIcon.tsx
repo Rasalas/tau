@@ -31,37 +31,37 @@ const getNoProjects = () => noProjects;
 type IconSubject = Pick<ProjectIconSubject, "path" | "workspaceId" | "icon"> & Partial<Pick<ProjectIconSubject, "name">>;
 
 /** Resolve presentation against the project index even when the caller only has a thread's workspace. */
-function useResolvedIcon(project: IconSubject | undefined, fallback?: string): string | undefined {
+function useResolvedIcon(project: IconSubject | undefined, fallback?: string): { image: string | undefined; owner: UiProject | undefined } {
   const registry = useContext(WorkbenchShellContext)?.registry;
   const store = useContext(ThreadStoreContext);
   const projects = useSyncExternalStore(store?.subscribeToProjects ?? noSubscribe, store?.getProjects ?? getNoProjects);
   const owner = project ? findProjectForSession(projects, { projectPath: project.path, workspaceId: project.workspaceId, projectName: project.name }) : undefined;
   const chosen = useSyncExternalStore(registry?.subscribe ?? noSubscribe, () =>
     (project ? registry?.projectIcon(project) : undefined) ?? (owner ? registry?.projectIcon(owner) : undefined));
-  return chosen ?? fallback ?? project?.icon ?? owner?.icon;
+  return { image: chosen ?? fallback ?? project?.icon ?? owner?.icon, owner };
 }
 
 /** A kit's picture for the project (`setProjectIcons`), else the host's. */
 export function useProjectIcon(project: IconSubject | undefined): string | undefined {
-  return useResolvedIcon(project);
+  return useResolvedIcon(project).image;
 }
 
 /**
  * A project's mark wherever one is drawn: the picture a kit chose, else the
- * host's, else its initial on its hue. `icon` is a caller's own fallback
- * (a navigator's match for a worktree's thread).
+ * host's, else its initial on its hue. A worktree's thread draws its
+ * project's mark. `icon` is a caller's own fallback.
  */
 export function ProjectIcon({ project, icon, hue, className }: {
   project: ProjectIconSubject;
   icon?: string | undefined;
-  /** What the tint is hashed from; the path by default. */
+  /** What the tint is hashed from; the owning project's path by default. */
   hue?: string | undefined;
   className?: string | undefined;
 }) {
-  const image = useResolvedIcon(project, icon);
+  const { image, owner } = useResolvedIcon(project, icon);
   return <i
     className={`thread-project-icon${className ? ` ${className}` : ""}${image ? " has-image" : ""}`}
-    style={{ "--project-hue": projectHue(hue ?? project.path) } as CSSProperties}
+    style={{ "--project-hue": projectHue(hue ?? owner?.path ?? project.path) } as CSSProperties}
     aria-hidden="true"
-  >{image ? <img src={image} alt="" /> : projectInitial(project.name)}</i>;
+  >{image ? <img src={image} alt="" /> : projectInitial(owner?.name ?? project.name)}</i>;
 }

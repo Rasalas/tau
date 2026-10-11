@@ -39,7 +39,7 @@ describe("workspace metadata scope", () => {
   it("canonicalizes and rejects paths outside known projects", async () => {
     const history = {
       list: () => [{ path: "/known", name: "known", lastOpenedAt: 1 }],
-      isHidden: () => false,
+      isHidden: () => false, iconFor: async () => undefined,
     };
     // A host extension is the only caller of knownWorkspacePath; a test one shows what it gets back.
     const paths = {
@@ -56,7 +56,7 @@ describe("workspace metadata scope", () => {
   });
 
   it("accepts a folder an extension admitted, by id, before any thread runs there", async () => {
-    const history = { list: () => [{ path: "/known", name: "known", lastOpenedAt: 1 }], isHidden: () => false };
+    const history = { list: () => [{ path: "/known", name: "known", lastOpenedAt: 1 }], isHidden: () => false, iconFor: async () => undefined };
     const worktrees = {
       id: "test.worktrees",
       name: "Worktrees",
@@ -1262,7 +1262,7 @@ describe("PiHost project index", () => {
         { path: "/repos/beta", name: "beta", lastOpenedAt: 2 },
         { path: "/repos/beta-worktrees/fix", name: "beta", lastOpenedAt: 1 },
       ],
-      isHidden: () => false,
+      isHidden: () => false, iconFor: async () => undefined,
     };
     const worktrees = new Set(["/repos/alpha-worktrees/feat", "/repos/beta-worktrees/fix"]);
     // Workspace Kit reports linked worktrees as nested; this stands in for it.

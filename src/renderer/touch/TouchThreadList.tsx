@@ -335,7 +335,7 @@ function ThreadCard({ row, projectIcon, machine, unavailable, busy, onOpen }: {
   if (row.machine) machine = { name: row.machine.name, icon: <Server size={13} aria-hidden="true" /> };
   const place = { path: row.projectPath ?? row.projectName, workspaceId: row.workspaceId };
   const project = findProjectForSession(projects, { projectPath: place.path, workspaceId: place.workspaceId, projectName: row.projectName });
-  const mark = <ProjectIcon project={{ ...place, ...project, name: row.projectName }} icon={projectIcon} hue={place.path} />;
+  const mark = <ProjectIcon project={{ ...place, ...project, name: row.projectName }} icon={projectIcon} />;
   const where = machine ? ` on ${machine.name}` : "";
   const label = {
     "aria-label": `Open thread ${row.title}${where}`,

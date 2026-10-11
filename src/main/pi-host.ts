@@ -1921,7 +1921,7 @@ export class PiHost {
 
   private async rememberProject(cwd: string): Promise<void> {
     await this.workspaces.learn(cwd);
-    if (!await this.projects.projectless(cwd)) await this.projectHistory.remember(cwd, await this.projects.loadName(cwd));
+    if (!await this.projects.projectless(cwd) && !await this.projects.nested(cwd)) await this.projectHistory.remember(cwd, await this.projects.loadName(cwd));
   }
 
   private recordBackgroundLifecycle(name: string, startedAt: number): void {

@@ -34,7 +34,7 @@ async function sessionFile(): Promise<string> {
 }
 
 function hostWithIndex(sessions: UiSession[]): PiHost {
-  const projectHistory = { list: () => [], isHidden: () => false, remember: async () => undefined };
+  const projectHistory = { list: () => [], isHidden: () => false, iconFor: async () => undefined, remember: async () => undefined };
   const host = new PiHost("/repo", () => undefined, projectHistory as never, false, false);
   const index = (host as unknown as { index: { byId(id: string): UiSession | undefined; ready(): Promise<void> } }).index;
   index.byId = (id) => sessions.find((session) => session.id === id);

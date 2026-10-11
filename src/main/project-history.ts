@@ -139,6 +139,11 @@ export class ProjectHistory {
     await this.persistQueue;
   }
 
+  /** The picture of a project outside the history, such as one only its threads name. */
+  async iconFor(path: string): Promise<string | undefined> {
+    return (await this.icon(path)).icon;
+  }
+
   private async icon(path: string): Promise<Pick<UiProject, "icon">> {
     try {
       const icon = await this.resolveIcon(path);

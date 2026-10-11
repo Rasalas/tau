@@ -131,6 +131,15 @@ export class ProjectFactsCache {
     return !nested;
   }
 
+  /** Whether `cwd` sits inside another project, waiting for its classification when none is known yet. */
+  async nested(cwd: string): Promise<boolean> {
+    if (!this.nesting.has(cwd)) {
+      this.classify(cwd);
+      await this.classifications.get(cwd);
+    }
+    return this.nesting.get(cwd) === true;
+  }
+
   classify(cwd: string): void {
     if (this.classifications.has(cwd)) return;
     const startedAt = performance.now();

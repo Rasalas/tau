@@ -77,7 +77,7 @@ const saved: SessionInfo = {
  */
 function restartedHost() {
   const delivered: string[] = [];
-  const history = { list: () => [], isHidden: () => false, remember: async () => undefined };
+  const history = { list: () => [], isHidden: () => false, remember: async () => undefined, iconFor: async () => undefined };
   const host = new PiHost("/repo", () => undefined, history as never, false, false);
   const internals = host as unknown as Record<string, any>;
   let finishListing!: () => void;

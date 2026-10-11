@@ -45,6 +45,21 @@ describe("project icons a kit publishes (setProjectIcons)", () => {
     act(() => first.setProjectIcons({ root: rocket, worktree: favicon }));
     expect(images()).toEqual([rocket, favicon, favicon, favicon]);
   });
+  it("draws a worktree's thread with its project's initial and hue when the project has no picture", () => {
+    const { draw } = setup();
+    const store = new ThreadStore();
+    store.applyThreadIndex({ projects: [{ path: "/repos/tau", name: "tau", workspaceId: "root", lastOpenedAt: 1 }], sessions: [] });
+    const thread = (id: string, path: string) => ({ id, path: `/${id}.jsonl`, title: id, modifiedAt: 1, projectPath: path, projectName: "tau", workspaceId: `ws-${id}`, messageCount: 1 });
+    const { container } = draw(<ThreadStoreContext.Provider value={store}>
+      <ProjectIcon project={{ path: "/repos/tau", name: "tau", workspaceId: "root" }} />
+      <ThreadRow activity="idle" active={false} age="now" session={thread("a", "/worktrees/fix-a")} onSelect={() => {}} />
+      <ThreadRow activity="idle" active={false} age="now" session={thread("b", "/worktrees/feat-b")} onSelect={() => {}} />
+    </ThreadStoreContext.Provider>);
+    const marks = [...container.querySelectorAll<HTMLElement>(".thread-project-icon")];
+    expect(marks.map((mark) => mark.textContent)).toEqual(["T", "T", "T"]);
+    expect(new Set(marks.map((mark) => mark.style.getPropertyValue("--project-hue"))).size).toBe(1);
+  });
+
   it("answers by workspace id, then path; keeps pictures only; the first extension wins; withdraws on deactivation", () => {
     const { registry, first, second } = setup();
     first.setProjectIcons({ ws1_shop: rocket, "/other": "https://example.test/x.png" });

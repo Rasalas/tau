@@ -107,6 +107,8 @@ export class ThreadIndex {
   private readonly pendingShellUpdates = new Map<string, UiSession>();
   /** Publications coalesced into the next tick, keyed by what they carry. */
   private readonly coalesced = new Map<"shells" | "index", ReturnType<typeof setTimeout>>();
+  /** Pictures of projects only their threads name; the history resolves its own. */
+  private readonly threadProjectIcons = new Map<string, string | undefined>();
 
   constructor(private readonly port: ThreadIndexPort, options: ThreadIndexOptions = {}) {
     this.usage = new SessionUsageIndex({
@@ -558,7 +560,8 @@ export class ThreadIndex {
 
   snapshot(): ThreadIndexSnapshot {
     const projects = this.port.projectHistory.list();
-    const knownPaths = new Set(projects.map((project) => project.path));
+    const knownProjects = new Set(projects.map((project) => project.path));
+    const knownPaths = new Set(knownProjects);
     for (const thread of this.sessions) {
       if (thread.backendKind === "machine") continue;
       if (knownPaths.has(thread.projectPath) || this.port.projectHistory.isHidden(thread.projectPath)) continue;
@@ -572,7 +575,11 @@ export class ThreadIndex {
     projects.sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
     return {
       projects: [
-        ...projects.filter((project) => this.port.projects.isRoot(project.path)).map((project) => ({ ...project, ...this.port.workspaces.ref(project.path) })),
+        ...projects.filter((project) => this.port.projects.isRoot(project.path)).map((project) => ({
+          ...project,
+          ...this.port.workspaces.ref(project.path),
+          ...(knownProjects.has(project.path) ? {} : this.threadProjectIcon(project.path)),
+        })),
         ...[...new Map(this.sessions.filter((session) => session.backendKind === "machine" && session.workspaceId && this.externalProjects.get(session.id)?.listed !== false).map((session) => [session.workspaceId, {
           path: session.projectPath, name: session.projectName, lastOpenedAt: session.modifiedAt,
           workspaceId: session.workspaceId, displayPath: session.projectDisplayPath ?? session.projectPath,
@@ -581,6 +588,19 @@ export class ThreadIndex {
       ],
       sessions: this.sessions.map((session) => this.withIdentity(session)),
     };
+  }
+
+  private threadProjectIcon(path: string): Pick<UiProject, "icon"> {
+    if (!this.threadProjectIcons.has(path)) {
+      this.threadProjectIcons.set(path, undefined);
+      void this.port.projectHistory.iconFor(path).then((icon) => {
+        if (!icon) return;
+        this.threadProjectIcons.set(path, icon);
+        this.publishSnapshotSoon();
+      });
+    }
+    const icon = this.threadProjectIcons.get(path);
+    return icon ? { icon } : {};
   }
 
   async dispose(): Promise<void> {
