@@ -1835,7 +1835,7 @@ describe("Agents Kit orchestration", () => {
     const bench = await activated({ settingsPath: await settingsWith(1) });
     const child = handleOf(await bench.runtime("parent").call("tau_spawn_thread", { prompt: "Child" }));
     const grandchild = handleOf(await bench.runtime(child).call("tau_spawn_thread", { prompt: "Grandchild" }));
-    const queued = handleOf(await bench.runtime(child).call("tau_spawn_thread", { prompt: "Behind the budget" }));
+    await bench.runtime(child).call("tau_spawn_thread", { prompt: "Behind the budget" });
     const great = handleOf(await bench.runtime(grandchild).call("tau_spawn_thread", { prompt: "Great-grandchild" }));
     const links = (await bench.state()).links;
     expect(links.map((link) => link.depth).sort()).toEqual([1, 2, 2, 3]);

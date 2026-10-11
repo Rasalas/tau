@@ -142,7 +142,7 @@ describe("agents in the project card", () => {
     renderApp(appWith(agents, [session("parent", "Parent thread", 3)], "parent"), { extensions: [workspaceExtension, agentsExtension] });
     fireEvent.click(await screen.findByRole("button", { name: "Completed (1)" }));
     const row = await screen.findByRole("button", { name: "Word on rex, Completed" });
-    expect(row.title).toContain("rex");
+    expect(row.getAttribute("data-tooltip")).toContain("rex");
     fireEvent.click(row);
     expect(await screen.findByRole("region", { name: "Thread Thread on rex-id" })).toBeTruthy();
   });
@@ -171,6 +171,22 @@ describe("agents in the project card", () => {
     act(() => client.emit({ type: "extension-ui-prompt", sessionId: "other", prompt: { id: "q2", sessionId: "other", kind: "confirm", title: "Wants to run" } }));
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(screen.queryByRole("region", { name: "Wants to run" })).toBeNull();
+  });
+
+  it("brings a grandchild's question to the thread at the top, which names who asks", async () => {
+    const agents: AgentsState = { maxRunning: 8, links: [
+      link("orders", "parent", "running", 1),
+      link("index", "orders", "waiting", 2, { pendingToolPrompt: "Which index?", depth: 2 }),
+    ] };
+    const sessions = [session("parent", "Parent thread", 9), session("orders", "GET /orders", 3, undefined, "parent"), session("index", "Index work", 2, undefined, "orders")];
+    const client = appWith(agents, sessions, "parent");
+    renderApp(client, { extensions: [workspaceExtension, agentsExtension] });
+    await screen.findAllByText("Parent thread");
+
+    act(() => client.emit({ type: "extension-ui-prompt", sessionId: "index", prompt: { id: "q3", sessionId: "index", kind: "select", title: "Which index?", options: ["created_at", "id"] } }));
+    expect(await screen.findByRole("region", { name: "Question from Index work agent" })).toBeTruthy();
+    expect(await screen.findByText("Sub-agent needs input")).toBeTruthy();
+    await waitFor(() => expect(document.querySelector('.thread-status-age.status-waiting')?.closest('.thread-row')?.textContent).toContain("Parent thread"));
   });
 
 });

@@ -266,3 +266,14 @@ describe("a new thread's message count", () => {
     expect(store.getThread("blank")?.messageCount).toBe(0);
   });
 });
+
+describe("the threads above one", () => {
+  it("lists parents nearest first, and stops at a loop", () => {
+    const store = new ThreadStore();
+    store.applyThreadIndex({ projects: [], sessions: [shell("root"), { ...shell("child"), parentThreadId: "root" }, { ...shell("grand"), parentThreadId: "child" }, { ...shell("a"), parentThreadId: "b" }, { ...shell("b"), parentThreadId: "a" }] });
+    expect(store.ancestorsOf("grand")).toEqual(["child", "root"]);
+    expect(store.ancestorsOf("root")).toEqual([]);
+    expect(store.ancestorsOf("unknown")).toEqual([]);
+    expect(store.ancestorsOf("a")).toEqual(["b"]);
+  });
+});

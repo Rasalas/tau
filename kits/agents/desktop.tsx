@@ -1,6 +1,7 @@
 import { Bot } from "lucide-react";
 import { HostUnavailableError, type DesktopExtension } from "tau";
 import { AGENTS_HOST_EXTENSION_ID, AGENTS_STATE_EVENT, REMOTE_AGENT_THREADS_SERVICE, SPAWN_TOOL, THREAD_SIBLINGS_SERVICE, tauToolName, type ThreadSiblingsService } from "./protocol.js";
+import { AgentQuestionsBanner } from "./banner.js";
 import { AgentLineage, CompactLineage, type WorkspaceSummaryService } from "./lineage.js";
 import { AGENTS_SETTINGS_PAGE, createAgentsSettingsPage } from "./settings.js";
 import { SpawnCard } from "./spawn-card.js";
@@ -45,6 +46,7 @@ export const agentsExtension: DesktopExtension = {
     context.registerRegion({ id: "agents.lineage-touch", placement: "thread-details", order: 30, profiles: ["compact"], Component: CompactLineage });
     // A native child opens in place of the parent's transcript; the lineage row is the way in.
     context.registerConversationView?.({ id: SUBAGENT_VIEW, profiles: ["desktop", "web", "compact"], Component: SubagentView });
+    context.registerRegion({ id: "agents.questions", placement: "composer-above", order: 30, profiles: ["desktop", "web", "compact"], Component: AgentQuestionsBanner });
     context.registerRegion({ id: "agents.spine", placement: "spine", profiles: ["desktop", "web"], Component: AgentsSpine });
     // A spawn is not a tool call to skim past: the card is the way into the
     // threads it started, so it never folds with the rest of the turn.

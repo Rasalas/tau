@@ -344,6 +344,14 @@ export class ThreadStore {
     this.publish({ ...this.snapshot, unreadThreadIds: [...this.snapshot.unreadThreadIds, threadId] });
   }
 
+  /** The threads above one, nearest first: its parent, that one's parent, and so on. */
+  ancestorsOf(threadId: string): string[] {
+    const above: string[] = [];
+    const parentOf = (id: string) => this.snapshot.threads.find((thread) => thread.id === id)?.parentThreadId;
+    for (let id = parentOf(threadId); id && id !== threadId && !above.includes(id); id = parentOf(id)) above.push(id);
+    return above;
+  }
+
   setWaiting(threadIds: readonly string[]): void {
     const next = [...new Set(threadIds)].sort();
     const current = [...this.snapshot.waitingThreadIds].sort();

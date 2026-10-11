@@ -1,13 +1,16 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Bot, CircleCheck, CircleHelp, CircleSlash, CircleX, Clock, Server } from "lucide-react";
+import { Bot, CircleCheck, CircleHelp, CircleSlash, CircleX, Clock, Server, Square } from "lucide-react";
 import { ProviderIconStack, tooltipProps, useHostCapabilities, useThreadStore, useWorkbenchShell, type PanelProps } from "tau";
 import { agentsHost, agentsStore, definitionsStore, siblingsSource } from "./store.js";
 import { DefinitionsSection } from "./definitions-panel.js";
 import { openAgent } from "./subagent-view.js";
+import { stopAgent } from "./stop.js";
 import {
+  agentHoverText,
   agentsPanelModel,
   canSettleWorktree,
+  canStopRow,
   doneLabel,
   formatCost,
   formatElapsed,
@@ -103,20 +106,26 @@ const STATUS_NAME: Record<AgentRow["status"], string> = {
   running: "Running", waiting: "Question", pending: "Queued", completed: "Done", idle: "Done", failed: "Failed", cancelled: "Cancelled",
 };
 
-/** The state as an icon, its name in the tooltip, and the clock beside it. */
-function RowStatus({ row }: { row: AgentRow }) {
+/** The state as an icon, its name in the tooltip, and the clock beside it; Stop takes the clock's place. */
+function RowStatus({ row, onStop }: { row: AgentRow; onStop?(row: AgentRow): void }) {
   const icon = row.status === "running" ? <span className="spinner info small" aria-hidden="true" />
     : row.status === "waiting" ? <CircleHelp size={11} aria-hidden="true" />
     : row.status === "pending" ? <Clock size={11} aria-hidden="true" />
     : row.status === "failed" ? <CircleX size={11} aria-hidden="true" />
     : row.status === "cancelled" ? <CircleSlash size={11} aria-hidden="true" />
     : <CircleCheck size={11} aria-hidden="true" />;
-  return <span className="agent-row-status" {...tooltipProps(STATUS_NAME[row.status])}>{icon}<Elapsed row={row} /></span>;
+  return <span className="agent-row-status" {...tooltipProps(STATUS_NAME[row.status])}>{icon}<Elapsed row={row} />
+    {onStop ? <span role="button" tabIndex={-1} className="agent-row-stop" aria-label={`Stop ${row.title}`} {...tooltipProps("Stop agent and its sub-agents", { side: "left" })}
+      onClick={(event) => { event.stopPropagation(); onStop(row); }}
+    ><Square size={11} fill="currentColor" aria-hidden="true" /></span> : null}
+  </span>;
 }
 
-const AgentPanelRow = memo(function AgentPanelRow({ row, onOpen, onSettle }: {
+const AgentPanelRow = memo(function AgentPanelRow({ row, onOpen, onSettle, onStop }: {
   row: AgentRow;
   onOpen(row: AgentRow): void;
+  /** Stops the agent and everything below it. */
+  onStop(row: AgentRow): void;
   /** Takes the agent's work into this checkout, or throws it away with its worktree. */
   onSettle(row: AgentRow, outcome: "apply" | "discard"): void;
 }) {
@@ -126,15 +135,14 @@ const AgentPanelRow = memo(function AgentPanelRow({ row, onOpen, onSettle }: {
   const { readOnly } = useHostCapabilities();
   const asks = row.status === "waiting";
   const provider = row.model?.includes("/") ? row.model.slice(0, row.model.indexOf("/")) : undefined;
-  const branch = row.workspace?.mode === "worktree" ? row.workspace.branch : undefined;
-  const tip = [row.result && !asks ? row.result : undefined, branch].filter(Boolean).join("\n");
+  const tip = row.result && !asks ? `${agentHoverText(row)}\n${row.result}` : agentHoverText(row);
   return (
     <button
       type="button"
       className={`agent-row status-${row.status}`}
       disabled={disabled}
       aria-label={`${row.title}, ${asks ? "question" : row.status}`}
-      {...(tip ? { title: tip } : {})}
+      {...tooltipProps(tip, { variant: "lines", side: "left" })}
       onClick={() => onOpen(row)}
     >
       <span className="agent-row-main">
@@ -157,7 +165,7 @@ const AgentPanelRow = memo(function AgentPanelRow({ row, onOpen, onSettle }: {
           ) : null}
         </span>
       </span>
-      <RowStatus row={row} />
+      <RowStatus row={row} {...(canStopRow(row) && !readOnly ? { onStop } : {})} />
       <span className="agent-row-model">
         {provider ? <ProviderIconStack modelProvider={provider} runtimeMark={false} name={shortModel(row.model)} hint={{}} /> : null}
       </span>
@@ -273,6 +281,8 @@ export function AgentsPanel({ actions, canLookIn, placement }: PanelProps & {
       .catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error)));
   }, [actions]);
 
+  const stop = useCallback((row: AgentRow) => { void stopAgent(row, actions); }, [actions]);
+
   const empty = EMPTY_VIEW[model.groups.length > 0 ? view : "running"];
   return (
     <section className={`panel-body agents-panel${sheet ? " in-sheet" : ""}`}>
@@ -298,7 +308,7 @@ export function AgentsPanel({ actions, canLookIn, placement }: PanelProps & {
                   {row.kind === "group" ? <div className="agent-group-label">{row.group.active ? "This thread" : row.group.parentTitle}</div>
                     : row.kind === "section" ? <div className="agent-section-label">{row.label}</div>
                     : row.kind === "more" ? <button type="button" className="agent-more" onClick={() => setView("done")}>… {row.count} more</button>
-                    : <AgentPanelRow row={row.row} onOpen={open} onSettle={settle} />}
+                    : <AgentPanelRow row={row.row} onOpen={open} onSettle={settle} onStop={stop} />}
                 </div>
               );
             })}

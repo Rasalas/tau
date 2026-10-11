@@ -473,21 +473,20 @@ export default function App() {
     if (!machine) { lookIn(); return; }
     void machineThreadPath(machine, sessionId, client, threadStore).then(async (path) => { if (path) await switchSession(path); else lookIn(); }).catch((error: unknown) => setNotice(errorMessage(error)));
   }, [client, platform, threadStore, switchSession, setNotice]);
-  // A sub-agent's question waits on its parent too: that is where it is answered (design 1c).
-  const parentOf = useCallback((sessionId: string) => threadStore.getSnapshot().threads.find((thread) => thread.id === sessionId)?.parentThreadId, [threadStore]);
+  // A sub-agent's question waits on every thread above it: it is answered from any of them (design 1c).
   useEffect(() => {
-    threadStore.setWaiting(uiPrompts.flatMap((entry) => [entry.sessionId, parentOf(entry.sessionId) ?? entry.sessionId]));
-  }, [parentOf, threadStore, uiPrompts]);
+    threadStore.setWaiting(uiPrompts.flatMap((entry) => [entry.sessionId, ...threadStore.ancestorsOf(entry.sessionId)]));
+  }, [threadStore, uiPrompts]);
 
   // A prompt must never be unanswerable. Workspace-level questions (project trust
   // is asked before any session exists) and questions naming a thread we do not
-  // know surface on whatever thread is open, a child's on its parent's; only a
+  // know surface on whatever thread is open, a sub-agent's on every thread above it; only a
   // known other thread defers to its own rail badge.
   const threadPrompts = useMemo(() => {
     const known = new Set(threadStore.getSnapshot().threads.map((thread) => thread.id));
     return uiPrompts.filter((entry) => !entry.sessionId || entry.sessionId === snapshot?.sessionId
-      || !known.has(entry.sessionId) || (snapshot && parentOf(entry.sessionId) === snapshot.sessionId));
-  }, [parentOf, snapshot?.sessionId, threadStore, uiPrompts]);
+      || !known.has(entry.sessionId) || (snapshot && threadStore.ancestorsOf(entry.sessionId).includes(snapshot.sessionId)));
+  }, [snapshot?.sessionId, threadStore, uiPrompts]);
 
   const copyMessage = useCallback((message: UiMessage) => threadCommands.copyText(
     message.role === "user" ? message.skill?.copyText ?? visibleUserMessageText(message.text) : message.text,

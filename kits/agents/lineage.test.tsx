@@ -6,9 +6,10 @@ import { TestProviders, TestThreadStore } from "../../src/renderer/test-support/
 import { WorkbenchContext, createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { SpawnCard } from "./spawn-card.js";
 import { agentsExtension } from "./desktop.js";
+import { AgentQuestionsBanner } from "./banner.js";
 import { AgentLineage } from "./lineage.js";
 import { SUBAGENT_VIEW } from "./subagent-view.js";
-import { agentsStore } from "./store.js";
+import { agentsHost, agentsStore } from "./store.js";
 import type { AgentThreadLink } from "./protocol.js";
 
 const sessions: UiSession[] = [
@@ -115,4 +116,47 @@ it("opens a child thread in place of the parent's transcript where the core offe
   expect(actions.openConversationView).toHaveBeenCalledWith(SUBAGENT_VIEW, { threadId: "child" });
   expect(actions.openThread).not.toHaveBeenCalled();
   expect(actions.switchSession).not.toHaveBeenCalled();
+});
+
+it("stops a running agent from its row, and the stop takes the timer's place", async () => {
+  agentsStore.set({ maxRunning: 8, links: [{ ...link, status: "running", effort: "high", model: "openai/gpt-5.6" }] });
+  const invoke = vi.fn(async () => ({}));
+  agentsHost.invoke = invoke;
+  setup();
+  const row = screen.getByRole("button", { name: "Review layout, Running" });
+  // The hover card names the model and the effort.
+  expect(row.getAttribute("data-tooltip")).toBe("Review layout\ngpt-5.6 · High\nRunning");
+  // Beside the row, not in it: a button cannot hold a button.
+  expect(row.querySelector("button")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Stop Review layout" }));
+  expect(invoke).toHaveBeenCalledWith("stop-agent", { threadId: "child" });
+  delete agentsHost.invoke;
+});
+it("offers no stop for a finished agent", () => {
+  agentsStore.set({ maxRunning: 8, links: [link] });
+  setup();
+  fireEvent.click(screen.getByRole("button", { name: "Completed (1)" }));
+  expect(screen.queryByRole("button", { name: /^Stop / })).toBeNull();
+});
+it("stops a native child through its task", () => {
+  const stopBackground = vi.fn(async () => undefined);
+  const actions = { switchSession: vi.fn(), openThread: vi.fn(), openConversationView: vi.fn(), stopBackground, notify: vi.fn() } as unknown as WorkbenchActions;
+  const tool = { id: "native-agent:claude-code:call", kind: "subagent", name: "tau_native_subagent", args: { agentId: "call", runtime: "claude-code", title: "Native reviewer", agentStatus: "running", taskId: "task-7", effort: "low", model: "haiku" }, status: "running", output: "", startedAt: 1000 } as UiToolRun;
+  render(<TestProviders><TestThreadStore threads={sessions}><WorkbenchContext.Provider value={{ tools: [tool] } as never}><AgentLineage snapshot={{ sessionId: "parent" } as HostSnapshot} actions={actions} /></WorkbenchContext.Provider></TestThreadStore></TestProviders>);
+  expect(screen.getByRole("button", { name: "Native reviewer, Running" }).getAttribute("data-tooltip")).toBe("Native reviewer\nhaiku · Low\nRunning");
+  fireEvent.click(screen.getByRole("button", { name: "Stop Native reviewer" }));
+  expect(stopBackground).toHaveBeenCalledWith("task-7");
+});
+it("shows who asks above the composer, however deep, and opens the agent", () => {
+  const actions = { switchSession: vi.fn(), openThread: vi.fn(), openConversationView: vi.fn(), activeThread: () => ({ sessionId: "parent" }) } as unknown as WorkbenchActions;
+  agentsStore.set({ maxRunning: 8, links: [
+    { ...link, status: "running" },
+    { ...link, id: "grand", threadId: "grand", parentThreadId: "child", title: "Deep check", status: "waiting", depth: 2, spawnedAt: 2000 },
+  ] });
+  render(<AgentQuestionsBanner snapshot={{ sessionId: "parent" } as HostSnapshot} actions={actions} />);
+  expect(screen.getByText("Sub-agent needs input")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Open question" }));
+  expect(actions.openConversationView).toHaveBeenCalledWith(SUBAGENT_VIEW, { threadId: "grand" });
+  act(() => agentsStore.set({ maxRunning: 8, links: [{ ...link, status: "running" }] }));
+  expect(screen.queryByText("Sub-agent needs input")).toBeNull();
 });
