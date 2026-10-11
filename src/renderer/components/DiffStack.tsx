@@ -6,6 +6,7 @@ import { FileKindIcon } from "./FileKindIcon";
 import { tooltipProps } from "./ui/Tooltip";
 import type { UiFileDiff } from "../../shared/workspace-kit-types";
 import type { DiffContext } from "./use-diff-context";
+import type { DiffFind } from "./diff-find";
 import "./diff-stack.css";
 import { BOUNDED_LINES } from "./diff-stack-constants";
 
@@ -44,7 +45,7 @@ function useOnScreen(root: RefObject<HTMLElement | null>, paths: readonly string
   }, [root, paths]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
-const FileBody = memo(function FileBody({ path, diff, read, version, layout, wrap, lines, unavailable, onLoadMore, context }: {
+const FileBody = memo(function FileBody({ path, diff, read, version, layout, wrap, lines, unavailable, onLoadMore, context, find }: {
   path: string;
   diff?: UiFileDiff | undefined;
   read?: ((path: string) => Promise<UiFileDiff>) | undefined;
@@ -56,6 +57,7 @@ const FileBody = memo(function FileBody({ path, diff, read, version, layout, wra
   unavailable?: string | undefined;
   onLoadMore?: (() => void) | undefined;
   context?: DiffContext | undefined;
+  find?: DiffFind | undefined;
 }) {
   const [read_, setRead] = useState<UiFileDiff>();
   const [error, setError] = useState<string>();
@@ -74,7 +76,7 @@ const FileBody = memo(function FileBody({ path, diff, read, version, layout, wra
   const expanded = context?.can(path) ? context.apply(shown) : undefined;
   const bounded = lineCount(expanded?.diff ?? shown) > BOUNDED_LINES;
   return <div className={`rvd-diff${bounded ? " bounded" : ""}`}>
-    <DiffView diff={expanded?.diff ?? shown} mode={layout} path={path} wrap={wrap} onLoadMore={onLoadMore} {...(lines ? { lines } : {})}
+    <DiffView diff={expanded?.diff ?? shown} mode={layout} path={path} wrap={wrap} onLoadMore={onLoadMore} {...(lines ? { lines } : {})} {...(find ? { find } : {})}
       {...(context && expanded ? { onExpandGap: context.expand, contextState: context.state(path), ...(expanded.totalLines !== undefined ? { totalLines: expanded.totalLines } : {}) } : {})} />
   </div>;
 });
@@ -85,7 +87,7 @@ const FileBody = memo(function FileBody({ path, diff, read, version, layout, wra
  * only when it comes within a screen or two of the viewport, and a long one
  * scrolls inside its card so the diff view can keep to the rows in view.
  */
-export function DiffStack({ files, layout, wrap, diffs, read, version, lines, extra, body, onOpenInEditor, jump, onActive, unavailable, scroll, onLoadMore, context }: {
+export function DiffStack({ files, layout, wrap, diffs, read, version, lines, extra, body, onOpenInEditor, jump, onActive, unavailable, scroll, onLoadMore, context, find }: {
   files: readonly StackFile[];
   layout: "unified" | "split";
   wrap: boolean;
@@ -110,6 +112,8 @@ export function DiffStack({ files, layout, wrap, diffs, read, version, lines, ex
   onLoadMore?: (path: string) => void;
   /** Lets a file show the unchanged lines around its changes; see `useDiffContext`. */
   context?: DiffContext;
+  /** The reader's find across the files (`useDiffFind`); the owner brings a match's file into view with `jump`. */
+  find?: DiffFind | undefined;
 }) {
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
   const observed = typeof IntersectionObserver !== "undefined";
@@ -176,7 +180,7 @@ export function DiffStack({ files, layout, wrap, diffs, read, version, lines, ex
               ) : null}
             </header>
             {closed ? null : body?.(file) ?? (drawn
-              ? <FileBody path={file.path} diff={diffs?.get(file.path)} read={read} version={version} layout={layout} wrap={wrap} lines={lines?.(file.path)} unavailable={unavailable} onLoadMore={onLoadMore ? () => onLoadMore(file.path) : undefined} context={context} />
+              ? <FileBody path={file.path} diff={diffs?.get(file.path)} read={read} version={version} layout={layout} wrap={wrap} lines={lines?.(file.path)} unavailable={unavailable} onLoadMore={onLoadMore ? () => onLoadMore(file.path) : undefined} context={context} find={find} />
               : <div className="rvd-loading" style={{ height: guess(file) }} aria-hidden="true" />)}
           </section>
         );

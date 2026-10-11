@@ -6,6 +6,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -14,6 +15,8 @@ import {
 } from "react";
 import type { UiChangedFile, UiDiffLine, UiFileDiff } from "../../shared/workspace-kit-types";
 import { ChevronDown, ChevronsUpDown, ChevronUp, MessageSquarePlus } from "lucide-react";
+import { lineId, type DiffFind } from "./diff-find";
+import { clearMatches, paintMatches } from "./diff-find-paint";
 import { CONTEXT_STEP, diffGaps, stepRange, type DiffGap, type LineRange } from "./diff-context";
 import { canonicalHighlightLanguage, highlightSource, loadHighlightLanguage } from "./Markdown";
 import "./diff-view.css";
@@ -119,9 +122,10 @@ const HighlightedText = memo(function HighlightedText({ line, text, language, pa
     const html = language ? cachedHighlight(line, value, canonicalHighlightLanguage(language)) : undefined;
     return <span className={className} {...(html === undefined ? { children: value } : { dangerouslySetInnerHTML: { __html: html } })} />;
   };
-  return parts
+  // The wrapper holds exactly the line's text, which is what find matches are counted in.
+  return <span className="diff-text">{parts
     ? <>{render(parts.before)}{render(parts.changed, "diff-inline-change")}{render(parts.after)}</>
-    : render(text);
+    : render(text)}</span>;
 });
 
 const Row = memo(function Row({ line, split, language, version, partner, side }: { line: UiDiffLine; split: boolean; language?: string; version: number; partner?: UiDiffLine; side?: IntralineSide }) {
@@ -257,6 +261,8 @@ export interface DiffStreamProps {
   onExpandContext?(): void;
   /** Reveals `range` of a gap's lines; the gap row then offers steps of its own. */
   onExpandGap?(gap: DiffGap, range: LineRange): void;
+  /** The reader's find: its matches are painted in the rows and the stream scrolls to the active one. */
+  find?: DiffFind;
   /** Whether a file's gaps are being read or failed to be. */
   contextState?(path: string): { busy?: boolean; error?: string; at?: number } | undefined;
   onLoadMore?(path: string): void;
@@ -279,6 +285,7 @@ export const DiffStream = forwardRef<DiffStreamHandle, DiffStreamProps>(function
   onExpandContext,
   onExpandGap,
   contextState,
+  find,
   onLoadMore,
   renderFileHeader,
   onVisiblePathChange,
@@ -336,6 +343,34 @@ export const DiffStream = forwardRef<DiffStreamHandle, DiffStreamProps>(function
       }
     },
   }), [hunkRowIndices, rows, virtualizer]);
+
+  const streamElement = useRef<HTMLDivElement>(null);
+  const painter = useRef(Symbol("diff-find")).current;
+  const handled = useRef<string | undefined>(undefined);
+  // Scrolls to the active match once its line is among the rows; a folded file's rows come when its owner unfolds it.
+  useEffect(() => {
+    const active = find?.active;
+    if (!active) { handled.current = undefined; return; }
+    const token = `${active.id}\0${active.start}\0${find.seek}`;
+    if (handled.current === token) return;
+    const index = rows.findIndex((row) => row.kind === "line" && lineId(row.path, row.line) === active.id);
+    if (index < 0) return;
+    handled.current = token;
+    // Out of the effect: the virtualizer flushes its own render when it scrolls. A diff that does not
+    // scroll on its own sits in a page that does.
+    requestAnimationFrame(() => {
+      virtualizer.scrollToIndex(index, { align: "center" });
+      requestAnimationFrame(() => {
+        const row = [...streamElement.current?.querySelectorAll("[data-find-id]") ?? []].find((element) => element.getAttribute("data-find-id") === active.id);
+        row?.scrollIntoView?.({ block: "nearest" });
+      });
+    });
+  }, [find?.active, find?.seek, rows, virtualizer]);
+  // Every render, since scrolling swaps the rows the matches belong to.
+  useLayoutEffect(() => {
+    if (find || streamElement.current) paintMatches(painter, streamElement.current, find?.byLine, find?.active);
+  });
+  useEffect(() => () => clearMatches(painter), [painter]);
 
   const rangeStart = virtualizer.range?.startIndex;
   const visiblePath = rangeStart === undefined ? undefined : rows[rangeStart]?.path;
@@ -407,7 +442,7 @@ export const DiffStream = forwardRef<DiffStreamHandle, DiffStreamProps>(function
     }
   };
 
-  return <div className={`diff-stream${wrap ? "" : " nowrap"}`} style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative", ...(minWidth ? { minWidth } : {}) }}>
+  return <div ref={streamElement} className={`diff-stream${wrap ? "" : " nowrap"}`} style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative", ...(minWidth ? { minWidth } : {}) }}>
     {items.map((item) => {
       const row = rows[item.index];
       if (!row) return null;
@@ -418,6 +453,7 @@ export const DiffStream = forwardRef<DiffStreamHandle, DiffStreamProps>(function
         ref={virtualizer.measureElement}
         data-index={item.index}
         data-path={row.path}
+        {...(row.kind === "line" && find ? { "data-find-id": lineId(row.path, row.line) } : {})}
         className={[
           "diff-stream-row",
           row.kind === "separator" ? "separator" : "",
@@ -432,7 +468,7 @@ export const DiffStream = forwardRef<DiffStreamHandle, DiffStreamProps>(function
 });
 
 /** One file's diff with its own scroll element; review mode uses `DiffStream` directly. */
-export function DiffView({ diff, mode, path, onLoadMore, onExpandContext, onExpandGap, totalLines, contextState, lines, wrap = true }: {
+export function DiffView({ diff, mode, path, onLoadMore, onExpandContext, onExpandGap, totalLines, contextState, find, lines, wrap = true }: {
   diff?: UiFileDiff;
   mode: "unified" | "split";
   path?: string;
@@ -443,6 +479,8 @@ export function DiffView({ diff, mode, path, onLoadMore, onExpandContext, onExpa
   /** The file's length at the new side, once known; the stretch below the last hunk is offered either way. */
   totalLines?: number;
   contextState?: { busy?: boolean; error?: string; at?: number } | undefined;
+  /** The reader's find across the diffs of the surface this one belongs to. */
+  find?: DiffFind | undefined;
   lines?: DiffLineSlot;
   /** Long lines wrap unless this is `false`. */
   wrap?: boolean;
@@ -504,6 +542,7 @@ export function DiffView({ diff, mode, path, onLoadMore, onExpandContext, onExpa
       languages={languages}
       wrap={wrap}
       {...(lines ? { lines } : {})}
+      {...(find ? { find } : {})}
       {...(onExpandContext ? { onExpandContext } : {})}
       {...(onExpandGap ? { onExpandGap, contextState: () => contextState } : {})}
       {...(onLoadMore ? { onLoadMore } : {})}

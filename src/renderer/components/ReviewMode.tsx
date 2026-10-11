@@ -29,6 +29,8 @@ import { readReviewState, writeReviewState, type PersistedReviewState } from "..
 import { useClientStorage } from "../client-storage-context";
 import type { ClientStorage } from "../../workbench/client-storage";
 import { STORAGE_KEYS } from "../../workbench/storage-keys";
+import { DiffFindBar } from "./DiffFindBar";
+import { useDiffFind } from "./use-diff-find";
 import { DiffStream, diffLanguage, fileDiffRows, type DiffLineSlot, type DiffStreamHandle, type DiffStreamRow } from "./DiffView";
 import { FileKindIcon } from "./FileKindIcon";
 import { ReviewCommitBar, type ReviewCommitAction } from "./ReviewCommitBar";
@@ -299,7 +301,7 @@ export function ReviewMode({
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !isTypingTarget(event.target) && !event.defaultPrevented) {
-        onBack();
+        if (find.open) find.close(); else onBack();
         return;
       }
       if (
@@ -422,6 +424,9 @@ export function ReviewMode({
       { kind: "separator", key: `${file.path}\0end`, path: "" } satisfies DiffStreamRow,
     ];
   }), [diffErrors, diffs, isCollapsed, paged.files]);
+  // Every loaded file is searched, a folded one included; the match's file unfolds when it is reached.
+  const findDiffs = useMemo(() => paged.files.flatMap((file) => diffs.get(file.path) ?? []), [diffs, paged.files]);
+  const find = useDiffFind({ diffs: findDiffs, onReveal: (match) => { if (isCollapsed(match.path)) toggleCollapsed(match.path); } });
   const allCollapsed = paged.files.length > 0 && paged.files.every((file) => isCollapsed(file.path));
   const setAllCollapsed = (collapsed: boolean) => setToggledFiles(collapsed === filesStartCollapsed
     ? new Set()
@@ -583,7 +588,8 @@ export function ReviewMode({
         {embedded ? null : reviewToolbar}
 
         <div className="review-stage-content">
-          <div className="review-diff-stream" ref={diffScrollRef}>
+          <DiffFindBar controller={find} />
+          <div className="review-diff-stream" ref={diffScrollRef} tabIndex={-1} onKeyDown={find.onKeyDown}>
             {paged.files.length === 0 ? <div className="diff-empty">No changes in this scope.</div> : <DiffStream
               ref={streamRef}
               rows={streamRows}
@@ -592,6 +598,7 @@ export function ReviewMode({
               languages={streamLanguages}
               {...(selectedPath ? { activePath: selectedPath } : {})}
               {...(lines ? { lines } : {})}
+              {...(find.find ? { find: find.find } : {})}
               onExpandContext={() => setContextMode("expand")}
               onLoadMore={loadMore}
               renderFileHeader={renderFileHeader}

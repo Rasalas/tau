@@ -26,3 +26,10 @@ const LazyDiffStack = lazy(() => import("./components/DiffStack").then((module) 
 export function DiffStack(props: ComponentProps<typeof LazyDiffStack>) {
   return <Suspense fallback={<LazyFeatureFallback label="diff" />}><LazyDiffStack {...props} /></Suspense>;
 }
+
+const LazyDiffFindBar = lazy(() => import("./components/DiffFindBar").then((module) => ({ default: module.DiffFindBar })));
+
+/** The find bar over a surface's diffs (`useDiffFind`), from a chunk of its own. */
+export function DiffFindBar(props: ComponentProps<typeof LazyDiffFindBar>) {
+  return props.controller.open ? <Suspense fallback={null}><LazyDiffFindBar {...props} /></Suspense> : null;
+}

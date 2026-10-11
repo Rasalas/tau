@@ -458,6 +458,19 @@ describe("a pull request's detail (1e)", () => {
     expect(within(sidebar()).getByText(/^Commits · \d+$/u)).toBeTruthy();
   });
 
+  it("finds text across the stacked files with Cmd+F and brings the file of the match into view", async () => {
+    setupRemote();
+    const article = await screen.findByRole("article", { name: "PR #7" });
+    await waitFor(() => expect(article.querySelectorAll("[data-stack-file]").length).toBe(4));
+    const body = article.querySelector<HTMLElement>(".rvd-find")!;
+    fireEvent.keyDown(body, { key: "f", metaKey: true });
+    fireEvent.change(await within(article).findByRole("textbox", { name: "Find in diff" }), { target: { value: "unseenOutput" } });
+    await waitFor(() => expect(within(article).getByRole("status", { name: "" }).textContent).toBe("1 of 1"));
+    await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled());
+    const target = article.querySelector("[data-stack-file][data-path='kits/terminal/output.ts']")!;
+    expect((Element.prototype.scrollIntoView as ReturnType<typeof vi.fn>).mock.contexts).toContain(target);
+  });
+
   it("goes back to the list of pull requests from the sidebar and with ⌘[", async () => {
     const { sidebar, navigate } = setupRemote();
     await screen.findByRole("article", { name: "PR #7" });

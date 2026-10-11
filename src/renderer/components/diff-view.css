@@ -39,3 +39,6 @@
 @media (pointer: coarse) {
   .diff-context-bar .diff-context-gap, .diff-context-step { height: 44px; }
 }
+
+::highlight(diff-find) { background-color: color-mix(in srgb, var(--warn) 38%, transparent); color: inherit; }
+::highlight(diff-find-active) { background-color: color-mix(in srgb, var(--warn) 78%, transparent); color: var(--ink); }

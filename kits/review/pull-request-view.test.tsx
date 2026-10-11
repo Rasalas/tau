@@ -367,6 +367,26 @@ describe("the pull-request view", () => {
     await waitFor(() => expect(file).toHaveBeenCalledTimes(2));
   });
 
+  it("finds text across every file of the request with Cmd+F, and a match in another file selects it", async () => {
+    renderView();
+    await screen.findByRole("heading", { name: "Add the output helper" });
+    fireEvent.click(screen.getByRole("tab", { name: "Code" }));
+    fireEvent.click(await screen.findByRole("button", { name: /README\.md/u }));
+    const diff = await waitFor(() => {
+      const element = document.querySelector<HTMLElement>(".diff-scroll");
+      if (!element) throw new Error("no diff yet");
+      return element;
+    });
+    fireEvent.keyDown(diff, { key: "f", metaKey: true });
+    fireEvent.change(await screen.findByRole("textbox", { name: "Find in diff" }), { target: { value: "unseenOutput" } });
+    await waitFor(() => expect(screen.getByRole("status", { name: "" }).textContent).toBe("1 of 1"));
+    // The only match is in output.ts, which was not on screen.
+    await waitFor(() => expect(screen.getByRole("button", { name: /output\.ts/u }).getAttribute("aria-current")).toBe("true"));
+    expect(document.querySelector(".pr-file-header strong")?.textContent).toBe("output.ts");
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Find in diff" }), { key: "Escape" });
+    expect(screen.queryByRole("textbox", { name: "Find in diff" })).toBeNull();
+  });
+
   it("holds line comments for a review and submits them with a verdict in one step", async () => {
     const { client, shared } = renderView();
     await screen.findByRole("heading", { name: "Add the output helper" });

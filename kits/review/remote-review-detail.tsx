@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Copy, ExternalLink, GitBranch, MessageSquare, RefreshCw, SquarePlus } from "lucide-react";
-import { useDiffPresentation, errorMessage, READ_ONLY_REASON, tooltipProps, type WorkbenchActions } from "tau";
+import { DiffFindBar, useDiffFind, useDiffPresentation, errorMessage, READ_ONLY_REASON, tooltipProps, type WorkbenchActions } from "tau";
 import { githubHtml } from "./github-html.js";
 import { RequestMarkdown as Markdown, RequestMediaProvider } from "./request-markdown.js";
 import { LinkedThreadsControl, ThreadPicker, useLinkedThreads } from "./linked-threads.js";
@@ -127,6 +127,17 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
   const context = usePullRequestContext(client, detail, ordered);
   const diffByPath = useMemo(() => new Map(diffs.map((diff) => [diff.path, diff])), [diffs]);
   const stackFiles = useMemo<StackFile[]>(() => ordered.map((file) => ({ path: file.path, added: file.added, removed: file.removed, ...(file.previousPath ? { previousPath: file.previousPath } : {}) })), [ordered]);
+  // Every file is searched, expanded lines included; the match's file is brought into view the way a click in the sidebar does.
+  const findDiffs = useMemo(() => diffs.map((diff) => context.can(diff.path) ? context.apply(diff).diff : diff), [context, diffs]);
+  const found = useRef<string>();
+  const find = useDiffFind({ diffs: findDiffs, onReveal: (match) => {
+    // Within a file the stream scrolls to the line itself.
+    if (match.path === found.current) return;
+    found.current = match.path;
+    setTab("changes");
+    setJump({ path: match.path, at: ++jumps.current });
+  } });
+  useEffect(() => { if (!find.open) found.current = undefined; }, [find.open]);
   const lines = usePullRequestLines({
     detail, threads, diffs, reviewComments: pending, writes, onComment: comment,
     onSend: (chip) => handOver(chip, chips(), actions),
@@ -247,6 +258,8 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
           ) : !files ? <p className="rvd-empty" role="status">Loading the diff…</p>
           : ordered.length === 0 ? <p className="rvd-empty">This {providerInfo(params.service).noun} has no file changes.</p>
           : (
+            <div className="rvd-find" onKeyDown={find.onKeyDown}>
+            <div className="rvd-find-anchor"><DiffFindBar controller={find} /></div>
             <ReviewDiffStack
               files={stackFiles}
               layout={layout}
@@ -254,6 +267,7 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
               diffs={diffByPath}
               lines={lines.slotFor}
               context={context}
+              {...(find.find ? { find: find.find } : {})}
               extra={(file) => {
                 const entry = ordered.find((candidate) => candidate.path === file.path);
                 if (!entry) return null;
@@ -268,6 +282,7 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
               onActive={setActive}
               scroll={scroll}
             />
+            </div>
           )
         ) : shownTab === "timeline" ? (
           <PullRequestTimeline detail={timelineView.detail} oldestFirst={oldestFirst} actions={actions} />
