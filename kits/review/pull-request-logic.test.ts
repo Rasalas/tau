@@ -30,8 +30,8 @@ describe("the rollup's re-runs", () => {
       run({ status: "COMPLETED", conclusion: "SUCCESS", startedAt: "2026-10-01T10:05:00Z", completedAt: "2026-10-01T10:06:00Z" }),
       run({ status: "IN_PROGRESS", conclusion: "", startedAt: "2026-10-01T10:00:00Z" }),
     ];
-    expect(parseGitHubChecks(rollup).map((check) => check.status)).toEqual(["pending"]);
-    expect(parseGitHubChecks([...rollup].reverse()).map((check) => check.status)).toEqual(["pending"]);
+    expect(parseGitHubChecks(rollup).map((row) => row.status)).toEqual(["pending"]);
+    expect(parseGitHubChecks([...rollup].reverse()).map((row) => row.status)).toEqual(["pending"]);
   });
 
   it("still takes the newest of the finished runs", () => {
@@ -39,7 +39,7 @@ describe("the rollup's re-runs", () => {
       run({ status: "COMPLETED", conclusion: "FAILURE", startedAt: "2026-10-01T10:00:00Z" }),
       run({ status: "COMPLETED", conclusion: "SUCCESS", startedAt: "2026-10-01T10:05:00Z" }),
     ];
-    expect(parseGitHubChecks(rollup).map((check) => check.status)).toEqual(["passed"]);
+    expect(parseGitHubChecks(rollup).map((row) => row.status)).toEqual(["passed"]);
   });
 });
 
