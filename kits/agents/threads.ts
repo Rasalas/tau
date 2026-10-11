@@ -2,7 +2,6 @@ import {
   AGENT_SEND_MODES,
   DEFAULT_MAX_RUNNING_AGENTS,
   DEFAULT_WAIT_MS,
-  MAX_AGENT_DEPTH,
   MAX_RUNNING_AGENTS_CAP,
   MAX_WAIT_MS,
   isBusyStatus,
@@ -191,13 +190,6 @@ export class AgentThreadBook {
     return this.recordFor(threadId)?.link.depth ?? 0;
   }
 
-  /** Refuses a spawn no budget can ever serve; a full budget only queues. */
-  assertCanSpawn(parentThreadId: string): void {
-    if (this.depthOf(parentThreadId) + 1 > MAX_AGENT_DEPTH) {
-      throw new Error(`Sub-agents may nest ${MAX_AGENT_DEPTH} levels deep; do this work in this thread instead.`);
-    }
-  }
-
   private recordFor(idOrThreadId: string): AgentRecord | undefined {
     return this.records.get(idOrThreadId) ?? this.records.get(this.byThread.get(idOrThreadId) ?? "");
   }
@@ -345,6 +337,11 @@ export class AgentThreadBook {
       else delete found.facts.pendingToolPrompt;
       found.link = { ...found.link, ...(question ? { pendingToolPrompt: question } : { pendingToolPrompt: undefined }) };
     });
+  }
+
+  /** The reasoning effort the agent's runtime reported; `undefined` when it has none. */
+  noteEffort(idOrThreadId: string, effort: string | undefined): boolean {
+    return this.update(idOrThreadId, (found) => { found.link = { ...found.link, effort }; });
   }
 
   noteTool(idOrThreadId: string, tool: string): boolean {

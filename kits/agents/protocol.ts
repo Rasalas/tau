@@ -45,6 +45,8 @@ export interface AgentsHostCommands {
   "start": { input: { parentThreadId: string; agent: string; prompt: string }; output: { threadId: string; title: string; status: AgentThreadStatus } };
   /** The machines this host's agents may run on, for Settings → Agents. */
   "machines": { input: undefined; output: AgentMachinesView };
+  /** Stops an agent and every agent below it; `alsoStopped` counts the ones below. */
+  "stop-agent": { input: { threadId: string }; output: { threadId: string; status: AgentThreadStatus; cancelled: boolean; alsoStopped?: number } };
 }
 
 /** An agent definition's `access`: what Access Kit may narrow its thread to. */
@@ -170,13 +172,15 @@ export interface AgentThreadLink {
   startedAt?: number;
   endedAt?: number;
   projectPath: string;
-  /** 1 for a thread a user's thread spawned, 2 for its child. */
+  /** 1 for a thread a user's thread spawned, 2 for its child, and one more per level below. */
   depth: number;
   title: string;
   /** The agent definition it was started from, by name. */
   agent?: string;
   /** Model as `provider/id`, when it differs from the host default. */
   model?: string;
+  /** Reasoning effort its runtime last ran at; read from the thread's Pi runtime, so absent elsewhere. */
+  effort?: string;
   /** The checkout this agent works in; absent while it shares the parent's. */
   workspace?: AgentWorkspace;
   /** Set for an agent that runs on another machine; it then has no `threadId` here. */
@@ -202,9 +206,6 @@ export const DEFAULT_MAX_RUNNING_AGENTS = 8;
 
 /** The most the user may raise that to; beyond this the host thrashes runtimes. */
 export const MAX_RUNNING_AGENTS_CAP = 64;
-
-/** A user's thread spawns depth 1, that thread spawns depth 2, and there it stops. */
-export const MAX_AGENT_DEPTH = 2;
 
 export const DEFAULT_WAIT_MS = 10 * 60_000;
 export const MAX_WAIT_MS = 30 * 60_000;

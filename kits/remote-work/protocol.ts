@@ -501,5 +501,5 @@ export const HOSTED_COMMANDS = {
  */
 export const HOSTED_DEPTH_COMMAND = "hosted-thread-depth";
 
-/** The deepest a sub-agent tree goes; a start that claims more is refused. */
-export const MAX_AGENT_DEPTH_CLAIM = 8;
+/** The deepest tree a start may claim; Agents Kit sets no limit, this only bounds a malformed claim. */
+export const MAX_AGENT_DEPTH_CLAIM = 64;

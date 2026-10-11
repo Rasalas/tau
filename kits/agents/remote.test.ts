@@ -362,13 +362,11 @@ describe("Agents Kit: sub-agents on another machine", () => {
     expect(await offWait).toMatchObject({ machine: "rex", machineOffline: true, status: "running" });
   });
 
-  it("lets a thread rex started as a depth-2 agent spawn no further", async () => {
-    const deep = await bench();
-    deep.remoteWork.depths.set("parent", 2);
-    await expect(deep.call("tau_spawn_thread", { prompt: "deeper", machine: "local" })).rejects.toThrow("may nest 2 levels deep");
+  it("counts a thread rex started as a depth-2 agent into the tree and lets it spawn on", async () => {
     const b = await bench();
-    b.remoteWork.depths.set("parent", 1);
-    expect((await b.call("tau_spawn_thread", { prompt: "one more", machine: "local", workspace: "shared" })).status).toBe("running");
+    b.remoteWork.depths.set("parent", 2);
+    expect((await b.call("tau_spawn_thread", { prompt: "deeper", machine: "local", workspace: "shared" })).status).toBe("running");
+    expect((await b.state()).links[0]!.depth).toBe(3);
   });
 
   it("chooses through Machines Kit for auto, and runs here without it", async () => {
