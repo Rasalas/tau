@@ -98,6 +98,12 @@ export interface CompletionRequest {
   system: string;
   prompt: string;
   maxTokens?: number;
+  /** Each piece of the answer as it arrives, where the runtime streams; the rest answer once at the end. New in API 1.59.0. */
+  onText?(delta: string): void;
+  /** Ends the request. New in API 1.59.0. */
+  signal?: AbortSignal;
+  /** How long it may take, 30 s by default: an answer needs longer than a title. New in API 1.59.0. */
+  timeoutMs?: number;
 }
 
 /** A raw runtime event; `handleRuntimeSessionEvent` owns its dialect. */

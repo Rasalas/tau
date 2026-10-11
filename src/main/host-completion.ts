@@ -2,6 +2,7 @@ import { SettingsManager, type ModelRuntime } from "@earendil-works/pi-coding-ag
 import type { UiModel } from "../shared/contracts.js";
 import type { HostThread } from "./host-extensions.js";
 import { modelAttribution } from "./model-attribution.js";
+import { completeText } from "./model-completion.js";
 import { modelLogin } from "./model-login.js";
 import type { PiModelData } from "./model-price-book.js";
 import { createPiModelRuntime } from "./pi-model-runtime.js";
@@ -86,22 +87,7 @@ export class HostCompletions {
         ? `Unknown model: ${model.provider}/${model.id}`
         : "No model is configured for this. Choose one in the extension's settings, or set a default model in ~/.pi/agent.");
     }
-    const attribution = modelAttribution(resolved);
-    const response = await runtime.completeSimple(
-      resolved,
-      { systemPrompt: request.system, messages: [{ role: "user", content: [{ type: "text", text: request.prompt }], timestamp: Date.now() }] },
-      {
-        maxTokens: request.maxTokens ?? 48,
-        cacheRetention: "none",
-        timeoutMs: 30_000,
-        sessionId: attribution.sessionId,
-        ...(attribution.headers ? { headers: attribution.headers } : {}),
-      },
-    );
-    if (response.stopReason === "error" || response.stopReason === "aborted") {
-      throw new Error(response.errorMessage || "The model did not complete.");
-    }
-    return response.content.map((part) => part.type === "text" ? part.text : "").join("").trim();
+    return completeText(runtime, resolved, request, modelAttribution(resolved));
   }
 
   /** The named model, else Pi's own default; a default without a provider is matched by id. */
