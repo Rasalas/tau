@@ -5,7 +5,7 @@ import type { AccessLevel } from "./protocol.js";
  * Tools that can change the workspace or run arbitrary commands. Agents Kit's
  * apply writes a sub-agent's work into this checkout, so it asks like an edit.
  */
-const MUTATING_TOOLS = new Set(["edit", "write", "bash", "powershell", "tau_apply_thread_changes"]);
+const MUTATING_TOOLS = new Set(["edit", "write", "bash", "powershell", "tau_apply_thread_changes", "tau_background_command"]);
 
 const READ_ONLY_COMPUTER_USE_TOOLS = new Set([
   "list_apps",
@@ -83,6 +83,7 @@ export function toolMetadataOf(
 }
 
 function mutatesByName(toolName: string, input: Record<string, unknown>): boolean {
+  if (toolName === "tau_background_tasks") return input.action === "stop";
   if (MUTATING_TOOLS.has(toolName)) return true;
   if (!toolName.startsWith("computer_use_")) return false;
 

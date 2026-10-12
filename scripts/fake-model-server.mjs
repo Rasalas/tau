@@ -5,6 +5,7 @@
 //   "wait <ms>"            → a first delta, the pause (for aborts), then "ok"
 //   "fail <status> <text>" → HTTP <status> with <text> as the provider's error
 //   "run <seconds>"        → a `bash` call that runs `mkdir` and sleeps, then "done"
+//   "background-command {…}" / "background-tasks {…}" → the tracked command or control tool, then "done"
 //   "think <ms>"           → reasoning streamed for <ms> before each answer (with the others too)
 //   "takeover <url>"       → a line, then a `request_takeover` call for the Preview at <url>, then "done"
 //                            (GET /login on this server is a sign-in page to point it at)
@@ -79,6 +80,10 @@ export function fakeReply(body) {
       .map(([title, task]) => ({ name: "tau_spawn_thread", arguments: { title: title.trim(), prompt: task.trim() } }));
     if (toolCalls.length > 0) return { toolCalls };
   }
+  const background = prompt.match(/^background-command\s+(\{.*\})$/su);
+  if (background) return { toolCall: { name: "tau_background_command", arguments: JSON.parse(background[1]) } };
+  const control = prompt.match(/^background-tasks\s+(\{.*\})$/su);
+  if (control) return { toolCall: { name: "tau_background_tasks", arguments: JSON.parse(control[1]) } };
   const ask = prompt.match(/\bask\s+(one|any)\b/u);
   if (ask) return { toolCall: { name: "ask_user_question", arguments: { questions: [fakeQuestion(ask[1] === "any")] } } };
   const write = prompt.match(/\bwrite\s+(\S+)\s+(\S+)/u);

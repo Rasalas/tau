@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { TurnActivityStore, type BackendPrompt, type ExtensionUiAnswer, type HostExecutionPolicy, type RuntimePermissionLevel, type ThreadRuntimeEvent } from "tau/host-extension";
 import { ALLOW, DENY, rulesForLevel } from "./approvals.js";
 import { storedModels } from "./catalog.js";
@@ -58,6 +58,27 @@ async function open(space: Scratch, options: { level?: RuntimePermissionLevel; a
 const prompts = (fake: FakeOpenCode) => fake.requests.filter((request) => request.path.endsWith("/prompt_async"));
 
 describe("OpenCodeThreadRuntimeBackend against a fake OpenCode server", () => {
+  it("holds a tool which outlives session.idle and handles its late result in the next turn", async () => {
+    let turns = 0;
+    let report!: () => void;
+    const space = await scratch((turn) => {
+      if (turns++ === 0) {
+        turn.emit({ type: "message.updated", properties: { sessionID: turn.session.id, info: { id: turn.assistantMessageId, role: "assistant" } } });
+        const part = { id: "part-build", messageID: turn.assistantMessageId, sessionID: turn.session.id, type: "tool", tool: "bash", callID: "build", state: { status: "running", input: { command: "npm test" } } };
+        turn.emit({ type: "message.part.updated", properties: { sessionID: turn.session.id, part } });
+        report = () => turn.emit({ type: "message.part.updated", properties: { sessionID: turn.session.id, part: { ...part, state: { status: "completed", output: "passed" } } } });
+      }
+      turn.emit({ type: "session.idle", properties: { sessionID: turn.session.id } });
+    });
+    const { backend } = await open(space);
+    await backend.prompt({ text: "Start tests", delivery: "prompt" });
+    expect(backend.capabilities.background!.current()).toEqual([expect.objectContaining({ id: "build", kind: "command" })]);
+    report();
+    await vi.waitFor(() => expect(backend.capabilities.background!.current()[0]?.state).toBe("reported"));
+    await backend.prompt({ text: "Handle tests", delivery: "prompt" });
+    expect(backend.capabilities.background!.current()).toEqual([]);
+  });
+
   it("adopts OpenCode title updates without replacing manual names", async () => {
     const space = await scratch((turn) => {
       turn.emit({ type: "session.updated", properties: { info: { id: turn.session.id, title: "Bildvorschau im Chat" } } });

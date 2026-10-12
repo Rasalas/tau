@@ -65,7 +65,7 @@ describe("Claude Code host half", () => {
     });
     void backend.prompt({ text: "hi", delivery: "prompt" }).catch(() => undefined);
     expect((await openedInput).mcpServer).toEqual(mcpServer);
-    expect(connected).toEqual([{ sessionId: "tau-thread", cwd: agentDir }]);
+    expect(connected).toEqual([{ sessionId: "tau-thread", cwd: agentDir, nativeCapabilities: ["background-work"] }]);
     await backend.dispose();
   });
 

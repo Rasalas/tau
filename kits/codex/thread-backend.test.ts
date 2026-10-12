@@ -53,8 +53,10 @@ describe("a command Codex keeps running after its turn", () => {
     expect(events).toContainEqual(expect.objectContaining({ type: "tool-end", tool: expect.objectContaining({ status: "done", output: "watching\nKeeps running in the background." }) }));
     await until(() => ended.length === 1);
     expect(ended).toEqual([{ label: "gh run watch 42", exitCode: 0, output: "watching\nrun 42 succeeded" }]);
-    expect(backend.capabilities.background!.current()).toEqual([]);
+    expect(backend.capabilities.background!.current()).toEqual([expect.objectContaining({ id: "bg-item", state: "reported" })]);
     expect(events.filter((event) => event.type === "background")).toHaveLength(2);
+    await backend.prompt({ text: "Handle the result", delivery: "prompt" });
+    expect(backend.capabilities.background!.current()).toEqual([]);
   });
 
   it("stops through Codex's background terminals without waking the thread", async () => {

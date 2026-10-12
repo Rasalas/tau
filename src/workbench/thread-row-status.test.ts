@@ -29,12 +29,13 @@ describe("a row whose runtime works in the background", () => {
   const monitor = { id: "b1", kind: "monitor" as const, label: "Nightly run" };
   const server = { id: "b2", kind: "command" as const, label: "npm run dev" };
 
-  it("says Monitoring in place of Ready, and Running for commands alone", () => {
+  it("says Monitoring in place of Ready, and Waiting for commands", () => {
     expect(threadRowStatus("a", { ...idle, unreadThreadIds: ["a"] }, { background: [monitor, server] })).toEqual({
       activity: "background", label: "Monitoring",
       hint: "1 monitor and 1 command in the background: Nightly run, npm run dev. The agent continues when it reports.",
     });
-    expect(threadRowStatus("a", idle, { background: [server] })).toMatchObject({ activity: "background", label: "Running" });
+    expect(threadRowStatus("a", idle, { background: [server] })).toMatchObject({ activity: "background", label: "Waiting" });
+    expect(threadRowStatus("a", { ...idle, unreadThreadIds: ["a"] }, { background: [{ ...server, blocksCompletion: false }] })).toEqual({ activity: "ready", label: "Ready" });
   });
 
   it("leaves Working and a failure in front", () => {

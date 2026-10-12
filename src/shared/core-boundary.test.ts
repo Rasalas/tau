@@ -158,9 +158,12 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./worker-memory-cap.js",
   // The host's start of each run, which every client times a thread's work from (API 1.27.0).
   "./thread-run-clock.js",
+  "./thread-background-work.js", // Combines runtime and kit work in the thread's lifecycle.
+  "./background-work-tools.js", // Runtime-neutral control of the thread's background capability.
 ]);
 
 const CORE_ALLOWED_PACKAGES = new Set([
+  "typebox", // Schemas for the runtime-neutral background control tool.
   "@earendil-works/pi-ai",
   "@earendil-works/pi-ai/providers/opencode",
   "@earendil-works/pi-ai/providers/opencode-go",

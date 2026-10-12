@@ -82,6 +82,23 @@ const reply = (text: string): Script => async (_blocks, session) => {
 };
 
 describe("AntigravityThreadRuntimeBackend", () => {
+  it("retains an ACP tool after its parent turn and consumes a late result in the following turn", async () => {
+    let turns = 0;
+    const { backend, sessions } = harness(await scratchStore(), (_blocks, session) => {
+      if (turns++ === 0) session.update({ sessionUpdate: "tool_call", toolCallId: "background", kind: "execute", status: "in_progress", rawInput: { command: "npm test" } });
+      return { stopReason: "end_turn" };
+    });
+    await backend.start("create");
+    try {
+      await backend.prompt({ text: "Start tests", delivery: "prompt" });
+      expect(backend.capabilities.background!.current()).toHaveLength(1);
+      sessions[0]!.update({ sessionUpdate: "tool_call_update", toolCallId: "background", status: "failed", rawOutput: "Tests failed" });
+      expect(backend.capabilities.background!.current()[0]?.state).toBe("reported");
+      await backend.prompt({ text: "Handle the failed tests", delivery: "prompt" });
+      expect(backend.capabilities.background!.current()).toEqual([]);
+    } finally { await backend.dispose(); }
+  });
+
   it("creates a session on the first turn, streams the answer as events, keeps usage, and resumes the session next time", async () => {
     const store = await scratchStore();
     const { backend, events, sessions } = harness(store, reply("hello there"));

@@ -14,7 +14,9 @@ import type {
 import { knownSkillNames } from "../shared/skill-envelope.js";
 import { AttachedThreadBackend } from "./attached-thread-backend.js";
 import { ClientMessageTracker } from "./client-message-tracker.js";
-import { ThreadControls } from "./thread-stop.js";
+import { ThreadControls, publishedBackground } from "./thread-stop.js";
+import { backgroundWorkTool, BACKGROUND_WORK_INSTRUCTIONS } from "./background-work-tools.js";
+import { ThreadBackgroundWork } from "./thread-background-work.js";
 import { ClientTurnLedger } from "./client-turn-ledger.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import { HostCompletions } from "./host-completion.js";
@@ -314,6 +316,10 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     detached: () => emit({ type: "client-count", count: clients.count() }),
   });
   const toolOwners = new Map<string, string>();
+  const backgrounds = new ThreadBackgroundWork((id) => deps.threadFor(id)?.backend.capabilities.background, (id) => {
+    index.setBackground(id, publishedBackground(backgrounds.forThread(id)));
+    runClock.recheck(id);
+  });
   const threads: ThreadRuntimeRegistry<ThreadRuntime> = new ThreadRuntimeRegistry<ThreadRuntime>({
     maxLive: MAX_LIVE_THREADS,
     // A thread with work in flight, an open question, or nothing saved yet has
@@ -324,7 +330,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
       && !record.runtime.adapterStreaming
       && turnObservers.pending(record.threadId) === 0
       // Releasing the runtime would end its background shells and monitors.
-      && !record.runtime.backend.capabilities.background?.current().length
+      && !backgrounds.forThread(record.threadId)?.current().length
       // An external runtime owns its transcript in the app-data store rather
       // than in Pi's message array. It is therefore safe to release once its
       // own visible projection has been persisted.
@@ -421,6 +427,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   let backendsChangePending = false;
   /** The one place the components hand their collaborators what they may ask of the host. */
   const port: AttachedSessionPort & ExtensionServicesPort = {
+    background: backgrounds,
     safeMode,
     platform,
     stateDir: kitStateDir,
@@ -494,7 +501,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     sendToThread: async (sessionId, text, sendOptions) => {
       // A wake steers into a running turn unless the user wants wakes queued; a held queue keeps it.
       const { wake } = sendOptions;
-      if (wake && sendOptions.delivery === "queue" && (defaultHostConfigManager.readSync(deps.getCwd()).threads?.wakeDelivery ?? "steer") === "steer" && deps.hostThread(sessionId)?.isIdle() === false && !queue.isHeld(sessionId)) {
+      if (wake && wake.source !== "background" && sendOptions.delivery === "queue" && (defaultHostConfigManager.readSync(deps.getCwd()).threads?.wakeDelivery ?? "steer") === "steer" && deps.hostThread(sessionId)?.isIdle() === false && !queue.isHeld(sessionId)) {
         try { return await deps.sendToThread(sessionId, markWake(text, wake).text, "steer", sendOptions.from, sendOptions.attachments); } catch { /* the turn ended meanwhile: queue it */ }
       }
       return deps.sendToThread(sessionId, text, sendOptions.delivery, sendOptions.from, sendOptions.attachments, wake);
@@ -548,6 +555,15 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     },
   };
   const seam = createHostExtensionSeam(port);
+  // Register before a runtime connects, and resolve its capability only at call time.
+  const backgroundAvailable = (session: RuntimeSessionInfo) => backgrounds.available || session.nativeCapabilities?.includes("background-work") || Boolean(backgrounds.forThread(session.sessionId));
+  seam.services.mcp.registerTools((session) => backgroundAvailable(session) ? [backgroundWorkTool(() => backgrounds.forThread(session.sessionId))] : []);
+  seam.services.mcp.registerInstructions?.((session) => backgroundAvailable(session) ? BACKGROUND_WORK_INSTRUCTIONS : undefined);
+  if (!safeMode) seam.services.registerRuntimeExtension("tau-background-work", (pi, session) => {
+    if (!backgroundAvailable(session)) return;
+    pi.registerTool(backgroundWorkTool(() => backgrounds.forThread(session.sessionId)));
+    pi.on("before_agent_start", (event) => ({ systemPrompt: `${event.systemPrompt}\n\n${BACKGROUND_WORK_INSTRUCTIONS}` }));
+  });
   const catalogs = runtimeCatalogs(options, deps, completions, piAdapter, () => seam.backends.values(), emit, (kind) => void publication.recheckVersion(kind));
   // `disabledExtensions` is the one list every client follows; the host's halves follow it too.
   const hostExtensions = new HostExtensionRegistry(seam.services, (event) => emit(event), {
@@ -750,6 +766,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     log: (label, detail) => deps.log(label, detail),
   }, { ...(options.queuedMessagesPath ? { filePath: options.queuedMessagesPath } : {}), ...persistedLogger });
   const controls = new ThreadControls({
+    background: (id) => backgrounds.forThread(id),
     queue,
     turnObservers,
     abortThread: (thread) => deps.abortThread(thread),

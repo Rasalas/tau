@@ -100,6 +100,7 @@ export const HOST_SERVICE_PERMISSIONS: Readonly<Record<string, ExtensionPermissi
   setThreadTitle: "sessions",
   attachedRuntime: "sessions",
   sessions: "sessions",
+  background: "sessions",
   registerThreadLifecycle: "sessions",
   registerTurnObserver: "sessions",
   pinTranscriptEntries: "sessions",

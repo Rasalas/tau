@@ -71,6 +71,13 @@ export class OpenCode2TurnTranslator implements TurnTranslator {
 
   constructor(private readonly now: () => number = Date.now) {}
 
+  lateTool(type: string, properties: Record<string, unknown>): ThreadRuntimeEvent[] {
+    if (!this.running.has(text(properties.id))) return [];
+    if (type === "session.tool.success") return this.toolEnded(properties, "done");
+    if (type === "session.tool.failed") return this.toolEnded(properties, "error");
+    return type === "session.tool.progress" ? this.progress(properties) : [];
+  }
+
   push(type: string, properties: Record<string, unknown>): ThreadRuntimeEvent[] {
     if (this.outcome) return [];
     switch (type) {

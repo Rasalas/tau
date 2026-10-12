@@ -156,6 +156,7 @@ export function usageSince(before: UiThreadUsage | undefined, after: UiThreadUsa
 }
 
 interface Turn {
+  reportedTasks?: string[];
   translator: CodexTurnTranslator;
   text: string;
   input: CodexUserInput[];
@@ -350,6 +351,8 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       },
       background: {
         current: () => this.background.current(),
+        list: () => this.background.list(),
+        release: (taskId) => { this.background.release(taskId); this.report({ type: "background" }); },
         stop: (taskId) => this.stopBackground(taskId),
       },
       ...activityHistory(threadId, options.activity),
@@ -644,6 +647,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   private async runTurn(turn: Turn): Promise<ThreadBackendPromptResult> {
     if (turn.status) return {};
+    turn.reportedTasks = this.background.reported();
     this.report({ type: "turn-started" });
     this.reportQueue();
     try {
@@ -707,6 +711,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   private settle(turn: Turn, status: NonNullable<Turn["status"]>, error?: string, limit?: { resetsAt?: number }): void {
     if (turn.status) return;
     turn.status = status;
+    if (status === "completed" && this.background.handled(turn.reportedTasks ?? [])) this.report({ type: "background" });
     turn.complete();
     const index = this.turns.indexOf(turn);
     if (index >= 0) this.turns.splice(index, 1);
@@ -942,8 +947,9 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       if (this.background.clear()) this.report({ type: "background" });
       return;
     }
-    if (!live.terminateBackgroundTerminal) throw new Error("This Codex version cannot stop a background command; update Codex in Settings → Runtimes.");
     for (const id of ids) {
+      if (this.background.reported().includes(id)) { this.background.forget(id); continue; }
+      if (!live.terminateBackgroundTerminal) throw new Error("This Codex version cannot stop a background command; update Codex in Settings → Runtimes.");
       const processId = this.background.processOf(id);
       if (!processId) throw new Error("Codex named no process for this command, so Tau cannot stop it.");
       this.background.stopping(id, true);

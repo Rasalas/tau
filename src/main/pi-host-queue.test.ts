@@ -100,6 +100,18 @@ describe("PiHost queue and limits", () => {
     await bench.host.queue.flush();
   });
 
+  it("queues background results without interrupting the running turn", async () => {
+    const bench = await host();
+    const wake = { source: "background", label: "Tests ended" };
+    await bench.host.prompt("foreground job", [], "thread-1");
+    await bench.internals.hostExtensions.services.sessions.send("thread-1", "Tests passed.", { delivery: "queue", wake });
+    expect(bench.delivered).toEqual([{ text: "foreground job" }]);
+    expect(bench.host.queue.list("thread-1").map((entry) => entry.wake)).toEqual([wake]);
+    bench.settle();
+    await vi.waitFor(() => expect(bench.delivered.at(-1)).toEqual({ text: "[Tau wake: background] Tests ended\n\nTests passed." }));
+    await bench.host.queue.flush();
+  });
+
   it("keeps a queued message across a host restart and holds it for the user", async () => {
     const first = await host();
     await first.host.prompt("long job", [], "thread-1");

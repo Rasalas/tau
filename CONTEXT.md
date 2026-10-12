@@ -79,7 +79,7 @@ A turn something other than the user started: a pull request event, a goal's nex
 
 ## Background work
 
-Work a thread's runtime keeps running after its turn ended: a background command, a monitor, a sub-agent. The thread is not done while a monitor, sub-agent or task runs; the runtime continues when one reports, and only then is the run over. A command alone, such as a dev server, does not hold the thread open. Stop ends the turn, not the background work; the user stops that separately.
+Work belonging to a thread that continues after a turn ends: a command, a monitor, a sub-agent. The thread stays open until the work required by the request and its results are handled. A checked service explicitly released to run independently, such as a dev server, does not hold the request open. Stop ends the turn, not the background work; the user stops that separately.
 
 ## Goal
 

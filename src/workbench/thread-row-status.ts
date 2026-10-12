@@ -1,4 +1,4 @@
-import { backgroundSummary } from "../shared/background-work";
+import { backgroundHoldsRun, backgroundSummary } from "../shared/background-work";
 import type { UiSession } from "../shared/contracts";
 import type { ThreadActivitySnapshot } from "./thread-store";
 
@@ -78,7 +78,7 @@ export function threadRowStatus(
   // A tool still marked running while nothing is in flight is a dead turn, not work.
   if (id === activity.activeThreadId && activity.runningToolName) return { activity: "stalled", label: "Interrupted" };
   // The runtime still runs work that reports back: not done, not Ready.
-  if (thread?.background?.length) return { activity: "background", ...backgroundSummary(thread.background) };
+  if (thread?.background && backgroundHoldsRun(thread.background)) return { activity: "background", ...backgroundSummary(thread.background) };
   // Ready means "finished while you were elsewhere"; opening the thread clears it.
   if (activity.unreadThreadIds.includes(id)) return { activity: "ready", label: "Ready" };
   return { activity: "idle", label: "Idle" };

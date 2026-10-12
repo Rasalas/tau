@@ -153,6 +153,7 @@ interface Turn {
   compaction?: boolean;
   /** A turn the CLI began on its own, e.g. when a background agent finished; no send waits on it. */
   unprompted?: boolean;
+  reportedTasks?: string[];
   /** Set once its result arrived and the turn was settled. */
   status?: "completed" | "interrupted" | "error";
 }
@@ -234,6 +235,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       goals: this.goalCapability,
       background: {
         current: () => this.background.current(),
+        release: (taskId) => { this.background.release(taskId); this.report({ type: "background" }); },
         stop: (taskId) => this.stopBackground(taskId),
       },
       restart: { restart: async () => {
@@ -655,6 +657,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   private beginTurn(turn: Turn): void {
+    turn.reportedTasks = this.background.reported();
     this.report(turn.unprompted ? { type: "turn-started", unprompted: true } : { type: "turn-started" });
     this.reportQueue();
   }
@@ -662,6 +665,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   private settleTurn(turn: Turn, status: NonNullable<Turn["status"]>): void {
     if (turn.status) return;
     turn.status = status;
+    if (status === "completed" && !turn.compaction && this.background.handled(turn.reportedTasks ?? [])) this.report({ type: "background" });
     const outcome = turn.translator.outcome;
     this.noteFacts(turn.translator.facts);
     if (turn.translator.facts.rateLimits?.length) this.options.onRateLimits?.(turn.translator.facts.rateLimits);
@@ -816,7 +820,9 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     // A subagent's row stops by its task too, whether or not the CLI backgrounded it.
     if (taskId !== undefined && !this.background.has(taskId) && !this.nativeAgents.hasTask(taskId)) throw new Error("That background task is no longer running.");
     if (!live || live.session.closed) { this.clearBackground(); return; }
-    await Promise.all(ids.map((id) => live.session.stopTask(id)));
+    const reported = new Set(this.background.reported());
+    await Promise.all(ids.filter((id) => !reported.has(id)).map((id) => live.session.stopTask(id)));
+    if (this.background.handled(ids.filter((id) => reported.has(id)))) this.report({ type: "background" });
   }
 
   private reportQueue(): void {

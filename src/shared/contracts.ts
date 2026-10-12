@@ -438,7 +438,7 @@ export interface UiThreadGoal {
 
 /**
  * Work a thread's runtime keeps running after its turn ended (API 1.58.0).
- * `command` is a shell that may run for good, such as a dev server; `monitor`
+ * `command` is a shell; `monitor`
  * watches until something happens; `agent` is a sub-agent; `task` any other.
  */
 export interface UiBackgroundTask {
@@ -446,6 +446,10 @@ export interface UiBackgroundTask {
   kind: "command" | "monitor" | "agent" | "task";
   label: string;
   startedAt?: number;
+  /** Defaults to true. Only a checked service explicitly released from the request may set false. */
+  blocksCompletion?: boolean;
+  /** A finished task whose result still belongs to the request. Missing means running. */
+  state?: "reported";
 }
 
 /** A queued message in full, as `take-queued` hands it back to a composer. */

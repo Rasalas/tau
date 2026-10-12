@@ -5,6 +5,7 @@
 // contains picks the scenario; sessions persist under CURSOR_DATA_DIR so a
 // second process can load one. FAKE_CURSOR_LOG names a file that receives
 // every message Tau sent, one JSON line each.
+import { fakeMcpCall } from "../../_acp/fake-mcp.mjs";
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -101,7 +102,12 @@ async function prompt(params) {
     update({ sessionUpdate: "tool_call", toolCallId: "read-1", title: "Read package.json", kind: "read", status: "in_progress", rawInput: { path: "package.json" } });
     update({ sessionUpdate: "tool_call_update", toolCallId: "read-1", status: "completed", content: [{ type: "content", content: { type: "text", text: "{ \"name\": \"demo\" }" } }] });
   }
-  if (/\bmcp\b/u.test(text)) reply = `mcp ${state.mcpServers.map((server) => `${server.name}:${server.type ?? "stdio"}`).join(",") || "none"}`;
+  if (/\bmcp\b/u.test(text)) reply = await fakeMcpCall(state.mcpServers, text) ?? `mcp ${state.mcpServers.map((server) => `${server.name}:${server.type ?? "stdio"}`).join(",") || "none"}`;
+  if (text.includes("[scenario:background]")) {
+    update({ sessionUpdate: "tool_call", toolCallId: "stub-background", kind: "execute", title: "Run tests", status: "in_progress", rawInput: { command: "npm test" } });
+    setTimeout(() => update({ sessionUpdate: "tool_call_update", toolCallId: "stub-background", status: "completed", rawOutput: "Tests passed" }), 15000);
+    reply = "Tests are still running.";
+  }
   if (/\bhistory\b/u.test(text)) reply = `history ${state.history.length}`;
   if (/\btransport\b/u.test(text)) reply = "Error: ConnectError: [unavailable] upstream connect error";
   if (/\bsleep\b/u.test(text)) {

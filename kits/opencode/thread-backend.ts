@@ -36,6 +36,7 @@ import type { OpenCodeRuntimeAdapter } from "./runtime-adapter.js";
 import type { OpenCodeServerHandle } from "./server.js";
 import type { OpenCodeModelRef, OpenCodeSessionStore, OpenCodeStoredModel } from "./session-store.js";
 import { openCodeToolsWrite } from "./tools.js";
+import { BackgroundTasks } from "../_shared/background-tasks.js";
 
 /** What a thread's server connection needs from the kit. */
 export interface OpenCodeConnectInput {
@@ -47,6 +48,7 @@ export interface OpenCodeConnectInput {
 }
 
 export interface OpenCodeThreadBackendOptions {
+  onBackgroundEnded?(text: string): void;
   activity?: TurnActivityStore;
   adapter: OpenCodeRuntimeAdapter;
   store: OpenCodeSessionStore;
@@ -74,6 +76,7 @@ export interface OpenCodeThreadBackendOptions {
 }
 
 interface Turn {
+  backgroundResults?: Map<string, number>;
   /** Made once the turn has a server, which tells the generation. */
   translator?: TurnTranslator;
   text: string;
@@ -143,12 +146,16 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
   readonly capabilities: ThreadBackendCapabilities;
   private readonly store: OpenCodeSessionStore;
   private readonly now: () => number;
+  private readonly background = new BackgroundTasks();
+  private readonly backgroundTranslators = new Map<string, TurnTranslator>();
   private messages: UiMessage[] = [];
   private live?: Live;
   private opening?: Promise<Live>;
   private sessionId?: string;
   /** Sub-agent sessions OpenCode started under this thread's; their questions are the thread's. */
   private readonly children = new Set<string>();
+  private readonly childTitles = new Map<string, string>();
+  private readonly childTurns = new Map<string, TurnTranslator>();
   private readonly turns: Turn[] = [];
   private tail: Promise<void> = Promise.resolve();
   private title?: string;
@@ -173,6 +180,7 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.store = options.store;
     this.now = options.now ?? Date.now;
     this.capabilities = {
+      background: this.background.capability(() => this.report({ type: "background" })),
       titles: { title: async () => this.nativeTitle },
       catalogWrite: {
         setModel: (provider, id) => this.setModel(provider, id),
@@ -385,6 +393,7 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   private async runTurn(turn: Turn): Promise<ThreadBackendPromptResult> {
     if (turn.status) return {};
+    turn.backgroundResults = this.background.snapshot();
     this.report({ type: "turn-started" });
     this.reportQueue();
     try {
@@ -430,6 +439,7 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
   private settle(turn: Turn, status: NonNullable<Turn["status"]>, error?: string): void {
     if (turn.status) return;
     turn.status = status;
+    if (status === "completed" && this.background.handled(turn.backgroundResults ?? new Map())) this.report({ type: "background" });
     turn.complete();
     const index = this.turns.indexOf(turn);
     if (index >= 0) this.turns.splice(index, 1);
@@ -517,7 +527,10 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
     if (!signal) return;
     const own = signal.sessionId === this.sessionId;
     if (signal.kind === "session" && !own) {
-      if (signal.parentId && (signal.parentId === this.sessionId || this.children.has(signal.parentId))) this.children.add(signal.sessionId);
+      if (signal.parentId && (signal.parentId === this.sessionId || this.children.has(signal.parentId))) {
+        this.children.add(signal.sessionId);
+        if (signal.title) this.childTitles.set(signal.sessionId, signal.title);
+      }
       return;
     }
     const mine = own || this.children.has(signal.sessionId);
@@ -526,7 +539,32 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
       if (mine || (signal.request.orphan && server.local)) void this.answerQuestion(signal.sessionId, signal.request);
       return;
     }
-    if (!own) return;
+    if (!own) {
+      if (signal.kind !== "turn" || !this.children.has(signal.sessionId)) return;
+      let translator = this.childTurns.get(signal.sessionId);
+      const starts = signal.type === "session.execution.started" || signal.type === "session.status" && (signal.properties.status as { type?: string } | undefined)?.type === "busy";
+      if (!translator && !starts) return;
+      if (!translator) {
+        translator = server.api.translator(this.now);
+        this.childTurns.set(signal.sessionId, translator);
+        const id = `opencode-child:${signal.sessionId}`;
+        if (this.background.has(id)) {
+          this.background.start({ id, kind: "agent", label: this.childTitles.get(signal.sessionId) ?? "Native sub-agent", startedAt: this.now() });
+          this.report({ type: "background" });
+        }
+      }
+      translator.push(signal.type, signal.properties);
+      if (translator.outcome) {
+        this.childTurns.delete(signal.sessionId);
+        const id = `opencode-child:${signal.sessionId}`;
+        if (this.background.has(id)) {
+          this.background.report(id);
+          this.report({ type: "background" });
+          this.options.onBackgroundEnded?.(`The native background agent ${JSON.stringify(this.childTitles.get(signal.sessionId) ?? signal.sessionId)} ${translator.outcome.status}.\n${translator.outcome.texts.join("\n\n")}`);
+        }
+      }
+      return;
+    }
     if (signal.kind === "session") {
       this.adoptNativeTitle(signal.title);
       if (signal.usage) {
@@ -535,9 +573,39 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
       }
       return;
     }
+    const part = signal.properties.part as { id?: string; callID?: string; type?: string } | undefined;
+    const nativeToolId = part?.type === "tool" ? part.callID || part.id : typeof signal.properties.id === "string" && signal.type.startsWith("session.tool.") ? signal.properties.id : undefined;
+    const backgroundTranslator = nativeToolId ? this.backgroundTranslators.get(nativeToolId) : undefined;
+    if (backgroundTranslator) {
+      for (const runtimeEvent of backgroundTranslator.lateTool(signal.type, signal.properties)) {
+        this.handleEvent(runtimeEvent);
+        if (runtimeEvent.type === "tool-end") {
+          this.backgroundTranslators.delete(runtimeEvent.tool.id);
+          if (this.background.report(runtimeEvent.tool.id)) this.report({ type: "background" });
+          this.options.onBackgroundEnded?.(`The native background task ${JSON.stringify(runtimeEvent.tool.name)} ${runtimeEvent.tool.status === "error" ? "failed" : "finished"}.\n${runtimeEvent.tool.output ?? ""}`);
+        }
+      }
+      return;
+    }
     const turn = this.turns[0];
     if (!turn?.posted || !turn.translator) return;
-    for (const runtimeEvent of turn.translator.push(signal.type, signal.properties)) this.handleEvent(runtimeEvent);
+    const pending = [...turn.translator.running.values()];
+    const events = turn.translator.push(signal.type, signal.properties);
+    const background = turn.translator.outcome?.status === "completed" ? pending : [];
+    if (turn.translator.outcome?.status === "completed") {
+      for (const [id] of this.childTurns) if (!this.background.has(`opencode-child:${id}`)) {
+        this.background.start({ id: `opencode-child:${id}`, kind: "agent", label: this.childTitles.get(id) ?? "Native sub-agent", startedAt: this.now() });
+        this.report({ type: "background" });
+      }
+    }
+    if (background.length) {
+      this.background.fromTools(background);
+      for (const tool of background) { this.backgroundTranslators.set(tool.id, turn.translator); turn.translator.running.set(tool.id, tool); }
+      this.report({ type: "background" });
+    }
+    const pendingIds = new Set(background.map((tool) => tool.id));
+    for (const runtimeEvent of events) if (runtimeEvent.type !== "tool-end" || !pendingIds.has(runtimeEvent.tool.id)) this.handleEvent(runtimeEvent);
+    for (const tool of background) this.handleEvent({ type: "tool-end", tool: { ...tool, status: "done", output: `${tool.output ?? ""}\nKeeps running in the background.`.trim(), endedAt: this.now() } });
     if (turn.translator.outcome) turn.complete();
   }
 
@@ -682,6 +750,11 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.live = undefined;
     live?.close();
     if (live && !live.server.closed) await live.server.close();
+    this.background.clear();
+    this.backgroundTranslators.clear();
+    this.childTurns.clear();
+    this.childTitles.clear();
+    this.report({ type: "background" });
     await this.persisting;
   }
 }

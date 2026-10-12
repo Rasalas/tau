@@ -32,7 +32,7 @@ import { HOST_ERROR, type HostPushEvent } from "../shared/host-transport.js";
 import type { UiHostEndpoint, UiNetworkAccess } from "../shared/connections.js";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
-import type { CompletionRequest, ThreadRuntimeBackend, ThreadRuntimeEvent } from "./runtime-types.js";
+import type { CompletionRequest, ThreadBackgroundCapability, ThreadRuntimeBackend, ThreadRuntimeEvent } from "./runtime-types.js";
 import type { HostModelAuthServices } from "./model-auth.js";
 import { HOST_SERVICE_PERMISSIONS, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
@@ -808,7 +808,7 @@ export interface HostExtensionSettings {
 export interface RuntimeSessionInfo {
   sessionId: string;
   cwd: string;
-  /** Capabilities supplied by the runtime backend, used by tool providers to avoid duplicates. */
+  /** Capabilities supplied by the runtime backend. Providers avoid duplicates or offer tools for them; `background-work` enables task listing and service release. */
   nativeCapabilities?: readonly string[];
   /** The thread that spawned this one (`sessions.start({ parent })`); set for a Pi runtime only. */
   parentThreadId?: string;
@@ -1034,6 +1034,12 @@ export interface HostProjectTrust {
 }
 
 export interface HostExtensionServices {
+  /** Kit-owned background work, combined with the runtime's work on every client. New after API 1.59.0. */
+  readonly background?: {
+    provide(provider: (threadId: string) => ThreadBackgroundCapability | undefined): () => void;
+    forThread(threadId: string): ThreadBackgroundCapability | undefined;
+    changed(threadId: string): void;
+  };
   /** Short-lived streaming resources scoped to this extension and the asking connection. API 1.51.0; in-process only. */
   readonly browserResources?: HostBrowserResources;
   /** This host's installed agent tools. Updates keep their package manager and wait for busy turns. API 1.48.0. */

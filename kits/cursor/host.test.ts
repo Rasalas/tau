@@ -88,7 +88,7 @@ describe("Cursor host half", () => {
     } finally {
       await backend.dispose();
     }
-    expect(connects).toEqual([{ sessionId: "tau-thread", cwd: root }]);
+    expect(connects).toEqual([{ sessionId: "tau-thread", cwd: root, nativeCapabilities: ["background-work"] }]);
     const created = (await sent()).find((message) => message.method === "session/new")!;
     expect(created.params).toMatchObject({ cwd: root, mcpServers: [{ type: "http", name: "tau", url: TAU_SERVER.url, headers: [{ name: "Authorization", value: "Bearer secret" }] }] });
     const again = await provider.open("tau-thread", root, { resume: true }, context);

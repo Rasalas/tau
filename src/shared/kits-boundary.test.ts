@@ -81,7 +81,9 @@ describe("kits boundary", () => {
       const root = join("kits", shared);
       for (const path of sourceFiles(root).filter((file) => !isTest(file))) {
         for (const specifier of specifiers(path)) {
-          if (specifier.startsWith(".") && !join(path, "..", specifier).startsWith(`${root}/`)) offenders.push(`${path}: ${specifier}`);
+          const resolved = join(path, "..", specifier);
+          // Protocol helpers may consume the common library; the library stays independent of them and of individual kits.
+          if (specifier.startsWith(".") && !resolved.startsWith(`${root}/`) && !resolved.startsWith("kits/_shared/")) offenders.push(`${path}: ${specifier}`);
         }
       }
     }

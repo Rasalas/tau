@@ -43,8 +43,10 @@ it has no manifest, the loaders and `build-kits` skip it, and each kit that
 imports it bundles its own copy. `kits/_acp/` is the Agent Client Protocol
 client (wire, session, turn translator, approvals, the thread backend and
 session store, a fake agent for tests) behind Antigravity, Cursor and Grok; `kits/_window-capture/` records one window by
-its id for Computer Use's live view and SnapShots. Such a folder imports only `tau/*` and itself,
-never a kit, so kits stay apart while the protocol lives once.
+its id for Computer Use's live view and SnapShots. Protocol folders may also
+use the runtime-neutral lifecycle helpers in `kits/_shared/`. That common
+library imports only `tau/*` and itself; it never reaches a protocol folder or
+an individual kit. Kits stay apart while the protocol and lifecycle code live once.
 
 A kit's `pi` entry is the exception to "a kit is two halves": when a Pi TUI
 owns the session and Tau is only attached, the host half cannot hand a closure

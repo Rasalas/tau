@@ -200,6 +200,10 @@ describe("thread runtime backends", () => {
     expect(sessions[0]!.close).not.toHaveBeenCalled();
     opened[0]!.onMessage({ type: "system", subtype: "background_tasks_changed", tasks: [], uuid: "task-state", session_id: backend.providerSessionId } as never);
     opened[0]!.onMessage({ type: "system", subtype: "task_started", task_id: "background-1", is_backgrounded: true, uuid: "late-edge", session_id: backend.providerSessionId } as never);
+    await expect(backend.capabilities.restart!.restart()).rejects.toThrow("background tasks");
+    opened[0]!.onMessage(frame({ type: "system", subtype: "task_notification", task_id: "background-1", status: "completed" }));
+    await expect(backend.capabilities.restart!.restart()).rejects.toThrow("background tasks");
+    await backend.prompt({ text: "Handle the result", delivery: "prompt" });
     await backend.capabilities.restart!.restart();
     await backend.dispose();
   });

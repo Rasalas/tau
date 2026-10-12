@@ -28,6 +28,21 @@ export class ClaudeBackgroundTasks {
   current(): UiBackgroundTask[] { return [...this.tasks.values()].map((task) => ({ ...task })); }
   has(taskId: string): boolean { return this.tasks.has(taskId); }
 
+  release(taskId: string): void {
+    const task = this.tasks.get(taskId);
+    if (!task || task.state) throw new Error("That background command is no longer running.");
+    if (task.kind !== "command") throw new Error("Only a checked command may be released as a service.");
+    this.tasks.set(taskId, { ...task, blocksCompletion: false });
+  }
+
+  reported(): string[] { return this.current().filter((task) => task.state === "reported").map((task) => task.id); }
+
+  handled(ids: readonly string[]): boolean {
+    let changed = false;
+    for (const id of ids) if (this.tasks.get(id)?.state === "reported") { this.tasks.delete(id); changed = true; }
+    return changed;
+  }
+
   /** Answers whether the list changed. */
   push(raw: unknown): boolean {
     const frame = object(raw);
@@ -41,7 +56,9 @@ export class ClaudeBackgroundTasks {
     if (frame.subtype === "background_tasks_changed" && Array.isArray(frame.tasks)) {
       this.levels = true;
       const before = JSON.stringify(this.current());
-      const next = new Map<string, UiBackgroundTask>();
+      // A level may drop a finished task before its notification arrives.
+      // Keep required work until its result has actually been handled.
+      const next = new Map([...this.tasks].filter(([, task]) => task.blocksCompletion !== false));
       for (const task of frame.tasks.map(object)) {
         const id = string(task.task_id);
         if (!id || task.ambient === true) continue;
@@ -73,7 +90,12 @@ export class ClaudeBackgroundTasks {
     }
     if (frame.subtype === "task_notification") {
       this.started.delete(id);
-      return this.tasks.delete(id);
+      const task = this.tasks.get(id);
+      if (!task) return false;
+      if (frame.status === "stopped" || task.blocksCompletion === false) return this.tasks.delete(id);
+      if (task.state === "reported") return false;
+      this.tasks.set(id, { ...task, state: "reported" });
+      return true;
     }
     return false;
   }
@@ -96,6 +118,8 @@ export class ClaudeBackgroundTasks {
       kind: started?.kind ?? kind,
       label: started?.label ?? label ?? known?.label ?? "Background task",
       startedAt: known?.startedAt ?? this.now(),
+      ...(known?.blocksCompletion === false ? { blocksCompletion: false } : {}),
+      ...(known?.state ? { state: known.state } : {}),
     };
   }
 

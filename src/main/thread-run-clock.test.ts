@@ -114,6 +114,15 @@ describe("ThreadRunClock with background work", () => {
 
   afterEach(() => { vi.useRealTimers(); });
 
+  it("does not announce completion for required work first reported while idle, even after a minute", () => {
+    vi.useFakeTimers();
+    const { clock, ended, setWaits } = setup();
+    setWaits(true);
+    clock.recheck("a");
+    vi.advanceTimersByTime(60_000);
+    expect(ended).toEqual([]);
+  });
+
   it("parks the run while a monitor runs and ends it after the turn the monitor wakes", async () => {
     const { clock, ended, setWaits } = setup();
     clock.stamp(status(true));

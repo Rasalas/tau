@@ -1,7 +1,7 @@
 import type { UiBackgroundTask } from "tau/host-extension";
 import { displayCommand } from "./events.js";
 
-interface Command { id: string; label: string; processId?: string; startedAt: number; background: boolean; stopping?: boolean }
+interface Command { id: string; label: string; processId?: string; startedAt: number; background: boolean; stopping?: boolean; blocksCompletion?: boolean }
 
 /** How a background command ended, for the wake that tells the agent. */
 export interface EndedCommand { label: string; exitCode?: number; output?: string }
@@ -13,16 +13,35 @@ export interface EndedCommand { label: string; exitCode?: number; output?: strin
  */
 export class CodexBackgroundCommands {
   private readonly commands = new Map<string, Command>();
+  private readonly results = new Map<string, UiBackgroundTask>();
 
   constructor(private readonly now: () => number) {}
 
   current(): UiBackgroundTask[] {
-    return [...this.commands.values()].filter((command) => command.background)
-      .map((command) => ({ id: command.id, kind: "command", label: command.label, startedAt: command.startedAt }));
+    return [...this.list().filter((task) => this.commands.get(task.id)?.background || task.state === "reported")];
+  }
+
+  list(): UiBackgroundTask[] {
+    return [...this.commands.values()].map((command): UiBackgroundTask => ({ id: command.id, kind: "command", label: command.label, startedAt: command.startedAt,
+      ...(command.blocksCompletion === false ? { blocksCompletion: false } : {}),
+    })).concat([...this.results.values()].map((task) => ({ ...task })));
+  }
+
+  release(taskId: string): void {
+    const command = this.commands.get(taskId);
+    if (!command) throw new Error("That background command is no longer running.");
+    command.blocksCompletion = false;
+  }
+
+  reported(): string[] { return [...this.results.keys()]; }
+  handled(ids: readonly string[]): boolean {
+    let changed = false;
+    for (const id of ids) if (this.results.delete(id)) changed = true;
+    return changed;
   }
 
   processOf(id: string): string | undefined { return this.commands.get(id)?.processId; }
-  has(id: string): boolean { return this.commands.get(id)?.background === true; }
+  has(id: string): boolean { return this.commands.get(id)?.background === true || this.results.has(id); }
 
   /** Answers whether the background list changed, and the command that ended in the background. */
   push(method: string, params: Record<string, unknown>): { changed: boolean; ended?: EndedCommand } {
@@ -44,6 +63,7 @@ export class CodexBackgroundCommands {
     if (!command?.background) return { changed: false };
     // The user stopped it; the agent hears nothing of that.
     if (command.stopping) return { changed: true };
+    if (command.blocksCompletion !== false) this.results.set(command.id, { id: command.id, kind: "command", label: command.label, startedAt: command.startedAt, state: "reported" });
     const output = typeof item.aggregatedOutput === "string" ? item.aggregatedOutput.trim() : "";
     return { changed: true, ended: { label: command.label, ...(typeof item.exitCode === "number" ? { exitCode: item.exitCode } : {}), ...(output ? { output } : {}) } };
   }
@@ -54,7 +74,7 @@ export class CodexBackgroundCommands {
     if (command) command.stopping = value;
   }
 
-  forget(id: string): void { this.commands.delete(id); }
+  forget(id: string): void { this.commands.delete(id); this.results.delete(id); }
 
   /** The turn completed; what still runs runs in the background. */
   turnCompleted(): boolean {
@@ -71,6 +91,7 @@ export class CodexBackgroundCommands {
   clear(): boolean {
     const had = this.current().length > 0;
     this.commands.clear();
+    this.results.clear();
     return had;
   }
 }
