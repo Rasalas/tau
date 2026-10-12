@@ -3,7 +3,7 @@ import { useCompactForm } from "../use-layout-profile";
 
 import { useClientEnvironment } from "../client-environment";
 import { lazy, Suspense, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import { ArrowUp, ChevronDown, Lock, Plus, Image, Folder, Paperclip, Shrink, Sparkles, Terminal, Undo2, Zap } from "lucide-react";
+import { ArrowUp, ChevronDown, Lock, Image, Folder, Paperclip, Shrink, Sparkles, Terminal, Undo2, Zap } from "lucide-react";
 import type {
   ExtensionUiPrompt,
   HostSnapshot,
@@ -942,7 +942,7 @@ export function Composer({
       {...tooltipProps(attachAvailable ? "Attach files" : IMAGE_INPUT_UNAVAILABLE_MESSAGE)}
       onClick={() => mobileComposer ? setAttachmentMenu((open) => !open) : fileInputRef.current?.click()}
     >
-      {mobileComposer ? <Plus size={22} aria-hidden /> : <Paperclip size={16} aria-hidden="true" />}
+      <Paperclip size={mobileComposer ? 22 : 16} aria-hidden="true" />
     </button>
   );
 

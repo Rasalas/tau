@@ -153,7 +153,7 @@ struct StaleAge: View {
     var date: Date
     var now: Date
     var body: some View {
-        HStack(spacing: 3) { Image(systemName: "clock").font(.system(size: 11, weight: .semibold)); Ago(date: date, now: now) }
+        HStack(spacing: 3) { Lucide(name: "clock", size: 13); Ago(date: date, now: now) }
             .font(.system(size: 12, weight: .semibold)).foregroundStyle(Tau.warn)
     }
 }
@@ -215,8 +215,8 @@ struct ThreadsRectangular: View {
             HStack(spacing: 4) { TauGlyph(size: 12); Text("Threads").font(.system(size: 12.5, weight: .bold)) }
             if let top = state.top {
                 HStack(spacing: 4) {
-                    Image(systemName: top.state == "waiting" ? "questionmark.circle" : top.state == "running" ? "circle.dotted" : top.state == "done" ? "checkmark.circle" : "exclamationmark.triangle")
-                        .font(.system(size: 12, weight: .semibold))
+                    if top.state == "running" { Spinner(size: 14, line: 1.8, track: .primary.opacity(0.35), arc: .primary) }
+                    else { Lucide(name: top.state == "waiting" ? "help" : top.state == "done" ? "check" : "alert", size: 14) }
                     Text(top.title)
                 }
                 .font(.system(size: 12, weight: .medium)).lineLimit(1)
@@ -243,7 +243,7 @@ struct ThreadsCircular: View {
             AccessoryWidgetBackground()
             VStack(spacing: 2) {
                 if state.count("waiting") > 0 {
-                    Image(systemName: "questionmark.circle").font(.system(size: 22, weight: .semibold))
+                    Lucide(name: "help", size: 26)
                     Text("\(state.count("waiting")) waits").font(.system(size: 11, weight: .semibold))
                 } else if state.count("running") > 0 {
                     TauGlyph(size: 18)

@@ -3,6 +3,7 @@ import type { UsageLimitsSummary } from "../../kits/usage/protocol";
 import type { LimitGroup } from "../../kits/usage/accounts";
 import { juicebarGroups, type Juicebar } from "../../kits/usage/juicebars";
 import type { UsageTone } from "../../kits/usage/tones";
+import { monogram } from "../../src/renderer/runtime-marks";
 
 /** Finished threads stay in the Threads widget this long. */
 const ENDED_KEPT_MS = 24 * 60 * 60_000;
@@ -28,6 +29,8 @@ export interface WidgetAccount {
   tone: UsageTone;
   /** The provider's mark by id (`codex`, `claude-code`, `gemini`, ...); each platform maps it to its own asset. */
   mark?: string;
+  /** Without a mark, the desktop's one or two letters for the provider (`monogram` in src/renderer/runtime-marks.ts). */
+  initials?: string;
   checkedAt: number;
   windows: WidgetWindow[];
 }
@@ -51,7 +54,7 @@ export interface WidgetThread {
  * `WidgetModel.swift` and `WidgetModel.kt`.
  */
 export interface WidgetSnapshot {
-  version: 3;
+  version: 4;
   hostId: string;
   /** The host's name as the phone calls it ("Mac mini"). */
   machine: string;
@@ -60,28 +63,31 @@ export interface WidgetSnapshot {
   accounts?: WidgetAccount[];
   threads: WidgetThread[];
 }
-export const WIDGET_SNAPSHOT_VERSION = 3;
+export const WIDGET_SNAPSHOT_VERSION = 4;
 
 export function widgetSnapshot(hostId: string, machine: string, now: number, accounts: WidgetAccount[] | undefined, threads: WidgetThread[]): WidgetSnapshot {
   return { version: WIDGET_SNAPSHOT_VERSION, hostId, machine: machine.slice(0, 60), updatedAt: now, ...(accounts ? { accounts } : {}), threads };
 }
 
+/** Which mark each provider or runtime gets, as `providerIdentity` in ProviderIconStack.tsx draws it; `codex` and `openai` are one picture. */
 const MARKS: Readonly<Record<string, string>> = {
-  codex: "codex", "openai-codex": "codex", openai: "openai", chatgpt: "codex",
-  "claude-code": "claude-code", anthropic: "anthropic", claude: "claude-code",
+  codex: "codex", "openai-codex": "codex", openai: "openai", gpt: "openai", chatgpt: "codex",
+  "claude-code": "claude-code", anthropic: "anthropic", claude: "anthropic",
   opencode: "opencode", "opencode-go": "opencode",
   gemini: "gemini", google: "gemini", "google-gemini": "gemini", antigravity: "antigravity",
   pi: "pi", cursor: "cursor", grok: "grok", xai: "grok",
 };
-/** A plan wears its product's mark, as the Usage page draws it: a ChatGPT plan Codex's, a Claude plan Claude Code's. */
+/** A plan wears its product's mark, as the Usage page draws it: a ChatGPT plan OpenAI's knot, a Claude plan Claude's spark. */
 const PLAN_MARKS: Readonly<Record<string, string>> = { openai: "codex", "openai-codex": "codex", anthropic: "claude-code", claude: "claude-code" };
 
-function markOf(group: LimitGroup): string | undefined {
+function markOf(group: LimitGroup): Pick<WidgetAccount, "mark" | "initials"> {
   const key = (name: string) => name.split("@")[0]!.toLowerCase().replace(/[_.\s]/gu, "-");
   const account = group.members[0]!;
-  if (group.members.length > 1 && group.shown.identity) return PLAN_MARKS[key(group.shown.identity.provider)] ?? MARKS[key(group.shown.identity.provider)];
-  if (account.runtime === "pi" && account.id.startsWith("pi:")) return PLAN_MARKS[key(account.id.slice(3))] ?? MARKS[key(account.id.slice(3))];
-  return MARKS[key(account.runtime)];
+  // A shared account or a Pi login is a plan of its provider; a runtime of its own is itself.
+  const plan = group.members.length > 1 && group.shown.identity ? group.shown.identity.provider : account.runtime === "pi" && account.id.startsWith("pi:") ? account.id.slice(3) : undefined;
+  const name = plan ?? account.runtime;
+  const mark = plan !== undefined ? PLAN_MARKS[key(plan)] ?? MARKS[key(plan)] : MARKS[key(account.runtime)];
+  return mark ? { mark } : { initials: monogram(name) };
 }
 
 function shortLabel(window: Juicebar["window"]): string {
@@ -110,14 +116,13 @@ function paceOf(bar: Juicebar): Pick<WidgetWindow, "pace" | "paceAt"> {
 export function widgetUsage(summary: UsageLimitsSummary, now: number): WidgetAccount[] {
   const readable = { ...summary, accounts: summary.accounts.filter((account) => !account.unavailable && Number.isFinite(account.checkedAt) && account.checkedAt <= now + 60_000) };
   return juicebarGroups(readable, {}, now).map(({ group, tone, bars }) => {
-    const mark = markOf(group);
     const plan = group.shown.plan?.slice(0, 40);
     return {
       ...(group.shown.identity ? { poolKey: `${group.shown.identity.provider}:${group.shown.identity.key}` } : {}),
       label: (group.members.length > 1 ? group.label.split(" · ")[0]! : group.label).slice(0, 60),
       ...(plan ? { plan } : {}),
       tone,
-      ...(mark ? { mark } : {}),
+      ...markOf(group),
       checkedAt: group.shown.checkedAt,
       windows: bars.filter((bar) => Number.isFinite(bar.window.usedPercent)).map((bar): WidgetWindow => ({
         label: bar.window.label.slice(0, 30),

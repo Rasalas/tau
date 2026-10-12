@@ -9,7 +9,6 @@ import { modelPresentation } from "../model-manifest";
 import { getHostClient } from "../host-client-context";
 import { usePreferences } from "../renderer-services-context";
 import { DEFAULT_RUNTIME } from "../runtime-marks";
-import { runtimeInstanceId } from "../../shared/runtime-instances";
 import { runtimeUpdate } from "../runtime-update";
 import { THINKING_LABELS } from "../thinking-levels";
 import {
@@ -20,8 +19,8 @@ import {
   offeringComparator, type BillingFilter, type CapabilityFilter, type Offering, type OfferingFilters, type OfferingSort,
 } from "./model-offerings";
 import { MAKER_ORDER, modelEntries, modelMaker, type ModelEntry } from "./model-entries";
-import { EntryRow, wayText, wears, type RowCell, type RowLine } from "./ModelPickerRow";
-import { ProviderIconStack, monogram, providerLabel } from "./ProviderIconStack";
+import { EntryRow, MakerMark, RuntimeMark, wayText, wears, type RowCell, type RowLine } from "./ModelPickerRow";
+import { ProviderIconStack, providerLabel } from "./ProviderIconStack";
 import { Popover } from "./ui/Dialog";
 import { placeFloating, viewportSize } from "./ui/floating";
 import { useFocusTrap } from "./ui/focus";
@@ -660,13 +659,10 @@ export function ModelPicker({
                   onClick={() => selectView(entry)}
                 >
                   {entry.kind === "runtime"
-                    ? <ProviderIconStack runtimeProvider={entry.backend.kind === DEFAULT_RUNTIME ? "pi" : entry.backend.kind} className="rail-icon" hint={false} />
+                    ? <RuntimeMark kind={entry.backend.kind} />
                     : entry.kind === "maker"
-                      ? <ProviderIconStack modelProvider={entry.maker} brand className="rail-icon" hint={false} />
+                      ? <MakerMark maker={entry.maker} />
                       : entry.kind === "recent" ? <History size={18} className="rail-glyph recent" /> : <Star size={18} fill="currentColor" className="rail-glyph" />}
-                  {entry.kind === "runtime" && entry.backend.kind.includes("@")
-                    ? <i className="rail-instance" aria-hidden>{monogram(runtimeInstanceId(entry.backend.kind))}</i>
-                    : null}
                   {entry.kind === "runtime" ? <i className={`runtime-dot runtime-dot-${entry.status}`} aria-hidden /> : null}
                 </button>
               </div>
@@ -871,7 +867,7 @@ export function ModelPicker({
     onClose={onClose}
     unavailable={runtimes.filter((entry) => !entry.listed).map((entry) => (
       <div key={entry.backend.kind} className="mobile-model-unavailable">
-        <strong>{entry.backend.label}</strong>
+        <strong><span className="mobile-model-mark"><RuntimeMark kind={entry.backend.kind} /></span>{entry.backend.label}</strong>
         <p>{RUNTIME_STATUS_LABELS[entry.status]}</p>
         {!BLOCKED.has(entry.status) && onSelectRuntime ? (
           <button onClick={() => { onSelectRuntime(entry.backend.kind); onClose(); }}>Use {entry.backend.label}</button>

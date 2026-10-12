@@ -34,7 +34,7 @@ class WidgetModelTest {
         }
 
     private fun snapshot(host: String, accounts: List<JSONObject>?, threads: List<JSONObject> = emptyList(), updatedAt: Long = now) = WidgetModel.fromWire(
-        JSONObject().put("version", 3).put("hostId", host).put("machine", "Mac $host").put("updatedAt", updatedAt)
+        JSONObject().put("version", 4).put("hostId", host).put("machine", "Mac $host").put("updatedAt", updatedAt)
             .put("threads", JSONArray(threads)).apply { accounts?.let { put("accounts", JSONArray(it)) } },
     )!!
 
@@ -188,9 +188,18 @@ class WidgetModelTest {
     }
 
     @Test fun mapsTheAppsMarksToAndroidsDrawables() {
-        assertEquals(listOf("codex", "codex", "claude-code", "claude-code", "gemini", "gemini", "opencode", "pi", "other", "other"),
-            listOf("codex", "openai", "claude-code", "anthropic", "gemini", "antigravity", "opencode", "pi", "cursor", "grok").map { WidgetModel.mark(it) })
+        assertEquals(listOf("openai", "openai", "claude-code", "anthropic", "gemini", "antigravity", "opencode", "pi", "cursor", "grok", "other"),
+            listOf("codex", "openai", "claude-code", "anthropic", "gemini", "antigravity", "opencode", "pi", "cursor", "grok", "radius").map { WidgetModel.mark(it) })
         assertNull(WidgetModel.mark(""))
+    }
+
+    @Test fun drawsAProviderWithoutAMarkAsItsInitials() {
+        assertEquals(listOf("R", "AL", "AC", "·"), listOf("radius", "ant-ling", "Acme Cloud", "").map { WidgetModel.monogram(it) })
+        val limits = WidgetModel.planLimits(listOf(snapshot("a", listOf(
+            account("Pi · radius", "other", now, window("5-hour", "5h", 20.0, null)).put("mark", "radius").put("initials", "R"),
+            account("Acme", "other", now - min, window("5-hour", "5h", 20.0, null)),
+        ))), now)
+        assertEquals(listOf("other" to "R", null to "A"), limits.accounts.sortedByDescending { it.checkedAt }.map { it.mark to it.initials })
     }
 
     @Test fun resetTimesReadCoarsely() {

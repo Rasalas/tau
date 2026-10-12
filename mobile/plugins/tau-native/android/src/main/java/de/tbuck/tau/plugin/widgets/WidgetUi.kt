@@ -39,6 +39,7 @@ import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.layout.size
 import androidx.glance.layout.width
+import androidx.glance.text.FontFamily
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
@@ -68,18 +69,32 @@ internal object Ui {
         Tone.OTHER -> R.color.tau_widget_other
     })
 
-    /** The account's mark as the app draws it; coloured marks keep their colours, the rest take the provider's or the text colour. */
+    /** The account's mark as the desktop draws it: coloured marks keep their colours, the rest take the text colour, and a provider without one its initials in a bordered box. */
     @Composable
     fun Mark(account: LimitAccount, size: Dp) {
+        val ink = GlanceTheme.colors.onSurface
         val (drawable, tint) = when (account.mark) {
-            "codex" -> R.drawable.tau_mark_codex to null
+            "claude-code" -> R.drawable.tau_mark_claude to null
             "gemini" -> R.drawable.tau_mark_gemini to null
-            "claude-code" -> R.drawable.tau_mark_claude to tone(Tone.ANTHROPIC)
-            "pi" -> R.drawable.tau_mark_pi to GlanceTheme.colors.onSurface
-            "opencode" -> R.drawable.tau_mark_opencode to GlanceTheme.colors.onSurface
-            else -> R.drawable.tau_mark_other to tone(account.tone)
+            "antigravity" -> R.drawable.tau_mark_antigravity to null
+            "openai" -> R.drawable.tau_mark_openai to ink
+            "anthropic" -> R.drawable.tau_mark_anthropic to ink
+            "pi" -> R.drawable.tau_mark_pi to ink
+            "opencode" -> R.drawable.tau_mark_opencode to ink
+            "cursor" -> R.drawable.tau_mark_cursor to ink
+            "grok" -> R.drawable.tau_mark_grok to ink
+            else -> null to null
         }
-        Image(ImageProvider(drawable), contentDescription = account.label, modifier = GlanceModifier.size(size), colorFilter = tint?.let { ColorFilter.tint(it) })
+        if (drawable != null) {
+            Image(ImageProvider(drawable), contentDescription = account.label, modifier = GlanceModifier.size(size), colorFilter = tint?.let { ColorFilter.tint(it) })
+            return
+        }
+        // The desktop's `.provider-icon-fallback`: a faint edge (the text colour at 14 %) and mono initials, half the box tall.
+        val edge = ColorProvider(ink.getColor(LocalContext.current).copy(alpha = 0.14f))
+        Box(GlanceModifier.size(size), contentAlignment = Alignment.Center) {
+            Image(ImageProvider(R.drawable.tau_mark_initials), contentDescription = account.label, modifier = GlanceModifier.size(size), colorFilter = ColorFilter.tint(edge))
+            Text(account.initials, maxLines = 1, style = TextStyle(color = ink, fontSize = (size.value * 0.5f).sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace))
+        }
     }
 
     @Composable

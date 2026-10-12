@@ -22,6 +22,13 @@ export interface ProviderMarks {
 /** What runtimes declared of their marks (`homeProviders`, `ownPlan`), by program. */
 export type RuntimeMarkDeclarations = ReadonlyMap<string, { homes: ReadonlySet<string>; ownPlan: boolean }>;
 
+/** One or two letters for a provider without a mark: "radius" → "R", "ant-ling" → "AL". */
+export function monogram(value: string): string {
+  const words = value.trim().split(/[\s_\-.:/]+/u).filter(Boolean);
+  const letters = (words.length > 1 ? words.slice(0, 2).map((word) => word.charAt(0)) : [words[0]?.charAt(0) ?? ""]).join("");
+  return letters.toUpperCase() || "·";
+}
+
 /** An instance (`codex@work`) wears its program's mark. */
 function spelling(value: string): string {
   return runtimeDriver(value).toLocaleLowerCase().replace(/[_.\s]/gu, "-");

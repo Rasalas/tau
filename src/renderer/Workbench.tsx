@@ -1,7 +1,7 @@
 import "./workspace-area.css";
 import { lazy, memo, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ListTree, MessageSquare, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { ChevronDown, MessageSquare, PanelLeft, PanelRightClose, PanelRightOpen } from "lucide-react";
 import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiProject, UiToolOutputPreview, UiToolRun, UiThreadTree } from "../shared/contracts";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { TranscriptPage } from "../shared/host-protocol";
@@ -769,7 +769,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     lead={<>
       {sidebarShown && !split ? null : <WindowControlsInset />}
       {!sidebarShown && !split && !compact && sidebarContributions.length > 0 ? <SidebarClosedControls actions={actions} registry={registry} readOnly={hostCapabilities.readOnly} /> : null}
-      {split ? <button type="button" className="stage-tool" aria-label="Threads" {...tooltipProps("Threads", { side: "bottom" })} onClick={() => setTouchSidebarOpen((open) => !open)}><ListTree size={16} /></button> : null}
+      {split ? <button type="button" className="stage-tool" aria-label="Threads" {...tooltipProps("Threads", { side: "bottom" })} onClick={() => setTouchSidebarOpen((open) => !open)}><PanelLeft size={16} /></button> : null}
     </>}
     title={headTitle}
     // Only the crumbs, as T3 Code's head: model, cost and branch are in the composer and the project card.

@@ -196,7 +196,10 @@ describe("the web client at 400 px", () => {
     expect(rowNamed(title).querySelector(".thread-status-age svg.lucide-check")).toBeTruthy();
     const mark = async (label: string) => {
       fireEvent.contextMenu(rowNamed(title).querySelector(".swipe-row")!);
-      fireEvent.click(within(await screen.findByRole("dialog", { name: title })).getByRole("button", { name: label }));
+      const button = within(await screen.findByRole("dialog", { name: title })).getByRole("button", { name: label });
+      // The desktop rail's glyphs: its "Mark unread" dot; a plain bubble for the reverse, which the desktop has no row for.
+      expect(button.querySelector(label === "Mark as read" ? "svg.lucide-message-square" : "svg.lucide-message-square-dot")).toBeTruthy();
+      fireEvent.click(button);
       await waitFor(() => expect(screen.queryByRole("dialog", { name: title })).toBeNull());
       expect(rowNamed(title).querySelector(".thread-status-age")?.textContent).toBe("Done");
     };
@@ -310,7 +313,10 @@ describe("the web client at 400 px", () => {
     expect(rowNamed("Fix the flaky test").dataset.settled).toBe("true");
     // A short swipe only opens the tray; its primary action takes the thread back out.
     swipe(rowNamed("Fix the flaky test").querySelector(".swipe-row")!, 380, 330);
-    fireEvent.click(within(rowNamed("Fix the flaky test")).getByRole("button", { name: /Un-settle/u }));
+    const unsettle = within(rowNamed("Fix the flaky test")).getByRole("button", { name: /Un-settle/u });
+    // The desktop's glyph for taking a thread back (row button and context menu).
+    expect(unsettle.querySelector("svg.lucide-archive-restore")).toBeTruthy();
+    fireEvent.click(unsettle);
     await waitFor(() => expect(rowNamed("Fix the flaky test").dataset.settled).toBeUndefined());
   });
 

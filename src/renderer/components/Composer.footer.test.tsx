@@ -177,7 +177,7 @@ describe("the composer's slim footer", () => {
   });
 });
 
-it("keeps the phone's plus menu for attachments and puts other controls in Thread settings", async () => {
+it("keeps the phone's attach menu, drawn with the desktop's paperclip, and puts other controls in Thread settings", async () => {
   const width = Object.getOwnPropertyDescriptor(window, "innerWidth");
   const profile = document.body.dataset.profile;
   Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
@@ -185,7 +185,10 @@ it("keeps the phone's plus menu for attachments and puts other controls in Threa
   try {
     renderFooter();
     expect(screen.queryByRole("button", { name: "More composer controls" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Attach files" }));
+    const attach = screen.getByRole("button", { name: "Attach files" });
+    const paperclip = attach.querySelector("svg.lucide-paperclip");
+    expect(paperclip?.getAttribute("width")).toBe("22");
+    fireEvent.click(attach);
     const attachments = await screen.findByRole("dialog", { name: "Add attachments" });
     expect(within(attachments).getAllByRole("button").map((button) => button.textContent)).toEqual(["Photo Library", "Choose Files"]);
     fireEvent.keyDown(window, { key: "Escape" });

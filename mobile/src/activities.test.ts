@@ -43,7 +43,7 @@ describe("widget snapshots", () => {
       await vi.advanceTimersByTimeAsync(500);
       expect(native.snapshot).toHaveBeenCalledOnce();
       expect(native.snapshot).toHaveBeenLastCalledWith({
-        version: 3, hostId: "host-a", machine: "Mac mini", updatedAt: NOW,
+        version: 4, hostId: "host-a", machine: "Mac mini", updatedAt: NOW,
         accounts: [expect.objectContaining({ label: "Codex", plan: "ChatGPT Plus", tone: "openai", mark: "codex", windows: [expect.objectContaining({ short: "wk", level: "warn" })] })],
         threads: [{ id: "t1", title: "Fix flaky pairing test", project: "tau", state: "running", startedAt: NOW - 600_000 }],
       });

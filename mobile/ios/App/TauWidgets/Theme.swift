@@ -4,7 +4,7 @@ import WidgetKit
 /// Tau's tokens as the mocks use them (`.scratch/design/widgets/src/mocks.css`), from the asset catalog.
 enum Tau {
     static let bg = Color("w-bg"), ink = Color("ink"), ink2 = Color("ink-2"), muted = Color("muted"), faint = Color("faint"), fainter = Color("fainter")
-    static let track = Color("track"), lineSoft = Color("line-soft"), brand = Color("brand"), brandOn = Color("brand-on")
+    static let track = Color("track"), lineSoft = Color("line-soft"), lineControl = Color("line-control"), brand = Color("brand"), brandOn = Color("brand-on")
     static let info = Color("info"), infoInk = Color("info-ink"), ready = Color("ready"), done = Color("done")
     static let warn = Color("warn"), warnBar = Color("warn-bar"), warnChip = Color("warn-chip"), fail = Color("fail"), failInk = Color("fail-ink")
     static func tone(_ name: String?) -> Color { Color("provider-" + (["openai", "anthropic", "google", "pi"].contains(name ?? "") ? name! : "other")) }
@@ -36,23 +36,40 @@ struct TauGlyph: View {
     var body: some View { Image("tau-glyph").resizable().renderingMode(.template).frame(width: size, height: size) }
 }
 
-/// A provider's mark as the app draws it: coloured marks as they are, the others in their tone or ink.
+/// A provider's mark as the desktop draws it (`ProviderIconStack.tsx`): coloured marks as they are, the others in ink,
+/// a provider without one as its initials in a bordered box.
 struct ProviderMark: View {
     var mark: String?
-    var tone: String?
+    var initials: String?
     var size: CGFloat = 14
     var body: some View {
         Group {
-            if let mark, ["codex", "gemini", "antigravity"].contains(mark) {
-                Image("mark-" + mark).resizable()
-            } else if let mark {
-                Image("mark-" + mark).resizable().renderingMode(.template).foregroundStyle(mark == "claude-code" || mark == "anthropic" ? Tau.tone("anthropic") : Tau.ink2)
+            if let mark, let asset = ProviderMark.asset(mark) {
+                if ProviderMark.coloured.contains(asset) {
+                    Image("mark-" + asset).resizable()
+                } else {
+                    Image("mark-" + asset).resizable().renderingMode(.template).foregroundStyle(Tau.ink2)
+                }
             } else {
-                RoundedRectangle(cornerRadius: size / 4).fill(Tau.tone(tone).opacity(0.25))
+                RoundedRectangle(cornerRadius: size * 0.28).strokeBorder(Tau.lineControl, lineWidth: 1)
+                    .overlay(Text(initials ?? "·").font(.system(size: size * 0.53, weight: .semibold, design: .monospaced)).foregroundStyle(Tau.ink2).minimumScaleFactor(0.6).lineLimit(1))
             }
         }
         .frame(width: size, height: size)
     }
+    static let coloured: Set<String> = ["claude-code", "gemini", "antigravity"]
+    /// The imageset a mark key draws; a ChatGPT plan wears OpenAI's knot, as on the desktop.
+    static func asset(_ mark: String) -> String? {
+        let key = mark == "codex" ? "openai" : mark
+        return ["claude-code", "anthropic", "openai", "opencode", "gemini", "antigravity", "pi", "cursor", "grok"].contains(key) ? key : nil
+    }
+}
+
+/// One of the web's lucide glyphs (`ic-*` template images, 24 × 24 with the stroke inside), `size` points wide.
+struct Lucide: View {
+    var name: String
+    var size: CGFloat
+    var body: some View { Image("ic-" + name).resizable().renderingMode(.template).frame(width: size, height: size) }
 }
 
 /// The level a value is drawn at: low, spent, or an old reading.
@@ -124,7 +141,7 @@ struct Spinner: View {
     }
 }
 
-/// A thread's state in a tinted circle, as in the thread list.
+/// A thread's state in a tinted circle, as in the thread list: the web's glyphs (CircleHelp, Check, TriangleAlert).
 struct StateIcon: View {
     var state: String
     var size: CGFloat = 18
@@ -133,9 +150,9 @@ struct StateIcon: View {
             Circle().fill(background)
             switch state {
             case "running": Spinner(size: size * 0.61)
-            case "waiting": Image(systemName: "questionmark").font(.system(size: size * 0.5, weight: .heavy)).foregroundStyle(Tau.warn)
-            case "done": Image(systemName: "checkmark").font(.system(size: size * 0.48, weight: .heavy)).foregroundStyle(Tau.ready)
-            default: Image(systemName: "exclamationmark.triangle").font(.system(size: size * 0.5, weight: .bold)).foregroundStyle(Tau.failInk)
+            case "waiting": Lucide(name: "help", size: size * 0.62).foregroundStyle(Tau.warn)
+            case "done": Lucide(name: "check", size: size * 0.62).foregroundStyle(Tau.ready)
+            default: Lucide(name: "alert", size: size * 0.62).foregroundStyle(Tau.failInk)
             }
         }
         .frame(width: size, height: size)
@@ -233,7 +250,7 @@ struct Machine: View {
     var size: CGFloat = 10
     var body: some View {
         HStack(spacing: 3) {
-            Image(systemName: "display").font(.system(size: size * 0.9, weight: .medium))
+            Lucide(name: "server", size: size * 1.2)
             Text(name)
         }
     }

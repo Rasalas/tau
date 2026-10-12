@@ -89,13 +89,13 @@ struct SingleState: View {
                 Elapsed(since: Date(ms: thread.startedAt ?? 0)).font(.system(size: 15, weight: .semibold, design: .monospaced)).foregroundStyle(Tau.infoInk)
                     .multilineTextAlignment(.trailing).frame(width: 64, alignment: .trailing)
             }
-        case "waiting": label("questionmark.circle", "Question", Tau.warn)
-        case "done": label("checkmark", "Done", Tau.ready)
-        default: label("exclamationmark.triangle", "Failed", Tau.failInk)
+        case "waiting": label("help", "Question", Tau.warn)
+        case "done": label("check", "Done", Tau.ready)
+        default: label("alert", "Failed", Tau.failInk)
         }
     }
-    func label(_ symbol: String, _ text: String, _ color: Color) -> some View {
-        HStack(spacing: 5) { Image(systemName: symbol).font(.system(size: 13, weight: .semibold)); Text(text) }
+    func label(_ glyph: String, _ text: String, _ color: Color) -> some View {
+        HStack(spacing: 5) { Lucide(name: glyph, size: 16); Text(text) }
             .font(.system(size: 13, weight: .semibold)).foregroundStyle(color)
     }
 }
@@ -106,13 +106,13 @@ struct BundleState: View {
     var body: some View {
         Group {
             if display.waiting > 0 {
-                HStack(spacing: 5) { Image(systemName: "questionmark.circle"); Text("\(display.waiting) \(display.waiting == 1 ? "waits" : "wait") for you") }.foregroundStyle(Tau.warn)
+                HStack(spacing: 5) { Lucide(name: "help", size: 16); Text("\(display.waiting) \(display.waiting == 1 ? "waits" : "wait") for you") }.foregroundStyle(Tau.warn)
             } else if display.running > 0 {
                 HStack(spacing: 5) { Spinner(size: 12, line: 2); Text("\(display.running) running") }.foregroundStyle(Tau.infoInk)
             } else if WidgetModel.count(display.rows, "failed") > 0 {
-                HStack(spacing: 5) { Image(systemName: "exclamationmark.triangle"); Text("\(WidgetModel.count(display.rows, "failed")) failed") }.foregroundStyle(Tau.failInk)
+                HStack(spacing: 5) { Lucide(name: "alert", size: 16); Text("\(WidgetModel.count(display.rows, "failed")) failed") }.foregroundStyle(Tau.failInk)
             } else {
-                HStack(spacing: 5) { Image(systemName: "checkmark"); Text("Done") }.foregroundStyle(Tau.ready)
+                HStack(spacing: 5) { Lucide(name: "check", size: 16); Text("Done") }.foregroundStyle(Tau.ready)
             }
         }
         .font(.system(size: 13, weight: .semibold))
@@ -218,7 +218,7 @@ struct CompactTrailing: View {
     var body: some View {
         Group {
             if stale {
-                Image(systemName: "clock").font(.system(size: 16, weight: .semibold)).foregroundStyle(.white.opacity(0.5))
+                Lucide(name: "clock", size: 19).foregroundStyle(.white.opacity(0.5))
             } else if let single = display.single {
                 switch single.state {
                 case "running":
@@ -227,21 +227,21 @@ struct CompactTrailing: View {
                         Elapsed(since: Date(ms: single.startedAt ?? 0)).font(.system(size: 15, weight: .semibold, design: .monospaced)).foregroundStyle(Tau.Island.working)
                             .multilineTextAlignment(.trailing).frame(maxWidth: 52, alignment: .trailing)
                     }
-                case "waiting": Image(systemName: "questionmark.circle").font(.system(size: 17, weight: .semibold)).foregroundStyle(Tau.Island.waiting)
-                case "done": Image(systemName: "checkmark").font(.system(size: 16, weight: .bold)).foregroundStyle(Tau.Island.done)
-                default: Image(systemName: "exclamationmark.triangle").font(.system(size: 15, weight: .semibold)).foregroundStyle(Tau.Island.failed)
+                case "waiting": Lucide(name: "help", size: 20).foregroundStyle(Tau.Island.waiting)
+                case "done": Lucide(name: "check", size: 19).foregroundStyle(Tau.Island.done)
+                default: Lucide(name: "alert", size: 18).foregroundStyle(Tau.Island.failed)
                 }
             } else {
                 HStack(spacing: 6) {
                     if display.waiting > 0 {
-                        HStack(spacing: 2) { Image(systemName: "questionmark").font(.system(size: 13, weight: .heavy)); Text("\(display.waiting)") }.foregroundStyle(Tau.Island.waiting)
+                        HStack(spacing: 2) { Lucide(name: "help", size: 16); Text("\(display.waiting)") }.foregroundStyle(Tau.Island.waiting)
                     }
                     if display.running > 0 {
                         HStack(spacing: 4) { Spinner(size: 13, line: 2, track: Tau.Island.working.opacity(0.3), arc: Tau.Island.working); Text("\(display.running)") }.foregroundStyle(.white)
                     }
                     if !display.active {
                         let failed = WidgetModel.count(display.rows, "failed")
-                        Image(systemName: failed > 0 ? "exclamationmark.triangle" : "checkmark").font(.system(size: 15, weight: .bold)).foregroundStyle(failed > 0 ? Tau.Island.failed : Tau.Island.done)
+                        Lucide(name: failed > 0 ? "alert" : "check", size: 18).foregroundStyle(failed > 0 ? Tau.Island.failed : Tau.Island.done)
                     }
                 }
                 .font(.system(size: 15, weight: .semibold)).monospacedDigit()
@@ -257,9 +257,9 @@ struct MinimalView: View {
     var stale: Bool
     var body: some View {
         if display.waiting > 0 && !stale {
-            Image(systemName: "questionmark.circle").font(.system(size: 17, weight: .semibold)).foregroundStyle(Tau.Island.waiting)
+            Lucide(name: "help", size: 20).foregroundStyle(Tau.Island.waiting)
         } else if !display.active {
-            Image(systemName: WidgetModel.count(display.rows, "failed") > 0 ? "exclamationmark.triangle" : "checkmark").font(.system(size: 14, weight: .bold))
+            Lucide(name: WidgetModel.count(display.rows, "failed") > 0 ? "alert" : "check", size: 17)
                 .foregroundStyle(WidgetModel.count(display.rows, "failed") > 0 ? Tau.Island.failed : Tau.Island.done)
         } else {
             ZStack {
@@ -300,11 +300,11 @@ struct ExpandedTrailing: View {
             case "running":
                 Elapsed(since: Date(ms: single.startedAt ?? 0)).font(.system(size: 20, weight: .semibold, design: .monospaced)).foregroundStyle(Tau.Island.working)
                     .multilineTextAlignment(.trailing).frame(width: 66, alignment: .trailing)
-            case "waiting": Image(systemName: "questionmark.circle").font(.system(size: 26, weight: .semibold)).foregroundStyle(Tau.Island.waiting)
+            case "waiting": Lucide(name: "help", size: 31).foregroundStyle(Tau.Island.waiting)
             case "done":
                 Text(single.startedAt.flatMap { start in single.endedAt.map { duration(($0 - start) / 1000) } } ?? "")
                     .font(.system(size: 22, weight: .semibold, design: .monospaced)).foregroundStyle(Tau.Island.done)
-            default: Image(systemName: "exclamationmark.triangle").font(.system(size: 22, weight: .semibold)).foregroundStyle(Tau.Island.failed)
+            default: Lucide(name: "alert", size: 26).foregroundStyle(Tau.Island.failed)
             }
         }
         // Several threads: the rows below say it all; the expanded island has no height to spare.
@@ -365,9 +365,9 @@ struct ExpandedBottom: View {
     @ViewBuilder func islandIcon(_ state: String) -> some View {
         switch state {
         case "running": Spinner(size: 13, line: 2, track: Tau.Island.working.opacity(0.3), arc: Tau.Island.working)
-        case "waiting": Image(systemName: "questionmark.circle").font(.system(size: 15, weight: .semibold)).foregroundStyle(Tau.Island.waiting)
-        case "done": Image(systemName: "checkmark").font(.system(size: 14, weight: .bold)).foregroundStyle(Tau.Island.done)
-        default: Image(systemName: "exclamationmark.triangle").font(.system(size: 14, weight: .semibold)).foregroundStyle(Tau.Island.failed)
+        case "waiting": Lucide(name: "help", size: 18).foregroundStyle(Tau.Island.waiting)
+        case "done": Lucide(name: "check", size: 17).foregroundStyle(Tau.Island.done)
+        default: Lucide(name: "alert", size: 17).foregroundStyle(Tau.Island.failed)
         }
     }
     @ViewBuilder func islandStatus(_ thread: WidgetThread) -> some View {

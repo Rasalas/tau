@@ -33,7 +33,7 @@ describe("Plan limits snapshot", () => {
     const snapshot = widgetSnapshot("host-a", "Mac mini", NOW, accounts, []);
     expect(JSON.stringify(snapshot)).not.toContain("secret");
     expect(snapshot.accounts?.map((account) => account.label)).toEqual(["Codex", "OpenCode Go"]);
-    expect(snapshot).toMatchObject({ version: 3, hostId: "host-a", machine: "Mac mini", updatedAt: NOW, threads: [] });
+    expect(snapshot).toMatchObject({ version: 4, hostId: "host-a", machine: "Mac mini", updatedAt: NOW, threads: [] });
     // Until the host answered, the snapshot carries no accounts, so the phone keeps the last ones.
     expect("accounts" in widgetSnapshot("host-a", "Mac mini", NOW, undefined, [])).toBe(false);
   });
@@ -44,6 +44,20 @@ describe("Plan limits snapshot", () => {
     const shared = widgetUsage(summary([codex, { ...codex, id: "pi:openai-codex", runtime: "pi", label: "ChatGPT (Pi)" }]), NOW);
     expect(shared).toHaveLength(1);
     expect(shared[0]).toMatchObject({ label: "ChatGPT", mark: "codex" });
+  });
+
+  it("draws each runtime and provider as the desktop does, and a provider without a mark as its initials", () => {
+    const account = (id: string, runtime: string): UsageLimitAccount => ({ id, runtime, label: runtime, checkedAt: NOW, windows: [window("monthly", "monthly", "Monthly", 20)] });
+    const marks = (...accounts: UsageLimitAccount[]) => widgetUsage(summary(accounts), NOW).map(({ mark, initials }) => ({ mark, initials }));
+    expect(marks(account("grok:default", "grok"), account("cursor:x", "cursor"), account("a:x", "antigravity"), account("c:x", "codex@work"))).toEqual(
+      expect.arrayContaining([{ mark: "grok" }, { mark: "cursor" }, { mark: "antigravity" }, { mark: "codex" }]),
+    );
+    // A runtime named for its maker is the maker's plain mark; the plan is where Claude's spark and the knot appear.
+    expect(marks(account("x:1", "anthropic"), account("x:2", "claude"))).toEqual([{ mark: "anthropic" }, { mark: "anthropic" }]);
+    expect(marks(account("pi:xai", "pi"))).toEqual([{ mark: "grok" }]);
+    expect(marks(account("pi:radius", "pi"))).toEqual([{ initials: "R" }]);
+    expect(marks(account("pi:ant-ling", "pi"))).toEqual([{ initials: "AL" }]);
+    expect(marks(account("acme:x", "acme"))).toEqual([{ initials: "A" }]);
   });
 });
 

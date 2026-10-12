@@ -51,8 +51,17 @@ public struct UsageAccount: Codable, Hashable {
     public var plan: String?
     public var tone: String?
     public var mark: String?
+    /// The desktop's monogram for a provider without a mark.
+    public var initials: String?
     public var checkedAt: Double
     public var windows: [UsageWindow]
+    /// What a mark-less account is drawn with; the label's own letters when an older snapshot has none.
+    public var markInitials: String {
+        if let initials, !initials.isEmpty { return initials }
+        let words = label.split(whereSeparator: { " _-.:/".contains($0) })
+        let letters = words.count > 1 ? words.prefix(2).compactMap(\.first).map(String.init).joined() : words.first.map { String($0.prefix(1)) } ?? ""
+        return letters.isEmpty ? "·" : letters.uppercased()
+    }
 }
 
 /// A host's accounts, as the Plan limits widget reads them.
@@ -90,7 +99,7 @@ public struct ThreadsSnapshot: Hashable {
     public var threads: [WidgetThread]
 }
 
-/// What the app writes per host (`mobile/src/widgets.ts`, version 3), the same bytes Android reads.
+/// What the app writes per host (`mobile/src/widgets.ts`, version 4), the same bytes Android reads.
 public struct WidgetSnapshot: Codable, Hashable {
     public var version: Int?
     public var hostId: String
@@ -100,7 +109,7 @@ public struct WidgetSnapshot: Codable, Hashable {
     public var accounts: [UsageAccount]?
     public var threads: [WidgetThread]
     public init(hostId: String, machine: String? = nil, updatedAt: Double, accounts: [UsageAccount]? = nil, threads: [WidgetThread] = []) {
-        self.version = 3; self.hostId = hostId; self.machine = machine; self.updatedAt = updatedAt; self.accounts = accounts; self.threads = threads
+        self.version = 4; self.hostId = hostId; self.machine = machine; self.updatedAt = updatedAt; self.accounts = accounts; self.threads = threads
     }
     public var usage: UsageSnapshot? { accounts.map { UsageSnapshot(hostId: hostId, machine: machine, updatedAt: updatedAt, accounts: $0) } }
     public var threadsSnapshot: ThreadsSnapshot { ThreadsSnapshot(hostId: hostId, machine: machine, updatedAt: updatedAt, threads: threads) }

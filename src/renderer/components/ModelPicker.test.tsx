@@ -333,6 +333,44 @@ describe("where the picker opens", () => {
     }
   });
 
+  it("draws the phone sheet's marks as the desktop does: a runtime's on its group, a maker's and the runtimes' on a row", () => {
+    const width = Object.getOwnPropertyDescriptor(window, "innerWidth");
+    const profile = document.body.dataset.profile;
+    document.body.dataset.profile = "compact";
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    const instance: UiRuntimeBackend = { kind: "codex@work", label: "Codex (work)", homeProviders: ["openai"] };
+    const catalogs = cached([codexReady(), ["codex@work", { status: "ready", catalog: { kind: "codex@work", models: [luna], thinkingLevels: {} } }]]);
+    try {
+      renderPicker({ runtime: "pi", runtimeBackends: [...backends, instance], onSelectRuntime: vi.fn(), catalogs });
+      const page = screen.getByRole("dialog", { name: "Thread settings" });
+      const groupOf = (label: string) => [...page.querySelectorAll<HTMLElement>(".mobile-model-group")].find((group) => group.querySelector(":scope > span:not(.mobile-model-mark)")?.textContent === label)!;
+      // The group's mark wears the rail's treatment, in the rail's box, and a second instance carries its initials.
+      expect(groupOf("Pi").querySelector(".mobile-model-mark > .provider-icon-stack.rail-icon .provider-family-pi")).toBeTruthy();
+      expect(groupOf("Codex (work)").querySelector(".mobile-model-mark > .rail-instance")?.textContent).toBe("W");
+      expect(groupOf("Codex").querySelector(".rail-instance")).toBeNull();
+      // A row: the maker as the rail draws it, then every runtime that runs the model as a desktop row does.
+      const sol = within(page).getAllByRole("radio", { name: "GPT-5.6 Sol" })[0]!;
+      expect(sol.querySelector(".mobile-model-mark > .rail-icon .provider-family-openai")).toBeTruthy();
+      expect(sol.querySelector(".model-facts > .model-runtimes > .row-icon")).toBeTruthy();
+      expect(sol.querySelectorAll(".model-runtimes > .row-icon")).toHaveLength(2);
+      expect(sol.querySelector(".model-runtimes .provider-family-pi")).toBeTruthy();
+      expect(sol.querySelector(".model-runtimes .provider-family-codex")).toBeTruthy();
+      // Anthropic by Claude's spark, as the rail draws the maker.
+      expect(within(page).getByRole("radio", { name: "Claude Opus 5" }).querySelector(".mobile-model-mark .provider-family-claude-code")).toBeTruthy();
+    } finally {
+      cleanup();
+      if (width) Object.defineProperty(window, "innerWidth", width);
+      if (profile === undefined) delete document.body.dataset.profile;
+      else document.body.dataset.profile = profile;
+    }
+  });
+
+  it("draws a runtime instance in the desktop rail with the same initials on its mark", () => {
+    const instance: UiRuntimeBackend = { kind: "codex@work", label: "Codex (work)", homeProviders: ["openai"] };
+    renderPicker({ runtime: "pi", runtimeBackends: [...backends, instance], onSelectRuntime: vi.fn(), catalogs: cached([codexReady()]) });
+    expect(railButton("Codex \\(work\\)").querySelector(".rail-instance")?.textContent).toBe("W");
+  });
+
   const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
 
   it("sits 6 px above the composer's frame at its left edge, not at the chip that opened it (design 1l)", () => {

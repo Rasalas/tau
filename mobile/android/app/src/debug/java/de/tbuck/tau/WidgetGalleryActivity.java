@@ -28,7 +28,7 @@ import org.json.JSONObject;
  * posts the bundled notification, so an emulator shows every state. Needs
  * `adb shell appwidget grantbind --package de.tbuck.tau`.
  *
- *   am start -n de.tbuck.tau/.WidgetGalleryActivity --es kind limits|threads --es scene full|stale|spent|empty|quiet|one|ask|done
+ *   am start -n de.tbuck.tau/.WidgetGalleryActivity --es kind limits|threads --es scene full|stale|spent|empty|quiet|one|ask|done|marks-a|marks-b|marks-c
  */
 public class WidgetGalleryActivity extends Activity {
     private static final int HOST = 0x7a0;
@@ -93,7 +93,7 @@ public class WidgetGalleryActivity extends Activity {
         for (String host : new String[] { "macbook", "mac-mini", "hetzner" }) WidgetStore.clear(context, host);
         if ("empty".equals(scene)) return;
         long checked = "stale".equals(scene) ? now - 122 * MIN : now - 3 * MIN;
-        JSONArray accounts = new JSONArray()
+        JSONArray accounts = scene.startsWith("marks") ? marks(scene, checked, now) : new JSONArray()
             .put(account("Codex", "ChatGPT Plus", "openai", "codex", "openai:k", checked, window("5-hour", "5h", 34, now + 158 * MIN), window("Weekly", "wk", 91, now + 43 * 60 * MIN, "warn", "runs-out", now + 27 * 60 * MIN)))
             .put(account("Claude Code", "Max", "anthropic", "claude-code", "anthropic:k", checked, "spent".equals(scene) ? window("5-hour", "5h", 100, now + 68 * MIN, "fail", "spent", 0) : window("5-hour", "5h", 12, now + 68 * MIN), window("Weekly", "wk", 47, now + 5 * 24 * 60 * MIN)))
             .put(account("OpenCode Go", null, "other", "opencode", null, checked, window("Monthly", "mo", 22, now + 31 * 24 * 60 * MIN)));
@@ -119,8 +119,25 @@ public class WidgetGalleryActivity extends Activity {
         WidgetStore.save(context, snapshot("hetzner", "hetzner-1", updated, null, hetzner));
     }
 
+    /** Every provider mark and the initials box, four accounts to a scene. */
+    private static JSONArray marks(String scene, long checked, long now) throws Exception {
+        String[][] set;
+        switch (scene) {
+            case "marks-b": set = new String[][] { { "Antigravity", "google", "antigravity", null }, { "OpenCode Go", "other", "opencode", null }, { "Pi", "pi", "pi", null }, { "Cursor", "other", "cursor", null } }; break;
+            case "marks-c": set = new String[][] { { "Grok", "other", "grok", null }, { "Anthropic", "anthropic", "anthropic", null }, { "Radius", "other", null, "R" }, { "Ant Ling", "other", null, "AL" } }; break;
+            default: set = new String[][] { { "Codex", "openai", "codex", null }, { "Claude Code", "anthropic", "claude-code", null }, { "OpenAI", "openai", "openai", null }, { "Gemini", "google", "gemini", null } };
+        }
+        JSONArray list = new JSONArray();
+        for (String[] item : set) {
+            JSONObject value = account(item[0], null, item[1], item[2], null, checked, window("5-hour", "5h", 34, now + 158 * MIN), window("Weekly", "wk", 47, now + 5 * 24 * 60 * MIN));
+            if (item[3] != null) value.put("initials", item[3]);
+            list.put(value);
+        }
+        return list;
+    }
+
     private static JSONObject snapshot(String host, String machine, long updated, JSONArray accounts, JSONArray threads) throws Exception {
-        JSONObject value = new JSONObject().put("version", 3).put("hostId", host).put("machine", machine).put("updatedAt", updated).put("threads", threads);
+        JSONObject value = new JSONObject().put("version", 4).put("hostId", host).put("machine", machine).put("updatedAt", updated).put("threads", threads);
         if (accounts != null) value.put("accounts", accounts);
         return value;
     }
