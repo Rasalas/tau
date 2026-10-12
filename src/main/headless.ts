@@ -15,6 +15,7 @@ import { pairingUrl, type PairingEndpoint } from "../shared/connections.js";
 import { WorkspaceIdentity, readOrCreateHostId } from "./workspace-identity.js";
 import { EXTENSION_API_VERSION, type ExtensionHostVersions } from "../shared/extension-compat.js";
 import { HostLog } from "./host-log.js";
+import { installHostProcessErrorHandlers } from "./host-process-errors.js";
 import { HostJobRunner, NO_JOB_CONTEXT } from "./host-jobs.js";
 import { HostPushLog } from "./host-push-log.js";
 import { HostPushCoalescer } from "./host-push-coalescer.js";
@@ -103,6 +104,7 @@ const webRoot = process.env.TAU_WEB_CLIENT || join(appRoot, "dist-web");
 
 // Its own file: the window process writes host.log in the same directory.
 const hostLog = new HostLog({ dir: join(userData, "logs"), fileName: "host-process.log" });
+installHostProcessErrorHandlers(hostLog);
 const hostId = readOrCreateHostId(join(userData, "host-id"));
 /** One name for this machine wherever a person reads it: Bonjour, Machines, a pairing link. The host name stays an address. */
 const machineName = machineDisplayName();

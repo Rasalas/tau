@@ -155,6 +155,10 @@ the workbench (`window-action`: menu, quit, release notes) — and a kit that
 needs the window's process for a native view ships a `window` half the host
 calls with `callClient`.
 
+The host records unhandled promise rejections in `host-process.log` and keeps
+serving the other threads. An uncaught exception is logged there before the
+host exits with code 1, so its supervisor can restart it.
+
 `src/workbench/` is Tau's client without a window: the thread index, the thread
 on screen, transcript pages, composer scopes and drafts, notices and the host
 connection, plus `WorkbenchStore` — the one place a host update becomes client
