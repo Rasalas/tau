@@ -113,6 +113,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
   const worktreeOptions = (input: unknown) => ({
     ...(field<string>(input, "baseRef") === undefined ? {} : { baseRef: field<string>(input, "baseRef") }),
     ...(field<boolean>(input, "startFromOrigin") === undefined ? {} : { startFromOrigin: field<boolean>(input, "startFromOrigin") }),
+    ...(field<boolean>(input, "uniqueBranch") === undefined ? {} : { uniqueBranch: field<boolean>(input, "uniqueBranch") }),
     ...(field<string>(input, "submodules") === undefined ? {} : { submodules: field<string>(input, "submodules") }),
   });
   return async (extensionId: string, command: string, input?: unknown): Promise<unknown> => {

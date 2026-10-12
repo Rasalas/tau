@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { findExecutable, gitExecutable } from "tau/host-extension";
-import { chmod, link, lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, link, lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -2804,8 +2804,42 @@ export interface CreateWorktreeOptions {
   baseRef?: string;
   /** Fetch and start from the remote-tracking commit; on by default. */
   startFromOrigin?: boolean;
+  /** An automatically named thread must get a new branch and folder, even if the suggested name is taken. */
+  uniqueBranch?: boolean;
   /** Told when a step begins, for a setup card that follows it. */
   onStep?(step: "fetch" | "checkout"): void;
+}
+
+/** Reserves a folder atomically, so simultaneous clients cannot claim the same generated name. */
+async function addUniqueWorktree(cwd: string, suggested: string, parent: string, base: string, runGit: GitRunner): Promise<{ name: string; destination: string }> {
+  const [branches, worktrees] = await Promise.all([
+    runGit(cwd, ["for-each-ref", "--format=%(refname:strip=2)", "refs/heads"]),
+    runGit(cwd, ["worktree", "list", "--porcelain"]),
+  ]);
+  const taken = new Set(branches.trim().split("\n"));
+  const registered = new Set(parseWorktrees(worktrees, cwd).map((tree) => resolve(tree.path)));
+  for (let suffix = 1; suffix <= 1000; suffix += 1) {
+    const name = suffix === 1 ? suggested : `${suggested}-${suffix}`;
+    const destination = join(parent, worktreeSlug(name));
+    if (taken.has(name) || registered.has(resolve(destination))) continue;
+    try { await mkdir(destination); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") continue;
+      throw error;
+    }
+    try {
+      await runGit(cwd, ["worktree", "add", "-b", name, destination, base]);
+      return { name, destination };
+    } catch (error) {
+      // Only remove our empty reservation. Git may have populated the folder before failing.
+      await rmdir(destination).catch(() => undefined);
+      if (!/a branch named .+ already exists/u.test(error instanceof Error ? error.message : String(error))) throw error;
+      const exists = await runGit(cwd, ["rev-parse", "--verify", "--quiet", `refs/heads/${name}`]).catch(() => "");
+      if (!exists.trim()) throw error;
+      taken.add(name);
+    }
+  }
+  throw new Error(`No available worktree name for ${suggested}.`);
 }
 
 /** Creates a branch and a worktree for it, and returns the new worktree path. */
@@ -2816,16 +2850,16 @@ export async function createWorktree(
   readWorkspace: (cwd: string) => Promise<WorkspaceInfo> = async (path) => (await readProjectGitState(path)).workspace,
   runGit: GitRunner = git,
 ): Promise<string> {
-  const name = branch.trim();
+  let name = branch.trim();
   if (!name) throw new Error("A branch name is required.");
   await assertValidBranchName(cwd, name, runGit);
   const info = await readWorkspace(cwd);
   if (!info.isRepo) throw new Error("This workspace is not a Git repository.");
 
-  const existing = info.refs.find((ref) => ref.name === name);
+  const existing = options.uniqueBranch ? undefined : info.refs.find((ref) => ref.name === name);
   if (existing?.worktreePath) throw new Error(`${name} is already checked out in a worktree.`);
 
-  const destination = join(info.worktreeParent, worktreeSlug(name));
+  let destination = join(info.worktreeParent, worktreeSlug(name));
   await mkdir(info.worktreeParent, { recursive: true });
   if (existing) {
     options.onStep?.("checkout");
@@ -2840,7 +2874,11 @@ export async function createWorktree(
   // The commit, not the ref: a worktree started at `origin/main` would follow
   // that ref's next move, and the base recorded below would stop describing it.
   options.onStep?.("checkout");
-  await runGit(cwd, ["worktree", "add", "-b", name, destination, base.commit || base.ref]);
+  if (options.uniqueBranch) {
+    ({ name, destination } = await addUniqueWorktree(cwd, name, info.worktreeParent, base.commit || base.ref, runGit));
+  } else {
+    await runGit(cwd, ["worktree", "add", "-b", name, destination, base.commit || base.ref]);
+  }
   await runGit(cwd, ["config", branchBaseConfigKey(name), base.ref]).catch(() => "");
   // A remote-tracking ref names the same destination branch on its remote.
   const target = await branchTargetOfRef(cwd, base.ref, runGit);

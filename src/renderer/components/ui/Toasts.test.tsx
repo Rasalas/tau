@@ -169,15 +169,22 @@ describe("ToastViewport's place", () => {
     expect(place()).toEqual(["12px", "12px", "360px"]);
   });
 
-  it("on a touch layout, keeps over the docked composer and leaves its width to the stylesheet", () => {
+  it("on a touch layout, sits below the title even while the keyboard moves the composer", () => {
     vi.stubGlobal("innerWidth", 390);
     vi.stubGlobal("innerHeight", 844);
     const host = element("conversation-composer-host docked", [0, 746, 390, 844]);
+    const surface = element("composer-surface", [8, 760, 382, 836], host);
+    const header = element("title-bar", [0, 44, 390, 100]);
     try {
       const { store } = setup(undefined, true);
       act(() => { store.show({ description: "Saved" }); });
-      expect([stackStyle().top, stackStyle().right, stackStyle().bottom, stackStyle().width]).toEqual(["", "", "106px", ""]);
-    } finally { host.remove(); }
+      expect([stackStyle().top, stackStyle().right, stackStyle().bottom, stackStyle().width]).toEqual(["108px", "", "", ""]);
+      expect(stackStyle().getPropertyValue("--toast-available-height")).toBe("644px");
+      surface.getBoundingClientRect = box(8, 420, 382, 472);
+      window.dispatchEvent(new Event("resize"));
+      expect(stackStyle().top).toBe("108px");
+      expect(stackStyle().getPropertyValue("--toast-available-height")).toBe("304px");
+    } finally { header.remove(); host.remove(); }
   });
 });
 
@@ -196,17 +203,17 @@ describe("ToastViewport's stacking", () => {
 });
 
 describe("ToastViewport on a touch layout", () => {
-  it("stacks from the bottom, the newest nearest the edge and the older ones peeking above it", () => {
+  it("stacks from the top on touch, with older notifications opening downward", () => {
     const toasts = [{ id: "new", type: "info" as const }, { id: "old", type: "info" as const }];
     const heights = new Map([["new", 60], ["old", 80]]);
-    const collapsed = layoutToasts(toasts, heights, false, "bottom");
+    const collapsed = layoutToasts(toasts, heights, false, "top");
     expect(collapsed[0]!.style.transform).toContain("translateY(0px) scale(1)");
-    // The older one's top edge peeks 8 px above the newest: 8 px up, and 3 px for its smaller scale.
-    expect(collapsed[1]!.style.transform).toMatch(/translateY\(-11(\.0+\d*)?px\) scale\(0\.95\)/u);
+    // The older one's bottom edge peeks below the newest, including its smaller scale.
+    expect(collapsed[1]!.style.transform).toMatch(/translateY\(11(\.0+\d*)?px\) scale\(0\.95\)/u);
     expect(collapsed[1]!.style.height).toBe(60);
-    expect(layoutToasts(toasts, heights, true, "bottom").map((item) => item.style.transform)).toEqual([
+    expect(layoutToasts(toasts, heights, true, "top").map((item) => item.style.transform)).toEqual([
       "translateX(var(--toast-swipe-x, 0px)) translateY(0px) scale(1)",
-      "translateX(var(--toast-swipe-x, 0px)) translateY(-68px) scale(1)",
+      "translateX(var(--toast-swipe-x, 0px)) translateY(68px) scale(1)",
     ]);
   });
 

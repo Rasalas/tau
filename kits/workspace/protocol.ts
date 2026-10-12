@@ -382,7 +382,7 @@ export interface WorkspaceHostClient {
   getWorkspaceInfo(workspace?: string): Promise<WorkspaceInfo>;
   getWorktreeStatuses(workspace?: string): Promise<UiWorktreeStatus[]>;
   getWorktreeBase(workspace?: string, options?: { baseRef?: string; startFromOrigin?: boolean }): Promise<UiWorktreeBase>;
-  createWorktree(branch: string, options?: { baseRef?: string; startFromOrigin?: boolean; submodules?: WorktreeSubmodules }, workspace?: string): Promise<WorkspaceRef & { baseCommit?: string }>;
+  createWorktree(branch: string, options?: { baseRef?: string; startFromOrigin?: boolean; uniqueBranch?: boolean; submodules?: WorktreeSubmodules }, workspace?: string): Promise<WorkspaceRef & { baseCommit?: string }>;
   getWorktreeRemoval(path: string, workspace?: string): Promise<UiWorktreeRemoval>;
   removeWorktree(path: string, branch?: string, workspace?: string): Promise<void>;
   ensureWorktree(path: string, branch?: string, workspace?: string): Promise<boolean>;

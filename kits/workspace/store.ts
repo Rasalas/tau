@@ -682,7 +682,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       const branch = event.branchSuffix ? `${named}-${event.branchSuffix}` : named;
       const base = event.baseCommit ?? this.state.draftBase;
       // A chosen base is taken as named: `main` stays local, `origin/main` is fetched anyway.
-      const created = await this.host.createWorktree(branch, { ...this.worktreeOptions(), ...(base ? { baseRef: base, startFromOrigin: false } : {}) }, this.workspace());
+      const created = await this.host.createWorktree(branch, { ...this.worktreeOptions(), ...(!this.state.draftBranch ? { uniqueBranch: true } : {}), ...(base ? { baseRef: base, startFromOrigin: false } : {}) }, this.workspace());
       return { workspace: { workspaceId: created.workspaceId, displayPath: created.displayPath }, ...(created.baseCommit ? { baseCommit: created.baseCommit } : {}) };
     } catch (error) {
       if (this.state.worktreeSuggested) this.draftFellBack = true;

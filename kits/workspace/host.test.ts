@@ -350,6 +350,10 @@ describe("Workspace Kit host extension", () => {
       expect(created.workspaceId).toBe(`admitted_${created.displayPath}`);
       expect(created.baseCommit).toBe(execFileSync("git", ["-C", cwd, "rev-parse", "HEAD"], { encoding: "utf8" }).trim());
       expect(created.displayPath.startsWith(worktrees)).toBe(true);
+      const next = await kit.createWorktree("feature", { startFromOrigin: false, uniqueBranch: true });
+      expect(next.displayPath).not.toBe(created.displayPath);
+      expect(execFileSync("git", ["-C", next.displayPath, "branch", "--show-current"], { encoding: "utf8" }).trim()).toBe("feature-2");
+      expect(execFileSync("git", ["-C", cwd, "config", "branch.feature-2.tau-base"], { encoding: "utf8" }).trim()).toBe("main");
       expect(await readFile(join(created.displayPath, ".env"), "utf8")).toBe("TOKEN=local-fixture\n");
       expect(await readFile(join(cwd, ".env"), "utf8")).toBe("TOKEN=local-fixture\n");
       await registry.deactivate("tau.remote-work");
