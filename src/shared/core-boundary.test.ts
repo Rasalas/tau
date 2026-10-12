@@ -85,7 +85,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-browser-resources.js", "./host-system-certificates.js",
   "./host-listen.js",   "./host-local-files.js",   "./host-log.js",   "./host-origin.js",
   "./host-messages.js",   "./host-methods.js",   "./host-ports.js",   "./host-publication.js",
-  "./host-process-supervisor.js",   "./host-start.js",
+  "./host-process-errors.js",   "./host-process-supervisor.js",   "./host-start.js",
   // The host as a system service of its machine, and keeping that machine awake (API 1.13.0).
   "./host-service.js",   "./host-service-units.js",   "./display-window.js",   "./display-number.js",   "./keep-awake.js",
   // Other machines this host's agents reach, with keys the owner's window handed over (ADR 0027).

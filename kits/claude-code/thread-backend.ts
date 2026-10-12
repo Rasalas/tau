@@ -893,7 +893,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     if (event.type === "assistant-end") {
       const message = event.message.compaction ? withSummarisedTurns(event.message, this.messages) : event.message;
       this.messages.push(message);
-      void this.persist([message]);
+      void this.persist([message]).catch(() => undefined);
       this.deliverMessage(message);
       return;
     }
