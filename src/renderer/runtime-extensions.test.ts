@@ -144,7 +144,7 @@ describe("runtime desktop extensions", () => {
     const registry = new ExtensionRegistry();
     const { host: h, notify } = host([{ path: "/x/broken.tsx", module: { default: { id: "" } } }]);
     await new RuntimeExtensions(registry, h).sync("/project");
-    expect(notify).toHaveBeenCalledWith(expect.stringContaining("broken.tsx"));
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining("broken.tsx"), "error");
     expect(registry.getExtensionSummaries()).toHaveLength(0);
   });
 

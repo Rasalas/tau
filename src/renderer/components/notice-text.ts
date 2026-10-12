@@ -8,6 +8,11 @@ const PAYLOAD = /^\{[\s\S]*\}$/;
 /** The keys a payload's own words hide behind, in the order they are worth trusting. */
 const MESSAGE_KEYS = ["message", "error", "detail", "detailMessage", "errorMessage"];
 
+/** What a person reads of a message: without the `Error: ` an error's text carries when it is turned into a string. */
+export function plainNoticeText(message: string): string {
+  return message.replace(/^\s*(?:Error:\s+)+/u, "");
+}
+
 /**
  * What a notice reads as, when the text it arrived with is the wrong thing to
  * read. A provider failure reaches Tau the way the runtime wrote it —

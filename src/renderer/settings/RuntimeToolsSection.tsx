@@ -62,7 +62,7 @@ function LogEntry({ entry, now }: { entry: UiRuntimeToolLogEntry; now: number })
  * the log of what ran, and Refresh, which asks every runtime for its version
  * and models again.
  */
-export function RuntimeToolsSection({ onNotify }: { onNotify(message: string): void }) {
+export function RuntimeToolsSection({ onNotify }: { onNotify(message: string, level?: "info" | "warning" | "error"): void }) {
   const client = useHostClient();
   const [state, setState] = useState<UiRuntimeToolsState>();
   const [problem, setProblem] = useState<string>();

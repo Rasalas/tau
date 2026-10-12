@@ -155,7 +155,7 @@ export function createMachineThreads(environments: PlatformEnvironments, host?: 
       (state) => { shelves.set(machine.id, { signature: listSignature(machine), settled: settledIn(state) }); },
       (error: unknown) => {
         if (before) shelves.set(machine.id, before); else shelves.delete(machine.id);
-        actions.notify(error instanceof Error ? error.message : String(error));
+        actions.notify(error instanceof Error ? error.message : String(error), "error");
       },
     ).finally(changed);
   };
@@ -201,7 +201,7 @@ export function createMachineThreads(environments: PlatformEnvironments, host?: 
             void environments.open(machine.id, { thread: { path: thread.path } }).catch((error: unknown) => {
               opening = undefined;
               changed();
-              actions.notify(error instanceof Error ? error.message : String(error));
+              actions.notify(error instanceof Error ? error.message : String(error), "error");
             });
           },
           // An older core drops `machine` and would open this machine's thread of that id instead.
@@ -282,7 +282,7 @@ export function createShownMachine(environments: PlatformEnvironments) {
     if (!list || !machine || machine.local) return null;
     const local = list.environments.find((environment) => environment.local);
     const back = () => {
-      void environments.showLocal().catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error)));
+      void environments.showLocal().catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error), "error"));
     };
     return (
       <span className="menu-anchor">

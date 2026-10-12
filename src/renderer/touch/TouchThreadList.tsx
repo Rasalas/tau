@@ -99,7 +99,7 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
   const rowCommands = registry.getCommandsFor("thread-row");
   const runCommand = (id: string, threadId: string) => {
     const command = rowCommands.find((entry) => entry.id === id);
-    if (command) void Promise.resolve(command.run(actions, { threadId })).catch((error: unknown) => actions.notify(errorMessage(error)));
+    if (command) void Promise.resolve(command.run(actions, { threadId })).catch((error: unknown) => actions.notify(errorMessage(error), "error"));
   };
 
   const settleAction = (row: ThreadSupervisionRow): SwipeAction => row.settled

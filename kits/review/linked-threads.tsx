@@ -80,7 +80,7 @@ export function ThreadPicker({ url, linkedThreads, client, rows, onClose, notify
   client: PullRequestClient;
   rows: ThreadLinkRows;
   onClose(): void;
-  notify(message: string): void;
+  notify(message: string, level?: "info" | "warning" | "error"): void;
 }) {
   const store = useThreads();
   const threads = useThreadList(store);

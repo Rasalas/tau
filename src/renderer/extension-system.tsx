@@ -111,11 +111,16 @@ export interface WorkbenchActions {
   toggleSidebar?(): void;
   /** Collapses the conversation to its spine beside the stage, or opens it again (design 1b). */
   toggleSpine?(): void;
-  notify(message: string): void;
+  /**
+   * A one-line toast. `level` is `info` by default; a failure reports as `error`,
+   * which stays until dismissed and offers Copy (API 1.60.0).
+   */
+  notify(message: string, level?: "info" | "warning" | "error"): void;
   /**
    * A toast on the window's stack: a type icon, a title and a line, actions,
    * a copy button. It leaves after five seconds of being seen (`timeoutMs`,
-   * 0 for never); an `id` already shown is replaced. New in API 1.11.0.
+   * 0 for never; an `error` stays by default, API 1.60.0); an `id` already
+   * shown is replaced. New in API 1.11.0.
    */
   toast?(options: ToastOptions): ToastHandle;
   /** Opens the list of project sources extensions registered; with `source`, that source's own view (API 1.12.0). */
@@ -894,7 +899,8 @@ export interface StageTabContribution<Params extends Record<string, unknown> = R
 export interface SettingsPageProps {
   /** The open project, for a page that reports what this workspace sees. */
   cwd?: string;
-  onNotify(message: string): void;
+  /** `level` as in `WorkbenchActions.notify` (API 1.60.0). */
+  onNotify(message: string, level?: "info" | "warning" | "error"): void;
   /** Opens another place in Settings (`"appearance#setting-…"`, `"extensions/<id>"`) without leaving it (API 1.18.0). */
   onOpenSettings?(target: string): void;
 }
@@ -1053,7 +1059,8 @@ export type SettingsSectionPage = "connections" | "extensions" | "extension" | "
 export type SettingsCardId = "appearance" | "notify" | "new-threads" | "threads" | "this-machine";
 
 export interface SettingsSectionProps {
-  onNotify(message: string): void;
+  /** `level` as in `WorkbenchActions.notify` (API 1.60.0). */
+  onNotify(message: string, level?: "info" | "warning" | "error"): void;
   /** Reads the page's own data again, after the section changed something it shows. */
   onChanged(): void;
   /** On an extension's page: whose page it is (API 1.18.0). */
@@ -2828,7 +2835,7 @@ export class ExtensionRegistry {
         const result = await hook.beforeNewThread(event, actions);
         if (result?.workspace) return result;
       } catch (error) {
-        actions.notify(`${hook.id}: ${errorMessage(error)}`);
+        actions.notify(`${hook.extensionName}: ${errorMessage(error)}`, "error");
       }
     }
     return undefined;
@@ -2887,7 +2894,7 @@ export class ExtensionRegistry {
       try {
         await hook.afterPrompt?.(event, actions);
       } catch (error) {
-        actions.notify(`${hook.id}: ${errorMessage(error)}`);
+        actions.notify(`${hook.extensionName}: ${errorMessage(error)}`, "error");
       }
     }
   }

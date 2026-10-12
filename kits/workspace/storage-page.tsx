@@ -209,7 +209,7 @@ export function createStoragePage(host: StorageHost) {
         setReport((current) => current ? { ...current, policy } : current);
         void refresh();
       } catch (failure) {
-        onNotify(errorMessage(failure));
+        onNotify(errorMessage(failure), "error");
       }
     };
     const onRemove = async (tree: UiStorageWorktree, confirm: boolean) => {
@@ -222,7 +222,7 @@ export function createStoragePage(host: StorageHost) {
         }
         return answer;
       } catch (failure) {
-        onNotify(errorMessage(failure));
+        onNotify(errorMessage(failure), "error");
         return undefined;
       } finally {
         setBusy(false);
@@ -237,7 +237,7 @@ export function createStoragePage(host: StorageHost) {
         onNotify(`Removed ${result.removed.length} worktree${result.removed.length === 1 ? "" : "s"}.${kept}`);
         await refresh();
       } catch (failure) {
-        onNotify(errorMessage(failure));
+        onNotify(errorMessage(failure), "error");
       } finally {
         setBusy(false);
       }

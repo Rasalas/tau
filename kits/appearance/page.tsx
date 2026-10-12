@@ -184,7 +184,7 @@ export function AppearancePage({ onNotify, preferences, editor, terminalFont, te
       const imported = importVsCodeTheme(await readText(file));
       editor.open({ name: imported.name, appearance: imported.appearance, seed: imported.seed, tokens: imported.tokens });
     } catch (error) {
-      onNotify(`${file.name}: ${error instanceof Error ? error.message : String(error)}`);
+      onNotify(`${file.name}: ${error instanceof Error ? error.message : String(error)}`, "error");
     }
   };
   const scheme: Appearance = document.documentElement.dataset.theme === "light" || (document.documentElement.dataset.theme !== "dark" && globalThis.matchMedia?.("(prefers-color-scheme: light)").matches) ? "light" : "dark";

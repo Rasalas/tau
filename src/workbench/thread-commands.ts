@@ -66,8 +66,9 @@ export class ThreadCommands {
     return this.ports.client();
   }
 
-  private notify(message: string): void {
-    this.ports.view.setNotice(message);
+  private notify(message: string, level?: "info" | "warning" | "error"): void {
+    if (level) this.ports.view.setNotice(message, level);
+    else this.ports.view.setNotice(message);
   }
 
   private sessionId(): string | undefined {
@@ -116,7 +117,7 @@ export class ThreadCommands {
     try {
       this.ports.applyActionResult(await this.client!.removeProject(project.workspaceId ?? project.path));
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
     }
   };
 
@@ -129,7 +130,7 @@ export class ThreadCommands {
       ));
       return true;
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
       return false;
     }
   };
@@ -139,7 +140,7 @@ export class ThreadCommands {
     try {
       this.ports.applyActionResult(await this.client!.setModel(provider, id, this.sessionId()));
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
     }
   };
 
@@ -148,7 +149,7 @@ export class ThreadCommands {
     try {
       this.ports.applyActionResult(await this.client!.setThinkingLevel(level, this.sessionId()));
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
     }
   };
 
@@ -159,7 +160,7 @@ export class ThreadCommands {
       this.ports.applyActionResult(await this.client!.setMode(mode, this.sessionId()));
       return true;
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
       return false;
     }
   };
@@ -176,7 +177,7 @@ export class ThreadCommands {
       this.ports.view.setToolAnchorId(undefined);
       this.notify("Closed the interrupted call. The thread can continue.");
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
     }
   };
 
@@ -189,7 +190,7 @@ export class ThreadCommands {
     try {
       this.ports.applyActionResult(await this.client!.restartSession(id));
       this.notify("Agent session restarted. Conversation preserved; runtime resources rediscovered.");
-    } catch (error) { this.notify(errorMessage(error)); }
+    } catch (error) { this.notify(errorMessage(error), "error"); }
   };
 
   /** False when it did not compact; the reason is already shown. */
@@ -200,7 +201,7 @@ export class ThreadCommands {
       this.ports.applyActionResult(await this.client!.compactContext(this.sessionId()));
       return true;
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
       return false;
     }
   };
@@ -237,7 +238,7 @@ export class ThreadCommands {
         if (markdown) await this.ports.platform.clipboard.writeText(markdown);
         this.notify("Chat copied as Markdown.");
       } catch (error) {
-        this.notify(errorMessage(error));
+        this.notify(errorMessage(error), "error");
       }
       return;
     }
@@ -250,7 +251,7 @@ export class ThreadCommands {
       await this.ports.platform.clipboard.writeText(value);
       this.notify(`${kind === "path" ? "Path" : "Thread ID"} copied.`);
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
     }
   };
 
@@ -260,7 +261,7 @@ export class ThreadCommands {
       await this.ports.platform.clipboard.writeText(text);
       this.notify(done);
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
     }
   };
 
@@ -278,7 +279,7 @@ export class ThreadCommands {
         ? "Tool output exceeded the read limit; the bounded result was copied."
         : "Full tool output copied.");
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
     }
   };
 
@@ -317,13 +318,13 @@ export class ThreadCommands {
           writeComposerDraft(this.ports.storage, scope, "");
           this.notify(options.stayInSource ? "Started the fork. Find it in this thread's Forks menu." : "Started the fork.");
         } catch (error) {
-          this.notify(`The fork was created, but its task could not start: ${errorMessage(error)}. Open the fork to retry the saved draft.`);
+          this.notify(`The fork was created, but its task could not start: ${errorMessage(error)}. Open the fork to retry the saved draft.`, "error");
         }
       }
       this.ports.applyActionResult(result);
       return true;
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
       return created;
     }
   };
@@ -357,7 +358,7 @@ export class ThreadCommands {
       this.ports.applyActionResult(await this.client!.duplicateThread(this.sessionId()));
       return true;
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
       return false;
     }
   };

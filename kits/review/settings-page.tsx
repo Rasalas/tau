@@ -59,7 +59,7 @@ export function createReviewSettingsPage(host: HostExtensionClient) {
  * how diffs are drawn and which Git hosts this machine reaches. The model that
  * writes them stays on Review Kit's own page, beside the extension's switch.
  */
-export function ReviewSettingsPage({ host, onNotify = () => undefined }: { host?: HostExtensionClient; onNotify?(message: string): void } = {}) {
+export function ReviewSettingsPage({ host, onNotify = () => undefined }: { host?: HostExtensionClient; onNotify?(message: string, level?: "info" | "warning" | "error"): void } = {}) {
   const propose = useSetting<boolean>(option("propose-message"), { defaultValue: true, read: readBoolean });
   const format = useSetting<string>(value("commit-style"), { defaultValue: "conventional", scope: "both", read: readString, format: (next) => FORMATS.find((entry) => entry.value === next)?.label ?? next });
   const instructions = useSetting<string>(value(INSTRUCTIONS_OPTION), { defaultValue: "", scope: "both", read: readString, format: (next) => (next ? `${next.slice(0, 40)}${next.length > 40 ? "…" : ""}` : "None") });

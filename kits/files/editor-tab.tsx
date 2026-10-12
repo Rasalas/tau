@@ -177,7 +177,7 @@ export async function saveDocument(document: FileDocument, name: string, actions
   if (!current.editable) return;
   const saved = await document.save();
   if (saved) void kit.current?.workspace?.refresh();
-  else if (document.getState().saveError) actions.notify(`Could not save ${name}: ${document.getState().saveError}`);
+  else if (document.getState().saveError) actions.notify(`Could not save ${name}: ${document.getState().saveError}`, "error");
 }
 
 /**

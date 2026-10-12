@@ -299,7 +299,7 @@ export function createExtensionSection(host: HostExtensionClient): ComponentType
         onNotify(result.message ?? "Done.");
         onChanged();
       } catch (failure) {
-        onNotify(errorMessage(failure));
+        onNotify(errorMessage(failure), "error");
       } finally {
         setBusy(undefined);
       }
@@ -352,7 +352,7 @@ export function announceInstall(host: HostExtensionClient, actions: WorkbenchAct
         run: () => {
           host.invoke("trust", {}).then(
             (answer) => actions.notify((answer as PackagesCommandResult).message ?? "Trusted."),
-            (error: unknown) => actions.notify(errorMessage(error)),
+            (error: unknown) => actions.notify(errorMessage(error), "error"),
           );
         },
       }],
@@ -429,7 +429,7 @@ export const packagesExtension: DesktopExtension = {
       access: "write",
       run: async (app) => {
         const failure = await report(app, plugin.host.invoke("rebuild"));
-        if (failure) app.notify(failure);
+        if (failure) app.notify(failure, "error");
       },
     });
 

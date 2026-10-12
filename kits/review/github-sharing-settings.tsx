@@ -15,7 +15,7 @@ function SharingRow({ row, peers, save }: { row: GitHubRoutingRow; peers: GitHub
     </div>} />;
 }
 
-export function GitHubSharingSettings({ host, onNotify }: { host: HostExtensionClient; onNotify(message: string): void }) {
+export function GitHubSharingSettings({ host, onNotify }: { host: HostExtensionClient; onNotify(message: string, level?: "info" | "warning" | "error"): void }) {
   const [rows, setRows] = useState<GitHubRoutingRow[]>();
   const [error, setError] = useState<string>();
   const refresh = useCallback(async () => {
@@ -25,7 +25,7 @@ export function GitHubSharingSettings({ host, onNotify }: { host: HostExtensionC
   useEffect(() => { void refresh(); }, [refresh]);
   const save = async (row: GitHubRoutingRow) => {
     try { await host.invoke("github-sharing-set", row); }
-    catch (reason) { onNotify(errorMessage(reason)); }
+    catch (reason) { onNotify(errorMessage(reason), "error"); }
     await refresh();
   };
   return <SettingsSection id="setting-review-github-sharing" title="GitHub across paired hosts" headerAction={<Button variant="ghost" onClick={() => void refresh()}>Check again</Button>}>

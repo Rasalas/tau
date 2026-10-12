@@ -115,7 +115,7 @@ function PlanCard({ body, complete }: MessageBlockProps) {
                   { id: "download", label: "Download as Markdown" },
                 ]}
                 onSelect={(id) => {
-                  if (id === "copy") void actions?.copyText(body).then(() => actions.notify("Plan copied."), (error: unknown) => actions.notify(errorMessage(error)));
+                  if (id === "copy") void actions?.copyText(body).then(() => actions.notify("Plan copied."), (error: unknown) => actions.notify(errorMessage(error), "error"));
                   else downloadPlan(title, body);
                 }}
                 onClose={() => setMenuOpen(false)}
@@ -195,7 +195,7 @@ function PlanReady({ host, actions, plan }: { host: HostExtensionClient; actions
   const [busy, setBusy] = useState(false);
   const run = (work: () => Promise<void>) => {
     setBusy(true);
-    work().catch((error: unknown) => actions.notify(errorMessage(error))).finally(() => setBusy(false));
+    work().catch((error: unknown) => actions.notify(errorMessage(error), "error")).finally(() => setBusy(false));
   };
   const title = planTitle(plan);
   return (

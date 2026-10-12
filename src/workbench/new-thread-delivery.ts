@@ -309,7 +309,7 @@ export class NewThreadDeliveryCoordinator {
     try {
       notification = this.ports.notification.notifyPromptSubmitted({ prompt, snapshot });
     } catch (error) {
-      this.ports.projection.view.setNotice(errorMessage(error));
+      this.ports.projection.view.setNotice(errorMessage(error), "error");
       return;
     }
     if (notification === false) {
@@ -317,7 +317,7 @@ export class NewThreadDeliveryCoordinator {
       return;
     }
     if (typeof notification !== "boolean") {
-      void notification.catch((error: unknown) => this.ports.projection.view.setNotice(errorMessage(error)));
+      void notification.catch((error: unknown) => this.ports.projection.view.setNotice(errorMessage(error), "error"));
     }
   }
 

@@ -24,7 +24,7 @@ function inertReason(setting: { lock?: string | undefined; readOnly?: boolean | 
 }
 
 /** One runtime's card: its mark, its name and the state its rows report, over the rows the kit draws. */
-function ProviderCard({ card, cwd, onNotify }: { card: SettingsPageContribution; cwd: string | undefined; onNotify(message: string): void }) {
+function ProviderCard({ card, cwd, onNotify }: { card: SettingsPageContribution; cwd: string | undefined; onNotify(message: string, level?: "info" | "warning" | "error"): void }) {
   const [badges, setBadges] = useState<Partial<Record<ProviderCardBadgeSource, ProviderCardBadge>>>({});
   const report = useCallback((source: ProviderCardBadgeSource, badge: ProviderCardBadge | undefined) => {
     setBadges((current) => {
@@ -74,7 +74,7 @@ function ProviderCard({ card, cwd, onNotify }: { card: SettingsPageContribution;
 }
 
 /** One card per runtime backend a kit describes, in the host's runtime order, then every runtime's models. */
-export function ProvidersPage({ cards, backends = [], cwd, onNotify }: { cards: readonly SettingsPageContribution[]; backends?: readonly UiRuntimeBackend[]; cwd?: string; onNotify(message: string): void }) {
+export function ProvidersPage({ cards, backends = [], cwd, onNotify }: { cards: readonly SettingsPageContribution[]; backends?: readonly UiRuntimeBackend[]; cwd?: string; onNotify(message: string, level?: "info" | "warning" | "error"): void }) {
   return (
     <div className="settings-page providers-page">
       {cards.map((card) => <ProviderCard key={card.id} card={card} cwd={cwd} onNotify={onNotify} />)}

@@ -73,7 +73,7 @@ export const serviceTierKitExtension: DesktopExtension = {
         access: "write",
         run: async (actions) => {
           try { await plugin.host.invoke("set-tier", { tier }); }
-          catch (error) { actions.notify(error instanceof Error ? error.message : String(error)); }
+          catch (error) { actions.notify(error instanceof Error ? error.message : String(error), "error"); }
         },
       });
     }

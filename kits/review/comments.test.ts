@@ -167,7 +167,7 @@ describe("handing comments to the composer", () => {
     });
     while (frames.length > 0) frames.shift()!();
     expect(remove).not.toHaveBeenCalled();
-    expect(workbench.notify).toHaveBeenCalledWith(expect.stringContaining("stayed in the review"));
+    expect(workbench.notify).toHaveBeenCalledWith(expect.stringContaining("stayed in the review"), "error");
   });
 
   it("falls back to text in the draft without Composer Context", () => {

@@ -231,7 +231,7 @@ describe("lineage and bringing it back", () => {
     });
     const actions = actionsFor("parent");
     await command("handoff.bring-back").run(actions);
-    expect(actions.notify).toHaveBeenCalledWith("This thread was not continued or spawned from another thread.");
+    expect(actions.notify).toHaveBeenCalledWith("This thread was not continued or spawned from another thread.", "error");
     expect(actions.switchSession).not.toHaveBeenCalled();
   });
 });

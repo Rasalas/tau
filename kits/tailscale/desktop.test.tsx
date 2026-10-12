@@ -124,7 +124,7 @@ describe("Tailscale on Settings → Connections", () => {
     fireEvent.click(await screen.findByRole("switch", { name: "Tailscale HTTPS" }));
     fireEvent.click(await screen.findByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Set up" }));
-    await waitFor(() => expect(notify).toHaveBeenCalledWith("Tailscale refused: this user may not change Serve."));
+    await waitFor(() => expect(notify).toHaveBeenCalledWith("Tailscale refused: this user may not change Serve.", "error"));
     expect(screen.getByRole("dialog", { name: "Set up Tailscale HTTPS" })).toBeTruthy();
     expect(changed).not.toHaveBeenCalled();
   });

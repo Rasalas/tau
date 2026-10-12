@@ -86,7 +86,7 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
           className="text-button"
           disabled={Boolean(refused)}
           {...tooltipProps(refused)}
-          onClick={() => { Promise.resolve(command.run(actions)).catch((reason: unknown) => actions.notify(errorMessage(reason))); }}
+          onClick={() => { Promise.resolve(command.run(actions)).catch((reason: unknown) => actions.notify(errorMessage(reason), "error")); }}
         >{command.label}</button>;
       }) : null}
       {editor ? (

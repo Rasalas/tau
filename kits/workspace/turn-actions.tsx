@@ -89,7 +89,7 @@ export function createForkAsker(asks: ForkAsks, checkpoints: CheckpointStore, wo
         if (repo) made = await workspace.host.forkWorktree({ branch: name.trim(), ...(!entry ? { now: true } : verified ? { sessionId, checkpointId: checkpoint!.id } : {}) }, project);
         if (await actions.forkFrom?.({ sourceEntryId: through }, { expectedSessionId: sessionId, ...(made ? { workspace: made.workspaceId } : {}), ...(prompt.trim() ? { prompt: prompt.trim(), stayInSource } : {}) })) { asks.set(); return; }
       } catch (error) {
-        actions.notify(errorMessage(error));
+        actions.notify(errorMessage(error), "error");
       }
       // A worktree made for a fork that did not happen goes again.
       if (made) await workspace.host.removeWorktree(made.path, name.trim(), project).catch(() => undefined);

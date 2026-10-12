@@ -314,7 +314,7 @@ export const workspaceExtension: DesktopExtension = {
         const picked = await host.pickFolder();
         if (picked) await app.openWorkspace(picked.workspaceId);
       } catch (error) {
-        app.notify(errorMessage(error));
+        app.notify(errorMessage(error), "error");
       }
     } });
     context.registerCommand({
@@ -367,7 +367,7 @@ export const workspaceExtension: DesktopExtension = {
     context.registerCommand({ id: "workspace.copy-branch", label: "Copy branch", group: "Thread", surfaces: ["thread-title"], access: "read", run: async (app) => {
       const branch = store.getSnapshot().workspace?.branch;
       if (!branch) { app.notify("Branch is unavailable."); return; }
-      try { await app.copyText(branch); app.notify("Branch copied."); } catch (error) { app.notify(errorMessage(error)); }
+      try { await app.copyText(branch); app.notify("Branch copied."); } catch (error) { app.notify(errorMessage(error), "error"); }
     } });
     // Composer chords: each opens the composer control that carries its id.
     for (const [id, label, keys] of [["composer.workspace", "Choose where the thread runs", "mod+shift+x"], ["composer.branch", "Choose the branch", "mod+shift+g"]] as const) {
@@ -418,7 +418,7 @@ export const workspaceExtension: DesktopExtension = {
           }
         }, 1000);
       } catch (error) {
-        actions.notify(errorMessage(error));
+        actions.notify(errorMessage(error), "error");
       }
     };
 

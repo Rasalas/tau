@@ -65,7 +65,7 @@ describe("LazyFeatureBoundary", () => {
     );
 
     expect(deactivate).toHaveBeenCalledWith("flaky.ext");
-    expect(onNotify).toHaveBeenCalledWith("Extension Flaky Extension was deactivated due to render error: render crash");
+    expect(onNotify).toHaveBeenCalledWith("Extension Flaky Extension was deactivated due to render error: render crash", "error");
     expect(onError).toHaveBeenCalledWith(expect.any(Error));
     consoleError.mockRestore();
   });

@@ -133,7 +133,7 @@ function createController(store: CheckpointStore, workspaceStore: WorkspaceStore
           // The host may have read an old record again; the rail's stat follows it.
           for (const checkpoint of list.checkpoints) workspaceStore.recordTurnStat(sessionId, turnStatOf(checkpoint));
         })
-        .catch((error) => { if (!cancelled) actions.notify(errorMessage(error)); });
+        .catch((error) => { if (!cancelled) actions.notify(errorMessage(error), "error"); });
       return () => { cancelled = true; };
     }, [actions, listed, state.supportStale, sessionId]);
 
@@ -189,7 +189,7 @@ function createController(store: CheckpointStore, workspaceStore: WorkspaceStore
           },
         });
       } catch (error) {
-        actions.notify(errorMessage(error));
+        actions.notify(errorMessage(error), "error");
       } finally {
         store.update({ restoreBusy: false });
       }
@@ -217,7 +217,7 @@ function createController(store: CheckpointStore, workspaceStore: WorkspaceStore
           actions.notify("Rewound the conversation; files were kept. The previous branch stays in its own thread.");
         }
       } catch (error) {
-        actions.notify(errorMessage(error));
+        actions.notify(errorMessage(error), "error");
       } finally {
         store.update({ restoreBusy: false });
       }

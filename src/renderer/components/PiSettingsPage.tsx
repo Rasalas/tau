@@ -73,7 +73,7 @@ function StartupModel({ value, models, onChange }: { value: string; models: read
   );
 }
 
-export function PiSettingsPage({ snapshot, onNotify }: { snapshot?: HostSnapshot; onNotify(message: string): void }) {
+export function PiSettingsPage({ snapshot, onNotify }: { snapshot?: HostSnapshot; onNotify(message: string, level?: "info" | "warning" | "error"): void }) {
   const client = useHostClient();
   // The opaque id is how a workspace is addressed; `cwd` is display data.
   const workspaceId = snapshot?.workspaceId ?? snapshot?.cwd;
@@ -95,7 +95,7 @@ export function PiSettingsPage({ snapshot, onNotify }: { snapshot?: HostSnapshot
     if (!client) return;
     client.updateConfig(patch, scope, workspaceId)
       .then((next) => setConfig(next))
-      .catch((error: unknown) => onNotify(`Pi's settings were not written: ${errorMessage(error)}`));
+      .catch((error: unknown) => onNotify(`Pi's settings were not written: ${errorMessage(error)}`, "error"));
   };
 
   if (!client) {

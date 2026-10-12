@@ -56,6 +56,16 @@ describe("ToastViewport", () => {
     expect(store.getToasts()).toEqual([]);
   });
 
+  it("offers Copy of what a failure says, and none for a notice that cannot fail", async () => {
+    const { store, writeText } = setup();
+    act(() => { store.show({ type: "error", title: "Nothing was committed", description: "pre-commit hook rejected the change" }); });
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    expect(writeText).toHaveBeenCalledWith("Nothing was committed · pre-commit hook rejected the change");
+    await screen.findByRole("button", { name: "Copied" });
+    act(() => { store.dismiss(store.getToasts()[0]!.id); store.show({ type: "success", description: "Committed" }); });
+    expect(screen.queryByRole("button", { name: "Copy" })).toBeNull();
+  });
+
   it("holds every toast while the pointer or focus is on the stack", () => {
     const { store } = setup();
     act(() => { store.show({ description: "Saved" }); });
@@ -306,6 +316,21 @@ describe("notices as toasts", () => {
     // The same text again is the same toast, not a second one.
     view.setNotice("Saved.", "info");
     expect(toasts.getToasts()).toHaveLength(2);
+    stop();
+  });
+});
+
+describe("a failed notice", () => {
+  it("stays until dismissed and reads without the Error: the runtime put in front", () => {
+    const timers: Array<{ run: () => void; cancelled: boolean }> = [];
+    const toasts = new ToastStore({ schedule: (run) => { const timer = { run, cancelled: false }; timers.push(timer); return () => { timer.cancelled = true; }; } });
+    const view = new ThreadViewStore();
+    const stop = showNoticesAsToasts(view, toasts);
+    view.setNotice("Error: remote rejected the push", "error");
+    view.setNotice("Saved.");
+    // Every clock that is set runs out; only the failure is still there.
+    for (const timer of timers) if (!timer.cancelled) timer.run();
+    expect(toasts.getToasts()).toMatchObject([{ type: "error", description: "remote rejected the push", copyText: "remote rejected the push" }]);
     stop();
   });
 });

@@ -296,7 +296,7 @@ export function reduceHostEvent(state: ThreadViewState, event: HostEvent): Threa
     case "event-log":
       return withEvent(state, event.label, event.detail, event.timestamp);
     case "error":
-      return withNotice(state, event.message);
+      return withNotice(state, event.message, "error");
     case "notice":
       // The transcript already shows a failed answer's reason; a toast over it would say it twice.
       if (event.level === "error" && showsError(state.transcript, event.message)) return state;

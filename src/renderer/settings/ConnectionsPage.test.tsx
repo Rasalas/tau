@@ -278,7 +278,7 @@ describe("Settings → Connections → Network access", () => {
     // Enter in a field commits it and submits the dialog.
     fireEvent.keyDown(key, { key: "Enter" });
     await waitFor(() => expect(setNetworkAccess).toHaveBeenCalledWith({ certificate: { certPath: "/c.pem", keyPath: "/k.pem" } }));
-    expect(notify).toHaveBeenCalledWith("/c.pem holds no PEM certificate");
+    expect(notify).toHaveBeenCalledWith("/c.pem holds no PEM certificate", "error");
     expect(screen.getByText("Use your own certificate")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 

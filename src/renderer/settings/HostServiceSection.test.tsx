@@ -157,7 +157,7 @@ describe("Settings → Connections → Background, invisible display", () => {
     const allowServiceSandbox = vi.fn(async () => { throw new Error("No password dialog could open on this machine."); });
     const notify = renderSection({ serviceStatus: async () => linux({ display, problems: [sandbox] }), allowServiceSandbox });
     fireEvent.click(await screen.findByRole("button", { name: "Add AppArmor profile…" }));
-    await waitFor(() => expect(notify).toHaveBeenCalledWith("No password dialog could open on this machine."));
+    await waitFor(() => expect(notify).toHaveBeenCalledWith("No password dialog could open on this machine.", "error"));
   });
 
   it("is not offered on macOS or without a service", async () => {

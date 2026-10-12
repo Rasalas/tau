@@ -118,4 +118,30 @@ describe("ToastStore", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(ids(store)).toEqual([]);
   });
+
+  it("keeps an error until it is dismissed, unless it names a time", () => {
+    const clock = manualClock();
+    const store = new ToastStore(clock);
+    store.show({ id: "failed", type: "error", description: "Push rejected" });
+    store.show({ id: "timed", type: "error", description: "Build failed", timeoutMs: 8_000 });
+    store.show({ id: "info", description: "Saved" });
+    clock.advance(5_000);
+    expect(ids(store)).toEqual(["timed", "failed"]);
+    clock.advance(3_000);
+    expect(ids(store)).toEqual(["failed"]);
+    clock.advance(60_000);
+    expect(ids(store)).toEqual(["failed"]);
+    store.dismiss("failed");
+    expect(ids(store)).toEqual([]);
+  });
+
+  it("keeps a loading toast that fails, and one that is replaced by an error", () => {
+    const clock = manualClock();
+    const store = new ToastStore(clock);
+    store.show({ id: "work", type: "loading", title: "Pushing…" }).update({ type: "error", title: "Push failed" });
+    store.show({ id: "info", description: "Saved" });
+    store.show({ id: "info", type: "error", description: "Saved nothing" });
+    clock.advance(60_000);
+    expect(ids(store)).toEqual(["info", "work"]);
+  });
 });

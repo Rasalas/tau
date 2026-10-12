@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Check, ChevronDown, ChevronLeft, Ellipsis, Folder, MonitorSmartphone, Plus, Search, Settings, X } from "lucide-react";
 import type { UiProject } from "../../shared/contracts";
+import { errorMessage } from "../../workbench/error-message";
 import { rootLast } from "../../workbench/new-thread-project";
 import { threadListGroups, type ThreadSupervisionRow } from "../../workbench/thread-supervision";
 import { useClientEnvironment } from "../client-environment";
@@ -144,7 +145,7 @@ function TabletFooter({ registry, actions, onOpenSettings }: Pick<TouchThreadLis
   </div>;
   return <div className="touch-sidebar-footer" role="group" aria-label="Sidebar controls">
     {pages.filter((page) => !page.Summary && !page.useSummary).map((page) => <TabletPageButton key={page.id} page={page} actions={actions} />)}
-    {registry.getCommandsFor("sidebar-footer").map((command) => <button key={command.id} type="button" className="touch-icon-button" aria-label={command.label} disabled={readOnly && command.access !== "read"} onClick={() => { void registry.executeCommand(command.id, actions).catch((error) => actions.notify(String(error))); }}>
+    {registry.getCommandsFor("sidebar-footer").map((command) => <button key={command.id} type="button" className="touch-icon-button" aria-label={command.label} disabled={readOnly && command.access !== "read"} onClick={() => { void registry.executeCommand(command.id, actions).catch((error) => actions.notify(errorMessage(error), "error")); }}>
       {command.Icon ? <command.Icon size={19} /> : command.label}
     </button>)}
     <span className="spacer" />

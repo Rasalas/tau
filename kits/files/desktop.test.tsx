@@ -361,7 +361,7 @@ describe("Files Kit", () => {
 
     await registry.getCommand("files.save")!.run(actions);
     await registry.getCommand("files.save-all")!.run(actions);
-    expect(actions.notify).toHaveBeenCalledWith("Not saved: Tau does not know which project this file belongs to.");
+    expect(actions.notify).toHaveBeenCalledWith("Not saved: Tau does not know which project this file belongs to.", "error");
     expect(host.invoke).not.toHaveBeenCalled();
   });
 

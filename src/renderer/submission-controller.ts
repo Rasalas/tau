@@ -75,7 +75,7 @@ export interface SubmissionControllerPorts {
   registry: ExtensionRegistry;
   storage: ClientStorage;
   preferences: PreferencesStore;
-  notify(message?: string): void;
+  notify(message?: string, level?: "info" | "warning" | "error"): void;
   actions(): WorkbenchActions | undefined;
   hostSession: HostSessionState;
   delivery: NewThreadDeliveryPort;
@@ -272,7 +272,7 @@ export class SubmissionController {
         // ComposerScopeStore keeps the captured draft when a submission is
         // rejected, including edits made while preflight was in flight.
         // Re-seeding here would overwrite those newer edits.
-        this.ports.notify(errorMessage(error));
+        this.ports.notify(errorMessage(error), "error");
         return { accepted: false, message: errorMessage(error) };
       }
     }
@@ -333,7 +333,7 @@ export class SubmissionController {
       const currentSubmission = isCurrentSubmission();
       cancelTranscriptTurn();
       removeOptimisticMessage(view, optimistic.id);
-      if (currentSubmission) this.ports.notify(errorMessage(error));
+      if (currentSubmission) this.ports.notify(errorMessage(error), "error");
       return { accepted: false, message: errorMessage(error) };
     };
     const submittedDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
@@ -548,7 +548,7 @@ export class SubmissionController {
       const actions = this.ports.actions();
       if (actions) {
         void registry.notifyPromptSubmitted({ prompt: visiblePrompt, snapshot }, actions)
-          .catch((error) => this.ports.notify(errorMessage(error)));
+          .catch((error) => this.ports.notify(errorMessage(error), "error"));
       }
       return { accepted: true };
     } catch (error) {

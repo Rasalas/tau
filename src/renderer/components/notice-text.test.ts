@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { noticeHeadline } from "./notice-text";
+import { noticeHeadline, plainNoticeText } from "./notice-text";
 
 /** The text a provider failure reaches the workbench as, verbatim. */
 const PROVIDER_FAILURE = '400: {"type":"MissingSessionID","message":"Error from provider (Console Go): Request is missing x-opencode-session and cannot be routed efficiently. Please see https://opencode.ai/docs/go/#where-can-i-use-it"}';
@@ -32,5 +32,14 @@ describe("noticeHeadline", () => {
     expect(headline.length).toBeLessThanOrEqual(201);
     expect(headline.endsWith("…")).toBe(true);
     expect(headline.startsWith("Error: boom at one at two")).toBe(true);
+  });
+});
+
+describe("plainNoticeText", () => {
+  it("drops the Error: a stringified error starts with, and nothing else", () => {
+    expect(plainNoticeText("Error: remote rejected the push")).toBe("remote rejected the push");
+    expect(plainNoticeText("Error: Error: twice")).toBe("twice");
+    expect(plainNoticeText("TypeError: x is not a function")).toBe("TypeError: x is not a function");
+    expect(plainNoticeText("Push failed: Error: nope")).toBe("Push failed: Error: nope");
   });
 });

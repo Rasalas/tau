@@ -94,7 +94,7 @@ export function PullRequestCode({ detail, client, files, filesError, threads, fo
     try {
       await onViewed(file.path, next);
     } catch (error) {
-      actions.notify(`Could not update viewed files: ${errorMessage(error)}`);
+      actions.notify(`Could not update viewed files: ${errorMessage(error)}`, "error");
     } finally {
       setPending((map) => { const copy = new Map(map); copy.delete(file.path); return copy; });
     }

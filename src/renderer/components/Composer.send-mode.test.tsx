@@ -100,7 +100,7 @@ describe("a kit's send mode", () => {
     const { onSubmit, onNotify, type } = setup({ beforeSend: async () => { throw new Error("Compaction is unavailable here."); } });
     type("hello");
     fireEvent.click(screen.getByRole("button", { name: "Compact and send" }));
-    await waitFor(() => expect(onNotify).toHaveBeenCalledWith("Compaction is unavailable here."));
+    await waitFor(() => expect(onNotify).toHaveBeenCalledWith("Compaction is unavailable here.", "error"));
     expect(onSubmit).not.toHaveBeenCalled();
     expect((screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement).value).toBe("hello");
   });

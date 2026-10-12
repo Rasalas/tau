@@ -71,6 +71,6 @@ describe("Settings → General → Terminal command", () => {
     windowAction.mockImplementation(async (action) => { if (action.kind === "command-line" && action.op === "install") throw new Error("not writable"); return FRESH; });
     fireEvent.click(await screen.findByRole("button", { name: "Install" }));
     fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Install" }));
-    await waitFor(() => expect(onNotify).toHaveBeenCalledWith("Could not install tau: not writable"));
+    await waitFor(() => expect(onNotify).toHaveBeenCalledWith("Could not install tau: not writable", "error"));
   });
 });

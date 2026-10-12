@@ -80,6 +80,8 @@ function CopyButton({ text }: { text: string }) {
 }
 
 function ToastCard({ toast, store }: { toast: Toast; store: ToastStore }) {
+  // A failure is worth keeping: without its own copy text, Copy takes what the toast says.
+  const copyText = toast.copyText ?? (toast.type === "error" ? [toast.title, toast.description].filter(Boolean).join(" · ") : "");
   return (
     <>
       <span className="toast-type" aria-hidden="true">{ICONS[toast.type]}</span>
@@ -95,7 +97,7 @@ function ToastCard({ toast, store }: { toast: Toast; store: ToastStore }) {
           ))}
         </div>
       ) : null}
-      {toast.copyText ? <CopyButton text={toast.copyText} /> : null}
+      {copyText ? <CopyButton text={copyText} /> : null}
       <button type="button" className="toast-icon-button" aria-label="Dismiss notification" onClick={() => store.dismiss(toast.id)}>
         <X size={13} />
       </button>

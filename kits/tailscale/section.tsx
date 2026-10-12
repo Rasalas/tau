@@ -106,7 +106,7 @@ export function createTailscaleSection(host: HostExtensionClient): ComponentType
         onChanged();
         return true;
       } catch (error: unknown) {
-        onNotify(errorMessage(error));
+        onNotify(errorMessage(error), "error");
         return false;
       } finally {
         setBusy(false);

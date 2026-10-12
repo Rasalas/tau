@@ -64,7 +64,7 @@ interface EditorContext {
   registry: ExtensionRegistry;
   keymap: UserKeymapContribution & { extensionId: string };
   mac: boolean;
-  onNotify(message: string): void;
+  onNotify(message: string, level?: "info" | "warning" | "error"): void;
 }
 
 interface Draft {
@@ -89,7 +89,7 @@ function useChordDraft({ registry, keymap, onNotify }: EditorContext, commandId:
       await keymap.setChords(commandId, chords);
       setDraft(undefined);
     } catch (error) {
-      onNotify(`Could not write ${keymap.label}: ${errorMessage(error)}`);
+      onNotify(`Could not write ${keymap.label}: ${errorMessage(error)}`, "error");
     } finally {
       setSaving(false);
     }
@@ -296,7 +296,7 @@ function ComposerKeys({ registry, mac, onOpen }: { registry: ExtensionRegistry; 
  * another, and on request every command with the Pi actions Tau does not
  * implement. Without a user keymap (`registerUserKeymap`) the page only lists.
  */
-export function KeybindingsPage({ registry, initialFilter = "", onNotify = () => {}, onOpen }: { registry: ExtensionRegistry; initialFilter?: string; onNotify?(message: string): void; onOpen?(target: string): void }) {
+export function KeybindingsPage({ registry, initialFilter = "", onNotify = () => {}, onOpen }: { registry: ExtensionRegistry; initialFilter?: string; onNotify?(message: string, level?: "info" | "warning" | "error"): void; onOpen?(target: string): void }) {
   const [filter, setFilter] = useState(initialFilter);
   const [keyFilter, setKeyFilter] = useState<string>();
   const [searchingKeys, setSearchingKeys] = useState(false);
@@ -349,7 +349,7 @@ export function KeybindingsPage({ registry, initialFilter = "", onNotify = () =>
     try {
       await keymap?.resetAll();
     } catch (error) {
-      onNotify(`Could not write ${keymap?.label}: ${errorMessage(error)}`);
+      onNotify(`Could not write ${keymap?.label}: ${errorMessage(error)}`, "error");
     }
   };
   const clearFilter = () => { setFilter(""); setKeyFilter(undefined); };

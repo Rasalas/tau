@@ -38,7 +38,7 @@ async function generate(
     // Two commands, so the host tells a title the user asked for from one that followed a prompt.
     await host.invoke(force ? "regenerate" : "generate", { provider: model?.provider, modelId: model?.id, ...(prefer ? { prefer } : {}), force, sessionId: thread?.sessionId, prompt });
   } catch (error) {
-    actions.notify(errorMessage(error));
+    actions.notify(errorMessage(error), "error");
   }
 }
 
@@ -56,7 +56,7 @@ export const titleGeneratorExtension: DesktopExtension = {
     let promptActions: WorkbenchActions | undefined;
     context.host.onEvent(TITLE_FAILED_EVENT, (payload) => {
       const message = (payload as { message?: unknown } | undefined)?.message;
-      promptActions?.notify(`Could not name the thread: ${typeof message === "string" ? message : "Title generation failed."}`);
+      promptActions?.notify(`Could not name the thread: ${typeof message === "string" ? message : "Title generation failed."}`, "error");
     });
     context.registerOptions([
       { id: "automatic", kind: "toggle", label: "Name a thread after its first prompt", defaultValue: true },

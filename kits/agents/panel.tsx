@@ -278,7 +278,7 @@ export function AgentsPanel({ actions, canLookIn, placement }: PanelProps & {
     if (!handle) return;
     void agentsHost.invoke?.(outcome === "apply" ? "apply-changes" : "discard-changes", { threadId: handle })
       .then((result) => actions.notify((result as { detail?: string } | undefined)?.detail ?? "Done."))
-      .catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error)));
+      .catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error), "error"));
   }, [actions]);
 
   const stop = useCallback((row: AgentRow) => { void stopAgent(row, actions); }, [actions]);

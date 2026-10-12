@@ -72,7 +72,7 @@ describe("Worktree Names desktop extension", () => {
     invoke.mockClear();
     await expect(workspaceStore.suggestWorktreeName("")).resolves.toBeUndefined();
     expect(invoke).not.toHaveBeenCalled();
-    expect(notify).toHaveBeenLastCalledWith("Describe the task in the composer first, or type the start of a name.");
+    expect(notify).toHaveBeenLastCalledWith("Describe the task in the composer first, or type the start of a name.", "error");
     composerDraft = "Steer queued messages into the running turn";
 
     invoke.mockRejectedValueOnce(new Error("The model did not answer with a usable branch name."));

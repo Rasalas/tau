@@ -54,7 +54,7 @@ export const projectScriptsExtension: DesktopExtension = {
         app.openExternal(url);
         return;
       }
-      browser.open(url, app).catch((error: unknown) => app.notify(`Could not open the preview: ${errorMessage(error)}`));
+      browser.open(url, app).catch((error: unknown) => app.notify(`Could not open the preview: ${errorMessage(error)}`, "error"));
     };
 
     const controller: ScriptsController = {
@@ -73,13 +73,13 @@ export const projectScriptsExtension: DesktopExtension = {
             if (run.previewUrl && run.previewReady) openPreview(run.previewUrl, app);
           }
         } catch (error) {
-          app.notify(errorMessage(error));
+          app.notify(errorMessage(error), "error");
         }
       },
-      stop: (runId) => { host.stop({ runId }).catch((error: unknown) => actions?.notify(errorMessage(error))); },
+      stop: (runId) => { host.stop({ runId }).catch((error: unknown) => actions?.notify(errorMessage(error), "error")); },
       dismiss: (runId) => {
         store.removeRun(runId);
-        host.dismiss({ runId }).catch((error: unknown) => actions?.notify(errorMessage(error)));
+        host.dismiss({ runId }).catch((error: unknown) => actions?.notify(errorMessage(error), "error"));
       },
       openPreview,
       // Terminal Kit's own commands, reached by id: a shell in the same
@@ -92,7 +92,7 @@ export const projectScriptsExtension: DesktopExtension = {
           await terminal.invoke("input", { id: session.id, data: `${script.command}\r` });
           app.openPanel(TERMINAL_PANEL);
         } catch (error) {
-          app.notify(`Could not run ${script.name} in a terminal: ${errorMessage(error)}`);
+          app.notify(`Could not run ${script.name} in a terminal: ${errorMessage(error)}`, "error");
         }
       },
     };
@@ -106,7 +106,7 @@ export const projectScriptsExtension: DesktopExtension = {
       }
       const ended = run.status !== "running" && (previous?.status === "running" || (!previous && startedHere.has(run.id)));
       if (ended && run.status === "failed" && (startedHere.has(run.id) || onScreen)) {
-        actions?.notify(`${run.name} exited with ${run.exitCode ?? run.signal ?? "an error"}.`);
+        actions?.notify(`${run.name} exited with ${run.exitCode ?? run.signal ?? "an error"}.`, "error");
       }
     };
 
