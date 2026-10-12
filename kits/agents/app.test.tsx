@@ -149,7 +149,7 @@ describe("agents in the project card", () => {
 
   it("does not show another parent's agents", async () => {
     renderApp(appWith(state, [session("unrelated", "Unrelated thread", 4), session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2)], "unrelated"), { extensions: [workspaceExtension, agentsExtension] });
-    await screen.findByText("Unrelated thread");
+    await within(await screen.findByRole("navigation", { name: "Threads" })).findByText("Unrelated thread");
     await waitFor(() => expect(document.querySelector('.thread-row')?.textContent).toBeTruthy());
     expect(screen.queryByRole("button", { name: "Alpha reply, Running" })).toBeNull();
   });
@@ -243,7 +243,7 @@ describe("the navigator with agent threads", () => {
     renderApp(appWith(state, sessions, "parent"), { extensions: [workspaceExtension, agentsExtension] });
     const rail = await screen.findByRole("navigation", { name: "Threads" });
 
-    const parent = await screen.findByText("Parent thread");
+    const parent = await within(rail).findByText("Parent thread");
     await waitFor(() => expect(parent.closest(".thread-row")?.querySelector(".thread-status-age")?.textContent).toMatch(/^Working/));
     expect(screen.queryByLabelText("1 agent running")).toBeNull();
     expect(within(rail).queryByText("Alpha reply")).toBeNull();
