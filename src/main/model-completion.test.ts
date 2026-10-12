@@ -7,8 +7,8 @@ const attribution = { sessionId: "s" };
 
 function runtime(final: ReturnType<typeof reply>, deltas: string[] = []) {
   return {
-    completeSimple: vi.fn(async () => final),
-    streamSimple: vi.fn(() => ({
+    completeSimple: vi.fn(async (..._args: unknown[]) => final),
+    streamSimple: vi.fn((..._args: unknown[]) => ({
       async *[Symbol.asyncIterator]() {
         yield { type: "start" };
         for (const delta of deltas) yield { type: "text_delta", delta };
