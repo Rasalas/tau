@@ -177,10 +177,10 @@ export function createHandoffHostExtension(options: HandoffHostOptions = {}): Ho
         persist();
         context.emit(LINEAGE_EVENT, lineage());
       };
-      const openThread = (threadId: string): HostThread => {
+      const openThread = (threadId: string, allowRunning = false): HostThread => {
         const thread = services.thread(threadId);
         if (!thread) throw new HostCommandError("That thread is not open any more. Open it again first.");
-        if (thread.isStreaming()) throw new HostCommandError("Wait for the thread's turn to end first.");
+        if (!allowRunning && thread.isStreaming()) throw new HostCommandError("Wait for the thread's turn to end first.");
         return thread;
       };
       const transferOf = (input: unknown): Transfer => {
@@ -202,11 +202,30 @@ export function createHandoffHostExtension(options: HandoffHostOptions = {}): Ho
           changed();
         },
       });
-      context.registerCommand("continue-targets", (input) => (record(input).refresh === true ? remote.refresh(true) : remote.targets()), { access: "read" });
+      // A proxy's execution belongs to its home; handoffs never switch that host's visible thread.
+      const remoteSource = (id: unknown) => {
+        if (typeof id !== "string" || services.thread(id)?.backendKind !== "machine") return undefined;
+        const split = id.indexOf("~");
+        const machine = split > 0 ? services.machines?.list().find((entry) => entry.id === id.slice(0, split)) : undefined;
+        if (!machine) throw new HostCommandError("The home device of this thread is unavailable.");
+        return { machine: machine.id, threadId: id.slice(split + 1) };
+      };
+      context.registerCommand("continue-targets", (input) => {
+        const raw = record(input);
+        const source = remoteSource(raw.threadId);
+        return source ? services.machines!.call(source.machine, HANDOFF_EXTENSION_ID, "continue-targets", { refresh: raw.refresh }) : raw.refresh === true ? remote.refresh(true) : remote.targets();
+      }, { access: "read" });
       context.registerCommand("continue-on", (input) => {
         const prompt = record(input).prompt;
         return remote.continueOn({ threadId: required(input, "threadId"), machine: required(input, "machine"), ...(typeof prompt === "string" ? { prompt } : {}) });
       }, { long: true, audit: { label: "continued a thread on another machine" } });
+      context.registerCommand("move-on", (input) => {
+        const prompt = record(input).prompt;
+        const threadId = required(input, "threadId");
+        const request = { threadId, machine: required(input, "machine"), ...(typeof prompt === "string" ? { prompt } : {}) };
+        const source = remoteSource(threadId);
+        return source ? services.machines!.call(source.machine, HANDOFF_EXTENSION_ID, "move-on", { ...request, threadId: source.threadId }, { timeoutMs: 120_000 }) : remote.moveOn(request);
+      }, { long: true, audit: { label: "moved a thread to another machine" } });
       context.registerCommand("bring-back-remote", (input) => remote.bringBack(required(input, "threadId")), { long: true, audit: { label: "brought a thread back from another machine" } });
       context.registerCommand("settle-remote", (input) => {
         const how = record(input).how;

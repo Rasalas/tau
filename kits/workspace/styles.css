@@ -908,6 +908,10 @@ body[data-profile="compact"] .turn-actions > button { min-height: 44px; padding:
 .workspace-card-split > .workspace-card-split-accessory { padding: 0; gap: 0; }
 .workspace-card-status { display: inline-flex; align-items: center; justify-content: center; width: 24px; flex: 0 0 24px; }
 .workspace-card-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-summary-card .workspace-card-identity { gap: 8px; }
+.workspace-machine-control { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 28px; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
+.workspace-machine-control > svg { width: var(--icon-size); height: var(--icon-size); }
+.workspace-identity-separator { flex: none; color: var(--faint); }
 .workspace-card-accessory { flex: none; color: var(--muted); }
 .workspace-summary-card .workspace-card-row > .chev, .workspace-card-chevron { opacity: 1; }
 .workspace-summary-card .workspace-editor-button,

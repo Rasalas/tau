@@ -146,7 +146,12 @@ describe("App render isolation", () => {
 
   it("switches cached content and its title in the same optimistic snapshot", () => {
     const current = {
-      cwd: "/project",
+      cwd: "/previous",
+      workspaceId: "old-workspace",
+      displayPath: "/previous",
+      threadId: "current",
+      providerSessionId: "provider-current",
+      backendKind: "codex" as const,
       sessionId: "current",
       sessionTitle: "Current title",
       models: [],
@@ -165,6 +170,8 @@ describe("App render isolation", () => {
       title: "Target title",
       modifiedAt: 1,
       projectPath: "/project",
+      workspaceId: "target-workspace",
+      projectDisplayPath: "/project",
       projectName: "project",
       messageCount: 2,
     };
@@ -177,6 +184,8 @@ describe("App render isolation", () => {
     expect(next.sessionTitle).toBe("Target title");
     expect(next.messages[0]?.text).toBe("Cached content");
     expect(next.supportsImageInput).toBe(false);
+    expect(next).toMatchObject({ cwd: "/project", workspaceId: "target-workspace", displayPath: "/project", threadId: "target", backendKind: "pi" });
+    expect(next.providerSessionId).toBeUndefined();
   });
 
   it("deduplicates a repeated history page while retaining newer message updates", () => {

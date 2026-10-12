@@ -88,16 +88,22 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
     async activate(context: HostExtensionContext) {
       const { services } = context;
       const file = join(services.stateDir, "thread-meta.json");
-      const read = await readPersistedJson<StoredState>(file, {
+      const cacheFile = join(services.stateDir, "machine-meta-cache.json");
+      const [read, cached] = await Promise.all([readPersistedJson<StoredState>(file, {
         expectedVersion: STATE_VERSION,
         decode: (value) => ({ ...decodeState(value), ...(record(value).imported === true ? { imported: true } : {}) }),
-      });
+      }), readPersistedJson<Record<string, RailState>>(cacheFile, {
+        expectedVersion: 1,
+        decode: (value) => Object.fromEntries(Object.entries(record(value)).map(([machine, meta]) => [machine, decodeState(meta)])),
+      })]);
       let state: StoredState = read?.data ?? { ...EMPTY_STATE };
       const running = new Set<string>();
       const turnVersions = new Map<string, number>();
       let wakeTimer: ReturnType<typeof setTimeout> | undefined;
       let sweeping: Promise<void> | undefined;
       let saving: Promise<void> = Promise.resolve();
+      let savingCache: Promise<void> = Promise.resolve();
+      let cachedText: string | undefined = JSON.stringify(cached?.data ?? {});
       let recheckTimer: ReturnType<typeof setTimeout> | undefined;
       const rechecks = new Map<string, boolean>();
       let disposed = false;
@@ -119,7 +125,19 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
       const homeState = (): RailState => ({ threads: Object.fromEntries(Object.entries(state.threads).filter(([id]) => !owner(id))), settings: state.settings });
       // Do not await peer reads during activation: reciprocally paired hosts answer from their caches.
       let remote: ReturnType<typeof followMachineState>;
-      remote = followMachineState(context, () => { if (remote) context.emit(META_EVENT, publicState()); }, owner);
+      remote = followMachineState(context, () => { if (remote) context.emit(META_EVENT, publicState()); }, owner, {
+        states: cached?.data ?? {},
+        save: (states) => {
+          const text = JSON.stringify(states);
+          if (text === cachedText) return;
+          cachedText = text;
+          savingCache = savingCache.then(() => writePersistedJson(cacheFile, 1, states))
+            .catch((error: unknown) => {
+              if (cachedText === text) cachedText = undefined;
+              services.log("thread-rail.cache-save-failed", error instanceof Error ? error.message : String(error));
+            });
+        },
+      });
       function publicState(): RailState { return remote.merged(homeState()); }
       const persist = () => {
         saving = writePersistedJson(file, STATE_VERSION, { ...state })
@@ -343,7 +361,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         if (running.has(id)) throw new HostCommandError("Cannot archive a running thread.");
         change({ [id]: archivePatch(clock()) });
         return publicState();
-      });
+      }, { callers: ["tau.handoff"] });
       // The thread's meta stays until the trash purges it, so a restored thread comes back where it was.
       const homeTrash = async () => {
         const local = (await services.sessions.trash()).filter((entry) => entry.backendKind !== "machine");
@@ -503,6 +521,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         for (const dispose of disposers) dispose();
         await sweeping;
         await saving;
+        await savingCache;
       };
     },
   };

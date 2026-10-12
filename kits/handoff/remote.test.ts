@@ -49,6 +49,7 @@ type Registry = Awaited<ReturnType<typeof activateHostKit>>;
 function fakeRemoteWork() {
   const starts: unknown[] = [];
   let link: RemoteThreadLink | undefined;
+  const abort = vi.fn(async () => { if (link?.thread) link = { ...link, status: "idle" }; return link; });
   const settle = vi.fn(async (how: "apply" | "discard"): Promise<RemoteThreadLink> => {
     link = { ...link!, status: "settled", settled: { how: how === "apply" ? "applied" : "discarded", at: 3, detail: "Merged tau/rex/parser." } };
     return link;
@@ -64,6 +65,7 @@ function fakeRemoteWork() {
         return link;
       }, callers);
       context.registerCommand("thread", () => link, { access: "read", ...callers });
+      context.registerCommand("thread-abort", abort, callers);
       context.registerCommand("thread-result", () => {
         link = { ...link!, status: "idle", thread: "rex-thread", result: { state: "branch", branch: "tau/rex/parser", tip: "c".repeat(40), commits: 1, files: 2, paths: ["src/parser.ts", "notes.md"], fetchedAt: 2 } };
         return link;
@@ -71,7 +73,7 @@ function fakeRemoteWork() {
       context.registerCommand("thread-settle", (input) => settle((input as { how: "apply" | "discard" }).how), callers);
     },
   };
-  return { extension, starts, settle, link: () => link, setLink: (next: RemoteThreadLink) => { link = next; } };
+  return { extension, starts, settle, abort, link: () => link, setLink: (next: RemoteThreadLink) => { link = next; } };
 }
 
 describe("Handoff Kit: continue on another machine and bring it back", () => {
@@ -84,6 +86,8 @@ describe("Handoff Kit: continue on another machine and bring it back", () => {
   let machineList: HostMachine[];
   let rexReadiness: HostReadiness;
   let calls: Array<{ command: string; input: unknown }>;
+  let abort: ReturnType<typeof vi.fn>;
+  let archive: ReturnType<typeof vi.fn>;
   const registries: Registry[] = [];
 
   beforeEach(async () => {
@@ -99,6 +103,8 @@ describe("Handoff Kit: continue on another machine and bring it back", () => {
       { kind: "codex", label: "Codex", state: "sign-in-required" },
     ]);
     calls = [];
+    abort = vi.fn(async () => undefined);
+    archive = vi.fn(async () => ({}));
   });
   afterEach(async () => {
     for (const registry of registries.splice(0)) await registry.dispose();
@@ -115,6 +121,9 @@ describe("Handoff Kit: continue on another machine and bring it back", () => {
       machines: { self: { id: "rex-id", name: "rex", version: "0.6.0" }, list: () => [], subscribe: () => () => undefined } as unknown as HostMachineServices,
     });
     registries.push(rex);
+    await rex.activate({ id: "tau.thread-rail", name: "Rail", activate(context) {
+      context.registerCommand("archive", async () => ({}));
+    } });
     const listeners = new Set<(list: readonly HostMachine[]) => void>();
     const machines = {
       self: { id: "mini-id", name: "mini", version: "0.6.0" },
@@ -137,8 +146,12 @@ describe("Handoff Kit: continue on another machine and bring it back", () => {
       complete: complete as HostExtensionServices["complete"],
       completionModels: async () => [{ ...LUNA, name: "Luna" }],
       machines,
+      sessions: { abort } as unknown as HostExtensionServices["sessions"],
     }, (event) => events.push(event));
     await a.activate(remoteWork.extension);
+    await a.activate({ id: "tau.thread-rail", name: "Rail", activate(context) {
+      context.registerCommand("archive", archive, { callers: [HANDOFF_EXTENSION_ID] });
+    } });
     registries.push(a);
     const invoke = <T>(command: string, input?: unknown) => a.invoke(HANDOFF_EXTENSION_ID, command, input) as Promise<T>;
     const lineage = () => events.filter((event) => event.name === LINEAGE_EVENT).at(-1)?.payload as LineageState | undefined;
@@ -163,6 +176,66 @@ describe("Handoff Kit: continue on another machine and bring it back", () => {
       runtimes: [{ kind: "pi", label: "Pi", ready: true }, { kind: "codex", label: "Codex", ready: false, note: "not signed in" }],
     }]);
     expect(events.filter((event) => event.name === TARGETS_EVENT).at(-1)?.payload).toEqual(targets);
+  });
+
+  it("asks a proxy's home for targets and forwards its full remote thread id", async () => {
+    threads.set("rex-id~remote~id", thread("rex-id~remote~id", [], { backendKind: "machine" }));
+    rexThreads.set("remote~id", thread("remote~id", [message("a1", "assistant", "Parser work.")]));
+    const { invoke, remoteWork } = await hosts();
+    await expect(invoke("continue-targets", { threadId: "rex-id~remote~id", refresh: true })).resolves.toEqual([]);
+    await expect(invoke("move-on", { threadId: "rex-id~remote~id", machine: "unknown", prompt: "Finish it." })).rejects.toThrow(/do not know a machine/u);
+    expect(calls).toContainEqual({ command: "move-on", input: { threadId: "remote~id", machine: "unknown", prompt: "Finish it." } });
+    expect(remoteWork.starts).toHaveLength(0);
+    expect(abort).not.toHaveBeenCalled();
+  });
+
+  it("moves a running thread only after the destination has started, then archives its saved source", async () => {
+    let running = true;
+    threads.set("t1", thread("t1", [message("a1", "assistant", "Working on the parser.")], { isStreaming: () => running }));
+    abort.mockImplementation(async () => { running = false; });
+    const { invoke, remoteWork } = await hosts();
+    const moved = invoke("move-on", { threadId: "t1", machine: "rex", prompt: "Finish the parser." });
+    await vi.waitFor(() => expect(remoteWork.starts).toHaveLength(1));
+    expect(abort).toHaveBeenCalledWith("t1");
+    expect(archive).not.toHaveBeenCalled();
+    remoteWork.setLink({ ...remoteWork.link()!, status: "running", thread: "rex-thread" });
+    await expect(moved).resolves.toMatchObject({ machine: "rex-id", thread: "rex-thread" });
+    expect(archive).toHaveBeenCalledWith({ threadId: "t1" }, expect.anything());
+  });
+
+  it("keeps the source visible when the destination fails to start", async () => {
+    threads.set("t1", thread("t1", [message("a1", "assistant", "Parser work.")]));
+    const { invoke, remoteWork } = await hosts();
+    const moved = invoke("move-on", { threadId: "t1", machine: "rex", prompt: "Finish it." });
+    const rejected = expect(moved).rejects.toThrow(/clone failed/u);
+    await vi.waitFor(() => expect(remoteWork.starts).toHaveLength(1));
+    remoteWork.setLink({ ...remoteWork.link()!, status: "failed", error: "clone failed" });
+    await rejected;
+    expect(archive).not.toHaveBeenCalled();
+  });
+
+  it("checks the destination before stopping any work here", async () => {
+    threads.set("t1", thread("t1", [message("a1", "assistant", "Parser work.")], { backendKind: "codex", isStreaming: () => true }));
+    const { invoke, remoteWork } = await hosts();
+    await expect(invoke("move-on", { threadId: "t1", machine: "rex", prompt: "Finish it." })).rejects.toThrow(/not signed in/u);
+    expect(abort).not.toHaveBeenCalled();
+    expect(remoteWork.starts).toHaveLength(0);
+    expect(archive).not.toHaveBeenCalled();
+  });
+
+  it("stops and hides the destination if archiving the source fails", async () => {
+    threads.set("t1", thread("t1", [message("a1", "assistant", "Parser work.")]));
+    archive.mockRejectedValue(new Error("source is running again"));
+    const { invoke, remoteWork } = await hosts();
+    const moved = invoke("move-on", { threadId: "t1", machine: "rex", prompt: "Finish it." });
+    const outcome = moved.catch((error: unknown) => error);
+    await vi.waitFor(() => expect(remoteWork.starts).toHaveLength(1));
+    await expect(invoke("move-on", { threadId: "t1", machine: "rex", prompt: "Finish it." })).rejects.toThrow(/already being transferred/u);
+    remoteWork.setLink({ ...remoteWork.link()!, status: "running", thread: "rex-thread" });
+    expect(await outcome).toMatchObject({ message: expect.stringContaining("source is running again") });
+    expect(remoteWork.starts).toHaveLength(1);
+    expect(remoteWork.abort).toHaveBeenCalledOnce();
+    expect(calls).toContainEqual({ command: "archive", input: { threadId: "rex-thread" } });
   });
 
   it("sends a Pi thread with its history and the draft, and keeps the thread here usable", async () => {

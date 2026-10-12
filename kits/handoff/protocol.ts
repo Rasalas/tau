@@ -94,6 +94,11 @@ export interface ContinueOnResult {
   native: boolean;
 }
 
+/** A completed device move: the destination exists and the saved source is archived. */
+export interface MoveOnResult extends ContinueOnResult {
+  thread: string;
+}
+
 /** What a machine answers when its thread is brought back to where it came from. */
 export interface RemoteMergeBackResult {
   header: string;

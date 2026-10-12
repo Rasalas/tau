@@ -58,7 +58,7 @@ describe("a fresh install (2a)", () => {
     expect(document.querySelector(".fresh-start")).toBeNull();
     cleanup();
     start({ isRepo: false, messageCount: 2 });
-    expect(await screen.findByRole("heading", { name: /What should .+ do next\?/u })).toBeTruthy();
+    await waitFor(() => expect(document.querySelector(".thread-title-trigger")?.textContent).toContain("New thread"));
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(document.querySelector(".fresh-start")).toBeNull();
   });

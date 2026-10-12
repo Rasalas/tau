@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
-import { ChevronDown, ChevronRight, Download, Ellipsis, GitCommitHorizontal, GitCompare, GitBranch, FolderGit2, SquareMenu, SquarePen, Upload } from "lucide-react";
-import { hostAvailable, Menu, Popover, tooltipProps, useHostCapabilities, usePreferences, type MenuSection, type RegionProps } from "tau";
+import { ChevronDown, ChevronRight, Download, Ellipsis, GitCommitHorizontal, GitCompare, GitBranch, Folder, FolderGit2, Laptop, SquareMenu, SquarePen, Upload } from "lucide-react";
+import { hostAvailable, Menu, Popover, tooltipProps, useHostCapabilities, useHostName, usePreferences, type MenuSection, type RegionProps } from "tau";
+import { DraftMachinePill } from "./run-on.js";
 import { ThreadBranch } from "./branch-menu.js";
 import { ThreadCostRow } from "./thread-cost-row.js";
 import { EditorIcon } from "./EditorIcon.js";
@@ -15,12 +16,21 @@ export function WorkspaceTitleActions(props: RegionProps & { hideChanges?: boole
   const state = useWorkspaceKit();
   const workspaceStore = useWorkspaceStore();
   const { readOnly } = useHostCapabilities();
+  const hostName = useHostName() ?? "This machine";
   const projectActions = useProjectActions(state.workspaceId ?? state.cwd, (command, includeInContext, name) => void workspaceStore.runShellAction(command, includeInContext, name));
   const changed = state.changes.fileCount ?? state.changes.files.length;
   if (!state.cwd) return null;
   const worktree = state.workspace?.worktrees.find((entry) => entry.isCurrent && !entry.isMain);
+  const Machine = state.workspaceMachine;
+  const identity = worktree?.name ?? state.cwd.split(/[\\/]/u).filter(Boolean).pop() ?? state.cwd;
   return <section className="workspace-summary-card" aria-label="Project workspace">
-    {worktree ? <header className="workspace-card-row workspace-card-identity"><FolderGit2 aria-hidden /><span className="workspace-card-label" title={worktree.path}>{worktree.name}</span><span className="workspace-card-accessory">Worktree</span></header> : null}
+    <header className="workspace-card-row workspace-card-identity">
+      {state.draftPending ? <DraftMachinePill {...props} iconOnly /> : Machine ? <Machine {...props} /> : <span className="workspace-card-icon" aria-label={`Runs on ${hostName}`} {...tooltipProps(`Runs on ${hostName}`)}><Laptop aria-hidden /></span>}
+      <span className="workspace-identity-separator" aria-hidden>/</span>
+      {worktree ? <FolderGit2 aria-hidden /> : <Folder aria-hidden />}
+      <span className="workspace-card-label" title={worktree?.path ?? state.cwd}>{identity}</span>
+      {worktree ? <span className="workspace-card-accessory">Worktree</span> : null}
+    </header>
     <div className="workspace-card-tools" role="group" aria-label="Project tools">
       <WorkspaceEditorButton {...props} />
       {!state.draftPending && !readOnly ? <ProjectActionsControl state={projectActions} card /> : null}

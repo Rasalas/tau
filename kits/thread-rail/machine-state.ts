@@ -21,7 +21,7 @@ export function machineThreadOwner(id: string, sessions: ReadonlyMap<string, Hos
 }
 
 /** Peers send only their own state. Their merged caches stay on their local clients. */
-export function followMachineState(context: HostExtensionContext, changed: () => void, owner: (id: string) => ReturnType<typeof parseMachineThreadId>) {
+export function followMachineState(context: HostExtensionContext, changed: () => void, owner: (id: string) => ReturnType<typeof parseMachineThreadId>, cache?: { states: Record<string, RailState>; save(states: Record<string, RailState>): void }) {
   const machines = context.services.machines;
   if (!machines) return {
     merged: (local: RailState) => local,
@@ -29,12 +29,14 @@ export function followMachineState(context: HostExtensionContext, changed: () =>
     refresh: async (_machine: string) => undefined,
     dispose: () => undefined,
   };
-  const states = new Map<string, RailState>();
+  const states = new Map<string, RailState>(Object.entries(cache?.states ?? {}));
   const trash = new Map<string, HostTrashedThread[]>();
   const watches = new Map<string, () => void>();
   const connected = new Set<string>();
   const stateRevisions = new Map<string, number>();
   const trashRevisions = new Map<string, number>();
+  const reads = new Map<string, Promise<void>>();
+  const readAgain = new Set<string>();
   const bump = (revisions: Map<string, number>, machine: string) => {
     const revision = (revisions.get(machine) ?? 0) + 1;
     revisions.set(machine, revision);
@@ -45,7 +47,7 @@ export function followMachineState(context: HostExtensionContext, changed: () =>
     const local = (await context.services.sessions.trash()).filter((entry) => entry.backendKind !== "machine");
     if (!disposed) context.emit(TRASH_EVENT, mergedTrash(local));
   };
-  const setState = (machine: string, value: unknown) => { states.set(machine, decodeState(value)); changed(); };
+  const setState = (machine: string, value: unknown) => { states.set(machine, decodeState(value)); cache?.save(Object.fromEntries(states)); changed(); };
   const setTrash = (machine: string, value: unknown) => {
     if (!Array.isArray(value)) return;
     trash.set(machine, value.filter((entry): entry is HostTrashedThread => !!entry && typeof entry === "object" && typeof entry.sessionId === "string" && entry.backendKind !== "machine"));
@@ -54,22 +56,38 @@ export function followMachineState(context: HostExtensionContext, changed: () =>
   const logFailure = (error: unknown) => context.services.log("thread-rail.machine-read-failed", error instanceof Error ? error.message : String(error));
   const refresh = async (machine: string) => {
     if (disposed || !connected.has(machine)) return;
+    const pending = reads.get(machine);
+    if (pending) {
+      // Index pushes can outpace a slow read. Keep its answer usable, then
+      // read once more for all the notifications that arrived meanwhile.
+      readAgain.add(machine);
+      await pending;
+      // A caller refreshing after a write needs that follow-up's answer.
+      return reads.get(machine);
+    }
     const stateRevision = bump(stateRevisions, machine);
     const trashRevision = bump(trashRevisions, machine);
-    await Promise.all([
+    const reading = Promise.all([
       machines.call(machine, THREAD_RAIL_EXTENSION_ID, "state", { homeOnly: true }).then((value) => {
         if (!disposed && connected.has(machine) && stateRevisions.get(machine) === stateRevision) setState(machine, value);
       }).catch(logFailure),
       machines.call(machine, THREAD_RAIL_EXTENSION_ID, "trash", { homeOnly: true }).then((value) => {
         if (!disposed && connected.has(machine) && trashRevisions.get(machine) === trashRevision) setTrash(machine, value);
       }).catch(logFailure),
-    ]);
+    ]).then(() => undefined).finally(() => {
+      reads.delete(machine);
+      if (readAgain.delete(machine)) void refresh(machine);
+    });
+    reads.set(machine, reading);
+    await reading;
   };
   const update = (list: readonly HostMachine[]) => {
     if (disposed) return;
     for (const [machine, stop] of watches) {
       if (!list.some((entry) => entry.id === machine)) { stop(); watches.delete(machine); states.delete(machine); trash.delete(machine); }
     }
+    for (const machine of states.keys()) if (!list.some((entry) => entry.id === machine)) states.delete(machine);
+    cache?.save(Object.fromEntries(states));
     const before = new Set(connected);
     connected.clear();
     for (const machine of list) {
@@ -90,12 +108,18 @@ export function followMachineState(context: HostExtensionContext, changed: () =>
         if (!before.has(machine.id)) void refresh(machine.id);
       }
     }
+    for (const machine of before) if (!connected.has(machine)) {
+      bump(stateRevisions, machine);
+      bump(trashRevisions, machine);
+    }
     changed();
     void publishTrash().catch(logFailure);
   };
   const merged = (local: RailState): RailState => {
     const threads = { ...local.threads };
-    for (const machine of connected) for (const [id, meta] of Object.entries(states.get(machine)?.threads ?? {})) {
+    // The index keeps cached rows while their home is offline. Their last
+    // known pin, snooze and settled state must stay with those rows too.
+    for (const [machine, state] of states) for (const [id, meta] of Object.entries(state.threads)) {
       const projectedId = `${machine}~${id}`;
       if (owner(projectedId)?.machine === machine) threads[projectedId] = meta;
     }

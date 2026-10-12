@@ -12,8 +12,9 @@ afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefine
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
-  return { promise, resolve };
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 }
 const detail = (sessionId: string, text: string): ThreadDetail => ({
   sessionId, messages: [{ id: `${sessionId}-message`, role: "assistant", text, timestamp: 1 }], isStreaming: false, activeTools: [],
@@ -44,6 +45,35 @@ async function start() {
   await waitFor(() => expect(actions?.activeThread()?.sessionId).toBe("a"));
   return { client, responses, pages, actions: () => actions! };
 }
+
+it("selects an uncached thread while its host and transcript requests are stalled", async () => {
+  const test = await start();
+  act(() => { void test.actions().switchSession("b"); });
+  await waitFor(() => expect(test.actions().activeThread()?.sessionId).toBe("b"));
+  await screen.findByRole("button", { name: "Thread b" });
+  expect(screen.queryByText("Original A")).toBeNull();
+  act(() => { void test.actions().switchSession("c"); });
+  await waitFor(() => expect(test.actions().activeThread()?.sessionId).toBe("c"));
+});
+
+it.each([false, true])("keeps the selected thread after a switch timeout, with transcript loaded=%s", async (loaded) => {
+  const test = await start();
+  let selected!: Promise<boolean>;
+  act(() => { selected = test.actions().switchSession("b"); });
+  if (loaded) await act(async () => {
+    test.pages.get("b")!.resolve({ sessionId: "b", messages: detail("b", "Saved B").messages, hasMore: false });
+  });
+  await act(async () => {
+    test.responses.get("b")!.reject(new Error("timeout: request timed out after 30000ms"));
+    expect(await selected).toBe(false);
+  });
+  await waitFor(() => expect(test.actions().activeThread()?.sessionId).toBe("b"));
+  expect(screen.queryByText("Original A")).toBeNull();
+  if (loaded) expect(screen.getByText("Saved B")).toBeTruthy();
+  act(() => { test.client.emit({ type: "host-update", update: { version: 1, type: "thread-detail", detail: detail("a", "Unselected A") } }); });
+  expect(test.actions().activeThread()?.sessionId).toBe("b");
+  expect(screen.queryByText("Unselected A")).toBeNull();
+});
 
 it.each([false, true])("applies the switch response after a watched detail, with cached target=%s", async (cached) => {
   const test = await start();

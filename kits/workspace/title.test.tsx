@@ -83,14 +83,16 @@ describe("Workspace Kit title actions", () => {
     expect(screen.getByLabelText("Working tree: 1 additions, 0 deletions").textContent).toBe("+1−0");
   });
 
-  it("identifies a distinct worktree without adding a project heading to the main checkout", () => {
+  it("identifies the device and workspace for both a worktree and the main checkout", () => {
     setup(workspace({ worktrees: [{ path: "/project", name: "project-feature", isCurrent: true, isMain: false, branch: "feature" }] }));
     const card = screen.getByRole("region", { name: "Project workspace" });
     expect(within(card).getByText("project-feature")).toBeTruthy();
     expect(within(card).getByText("Worktree")).toBeTruthy();
     cleanup();
     setup();
-    expect(screen.getByRole("region", { name: "Project workspace" }).querySelector(".workspace-card-identity")).toBeNull();
+    const identity = screen.getByRole("region", { name: "Project workspace" }).querySelector(".workspace-card-identity")!;
+    expect(identity.textContent).toBe("/project");
+    expect(within(identity as HTMLElement).getByLabelText("Runs on This machine")).toBeTruthy();
   });
 
   it("mounts and removes feature-owned workspace sections with their contribution", () => {
