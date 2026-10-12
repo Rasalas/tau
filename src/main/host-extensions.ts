@@ -958,7 +958,7 @@ export interface HostThread {
   /** The thread's messages under the ids the client draws, so one can be named back to it. */
   transcript(): Promise<UiMessage[]>;
   /** One short answer from a model of the thread's runtime, unrelated to the conversation. */
-  complete(provider: string, modelId: string, request: { system: string; prompt: string; maxTokens?: number }): Promise<string>;
+  complete(provider: string, modelId: string, request: CompletionRequest): Promise<string>;
   /** The provider API of the thread's active model, e.g. "openai-responses". */
   modelApi(): string | undefined;
   /** Shortcuts Pi extensions registered for this thread's runtime, resolved against the user's keybindings.json. */

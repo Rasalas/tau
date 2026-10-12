@@ -15,6 +15,7 @@ import { knownSkillNames } from "../shared/skill-envelope.js";
 import { validatePreparedPrompt } from "../shared/prepared-prompt.js";
 import { isOfferedMode, threadModeFromEntries, THREAD_MODE_ENTRY } from "../shared/thread-mode.js";
 import { prepareSkillPrompt, skillInvocationCommand } from "./skill-invocation.js";
+import { completeText } from "./model-completion.js";
 import { createExtensionUiContext } from "./extension-ui.js";
 import { promptImages } from "./prompt-attachments.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
@@ -398,28 +399,7 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
   private async complete(provider: string, modelId: string, request: CompletionRequest): Promise<string> {
     const model = this.session.modelRuntime.getModel(provider, modelId);
     if (!model) throw new Error(`Unknown model: ${provider}/${modelId}`);
-    const attribution = modelAttribution(model, this.threadId);
-    const response = await this.session.modelRuntime.completeSimple(
-      model,
-      {
-        systemPrompt: request.system,
-        messages: [{ role: "user", content: [{ type: "text", text: request.prompt }], timestamp: Date.now() }],
-      },
-      {
-        maxTokens: request.maxTokens ?? 48,
-        cacheRetention: "none",
-        timeoutMs: 30_000,
-        sessionId: attribution.sessionId,
-        ...(attribution.headers ? { headers: attribution.headers } : {}),
-      },
-    );
-    if (response.stopReason === "error" || response.stopReason === "aborted") {
-      throw new Error(response.errorMessage || "The model did not complete.");
-    }
-    const content = response.content;
-    return Array.isArray(content)
-      ? content.map((part) => part && typeof part === "object" && "text" in part ? String((part as { text?: unknown }).text ?? "") : "").join("")
-      : String(content ?? "");
+    return completeText(this.session.modelRuntime, model, request, modelAttribution(model, this.threadId));
   }
 
   private tree(): UiThreadTree {

@@ -102,6 +102,18 @@ describe("forking from a turn (design 2d)", () => {
     expect(host.removeWorktree).not.toHaveBeenCalled();
   });
 
+  it("offers the task another kit proposes (a side question) as the fork's draft", async () => {
+    const { forkFrom, registry, view } = setUp();
+    render(view(turn));
+    act(() => registry.getForkPrompt()!.ask({ entryId: "e-a2", prompt: "Is the retry safe?" }));
+    const task = await screen.findByRole("textbox", { name: /Task for the new thread/u }) as HTMLTextAreaElement;
+    expect(task.value).toBe("Is the retry safe?");
+    const start = await screen.findByRole("button", { name: "Fork and start" });
+    await waitFor(() => expect((start as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(start);
+    await waitFor(() => expect(forkFrom).toHaveBeenCalledWith({ sourceEntryId: "e-a2" }, expect.objectContaining({ prompt: "Is the retry safe?", stayInSource: true })));
+  });
+
   it("says so when the turn has no verified checkpoint, and starts the worktree from HEAD", async () => {
     const { host, forkFrom, view } = setUp({ restorable: false });
     render(view(turn));

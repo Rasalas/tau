@@ -45,7 +45,7 @@ export function createForkAsker(asks: ForkAsks, checkpoints: CheckpointStore, wo
     const [stayInSource, setStayInSource] = useState(true);
     // The pills verify only turns that changed files; any other turn's checkpoint is asked about here.
     const [asked, setAsked] = useState<{ id: string; ok: boolean }>();
-    useEffect(() => { setName(nextForkBranch(info?.branch, info?.refs.map((ref) => ref.name) ?? [])); setBusy(false); setPrompt(""); setStayInSource(true); }, [ask]);
+    useEffect(() => { setName(nextForkBranch(info?.branch, info?.refs.map((ref) => ref.name) ?? [])); setBusy(false); setPrompt(ask?.prompt ?? ""); setStayInSource(true); }, [ask]);
     const sessionId = snapshot?.sessionId;
     const sourceSession = useRef(sessionId);
     useEffect(() => {

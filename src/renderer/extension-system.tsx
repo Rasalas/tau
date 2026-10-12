@@ -92,6 +92,12 @@ export interface WorkbenchActions {
    * A rejected task stays as the fork's draft and still returns true.
    */
   forkFrom?(message: Pick<UiMessage, "sourceEntryId">, options?: { workspace?: string; prompt?: string; stayInSource?: boolean; expectedSessionId?: string }): Promise<boolean>;
+  /**
+   * A fork through `entryId` the way the user starts one: the fork prompt asks first, with `prompt` as the task it
+   * offers; without a prompt registered the fork starts at once with that task and stays in the background.
+   * True once a question or a fork exists (API 1.59.0).
+   */
+  askFork?(request: ForkRequest & { entryId: string }): Promise<boolean>;
   focusComposer(seed?: string): void;
   focusTranscript(): void;
   /**
@@ -1468,6 +1474,8 @@ export interface ThreadMenuContribution {
 export interface ForkRequest {
   entryId?: string;
   turn?: TranscriptTurn;
+  /** The task the fork starts with, for a prompt to show as its draft (API 1.59.0). */
+  prompt?: string;
 }
 
 /** Asks before every fork the user starts (the `f` key, the thread tree, Duplicate); the last one wins. */

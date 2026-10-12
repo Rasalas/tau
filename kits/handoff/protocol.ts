@@ -142,3 +142,52 @@ export function splitBlock(body: string): { header: string; summary: string } {
 export function formatBlock(tag: string, header: string, summary: string): string {
   return `<${tag}>\n${header.trim()}\n\n${summary.trim()}\n</${tag}>`;
 }
+
+/** The block a fork started from a side question carries: the question's quick answer, as background. */
+export const BTW_TAG = "btw_context";
+/** Pushed with a `BtwChat`, or `{ id, gone: true }` once it was closed, whenever a side question changes. */
+export const BTW_EVENT = "btw";
+/** The stage tab kind that shows one side question. */
+export const BTW_STAGE_TAB = "handoff.btw";
+
+export type BtwStatus = "working" | "done" | "failed";
+
+/**
+ * A side question: asked about a thread's conversation as it stood, answered by a
+ * model without tools, and never written into the thread. It lives until its tab closes.
+ */
+export interface BtwChat {
+  id: string;
+  threadId: string;
+  question: string;
+  /** Streams in while `status` is working. */
+  answer: string;
+  status: BtwStatus;
+  error?: string;
+  /** The runtime the thread runs on; decides how the question continues as a side task. */
+  backend: string;
+  /** Where a fork continues the thread: its last saved entry when the question was asked. Absent for a runtime without a journal. */
+  entryId?: string;
+  /** The model that answered, `provider/id`. */
+  model?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface BtwGone {
+  id: string;
+  gone: true;
+}
+
+export interface BtwAskInput {
+  threadId: string;
+  question: string;
+  /** Asks an existing question again (Retry), on the conversation as it is now. */
+  chatId?: string;
+}
+
+/** The first prompt of a side task that grew out of a side question. */
+export function sideTaskPrompt(question: string, answer: string): string {
+  const quick = answer.trim();
+  return quick ? `${question.trim()}\n\n${formatBlock(BTW_TAG, "A quick answer from a side question, as background for the message above:", quick)}` : question.trim();
+}

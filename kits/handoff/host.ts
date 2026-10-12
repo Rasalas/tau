@@ -41,6 +41,7 @@ import {
   type RemoteContinuation,
   type ResolveTransferResult,
 } from "./protocol.js";
+import { SideQuestions } from "./btw.js";
 import { RemoteContinuations, type RemoteRecord } from "./remote.js";
 
 const STATE_VERSION = 1;
@@ -94,6 +95,8 @@ interface Stored extends Record<string, unknown> {
 export interface HandoffHostOptions {
   now?: () => number;
   newId?: () => string;
+  /** How often a streaming side-question answer is pushed, in ms; a test passes 0. */
+  pushEveryMs?: number;
 }
 
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -347,6 +350,8 @@ export function createHandoffHostExtension(options: HandoffHostOptions = {}): Ho
         return lineage();
       }, { audit: { label: "brought threads back", automatic: true } });
 
+      const side = new SideQuestions(context, { now, newId, ...(options.pushEveryMs === undefined ? {} : { pushEveryMs: options.pushEveryMs }) });
+      await side.open();
       const disposers = [
         services.registerTurnObserver({
           toolEnded: (sessionId, tool, cwd) => {
@@ -384,6 +389,7 @@ export function createHandoffHostExtension(options: HandoffHostOptions = {}): Ho
             changed();
           },
           threadDeleted: async (sessionId) => {
+            side.forgetThread(sessionId);
             if (!state.threads[sessionId]) return;
             delete state.threads[sessionId];
             changed();
@@ -392,6 +398,7 @@ export function createHandoffHostExtension(options: HandoffHostOptions = {}): Ho
       ];
       remote.open();
       return async () => {
+        await side.close();
         remote.close();
         for (const dispose of disposers) dispose();
         await saving;

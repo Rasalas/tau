@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore, type ComponentType } from "react";
-import { ArrowRightLeft, ChevronRight, CornerUpLeft, GitFork, Laptop, Monitor, Server, Undo2, X } from "lucide-react";
+import { ArrowRightLeft, ChevronRight, CornerUpLeft, GitFork, Laptop, MessageCircleQuestion, Monitor, Server, Undo2, X } from "lucide-react";
 import {
   HostUnavailableError,
   Markdown,
@@ -24,6 +24,7 @@ import {
 } from "tau";
 import {
   HANDOFF_EXTENSION_ID,
+  BTW_TAG,
   HANDOFF_TAG,
   LINEAGE_EVENT,
   MERGE_BACK_TAG,
@@ -39,6 +40,7 @@ import {
 } from "./protocol.js";
 import { REMOTE_WORK_EXTENSION_ID, THREAD_LINK_EVENT, type RemoteThreadLink } from "../remote-work/protocol.js";
 import type { ThreadDropTarget, WorkspaceStoreApi } from "../workspace/protocol.js";
+import { registerSideQuestions } from "./btw-view.js";
 import { HandoffStore, parseSaved } from "./store.js";
 
 const PROFILES = ["desktop", "web", "compact"] as const;
@@ -578,6 +580,8 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
       });
       context.registerMessageBlock({ id: "handoff.context", tag: HANDOFF_TAG, roles: ["user"], profiles: PROFILES, Component: contextCard("Context handoff", ArrowRightLeft) });
       context.registerMessageBlock({ id: "handoff.merge-back", tag: MERGE_BACK_TAG, roles: ["user"], profiles: PROFILES, Component: contextCard("Brought back", Undo2) });
+      context.registerMessageBlock({ id: "handoff.btw-context", tag: BTW_TAG, roles: ["user"], profiles: PROFILES, Component: contextCard("Side question", MessageCircleQuestion) });
+      const stopSideQuestions = registerSideQuestions(context, { host, continueIn });
       context.registerPromptHook({
         id: "handoff.link",
         async afterPrompt(event) {
@@ -652,7 +656,7 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
           }), ...machines];
         },
       });
-      return () => store.clear();
+      return () => { stopSideQuestions(); store.clear(); };
     },
   };
 }

@@ -55,6 +55,24 @@ a delegated agent. **Bring back to parent** puts a summary of work after the
 fork point into the source's composer for review. It does not merge Git changes;
 use the existing review and merge flow for those.
 
+## Ask a side question
+
+Type `/btw <question>` in a thread, or choose **Ask a side question…** in the
+thread's menu (it takes what is typed in the composer as the question). The
+answer streams into its own tab beside the conversation and stays there until you
+close the tab, so several questions can stay open. The question is answered from
+the conversation so far, including what the agent ran, by the thread's own model,
+without tools; it does not join the thread, so the thread's history, queue and
+cost are as before, and you can ask while the agent is working. A question that
+failed has **Retry**.
+
+**Continue as side task** turns a good answer into real work. In a Pi thread it
+opens the same fork question as **Fork here** (branch and worktree, **Task for
+the new thread** already holding the question and its answer), and the fork
+starts from the point where you asked. In a thread of another runtime it starts a
+new thread on that runtime with a summary of the conversation, and the question
+waits in its composer.
+
 ## Give a thread a goal
 
 In a Codex or Claude Code thread, type `/goal <objective>` and send it. The
