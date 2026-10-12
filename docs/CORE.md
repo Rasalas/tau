@@ -567,9 +567,9 @@ leaf. `src/main/agent-scope.ts` is the one place that decides, API 1.59.0:
   --scope --slice=app-tau-agents.slice --unit=tau-<name>-<id>.scope
   --property=OOMPolicy=stop -- <command> <args>`. Every step `exec`s, so the
   spawned PID, stdio and signals stay the agent's own (killing the PID, closing
-  stdin and process groups behave as before). The sibling slice sits in
-  `app.slice` next to the host's unit, so oomd, which kills leaf cgroups, now
-  picks the agent. The shell raises the process's `oom_score_adj` to 800 first
+  stdin and process groups behave as before). The slice nests as
+  `app.slice/app-tau.slice/app-tau-agents.slice`, a sibling branch of the host's
+  unit in `app.slice`, so oomd, which kills leaf cgroups, now picks the agent. The shell raises the process's `oom_score_adj` to 800 first
   (a scope cannot set `OOMScoreAdjust`), so the kernel kills agents before the
   host. A command that does not resolve on PATH stays unwrapped and fails at
   spawn with its own error.

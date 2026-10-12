@@ -49,16 +49,22 @@ $USER`):
 3. `systemd-cgls --user` shows the agents beside, not inside, the host:
 
    ```
-   ├─app-tau.slice
-   │ └─app-tau-agents.slice          (or app-tau-agents.slice at the top of app.slice)
-   │   ├─tau-terminal-1a2b3c4d.scope
-   │   │ └─12345 /usr/bin/zsh -il
-   │   └─tau-codex-5e6f7a8b.scope
-   │     ├─12400 /usr/bin/codex app-server
-   │     └─12411 sleep 300
-   └─tau-host.service
-     └─… (the host and its helpers only)
+   ├─user@1000.service
+   │ └─app.slice
+   │   ├─app-tau.slice
+   │   │ └─app-tau-agents.slice
+   │   │   ├─tau-terminal-1a2b3c4d.scope
+   │   │   │ └─12345 /usr/bin/zsh -il
+   │   │   └─tau-codex-5e6f7a8b.scope
+   │   │     ├─12400 /usr/bin/codex app-server
+   │   │     └─12411 sleep 300
+   │   └─tau-host.service
+   │     └─… (the host and its helpers only)
    ```
+
+   (Seen on Debian 13, systemd 257; the scope's cgroup is
+   `…/user@<uid>.service/app.slice/app-tau.slice/app-tau-agents.slice/tau-<name>-<id>.scope`.
+   systemd nests a slice named `a-b-c.slice` under `a-b.slice` and `a.slice`.)
 
 4. `systemctl --user show app-tau-agents.slice -p MemoryHigh -p MemoryMax` lists
    RAM − 6 GB and RAM − 4 GB (at least ½ and ¾ of the RAM);
