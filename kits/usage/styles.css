@@ -395,7 +395,7 @@ body[data-profile="compact"] .usage-show-in-sidebar > button { min-height: var(-
 .usage-sheet-read { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; color: var(--muted); font-size: var(--text-xs); }
 .usage-sheet-read > .mini-button { display: inline-flex; flex: none; align-items: center; gap: 6px; min-height: var(--touch-target); white-space: nowrap; }
 
-/* Mobile uses the desktop's bars beside the thread-list title. */
+/* Mobile uses the desktop's bars in the thread list's top bar. */
 .usage-juicestrip {
   min-width: var(--touch-target); min-height: var(--touch-target); display: flex; align-items: center; gap: 8px;
   padding: 0 7px; border: 0; border-radius: 10px; background: transparent; cursor: pointer;
