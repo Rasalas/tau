@@ -462,6 +462,8 @@ describe("SubmissionController", () => {
     await submission;
     expect(newSession.mock.calls[0]?.[2]).toBe("worktree");
     expect(newSession.mock.calls[0]?.[3]).toMatchObject({ newThreadRequestId: originalRequest });
+    // The user is on another draft now; the host must not put this thread on screen.
+    expect(newSession.mock.calls[0]?.[5]).toMatchObject({ background: true });
     expect(state.pending?.draftId).toBe("draft-2");
   });
 

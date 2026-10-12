@@ -144,3 +144,24 @@ describe("forking", () => {
     expect(duplicateThread).toHaveBeenCalled();
   });
 });
+
+describe("commands for the thread on screen", () => {
+  // The host's active thread can be another one; these must not reach it.
+  it("name that thread when compacting or changing its model or thinking level", async () => {
+    const compactContext = vi.fn(async () => ({ version: 1, updates: [] }));
+    const setModel = vi.fn(async () => ({ version: 1, updates: [] }));
+    const setThinkingLevel = vi.fn(async () => ({ version: 1, updates: [] }));
+    const client = createFakeHostClient({ isReadOnly: () => false, compactContext, setModel, setThinkingLevel });
+    const thread = new ThreadCommands({
+      client: () => client,
+      view: { setNotice: vi.fn(), getSnapshot: () => ({ sessionId: "shown" }) },
+      applyActionResult: () => true,
+    } as unknown as ThreadCommandPorts);
+    await thread.compactContext();
+    await thread.setModel("anthropic", "opus");
+    await thread.setThinking("high");
+    expect(compactContext).toHaveBeenCalledWith("shown");
+    expect(setModel).toHaveBeenCalledWith("anthropic", "opus", "shown");
+    expect(setThinkingLevel).toHaveBeenCalledWith("high", "shown");
+  });
+});

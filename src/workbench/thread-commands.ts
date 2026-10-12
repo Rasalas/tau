@@ -137,7 +137,7 @@ export class ThreadCommands {
   setModel = async (provider: string, id: string): Promise<void> => {
     if (!this.requireWrite("Model selection")) return;
     try {
-      this.ports.applyActionResult(await this.client!.setModel(provider, id));
+      this.ports.applyActionResult(await this.client!.setModel(provider, id, this.sessionId()));
     } catch (error) {
       this.notify(errorMessage(error));
     }
@@ -146,7 +146,7 @@ export class ThreadCommands {
   setThinking = async (level: string): Promise<void> => {
     if (!this.requireWrite("Thinking level")) return;
     try {
-      this.ports.applyActionResult(await this.client!.setThinkingLevel(level));
+      this.ports.applyActionResult(await this.client!.setThinkingLevel(level, this.sessionId()));
     } catch (error) {
       this.notify(errorMessage(error));
     }

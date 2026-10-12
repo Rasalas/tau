@@ -295,13 +295,13 @@ export class HostPublication {
     return this.runtimeVersions.recheck(kind);
   }
 
-  /** `catalogFromSnapshot(await this.snapshot())` without projecting the transcript. */
-  async activeCatalog(): Promise<HostCatalog> {
+  /** `catalogFromSnapshot(await this.snapshot())` without projecting the transcript; the active thread's unless named. */
+  async activeCatalog(thread = this.deps.view.active()): Promise<HostCatalog> {
     this.ensureCompletionModels();
     this.runtimeVersions.refresh();
-    const models = await this.ensureModels();
+    const models = await this.ensureModels(thread);
     return {
-      ...this.deps.projection.catalog(this.deps.view.active(), models, this.deps.view.extensionCount()),
+      ...this.deps.projection.catalog(thread, models, this.deps.view.extensionCount()),
       ...(this.completionModels ? { completionModels: [...this.completionModels] } : {}),
       runtimeBackends: this.runtimeBackends().map((backend) => ({ ...backend })),
       ...(this.deps.defaultBackendKind ? { defaultBackendKind: this.deps.defaultBackendKind } : {}),
@@ -312,19 +312,19 @@ export class HostPublication {
     this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: await this.activeCatalog() });
   }
 
-  async catalogResult(): Promise<HostActionResult> {
-    const catalog = { version: HOST_PROTOCOL_VERSION, type: "catalog" as const, catalog: await this.activeCatalog() };
-    this.emitUpdate(catalog);
+  /** The catalog of a thread other than the active one goes only to the client that asked: the others draw their own thread. */
+  async catalogResult(thread = this.deps.view.active()): Promise<HostActionResult> {
+    const catalog = { version: HOST_PROTOCOL_VERSION, type: "catalog" as const, catalog: await this.activeCatalog(thread) };
+    if (thread === this.deps.view.active()) this.emitUpdate(catalog);
     return this.actionResult([catalog]);
   }
 
-  async ensureModels(): Promise<UiModel[]> {
-    const active = this.deps.view.active();
+  async ensureModels(active = this.deps.view.active()): Promise<UiModel[]> {
     if (!active) return [];
     // Only a runtime the host builds itself pays for a catalog scan; every
     // other one answers from what it already holds.
     if (!isLocalPiRuntime(active)) return active.backend.models();
-    const key = this.deps.modelsKey(this.deps.view.cwd());
+    const key = this.deps.modelsKey(active === this.deps.view.active() ? this.deps.view.cwd() : active.cwd);
     const cached = this.modelCatalogCache.get(key);
     if (cached) return cached;
     const models = await active.backend.models();

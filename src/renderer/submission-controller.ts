@@ -411,7 +411,9 @@ export class SubmissionController {
         const { model: requestedModel, thinkingLevel, mode } = this.newThreadStart(pending);
         // The host streams the new thread to this client from its first detail, before its id is known here.
         const releaseRequest = client.watchNewThread(newThreadRequestId);
-        const result = await (requestedModel || thinkingLevel || mode
+        // Left while its worktree and prompt were being prepared: the host must not put it on screen.
+        const background = recovery?.detached === true;
+        const result = await (requestedModel || thinkingLevel || mode || background
           ? client.newSession(
             text,
             attachments,
@@ -422,6 +424,7 @@ export class SubmissionController {
               ...(requestedModel ? { model: { provider: requestedModel.provider, id: requestedModel.id } } : {}),
               ...(thinkingLevel ? { thinkingLevel } : {}),
               ...(mode ? { mode } : {}),
+              ...(background ? { background } : {}),
             },
           )
           : client.newSession(text, attachments, pending.workspaceId ?? pending.projectPath, clientTurn, prepared)

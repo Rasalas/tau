@@ -1255,8 +1255,8 @@ export class PiHost {
       const activationEpoch = activation.epoch;
       const refused = await refusal;
       if (refused) return this.publication.newThreadResult([], { accepted: false, message: refused }, requestId);
-      // A superseded request still creates its thread and delivers its prompt
-      // in the background; it only stops competing for the visible thread.
+      // A superseded request, or one sent from a draft the user has left, still creates
+      // its thread and delivers its prompt in the background; it never takes the visible thread.
       const startedAt = performance.now();
       const targetCwd = cwd ?? this.cwd;
       if (this.isCurrentActivation(activationEpoch)) this.attached.session.detach();
@@ -1381,7 +1381,7 @@ export class PiHost {
         })();
       }
       return this.publication.newThreadResult([], { accepted: true }, requestId, thread.sessionId);
-    });
+    }, configuration?.background ? "detached" : "exclusive");
   }
 
   async getPreparedThreadCapability(cwd?: string): Promise<PreparedThreadCapability> {
@@ -1798,18 +1798,18 @@ export class PiHost {
     await thread.backend.abort();
   }
 
-  async setModel(provider: string, id: string): Promise<HostActionResult> {
-    const thread = this.requireActive();
+  async setModel(provider: string, id: string, expectedSessionId?: string): Promise<HostActionResult> {
+    const thread = this.requireThread(expectedSessionId);
     await requireCapability(thread.backend, "catalogWrite").setModel(provider, id);
     if (this.threads.get(thread.threadId)?.runtime === thread) await this.index.publishModelProvider(thread);
     this.log("model.changed", `${provider}/${id}`);
-    return this.publication.catalogResult();
+    return this.publication.catalogResult(thread);
   }
 
-  async setThinkingLevel(level: string): Promise<HostActionResult> {
-    await requireCapability(this.requireActive().backend, "catalogWrite").setThinkingLevel(level);
-    this.log("thinking.changed", level);
-    return this.publication.catalogResult();
+  async setThinkingLevel(level: string, expectedSessionId?: string): Promise<HostActionResult> {
+    const thread = this.requireThread(expectedSessionId);
+    await requireCapability(thread.backend, "catalogWrite").setThinkingLevel(level); this.log("thinking.changed", level);
+    return this.publication.catalogResult(thread);
   }
 
   async setMode(mode: string, expectedSessionId?: string): Promise<HostActionResult> {
