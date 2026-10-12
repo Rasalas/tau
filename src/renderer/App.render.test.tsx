@@ -268,7 +268,7 @@ describe("App render isolation", () => {
     expect(heading.closest(".conversation-start-screen")).toBeTruthy();
     expect(screen.queryByText("NEW THREAD")).toBeNull();
     expect(screen.getByRole("button", { name: "Change project, current project project" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Untitled thread" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Untitled thread" }).hasAttribute("disabled")).toBe(true);
     expect(screen.queryByLabelText(/^Thread cost/u)).toBeNull();
 
     const composer = screen.getByPlaceholderText(/Ask anything/u);

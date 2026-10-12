@@ -124,12 +124,12 @@ describe("NewThreadController", () => {
     controller.begin(createNewThreadDraft(project()));
     await controller.setModel("openai", "gpt-5.6-luna", undefined, undefined, "codex");
     await controller.setThinking("low", undefined, "codex");
-    expect(controller.current()).toMatchObject({ model: { id: "gpt-5.6-luna" }, thinkingLevel: "low", selectionRuntime: "codex" });
+    expect(controller.current()).toMatchObject({ model: { id: "gpt-5.6-luna" }, thinkingLevel: "low", selectionRuntime: "codex", runtime: "codex" });
     // Another model drops a level it may not have; the reload keeps the rest.
     await controller.setModel("openai", "gpt-5.6-sol", undefined, undefined, "codex");
     expect(controller.current()?.thinkingLevel).toBeUndefined();
-    expect(new NewThreadController(storage).current()).toMatchObject({ model: { id: "gpt-5.6-sol" }, selectionRuntime: "codex" });
-    // A level for Pi does not keep a Codex model, and Pi is the absent runtime.
+    expect(new NewThreadController(storage).current()).toMatchObject({ model: { id: "gpt-5.6-sol" }, selectionRuntime: "codex", runtime: "codex" });
+    // A level for Pi does not keep a Codex model; its selection tag stays implicit.
     await controller.setThinking("high", undefined, "pi");
     expect(controller.current()).toMatchObject({ thinkingLevel: "high" });
     expect(controller.current()?.model).toBeUndefined();
@@ -226,7 +226,7 @@ describe("NewThreadController", () => {
     const controller = new NewThreadController(createMemoryStorage());
     controller.carryToNextDraft("codex", { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna", billing: "subscription" });
     controller.begin(createNewThreadDraft(project()));
-    expect(controller.current()).toMatchObject({ model: { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" }, selectionRuntime: "codex" });
+    expect(controller.current()).toMatchObject({ model: { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" }, selectionRuntime: "codex", runtime: "codex" });
     expect(controller.current()?.model).not.toHaveProperty("billing");
     controller.begin(createNewThreadDraft(project()));
     expect(controller.current()?.model).toBeUndefined();

@@ -573,13 +573,12 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     <LazyPhoneNav registry={registry} current={phoneTab(phoneNav.route)} onSelect={phoneNav.openTab} />
   </Suspense> : undefined;
 
-  const detailSlots = useMemo(() => ({ registry, actions }), [registry, actions]);
   const conversationComposer = <ConversationComposer
     view={view}
     composer={composer}
     snapshot={snapshot}
     conversationSnapshot={conversationSnapshot}
-    pendingNewThread={pendingNewThread}
+    pendingNewThread={pendingNewThread || showStartScreen}
     draftRuntime={draftRuntime}
     activeDraftKey={activeDraftKey}
     onNotify={actions.notify}
@@ -713,7 +712,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
 
   const stageFrame = (content: React.ReactNode) => <section className="stage">{content}</section>;
   const startProject = showStartScreen ? projects.find((project) => project.path === startProjectPath) : undefined;
-  const threadTitle = showStartScreen ? <span className="title-draft">New thread</span> : <>
+  const threadTitle = showStartScreen ? <ThreadTitleMenu title="Untitled thread" disabled menu={() => ({ sections: [], run: () => {} })} onRename={async () => false} /> : <>
           <Region registry={registry} placement="thread-title" snapshot={snapshot} actions={actions} />
           <ThreadTitleMenu
             sheet={phone}
@@ -750,9 +749,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const ViewTitle = phone || !conversationView ? undefined : activeConversationView?.Title;
   const viewProps = conversationView ? { actions, snapshot: conversationSnapshot, params: conversationView.params, onClose: closeConversationView, ...(ViewTitle ? { headed: true } : {}) } : undefined;
   const parentTitle = conversationSnapshot?.sessionTitle || "Untitled thread";
-  const headTitle = showStartScreen ? threadTitle : <nav className="thread-crumbs" aria-label="Thread breadcrumb">
-    <ProjectCrumb sessionId={snapshot?.sessionId} onNewThread={(workspace) => actions.newSession({ workspace })} />
-    {ViewTitle && viewProps ? <>
+  const headTitle = <nav className="thread-crumbs" aria-label="Thread breadcrumb">
+    <ProjectCrumb project={showStartScreen ? startProject : undefined} sessionId={showStartScreen ? undefined : snapshot?.sessionId} onNewThread={(workspace) => actions.newSession({ workspace })} />
+    {!showStartScreen && ViewTitle && viewProps ? <>
       <button type="button" className="thread-crumb-parent" aria-label={`Open parent thread: ${parentTitle}`}
         {...tooltipProps(parentTitle, { side: "bottom" })} onClick={closeConversationView}
       >{parentTitle}</button>
@@ -773,7 +772,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     </>}
     title={headTitle}
     // Only the crumbs, as T3 Code's head: model, cost and branch are in the composer and the project card.
-    details={split ? <StartDetails snapshot={conversationSnapshot} /> : showStartScreen ? <StartDetails snapshot={conversationSnapshot} slots={detailSlots} /> : null}
     actions={conversationFolded ? null : <PanelSlot host={titleActionsHost} />}
     tools={<>
       {projectControlsInWorkspace ? null : projectControls}

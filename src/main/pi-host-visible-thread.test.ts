@@ -11,11 +11,12 @@ import { adoptThread, getActiveThreadId, mockInternalMethods, rawInternals, setA
  */
 function liveThread(threadId: string, running = false) {
   let model = "first";
+  let provider = "test";
   let thinkingLevel = "off";
   const compact = vi.fn(async () => {
     if (running) throw new Error("Claude Code is still working on this thread. Compact it once the turn ends.");
   });
-  const setModel = vi.fn(async (_provider: string, id: string) => { model = id; });
+  const setModel = vi.fn(async (nextProvider: string, id: string) => { provider = nextProvider; model = id; });
   const setThinkingLevel = vi.fn(async (level: string) => { thinkingLevel = level; });
   const backend: any = {
     kind: "pi" as const,
@@ -26,7 +27,7 @@ function liveThread(threadId: string, running = false) {
     turnReporting: "streamed" as const,
     capabilities: { compaction: { compact }, catalogWrite: { setModel, setThinkingLevel } },
     state: () => ({ streaming: running, idle: !running, hasMessages: true, activeTools: [], supportsImageInput: false, extensionCount: 0 }),
-    catalogView: () => ({ model: { provider: "test", id: model, name: model }, thinkingLevel, thinkingLevels: ["off", "high"], allTools: [] }),
+    catalogView: () => ({ model: { provider, id: model, name: model }, thinkingLevel, thinkingLevels: ["off", "high"], allTools: [] }),
     models: async () => [{ provider: "test", id: "first", name: "first" }, { provider: "test", id: "second", name: "second" }],
     composerCommands: () => [],
     transcript: async () => [],
@@ -54,6 +55,32 @@ describe("requests that name the thread on screen", () => {
 
     expect(shown.compact).toHaveBeenCalledTimes(1);
     expect(running.compact).not.toHaveBeenCalled();
+  });
+
+  it("applies the draft's provider and model to the new session before delivering its first prompt", async () => {
+    const previous = liveThread("previous");
+    const created = liveThread("created");
+    const host = await hostWith(previous, liveThread("shown"));
+    const launched: unknown[] = [];
+    mockInternalMethods(host, {
+      rememberProject: async () => undefined,
+      refreshShell: async () => undefined,
+      detachBridge: () => undefined,
+      takeSpareThread: async () => undefined,
+      openRuntime: async () => created.runtime,
+      logReplacement: () => undefined,
+      prompt: async () => { launched.push(created.runtime.backend.catalogView().model); },
+    });
+    rawInternals(host).prewarm.scheduleSpare = () => undefined;
+
+    const result = await host.newSession("use selected model", [], "/repo", undefined, undefined, {
+      model: { provider: "openai-codex", id: "gpt-6.1-sol" },
+    });
+
+    expect(result).toMatchObject({ submission: { accepted: true } });
+    await vi.waitFor(() => expect(launched).toEqual([{ provider: "openai-codex", id: "gpt-6.1-sol", name: "gpt-6.1-sol" }]));
+    expect(created.setModel).toHaveBeenCalledWith("openai-codex", "gpt-6.1-sol");
+    expect(previous.setModel).not.toHaveBeenCalled();
   });
 
   it("changes the named thread's model and thinking level and answers with that thread's catalog", async () => {

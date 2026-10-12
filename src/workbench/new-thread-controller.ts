@@ -182,7 +182,7 @@ export class NewThreadController {
     }
     const name = resolveName?.(provider, id) ?? id;
     // A level chosen for another model or runtime may not exist for this one.
-    this.store({ ...withoutSelection(pending), model: { provider, id, name }, ...selectionRuntime(runtime) });
+    this.store({ ...withoutSelection(pending), model: { provider, id, name }, ...(runtime ? { runtime } : {}), ...selectionRuntime(runtime) });
   };
 
   /** A draft keeps the thinking level for the thread it becomes. */
@@ -193,7 +193,7 @@ export class NewThreadController {
       return;
     }
     const model = (pending.selectionRuntime ?? "pi") === (runtime ?? "pi") ? pending.model : undefined;
-    this.store({ ...withoutSelection(pending), ...(model ? { model } : {}), thinkingLevel: level, ...selectionRuntime(runtime) });
+    this.store({ ...withoutSelection(pending), ...(model ? { model } : {}), thinkingLevel: level, ...(runtime ? { runtime } : {}), ...selectionRuntime(runtime) });
   };
 
   /** A draft keeps the mode its thread starts in; a thread that exists is told at once. */
