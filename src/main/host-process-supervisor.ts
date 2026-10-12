@@ -78,7 +78,10 @@ export interface RunningHost {
 /** How often a host may crash and be restarted before the supervisor gives up. */
 const MAX_RESTARTS = 3;
 const RESTART_WINDOW_MS = 60_000;
-const DEFAULT_START_TIMEOUT_MS = 30_000;
+// A cold host imports the runtime and kits before it can announce its socket.
+// Under heavy CPU or disk contention that can exceed 30 s without a hang.
+// Keep a finite deadline, but give that initialization two minutes to finish.
+const DEFAULT_START_TIMEOUT_MS = 120_000;
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 /** How long a host gets to stop for an update before the next, harder step. */
 const PROMPT_STOP_MS = 3_000;

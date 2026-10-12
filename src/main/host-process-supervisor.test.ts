@@ -1,8 +1,9 @@
-import { spawn } from "node:child_process";
+import { ChildProcess, spawn } from "node:child_process";
+import { PassThrough } from "node:stream";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   HostProcessSupervisor,
   type HostServiceControl,
@@ -115,6 +116,35 @@ describe("the host's announcement", () => {
 });
 
 describe("the host process supervisor", () => {
+  it("allows a slow cold host to announce after the old 30-second deadline", async () => {
+    const userData = workingDirectory();
+    const tokenPath = join(userData, "token");
+    writeFileSync(tokenPath, "stub-token");
+    const child = new ChildProcess();
+    const stdout = new PassThrough();
+    Object.assign(child, { stdout, stderr: new PassThrough() });
+    let spawnStarted = false;
+    const instance = new HostProcessSupervisor({
+      entry: STUB, execPath: process.execPath, userData, version: "1.0.0",
+      spawnProcess: () => { spawnStarted = true; return child; },
+    });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      let failed: unknown;
+      const starting = instance.start();
+      void starting.catch((error) => { failed = error; });
+      await vi.waitFor(() => expect(spawnStarted).toBe(true));
+      await vi.advanceTimersByTimeAsync(31_000);
+      expect(failed).toBeUndefined();
+      stdout.write(`tau-host listening on ws://127.0.0.1:7788\ntoken: ${tokenPath}\n`);
+      expect((await starting).adopted).toBe(false);
+    } finally {
+      instance.detach();
+      child.emit("exit", 0, null);
+      vi.useRealTimers();
+    }
+  });
+
   it("starts a host and records how to reach it", async () => {
     const userData = workingDirectory();
     const running = await supervisor(userData).start();
