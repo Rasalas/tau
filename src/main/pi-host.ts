@@ -699,11 +699,9 @@ export class PiHost {
   }
 
   /**
-   * Resolves the thread a turn names. A thread that is still opening is waited
-   * for, and a saved thread whose runtime was released is reopened. A client
-   * that painted from its cache before this run published anything names last
-   * run's thread. That first message belongs to the empty thread this run put
-   * on screen.
+   * Resolves the thread a turn names, waiting for opening runtimes and reopening
+   * saved threads. An unknown cached id from a previous run belongs to the
+   * blank thread this run put on screen.
    */
   private async awaitThread(threadId: string | undefined): Promise<ThreadRuntime> {
     this.sessionControl.assertAvailable(threadId);
@@ -720,20 +718,14 @@ export class PiHost {
         return this.reopenThread(threadId);
       });
     }
-    const onScreen = this.emptyThreadOnScreen(threadId);
-    if (!onScreen) return this.requireThread(threadId);
+    // Only an unknown cached id can belong to the blank thread on screen.
+    const onScreen = this.active;
+    if (!onScreen || onScreen.state.hasMessages) return this.requireThread(threadId);
     this.log("prompt.retargeted", `${threadId.slice(0, 8)} → ${onScreen.threadId.slice(0, 8)}`);
     // The client is showing a thread this run does not have. Publish the one
     // it is really writing to, so the turn is not delivered out of sight.
     this.publication.publishDetailNow();
     return onScreen;
-  }
-
-  /** The blank thread on screen, when the named one cannot be one of this run's. */
-  private emptyThreadOnScreen(threadId: string): ThreadRuntime | undefined {
-    if (this.index.byId(threadId)) return undefined;
-    const active = this.active;
-    return active && !active.state.hasMessages ? active : undefined;
   }
 
   private isCurrentActivation(epoch: number): boolean { return this.lifecycle.isCurrentActivation(epoch); }
