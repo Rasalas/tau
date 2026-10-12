@@ -1,6 +1,5 @@
-import { spawn } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
-import { AGENT_OOM_MESSAGE, commandInvocation, killProcessTree, wrapAgentCommand } from "tau/host-extension";
+import { AGENT_OOM_MESSAGE, commandInvocation, spawnOwnedProcess, wrapAgentCommand } from "tau/host-extension";
 
 /**
  * The app-server wire: one JSON-RPC message per line on the CLI's stdin and
@@ -30,11 +29,11 @@ export function spawnRpcProcess(input: RpcSpawnInput): RpcProcess {
   const invocation = commandInvocation(input.command, input.args, { env: input.env });
   // On Linux the CLI runs in its own systemd scope, so a memory kill takes it and not the host.
   const launch = wrapAgentCommand({ command: invocation.command, args: invocation.args, name: "codex", env: input.env });
-  const child = spawn(launch.command, launch.args, {
+  const child = spawnOwnedProcess({
+    command: launch.command,
+    args: launch.args,
     cwd: input.cwd,
     env: input.env,
-    stdio: ["pipe", "pipe", "pipe"],
-    windowsHide: true,
     windowsVerbatimArguments: invocation.windowsVerbatimArguments,
   });
   // `close` rather than `exit`: by then stderr is drained, so the exit message can quote it.
@@ -47,12 +46,7 @@ export function spawnRpcProcess(input: RpcSpawnInput): RpcProcess {
     stdin: child.stdin!,
     stdout: child.stdout!,
     stderr: child.stderr!,
-    // An npm shim runs under cmd.exe on Windows; ending only cmd.exe would orphan the CLI.
-    kill: (signal) => {
-      if (process.platform !== "win32" || child.pid === undefined || child.exitCode !== null) return child.kill(signal);
-      killProcessTree(child.pid);
-      return true;
-    },
+    kill: (signal) => child.kill(signal),
     exited,
     ...(launch.scope ? { oomKilled: () => launch.scope!.oomKilled() } : {}),
   };

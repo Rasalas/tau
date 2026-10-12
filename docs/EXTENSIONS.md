@@ -2434,6 +2434,17 @@ it, in which case report `AGENT_OOM_MESSAGE` instead of the exit code. Pass
 `collect: true` when nobody asks. An SDK that spawns the CLI itself takes the
 launcher as its executable path and leading arguments (the Agent SDK kit does).
 See docs/CORE.md, "Memory pressure on Linux"),
+`spawnOwnedProcess` (new after API 1.59.0: starts a CLI with piped stdin,
+stdout and stderr through a separate guardian. Pass `command`, `args`, `cwd`,
+`env`, optional `windowsVerbatimArguments` and optional `signal`; the returned
+child's PID belongs to the guardian. Ending stdin lets the CLI shut down;
+`kill()` asks the guardian to terminate the work. CLI exit or loss of the
+owner's private IPC connection triggers cleanup too, including an owner killed
+with SIGKILL. On macOS and Linux an inherited `TAU_PROCESS_OWNER` marker finds
+descendants that detached or were reparented. A process that both detaches and
+clears that marker is outside this cleanup contract. Windows uses `taskkill /T`
+while the CLI is still alive. Background work survives turn boundaries while
+the CLI and its owner remain alive),
 `assertAllowedCloneSource`, `tauHomeDir` (new in API 1.34.0: `~/.tau`, or
 `~/.tau-dev` in a Tau Dev build, the folder of the user's own Tau settings),
 `readBoundedImagePreview`,
