@@ -43,6 +43,13 @@ export function isCurrentTranscriptSubmission(
 }
 
 export function optimisticThreadSnapshot(snapshot: HostSnapshot, target: UiSession, detail: ThreadDetail): HostSnapshot {
+  // A transcript has no model selection. Use the selected thread's index
+  // entry until its own catalog arrives, never the previous thread's model.
+  const knownModel = [snapshot.model, ...snapshot.models].find((model) => model
+    && model.provider === target.modelProvider && model.id === target.model);
+  const model = target.modelProvider && target.model
+    ? { provider: target.modelProvider, id: target.model, name: knownModel?.name ?? target.model }
+    : undefined;
   return hostSnapshotFromThreadDetail({
     ...snapshot,
     sessionName: undefined,
@@ -55,6 +62,20 @@ export function optimisticThreadSnapshot(snapshot: HostSnapshot, target: UiSessi
     backendKind: detail.backendKind ?? target.backendKind ?? "pi",
     threadId: detail.threadId ?? target.id,
     providerSessionId: detail.providerSessionId,
+    // Reopening the thread already on screen keeps its own catalog.
+    ...(snapshot.sessionId === target.id ? {} : {
+      model,
+      models: [],
+      thinkingLevel: "off",
+      thinkingLevels: [],
+      runtimeCapabilities: undefined,
+      mode: undefined,
+      modes: undefined,
+      goals: undefined,
+      allTools: [],
+      composerCommands: [],
+      extensionCount: 0,
+    }),
   }, { ...detail, isStreaming: false });
 }
 

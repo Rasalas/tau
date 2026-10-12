@@ -154,6 +154,7 @@ describe("App render isolation", () => {
       backendKind: "codex" as const,
       sessionId: "current",
       sessionTitle: "Current title",
+      model: { provider: "openai", id: "gpt-6.1-sol", name: "GPT-6.1 Sol" },
       models: [],
       thinkingLevel: "off",
       thinkingLevels: ["off"],
@@ -186,6 +187,12 @@ describe("App render isolation", () => {
     expect(next.supportsImageInput).toBe(false);
     expect(next).toMatchObject({ cwd: "/project", workspaceId: "target-workspace", displayPath: "/project", threadId: "target", backendKind: "pi" });
     expect(next.providerSessionId).toBeUndefined();
+    expect(next.model).toBeUndefined();
+    expect(next.thinkingLevels).toEqual([]);
+    const withSavedModel = optimisticThreadSnapshot(current, { ...target, modelProvider: "anthropic", model: "claude-opus-5-5" }, {
+      sessionId: "target", messages: [], isStreaming: false, activeTools: [],
+    });
+    expect(withSavedModel.model).toEqual({ provider: "anthropic", id: "claude-opus-5-5", name: "claude-opus-5-5" });
   });
 
   it("deduplicates a repeated history page while retaining newer message updates", () => {
