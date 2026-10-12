@@ -3,6 +3,9 @@ import { createHostMethods, invokeHostMethod, type HostMethodPlatform } from "./
 import { HostJobRunner } from "./host-jobs.js";
 import type { PiHost } from "./pi-host.js";
 import { ClientCalls } from "./client-calls.js";
+import type { HostInvocationPrincipal } from "./host-invocation.js";
+import { HOST_ERROR } from "../shared/host-transport.js";
+import { NativeExtensionGrants } from "./native-extension-grants.js";
 
 const pkg = { id: "acme.pending", name: "Pending", permissions: ["native"], isolation: "in-process" as const, scope: "global" as const, directory: "/packages/pending", desktop: true, host: true };
 
@@ -17,6 +20,7 @@ function fixture(extra: Partial<HostMethodPlatform> = {}, clientCalls?: ClientCa
     platform: {
       copyText: unsupported, copyImage: unsupported, readImagePreview: unsupported,
       inspectExtensions: async () => ({ versions: { tau: "0.7.41", pi: "1", api: "1.59.0" }, directories: [], packages: [pkg], errors: [], skipped: [] }),
+      confirmExtensionGrant: async () => false,
       loadDesktopExtensions: unsupported, rebuildWorkbench: unsupported,
       workbenchSource: unsupported, relaunchWorkbench: unsupported, installUpdate: unsupported,
       notify: unsupported, setBadge: unsupported, ...extra,
@@ -26,9 +30,34 @@ function fixture(extra: Partial<HostMethodPlatform> = {}, clientCalls?: ClientCa
 }
 
 describe("extension grant confirmation", () => {
-  it("refuses a grant when no native confirmation is available, even with a forged answer", async () => {
+  it("refuses a protocol grant when a native window requires confirmation, even with a forged answer", async () => {
     const { table, grantExtension } = fixture();
     await expect(invokeHostMethod(table, "extension-grant", [pkg.id, true, { confirmed: true }])).rejects.toThrow(/confirmation/iu);
+    expect(grantExtension).not.toHaveBeenCalled();
+  });
+
+  it("accepts an owner grant when the host has no native window", async () => {
+    const channel = new NativeExtensionGrants();
+    const { table, grantExtension } = fixture({ confirmExtensionGrant: (entry) => channel.confirm(entry) });
+    await invokeHostMethod(table, "extension-grant", [pkg.id, true], { kind: "workbench-client", connection: "owner", local: true });
+    expect(grantExtension).toHaveBeenCalledWith(pkg.id, true);
+  });
+
+  it("accepts an owner grant when the platform has no native confirmation service", async () => {
+    const { table, grantExtension } = fixture({ confirmExtensionGrant: undefined });
+    await invokeHostMethod(table, "extension-grant", [pkg.id, true], { kind: "workbench-client", connection: "owner", local: true });
+    expect(grantExtension).toHaveBeenCalledWith(pkg.id, true);
+  });
+
+  it.each([
+    { kind: "workbench-client", connection: "device", pairedClient: "read-only", readOnly: true, local: true },
+    { kind: "workbench-client", connection: "device", pairedClient: "write", local: true },
+    { kind: "workbench-client", connection: "remote-token" },
+    { kind: "host-extension", contextId: "package" },
+  ] satisfies HostInvocationPrincipal[])("refuses a headless grant from a non-owner: %j", async (principal) => {
+    const channel = new NativeExtensionGrants();
+    const { table, grantExtension } = fixture({ confirmExtensionGrant: (entry) => channel.confirm(entry) });
+    await expect(invokeHostMethod(table, "extension-grant", [pkg.id, true], principal)).rejects.toMatchObject({ code: HOST_ERROR.forbidden });
     expect(grantExtension).not.toHaveBeenCalled();
   });
 

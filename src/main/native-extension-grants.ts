@@ -55,9 +55,9 @@ export class NativeExtensionGrants {
     });
   }
 
-  confirm(pkg: ExtensionPackageSummary): Promise<boolean> {
+  confirm(pkg: ExtensionPackageSummary): Promise<boolean | undefined> {
     const socket = [...this.peers].at(-1);
-    if (!socket) return Promise.resolve(false);
+    if (!socket) return Promise.resolve(undefined);
     const id = randomUUID();
     return new Promise<boolean>((resolveAnswer) => {
       const settle = (answer: boolean) => {

@@ -32,12 +32,14 @@ nor sends its desktop code or stylesheet, and the window publishes no
 syncs and stops a previously active half when its grant is lost. Settings
 gets its name and requested privileges from the manifest inspection.
 
-`extension-grant` requires a native confirmation in the window's main process
-before granting. A host in a separate process asks its own machine's native
-window over a private local socket or named pipe, outside the renderer's host
+`extension-grant` requires confirmation in the window's main process when the
+host machine has a native window. A host in a separate process asks its own
+machine's native window over a private local socket or named pipe, outside the renderer's host
 connection ([ADR 0036](0036-package-consent-stays-in-native-processes.md)).
-Without a native window the grant is refused. Revocation needs no confirmation. A package or
-workspace that changes while the dialog is open must be reviewed again.
+Without a native window only an Owner connection may grant; a refused or failed
+native confirmation never falls back to protocol approval. Revocation needs
+no confirmation. A package or workspace that changes while the dialog is open
+must be reviewed again.
 
 Before activation, the desktop loader checks the module's exported id against
 the manifest id. Loose files keep their existing self-declared identities.

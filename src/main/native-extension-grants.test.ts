@@ -34,8 +34,8 @@ describe("native package confirmation channel", () => {
       await rm(userData, { recursive: true, force: true });
     }
   });
-  it("refuses without a native peer", async () => {
-    await expect(new NativeExtensionGrants().confirm(pkg)).resolves.toBe(false);
+  it("reports that no native window is available without a peer", async () => {
+    await expect(new NativeExtensionGrants().confirm(pkg)).resolves.toBeUndefined();
   });
 
   it.each([true, false])("uses the window's native dialog answer: %s", async (accepted) => {
