@@ -5,6 +5,10 @@ const record = (input: unknown): Record<string, unknown> =>
   input && typeof input === "object" ? input as Record<string, unknown> : {};
 const text = (value: unknown): string => typeof value === "string" ? value : "";
 
+/** A harness writes its title within seconds of the first prompt, long before a long turn ends. */
+const NATIVE_POLL_MS = 3_000;
+const NATIVE_POLL_LIMIT = 100;
+
 /**
  * Thread Title Generator's host entry. It titles a thread with the model the
  * settings name, else a small one; renaming itself stays a core action.
@@ -16,7 +20,33 @@ export function createThreadTitlesHostExtension(): HostExtension {
     permissions: ["sessions"],
     activate(context: HostExtensionContext) {
       const { services } = context;
-      const pending = new Map<string, { input: unknown; thread: HostThread; running?: boolean }>();
+      type Waiting = { input: unknown; thread: HostThread; running?: boolean; poll?: ReturnType<typeof setInterval> };
+      const pending = new Map<string, Waiting>();
+      const release = (sessionId: string) => {
+        const waiting = pending.get(sessionId);
+        if (waiting?.poll) clearInterval(waiting.poll);
+        pending.delete(sessionId);
+      };
+      const pollNative = (sessionId: string, input: unknown, thread: HostThread) => {
+        const waiting: Waiting = { input, thread };
+        let polls = 0;
+        let reading = false;
+        waiting.poll = setInterval(() => {
+          if (pending.get(sessionId) !== waiting) return;
+          if (!thread.isCurrent() || thread.sessionName()) { release(sessionId); return; }
+          // Past the limit only the turn's end tries again.
+          if (++polls > NATIVE_POLL_LIMIT) { clearInterval(waiting.poll); return; }
+          if (reading || waiting.running) return;
+          reading = true;
+          void thread.nativeTitle?.().then(async (native) => {
+            if (!native || pending.get(sessionId) !== waiting || !thread.isCurrent() || thread.sessionName()) return;
+            release(sessionId);
+            await services.setThreadTitle(thread.sessionId, cleanThreadTitle(native), "generated");
+          }).catch(() => undefined).finally(() => { reading = false; });
+        }, NATIVE_POLL_MS);
+        waiting.poll.unref?.();
+        pending.set(sessionId, waiting);
+      };
       const generate = async (input: unknown, regenerate: boolean) => {
         const fields = record(input);
         // The settings' model wins; else a small one close to the thread's (`prefer`), the thread's own only when none is small.
@@ -45,7 +75,7 @@ export function createThreadTitlesHostExtension(): HostExtension {
         // A runtime may finish its own name during the first turn. Defer without
         // holding a host command open for a minutes-long agent run.
         if (!force && thread.isStreaming() && thread.nativeTitle) {
-          pending.set(thread.sessionId, { input, thread });
+          if (!pending.has(thread.sessionId)) pollNative(thread.sessionId, input, thread);
           return undefined;
         }
         if (!force && thread.nativeTitle) {
@@ -98,24 +128,27 @@ export function createThreadTitlesHostExtension(): HostExtension {
       // A client titles a new thread on its own after its first prompt; the prompt stays the device's last change.
       context.registerCommand("generate", (input) => generate(input, false), { audit: { label: "titled a thread", automatic: true } });
       context.registerCommand("regenerate", (input) => generate(input, true), { audit: { label: "regenerated a thread title" } });
+      // The turn's end finds a queued turn still streaming; the run's end settles it then.
+      const settle = async (sessionId: string) => {
+        const waiting = pending.get(sessionId);
+        if (!waiting || waiting.running || waiting.thread.isStreaming()) return;
+        if (!waiting.thread.isCurrent()) { release(sessionId); return; }
+        waiting.running = true;
+        try { await generate(waiting.input, false); }
+        catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          services.log("title.failed", message);
+          context.emit(TITLE_FAILED_EVENT, { sessionId, message });
+        }
+        finally { if (pending.get(sessionId) === waiting) release(sessionId); }
+      };
       const stop = services.registerTurnObserver({
         pending: (sessionId) => pending.has(sessionId) ? 1 : 0,
-        ended: async (sessionId) => {
-          const waiting = pending.get(sessionId);
-          if (!waiting || waiting.running || waiting.thread.isStreaming()) return;
-          if (!waiting.thread.isCurrent()) { pending.delete(sessionId); return; }
-          waiting.running = true;
-          try { await generate(waiting.input, false); }
-          catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            services.log("title.failed", message);
-            context.emit(TITLE_FAILED_EVENT, { sessionId, message });
-          }
-          finally { if (pending.get(sessionId) === waiting) pending.delete(sessionId); }
-        },
-        closed: async (sessionId) => { pending.delete(sessionId); },
+        ended: settle,
+        runEnded: (sessionId) => { void settle(sessionId); },
+        closed: async (sessionId) => { release(sessionId); },
       });
-      return () => { stop(); pending.clear(); };
+      return () => { stop(); for (const sessionId of [...pending.keys()]) release(sessionId); };
     },
   };
 }

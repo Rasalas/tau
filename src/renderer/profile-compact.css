@@ -106,7 +106,6 @@ body[data-profile="compact"] .composer-toolbar .runtime-chip.composer-model-chip
 body[data-profile="compact"] .composer-model-chip::before { content: ""; position: absolute; inset: 6px 0; z-index: -1; border-radius: 8px; background: var(--raised); }
 body[data-profile="compact"] :is(.composer-overflow-anchor, .composer-block[data-icon-only]) .runtime-chip { min-width: var(--touch-target); justify-content: center; }
 /* The phone's bar clips its details to one line; the cost's split would be cut off with them. */
-body[data-profile="compact"] .title-bar .thread-cost-popover { display: none; }
 body[data-profile="compact"] .context-dial { position: relative; width: var(--touch-target); height: var(--touch-target); border-radius: 10px; background: none; }
 body[data-profile="compact"] .context-dial::before {
   content: ""; position: absolute; inset: 14px; border-radius: 50%;

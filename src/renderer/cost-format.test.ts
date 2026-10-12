@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatCost, formatTokens, threadCostLabel, threadCostOrigin, threadUsageDetail } from "./cost-format";
-import { threadUsageSections } from "./cost-sections";
+import { threadUsageLines, threadUsageSections } from "./cost-sections";
 
 const usage = {
   inputTokens: 12_300,
@@ -63,5 +63,12 @@ describe("cost formatting", () => {
       plan: { value: "$1.50", detail: "10.0k in · 2.0k out · 8.0k cache read · 2 turns" },
     });
     expect(threadUsageSections(usage)).toEqual({ billed: { cost: "$0.42", detail: "12.3k in · 2.1k out · 8.0k cache read · 3 turns" } });
+  });
+
+  it("puts the two halves into lines for a tooltip", () => {
+    expect(threadUsageLines(usage)).toEqual(["Spent $0.42", "12.3k in · 2.1k out · 8.0k cache read · 3 turns"]);
+    expect(threadUsageLines({ ...usage, costUsd: 0 })).toEqual(["Spent (no price)", "12.3k in · 2.1k out · 8.0k cache read · 3 turns"]);
+    expect(threadUsageLines({ ...usage, costUsd: 0, subscription: { ...usage, apiValueUsd: 1.2 } }))
+      .toEqual(["Subscription: included", "12.3k in · 2.1k out · 8.0k cache read · 3 turns", "Would have cost ≈ $1.20 via the API"]);
   });
 });

@@ -6,7 +6,7 @@ import { AgentLineage, CompactLineage, type WorkspaceSummaryService } from "./li
 import { AGENTS_SETTINGS_PAGE, createAgentsSettingsPage } from "./settings.js";
 import { SpawnCard } from "./spawn-card.js";
 import { AgentsSpine } from "./spine.js";
-import { SUBAGENT_VIEW, SubagentView } from "./subagent-view.js";
+import { SUBAGENT_VIEW, SubagentTitle, SubagentView } from "./subagent-view.js";
 import { agentsHost, agentsStore, definitionsStore, lineageOf, remoteAgentThreads, siblingsSource } from "./store.js";
 
 /**
@@ -45,7 +45,7 @@ export const agentsExtension: DesktopExtension = {
       workspace.registerWorkspaceSummarySection?.(AgentLineage, "footer"));
     context.registerRegion({ id: "agents.lineage-touch", placement: "thread-details", order: 30, profiles: ["compact"], Component: CompactLineage });
     // A native child opens in place of the parent's transcript; the lineage row is the way in.
-    context.registerConversationView?.({ id: SUBAGENT_VIEW, profiles: ["desktop", "web", "compact"], Component: SubagentView });
+    context.registerConversationView?.({ id: SUBAGENT_VIEW, profiles: ["desktop", "web", "compact"], Component: SubagentView, Title: SubagentTitle });
     context.registerRegion({ id: "agents.questions", placement: "composer-above", order: 30, profiles: ["desktop", "web", "compact"], Component: AgentQuestionsBanner });
     context.registerRegion({ id: "agents.spine", placement: "spine", profiles: ["desktop", "web"], Component: AgentsSpine });
     // A spawn is not a tool call to skim past: the card is the way into the

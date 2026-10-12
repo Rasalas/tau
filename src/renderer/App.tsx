@@ -521,14 +521,14 @@ export default function App() {
     return accepted;
   }, [newThreadController, threadCommands]);
   const submitText = useCallback((text: string) => submitPrompt(text), [submitPrompt]);
-  const { conversationView, openConversationView, closeConversationView } = useConversationView(pendingNewThread ? undefined : snapshot?.sessionId);
+  const { conversationView, openConversationView, closeConversationView, navigateHistory } = useConversationView(pendingNewThread ? undefined : snapshot?.sessionId, { threads: threadStore, switchSession });
   const actions = useWorkbenchActions({
     hasPrivateThreadWorkspace: () => registry.getProjectSources().some((source) => source.createThreadWorkspace), client, platform, threadStore, viewStore, toasts: workbenchSession.toasts, composerScopeStore, threadCommands,
     snapshot, pendingNewThread, workspaceCwd, newThreadDeliveryPending, activeDraftKey,
     composerRef, transcriptRef, openPanel, closePanel: panelLayout.closePanel, togglePanelMaximized: panelLayout.toggleMaximized, openPalette, setSettingsPage, openNewThreadPicker, createThreadInProject,
     switchSession, openDraft, discardDraft, settleActiveThread, isVisibleThreadRunning, reloadWorkbench, openThreadTree,
     duplicateThread, setComposerSeed, setDockOpen: setStageShown, setNotice, openProjectSources,
-    applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay, openConversationView, closeConversationView,
+    applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay, openConversationView, closeConversationView, navigateHistory,
     openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, setComposerMode, submitPrompt: submitText, preferences,
     steerQueuedMessage, beforeAbort: returnQueued,
     openModelPicker, openInstructions, focusStage, showThread, toggleSidebar, toggleSpine, attachFiles, selectDraftRuntime, newThreadController, pages, threadView,

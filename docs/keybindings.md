@@ -101,6 +101,7 @@ composite widget. The ring shows for the keyboard only (`:focus-visible`).
 | `mod+alt+2` | | `workbench.focus-transcript` | Focus the transcript | core |
 | `mod+alt+3` | | `workbench.focus-stage` | Focus the stage | core |
 | `ctrl+tab` / `ctrl+shift+tab` | | `workbench.next-stage-tab` / `prev-stage-tab` | Move between stage tabs | core |
+| `mod+[` / `mod+]` | `!terminalFocus` | `navigation.back` / `navigation.forward` | Back or forward over the threads and subagents shown, as in a browser (T3 Code's ids) | core |
 | `mod+j` | | `terminal.toggle` | Terminal panel | Terminal |
 | `mod+d` | `terminalFocus && !stageFocus` | `terminal.split` | Split along the longer side: top and bottom in a pane taller than wide, else side by side | Terminal |
 | `mod+shift+d` | `terminalFocus && !stageFocus` | `terminal.splitDown` | Split down | Terminal |

@@ -943,3 +943,6 @@ body[data-profile="compact"] .turn-actions > button { min-height: 44px; padding:
   .workspace-card-tail { width: 44px; flex-basis: 44px; height: 44px; }
   .workspace-summary-card .workspace-editor-choose, .workspace-summary-card .chrome-group > .split-trigger { width: 44px; flex-basis: 44px; }
 }
+/* A subscription's value is not money spent; it reads quieter than a cost. */
+.workspace-card-cost-value { font: var(--text-xs) var(--mono); }
+.workspace-card-cost-value.plan { font-style: italic; color: var(--faint); }

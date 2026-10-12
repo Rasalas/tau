@@ -1,33 +1,9 @@
-import { useSyncExternalStore, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { GitBranch } from "lucide-react";
 import type { HostSnapshot } from "../../shared/contracts";
-import type { ThreadViewStore } from "../../workbench/thread-view-store";
-import type { TranscriptState } from "../../workbench/transcript-state";
-import { usePreferences } from "../renderer-services-context";
-import { DEFAULT_RUNTIME, modelOnPlan } from "../runtime-marks";
-import { ProviderIconStack } from "./ProviderIconStack";
-import { ThreadCost } from "./ThreadCost";
 import { tooltipProps } from "./ui/Tooltip";
 import { Region, RegionOr } from "./Regions";
-import { lastTurnNumber } from "../../shared/message-turns";
 import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
-
-const turnCounts = new WeakMap<TranscriptState, number>();
-
-/** The number of the last prompt the transcript holds; counted once per transcript state, so a streamed delta costs a lookup. */
-function countTurns(transcript: TranscriptState): number {
-  let count = turnCounts.get(transcript);
-  if (count === undefined) {
-    count = lastTurnNumber(transcript.messages);
-    turnCounts.set(transcript, count);
-  }
-  return count;
-}
-
-function TurnCount({ view }: { view: ThreadViewStore }) {
-  const turns = useSyncExternalStore(view.subscribeToTranscript, () => countTurns(view.getTranscript()));
-  return turns > 0 ? <span className="thread-detail thread-detail-turn">turn {turns}</span> : null;
-}
 
 /** Where kits add to the sub-line: `thread-details` items, and a `thread-branch` that replaces core's label. */
 export interface ThreadDetailSlots {
@@ -50,29 +26,6 @@ function SlotDetails({ slots, snapshot, branch }: { slots?: ThreadDetailSlots; s
 /** The start screen's sub-line: an empty thread's branch, or what a kit says of a draft (design 1k). */
 export function StartDetails({ snapshot, slots }: { snapshot?: HostSnapshot; slots?: ThreadDetailSlots }) {
   return <div className="thread-details"><SlotDetails slots={slots} snapshot={snapshot} {...(snapshot?.projectLabel ? { branch: snapshot.projectLabel } : {})} /></div>;
-}
-
-/** [Machine ·] branch · model · turn · cost, each only where the thread has it, as in the workbench design. */
-export function ThreadDetails({ snapshot, view, slots, machine }: {
-  snapshot?: HostSnapshot;
-  view: ThreadViewStore;
-  slots?: ThreadDetailSlots;
-  /** The host's name, where no kit names the machine (a phone's bar, design 1n). */
-  machine?: string | undefined;
-}) {
-  const preferences = usePreferences();
-  const { showCosts } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
-  const model = snapshot?.model;
-  return <div className="thread-details">
-    {machine ? <span className="thread-detail thread-detail-machine"><span>{machine}</span></span> : null}
-    <SlotDetails slots={slots} snapshot={snapshot} {...(snapshot?.projectLabel ? { branch: snapshot.projectLabel } : {})} />
-    {model ? <span className="thread-detail thread-detail-model">
-      <ProviderIconStack modelProvider={model.provider} runtimeProvider={snapshot?.backendKind ?? DEFAULT_RUNTIME} plan={modelOnPlan(model)} hint={false} />
-      <span>{model.name}</span>
-    </span> : null}
-    <TurnCount view={view} />
-    {showCosts && snapshot?.usage ? <ThreadCost usage={snapshot.usage} className="thread-detail thread-detail-cost" /> : null}
-  </div>;
 }
 
 /**

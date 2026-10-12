@@ -262,3 +262,8 @@
 }
 .agent-asks-open:hover { background: var(--raised); }
 @media (pointer: coarse) { .agent-asks-link, .agent-asks-open { min-height: 36px; } }
+
+/* A long run's agents scroll inside the card, so the card's other sections stay in reach (T3 Code's bound). */
+.agent-lineage-list { max-height: calc(36px * 7.5); overflow-y: auto; overscroll-behavior: contain; }
+.agent-lineage-failed { flex: none; color: var(--fail-ink); font-size: var(--text-xs); }
+.workspace-summary-card .workspace-card-row.agent-lineage-more { color: var(--muted); font-size: var(--text-xs); font-weight: 400; }

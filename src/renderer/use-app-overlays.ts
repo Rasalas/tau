@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type RefObject } from "react";
 import { AppPageStore } from "../workbench/app-page-store";
+import { useNavigationHistory } from "./use-navigation-history";
 
 /** How the new thread's project picker opens: the project in context, and whether it moves the draft on screen. */
 export interface NewThreadPick {
@@ -69,8 +70,11 @@ export interface OpenConversationView {
   params: Readonly<Record<string, unknown>>;
 }
 
-/** The view shown in place of `threadId`'s transcript; coming back to that thread shows its transcript. */
-export function useConversationView(threadId: string | undefined) {
+/**
+ * The view shown in place of `threadId`'s transcript; coming back to that thread shows its transcript.
+ * With `navigation`, also the steps back and forward over the threads and views shown.
+ */
+export function useConversationView(threadId: string | undefined, navigation?: Pick<Parameters<typeof useNavigationHistory>[0], "threads" | "switchSession">) {
   const [opened, setOpened] = useState<OpenConversationView>();
   const openConversationView = useCallback((id: string, params: Record<string, unknown> = {}) => {
     if (threadId) setOpened({ sessionId: threadId, id, params });
@@ -80,5 +84,7 @@ export function useConversationView(threadId: string | undefined) {
     setOpened((current) => current?.sessionId === threadId ? current : undefined);
   }, [threadId]);
   const conversationView = opened?.sessionId === threadId ? opened : undefined;
-  return { conversationView, openConversationView, closeConversationView };
+  // A step to a view on another thread sets it before the switch, so it stands once that thread is on screen.
+  const navigateHistory = useNavigationHistory({ threadId, view: conversationView, threads: navigation?.threads, switchSession: navigation?.switchSession, showView: setOpened });
+  return { conversationView, openConversationView, closeConversationView, ...(navigation ? { navigateHistory } : {}) };
 }

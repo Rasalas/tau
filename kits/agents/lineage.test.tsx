@@ -27,7 +27,7 @@ function setup(id = "parent") {
 it("previews the child chat without switching the active thread", () => {
   agentsStore.set({ maxRunning: 8, links: [link] });
   const { actions, switchTo } = setup();
-  fireEvent.click(screen.getByRole("button", { name: "Completed (1)" }));
+  fireEvent.click(screen.getByRole("button", { name: "Previous agents (1)" }));
   const row = screen.getByRole("button", { name: "Review layout, Completed" });
   expect(row.textContent).toBe("Review layout0:56");
   expect(row.querySelector(".agent-lineage-status svg")).toBeTruthy();
@@ -36,7 +36,7 @@ it("previews the child chat without switching the active thread", () => {
   expect(actions.openThread).toHaveBeenCalledWith("child");
   switchTo("child");
   expect(screen.queryByRole("button", { name: "Review layout, Completed" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Completed (1)" }));
+  fireEvent.click(screen.getByRole("button", { name: "Previous agents (1)" }));
   expect(screen.getByRole("button", { name: "Review layout, Completed" }).getAttribute("aria-current")).toBe("page");
   fireEvent.click(screen.getByRole("button", { name: "Back to Build the app" }));
   expect(actions.switchSession).toHaveBeenLastCalledWith("/sessions/parent");
@@ -45,13 +45,13 @@ it("retains navigation from indexed lineage without the live agents state", () =
   const { actions } = setup("child");
   fireEvent.click(screen.getByRole("button", { name: "Back to Build the app" }));
   expect(actions.switchSession).toHaveBeenCalledWith("/sessions/parent");
-  fireEvent.click(screen.getByRole("button", { name: "Completed (1)" }));
+  fireEvent.click(screen.getByRole("button", { name: "Previous agents (1)" }));
   expect(screen.getByRole("button", { name: "Review layout, Idle" })).toBeTruthy();
 });
 it("folds previous agents and keeps a resumed agent visible with its new status", () => {
   agentsStore.set({ maxRunning: 8, links: [link] });
   setup();
-  expect(screen.getByRole("button", { name: "Completed (1)" }).getAttribute("aria-expanded")).toBe("false");
+  expect(screen.getByRole("button", { name: "Previous agents (1)" }).getAttribute("aria-expanded")).toBe("false");
   expect(screen.queryByRole("button", { name: "Review layout, Completed" })).toBeNull();
   act(() => agentsStore.set({ maxRunning: 8, links: [{ ...link, status: "waiting" }] }));
   expect(screen.getByRole("button", { name: "Review layout, Needs your answer" })).toBeTruthy();
@@ -60,7 +60,7 @@ it("disables a queued child without a thread and retains remote transcript acces
   agentsStore.set({ maxRunning: 8, links: [{ ...link, id: "queued", threadId: undefined, title: "Queued", status: "pending" }, { ...link, id: "remote", threadId: undefined, title: "Remote", machine: { id: "rex", name: "Rex", thread: "remote-id" } }] });
   const { actions } = setup();
   expect(screen.getByRole("button", { name: "Queued, Queued" }).hasAttribute("disabled")).toBe(true);
-  fireEvent.click(screen.getByRole("button", { name: "Completed (2)" }));
+  fireEvent.click(screen.getByRole("button", { name: "Previous agents (2)" }));
   fireEvent.click(screen.getByRole("button", { name: "Remote, Completed" }));
   expect(actions.openThread).toHaveBeenCalledWith("remote-id", { machine: "rex" });
 });
@@ -94,7 +94,7 @@ it("moves a finished agent into the collapsed completed group while keeping a ma
   expect(screen.getByRole("button", { name: "Review layout, Running" })).toBeTruthy();
   act(() => agentsStore.set({ maxRunning: 8, links: [link] }));
   expect(screen.queryByRole("button", { name: "Review layout, Completed" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Completed (1)" }));
+  fireEvent.click(screen.getByRole("button", { name: "Previous agents (1)" }));
   act(() => agentsStore.set({ maxRunning: 8, links: [{ ...link, status: "failed" }] }));
   expect(screen.getByRole("button", { name: "Review layout, Failed" })).toBeTruthy();
 });
@@ -103,6 +103,8 @@ it("opens a native child in place of the parent's transcript, without any thread
   const actions = { switchSession: vi.fn(), openThread: vi.fn(), openConversationView: vi.fn() } as unknown as WorkbenchActions;
   const tool = { id: "native-agent:codex:child", kind: "subagent", name: "tau_native_subagent", args: { agentId: "child", runtime: "codex", title: "Native reviewer", model: "gpt-5.6-luna", agentStatus: "completed" }, status: "done", output: "Native answer", startedAt: 1000, endedAt: 2000 } as UiToolRun;
   render(<TestProviders><TestThreadStore threads={sessions}><WorkbenchContext.Provider value={{ tools: [tool] } as never}><AgentLineage snapshot={{ sessionId: "parent" } as HostSnapshot} actions={actions} /></WorkbenchContext.Provider></TestThreadStore></TestProviders>);
+  // The indexed child "Review layout" is idle, so it folds beside the native one.
+  fireEvent.click(screen.getByRole("button", { name: "Previous agents (2)" }));
   fireEvent.click(screen.getByRole("button", { name: "Native reviewer, Completed" }));
   expect(actions.openConversationView).toHaveBeenCalledWith(SUBAGENT_VIEW, { toolId: "native-agent:codex:child" });
   expect(actions.switchSession).not.toHaveBeenCalled();
@@ -135,7 +137,7 @@ it("stops a running agent from its row, and the stop takes the timer's place", a
 it("offers no stop for a finished agent", () => {
   agentsStore.set({ maxRunning: 8, links: [link] });
   setup();
-  fireEvent.click(screen.getByRole("button", { name: "Completed (1)" }));
+  fireEvent.click(screen.getByRole("button", { name: "Previous agents (1)" }));
   expect(screen.queryByRole("button", { name: /^Stop / })).toBeNull();
 });
 it("stops a native child through its task", () => {
@@ -159,4 +161,32 @@ it("shows who asks above the composer, however deep, and opens the agent", () =>
   expect(actions.openConversationView).toHaveBeenCalledWith(SUBAGENT_VIEW, { threadId: "grand" });
   act(() => agentsStore.set({ maxRunning: 8, links: [{ ...link, status: "running" }] }));
   expect(screen.queryByText("Sub-agent needs input")).toBeNull();
+});
+
+const nativeTool = (index: number, agentStatus: string, endedAt?: number) => ({
+  id: `native-agent:claude-code:${index}`, kind: "subagent", name: "tau_native_subagent",
+  args: { agentId: String(index), runtime: "claude-code", title: `Native ${index}`, agentStatus },
+  status: agentStatus === "running" ? "running" : agentStatus === "failed" ? "error" : "done", output: "", startedAt: index * 1000,
+  ...(endedAt ? { endedAt } : {}),
+}) as UiToolRun;
+
+it("folds finished native children under Previous agents, the latest first, and pages them", () => {
+  const actions = { switchSession: vi.fn(), openThread: vi.fn(), openConversationView: vi.fn() } as unknown as WorkbenchActions;
+  const tools = [nativeTool(0, "running"), ...Array.from({ length: 20 }, (_, index) => nativeTool(index + 1, index === 3 ? "failed" : "completed", 100_000 + index))];
+  render(<TestProviders><TestThreadStore threads={sessions}><WorkbenchContext.Provider value={{ tools } as never}><AgentLineage snapshot={{ sessionId: "parent" } as HostSnapshot} actions={actions} /></WorkbenchContext.Provider></TestThreadStore></TestProviders>);
+  expect(screen.getByText("Agents · 1 running")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Native 0, Running" })).toBeTruthy();
+  const toggle = screen.getByRole("button", { name: /^Previous agents \(21\)/ });
+  expect(toggle.querySelector(".agent-lineage-failed")?.textContent).toBe("1 failed");
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(screen.queryByRole("button", { name: /^Native 20,/ })).toBeNull();
+  fireEvent.click(toggle);
+  const shown = () => screen.getAllByRole("button", { name: /^Native \d+, (Completed|Failed)$/ }).map((row) => row.getAttribute("aria-label"));
+  expect(shown()).toEqual(["Native 20, Completed", "Native 19, Completed", "Native 18, Completed", "Native 17, Completed", "Native 16, Completed", "Native 15, Completed"]);
+  fireEvent.click(screen.getByRole("button", { name: "Show 12 more" }));
+  expect(shown()).toHaveLength(18);
+  fireEvent.click(screen.getByRole("button", { name: "Show 3 more" }));
+  expect(shown()).toHaveLength(20);
+  expect(screen.getByRole("button", { name: "Review layout, Idle" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /^Show \d+ more$/ })).toBeNull();
 });

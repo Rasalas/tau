@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType } from "react";
-import { Bot, Check, ChevronDown, ChevronUp, CircleHelp, CircleSlash, CircleX, Clock, CornerUpLeft, Ellipsis, Square } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode } from "react";
+import { Bot, Check, ChevronDown, ChevronUp, CircleHelp, CircleSlash, CircleX, Clock, CornerUpLeft, Ellipsis, Plus, Square } from "lucide-react";
 import { Popover, ProviderIconStack, tooltipProps, useHostCapabilities, useThreadStore, useWorkbench, type RegionProps, type WorkbenchActions } from "tau";
-import { agentHoverText, agentsPanelModel, canStopRow, nativeAgentRow, nativeAgentTools, formatElapsed, type AgentRow } from "./model.js";
+import { agentHoverText, agentsPanelModel, canStopRow, lineageSections, nativeAgentRow, nativeAgentTools, formatElapsed, type AgentRow } from "./model.js";
 import { openAgent, subagentKey, useOpenedSubagent } from "./subagent-view.js";
 import { DefinitionsSection } from "./definitions-panel.js";
 import { isBusyStatus } from "./protocol.js";
@@ -56,7 +56,8 @@ export function AgentLineageRow({ row, actions, current = false }: { row: AgentR
 /** The current thread's parent and children, including persisted links after a restart. */
 export function AgentLineage({ snapshot, actions }: RegionProps) {
   const { tools } = useWorkbench();
-  const nativeRows = [...nativeAgentTools(snapshot?.turnActivityHistory, tools).values()].flatMap((tool) => { const row = nativeAgentRow(tool); return row ? [row] : []; });
+  const history = snapshot?.turnActivityHistory;
+  const nativeRows = useMemo(() => [...nativeAgentTools(history, tools).values()].flatMap((tool) => { const row = nativeAgentRow(tool); return row ? [row] : []; }), [history, tools]);
   const threadStore = useThreadStore();
   const state = useSyncExternalStore(agentsStore.subscribe, agentsStore.getSnapshot);
   const navigation = useSyncExternalStore(threadStore.subscribe, threadStore.getSnapshot);
@@ -72,35 +73,59 @@ export function AgentLineage({ snapshot, actions }: RegionProps) {
   const model = useMemo(() => agentsPanelModel(state, id, navigation.threads, { ids: siblings, running: activity.runningThreadIds }), [state, id, navigation.threads, siblings, activity.runningThreadIds]);
   const parentId = state?.links.find((link) => link.threadId === id)?.parentThreadId ?? navigation.threads.find((thread) => thread.id === id)?.parentThreadId;
   const parent = navigation.threads.find((thread) => thread.id === parentId);
+  const sections = useMemo(() => lineageSections(nativeRows, model.groups), [nativeRows, model.groups]);
+  const opened = useOpenedSubagent();
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   useEffect(() => setExpanded(new Set()), [id]);
-  if (!id || (!parentId && !model.groups.length && !hasDefinitions && !nativeRows.length)) return null;
+  // A finished child opened from elsewhere (its spawn card) is shown in the card too.
+  const openedIn = opened ? sections.find((section) => section.previous.some((row) => subagentKey(row) === opened))?.key : undefined;
+  useEffect(() => {
+    if (openedIn) setExpanded((current) => current.has(openedIn) ? current : new Set(current).add(openedIn));
+  }, [openedIn]);
+  if (!id || (!parentId && !sections.length && !hasDefinitions)) return null;
   const enriched = (row: AgentRow): AgentRow => {
     const thread = navigation.threads.find((entry) => entry.id === row.threadId);
     return row.model || !thread?.modelProvider ? row : { ...row, model: `${thread.modelProvider}/${thread.model ?? ""}` };
   };
-  const rows = (items: AgentRow[]) => items.map((row) => <AgentLineageRow key={row.id} row={enriched(row)} actions={actions} current={row.threadId === id} />);
+  const rows = (items: readonly AgentRow[]) => items.map((row) => <AgentLineageRow key={row.id} row={enriched(row)} actions={actions} current={row.threadId === id} />);
+  const running = sections.reduce((count, section) => count + section.active.filter((row) => row.status === "running").length, 0);
+  const toggle = (key: string) => setExpanded((current) => { const next = new Set(current); if (!next.delete(key)) next.add(key); return next; });
   return <section className="agent-lineage" aria-label="Agents">
-    <div className="agent-lineage-heading"><span>Agents</span>{hasDefinitions ? <button ref={definitionsAnchor} type="button" aria-label="Agent definitions" aria-haspopup="dialog" aria-expanded={definitionsOpen} onClick={() => setDefinitionsOpen((open) => !open)}><Ellipsis size={16} /></button> : null}</div>
+    <div className="agent-lineage-heading"><span>{running ? `Agents · ${running} running` : "Agents"}</span>{hasDefinitions ? <button ref={definitionsAnchor} type="button" aria-label="Agent definitions" aria-haspopup="dialog" aria-expanded={definitionsOpen} onClick={() => setDefinitionsOpen((open) => !open)}><Ellipsis size={16} /></button> : null}</div>
     {definitionsOpen ? <Popover anchor={definitionsAnchor} label="Agent definitions" onClose={() => setDefinitionsOpen(false)}><DefinitionsSection state={state} activeThreadId={id} actions={actions} /></Popover> : null}
     {parentId ? <button type="button" className="workspace-card-row agent-lineage-parent" aria-label={`Back to ${parent?.title ?? "parent thread"}`} disabled={!parent?.path} onClick={() => { if (parent?.path) void actions.switchSession(parent.path); }}>
       <CornerUpLeft aria-hidden /><span className="workspace-card-label">Back to {parent?.title ?? "parent thread"}</span>
     </button> : null}
-    {rows(nativeRows)}
-    {model.groups.map((group) => {
-      const previousOpen = expanded.has(group.parentThreadId);
-      const active = group.rows.filter((row) => (isBusyStatus(row.status) || row.status === "pending"));
-      const previous = group.rows.filter((row) => !(isBusyStatus(row.status) || row.status === "pending"));
-      return <div key={group.parentThreadId}>
-        {model.groups.length > 1 ? <div className="agent-lineage-group">{group.parentTitle}</div> : null}
-        {rows(active)}
-        {previous.length ? <>
-          <button type="button" className="workspace-card-row agent-lineage-toggle" aria-expanded={previousOpen} onClick={() => setExpanded((current) => { const next = new Set(current); if (previousOpen) next.delete(group.parentThreadId); else next.add(group.parentThreadId); return next; })}><span className="workspace-card-label">Completed{previousOpen ? "" : ` (${previous.length})`}</span><span className="workspace-card-tail">{previousOpen ? <ChevronUp aria-hidden /> : <ChevronDown aria-hidden />}</span></button>
-          {previousOpen ? rows(previous) : null}
-        </> : null}
-      </div>;
-    })}
+    {sections.map((section) => <div key={section.key}>
+      {section.label ? <div className="agent-lineage-group">{section.label}</div> : null}
+      {section.active.length ? <div className="agent-lineage-list">{rows(section.active)}</div> : null}
+      {section.previous.length ? <PreviousAgents key={`${id}:${section.key}`} rows={section.previous} open={expanded.has(section.key)} onToggle={() => toggle(section.key)}>{rows}</PreviousAgents> : null}
+    </div>)}
   </section>;
+}
+
+/** Finished agents shown at first, and per "Show more" (T3 Code's lineage paging). */
+const PREVIOUS_FIRST = 6;
+const PREVIOUS_PAGE = 12;
+
+/** Finished agents fold under one row, as in T3 Code; open, they page so a long run never buries the card. */
+function PreviousAgents({ rows, open, onToggle, children }: { rows: readonly AgentRow[]; open: boolean; onToggle(): void; children(rows: readonly AgentRow[]): ReactNode }) {
+  const [shown, setShown] = useState(PREVIOUS_FIRST);
+  const failed = rows.filter((row) => row.status === "failed").length;
+  const hidden = rows.length - Math.min(shown, rows.length);
+  return <>
+    <button type="button" className="workspace-card-row agent-lineage-toggle" aria-expanded={open} onClick={onToggle}>
+      <span className="workspace-card-label">Previous agents{open ? "" : ` (${rows.length})`}</span>
+      {failed ? <span className="agent-lineage-failed">{failed} failed</span> : null}
+      <span className="workspace-card-tail">{open ? <ChevronUp aria-hidden /> : <ChevronDown aria-hidden />}</span>
+    </button>
+    {open ? <>
+      <div className="agent-lineage-list">{children(rows.slice(0, shown))}</div>
+      {hidden ? <button type="button" className="workspace-card-row agent-lineage-more" onClick={() => setShown((count) => count + PREVIOUS_PAGE)}>
+        <Plus aria-hidden /><span className="workspace-card-label">Show {Math.min(hidden, PREVIOUS_PAGE)} more</span>
+      </button> : null}
+    </> : null}
+  </>;
 }
 
 /** Compact clients have no project card; the same lineage opens from the thread header. */

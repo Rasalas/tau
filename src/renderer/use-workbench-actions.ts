@@ -77,6 +77,7 @@ export interface UseWorkbenchActionsOptions {
   closeOverlay: () => void;
   openConversationView?: WorkbenchActions["openConversationView"];
   closeConversationView?: WorkbenchActions["closeConversationView"];
+  navigateHistory?: WorkbenchActions["navigateHistory"];
   openWorkspace: WorkbenchActions["openWorkspace"];
   openFile: WorkbenchActions["openFile"];
   openThread: WorkbenchActions["openThread"];
@@ -238,6 +239,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       closeOverlay: options.closeOverlay,
       ...(options.openConversationView ? { openConversationView: options.openConversationView } : {}),
       ...(options.closeConversationView ? { closeConversationView: options.closeConversationView } : {}),
+      ...(options.navigateHistory ? { navigateHistory: options.navigateHistory } : {}),
       compactContext: options.threadCommands.compactContext,
       openModelPicker,
       setModel: async (providerOrQuery: string, id?: string) => {
@@ -399,6 +401,6 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
     applyHostResult, client, openPanel, openThread, activeDraftKey, openWorkspace,
     reloadWorkbench, settleActiveThread, snapshot, switchSession, openThreadTree, duplicateThread,
     stageTabs, cycleStageTab, openModelPicker, focusStage, openInstructions, toggleSidebar, options.toggleSpine, options.attachFiles, options.pages,
-    options.openDraft, options.discardDraft, options.openConversationView, options.closeConversationView,
+    options.openDraft, options.discardDraft, options.openConversationView, options.closeConversationView, options.navigateHistory,
   ]);
 }

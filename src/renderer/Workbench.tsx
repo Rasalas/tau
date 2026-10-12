@@ -44,7 +44,8 @@ import { useConversationActivities } from "./conversation-activities";
 import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
 import type { ExtensionRegistry, TranscriptTurn, WorkbenchActions } from "./extension-system";
 import { MountedPanel, PanelMaximizeButton, PanelSlot, usePanelHosts } from "./components/PanelHosts";
-import { StartDetails, ThreadDetails, ThreadHeader } from "./components/ThreadHeader";
+import { StartDetails, ThreadHeader } from "./components/ThreadHeader";
+import { ProjectCrumb } from "./components/ProjectCrumb";
 import { ProjectIcon } from "./components/ProjectIcon";
 import { WindowControlsInset } from "./components/WindowControlsInset";
 import { useHostClient } from "./host-client-context";
@@ -745,6 +746,22 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
             }}
           />
         </>;
+  // A view with a name of its own reads as "thread / view" in the head, the thread's title leading back (T3 Code's parent crumb).
+  const ViewTitle = phone || !conversationView ? undefined : activeConversationView?.Title;
+  const viewProps = conversationView ? { actions, snapshot: conversationSnapshot, params: conversationView.params, onClose: closeConversationView, ...(ViewTitle ? { headed: true } : {}) } : undefined;
+  const parentTitle = conversationSnapshot?.sessionTitle || "Untitled thread";
+  const headTitle = showStartScreen ? threadTitle : <nav className="thread-crumbs" aria-label="Thread breadcrumb">
+    <ProjectCrumb sessionId={snapshot?.sessionId} onNewThread={(workspace) => actions.newSession({ workspace })} />
+    {ViewTitle && viewProps ? <>
+      <button type="button" className="thread-crumb-parent" aria-label={`Open parent thread: ${parentTitle}`}
+        {...tooltipProps(parentTitle, { side: "bottom" })} onClick={closeConversationView}
+      >{parentTitle}</button>
+      <span className="thread-crumb-separator" aria-hidden>/</span>
+      <span className="thread-crumb-current" aria-current="page"><LazyFeatureBoundary label="conversation view title"
+        extensionId={activeConversationView?.extensionId} extensionName={activeConversationView?.extensionName} registry={registry} onNotify={actions.notify}
+      ><ViewTitle {...viewProps} /></LazyFeatureBoundary></span>
+    </> : <span className="thread-crumb-title">{threadTitle}</span>}
+  </nav>;
   const projectControls = <Region registry={registry} placement="stage-bar" snapshot={snapshot} actions={actions} workspaceSummary={workspaceSummaryControl} />;
   const projectControlsInWorkspace = !compact && rightAreaShown && !stageExpanded;
   // The conversation's head replaces the window-wide bar everywhere but on a phone, whose bar is its own.
@@ -754,9 +771,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       {!sidebarShown && !split && !compact && sidebarContributions.length > 0 ? <SidebarClosedControls actions={actions} registry={registry} readOnly={hostCapabilities.readOnly} /> : null}
       {split ? <button type="button" className="stage-tool" aria-label="Threads" {...tooltipProps("Threads", { side: "bottom" })} onClick={() => setTouchSidebarOpen((open) => !open)}><ListTree size={16} /></button> : null}
     </>}
-    title={threadTitle}
-    details={!showStartScreen && !split ? <ThreadDetails snapshot={conversationSnapshot} view={view} slots={detailSlots} />
-      : split ? <StartDetails snapshot={conversationSnapshot} /> : <StartDetails snapshot={conversationSnapshot} slots={detailSlots} />}
+    title={headTitle}
+    // Only the crumbs, as T3 Code's head: model, cost and branch are in the composer and the project card.
+    details={split ? <StartDetails snapshot={conversationSnapshot} /> : showStartScreen ? <StartDetails snapshot={conversationSnapshot} slots={detailSlots} /> : null}
     actions={conversationFolded ? null : <PanelSlot host={titleActionsHost} />}
     tools={<>
       {projectControlsInWorkspace ? null : projectControls}
@@ -848,7 +865,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               registry={registry}
               onNotify={actions.notify}
             >
-              <activeConversationView.Component actions={actions} snapshot={conversationSnapshot} params={conversationView.params} onClose={closeConversationView} />
+              <activeConversationView.Component {...viewProps!} />
             </LazyFeatureBoundary></div> : !showStartScreen ? <>
               <Region registry={registry} placement="transcript-header" snapshot={snapshot} actions={actions} />
               {snapshot?.sessionId ? <ThreadRuntimeBanner

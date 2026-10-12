@@ -24,3 +24,12 @@ export function threadUsageSections(usage: UiThreadUsage): ThreadUsageSections {
     plan: { ...(value ? { value } : {}), detail: threadUsageDetail(plan) },
   };
 }
+
+/** The same two halves as lines, for a tooltip where a popover would be clipped (Workspace Kit's card). */
+export function threadUsageLines(usage: UiThreadUsage): string[] {
+  const { billed, plan } = threadUsageSections(usage);
+  return [
+    ...(billed ? [`Spent ${billed.cost ?? "(no price)"}`, billed.detail] : []),
+    ...(plan ? ["Subscription: included", plan.detail, plan.value ? `Would have cost ≈ ${plan.value} via the API` : "No API price known for these tokens"] : []),
+  ];
+}

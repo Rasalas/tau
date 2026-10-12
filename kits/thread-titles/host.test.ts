@@ -71,6 +71,48 @@ describe("Thread Title Generator host extension", () => {
     expect(complete).toHaveBeenCalledOnce();
   });
 
+  it("adopts a harness title that appears while the first turn still runs", async () => {
+    vi.useFakeTimers();
+    try {
+      let native: string | undefined;
+      let observer!: HostTurnObserver;
+      const complete = vi.fn();
+      const setThreadTitle = vi.fn(async () => undefined);
+      const registry = await activateHostKit(createThreadTitlesHostExtension(), {
+        runtimeOwner: () => "tau", thread: () => piThread({ isStreaming: () => true, nativeTitle: async () => native }),
+        complete, setThreadTitle,
+        registerTurnObserver: (value) => { observer = value; return () => undefined; },
+      });
+      await registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", { sessionId: "s1", prompt: "Screenshot.png" });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(setThreadTitle).not.toHaveBeenCalled();
+      expect(observer.pending!("s1")).toBe(1);
+      native = "Eingeklappte Agenten";
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(setThreadTitle).toHaveBeenCalledWith("s1", "Eingeklappte Agenten", "generated");
+      expect(observer.pending!("s1")).toBe(0);
+      expect(complete).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("titles a deferred thread when its run ends although the turn's end found it still streaming", async () => {
+    let streaming = true;
+    let observer!: HostTurnObserver;
+    const setThreadTitle = vi.fn(async () => undefined);
+    const registry = await activateHostKit(createThreadTitlesHostExtension(), {
+      runtimeOwner: () => "tau", thread: () => piThread({ isStreaming: () => streaming, nativeTitle: async () => undefined }),
+      complete: async () => "Bildvorschau im Chat", setThreadTitle,
+      registerTurnObserver: (value) => { observer = value; return () => undefined; },
+    });
+    await registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", { sessionId: "s1", prompt: "Fix it" });
+    await observer.ended!("s1", "turn", "completed");
+    expect(setThreadTitle).not.toHaveBeenCalled();
+    streaming = false;
+    await observer.runEnded!("s1", "completed");
+    await vi.waitFor(() => expect(setThreadTitle).toHaveBeenCalledWith("s1", "Bildvorschau im Chat", "generated"));
+    expect(observer.pending!("s1")).toBe(0);
+  });
+
   it("reports a failed deferred title and releases the pending thread", async () => {
     let streaming = true;
     let observer!: HostTurnObserver;

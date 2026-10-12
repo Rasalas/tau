@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObj
 import { ChevronDown, ChevronRight, Download, Ellipsis, GitCommitHorizontal, GitCompare, GitBranch, FolderGit2, SquareMenu, SquarePen, Upload } from "lucide-react";
 import { hostAvailable, Menu, Popover, tooltipProps, useHostCapabilities, usePreferences, type MenuSection, type RegionProps } from "tau";
 import { ThreadBranch } from "./branch-menu.js";
+import { ThreadCostRow } from "./thread-cost-row.js";
 import { EditorIcon } from "./EditorIcon.js";
 import { pickProjectAction, ProjectActionEditor, ProjectActionsControl, projectActionItems, useProjectActions } from "./project-actions.js";
 import { resolveGitQuickAction, type GitQuickActionKind } from "./actions.js";
@@ -32,6 +33,7 @@ export function WorkspaceTitleActions(props: RegionProps & { hideChanges?: boole
     {!state.draftPending && !props.hideChanges ? <button type="button" className="workspace-changes-link workspace-card-row workspace-card-changes" {...tooltipProps("Review working-tree changes")} aria-label={`${changed} ${changed === 1 ? "file" : "files"} changed`} onClick={() => workspaceStore.showChangedFiles()}>
       <GitCompare aria-hidden /><span className="workspace-card-label">Changes</span><span className="workspace-card-deltas" aria-label={`Working tree: ${state.changes.added} additions, ${state.changes.removed} deletions`}><span className="added">+{state.changes.added}</span><span className="removed">−{state.changes.removed}</span></span><span className="workspace-card-tail"><ChevronRight size={16} /></span>
     </button> : null}
+    {!state.draftPending ? <ThreadCostRow {...props} /> : null}
     {!state.draftPending ? (state.workspaceSummaryFooterSections ?? []).map((Section, index) => <Section key={index} {...props} />) : null}
   </section>;
 }
