@@ -201,7 +201,21 @@ body[data-profile="compact"] .conversation-start .region-draft-actions { margin-
 .mobile-draft-checkout > button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mobile-draft-checkout svg { flex: none; }
 body[data-profile="compact"] .conversation-start .composer-frame { border-radius: 28px; }
-body[data-profile="compact"] .conversation-start .composer-surface textarea { min-height: 90px; }
+/* Start and thread share the one-line field height, so sending never leaves a tall empty editor. */
+body[data-profile="compact"] .composer-frame textarea { min-height: var(--touch-target); }
+/* Fold the controls while reading history; the text line remains a full touch target. */
+body[data-profile="compact"] .composer-toolbar {
+  max-height: calc(var(--touch-target) + var(--space-2) + var(--space-3));
+  overflow: hidden;
+  transition: max-height 160ms cubic-bezier(.2, .8, .2, 1), padding-block 160ms cubic-bezier(.2, .8, .2, 1), opacity 100ms ease;
+}
+body[data-profile="compact"] .composer-zone.collapsed .composer-toolbar {
+  display: flex; max-height: 0; padding-block: 0; opacity: 0; overflow: hidden; visibility: hidden;
+}
+body[data-profile="compact"] .composer-zone.collapsed .composer-frame textarea { max-height: none; }
+@media (prefers-reduced-motion: reduce) {
+  body[data-profile="compact"] .composer-toolbar { transition: none; }
+}
 body[data-profile="compact"] .composer-toolbar .composer-model-chip { margin-left: auto; padding-inline: 8px; }
 body[data-profile="compact"] .composer-model-chip::before { display: none; }
 body[data-profile="compact"] .composer-model-chip .runtime-chip-label { display: block; }
