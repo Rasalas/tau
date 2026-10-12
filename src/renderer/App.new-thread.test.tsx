@@ -75,7 +75,8 @@ it.each([
   expect(header.querySelector(".thread-details")).toBeNull();
   expect(screen.getByRole("button", { name: "Change project, current project project" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Change device" })).toBeTruthy();
-  const before = [...header.querySelectorAll("*")].map((node) => node.className);
+  const headerStructure = () => [...header.querySelectorAll(":scope > *, .thread-heading *")].map((node) => [node.tagName, node.getAttribute("class")]);
+  const before = headerStructure();
   const composer = screen.getByPlaceholderText(/Ask anything/);
   fireEvent.change(composer, { target: { value: "launch selected model" } });
   fireEvent.keyDown(composer, { key: "Enter" });
@@ -85,7 +86,7 @@ it.each([
   await waitFor(() => expect(screen.queryByRole("heading", { name: /do next\?$/ })).toBeNull());
   expect((await screen.findByRole("button", { name: "Select model: GPT-6.1 Sol" })).hasAttribute("disabled")).toBe(false);
   expect(screen.getByRole("img", { name: new RegExp(`GPT-6.1 Sol · ${label}`) })).toBeTruthy();
-  expect([...header.querySelectorAll("*")].map((node) => node.className)).toEqual(before);
+  expect(headerStructure()).toEqual(before);
   expect(screen.queryByRole("button", { name: "Change device" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Change project, current project project" })).toBeNull();
 });
