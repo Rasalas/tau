@@ -203,7 +203,8 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
   const open = (next: Tab) => {
     setTab(next);
     setVisited((current) => current.has(next) ? current : new Set([...current, next]));
-    setCondensed(false);
+    // A stop wants the screen: the phone's guide starts with the header folded.
+    setCondensed(phone && next === "guide");
   };
 
   const showChecks = () => { open("summary"); setChecksAt(Date.now()); };
@@ -486,7 +487,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
           onReview={async (event, text) => { await review(event, text); setComposing(false); actions.notify(`Review submitted on ${noun} #${detail.ref.number}.`); }}
           onCancel={() => setComposing(false)}
         />
-      ) : phone ? (
+      ) : phone && tab === "guide" ? null : phone ? (
         // A bar under the body instead of the button over it: on a phone that would cover the text it floats on.
         <footer className="pr-comment-bar">
           <button className="pr-comment-bar-button" disabled={!writes.comment && !writes.review} onClick={() => setComposing(true)}>

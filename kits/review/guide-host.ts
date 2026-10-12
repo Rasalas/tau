@@ -382,7 +382,7 @@ export function registerGuides(
         if (!run) return;
         threads.delete(sessionId);
         // A guide stored by now cleared the run; an end without one is a failure the reader should hear.
-        if (active.get(run.key)?.runId === run.runId) fail(run, outcome === "failed" ? "The guide agent failed before it submitted a guide." : "The guide agent finished without submitting a guide.");
+        if (active.get(run.key)?.runId === run.runId) fail(run, outcome === "failed" ? "The guide agent failed before it submitted a guide. Open it in the Agents panel to see why." : "The guide agent finished without submitting a guide. Open it in the Agents panel to see why.");
         void cleanUp(sessionId);
       },
     }),
