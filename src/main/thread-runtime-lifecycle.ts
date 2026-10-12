@@ -43,6 +43,7 @@ import { discoverPromptOverrides } from "./system-prompt-resolver.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import { agentShellFor } from "./agent-scope.js";
 import { withConfiguredSampling } from "./configured-sampling.js";
+import { createDeferredToolsExtension } from "./deferred-tools.js";
 
 type RuntimeStartEvent = Parameters<CreateAgentSessionRuntimeFactory>[0]["sessionStartEvent"];
 
@@ -190,7 +191,11 @@ export class ThreadRuntimeLifecycle {
         ...(cachedResources ? cachedResourceOptions(cachedResources) : {}),
         noExtensions: this.port.safeMode,
         // Host extensions add theirs through the services facade; none in safe mode.
-        extensionFactories: extensions.map((extension) => ({ name: extension.name, factory: extension.factory })),
+        // First, so extensions that narrow the active tools see tool_search and can drop it.
+        extensionFactories: [
+          ...(this.port.safeMode ? [] : [{ name: "tau-tool-search", factory: createDeferredToolsExtension() }]),
+          ...extensions.map((extension) => ({ name: extension.name, factory: extension.factory })),
+        ],
         ...(cachedResources ? {} : {
           systemPromptOverride: (base) => promptOverrides.customPrompt?.content ?? base,
           appendSystemPromptOverride: (base) => [

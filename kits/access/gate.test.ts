@@ -1,4 +1,9 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { Type } from "typebox";
+import { createAgentSession, createToolSearchExtension, DefaultResourceLoader, SessionManager, SettingsManager, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { createAccessExtension, isMutatingToolCall, toolMetadataOf } from "./gate.js";
 import type { AccessLevel } from "./protocol.js";
 
@@ -133,5 +138,40 @@ describe("tools from other sources", () => {
     expect(meta({ name: "x", sourceInfo: { path: "<sdk:x>", source: "sdk" } })).toBe("foreign");
     expect(meta({ name: "x", sourceInfo: { path: "<inline:fake>", source: "local" } })).toBe("foreign");
     expect(meta(fromProject("x"))).toBe("foreign");
+  });
+});
+
+describe("deferred tools", () => {
+  it("are judged by the registry before and after tool_search loads them", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tau-gate-deferred-"));
+    const tool = (name: string) => ({ name, label: name, description: `${name} tool`, parameters: Type.Object({}), exposure: "deferred" as const, execute: async () => ({ content: [], details: undefined }) });
+    const kit: ExtensionFactory = (pi) => { pi.registerTool(tool("computer_use_click")); pi.registerTool(tool("preview_screenshot")); };
+    try {
+      const resourceLoader = new DefaultResourceLoader({
+        cwd: dir,
+        agentDir: join(dir, "agent"),
+        settingsManager: SettingsManager.inMemory(),
+        extensionFactories: [{ name: "tau-tool-search", factory: createToolSearchExtension() }, { name: "tau-kit", factory: kit }],
+      });
+      await resourceLoader.reload();
+      const { session } = await createAgentSession({ cwd: dir, agentDir: join(dir, "agent"), resourceLoader, settingsManager: SettingsManager.inMemory(), sessionManager: SessionManager.inMemory() });
+      await session.bindExtensions({});
+      try {
+        const registry = () => session.getAllTools() as unknown as Registered[];
+        const confirm = vi.fn(async () => false);
+        // Not declared to the model yet, and already known to the gate as Tau's own.
+        expect(session.getActiveToolNames()).not.toContain("computer_use_click");
+        await expect(gate("read-only", confirm, registry())("computer_use_click", {})).resolves.toMatchObject({ block: true });
+        await expect(gate("read-only", confirm, registry())("preview_screenshot", {})).resolves.toBeUndefined();
+        await expect(gate("read-only", confirm, registry())("tool_search", { query: "click" })).resolves.toBeUndefined();
+        session.setActiveToolsByName([...session.getActiveToolNames(), "computer_use_click"]);
+        await expect(gate("read-only", confirm, registry())("computer_use_click", {})).resolves.toMatchObject({ block: true });
+        expect(confirm).not.toHaveBeenCalled();
+      } finally {
+        session.dispose();
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
