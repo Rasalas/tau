@@ -79,7 +79,7 @@ export function PageView({ host, actions, threadId, pageId, variant, onTitle }: 
     return () => { cancelled = true; release(); };
   }, [host, threadId, pageId]);
 
-  // A tab gives the page the room it has.
+  // A tab gives the page the room it has; the box exists once the page is ready.
   useEffect(() => {
     const element = box.current;
     if (variant !== "tab" || !element || typeof ResizeObserver === "undefined") return;
@@ -87,7 +87,7 @@ export function PageView({ host, actions, threadId, pageId, variant, onTitle }: 
     observer.observe(element);
     setRoom(element.clientHeight);
     return () => observer.disconnect();
-  }, [variant]);
+  }, [variant, view.kind]);
 
   const onMessage = (data: unknown) => {
     const measured = reportedHeight(data);

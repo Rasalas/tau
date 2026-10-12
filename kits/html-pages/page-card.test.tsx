@@ -5,6 +5,7 @@ import type { ToolCardProps, UiToolRun, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import htmlPages from "./desktop.js";
 import { createPageCard } from "./page-card.js";
+import { PageView } from "./page-view.js";
 import { HTML_PAGE_COMMANDS, HTML_PAGE_STAGE_TAB, type HtmlPageOpen } from "./protocol.js";
 
 const tool = (overrides: Partial<UiToolRun> = {}): UiToolRun => ({
@@ -105,6 +106,27 @@ describe("HTML page card", () => {
     await waitForFrame();
     view.unmount();
     await waitFor(() => expect(host.invoke).toHaveBeenCalledWith(HTML_PAGE_COMMANDS.release, { path: "/resources/frame-1" }));
+  });
+});
+
+describe("HTML page in a stage tab", () => {
+  it("fills the room the tab has once the page is ready", async () => {
+    class Watcher { constructor(private readonly run: () => void) {} observe() { this.run(); } disconnect() { /* nothing to release */ } }
+    vi.stubGlobal("ResizeObserver", Watcher);
+    const client = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(640);
+    try {
+      const host = { invoke: vi.fn(async () => ready()), onEvent: () => () => undefined, resourceUrl: (path: string) => `https://host.test${path}` };
+      const actions = { activeThread: () => undefined, openExternal: vi.fn() } as unknown as WorkbenchActions;
+      const titles: string[] = [];
+      render(<PageView host={host} actions={actions} threadId="thread-1" pageId="abc123XYZ" variant="tab" onTitle={(title) => titles.push(title)} />);
+      await waitForFrame();
+      await waitFor(() => expect((document.querySelector(".sandbox-frame") as HTMLElement).style.height).toBe("640px"));
+      expect(titles).toEqual(["Totals"]);
+      expect(screen.queryByRole("button", { name: "Expand" })).toBeNull();
+    } finally {
+      client.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 });
 
