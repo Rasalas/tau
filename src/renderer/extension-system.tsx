@@ -216,6 +216,8 @@ export interface WorkbenchActions {
   openConversationView?(id: string, params?: Record<string, unknown>): void;
   /** Back to the thread's own transcript (API 1.57.0). */
   closeConversationView?(): void;
+  /** One step back or forward over the threads and views this window showed, as a browser's history (new after API 1.59.0). */
+  navigateHistory?(direction: -1 | 1): Promise<boolean>;
   /** Opens a page `registerPage` added, beside the sidebar; `params` is what it opens on. */
   openPage?(id: string, params?: Record<string, unknown>): void;
   /** Closes the open page, back to the thread. */
@@ -466,12 +468,16 @@ export interface ConversationViewProps {
   params: Readonly<Record<string, unknown>>;
   /** Back to the thread's transcript. */
   onClose(): void;
+  /** The thread head names the view through its `Title`, so the view needs no title of its own (new after API 1.59.0). */
+  headed?: boolean;
 }
 
 /** A view in the conversation column, such as a native subagent's run (API 1.57.0). */
 export interface ConversationViewContribution extends ProfileScoped {
   id: string;
   Component: ComponentType<ConversationViewProps>;
+  /** The view's name in the thread head, after the thread's as its parent (new after API 1.59.0). */
+  Title?: ComponentType<ConversationViewProps>;
 }
 
 /**

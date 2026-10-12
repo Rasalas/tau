@@ -108,7 +108,7 @@ describe("agents in the project card", () => {
     const row = await screen.findByRole("button", { name: "Alpha reply, Running" });
     const section = row.closest(".agent-lineage") as HTMLElement;
     expect(within(section).queryByRole("button", { name: "Beta reply, Completed" })).toBeNull();
-    fireEvent.click(within(section).getByRole("button", { name: "Completed (1)" }));
+    fireEvent.click(within(section).getByRole("button", { name: "Previous agents (1)" }));
     expect(await within(section).findByRole("button", { name: "Beta reply, Completed" })).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: "More tools" }));
     expect(screen.queryByRole("menuitem", { name: /Agents/ })).toBeNull();
@@ -140,7 +140,7 @@ describe("agents in the project card", () => {
       machine: { id: "rex-id", name: "rex", link: "link-1", thread: "rex-thread" },
     })] };
     renderApp(appWith(agents, [session("parent", "Parent thread", 3)], "parent"), { extensions: [workspaceExtension, agentsExtension] });
-    fireEvent.click(await screen.findByRole("button", { name: "Completed (1)" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Previous agents (1)" }));
     const row = await screen.findByRole("button", { name: "Word on rex, Completed" });
     expect(row.getAttribute("data-tooltip")).toContain("rex");
     fireEvent.click(row);

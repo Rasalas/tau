@@ -181,6 +181,9 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerCommand({ id: "composer.effort", label: "Choose the reasoning effort", group: "Composer", access: "write", run: later("composer.effort") });
     plugin.registerCommand({ id: "thread.steerQueuedMessage", label: "Send the oldest queued message now", group: "Thread", access: "write", run: (app) => { app.steerQueuedMessage?.(); } });
     plugin.registerCommand({ id: "runtime.command-palette", label: "Open command palette", group: "Runtime", access: "read", run: (app) => app.openCommandPalette() });
+    // T3 Code's ids, so its keybindings.json works here too.
+    plugin.registerCommand({ id: "navigation.back", label: "Go back", group: "Thread", access: "read", run: async (app) => { await app.navigateHistory?.(-1); } });
+    plugin.registerCommand({ id: "navigation.forward", label: "Go forward", group: "Thread", access: "read", run: async (app) => { await app.navigateHistory?.(1); } });
     plugin.registerCommand({ id: "runtime.thread-tree", label: "Thread tree…", group: "Thread", access: "read", run: (app) => app.openThreadTree("navigate") });
     plugin.registerCommand({ id: "runtime.fork-thread", label: "Fork thread…", group: "Thread", access: "write", run: (app) => app.openThreadTree("fork") });
     plugin.registerCommand({ id: "runtime.duplicate-thread", label: "Duplicate thread", group: "Thread", access: "write", run: async (app) => { await app.duplicateThread(); } });
@@ -242,6 +245,9 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerSlashCommand({ name: "goal", description: "Set a goal the runtime pursues across turns, or pause, resume or end it", argumentHint: "<objective> | pause | resume | end", run: runGoalCommand });
     plugin.registerKeybinding({ keys: "mod+i", commandId: "runtime.instructions" });
     plugin.registerKeybinding({ keys: "mod+k", commandId: "runtime.command-palette" });
+    // In a terminal ⌘[ and ⌘] move between its splits (Terminal Kit).
+    plugin.registerKeybinding({ keys: "mod+[", commandId: "navigation.back", when: "!terminalFocus" });
+    plugin.registerKeybinding({ keys: "mod+]", commandId: "navigation.forward", when: "!terminalFocus" });
     // The open Settings screen answers the same chord by closing.
     plugin.registerKeybinding({ keys: "mod+,", commandId: "runtime.settings" });
     // In a terminal these chords are the terminal's (Terminal Kit binds them under `terminalFocus`).

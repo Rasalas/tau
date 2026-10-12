@@ -87,7 +87,7 @@ export type KeybindingCard = (typeof KEYBINDING_CARDS)[number];
 
 /** The design's rows (2g) first, in its order; a command it does not name follows by its id and group. */
 const PLACES: Readonly<Record<KeybindingCard, readonly string[]>> = {
-  app: "runtime.command-palette runtime.new-session review.reviews.open thread.next thread.prev thread.jump".split(" "),
+  app: "runtime.command-palette runtime.new-session review.reviews.open navigation.back navigation.forward thread.next thread.prev thread.jump".split(" "),
   conversation: "runtime.abort thread.steerQueuedMessage workbench.toggle-spine".split(" "),
   stage: "workspace.files terminal.toggle workspace.open-in-editor workbench.split-stage".split(" "),
   thread: "runtime.fork-thread thread.settle workspace.commit runtime.compact".split(" "),

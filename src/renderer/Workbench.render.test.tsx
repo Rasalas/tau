@@ -15,7 +15,6 @@ vi.mock("./components/ThreadHeader", () => ({
     titleBarRenders.count += 1;
     return <header data-testid="title-bar" />;
   },
-  ThreadDetails: () => null,
   StartDetails: () => null,
 }));
 

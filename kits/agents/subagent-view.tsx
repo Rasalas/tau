@@ -64,11 +64,40 @@ function ParentDivider({ title, onOpen }: { title: string; onOpen(): void }) {
   </div>;
 }
 
-function Head({ title, meta }: { title: string; meta: string }) {
+/** The child's name and what runs it; a core whose head names the child (`headed`) leaves the name out here. */
+function Head({ title, meta, headed }: { title: string; meta: string; headed?: boolean | undefined }) {
+  if (headed && !meta) return null;
   return <header className="subagent-view-head">
-    <h2>{title}</h2>
+    {headed ? null : <h2>{title}</h2>}
     {meta ? <small>{meta}</small> : null}
   </header>;
+}
+
+function useNativeRow(snapshot: ConversationViewProps["snapshot"], toolId: string): AgentRow | undefined {
+  const { tools } = useWorkbench();
+  const tool = nativeAgentTools(snapshot?.turnActivityHistory, tools).get(toolId);
+  return tool ? nativeAgentRow(tool) : undefined;
+}
+
+function useChildTitle(threadId: string): string {
+  const store = useThreadStore();
+  const navigation = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const agents = useSyncExternalStore(agentsStore.subscribe, agentsStore.getSnapshot);
+  return navigation.threads.find((thread) => thread.id === threadId)?.title || agents?.links.find((entry) => entry.threadId === threadId)?.title || "Subagent";
+}
+
+/** The child's name in the thread head, after its parent's. */
+export function SubagentTitle({ snapshot, params }: ConversationViewProps) {
+  return typeof params.threadId === "string" ? <ChildTitle threadId={params.threadId} />
+    : <NativeTitle snapshot={snapshot} toolId={typeof params.toolId === "string" ? params.toolId : ""} />;
+}
+
+function ChildTitle({ threadId }: { threadId: string }) {
+  return <>{useChildTitle(threadId)}</>;
+}
+
+function NativeTitle({ snapshot, toolId }: { snapshot: ConversationViewProps["snapshot"]; toolId: string }) {
+  return <>{useNativeRow(snapshot, toolId)?.title ?? "Subagent"}</>;
 }
 
 /** Where the composer stands in a thread: what runs, and the way back. */
@@ -109,10 +138,8 @@ export function SubagentView(props: ConversationViewProps) {
   </div>;
 }
 
-function NativeChild({ snapshot, toolId, onClose }: ConversationViewProps & { toolId: string }) {
-  const { tools } = useWorkbench();
-  const tool = nativeAgentTools(snapshot?.turnActivityHistory, tools).get(toolId);
-  const row = tool ? nativeAgentRow(tool) : undefined;
+function NativeChild({ snapshot, toolId, onClose, headed }: ConversationViewProps & { toolId: string }) {
+  const row = useNativeRow(snapshot, toolId);
   const scrollRef = useRef<HTMLDivElement>(null);
   const atTail = useRef(true);
   const entries = row?.native?.entries ?? [];
@@ -121,7 +148,7 @@ function NativeChild({ snapshot, toolId, onClose }: ConversationViewProps & { to
   useLayoutEffect(() => {
     const node = scrollRef.current;
     if (node && atTail.current) node.scrollTop = node.scrollHeight;
-  }, [tool?.output, entries.length]);
+  }, [row?.native?.transcript, entries.length]);
 
   const title = row?.title ?? "Subagent";
   return <section className="subagent-view" aria-label={`Subagent ${title}`}>
@@ -131,7 +158,7 @@ function NativeChild({ snapshot, toolId, onClose }: ConversationViewProps & { to
       <div className="subagent-view-inner">
         <ParentDivider title={snapshot?.sessionTitle || "Parent thread"} onOpen={onClose} />
         {!row ? <p className="subagent-view-empty" role="status">This subagent is not part of the thread any more.</p> : <>
-          <Head title={title} meta={[row.native?.runtime, row.model].filter(Boolean).join(" · ")} />
+          <Head title={title} meta={[row.native?.runtime, row.model].filter(Boolean).join(" · ")} headed={headed} />
           {entries.length > 0 ? entries.map((entry, index) => entry.kind === "tool"
             ? <div key={entry.id} className="subagent-entry-tool">
               <Wrench size={12} aria-hidden /><strong>{entry.text}</strong>{entry.detail ? <code title={entry.detail}>{entry.detail}</code> : null}
@@ -156,7 +183,7 @@ function NativeChild({ snapshot, toolId, onClose }: ConversationViewProps & { to
 }
 
 /** A child Tau started as a thread of its own (a runtime without native delegation), read-only. */
-function ChildThread({ snapshot, threadId, onClose }: ConversationViewProps & { threadId: string }) {
+function ChildThread({ snapshot, threadId, onClose, headed }: ConversationViewProps & { threadId: string }) {
   const store = useThreadStore();
   const navigation = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const activity = useSyncExternalStore(store.subscribeToActivity, store.getActivity);
@@ -165,12 +192,12 @@ function ChildThread({ snapshot, threadId, onClose }: ConversationViewProps & { 
   const link = agents?.links.find((entry) => entry.threadId === threadId);
   const status: AgentThreadStatus = link?.status ?? (activity.runningThreadIds.includes(threadId) ? "running" : "idle");
   const model = link?.model ?? (session?.model ? `${session.modelProvider ? `${session.modelProvider}/` : ""}${session.model}` : undefined);
-  const title = session?.title || link?.title || "Subagent";
+  const title = useChildTitle(threadId);
   return <section className="subagent-view subagent-thread" aria-label={`Subagent ${title}`}>
     <div className="subagent-view-top">
       <div className="subagent-view-inner">
         <ParentDivider title={snapshot?.sessionTitle || "Parent thread"} onOpen={onClose} />
-        <Head title={title} meta={link?.agent ?? ""} />
+        <Head title={title} meta={link?.agent ?? ""} headed={headed} />
       </div>
     </div>
     <div className="subagent-thread-transcript"><ThreadTranscript sessionId={threadId} /></div>

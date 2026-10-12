@@ -234,6 +234,34 @@ export function agentsPanelModel(
   };
 }
 
+/** One parent's agents in the project card: the working ones open, the finished ones folded (T3 Code's lineage). */
+export interface LineageSection {
+  key: string;
+  /** Only where the card shows more than one parent. */
+  label?: string;
+  active: AgentRow[];
+  /** Finished, idle, failed and cancelled, the latest first. */
+  previous: AgentRow[];
+}
+
+/** Native children belong to the thread on screen, so they join its group. */
+export function lineageSections(nativeRows: readonly AgentRow[], groups: readonly AgentGroup[]): LineageSection[] {
+  const own = groups.find((group) => group.active);
+  const sources = [
+    ...(own || nativeRows.length === 0 ? [] : [{ key: "native", title: "This thread", rows: [...nativeRows] }]),
+    ...groups.map((group) => ({ key: group.parentThreadId, title: group.parentTitle, rows: group === own ? [...nativeRows, ...group.rows] : group.rows })),
+  ].filter((source) => source.rows.length > 0);
+  // An idle child finished its turn; only work and the queue stay open.
+  const working = (row: AgentRow) => isBusyStatus(row.status) || row.status === "pending";
+  const finishedAt = (row: AgentRow) => row.endedAt ?? row.startedAt ?? 0;
+  return sources.map((source) => ({
+    key: source.key,
+    ...(sources.length > 1 ? { label: source.title } : {}),
+    active: source.rows.filter(working),
+    previous: source.rows.filter((row) => !working(row)).sort((left, right) => finishedAt(right) - finishedAt(left)),
+  }));
+}
+
 /**
  * Whether Stop reaches the agent behind a row: it still runs or waits in the
  * queue, and either its runtime gave a task to stop or the kit holds its link.

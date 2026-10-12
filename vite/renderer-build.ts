@@ -26,7 +26,6 @@ export const COMMON_MODULES = [
   "renderer/settings/page-action.tsx",
   "renderer/settings/provider-card-state.ts",
   "renderer/settings/connections-format.ts",
-  "renderer/components/ThreadCostPopover.tsx",
   "renderer/cost-sections.ts",
   "renderer/components/FileSource.tsx",
   "renderer/components/QueuedMessages.tsx",

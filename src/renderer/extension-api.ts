@@ -62,6 +62,8 @@ export { hostAvailability, useHostAvailability, type HostAvailability } from "./
 export { useKeepClear } from "./reserved-region";
 export { changesSinceTurn, changesTouchedByTools, readCachedTurnActivity } from "../workbench/turn-activity";
 export { formatCost, threadCostLabel, threadCostOrigin } from "./cost-format";
+// A thread's spend split for a tooltip (new after API 1.59.0).
+export { threadUsageLines } from "./cost-sections";
 // Presentation core owns and an extension may reuse: the list primitives, the
 // menu, the file glyphs, the thread row (it draws provider icons from core's
 // asset pipeline, which an esbuild-bundled package has no loader for) and the

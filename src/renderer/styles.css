@@ -167,14 +167,28 @@ button > svg { pointer-events: none; }
 /* A draft's name is a placeholder until the thread names itself (design 1k). */
 .thread-header .title-draft { color: var(--muted); }
 .thread-header .thread-title-trigger { padding: 2px 6px; margin-left: -6px; }
+/*
+ * "Project / parent / thread", as T3 Code's head: one size and weight for every crumb, the one on screen in ink,
+ * the way back muted. The parent gives way first, the project keeps its short name.
+ */
+.thread-crumbs { display: flex; align-items: center; gap: 4px; min-width: 0; margin-left: -6px; font: 500 var(--text-md)/1.25 var(--sans); }
+.thread-crumbs :is(.thread-crumb-project, .thread-crumb-parent, .thread-title-trigger) {
+  min-width: 0; margin: 0; padding: 3px 6px; border: 0; border-radius: 6px; background: none; font: inherit; letter-spacing: normal; cursor: pointer;
+}
+.thread-crumbs :is(.thread-crumb-project, .thread-crumb-parent) { color: var(--muted); }
+.thread-crumbs :is(.thread-crumb-project, .thread-crumb-parent):hover { background: var(--hover); color: var(--ink); }
+.thread-crumb-project { flex: none; display: inline-flex; align-items: center; gap: 6px; max-width: 12rem; }
+.thread-crumb-project > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-crumb-project .thread-project-icon { flex: none; }
+.thread-crumb-parent { flex: 0 1 auto; min-width: 2.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-crumb-separator { flex: none; color: var(--faint); }
+.thread-crumb-current { flex: none; max-width: 60%; padding: 3px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.thread-crumb-title { display: flex; align-items: center; min-width: 0; color: var(--ink); }
 /* Narrow, the details wrap under the title as the design's do, rather than lose their words. */
 .thread-details { display: flex; align-items: center; gap: 0 6px; min-width: 0; overflow: hidden; white-space: nowrap; color: var(--muted); font-size: var(--text-xs); }
 .thread-detail { display: inline-flex; align-items: center; gap: 5px; flex: none; max-width: 100%; }
 .thread-detail + .thread-detail::before { content: "·"; margin-right: 6px; }
 .thread-detail > span { overflow: hidden; text-overflow: ellipsis; }
-.thread-detail-cost { font-family: var(--mono); }
-.thread-details .thread-cost { font-size: inherit; color: inherit; }
-.thread-details .thread-cost-popover { top: calc(100% + 6px); bottom: auto; left: -8px; right: auto; }
 /* Clipped sideways only, so the actions fold but their menus still drop below the header. */
 .thread-header-actions { flex: 1 1 0; display: flex; justify-content: flex-end; min-width: 0; overflow: clip visible; }
 .thread-header-actions .region-title-bar { flex: 1 1 auto; min-width: 0; }
@@ -1511,29 +1525,6 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
 }
 .context-popover > button:hover { background: var(--raised); }
 .context-popover > small { font: 10px var(--mono); color: var(--faint); text-align: center; }
-
-/* -------------------------------------------------------- thread cost */
-
-.thread-cost {
-  flex: none; border: 0; padding: 0 2px; background: transparent; cursor: pointer;
-  font: var(--text-xs) var(--mono); color: var(--muted); line-height: 1;
-}
-.thread-cost:hover { color: var(--ink-2); }
-/* A subscription's value is not money spent; it reads quieter than a cost. */
-.thread-cost.plan { font-style: italic; color: var(--faint); }
-.thread-cost-popover {
-  position: absolute; bottom: 28px; right: -40px; z-index: 30; width: max-content; max-width: 280px;
-  display: flex; flex-direction: column; gap: 6px;
-  border: 1px solid var(--line-field); border-radius: 10px;
-  background: var(--float); box-shadow: var(--elevation-2); padding: 11px 13px;
-  animation: fade-up .12s ease;
-}
-.thread-cost-popover > header { display: flex; align-items: baseline; gap: 12px; }
-.thread-cost-popover > header > strong { font-size: var(--text-sm); font-weight: 700; }
-.thread-cost-popover > header > b { margin-left: auto; font: var(--text-xs) var(--mono); color: var(--ink-2); font-weight: 400; }
-.thread-cost-popover > small { font: 10.5px var(--mono); color: var(--ink-3); white-space: nowrap; }
-.thread-cost-popover > small.thread-cost-value { color: var(--muted); font-style: italic; }
-.thread-cost-popover > small + header { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line-soft); }
 
 /* ---------------------------------------------------------- dividers */
 
