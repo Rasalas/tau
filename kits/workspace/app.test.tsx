@@ -1678,7 +1678,9 @@ describe("Workspace Kit in the workbench", () => {
     renderApp(client, { storage, extensions: [workspaceExtension] });
     expect(await screen.findByRole("heading", { name: "What should shop-api do next?" })).toBeTruthy();
     const header = document.querySelector(".thread-header") as HTMLElement;
-    expect(within(header).getByText("New thread")).toBeTruthy();
+    expect(within(header).getByRole("navigation", { name: "Thread breadcrumb" })).toBeTruthy();
+    expect(within(header).getByRole("button", { name: "Untitled thread" }).hasAttribute("disabled")).toBe(true);
+    expect(header.querySelector(".thread-details")).toBeNull();
     // Project and machine under the heading; checkout and branch on the composer's top edge (T3's layout).
     const pills = screen.getByRole("heading", { name: "What should shop-api do next?" }).parentElement!.querySelector(".region-draft-actions") as HTMLElement;
     await waitFor(() => expect(within(pills).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Change project, current project shop-api", expect.stringMatching(/^Run on /u)]));

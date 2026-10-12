@@ -754,18 +754,19 @@ describe("the compact client on a tablet", () => {
     expect(screen.queryByText("requests body")).toBeNull();
   });
 
-  it("shows only the branch under the tablet's thread title", async () => {
+  it("uses the project and thread breadcrumb on a tablet without a separate branch row", async () => {
     const base = bootstrapWith(THREADS);
     const model = { provider: "openai-codex", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" };
     renderCompactClient({ bootstrap: async () => {
       const boot = await base();
       return { ...boot, project: { ...boot.project, label: "feat/tablet" }, catalog: { ...boot.catalog, models: [model], model } };
     } });
-    const branch = await screen.findByText("feat/tablet");
-    const details = branch.closest(".thread-details")!;
-    expect(details.textContent).toBe("feat/tablet");
-    expect(details.querySelector(".thread-detail-branch svg")).toBeTruthy();
-    expect(details.querySelector(".thread-detail-model, .thread-detail-turn")).toBeNull();
+    const crumbs = await screen.findByRole("navigation", { name: "Thread breadcrumb" });
+    expect(await within(crumbs).findByRole("button", { name: "Rename the store" })).toBeTruthy();
+    expect(within(crumbs).getByRole("button", { name: "New thread in project" })).toBeTruthy();
+    const header = crumbs.closest(".thread-header") as HTMLElement;
+    expect(header.querySelector(".thread-details")).toBeNull();
+    expect(within(header).queryByText("feat/tablet")).toBeNull();
     expect(await screen.findByLabelText("Select model: GPT-5.6 Luna")).toBeTruthy();
   });
 
