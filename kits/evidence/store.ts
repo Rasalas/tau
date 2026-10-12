@@ -47,7 +47,7 @@ function decodeIndex(value: unknown): ThreadIndex | undefined {
  * hold after every write.
  */
 export class EvidenceStore {
-  private readonly cache = new Map<string, ThreadIndex>();
+  private readonly cache = new Map<string, Promise<ThreadIndex>>();
 
   private readonly queues = new Map<string, Promise<unknown>>();
 
@@ -65,13 +65,15 @@ export class EvidenceStore {
     return next;
   }
 
-  private async index(threadId: string): Promise<ThreadIndex> {
+  /** One load per thread: two readers that both missed would each cache their own copy, and one copy would never see the writes. */
+  private index(threadId: string): Promise<ThreadIndex> {
     const cached = this.cache.get(threadId);
     if (cached) return cached;
-    const read = await readPersistedJson(join(this.folder(threadId), INDEX), { expectedVersion: VERSION, decode: decodeIndex, logger: { warn: (message) => this.log("evidence.index", message) } });
-    const index = read?.data.threadId === threadId ? read.data : { threadId, cwd: "", turns: [] };
-    this.cache.set(threadId, index);
-    return index;
+    const loading = readPersistedJson(join(this.folder(threadId), INDEX), { expectedVersion: VERSION, decode: decodeIndex, logger: { warn: (message) => this.log("evidence.index", message) } })
+      .then((read) => read?.data.threadId === threadId ? read.data : { threadId, cwd: "", turns: [] });
+    this.cache.set(threadId, loading);
+    loading.catch(() => { if (this.cache.get(threadId) === loading) this.cache.delete(threadId); });
+    return loading;
   }
 
   private async save(index: ThreadIndex): Promise<void> {
