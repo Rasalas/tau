@@ -17,6 +17,8 @@ afterAll(() => {
 process.env.TAU_NO_WATCH = "1";
 // The Servers kit refuses any target but loopback, as in an isolated instance.
 process.env.TAU_SERVERS_LOOPBACK_ONLY = "1";
+// A test must never start a systemd scope or set limits on the developer's user manager.
+process.env.TAU_AGENT_SCOPES = "0";
 // Test repositories are deleted right after use; Git's background maintenance would still be writing into them.
 process.env.GIT_CONFIG_COUNT = "2";
 process.env.GIT_CONFIG_KEY_0 = "maintenance.auto";
