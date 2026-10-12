@@ -26,6 +26,53 @@ terminal:
   status says so with the command. An AppImage cannot run as a service.
 - **Windows:** a Task Scheduler task, "Tau Host", that runs at your logon.
 
+### Agents under memory pressure on Linux
+
+The unit keeps the host running when the kernel kills a command in its cgroup
+(`OOMPolicy=continue`) and weighs it above the agents (`CPUWeight=1000`,
+`IOWeight=1000`, `ManagedOOMPreference=avoid`). With a systemd user manager the
+host also starts every agent CLI, terminal and Pi bash call in its own scope in
+`app-tau-agents.slice`, with `oom_score_adj` 800 and a memory ceiling of the
+RAM less 4 GB, so an out-of-memory kill takes that agent and a thread says
+"Killed: out of memory." ([What is covered](CORE.md#memory-pressure-on-linux)).
+After an update, `tau service install` rewrites the unit; the scopes need
+nothing. `TAU_AGENT_SCOPES=0` in the service's environment turns the scopes off.
+
+Checking it on a Linux machine with a user session (never on a shared or
+production host; a throwaway user or VM is enough, with `loginctl enable-linger
+$USER`):
+
+1. `systemctl --user show-environment | grep XDG_RUNTIME_DIR` and
+   `systemd-run --user --scope true` succeed (the probe uses the same).
+2. Start Tau's host (`tau service install`, or a window), open a thread on one
+   CLI runtime (Codex, say) and a terminal, send a prompt that runs `sleep 300`.
+3. `systemd-cgls --user` shows the agents beside, not inside, the host:
+
+   ```
+   ├─app-tau.slice
+   │ └─app-tau-agents.slice          (or app-tau-agents.slice at the top of app.slice)
+   │   ├─tau-terminal-1a2b3c4d.scope
+   │   │ └─12345 /usr/bin/zsh -il
+   │   └─tau-codex-5e6f7a8b.scope
+   │     ├─12400 /usr/bin/codex app-server
+   │     └─12411 sleep 300
+   └─tau-host.service
+     └─… (the host and its helpers only)
+   ```
+
+4. `systemctl --user show app-tau-agents.slice -p MemoryHigh -p MemoryMax` lists
+   RAM − 6 GB and RAM − 4 GB (at least ½ and ¾ of the RAM);
+   `cat /proc/<codex pid>/oom_score_adj` prints `800`; `systemctl --user cat
+   tau-host.service` shows the four lines above.
+5. The PID Tau shows for the agent (`ps`) is the CLI itself, and stopping the
+   thread ends it and its scope.
+6. Optional, on a disposable machine only: lower the ceiling and overrun it,
+   `systemctl --user set-property --runtime app-tau-agents.slice MemoryMax=2G
+   MemorySwapMax=0`, then ask the agent to allocate 3 GB (`stress-ng --vm 1
+   --vm-bytes 3G`). Only that scope fails (`systemctl --user --failed` is empty
+   after Tau reset it), the host's PID does not change, and the thread says
+   "Killed: out of memory."
+
 ### An invisible display on Linux
 
 On Linux, `tau service install --display` gives the service an invisible

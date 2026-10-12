@@ -2365,6 +2365,18 @@ PATHEXT, a `.cmd` shim such as `npm.cmd` or `code.cmd` runs through `cmd.exe`
 — Node refuses to spawn one directly — and `killProcessTree` is
 `taskkill /T /F`; spawn with `commandInvocation(command, args)`'s `command`,
 `args` and `windowsVerbatimArguments`, see [docs/windows.md](windows.md)),
+`wrapAgentCommand`, `AGENT_OOM_MESSAGE` (new in API 1.59.0: the launch to
+spawn for an agent CLI, a terminal shell or another long-lived process of a
+thread. On Linux with a systemd user manager it is `systemd-run --user --scope`
+in `app-tau-agents.slice` behind an `exec` chain, so the PID, stdio and signals
+stay the process's own and a memory kill takes that process, not the host;
+elsewhere, or when the command does not resolve, the command comes back as it
+was. Spawn `launch.command` and `launch.args`; keep `launch.scope`, and after
+a non-clean exit `await launch.scope?.oomKilled()` says whether memory ended
+it, in which case report `AGENT_OOM_MESSAGE` instead of the exit code. Pass
+`collect: true` when nobody asks. An SDK that spawns the CLI itself takes the
+launcher as its executable path and leading arguments (the Agent SDK kit does).
+See docs/CORE.md, "Memory pressure on Linux"),
 `assertAllowedCloneSource`, `tauHomeDir` (new in API 1.34.0: `~/.tau`, or
 `~/.tau-dev` in a Tau Dev build, the folder of the user's own Tau settings),
 `readBoundedImagePreview`,

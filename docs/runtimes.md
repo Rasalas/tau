@@ -8,6 +8,8 @@ Tau uses your existing `~/.pi/agent` models, credentials, skills and extensions,
 
 At startup the main process reads your login shell's environment (PATH, SSH agent, locale, Homebrew variables), so `git`, `claude`, editors and everything Pi's tools call resolve the way they do in a terminal, also after a Dock launch.
 
+On Linux with a systemd user manager, each CLI the host starts (and every terminal and Pi bash call) runs in its own scope with a memory ceiling, so an out-of-memory kill takes that agent and the thread says "Killed: out of memory." instead of the host going down with it. Pi itself runs inside the host process and gets no scope of its own. [What is covered](CORE.md#memory-pressure-on-linux), [how to check it](hosts.md#agents-under-memory-pressure-on-linux).
+
 ## Claude Code
 
 Claude Code threads drive the installed `claude` CLI through the Claude Agent SDK, with its own login (a Claude subscription's Agent SDK credit, or an API key) and `~/.claude` settings; a different executable is set on its card under Settings → Providers (or with `TAU_CLAUDE_CODE_COMMAND`, which wins).
