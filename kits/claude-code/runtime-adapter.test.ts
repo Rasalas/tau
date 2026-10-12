@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { CLIENT_APP, claudeQueryOptions, collectTurnText, createClaudeCodeRuntimeAdapter, runtimePermissionPolicy, sdkExtraArgs, tauMcpServers, type ClaudeQuery } from "./runtime-adapter.js";
+import { CLIENT_APP, claudeQueryOptions, collectTurnText, createClaudeCodeRuntimeAdapter, explainCliExit, runtimePermissionPolicy, scopedCliLaunch, sdkExtraArgs, tauMcpServers, type ClaudeQuery } from "./runtime-adapter.js";
 
 interface Call { prompt: string; options: Options }
 type Script = (call: Call) => SDKMessage[] | Promise<SDKMessage[]>;
@@ -78,6 +78,38 @@ describe("Claude Code runtime adapter", () => {
     expect(adapter.transport.sendPrompt).toBeTypeOf("function");
   });
 
+  describe("in a systemd scope", () => {
+    const scope = { unit: "tau-agentsdk-1.scope", oomKilled: async () => true };
+    const wrapped = () => ({ command: "/bin/sh", args: ["-c", "script", "tau-agent", "/usr/bin/agent-cli"], scope });
+
+    it("puts the launcher in front of the CLI as the SDK's executable and leading arguments", () => {
+      const launch = scopedCliLaunch("agent-cli", { PATH: "/usr/bin" }, wrapped);
+      expect(launch).toEqual({ executable: "/bin/sh", executableArgs: ["-c", "script", "tau-agent", "/usr/bin/agent-cli"], scope });
+      const plan = { cwd: "/repo", executable: "agent-cli", launch, claudeSessionId: SESSION, started: false, policy: runtimePermissionPolicy("full"), abortController: new AbortController(), env: {} };
+      expect(claudeQueryOptions(plan)).toMatchObject({ pathToClaudeCodeExecutable: "/bin/sh", executableArgs: ["-c", "script", "tau-agent", "/usr/bin/agent-cli"] });
+    });
+
+    it("leaves a command that is not wrapped, and a script entry the SDK runs through node, as they are", () => {
+      expect(scopedCliLaunch("agent-cli", {}, ({ command, args }) => ({ command, args: [...args] }))).toEqual({ executable: "agent-cli" });
+      const spy = vi.fn(wrapped);
+      expect(scopedCliLaunch("/opt/cli/entry.mjs", {}, spy)).toEqual({ executable: "/opt/cli/entry.mjs" });
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("hands the SDK nothing extra without a launch", () => {
+      const plan = { cwd: "/repo", executable: "/usr/local/bin/agent-cli", claudeSessionId: SESSION, started: false, policy: runtimePermissionPolicy("full"), abortController: new AbortController(), env: {} };
+      expect(claudeQueryOptions(plan)).not.toHaveProperty("executableArgs");
+    });
+
+    it("names a memory kill in place of the error, and keeps any other", async () => {
+      const exit = new Error("process exited with code 137");
+      await expect(explainCliExit({ executable: "x", scope }, exit)).resolves.toMatchObject({ message: "Killed: out of memory." });
+      await expect(explainCliExit({ executable: "x", scope: { ...scope, oomKilled: async () => false } }, exit)).resolves.toBe(exit);
+      await expect(explainCliExit({ executable: "x", scope: { ...scope, oomKilled: () => Promise.reject(new Error("no bus")) } }, exit)).resolves.toBe(exit);
+      await expect(explainCliExit({ executable: "x" }, exit)).resolves.toBe(exit);
+    });
+  });
+
   it("maps Tau's access levels onto Claude's permission modes", () => {
     expect(runtimePermissionPolicy("read-only")).toEqual({ permissionMode: "plan" });
     expect(runtimePermissionPolicy("ask")).toEqual({ permissionMode: "default" });
@@ -122,7 +154,7 @@ describe("Claude Code runtime adapter", () => {
   });
 
   it("pre-approves Tau's MCP server without putting it in the options, which become argv", () => {
-    const plan = { cwd: "/repo", executable: "/usr/local/bin/claude", claudeSessionId: SESSION, started: false, policy: runtimePermissionPolicy("full"), abortController: new AbortController(), env: {} };
+    const plan = { cwd: "/repo", executable: "/usr/local/bin/agent-cli", claudeSessionId: SESSION, started: false, policy: runtimePermissionPolicy("full"), abortController: new AbortController(), env: {} };
     expect(claudeQueryOptions(plan)).not.toHaveProperty("allowedTools");
     const mcpServer = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
     const options = claudeQueryOptions({ ...plan, mcpServer });
@@ -137,7 +169,7 @@ describe("Claude Code runtime adapter", () => {
   });
 
   it("restricts a thread to the tools it was given, Claude's own by their Pi names, and to Tau's MCP server alone", () => {
-    const plan = { cwd: "/repo", executable: "/usr/local/bin/claude", claudeSessionId: SESSION, started: false, policy: runtimePermissionPolicy("full"), abortController: new AbortController(), env: {} };
+    const plan = { cwd: "/repo", executable: "/usr/local/bin/agent-cli", claudeSessionId: SESSION, started: false, policy: runtimePermissionPolicy("full"), abortController: new AbortController(), env: {} };
     expect(claudeQueryOptions(plan)).not.toHaveProperty("tools");
     expect(claudeQueryOptions(plan)).not.toHaveProperty("strictMcpConfig");
     const mcpServer = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
@@ -148,7 +180,7 @@ describe("Claude Code runtime adapter", () => {
   });
 
   it("holds Bash to the SDK's sandbox in a project that limits its network, and switches WebFetch off", () => {
-    const plan = { cwd: "/repo", executable: "/usr/local/bin/claude", claudeSessionId: SESSION, started: false, policy: runtimePermissionPolicy("full"), abortController: new AbortController(), env: {} };
+    const plan = { cwd: "/repo", executable: "/usr/local/bin/agent-cli", claudeSessionId: SESSION, started: false, policy: runtimePermissionPolicy("full"), abortController: new AbortController(), env: {} };
     expect(claudeQueryOptions(plan)).not.toHaveProperty("sandbox");
     expect(claudeQueryOptions(plan)).not.toHaveProperty("disallowedTools");
     expect(claudeQueryOptions({ ...plan, network: { allowHosts: ["registry.npmjs.org", "*.github.com"] } })).toMatchObject({

@@ -46,6 +46,27 @@ describe("AcpClient", () => {
     await expect(client.request("initialize", {})).rejects.toBeInstanceOf(Error);
   });
 
+  it("reports a memory kill, as its scope recorded it, instead of the exit code", async () => {
+    const agent = fakeAgent();
+    const onExit = vi.fn();
+    const client = new AcpClient({ process: { ...agent.process, oomKilled: async () => true }, onNotification: () => undefined, onExit });
+    const hanging = client.request("session/prompt", {});
+    agent.stderr("boom");
+    agent.exit(137);
+    await expect(hanging).rejects.toThrow("Killed: out of memory.");
+    expect(onExit).toHaveBeenCalledWith(expect.objectContaining({ message: "Killed: out of memory." }));
+  });
+
+  it("keeps the exit code when the scope does not blame memory or cannot be read", async () => {
+    for (const oomKilled of [async () => false, () => Promise.reject(new Error("no bus"))]) {
+      const agent = fakeAgent();
+      const client = new AcpClient({ process: { ...agent.process, oomKilled }, onNotification: () => undefined });
+      const hanging = client.request("session/prompt", {});
+      agent.exit(2);
+      await expect(hanging).rejects.toThrow(/exited with code 2/u);
+    }
+  });
+
   it("hands non-JSON stdout lines to the hook and honours a request timeout", async () => {
     const agent = fakeAgent();
     const seen: string[] = [];

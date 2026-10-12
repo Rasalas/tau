@@ -38,6 +38,13 @@ describe("a local OpenCode server", () => {
       .rejects.toThrow(/exited with code 3[\s\S]*database is locked/u);
   });
 
+  it("reports a memory kill, as its scope recorded it, in place of the exit code", async () => {
+    const wrap = (oomKilled: boolean) => ({ command, args }: { command: string; args: readonly string[] }) => ({ command, args: [...args], scope: { unit: "tau-opencode-1.scope", oomKilled: async () => oomKilled } });
+    const failing = { command: FAKE, cwd: process.cwd(), env: { ...process.env, FAKE_SERVE_FAIL: "1" } };
+    await expect(startOpenCodeServer({ ...failing, wrap: wrap(true) })).rejects.toThrow("Killed: out of memory.");
+    await expect(startOpenCodeServer({ ...failing, wrap: wrap(false) })).rejects.toThrow(/exited with code 3/u);
+  });
+
   it("kills a server that ignores SIGTERM once the grace is over", async () => {
     const server = await startOpenCodeServer({ command: FAKE, cwd: process.cwd(), env: { ...process.env, FAKE_IGNORE_TERM: "1" }, closeGraceMs: 50 });
     await server.close();

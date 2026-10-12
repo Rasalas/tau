@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { commandInvocation, killProcessTree } from "tau/host-extension";
+import { AGENT_OOM_MESSAGE, commandInvocation, killProcessTree, wrapAgentCommand } from "tau/host-extension";
 import type { OpenCodeApi } from "./api.js";
 import { connectOpenCodeApi } from "./connect.js";
 
@@ -36,6 +36,8 @@ export interface OpenCodeServeInput {
   /** How long `close` waits after SIGTERM before it kills. */
   closeGraceMs?: number;
   fetch?: typeof globalThis.fetch;
+  /** Starts the process; tests hand in a recorder. */
+  wrap?: typeof wrapAgentCommand;
 }
 
 // OpenCode 1 prints "opencode server listening on", OpenCode 2 "server listening on".
@@ -93,7 +95,9 @@ export function startOpenCodeServer(input: OpenCodeServeInput): Promise<OpenCode
   delete env.OPENCODE_SERVER_USERNAME;
   const args = ["serve", "--hostname", "127.0.0.1", "--port", "0", ...(input.args ?? [])];
   const invocation = commandInvocation(input.command, args, { env });
-  const child: ChildProcess = spawn(invocation.command, invocation.args, {
+  // On Linux the server runs in its own systemd scope, so a memory kill takes it and not the host.
+  const launch = (input.wrap ?? wrapAgentCommand)({ command: invocation.command, args: invocation.args, name: "opencode", env });
+  const child: ChildProcess = spawn(launch.command, launch.args, {
     cwd: input.cwd,
     env,
     stdio: ["ignore", "pipe", "pipe"],
@@ -170,9 +174,14 @@ export function startOpenCodeServer(input: OpenCodeServeInput): Promise<OpenCode
     child.once("error", (error) => fail(new Error(`OpenCode could not be started: ${error.message}`)));
     child.once("close", (code, signal) => {
       exited = true;
-      const reason = new Error(`OpenCode's server exited${code !== null ? ` with code ${code}` : signal ? ` on ${signal}` : ""}.${output.trim() ? `\n${output.trim().slice(-2_000)}` : ""}`);
-      if (!ready) return fail(reason);
-      input.onExit?.(closedByTau ? undefined : reason);
+      const exitReason = () => new Error(`OpenCode's server exited${code !== null ? ` with code ${code}` : signal ? ` on ${signal}` : ""}.${output.trim() ? `\n${output.trim().slice(-2_000)}` : ""}`);
+      const settle = (reason: Error) => {
+        if (!ready) return fail(reason);
+        input.onExit?.(closedByTau ? undefined : reason);
+      };
+      // A memory kill is told apart only for a server Tau did not close itself.
+      if (closedByTau || code === 0 || !launch.scope) return settle(exitReason());
+      void launch.scope.oomKilled().catch(() => false).then((killed) => settle(killed ? new Error(AGENT_OOM_MESSAGE) : exitReason()));
     });
   });
 }

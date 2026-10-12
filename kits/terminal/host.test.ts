@@ -396,6 +396,16 @@ describe("loadNodePty", () => {
     expect(exited).toHaveBeenCalledWith(7);
   });
 
+  it("starts the shell through the launcher the host gives it, collecting its scope", async () => {
+    const term = { write: vi.fn(), resize: vi.fn(), kill: vi.fn(), onData: vi.fn(), onExit: vi.fn() };
+    const spawn = vi.fn(() => term);
+    const wrap = vi.fn(({ command, args }: { command: string; args: readonly string[] }) => ({ command: "/bin/sh", args: ["-c", "script", "tau-agent", command, ...args] }));
+    const factory = await loadNodePty(async () => ({ spawn }), wrap);
+    factory({ file: "/bin/zsh", args: ["-il"], cwd: "/project", env: { PATH: "/bin" }, cols: 80, rows: 24 });
+    expect(wrap).toHaveBeenCalledWith({ command: "/bin/zsh", args: ["-il"], name: "terminal", env: { PATH: "/bin" }, collect: true });
+    expect(spawn).toHaveBeenCalledWith("/bin/sh", ["-c", "script", "tau-agent", "/bin/zsh", "-il"], expect.objectContaining({ cwd: "/project", env: { PATH: "/bin" } }));
+  });
+
   it("names the missing module instead of the resolver's error", async () => {
     await expect(loadNodePty(async () => { throw new Error("ENOENT"); })).rejects.toThrow(NO_PTY);
     await expect(loadNodePty(async () => ({}))).rejects.toThrow(NO_PTY);

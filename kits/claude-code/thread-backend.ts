@@ -2,6 +2,7 @@ import { ClaudeNativeAgents } from "./native-agents.js";
 import { stat } from "node:fs/promises";
 import type { ModelInfo, PermissionMode, PermissionResult, PermissionUpdate, UserDialogRequest, UserDialogResult } from "@anthropic-ai/claude-agent-sdk";
 import {
+  AGENT_OOM_MESSAGE,
   executionPolicyRefusal,
   clientMessageFingerprint,
   knownSkillNames,
@@ -797,7 +798,8 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       this.clearBackground();
     }
     const status = error ? "error" : "interrupted";
-    if (error) this.report({ type: "notice", message: `Claude Code stopped: ${error instanceof Error ? error.message : String(error)}${live.stderr.trim() ? `\n${live.stderr.trim()}` : ""}`, level: "error" });
+    const memoryKill = error instanceof Error && error.message === AGENT_OOM_MESSAGE;
+    if (error) this.report({ type: "notice", message: memoryKill ? AGENT_OOM_MESSAGE : `Claude Code stopped: ${error instanceof Error ? error.message : String(error)}${live.stderr.trim() ? `\n${live.stderr.trim()}` : ""}`, level: "error" });
     for (const turn of this.turns.splice(0)) this.settleTurn(turn, status);
     this.steering = [];
     this.reportQueue();

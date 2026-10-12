@@ -76,7 +76,7 @@ export class AntigravitySession extends AcpAgentSession {
   private constructor(private readonly options: AntigravitySessionOptions) {
     super({
       agentName: "Antigravity",
-      process: (options.spawn ?? spawnAcpProcess)(acpSpawnInput(options)),
+      process: (options.spawn ?? ((input) => spawnAcpProcess(input, "antigravity")))(acpSpawnInput(options)),
       cwd: options.cwd,
       clientInfo: { name: ANTIGRAVITY_CLIENT_NAME, version: options.clientVersion },
       clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false, elicitation: { form: {} } },

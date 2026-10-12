@@ -117,7 +117,7 @@ function signInError(error: unknown): Error {
 function createSession(options: GrokSessionOptions): GrokSession {
   return new GrokSession({
     agentName: "Grok",
-    process: (options.spawn ?? spawnAcpProcess)(grokSpawnInput(options)),
+    process: (options.spawn ?? ((input) => spawnAcpProcess(input, "grok")))(grokSpawnInput(options)),
     cwd: options.cwd,
     clientInfo: { name: "tau", version: options.clientVersion },
     clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
