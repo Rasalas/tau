@@ -1,0 +1,15 @@
+.html-page { display: flex; flex-direction: column; gap: 6px; min-width: 0; margin: 6px 0; font: var(--text-sm)/1.45 var(--sans); color: var(--ink-3); }
+.html-page-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.html-page-line > svg { flex: none; color: var(--muted); }
+.html-page-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-weight: 500; }
+.html-page-status { margin-left: auto; flex: none; color: var(--muted); font-size: var(--text-xs); }
+.html-page-status[data-tone="error"] { color: var(--fail-ink); }
+.html-page-reason { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+.html-page-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.html-page-bar { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.html-page-origins { flex: none; color: var(--muted-2); font: var(--text-xs) var(--mono); }
+.html-page-actions { margin-left: auto; display: flex; gap: 2px; flex: none; }
+.html-page-button { width: 24px; height: 24px; display: grid; place-items: center; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
+.html-page-button:hover { background: var(--hover); color: var(--ink); }
+.html-page-tab { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; background: var(--stage); }
+.html-page-tab > .html-page-body { flex: 1; min-height: 0; }
