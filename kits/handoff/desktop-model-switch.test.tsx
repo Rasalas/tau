@@ -1,14 +1,11 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { setHostClient } from "../../src/renderer/host-client-context.js";
-import { setClientStorage } from "../../src/workbench/client-storage.js";
-import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
+import { setHostClient, setClientStorage } from "../../src/renderer/test-support/kit-harness.js";
+import { createFakeHostClient, type FakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { renderApp } from "../../src/renderer/test-support/render-app.js";
 import { createHandoffExtension } from "./desktop.js";
 import { HandoffStore } from "./store.js";
-import type { HostClient } from "../../src/workbench/host-client.js";
-import { PI_AGENT_RUNTIME_ADAPTER } from "../../src/main/runtime-adapters.js";
 
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });
 
@@ -47,16 +44,16 @@ it("carries the selected Codex model and context into a new thread after a Pi li
   const backends = [{ kind: "pi", label: "Pi" }, { kind: "codex", label: "Codex" }];
   const catalogs = [{ kind: "codex", models: [sol], model: sol, thinkingLevels: {} }];
   const handoff = "<handoff_context>\nUser: Speed up the parser.\n</handoff_context>";
-  const invokeHostExtension = vi.fn<HostClient["invokeHostExtension"]>(async (_extension, command) => {
+  const invokeHostExtension = vi.fn<FakeHostClient["invokeHostExtension"]>(async (_extension, command) => {
     if (command === "create-transfer") return { transferId: "transfer", native: false, sourceTitle: "Limited" };
     if (command === "resolve-transfer") return { context: handoff };
     if (command === "state" || command === "bind-transfer") return { links: [] };
     if (command === "continue-targets") return [];
     return undefined;
   });
-  const newSession = vi.fn<HostClient["newSession"]>(async () => ({ version: 1, updates: [], submission: { accepted: true } }));
-  const preparePrompt = vi.fn<HostClient["preparePrompt"]>(async (text, _session, _skill, backend) => ({
-    backendKind: backend ?? "pi", runtimeCapabilities: PI_AGENT_RUNTIME_ADAPTER.capabilities,
+  const newSession = vi.fn<FakeHostClient["newSession"]>(async () => ({ version: 1, updates: [], submission: { accepted: true } }));
+  const preparePrompt = vi.fn<FakeHostClient["preparePrompt"]>(async (text, _session, _skill, backend) => ({
+    backendKind: backend ?? "pi", runtimeCapabilities: { skillInvocationDialect: "pi", multipleSkills: true },
     visibleText: text, runtimeText: text, sourceFingerprint: "switch-model",
   }));
   const setModel = vi.fn(async () => ({ version: 1 as const, updates: [] }));
