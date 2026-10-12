@@ -158,6 +158,14 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
     moveDraftToProject(project);
   }, [activeDraftKey, detachPendingDelivery, inheritSelection, leavePendingNewThread, moveDraftToProject, newThread, scopes, showThread]);
 
+  /** A choice on the empty startup screen belongs to a draft, not the host's placeholder session. */
+  const beginStartDraft = useCallback(() => {
+    const snapshot = view.getSnapshot();
+    if (newThread.current() || !snapshot || snapshot.isStreaming || view.getTranscript().messages.length) return;
+    const project = threads.getProjects().find((candidate) => namesWorkspace(snapshot.workspaceId ?? snapshot.cwd, candidate.workspaceId, candidate.path));
+    if (project && !client?.isReadOnly()) moveDraftToProject(project);
+  }, [client, moveDraftToProject, newThread, threads, view]);
+
   /** At startup the host opens an empty thread; a draft takes its place, as "New thread" would. */
   const openStartDraft = useCallback((bootstrap: HostBootstrap) => {
     const project = client?.isReadOnly() ? undefined : startDraftProject(bootstrap, threads.getProjects());
@@ -272,6 +280,6 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
   return {
     stage, setStage, activateStage, pinStage, unpinStage, setStageView, cycleStageTab,
     applyHostResult, openWorkspace, createThreadInProject, openDraft, discardDraft,
-    switchSession, takeOverThread, openStartDraft,
+    switchSession, takeOverThread, openStartDraft, beginStartDraft,
   };
 }

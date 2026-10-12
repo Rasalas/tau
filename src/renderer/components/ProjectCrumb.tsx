@@ -1,3 +1,4 @@
+import type { UiProject } from "../../shared/contracts";
 import { useSyncExternalStore } from "react";
 import { findProjectForSession } from "../../shared/session-project";
 import { useThreadStore } from "../workbench-context";
@@ -9,21 +10,22 @@ import { tooltipProps } from "./ui/Tooltip";
  * starts a new thread there, as T3 Code's head does. A worktree's thread
  * names the project it belongs to.
  */
-export function ProjectCrumb({ sessionId, onNewThread }: { sessionId: string | undefined; onNewThread(workspace: string): void }) {
+export function ProjectCrumb({ project, sessionId, onNewThread }: { project?: UiProject; sessionId: string | undefined; onNewThread(workspace: string): void }) {
   const store = useThreadStore();
   const index = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const projects = useSyncExternalStore(store.subscribeToProjects, store.getProjects);
   const session = sessionId ? index.threads.find((thread) => thread.id === sessionId) : undefined;
-  if (!session?.projectPath) return null;
-  const owner = findProjectForSession(projects, session);
-  const name = owner?.name ?? session.projectName;
+  const owner = project ?? (session ? findProjectForSession(projects, session) : undefined);
+  const path = owner?.path ?? session?.projectPath;
+  const name = owner?.name ?? session?.projectName;
+  if (!path) return null;
   if (!name) return null;
   const label = `New thread in ${name}`;
   return <>
     <button type="button" className="thread-crumb-project" aria-label={label} {...tooltipProps(label, { side: "bottom" })}
-      onClick={() => onNewThread(owner?.path ?? session.projectPath)}
+      onClick={() => onNewThread(path)}
     >
-      <ProjectIcon project={{ path: session.projectPath, name: session.projectName, workspaceId: session.workspaceId }} />
+      <ProjectIcon project={{ path, name, workspaceId: owner?.workspaceId ?? session?.workspaceId }} />
       <span>{name}</span>
     </button>
     <span className="thread-crumb-separator" aria-hidden>/</span>

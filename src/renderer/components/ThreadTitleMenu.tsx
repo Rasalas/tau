@@ -68,7 +68,8 @@ export function coreThreadMenu({
 }
 
 /** The thread's title, opening its menu; `rename` in any menu, and F2, edit the title in place. */
-export function ThreadTitleMenu({ title, menu, onRename, sheet = false }: {
+export function ThreadTitleMenu({ title, menu, onRename, sheet = false, disabled = false }: {
+  disabled?: boolean;
   sheet?: boolean;
   title: string;
   /** Read when the menu opens. */
@@ -84,7 +85,7 @@ export function ThreadTitleMenu({ title, menu, onRename, sheet = false }: {
   // Enter, Esc and blur each end an edit once; the blur a closing field may raise is not a second save.
   const ended = useRef(false);
 
-  useEffect(() => registerTitleField({ open: () => { setOpen(undefined); setRenaming(true); } }), []);
+  useEffect(() => disabled ? undefined : registerTitleField({ open: () => { setOpen(undefined); setRenaming(true); } }), [disabled]);
 
   useEffect(() => {
     if (!renaming) setDraft(title);
@@ -142,6 +143,7 @@ export function ThreadTitleMenu({ title, menu, onRename, sheet = false }: {
     <span className="menu-anchor thread-title-control">
       <button
         className="thread-title-trigger"
+        disabled={disabled}
         aria-expanded={Boolean(open)}
         aria-haspopup={sheet ? "dialog" : "menu"}
         onClick={() => { setSheetPath([]); setOpen((current) => (current ? undefined : menu())); }}

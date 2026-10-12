@@ -33,7 +33,7 @@ import { usePreferences, useRendererServices } from "./renderer-services-context
 import { AppUpdateStore } from "./app-update";
 import { effectiveNewThreadRuntime, recentRuntimeModels, rememberedNewThreadSelection } from "./new-thread-runtime";
 import { selectionOnScreen } from "../workbench/new-thread-project";
-import { useDraftCommands, useOfferedRuntimes, useRuntimeCatalog } from "./use-runtime-catalog";
+import { runtimeCatalogStore, useDraftCommands, useOfferedRuntimes, useRuntimeCatalog } from "./use-runtime-catalog";
 import { draftImageInput, draftRuntimeSnapshot } from "../workbench/runtime-catalog-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { openFileTab, openThreadTab, stageFilePath as projectFilePath, type StageView } from "../workbench/stage";
@@ -337,7 +337,7 @@ export default function App() {
   const abortThread = useCallback((sessionId?: string) => { returnQueued(); abortRun(sessionId); }, [abortRun, returnQueued]);
   const {
     activateStage, pinStage, unpinStage, setStageView, cycleStageTab,
-    applyHostResult, openWorkspace, createThreadInProject, switchSession, takeOverThread, openDraft, discardDraft, openStartDraft,
+    applyHostResult, openWorkspace, createThreadInProject, switchSession, takeOverThread, openDraft, discardDraft, openStartDraft, beginStartDraft,
   } = useThreadNavigation({
     ...(client ? { client } : {}),
     storage: clientStorage,
@@ -499,22 +499,33 @@ export default function App() {
   // A draft keeps its choice for the runtime it will run on, whatever thread is on screen.
   const draftRuntime = useCallback(() => effectiveNewThreadRuntime(newThreadController.current()?.runtime ?? preferences.getSnapshot().newThreadRuntime, viewStore.getSnapshot()), [newThreadController, preferences, viewStore]);
   const setComposerModel = useCallback(
-    (provider: string, id: string) => newThreadController.setModel(
-      provider, id, threadCommands.setModel,
-      (p, mid) => viewStore.getSnapshot()?.models.find((m) => m.provider === p && m.id === mid)?.name,
-      draftRuntime(),
-    ),
-    [draftRuntime, newThreadController, threadCommands, viewStore],
+    (provider: string, id: string) => {
+      beginStartDraft();
+      return newThreadController.setModel(
+        provider, id, threadCommands.setModel,
+        (p, mid) => {
+          const entry = runtimeCatalogStore(client)?.get(draftRuntime());
+          const models = entry?.status === "ready" ? entry.catalog.models : viewStore.getSnapshot()?.models;
+          return models?.find((model) => model.provider === p && model.id === mid)?.name;
+        },
+        draftRuntime(),
+      );
+    },
+    [beginStartDraft, client, draftRuntime, newThreadController, threadCommands, viewStore],
   );
   const setComposerThinking = useCallback(
-    (level: string) => newThreadController.setThinking(level, threadCommands.setThinking, draftRuntime()),
-    [draftRuntime, newThreadController, threadCommands],
+    (level: string) => {
+      beginStartDraft();
+      return newThreadController.setThinking(level, threadCommands.setThinking, draftRuntime());
+    },
+    [beginStartDraft, draftRuntime, newThreadController, threadCommands],
   );
   // A draft keeps what it chose per runtime, so switching back and forth loses nothing.
   const selectDraftRuntime = useCallback((kind: string) => {
+    beginStartDraft();
     newThreadController.switchRuntime(draftRuntime(), kind);
     preferences.setNewThreadRuntime(kind);
-  }, [draftRuntime, newThreadController, preferences]);
+  }, [beginStartDraft, draftRuntime, newThreadController, preferences]);
   const setComposerMode = useCallback(async (mode: string) => {
     let accepted = true;
     await newThreadController.setMode(mode, async (next) => { accepted = await threadCommands.setMode(next); });
