@@ -147,6 +147,10 @@ button > svg { pointer-events: none; }
   width: 480px; max-width: calc(100vw - 48px); border: 1px solid var(--line-float); border-radius: 12px;
   background: var(--overlay); box-shadow: var(--elevation-3);
 }
+/* A render error covers the window or the conversation column; the strip keeps a frameless window draggable. */
+.render-error p { margin: 0; max-width: 44ch; font: var(--text-sm) var(--sans); }
+.render-error-frame::before { content: ""; position: absolute; inset: 0 0 auto; height: 40px; -webkit-app-region: drag; }
+.render-error-frame :is(button, summary) { -webkit-app-region: no-drag; }
 
 /* ------------------------------------------------------ thread header */
 
@@ -609,6 +613,8 @@ body:not([data-profile="compact"]) .conversation-start .composer-frame textarea 
   grid-column: 1 / -1; grid-row: header / dock-end; min-height: 0; display: flex; flex-direction: column;
 }
 .conversation-view-active :is(.region-composer-above, .conversation-composer-host, .region-composer-below) { display: none; }
+/* A failed column holds the card alone, not the thread grid above. */
+.conversation-column.conversation-failed { display: flex; justify-content: center; }
 .status-line:not(:has(.status-item:not(:empty))) { display: none; }
 @keyframes start-screen-enter {
   from { opacity: 0; transform: translateY(7px); }

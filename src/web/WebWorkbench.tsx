@@ -1,5 +1,6 @@
 import { useLayoutEffect, useMemo } from "react";
 import App from "../renderer/App";
+import { RenderErrorBoundary } from "../renderer/components/RenderErrorBoundary";
 import { ClientEnvironmentProvider, type ClientEnvironment } from "../renderer/client-environment";
 import { ClientStorageProvider } from "../renderer/client-storage-context";
 import { HostClientProvider } from "../renderer/host-client-context";
@@ -43,7 +44,7 @@ export function WebWorkbench({ client, storage, services, environment }: {
     <HostClientProvider client={kept}>
       <ClientStorageProvider storage={storage}>
         <RendererServicesProvider services={services}>
-          <App />
+          <RenderErrorBoundary scope="window"><App /></RenderErrorBoundary>
         </RendererServicesProvider>
       </ClientStorageProvider>
     </HostClientProvider>
