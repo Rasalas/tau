@@ -93,22 +93,24 @@ export function useDraftCommands(
   const workspace = draft?.workspaceId ?? draft?.projectPath;
   const own = Boolean(draft?.workspaceId && draft.workspaceId === snapshot?.workspaceId) && (runtime ?? "pi") === (snapshot?.backendKind ?? "pi");
   const key = !draft || draft.sessionId || own || !workspace || !runtime ? undefined : `${runtime}\u0000${workspace}`;
-  const [loaded, setLoaded] = useState<{ key: string; commands: UiComposerCommand[] }>();
+  const [loaded, setLoaded] = useState<{ key: string; commands?: UiComposerCommand[] }>();
   useEffect(() => {
     if (!key || !client) return undefined;
     let current = true;
     const [kind, where] = key.split("\u0000") as [ThreadBackendKind, string];
     client.composerCommands(kind, where).then(
       (commands) => { if (current) setLoaded({ key, commands }); },
-      () => { if (current) setLoaded({ key, commands: [] }); },
+      () => { if (current) setLoaded({ key }); },
     );
     return () => { current = false; };
   }, [client, key]);
   const sameRuntime = (runtime ?? "pi") === (snapshot?.backendKind ?? "pi");
   return useMemo(() => {
     if (!snapshot || !key || !client) return snapshot;
+    // A host that cannot say (it predates the method) leaves the snapshot's list as it was.
+    if (loaded?.key === key && !loaded.commands) return snapshot;
     const shown = snapshot.composerCommands ?? [];
-    const commands = loaded?.key === key
+    const commands = loaded?.key === key && loaded.commands
       ? [...shown.filter((command) => sameRuntime && command.source !== "skill"), ...loaded.commands.filter((command) => !sameRuntime || command.source === "skill")]
       : shown.filter((command) => sameRuntime && command.source !== "skill");
     return { ...snapshot, composerCommands: commands };

@@ -43,10 +43,10 @@ describe("useDraftCommands", () => {
     await waitFor(() => expect(result.current?.composerCommands?.map((command) => command.name)).toEqual(["skill:gamma", "other"]));
   });
 
-  it("is no draft's business once the thread exists, and shows nothing it could not read", async () => {
+  it("is no draft's business once the thread exists, and keeps the snapshot's list from a host that cannot answer", async () => {
     const { wrapper } = setup(createFakeHostClient({ composerCommands: async () => { throw new Error("gone"); } }));
     expect(renderHook(() => useDraftCommands(snapshot, { ...draft("ws-b"), sessionId: "made" }, "pi"), { wrapper }).result.current).toBe(snapshot);
     const failing = renderHook(() => useDraftCommands(snapshot, draft("ws-b"), "pi"), { wrapper });
-    await waitFor(() => expect(failing.result.current?.composerCommands).toEqual([reload]));
+    await waitFor(() => expect(failing.result.current).toBe(snapshot));
   });
 });
