@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { errorMessage, type HostExtensionClient, type NewThreadClaimEvent, type PlatformEnvironments, type PromptHookContribution, type ThreadStore, type UiEnvironment, type UiEnvironments, type WorkbenchActions } from "tau";
 import { machineMethodError } from "./compatibility.js";
+import { pageMachine, withAgentMachines, type AgentMachinesStore } from "./page-machine.js";
 
 /** Remote Work Kit (`kits/remote-work/protocol.ts`), named here: a kit never imports another. */
 export const REMOTE_WORK_EXTENSION_ID = "tau.remote-work";
@@ -158,7 +159,7 @@ interface ThreadLink {
  * window stays here; the thread joins the list from that machine, and a
  * notice says when it runs there or why it could not.
  */
-export function createBringProjectHook(choice: BringChoiceStore, remoteWork: HostExtensionClient, environments: PlatformEnvironments, host?: HostExtensionClient, identities?: ProjectIdentities): PromptHookContribution {
+export function createBringProjectHook(choice: BringChoiceStore, remoteWork: HostExtensionClient, environments: PlatformEnvironments, host?: HostExtensionClient, identities?: ProjectIdentities, agents?: AgentMachinesStore): PromptHookContribution {
   const follow = (link: ThreadLink, projectName: string, actions: WorkbenchActions) => {
     let done = false;
     const stop = remoteWork.onEvent(THREAD_LINK_EVENT, (payload) => {
@@ -188,12 +189,14 @@ export function createBringProjectHook(choice: BringChoiceStore, remoteWork: Hos
     id: "environments.run-on-machine",
     async claimNewThread(event: NewThreadClaimEvent, actions: WorkbenchActions) {
       const chosen = choice.get();
-      const list = event.workspaceId ? environments.getSnapshot() : undefined;
+      let list = event.workspaceId ? environments.getSnapshot() : undefined;
+      // A phone may not know the machine its host reaches the project on; that host does.
+      if (list && agents && !projectMachine(list, event.workspaceId)) list = withAgentMachines(list, agents.get() ?? await agents.read());
       const source = projectMachine(list, event.workspaceId);
-      const current = list?.environments.find((machine) => machine.id === list.shown);
+      const current = pageMachine(environments, list);
       const selected = chosen?.projectPath === event.projectPath ? chosen : undefined;
       if ((selected || source && !source.local) && event.attachments > 0 && event.promptAttachments?.length !== event.attachments) throw new Error("The attachment content is missing. Please attach the files again.");
-      if (host && source && !source.local && current?.local && !environments.shownElsewhere) {
+      if (host && source && current && source.id !== current.id) {
         const target = selected?.machine ?? current.id;
         const localMatch = identities?.match(current, event.projectPath, event.workspaceId);
         const targetWorkspace = selected?.workspaceId ?? (!selected && localMatch?.found ? localMatch.workspaceId : undefined);

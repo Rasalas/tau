@@ -1,11 +1,12 @@
-import { useEffect, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
 import { Check, Scale } from "lucide-react";
-import { SegmentedControl, SettingRow, useSetting, useThreadStore, type HostExtensionClient, type PlatformEnvironments, type UiEnvironment } from "tau";
+import { getClientStorage, SegmentedControl, SettingRow, useSetting, useThreadStore, type HostExtensionClient, type PlatformEnvironments, type UiEnvironment } from "tau";
 import { autoApplies, autoRunOn, chooseInput, threadTargets, useAutoPreview, useAutoRunOn } from "./auto.js";
-import { matchProject, useProjectMatches, type BringChoiceStore, type ProjectIdentities } from "./bring-project.js";
+import { matchProject, useProjectMatches, type BringChoice, type BringChoiceStore, type ProjectIdentities } from "./bring-project.js";
 import { cannotStartReason, shownMachine, statusText } from "./machines.js";
+import { createAgentMachines, pageMachine, withAgentMachines, type AgentMachinesStore } from "./page-machine.js";
 import { MachineIcon, useEnvironments } from "./rail.js";
-import { AGENTS_EVENT, ENVIRONMENTS_EXTENSION_ID, RUN_ON_DEFAULT_KEY, type AgentMachines, type DraftMachineProps, type DraftMachineSource, type RunOnDefault } from "./protocol.js";
+import { ENVIRONMENTS_EXTENSION_ID, RUN_ON_DEFAULT_KEY, type DraftMachineProps, type DraftMachineSource, type RunOnDefault } from "./protocol.js";
 
 const AUTO = "auto";
 const NO_IDENTITIES: ProjectIdentities = {
@@ -37,7 +38,34 @@ export function autoTooltip(preview: { answer?: { machine: string | null; reason
 export interface RunOnBringing {
   identities: ProjectIdentities;
   choice: BringChoiceStore;
+  /** Shared with the send's hook; one of its own otherwise. */
+  agents?: AgentMachinesStore;
 }
+
+/** The machine picked last per project (workspace id, else path), which a new draft of it starts on (Run on: Last used). */
+export const LAST_RUN_ON_KEY = "tau.environments.run-on.last";
+const LAST_RUN_ON_KEPT = 100;
+
+export const lastRunOn = {
+  all(): Record<string, string> {
+    try {
+      const value = JSON.parse(getClientStorage()?.get(LAST_RUN_ON_KEY) ?? "{}") as unknown;
+      return value && typeof value === "object" && !Array.isArray(value)
+        ? Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
+        : {};
+    } catch {
+      return {};
+    }
+  },
+  get: (project: string): string | undefined => lastRunOn.all()[project],
+  set(project: string, machine: string): void {
+    const all = lastRunOn.all();
+    delete all[project];
+    // Newest last; the oldest projects drop out.
+    const kept = [...Object.entries(all), [project, machine]].slice(-LAST_RUN_ON_KEPT);
+    getClientStorage()?.set(LAST_RUN_ON_KEY, JSON.stringify(Object.fromEntries(kept)));
+  },
+};
 
 const noChoice = () => () => undefined;
 
@@ -55,31 +83,7 @@ function folderName(path: string): string {
  * "Automatic" leaves the choice to the moment the prompt is sent.
  */
 export function createRunOnSource(environments: PlatformEnvironments, host?: HostExtensionClient, bringing?: RunOnBringing, runOnDefault: () => RunOnDefault | undefined = () => undefined) {
-  let agents: AgentMachines | undefined;
-  let stopAgents: (() => void) | undefined;
-  let generation = 0;
-  let agentRevision = 0;
-  const agentListeners = new Set<() => void>();
-  const subscribeAgents = (listener: () => void) => {
-    agentListeners.add(listener);
-    if (host && !stopAgents) {
-      const current = ++generation;
-      const update = (value: unknown) => {
-        if (current !== generation) return;
-        agents = value as AgentMachines;
-        agentListeners.forEach((notify) => notify());
-      };
-      const revision = agentRevision;
-      stopAgents = host.onEvent(AGENTS_EVENT, (value) => { agentRevision += 1; update(value); });
-      void host.invoke("agents").then((value) => { if (revision === agentRevision) update(value); }, () => {
-        if (revision === agentRevision) update({ available: false, machines: [] });
-      });
-    }
-    return () => {
-      agentListeners.delete(listener);
-      if (agentListeners.size === 0) { stopAgents?.(); stopAgents = undefined; generation += 1; }
-    };
-  };
+  const agents = bringing?.agents ?? createAgentMachines(host);
   // The draft is on its way to another machine; the pill and the rows wait.
   const moving = {
     value: false,
@@ -96,8 +100,9 @@ export function createRunOnSource(environments: PlatformEnvironments, host?: Hos
   const useRunOn = ({ actions, snapshot }: DraftMachineProps) => {
     const threads = useThreadStore();
     useEffect(() => { bringing?.choice.bindThreads(threads); }, [threads]);
-    const agentView = useSyncExternalStore(subscribeAgents, () => agents);
-    const list = useEnvironments(environments);
+    const agentView = useSyncExternalStore(agents.subscribe, agents.get);
+    const pageList = useEnvironments(environments);
+    const list = useMemo(() => pageList && withAgentMachines(pageList, agentView), [pageList, agentView]);
     const auto = useAutoRunOn();
     const busy = useSyncExternalStore(moving.subscribe, () => moving.value);
     const runningHere = useRunningHere();
@@ -114,8 +119,8 @@ export function createRunOnSource(environments: PlatformEnvironments, host?: Hos
     const preview = useAutoPreview(host, automatic && targets.size > 0 ? chooseInput(targets, active?.cwd, active?.backendKind, active?.model) : undefined);
     const chosen = useSyncExternalStore(bringing?.choice.subscribe ?? noChoice, () => bringing?.choice.get());
     if (!list || !current || !actions || !unstarted) return undefined;
-    // Only this computer's own page starts work elsewhere with its project; its host holds the agents' keys there.
-    const canRunThere = bringing !== undefined && isDraft && current.local && !environments.shownElsewhere;
+    // Only the page of the machine whose host holds the agents' keys starts work elsewhere: this computer's, or the host a phone shows.
+    const canRunThere = bringing !== undefined && isDraft && pageMachine(environments, list)?.id === current.id;
     const canBring = canRunThere && bringing.identities.movable(active?.cwd, active?.workspaceId);
     const hasAgents = (machine: UiEnvironment) => agentView?.machines?.some((entry) => entry.id === machine.id && entry.status === "connected" && !entry.readOnly) ?? false;
     const checkingAgents = canRunThere && host !== undefined && agentView === undefined;
@@ -127,18 +132,29 @@ export function createRunOnSource(environments: PlatformEnvironments, host?: Hos
         : `Run on ${current.name}: the machine this thread starts on`;
     return { list, current, actions, active, busy, runningHere, offerAuto, isDraft, automatic, tooltip, match, canBring, canRunThere, hasAgents, checkingAgents, bringTo, project };
   };
+  /** Makes the machine the draft's home where this page's host starts the thread; false where only moving the page could. */
+  const runThere = (state: NonNullable<ReturnType<typeof useRunOn>>, machine: UiEnvironment): boolean => {
+    const choice = choiceFor(state, machine);
+    if (choice) bringing!.choice.set(choice);
+    return choice !== undefined;
+  };
+  const choiceFor = (state: NonNullable<ReturnType<typeof useRunOn>>, machine: UiEnvironment): BringChoice | undefined => {
+    const { active } = state;
+    const match = state.match(machine);
+    if (!state.canRunThere || !state.hasAgents(machine) || !active?.cwd || !(match.found && match.workspaceId || !match.found && state.canBring)) return undefined;
+    return { machine: machine.id, machineName: machine.name, projectPath: active.cwd, ...(match.found && match.workspaceId ? { workspaceId: match.workspaceId } : {}) };
+  };
   const move = (state: NonNullable<ReturnType<typeof useRunOn>>, id: string) => {
     const { list, current, actions, active } = state;
     bringing?.choice.set(undefined);
     if (id === AUTO) { autoRunOn.set(true); return; }
     autoRunOn.set(false);
     const machine = list.environments.find((environment) => environment.id === id);
-    if (!machine || machine.id === current.id) return;
+    if (!machine) return;
+    const project = active?.workspaceId ?? active?.cwd;
+    if (project) lastRunOn.set(project, machine.id);
+    if (machine.id === current.id || runThere(state, machine)) return;
     const match = state.match(machine);
-    if (state.canRunThere && state.hasAgents(machine) && active?.cwd && (match.found && match.workspaceId || !match.found && state.canBring)) {
-      bringing!.choice.set({ machine: machine.id, machineName: machine.name, projectPath: active.cwd, ...(match.found && match.workspaceId ? { workspaceId: match.workspaceId } : {}) });
-      return;
-    }
     const draft = actions.composerDraft();
     moving.set(true);
     // The text goes along; left here it would be a second copy. The page reloads before `open` answers.
@@ -154,6 +170,8 @@ export function createRunOnSource(environments: PlatformEnvironments, host?: Hos
   };
   // Settings' Run on: This machine brings a new draft home once, as it opens.
   let homed = false;
+  // The project whose draft took its last machine already; a pick after that stands.
+  let restored: string | undefined;
   const source: DraftMachineSource = {
     // With one machine there is nothing to ask.
     openOnDraft: () => runOnDefault() === "ask" && (environments.getSnapshot()?.environments.length ?? 0) > 1,
@@ -167,6 +185,18 @@ export function createRunOnSource(environments: PlatformEnvironments, host?: Hos
         homed = true;
         // oxlint-disable-next-line react-hooks/exhaustive-deps
       }, [draft]);
+      // Settings' Run on: Last used (the default) starts a project's draft where its last one was picked to run.
+      const project = draft ? state?.active?.workspaceId ?? state?.active?.cwd : undefined;
+      const last = project && (runOnDefault() ?? "last") === "last" ? lastRunOn.get(project) : undefined;
+      const target = last && state && !state.automatic && last !== state.current.id ? state.list.environments.find((machine) => machine.id === last) : undefined;
+      const ready = target !== undefined && choiceFor(state!, target) !== undefined;
+      useEffect(() => {
+        if (!project) { restored = undefined; return; }
+        if (!ready || restored === project) return;
+        restored = project;
+        if (bringing?.choice.get()?.projectPath !== state!.active?.cwd) runThere(state!, target!);
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
+      }, [project, ready]);
       if (!state) return undefined;
       const shown = state.bringTo ?? state.current;
       return {
@@ -193,8 +223,9 @@ export function createRunOnSource(environments: PlatformEnvironments, host?: Hos
       const detailOf = (machine: UiEnvironment) => {
         if (machine.readOnly || machine.status === "refused") return cannotStartReason(machine, now)!;
         const detail = runOnDetail(machine, now, machine.id === current.id ? runningHere : undefined);
-        if (!machine.local && state.checkingAgents) return `${detail} · checking agents…`;
-        if (!machine.local && machine.status === "connected" && !state.hasAgents(machine)) return `${detail} · moves this window there`;
+        const here = machine.local || machine.id === current.id;
+        if (!here && state.checkingAgents) return `${detail} · checking agents…`;
+        if (!here && machine.status === "connected" && !state.hasAgents(machine)) return `${detail} · moves this window there`;
         return machine.id !== current.id && state.canBring && machine.status === "connected" && !state.match(machine).found ? `${detail} · Tau takes ${state.project} along` : detail;
       };
       const row = (id: string, name: string, icon: ReactNode, detail: string, selected: boolean, disabled: boolean, status?: string) => <button

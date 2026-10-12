@@ -1,5 +1,5 @@
 import type { ComponentType, ReactElement, ReactNode } from "react";
-import type { HostSnapshot, UiSession, WorkbenchActions } from "tau";
+import type { HostSnapshot, UiEnvironmentProject, UiSession, WorkbenchActions } from "tau";
 import type { MachineRailThread } from "./rail.js";
 
 export const ENVIRONMENTS_EXTENSION_ID = "tau.environments";
@@ -62,6 +62,8 @@ export interface AgentMachine {
   detail?: string;
   roundTripMs?: number;
   readOnly?: boolean;
+  /** Its own projects from the index this host reads there; absent before that read. */
+  projects?: UiEnvironmentProject[];
 }
 
 /** `available` is false on a host that keeps no machines (one in the window's process, or before API 1.15.0). */
