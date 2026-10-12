@@ -54,16 +54,17 @@
  * takes a tap meant for one. Swiped sideways, it goes.
  */
 .toast-stack[data-touch] {
+  --toast-available-height: calc(var(--tau-viewport-height, 100dvh) - env(safe-area-inset-top, 0px) - 72px);
   z-index: 45; margin-inline: auto; width: auto; max-width: 480px;
   left: max(12px, env(safe-area-inset-left, 0px)); right: max(12px, env(safe-area-inset-right, 0px));
   top: calc(var(--tau-viewport-top, 0px) + env(safe-area-inset-top, 0px) + 60px); bottom: auto;
-  height: var(--toast-available-height, calc(var(--tau-viewport-height, 100dvh) - env(safe-area-inset-top, 0px) - 72px));
+  height: var(--toast-available-height);
   overflow: clip;
 }
 .toast-stack[data-touch] .toast-item { touch-action: pan-y; }
 .toast-stack[data-touch] .toast-card { padding: 4px 4px 4px 14px; }
 .toast-stack[data-touch] .toast-type { height: 44px; }
-.toast-stack[data-touch] .toast-body { padding-block: 12px; max-height: min(180px, max(0px, calc(var(--toast-available-height, 240px) - 10px))); font-size: var(--text-md); line-height: 20px; }
+.toast-stack[data-touch] .toast-body { padding-block: 12px; max-height: min(180px, max(0px, calc(var(--toast-available-height) - 10px))); font-size: var(--text-md); line-height: 20px; }
 .toast-stack[data-touch] .toast-icon-button { width: 44px; height: 44px; }
 .toast-stack[data-touch] .toast-icon-button > svg { width: 18px; height: 18px; }
 .toast-stack[data-touch] .toast-actions > button { line-height: var(--touch-target); padding: 0 12px; font-size: var(--text-md); }
