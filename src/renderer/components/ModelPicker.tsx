@@ -1,6 +1,6 @@
 import { MobileModelPicker } from "./MobileModelPicker";
 import { lazy, Suspense, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import { ChevronDown, ChevronRight, ChevronUp, History, Search, SlidersHorizontal, Star } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, History, Plus, Search, SlidersHorizontal, Star } from "lucide-react";
 import type { ThreadBackendKind, UiModel, UiRuntimeBackend } from "../../shared/contracts";
 import type { ModelBadgeContribution, ModelSelectionContribution } from "../extension-system";
 import { catalogLevels, type RuntimeCatalogEntry } from "../../workbench/runtime-catalog-store";
@@ -13,7 +13,7 @@ import { runtimeInstanceId } from "../../shared/runtime-instances";
 import { runtimeUpdate } from "../runtime-update";
 import { THINKING_LABELS } from "../thinking-levels";
 import {
-  FAVOURITES_VIEW, RUNTIME_STATUS_LABELS, makerView, pickerRuntimes, pickerViews, runtimeView, type RuntimeEntry, type RuntimeStatus, type ViewEntry,
+  BLOCKED, FAVOURITES_VIEW, RUNTIME_STATUS_LABELS, makerView, pickerRuntimes, pickerViews, runtimeView, type RuntimeEntry, type ViewEntry,
 } from "./model-picker-rail";
 import {
   NO_FILTERS, filterCount, modelFamily, modelKey, offeringKey, orderedPositions, passesFilters, searchOfferings,
@@ -71,8 +71,6 @@ const touchRowHeight = (row: Row): number => row.kind === "entry" ? 58 : 44;
 const SORT_LABELS: Record<OfferingSort, string> = { relevance: "Relevance", price: "Price", context: "Context", newest: "Newest" };
 const BILLING_FILTERS: ReadonlyArray<[BillingFilter, string]> = [["subscription", "Plan"], ["api", "API key"], ["free", "Free or local"]];
 const CAPABILITY_FILTERS: ReadonlyArray<[CapabilityFilter, string]> = [["images", "Reads images"], ["reasoning", "Reasoning"]];
-/** A runtime in one of these states cannot run a thread yet: dimmed, with the reason and a way to fix it. */
-const BLOCKED: ReadonlySet<RuntimeStatus> = new Set(["not-installed", "sign-in", "unavailable"]);
 const BILLING_RANK: Record<string, number> = { subscription: 0, "api-key": 1, free: 2, local: 3 };
 
 /** "added", or "×2" for a model chosen twice. */
@@ -189,10 +187,11 @@ export function ModelPicker({
   /** Shift-click builds a set of models here instead of picking one; a new thread's picker only. */
   multiSelect?: ModelSelectionContribution;
   /**
-   * Settings for a runtime: its card, to install or sign in ("runtime"), or its models, to pin them ("models").
+   * Settings for a runtime: its card, to install or sign in ("runtime"), or its models, to pin them ("models");
+   * or the Providers page, to set up another ("providers", `kind` the thread's).
    * By default the workbench's own Settings: the runtime's card under Providers, and its models there.
    */
-  onOpenSettings?(kind: ThreadBackendKind, part: "runtime" | "models"): void;
+  onOpenSettings?(kind: ThreadBackendKind, part: "runtime" | "models" | "providers"): void;
   /** The phone sheet's last row ("Thinking and speed"): what the thinking chip says, and opening its sheet. */
   thinkingSummary?: ReactNode;
   extraSettings?: ReactNode;
@@ -212,8 +211,8 @@ export function ModelPicker({
   const form = useCompactForm(compact ? "compact" : "desktop");
   const asSheet = compact && form === "single";
   // A phone's Settings has no runtime cards to sign in on; there the reason stands alone.
-  const onOpenSettings = openSettings ?? (shell?.actions && !compact ? (kind: ThreadBackendKind, part: "runtime" | "models") => {
-    const card = shell.registry.getSettingsPages().find((page) => page.runtime === kind)?.id;
+  const onOpenSettings = openSettings ?? (shell?.actions && !compact ? (kind: ThreadBackendKind, part: "runtime" | "models" | "providers") => {
+    const card = part === "runtime" ? shell.registry.getSettingsPages().find((page) => page.runtime === kind)?.id : undefined;
     shell.actions!.openSettings(part === "models" ? `providers#runtime-models-${kind}` : card ?? "providers");
   } : undefined);
   const onHand = catalogRuntime ?? DEFAULT_RUNTIME;
@@ -309,7 +308,7 @@ export function ModelPicker({
     const byFamily = new Map(entries.map((entry) => [entry.key, entry] as const));
     return (offering: Offering) => byFamily.get(modelFamily(offering.model));
   }, [entries]);
-  const views = useMemo(() => pickerViews(entries.map((entry) => entry.maker), runtimes, providerLabel), [entries, runtimes]);
+  const views = useMemo(() => pickerViews(entries.map((entry) => entry.maker), runtimes, providerLabel, threadRuntime), [entries, runtimes, threadRuntime]);
   const [view, setView] = useState(() => {
     const active = activeOffering ? byKey.get(activeOffering) : undefined;
     if (active) return makerView(modelMaker(active.model));
@@ -578,6 +577,8 @@ export function ModelPicker({
     }
     return draft ? `${entry.backend.label} · run this thread on it` : `${entry.backend.label} · starts a new thread`;
   };
+  const notSetUp = runtimes.filter((entry) => BLOCKED.has(entry.status) && !views.some((item) => item.key === runtimeView(entry.backend.kind)));
+  const setUpTitle = ["Set up providers in Settings", ...notSetUp.map((entry) => `${entry.backend.label} · ${RUNTIME_STATUS_LABELS[entry.status]}`)].join("\n");
   const cells: RowCell = {
     badges,
     inUse: (entry, way) => chosen.length === 0 && (way ? way.key === activeOffering : entry.ways.some((item) => item.key === activeOffering)),
@@ -661,7 +662,7 @@ export function ModelPicker({
                   {entry.kind === "runtime"
                     ? <ProviderIconStack runtimeProvider={entry.backend.kind === DEFAULT_RUNTIME ? "pi" : entry.backend.kind} className="rail-icon" hint={false} />
                     : entry.kind === "maker"
-                      ? <ProviderIconStack modelProvider={entry.maker} className="rail-icon" hint={false} />
+                      ? <ProviderIconStack modelProvider={entry.maker} brand className="rail-icon" hint={false} />
                       : entry.kind === "recent" ? <History size={18} className="rail-glyph recent" /> : <Star size={18} fill="currentColor" className="rail-glyph" />}
                   {entry.kind === "runtime" && entry.backend.kind.includes("@")
                     ? <i className="rail-instance" aria-hidden>{monogram(runtimeInstanceId(entry.backend.kind))}</i>
@@ -671,6 +672,20 @@ export function ModelPicker({
               </div>
             );
           })}
+          {onOpenSettings ? (
+            <div className="model-rail-slot">
+              <hr aria-hidden />
+              <button
+                className="rail-add"
+                aria-label="Set up providers"
+                {...tooltipProps(setUpTitle, { side: stacked ? "bottom" : "left", variant: "lines" })}
+                tabIndex={-1}
+                onClick={() => { onOpenSettings(threadRuntime, "providers"); onClose(); }}
+              >
+                <Plus size={18} className="rail-glyph" />
+              </button>
+            </div>
+          ) : null}
         </nav>
 
         <section className="model-column" aria-label="Models">
