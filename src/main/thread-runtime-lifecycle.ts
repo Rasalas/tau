@@ -41,6 +41,7 @@ import { isSessionHeldElsewhere, type SessionLocks } from "./session-locks.js";
 import { openRecentSession, readSessionFile } from "./session-read.js";
 import { discoverPromptOverrides } from "./system-prompt-resolver.js";
 import { defaultHostConfigManager } from "./host-config.js";
+import { agentShellFor } from "./agent-scope.js";
 import { withConfiguredSampling } from "./configured-sampling.js";
 
 type RuntimeStartEvent = Parameters<CreateAgentSessionRuntimeFactory>[0]["sessionStartEvent"];
@@ -167,6 +168,9 @@ export class ThreadRuntimeLifecycle {
       const userPrefix = settingsManager.getShellCommandPrefix.bind(settingsManager);
       settingsManager.getShellCommandPrefix = () => composeShellCommandPrefix(extensions, userPrefix());
     }
+    // On Linux with a user manager each bash call starts in its own systemd scope; a shell the user chose stays.
+    const agentShell = settingsManager.getShellPath() ? undefined : agentShellFor(undefined);
+    if (agentShell) settingsManager.getShellPath = () => agentShell;
     this.port.logRuntimePhase("settings", settingsStartedAt, reason, cwd);
 
     const modelsStartedAt = performance.now();

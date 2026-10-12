@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
-import { commandInvocation, killProcessTree } from "tau/host-extension";
+import { AGENT_OOM_MESSAGE, commandInvocation, killProcessTree, wrapAgentCommand } from "tau/host-extension";
 
 /**
  * The Agent Client Protocol wire: newline-delimited JSON-RPC 2.0 on the
@@ -17,6 +17,8 @@ export interface AcpProcess {
   kill(signal?: NodeJS.Signals): boolean;
   /** Resolves once the process has exited. */
   readonly exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
+  /** After the exit: whether the process ran out of memory (its systemd scope says so). */
+  oomKilled?(): Promise<boolean>;
 }
 
 export interface AcpSpawnInput {
@@ -26,9 +28,12 @@ export interface AcpSpawnInput {
   env: Record<string, string>;
 }
 
-export function spawnAcpProcess(input: AcpSpawnInput): AcpProcess {
+/** `scopeName` labels the agent's systemd scope on Linux. */
+export function spawnAcpProcess(input: AcpSpawnInput, scopeName = "acp"): AcpProcess {
   const invocation = commandInvocation(input.command, input.args, { env: input.env });
-  const child = spawn(invocation.command, invocation.args, {
+  // On Linux the agent runs in its own systemd scope, so a memory kill takes it and not the host.
+  const launch = wrapAgentCommand({ command: invocation.command, args: invocation.args, name: scopeName, env: input.env });
+  const child = spawn(launch.command, launch.args, {
     cwd: input.cwd,
     env: input.env,
     stdio: ["pipe", "pipe", "pipe"],
@@ -51,6 +56,7 @@ export function spawnAcpProcess(input: AcpSpawnInput): AcpProcess {
       return true;
     },
     exited,
+    ...(launch.scope ? { oomKilled: () => launch.scope!.oomKilled() } : {}),
   };
 }
 
@@ -139,8 +145,9 @@ export class AcpClient {
     }, () => undefined);
     options.process.stdout.on("data", (chunk: Buffer) => stdout(chunk));
     options.process.stderr.on("data", (chunk: Buffer) => stderr(chunk));
-    void options.process.exited.then(({ code, signal }) => {
+    void options.process.exited.then(async ({ code, signal }) => {
       if (this.closing && !this.exitError) { this.finish(undefined); return; }
+      if (code !== 0 && await options.process.oomKilled?.().catch(() => false)) { this.finish(new AcpExitedError(AGENT_OOM_MESSAGE)); return; }
       const detail = this.stderrTail.trim();
       this.finish(new AcpExitedError(`${this.name} exited${code !== null ? ` with code ${code}` : signal ? ` on ${signal}` : ""}.${detail ? `\n${detail}` : ""}`));
     });

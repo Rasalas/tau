@@ -46,7 +46,7 @@ function signInError(error: unknown): Error {
 export async function openCursorSession(options: CursorSessionOptions): Promise<AcpAgentSession> {
   const session = new AcpAgentSession({
     agentName: "Cursor",
-    process: (options.spawn ?? spawnAcpProcess)(cursorSpawnInput(options)),
+    process: (options.spawn ?? ((input) => spawnAcpProcess(input, "cursor")))(cursorSpawnInput(options)),
     cwd: options.cwd,
     clientInfo: { name: CURSOR_CLIENT_NAME, version: options.clientVersion },
     clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, elicitation: { form: {} }, _meta: { parameterizedModelPicker: true } },

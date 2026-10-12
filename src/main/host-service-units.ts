@@ -24,7 +24,7 @@ export const FORWARDED_SERVICE_ENV = [
   "TAU_CONFIG_FILE", "TAU_WORKTREES_DIR", "TAU_THEMES_DIR", "TAU_EXTENSION_GRANTS_FILE", "TAU_HOST_TOKEN_FILE", "TAU_WEB_CLIENT",
   "TAU_OPENCODE_HOME", "TAU_CURSOR_HOME", "TAU_GROK_HOME", "TAU_IMPORT_ROOTS", "TAU_NO_EXTENSIONS",
   "TAU_RUNTIME_UPDATE_COMMAND", "TAU_NO_RUNTIME_UPDATES", "TAU_CURSOR_COMMAND", "TAU_GROK_COMMAND", "TAU_TAILSCALE_COMMAND",
-  "TAU_SERVICE_UNIT_DIR", "TAU_SERVICE_CONTROL",
+  "TAU_SERVICE_UNIT_DIR", "TAU_SERVICE_CONTROL", "TAU_AGENT_SCOPES",
   "PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR", "CODEX_HOME",
 ] as const;
 
@@ -178,8 +178,14 @@ export function renderSystemdUnit(spec: HostServiceSpec, display?: { xvfbUnit: s
     // SIGTERM to the host alone, which stops its runtimes; the rest of the group only if that hangs.
     "KillMode=mixed",
     "TimeoutStopSec=20",
-    // One tool call the kernel kills must not take the host and every thread with it.
+    // Agents run in scopes of app-tau-agents.slice (agent-scope.ts); a short command that shares this cgroup and
+    // is killed by the kernel must not take the host and every thread with it.
     "OOMPolicy=continue",
+    // The agents slice is a sibling in app.slice, so these weights keep the host responsive while agents saturate CPU or disk.
+    "CPUWeight=1000",
+    "IOWeight=1000",
+    // systemd-oomd honors this only for a cgroup of the same user as the one it watches; the scopes are what protect the host.
+    "ManagedOOMPreference=avoid",
     `StandardOutput=append:${systemdEscape(spec.logPath, false)}`,
     `StandardError=append:${systemdEscape(spec.logPath, false)}`,
     "",

@@ -15,6 +15,8 @@ export interface ClaudeSdkSessionOptions {
   onMessage(message: SDKMessage, unclaimed?: boolean): void;
   /** The query ended: the CLI exited, was closed, or failed. */
   onExit(error: unknown | undefined): void;
+  /** Names the real reason before a failure is reported, such as the CLI's scope running out of memory. */
+  explainExit?(error: unknown): Promise<unknown>;
   /**
    * Servers registered over the control channel right after the CLI starts, so
    * their credentials never reach its command line. The first prompt waits for it.
@@ -191,6 +193,7 @@ export class ClaudeSdkSession {
     } catch (caught) {
       error = this.abortController.signal.aborted ? undefined : caught;
     }
+    if (error !== undefined && this.options.explainExit) error = await this.options.explainExit(error).catch(() => error);
     this.finish(error);
   }
 

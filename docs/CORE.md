@@ -556,6 +556,67 @@ program may use (no Xvfb; `CGVirtualDisplay` is private API):
 For work that must be invisible, move it to another machine: a Linux host runs
 without a window, and a display there is Xvfb's.
 
+## Memory pressure on Linux
+
+On a Linux host with a systemd user manager, agents and terminals run apart
+from the host, so one runaway process cannot take the host and every other
+thread with it. systemd-oomd and the kernel kill whole cgroups; with every
+agent inside `tau-host.service`, the greedy one and the host were the same
+leaf. `src/main/agent-scope.ts` is the one place that decides, API 1.59.0:
+
+- **One scope per launch.** `wrapAgentCommand({ command, args, name, env })`
+  returns what to spawn instead: `/bin/sh -c <script> … systemd-run --user
+  --scope --slice=app-tau-agents.slice --unit=tau-<name>-<id>.scope
+  --property=OOMPolicy=stop -- <command> <args>`. Every step `exec`s, so the
+  spawned PID, stdio and signals stay the agent's own (killing the PID, closing
+  stdin and process groups behave as before). The slice nests as
+  `app.slice/app-tau.slice/app-tau-agents.slice`, a sibling branch of the host's
+  unit in `app.slice`, so oomd, which kills leaf cgroups, now picks the agent. The shell raises the process's `oom_score_adj` to 800 first
+  (a scope cannot set `OOMScoreAdjust`), so the kernel kills agents before the
+  host. A command that does not resolve on PATH stays unwrapped and fails at
+  spawn with its own error.
+- **Probed once.** The first Linux launch checks `XDG_RUNTIME_DIR`, finds
+  `systemd-run` and `systemctl` and runs `systemd-run --user --scope … true`
+  with `OOMPolicy=stop`; on a systemd older than 253, which does not know it
+  for scopes, the probe retries without it (isolation, but no out-of-memory
+  label). No answer at all (macOS and Windows never ask, a container, an SSH
+  login without a user manager) turns scopes off for the process: commands get
+  only the raised score on Linux and run unchanged elsewhere.
+  `TAU_AGENT_SCOPES=0` turns everything off; the tests set it.
+- **Slice limits at runtime.** The probe sets `MemoryHigh` = RAM − 6 GB and
+  `MemoryMax` = RAM − 4 GB on the slice with `systemctl --user set-property
+  --runtime`, never less than ½ and ¾ of the RAM on a small machine. They are
+  gone after a reboot and set again by the next host.
+- **The label.** Scopes of launches Tau follows are not collected, so systemd
+  keeps `Result=oom-kill` (kernel and oomd kills alike) for `scope.oomKilled()`
+  to read once the process exited unexpectedly; it polls while the scope is
+  stopping, then resets the failed unit. The runtimes ask on a non-clean exit
+  and put `AGENT_OOM_MESSAGE` ("Killed: out of memory.") in place of "exited
+  with code 137": the Agent SDK runtime (its session's `explainExit`),
+  Codex (`RpcConnection`), the ACP agents (`AcpClient`: Cursor, Grok,
+  Antigravity) and OpenCode's server. A server Tau closed itself is never asked.
+- **Unit.** The Linux service unit adds `CPUWeight=1000`, `IOWeight=1000` and
+  `ManagedOOMPreference=avoid` to its `OOMPolicy=continue`. oomd honors the
+  preference only for a cgroup of the same user as the one it watches, which
+  the distributions' `user-<uid>.slice` is not, so the scopes are what protect
+  the host; the weights compete with the agents slice directly. An installed
+  unit reads as stale until `tau service install` writes the new one; scopes
+  work without that.
+
+What is covered, and what is not:
+
+| Process | In its own scope |
+|---|---|
+| Agent SDK runtime CLI, Codex `app-server`, OpenCode `serve`, Cursor, Grok and Antigravity (ACP) | yes, `name` `agent-sdk`, `codex`, `opencode`, `cursor`, `grok`, `antigravity`; the label above |
+| Terminal Kit shells (node-pty) | yes, collected (`terminal`); no label |
+| Pi's bash tool and `!` commands | yes: while scopes are on, the settings' `shellPath` (when the user set none) is a small script under `$XDG_RUNTIME_DIR/tau-agents/` that raises the score and starts bash in a scope of its own per call (`--collect`, description "Tau agent shell"), so what a call leaves running (a dev server) outlives the call in the agents slice, not in the host's unit. No label: Pi reports the exit code. |
+| Pi itself (the model loop, tools that run in the host process, extensions) | no. Pi is embedded in the host process; it shares the host's cgroup and cannot get a score or limit of its own. A runaway in Pi's own process still takes the host, which `Restart=on-failure` brings back. |
+| Probes and one-shot helpers (`--version`, auth checks, completions, git) | no: short-lived, and often the thing that runs when memory is already short |
+
+A consequence of the split: stopping the service no longer ends a dev server an
+agent left running, because it lives in the agents slice. The agents Tau
+started still end with the host (their pipes close).
+
 ## The stylesheet
 
 `src/renderer/tokens.css` is the palette, and it is a contract: every colour,

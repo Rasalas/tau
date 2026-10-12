@@ -168,6 +168,24 @@ describe("ClaudeSdkSession", () => {
     expect((crashed.exits[0] as Error).message).toBe("process exited with code 1");
   });
 
+  it("reports the reason explainExit names in place of the SDK's error, for the pending send and the owner", async () => {
+    const dying = ((params: { prompt: AsyncIterable<SDKUserMessage> }) => {
+      async function* run(): AsyncGenerator<SDKMessage, void> {
+        yield init();
+        for await (const received of params.prompt) {
+          void received;
+          throw new Error("process exited with code 137");
+        }
+      }
+      return Object.assign(run(), { interrupt: vi.fn(), setPermissionMode: vi.fn(), setModel: vi.fn() }) as unknown as ReturnType<ClaudeQuery>;
+    }) as unknown as ClaudeQuery;
+    const exits: unknown[] = [];
+    const session = new ClaudeSdkSession({ query: dying, options: { cwd: "/repo" }, claudeSessionId: SESSION, onMessage: () => undefined, onExit: (error) => { exits.push(error); }, explainExit: async () => new Error("Killed: out of memory.") });
+    session.start();
+    await expect(session.send("boom", "next")).rejects.toThrow("Killed: out of memory.");
+    expect((exits[0] as Error).message).toBe("Killed: out of memory.");
+  });
+
   it("forwards interrupt and permission-mode changes to the live query", async () => {
     const { query, control } = sessionQuery(() => []);
     const { session } = open(query);

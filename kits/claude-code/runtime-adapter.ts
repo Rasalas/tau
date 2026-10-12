@@ -1,5 +1,5 @@
 import { query as sdkQuery, type CanUseTool, type EffortLevel, type McpServerConfig, type OnUserDialog, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { CompletionRequest, HostMcpConnection, RuntimePermissionLevel, RuntimePromptInput, RuntimePromptResult, RuntimeTransport, SkillRuntimeAdapter } from "tau/host-extension";
+import { AGENT_OOM_MESSAGE, wrapAgentCommand, type AgentScopeHandle, type AgentWrapInput, type CompletionRequest, type HostMcpConnection, type RuntimePermissionLevel, type RuntimePromptInput, type RuntimePromptResult, type RuntimeTransport, type SkillRuntimeAdapter } from "tau/host-extension";
 import { homedir } from "node:os";
 import manifest from "./tau-extension.json";
 import { probeClaude, type ClaudeProbe } from "./probe.js";
@@ -111,9 +111,38 @@ export interface ClaudeCodeRuntimeOptions {
   mcpTimeoutMs?: number;
 }
 
+/** What the SDK runs through node instead of executing; a launcher in front of one would not apply. */
+const SCRIPT_ENTRIES = [".js", ".mjs", ".tsx", ".ts", ".jsx"];
+
+/** The executable as the SDK is given it, and the systemd scope it runs in where there is one (Linux). */
+export interface CliLaunch {
+  executable: string;
+  executableArgs?: string[];
+  scope?: AgentScopeHandle;
+}
+
+/**
+ * The SDK starts a native CLI as `executable ...executableArgs ...its own
+ * arguments`, so the scope launcher goes in front of the CLI while the SDK
+ * keeps its stderr capture and exit reporting.
+ */
+export function scopedCliLaunch(executable: string, env: NodeJS.ProcessEnv, wrap: (input: AgentWrapInput) => ReturnType<typeof wrapAgentCommand> = wrapAgentCommand): CliLaunch {
+  if (SCRIPT_ENTRIES.some((extension) => executable.endsWith(extension))) return { executable };
+  const launch = wrap({ command: executable, args: [], name: "agent-sdk", env });
+  if (launch.command === executable && launch.args.length === 0) return { executable };
+  return { executable: launch.command, executableArgs: launch.args, ...(launch.scope ? { scope: launch.scope } : {}) };
+}
+
+/** The scope's verdict in place of an exit the SDK reported: memory ended the CLI, or the error stays. */
+export async function explainCliExit(launch: CliLaunch, error: unknown): Promise<unknown> {
+  return await launch.scope?.oomKilled().catch(() => false) ? new Error(AGENT_OOM_MESSAGE) : error;
+}
+
 export interface ClaudeQueryPlan {
   cwd: string;
   executable: string;
+  /** The scoped launch of `executable` when the host isolates agents. */
+  launch?: CliLaunch;
   claudeSessionId: string;
   /** Resume the session instead of creating it under `claudeSessionId`. */
   started: boolean;
@@ -170,7 +199,8 @@ export function claudeQueryOptions(plan: ClaudeQueryPlan): Options {
     // The resume-compaction question is the one dialog the workbench answers; others are declined.
     ...(plan.hooks?.onUserDialog ? { onUserDialog: plan.hooks.onUserDialog, supportedDialogKinds: ["resume_return"] } : {}),
     cwd: plan.cwd,
-    pathToClaudeCodeExecutable: plan.executable,
+    pathToClaudeCodeExecutable: plan.launch?.executable ?? plan.executable,
+    ...(plan.launch?.executableArgs ? { executableArgs: plan.launch.executableArgs } : {}),
     systemPrompt: { type: "preset", preset: "claude_code" },
     settingSources: ["user", "project", "local"],
     permissionMode: plan.policy.permissionMode,
@@ -350,9 +380,12 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
     input.signal?.addEventListener("abort", onAbort, { once: true });
     if (input.signal?.aborted) controller.abort();
     let stderr = "";
+    const executable = options.resolveCommand?.(commandName()) ?? commandName();
+    const launch = scopedCliLaunch(executable, env);
     const plan: ClaudeQueryPlan = {
       cwd: input.cwd,
-      executable: options.resolveCommand?.(commandName()) ?? commandName(),
+      executable,
+      launch,
       claudeSessionId,
       started,
       policy,
@@ -372,6 +405,8 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
         return await consumeTurn(query({ prompt: input.text, options: claudeQueryOptions(plan) }), onMessage);
       } catch (error) {
         if (controller.signal.aborted || isAbortError(error)) throw abortError("Claude Code request aborted.");
+        const explained = await explainCliExit(launch, error);
+        if (explained !== error) throw explained;
         const detail = stderr.trim();
         if (error instanceof Error && detail && !error.message.includes(detail)) error.message = `${error.message}\n${detail}`;
         throw error;
@@ -462,9 +497,12 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
 
   function openSession(input: ClaudeSessionInput): ClaudeSdkSession {
     const policy = runtimePermissionPolicy(input.permissionLevel);
+    const executable = options.resolveCommand?.(commandName()) ?? commandName();
+    const launch = scopedCliLaunch(executable, env);
     const queryOptions = claudeQueryOptions({
       cwd: input.cwd,
-      executable: options.resolveCommand?.(commandName()) ?? commandName(),
+      executable,
+      launch,
       claudeSessionId: input.claudeSessionId,
       started: input.started,
       policy,
@@ -483,6 +521,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
     const session = new ClaudeSdkSession({
       query,
       options: queryOptions,
+      ...(launch.scope ? { explainExit: (error: unknown) => explainCliExit(launch, error) } : {}),
       claudeSessionId: input.claudeSessionId,
       onMessage: input.onMessage,
       onExit: input.onExit,

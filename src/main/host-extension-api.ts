@@ -67,6 +67,8 @@ export { readBoundedImagePreview } from "./image-preview.js";
 export { gitExecutable, findExecutable, type FindExecutableOptions } from "./shell-environment.js";
 /** Starting a command the way the platform needs: `.cmd` shims through `cmd.exe`, process trees ended whole. */
 export { commandInvocation, killProcessTree, type CommandInvocation, type CommandInvocationOptions } from "./platform-process.js";
+/** Agent CLIs and terminals in their own systemd scopes on Linux, and the message of one that ran out of memory. New in API 1.59.0. */
+export { wrapAgentCommand, AGENT_OOM_MESSAGE, type AgentLaunch, type AgentScopeHandle, type AgentWrapInput } from "./agent-scope.js";
 export { assertAllowedCloneSource } from "./clone-source.js";
 // `~/.tau`, or Tau Dev's `~/.tau-dev`: where a kit reads the user's own settings (API 1.34.0).
 export { tauHomeDir } from "./app-identity.js";

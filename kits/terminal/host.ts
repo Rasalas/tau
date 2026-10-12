@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import { hostname } from "node:os";
 import { basename, join } from "node:path";
-import type { HostExecutionPolicy, HostExtension, HostExtensionContext } from "tau/host-extension";
+import { wrapAgentCommand, type AgentLaunch, type AgentWrapInput, type HostExecutionPolicy, type HostExtension, type HostExtensionContext } from "tau/host-extension";
 import {
   TERMINAL_DATA_EVENT,
   terminalOutputTopic,
@@ -345,8 +345,10 @@ function isNodePtyModule(value: unknown): value is NodePtyModule {
  * Wraps the native pty the host resolved. `node-pty` must stay where npm put
  * it: it launches a `spawn-helper` beside its own binary, which a copy inside
  * the kit's bundle would no longer find, so the host loads it (`loadDependency`).
+ * On Linux each shell starts in its own systemd scope (`wrap`), so a runaway
+ * command takes that terminal and not the host.
  */
-export async function loadNodePty(loadDependency: (name: string) => Promise<unknown>): Promise<PtyFactory> {
+export async function loadNodePty(loadDependency: (name: string) => Promise<unknown>, wrap: (input: AgentWrapInput) => AgentLaunch = wrapAgentCommand): Promise<PtyFactory> {
   let pty: unknown;
   try {
     pty = await loadDependency("node-pty");
@@ -356,7 +358,9 @@ export async function loadNodePty(loadDependency: (name: string) => Promise<unkn
   if (!isNodePtyModule(pty)) throw new Error(NO_PTY);
   const module = pty;
   return (options) => {
-    const term = module.spawn(options.file, options.args, {
+    // Nobody reads a terminal's scope result, so systemd may unload it at once.
+    const launch = wrap({ command: options.file, args: options.args, name: "terminal", env: options.env, collect: true });
+    const term = module.spawn(launch.command, launch.args, {
       name: "xterm-256color",
       cols: options.cols,
       rows: options.rows,

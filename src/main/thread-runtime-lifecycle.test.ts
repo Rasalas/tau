@@ -13,6 +13,10 @@ import { isUnavailableBackend } from "./unavailable-thread-backend.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
 import { UNLIMITED_EXECUTION_POLICY, type HostExecutionPolicy } from "./host-execution-policy.js";
 
+// The Linux launcher that puts a bash call in its own systemd scope; a test hands in a script of its own.
+const agentShell = vi.hoisted(() => ({ path: undefined as string | undefined }));
+vi.mock("./agent-scope.js", () => ({ agentShellFor: () => agentShell.path }));
+
 function externalBackend(threadId: string, options: { streaming?: boolean } = {}) {
   return {
     kind: "test" as const,
@@ -324,6 +328,50 @@ describe("shell command prefixes of runtime extensions", () => {
       expect(text).toBe("prefix:no\ncommand:yes\n");
       session.dispose();
     } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe.skipIf(process.platform === "win32")("the shell of Pi's bash tool", () => {
+  async function bashOutput(dir: string, shellPath?: string): Promise<{ output: string; configured: string | undefined }> {
+    if (shellPath) await writeFile(join(dir, "settings.json"), JSON.stringify({ shellPath }));
+    const { lifecycle } = makeLifecycle();
+    const create = (lifecycle as unknown as { create: (options: unknown) => Promise<{ session: any }> }).create;
+    const { session } = await create({ cwd: dir, agentDir: dir, sessionManager: SessionManager.inMemory(dir) });
+    try {
+      // Pi re-reads its settings files on every reload; the shell has to outlive that.
+      await session.settingsManager.reload();
+      const result = await session.getToolDefinition("bash").execute("call-1", { command: "echo ran" }, undefined, undefined, undefined);
+      return { output: result.content.map((part: { text?: string }) => part.text ?? "").join(""), configured: session.settingsManager.getShellPath() };
+    } finally {
+      session.dispose();
+    }
+  }
+
+  it("runs a bash call through the agent shell, which starts the real shell with the call's arguments", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tau-agent-shell-"));
+    try {
+      const launcher = join(dir, "launcher");
+      await writeFile(launcher, '#!/bin/sh\necho "scoped:$1"\nexec /bin/bash "$@"\n', { mode: 0o755 });
+      agentShell.path = launcher;
+      expect(await bashOutput(dir)).toEqual({ output: "scoped:-c\nran\n", configured: launcher });
+    } finally {
+      agentShell.path = undefined;
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves a shell the user chose alone, and Pi's own where there is no launcher", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tau-agent-shell-"));
+    try {
+      agentShell.path = "/not/used";
+      expect(await bashOutput(dir, "/bin/bash")).toEqual({ output: "ran\n", configured: "/bin/bash" });
+      agentShell.path = undefined;
+      await rm(join(dir, "settings.json"), { force: true });
+      expect(await bashOutput(dir)).toEqual({ output: "ran\n", configured: undefined });
+    } finally {
+      agentShell.path = undefined;
       await rm(dir, { recursive: true, force: true });
     }
   });
