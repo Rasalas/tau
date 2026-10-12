@@ -180,6 +180,7 @@ it("schedules Berlin Tuesdays, publishes only merged candidates, and queues both
   expect(candidate).toContain("timezone: Europe/Berlin");
   expect(candidate).toContain("types: [closed]");
   expect(candidate).toContain("github.event.pull_request.merged == true");
+  expect(candidate.slice(candidate.indexOf("\n  publish:"))).toContain("pull-requests: write");
   expect(candidate).toContain("github.event.pull_request.head.repo.full_name == github.repository");
   expect(release).toContain("'release-publish'");
   expect(release).toContain("queue: max");

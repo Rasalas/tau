@@ -54,7 +54,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
-      pull-requests: read
+      # PR comments require pull-requests: write, even with issues: write.
+      pull-requests: write
       issues: write
       actions: write
     steps:
