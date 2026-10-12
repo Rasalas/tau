@@ -174,7 +174,7 @@ const promptTools: DesktopExtension = {
         if (!quote) return;
         try {
           if (!controller.chips) throw new Error("no chip service");
-          controller.chips.addChip({ kind: "text-excerpt", label: citeLabel(quote), payload: { source: "your earlier reply", text: quote } });
+          controller.chips.addChip({ kind: "text-excerpt", label: citeLabel(quote), payload: { source: "your earlier reply", text: quote, messageId: message.id } });
         } catch {
           const draft = actions.composerDraft().replace(/\s+$/u, "");
           actions.setComposerDraft?.(`${draft ? `${draft}\n\n` : ""}${quoteBlock(quote)}\n\n`);

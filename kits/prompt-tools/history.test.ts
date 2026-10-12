@@ -6,6 +6,7 @@ describe("recallable prompts", () => {
     const sent = [
       '<file path="src/a.ts" lines="1-2">\none\n\ntwo\n</file>',
       "From Terminal:\n> $ ls\n> a b",
+      '<excerpt message="a1">\nFrom your earlier reply:\n> a b\n\nMy comment on this excerpt: why?\n</excerpt>',
       "Pull request [#4](https://example.test/pr/4): Chips",
       "The user attached big.bin (application/octet-stream, 2.0 MB). It is at /state/big.bin; read it from there.",
       '<file path="gone.ts" unavailable="not read" />',

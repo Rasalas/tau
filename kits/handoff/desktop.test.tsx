@@ -242,7 +242,7 @@ describe("context cards", () => {
     const block = registry.getMessageBlocks().find((entry) => entry.tag === "handoff_context")!;
     expect(block.roles).toEqual(["user"]);
     const body = HANDOFF.split("\n").slice(1, -1).join("\n");
-    render(<block.Component body={body} complete message={{ id: "u1", role: "user", text: HANDOFF, timestamp: 1 }} streaming={false} />);
+    render(<block.Component body={body} attributes={{}} complete message={{ id: "u1", role: "user", text: HANDOFF, timestamp: 1 }} streaming={false} />);
     const head = screen.getByRole("button", { name: /Context handoff/u });
     expect(head.textContent).toContain("Continued from “Parser work”");
     expect(screen.queryByText("Fast parser.")).toBeNull();

@@ -96,6 +96,22 @@ export interface ThreadMatch {
   snippet: string;
 }
 
+export interface ThreadFindInput {
+  sessionId: string;
+  query: string;
+}
+
+/** The messages of one thread that hold a query, whatever part of the history a client has loaded. */
+export interface ThreadFindResult {
+  /** Message ids as the transcript draws them, oldest first. */
+  messageIds: string[];
+  /** The thread has more matches than `THREAD_FIND_LIMIT`; the newest are kept. */
+  truncated: boolean;
+}
+
+/** Matches one in-thread find returns at most. */
+export const THREAD_FIND_LIMIT = 2_000;
+
 /** Review Kit, which keeps the pull and merge requests each thread links; `thread-request-links` names `SEARCH_KIT_ID` as a caller. */
 export const REVIEW_KIT_ID = "tau.review";
 
@@ -117,6 +133,8 @@ export interface SearchHostCommands {
   /** Forgets a project's file list; the next `files` reads it again. */
   "invalidate": { input: { cwd?: string }; output: void };
   "threads": { input: ThreadSearchInput; output: ThreadMatch[] };
+  /** Which messages of one thread say the query, over its whole history; the desktop half hands it to core's transcript find. */
+  "find-in-thread": { input: ThreadFindInput; output: ThreadFindResult };
   /** Threads found through their linked requests; empty when Review Kit is not there. */
   "thread-requests": { input: ThreadRequestInput; output: ThreadRequestMatch[] };
 }

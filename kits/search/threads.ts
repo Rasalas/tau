@@ -1,4 +1,4 @@
-import type { ThreadMatch } from "./protocol.js";
+import { THREAD_FIND_LIMIT, type ThreadFindResult, type ThreadMatch } from "./protocol.js";
 
 /**
  * What a thread said, as the palette searches it: the text of every user and
@@ -69,4 +69,26 @@ export function findInThread(texts: readonly ThreadText[], tokens: readonly stri
     return { role: entry.role, snippet: snippetAround(entry.text, at, whole >= 0 ? phrase.length : tokens[0]!.length) };
   }
   return undefined;
+}
+
+/** What a message holds for the find: its words and its reasoning, as the transcript draws them. */
+export interface FindableMessage {
+  id: string;
+  role: string;
+  text?: string;
+  thinking?: string;
+}
+
+/** The ids of the messages whose text or reasoning holds the query, in order; case does not matter. */
+export function findMessages(messages: readonly FindableMessage[], query: string): ThreadFindResult {
+  const needle = query.trim().toLowerCase();
+  const messageIds: string[] = [];
+  if (!needle) return { messageIds, truncated: false };
+  for (const message of messages) {
+    if (message.role !== "user" && message.role !== "assistant") continue;
+    if (!(message.text?.toLowerCase().includes(needle) || message.thinking?.toLowerCase().includes(needle))) continue;
+    messageIds.push(message.id);
+  }
+  // The reader starts at the newest match, so a thread with too many keeps the newest ones.
+  return messageIds.length > THREAD_FIND_LIMIT ? { messageIds: messageIds.slice(-THREAD_FIND_LIMIT), truncated: true } : { messageIds, truncated: false };
 }

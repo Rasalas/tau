@@ -406,7 +406,7 @@ export class PiHost {
       waitForIdle: () => thread.backend.waitForIdle(),
       isCurrent: () => this.threads.get(thread.threadId)?.runtime === thread,
       sessionName: () => thread.state.title,
-      transcript: () => thread.backend.transcript(),
+      transcript: async () => this.projection.messages(thread),
       ...hostThreadCompletionServices(thread.backend),
       shortcuts: (userBindings) => thread.backend.capabilities.extensions?.shortcuts(userBindings) ?? [],
       runShortcut: async (keys, userBindings) => {

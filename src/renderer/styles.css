@@ -2251,3 +2251,10 @@ body[data-profile="compact"] .touch-split .thread-header-tools { max-width: 60%;
 .sandbox-frame-exit { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
 .sandbox-frame-exit:hover { background: var(--raised); color: var(--ink); }
 .sandbox-frame-notice { display: flex; flex: 1; align-items: center; justify-content: center; margin: 0; padding: var(--space-5); text-align: center; font-size: var(--text-sm); color: var(--muted); }
+
+/* The rows the transcript's find and a "Go to source" land on. */
+::highlight(transcript-find) { background: color-mix(in srgb, var(--warn) 30%, transparent); color: inherit; }
+::highlight(transcript-find-active) { background: color-mix(in srgb, var(--warn) 62%, transparent); color: inherit; }
+.reveal-flash { border-radius: 8px; animation: reveal-flash 1.6s ease-out; }
+@keyframes reveal-flash { 0%, 35% { background: color-mix(in srgb, var(--acid) 22%, transparent); } 100% { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .reveal-flash { animation: none; background: color-mix(in srgb, var(--acid) 14%, transparent); } }

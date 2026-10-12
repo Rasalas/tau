@@ -70,3 +70,27 @@
   background: var(--field); color: var(--ink); font: var(--text-sm)/1.45 var(--sans); outline: none;
 }
 .composer-context-excerpt > textarea:focus { border-color: var(--line-focus); }
+
+/* A sent excerpt: a chip above the message, the quote and the user's comment in its popover. */
+.sent-excerpt-chip {
+  align-self: flex-end; display: inline-flex; align-items: center; gap: 5px; max-width: min(78%, 420px);
+  padding: 3px 8px; border: 1px solid var(--line-control); border-radius: 6px; background: var(--sunken);
+  color: var(--ink-2); font: 500 var(--text-xs) var(--sans); cursor: pointer;
+}
+.sent-excerpt-chip:hover, .sent-excerpt-chip[aria-expanded="true"] { border-color: var(--line-strong); color: var(--ink); }
+.sent-excerpt-chip:focus-visible { outline: 1px solid var(--focus); outline-offset: 1px; }
+.sent-excerpt-chip > svg { flex: none; color: var(--faint); }
+.sent-excerpt-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sent-excerpt-popover { width: min(360px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 8px; font: var(--text-sm)/1.45 var(--sans); color: var(--ink-2); }
+.sent-excerpt-popover > small { color: var(--faint); font: var(--text-xs) var(--sans); }
+.sent-excerpt-popover > blockquote {
+  margin: 0; max-height: 240px; overflow: auto; padding: 2px 0 2px 10px; border-left: 2px solid var(--line-strong);
+  color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.sent-excerpt-popover > p { margin: 0; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.sent-excerpt-source {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px;
+  border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: transparent;
+  color: var(--ink-2); font: 500 var(--text-xs) var(--sans); cursor: pointer;
+}
+.sent-excerpt-source:hover { background: var(--raised); color: var(--ink); }

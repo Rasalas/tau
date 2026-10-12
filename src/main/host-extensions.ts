@@ -955,6 +955,7 @@ export interface HostThread {
   nativeTitle?(): Promise<string | undefined>;
   /** Models available for `complete` through this thread's own login. */
   completionModels?(): Promise<UiModel[]>;
+  /** The thread's messages under the ids the client draws, so one can be named back to it. */
   transcript(): Promise<UiMessage[]>;
   /** One short answer from a model of the thread's runtime, unrelated to the conversation. */
   complete(provider: string, modelId: string, request: { system: string; prompt: string; maxTokens?: number }): Promise<string>;

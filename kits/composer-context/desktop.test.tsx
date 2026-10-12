@@ -53,6 +53,13 @@ describe("Composer Context desktop", () => {
     expect(service().chips()).toEqual([]);
   });
 
+  it("draws a sent excerpt as a block of user messages, on every profile", () => {
+    const { registry } = activate();
+    const block = registry.getMessageBlocks().find((entry) => entry.tag === "excerpt")!;
+    expect(block.roles).toEqual(["user"]);
+    expect(block.profiles).toEqual(["desktop", "web", "compact"]);
+  });
+
   it("keeps a comment on an excerpt and sends it below the quote", async () => {
     const { service, contribution } = activate();
     act(() => { service().addChip({ kind: "text-excerpt", payload: { source: "Terminal", text: "$ ls\nboom" } }); });
@@ -64,7 +71,7 @@ describe("Composer Context desktop", () => {
     fireEvent.keyDown(screen.getByLabelText("Comment on this excerpt"), { key: "Enter" });
     expect(close).toHaveBeenCalledOnce();
     const sent = await contribution.prepareSend!({ ...inline(), text: "" });
-    expect(sent?.context).toBe("From Terminal:\n> $ ls\n> boom\n\nMy comment on this excerpt: why does this fail?");
+    expect(sent?.context).toBe("<excerpt>\nFrom Terminal:\n> $ ls\n> boom\n\nMy comment on this excerpt: why does this fail?\n</excerpt>");
   });
 
   it("draws no comment field for a chip that is not an excerpt", () => {

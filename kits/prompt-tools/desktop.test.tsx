@@ -185,7 +185,7 @@ describe("Prompt Tools: citing a reply", () => {
     const cite = registry.getMessageActions().find((action) => action.id === "prompt-tools.cite")!;
     expect(cite.roles ?? ["assistant"]).toEqual(["assistant"]);
     await cite.run(reply, { selection: "It is faster." }, actions);
-    expect(state.chips).toEqual([{ id: "c0", kind: "text-excerpt", label: "“It is faster.”", payload: { source: "your earlier reply", text: "It is faster." } }]);
+    expect(state.chips).toEqual([{ id: "c0", kind: "text-excerpt", label: "“It is faster.”", payload: { source: "your earlier reply", text: "It is faster.", messageId: "a1" } }]);
     expect(actions.focusComposer).toHaveBeenCalled();
   });
 

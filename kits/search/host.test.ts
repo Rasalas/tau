@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { threadTextsDelta, THREAD_TEXTS_COMMAND, type HostExtension, type HostExtensionServices } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import createSearchHostExtension from "./host.js";
-import { SEARCH_KIT_ID, type ContentSearchResult, type FileSearchResult, type ThreadMatch, type ThreadRequestMatch } from "./protocol.js";
+import { SEARCH_KIT_ID, type ContentSearchResult, type FileSearchResult, type ThreadFindResult, type ThreadMatch, type ThreadRequestMatch } from "./protocol.js";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -112,6 +112,34 @@ describe("Search host: files", () => {
   it("lists what ripgrep lists, relative to the project", async () => {
     const { invoke } = await harness(await folder({}), await fakeRipgrep());
     expect((await invoke<FileSearchResult>("files", { query: "" })).files.map((file) => file.path)).toEqual(["a.ts", "b.ts"]);
+  });
+});
+
+describe("Search host: find in a thread", () => {
+  const transcript = [
+    { id: "u1", role: "user", text: "Which moon has the Quartz vein?", timestamp: 1 },
+    { id: "a1", role: "assistant", text: "Nothing here.", thinking: "the quartz idea", timestamp: 2 },
+    { id: "n1", role: "notice", text: "quartz in a notice", timestamp: 3 },
+    { id: "a2", role: "assistant", text: "Quartz again, with <proposed_plan>\nmine quartz\n</proposed_plan>", timestamp: 4 },
+  ];
+
+  it("names the messages of the whole thread that hold the query, oldest first, with their ids", async () => {
+    const asked: Array<string | undefined> = [];
+    const { invoke } = await harness(await folder({}), undefined, {
+      transcript: async (sessionId?: string) => { asked.push(sessionId); return transcript; },
+    } as Partial<HostExtensionServices>);
+    expect(await invoke<ThreadFindResult>("find-in-thread", { sessionId: "t1", query: "  QUARTZ " })).toEqual({ messageIds: ["u1", "a1", "a2"], truncated: false });
+    expect(asked).toEqual(["t1"]);
+    expect(await invoke<ThreadFindResult>("find-in-thread", { sessionId: "t1", query: "absent" })).toEqual({ messageIds: [], truncated: false });
+    expect(await invoke<ThreadFindResult>("find-in-thread", { sessionId: "t1", query: "  " })).toEqual({ messageIds: [], truncated: false });
+    expect(asked).toEqual(["t1", "t1"]);
+  });
+
+  it("finds nothing in a thread its runtime has not open", async () => {
+    const { invoke } = await harness(await folder({}), undefined, {
+      transcript: async () => { throw new Error("no such thread"); },
+    } as Partial<HostExtensionServices>);
+    expect(await invoke<ThreadFindResult>("find-in-thread", { sessionId: "gone", query: "quartz" })).toEqual({ messageIds: [], truncated: false });
   });
 });
 
