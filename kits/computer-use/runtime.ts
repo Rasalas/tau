@@ -1,4 +1,4 @@
-import { dirname } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { Type } from "typebox";
 import type { HostExtensionContext, HostMcpTool, RuntimeExtensionFactory, RuntimeSessionInfo } from "tau/host-extension";
 import { ComputerUseDriverSessions, loadComputerUseManifest, type ComputerUseClient } from "./driver.js";
@@ -30,7 +30,8 @@ export class ComputerUseRuntime {
     this.sessions = new ComputerUseDriverSessions({ createClient: (config) => new packageApi.CuaDriverClient(config), loadManifest: () => {
       const appPath = packageApi.resolveDriverLayout({ mode: "bundled" }).appPath;
       if (!appPath) throw new Error("The macOS Computer Use driver layout is unavailable.");
-      return loadComputerUseManifest(dirname(dirname(dirname(appPath))));
+      // The driver is a sibling package (`<scope>/<name>-cua-driver-<target>/bin/CuaDriver.app`) of the one that holds the manifest.
+      return loadComputerUseManifest(join(dirname(dirname(dirname(appPath))), basename(COMPUTER_USE_PACKAGE)));
     } });
   }
 

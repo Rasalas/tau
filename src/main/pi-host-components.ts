@@ -619,6 +619,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     sessionFile: (manager) => seam.sessionFile(manager),
     runtimeExtensions: (settingsManager, session) => deps.runtimeExtensionsFor(settingsManager, session),
     runtimeExtensionNames: () => seam.runtimeExtensions.map((entry) => entry.name),
+    replacedPiPackages: () => seam.runtimeExtensions.flatMap((entry) => entry.replacesPiPackage ?? []),
     runtimeModes: () => runtimeExtensionModes(seam.runtimeExtensions),
     priceUsage,
     executionPolicy: (cwd) => seam.executionPolicy(cwd),

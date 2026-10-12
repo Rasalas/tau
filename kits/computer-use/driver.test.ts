@@ -22,6 +22,7 @@ describe("Computer Use native sessions", () => {
     expect(tools.length).toBeGreaterThan(40);
     expect(tools.some((entry) => entry.name === "get_window_state")).toBe(true);
     expect(tools.some((entry) => entry.name === "browser_prepare")).toBe(true);
+    for (const name of ["verify_state", "set_window_frame", "invoke_menu", "clipboard_read", "clipboard_write"]) expect(tools.some((entry) => entry.name === name)).toBe(true);
     expect(createClient).not.toHaveBeenCalled();
     expect(await loadComputerUseManifest(packageRoot)).toEqual(tools);
   });

@@ -30,11 +30,14 @@ export interface ComputerUseDriverDependencies {
   loadManifest?: () => Promise<Tool[]>;
 }
 
+/** The version package.json pins; the manifest below is read from exactly this one. */
+export const COMPUTER_USE_PACKAGE_VERSION = "0.1.24";
+
 /** This generated resource is shipped by the exactly pinned dependency but has no public export. */
 export async function loadComputerUseManifest(packageRoot: string): Promise<Tool[]> {
   const packagePath = join(packageRoot, "package.json");
   const pkg = JSON.parse(await readFile(packagePath, "utf8")) as { version: string };
-  if (pkg.version !== "0.1.12") throw new Error(`Unsupported Computer Use manifest version: ${pkg.version}`);
+  if (pkg.version !== COMPUTER_USE_PACKAGE_VERSION) throw new Error(`Unsupported Computer Use manifest version: ${pkg.version}`);
   const module = await import(/* @vite-ignore */ pathToFileURL(join(packageRoot, "dist/generated/cua-driver-tools.js")).href) as { default: { tools: Tool[] } };
   return structuredClone(module.default.tools);
 }

@@ -5,7 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { RuntimeExtensionContribution } from "tau/host-extension";
 import { activateHostKit, kitMcpEndpoint } from "../../src/main/test-support/host-kit-harness.js";
-import { createComputerUseHostExtension, settingsIncludeComputerUse } from "./host.js";
+import { createComputerUseHostExtension } from "./host.js";
 import { COMPUTER_USE_EXTENSION_ID, COMPUTER_USE_PACKAGE } from "./protocol.js";
 
 const cleanups: (() => Promise<unknown>)[] = [];
@@ -21,7 +21,7 @@ async function setup(allow: boolean | (() => Promise<boolean>) = true, loadingDe
   const callClient = vi.fn(async () => undefined);
   let closeThread: ((id: string) => Promise<void>) | undefined;
   const load = vi.fn(async () => { await loadingDelay; return ({
-    resolveDriverLayout: () => ({ appPath: join(dirname(createRequire(import.meta.url).resolve("@amaster.ai/pi-computer-use/package.json")), "bin/darwin-universal/CuaDriver.app") }),
+    resolveDriverLayout: () => ({ appPath: join(dirname(dirname(createRequire(import.meta.url).resolve("@amaster.ai/pi-computer-use/package.json"))), "pi-computer-use-cua-driver-darwin-universal/bin/CuaDriver.app") }),
     resolveConfig: () => ({ confirmAppLaunch: true, confirmDangerousActions: true }),
     loadConfigFromFile: () => ({}),
     CuaDriverClient: class {
@@ -46,11 +46,15 @@ async function setup(allow: boolean | (() => Promise<boolean>) = true, loadingDe
   return { activeClients: () => clients - closed.length, registry, callClient, closeThread: async (id: string) => { await closeThread?.(id); }, connect, calls, confirm, load, contributions, closed, invoke: (command: string, input?: unknown) => registry.invoke(COMPUTER_USE_EXTENSION_ID, command, input) };
 }
 describe("Computer Use host", () => {
-  it("keeps activation lazy and honors an explicitly installed Pi package", async () => {
+  it("keeps activation lazy and replaces the user's own listing of the package", async () => {
     const { load, contributions } = await setup();
     expect(load).not.toHaveBeenCalled();
-    expect(contributions[0]!.enabledFor!({ global: { packages: [`npm:${COMPUTER_USE_PACKAGE}`] }, project: {} })).toBe(false);
-    expect(settingsIncludeComputerUse({ packages: [{ source: `npm:${COMPUTER_USE_PACKAGE}@0.1.12` }] })).toBe(true);
+    expect(contributions[0]!.enabledFor).toBeUndefined();
+    const replaces = contributions[0]!.replacesPiPackage!;
+    expect(replaces(`npm:${COMPUTER_USE_PACKAGE}`)).toBe(true);
+    expect(replaces(`npm:${COMPUTER_USE_PACKAGE}@0.1.12`)).toBe(true);
+    expect(replaces(`npm:${COMPUTER_USE_PACKAGE}-fork`)).toBe(false);
+    expect(replaces("npm:another-package")).toBe(false);
   });
   it("suppresses fallback for native computer use without loading the package", async () => {
     const { connect, load } = await setup();

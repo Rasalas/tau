@@ -832,6 +832,12 @@ export interface RuntimeExtensionOptions {
   /** Decides per runtime, from Pi's settings, whether the extension loads at all. */
   enabledFor?: (settings: RuntimeSettingsView) => boolean;
   /**
+   * Pi package sources (`npm:name@1.2`, a path, a git URL) this extension
+   * replaces. Pi runtimes Tau owns do not load a listed package that matches;
+   * Pi's settings files and a Pi terminal stay as they are. New in API 1.59.0.
+   */
+  replacesPiPackage?: (source: string) => boolean;
+  /**
    * Interaction modes this extension gives Pi threads, e.g. `plan`. A Pi thread
    * offers every mode an extension declares; the extension reads the thread's
    * mode from its session (`threadModeFromEntries`) and does what it means.

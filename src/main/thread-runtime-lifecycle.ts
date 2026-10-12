@@ -44,6 +44,7 @@ import { defaultHostConfigManager } from "./host-config.js";
 import { agentShellFor } from "./agent-scope.js";
 import { withConfiguredSampling } from "./configured-sampling.js";
 import { createDeferredToolsExtension } from "./deferred-tools.js";
+import { hidePiPackages } from "./pi-package-hiding.js";
 
 type RuntimeStartEvent = Parameters<CreateAgentSessionRuntimeFactory>[0]["sessionStartEvent"];
 
@@ -76,6 +77,8 @@ export interface ThreadRuntimeLifecyclePort {
   /** Runtime extensions host extensions contribute, filtered by the session's settings. */
   runtimeExtensions(settingsManager: SettingsManager, session: RuntimeSessionInfo): SessionRuntimeExtension[];
   runtimeExtensionNames(): string[];
+  /** Which Pi package sources an extension replaces; Pi does not load those in a runtime Tau owns. */
+  replacedPiPackages(): ((source: string) => boolean)[];
   /** The interaction modes runtime extensions give Pi threads. */
   runtimeModes(): readonly string[];
   threadLifecycle: HostThreadLifecycleSet;
@@ -162,6 +165,7 @@ export class ThreadRuntimeLifecycle {
 
     const settingsStartedAt = performance.now();
     const settingsManager = SettingsManager.create(cwd, agentDir);
+    if (!this.port.safeMode) hidePiPackages(settingsManager, this.port.replacedPiPackages());
     const parentThreadId = parentThreadIdFromEntries(sessionManager.getEntries());
     const extensions = this.port.runtimeExtensions(settingsManager, { sessionId: sessionManager.getSessionId(), cwd, ...(parentThreadId ? { parentThreadId } : {}) });
     if (extensions.some((extension) => extension.shellCommandPrefix)) {

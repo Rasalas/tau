@@ -21,9 +21,10 @@ export interface ComputerUsePolicyOptions {
 export class ComputerUseApprovalError extends Error {
   constructor(message: string) { super(message); this.name = "ComputerUseApprovalError"; }
 }
+// The clipboard holds what the user copied elsewhere, so reading it is confirmed like writing it.
 const HIGH_RISK_TOOLS = new Set([
-  "browser_download", "browser_prepare", "browser_set_input_files", "install_ffmpeg",
-  "kill_app", "replay_trajectory", "start_recording",
+  "browser_download", "browser_prepare", "browser_set_input_files", "clipboard_read", "clipboard_write",
+  "install_ffmpeg", "kill_app", "replay_trajectory", "start_recording",
 ]);
 function inside(root: string, candidate: string): boolean {
   const suffix = relative(root, candidate);
@@ -113,7 +114,7 @@ export class ComputerUsePolicy {
       if (rechecked !== output) throw new ComputerUseApprovalError("Recording output directory changed during confirmation.");
       return approvedArgs;
     }
-    if (HIGH_RISK_TOOLS.has(name) && this.config.confirmDangerousActions !== false) {
+    if ((HIGH_RISK_TOOLS.has(name) || (name === "install_extension" && approvedArgs.confirm === true)) && this.config.confirmDangerousActions !== false) {
       await this.confirm("Confirm computer action", `Allow ${name} with arguments ${JSON.stringify(approvedArgs)}?`, signal, confirm);
     }
     signal?.throwIfAborted();
