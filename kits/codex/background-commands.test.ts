@@ -4,6 +4,23 @@ import { CodexBackgroundCommands, endedCommandText } from "./background-commands
 const item = (status: string, extra: Record<string, unknown> = {}) => ({ item: { type: "commandExecution", id: "c1", command: "/bin/zsh -lc 'npm run dev'", processId: "pty-1", status, ...extra } });
 
 describe("CodexBackgroundCommands", () => {
+  it("lists and releases a service before the first turn ends, and retains a required result until handled", () => {
+    const commands = new CodexBackgroundCommands(() => 3);
+    commands.push("item/started", item("inProgress"));
+    expect(commands.list().map((task) => task.id)).toEqual(["c1"]);
+    commands.release("c1");
+    commands.turnCompleted();
+    expect(commands.current()[0]?.blocksCompletion).toBe(false);
+    commands.push("item/completed", item("completed", { exitCode: 0 }));
+    expect(commands.current()).toEqual([]);
+    commands.push("item/started", item("inProgress"));
+    commands.turnCompleted();
+    commands.push("item/completed", item("completed", { exitCode: 0 }));
+    expect(commands.current()[0]?.state).toBe("reported");
+    expect(() => commands.release("c1")).toThrow("no longer running");
+    commands.handled(commands.reported());
+    expect(commands.current()).toEqual([]);
+  });
   it("counts a command only once its turn completed, and forgets one a failed turn left", () => {
     const commands = new CodexBackgroundCommands(() => 3);
     commands.push("item/started", item("inProgress"));

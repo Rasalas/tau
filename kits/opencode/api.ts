@@ -63,6 +63,8 @@ export interface TurnTranslator {
   push(type: string, properties: Record<string, unknown>): ThreadRuntimeEvent[];
   /** The turn ended without the server saying so. */
   abandon(status: "interrupted" | "failed", error?: string): ThreadRuntimeEvent[];
+  /** Updates of a tool which outlived this turn. Never reopens the completed turn. */
+  lateTool(type: string, properties: Record<string, unknown>): ThreadRuntimeEvent[];
 }
 
 export interface HistorySession {

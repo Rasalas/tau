@@ -83,6 +83,28 @@ function harness(store: CursorSessionStore, agents: FakeAgent[], settings: { lev
 }
 
 describe("CursorThreadRuntimeBackend", () => {
+  it("retains a native tool past end_turn, accepts its late result and clears it only after the follow-up", async () => {
+    const agent = cursorAgent();
+    let turns = 0;
+    agent.respond("session/prompt", () => {
+      if (turns++ === 0) update(agent, { sessionUpdate: "tool_call", toolCallId: "background", title: "Build", kind: "execute", status: "in_progress", rawInput: { command: "npm test" } });
+      return { stopReason: turns === 2 ? "refusal" : "end_turn" };
+    });
+    const { backend } = harness(await scratchStore(), [agent]);
+    await backend.start("create");
+    try {
+      await backend.prompt({ text: "Start build", delivery: "prompt" });
+      expect(backend.capabilities.background!.current()).toEqual([expect.objectContaining({ id: "background", kind: "command" })]);
+      update(agent, { sessionUpdate: "tool_call_update", toolCallId: "background", status: "completed", rawOutput: "Tests passed" });
+      await until(() => backend.capabilities.background!.current()[0]?.state === "reported");
+      await backend.prompt({ text: "Handle tests", delivery: "prompt" });
+      expect(backend.capabilities.background!.current()[0]?.state).toBe("reported");
+      await backend.prompt({ text: "Handle tests", delivery: "prompt" });
+      expect(backend.capabilities.background!.current()).toEqual([]);
+    } finally { await backend.dispose(); }
+  });
+
+
   it("adopts ACP session metadata before or after a turn and protects a manually renamed title", async () => {
     const agent = cursorAgent();
     agent.respond("session/prompt", () => {

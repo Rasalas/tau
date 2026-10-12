@@ -80,7 +80,7 @@ export class ThreadRunClock {
         timer.unref?.();
         this.parked.set(sessionId, timer);
       }
-    } else if (!this.started.has(sessionId)) this.port?.ended(sessionId);
+    } else if (!this.started.has(sessionId)) this.end(sessionId);
   }
 
   private end(sessionId: string): void {

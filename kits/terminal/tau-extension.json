@@ -9,7 +9,8 @@
   "permissions": [
     "workspace:read",
     "process",
-    "sessions"
+    "sessions",
+    "runtime:extend"
   ],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",

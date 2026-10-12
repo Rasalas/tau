@@ -317,7 +317,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
               branch: thread.projectLabel,
               permissionLevel: thread.permissionLevel,
               ...(thread.executionPolicy ? { executionPolicy: thread.executionPolicy } : {}),
-              mcpServer: (only) => services.mcp.connect({ sessionId: threadId, cwd }, only ? { tools: only } : undefined),
+              mcpServer: (only) => services.mcp.connect({ sessionId: threadId, cwd, nativeCapabilities: ["background-work"] }, only ? { tools: only } : undefined),
               ...(tools ? { tools } : {}),
               onMessage: thread.onMessage,
               onEvent: thread.onEvent,

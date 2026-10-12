@@ -133,7 +133,7 @@ describe("Codex host half", () => {
     } finally {
       await backend.dispose();
     }
-    expect(connected).toEqual([{ sessionId: "tau-thread", cwd: root }]);
+    expect(connected).toEqual([{ sessionId: "tau-thread", cwd: root, nativeCapabilities: ["background-work"] }]);
     const thread = launches[1]!;
     expect(thread.threadId).toBe("tau-thread");
     expect(thread.args).toEqual([...codexMcpLaunch(TAU_SERVER).args, ...NATIVE_AGENT_ARGS]);
@@ -168,7 +168,7 @@ describe("Codex host half", () => {
     const backend = await provider.open("native-thread", root, { resume: false }, context);
     try {
       await backend.prompt({ text: "Reply.", delivery: "prompt", identity: { clientMessageId: "m1", clientTurnId: "t1" } });
-      expect(connected).toEqual([{ sessionId: "native-thread", cwd: root, nativeCapabilities: ["computer-use"] }]);
+      expect(connected).toEqual([{ sessionId: "native-thread", cwd: root, nativeCapabilities: ["computer-use", "background-work"] }]);
     } finally { await backend.dispose(); }
   });
 

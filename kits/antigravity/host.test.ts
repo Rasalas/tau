@@ -95,7 +95,7 @@ describe("Antigravity host half", () => {
     const { backends, openSession, connected, registry } = await harness(true);
     const backend = await backends[0]!.open("thread-1", "/repo", { resume: false }, { projectName: "repo", permissionLevel: () => "full", onMessage: () => undefined, onEvent: () => undefined, ask: async () => ({ cancelled: true }) });
     await backend.prompt({ text: "hi", delivery: "prompt" });
-    expect(connected).toEqual([{ sessionId: "thread-1", cwd: "/repo" }]);
+    expect(connected).toEqual([{ sessionId: "thread-1", cwd: "/repo", nativeCapabilities: ["background-work"] }]);
     expect((openSession.mock.calls as unknown as Array<[{ mcpServers: unknown }]>)[0]![0].mcpServers).toEqual([
       { name: "pencil", command: "/opt/pencil", args: [], env: [] },
       { type: "http", name: "tau", url: "http://127.0.0.1:4100/mcp", headers: [{ name: "Authorization", value: "Bearer secret" }] },

@@ -1,4 +1,4 @@
-/* Background work: blue while it holds the thread open, quiet for commands alone. */
+/* Background work: blue while it holds the request open, quiet for released services. */
 .control-pill.background-pill.holds > svg { color: var(--info); }
 .background-pill-count { color: var(--muted); font-variant-numeric: tabular-nums; }
 .popover.background-popover { width: min(400px, calc(100vw - 32px)); padding: 0; }

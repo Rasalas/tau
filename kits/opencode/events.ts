@@ -103,6 +103,13 @@ export class OpenCodeTurnTranslator {
 
   constructor(private readonly now: () => number = Date.now) {}
 
+  lateTool(type: string, properties: Record<string, unknown>): ThreadRuntimeEvent[] {
+    const part = properties.part as OpenCodePart | undefined;
+    if (type !== "message.part.updated" || !part || part.type !== "tool") return [];
+    const id = typeof part.callID === "string" && part.callID ? part.callID : part.id;
+    return this.running.has(id) ? this.tool(part) : [];
+  }
+
   /** Events of the thread's own session; the caller filters by session. */
   push(type: string, properties: Record<string, unknown>): ThreadRuntimeEvent[] {
     if (this.outcome) return [];

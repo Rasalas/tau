@@ -91,6 +91,26 @@ function harness(store: GrokSessionStore, agents: FakeAgent[], settings: { level
 }
 
 describe("GrokThreadRuntimeBackend", () => {
+  it("retains a native tool past end_turn, accepts its late result and clears it only after the follow-up", async () => {
+    const agent = grokAgent();
+    let turns = 0;
+    agent.respond("session/prompt", () => {
+      if (turns++ === 0) update(agent, { sessionUpdate: "tool_call", toolCallId: "background", title: "Build", kind: "execute", status: "in_progress", rawInput: { command: "npm test" } });
+      return { stopReason: "end_turn" };
+    });
+    const { backend } = harness(await scratchStore(), [agent]);
+    await backend.start("create");
+    try {
+      await backend.prompt({ text: "Start build", delivery: "prompt" });
+      expect(backend.capabilities.background!.current()).toEqual([expect.objectContaining({ id: "background", kind: "command" })]);
+      update(agent, { sessionUpdate: "tool_call_update", toolCallId: "background", status: "completed", rawOutput: "Tests passed" });
+      await until(() => backend.capabilities.background!.current()[0]?.state === "reported");
+      await backend.prompt({ text: "Handle tests", delivery: "prompt" });
+      expect(backend.capabilities.background!.current()).toEqual([]);
+    } finally { await backend.dispose(); }
+  });
+
+
   it("creates a session on the first turn, sets model and effort, streams, and keeps each turn's usage", async () => {
     const agent = grokAgent();
     agent.respond("session/prompt", (params) => {

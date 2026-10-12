@@ -36,6 +36,16 @@ describe("access gate", () => {
     expect(confirm).toHaveBeenCalledWith("Wants to run", "rm -rf build", { signal: undefined });
   });
 
+  it("allows background inspection in read-only threads and blocks starting or stopping processes", async () => {
+    const confirm = vi.fn(async () => true);
+    const readOnly = gate("read-only", confirm);
+    await expect(readOnly("tau_background_command", { command: "npm test", label: "Tests" })).resolves.toMatchObject({ block: true });
+    await expect(readOnly("tau_background_tasks", { action: "stop", taskId: "tests" })).resolves.toMatchObject({ block: true });
+    await expect(readOnly("tau_background_tasks", { action: "list" })).resolves.toBeUndefined();
+    await expect(readOnly("tau_background_tasks", { action: "read", taskId: "tests" })).resolves.toBeUndefined();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
   it("asks at auto, since Tau has no reviewer of its own", async () => {
     const confirm = vi.fn(async () => true);
     await expect(gate("auto", confirm)("edit", { path: "a" })).resolves.toBeUndefined();

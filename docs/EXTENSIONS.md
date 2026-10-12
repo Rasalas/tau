@@ -3489,18 +3489,60 @@ clear`, follows the SDK's `active_goal` frames, and has no pause.
 
 A runtime backend whose work outlives its turn — a background shell, a
 monitor, a sub-agent — offers `ThreadBackgroundCapability`: `current()` lists
-`UiBackgroundTask`s (`{ id, kind, label, startedAt? }`, `kind` one of
+`UiBackgroundTask`s (`{ id, kind, label, startedAt?, blocksCompletion?, state? }`, `kind` one of
 `command`, `monitor`, `agent`, `task`) and `stop(taskId?)` ends one, or all
 without an id. Report every change as a `{ type: "background" }` runtime event;
 the host publishes `current()` as `UiSession.background`. The thread's row then
-says Monitoring (a monitor), Waiting (sub-agents and tasks) or Running
-(commands alone) in place of Idle or Ready, the composer row shows a pill that
+says Monitoring (a required monitor), Waiting (required work or unhandled results) or Running
+(explicitly released services) in place of Idle or Ready, the composer row shows a pill that
 lists and stops the tasks (host method `thread-background-stop`, write access),
 Stop says which tasks keep running, and the host keeps such a runtime live.
-Everything but a command holds the run open: `runEnded` waits for the work
-and for the turn it wakes, so the user hears once, at the end. A command does
-not, since a dev server may run for good. Mark a turn your runtime began on its
-own, such as the one after background work reported, as
+Every task holds the run open unless `blocksCompletion` is explicitly false.
+Missing means required, including commands. A finished task stays in `current()`
+with `state: "reported"` until a successful turn handles its result;
+`runEnded` waits for both, so the user hears once, at the end.
+A runtime may offer `background.list()` including commands started in the
+current turn, and `background.release(taskId)` for checked services.
+The host MCP tool `tau_background_tasks` lists task IDs with `action: "list"`
+and releases a running command with `action: "release", taskId`.
+Backends that provide native background reporting advertise `"background-work"`
+in `RuntimeSessionInfo.nativeCapabilities` when connecting to MCP. Claude Code,
+Codex, OpenCode, Cursor, Grok and Antigravity do so. ACP and OpenCode retain
+unfinished tools after a successful parent turn and accept their later updates;
+OpenCode also tracks child sessions which outlive their parent.
+
+Kit-owned work joins native work through `services.background.provide(provider)`.
+The provider returns a `ThreadBackgroundCapability` for a thread ID;
+`services.background.changed(threadId)` republishes it. IDs must be unique
+across sources. `forThread(threadId)` combines all sources and routes stop,
+release and bounded output reads to the task's owner. An active task or
+unhandled result prevents runtime eviction.
+
+Terminal Kit offers `tau_background_command` to every runtime, including Pi,
+through Pi's inline tools and MCP. It starts a process group in the thread's
+workspace and returns its task ID. `command` and `label` are required;
+`kind: "monitor"` is an optional requested watch, otherwise it is a command.
+The command starts required, its exit queues a background wake, and its result
+remains visible until a successful later turn handles it. An earlier turn
+cannot acknowledge a result which arrived after it began. Failed turns do not
+acknowledge results. Stop terminates the process group without producing a
+wake; closing or deleting the thread cleans up its commands. The process guardian
+also cleans up inherited descendants when the host dies, even after SIGKILL.
+Output is bounded
+to the last 128 KiB. Arbitrary commands require write access, and a limited
+network policy is refused before spawning, since this runner has no network
+sandbox. Background result wakes always queue, even when other wakes steer.
+A checked service is released through `tau_background_tasks` and stays stoppable;
+`action: "read"` reads its output and `action: "stop"` stops one task or all.
+
+The control tool is available when a runtime or kit supplies background work;
+Pi gets the same tool through its inline runtime extension. A missing live
+owner is an error, never evidence that no work remains. A native runtime which
+provides no task-specific stop handle says so instead of claiming it killed
+its work. Use the tracked command tool for work which needs a portable handle.
+Only services whose future output is no longer required may be released;
+monitors, sub-agents and unhandled results cannot be released.
+Mark a turn your runtime began on its own, such as the one after background work reported, as
 `{ type: "turn-started", unprompted: true }`; its end then counts as the run's
 end for `runEnded`. Claude Code Kit reads the SDK's `background_tasks_changed`
 level (its bookends where a CLI sends none), types a Monitor by its tool call

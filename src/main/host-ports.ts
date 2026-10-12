@@ -116,6 +116,7 @@ export interface AttachedSessionPort {
 
 /** What the host extension seam may ask of the host. */
 export interface ExtensionServicesPort {
+  readonly background?: HostExtensionServices["background"];
   runtimeTools?(action: "state" | "update", input?: { kind: string }): Promise<UiRuntimeToolsState>;
   readonly safeMode: boolean;
   readonly platform: HostPlatform;
@@ -327,6 +328,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
   });
 
   const services: HostExtensionServices = {
+    ...(port.background ? { background: port.background } : {}),
     cwd: () => port.cwd(),
     agentDir: getAgentDir(),
     sessionsDir: resolvePiSessionsDirOverride() ?? join(getAgentDir(), "sessions"),

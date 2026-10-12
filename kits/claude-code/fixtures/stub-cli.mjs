@@ -17,6 +17,8 @@
 // with `mcp <tool> [{json arguments}]` calls that tool on the HTTP server the SDK registered over
 // the control channel (`mcp_set_servers`; none on the command line) and says
 // what came back. STUB_CLI_LOG gets the registered server names.
+// `[scenario:background]` starts a required build, `[scenario:service]` starts
+// a checked devserver, and `[scenario:reported]` reports the build's result.
 // STUB_CLI_AI_TITLE (or the file stub-ai-title.txt in its home, for a host
 // that passes the CLI a filtered environment) is the name the CLI gives the
 // session: written a second into the first turn, as the real CLI's `aiTitle`.
@@ -117,6 +119,18 @@ function streamTurns() {
   }
 
   async function play(prompt) {
+    if (/\[scenario:(background|service|reported)\]/u.test(prompt)) {
+      const service = prompt.includes("[scenario:service]");
+      if (prompt.includes("[scenario:reported]")) {
+        send({ type: "system", subtype: "task_notification", task_id: "stub-build", status: "completed", output_file: "", summary: "Build passed" });
+      } else {
+        send({ type: "system", subtype: "task_started", task_id: service ? "stub-service" : "stub-build", tool_use_id: "stub-background-call", task_type: "local_bash", is_backgrounded: true, description: service ? "Checked devserver" : "Run the full test suite" });
+      }
+      const text = service ? "The devserver is ready." : "The build belongs to the request.";
+      assistant([{ type: "text", text }]);
+      send({ type: "result", subtype: "success", is_error: false, num_turns: 1, result: text, duration_ms: 1, duration_api_ms: 0, total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }, modelUsage: {}, permission_denials: [] });
+      return;
+    }
     if (prompt.trim() === "/compact") return compact();
     if (/\bask\b/iu.test(prompt)) return askColor();
     if (/\bmcp\b/iu.test(prompt)) return callMcp(prompt);
