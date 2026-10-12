@@ -106,7 +106,7 @@ describe("PiHost cold start", () => {
     await expect(prepared).resolves.toMatchObject({ tauThreadId: "cold-thread" });
   });
 
-  it("still refuses a prompt for a thread it knows but does not have open", async () => {
+  it("reopens a known saved thread instead of sending its message to the blank thread on screen", async () => {
     const delivered: string[] = [];
     const { host, internals, release } = coldHost(delivered);
 
@@ -122,9 +122,17 @@ describe("PiHost cold start", () => {
       projectName: "repo",
       messageCount: 2,
     }];
-
+    const archived = blankThread("archived-thread", delivered);
+    const opened: string[] = [];
+    internals.runtimes.openForPath = async (path: string) => {
+      opened.push(path);
+      await internals.threads.adopt({ threadId: archived.threadId, cwd: archived.cwd, runtime: archived, isolation: "in-process" });
+      return archived;
+    };
     await expect(host.preparePrompt("hello", "archived-thread"))
-      .rejects.toThrow("That thread is not open any more.");
+      .resolves.toMatchObject({ tauThreadId: "archived-thread" });
+    expect(opened).toEqual(["/archived-thread.jsonl"]);
+    expect(internals.threads.active.threadId).toBe("cold-thread");
     expect(delivered).toEqual([]);
   });
 });

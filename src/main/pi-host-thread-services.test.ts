@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import type { UiPromptAttachment } from "../shared/contracts.js";
 import type { HostExtension, HostExtensionServices } from "./host-extensions.js";
 import { externalThreadPath } from "./pi-host-support.js";
@@ -39,7 +40,7 @@ async function bench(options: { catalogWrite?: boolean; images?: boolean } = {})
       capabilities: options.catalogWrite === false ? {} : { catalogWrite: { setModel: async (provider, id) => { calls.model.push(`${provider}/${id}`); }, setThinkingLevel: async () => undefined } },
       start: async () => undefined, dispose: async () => undefined, waitForIdle: async () => undefined,
       state: () => ({ streaming: false, idle: true, hasMessages: true, title, activeTools: [], supportsImageInput: options.images !== false, extensionCount: 0 }),
-      preparePrompt: async (text) => ({ tauThreadId: threadId, providerSessionId: threadId, sessionId: threadId, backendKind: "fixture", runtimeCapabilities: adapter.capabilities, visibleText: text, runtimeText: text, sourceFingerprint: "x" }),
+      preparePrompt: async (text) => ({ tauThreadId: threadId, providerSessionId: threadId, sessionId: threadId, backendKind: "fixture", runtimeCapabilities: adapter.capabilities, visibleText: text, runtimeText: text, sourceFingerprint: clientMessageFingerprint(text, []) }),
       prompt: async (input) => { calls.prompts.push({ text: input.text, attachments: input.attachments?.length ?? 0 }); input.onAdmitted?.(true); return {}; },
       abort: async () => undefined, transcript: async () => [], persist: async () => undefined,
       setTitle: async (next) => { title = next; calls.titles.push(next); },
@@ -71,6 +72,41 @@ async function bench(options: { catalogWrite?: boolean; images?: boolean } = {})
 }
 
 describe("services that name a thread by id", () => {
+  it("reopens a released thread when the composer prepares and sends a message", async () => {
+    const b = await bench();
+    const active = (await b.host.snapshot()).sessionId;
+    const prepared = await b.host.preparePrompt("continue", "saved");
+    expect(prepared.tauThreadId).toBe("saved");
+    await b.host.prompt("continue", [], "saved", undefined, prepared);
+    expect(b.calls).toMatchObject({ opens: 1, prompts: [{ text: "continue", attachments: 0 }] });
+    expect((await b.host.snapshot()).sessionId).toBe(active);
+  });
+
+  it("reopens a released thread once for concurrent prompt preparation", async () => {
+    const b = await bench();
+    const prepared = await Promise.all([
+      b.host.preparePrompt("one", "saved"),
+      b.host.preparePrompt("two", "saved"),
+    ]);
+    expect(prepared.map((prompt) => prompt.tauThreadId)).toEqual(["saved", "saved"]);
+    expect(b.calls.opens).toBe(1);
+  });
+
+  it("reopens a released thread when a message is sent without preparation", async () => {
+    const b = await bench();
+    await b.host.prompt("continue", [], "saved");
+    expect(b.calls).toMatchObject({ opens: 1, prompts: [{ text: "continue", attachments: 0 }] });
+  });
+
+  it("sends a prepared message even when its runtime was released after preparation", async () => {
+    const b = await bench();
+    const prepared = await b.host.preparePrompt("continue", "saved");
+    const threads = (b.host as unknown as { threads: { release(id: string): Promise<void> } }).threads;
+    await threads.release("saved");
+    await b.host.prompt("continue", [], "saved", undefined, prepared);
+    expect(b.calls).toMatchObject({ opens: 2, prompts: [{ text: "continue", attachments: 0 }] });
+  });
+
   it("renames a released thread by reopening it off screen, and a generated title never does", async () => {
     const b = await bench();
     await expect(b.services().setThreadTitle("saved", "Generated", "generated")).rejects.toThrow("not open any more");
