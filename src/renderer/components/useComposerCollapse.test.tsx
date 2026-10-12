@@ -82,4 +82,50 @@ describe("folding the composer while scrolling", () => {
     act(() => { fireEvent.wheel(off.getByTestId("transcript"), { deltaY: -400 }); });
     expect(off.getByTestId("zone").dataset.collapsed).toBe("no");
   });
+
+  it("folds after actually scrolling history with a finger, and opens again at the end", () => {
+    const view = render(<Harness />);
+    const transcript = view.getByTestId("transcript");
+    const zone = view.getByTestId("zone");
+    scrolled(transcript, 1_600);
+    fireEvent.touchStart(transcript);
+    scrolled(transcript, 1_540);
+    fireEvent.scroll(transcript);
+    expect(zone.dataset.collapsed).toBe("no");
+    fireEvent.touchEnd(transcript);
+    scrolled(transcript, 1_460);
+    fireEvent.scroll(transcript);
+    expect(zone.dataset.collapsed).toBe("yes");
+    scrolled(transcript, 1_600);
+    fireEvent.scroll(transcript);
+    expect(zone.dataset.collapsed).toBe("no");
+  });
+
+  it("ignores programmatic scrolling and cancels the reading gesture when the editor is tapped", () => {
+    const view = render(<Harness />);
+    const transcript = view.getByTestId("transcript");
+    const zone = view.getByTestId("zone");
+    scrolled(transcript, 900);
+    fireEvent.scroll(transcript);
+    expect(zone.dataset.collapsed).toBe("no");
+    fireEvent.touchStart(transcript);
+    scrolled(transcript, 700);
+    fireEvent.scroll(transcript);
+    expect(zone.dataset.collapsed).toBe("yes");
+    fireEvent.pointerDown(zone.querySelector("textarea")!);
+    expect(zone.dataset.collapsed).toBe("no");
+    scrolled(transcript, 500);
+    fireEvent.scroll(transcript);
+    expect(zone.dataset.collapsed).toBe("no");
+  });
+
+  it.each([{ idle: false }, { enabled: false }])("keeps the editor open during a touch gesture with %j", (props) => {
+    const view = render(<Harness {...props} />);
+    const transcript = view.getByTestId("transcript");
+    scrolled(transcript, 900);
+    fireEvent.touchStart(transcript);
+    scrolled(transcript, 500);
+    fireEvent.scroll(transcript);
+    expect(view.getByTestId("zone").dataset.collapsed).toBe("no");
+  });
 });

@@ -6,6 +6,7 @@ import { ComposerChipPopover } from "./ComposerChipPopover";
 import { useComposerChips, type UseComposerChipsOptions } from "./useComposerChips";
 import { useComposerCollapse } from "./useComposerCollapse";
 import { composerFold } from "./composer-fold";
+import { useCompactForm } from "../use-layout-profile";
 
 /** How a chip token draws: resolved to what holds it, or `undefined` for a token nothing holds any more. */
 export interface ChipLook {
@@ -30,7 +31,7 @@ export interface ComposerChipLayerProps extends UseComposerChipsOptions {
 }
 
 /** Something in the composer asks to stay open: a question, a menu, a search, a gate, the model picker. */
-const BUSY = ".composer-frame.stacked, .composer-command-menu, .composer-history-search, .composer-gate, [aria-expanded=\"true\"]";
+const BUSY = ".composer-frame.stacked, .composer-command-menu, .composer-history-search, .composer-gate, .composer-dictation.is-active, [aria-expanded=\"true\"]";
 
 const NO_INLINES: readonly never[] = [];
 
@@ -57,6 +58,7 @@ export default function ComposerChipLayer(props: ComposerChipLayerProps) {
   const inlines = registry?.getComposerInlines() ?? NO_INLINES;
   const { attachments, draft: text, submissionPending: paused } = scopeStore.getSnapshot(scope);
   const collapseEnabled = useSyncExternalStore(composerFold.subscribe, composerFold.get);
+  const mobileComposer = useCompactForm("compact") === "single";
   const skills = useMemo(() => skillTokens(text, selectedSkills ?? []), [selectedSkills, text]);
   const chips = useComposerChips({ ...props, text, inlines, attachments, paused });
   const mirrorRef = useRef<HTMLDivElement>(null);
@@ -193,7 +195,9 @@ export default function ComposerChipLayer(props: ComposerChipLayerProps) {
   };
 
   const zoneRef = useMemo(() => ({ get current() { return textareaRef.current?.closest<HTMLElement>(".composer-zone") ?? null; } }), [textareaRef]);
-  const idle = () => !latest.current.text.includes("\n") && !zoneRef.current?.querySelector(BUSY);
+  const idle = () => (mobileComposer
+    ? latest.current.text.length === 0 && attachments.length === 0 && !document.body.hasAttribute("data-keyboard")
+    : !latest.current.text.includes("\n")) && !zoneRef.current?.querySelector(BUSY);
   const { collapsed } = useComposerCollapse({ enabled: collapseEnabled && !openChip, idle, zoneRef });
   useLayoutEffect(() => { zoneRef.current?.classList.toggle("collapsed", collapsed); }, [collapsed, zoneRef]);
 
