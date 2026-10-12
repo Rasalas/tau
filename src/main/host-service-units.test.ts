@@ -112,6 +112,14 @@ describe("a systemd user unit", () => {
     expect(unit).toContain("Restart=on-failure");
     expect(unit).toContain("WantedBy=default.target");
   });
+
+  it("keeps the host running when the kernel kills a command, and weighs it above the agents slice", () => {
+    const unit = renderSystemdUnit(spec).split("\n");
+    for (const line of ["OOMPolicy=continue", "CPUWeight=1000", "IOWeight=1000", "ManagedOOMPreference=avoid"]) expect(unit).toContain(line);
+    // They belong to [Service], before [Install].
+    expect(unit.indexOf("ManagedOOMPreference=avoid")).toBeLessThan(unit.indexOf("[Install]"));
+    expect(unit.indexOf("ManagedOOMPreference=avoid")).toBeGreaterThan(unit.indexOf("[Service]"));
+  });
 });
 
 describe("the invisible display", () => {
