@@ -29,9 +29,9 @@ async function world() {
   const kit = await activateHostKit(createHtmlPagesHostExtension(), {
     stateDir,
     mcp: endpoint.mcp,
-    registerThreadLifecycle: (lifecycle) => { lifecycles.push(lifecycle); return () => undefined; },
-    registerRuntimeExtension: (name, factory) => { runtime.push({ name, factory }); return () => undefined; },
-    browserResources: { publish: () => "/p", publishFrame: (document) => { published.push(document as never); return "/resources/frame-1"; }, release: (path: string) => { released.push(path); } },
+    registerThreadLifecycle: (lifecycle: HostThreadLifecycle) => { lifecycles.push(lifecycle); return () => undefined; },
+    registerRuntimeExtension: (name: string, factory: RuntimeExtensionContribution["factory"]) => { runtime.push({ name, factory }); return () => undefined; },
+    browserResources: { publish: () => "/p", publishFrame: (document: unknown) => { published.push(document as never); return "/resources/frame-1"; }, release: (path: string) => { released.push(path); } },
   } as never);
   const invoke = (command: string, input?: unknown) => kit.invoke(HTML_PAGES_EXTENSION_ID, command, input);
   return { endpoint, lifecycles, runtime, published, released, invoke, close: async () => { await kit.dispose(); await endpoint.close(); } };
