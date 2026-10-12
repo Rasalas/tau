@@ -22,6 +22,7 @@ function makePrewarm(overrides: Partial<RuntimePrewarmPort> = {}) {
     safeMode: false,
     maxLiveThreads: 6,
     cwd: () => "/repo",
+    isDirectory: () => true,
     sessionsDir: undefined,
     runtimes: {
       open: vi.fn(async () => { opened.push("open"); return fakeThread(); }),
@@ -58,6 +59,13 @@ describe("RuntimePrewarm", () => {
     const safe = makePrewarm({ safeMode: true });
     safe.prewarm.scheduleSpare("/repo", true);
     expect(safe.port.runtimes.open).not.toHaveBeenCalled();
+  });
+
+  it("builds no spare in a folder this machine lacks, such as another machine's project", async () => {
+    const { prewarm, port } = makePrewarm({ isDirectory: (path) => path === "/repo" });
+    prewarm.scheduleSpare("/srv/satchel", true);
+    await expect(prewarm.awaitSpare("/srv/satchel")).resolves.toBeUndefined();
+    expect(port.runtimes.open).not.toHaveBeenCalled();
   });
 
   it("keeps one spare per project and hands it over once", async () => {

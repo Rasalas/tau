@@ -4,6 +4,7 @@ import { getClientStorage, type DesktopExtension, type EnvironmentTarget, type P
 import { createAutoRunOnHook } from "./auto.js";
 import { createBringChoice, createBringProjectHook, createProjectIdentities, REMOTE_WORK_EXTENSION_ID } from "./bring-project.js";
 import { followArrival, readPendingArrival } from "./machines.js";
+import { createAgentMachines } from "./page-machine.js";
 import { ENVIRONMENTS_EXTENSION_ID, MACHINES_SETTINGS_PAGE, MACHINE_IMPORT_SERVICE, REMOTE_AGENT_THREADS_SERVICE, RUN_ON_DEFAULT_KEY, WORKSPACE_STORE_SERVICE, type MachineImportProps, type MachineImportService, type RemoteAgentThreadsService, type RunOnDefault, type WorkspaceRailSlice } from "./protocol.js";
 import { agentThreadsSource, createMachineCardRow, createMachineThreads, createShownMachine } from "./rail.js";
 import { createListHead, hereOf } from "./list-head.js";
@@ -126,8 +127,8 @@ export const environmentsExtension: DesktopExtension = {
     context.registerRegion({ id: "environments.shown", placement: "title-bar", order: 0, profiles: ["desktop"], Component: createShownMachine(environments) });
     // A machine without the draft's project gets it from Remote Work Kit when the prompt is sent.
     const remoteWork = context.hostExtension(REMOTE_WORK_EXTENSION_ID);
-    const bringing = { identities: createProjectIdentities(environments, remoteWork), choice: createBringChoice() };
-    const runOnHook = createBringProjectHook(bringing.choice, remoteWork, environments, context.host, bringing.identities);
+    const bringing = { identities: createProjectIdentities(environments, remoteWork), choice: createBringChoice(), agents: createAgentMachines(context.host) };
+    const runOnHook = createBringProjectHook(bringing.choice, remoteWork, environments, context.host, bringing.identities, bringing.agents);
     context.registerPromptHook(createAutoRunOnHook(environments, context.host, bringing.identities, { choice: bringing.choice, hook: runOnHook }));
     context.registerPromptHook(runOnHook);
     const ArrivalRail = createRailSection(environments);

@@ -225,8 +225,15 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     return routes.localResult(extensionId, command, await instance.invokeHostExtension(extensionId, command, params[2], context.principal));
   };
   // A client names a workspace by its id; one that still speaks paths sends a path.
+  const resolveWorkspace = (instance: PiHost, named: string): string => {
+    try { return instance.resolveWorkspacePath(named); } catch (error) {
+      const machine = routes.machineName(named);
+      if (machine) throw new Error(`This project is on ${machine}. Choose ${machine} under Run on to start a thread there.`, { cause: error });
+      throw error;
+    }
+  };
   const workspace = async (method: string, name: string, value: unknown): Promise<string> =>
-    (await host()).resolveWorkspacePath(decodeString(method, name, value));
+    resolveWorkspace(await host(), decodeString(method, name, value));
   // Kit bundles are files on disk: a host that exists names the workspace while its start still runs.
   const workspaceWhileStarting = async (method: string, name: string, value: unknown): Promise<string> => {
     const named = decodeString(method, name, value);
@@ -234,11 +241,11 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     if (starting) {
       try { return starting.resolveWorkspacePath(named); } catch { /* an id the start has yet to learn */ }
     }
-    return (await host()).resolveWorkspacePath(named);
+    return resolveWorkspace(await host(), named);
   };
   const optionalWorkspace = async (method: string, name: string, value: unknown): Promise<string | undefined> => {
     const named = decodeOptionalString(method, name, value);
-    return named === undefined ? undefined : (await host()).resolveWorkspacePath(named);
+    return named === undefined ? undefined : resolveWorkspace(await host(), named);
   };
 
   const methods: HostMethodTable = {

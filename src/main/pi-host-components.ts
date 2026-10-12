@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { getAgentDir, type SessionManager, type SettingsManager } from "@earendil-works/pi-coding-agent";
@@ -721,6 +722,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     safeMode,
     maxLiveThreads: MAX_LIVE_THREADS,
     cwd: () => deps.getCwd(),
+    isDirectory: (path) => statSync(path, { throwIfNoEntry: false })?.isDirectory() ?? false,
     sessionsDir: sessionsDirOverride,
     runtimes,
     extensionUi,

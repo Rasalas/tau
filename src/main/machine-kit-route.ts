@@ -13,8 +13,12 @@ function fields(input: unknown): Record<string, unknown> {
   return input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
 }
 
+// Workspaces a routed call created on a machine, kept until its index lists them.
+const CREATED_KEPT = 200;
+
 export class MachineKitRoute {
   private readonly shellMachine = new Map<string, string>();
+  private readonly createdOn = new Map<string, string>();
   private readonly clients = new Map<string, Client>();
   private readonly terminalLists = new Map<string, unknown[]>();
   private readonly terminalRevisions = new Map<string, number>();
@@ -55,6 +59,28 @@ export class MachineKitRoute {
     return split > 0 ? { machine: active.sessionId.slice(0, split), sessionId: active.sessionId.slice(split + 1) } : undefined;
   }
 
+  /** The machine whose own workspace this is: listed in its index, or created there by a routed call. */
+  private homeOf(workspaceId: string): { id: string; name: string } | undefined {
+    const machines = this.deps.machines();
+    if (!machines) return undefined;
+    const created = this.createdOn.get(workspaceId);
+    for (const machine of machines.list()) {
+      if (machine.id === created) return machine;
+      const index = machines.index(machine.id);
+      if (!index) continue;
+      const home = index.sessions.some((session) => session.backendKind !== "machine" && session.workspaceId === workspaceId);
+      const proxy = index.sessions.some((session) => session.backendKind === "machine" && session.workspaceId === workspaceId);
+      // A peer also lists workspaces of its proxies; only the original home may receive the call.
+      if (home || !proxy && index.projects.some((project) => project.workspaceId === workspaceId)) return machine;
+    }
+    return undefined;
+  }
+
+  /** Names the machine a workspace this host does not know is on, for the error a client reads. */
+  machineName(workspaceId: string): string | undefined {
+    return this.homeOf(workspaceId)?.name;
+  }
+
   routeOf(extensionId: string, input: unknown): Route | undefined {
     if (!ROUTED_KITS.has(extensionId)) return undefined;
     const machines = this.deps.machines();
@@ -62,15 +88,8 @@ export class MachineKitRoute {
     const item = fields(input);
     const named = item.workspace ?? item.workspaceId;
     if (typeof named === "string") {
-      for (const machine of machines.list()) {
-        const index = machines.index(machine.id);
-        if (!index) continue;
-        const home = index.sessions.some((session) => session.backendKind !== "machine" && session.workspaceId === named);
-        const proxy = index.sessions.some((session) => session.backendKind === "machine" && session.workspaceId === named);
-        // A peer also lists workspaces of its proxies; only the original home may receive the call.
-        if (home || !proxy && index.projects.some((project) => project.workspaceId === named)) return { machine: machine.id, input };
-      }
-      return undefined;
+      const home = this.homeOf(named);
+      return home ? { machine: home.id, input } : undefined;
     }
     if (extensionId === "tau.terminal" && typeof item.id === "string") {
       const machine = this.shellMachine.get(item.id);
@@ -100,6 +119,12 @@ export class MachineKitRoute {
     let result: unknown;
     try { result = await machines.call(route.machine, extensionId, command, input); }
     catch (error) { throw machineKitError(error, machines.list().find((machine) => machine.id === route.machine)?.name ?? route.machine, extensionId, command); }
+    const created = fields(result).workspaceId;
+    if (typeof created === "string" && created) {
+      this.createdOn.delete(created);
+      this.createdOn.set(created, route.machine);
+      if (this.createdOn.size > CREATED_KEPT) this.createdOn.delete(this.createdOn.keys().next().value!);
+    }
     if (extensionId === "tau.terminal") {
       const records = Array.isArray(result) ? result : [result];
       for (const record of records) {
