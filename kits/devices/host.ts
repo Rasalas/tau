@@ -7,6 +7,11 @@ import { DEVICE_KIT, type ActionInput, type Target } from "./protocol.js";
 
 // oxlint-disable-next-line typescript/no-explicit-any -- heterogeneous SDK tool definitions use the SDK AnyTool shape.
 type AnyTool = ToolDefinition<TSchema, any, any>;
+/** Pi loads these on demand through `tool_search`. */
+const DEVICE_TOOL_GROUP = {
+  exposure: "deferred" as const,
+  namespace: { name: "devices", description: "iOS simulators and Android emulators: screenshot, boot, open an app, tap, settings." },
+};
 export function deviceTools(manager: DeviceManager): AnyTool[] {
   const target = { hostId: Type.String({ description: "Configured host ID, local by default" }), deviceId: Type.String({ description: "Exact device ID from device_list" }) };
   const result = (value: unknown) => ({ details: {}, content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value) }] });
@@ -58,7 +63,7 @@ export default {
     context.registerCommand("stream-read", guarded((input, call) => streams.read((input as { id: string }).id, principal(call))), { access: "read" });
     context.registerCommand("stream-close", guarded((input, call) => streams.close((input as { id: string }).id, principal(call))), { access: "read" });
     context.registerCommand("action", guarded((input) => manager.action(input as ActionInput)));
-    const releasePi = context.services.registerRuntimeExtension("tau-devices", (pi) => { for (const tool of deviceTools(manager)) pi.registerTool(tool); });
+    const releasePi = context.services.registerRuntimeExtension("tau-devices", (pi) => { for (const tool of deviceTools(manager)) pi.registerTool({ ...tool, ...DEVICE_TOOL_GROUP }); });
     const releaseMcp = context.services.mcp.registerTools(() => deviceTools(manager));
     return () => { releasePi(); releaseMcp(); streams.dispose(); manager.dispose(); };
   },

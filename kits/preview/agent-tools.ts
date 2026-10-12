@@ -26,6 +26,12 @@ export type AnyTool = ToolDefinition<TSchema, any, any>;
 const defineTool = <Params extends TSchema, Details = unknown>(tool: ToolDefinition<Params, Details>): AnyTool =>
   tool as unknown as AnyTool;
 
+/** Pi loads these on demand through `tool_search`; the description is what it lists the group by. */
+export const PREVIEW_TOOL_GROUP = {
+  exposure: "deferred" as const,
+  namespace: { name: "preview", description: "A web page or the app you are building, open and driven in Tau's preview." },
+};
+
 export const TOOL_TIMEOUT_MS = 30_000;
 const SCREENSHOT_MAX_WIDTH = 1_280;
 const EVALUATE_MAX_CHARS = 20_000;

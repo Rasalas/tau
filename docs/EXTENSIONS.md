@@ -123,6 +123,21 @@ carries it, including a remote host's. `registerRuntimeExtension` is one of the
 members a **worker cannot reach** (§6), so a package that wants a Pi tool needs
 `"isolation": "in-process"`.
 
+**Tools that are rarely needed** can stay out of the request. Register them with
+`exposure: "deferred"` and a `namespace: { name, description }` (both fields of Pi's
+`ToolDefinition`): Pi does not declare them to the model, and the `tool_search` tool
+Tau switches on for any session that has one finds them by name, description and
+namespace and declares the matches from the next call on. `namespace.description`
+is the line the model reads in `tool_search`'s own description, so keep it to one
+short clause and do not repeat verbs your tool names carry (it is part of every
+tool's search text). Defer a group only when it is large: Computer Use, Preview
+and Devices do; a tool the agent must reach for at a bad moment (Takeover) or that
+the prompt tells it to use first (Servers) stays direct. The access gate and the
+MCP endpoint see a deferred tool like any other (it is in `getAllTools()`; MCP
+lists everything), and a runtime extension that narrows the active tools can drop
+`tool_search` to keep the rest out of reach, as Agents Kit does for a read-only
+persona. Measured in [PERFORMANCE.md](PERFORMANCE.md#request-weight-of-the-kits-tools).
+
 The factory's second argument says which session it serves: `sessionId`, `cwd`
 and, for a thread another one spawned (`sessions.start({ parent })`),
 `parentThreadId`. The option `shellCommandPrefix(session)` (API 1.15.0) gives

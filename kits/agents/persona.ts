@@ -11,8 +11,12 @@ export interface AgentPersona {
   access?: AgentAccessLevel;
 }
 
-/** Tools that change the checkout; dropped when nothing else can hold a thread to its access level. */
-export const WRITING_TOOLS: ReadonlySet<string> = new Set(["edit", "write", "bash"]);
+/**
+ * Tools that change the checkout, and the one that loads more of them (`tool_search`
+ * declares deferred tools such as Computer Use); dropped when nothing else can hold
+ * a thread to its access level.
+ */
+export const WRITING_TOOLS: ReadonlySet<string> = new Set(["edit", "write", "bash", "tool_search"]);
 
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};

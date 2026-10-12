@@ -85,6 +85,8 @@ describe("Computer Use host", () => {
     const client = await connect("shared");
     await client.callTool({ name: "computer_use_get_window_state", arguments: { pid: 7 } });
     const tool = registered.find((item) => item.name === "computer_use_click")!;
+    // Pi finds them through tool_search; the MCP list is the full one.
+    expect(registered.every((item) => (item as { exposure?: string }).exposure === "deferred")).toBe(true);
     await tool.execute("pi-call", { pid: 7, x: 1, y: 2 }, undefined, undefined, { hasUI: false });
     expect(new Set(calls.map((call) => call.client)).size).toBe(1);
     await closeThread("shared");

@@ -263,6 +263,42 @@ On October 12 the desktop budget for total gzipped JavaScript rises from 512,000
 
 Later on October 12 the desktop budget rises again, from 520,000 to 540,000 bytes, and the browser budget from 532,000 to 552,000. The sandbox frame with MCP Apps and the whole-thread find with quote chips put the desktop build at 520,419 and the browser build at 531,781 bytes; the rest of the T3 Code parity round (guided reviews, side questions, skills) is still to land, so the raise leaves room for it once instead of a raise per change. The initial JavaScript and CSS budgets hold (227,661 and 26,990 bytes gzipped on the desktop).
 
+## Request weight of the kits' tools
+
+Every model request carries the system prompt and a declaration (name, description, JSON schema) for each active tool. Tau's kits register their tools for every Pi thread, so the declarations were most of a short request. Measured on 2026-10-12 with `scripts/measure-request-weight.mjs`: a fake model on loopback records the body of each request a dev instance sends (`npm run dev:instance -- --fresh --agent-dir .tau-dev/request-weight/pi-agent`, one prompt of one word, all kits on macOS). There is no tokenizer in `node_modules`; tokens are characters / 4, the estimate Pi itself uses, so read them as relative sizes.
+
+Before (89 tools, `origin/main` at `9d27c84d`):
+
+| Part | Tools | Characters | About tokens |
+| --- | --- | --- | --- |
+| System prompt | | 10,318 | 2,580 |
+| Computer Use (`computer_use_*`) | 49 | 80,615 | 20,150 |
+| Preview (`preview_*`) | 16 | 5,274 | 1,320 |
+| Devices (`device_*`) | 3 | 2,528 | 630 |
+| Agents and Thread Rail (`tau_*`) | 9 | 6,585 | 1,650 |
+| Evidence, Takeover, request_secret | 3 | 2,278 | 570 |
+| Review (link/unlink/list/watch/unwatch) | 5 | 2,521 | 630 |
+| Pi core (`read`, `bash`, `edit`, `write`) | 4 | 2,836 | 710 |
+| **Request** | **89** | **112,955** | **28,239** |
+
+Computer Use alone was 71 percent of the request, and with Preview and Devices the three groups were 78 percent of the characters. The 7 Servers tools (3,807 characters, plus 1,197 for their prompt section) appear only in a server project and are not in these numbers. Evidence and Takeover together are 1,761 characters (about 440 tokens); Takeover is what the agent must reach for when a sign-in blocks it, so a search step on that path costs more than the tokens save.
+
+After: Computer Use, Preview and Devices register with `exposure: "deferred"` and a `namespace`, and `tool_search` is switched on for any session that has such a tool (22 tools):
+
+| Part | Characters | About tokens |
+| --- | --- | --- |
+| System prompt (the deferred tools' snippets are gone) | 9,119 | 2,280 |
+| Tool declarations, including `tool_search` with its group list (1,251 characters) | 15,341 | 3,836 |
+| **Request** | **24,460** | **6,115** |
+
+That is 78 percent fewer characters per request and 22,000 fewer tokens, on every turn of every Pi thread, loaded or not. A real run on a one-word model confirms the order of magnitude: first request 4,744 input tokens with the shadow agent dir, where the same thread on a Pi setup that lists `@amaster.ai/pi-computer-use` as its own package sent 19,301 (that package registers its tools directly, so Tau cannot defer them; leave it out of Pi's `packages` and the kit provides the same tools).
+
+What it costs: the first use of a group takes one `tool_search` call (about 20 to 40 output tokens and one round trip), and the tools it loads join the request from the next call on. Pi records the change in the transcript and appends it, so the cached prefix stays valid: the second request of the first real run read 13,824 of 19,897 tokens from the cache. The group list sits in `tool_search`'s own description and does not change as tools load.
+
+Servers, Evidence and Takeover stay direct. Servers' tools exist only in a server project, where the prompt section tells the agent to use them first; the others are small enough that discovery costs more than it saves. Review's and Agents' tools are small and used often.
+
+Other runtimes are unaffected. Codex, the Agent SDK runtime and OpenCode get the same tools over the host's MCP endpoint, which lists all of them; the `exposure` field is read by Pi only.
+
 ## Interaction budgets
 
 Initial local targets:

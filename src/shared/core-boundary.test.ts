@@ -60,6 +60,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./app-identity.js",
   // An AppImage without sandbox installing the .deb and restarting from it (K26).
   "./appimage-install.js",
+  // Pi's tool search for the kits' deferred tools (W16).
+  "./deferred-tools.js",
   // A machine's host updating its own Tau, with or without a window (K103).
   "./release-feed.js",   "./host-updater.js",   "./update-installers.js",   "./attached-pi-session.js",   "./attached-runtime.js",
   "./attached-thread-backend.js",   "./backend-events.js",   "./bridge-snapshot.js",

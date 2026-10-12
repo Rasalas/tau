@@ -45,6 +45,7 @@ function fakeSurface(overrides: Partial<PreviewSurface> = {}) {
 async function activate(createSurface: (options: PreviewSurfaceOptions) => Promise<PreviewSurface | undefined>, cwd = "/project", stateDir = "/state") {
   const events: GlobalHostEvent[] = [];
   const runtimeExtensions: RuntimeExtensionContribution[] = [];
+  const mcpProviders: HostMcpToolProvider[] = [];
   const registry = await activateHostKit(createPreviewHostExtension(createSurface), {
     stateDir,
     findCommand: () => undefined,
@@ -54,8 +55,9 @@ async function activate(createSurface: (options: PreviewSurfaceOptions) => Promi
       runtimeExtensions.push({ name, factory });
       return () => undefined;
     },
+    mcp: { registerTools: (provider: HostMcpToolProvider) => { mcpProviders.push(provider); return () => undefined; }, gate: () => () => undefined, registerInstructions: () => () => undefined, connect: async () => undefined },
   }, (event) => events.push(event));
-  const context = { registry, events, runtimeExtensions };
+  const context = { registry, events, runtimeExtensions, mcpProviders };
   const tools: ToolDefinition[] = [];
   runtimeExtensions[0]!.factory({ registerTool: (tool: ToolDefinition) => tools.push(tool) } as never, { sessionId: "s1", cwd });
   const call = async (name: string, params: unknown) => {
@@ -121,6 +123,15 @@ describe("preview URLs", () => {
 });
 
 describe("preview tools", () => {
+  it("leaves the tools to tool_search in Pi and lists all of them over MCP", async () => {
+    const kit = await activate(async () => fakeSurface().surface);
+    expect(kit.tools.length).toBeGreaterThan(10);
+    for (const tool of kit.tools) expect(tool).toMatchObject({ exposure: "deferred", namespace: { name: "preview" } });
+    const offered = await kit.mcpProviders[0]!({ sessionId: "s1", cwd: "/project" } as never);
+    expect(offered.map((tool) => tool.name)).toEqual(kit.tools.map((tool) => tool.name));
+    for (const tool of offered) expect(tool.exposure).toBeUndefined();
+  });
+
   it("opens a page, places the view and answers with the page's state", async () => {
     const { surface, placed, loaded } = fakeSurface({ zoomFactor: () => 2 });
     const kit = await activate(async () => surface);
