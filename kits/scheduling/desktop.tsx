@@ -3,14 +3,17 @@ import { CalendarClock } from "lucide-react";
 import type { DesktopExtension } from "tau";
 import { SchedulingFeed, needsDecision } from "./feed.js";
 import { SCHEDULING_ID } from "./protocol.js";
+import type { WorkspaceSummaryService } from "./summary.js";
 
 const Page = lazy(() => import("./page.js"));
 const Secrets = lazy(() => import("./secret-card.js"));
+const Summary = lazy(() => import("./summary.js"));
 
 const schedulingExtension: DesktopExtension = {
   id: SCHEDULING_ID, name: "Automations",
   activate(plugin) {
     const feed = new SchedulingFeed(plugin.host);
+    plugin.useService<WorkspaceSummaryService>("tau.workspace/store", (workspace) => workspace.registerWorkspaceSummarySection?.((props) => <Suspense fallback={null}><Summary {...props} feed={feed} workspace={workspace} /></Suspense>, "footer"));
     plugin.registerPage({
       id: "scheduling.automations", label: "Automations", description: "Start a saved prompt at a time or from a signed webhook. Runs use the runtime's normal access and approvals.",
       Icon: CalendarClock, order: 30, layout: "readable", profiles: ["desktop", "web", "compact"], keywords: ["schedule", "daily", "jobs", "webhook"],
