@@ -299,6 +299,8 @@ Servers, Evidence and Takeover stay direct. Servers' tools exist only in a serve
 
 Other runtimes are unaffected. Codex, the Agent SDK runtime and OpenCode get the same tools over the host's MCP endpoint, which lists all of them; the `exposure` field is read by Pi only.
 
+The budget for the kits' desktop halves rises from 3,100,000 to 3,200,000 bytes. Guided reviews add the Guide tab, its phone screens and the tour logic to Review Kit's desktop half, which put the kits at 3,111,318 bytes; the kits load per package, so no window pays for all of them at start.
+
 ## Interaction budgets
 
 Initial local targets:
