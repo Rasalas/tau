@@ -63,6 +63,7 @@ function makeLifecycle(overrides: Partial<ThreadRuntimeLifecyclePort> = {}, back
     sessionFile: () => ({}) as never,
     runtimeExtensions: () => [],
     runtimeExtensionNames: () => [],
+    replacedPiPackages: () => [],
     runtimeModes: () => [],
     threadLifecycle: { beforeOpen: vi.fn(async () => undefined) } as never,
     turnObservers: { closed: vi.fn(async () => undefined) } as never,
@@ -327,6 +328,40 @@ describe("shell command prefixes of runtime extensions", () => {
       const text = result.content.map((part: { text?: string }) => part.text ?? "").join("");
       expect(text).toBe("prefix:no\ncommand:yes\n");
       session.dispose();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("Pi packages an extension replaces", () => {
+  async function toolNames(dir: string, replaced: boolean): Promise<string[]> {
+    const { lifecycle } = makeLifecycle({ replacedPiPackages: () => replaced ? [(source) => source.endsWith("dup-package")] : [] });
+    const create = (lifecycle as unknown as { create: (options: unknown) => Promise<{ session: any }> }).create;
+    const { session } = await create({ cwd: dir, agentDir: dir, sessionManager: SessionManager.inMemory(dir) });
+    try {
+      // A reload reads the files again; the hiding has to outlive it.
+      await session.settingsManager.reload();
+      await session.reload();
+      return session.getAllTools().map((tool: { name: string }) => tool.name);
+    } finally {
+      session.dispose();
+    }
+  }
+
+  it("are not loaded in a Pi runtime, and the settings file keeps listing them", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tau-replaced-package-"));
+    try {
+      const pkg = join(dir, "dup-package");
+      await mkdir(join(pkg, "extensions"), { recursive: true });
+      await writeFile(join(pkg, "package.json"), JSON.stringify({ name: "dup-package", pi: { extensions: ["./extensions"] } }));
+      await writeFile(join(pkg, "extensions", "index.js"), "export default (pi) => pi.registerTool({ name: 'dup_tool', label: 'dup', description: 'dup', parameters: { type: 'object', properties: {} }, execute: async () => ({ content: [], details: {} }) });\n");
+      const settingsFile = join(dir, "settings.json");
+      await writeFile(settingsFile, JSON.stringify({ packages: [pkg] }));
+
+      expect(await toolNames(dir, false)).toContain("dup_tool");
+      expect(await toolNames(dir, true)).not.toContain("dup_tool");
+      expect(JSON.parse(await readFile(settingsFile, "utf8")).packages).toEqual([pkg]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

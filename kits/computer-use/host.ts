@@ -13,21 +13,12 @@ import {
 } from "./protocol.js";
 import { ScreenFeed } from "./screen-feed.js";
 
-type PiPackageSource = string | { source: string; autoload?: boolean };
-interface PackageSettings { packages?: PiPackageSource[] }
-
 type PiApi = Parameters<RuntimeExtensionFactory>[0];
 type PiContext = Parameters<Parameters<PiApi["on"]>[1]>[1];
-function packageSource(entry: PiPackageSource): string {
-  return typeof entry === "string" ? entry : entry.source;
-}
 
-export function settingsIncludeComputerUse(settings: PackageSettings): boolean {
-  return settings.packages?.some((entry) => {
-    const source = packageSource(entry);
-    return source === `npm:${COMPUTER_USE_PACKAGE}`
-      || source.startsWith(`npm:${COMPUTER_USE_PACKAGE}@`);
-  }) ?? false;
+/** The user's own listing of the package this kit pins; Tau's sessions use the kit's registration instead. */
+export function replacesComputerUsePackage(source: string): boolean {
+  return source === `npm:${COMPUTER_USE_PACKAGE}` || source.startsWith(`npm:${COMPUTER_USE_PACKAGE}@`);
 }
 
 /** Feeds every computer-use call and result of a runtime into the screen feed. */
@@ -107,7 +98,7 @@ export function createComputerUseHostExtension(): HostExtension {
       const icons = new Map<number, Promise<string | null>>();
 
       const releaseDriver = context.services.registerRuntimeExtension(COMPUTER_USE_RUNTIME_EXTENSION, async (pi, session) => (await getRuntime()).piFactory()(pi, session), {
-        enabledFor: (settings) => !settingsIncludeComputerUse(settings.global as PackageSettings) && !settingsIncludeComputerUse(settings.project as PackageSettings),
+        replacesPiPackage: replacesComputerUsePackage,
       });
       // The shared driver records its own calls; this observer serves configured external Pi packages.
       const externalObserver = screenObserver(feed);
