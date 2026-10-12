@@ -308,7 +308,7 @@ describe("ThreadRow hover actions and label", () => {
 describe("ThreadRow error states (2c)", () => {
   it.each([
     ["failed", "Failed", "lucide-triangle-alert"],
-    ["limited", "Rate limited", "lucide-triangle-alert"],
+    ["limited", "Limited", "lucide-circle-alert"],
     ["offline", "Paused · offline", "lucide-monitor"],
   ] as const)("draws %s as its label with its icon", (activity, label, icon) => {
     const { container } = render(<ThreadRow activity={activity} activityLabel={label} active={false} age="now" session={session} onSelect={() => undefined} />);

@@ -1,5 +1,5 @@
 import { memo, useEffect, useState, type ReactNode } from "react";
-import { ArrowUp, Check, CircleHelp, Eye, GitBranch, Monitor, PlugZap, TriangleAlert } from "lucide-react";
+import { ArrowUp, Check, CircleAlert, CircleHelp, Eye, GitBranch, Monitor, PlugZap, TriangleAlert } from "lucide-react";
 import { displayRuntime, type UiSession } from "../../shared/contracts";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { DEFAULT_RUNTIME, threadOnPlan } from "../runtime-marks";
@@ -83,7 +83,8 @@ export function ThreadStatus({ activity, label, hint, icon, startedAt }: { activ
     <span className={`thread-status-age status-${activity}`} {...tooltipProps(hint)}>
       {working ? <i /> : null}
       {activity === "interrupted" ? <PlugZap size={13} aria-hidden="true" /> : null}
-      {activity === "failed" || activity === "limited" ? <TriangleAlert size={13} aria-hidden="true" /> : null}
+      {activity === "failed" ? <TriangleAlert size={13} aria-hidden="true" /> : null}
+      {activity === "limited" ? <CircleAlert size={13} aria-hidden="true" /> : null}
       {activity === "offline" ? <Monitor size={13} aria-hidden="true" /> : null}
       {activity === "waiting" ? icon ?? <CircleHelp size={13} aria-hidden="true" /> : null}
       {activity === "background" ? icon ?? <Eye size={13} aria-hidden="true" /> : null}

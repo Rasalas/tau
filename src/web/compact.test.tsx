@@ -208,7 +208,7 @@ describe("the web client at 400 px", () => {
 
   it.each([
     [{ turnError: "stream disconnected" }, "failed", "Failed"],
-    [{ limit: { message: "Usage limit reached" } }, "limited", "Rate limited"],
+    [{ limit: { message: "Usage limit reached" } }, "limited", "Limited"],
     [{ interrupted: true }, "interrupted", "Interrupted"],
   ] as const)("shows the host's %j status in the thread list", async (state, activity, label) => {
     renderCompactClient({ bootstrap: bootstrapWith([{ ...THREADS[0]!, ...state }]) });

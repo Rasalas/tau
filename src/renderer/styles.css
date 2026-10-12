@@ -375,7 +375,8 @@ button > svg { pointer-events: none; }
 .thread-status-age.status-ready { color: var(--ready); }
 .thread-status-age.status-waiting { color: var(--warn); }
 .thread-status-age.status-interrupted { color: var(--warn); }
-.thread-status-age:is(.status-failed, .status-limited) { color: var(--fail-ink); }
+.thread-status-age.status-failed { color: var(--fail-ink); }
+.thread-status-age.status-limited { color: var(--warn); }
 .thread-status-age:is(.status-offline, .status-background) { color: var(--muted); }
 /* The design's spinner: a pale ring with the ink's arc. */
 .thread-status-age > i {
